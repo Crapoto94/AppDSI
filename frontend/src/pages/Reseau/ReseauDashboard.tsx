@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
 import Header from '../../components/Header';
 import {
@@ -121,19 +121,32 @@ export default function ReseauDashboard() {
 
   // Liens switchs inter-sites individuels (un par entrée, pour la carte).
   // Chaque lien est tracé entre les coordonnées des deux sites.
+  // Si un sous-site (S007B01) n'existe pas dans hub.sites, on utilise le parent (S007).
   const individualSwitchMapLinks = useMemo<NetworkLink[]>(() => {
-    return intersiteSwitchLinks.map(l => ({
-      id: `sl-${l.id}`,
-      site_a: l.local_site_id!,
-      site_b: l.remote_site_id!,
-      type: 'FIBRE' as LinkType,
-      capacity: null, operator: null,
-      carries_data: true, carries_voice: false,
-      is_loop: false, is_redundant: false,
-      geometry: null,
-      notes: `${l.local_hostname || '?'}:${l.local_port || '?'} → ${l.remote_hostname || '?'}:${l.remote_port || '?'}`,
-    }));
-  }, [intersiteSwitchLinks]);
+    const siteCode = (code: string | null | undefined): string | null => {
+      if (!code) return null;
+      if (sites.has(code)) return code;
+      const parent = code.replace(/(B|L|EXT|ESP).*$/, '');
+      return parent !== code && sites.has(parent) ? parent : code;
+    };
+    return intersiteSwitchLinks
+      .filter(l => {
+        const a = siteCode(l.local_site_id);
+        const b = siteCode(l.remote_site_id);
+        return a && b && a !== b;
+      })
+      .map(l => ({
+        id: `sl-${l.id}`,
+        site_a: siteCode(l.local_site_id)!,
+        site_b: siteCode(l.remote_site_id)!,
+        type: 'FIBRE' as LinkType,
+        capacity: null, operator: null,
+        carries_data: true, carries_voice: false,
+        is_loop: false, is_redundant: false,
+        geometry: null,
+        notes: `${l.local_hostname || '?'}:${l.local_port || '?'} → ${l.remote_hostname || '?'}:${l.remote_port || '?'}`,
+      }));
+  }, [intersiteSwitchLinks, sites]);
 
   // Carte = liens manuels (network_links) + tous les liens switchs inter-sites individuels
   const mapLinks = useMemo(() => [...links, ...individualSwitchMapLinks], [links, individualSwitchMapLinks]);
@@ -150,7 +163,20 @@ export default function ReseauDashboard() {
     return m;
   }, [equipements]);
 
-  const hasCoords = (code: string) => { const s = sites.get(code); return !!s && s.lat != null && s.lng != null; };
+  // Résout un code_bien (S007B01 → S007) en cherchant d'abord l'entrée exacte,
+  // puis en héritant du site parent si le sous-site n'existe pas dans hub.sites.
+  const resolveSite = useCallback((code: string): SiteRef | undefined => {
+    const direct = sites.get(code);
+    if (direct) return direct;
+    const parentCode = code.replace(/(B|L|EXT|ESP).*$/, '');
+    if (parentCode !== code) {
+      const parent = sites.get(parentCode);
+      if (parent) return { ...parent, site_code: code, lat_own: null };
+    }
+    return undefined;
+  }, [sites]);
+
+  const hasCoords = (code: string) => { const s = resolveSite(code); return !!s && s.lat != null && s.lng != null; };
 
   function onMapClick(lat: number, lng: number) {
     if (drawMode) setDrawnPoints(prev => [...prev, [lat, lng]]);
@@ -391,8 +417,10 @@ export default function ReseauDashboard() {
                     const sel = selectedLinkId === linkId;
                     const sa = l.local_site_id || '?';
                     const sb = l.remote_site_id || '?';
-                    const nomA = sites.get(sa)?.nom || sa;
-                    const nomB = sites.get(sb)?.nom || sb;
+                    const refA = resolveSite(sa);
+                    const refB = resolveSite(sb);
+                    const nomA = refA?.nom || sa;
+                    const nomB = refB?.nom || sb;
                     const coordsA = hasCoords(sa);
                     const coordsB = hasCoords(sb);
                     return (
@@ -459,7 +487,7 @@ export default function ReseauDashboard() {
                 </div>
                 {view === 'map' && (
                   <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', fontSize: 12 }}>
-                    {([['links','Liens','#16a34a'],['coeur','Cœur','#0f172a'],['sites','Tous','#2563eb']] as const).map(([k,lbl,c]) => (
+                    {([['links','Liens','#16a34a'],['coeur','Cœur','#0f172a'],['sites','Sites','#2563eb']] as const).map(([k,lbl,c]) => (
                       <label key={k} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, cursor: 'pointer', color: '#475569', fontWeight: 600 }}>
                         <input type="checkbox" checked={layers[k]} onChange={e => setLayers({ ...layers, [k]: e.target.checked })} />
                         <span style={{ width: 8, height: 8, borderRadius: 2, background: c }} /> {lbl}

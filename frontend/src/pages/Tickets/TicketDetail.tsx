@@ -1023,18 +1023,24 @@ export default function TicketDetail() {
                 </div>
               </div>
             )}
-            <ResponseSuggestions
-              categoryId={ticket?.category_id}
-              subcategoryId={ticket?.subcategory_id}
-              ticket={ticket}
-              onApply={(html) => setNewComment(html)}
-            />
-            <DocumentSuggestions
-              categoryId={ticket?.category_id}
-              softwareId={ticket?.software_id}
-              softwareName={ticket?.software_name}
-              onInsert={(html) => setNewComment(prev => (prev && prev !== '<p><br></p>' ? prev : '') + html)}
-            />
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <div style={{ flex: '1 1 320px', minWidth: 0 }}>
+                <ResponseSuggestions
+                  categoryId={ticket?.category_id}
+                  subcategoryId={ticket?.subcategory_id}
+                  ticket={ticket}
+                  onApply={(html) => setNewComment(html)}
+                />
+              </div>
+              <div style={{ flex: '1 1 320px', minWidth: 0 }}>
+                <DocumentSuggestions
+                  categoryId={ticket?.category_id}
+                  softwareId={ticket?.software_id}
+                  softwareName={ticket?.software_name}
+                  onInsert={(html) => setNewComment(prev => (prev && prev !== '<p><br></p>' ? prev : '') + html)}
+                />
+              </div>
+            </div>
             <div style={{ border: '1px solid #e4e4e7', borderRadius: 8, overflow: 'hidden', marginBottom: 8 }}>
               <ReactQuill value={newComment} onChange={setNewComment} placeholder="Ajouter un commentaire..."
                 modules={{ toolbar: [['bold', 'italic', 'underline'], [{ list: 'ordered' }, { list: 'bullet' }], ['link'], ['clean']] }}

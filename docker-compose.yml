@@ -16,6 +16,11 @@ services:
       # l'accès au partage UNC (\\nas-syno05\editions$\DSIHUB) fonctionne.
       - "nas-syno05:10.103.131.136"
     environment:
+      # Fuseau horaire : le backend lit/écrit des timestamps naïfs (timestamp
+      # without time zone). On force Europe/Paris pour que node-pg interprète
+      # ces dates comme l'heure de Paris (et non UTC en conteneur), cohérent
+      # avec les données GLPI et l'affichage.
+      - TZ=Europe/Paris
       # PostgreSQL externe (10.103.130.106)
       - POSTGRES_HOST=10.103.130.106
       - POSTGRES_PORT=5432

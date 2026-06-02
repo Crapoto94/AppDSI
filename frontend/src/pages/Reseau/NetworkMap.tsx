@@ -29,55 +29,35 @@ function siteColor(code: string, isHighlighted: boolean, isMoving: boolean) {
   return { fill: '#fff', stroke: '#64748b' };
 }
 
-function siteRadius(code: string, isMoving: boolean) {
+function siteRadius(code: string, isMoving: boolean, equipCount = 0) {
   if (isMoving) return 13;
+  const extra = equipCount > 0 ? Math.min(Math.sqrt(equipCount) * 2.5, 12) : 0;
+  const base = 5 + extra;
   const imp = siteImportance(code);
-  if (imp === 'core') return 11;
-  if (imp === 'irf')  return 8;
-  return 5;
+  if (imp === 'core') return Math.max(base, 11);
+  if (imp === 'irf')  return Math.max(base, 8);
+  return base;
 }
 
 // ── Résolution géométrie ─────────────────────────────────────────────
+function resolveSiteRef(code: string, sites: Map<string, SiteRef>): SiteRef | undefined {
+  const direct = sites.get(code);
+  if (direct) return direct;
+  const parentCode = code.replace(/(B|L|EXT|ESP).*$/, '');
+  if (parentCode !== code) return sites.get(parentCode) || undefined;
+  return undefined;
+}
+
 function linkLatLngs(link: NetworkLink, sites: Map<string, SiteRef>): [number, number][] | null {
   const coords = link.geometry?.coordinates;
   if (coords && coords.length >= 2)
     return (coords as number[][]).map(c => [c[1], c[0]]);
-  const a = sites.get(link.site_a);
-  const b = sites.get(link.site_b);
+  const a = resolveSiteRef(link.site_a, sites);
+  const b = resolveSiteRef(link.site_b, sites);
   if (a?.lat != null && a?.lng != null && b?.lat != null && b?.lng != null)
     return [[a.lat as number, a.lng as number], [b.lat as number, b.lng as number]];
   return null;
 }
-
-// ── Légende ──────────────────────────────────────────────────────────
-const Legend: React.FC = () => (
-  <div style={{
-    position: 'absolute', bottom: 28, left: 12, zIndex: 1000,
-    background: 'rgba(255,255,255,.95)', borderRadius: 10, padding: '10px 14px',
-    boxShadow: '0 2px 12px rgba(0,0,0,.15)', fontSize: 12, minWidth: 190,
-    backdropFilter: 'blur(4px)',
-  }}>
-    <div style={{ fontWeight: 700, marginBottom: 8, color: '#0f172a' }}>Légende</div>
-    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-      <span style={{ width: 28, height: 3, background: '#16a34a', borderRadius: 2 }} />
-      <span style={{ color: '#374151' }}>Lien inter-sites</span>
-    </div>
-    {([
-      ['#0f172a', 'Site cœur'],
-      ['#2563eb', 'Site de boucle'],
-      ['#64748b', 'Autre site'],
-    ] as [string, string][]).map(([color, label]) => (
-      <div key={label} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 3 }}>
-        <span style={{ width: 12, height: 12, borderRadius: '50%', background: color, display: 'inline-block' }} />
-        <span style={{ color: '#374151' }}>{label}</span>
-      </div>
-    ))}
-    <div style={{ borderTop: '1px solid #f1f5f9', marginTop: 6, paddingTop: 6, fontSize: 11, color: '#64748b' }}>
-      💡 Clic sur un lien pour le mettre en évidence · clic sur un site pour le déplacer
-    </div>
-    <div style={{ fontSize: 10, color: '#94a3b8', marginTop: 2 }}>Sites avec équipements uniquement</div>
-  </div>
-);
 
 // ── Gestionnaire clics carte ─────────────────────────────────────────
 const MapClickHandler: React.FC<{
@@ -241,8 +221,8 @@ const NetworkMap: React.FC<Props> = ({
             const pts = linkLatLngs(link, sites);
             if (!pts) return null;
             const st = linkStyle(link);
-            const siteA = sites.get(link.site_a);
-            const siteB = sites.get(link.site_b);
+            const siteA = resolveSiteRef(link.site_a, sites);
+            const siteB = resolveSiteRef(link.site_b, sites);
             const isSelected = selectedLinkId === link.id;
             return (
               <Polyline key={link.id} positions={pts}
@@ -294,8 +274,13 @@ const NetworkMap: React.FC<Props> = ({
             const isRef    = referenced.has(s.site_code);
             const isMov    = movingSite?.site_code === s.site_code;
             const imp      = siteImportance(s.site_code);
-            const c        = siteColor(s.site_code, isHl, isMov);
-            const r        = siteRadius(s.site_code, isMov);
+            const eqCount  = equipementsBySite?.get(s.site_code)?.length || 0;
+            const hasCoeur = layers.coeur;
+            const r        = hasCoeur ? siteRadius(s.site_code, isMov, eqCount) : (isMoving ? 13 : 5 + Math.min(Math.sqrt(eqCount) * 2.5, 12));
+            const c        = hasCoeur ? siteColor(s.site_code, isHl, isMov) : (() => {
+              if (isMov) return { fill: '#fef9c3', stroke: '#f59e0b' };
+              return { fill: '#2563eb', stroke: '#1d4ed8' };
+            })();
 
             return (
               <CircleMarker
@@ -305,8 +290,8 @@ const NetworkMap: React.FC<Props> = ({
                 pathOptions={{
                   color:       c.stroke,
                   fillColor:   c.fill,
-                  fillOpacity: isRef || imp !== 'normal' || isMov ? 1 : 0.45,
-                  weight:      imp === 'core' ? 3 : isMov ? 3 : 2,
+                  fillOpacity: hasCoeur ? (isRef || imp !== 'normal' || isMov ? 1 : 0.45) : 0.8,
+                  weight:      hasCoeur ? (imp === 'core' ? 3 : isMov ? 3 : 2) : 2,
                 }}
                 eventHandlers={{ click: () => handleSiteClick(s) }}
               >
@@ -353,8 +338,6 @@ const NetworkMap: React.FC<Props> = ({
           })}
         </LayerGroup>
 
-        {/* ── Légende ── */}
-        <Legend />
       </MapContainer>
     </div>
   );

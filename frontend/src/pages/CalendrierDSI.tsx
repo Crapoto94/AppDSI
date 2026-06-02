@@ -107,15 +107,40 @@ const SERVICE_COLOR_MAP: Record<string, string> = {
   'Bureau Des Projets': '#e17055',
   'Service Infrastructure Reseaux Systemes': '#27ae60',
   'Service Support Déploiement': '#3498db',
-  'Direction des Systemes d\'Information': '#6c5ce7',
+  'Direction des Systemes d\'Information': '#9B6FAE',
+  'Direction des Systèmes d\'Information': '#9B6FAE',
   'Tous': '#636e72'
 };
 
+function normalizeService(name: string): string {
+  if (!name) return '';
+  const accentMap: Record<string, string> = {
+    'é': 'e', 'è': 'e', 'ê': 'e', 'ë': 'e',
+    'à': 'a', 'â': 'a', 'ä': 'a',
+    'ù': 'u', 'û': 'u', 'ü': 'u',
+    'ô': 'o', 'ö': 'o',
+    'î': 'i', 'ï': 'i',
+    'ç': 'c',
+  };
+  let n = name.toLowerCase().trim();
+  for (const [accent, plain] of Object.entries(accentMap)) {
+    n = n.replaceAll(accent, plain);
+  }
+  return n;
+}
+
 function getServiceColor(service: string): string {
   if (!service) return '#666';
-  // Check if service has a fixed color mapping
+  // Direct match first
   if (SERVICE_COLOR_MAP[service]) {
     return SERVICE_COLOR_MAP[service];
+  }
+  // Try normalized match
+  const normalized = normalizeService(service);
+  for (const [key, color] of Object.entries(SERVICE_COLOR_MAP)) {
+    if (normalizeService(key) === normalized) {
+      return color;
+    }
   }
   // Fallback to hash-based color
   let hash = 0;
@@ -592,7 +617,7 @@ export default function CalendrierDSI() {
       const eventsData = await eventsRes.json();
       if (agentsRes.ok) {
         const agentsData = await agentsRes.json();
-        setAgents(Array.isArray(agentsData) ? agentsData.map((a: any) => ({ username: a.username, nom: a.nom, service: a.service || '', email: a.email || '' })) : []);
+        setAgents(Array.isArray(agentsData) ? agentsData.map((a: any) => ({ username: a.username, nom: a.nom, service: (a.service === 'DSI' ? '' : (a.service || '')), email: a.email || '' })) : []);
       }
       setEvents(Array.isArray(eventsData) ? eventsData : []);
       // Fetch hotline counts

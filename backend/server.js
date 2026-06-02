@@ -1,3 +1,9 @@
+// Fuseau horaire du process : forcé sur Europe/Paris si non défini.
+// Les colonnes de dates sont en "timestamp without time zone" (naïf) et node-pg
+// les interprète dans le fuseau du process → on garantit une lecture/écriture
+// cohérente (Paris) en dev comme en conteneur (sinon UTC = décalage de 1-2h).
+process.env.TZ = process.env.TZ || 'Europe/Paris';
+
 const express = require('express');
 const http = require('http');
 const jwt = require('jsonwebtoken');

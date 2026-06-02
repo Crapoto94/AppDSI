@@ -6,7 +6,8 @@ WORKDIR /app
 # py3-setuptools fournit le shim "distutils" (supprimé de Python 3.12) requis
 # par node-gyp lorsque le binaire pré-compilé n'est pas dispo (fallback source).
 # net-snmp-tools pour les tests SNMP des copieurs
-RUN apk add --no-cache make gcc g++ python3 py3-setuptools net-snmp-tools
+# tzdata : nécessaire pour que TZ=Europe/Paris soit pris en compte (Alpine est en UTC sans ça)
+RUN apk add --no-cache make gcc g++ python3 py3-setuptools net-snmp-tools tzdata
 
 # Copier les fichiers de package et installer les dépendances
 COPY package*.json ./
@@ -26,6 +27,9 @@ EXPOSE 3001
 # direct, sans montage CIFS) utilise NTLM (MD4/RC4) désactivé par défaut sous
 # OpenSSL 3 (Node >= 18). Indispensable pour l'écriture sur le partage Samba.
 ENV NODE_OPTIONS="--openssl-legacy-provider"
+
+# Fuseau horaire par défaut du conteneur (surchargé par docker-compose si besoin)
+ENV TZ=Europe/Paris
 
 # Commande pour démarrer le serveur backend
 CMD [ "node", "server.js" ]
