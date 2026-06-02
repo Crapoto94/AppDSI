@@ -1854,7 +1854,7 @@ const renderPastille = (evt: Evenement) => {
           {svcAgents.map(agent => {
             const agentEvts = (dateStr: string) => events.filter(e => {
               const eDate = e.date.split('T')[0];
-              return eDate === dateStr && (e.agent_username === agent.username || (e.agent_email && e.agent_email.toLowerCase() === (agent.email || '').toLowerCase())) && (e.categorie === 'absence' || e.categorie === 'teletravail' || e.source === 'o365' || e.categorie === 'deploiement' || e.categorie === 'reunion' || e.categorie === 'hotline');
+              return eDate === dateStr && (e.agent_username === agent.username || (e.agent_email && e.agent_email.toLowerCase() === (agent.email || '').toLowerCase())) && (e.categorie === 'absence' || e.categorie === 'teletravail' || e.categorie === 'deplacement' || e.source === 'o365' || e.categorie === 'deploiement' || e.categorie === 'reunion' || e.categorie === 'hotline');
             });
             return (
               <React.Fragment key={agent.username}>
