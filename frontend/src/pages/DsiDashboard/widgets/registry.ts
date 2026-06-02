@@ -197,6 +197,23 @@ export const WIDGET_REGISTRY: WidgetDef[] = [
     defaultSize: { w: 6, h: 4 },
     minSize: { w: 4, h: 3 },
   },
+  // ── Parc informatique ────────────────────────────────────────────────────
+  {
+    key: 'parc_kpi',
+    label: 'KPIs Parc informatique',
+    description: 'Total équipements, affectation, garantie, renouvellement, âge moyen',
+    module: 'Parc',
+    defaultSize: { w: 6, h: 3 },
+    minSize: { w: 4, h: 2 },
+  },
+  {
+    key: 'parc_ages',
+    label: 'Pyramide des âges — PC',
+    description: 'Distribution des ordinateurs par tranche d\'âge',
+    module: 'Parc',
+    defaultSize: { w: 6, h: 4 },
+    minSize: { w: 4, h: 3 },
+  },
   // ── Divers compteurs ──────────────────────────────────────────────────────
   {
     key: 'consommables',

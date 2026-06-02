@@ -83,7 +83,7 @@ const ParcInformatique: React.FC = () => {
   const [source, setSource] = useState<'live' | 'hub'>('hub');
   const api = axios.create({ baseURL: `/api/parc/${source}`, headers: { Authorization: `Bearer ${token}` } });
 
-  const [tab, setTab] = useState<'dashboard' | 'list' | 'usagers'>('dashboard');
+  const [tab, setTab] = useState<'dashboard' | 'list' | 'usagers' | 'geo'>('dashboard');
   const [kpis, setKpis] = useState<Kpis | null>(null);
   const [kpiErr, setKpiErr] = useState<string | null>(null);
   const [loadingKpi, setLoadingKpi] = useState(false);
@@ -107,6 +107,16 @@ const ParcInformatique: React.FC = () => {
   const [fGroup, setFGroup] = useState('');
   const [fAd, setFAd] = useState<'' | '1' | '0'>();
   const [fDocs, setFDocs] = useState(false);
+  // Tri des colonnes
+  const [sortCol, setSortCol] = useState('name');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
+
+  // Géo
+  const [geoRows, setGeoRows] = useState<Row[]>([]);
+  const [loadingGeo, setLoadingGeo] = useState(false);
+  const [geoErr, setGeoErr] = useState<string | null>(null);
+  const [geoExpanded, setGeoExpanded] = useState<Set<string>>(new Set());
+  const [geoSelectedLoc, setGeoSelectedLoc] = useState<string | null>(null);
 
   // Usagers
   const [usagers, setUsagers] = useState<UsagerRow[]>([]);
@@ -139,15 +149,15 @@ const ParcInformatique: React.FC = () => {
         q, start, limit, affecte: affecte || undefined,
         location: fLocation || undefined, state: fState || undefined, manufacturer: fMan || undefined,
         supplier: fSupplier || undefined, warranty: fWarranty || undefined, group: fGroup || undefined,
-        ad: fAd || undefined,
-        docs: fDocs ? '1' : undefined,
+        ad: fAd || undefined, docs: fDocs ? '1' : undefined,
+        sort: sortCol, dir: sortDir,
         refresh: refresh ? 1 : undefined,
       } });
       setRows(r.data.rows); setTotal(r.data.total);
     } catch (e: any) {
       setListErr(e.response?.data?.message || e.message); setRows([]); setTotal(0);
     } finally { setLoadingList(false); }
-  }, [type, q, start, limit, affecte, fLocation, fState, fMan, fSupplier, fWarranty, fAd, fDocs, fGroup, token, source]);
+  }, [type, q, start, limit, affecte, fLocation, fState, fMan, fSupplier, fWarranty, fAd, fDocs, fGroup, sortCol, sortDir, token, source]);
 
   const loadFilters = useCallback(async () => {
     try {
@@ -159,8 +169,18 @@ const ParcInformatique: React.FC = () => {
   // Efface les erreurs résiduelles quand on bascule de source (live ↔ hub)
   useEffect(() => { setKpiErr(null); setListErr(null); setUsagerErr(null); }, [source]);
   useEffect(() => { loadKpis(); }, [loadKpis]);
-  useEffect(() => { if (tab === 'list') { loadList(); } }, [tab, type, start, affecte, fLocation, fState, fMan, fSupplier, fWarranty, fAd, fDocs, fGroup, source]);
-  useEffect(() => { if (tab === 'list') { setStart(0); setFLocation(''); setFState(''); setFMan(''); setFSupplier(''); setFWarranty(''); setFAd(undefined); setFDocs(false); setFGroup(''); loadFilters(); } }, [type, tab, source]);
+  useEffect(() => { if (tab === 'list') { loadList(); } }, [tab, type, start, affecte, fLocation, fState, fMan, fSupplier, fWarranty, fAd, fDocs, fGroup, sortCol, sortDir, source]);
+  useEffect(() => { if (tab === 'list') { setStart(0); setFLocation(''); setFState(''); setFMan(''); setFSupplier(''); setFWarranty(''); setFAd(undefined); setFDocs(false); setFGroup(''); setSortCol('name'); setSortDir('asc'); loadFilters(); } }, [type, tab, source]);
+
+  const loadGeo = useCallback(async () => {
+    setLoadingGeo(true); setGeoErr(null);
+    try {
+      const r = await api.get('/tous', { params: { limit: 5000, deleted: '0' } });
+      setGeoRows(r.data.rows || []);
+    } catch (e: any) { setGeoErr(e.response?.data?.message || e.message); setGeoRows([]); }
+    finally { setLoadingGeo(false); }
+  }, [token, source]);
+  useEffect(() => { if (tab === 'geo') loadGeo(); }, [tab, source]);
 
   const openDetail = async (id: number, typeKey?: string) => {
     const t = typeKey || type;
@@ -240,7 +260,7 @@ const ParcInformatique: React.FC = () => {
                 }}><I size={14} /> {l}</button>
               ))}
             </div>
-            <button onClick={() => tab === 'dashboard' ? loadKpis(true) : tab === 'usagers' ? loadUsagers() : loadList(true)}
+            <button onClick={() => tab === 'dashboard' ? loadKpis(true) : tab === 'usagers' ? loadUsagers() : tab === 'geo' ? loadGeo() : loadList(true)}
               style={btn(C.blue)}>
               <RefreshCw size={15} className={loadingKpi || loadingList || loadingUsagers ? 'spin' : ''} /> Actualiser
             </button>
@@ -249,7 +269,7 @@ const ParcInformatique: React.FC = () => {
 
         {/* Onglets */}
         <div style={{ display: 'flex', gap: 6, marginBottom: 22, borderBottom: `1px solid ${C.border}` }}>
-          {[{ k: 'dashboard', l: 'Tableau de bord', i: BarChart3 }, { k: 'list', l: 'Équipements', i: List }, { k: 'usagers', l: 'Usagers', i: Users }].map(t => {
+          {[{ k: 'dashboard', l: 'Tableau de bord', i: BarChart3 }, { k: 'list', l: 'Équipements', i: List }, { k: 'usagers', l: 'Usagers', i: Users }, { k: 'geo', l: 'Géo', i: MapPin }].map(t => {
             const I = t.i; const active = tab === t.k;
             return (
               <button key={t.k} onClick={() => setTab(t.k as any)} style={{
@@ -369,6 +389,32 @@ const ParcInformatique: React.FC = () => {
                   </Panel>
                 </div>
 
+                {/* Pyramide des âges */}
+                {kpis.ordinateurs.age.tranches.some(t => t.count > 0) && (
+                  <Panel title="Pyramide des âges — Ordinateurs" icon={Layers}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, fontSize: '.82rem', color: C.slate }}>
+                      {kpis.ordinateurs.age.moyen != null && <span>Âge moyen : <b style={{ color: C.text }}>{kpis.ordinateurs.age.moyen} ans</b></span>}
+                      <span style={{ background: '#fee2e2', color: C.red, padding: '1px 8px', borderRadius: 20, fontWeight: 700 }}>
+                        {kpis.ordinateurs.age.aRenouveler} à renouveler ({kpis.ordinateurs.age.tauxRenouveler}%)
+                      </span>
+                    </div>
+                    <ResponsiveContainer width="100%" height={200}>
+                      <BarChart data={kpis.ordinateurs.age.tranches} layout="vertical" margin={{ left: 8, right: 40, top: 0, bottom: 0 }}>
+                        <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#eef2f7" />
+                        <XAxis type="number" allowDecimals={false} tick={{ fontSize: 11 }} />
+                        <YAxis type="category" dataKey="label" width={60} tick={{ fontSize: 11 }} />
+                        <Tooltip formatter={(v: any) => [v + ' PC', 'Ordinateurs']} />
+                        <Bar dataKey="count" radius={[0, 5, 5, 0]} barSize={18} label={{ position: 'right', fontSize: 11, fill: C.slate, formatter: (v: any) => v > 0 ? v : '' }}>
+                          {kpis.ordinateurs.age.tranches.map((t) => {
+                            const clr = t.label === '< 1 an' ? '#059669' : t.label === '1–3 ans' ? '#10b981' : t.label === '3–5 ans' ? '#f59e0b' : t.label === '5–7 ans' ? '#f97316' : t.label === '> 7 ans' ? '#dc2626' : '#94a3b8';
+                            return <Cell key={t.label} fill={clr} />;
+                          })}
+                        </Bar>
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </Panel>
+                )}
+
                 {kpis.ordinateurs.ajoutsParAnnee.length > 1 && (
                   <Panel title="Ajouts d'ordinateurs au parc par année" icon={BarChart3}>
                     <ResponsiveContainer width="100%" height={220}>
@@ -455,15 +501,28 @@ const ParcInformatique: React.FC = () => {
                 {(() => {
                   const isTous = type === 'tous';
                   const colSpan = isTous ? 14 : 13;
-                  const hdrs = isTous
-                    ? ['Nom', 'Type', 'Usager', 'N° usager', 'Groupe', 'Lieu', 'Modèle', 'N° série', 'Statut', 'Garantie', 'Âge', 'Docs', '']
-                    : ['Nom', 'Usager', 'N° usager', 'Groupe', 'Lieu', 'Modèle', 'N° série', 'Statut', 'Garantie', 'Âge', 'Docs', ''];
+                  // [label, sortKey | null]
+                  type HdrDef = [string, string | null];
+                  const hdrs: HdrDef[] = isTous
+                    ? [['Nom','name'],['Type',null],['Usager','contact'],['N° usager','contact_num'],['Groupe','group'],['Lieu','location'],['Modèle','model'],['N° série','serial'],['Statut','state'],['Garantie','warranty_end'],['Âge','age_years'],['Docs','doc_count'],[''  ,null]]
+                    : [['Nom','name'],['Usager','contact'],['N° usager','contact_num'],['Groupe','group'],['Lieu','location'],['Modèle','model'],['N° série','serial'],['Statut','state'],['Garantie','warranty_end'],['Âge','age_years'],['Docs','doc_count'],['' ,null]];
+                  const thSort = (key: string | null) => {
+                    if (!key) return;
+                    if (sortCol === key) { setSortDir(d => d === 'asc' ? 'desc' : 'asc'); }
+                    else { setSortCol(key); setSortDir('asc'); }
+                    setStart(0);
+                  };
                   return (
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '.86rem' }}>
                   <thead>
                     <tr style={{ background: '#f8fafc', textAlign: 'left', color: C.slate }}>
-                      {hdrs.map((h, i) =>
-                        <th key={i} style={{ padding: '10px 14px', fontWeight: 700, fontSize: '.78rem', textTransform: 'uppercase', letterSpacing: '.02em' }}>{h}</th>)}
+                      {hdrs.map(([h, sk]) => (
+                        <th key={h || 'arrow'} onClick={() => thSort(sk)}
+                          style={{ padding: '10px 14px', fontWeight: 700, fontSize: '.78rem', textTransform: 'uppercase', letterSpacing: '.02em', cursor: sk ? 'pointer' : 'default', userSelect: 'none', whiteSpace: 'nowrap' }}>
+                          {h}
+                          {sk && <span style={{ marginLeft: 4, opacity: sortCol === sk ? 1 : 0.3 }}>{sortCol === sk ? (sortDir === 'asc' ? '↑' : '↓') : '↕'}</span>}
+                        </th>
+                      ))}
                     </tr>
                   </thead>
                   <tbody>
@@ -656,6 +715,123 @@ const ParcInformatique: React.FC = () => {
             )}
           </>
         )}
+        {/* ─── GÉO ─── */}
+        {tab === 'geo' && (() => {
+          if (loadingGeo && !geoRows.length) return <Loading label="Chargement de la vue géographique…" />;
+          if (geoErr) return <ErrBox msg={geoErr} source={source} />;
+
+          // Construction de l'arbre : lieu → sous-groupes par type → items
+          const locMap = new Map<string, Row[]>();
+          for (const r of geoRows) {
+            const loc = r.location || '— Non localisé —';
+            if (!locMap.has(loc)) locMap.set(loc, []);
+            locMap.get(loc)!.push(r);
+          }
+          const locs = [...locMap.entries()].sort((a, b) => b[1].length - a[1].length);
+
+          const toggleLoc = (loc: string) => {
+            setGeoExpanded(prev => {
+              const n = new Set(prev);
+              n.has(loc) ? n.delete(loc) : n.add(loc);
+              return n;
+            });
+            setGeoSelectedLoc(prev => prev === loc ? null : loc);
+          };
+
+          return (
+            <div style={{ display: 'grid', gridTemplateColumns: geoSelectedLoc ? '380px 1fr' : '1fr', gap: 18, alignItems: 'start' }}>
+              {/* Arborescence lieux */}
+              <div style={{ background: C.card, borderRadius: 14, border: `1px solid ${C.border}`, overflow: 'hidden' }}>
+                <div style={{ padding: '10px 16px', borderBottom: `1px solid ${C.border}`, fontSize: '.82rem', color: C.slate, display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <MapPin size={14} color={C.blue} />
+                  <b style={{ color: C.text }}>{locs.length}</b> lieu(x) · <b style={{ color: C.text }}>{geoRows.length}</b> équipements
+                </div>
+                <div style={{ maxHeight: '72vh', overflowY: 'auto' }}>
+                  {locs.map(([loc, items]) => {
+                    const expanded = geoExpanded.has(loc);
+                    const selected = geoSelectedLoc === loc;
+                    // Compte par type
+                    const byType: Record<string, number> = {};
+                    for (const r of items) { const t = r.itemtype_label || 'Autre'; byType[t] = (byType[t] || 0) + 1; }
+                    return (
+                      <div key={loc}>
+                        <div onClick={() => toggleLoc(loc)}
+                          style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 16px', cursor: 'pointer', borderBottom: `1px solid ${C.border}`, background: selected ? '#eff6ff' : undefined }}
+                          onMouseEnter={e => { if (!selected) e.currentTarget.style.background = '#f8fafc'; }}
+                          onMouseLeave={e => { if (!selected) e.currentTarget.style.background = ''; }}>
+                          <span style={{ fontSize: 13, transition: 'transform .15s', transform: expanded ? 'rotate(90deg)' : '' }}>›</span>
+                          <MapPin size={13} color={selected ? C.blue : C.slate} />
+                          <span style={{ flex: 1, fontSize: '.88rem', fontWeight: selected ? 700 : 600, color: selected ? C.blue : C.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{loc}</span>
+                          <span style={{ background: selected ? C.blue : '#f1f5f9', color: selected ? '#fff' : C.slate, padding: '1px 8px', borderRadius: 20, fontSize: '.75rem', fontWeight: 700, flexShrink: 0 }}>{items.length}</span>
+                        </div>
+                        {expanded && (
+                          <div style={{ paddingLeft: 32, background: '#fafbff', borderBottom: `1px solid ${C.border}` }}>
+                            {Object.entries(byType).map(([t, n]) => (
+                              <div key={t} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 12px', fontSize: '.8rem', borderBottom: `1px solid #f1f5f9` }}>
+                                <span style={{ flex: 1, color: C.slate }}>{t}</span>
+                                <span style={{ fontWeight: 700, color: C.text }}>{n}</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Liste des équipements du lieu sélectionné */}
+              {geoSelectedLoc && (() => {
+                const items = locMap.get(geoSelectedLoc) || [];
+                return (
+                  <div style={{ background: C.card, borderRadius: 14, border: `1px solid ${C.blue}`, overflow: 'hidden' }}>
+                    <div style={{ padding: '10px 16px', borderBottom: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <MapPin size={14} color={C.blue} />
+                      <span style={{ fontWeight: 700, color: C.text, flex: 1 }}>{geoSelectedLoc}</span>
+                      <span style={{ background: '#eff6ff', color: C.blue, padding: '1px 8px', borderRadius: 20, fontWeight: 700, fontSize: '.8rem' }}>{items.length}</span>
+                      <button onClick={() => { setGeoSelectedLoc(null); setGeoExpanded(new Set()); }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.slate }}><X size={15} /></button>
+                    </div>
+                    <div style={{ maxHeight: '68vh', overflowY: 'auto' }}>
+                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '.84rem' }}>
+                        <thead>
+                          <tr style={{ background: '#f8fafc', color: C.slate }}>
+                            {['Nom','Type','Usager','Statut','Garantie',''].map((h, i) => (
+                              <th key={i} style={{ padding: '8px 12px', fontWeight: 700, fontSize: '.74rem', textTransform: 'uppercase', letterSpacing: '.02em', textAlign: 'left' }}>{h}</th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {items.map(r => (
+                            <tr key={`${r.type_key}-${r.id}`} onClick={() => openDetail(r.id, r.type_key || 'ordinateurs')}
+                              style={{ borderTop: `1px solid ${C.border}`, cursor: 'pointer' }}
+                              onMouseEnter={e => (e.currentTarget.style.background = '#f8fafc')} onMouseLeave={e => (e.currentTarget.style.background = '')}>
+                              <td style={{ padding: '8px 12px', fontWeight: 600, color: C.text }}>{v(r.name)}</td>
+                              <td style={{ padding: '8px 12px' }}>{r.itemtype_label ? <span style={{ background: '#f1f5f9', color: C.slate, padding: '1px 7px', borderRadius: 5, fontSize: '.74rem', fontWeight: 600 }}>{r.itemtype_label}</span> : v(null)}</td>
+                              <td style={{ padding: '8px 12px', fontSize: '.8rem' }}>
+                                {r.contact ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                                  {r.ad_found && <span title="Dans l'AD"><ShieldCheck size={11} color="#7c3aed" /></span>}
+                                  <User size={11} color={C.green} />{r.contact}
+                                </span> : v(null)}
+                              </td>
+                              <td style={{ padding: '8px 12px' }}>{r.state ? <span style={{ background: '#eff6ff', color: C.blue, padding: '1px 7px', borderRadius: 5, fontSize: '.74rem', fontWeight: 600 }}>{r.state}</span> : v(null)}</td>
+                              <td style={{ padding: '8px 12px' }}>
+                                {r.warranty_end
+                                  ? <span style={{ fontFamily: 'monospace', fontSize: '.76rem', fontWeight: 600, color: (WARRANTY_META[r.warranty_status] || WARRANTY_META.inconnue).color }}>{r.warranty_end}</span>
+                                  : v(null)}
+                              </td>
+                              <td style={{ padding: '8px 12px', textAlign: 'right' }}><ChevronRight size={14} color="#cbd5e1" /></td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
+          );
+        })()}
+
       </div>
 
       {/* ─── MODAL DÉTAIL ─── */}

@@ -23,6 +23,8 @@ const MagappMaintenancesWidget = lazy(() => import('./MagappMaintenancesWidget')
 const MagappIdeasWidget     = lazy(() => import('./MagappIdeasWidget'));
 const MagappClicksWidget    = lazy(() => import('./MagappClicksWidget'));
 const ProjetsWidget         = lazy(() => import('./ProjetsWidget'));
+const ParcKpiWidget         = lazy(() => import('./ParcKpiWidget'));
+const ParcAgesWidget        = lazy(() => import('./ParcAgesWidget'));
 const TicketsRecentWidget   = lazy(() => import('./TicketsRecentWidget'));
 const CalendrierDsiWidget   = lazy(() => import('./CalendrierDsiWidget'));
 
@@ -58,6 +60,8 @@ const WIDGET_MAP: Record<string, React.ComponentType> = {
   contrats:           ContratsWidget,
   taches:             TachesWidget,
   projets:            ProjetsWidget,
+  parc_kpi:           ParcKpiWidget,
+  parc_ages:          ParcAgesWidget,
   tickets_recent:     TicketsRecentWidget,
   calendrier_dsi:     CalendrierDsiWidget,
 };
