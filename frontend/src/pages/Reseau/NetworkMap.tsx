@@ -1,7 +1,7 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import {
   MapContainer, TileLayer, Polyline, CircleMarker,
-  Tooltip, LayerGroup, useMapEvents,
+  Tooltip, LayerGroup, useMapEvents, useMap,
 } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import type { NetworkLink, SiteRef, Equipement } from './types';
@@ -78,6 +78,30 @@ const MapClickHandler: React.FC<{
       else if (moveMode) onMoveMove(e.latlng.lat, e.latlng.lng);
     },
   });
+  return null;
+};
+
+// ── Fit map bounds to selected link ──────────────────────────────────
+const MapFitBounds: React.FC<{
+  links: NetworkLink[];
+  sites: Map<string, SiteRef>;
+  selectedLinkId: string | null;
+}> = ({ links, sites, selectedLinkId }) => {
+  const map = useMap();
+  useEffect(() => {
+    if (!selectedLinkId) return;
+    const link = links.find(l =>
+      l.id.startsWith('sl-')
+        ? l.id.startsWith(selectedLinkId + '-')
+        : l.id === selectedLinkId
+    );
+    if (!link) return;
+    const a = sites.get(link.site_a);
+    const b = sites.get(link.site_b);
+    if (a?.lat != null && a?.lng != null && b?.lat != null && b?.lng != null) {
+      map.fitBounds([[a.lat, a.lng], [b.lat, b.lng]], { padding: [60, 60], maxZoom: 17 });
+    }
+  }, [selectedLinkId, links, sites, map]);
   return null;
 };
 
@@ -214,6 +238,9 @@ const NetworkMap: React.FC<Props> = ({
           onDrawMove={(la, ln) => setDrawCursor([la, ln])}
           onMoveMove={(la, ln) => setMoveCursor([la, ln])}
         />
+        {selectedLinkId && (
+          <MapFitBounds links={links} sites={sites} selectedLinkId={selectedLinkId} />
+        )}
 
         {/* ── Liens réseau ── */}
         <LayerGroup>

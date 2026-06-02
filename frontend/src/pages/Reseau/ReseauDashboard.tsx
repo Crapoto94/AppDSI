@@ -406,6 +406,7 @@ export default function ReseauDashboard() {
                     const traceable = coordsA && coordsB;
                     return (
                       <div key={l.id}
+                        ref={sel ? (el) => { if (el) setTimeout(() => el.scrollIntoView({ behavior: 'smooth', block: 'nearest' }), 80); } : undefined}
                         onClick={() => setSelectedLinkId(sel ? null : l.id)}
                         style={{
                           display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', borderRadius: 8, cursor: 'pointer',
@@ -465,6 +466,7 @@ export default function ReseauDashboard() {
                     const coordsB = hasCoords(sb);
                     return (
                       <div key={linkId}
+                        ref={sel ? (el) => { if (el) setTimeout(() => el.scrollIntoView({ behavior: 'smooth', block: 'nearest' }), 80); } : undefined}
                         onClick={() => setSelectedLinkId(sel ? null : linkId)}
                         style={{
                           display: 'flex', alignItems: 'center', gap: 6, padding: '4px 8px', borderRadius: 6, cursor: 'pointer',
