@@ -21,14 +21,21 @@ interface MagappDoc {
   is_technical?: boolean;
 }
 
+// Document à joindre au ticket (résolu en fichier côté serveur via /attach-doc)
+export interface AttachDoc {
+  source: 'kb' | 'magapp';
+  id: number;
+  name: string;
+}
+
 interface Props {
   categoryId: number | null | undefined;
   softwareId: number | null | undefined;   // logiciel métier associé au ticket (= id app magapp)
   softwareName: string | null | undefined;
-  onInsert: (html: string) => void;          // insère un lien doc dans le commentaire
+  onAttach: (doc: AttachDoc) => void;        // ajoute le document aux pièces jointes du commentaire
 }
 
-export default function DocumentSuggestions({ categoryId, softwareId, softwareName, onInsert }: Props) {
+export default function DocumentSuggestions({ categoryId, softwareId, softwareName, onAttach }: Props) {
   const token = localStorage.getItem('token');
   const headers = { Authorization: `Bearer ${token}` };
 
@@ -46,13 +53,12 @@ export default function DocumentSuggestions({ categoryId, softwareId, softwareNa
   const [openAll, setOpenAll] = useState(false);
   const [search, setSearch] = useState('');
 
-  // ── Docs magapp du logiciel ──
+  // ── Docs magapp PUBLICS du logiciel ──
   useEffect(() => {
     if (!softwareId) { setMagappDocs([]); return; }
     axios.get(`/api/magapp/apps/${softwareId}/docs`, { headers })
       .then(r => {
-        // Uniquement les documents PUBLICS (non techniques) avec une URL
-        const docs = (r.data || []).filter((d: MagappDoc) => d.url && !d.is_technical);
+        const docs = (r.data || []).filter((d: MagappDoc) => !d.is_technical);
         setMagappDocs(docs);
         if (docs.length > 0) setOpenMagapp(true);
       })
@@ -81,26 +87,8 @@ export default function DocumentSuggestions({ categoryId, softwareId, softwareNa
     }
   }
 
-  async function insertKb(doc: KbDoc) {
-    try {
-      const r = await axios.get(`/api/tickets/admin/knowledge-documents/${doc.id}/public-link`, { headers });
-      onInsert(`<a href="${r.data.url}" target="_blank" rel="noopener">📄 ${doc.name}</a>`);
-      setOpenKb(false); setOpenAll(false);
-    } catch {
-      alert('Impossible de générer le lien du document');
-    }
-  }
-
-  async function insertMagapp(doc: MagappDoc) {
-    let url = doc.url;
-    try {
-      // Résout l'URL absolue (préfixe app_base_url si le doc est un fichier relatif)
-      const r = await axios.get(`/api/tickets/admin/magapp-doc-link/${doc.id}`, { headers });
-      if (r.data?.url) url = r.data.url;
-    } catch { /* fallback sur l'url brute */ }
-    onInsert(`<a href="${url}" target="_blank" rel="noopener">📄 ${doc.title}</a>`);
-    setOpenMagapp(false);
-  }
+  const attachKb = (d: KbDoc) => onAttach({ source: 'kb', id: d.id, name: d.name });
+  const attachMagapp = (d: MagappDoc) => onAttach({ source: 'magapp', id: d.id, name: d.title });
 
   const allFiltered = (allKbDocs || []).filter(d =>
     !search.trim() ||
@@ -128,9 +116,9 @@ export default function DocumentSuggestions({ categoryId, softwareId, softwareNa
         title="Prévisualiser" style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#0ea5e9', padding: 4, display: 'flex' }}>
         <Download size={14} />
       </button>
-      <button onClick={() => insertKb(d)}
+      <button onClick={() => attachKb(d)}
         style={{ padding: '4px 10px', border: 'none', borderRadius: 6, background: '#059669', color: 'white', fontSize: 12, fontWeight: 600, cursor: 'pointer', flexShrink: 0 }}>
-        + Insérer
+        + Joindre
       </button>
     </div>
   );
@@ -152,12 +140,14 @@ export default function DocumentSuggestions({ categoryId, softwareId, softwareNa
                     </div>
                     {(d.description || d.doc_type) && <div style={{ fontSize: 11, color: '#94a3b8', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{[d.doc_type, d.description].filter(Boolean).join(' · ')}</div>}
                   </div>
-                  <a href={d.url} target="_blank" rel="noopener noreferrer" title="Ouvrir" style={{ color: '#0ea5e9', padding: 4, display: 'flex' }}>
-                    <ExternalLink size={14} />
-                  </a>
-                  <button onClick={() => insertMagapp(d)}
+                  {d.url && (
+                    <a href={d.url} target="_blank" rel="noopener noreferrer" title="Ouvrir" style={{ color: '#0ea5e9', padding: 4, display: 'flex' }}>
+                      <ExternalLink size={14} />
+                    </a>
+                  )}
+                  <button onClick={() => attachMagapp(d)}
                     style={{ padding: '4px 10px', border: 'none', borderRadius: 6, background: '#0369a1', color: 'white', fontSize: 12, fontWeight: 600, cursor: 'pointer', flexShrink: 0 }}>
-                    + Insérer
+                    + Joindre
                   </button>
                 </div>
               ))}
