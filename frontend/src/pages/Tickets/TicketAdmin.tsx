@@ -4,7 +4,9 @@ import ReactQuill from 'react-quill-new';
 import 'react-quill-new/dist/quill.snow.css';
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
 import AutoResolution from '../Admin/AutoResolution';
-type Tab = 'categories' | 'category_mapping' | 'sla' | 'rules' | 'vip' | 'journal' | 'templates' | 'triggers' | 'technicians' | 'groups' | 'group_mapping' | 'escalade' | 'roles' | 'params' | 'live_config' | 'satisfaction' | 'auto_resolution';
+import ResponseTemplatesAdmin from './ResponseTemplatesAdmin';
+import KnowledgeBaseAdmin from './KnowledgeBaseAdmin';
+type Tab = 'categories' | 'category_mapping' | 'sla' | 'rules' | 'vip' | 'journal' | 'templates' | 'triggers' | 'technicians' | 'groups' | 'group_mapping' | 'escalade' | 'roles' | 'params' | 'live_config' | 'satisfaction' | 'auto_resolution' | 'response_auto' | 'knowledge_base';
 
 const btn = (active: boolean): React.CSSProperties => ({
   padding: '8px 16px', border: 'none', borderRadius: 8, cursor: 'pointer',
@@ -151,6 +153,8 @@ export default function TicketAdmin() {
     { key: 'live_config',  label: '🟢 Live' },
     { key: 'auto_resolution', label: '🤖 Résolution auto' },
     { key: 'satisfaction', label: '⭐ Satisfaction' },
+    { key: 'response_auto', label: '💬 Réponses auto' },
+    { key: 'knowledge_base', label: '📚 Base documentaire' },
   ];
 
   return (
@@ -181,6 +185,8 @@ export default function TicketAdmin() {
         {tab === 'params'       && <TicketParamsManager />}
         {tab === 'satisfaction' && <SatisfactionTab />}
         {tab === 'auto_resolution' && <div style={{ margin: -24 }}><AutoResolution /></div>}
+        {tab === 'response_auto' && <ResponseTemplatesAdmin />}
+        {tab === 'knowledge_base' && <KnowledgeBaseAdmin />}
         {tab === 'live_config' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
 

@@ -1258,6 +1258,32 @@ async function setTicketPriority(req, res) {
     }
 }
 
+// ── PATCH /api/live/sessions/:id/category ─────────────────────────────────
+// Permet au technicien de classer le ticket (catégorie / sous-catégorie) en live.
+async function setTicketCategory(req, res) {
+    try {
+        const { id } = req.params;
+        if (!id || isNaN(Number(id))) return res.status(400).json({ message: 'ID de session invalide' });
+        const { category_id, subcategory_id } = req.body || {};
+
+        const session = await pgDb.get(`SELECT * FROM hub_tickets.live_sessions WHERE id = $1`, [id]);
+        if (!session) return res.status(404).json({ message: 'Session introuvable' });
+        if (!session.ticket_id) return res.status(400).json({ message: 'Aucun ticket associé' });
+
+        const cat = category_id != null && category_id !== '' ? parseInt(category_id) : null;
+        const sub = subcategory_id != null && subcategory_id !== '' ? parseInt(subcategory_id) : null;
+
+        await pgDb.run(
+            `UPDATE hub_tickets.tickets SET category_id = $1, subcategory_id = $2, date_mod = NOW() WHERE glpi_id = $3`,
+            [cat, sub, session.ticket_id]
+        );
+
+        res.json({ success: true, category_id: cat, subcategory_id: sub });
+    } catch (e) {
+        res.status(500).json({ message: e.message });
+    }
+}
+
 // ── POST /api/live/guest-login (public) ───────────────────────────────────
 async function guestLogin(req, res) {
     try {
@@ -1463,4 +1489,4 @@ async function smsTokenAuth(req, res) {
     }
 }
 
-module.exports = { getSessions, getSession, getMessages, createSession, claimSession, closeSession, getWaitingCount, getStats, setSendMail, getConfig, setConfig, getPublicConfig, getCalendars, startScheduler, uploadAttachment, sendMessage, guestLogin, adLogin, otpRequest, otpVerify, rejectSession, createTask, setTicketType, setTicketPriority, setSessionApp, submitSatisfaction, getSatisfactionStats, sendEmergencyMessage, smsTokenAuth };
+module.exports = { getSessions, getSession, getMessages, createSession, claimSession, closeSession, getWaitingCount, getStats, setSendMail, getConfig, setConfig, getPublicConfig, getCalendars, startScheduler, uploadAttachment, sendMessage, guestLogin, adLogin, otpRequest, otpVerify, rejectSession, createTask, setTicketType, setTicketPriority, setTicketCategory, setSessionApp, submitSatisfaction, getSatisfactionStats, sendEmergencyMessage, smsTokenAuth };

@@ -4,6 +4,14 @@ const { authenticateJWT, authenticateAdmin } = require('../../shared/middleware'
 const { pgDb, getSqlite } = require('../../shared/database');
 const { searchADUsersByQuery } = require('../../shared/ad_helper');
 const technicianRepo = require('./repositories/technician.repository');
+const storage = require('../../shared/storage');
+const multer = require('multer');
+const path = require('path');
+
+const kbUpload = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: 50 * 1024 * 1024 },
+});
 
 // ─── État de progression de la réinitialisation GLPI (en mémoire) ──
 // Un seul reset à la fois ; alimente la barre de progression côté front.
@@ -1503,6 +1511,194 @@ router.post('/reinit-notifications', authenticateAdmin, async (req, res) => {
     } finally {
         if (client) client.release();
     }
+});
+
+// ─── Réponses auto (response templates) ─────────────────────────────────────
+
+// GET /api/tickets/admin/response-templates?category_id=X
+router.get('/response-templates', authenticateJWT, async (req, res) => {
+    try {
+        const { category_id, subcategory_id } = req.query;
+        let sql = `
+            SELECT rt.*,
+                   c.name as category_name, c.full_path as category_path,
+                   s.name as subcategory_name
+            FROM hub_tickets.response_templates rt
+            LEFT JOIN hub_tickets.ticket_categories c ON rt.category_id = c.id
+            LEFT JOIN hub_tickets.ticket_categories s ON rt.subcategory_id = s.id
+        `;
+        const params = [];
+        const conds = [];
+        if (category_id) { conds.push(`rt.category_id = $${params.length + 1}`); params.push(parseInt(category_id)); }
+        if (subcategory_id) { conds.push(`(rt.subcategory_id = $${params.length + 1} OR rt.subcategory_id IS NULL)`); params.push(parseInt(subcategory_id)); }
+        if (conds.length) sql += ' WHERE ' + conds.join(' AND ');
+        sql += ' ORDER BY c.name, s.name, rt.name';
+        const rows = await pgDb.all(sql, params);
+        res.json(rows);
+    } catch (e) { res.status(500).json({ message: e.message }); }
+});
+
+// POST /api/tickets/admin/response-templates
+router.post('/response-templates', authenticateJWT, authenticateAdmin, async (req, res) => {
+    try {
+        const { name, description, message, category_id, subcategory_id } = req.body;
+        if (!name || !message) return res.status(400).json({ message: 'name et message requis' });
+        const row = await pgDb.get(
+            `INSERT INTO hub_tickets.response_templates (name, description, message, category_id, subcategory_id, created_by)
+             VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
+            [name, description || null, message, category_id || null, subcategory_id || null, req.user.username]
+        );
+        res.status(201).json(row);
+    } catch (e) { res.status(500).json({ message: e.message }); }
+});
+
+// PUT /api/tickets/admin/response-templates/:id
+router.put('/response-templates/:id', authenticateJWT, authenticateAdmin, async (req, res) => {
+    try {
+        const { name, description, message, category_id, subcategory_id } = req.body;
+        const row = await pgDb.get(
+            `UPDATE hub_tickets.response_templates
+             SET name=$1, description=$2, message=$3, category_id=$4, subcategory_id=$5, updated_at=NOW()
+             WHERE id=$6 RETURNING *`,
+            [name, description || null, message, category_id || null, subcategory_id || null, req.params.id]
+        );
+        if (!row) return res.status(404).json({ message: 'Non trouvé' });
+        res.json(row);
+    } catch (e) { res.status(500).json({ message: e.message }); }
+});
+
+// DELETE /api/tickets/admin/response-templates/:id
+router.delete('/response-templates/:id', authenticateJWT, authenticateAdmin, async (req, res) => {
+    try {
+        await pgDb.run(`DELETE FROM hub_tickets.response_templates WHERE id=$1`, [req.params.id]);
+        res.json({ ok: true });
+    } catch (e) { res.status(500).json({ message: e.message }); }
+});
+
+// ─── Base documentaire (knowledge documents) ───────────────────────────────
+
+// GET /api/tickets/admin/knowledge-documents?category_id=X&app_id=Y
+router.get('/knowledge-documents', authenticateJWT, async (req, res) => {
+    try {
+        const { category_id, app_id } = req.query;
+        let sql = `
+            SELECT d.id, d.name, d.description, d.category_id, d.app_id, d.original_name,
+                   d.mimetype, d.size_bytes, d.uploaded_by, d.created_at,
+                   c.name as category_name, c.full_path as category_path,
+                   a.name as app_name
+            FROM hub_tickets.knowledge_documents d
+            LEFT JOIN hub_tickets.ticket_categories c ON d.category_id = c.id
+            LEFT JOIN magapp.apps a ON d.app_id = a.id
+        `;
+        const params = [];
+        const conds = [];
+        if (category_id) { conds.push(`d.category_id = $${params.length + 1}`); params.push(parseInt(category_id)); }
+        if (app_id) { conds.push(`d.app_id = $${params.length + 1}`); params.push(parseInt(app_id)); }
+        if (conds.length) sql += ` WHERE ` + conds.join(' AND ');
+        sql += ` ORDER BY a.name NULLS LAST, c.name NULLS FIRST, d.name`;
+        const rows = await pgDb.all(sql, params);
+        res.json(rows);
+    } catch (e) { res.status(500).json({ message: e.message }); }
+});
+
+// POST /api/tickets/admin/knowledge-documents (multipart : file + name + description + category_id)
+router.post('/knowledge-documents', authenticateJWT, authenticateAdmin, kbUpload.single('file'), async (req, res) => {
+    try {
+        const { name, description, category_id, app_id } = req.body;
+        if (!req.file) return res.status(400).json({ message: 'Fichier requis' });
+        if (!name || !name.trim()) return res.status(400).json({ message: 'Nom requis' });
+
+        // Stockage dans le repo configuré (/admin/ged) sous le module "tickets-kb"
+        const saved = await storage.saveFile('tickets-kb', category_id || 'general', req.file);
+
+        const row = await pgDb.get(
+            `INSERT INTO hub_tickets.knowledge_documents
+               (name, description, category_id, app_id, file_path, original_name, mimetype, size_bytes, uploaded_by)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id`,
+            [
+                name.trim(), description || null,
+                category_id ? parseInt(category_id) : null,
+                app_id ? parseInt(app_id) : null,
+                saved.dbPath,
+                req.file.originalname,
+                req.file.mimetype || null,
+                req.file.size || null,
+                req.user.username,
+            ]
+        );
+        res.status(201).json({ id: row.id });
+    } catch (e) { res.status(500).json({ message: e.message }); }
+});
+
+// PUT /api/tickets/admin/knowledge-documents/:id (métadonnées seulement)
+router.put('/knowledge-documents/:id', authenticateJWT, authenticateAdmin, async (req, res) => {
+    try {
+        const { name, description, category_id, app_id } = req.body;
+        const row = await pgDb.get(
+            `UPDATE hub_tickets.knowledge_documents
+             SET name=$1, description=$2, category_id=$3, app_id=$4
+             WHERE id=$5 RETURNING id`,
+            [name, description || null, category_id || null, app_id || null, req.params.id]
+        );
+        if (!row) return res.status(404).json({ message: 'Non trouvé' });
+        res.json({ ok: true });
+    } catch (e) { res.status(500).json({ message: e.message }); }
+});
+
+// GET /api/tickets/admin/knowledge-documents/:id/download
+router.get('/knowledge-documents/:id/download', authenticateJWT, async (req, res) => {
+    try {
+        const doc = await pgDb.get(`SELECT * FROM hub_tickets.knowledge_documents WHERE id=$1`, [req.params.id]);
+        if (!doc) return res.status(404).json({ message: 'Document non trouvé' });
+        const disposition = req.query.mode === 'attachment' ? 'attachment' : 'inline';
+
+        if (storage.isStoragePath(doc.file_path)) {
+            const f = await storage.getFileForServe(doc.file_path);
+            if (!f) return res.status(404).json({ message: 'Fichier introuvable sur le stockage' });
+            res.setHeader('Content-Disposition', `${disposition}; filename="${encodeURIComponent(doc.original_name)}"`);
+            res.type(doc.mimetype || path.extname(doc.original_name) || 'application/octet-stream');
+            if (f.absolutePath) return res.sendFile(f.absolutePath);
+            return res.send(f.buffer);
+        }
+        res.setHeader('Content-Disposition', `${disposition}; filename="${encodeURIComponent(doc.original_name)}"`);
+        res.type(doc.mimetype || 'application/octet-stream');
+        res.sendFile(doc.file_path);
+    } catch (e) { res.status(500).json({ message: e.message }); }
+});
+
+// GET /api/tickets/admin/knowledge-documents/:id/public-link
+// Renvoie un lien public signé (à insérer dans les réponses auto / emails)
+router.get('/knowledge-documents/:id/public-link', authenticateJWT, async (req, res) => {
+    try {
+        const crypto = require('crypto');
+        const { SECRET_KEY } = require('../../shared/config');
+        const id = parseInt(req.params.id);
+        const doc = await pgDb.get('SELECT id, name, original_name FROM hub_tickets.knowledge_documents WHERE id=$1', [id]);
+        if (!doc) return res.status(404).json({ message: 'Document non trouvé' });
+        const sig = crypto.createHmac('sha256', SECRET_KEY).update(`kbdoc|${id}`).digest('hex');
+        // URL absolue (pour les liens dans les emails)
+        let base = process.env.APP_BASE_URL || process.env.APP_URL || '';
+        try {
+            const db = getSqlite();
+            const row = await db.get("SELECT setting_value FROM app_settings WHERE setting_key = 'app_base_url'");
+            if (row?.setting_value?.trim()) base = row.setting_value.trim();
+        } catch (e) { /* ignore */ }
+        base = (base || `${req.protocol}://${req.get('host')}`).replace(/\/$/, '');
+        const url = `${base}/api/public/kb-document/${id}?sig=${sig}`;
+        res.json({ url, name: doc.name, original_name: doc.original_name });
+    } catch (e) { res.status(500).json({ message: e.message }); }
+});
+
+// DELETE /api/tickets/admin/knowledge-documents/:id
+router.delete('/knowledge-documents/:id', authenticateJWT, authenticateAdmin, async (req, res) => {
+    try {
+        const doc = await pgDb.get(`SELECT file_path FROM hub_tickets.knowledge_documents WHERE id=$1`, [req.params.id]);
+        if (doc) {
+            try { await storage.deleteFile(doc.file_path); } catch (e) { /* ignore */ }
+        }
+        await pgDb.run(`DELETE FROM hub_tickets.knowledge_documents WHERE id=$1`, [req.params.id]);
+        res.json({ ok: true });
+    } catch (e) { res.status(500).json({ message: e.message }); }
 });
 
 module.exports = router;

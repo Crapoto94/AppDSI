@@ -60,6 +60,13 @@ export default function LiveSessionsPanel() {
   // Impact / priorité (modifiables en live)
   const [ticketPriority, setTicketPriority] = useState<string | null>(null);
   const [ticketImpact, setTicketImpact] = useState<string | null>(null);
+  // Classification catégorie / sous-catégorie + réponses auto
+  const [ticketCategoryId, setTicketCategoryId] = useState<string>('');
+  const [ticketSubcategoryId, setTicketSubcategoryId] = useState<string>('');
+  const [categories, setCategories] = useState<any[]>([]);
+  const [respTemplates, setRespTemplates] = useState<any[]>([]);
+  const [showRespTemplates, setShowRespTemplates] = useState(false);
+  const [respPreview, setRespPreview] = useState<any | null>(null);
   // Task creation modal
   const [showTaskModal, setShowTaskModal] = useState(false);
   // App association picker
@@ -156,6 +163,11 @@ export default function LiveSessionsPanel() {
       .then(r => setApps((r.data || []).filter((a: any) => a.present_magapp === 'oui' || a.is_active)))
       .catch(() => {});
 
+    // Load ticket categories for live classification
+    axios.get('/api/tickets/admin/categories', { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => setCategories(r.data || []))
+      .catch(() => {});
+
     return () => {
       socket.disconnect();
       socketRef.current = null;
@@ -215,6 +227,7 @@ export default function LiveSessionsPanel() {
       setMessages([]);
       setOpenerMessage(null);
       setTicketType(null); setTicketPriority(null); setTicketImpact(null);
+      setTicketCategoryId(''); setTicketSubcategoryId('');
       // Load history via REST immediately
       const msgs = await axios.get(`/api/live/sessions/${session.id}/messages`, { headers: { Authorization: `Bearer ${token}` } });
       setMessages(msgs.data);
@@ -225,6 +238,8 @@ export default function LiveSessionsPanel() {
             const t = tr.data;
             if (t?.content) setOpenerMessage({ content: t.content, sender_name: t.requester_name || r.data.user_display_name || r.data.user_username });
             if (t?.type) setTicketType(String(t.type)); setTicketPriority(t?.priority != null ? String(t.priority) : null); setTicketImpact(t?.impact != null ? String(t.impact) : null);
+            setTicketCategoryId(t?.category_id != null ? String(t.category_id) : '');
+            setTicketSubcategoryId(t?.subcategory_id != null ? String(t.subcategory_id) : '');
           }).catch(() => {});
       }
       // Also join via socket for real-time updates
@@ -255,6 +270,8 @@ export default function LiveSessionsPanel() {
     setMessages([]);
     setOpenerMessage(null);
     setTicketType(null); setTicketPriority(null); setTicketImpact(null);
+    setTicketCategoryId(''); setTicketSubcategoryId('');
+    setShowRespTemplates(false); setRespPreview(null);
     setShowRename(false);
     setShowTakeover(false);
     setShowRequesterTickets(false);
@@ -269,6 +286,8 @@ export default function LiveSessionsPanel() {
           const t = tr.data;
           if (t?.content) setOpenerMessage({ content: t.content, sender_name: t.requester_name || session.user_display_name || session.user_username });
           if (t?.type) setTicketType(String(t.type)); setTicketPriority(t?.priority != null ? String(t.priority) : null); setTicketImpact(t?.impact != null ? String(t.impact) : null);
+          setTicketCategoryId(t?.category_id != null ? String(t.category_id) : '');
+          setTicketSubcategoryId(t?.subcategory_id != null ? String(t.subcategory_id) : '');
         }).catch(() => {});
     }
     // Also join via socket for real-time
@@ -370,6 +389,55 @@ export default function LiveSessionsPanel() {
     } catch (e: any) {
       alert(e.response?.data?.message || 'Erreur lors du classement');
     }
+  }
+
+  async function setCategoryApi(category_id: string, subcategory_id: string) {
+    if (!activeSession) return;
+    setTicketCategoryId(category_id);
+    setTicketSubcategoryId(subcategory_id);
+    try {
+      await axios.patch(
+        `/api/live/sessions/${activeSession.id}/category`,
+        { category_id: category_id || null, subcategory_id: subcategory_id || null },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+    } catch (e: any) {
+      alert(e.response?.data?.message || 'Erreur lors du classement');
+    }
+  }
+
+  // Charge les réponses auto pour la catégorie/sous-catégorie courante
+  async function loadRespTemplates() {
+    if (!ticketCategoryId) { setRespTemplates([]); return; }
+    try {
+      const params: Record<string, any> = { category_id: ticketCategoryId };
+      if (ticketSubcategoryId) params.subcategory_id = ticketSubcategoryId;
+      const r = await axios.get('/api/tickets/admin/response-templates', {
+        headers: { Authorization: `Bearer ${token}` }, params,
+      });
+      setRespTemplates(r.data || []);
+    } catch { setRespTemplates([]); }
+  }
+
+  // Résout les variables d'un template avec les données de la session/ticket
+  function resolveTemplate(message: string): string {
+    const fullName = activeSession?.user_display_name || activeSession?.user_username || '';
+    const parts = fullName.trim().split(/\s+/);
+    const cat = categories.find(c => String(c.id) === ticketCategoryId);
+    const sub = categories.find(c => String(c.id) === ticketSubcategoryId);
+    const map: Record<string, string> = {
+      '{{prenom_demandeur}}': parts[0] || '',
+      '{{nom_demandeur}}': parts.slice(1).join(' ') || '',
+      '{{numero_ticket}}': String(activeSession?.ticket_id || ''),
+      '{{titre_ticket}}': '',
+      '{{categorie}}': cat?.name || '',
+      '{{sous_categorie}}': sub?.name || '',
+      '{{technicien}}': '',
+      '{{date_creation}}': new Date().toLocaleDateString('fr-FR'),
+    };
+    let out = message;
+    for (const [k, v] of Object.entries(map)) out = out.split(k).join(v);
+    return out;
   }
 
   async function setPriorityImpactApi(patch: { priority?: string; impact?: string }) {
@@ -1050,6 +1118,35 @@ export default function LiveSessionsPanel() {
                     )}
                   </div>
                 )}
+                {/* Catégorie / sous-catégorie (classification en live) */}
+                {activeSession.status !== 'closed' && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                    <select
+                      value={ticketCategoryId}
+                      onChange={e => setCategoryApi(e.target.value, '')}
+                      disabled={!isMySession}
+                      title="Catégorie"
+                      style={{ fontSize: 11, fontWeight: 600, padding: '3px 4px', borderRadius: 6, border: '1px solid #e2e8f0', background: '#f8fafc', color: '#475569', cursor: isMySession ? 'pointer' : 'default', maxWidth: 140 }}>
+                      <option value="">— Catégorie —</option>
+                      {categories.filter((c: any) => !c.parent_id).map((c: any) => (
+                        <option key={c.id} value={c.id}>{c.name}</option>
+                      ))}
+                    </select>
+                    {ticketCategoryId && (
+                      <select
+                        value={ticketSubcategoryId}
+                        onChange={e => setCategoryApi(ticketCategoryId, e.target.value)}
+                        disabled={!isMySession}
+                        title="Sous-catégorie"
+                        style={{ fontSize: 11, fontWeight: 600, padding: '3px 4px', borderRadius: 6, border: '1px solid #e2e8f0', background: '#f8fafc', color: '#475569', cursor: isMySession ? 'pointer' : 'default', maxWidth: 140 }}>
+                        <option value="">— Sous-cat. —</option>
+                        {categories.filter((c: any) => String(c.parent_id) === ticketCategoryId).map((c: any) => (
+                          <option key={c.id} value={c.id}>{c.name}</option>
+                        ))}
+                      </select>
+                    )}
+                  </div>
+                )}
                 {/* Impact / Priorité (modifiables par le tech pendant le live) */}
                 {activeSession.status !== 'closed' && (
                   <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
@@ -1060,11 +1157,10 @@ export default function LiveSessionsPanel() {
                       title="Impact"
                       style={{ fontSize: 11, fontWeight: 600, padding: '3px 4px', borderRadius: 6, border: '1px solid #e2e8f0', background: '#f8fafc', color: '#475569', cursor: isMySession ? 'pointer' : 'default' }}>
                       <option value="" disabled>Impact</option>
-                      <option value="1">Impact: Très faible</option>
-                      <option value="2">Impact: Faible</option>
-                      <option value="3">Impact: Moyen</option>
-                      <option value="4">Impact: Fort</option>
-                      <option value="5">Impact: Très fort</option>
+                      <option value="2">Impact: 1 utilisateur</option>
+                      <option value="3">Impact: Groupe de travail</option>
+                      <option value="4">Impact: Service / Direction</option>
+                      <option value="5">Impact: Global</option>
                     </select>
                     <select
                       value={ticketPriority ?? ''}
@@ -1079,11 +1175,10 @@ export default function LiveSessionsPanel() {
                         cursor: isMySession ? 'pointer' : 'default',
                       }}>
                       <option value="" disabled>Priorité</option>
-                      <option value="1">Priorité: Très basse</option>
                       <option value="2">Priorité: Basse</option>
-                      <option value="3">Priorité: Moyenne</option>
+                      <option value="3">Priorité: Normale</option>
                       <option value="4">Priorité: Haute</option>
-                      <option value="5">Priorité: Critique</option>
+                      <option value="5">Priorité: Très haute</option>
                     </select>
                   </div>
                 )}
@@ -1243,6 +1338,56 @@ export default function LiveSessionsPanel() {
             {/* Input area */}
             {activeSession.status === 'active' && isMySession ? (
               <div style={{ borderTop: '1px solid #e2e8f0', background: '#fff' }}>
+                {/* Réponses auto */}
+                {showRespTemplates && (
+                  <div style={{ padding: '10px 14px', background: '#f0f1fe', borderBottom: '1px solid #c7d2fe' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                      <span style={{ fontSize: 11, fontWeight: 700, color: '#4338ca' }}>
+                        ⚡ Réponses auto {!ticketCategoryId && '— classez d\'abord le ticket par catégorie'}
+                      </span>
+                      <button onClick={() => { setShowRespTemplates(false); setRespPreview(null); }}
+                        style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#6366f1', fontSize: 14 }}>✕</button>
+                    </div>
+                    {ticketCategoryId && respTemplates.length === 0 && (
+                      <div style={{ fontSize: 12, color: '#64748b' }}>Aucune réponse auto pour cette catégorie.</div>
+                    )}
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                      {respTemplates.map((t: any) => (
+                        <button key={t.id} onClick={() => setRespPreview(respPreview?.id === t.id ? null : t)}
+                          style={{
+                            padding: '4px 10px', borderRadius: 6, fontSize: 12, fontWeight: 500, cursor: 'pointer',
+                            border: '1px solid', borderColor: respPreview?.id === t.id ? '#6366f1' : '#c7d2fe',
+                            background: respPreview?.id === t.id ? '#eef2ff' : '#fff', color: '#4338ca',
+                          }}>
+                          💬 {t.name}{t.subcategory_name ? ` · ${t.subcategory_name}` : ''}
+                        </button>
+                      ))}
+                    </div>
+                    {respPreview && (
+                      <div style={{ marginTop: 8, padding: 10, background: '#fff', borderRadius: 8, border: '1px solid #e0e7ff' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                          <span style={{ fontSize: 11, fontWeight: 600, color: '#374151' }}>{respPreview.name}</span>
+                          <button
+                            onClick={() => {
+                              // Insérer le texte résolu (HTML → texte brut) dans la zone de saisie
+                              const html = resolveTemplate(respPreview.message);
+                              const tmp = document.createElement('div');
+                              tmp.innerHTML = html.replace(/<br\s*\/?>/gi, '\n').replace(/<\/p>/gi, '\n');
+                              const txt = (tmp.textContent || '').replace(/\n{3,}/g, '\n\n').trim();
+                              setInput(txt);
+                              setShowRespTemplates(false); setRespPreview(null);
+                              inputRef.current?.focus();
+                            }}
+                            style={{ padding: '4px 12px', border: 'none', borderRadius: 6, background: '#6366f1', color: '#fff', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
+                            ⚡ Utiliser
+                          </button>
+                        </div>
+                        <div style={{ fontSize: 13, color: '#374151', lineHeight: 1.6 }}
+                          dangerouslySetInnerHTML={{ __html: resolveTemplate(respPreview.message) }} />
+                      </div>
+                    )}
+                  </div>
+                )}
                 {/* Reformulation proposal */}
                 {reformulationProposal !== null && (
                   <div style={{ padding: '10px 14px', background: '#f0fdf4', borderBottom: '1px solid #bbf7d0' }}>
@@ -1324,6 +1469,19 @@ export default function LiveSessionsPanel() {
                     🎤
                   </button>
                   <EmojiPicker onEmojiSelect={e => setInput(prev => prev + e)} />
+                  {/* Réponses auto button */}
+                  <button
+                    onClick={() => { const next = !showRespTemplates; setShowRespTemplates(next); if (next) loadRespTemplates(); }}
+                    title="Réponses auto"
+                    style={{
+                      padding: '8px 10px',
+                      background: showRespTemplates ? '#eef2ff' : '#f1f5f9',
+                      color: showRespTemplates ? '#4338ca' : '#475569',
+                      border: `1.5px solid ${showRespTemplates ? '#c7d2fe' : '#e2e8f0'}`,
+                      borderRadius: 10, cursor: 'pointer', fontSize: 15, lineHeight: 1, flexShrink: 0,
+                    }}>
+                    💬
+                  </button>
                   <textarea
                     ref={inputRef}
                     value={input}

@@ -9,6 +9,8 @@ import { useAuth } from '../../contexts/AuthContext';
 import { useADSearch } from '../../utils/useADSearch';
 import AssociateProblemModal from './AssociateProblemModal';
 import ProblemModal from './ProblemModal';
+import ResponseSuggestions from './ResponseSuggestions';
+import DocumentSuggestions from './DocumentSuggestions';
 
 function decodeHtml(str: string) {
   const txt = document.createElement('textarea');
@@ -1021,6 +1023,18 @@ export default function TicketDetail() {
                 </div>
               </div>
             )}
+            <ResponseSuggestions
+              categoryId={ticket?.category_id}
+              subcategoryId={ticket?.subcategory_id}
+              ticket={ticket}
+              onApply={(html) => setNewComment(html)}
+            />
+            <DocumentSuggestions
+              categoryId={ticket?.category_id}
+              softwareId={ticket?.software_id}
+              softwareName={ticket?.software_name}
+              onInsert={(html) => setNewComment(prev => (prev && prev !== '<p><br></p>' ? prev : '') + html)}
+            />
             <div style={{ border: '1px solid #e4e4e7', borderRadius: 8, overflow: 'hidden', marginBottom: 8 }}>
               <ReactQuill value={newComment} onChange={setNewComment} placeholder="Ajouter un commentaire..."
                 modules={{ toolbar: [['bold', 'italic', 'underline'], [{ list: 'ordered' }, { list: 'bullet' }], ['link'], ['clean']] }}

@@ -5490,6 +5490,36 @@ app.use('/api/dsi-dashboard', require('./modules/dsi-dashboard/dsi-dashboard.rou
 app.get('/api/public/reply/:token', (req, res) => ticketsCtrl.getReplyFormInfo(req, res));
 app.post('/api/public/reply/:token', (req, res) => ticketsCtrl.submitPublicReply(req, res));
 
+// Public KB document viewer (no auth, signed link) — pour les liens dans les emails
+app.get('/api/public/kb-document/:id', async (req, res) => {
+  try {
+    const crypto = require('crypto');
+    const { SECRET_KEY } = require('./shared/config');
+    const storage = require('./shared/storage');
+    const { pgDb } = require('./shared/database');
+    const id = parseInt(req.params.id);
+    const sig = req.query.sig;
+    const expected = crypto.createHmac('sha256', SECRET_KEY).update(`kbdoc|${id}`).digest('hex');
+    if (!sig || sig !== expected) return res.status(403).send('Lien invalide');
+    const doc = await pgDb.get('SELECT * FROM hub_tickets.knowledge_documents WHERE id=$1', [id]);
+    if (!doc) return res.status(404).send('Document introuvable');
+    const path = require('path');
+    if (storage.isStoragePath(doc.file_path)) {
+      const f = await storage.getFileForServe(doc.file_path);
+      if (!f) return res.status(404).send('Fichier introuvable');
+      res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(doc.original_name)}"`);
+      res.type(doc.mimetype || path.extname(doc.original_name) || 'application/octet-stream');
+      if (f.absolutePath) return res.sendFile(f.absolutePath);
+      return res.send(f.buffer);
+    }
+    res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(doc.original_name)}"`);
+    res.type(doc.mimetype || 'application/octet-stream');
+    res.sendFile(doc.file_path);
+  } catch (e) {
+    res.status(500).send('Erreur serveur');
+  }
+});
+
 // Charger les permissions tickets depuis la DB au démarrage
 const { loadPermissionsFromDb } = require('./modules/tickets/middleware/ticket-permissions');
 loadPermissionsFromDb().catch(e => console.error('[TICKETS] loadPermissions failed:', e.message));

@@ -4402,6 +4402,39 @@ async function setupPgDb() {
       )
     `);
 
+    // ── Base documentaire tickets ──────────────────────────────────────────
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS hub_tickets.knowledge_documents (
+        id SERIAL PRIMARY KEY,
+        name TEXT NOT NULL,
+        description TEXT,
+        category_id INT REFERENCES hub_tickets.ticket_categories(id) ON DELETE SET NULL,
+        file_path TEXT NOT NULL,
+        original_name TEXT NOT NULL,
+        mimetype TEXT,
+        size_bytes BIGINT,
+        uploaded_by TEXT,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `);
+    // Association optionnelle à un logiciel métier (magapp.apps)
+    await client.query(`ALTER TABLE hub_tickets.knowledge_documents ADD COLUMN IF NOT EXISTS app_id INT`);
+
+    // ── Réponses auto aux tickets ──────────────────────────────────────────
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS hub_tickets.response_templates (
+        id SERIAL PRIMARY KEY,
+        name TEXT NOT NULL,
+        description TEXT,
+        message TEXT NOT NULL,
+        category_id INT REFERENCES hub_tickets.ticket_categories(id) ON DELETE SET NULL,
+        subcategory_id INT REFERENCES hub_tickets.ticket_categories(id) ON DELETE SET NULL,
+        created_by TEXT,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `);
+
     console.log('[PG DB] Schema and tables initialized successfully');
   } catch (error) {
     console.error('[PG DB] Initialization error:', error.message);
