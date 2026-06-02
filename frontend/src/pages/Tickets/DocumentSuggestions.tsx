@@ -91,8 +91,14 @@ export default function DocumentSuggestions({ categoryId, softwareId, softwareNa
     }
   }
 
-  function insertMagapp(doc: MagappDoc) {
-    onInsert(`<a href="${doc.url}" target="_blank" rel="noopener">📄 ${doc.title}</a>`);
+  async function insertMagapp(doc: MagappDoc) {
+    let url = doc.url;
+    try {
+      // Résout l'URL absolue (préfixe app_base_url si le doc est un fichier relatif)
+      const r = await axios.get(`/api/tickets/admin/magapp-doc-link/${doc.id}`, { headers });
+      if (r.data?.url) url = r.data.url;
+    } catch { /* fallback sur l'url brute */ }
+    onInsert(`<a href="${url}" target="_blank" rel="noopener">📄 ${doc.title}</a>`);
     setOpenMagapp(false);
   }
 

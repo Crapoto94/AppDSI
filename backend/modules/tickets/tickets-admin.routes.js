@@ -1689,6 +1689,28 @@ router.get('/knowledge-documents/:id/public-link', authenticateJWT, async (req, 
     } catch (e) { res.status(500).json({ message: e.message }); }
 });
 
+// GET /api/tickets/admin/magapp-doc-link/:docId
+// Renvoie l'URL absolue d'un document magapp (préfixe app_base_url si relative)
+router.get('/magapp-doc-link/:docId', authenticateJWT, async (req, res) => {
+    try {
+        const doc = await pgDb.get('SELECT id, title, url FROM magapp.app_docs WHERE id=$1', [parseInt(req.params.docId)]);
+        if (!doc) return res.status(404).json({ message: 'Document non trouvé' });
+        let url = (doc.url || '').trim();
+        if (!/^https?:\/\//i.test(url)) {
+            // URL relative (fichier uploadé) → préfixer avec l'URL de base configurée
+            let base = process.env.APP_BASE_URL || process.env.APP_URL || '';
+            try {
+                const db = getSqlite();
+                const row = await db.get("SELECT setting_value FROM app_settings WHERE setting_key = 'app_base_url'");
+                if (row?.setting_value?.trim()) base = row.setting_value.trim();
+            } catch (e) { /* ignore */ }
+            base = (base || `${req.protocol}://${req.get('host')}`).replace(/\/$/, '');
+            url = base + (url.startsWith('/') ? url : '/' + url);
+        }
+        res.json({ url, name: doc.title });
+    } catch (e) { res.status(500).json({ message: e.message }); }
+});
+
 // DELETE /api/tickets/admin/knowledge-documents/:id
 router.delete('/knowledge-documents/:id', authenticateJWT, authenticateAdmin, async (req, res) => {
     try {
