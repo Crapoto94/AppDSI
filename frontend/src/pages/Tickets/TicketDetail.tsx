@@ -11,6 +11,7 @@ import AssociateProblemModal from './AssociateProblemModal';
 import ProblemModal from './ProblemModal';
 import ResponseSuggestions from './ResponseSuggestions';
 import DocumentSuggestions from './DocumentSuggestions';
+import type { AttachDoc } from './DocumentSuggestions';
 import { formatDateTime, formatDate as formatDateParis } from '../../utils/datetime';
 
 function decodeHtml(str: string) {
@@ -30,7 +31,7 @@ function rewriteGlpiImages(html: string): string {
       const params = new URLSearchParams(String(qs).replace(/&amp;/g, '&'));
       const docid = params.get('docid');
       if (!docid) return _m;
-      return `/api/glpi/document/${docid}?token=${encodeURIComponent(token)}`;
+      return `/api/glpi/document/${docid}?token=${encodeURIComponent(token || "")}`;
     }
   );
 }
@@ -85,6 +86,8 @@ export default function TicketDetail() {
   const [showAssignModal, setShowAssignModal] = useState(false);
   const [technicians, setTechnicians] = useState<any[]>([]);
   const [commentFile, setCommentFile] = useState<File | null>(null);
+  // Documents (base de connaissance / doc logiciel) à envoyer en pièce jointe
+  const [pendingDocs, setPendingDocs] = useState<{ source: 'kb' | 'magapp'; id: number; name: string }[]>([]);
   const [sendingToUser, setSendingToUser] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [attachments, setAttachments] = useState<any[]>([]);
@@ -504,33 +507,47 @@ export default function TicketDetail() {
   function isCommentEmpty(html: string) {
     return !html || html === '<p><br></p>' || html.replace(/<[^>]*>/g, '').trim() === '';
   }
+  // Rien à envoyer : ni texte, ni fichier, ni document joint
+  const nothingToSend = isCommentEmpty(newComment) && pendingDocs.length === 0 && !commentFile;
 
-  async function uploadFileAndGetLink(): Promise<string> {
-    if (!commentFile) return '';
+  // Attache au ticket le fichier manuel + les documents KB/logiciel sélectionnés,
+  // et renvoie la liste des id de pièces jointes créées (pour l'envoi en PJ email).
+  async function buildAttachmentIds(): Promise<number[]> {
     const token = localStorage.getItem('token');
-    const formData = new FormData();
-    formData.append('file', commentFile);
-    const res = await axios.post(`/api/tickets/${id}/attachments`, formData, {
-      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'multipart/form-data' }
-    });
-    const att = res.data;
-    return `<br><a href="/api/tickets/${id}/attachments/${att.id}" target="_blank" rel="noopener noreferrer">📎 ${att.original_name}</a>`;
+    const h = { headers: { Authorization: `Bearer ${token}` } };
+    const ids: number[] = [];
+    if (commentFile) {
+      const formData = new FormData();
+      formData.append('file', commentFile);
+      const res = await axios.post(`/api/tickets/${id}/attachments`, formData, {
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'multipart/form-data' }
+      });
+      if (res.data?.id != null) ids.push(res.data.id);
+    }
+    for (const d of pendingDocs) {
+      try {
+        const res = await axios.post(`/api/tickets/${id}/attach-doc`, { source: d.source, id: d.id }, h);
+        if (res.data?.id != null) ids.push(res.data.id);
+      } catch (e: any) {
+        alert(`Document « ${d.name} » non joignable : ${e.response?.data?.message || 'erreur'}`);
+      }
+    }
+    return ids;
   }
 
   async function handleAddComment() {
-    if (isCommentEmpty(newComment)) return;
+    if (nothingToSend) return;
     try {
       const token = localStorage.getItem('token');
-      let content = newComment;
-      if (commentFile) {
-        content += await uploadFileAndGetLink();
-      }
+      const attachment_ids = await buildAttachmentIds();
       await axios.post(`/api/tickets/${id}/comments`, {
-        content,
-        is_private: commentPrivate ? 1 : 0
+        content: newComment,
+        is_private: commentPrivate ? 1 : 0,
+        attachment_ids
       }, { headers: { Authorization: `Bearer ${token}` } });
       setNewComment('');
       setCommentFile(null);
+      setPendingDocs([]);
       loadTicket();
     } catch (err: any) {
       alert(err.response?.data?.message || 'Erreur');
@@ -538,21 +555,20 @@ export default function TicketDetail() {
   }
 
   async function handleSendToUser() {
-    if (isCommentEmpty(newComment)) return;
+    if (nothingToSend) return;
     setSendingToUser(true);
     try {
       const token = localStorage.getItem('token');
-      let content = newComment;
-      if (commentFile) {
-        content += await uploadFileAndGetLink();
-      }
+      const attachment_ids = await buildAttachmentIds();
       await axios.post(`/api/tickets/${id}/comments/send`, {
-        content,
+        content: newComment,
         is_private: 0,
-        cc_observers: ccObservers
+        cc_observers: ccObservers,
+        attachment_ids
       }, { headers: { Authorization: `Bearer ${token}` } });
       setNewComment('');
       setCommentFile(null);
+      setPendingDocs([]);
       setCcObservers(false);
       loadTicket();
     } catch (err: any) {
@@ -984,17 +1000,35 @@ export default function TicketDetail() {
                           <span style={{ fontSize: 12, fontWeight: 600, color: '#18181b' }}>{c.author_name || 'Inconnu'}</span>
                           {isSentToUser && <span style={{ fontSize: 10, color: '#1d4ed8', background: '#dbeafe', padding: '1px 6px', borderRadius: 8, fontWeight: 600 }}>✉️ Envoyé</span>}
                           {isFromRequester && <span style={{ fontSize: 10, color: '#15803d', background: '#dcfce7', padding: '1px 6px', borderRadius: 8, fontWeight: 600 }}>↩ Réponse</span>}
-                          {c.is_private && <span style={{ fontSize: 10, color: '#d97706', background: '#fef3c7', padding: '1px 5px', borderRadius: 8, fontWeight: 600 }}>🔒 Interne</span>}
+                          {!!c.is_private && <span style={{ fontSize: 10, color: '#d97706', background: '#fef3c7', padding: '1px 5px', borderRadius: 8, fontWeight: 600 }}>🔒 Interne</span>}
                           <span style={{ fontSize: 11, color: '#a1a1aa', marginLeft: 'auto', whiteSpace: 'nowrap' }}>
                             {formatDateTime(c.date_creation)}
                           </span>
                         </div>
-                        <div style={{
-                          fontSize: 13, color: '#3f3f46', lineHeight: 1.5,
-                          background: bgColor,
-                          border: `1px solid ${borderColor}`,
-                          borderRadius: 8, padding: '8px 12px'
-                        }} dangerouslySetInnerHTML={{ __html: rewriteGlpiImages(decodeHtml(c.content)) }} />
+                        {!isCommentEmpty(c.content || '') && (
+                          <div style={{
+                            fontSize: 13, color: '#3f3f46', lineHeight: 1.5,
+                            background: bgColor,
+                            border: `1px solid ${borderColor}`,
+                            borderRadius: 8, padding: '8px 12px'
+                          }} dangerouslySetInnerHTML={{ __html: rewriteGlpiImages(decodeHtml(c.content)) }} />
+                        )}
+                        {(() => {
+                          const atts = attachments.filter((a: any) => a.followup_id === c.id);
+                          if (atts.length === 0) return null;
+                          return (
+                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 6 }}>
+                              {atts.map((a: any) => (
+                                <a key={a.id} href={`/api/tickets/${id}/attachments/${a.id}?mode=attachment&token=${encodeURIComponent(token || "")}`}
+                                  target="_blank" rel="noopener noreferrer"
+                                  style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11, color: '#0369a1', background: '#e0f2fe', border: '1px solid #bae6fd', borderRadius: 6, padding: '3px 8px', textDecoration: 'none', maxWidth: 240 }}>
+                                  <span>📎</span>
+                                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.original_name || a.filename}</span>
+                                </a>
+                              ))}
+                            </div>
+                          );
+                        })()}
                       </div>
                     </div>
                   );
@@ -1038,7 +1072,8 @@ export default function TicketDetail() {
                   categoryId={ticket?.category_id}
                   softwareId={ticket?.software_id}
                   softwareName={ticket?.software_name}
-                  onInsert={(html) => setNewComment(prev => (prev && prev !== '<p><br></p>' ? prev : '') + html)}
+                  onAttach={(doc: AttachDoc) => setPendingDocs(prev =>
+                    prev.some(p => p.source === doc.source && p.id === doc.id) ? prev : [...prev, doc])}
                 />
               </div>
             </div>
@@ -1048,10 +1083,22 @@ export default function TicketDetail() {
                 style={{ fontFamily: 'inherit', fontSize: 13 }}
               />
             </div>
-            {commentFile && (
-              <div style={{ marginBottom: 8, display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11, color: '#71717a', background: '#f9f9fb', padding: '3px 8px', borderRadius: 5, border: '1px solid #f4f4f5' }}>
-                <span>📎 {commentFile.name}</span>
-                <button onClick={() => setCommentFile(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#a1a1aa', padding: 0, fontSize: 13 }}>✕</button>
+            {(commentFile || pendingDocs.length > 0) && (
+              <div style={{ marginBottom: 8, display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                {commentFile && (
+                  <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11, color: '#71717a', background: '#f9f9fb', padding: '3px 8px', borderRadius: 5, border: '1px solid #f4f4f5' }}>
+                    <span>📎 {commentFile.name}</span>
+                    <button onClick={() => setCommentFile(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#a1a1aa', padding: 0, fontSize: 13 }}>✕</button>
+                  </div>
+                )}
+                {pendingDocs.map(d => (
+                  <div key={`${d.source}-${d.id}`} title="Sera envoyé en pièce jointe"
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11, color: '#047857', background: '#ecfdf5', padding: '3px 8px', borderRadius: 5, border: '1px solid #d1fae5' }}>
+                    <span>📎 {d.name}</span>
+                    <button onClick={() => setPendingDocs(prev => prev.filter(p => !(p.source === d.source && p.id === d.id)))}
+                      style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#10b981', padding: 0, fontSize: 13 }}>✕</button>
+                  </div>
+                ))}
               </div>
             )}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
@@ -1088,14 +1135,14 @@ export default function TicketDetail() {
               </div>
               <div style={{ display: 'flex', gap: 7 }}>
                 {ticket.requester?.email && !commentPrivate && (
-                  <button onClick={handleSendToUser} disabled={isCommentEmpty(newComment) || sendingToUser}
+                  <button onClick={handleSendToUser} disabled={nothingToSend || sendingToUser}
                     title={`Envoyer par email à ${ticket.requester.email}`}
-                    style={{ padding: '6px 14px', background: '#0ea5e9', color: '#fff', border: 'none', borderRadius: 7, fontWeight: 600, fontSize: 12, cursor: 'pointer', opacity: isCommentEmpty(newComment) || sendingToUser ? 0.5 : 1 }}>
+                    style={{ padding: '6px 14px', background: '#0ea5e9', color: '#fff', border: 'none', borderRadius: 7, fontWeight: 600, fontSize: 12, cursor: 'pointer', opacity: nothingToSend || sendingToUser ? 0.5 : 1 }}>
                     {sendingToUser ? 'Envoi...' : '✉️ Enregistrer & envoyer'}
                   </button>
                 )}
-                <button onClick={handleAddComment} disabled={isCommentEmpty(newComment)}
-                  style={{ padding: '6px 16px', background: '#6366f1', color: '#fff', border: 'none', borderRadius: 7, fontWeight: 600, fontSize: 12, cursor: 'pointer', opacity: isCommentEmpty(newComment) ? 0.5 : 1 }}>
+                <button onClick={handleAddComment} disabled={nothingToSend}
+                  style={{ padding: '6px 16px', background: '#6366f1', color: '#fff', border: 'none', borderRadius: 7, fontWeight: 600, fontSize: 12, cursor: 'pointer', opacity: nothingToSend ? 0.5 : 1 }}>
                   Enregistrer
                 </button>
               </div>
@@ -1380,13 +1427,13 @@ export default function TicketDetail() {
                   {attachments.map((att: any) => (
                     <div key={att.id} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                       {att.is_image ? (
-                        <a href={`/api/tickets/${id}/attachments/${att.id}`} target="_blank" rel="noopener noreferrer"
+                        <a href={`/api/tickets/${id}/attachments/${att.id}?token=${encodeURIComponent(token || "")}`} target="_blank" rel="noopener noreferrer"
                           style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, color: '#6366f1', textDecoration: 'none' }}>
                           <span>🖼️</span>
                           <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 180 }}>{att.original_name || att.filename}</span>
                         </a>
                       ) : (
-                        <a href={`/api/tickets/${id}/attachments/${att.id}`} target="_blank" rel="noopener noreferrer"
+                        <a href={`/api/tickets/${id}/attachments/${att.id}?token=${encodeURIComponent(token || "")}`} target="_blank" rel="noopener noreferrer"
                           style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, color: '#6366f1', textDecoration: 'none' }}>
                           <span>📎</span>
                           <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 180 }}>{att.original_name || att.filename}</span>
