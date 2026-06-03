@@ -31,6 +31,17 @@ function addMonths(date, months) {
   return d;
 }
 
+// Normalisation des marques (regroupe les variantes GLPI sous un seul libellé) ──
+const MANUFACTURER_ALIASES = {
+  'dell': 'DELL', 'dell inc': 'DELL', 'dell inc.': 'DELL',
+  'hp': 'Hewlett Packard', 'hp inc': 'Hewlett Packard', 'hp inc.': 'Hewlett Packard',
+  'hewlett-packard': 'Hewlett Packard', 'hewlett packard': 'Hewlett Packard',
+};
+function normalizeManufacturer(v) {
+  if (!v) return v;
+  return MANUFACTURER_ALIASES[v.toLowerCase().trim()] || v;
+}
+
 // Normalise un item GLPI (dropdowns déjà étendus → valeurs lisibles) ───────────
 function normalize(itemtype, it) {
   const lc = itemtype.toLowerCase();
@@ -40,7 +51,7 @@ function normalize(itemtype, it) {
     name: str(it.name),
     serial: str(it.serial),
     otherserial: str(it.otherserial),          // n° d'inventaire
-    manufacturer: str(it.manufacturers_id),
+    manufacturer: normalizeManufacturer(str(it.manufacturers_id)),
     model: str(it[`${lc}models_id`]),
     type: str(it[`${lc}types_id`]),
     state: str(it.states_id),                  // statut
@@ -60,10 +71,10 @@ function normalize(itemtype, it) {
     date_creation: str(it.date_creation),
     date_mod: str(it.date_mod),
     // Champs financiers / dates — remplis par mergeInfocom()
-    buy_date: null, use_date: null, reception_date: null, service_date: null,
+    buy_date: null, use_date: null, delivery_date: null, warranty_date: null, reception_date: null, service_date: null,
     supplier: null, value: null, order_number: null, immo_number: null,
     age_years: null,
-    age_source: null,   // 'use_date' | 'buy_date' | 'reception' | null
+    age_source: null,   // 'delivery' | 'buy_date' | null
     os: null, os_version: null,
     doc_count: 0,
     ad_found: false,          // enrichi par enrichAdFound()
@@ -79,20 +90,19 @@ const INJECTION_DATE = '2025-03-05';
 function mergeInfocom(r, ic, now = new Date()) {
   let receptionDate = null;
   if (ic) {
-    r.buy_date = str(ic.buy_date);
-    r.use_date = str(ic.use_date);
-    r.supplier = str(ic.suppliers_id);
-    r.order_number = str(ic.order_number);
-    r.immo_number = str(ic.immo_number);
-    r.value = num(ic.value);
+    r.buy_date      = str(ic.buy_date);
+    r.use_date      = str(ic.use_date);
+    r.delivery_date = str(ic.delivery_date);
+    r.warranty_date = str(ic.warranty_date);
+    r.supplier      = str(ic.suppliers_id);
+    r.order_number  = str(ic.order_number);
+    r.immo_number   = str(ic.immo_number);
+    r.value         = num(ic.value);
 
-    // ⚠️ Dans ce parc, le champ GLPI `warranty_date` est en réalité la DATE DE RÉCEPTION
-    // du matériel → c'est elle qui donne l'âge de la machine.
-    const parsedUse = parseDate(r.use_date);
-    const parsedBuy = parseDate(r.buy_date);
-    const parsedRec = parseDate(str(ic.warranty_date)); // date de réception
-    receptionDate = parsedUse || parsedBuy || parsedRec;
-    r.age_source = parsedUse ? 'use_date' : parsedBuy ? 'buy_date' : parsedRec ? 'reception' : null;
+    const parsedDelivery = parseDate(r.delivery_date);
+    const parsedBuy      = parseDate(r.buy_date);
+    receptionDate = parsedDelivery || parsedBuy;
+    r.age_source = parsedDelivery ? 'delivery' : parsedBuy ? 'buy_date' : null;
   }
 
   r.reception_date = iso(receptionDate);
@@ -101,10 +111,9 @@ function mergeInfocom(r, ic, now = new Date()) {
     r.age_years = Math.round(((now.getTime() - receptionDate.getTime()) / 86400000 / 365.25) * 10) / 10;
   }
 
-  // Mise en service = dernière modification de la fiche, EN IGNORANT l'injection initiale
-  // (5/3/2025) : les fiches jamais modifiées depuis l'import n'ont pas de mise en service.
-  const mod = parseDate(r.date_mod);
-  r.service_date = (mod && iso(mod) > INJECTION_DATE) ? iso(mod) : null;
+  // Mise en service = use_date de l'Infocom (champ renseigné intentionnellement dans GLPI).
+  // On n'utilise plus date_mod qui reflète n'importe quelle modification de la fiche.
+  r.service_date = r.use_date || null;
   return r;
 }
 
@@ -168,6 +177,10 @@ function applyListQuery(rows, query) {
   if (query.ad === '1') rows = rows.filter((r) => r.ad_found);
   if (query.ad === '0') rows = rows.filter((r) => !r.ad_found);
   if (query.docs === '1') rows = rows.filter((r) => r.doc_count > 0);
+  // stock=0 (défaut) : exclut les machines en stock ; stock=1 : affiche tout (ajout).
+  // Exception : si un filtre état est explicitement choisi, on ne l'écrase pas.
+  const stateFilterIsStock = query.state && query.state.toLowerCase().includes('stock');
+  if (!stateFilterIsStock && (!query.stock || query.stock === '0')) rows = rows.filter((r) => !r.state || !r.state.toLowerCase().includes('stock'));
 
   const total = rows.length;
 
@@ -484,6 +497,40 @@ function computeUsagersEquip(allRows) {
   return [...map.values()].sort((a, b) => b.count - a.count);
 }
 
+const STOCK_STATUTS = ['En stock neuf', 'En stock', 'En stock masterisé'];
+
+function computeStockSummary(allRows) {
+  const stockRows = allRows.filter(r => !r.is_deleted && r.state && r.state.toLowerCase().includes('stock'));
+  const groups = {};
+  for (const r of stockRows) {
+    const mf = r.manufacturer || '—';
+    const md = r.model || '—';
+    const il = r.itemtype_label || '—';
+    const key = `${il}||${mf}||${md}`;
+    if (!groups[key]) groups[key] = {
+      manufacturer: mf, model: md, itemtype_label: il, type_key: r.type_key,
+      'En stock neuf': 0, 'En stock': 0, 'En stock masterisé': 0,
+      total: 0, countAge: 0, sumAge: 0,
+    };
+    const st = r.state || '';
+    if (STOCK_STATUTS.includes(st)) groups[key][st]++;
+    else groups[key]['En stock']++;
+    groups[key].total++;
+    const recDate = r.reception_date || r.warranty_date;
+    if (recDate) {
+      const age = (Date.now() - new Date(recDate).getTime()) / 86400000 / 365.25;
+      if (age >= 0) { groups[key].sumAge += age; groups[key].countAge++; }
+    }
+  }
+  const out = Object.values(groups).sort((a, b) =>
+    (a.itemtype_label || '').localeCompare(b.itemtype_label || '') ||
+    (a.manufacturer || '').localeCompare(b.manufacturer || '') ||
+    b.total - a.total
+  );
+  for (const g of out) g.age_moyen = g.countAge > 0 ? Math.round((g.sumAge / g.countAge) * 10) / 10 : null;
+  return out;
+}
+
 // ── Handlers LIVE ──────────────────────────────────────────────────────────────
 async function list(req, res) {
   try {
@@ -593,6 +640,6 @@ module.exports = {
   core: {
     normalize, mergeInfocom, mapPort, mapOs, mapDoc,
     applyListQuery, buildFilters, computeKpis, buildItemResponse, attachUsagerEmails,
-    enrichAdFound, computeUsagersEquip,
+    enrichAdFound, computeUsagersEquip, computeStockSummary,
   },
 };

@@ -192,6 +192,13 @@ async function updateContactNum(req, res) {
   } catch (error) { res.status(500).json({ message: error.message }); }
 }
 
+async function stockSummary(req, res) {
+  try {
+    const rows = await loadAllTypesHub({});
+    res.json({ source: 'hub', groups: core.computeStockSummary(rows) });
+  } catch (error) { res.status(500).json({ message: error.message }); }
+}
+
 async function health(req, res) {
   try {
     const r = await pool.query(`SELECT COUNT(*)::int n, MAX(last_sync) AS last FROM hub_parc.items`);
@@ -308,4 +315,4 @@ async function updateContact(req, res) {
   } catch (error) { res.status(500).json({ message: error.message }); }
 }
 
-module.exports = { list, item, kpis, filters, health, usagersEquip, byEmail, clearHubCache, updateContactNum, swapContact, adLookup, updateContact };
+module.exports = { list, item, kpis, filters, health, usagersEquip, byEmail, clearHubCache, updateContactNum, stockSummary, swapContact, adLookup, updateContact };

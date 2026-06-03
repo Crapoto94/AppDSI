@@ -35,10 +35,10 @@ interface Row {
   state: string | null; location: string | null; user: string | null;
   contact: string | null; contact_num: string | null; contact_email: string | null; doc_count: number;
   ad_found: boolean; itemtype_label: string | null; type_key: string | null;
-  age_source: 'use_date' | 'buy_date' | 'reception' | null;
+  age_source: 'delivery' | 'buy_date' | null;
   group: string | null; user_tech: string | null; date_mod: string | null;
   network: string | null; uuid: string | null; supplier: string | null;
-  value: number | null; buy_date: string | null; reception_date: string | null; service_date: string | null;
+  value: number | null; buy_date: string | null; delivery_date: string | null; reception_date: string | null; service_date: string | null;
   age_years: number | null;
   os: string | null; os_version: string | null;
 }
@@ -69,6 +69,12 @@ interface Kpis {
 const eur = (n: number | null | undefined) =>
   n == null ? '—' : n.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 });
 
+const fmtDate = (s: string | null | undefined): string | null => {
+  if (!s) return null;
+  const [y, m, d] = s.substring(0, 10).split('-');
+  return `${d}/${m}/${y}`;
+};
+
 // ─── Helpers ────────────────────────────────────────────────────────────────
 const v = (x: any) => (x === null || x === undefined || x === '') ? <span style={{ color: '#cbd5e1' }}>—</span> : x;
 
@@ -77,7 +83,7 @@ const ParcInformatique: React.FC = () => {
   const [source, setSource] = useState<'live' | 'hub'>('hub');
   const api = axios.create({ baseURL: `/api/parc/${source}`, headers: { Authorization: `Bearer ${token}` } });
 
-  const [tab, setTab] = useState<'dashboard' | 'list' | 'usagers' | 'geo'>('dashboard');
+  const [tab, setTab] = useState<'dashboard' | 'list' | 'stock' | 'usagers' | 'geo'>('dashboard');
   const [kpis, setKpis] = useState<Kpis | null>(null);
   const [kpiErr, setKpiErr] = useState<string | null>(null);
   const [loadingKpi, setLoadingKpi] = useState(false);
@@ -101,6 +107,7 @@ const ParcInformatique: React.FC = () => {
   const [fGroup, setFGroup] = useState('');
   const [fAd, setFAd] = useState<'' | '1' | '0'>();
   const [fDocs, setFDocs] = useState(false);
+  const [fStock, setFStock] = useState(false);
   // Tri des colonnes
   const [sortCol, setSortCol] = useState('name');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
@@ -121,6 +128,14 @@ const ParcInformatique: React.FC = () => {
   const [contactItems, setContactItems] = useState<Row[]>([]);
   const [loadingContact, setLoadingContact] = useState(false);
   const [searchUsager, setSearchUsager] = useState('');
+
+  // Stock
+  const [stockGroups, setStockGroups] = useState<any[]>([]);
+  const [loadingStock, setLoadingStock] = useState(false);
+  const [stockErr, setStockErr] = useState<string | null>(null);
+  const [fStockType, setFStockType] = useState('');
+  const [fStockMan, setFStockMan] = useState('');
+  const [stockExpanded, setStockExpanded] = useState<Set<string>>(new Set());
 
   // Détail
   const [detail, setDetail] = useState<any | null>(null);
@@ -148,7 +163,7 @@ const ParcInformatique: React.FC = () => {
         q, start, limit, affecte: affecte || undefined,
         location: fLocation || undefined, state: fState || undefined, manufacturer: fMan || undefined,
         supplier: fSupplier || undefined, mise: fMise || undefined, group: fGroup || undefined,
-        ad: fAd || undefined, docs: fDocs ? '1' : undefined,
+        ad: fAd || undefined, docs: fDocs ? '1' : undefined, stock: fStock ? '1' : '0',
         sort: sortCol, dir: sortDir,
         refresh: refresh ? 1 : undefined,
       } });
@@ -156,7 +171,7 @@ const ParcInformatique: React.FC = () => {
     } catch (e: any) {
       setListErr(e.response?.data?.message || e.message); setRows([]); setTotal(0);
     } finally { setLoadingList(false); }
-  }, [type, q, start, limit, affecte, fLocation, fState, fMan, fSupplier, fMise, fAd, fDocs, fGroup, sortCol, sortDir, token, source]);
+  }, [type, q, start, limit, affecte, fLocation, fState, fMan, fSupplier, fMise, fAd, fDocs, fStock, fGroup, sortCol, sortDir, token, source]);
 
   const loadFilters = useCallback(async () => {
     try {
@@ -168,8 +183,8 @@ const ParcInformatique: React.FC = () => {
   // Efface les erreurs résiduelles quand on bascule de source (live ↔ hub)
   useEffect(() => { setKpiErr(null); setListErr(null); setUsagerErr(null); }, [source]);
   useEffect(() => { loadKpis(); }, [loadKpis]);
-  useEffect(() => { if (tab === 'list') { loadList(); } }, [tab, type, start, affecte, fLocation, fState, fMan, fSupplier, fMise, fAd, fDocs, fGroup, sortCol, sortDir, source]);
-  useEffect(() => { if (tab === 'list') { setStart(0); setFLocation(''); setFState(''); setFMan(''); setFSupplier(''); setFMise(''); setFAd(undefined); setFDocs(false); setFGroup(''); setSortCol('name'); setSortDir('asc'); loadFilters(); } }, [type, tab, source]);
+  useEffect(() => { if (tab === 'list') { loadList(); } }, [tab, type, start, affecte, fLocation, fState, fMan, fSupplier, fMise, fAd, fDocs, fStock, fGroup, sortCol, sortDir, source]);
+  useEffect(() => { if (tab === 'list') { setStart(0); setFLocation(''); setFState(''); setFMan(''); setFSupplier(''); setFMise(''); setFAd(undefined); setFDocs(false); setFStock(false); setFGroup(''); setSortCol('name'); setSortDir('asc'); loadFilters(); } }, [type, tab, source]);
 
   const loadGeo = useCallback(async () => {
     setLoadingGeo(true); setGeoErr(null);
@@ -264,13 +279,25 @@ const ParcInformatique: React.FC = () => {
     finally { setLoadingContact(false); }
   };
 
+  // ── Stock ──
+  const loadStock = useCallback(async () => {
+    setLoadingStock(true); setStockErr(null);
+    try {
+      const r = await axios.get('/api/parc/hub/stock-summary', { headers: { Authorization: `Bearer ${token}` } });
+      setStockGroups(r.data.groups || []);
+    } catch (e: any) {
+      setStockErr(e.response?.data?.message || e.message); setStockGroups([]);
+    } finally { setLoadingStock(false); }
+  }, [token]);
+
   useEffect(() => { if (tab === 'usagers') loadUsagers(); }, [tab, source]);
+  useEffect(() => { if (tab === 'stock') loadStock(); }, [tab, loadStock]);
 
   // ─── Rendu ──────────────────────────────────────────────────────────────────
   return (
     <div style={{ minHeight: '100vh', background: C.bg }}>
       <Header />
-      <div style={{ maxWidth: 1340, margin: '0 auto', padding: '24px 20px 60px' }}>
+      <div style={{ maxWidth: 1800, margin: '0 auto', padding: '24px 16px 60px' }}>
 
         {/* Titre */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12, marginBottom: 20 }}>
@@ -309,7 +336,7 @@ const ParcInformatique: React.FC = () => {
                 }}><I size={14} /> {l}</button>
               ))}
             </div>
-            <button onClick={() => tab === 'dashboard' ? loadKpis(true) : tab === 'usagers' ? loadUsagers() : tab === 'geo' ? loadGeo() : loadList(true)}
+            <button onClick={() => tab === 'dashboard' ? loadKpis(true) : tab === 'stock' ? loadStock() : tab === 'usagers' ? loadUsagers() : tab === 'geo' ? loadGeo() : loadList(true)}
               style={btn(C.blue)}>
               <RefreshCw size={15} className={loadingKpi || loadingList || loadingUsagers ? 'spin' : ''} /> Actualiser
             </button>
@@ -318,7 +345,7 @@ const ParcInformatique: React.FC = () => {
 
         {/* Onglets */}
         <div style={{ display: 'flex', gap: 6, marginBottom: 22, borderBottom: `1px solid ${C.border}` }}>
-          {[{ k: 'dashboard', l: 'Tableau de bord', i: BarChart3 }, { k: 'list', l: 'Équipements', i: List }, { k: 'usagers', l: 'Usagers', i: Users }, { k: 'geo', l: 'Géo', i: MapPin }].map(t => {
+          {[{ k: 'dashboard', l: 'Tableau de bord', i: BarChart3 }, { k: 'list', l: 'Équipements', i: List }, { k: 'stock', l: 'Stock', i: Boxes }, { k: 'usagers', l: 'Usagers', i: Users }, { k: 'geo', l: 'Géo', i: MapPin }].map(t => {
             const I = t.i; const active = tab === t.k;
             return (
               <button key={t.k} onClick={() => setTab(t.k as any)} style={{
@@ -516,6 +543,10 @@ const ParcInformatique: React.FC = () => {
                 <input type="checkbox" checked={fDocs} onChange={e => { setStart(0); setFDocs(e.target.checked); }} style={{ accentColor: C.blue, width: 14, height: 14 }} />
                 <FileText size={14} /> Avec documents
               </label>
+              <label style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '8px 13px', borderRadius: 10, border: `1px solid ${fStock ? C.amber : C.border}`, background: fStock ? '#fffbeb' : '#fff', cursor: 'pointer', fontWeight: 700, fontSize: '.85rem', color: fStock ? C.amber : C.slate, userSelect: 'none' }}>
+                <input type="checkbox" checked={fStock} onChange={e => { setStart(0); setFStock(e.target.checked); }} style={{ accentColor: '#d97706', width: 14, height: 14 }} />
+                <Boxes size={14} /> Inclure stock
+              </label>
               <button onClick={() => { setStart(0); loadList(); }} style={btn(C.blue)}>Rechercher</button>
             </div>
 
@@ -537,10 +568,10 @@ const ParcInformatique: React.FC = () => {
                   const extraCol: HdrDef | null =
                     type === 'peripheriques' ? ['Type', 'type'] :
                     (type === 'ordinateurs' || type === 'moniteurs') ? ['Marque', 'manufacturer'] : null;
-                  const colSpan = (isTous ? 14 : 13) + (extraCol ? 1 : 0);
+                  const colSpan = (isTous ? 15 : 14) + (extraCol ? 1 : 0);
                   const hdrs: HdrDef[] = isTous
-                    ? [['Nom','name'],['Type',null],['Usager','contact'],['N° usager','contact_num'],['Groupe','group'],['Lieu','location'],['Modèle','model'],['N° série','serial'],['Statut','state'],['Mise en service','service_date'],['Âge','age_years'],['Docs','doc_count'],[''  ,null]]
-                    : [['Nom','name'],['Usager','contact'],['N° usager','contact_num'],['Groupe','group'],['Lieu','location'],...(extraCol ? [extraCol] : []),['Modèle','model'],['N° série','serial'],['Statut','state'],['Mise en service','service_date'],['Âge','age_years'],['Docs','doc_count'],['' ,null]];
+                    ? [['Nom','name'],['Type',null],['Usager','contact'],['N° usager','contact_num'],['Groupe','group'],['Lieu','location'],['Modèle','model'],['N° série','serial'],['Statut','state'],['Réception','reception_date'],['Mise en service','service_date'],['Âge','age_years'],['Docs','doc_count'],[''  ,null]]
+                    : [['Nom','name'],['Usager','contact'],['N° usager','contact_num'],['Groupe','group'],['Lieu','location'],...(extraCol ? [extraCol] : []),['Modèle','model'],['N° série','serial'],['Statut','state'],['Réception','reception_date'],['Mise en service','service_date'],['Âge','age_years'],['Docs','doc_count'],['' ,null]];
                   const thSort = (key: string | null) => {
                     if (!key) return;
                     if (sortCol === key) { setSortDir(d => d === 'asc' ? 'desc' : 'asc'); }
@@ -604,20 +635,19 @@ const ParcInformatique: React.FC = () => {
                         <td style={{ padding: '10px 14px', color: C.slate }}>{v(r.model)}</td>
                         <td style={{ padding: '10px 14px', fontFamily: 'monospace', fontSize: '.8rem' }}>{v(r.serial)}</td>
                         <td style={{ padding: '10px 14px' }}>{r.state ? <span style={{ background: '#eff6ff', color: C.blue, padding: '2px 8px', borderRadius: 6, fontSize: '.78rem', fontWeight: 600 }}>{r.state}</span> : v(null)}</td>
+                        <td style={{ padding: '10px 14px', fontFamily: 'monospace', fontSize: '.8rem', color: C.slate }}>{v(fmtDate(r.reception_date))}</td>
                         <td style={{ padding: '10px 14px' }}>
                           {r.service_date
-                            ? <span style={{ fontFamily: 'monospace', fontSize: '.8rem', fontWeight: 600, color: C.slate }}>{r.service_date}</span>
+                            ? <span style={{ fontFamily: 'monospace', fontSize: '.8rem', fontWeight: 600, color: C.slate }}>{fmtDate(r.service_date)}</span>
                             : <span style={{ color: '#cbd5e1' }}>—</span>}
                         </td>
                         <td style={{ padding: '10px 14px' }}>
                           {r.age_years != null
                             ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, color: C.slate }}>
-                                {r.age_source === 'use_date'
-                                  ? <span title="Calculé depuis la date de mise en service (use_date)"><CalendarCheck2 size={13} color={C.green} /></span>
+                                {r.age_source === 'delivery'
+                                  ? <span title="Calculé depuis la date de réception"><CalendarCheck2 size={13} color={C.green} /></span>
                                   : r.age_source === 'buy_date'
                                   ? <span title="Calculé depuis la date d'achat"><CalendarDays size={13} color={C.amber} /></span>
-                                  : r.age_source === 'reception'
-                                  ? <span title="Calculé depuis la date de réception du matériel"><CalendarDays size={13} color={C.green} /></span>
                                   : null}
                                 {r.age_years} an{r.age_years >= 2 ? 's' : ''}
                               </span>
@@ -648,6 +678,106 @@ const ParcInformatique: React.FC = () => {
                 </div>
               )}
             </div>
+          </>
+        )}
+
+        {/* ─── STOCK ─── */}
+        {tab === 'stock' && (
+          <>
+            {stockErr && <ErrBox msg={stockErr} source={source} />}
+            {loadingStock && <Loading label="Chargement du stock…" />}
+            {!loadingStock && !stockErr && (() => {
+              const stockTypes = [...new Set(stockGroups.map(g => g.itemtype_label).filter(Boolean))].sort();
+              const stockMans  = [...new Set(stockGroups.map(g => g.manufacturer).filter(m => m && m !== '—'))].sort();
+              const filtered   = stockGroups
+                .filter(g => !fStockType || g.itemtype_label === fStockType)
+                .filter(g => !fStockMan  || g.manufacturer  === fStockMan);
+              const totalFiltered = filtered.reduce((s, g) => s + g.total, 0);
+              // Regroupement par type
+              const byType: Record<string, any[]> = {};
+              for (const g of filtered) {
+                const t = g.itemtype_label || '—';
+                if (!byType[t]) byType[t] = [];
+                byType[t].push(g);
+              }
+              const thSt: React.CSSProperties = { padding: '10px 14px', fontWeight: 700, fontSize: '.78rem', textTransform: 'uppercase', letterSpacing: '.02em', textAlign: 'center' as const };
+              return (
+                <div style={{ background: C.card, borderRadius: 14, border: `1px solid ${C.border}`, overflow: 'hidden' }}>
+                  {/* Filtres */}
+                  <div style={{ padding: '12px 16px', borderBottom: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                    <select value={fStockType} onChange={e => setFStockType(e.target.value)} style={selStyle}>
+                      <option value="">Tous les types</option>
+                      {stockTypes.map(t => <option key={t} value={t}>{t}</option>)}
+                    </select>
+                    <select value={fStockMan} onChange={e => setFStockMan(e.target.value)} style={selStyle}>
+                      <option value="">Toutes les marques</option>
+                      {stockMans.map(m => <option key={m} value={m}>{m}</option>)}
+                    </select>
+                    {(fStockType || fStockMan) && (
+                      <button onClick={() => { setFStockType(''); setFStockMan(''); }} style={{ ...btn(C.slate), background: '#f1f5f9', color: C.text, padding: '7px 12px' }}>
+                        <X size={13} /> Effacer
+                      </button>
+                    )}
+                    <span style={{ marginLeft: 'auto', fontSize: '.82rem', color: C.slate }}>
+                      <b style={{ color: C.text }}>{totalFiltered}</b> matériel(s) en stock
+                    </span>
+                  </div>
+                  <div style={{ overflowX: 'auto' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '.86rem' }}>
+                      <thead>
+                        <tr style={{ background: '#f8fafc', textAlign: 'left', color: C.slate }}>
+                          <th style={{ padding: '10px 14px', fontWeight: 700, fontSize: '.78rem', textTransform: 'uppercase', letterSpacing: '.02em' }}>Marque</th>
+                          <th style={{ padding: '10px 14px', fontWeight: 700, fontSize: '.78rem', textTransform: 'uppercase', letterSpacing: '.02em' }}>Modèle</th>
+                          <th style={{ ...thSt, color: '#059669' }}>Neuf</th>
+                          <th style={{ ...thSt, color: C.blue }}>En stock</th>
+                          <th style={{ ...thSt, color: '#7c3aed' }}>Masterisé</th>
+                          <th style={{ padding: '10px 14px', fontWeight: 700, fontSize: '.78rem', textTransform: 'uppercase', letterSpacing: '.02em', textAlign: 'center' }}>Âge moyen</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {Object.entries(byType).map(([typeLabel, groups]) => {
+                          const open = stockExpanded.has(typeLabel);
+                          const typeTotal = (groups as any[]).reduce((s: number, g: any) => s + g.total, 0);
+                          const toggle = () => setStockExpanded(prev => {
+                            const next = new Set(prev);
+                            open ? next.delete(typeLabel) : next.add(typeLabel);
+                            return next;
+                          });
+                          return (
+                            <React.Fragment key={typeLabel}>
+                              <tr onClick={toggle} style={{ background: '#f1f5f9', cursor: 'pointer', userSelect: 'none' }}
+                                onMouseEnter={e => (e.currentTarget.style.background = '#e8eef6')}
+                                onMouseLeave={e => (e.currentTarget.style.background = '#f1f5f9')}>
+                                <td colSpan={6} style={{ padding: '8px 14px', fontWeight: 800, fontSize: '.78rem', color: C.blue, textTransform: 'uppercase', letterSpacing: '.04em' }}>
+                                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                                    <ChevronRight size={14} style={{ transition: 'transform .18s', transform: open ? 'rotate(90deg)' : 'rotate(0deg)' }} />
+                                    {typeLabel}
+                                    <span style={{ background: '#eff6ff', color: C.blue, borderRadius: 20, padding: '1px 8px', fontWeight: 700, fontSize: '.76rem', marginLeft: 4 }}>{typeTotal}</span>
+                                  </span>
+                                </td>
+                              </tr>
+                              {open && (groups as any[]).map((g: any, i: number) => (
+                                <tr key={i} style={{ borderTop: `1px solid ${C.border}` }}>
+                                  <td style={{ padding: '10px 14px', fontWeight: 600, color: C.text }}>{g.manufacturer}</td>
+                                  <td style={{ padding: '10px 14px', color: C.slate }}>{g.model}</td>
+                                  <td style={{ padding: '10px 14px', textAlign: 'center' }}>{g['En stock neuf'] ? <span style={{ background: '#f0fdf4', color: '#059669', padding: '2px 10px', borderRadius: 20, fontWeight: 700, fontSize: '.82rem' }}>{g['En stock neuf']}</span> : <span style={{ color: '#cbd5e1' }}>—</span>}</td>
+                                  <td style={{ padding: '10px 14px', textAlign: 'center' }}>{g['En stock'] ? <span style={{ background: '#eff6ff', color: C.blue, padding: '2px 10px', borderRadius: 20, fontWeight: 700, fontSize: '.82rem' }}>{g['En stock']}</span> : <span style={{ color: '#cbd5e1' }}>—</span>}</td>
+                                  <td style={{ padding: '10px 14px', textAlign: 'center' }}>{g['En stock masterisé'] ? <span style={{ background: '#f5f3ff', color: '#7c3aed', padding: '2px 10px', borderRadius: 20, fontWeight: 700, fontSize: '.82rem' }}>{g['En stock masterisé']}</span> : <span style={{ color: '#cbd5e1' }}>—</span>}</td>
+                                  <td style={{ padding: '10px 14px', textAlign: 'center', color: C.slate, fontSize: '.82rem' }}>{g.age_moyen != null ? `${g.age_moyen} an${g.age_moyen >= 2 ? 's' : ''}` : <span style={{ color: '#cbd5e1' }}>—</span>}</td>
+                                </tr>
+                              ))}
+                            </React.Fragment>
+                          );
+                        })}
+                        {filtered.length === 0 && (
+                          <tr><td colSpan={6} style={{ padding: 40, textAlign: 'center', color: C.slate }}>Aucun matériel en stock.</td></tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              );
+            })()}
           </>
         )}
 
