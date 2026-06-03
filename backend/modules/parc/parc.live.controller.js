@@ -518,8 +518,8 @@ function computeStockSummary(allRows) {
     const bucket = STOCK_STATUTS.includes(st) ? st : 'En stock';
     groups[key][bucket]++;
     groups[key].total++;
-    // Détail de l'équipement (limité à 30 par bucket)
-    if (groups[key].items[bucket].length < 30) {
+    // Détail de l'équipement (tous les items)
+    {
       groups[key].items[bucket].push({
         name: r.name || null,
         serial: r.serial || null,

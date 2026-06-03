@@ -1084,24 +1084,36 @@ const ParcInformatique: React.FC = () => {
       <style>{`@keyframes spin{to{transform:rotate(360deg)}}.spin{animation:spin 1s linear infinite}`}</style>
 
       {/* ── Tooltip stock ───────────────────────────────────────────────────── */}
-      {stockTooltip && (
-        <div style={{ position: 'fixed', left: stockTooltip.x, top: stockTooltip.y, transform: 'translateX(-50%)', zIndex: 3000, background: '#1e293b', color: '#f1f5f9', borderRadius: 10, padding: '10px 14px', fontSize: '.8rem', minWidth: 240, maxWidth: 340, boxShadow: '0 8px 32px rgba(0,0,0,.35)', pointerEvents: 'none' }}>
-          <div style={{ fontWeight: 700, marginBottom: 8, color: '#fff' }}>{stockTooltip.statut} · {stockTooltip.total} unité{stockTooltip.total > 1 ? 's' : ''}</div>
-          {stockTooltip.items.map((it: any, i: number) => (
-            <div key={i} style={{ display: 'flex', flexDirection: 'column', gap: 1, padding: '4px 0', borderTop: i > 0 ? '1px solid #334155' : 'none' }}>
-              <span style={{ fontWeight: 600, color: '#e2e8f0' }}>{it.name || '(sans nom)'}</span>
-              <span style={{ color: '#94a3b8', fontSize: '.75rem' }}>
-                {it.serial ? `S/N : ${it.serial}` : 'S/N : —'}
-                {it.reception_date ? `  ·  Réception : ${fmtDate(it.reception_date)}` : ''}
-                {it.location ? `  ·  ${it.location}` : ''}
-              </span>
+      {stockTooltip && (() => {
+        const sorted = [...stockTooltip.items].sort((a: any, b: any) => {
+          if (!!a.serial !== !!b.serial) return a.serial ? -1 : 1;
+          return (a.serial || a.name || '').localeCompare(b.serial || b.name || '');
+        });
+        const maxH = 340;
+        const spaceBelow = window.innerHeight - stockTooltip.y;
+        const top = spaceBelow > maxH + 20 ? stockTooltip.y : stockTooltip.y - maxH - 36;
+        return (
+          <div style={{ position: 'fixed', left: Math.min(stockTooltip.x, window.innerWidth - 355), top, transform: 'translateX(-50%)', zIndex: 3000, background: '#1e293b', color: '#f1f5f9', borderRadius: 10, padding: '10px 0', fontSize: '.8rem', width: 340, boxShadow: '0 8px 32px rgba(0,0,0,.35)', pointerEvents: 'none' }}>
+            <div style={{ fontWeight: 700, color: '#fff', padding: '0 14px 8px', borderBottom: '1px solid #334155' }}>
+              {stockTooltip.statut} · {stockTooltip.total} unité{stockTooltip.total > 1 ? 's' : ''}
             </div>
-          ))}
-          {stockTooltip.total > stockTooltip.items.length && (
-            <div style={{ marginTop: 6, color: '#64748b', fontSize: '.75rem' }}>… et {stockTooltip.total - stockTooltip.items.length} autre{stockTooltip.total - stockTooltip.items.length > 1 ? 's' : ''}</div>
-          )}
-        </div>
-      )}
+            <div style={{ maxHeight: maxH, overflowY: 'auto', padding: '4px 0' }}>
+              {sorted.map((it: any, i: number) => (
+                <div key={i} style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: '0 8px', padding: '5px 14px', borderTop: i > 0 ? '1px solid #243249' : 'none' }}>
+                  <div>
+                    <div style={{ fontFamily: 'monospace', fontWeight: 700, color: '#e2e8f0', fontSize: '.78rem' }}>{it.serial || '—'}</div>
+                    {it.name && <div style={{ color: '#94a3b8', fontSize: '.72rem' }}>{it.name}</div>}
+                    {it.location && <div style={{ color: '#64748b', fontSize: '.72rem' }}>{it.location}</div>}
+                  </div>
+                  <div style={{ color: '#94a3b8', fontSize: '.75rem', whiteSpace: 'nowrap', textAlign: 'right' }}>
+                    {it.reception_date ? fmtDate(it.reception_date) : '—'}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      })()}
 
       {/* ── Modal Recherche AD ──────────────────────────────────────────────── */}
     {adModal && (
