@@ -59,12 +59,11 @@ function normalize(itemtype, it) {
     is_deleted: it.is_deleted == 1 || it.is_deleted === true,
     date_creation: str(it.date_creation),
     date_mod: str(it.date_mod),
-    // Champs financiers/garantie — remplis par mergeInfocom()
+    // Champs financiers / mise en service — remplis par mergeInfocom()
     buy_date: null, use_date: null, service_date: null,
-    warranty_duration: null, warranty_end: null, warranty_days: null, warranty_status: 'inconnue',
     supplier: null, value: null, order_number: null, immo_number: null,
     age_years: null,
-    age_source: null,   // 'use_date' | 'buy_date' | null
+    age_source: null,   // 'use_date' | 'buy_date' | 'mise_en_service' | null
     os: null, os_version: null,
     doc_count: 0,
     ad_found: false,          // enrichi par enrichAdFound()
@@ -72,10 +71,10 @@ function normalize(itemtype, it) {
   };
 }
 
-// Fusionne les données Infocom (achat / garantie / valeur / fournisseur) ────────
-// et calcule l'état de garantie + l'âge réel de l'équipement.
+// Fusionne les données Infocom (achat / mise en service / valeur / fournisseur) ──
+// et calcule l'âge réel de l'équipement à partir de la date de mise en service.
 function mergeInfocom(r, ic, now = new Date()) {
-  let serviceDate = null, warrantyEnd = null;
+  let serviceDate = null;
   if (ic) {
     r.buy_date = str(ic.buy_date);
     r.use_date = str(ic.use_date);
@@ -83,39 +82,20 @@ function mergeInfocom(r, ic, now = new Date()) {
     r.order_number = str(ic.order_number);
     r.immo_number = str(ic.immo_number);
     r.value = num(ic.value);
-    r.warranty_duration = (ic.warranty_duration === undefined || ic.warranty_duration === null)
-      ? null : Number(ic.warranty_duration);
 
-    // Date de mise en service (référence pour l'âge) : use_date prime sur buy_date.
+    // ⚠️ Dans ce parc, le champ GLPI `warranty_date` contient en réalité la
+    // DATE DE MISE EN SERVICE (et non une garantie). On l'utilise comme telle.
     const parsedUse = parseDate(r.use_date);
     const parsedBuy = parseDate(r.buy_date);
-    serviceDate = parsedUse || parsedBuy;
-    r.age_source = parsedUse ? 'use_date' : (parsedBuy ? 'buy_date' : null);
+    const parsedMes = parseDate(str(ic.warranty_date)); // date de mise en service
 
-    // Fin de garantie : date explicite si fournie, sinon service + durée (mois).
-    const wdate = parseDate(str(ic.warranty_date));
-    if (wdate) warrantyEnd = wdate;
-    else if (serviceDate && r.warranty_duration > 0) warrantyEnd = addMonths(serviceDate, r.warranty_duration);
-
-    // Si la date de service manque mais que la fin de garantie est connue,
-    // on la reconstitue : service = fin de garantie − durée (cas du PO20463).
-    if (!serviceDate && warrantyEnd && r.warranty_duration > 0) {
-      serviceDate = addMonths(warrantyEnd, -r.warranty_duration);
-      r.age_source = 'warranty'; // âge estimé par reconstruction depuis la garantie
-    }
-
-    if (warrantyEnd) {
-      r.warranty_end = iso(warrantyEnd);
-      const days = Math.round((warrantyEnd.getTime() - now.getTime()) / 86400000);
-      r.warranty_days = days;
-      r.warranty_status = days < 0 ? 'expiree' : days <= 90 ? 'bientot' : 'active';
-    } else if (r.warranty_duration === -1) {
-      r.warranty_status = 'illimitee';
-    }
+    // Date de référence pour l'âge : mise en service explicite > achat > champ "mise en service".
+    serviceDate = parsedUse || parsedBuy || parsedMes;
+    r.age_source = parsedUse ? 'use_date' : parsedBuy ? 'buy_date' : parsedMes ? 'mise_en_service' : null;
   }
 
   r.service_date = iso(serviceDate);
-  // Âge basé uniquement sur une date d'acquisition réelle (jamais la date de création
+  // Âge basé uniquement sur la date de mise en service (jamais la date de création
   // de la fiche GLPI, qui correspond souvent à la date d'import et fausserait l'âge).
   if (serviceDate) {
     r.age_years = Math.round(((now.getTime() - serviceDate.getTime()) / 86400000 / 365.25) * 10) / 10;
@@ -175,7 +155,8 @@ function applyListQuery(rows, query) {
   const like = (field, val) => { if (val) { const s = String(val).toLowerCase(); rows = rows.filter((r) => r[field] && r[field].toLowerCase().includes(s)); } };
   like('contact', query.contact);
   like('contact_num', query.contact_num);
-  if (query.warranty) rows = rows.filter((r) => r.warranty_status === query.warranty);
+  if (query.mise === 'connue') rows = rows.filter((r) => !!r.service_date);
+  else if (query.mise === 'inconnue') rows = rows.filter((r) => !r.service_date);
   if (query.affecte === '1') rows = rows.filter((r) => !!r.user);
   if (query.affecte === '0') rows = rows.filter((r) => !r.user);
   if (query.renouveler === '1') rows = rows.filter((r) => r.age_years != null && r.age_years >= 5);
@@ -187,7 +168,7 @@ function applyListQuery(rows, query) {
 
   const sort = query.sort || 'name';
   const dir = (query.dir === 'desc') ? -1 : 1;
-  const numericFields = new Set(['age_years', 'warranty_days', 'value']);
+  const numericFields = new Set(['age_years', 'value']);
   rows = rows.slice().sort((a, b) => {
     if (numericFields.has(sort)) {
       const av = a[sort] == null ? -Infinity : a[sort];
@@ -199,6 +180,10 @@ function applyListQuery(rows, query) {
     return av < bv ? -dir : av > bv ? dir : 0;
   });
 
+  // Mode « tout » (vue géo / exports) : pas de pagination, on renvoie toutes les lignes.
+  if (query.all === '1' || query.all === 'true' || query.limit === 'all') {
+    return { total, start: 0, limit: total, rows };
+  }
   const start = Math.max(0, parseInt(query.start, 10) || 0);
   const limit = Math.min(500, Math.max(1, parseInt(query.limit, 10) || 50));
   return { total, start, limit, rows: rows.slice(start, start + limit) };
@@ -241,11 +226,6 @@ function ageBuckets(rows) {
   }
   return Object.entries(b).map(([label, count]) => ({ label, count }));
 }
-function warrantySummary(rows) {
-  const s = { active: 0, bientot: 0, expiree: 0, illimitee: 0, inconnue: 0 };
-  for (const r of rows) s[r.warranty_status] = (s[r.warranty_status] || 0) + 1;
-  return s;
-}
 function sumValue(rows) { return Math.round(rows.reduce((s, r) => s + (r.value || 0), 0) * 100) / 100; }
 function countDuplicateSerials(rows) {
   const m = new Map();
@@ -270,7 +250,7 @@ function computeKpis(lists) {
   const sansSerie = pcs.filter((r) => !r.serial).length;
   const sansInventaire = pcs.filter((r) => !r.otherserial).length;
   const sansLieu = pcs.filter((r) => !r.location).length;
-  const sansGarantie = pcs.filter((r) => r.warranty_status === 'inconnue').length;
+  const sansMiseEnService = pcs.filter((r) => !r.service_date).length;
   const doublonsSerie = countDuplicateSerials(pcs);
 
   const parAnnee = {};
@@ -284,7 +264,7 @@ function computeKpis(lists) {
   const ages = pcs.map((r) => r.age_years).filter((a) => a != null);
   const ageMoyen = ages.length ? Math.round((ages.reduce((s, a) => s + a, 0) / ages.length) * 10) / 10 : null;
   const aRenouveler = pcs.filter((r) => r.age_years != null && r.age_years >= 5).length;
-  const garantie = warrantySummary(pcs);
+  const miseEnServiceConnue = nbPc - sansMiseEnService;
 
   return {
     generatedAt: new Date().toISOString(),
@@ -294,9 +274,9 @@ function computeKpis(lists) {
       valeur: sumValue(pcs),
       qualite: {
         tauxSerie: pct(nbPc - sansSerie, nbPc), tauxInventaire: pct(nbPc - sansInventaire, nbPc),
-        tauxLieu: pct(nbPc - sansLieu, nbPc), sansSerie, sansInventaire, sansLieu, sansGarantie, doublonsSerie,
+        tauxLieu: pct(nbPc - sansLieu, nbPc), sansSerie, sansInventaire, sansLieu, sansMiseEnService, doublonsSerie,
       },
-      garantie: { ...garantie, sousGarantie: garantie.active + garantie.bientot, tauxSousGarantie: pct(garantie.active + garantie.bientot, nbPc) },
+      miseEnService: { connue: miseEnServiceConnue, inconnue: sansMiseEnService, tauxConnue: pct(miseEnServiceConnue, nbPc) },
       age: { moyen: ageMoyen, aRenouveler, tauxRenouveler: pct(aRenouveler, nbPc), tranches: ageBuckets(pcs) },
       parStatut: topCounts(pcs, 'state'),
       parLieu: topCounts(pcs, 'location'),
@@ -329,8 +309,6 @@ function buildItemResponse(itemtype, label, item, { infocom = null, network = []
     type: undefined, label, summary,
     infocom: infocom ? {
       buy_date: summary.buy_date, use_date: summary.use_date, service_date: summary.service_date,
-      warranty_end: summary.warranty_end, warranty_duration: summary.warranty_duration,
-      warranty_status: summary.warranty_status, warranty_days: summary.warranty_days,
       supplier: summary.supplier, value: summary.value,
       order_number: summary.order_number, immo_number: summary.immo_number,
     } : null,

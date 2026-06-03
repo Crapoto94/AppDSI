@@ -23,7 +23,7 @@ export default function ParcKpiWidget() {
     { label: 'Ordinateurs',       value: o?.total ?? '–', color: '#7c3aed' },
     { label: 'Affectés',          value: o ? `${o.affectes} (${o.tauxAffectation}%)` : '–', color: '#059669' },
     { label: 'À renouveler',      value: o ? `${o.age?.aRenouveler} (${o.age?.tauxRenouveler}%)` : '–', color: '#dc2626' },
-    { label: 'Sous garantie',     value: o ? `${o.garantie?.sousGarantie} (${o.garantie?.tauxSousGarantie}%)` : '–', color: '#0891b2' },
+    { label: 'Mise en service connue', value: o ? `${o.miseEnService?.connue} (${o.miseEnService?.tauxConnue}%)` : '–', color: '#0891b2' },
     { label: 'Âge moyen PC',      value: o?.age?.moyen != null ? `${o.age.moyen} ans` : '–', color: '#d97706' },
   ] : [];
 

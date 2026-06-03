@@ -10,7 +10,7 @@ import {
   Monitor, Laptop, Printer, HardDrive, Network, Phone, Search, X,
   RefreshCw, MapPin, User, Tag, Cpu, Activity, BarChart3, List,
   CheckCircle2, AlertTriangle, Layers, ChevronRight, Boxes,
-  Euro, ShieldCheck, ShieldAlert, Clock, Truck, Database, FileText, Users, CalendarCheck2, CalendarDays,
+  Euro, ShieldCheck, Clock, Truck, Database, FileText, Users, CalendarCheck2, CalendarDays,
 } from 'lucide-react';
 
 // ─── Constantes ─────────────────────────────────────────────────────────────
@@ -28,18 +28,17 @@ const COLORS = ['#2563eb', '#7c3aed', '#0891b2', '#059669', '#d97706', '#dc2626'
 const C = { blue: '#2563eb', slate: '#64748b', green: '#059669', amber: '#d97706', red: '#dc2626', bg: '#f1f5f9', card: '#fff', border: '#e2e8f0', text: '#0f172a' };
 
 // ─── Types ──────────────────────────────────────────────────────────────────
-type WarrantyStatus = 'active' | 'bientot' | 'expiree' | 'illimitee' | 'inconnue';
 interface Row {
   id: number; name: string | null; serial: string | null; otherserial: string | null;
   manufacturer: string | null; model: string | null; type: string | null;
   state: string | null; location: string | null; user: string | null;
   contact: string | null; contact_num: string | null; doc_count: number;
   ad_found: boolean; itemtype_label: string | null; type_key: string | null;
-  age_source: 'use_date' | 'buy_date' | 'warranty' | null;
+  age_source: 'use_date' | 'buy_date' | 'mise_en_service' | null;
   group: string | null; user_tech: string | null; date_mod: string | null;
   network: string | null; uuid: string | null; supplier: string | null;
-  value: number | null; buy_date: string | null; warranty_end: string | null;
-  warranty_days: number | null; warranty_status: WarrantyStatus; age_years: number | null;
+  value: number | null; buy_date: string | null; service_date: string | null;
+  age_years: number | null;
   os: string | null; os_version: string | null;
 }
 interface UsagerRow { contact: string; ad_found: boolean; count: number; by_type: Record<string, number> }
@@ -50,8 +49,8 @@ interface Kpis {
   byType: { key: string; label: string; count: number; value: number }[];
   ordinateurs: {
     total: number; affectes: number; nonAffectes: number; tauxAffectation: number; valeur: number;
-    qualite: { tauxSerie: number; tauxInventaire: number; tauxLieu: number; sansSerie: number; sansInventaire: number; sansLieu: number; sansGarantie: number; doublonsSerie: number };
-    garantie: { active: number; bientot: number; expiree: number; illimitee: number; inconnue: number; sousGarantie: number; tauxSousGarantie: number };
+    qualite: { tauxSerie: number; tauxInventaire: number; tauxLieu: number; sansSerie: number; sansInventaire: number; sansLieu: number; sansMiseEnService: number; doublonsSerie: number };
+    miseEnService: { connue: number; inconnue: number; tauxConnue: number };
     age: { moyen: number | null; aRenouveler: number; tauxRenouveler: number; tranches: Count[] };
     parStatut: Count[];
     parLieu: Count[];
@@ -64,14 +63,6 @@ interface Kpis {
   ratios: { moniteursParPc: number; peripheriquesParPc: number };
 }
 
-// Badge de garantie (couleur + libellé) ───────────────────────────────────────
-const WARRANTY_META: Record<WarrantyStatus, { label: string; color: string; bg: string }> = {
-  active:    { label: 'Sous garantie', color: '#15803d', bg: '#dcfce7' },
-  bientot:   { label: 'Expire bientôt', color: '#b45309', bg: '#fef3c7' },
-  expiree:   { label: 'Expirée',        color: '#b91c1c', bg: '#fee2e2' },
-  illimitee: { label: 'Illimitée',      color: '#1d4ed8', bg: '#dbeafe' },
-  inconnue:  { label: 'Inconnue',       color: '#64748b', bg: '#f1f5f9' },
-};
 const eur = (n: number | null | undefined) =>
   n == null ? '—' : n.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 });
 
@@ -103,7 +94,7 @@ const ParcInformatique: React.FC = () => {
   const [fState, setFState] = useState('');
   const [fMan, setFMan] = useState('');
   const [fSupplier, setFSupplier] = useState('');
-  const [fWarranty, setFWarranty] = useState('');
+  const [fMise, setFMise] = useState('');
   const [fGroup, setFGroup] = useState('');
   const [fAd, setFAd] = useState<'' | '1' | '0'>();
   const [fDocs, setFDocs] = useState(false);
@@ -117,6 +108,7 @@ const ParcInformatique: React.FC = () => {
   const [geoErr, setGeoErr] = useState<string | null>(null);
   const [geoExpanded, setGeoExpanded] = useState<Set<string>>(new Set());
   const [geoSelectedLoc, setGeoSelectedLoc] = useState<string | null>(null);
+  const [geoSelectedType, setGeoSelectedType] = useState<string | null>(null);
 
   // Usagers
   const [usagers, setUsagers] = useState<UsagerRow[]>([]);
@@ -148,7 +140,7 @@ const ParcInformatique: React.FC = () => {
       const r = await api.get(`/${type}`, { params: {
         q, start, limit, affecte: affecte || undefined,
         location: fLocation || undefined, state: fState || undefined, manufacturer: fMan || undefined,
-        supplier: fSupplier || undefined, warranty: fWarranty || undefined, group: fGroup || undefined,
+        supplier: fSupplier || undefined, mise: fMise || undefined, group: fGroup || undefined,
         ad: fAd || undefined, docs: fDocs ? '1' : undefined,
         sort: sortCol, dir: sortDir,
         refresh: refresh ? 1 : undefined,
@@ -157,7 +149,7 @@ const ParcInformatique: React.FC = () => {
     } catch (e: any) {
       setListErr(e.response?.data?.message || e.message); setRows([]); setTotal(0);
     } finally { setLoadingList(false); }
-  }, [type, q, start, limit, affecte, fLocation, fState, fMan, fSupplier, fWarranty, fAd, fDocs, fGroup, sortCol, sortDir, token, source]);
+  }, [type, q, start, limit, affecte, fLocation, fState, fMan, fSupplier, fMise, fAd, fDocs, fGroup, sortCol, sortDir, token, source]);
 
   const loadFilters = useCallback(async () => {
     try {
@@ -169,13 +161,13 @@ const ParcInformatique: React.FC = () => {
   // Efface les erreurs résiduelles quand on bascule de source (live ↔ hub)
   useEffect(() => { setKpiErr(null); setListErr(null); setUsagerErr(null); }, [source]);
   useEffect(() => { loadKpis(); }, [loadKpis]);
-  useEffect(() => { if (tab === 'list') { loadList(); } }, [tab, type, start, affecte, fLocation, fState, fMan, fSupplier, fWarranty, fAd, fDocs, fGroup, sortCol, sortDir, source]);
-  useEffect(() => { if (tab === 'list') { setStart(0); setFLocation(''); setFState(''); setFMan(''); setFSupplier(''); setFWarranty(''); setFAd(undefined); setFDocs(false); setFGroup(''); setSortCol('name'); setSortDir('asc'); loadFilters(); } }, [type, tab, source]);
+  useEffect(() => { if (tab === 'list') { loadList(); } }, [tab, type, start, affecte, fLocation, fState, fMan, fSupplier, fMise, fAd, fDocs, fGroup, sortCol, sortDir, source]);
+  useEffect(() => { if (tab === 'list') { setStart(0); setFLocation(''); setFState(''); setFMan(''); setFSupplier(''); setFMise(''); setFAd(undefined); setFDocs(false); setFGroup(''); setSortCol('name'); setSortDir('asc'); loadFilters(); } }, [type, tab, source]);
 
   const loadGeo = useCallback(async () => {
     setLoadingGeo(true); setGeoErr(null);
     try {
-      const r = await api.get('/tous', { params: { limit: 5000, deleted: '0' } });
+      const r = await api.get('/tous', { params: { all: 1, deleted: '0' } });
       setGeoRows(r.data.rows || []);
     } catch (e: any) { setGeoErr(e.response?.data?.message || e.message); setGeoRows([]); }
     finally { setLoadingGeo(false); }
@@ -328,29 +320,12 @@ const ParcInformatique: React.FC = () => {
                 {/* Indicateurs de gestion */}
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(165px,1fr))', gap: 14, marginBottom: 18 }}>
                   <StatCard icon={Euro} label="Valeur du parc" value={kpis.valeurParc} color="#0891b2" money />
-                  <StatCard icon={ShieldCheck} label="PC sous garantie" value={kpis.ordinateurs.garantie.sousGarantie}
-                    sub={`${kpis.ordinateurs.garantie.tauxSousGarantie}%`} color={C.green} />
-                  <StatCard icon={ShieldAlert} label="Garantie expirée" value={kpis.ordinateurs.garantie.expiree} color={C.red} />
+                  <StatCard icon={CalendarCheck2} label="Mise en service connue" value={kpis.ordinateurs.miseEnService.connue}
+                    sub={`${kpis.ordinateurs.miseEnService.tauxConnue}%`} color={C.green} />
                   <StatCard icon={Clock} label="Âge moyen PC"
                     value={kpis.ordinateurs.age.moyen ?? 0} suffix=" ans" color={C.slate} decimals />
                   <StatCard icon={RefreshCw} label="PC à renouveler (>5 ans)" value={kpis.ordinateurs.age.aRenouveler}
                     sub={`${kpis.ordinateurs.age.tauxRenouveler}%`} color={C.amber} />
-                </div>
-
-                {/* Garantie + âge */}
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 18 }}>
-                  <Panel title="État de garantie des ordinateurs" icon={ShieldCheck}>
-                    <PieBlock data={[
-                      { label: 'Sous garantie', count: kpis.ordinateurs.garantie.active },
-                      { label: 'Expire < 90 j', count: kpis.ordinateurs.garantie.bientot },
-                      { label: 'Expirée', count: kpis.ordinateurs.garantie.expiree },
-                      { label: 'Illimitée', count: kpis.ordinateurs.garantie.illimitee },
-                      { label: 'Inconnue', count: kpis.ordinateurs.garantie.inconnue },
-                    ].filter(d => d.count > 0)} colors={['#059669', '#d97706', '#dc2626', '#2563eb', '#94a3b8']} />
-                  </Panel>
-                  <Panel title="Âge du parc (ordinateurs)" icon={Clock}>
-                    <BarBlock data={kpis.ordinateurs.age.tranches} color="#7c3aed" />
-                  </Panel>
                 </div>
 
                 {/* Anomalies / qualité d'inventaire */}
@@ -361,7 +336,7 @@ const ParcInformatique: React.FC = () => {
                       <Anomaly label="Sans n° d'inventaire" n={kpis.ordinateurs.qualite.sansInventaire} />
                       <Anomaly label="Sans lieu" n={kpis.ordinateurs.qualite.sansLieu} />
                       <Anomaly label="Non affectés" n={kpis.ordinateurs.nonAffectes} />
-                      <Anomaly label="Sans info garantie" n={kpis.ordinateurs.qualite.sansGarantie} />
+                      <Anomaly label="Sans date de mise en service" n={kpis.ordinateurs.qualite.sansMiseEnService} />
                       <Anomaly label="Doublons de série" n={kpis.ordinateurs.qualite.doublonsSerie} />
                     </div>
                   </Panel>
@@ -465,12 +440,10 @@ const ParcInformatique: React.FC = () => {
               <Select value={fMan} onChange={setFMan} placeholder="Tous les fabricants" options={filters.manufacturers} />
               <Select value={fSupplier} onChange={setFSupplier} placeholder="Tous les fournisseurs" options={filters.suppliers} />
               <Select value={fGroup} onChange={setFGroup} placeholder="Tous les groupes" options={filters.groups} />
-              <select value={fWarranty} onChange={e => { setStart(0); setFWarranty(e.target.value); }} style={selStyle}>
-                <option value="">Garantie : toutes</option>
-                <option value="active">Sous garantie</option>
-                <option value="bientot">Expire &lt; 90 j</option>
-                <option value="expiree">Expirée</option>
-                <option value="inconnue">Inconnue</option>
+              <select value={fMise} onChange={e => { setStart(0); setFMise(e.target.value); }} style={selStyle}>
+                <option value="">Mise en service : toutes</option>
+                <option value="connue">Date connue</option>
+                <option value="inconnue">Date inconnue</option>
               </select>
               <select value={affecte} onChange={e => { setStart(0); setAffecte(e.target.value as any); }} style={selStyle}>
                 <option value="">Affectation : tous</option>
@@ -500,12 +473,17 @@ const ParcInformatique: React.FC = () => {
               <div style={{ overflowX: 'auto' }}>
                 {(() => {
                   const isTous = type === 'tous';
-                  const colSpan = isTous ? 14 : 13;
                   // [label, sortKey | null]
                   type HdrDef = [string, string | null];
+                  // Colonne additionnelle, avant « Modèle », selon le type d'équipement :
+                  //  • périphériques → Type matériel (ex : scanner)  • ordinateurs/moniteurs → Marque
+                  const extraCol: HdrDef | null =
+                    type === 'peripheriques' ? ['Type', 'type'] :
+                    (type === 'ordinateurs' || type === 'moniteurs') ? ['Marque', 'manufacturer'] : null;
+                  const colSpan = (isTous ? 14 : 13) + (extraCol ? 1 : 0);
                   const hdrs: HdrDef[] = isTous
-                    ? [['Nom','name'],['Type',null],['Usager','contact'],['N° usager','contact_num'],['Groupe','group'],['Lieu','location'],['Modèle','model'],['N° série','serial'],['Statut','state'],['Garantie','warranty_end'],['Âge','age_years'],['Docs','doc_count'],[''  ,null]]
-                    : [['Nom','name'],['Usager','contact'],['N° usager','contact_num'],['Groupe','group'],['Lieu','location'],['Modèle','model'],['N° série','serial'],['Statut','state'],['Garantie','warranty_end'],['Âge','age_years'],['Docs','doc_count'],['' ,null]];
+                    ? [['Nom','name'],['Type',null],['Usager','contact'],['N° usager','contact_num'],['Groupe','group'],['Lieu','location'],['Modèle','model'],['N° série','serial'],['Statut','state'],['Mise en service','service_date'],['Âge','age_years'],['Docs','doc_count'],[''  ,null]]
+                    : [['Nom','name'],['Usager','contact'],['N° usager','contact_num'],['Groupe','group'],['Lieu','location'],...(extraCol ? [extraCol] : []),['Modèle','model'],['N° série','serial'],['Statut','state'],['Mise en service','service_date'],['Âge','age_years'],['Docs','doc_count'],['' ,null]];
                   const thSort = (key: string | null) => {
                     if (!key) return;
                     if (sortCol === key) { setSortDir(d => d === 'asc' ? 'desc' : 'asc'); }
@@ -543,28 +521,30 @@ const ParcInformatique: React.FC = () => {
                         <td style={{ padding: '10px 14px', fontSize: '.82rem', color: C.slate }}>{v(r.contact_num)}</td>
                         <td style={{ padding: '10px 14px', fontSize: '.82rem' }}>{r.group ? <span style={{ background: '#f5f3ff', color: '#7c3aed', padding: '2px 8px', borderRadius: 6, fontSize: '.76rem', fontWeight: 600 }}>{r.group}</span> : v(null)}</td>
                         <td style={{ padding: '10px 14px' }}>{v(r.location)}</td>
+                        {extraCol && (
+                          <td style={{ padding: '10px 14px', fontSize: '.82rem', color: C.slate }}>
+                            {extraCol[1] === 'type'
+                              ? (r.type ? <span style={{ background: '#f1f5f9', color: C.slate, padding: '2px 8px', borderRadius: 6, fontSize: '.76rem', fontWeight: 600 }}>{r.type}</span> : v(null))
+                              : v(r.manufacturer)}
+                          </td>
+                        )}
                         <td style={{ padding: '10px 14px', color: C.slate }}>{v(r.model)}</td>
                         <td style={{ padding: '10px 14px', fontFamily: 'monospace', fontSize: '.8rem' }}>{v(r.serial)}</td>
                         <td style={{ padding: '10px 14px' }}>{r.state ? <span style={{ background: '#eff6ff', color: C.blue, padding: '2px 8px', borderRadius: 6, fontSize: '.78rem', fontWeight: 600 }}>{r.state}</span> : v(null)}</td>
                         <td style={{ padding: '10px 14px' }}>
-                          {r.warranty_end
-                            ? <span title={WARRANTY_META[r.warranty_status]?.label} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontFamily: 'monospace', fontSize: '.8rem', fontWeight: 600, color: WARRANTY_META[r.warranty_status]?.color || C.slate }}>
-                                {r.warranty_status === 'expiree' ? <ShieldAlert size={13} /> : <ShieldCheck size={13} />}
-                                {r.warranty_end}
-                              </span>
-                            : r.warranty_status === 'illimitee'
-                              ? <span style={{ fontSize: '.78rem', color: '#1d4ed8', fontWeight: 600 }}>∞ Illimitée</span>
-                              : <span style={{ color: '#cbd5e1' }}>—</span>}
+                          {r.service_date
+                            ? <span style={{ fontFamily: 'monospace', fontSize: '.8rem', fontWeight: 600, color: C.slate }}>{r.service_date}</span>
+                            : <span style={{ color: '#cbd5e1' }}>—</span>}
                         </td>
                         <td style={{ padding: '10px 14px' }}>
                           {r.age_years != null
                             ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, color: C.slate }}>
                                 {r.age_source === 'use_date'
-                                  ? <span title="Calculé depuis la date de mise en service"><CalendarCheck2 size={13} color={C.green} /></span>
+                                  ? <span title="Calculé depuis la date de mise en service (use_date)"><CalendarCheck2 size={13} color={C.green} /></span>
                                   : r.age_source === 'buy_date'
                                   ? <span title="Calculé depuis la date d'achat (mise en service inconnue)"><CalendarDays size={13} color={C.amber} /></span>
-                                  : r.age_source === 'warranty'
-                                  ? <span title="Estimé depuis la garantie (fin − durée) — aucune date d'achat saisie"><CalendarDays size={13} color="#94a3b8" /></span>
+                                  : r.age_source === 'mise_en_service'
+                                  ? <span title="Calculé depuis la date de mise en service"><CalendarDays size={13} color={C.green} /></span>
                                   : null}
                                 {r.age_years} an{r.age_years >= 2 ? 's' : ''}
                               </span>
@@ -736,6 +716,12 @@ const ParcInformatique: React.FC = () => {
               return n;
             });
             setGeoSelectedLoc(prev => prev === loc ? null : loc);
+            setGeoSelectedType(null); // sélection du lieu = tous les types
+          };
+          const selectType = (loc: string, t: string) => {
+            setGeoExpanded(prev => new Set(prev).add(loc));
+            setGeoSelectedLoc(loc);
+            setGeoSelectedType(prev => (geoSelectedLoc === loc && prev === t) ? null : t);
           };
 
           return (
@@ -765,13 +751,20 @@ const ParcInformatique: React.FC = () => {
                           <span style={{ background: selected ? C.blue : '#f1f5f9', color: selected ? '#fff' : C.slate, padding: '1px 8px', borderRadius: 20, fontSize: '.75rem', fontWeight: 700, flexShrink: 0 }}>{items.length}</span>
                         </div>
                         {expanded && (
-                          <div style={{ paddingLeft: 32, background: '#fafbff', borderBottom: `1px solid ${C.border}` }}>
-                            {Object.entries(byType).map(([t, n]) => (
-                              <div key={t} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 12px', fontSize: '.8rem', borderBottom: `1px solid #f1f5f9` }}>
-                                <span style={{ flex: 1, color: C.slate }}>{t}</span>
-                                <span style={{ fontWeight: 700, color: C.text }}>{n}</span>
-                              </div>
-                            ))}
+                          <div style={{ paddingLeft: 24, background: '#fafbff', borderBottom: `1px solid ${C.border}` }}>
+                            {Object.entries(byType).map(([t, n]) => {
+                              const typeSelected = selected && geoSelectedType === t;
+                              return (
+                                <div key={t} onClick={(e) => { e.stopPropagation(); selectType(loc, t); }}
+                                  style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 12px 5px 16px', fontSize: '.8rem', cursor: 'pointer', borderBottom: `1px solid #f1f5f9`, background: typeSelected ? '#e0edff' : undefined }}
+                                  onMouseEnter={e => { if (!typeSelected) e.currentTarget.style.background = '#f1f5f9'; }}
+                                  onMouseLeave={e => { if (!typeSelected) e.currentTarget.style.background = ''; }}>
+                                  <span style={{ fontSize: 11, color: typeSelected ? C.blue : '#cbd5e1' }}>•</span>
+                                  <span style={{ flex: 1, color: typeSelected ? C.blue : C.slate, fontWeight: typeSelected ? 700 : 400 }}>{t}</span>
+                                  <span style={{ fontWeight: 700, color: typeSelected ? C.blue : C.text }}>{n}</span>
+                                </div>
+                              );
+                            })}
                           </div>
                         )}
                       </div>
@@ -782,20 +775,29 @@ const ParcInformatique: React.FC = () => {
 
               {/* Liste des équipements du lieu sélectionné */}
               {geoSelectedLoc && (() => {
-                const items = locMap.get(geoSelectedLoc) || [];
+                const allItems = locMap.get(geoSelectedLoc) || [];
+                const items = geoSelectedType ? allItems.filter(r => (r.itemtype_label || 'Autre') === geoSelectedType) : allItems;
                 return (
                   <div style={{ background: C.card, borderRadius: 14, border: `1px solid ${C.blue}`, overflow: 'hidden' }}>
                     <div style={{ padding: '10px 16px', borderBottom: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', gap: 8 }}>
                       <MapPin size={14} color={C.blue} />
-                      <span style={{ fontWeight: 700, color: C.text, flex: 1 }}>{geoSelectedLoc}</span>
+                      <span style={{ fontWeight: 700, color: C.text, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                        {geoSelectedLoc}
+                        {geoSelectedType && <>
+                          <ChevronRight size={14} color={C.slate} />
+                          <span style={{ background: '#eff6ff', color: C.blue, padding: '1px 8px', borderRadius: 6, fontSize: '.8rem' }}>{geoSelectedType}</span>
+                          <button onClick={() => setGeoSelectedType(null)} title="Tous les types" style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.slate, padding: 0, display: 'inline-flex' }}><X size={12} /></button>
+                        </>}
+                      </span>
+                      <span style={{ flex: 1 }} />
                       <span style={{ background: '#eff6ff', color: C.blue, padding: '1px 8px', borderRadius: 20, fontWeight: 700, fontSize: '.8rem' }}>{items.length}</span>
-                      <button onClick={() => { setGeoSelectedLoc(null); setGeoExpanded(new Set()); }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.slate }}><X size={15} /></button>
+                      <button onClick={() => { setGeoSelectedLoc(null); setGeoSelectedType(null); setGeoExpanded(new Set()); }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.slate }}><X size={15} /></button>
                     </div>
                     <div style={{ maxHeight: '68vh', overflowY: 'auto' }}>
                       <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '.84rem' }}>
                         <thead>
                           <tr style={{ background: '#f8fafc', color: C.slate }}>
-                            {['Nom','Type','Usager','Statut','Garantie',''].map((h, i) => (
+                            {['Nom','Type','Usager','Statut','Mise en service',''].map((h, i) => (
                               <th key={i} style={{ padding: '8px 12px', fontWeight: 700, fontSize: '.74rem', textTransform: 'uppercase', letterSpacing: '.02em', textAlign: 'left' }}>{h}</th>
                             ))}
                           </tr>
@@ -815,8 +817,8 @@ const ParcInformatique: React.FC = () => {
                               </td>
                               <td style={{ padding: '8px 12px' }}>{r.state ? <span style={{ background: '#eff6ff', color: C.blue, padding: '1px 7px', borderRadius: 5, fontSize: '.74rem', fontWeight: 600 }}>{r.state}</span> : v(null)}</td>
                               <td style={{ padding: '8px 12px' }}>
-                                {r.warranty_end
-                                  ? <span style={{ fontFamily: 'monospace', fontSize: '.76rem', fontWeight: 600, color: (WARRANTY_META[r.warranty_status] || WARRANTY_META.inconnue).color }}>{r.warranty_end}</span>
+                                {r.service_date
+                                  ? <span style={{ fontFamily: 'monospace', fontSize: '.76rem', fontWeight: 600, color: C.slate }}>{r.service_date}</span>
                                   : v(null)}
                               </td>
                               <td style={{ padding: '8px 12px', textAlign: 'right' }}><ChevronRight size={14} color="#cbd5e1" /></td>
@@ -970,16 +972,6 @@ const BarBlock: React.FC<{ data: { label: string; count: number }[]; color: stri
   </ResponsiveContainer>
 );
 
-const WarrantyBadge: React.FC<{ status: WarrantyStatus; end?: string | null }> = ({ status, end }) => {
-  const m = WARRANTY_META[status] || WARRANTY_META.inconnue;
-  return (
-    <span title={end ? `Fin : ${end}` : undefined}
-      style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: m.bg, color: m.color, padding: '2px 8px', borderRadius: 6, fontSize: '.74rem', fontWeight: 700, whiteSpace: 'nowrap' }}>
-      {status === 'expiree' ? <ShieldAlert size={12} /> : <ShieldCheck size={12} />}{m.label}
-    </span>
-  );
-};
-
 const ErrBox: React.FC<{ msg: string; source?: string }> = ({ msg, source }) => (
   <div style={{ display: 'flex', alignItems: 'center', gap: 10, background: '#fef2f2', border: '1px solid #fecaca', color: '#b91c1c', padding: '12px 16px', borderRadius: 12, marginBottom: 16, fontSize: '.88rem' }}>
     <AlertTriangle size={18} />
@@ -1003,8 +995,8 @@ const FIELD_LABELS: Record<string, string> = {
   os: "Système d'exploitation", os_version: 'Version OS',
   contact_email: 'E-mail usager', contact_ad_name: 'Nom complet (AD)', contact_service: 'Service (AD)',
   user_email: 'E-mail utilisateur', user_ad_name: 'Nom complet (AD)', user_service: 'Service (AD)',
-  buy_date: "Date d'achat", use_date: 'Date de mise en service', warranty_end: 'Fin de garantie',
-  warranty_duration: 'Durée de garantie (mois)', supplier: 'Fournisseur', value: 'Valeur',
+  buy_date: "Date d'achat", use_date: 'Date de mise en service', service_date: 'Mise en service',
+  supplier: 'Fournisseur', value: 'Valeur',
   order_number: 'N° de commande', immo_number: "N° d'immobilisation", age_years: 'Âge (ans)',
   date_creation: 'Date de création', date_mod: 'Dernière modification',
 };
@@ -1017,7 +1009,7 @@ const DetailModal: React.FC<{ detail: any; token: string | null; onClose: () => 
     { title: 'Affectation', fields: ['user', 'user_email', 'user_ad_name', 'user_service', 'group', 'user_tech', 'group_tech', 'contact', 'contact_email', 'contact_ad_name', 'contact_service', 'contact_num'] },
     { title: 'Localisation', fields: ['location', 'entity'] },
     { title: 'Identification', fields: ['serial', 'otherserial', 'manufacturer', 'model', 'type', 'state', 'network', 'uuid', 'os', 'os_version', 'autoupdate'] },
-    { title: 'Achat & garantie', fields: ['buy_date', 'use_date', 'warranty_end', 'warranty_duration', 'supplier', 'value', 'order_number', 'immo_number', 'age_years'] },
+    { title: 'Achat & mise en service', fields: ['buy_date', 'use_date', 'service_date', 'supplier', 'value', 'order_number', 'immo_number', 'age_years'] },
     { title: 'Suivi', fields: ['date_creation', 'date_mod', 'comment'] },
   ];
   const fmt = (f: string, val: any) => {
@@ -1035,7 +1027,7 @@ const DetailModal: React.FC<{ detail: any; token: string | null; onClose: () => 
             <div style={{ fontSize: '1.3rem', fontWeight: 900, marginTop: 2 }}>{s.name || `#${s.id || ''}`}</div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 6, flexWrap: 'wrap' }}>
               {s.user && <span style={{ fontSize: '.85rem', opacity: .92, display: 'inline-flex', alignItems: 'center', gap: 5 }}><User size={14} /> {s.user}</span>}
-              {s.warranty_status && s.warranty_status !== 'inconnue' && <WarrantyBadge status={s.warranty_status} end={s.warranty_end} />}
+              {s.service_date && <span style={{ fontSize: '.78rem', background: 'rgba(255,255,255,.2)', padding: '2px 8px', borderRadius: 6, display: 'inline-flex', alignItems: 'center', gap: 4 }}><CalendarCheck2 size={12} /> Mise en service {s.service_date}</span>}
               {s.age_years != null && <span style={{ fontSize: '.78rem', background: 'rgba(255,255,255,.2)', padding: '2px 8px', borderRadius: 6, display: 'inline-flex', alignItems: 'center', gap: 4 }}><Clock size={12} /> {s.age_years} an{s.age_years >= 2 ? 's' : ''}</span>}
             </div>
           </div>
