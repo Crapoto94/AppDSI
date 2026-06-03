@@ -11,7 +11,7 @@ import {
   RefreshCw, MapPin, User, Tag, Cpu, Activity, BarChart3, List,
   CheckCircle2, AlertTriangle, Layers, ChevronRight, Boxes,
   Euro, ShieldCheck, Clock, Truck, Database, FileText, Users, CalendarCheck2, CalendarDays,
-  ArrowLeftRight,
+  ArrowLeftRight, Rocket, Package, Timer, TrendingUp,
 } from 'lucide-react';
 
 // ─── Constantes ─────────────────────────────────────────────────────────────
@@ -1206,6 +1206,125 @@ const ParcInformatique: React.FC = () => {
                 </div>
               )}
 
+              {/* ── Graphiques de déploiement ── */}
+              {deployKpis && (() => {
+                const card: React.CSSProperties = { background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: 16, display: 'flex', flexDirection: 'column' };
+                const titleSt: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: 7, fontSize: '.82rem', fontWeight: 800, color: C.text, marginBottom: 12 };
+                const ms = deployKpis.match_stats || {};
+                const totalUc = ms.total_uc || 0;
+                const matchData = [
+                  { label: 'Match complet', value: ms.match_full || 0, color: '#059669' },
+                  { label: 'Partiel (S/N ?)', value: ms.match_partial || 0, color: '#d97706' },
+                  { label: 'Non trouvé', value: ms.no_match || 0, color: '#94a3b8' },
+                ].filter(d => d.value > 0);
+                const tauxMatch = totalUc ? Math.round(((ms.match_full || 0) / totalUc) * 100) : 0;
+                const annee = (deployKpis.by_annee || []).map((a: any) => ({ annee: String(a.annee), n: a.n }));
+                const types = (deployKpis.by_type || []).map((t: any) => ({ label: t.type_operation, value: t.n }));
+                const dirs = (deployKpis.by_direction || []).slice(0, 8).map((d: any) => ({ label: d.direction, n: d.n }));
+                const installs = (deployKpis.by_installateur || []).slice(0, 8).map((i: any) => ({ label: i.installateur, n: i.n }));
+
+                return (
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(330px, 1fr))', gap: 14, marginBottom: 18 }}>
+                    {/* Cadence annuelle */}
+                    <div style={{ ...card, gridColumn: 'span 2', minWidth: 0 }}>
+                      <div style={titleSt}><TrendingUp size={15} color={C.blue} /> Cadence de déploiement par année</div>
+                      <ResponsiveContainer width="100%" height={210}>
+                        <AreaChart data={annee} margin={{ top: 4, right: 12, bottom: 0, left: -18 }}>
+                          <defs><linearGradient id="depGrad" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="0%" stopColor="#2563eb" stopOpacity={0.35} /><stop offset="100%" stopColor="#2563eb" stopOpacity={0.02} />
+                          </linearGradient></defs>
+                          <CartesianGrid strokeDasharray="3 3" stroke="#eef2f7" />
+                          <XAxis dataKey="annee" tick={{ fontSize: 11 }} />
+                          <YAxis allowDecimals={false} tick={{ fontSize: 11 }} />
+                          <Tooltip formatter={(v: any) => [`${v} déploiement(s)`, '']} labelFormatter={(l) => `Année ${l}`} />
+                          <Area type="monotone" dataKey="n" stroke="#2563eb" strokeWidth={2} fill="url(#depGrad)" />
+                        </AreaChart>
+                      </ResponsiveContainer>
+                    </div>
+
+                    {/* Rapprochement parc (donut + taux) */}
+                    <div style={card}>
+                      <div style={titleSt}><CheckCircle2 size={15} color="#059669" /> Rapprochement avec le parc</div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1 }}>
+                        <div style={{ position: 'relative', width: 120, height: 120, flexShrink: 0 }}>
+                          <ResponsiveContainer width="100%" height="100%">
+                            <PieChart>
+                              <Pie data={matchData} dataKey="value" nameKey="label" cx="50%" cy="50%" innerRadius={38} outerRadius={56} paddingAngle={2}>
+                                {matchData.map((d, i) => <Cell key={i} fill={d.color} />)}
+                              </Pie>
+                              <Tooltip formatter={(v: any, n: any) => [`${v}`, n]} />
+                            </PieChart>
+                          </ResponsiveContainer>
+                          <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none' }}>
+                            <div style={{ fontSize: '1.3rem', fontWeight: 900, color: '#059669' }}>{tauxMatch}%</div>
+                            <div style={{ fontSize: '.62rem', color: C.slate }}>matchés</div>
+                          </div>
+                        </div>
+                        <div style={{ flex: 1, fontSize: '.78rem' }}>
+                          {matchData.map(d => (
+                            <div key={d.label} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '2px 0' }}>
+                              <span style={{ width: 9, height: 9, borderRadius: 2, background: d.color, flexShrink: 0 }} />
+                              <span style={{ color: C.slate, flex: 1 }}>{d.label}</span>
+                              <b style={{ color: C.text }}>{d.value}</b>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Type d'opération (donut) */}
+                    <div style={card}>
+                      <div style={titleSt}><ArrowLeftRight size={15} color="#7c3aed" /> Par type d'opération</div>
+                      <ResponsiveContainer width="100%" height={170}>
+                        <PieChart>
+                          <Pie data={types} dataKey="value" nameKey="label" cx="50%" cy="50%" outerRadius={62} label={(e: any) => e.value}>
+                            {types.map((_: any, i: number) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
+                          </Pie>
+                          <Tooltip />
+                        </PieChart>
+                      </ResponsiveContainer>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, justifyContent: 'center' }}>
+                        {types.map((t: any, i: number) => (
+                          <span key={t.label} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: '.7rem', color: C.slate }}>
+                            <span style={{ width: 8, height: 8, borderRadius: 2, background: COLORS[i % COLORS.length] }} />{t.label}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Top directions */}
+                    <div style={card}>
+                      <div style={titleSt}><MapPin size={15} color="#0891b2" /> Top directions déployées</div>
+                      <ResponsiveContainer width="100%" height={Math.max(150, dirs.length * 26)}>
+                        <BarChart data={dirs} layout="vertical" margin={{ left: 8, right: 26, top: 0, bottom: 0 }}>
+                          <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#eef2f7" />
+                          <XAxis type="number" allowDecimals={false} tick={{ fontSize: 10 }} />
+                          <YAxis type="category" dataKey="label" width={120} tick={{ fontSize: 10 }} />
+                          <Tooltip formatter={(v: any) => [`${v} fiche(s)`, '']} />
+                          <Bar dataKey="n" fill="#0891b2" radius={[0, 4, 4, 0]} barSize={14} label={{ position: 'right', fontSize: 10, fill: C.slate }} />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </div>
+
+                    {/* Top installateurs */}
+                    {installs.length > 0 && (
+                      <div style={card}>
+                        <div style={titleSt}><User size={15} color="#d97706" /> Top installateurs</div>
+                        <ResponsiveContainer width="100%" height={Math.max(150, installs.length * 26)}>
+                          <BarChart data={installs} layout="vertical" margin={{ left: 8, right: 26, top: 0, bottom: 0 }}>
+                            <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#eef2f7" />
+                            <XAxis type="number" allowDecimals={false} tick={{ fontSize: 10 }} />
+                            <YAxis type="category" dataKey="label" width={110} tick={{ fontSize: 10 }} />
+                            <Tooltip formatter={(v: any) => [`${v} déploiement(s)`, '']} />
+                            <Bar dataKey="n" fill="#d97706" radius={[0, 4, 4, 0]} barSize={14} label={{ position: 'right', fontSize: 10, fill: C.slate }} />
+                          </BarChart>
+                        </ResponsiveContainer>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+
               {/* Bandeau conflits */}
               {(deployKpis?.nb_conflits ?? 0) > 0 && (
                 <div style={{ background: '#fff7ed', border: '1px solid #fed7aa', borderRadius: 10, padding: '10px 16px', marginBottom: 16, fontSize: '.88rem', color: '#92400e' }}>
@@ -1304,20 +1423,20 @@ const ParcInformatique: React.FC = () => {
                           <td style={{ padding: '8px 12px', fontFamily: 'monospace', fontSize: '.8rem' }}>{row.uc_recupere_num || '—'}</td>
                           <td style={{ padding: '8px 12px', textAlign: 'center' }}>
                             {(row.ecran1_nouveau_num || row.ecran1_nouveau_serie || row.ecran2_nouveau_serie)
-                              ? <Monitor size={14} color={C.blue} title="Écran(s) inclus" />
+                              ? <span title="Écran(s) inclus"><Monitor size={14} color={C.blue} /></span>
                               : <span style={{ color: '#cbd5e1' }}>—</span>}
                           </td>
                           <td style={{ padding: '8px 12px', fontSize: '.8rem' }}>{row.installateur || '—'}</td>
                           <td style={{ padding: '8px 12px', whiteSpace: 'nowrap' }}>{typeBadge(row.type_operation)}</td>
                           <td style={{ padding: '8px 12px', whiteSpace: 'nowrap' }}>
                             {row.fichier && (
-                              <a href={`/api/deploiements/file?path=${encodeURIComponent(row.fichier)}`} target="_blank" rel="noreferrer"
+                              <a href={`/api/deploiements/file?path=${encodeURIComponent(row.fichier)}&token=${token || ''}`} target="_blank" rel="noreferrer"
                                 style={{ color: C.blue, display: 'inline-flex', alignItems: 'center', gap: 4 }} title={row.fichier}>
                                 <FileText size={15} />
                               </a>
                             )}
                             {row.fichier_lie && (
-                              <a href={`/api/deploiements/file?path=${encodeURIComponent(row.fichier_lie)}`} target="_blank" rel="noreferrer"
+                              <a href={`/api/deploiements/file?path=${encodeURIComponent(row.fichier_lie)}&token=${token || ''}`} target="_blank" rel="noreferrer"
                                 style={{ color: C.slate, display: 'inline-flex', alignItems: 'center', gap: 4, marginLeft: 6 }} title={row.fichier_lie}>
                                 <FileText size={13} />
                               </a>
