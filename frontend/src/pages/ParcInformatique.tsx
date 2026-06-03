@@ -29,6 +29,79 @@ const TYPE_ICON: Record<string, any> = Object.fromEntries(TYPES.map(t => [t.key,
 const COLORS = ['#2563eb', '#7c3aed', '#0891b2', '#059669', '#d97706', '#dc2626', '#db2777', '#65a30d', '#0ea5e9', '#9333ea'];
 const C = { blue: '#2563eb', slate: '#64748b', green: '#059669', amber: '#d97706', red: '#dc2626', bg: '#f1f5f9', card: '#fff', border: '#e2e8f0', text: '#0f172a' };
 
+// ─── Déploiements : référentiel des directions (intitulés issus de l'organigramme RH) ──
+const DIR_INFO: Record<string, string> = {
+  DSI:   "Direction des Systèmes d'Information",
+  DRH:   'Direction des Ressources Humaines',
+  DSALE: 'Direction Scolaire, Accueils de Loisirs et Éducation',
+  DCOM:  'Direction de la Communication',
+  DAC:   'Direction de la Culture',
+  DBC:   'Direction des Bâtiments Communaux',
+  DAPF:  'Direction Actions et Prestations aux Familles',
+  DSANTE:'Direction de la Santé',
+  DEP:   'Direction des Espaces Publics',
+  DDU:   'Direction du Développement Urbain',
+  DCCAS: "Centre Communal d'Action Sociale (CCAS)",
+  DAJCP: 'Direction des Affaires Juridiques et de la Commande Publique',
+  DDS:   'Direction des Sports',
+  DJEUN: 'Direction de la Jeunesse',
+  DSF:   'Direction des Services Financiers',
+  DDAC:  'Direction Démocratie et Action Citoyenne',
+  DG:    'Direction Générale des Services',
+  ELUS:  'Élus et Cabinet',
+  CMS:   'Centre Médical de Santé',
+};
+// Regroupe les variantes (casse, orthographe, libellés longs) vers un code canonique.
+const dirCanonical = (raw: string): string => {
+  const u = (raw || '').trim().toUpperCase();
+  if (!u) return '';
+  if (u.includes('SECRET') || u === 'ELUS' || u === 'ELUES' || u === 'ELU') return 'ELUS';
+  if (u.includes('GENERALE') || u === 'DG') return 'DG';
+  if (u.includes('SPORT')) return 'DDS';
+  if (u.includes('DDU')) return 'DDU';
+  if (u === 'DOSTIC') return 'DSI'; // DOSTIC a fusionné dans la DSI
+  const code = u.normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^A-Z]/g, '');
+  return code || u;
+};
+const dirLabel = (canon: string): string => DIR_INFO[canon] ? `${canon} — ${DIR_INFO[canon]}` : canon;
+
+// Normalisation d'un nom de bénéficiaire (identique au backend) pour la clé de cache AD.
+const normName = (v: string | null | undefined): string =>
+  v ? String(v).normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim() : '';
+
+const EQUIP_OPTIONS: { key: string; label: string; icon: string }[] = [
+  { key: 'pc_portable',  label: 'PC portable',          icon: '💻' },
+  { key: 'pc_fixe',      label: 'PC fixe',              icon: '🖥' },
+  { key: 'ecran',        label: 'Écran',                icon: '🖥' },
+  { key: 'imprimante',   label: 'Imprimante / scanner', icon: '🖨' },
+  { key: 'peripherique', label: 'Périphérique',         icon: '🖱' },
+  { key: 'autre',        label: 'Autre / indéterminé',  icon: '📦' },
+];
+// Métadonnées d'affichage par code de catégorie (renvoyé par l'API : row.equip_cat)
+const EQUIP_CAT_META: Record<string, { label: string; color: string; bg: string; icon: string }> = {
+  pc_portable_ecran: { label: 'PC Port. + Écran', color: '#1d4ed8', bg: '#dbeafe', icon: '💻' },
+  pc_fixe_ecran:     { label: 'PC Fixe + Écran',  color: '#1d4ed8', bg: '#dbeafe', icon: '🖥' },
+  pc_imp:            { label: 'PC + Imprimante',  color: '#1d4ed8', bg: '#dbeafe', icon: '🖥' },
+  pc_portable:       { label: 'PC Portable',      color: '#1d4ed8', bg: '#dbeafe', icon: '💻' },
+  pc_fixe:           { label: 'PC Fixe',          color: '#1d4ed8', bg: '#dbeafe', icon: '🖥' },
+  imprimante:        { label: 'Imprimante',       color: '#b45309', bg: '#fef3c7', icon: '🖨' },
+  peripherique:      { label: 'Périphérique',     color: '#059669', bg: '#d1fae5', icon: '🖱' },
+  ecran:             { label: 'Écran',            color: '#0891b2', bg: '#e0f2fe', icon: '🖥' },
+  autre:             { label: '—',                color: '#94a3b8', bg: 'transparent', icon: '' },
+};
+// Ordre + couleurs distinctes pour la cadence empilée par catégorie d'équipement
+const CADENCE_CATS: { key: string; label: string; color: string }[] = [
+  { key: 'pc_portable',       label: 'PC portable',       color: '#2563eb' },
+  { key: 'pc_portable_ecran', label: 'PC port. + écran',  color: '#60a5fa' },
+  { key: 'pc_fixe',           label: 'PC fixe',           color: '#7c3aed' },
+  { key: 'pc_fixe_ecran',     label: 'PC fixe + écran',   color: '#c084fc' },
+  { key: 'pc_imp',            label: 'PC + imprimante',   color: '#db2777' },
+  { key: 'ecran',             label: 'Écran',             color: '#0891b2' },
+  { key: 'imprimante',        label: 'Imprimante',        color: '#d97706' },
+  { key: 'peripherique',      label: 'Périphérique',      color: '#059669' },
+  { key: 'autre',             label: 'Autre',             color: '#94a3b8' },
+];
+
 // ─── Types ──────────────────────────────────────────────────────────────────
 interface Row {
   id: number; name: string | null; serial: string | null; otherserial: string | null;
@@ -152,9 +225,33 @@ const ParcInformatique: React.FC = () => {
   const [deployType, setDeployType] = useState('');
   const [deployAnnee, setDeployAnnee] = useState('');
   const [deployStart, setDeployStart] = useState(0);
-  const [deployLimit] = useState(50);
+  const [deployLimit, setDeployLimit] = useState(50);
+  const [deploySort, setDeploySort] = useState('date_deploiement');
+  const [deploySortDir, setDeploySortDir] = useState<'asc' | 'desc'>('desc');
   const [deployConflictsOpen, setDeployConflictsOpen] = useState(false);
   const [deployConflicts, setDeployConflicts] = useState<any[]>([]);
+  const [deployEquip, setDeployEquip] = useState('');
+  const [deployInstall, setDeployInstall] = useState('');
+  // Facettes complètes (directions + installateurs) pour filtres et fusion
+  const [deployFacets, setDeployFacets] = useState<{ directions: { direction: string; n: number }[]; installateurs: { installateur: string; n: number }[]; types: { type_operation: string; n: number }[] }>({ directions: [], installateurs: [], types: [] });
+  // Rapprochement AD des bénéficiaires
+  const [adMap, setAdMap] = useState<Record<string, { found: boolean; display_name: string | null; email: string | null; service: string | null }>>({});
+  const [adStatus, setAdStatus] = useState<{ total: number; cached: number; remaining: number; matched: number } | null>(null);
+  const [adRunning, setAdRunning] = useState(false);
+  const [adProgress, setAdProgress] = useState<{ done: number; total: number } | null>(null);
+  // Fusion d'installateurs
+  const [instOpen, setInstOpen] = useState(false);
+  const [instKeep, setInstKeep] = useState<string | null>(null);
+  const [instSel, setInstSel] = useState<Set<string>>(new Set());
+  const [instMerging, setInstMerging] = useState(false);
+  const [instQ, setInstQ] = useState('');
+  // Fusion manuelle de 2 fiches : ordre = [garder, compléter+supprimer]
+  const [deploySel, setDeploySel] = useState<number[]>([]);
+  const [pairMerging, setPairMerging] = useState(false);
+  // Renommage / fusion des types d'opération
+  const [typesOpen, setTypesOpen] = useState(false);
+  const [typeEdit, setTypeEdit] = useState<{ from: string | null; value: string } | null>(null);
+  const [typeSaving, setTypeSaving] = useState(false);
 
   // Détail
   const [detail, setDetail] = useState<any | null>(null);
@@ -316,15 +413,121 @@ const ParcInformatique: React.FC = () => {
   const loadDeploys = useCallback(async () => {
     setDeployLoading(true); setDeployErr(null);
     try {
+      // deployDir contient un code canonique : on renvoie toutes ses variantes brutes
+      let directions: string | undefined;
+      if (deployDir) {
+        const vars = deployFacets.directions.filter(d => dirCanonical(d.direction) === deployDir).map(d => d.direction);
+        directions = vars.length ? vars.join(',') : deployDir;
+      }
       const r = await axios.get('/api/deploiements/', {
         headers: { Authorization: `Bearer ${token}` },
-        params: { direction: deployDir || undefined, type_operation: deployType || undefined, annee: deployAnnee || undefined, q: deployQ || undefined, start: deployStart, limit: deployLimit },
+        params: { directions, type_operation: deployType || undefined, annee: deployAnnee || undefined, equip: deployEquip || undefined, installateur: deployInstall || undefined, q: deployQ || undefined, start: deployStart, limit: deployLimit, sort: deploySort, dir: deploySortDir },
       });
       setDeploys(r.data.rows || []); setDeployTotal(r.data.total || 0);
     } catch (e: any) {
       setDeployErr(e.response?.data?.message || e.message); setDeploys([]); setDeployTotal(0);
     } finally { setDeployLoading(false); }
-  }, [token, deployDir, deployType, deployAnnee, deployQ, deployStart, deployLimit]);
+  }, [token, deployDir, deployType, deployAnnee, deployEquip, deployInstall, deployQ, deployStart, deployLimit, deploySort, deploySortDir, deployFacets]);
+
+  const loadDeployFacets = useCallback(async () => {
+    try {
+      const r = await axios.get('/api/deploiements/facets', { headers: { Authorization: `Bearer ${token}` } });
+      setDeployFacets({ directions: r.data.directions || [], installateurs: r.data.installateurs || [], types: r.data.types || [] });
+    } catch { /* silencieux */ }
+  }, [token]);
+
+  // ── Rapprochement AD ──
+  const loadAdMatch = useCallback(async () => {
+    try {
+      const r = await axios.get('/api/deploiements/ad-match', { headers: { Authorization: `Bearer ${token}` } });
+      setAdMap(r.data.map || {});
+      setAdStatus({ total: r.data.total, cached: r.data.cached, remaining: r.data.remaining, matched: r.data.matched });
+    } catch { /* silencieux */ }
+  }, [token]);
+
+  const runAdMatch = useCallback(async (refresh = false) => {
+    if (adRunning) return;
+    setAdRunning(true);
+    try {
+      let done = false; let guard = 0; let total = adStatus?.total || 0; let firstRefresh = refresh;
+      while (!done && guard < 200) {
+        guard++;
+        const r = await axios.post('/api/deploiements/ad-match/run', { batch: 30, refresh: firstRefresh }, { headers: { Authorization: `Bearer ${token}` } });
+        firstRefresh = false; // le refresh ne doit s'appliquer qu'au 1er lot
+        total = r.data.total || total;
+        done = r.data.done;
+        setAdProgress({ done: Math.max(0, total - (r.data.remaining || 0)), total });
+        if (done) break;
+      }
+      await loadAdMatch();
+    } catch (e: any) {
+      alert(`Erreur rapprochement AD : ${e.response?.data?.message || e.message}`);
+    } finally { setAdRunning(false); setAdProgress(null); }
+  }, [token, adRunning, adStatus, loadAdMatch]);
+
+  // ── Fusion d'installateurs ──
+  const doMergeInstallateurs = useCallback(async () => {
+    if (!instKeep || instSel.size === 0) return;
+    setInstMerging(true);
+    try {
+      await axios.post('/api/deploiements/installateurs/merge',
+        { keep: instKeep, merge: [...instSel] },
+        { headers: { Authorization: `Bearer ${token}` } });
+      setInstOpen(false); setInstKeep(null); setInstSel(new Set());
+      await loadDeployFacets();
+      loadDeploys();
+      loadDeployKpis();
+    } catch (e: any) {
+      alert(`Erreur fusion : ${e.response?.data?.message || e.message}`);
+    } finally { setInstMerging(false); }
+  }, [token, instKeep, instSel, loadDeployFacets, loadDeploys]);
+
+  // ── Fusion manuelle de 2 fiches ──
+  const toggleDeploySel = useCallback((id: number) => {
+    setDeploySel(prev => {
+      if (prev.includes(id)) return prev.filter(x => x !== id);
+      if (prev.length >= 2) return [prev[1], id]; // garde le 2e choisi + le nouveau
+      return [...prev, id];
+    });
+  }, []);
+
+  const doMergePair = useCallback(async () => {
+    if (deploySel.length !== 2) return;
+    setPairMerging(true);
+    try {
+      const r = await axios.post('/api/deploiements/merge',
+        { keep_id: deploySel[0], merge_id: deploySel[1] },
+        { headers: { Authorization: `Bearer ${token}` } });
+      setDeploySel([]);
+      loadDeploys();
+      loadDeployKpis();
+      loadDeployFacets();
+      const n = (r.data.filled || []).length;
+      // petit retour visuel non bloquant via le compteur (les listes se rechargent)
+      console.info(`Fusion : ${n} champ(s) complété(s) sur la fiche conservée.`);
+    } catch (e: any) {
+      alert(`Erreur fusion : ${e.response?.data?.message || e.message}`);
+    } finally { setPairMerging(false); }
+  }, [token, deploySel, loadDeploys, loadDeployFacets]);
+
+  // ── Renommage / fusion d'un type d'opération ──
+  const doRenameType = useCallback(async () => {
+    if (!typeEdit) return;
+    const to = typeEdit.value.trim();
+    if (!to || to === typeEdit.from) { setTypeEdit(null); return; }
+    setTypeSaving(true);
+    try {
+      await axios.post('/api/deploiements/types/rename',
+        { from: typeEdit.from, to },
+        { headers: { Authorization: `Bearer ${token}` } });
+      setTypeEdit(null);
+      await loadDeployFacets();
+      loadDeploys();
+      loadDeployKpis();
+    } catch (e: any) {
+      alert(`Erreur renommage : ${e.response?.data?.message || e.message}`);
+    } finally { setTypeSaving(false); }
+  }, [token, typeEdit, loadDeployFacets, loadDeploys]);
 
   const loadDeployKpis = useCallback(async () => {
     try {
@@ -351,7 +554,12 @@ const ParcInformatique: React.FC = () => {
       loadDeploys();
       loadDeployKpis();
     }
-  }, [tab, deployDir, deployType, deployAnnee, deployQ, deployStart]);
+  }, [tab, deployDir, deployType, deployAnnee, deployEquip, deployInstall, deployQ, deployStart, deployLimit, deploySort, deploySortDir]);
+
+  // Facettes + cache AD : chargés une fois à l'entrée de l'onglet
+  useEffect(() => {
+    if (tab === 'deploiements') { loadDeployFacets(); loadAdMatch(); }
+  }, [tab]);
 
   // ─── Rendu ──────────────────────────────────────────────────────────────────
   return (
@@ -453,6 +661,34 @@ const ParcInformatique: React.FC = () => {
                         </div>
                       </div>
                     </div>
+                    {/* Répartition par statut GLPI */}
+                    {(() => {
+                      const stat = kpis.ordinateurs.parStatut || [];
+                      const sumBy = (re: RegExp) => stat.filter(s => re.test((s.label || '').trim())).reduce((a, s) => a + s.count, 0);
+                      const exact = (name: string) => stat.filter(s => (s.label || '').trim().toLowerCase() === name).reduce((a, s) => a + s.count, 0);
+                      const buckets = [
+                        { label: 'Neufs', sub: 'stock neuf + masterisé', n: sumBy(/stock\s*neuf/i) + sumBy(/masteris/i), color: '#059669' },
+                        { label: 'Réusage', sub: 'en stock', n: exact('en stock'), color: '#0891b2' },
+                        { label: 'En service', sub: '', n: sumBy(/en service/i), color: '#2563eb' },
+                        { label: 'En prêt', sub: '', n: sumBy(/pr[êe]t/i), color: '#7c3aed' },
+                        { label: 'Attente récup.', sub: '', n: sumBy(/r[ée]cup/i), color: '#d97706' },
+                        { label: 'Rebut / cassés', sub: 'cassé, panne, perdu…', n: sumBy(/cass|rebut|panne|\bhs\b|en panne|perdu|vol|vendu/i), color: '#dc2626' },
+                      ];
+                      return (
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, marginTop: 16, paddingTop: 14, borderTop: `1px solid ${C.border}` }}>
+                          {buckets.map(b => (
+                            <div key={b.label} title={b.sub || b.label} style={{ background: '#f8fafc', border: `1px solid ${C.border}`, borderRadius: 10, padding: '8px 10px' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                <span style={{ width: 9, height: 9, borderRadius: 3, background: b.color, flexShrink: 0 }} />
+                                <span style={{ fontSize: '1.15rem', fontWeight: 900, color: C.text }}>{b.n}</span>
+                              </div>
+                              <div style={{ fontSize: '.72rem', fontWeight: 700, color: C.slate, marginTop: 1 }}>{b.label}</div>
+                              {b.sub && <div style={{ fontSize: '.64rem', color: '#94a3b8' }}>{b.sub}</div>}
+                            </div>
+                          ))}
+                        </div>
+                      );
+                    })()}
                   </Panel>
                   <Panel title="Qualité des données" icon={CheckCircle2}>
                     <QualityBar label="N° de série renseigné" pct={kpis.ordinateurs.qualite.tauxSerie} sub={`${kpis.ordinateurs.qualite.sansSerie} manquants`} />
@@ -1150,8 +1386,10 @@ const ParcInformatique: React.FC = () => {
             if (mt === 'conflict') return <span style={{ background: '#fee2e2', color: '#b91c1c', padding: '1px 8px', borderRadius: 10, fontSize: '.72rem', fontWeight: 700 }}>Conflit S/N</span>;
             return <span style={{ background: '#f1f5f9', color: '#64748b', padding: '1px 8px', borderRadius: 10, fontSize: '.72rem', fontWeight: 700 }}>Non trouvé</span>;
           };
-          // Détermine le type d'équipement déployé (affiché en colonne)
+          // Détermine le type d'équipement déployé (affiché en colonne).
+          // Source de vérité : la catégorie calculée par l'API (row.equip_cat).
           const equipType = (row: any): { label: string; color: string; bg: string; icon: string } => {
+            if (row.equip_cat && EQUIP_CAT_META[row.equip_cat]) return EQUIP_CAT_META[row.equip_cat];
             const mt = (row.materiel_type || '').toUpperCase().trim().replace(/\s+/g, ' ');
             const ucNum = (row.uc_nouveau_num || row.uc_recupere_num || '').toUpperCase();
             const isPortable = /^PO/.test(ucNum);
@@ -1236,7 +1474,6 @@ const ParcInformatique: React.FC = () => {
             return <span style={{ background: s.bg, color: s.color, padding: '1px 8px', borderRadius: 10, fontSize: '.72rem', fontWeight: 700 }}>{op}</span>;
           };
 
-          const dirs = deployKpis ? (deployKpis.by_direction || []).map((d: any) => d.direction).filter(Boolean) : [];
           const types = deployKpis ? (deployKpis.by_type || []).map((t: any) => t.type_operation).filter(Boolean) : [];
           const annees = deployKpis ? (deployKpis.by_annee || []).map((a: any) => String(a.annee)).filter(Boolean) : [];
 
@@ -1319,28 +1556,47 @@ const ParcInformatique: React.FC = () => {
                   { label: 'Non trouvé', value: ms.no_match || 0, color: '#94a3b8' },
                 ].filter(d => d.value > 0);
                 const tauxMatch = totalUc ? Math.round(((ms.match_full || 0) / totalUc) * 100) : 0;
-                const annee = (deployKpis.by_annee || []).map((a: any) => ({ annee: String(a.annee), n: a.n }));
+                // Cadence annuelle décomposée par catégorie d'équipement (barres empilées)
+                const cadenceMap = new Map<string, any>();
+                for (const r of (deployKpis.by_annee_equip || [])) {
+                  const y = String(r.annee);
+                  if (!cadenceMap.has(y)) cadenceMap.set(y, { annee: y, total: 0 });
+                  const o = cadenceMap.get(y); o[r.cat] = (o[r.cat] || 0) + r.n; o.total += r.n;
+                }
+                const cadence = [...cadenceMap.values()].sort((a, b) => a.annee.localeCompare(b.annee));
+                const cadenceCats = CADENCE_CATS.filter(c => cadence.some(row => (row[c.key] || 0) > 0));
                 const types = (deployKpis.by_type || []).map((t: any) => ({ label: t.type_operation, value: t.n }));
                 const dirs = (deployKpis.by_direction || []).slice(0, 8).map((d: any) => ({ label: d.direction, n: d.n }));
                 const installs = (deployKpis.by_installateur || []).slice(0, 8).map((i: any) => ({ label: i.installateur, n: i.n }));
 
                 return (
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(330px, 1fr))', gap: 14, marginBottom: 18 }}>
-                    {/* Cadence annuelle */}
+                    {/* Cadence annuelle par type d'équipement (empilé) */}
                     <div style={{ ...card, gridColumn: 'span 2', minWidth: 0 }}>
-                      <div style={titleSt}><TrendingUp size={15} color={C.blue} /> Cadence de déploiement par année</div>
-                      <ResponsiveContainer width="100%" height={210}>
-                        <AreaChart data={annee} margin={{ top: 4, right: 12, bottom: 0, left: -18 }}>
-                          <defs><linearGradient id="depGrad" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="0%" stopColor="#2563eb" stopOpacity={0.35} /><stop offset="100%" stopColor="#2563eb" stopOpacity={0.02} />
-                          </linearGradient></defs>
-                          <CartesianGrid strokeDasharray="3 3" stroke="#eef2f7" />
+                      <div style={titleSt}><TrendingUp size={15} color={C.blue} /> Cadence de déploiement par année — par type d'équipement</div>
+                      <ResponsiveContainer width="100%" height={230}>
+                        <BarChart data={cadence} margin={{ top: 4, right: 12, bottom: 0, left: -18 }}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="#eef2f7" vertical={false} />
                           <XAxis dataKey="annee" tick={{ fontSize: 11 }} />
                           <YAxis allowDecimals={false} tick={{ fontSize: 11 }} />
-                          <Tooltip formatter={(v: any) => [`${v} déploiement(s)`, '']} labelFormatter={(l) => `Année ${l}`} />
-                          <Area type="monotone" dataKey="n" stroke="#2563eb" strokeWidth={2} fill="url(#depGrad)" />
-                        </AreaChart>
+                          <Tooltip
+                            formatter={(v: any, n: any) => [`${v} déploiement(s)`, (CADENCE_CATS.find(c => c.key === n) || { label: n }).label]}
+                            labelFormatter={(l) => `Année ${l}`}
+                          />
+                          {cadenceCats.map((c, i) => (
+                            <Bar key={c.key} dataKey={c.key} stackId="eq" fill={c.color}
+                              radius={i === cadenceCats.length - 1 ? [4, 4, 0, 0] : [0, 0, 0, 0]} maxBarSize={48} />
+                          ))}
+                        </BarChart>
                       </ResponsiveContainer>
+                      {/* Légende */}
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, justifyContent: 'center', marginTop: 6 }}>
+                        {cadenceCats.map(c => (
+                          <span key={c.key} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: '.7rem', color: C.slate }}>
+                            <span style={{ width: 9, height: 9, borderRadius: 2, background: c.color }} />{c.label}
+                          </span>
+                        ))}
+                      </div>
                     </div>
 
                     {/* Rapprochement parc (donut + taux) */}
@@ -1503,26 +1759,108 @@ const ParcInformatique: React.FC = () => {
               )}
 
               {/* Filtres */}
+              {(() => {
+                // Regroupe les directions (variantes → code canonique) pour une liste explicite
+                const dirGroups = (() => {
+                  const m = new Map<string, { canon: string; variants: string[]; n: number }>();
+                  for (const d of deployFacets.directions) {
+                    const canon = dirCanonical(d.direction);
+                    if (!canon) continue;
+                    if (!m.has(canon)) m.set(canon, { canon, variants: [], n: 0 });
+                    const g = m.get(canon)!; g.variants.push(d.direction); g.n += d.n;
+                  }
+                  return [...m.values()].sort((a, b) => b.n - a.n);
+                })();
+                const selStyleD: React.CSSProperties = { border: `1px solid ${C.border}`, borderRadius: 8, padding: '8px 10px', fontSize: '.88rem' };
+                return (
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 16, alignItems: 'center' }}>
                 <input value={deployQ} onChange={e => { setDeployQ(e.target.value); setDeployStart(0); }} placeholder="Recherche (bénéficiaire, UC…)"
                   style={{ border: `1px solid ${C.border}`, borderRadius: 8, padding: '8px 12px', fontSize: '.88rem', minWidth: 220 }} />
-                <select value={deployDir} onChange={e => { setDeployDir(e.target.value); setDeployStart(0); }}
-                  style={{ border: `1px solid ${C.border}`, borderRadius: 8, padding: '8px 10px', fontSize: '.88rem' }}>
+                <select value={deployDir} onChange={e => { setDeployDir(e.target.value); setDeployStart(0); }} style={selStyleD} title="Direction">
                   <option value="">Toutes directions</option>
-                  {dirs.map((d: string) => <option key={d} value={d}>{d}</option>)}
+                  {dirGroups.map(g => <option key={g.canon} value={g.canon}>{dirLabel(g.canon)} ({g.n})</option>)}
                 </select>
-                <select value={deployType} onChange={e => { setDeployType(e.target.value); setDeployStart(0); }}
-                  style={{ border: `1px solid ${C.border}`, borderRadius: 8, padding: '8px 10px', fontSize: '.88rem' }}>
+                <select value={deployEquip} onChange={e => { setDeployEquip(e.target.value); setDeployStart(0); }} style={selStyleD} title="Type d'équipement">
+                  <option value="">Tous équipements</option>
+                  {EQUIP_OPTIONS.map(o => <option key={o.key} value={o.key}>{o.icon} {o.label}</option>)}
+                </select>
+                <select value={deployInstall} onChange={e => { setDeployInstall(e.target.value); setDeployStart(0); }} style={selStyleD} title="Installateur">
+                  <option value="">Tous installateurs</option>
+                  {deployFacets.installateurs.map(i => <option key={i.installateur} value={i.installateur}>{i.installateur} ({i.n})</option>)}
+                </select>
+                <select value={deployType} onChange={e => { setDeployType(e.target.value); setDeployStart(0); }} style={selStyleD}>
                   <option value="">Tous types</option>
                   {types.map((t: string) => <option key={t} value={t}>{t}</option>)}
                 </select>
-                <select value={deployAnnee} onChange={e => { setDeployAnnee(e.target.value); setDeployStart(0); }}
-                  style={{ border: `1px solid ${C.border}`, borderRadius: 8, padding: '8px 10px', fontSize: '.88rem' }}>
+                <select value={deployAnnee} onChange={e => { setDeployAnnee(e.target.value); setDeployStart(0); }} style={selStyleD}>
                   <option value="">Toutes années</option>
                   {annees.map((a: string) => <option key={a} value={a}>{a}</option>)}
                 </select>
                 <span style={{ color: C.slate, fontSize: '.82rem', marginLeft: 4 }}>{deployTotal} fiche{deployTotal > 1 ? 's' : ''}</span>
+
+                <div style={{ flex: 1 }} />
+
+                {/* Rapprochement AD des bénéficiaires */}
+                <button onClick={() => runAdMatch(false)} disabled={adRunning}
+                  title="Rechercher tous les bénéficiaires dans l'Active Directory et afficher le nom normalisé"
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '8px 13px', borderRadius: 8, border: `1px solid ${C.border}`, background: '#fff', cursor: adRunning ? 'default' : 'pointer', fontWeight: 700, fontSize: '.84rem', color: '#7c3aed', opacity: adRunning ? 0.7 : 1 }}>
+                  <ShieldCheck size={15} className={adRunning ? 'spin' : ''} />
+                  {adRunning
+                    ? `Rapprochement AD… ${adProgress ? `${adProgress.done}/${adProgress.total}` : ''}`
+                    : 'Rapprocher AD'}
+                </button>
+                {adStatus && !adRunning && (
+                  <span style={{ fontSize: '.78rem', color: C.slate }} title={`${adStatus.cached}/${adStatus.total} bénéficiaires traités`}>
+                    <b style={{ color: '#7c3aed' }}>{adStatus.matched}</b> dans l'AD
+                    {adStatus.remaining > 0 && <span style={{ color: C.amber }}> · {adStatus.remaining} à traiter</span>}
+                  </span>
+                )}
+
+                {/* Fusion des graphies d'installateur */}
+                <button onClick={() => { setInstOpen(true); setInstKeep(null); setInstSel(new Set()); }}
+                  title="Fusionner les variantes d'un même installateur"
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '8px 13px', borderRadius: 8, border: `1px solid ${C.border}`, background: '#fff', cursor: 'pointer', fontWeight: 700, fontSize: '.84rem', color: '#d97706' }}>
+                  <Users size={15} /> Fusionner installateurs
+                </button>
+                <button onClick={() => { setTypesOpen(true); setTypeEdit(null); }}
+                  title="Renommer / fusionner les types de déploiement"
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '8px 13px', borderRadius: 8, border: `1px solid ${C.border}`, background: '#fff', cursor: 'pointer', fontWeight: 700, fontSize: '.84rem', color: '#0891b2' }}>
+                  <Tag size={15} /> Type de déploiements
+                </button>
               </div>
+                );
+              })()}
+
+              {/* Barre d'action : fusion manuelle de 2 fiches */}
+              {deploySel.length > 0 && (() => {
+                const sel = deploySel.map(id => deploys.find(d => d.id === id)).filter(Boolean) as any[];
+                const lbl = (r: any) => r ? `${fmtD(r.date_deploiement)} · ${r.beneficiaire || '—'}${r.uc_nouveau_num ? ' · ' + r.uc_nouveau_num : ''}` : '—';
+                return (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginBottom: 14, padding: '10px 16px', borderRadius: 12, background: '#eff6ff', border: '1px solid #bfdbfe' }}>
+                    <span style={{ fontWeight: 800, color: C.blue, fontSize: '.85rem' }}>Fusion manuelle</span>
+                    {deploySel.length < 2 ? (
+                      <span style={{ fontSize: '.82rem', color: C.slate }}>Sélectionnez une 2<sup>e</sup> fiche à fusionner dans la 1<sup>re</sup>.</span>
+                    ) : (
+                      <span style={{ fontSize: '.82rem', color: C.slate }}>
+                        On garde <b style={{ color: C.text }}>#{deploySel[0]}</b> ({lbl(sel[0])}), complétée avec <b style={{ color: C.text }}>#{deploySel[1]}</b> ({lbl(sel[1])}) — qui sera supprimée.
+                      </span>
+                    )}
+                    <div style={{ flex: 1 }} />
+                    {deploySel.length === 2 && (
+                      <button onClick={() => setDeploySel([deploySel[1], deploySel[0]])} title="Inverser : garder l'autre"
+                        style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '6px 11px', borderRadius: 8, border: `1px solid ${C.border}`, background: '#fff', cursor: 'pointer', fontWeight: 700, fontSize: '.8rem', color: C.slate }}>
+                        <ArrowLeftRight size={13} /> Inverser
+                      </button>
+                    )}
+                    <button onClick={() => setDeploySel([])}
+                      style={{ padding: '6px 11px', borderRadius: 8, border: `1px solid ${C.border}`, background: '#fff', cursor: 'pointer', fontWeight: 700, fontSize: '.8rem', color: C.slate }}>Annuler</button>
+                    <button onClick={doMergePair} disabled={deploySel.length !== 2 || pairMerging}
+                      style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 14px', borderRadius: 8, border: 'none', background: deploySel.length === 2 ? C.blue : '#93c5fd', cursor: deploySel.length === 2 && !pairMerging ? 'pointer' : 'default', fontWeight: 800, fontSize: '.82rem', color: '#fff' }}>
+                      {pairMerging ? <RefreshCw size={13} className="spin" /> : <ArrowLeftRight size={13} />} Fusionner
+                    </button>
+                  </div>
+                );
+              })()}
 
               {/* Tableau */}
               {deployLoading ? (
@@ -1532,19 +1870,45 @@ const ParcInformatique: React.FC = () => {
                   <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '.84rem' }}>
                     <thead>
                       <tr style={{ background: '#f8fafc', borderBottom: `2px solid ${C.border}` }}>
-                        {['Date', 'Src', 'Équipement', 'Lieu parc', 'Bénéficiaire', 'Direction / Service', 'UC fourni', 'Modèle UC', 'UC récupéré', 'Écran(s)', 'Installateur', 'Type', 'Fichier(s)'].map(h => (
-                          <th key={h} style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, color: C.slate, fontSize: '.78rem', textTransform: 'uppercase', letterSpacing: '.04em', whiteSpace: 'nowrap' }}>{h}</th>
-                        ))}
+                        <th title="Sélection pour fusion manuelle" style={{ padding: '10px 8px 10px 12px', width: 28 }} />
+                        {([
+                          ['Date', 'date_deploiement'], ['Src', 'source'], ['Équipement', 'equip_cat'], ['Lieu parc', 'lieu'],
+                          ['Bénéficiaire', 'beneficiaire'], ['Direction / Service', 'direction'], ['UC fourni', 'uc_nouveau_num'],
+                          ['Modèle UC', 'uc_nouveau_modele'], ['UC récupéré', 'uc_recupere_num'], ['Écran(s)', 'ecran'],
+                          ['Installateur', 'installateur'], ['Type', 'type_operation'], ['Fichier(s)', null],
+                        ] as [string, string | null][]).map(([h, sk]) => {
+                          const active = sk && deploySort === sk;
+                          return (
+                            <th key={h} onClick={() => {
+                              if (!sk) return;
+                              if (deploySort === sk) setDeploySortDir(d => d === 'asc' ? 'desc' : 'asc');
+                              else { setDeploySort(sk); setDeploySortDir('asc'); }
+                              setDeployStart(0);
+                            }}
+                              style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, color: active ? C.blue : C.slate, fontSize: '.78rem', textTransform: 'uppercase', letterSpacing: '.04em', whiteSpace: 'nowrap', cursor: sk ? 'pointer' : 'default', userSelect: 'none' }}>
+                              {h}
+                              {sk && <span style={{ marginLeft: 4, opacity: active ? 1 : 0.3 }}>{active ? (deploySortDir === 'asc' ? '↑' : '↓') : '↕'}</span>}
+                            </th>
+                          );
+                        })}
                       </tr>
                     </thead>
                     <tbody>
                       {deploys.length === 0 ? (
-                        <tr><td colSpan={13} style={{ padding: 32, textAlign: 'center', color: C.slate }}>Aucune fiche</td></tr>
-                      ) : deploys.map((row: any) => (
-                        <tr key={row.id} style={{ borderTop: `1px solid ${C.border}`, cursor: 'pointer' }}
-                          onMouseEnter={e => (e.currentTarget.style.background = '#f8fafc')}
-                          onMouseLeave={e => (e.currentTarget.style.background = '')}
+                        <tr><td colSpan={14} style={{ padding: 32, textAlign: 'center', color: C.slate }}>Aucune fiche</td></tr>
+                      ) : deploys.map((row: any) => {
+                        const selIdx = deploySel.indexOf(row.id);
+                        return (
+                        <tr key={row.id} style={{ borderTop: `1px solid ${C.border}`, cursor: 'pointer', background: selIdx >= 0 ? '#eff6ff' : undefined }}
+                          onMouseEnter={e => { if (selIdx < 0) e.currentTarget.style.background = '#f8fafc'; }}
+                          onMouseLeave={e => { if (selIdx < 0) e.currentTarget.style.background = ''; }}
                           onClick={() => setDeployEditRow(row)}>
+                          <td style={{ padding: '8px 8px 8px 12px', textAlign: 'center' }} onClick={e => { e.stopPropagation(); toggleDeploySel(row.id); }}>
+                            <span style={{ position: 'relative', display: 'inline-flex' }}>
+                              <input type="checkbox" readOnly checked={selIdx >= 0} title="Sélectionner pour fusion" style={{ accentColor: C.blue, width: 15, height: 15, cursor: 'pointer' }} />
+                              {selIdx >= 0 && <span style={{ position: 'absolute', top: -8, right: -10, background: C.blue, color: '#fff', borderRadius: 8, fontSize: '.6rem', fontWeight: 800, padding: '0 4px' }}>{selIdx + 1}</span>}
+                            </span>
+                          </td>
                           <td style={{ padding: '8px 12px', whiteSpace: 'nowrap', fontFamily: 'monospace', fontSize: '.8rem' }}>{fmtD(row.date_deploiement)}</td>
                           <td style={{ padding: '8px 12px' }}>{sourceBadge(row.source)}</td>
                           <td style={{ padding: '8px 12px', whiteSpace: 'nowrap' }}>
@@ -1575,7 +1939,25 @@ const ParcInformatique: React.FC = () => {
                                 : <span style={{ color: '#cbd5e1' }}>—</span>;
                             })()}
                           </td>
-                          <td style={{ padding: '8px 12px', fontWeight: 600 }}>{row.beneficiaire || '—'}</td>
+                          <td style={{ padding: '8px 12px', fontWeight: 600 }}>
+                            {(() => {
+                              const ad = row.beneficiaire ? adMap[normName(row.beneficiaire)] : null;
+                              if (ad && ad.found) {
+                                return (
+                                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                                    <span title={`Trouvé dans l'AD${ad.email ? ` · ${ad.email}` : ''}${ad.service ? ` · ${ad.service}` : ''}`}>
+                                      <ShieldCheck size={13} color="#7c3aed" />
+                                    </span>
+                                    <span>{ad.display_name || row.beneficiaire}</span>
+                                    {ad.display_name && normName(ad.display_name) !== normName(row.beneficiaire) && (
+                                      <span style={{ color: '#cbd5e1', fontWeight: 400, fontSize: '.74rem' }} title={`Saisi : ${row.beneficiaire}`}>({row.beneficiaire})</span>
+                                    )}
+                                  </span>
+                                );
+                              }
+                              return row.beneficiaire || '—';
+                            })()}
+                          </td>
                           <td style={{ padding: '8px 12px', fontSize: '.8rem' }}>
                             {row.direction && <span style={{ fontWeight: 700, color: C.text }}>{row.direction}</span>}
                             {row.service && <span style={{ color: C.slate }}> / {row.service}</span>}
@@ -1599,60 +1981,92 @@ const ParcInformatique: React.FC = () => {
                           <td style={{ padding: '8px 12px', fontSize: '.8rem' }}>{row.installateur || '—'}</td>
                           <td style={{ padding: '8px 12px', whiteSpace: 'nowrap' }}>{typeBadge(row.type_operation)}</td>
                           <td style={{ padding: '8px 12px', whiteSpace: 'nowrap' }} onClick={e => e.stopPropagation()}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                              {row.fichier ? (<>
-                                {/* Œil = prévisualisation */}
-                                <button onClick={() => setDocViewer({ path: row.fichier, filename: row.fichier.split(/[/\\]/).pop() || row.fichier })}
-                                  title={`Prévisualiser : ${row.fichier}`} style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.blue, display: 'inline-flex', padding: 0 }}>
-                                  <Eye size={15} />
-                                </button>
-                                {/* Flèche = téléchargement */}
-                                <a href={`/api/deploiements/file?path=${encodeURIComponent(row.fichier)}&token=${token || ''}`}
-                                  download title={`Télécharger : ${row.fichier}`}
-                                  style={{ color: C.blue, display: 'inline-flex', padding: 0 }}>
-                                  <Download size={14} />
-                                </a>
-                              </>) : <span style={{ color: '#cbd5e1' }}>—</span>}
-                              {row.fichier_lie && (<>
-                                {/* Œil = prévisualisation du fichier lié */}
-                                <button onClick={() => setDocViewer({ path: row.fichier_lie, filename: row.fichier_lie.split(/[/\\]/).pop() || row.fichier_lie })}
-                                  title={`Prévisualiser : ${row.fichier_lie}`} style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.slate, display: 'inline-flex', padding: 0 }}>
-                                  <Eye size={13} />
-                                </button>
-                                {/* Flèche = téléchargement du fichier lié */}
-                                <a href={`/api/deploiements/file?path=${encodeURIComponent(row.fichier_lie)}&token=${token || ''}`}
-                                  download title={`Télécharger : ${row.fichier_lie}`}
-                                  style={{ color: C.slate, display: 'inline-flex', padding: 0 }}>
-                                  <Download size={12} />
-                                </a>
-                              </>)}
-                              <button onClick={() => setDeployEditRow(row)} title="Modifier ce déploiement"
-                                style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.slate, marginLeft: 2, display: 'inline-flex', padding: 0 }}>
-                                <Edit2 size={13} />
-                              </button>
-                            </div>
+                            {(() => {
+                              // Document GLPI (prioritaire sur le chemin NAS quand disponible)
+                              const glpiDocId: number | null = row.glpi_document_id || null;
+                              const glpiPreviewUrl  = glpiDocId ? `/api/parc/file/document/${glpiDocId}?token=${token || ''}` : null;
+                              const glpiFilename    = glpiDocId ? (row.fichier ? (row.fichier.split(/[/\\]/).pop() || 'document') : `document-${glpiDocId}`) : null;
+                              // Fichier NAS (utilisé uniquement si pas de doc GLPI)
+                              const nasFile   = !glpiDocId && row.fichier ? row.fichier : null;
+                              const nasPreviewPath = nasFile;
+                              const hasDoc = !!(glpiDocId || nasFile || row.fichier_lie);
+                              return (
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                  {glpiDocId ? (<>
+                                    {/* Document GLPI — badge distinctif + œil + téléchargement */}
+                                    <span title="Document GLPI" style={{ background: '#ede9fe', color: '#7c3aed', borderRadius: 4, padding: '0 4px', fontSize: '.68rem', fontWeight: 700, letterSpacing: '.02em' }}>GLPI</span>
+                                    <button onClick={() => setDocViewer({ path: '', filename: glpiFilename || 'document', glpiDocId })}
+                                      title={`Prévisualiser : ${glpiFilename}`} style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.blue, display: 'inline-flex', padding: 0 }}>
+                                      <Eye size={15} />
+                                    </button>
+                                    <a href={glpiPreviewUrl!} download={glpiFilename || true} title={`Télécharger : ${glpiFilename}`}
+                                      style={{ color: C.blue, display: 'inline-flex', padding: 0 }}>
+                                      <Download size={14} />
+                                    </a>
+                                  </>) : nasFile ? (<>
+                                    <button onClick={() => setDocViewer({ path: nasFile, filename: nasFile.split(/[/\\]/).pop() || nasFile })}
+                                      title={`Prévisualiser : ${nasFile}`} style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.blue, display: 'inline-flex', padding: 0 }}>
+                                      <Eye size={15} />
+                                    </button>
+                                    <a href={`/api/deploiements/file?path=${encodeURIComponent(nasFile)}&token=${token || ''}`}
+                                      download title={`Télécharger : ${nasFile}`}
+                                      style={{ color: C.blue, display: 'inline-flex', padding: 0 }}>
+                                      <Download size={14} />
+                                    </a>
+                                  </>) : null}
+                                  {row.fichier_lie && (<>
+                                    <button onClick={() => setDocViewer({ path: row.fichier_lie, filename: row.fichier_lie.split(/[/\\]/).pop() || row.fichier_lie })}
+                                      title={`Prévisualiser lié : ${row.fichier_lie}`} style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.slate, display: 'inline-flex', padding: 0 }}>
+                                      <Eye size={13} />
+                                    </button>
+                                    <a href={`/api/deploiements/file?path=${encodeURIComponent(row.fichier_lie)}&token=${token || ''}`}
+                                      download title={`Télécharger lié : ${row.fichier_lie}`}
+                                      style={{ color: C.slate, display: 'inline-flex', padding: 0 }}>
+                                      <Download size={12} />
+                                    </a>
+                                  </>)}
+                                  {!hasDoc && <span style={{ color: '#cbd5e1' }}>—</span>}
+                                  <button onClick={() => setDeployEditRow(row)} title="Modifier ce déploiement"
+                                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.slate, marginLeft: 2, display: 'inline-flex', padding: 0 }}>
+                                    <Edit2 size={13} />
+                                  </button>
+                                </div>
+                              );
+                            })()}
                           </td>
                         </tr>
-                      ))}
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
               )}
 
-              {/* Pagination */}
-              {deployTotal > deployLimit && (
-                <div style={{ display: 'flex', justifyContent: 'center', gap: 8, marginTop: 14 }}>
-                  <button disabled={deployStart === 0} onClick={() => setDeployStart(Math.max(0, deployStart - deployLimit))}
-                    style={{ padding: '6px 16px', borderRadius: 8, border: `1px solid ${C.border}`, background: C.card, cursor: deployStart === 0 ? 'default' : 'pointer', opacity: deployStart === 0 ? 0.4 : 1, fontSize: '.85rem', fontWeight: 600 }}>
-                    ← Préc.
-                  </button>
-                  <span style={{ lineHeight: '34px', fontSize: '.82rem', color: C.slate }}>
-                    {deployStart + 1}–{Math.min(deployStart + deployLimit, deployTotal)} / {deployTotal}
-                  </span>
-                  <button disabled={deployStart + deployLimit >= deployTotal} onClick={() => setDeployStart(deployStart + deployLimit)}
-                    style={{ padding: '6px 16px', borderRadius: 8, border: `1px solid ${C.border}`, background: C.card, cursor: deployStart + deployLimit >= deployTotal ? 'default' : 'pointer', opacity: deployStart + deployLimit >= deployTotal ? 0.4 : 1, fontSize: '.85rem', fontWeight: 600 }}>
-                    Suiv. →
-                  </button>
+              {/* Pagination + nombre d'items par page */}
+              {deployTotal > 0 && (
+                <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 14, marginTop: 14, flexWrap: 'wrap' }}>
+                  <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '.82rem', color: C.slate }}>
+                    Afficher
+                    <select value={deployLimit} onChange={e => { setDeployLimit(parseInt(e.target.value, 10)); setDeployStart(0); }}
+                      style={{ border: `1px solid ${C.border}`, borderRadius: 8, padding: '5px 8px', fontSize: '.82rem', fontWeight: 600 }}>
+                      {[25, 50, 100, 200, 500].map(n => <option key={n} value={n}>{n}</option>)}
+                      <option value={5000}>Tout</option>
+                    </select>
+                    par page
+                  </label>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <button disabled={deployStart === 0} onClick={() => setDeployStart(Math.max(0, deployStart - deployLimit))}
+                      style={{ padding: '6px 16px', borderRadius: 8, border: `1px solid ${C.border}`, background: C.card, cursor: deployStart === 0 ? 'default' : 'pointer', opacity: deployStart === 0 ? 0.4 : 1, fontSize: '.85rem', fontWeight: 600 }}>
+                      ← Préc.
+                    </button>
+                    <span style={{ lineHeight: '34px', fontSize: '.82rem', color: C.slate }}>
+                      {deployStart + 1}–{Math.min(deployStart + deployLimit, deployTotal)} / {deployTotal}
+                    </span>
+                    <button disabled={deployStart + deployLimit >= deployTotal} onClick={() => setDeployStart(deployStart + deployLimit)}
+                      style={{ padding: '6px 16px', borderRadius: 8, border: `1px solid ${C.border}`, background: C.card, cursor: deployStart + deployLimit >= deployTotal ? 'default' : 'pointer', opacity: deployStart + deployLimit >= deployTotal ? 0.4 : 1, fontSize: '.85rem', fontWeight: 600 }}>
+                      Suiv. →
+                    </button>
+                  </div>
                 </div>
               )}
             </div>
@@ -1672,6 +2086,130 @@ const ParcInformatique: React.FC = () => {
             setDeployEditRow(null);
           }}
         />
+      )}
+
+      {/* ─── MODAL FUSION INSTALLATEURS ─── */}
+      {instOpen && (
+        <div onClick={() => setInstOpen(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.5)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+          <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: 16, width: 'min(560px,96vw)', maxHeight: '88vh', display: 'flex', flexDirection: 'column', overflow: 'hidden', boxShadow: '0 24px 60px rgba(0,0,0,.3)' }}>
+            <div style={{ padding: '16px 20px', borderBottom: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', gap: 10 }}>
+              <Users size={18} color="#d97706" />
+              <div style={{ flex: 1 }}>
+                <div style={{ fontWeight: 800, color: C.text }}>Fusionner les installateurs</div>
+                <div style={{ fontSize: '.78rem', color: C.slate }}>
+                  {instKeep ? <>On conserve <b style={{ color: '#d97706' }}>{instKeep}</b> — cochez les graphies à fusionner dedans.</> : 'Cliquez d\'abord sur l\'installateur à conserver.'}
+                </div>
+              </div>
+              <button onClick={() => setInstOpen(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.slate }}><X size={18} /></button>
+            </div>
+
+            {/* Conservé */}
+            {instKeep && (
+              <div style={{ padding: '10px 20px', borderBottom: `1px solid ${C.border}`, background: '#fffbeb', display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ fontSize: '.78rem', color: C.slate }}>Conservé :</span>
+                <span style={{ background: '#fef3c7', color: '#b45309', padding: '2px 10px', borderRadius: 8, fontWeight: 700, fontSize: '.84rem' }}>{instKeep}</span>
+                <button onClick={() => { setInstKeep(null); setInstSel(new Set()); }} style={{ marginLeft: 'auto', background: 'none', border: `1px solid ${C.border}`, borderRadius: 6, padding: '3px 9px', cursor: 'pointer', fontSize: '.78rem', color: C.slate }}>Changer</button>
+              </div>
+            )}
+
+            {/* Recherche */}
+            <div style={{ padding: '10px 20px 0' }}>
+              <input value={instQ} onChange={e => setInstQ(e.target.value)} placeholder="Filtrer…"
+                style={{ width: '100%', boxSizing: 'border-box', border: `1px solid ${C.border}`, borderRadius: 8, padding: '7px 11px', fontSize: '.86rem' }} />
+            </div>
+
+            {/* Liste */}
+            <div style={{ overflowY: 'auto', padding: '10px 12px', flex: 1 }}>
+              {deployFacets.installateurs
+                .filter(i => !instQ || i.installateur.toLowerCase().includes(instQ.toLowerCase()))
+                .map(i => {
+                  const name = i.installateur;
+                  const isKeep = instKeep === name;
+                  const selected = instSel.has(name);
+                  const onClick = () => {
+                    if (!instKeep) { setInstKeep(name); return; }
+                    if (isKeep) return;
+                    setInstSel(s => { const n = new Set(s); if (n.has(name)) n.delete(name); else n.add(name); return n; });
+                  };
+                  return (
+                    <div key={name} onClick={onClick} style={{
+                      display: 'flex', alignItems: 'center', gap: 10, padding: '7px 10px', borderRadius: 8, cursor: isKeep ? 'default' : 'pointer',
+                      background: isKeep ? '#fef3c7' : selected ? '#eff6ff' : 'transparent',
+                      border: `1px solid ${isKeep ? '#fcd34d' : selected ? '#bfdbfe' : 'transparent'}`, marginBottom: 3,
+                    }}>
+                      {instKeep && !isKeep && (
+                        <input type="checkbox" readOnly checked={selected} style={{ accentColor: C.blue, width: 15, height: 15 }} />
+                      )}
+                      <span style={{ flex: 1, fontWeight: isKeep ? 800 : 600, color: isKeep ? '#b45309' : C.text, fontSize: '.88rem' }}>
+                        {name}{isKeep && ' ✓ conservé'}
+                      </span>
+                      <span style={{ fontSize: '.76rem', color: C.slate, background: '#f1f5f9', borderRadius: 12, padding: '1px 9px', fontWeight: 700 }}>{i.n}</span>
+                    </div>
+                  );
+                })}
+            </div>
+
+            {/* Pied */}
+            <div style={{ padding: '14px 20px', borderTop: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', gap: 10 }}>
+              <span style={{ fontSize: '.8rem', color: C.slate }}>
+                {instKeep && instSel.size > 0 ? `${instSel.size} graphie(s) → «${instKeep}»` : 'Sélection vide'}
+              </span>
+              <div style={{ flex: 1 }} />
+              <button onClick={() => setInstOpen(false)} style={{ background: '#fff', border: `1px solid ${C.border}`, borderRadius: 8, padding: '8px 14px', cursor: 'pointer', fontWeight: 700, fontSize: '.84rem', color: C.slate }}>Annuler</button>
+              <button onClick={doMergeInstallateurs} disabled={!instKeep || instSel.size === 0 || instMerging}
+                style={{ background: (!instKeep || instSel.size === 0) ? '#fcd9a5' : '#d97706', border: 'none', borderRadius: 8, padding: '8px 16px', cursor: (!instKeep || instSel.size === 0 || instMerging) ? 'default' : 'pointer', fontWeight: 800, fontSize: '.84rem', color: '#fff', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                {instMerging ? <RefreshCw size={14} className="spin" /> : <Users size={14} />} Fusionner
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ─── MODAL TYPES DE DÉPLOIEMENT ─── */}
+      {typesOpen && (
+        <div onClick={() => { setTypesOpen(false); setTypeEdit(null); }} style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.5)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+          <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: 16, width: 'min(560px,96vw)', maxHeight: '88vh', display: 'flex', flexDirection: 'column', overflow: 'hidden', boxShadow: '0 24px 60px rgba(0,0,0,.3)' }}>
+            <div style={{ padding: '16px 20px', borderBottom: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', gap: 10 }}>
+              <Tag size={18} color="#0891b2" />
+              <div style={{ flex: 1 }}>
+                <div style={{ fontWeight: 800, color: C.text }}>Types de déploiement</div>
+                <div style={{ fontSize: '.78rem', color: C.slate }}>Renommez un type ; si le nouveau nom existe déjà, les catégories fusionnent.</div>
+              </div>
+              <button onClick={() => { setTypesOpen(false); setTypeEdit(null); }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.slate }}><X size={18} /></button>
+            </div>
+            <div style={{ overflowY: 'auto', padding: '10px 12px', flex: 1 }}>
+              {deployFacets.types && deployFacets.types.length > 0 ? deployFacets.types.map(t => {
+                const editing = typeEdit && typeEdit.from === t.type_operation;
+                const willMerge = editing && deployFacets.types.some(x => x.type_operation !== t.type_operation && x.type_operation === typeEdit!.value.trim());
+                return (
+                  <div key={t.type_operation} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 10px', borderRadius: 8, marginBottom: 3, background: editing ? '#ecfeff' : 'transparent', border: `1px solid ${editing ? '#a5f3fc' : 'transparent'}` }}>
+                    {editing ? (
+                      <>
+                        <input autoFocus value={typeEdit!.value} onChange={e => setTypeEdit({ from: t.type_operation, value: e.target.value })}
+                          onKeyDown={e => { if (e.key === 'Enter') doRenameType(); if (e.key === 'Escape') setTypeEdit(null); }}
+                          style={{ flex: 1, border: `1px solid ${C.border}`, borderRadius: 6, padding: '5px 9px', fontSize: '.86rem' }} />
+                        {willMerge && <span title="Fusionnera avec la catégorie existante" style={{ background: '#fef3c7', color: '#b45309', padding: '1px 7px', borderRadius: 6, fontSize: '.7rem', fontWeight: 700 }}>fusion</span>}
+                        <button onClick={doRenameType} disabled={typeSaving} style={{ background: '#0891b2', border: 'none', borderRadius: 6, padding: '5px 11px', cursor: 'pointer', color: '#fff', fontWeight: 700, fontSize: '.8rem', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                          {typeSaving ? <RefreshCw size={12} className="spin" /> : <CheckCircle2 size={13} />} OK
+                        </button>
+                        <button onClick={() => setTypeEdit(null)} style={{ background: 'none', border: `1px solid ${C.border}`, borderRadius: 6, padding: '5px 9px', cursor: 'pointer', color: C.slate, fontSize: '.8rem' }}>Annuler</button>
+                      </>
+                    ) : (
+                      <>
+                        <span style={{ flex: 1, fontWeight: 600, color: C.text, fontSize: '.88rem' }}>{t.type_operation}</span>
+                        <span style={{ fontSize: '.76rem', color: C.slate, background: '#f1f5f9', borderRadius: 12, padding: '1px 9px', fontWeight: 700 }}>{t.n}</span>
+                        <button onClick={() => setTypeEdit({ from: t.type_operation, value: t.type_operation })}
+                          title="Renommer" style={{ background: 'none', border: `1px solid ${C.border}`, borderRadius: 6, padding: '4px 8px', cursor: 'pointer', color: C.slate, display: 'inline-flex', alignItems: 'center' }}>
+                          <Edit2 size={13} />
+                        </button>
+                      </>
+                    )}
+                  </div>
+                );
+              }) : <div style={{ padding: 24, textAlign: 'center', color: C.slate }}>Aucun type</div>}
+            </div>
+          </div>
+        </div>
       )}
 
       {/* ─── VISIONNEUSE DE DOCUMENT ─── */}

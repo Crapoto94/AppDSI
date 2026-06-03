@@ -3,6 +3,8 @@
 const path = require('path');
 const fs = require('fs');
 const { pool } = require('../../shared/pg_db');
+const { getSqlite } = require('../../shared/database');
+const { searchADUsersByQuery } = require('../../shared/ad_helper');
 const storage = require('../../shared/storage');
 const smb = require('../../shared/smb_client');
 let mammoth; try { mammoth = require('mammoth'); } catch (e) { mammoth = null; }
@@ -43,6 +45,48 @@ function clean(v) {
   return s;
 }
 
+// Normalise un nom (bénéficiaire) en clé : minuscules, sans accents, espaces compactés.
+function normName(v) {
+  if (!v) return '';
+  return String(v).normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .toLowerCase().replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+// ── Catégorie d'équipement : UNE seule expression SQL, source de vérité partagée
+//    par le filtre et par le badge affiché (renvoyée comme colonne `equip_cat`).
+// Codes : pc_portable_ecran, pc_fixe_ecran, pc_imp, pc_portable, pc_fixe,
+//         imprimante, peripherique, ecran, autre.
+const _mt  = `UPPER(TRIM(COALESCE(f.materiel_type,'')))`;
+const _ucN = `UPPER(COALESCE(f.uc_nouveau_num,''))`;
+const _ucR = `UPPER(COALESCE(f.uc_recupere_num,''))`;
+const _ad  = `UPPER(COALESCE(f.autre_designation,''))`;
+const _isPortable = `(${_ucN} LIKE 'PO%' OR (${_ucN}='' AND ${_ucR} LIKE 'PO%') OR ${_mt} LIKE 'PO%' OR ${_mt} = 'MACBOOK' OR ${_mt} LIKE 'MACBOOK%')`;
+const _isFixe = `(${_ucN} LIKE 'UC%' OR (${_ucN}='' AND ${_ucR} LIKE 'UC%') OR ${_mt} LIKE 'UC%' OR ${_mt} IN ('AIO','IMAC') OR ${_mt} LIKE 'AIO%' OR ${_mt} LIKE 'IMAC%')`;
+const _isImp = `(${_mt} IN ('IMP','SCANNER') OR ${_mt} LIKE 'IMP%' OR ${_mt} LIKE '%IMP%' OR ${_mt} LIKE 'SCAN%' OR f.type_operation ILIKE '%imprimante%')`;
+const _isPeriph = `(${_mt} IN ('PERIPH','TABLETTE') OR ${_mt} LIKE 'PERIPH%' OR ${_mt} LIKE 'TABLET%' OR ${_mt} LIKE 'VIDEO%' OR ${_ad} LIKE 'PÉRIPH%' OR ${_ad} LIKE 'PERIPH%')`;
+const _hasEcran = `(f.ecran1_nouveau_num IS NOT NULL OR f.ecran1_nouveau_serie IS NOT NULL OR f.ecran2_nouveau_serie IS NOT NULL OR f.ecran1_recupere_num IS NOT NULL OR ${_mt} LIKE '%EC%' OR ${_mt} = 'ECRAN' OR ${_ad} LIKE 'ÉCRAN%' OR ${_ad} LIKE 'ECRAN%')`;
+const EQUIP_CAT_SQL = `
+  CASE
+    WHEN ${_isPortable} AND ${_hasEcran} THEN 'pc_portable_ecran'
+    WHEN ${_isFixe}     AND ${_hasEcran} THEN 'pc_fixe_ecran'
+    WHEN (${_isPortable} OR ${_isFixe}) AND ${_isImp} THEN 'pc_imp'
+    WHEN ${_isPortable} THEN 'pc_portable'
+    WHEN ${_isFixe}     THEN 'pc_fixe'
+    WHEN ${_isImp}      THEN 'imprimante'
+    WHEN ${_isPeriph}   THEN 'peripherique'
+    WHEN ${_hasEcran}   THEN 'ecran'
+    ELSE 'autre'
+  END`;
+// Familles du filtre (option UI) → codes de catégorie correspondants
+const EQUIP_FAMILY = {
+  pc_portable:  ['pc_portable', 'pc_portable_ecran'],
+  pc_fixe:      ['pc_fixe', 'pc_fixe_ecran'],
+  ecran:        ['ecran'],
+  imprimante:   ['imprimante', 'pc_imp'],
+  peripherique: ['peripherique'],
+  autre:        ['autre'],
+};
+
 // ──────────────────────────────────────────────────────────────────────────────
 // GET /api/deploiements/ — liste paginée + filtres
 // ──────────────────────────────────────────────────────────────────────────────
@@ -50,16 +94,47 @@ async function list(req, res) {
   try {
     const { direction, type_operation, installateur, annee, q, start = 0, limit = 50 } = req.query;
     const off = parseInt(start, 10) || 0;
-    const lim = Math.min(parseInt(limit, 10) || 50, 200);
+    const lim = Math.min(parseInt(limit, 10) || 50, 5000);
+
+    // Tri whitelisté : clé front → expression SQL
+    const SORT_MAP = {
+      date_deploiement: 'f.date_deploiement',
+      source: 'f.source',
+      equip_cat: `(${EQUIP_CAT_SQL})`,
+      lieu: `COALESCE(uc.raw->>'locations_id', ec.raw->>'locations_id', pe.raw->>'locations_id')`,
+      beneficiaire: 'f.beneficiaire',
+      direction: 'f.direction',
+      uc_nouveau_num: 'f.uc_nouveau_num',
+      uc_nouveau_modele: 'f.uc_nouveau_modele',
+      uc_recupere_num: 'f.uc_recupere_num',
+      ecran: `(CASE WHEN f.ecran1_nouveau_num IS NOT NULL OR f.ecran1_nouveau_serie IS NOT NULL OR f.ecran2_nouveau_serie IS NOT NULL THEN 1 ELSE 0 END)`,
+      installateur: 'f.installateur',
+      type_operation: 'f.type_operation',
+    };
+    let orderBy = 'f.date_deploiement DESC NULLS LAST, f.id DESC';
+    const sortExpr = SORT_MAP[req.query.sort];
+    if (sortExpr) {
+      const dir = String(req.query.dir).toLowerCase() === 'asc' ? 'ASC' : 'DESC';
+      orderBy = `${sortExpr} ${dir} NULLS LAST, f.id DESC`;
+    }
 
     let where = [];
     let params = [];
     let idx = 1;
 
     if (direction) { where.push(`f.direction = $${idx++}`); params.push(direction); }
+    // Liste de directions (variantes regroupées côté front) : match insensible à la casse/espaces
+    if (req.query.directions) {
+      const list = String(req.query.directions).split(',').map((s) => s.trim().toUpperCase()).filter(Boolean);
+      if (list.length) { where.push(`UPPER(TRIM(f.direction)) = ANY($${idx++}::text[])`); params.push(list); }
+    }
     if (type_operation) { where.push(`f.type_operation = $${idx++}`); params.push(type_operation); }
     if (installateur) { where.push(`f.installateur = $${idx++}`); params.push(installateur); }
     if (annee) { where.push(`EXTRACT(YEAR FROM f.date_deploiement) = $${idx++}`); params.push(parseInt(annee, 10)); }
+    if (req.query.equip) {
+      const codes = EQUIP_FAMILY[req.query.equip];
+      if (codes) { where.push(`(${EQUIP_CAT_SQL}) = ANY($${idx++}::text[])`); params.push(codes); }
+    }
     if (q) {
       where.push(`(f.beneficiaire ILIKE $${idx} OR f.uc_nouveau_num ILIKE $${idx} OR f.uc_nouveau_serie ILIKE $${idx} OR f.direction ILIKE $${idx} OR f.service ILIKE $${idx})`);
       params.push(`%${q}%`); idx++;
@@ -71,6 +146,8 @@ async function list(req, res) {
     const dataSql = `
       SELECT
         f.*,
+        f.glpi_document_id,
+        (${EQUIP_CAT_SQL}) AS equip_cat,
         -- ── UC / PC ─────────────────────────────────────────────────────
         uc.glpi_id        AS parc_glpi_id,
         uc.raw->>'serial' AS parc_serie,
@@ -112,7 +189,7 @@ async function list(req, res) {
         AND NOT pe.is_deleted
         AND pe.raw->>'serial' = split_part(split_part(f.autre_designation,'(',2),')',1)
       ${wClause}
-      ORDER BY f.date_deploiement DESC NULLS LAST, f.id DESC
+      ORDER BY ${orderBy}
       LIMIT ${lim} OFFSET ${off}
     `;
 
@@ -140,11 +217,19 @@ async function kpis(req, res) {
   try {
     const client = await pool.connect();
     try {
-      const [total, byType, byDir, byAnnee, byInstallateur, ficLie, matchStats, conflits] = await Promise.all([
+      const [total, byType, byDir, byAnnee, byAnneeEquip, byInstallateur, ficLie, matchStats, conflits] = await Promise.all([
         client.query('SELECT COUNT(*)::int AS n FROM hub_deploiements.fiches'),
         client.query(`SELECT type_operation, COUNT(*)::int AS n FROM hub_deploiements.fiches WHERE type_operation IS NOT NULL GROUP BY type_operation ORDER BY n DESC`),
         client.query(`SELECT direction, COUNT(*)::int AS n FROM hub_deploiements.fiches WHERE direction IS NOT NULL GROUP BY direction ORDER BY n DESC LIMIT 10`),
         client.query(`SELECT EXTRACT(YEAR FROM date_deploiement)::int AS annee, COUNT(*)::int AS n FROM hub_deploiements.fiches WHERE date_deploiement IS NOT NULL GROUP BY 1 ORDER BY 1`),
+        // Cadence annuelle décomposée par catégorie d'équipement
+        client.query(`
+          SELECT EXTRACT(YEAR FROM f.date_deploiement)::int AS annee, (${EQUIP_CAT_SQL}) AS cat, COUNT(*)::int AS n
+          FROM hub_deploiements.fiches f
+          WHERE f.date_deploiement IS NOT NULL
+          GROUP BY 1, 2
+          ORDER BY 1
+        `),
         client.query(`SELECT installateur, COUNT(*)::int AS n FROM hub_deploiements.fiches WHERE installateur IS NOT NULL GROUP BY installateur ORDER BY n DESC LIMIT 10`),
         client.query(`SELECT COUNT(*)::int AS n FROM hub_deploiements.fiches WHERE fichier_lie IS NOT NULL`),
         client.query(`
@@ -176,6 +261,7 @@ async function kpis(req, res) {
         by_type: byType.rows,
         by_direction: byDir.rows,
         by_annee: byAnnee.rows,
+        by_annee_equip: byAnneeEquip.rows,
         by_installateur: byInstallateur.rows,
         nb_fichier_lie: ficLie.rows[0].n,
         match_stats: matchStats.rows[0],
@@ -539,4 +625,241 @@ async function update(req, res) {
   }
 }
 
-module.exports = { list, kpis, matches, glpiProposals, serveFile, previewFile, update, conflicts };
+// ──────────────────────────────────────────────────────────────────────────────
+// GET /api/deploiements/facets — listes complètes pour les filtres
+// (directions + installateurs avec comptes ; les types/années viennent des KPIs)
+// ──────────────────────────────────────────────────────────────────────────────
+async function facets(req, res) {
+  try {
+    const client = await pool.connect();
+    try {
+      const [dirs, insts, types] = await Promise.all([
+        client.query(`SELECT direction, COUNT(*)::int n FROM hub_deploiements.fiches WHERE direction IS NOT NULL AND TRIM(direction) <> '' GROUP BY direction ORDER BY n DESC`),
+        client.query(`SELECT installateur, COUNT(*)::int n FROM hub_deploiements.fiches WHERE installateur IS NOT NULL AND TRIM(installateur) <> '' GROUP BY installateur ORDER BY n DESC`),
+        client.query(`SELECT type_operation, COUNT(*)::int n FROM hub_deploiements.fiches WHERE type_operation IS NOT NULL AND TRIM(type_operation) <> '' GROUP BY type_operation ORDER BY n DESC`),
+      ]);
+      return res.json({ directions: dirs.rows, installateurs: insts.rows, types: types.rows });
+    } finally { client.release(); }
+  } catch (e) {
+    console.error('[deploiements] facets error:', e.message);
+    return res.status(500).json({ message: e.message });
+  }
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// POST /api/deploiements/installateurs/merge — fusionne des graphies d'installateur
+//   body { keep: "mb", merge: ["MB","mm\\mb", …] }
+// ──────────────────────────────────────────────────────────────────────────────
+async function mergeInstallateurs(req, res) {
+  try {
+    const keep = (req.body?.keep || '').trim();
+    const merge = Array.isArray(req.body?.merge) ? req.body.merge.map((s) => String(s).trim()).filter((s) => s && s !== keep) : [];
+    if (!keep) return res.status(400).json({ message: 'Champ "keep" requis' });
+    if (!merge.length) return res.status(400).json({ message: 'Aucune valeur à fusionner' });
+    const r = await pool.connect();
+    try {
+      const result = await r.query(
+        `UPDATE hub_deploiements.fiches SET installateur = $1 WHERE installateur = ANY($2::text[])`,
+        [keep, merge]
+      );
+      return res.json({ keep, merged: merge, updated: result.rowCount });
+    } finally { r.release(); }
+  } catch (e) {
+    console.error('[deploiements] mergeInstallateurs error:', e.message);
+    return res.status(500).json({ message: e.message });
+  }
+}
+
+// ── Table de cache AD (créée à la volée) ──────────────────────────────────────
+async function ensureAdCacheTable(client) {
+  await client.query(`
+    CREATE TABLE IF NOT EXISTS hub_deploiements.ad_match (
+      name_norm    TEXT PRIMARY KEY,
+      raw_name     TEXT,
+      found        BOOLEAN NOT NULL DEFAULT false,
+      display_name TEXT,
+      email        TEXT,
+      username     TEXT,
+      service      TEXT,
+      updated_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+    )`);
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// GET /api/deploiements/ad-match — état + map des correspondances en cache
+// ──────────────────────────────────────────────────────────────────────────────
+async function adMatchGet(req, res) {
+  try {
+    const client = await pool.connect();
+    try {
+      await ensureAdCacheTable(client);
+      const [distinct, cache] = await Promise.all([
+        client.query(`SELECT DISTINCT beneficiaire FROM hub_deploiements.fiches WHERE beneficiaire IS NOT NULL AND TRIM(beneficiaire) <> ''`),
+        client.query(`SELECT name_norm, raw_name, found, display_name, email, username, service FROM hub_deploiements.ad_match`),
+      ]);
+      const distinctKeys = new Set();
+      for (const r of distinct.rows) { const k = normName(r.beneficiaire); if (k) distinctKeys.add(k); }
+      const map = {};
+      let matched = 0;
+      for (const r of cache.rows) {
+        map[r.name_norm] = { found: r.found, display_name: r.display_name, email: r.email, username: r.username, service: r.service };
+        if (distinctKeys.has(r.name_norm) && r.found) matched++;
+      }
+      const cachedKeys = new Set(cache.rows.map((r) => r.name_norm));
+      const remaining = [...distinctKeys].filter((k) => !cachedKeys.has(k)).length;
+      return res.json({ total: distinctKeys.size, cached: distinctKeys.size - remaining, remaining, matched, map });
+    } finally { client.release(); }
+  } catch (e) {
+    console.error('[deploiements] adMatchGet error:', e.message);
+    return res.status(500).json({ message: e.message });
+  }
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// POST /api/deploiements/ad-match/run — traite un lot de bénéficiaires non cachés
+//   body { batch?: 25, refresh?: bool }
+// ──────────────────────────────────────────────────────────────────────────────
+async function adMatchRun(req, res) {
+  const batch = Math.min(parseInt(req.body?.batch, 10) || 25, 60);
+  const refresh = !!req.body?.refresh;
+  try {
+    const adCfg = getSqlite() ? await getSqlite().get('SELECT * FROM ad_settings WHERE id = 1') : null;
+    if (!adCfg || !adCfg.host) return res.status(503).json({ message: 'Active Directory non configuré (Admin → AD)' });
+
+    const client = await pool.connect();
+    let toProcess = [];
+    let totalDistinct = 0, alreadyCached = 0;
+    try {
+      await ensureAdCacheTable(client);
+      const distinct = await client.query(`SELECT beneficiaire FROM hub_deploiements.fiches WHERE beneficiaire IS NOT NULL AND TRIM(beneficiaire) <> ''`);
+      // Première occurrence (nom brut) par clé normalisée
+      const byKey = new Map();
+      for (const r of distinct.rows) { const k = normName(r.beneficiaire); if (k && !byKey.has(k)) byKey.set(k, r.beneficiaire); }
+      totalDistinct = byKey.size;
+      const cache = await client.query(`SELECT name_norm FROM hub_deploiements.ad_match`);
+      const cached = new Set(cache.rows.map((r) => r.name_norm));
+      for (const [k, raw] of byKey) {
+        if (!refresh && cached.has(k)) { alreadyCached++; continue; }
+        toProcess.push({ key: k, raw });
+      }
+    } finally { client.release(); }
+
+    const slice = toProcess.slice(0, batch);
+    let processed = 0;
+    for (const { key, raw } of slice) {
+      let found = false, dn = null, email = null, username = null, service = null;
+      try {
+        const results = await searchADUsersByQuery(raw, adCfg);
+        const match = (results || []).find((u) => u.email) || (results || [])[0];
+        if (match) { found = true; dn = match.displayName || null; email = match.email || null; username = match.username || null; service = match.service || null; }
+      } catch (e) { /* on cache quand même le « non trouvé » */ }
+      const c2 = await pool.connect();
+      try {
+        await c2.query(
+          `INSERT INTO hub_deploiements.ad_match (name_norm, raw_name, found, display_name, email, username, service, updated_at)
+           VALUES ($1,$2,$3,$4,$5,$6,$7, now())
+           ON CONFLICT (name_norm) DO UPDATE SET raw_name=EXCLUDED.raw_name, found=EXCLUDED.found,
+             display_name=EXCLUDED.display_name, email=EXCLUDED.email, username=EXCLUDED.username,
+             service=EXCLUDED.service, updated_at=now()`,
+          [key, raw, found, dn, email, username, service]
+        );
+      } finally { c2.release(); }
+      processed++;
+    }
+    const remaining = toProcess.length - slice.length;
+    return res.json({ processed, remaining, total: totalDistinct, done: remaining === 0 });
+  } catch (e) {
+    console.error('[deploiements] adMatchRun error:', e.message);
+    return res.status(500).json({ message: e.message });
+  }
+}
+
+// Colonnes de données fusionnables (tout sauf id / created_at).
+const MERGE_COLS = [
+  'fichier', 'fichier_lie', 'date_deploiement', 'beneficiaire', 'direction',
+  'service', 'site', 'installateur', 'type_operation',
+  'uc_nouveau_num', 'uc_nouveau_serie', 'uc_nouveau_modele',
+  'uc_recupere_num', 'uc_recupere_serie', 'uc_recupere_modele',
+  'ecran1_nouveau_num', 'ecran1_nouveau_serie', 'ecran1_nouveau_modele',
+  'ecran1_recupere_num', 'ecran1_recupere_serie', 'ecran1_recupere_modele',
+  'ecran2_nouveau_serie', 'ecran2_nouveau_modele', 'autre_designation',
+  'source', 'quantite', 'materiel_type', 'annee_materiel', 'neuf_reco',
+  'type_flux', 'est_ordi', 'materiel_refs', 'glpi_document_id',
+];
+function isEmptyVal(v) {
+  if (v === null || v === undefined) return true;
+  if (typeof v === 'string') { const s = v.trim(); return s === '' || s === '—'; }
+  return false;
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// POST /api/deploiements/merge — fusion manuelle de 2 fiches
+//   body { keep_id, merge_id } : complète keep avec les champs vides remplis par
+//   merge (jamais d'écrasement), puis supprime merge.
+// ──────────────────────────────────────────────────────────────────────────────
+async function mergePair(req, res) {
+  const keepId = parseInt(req.body?.keep_id, 10);
+  const mergeId = parseInt(req.body?.merge_id, 10);
+  if (!keepId || !mergeId) return res.status(400).json({ message: 'keep_id et merge_id requis' });
+  if (keepId === mergeId) return res.status(400).json({ message: 'Les deux fiches doivent être différentes' });
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const keepRes = await client.query('SELECT * FROM hub_deploiements.fiches WHERE id = $1', [keepId]);
+    const mergeRes = await client.query('SELECT * FROM hub_deploiements.fiches WHERE id = $1', [mergeId]);
+    if (!keepRes.rows.length || !mergeRes.rows.length) { await client.query('ROLLBACK'); return res.status(404).json({ message: 'Fiche introuvable' }); }
+    const keep = keepRes.rows[0];
+    const merge = mergeRes.rows[0];
+
+    const updates = {};
+    for (const col of MERGE_COLS) {
+      if (isEmptyVal(keep[col]) && !isEmptyVal(merge[col])) updates[col] = merge[col];
+    }
+    const cols = Object.keys(updates);
+    if (cols.length) {
+      const set = cols.map((c, i) => `${c} = $${i + 1}`).join(', ');
+      await client.query(`UPDATE hub_deploiements.fiches SET ${set} WHERE id = $${cols.length + 1}`,
+        [...cols.map((c) => updates[c]), keepId]);
+    }
+    await client.query('DELETE FROM hub_deploiements.fiches WHERE id = $1', [mergeId]);
+    await client.query('COMMIT');
+
+    const finalRow = await client.query('SELECT * FROM hub_deploiements.fiches WHERE id = $1', [keepId]);
+    return res.json({ keep_id: keepId, merge_id: mergeId, filled: cols, row: finalRow.rows[0] });
+  } catch (e) {
+    await client.query('ROLLBACK');
+    console.error('[deploiements] mergePair error:', e.message);
+    return res.status(500).json({ message: e.message });
+  } finally { client.release(); }
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// POST /api/deploiements/types/rename — renomme (et fusionne) un type d'opération
+//   body { from, to } : si "to" existe déjà, les fiches rejoignent cette catégorie.
+// ──────────────────────────────────────────────────────────────────────────────
+async function renameType(req, res) {
+  const from = req.body?.from;            // peut être null (= type vide)
+  const to = (req.body?.to ?? '').trim();
+  if (from === undefined) return res.status(400).json({ message: 'from requis' });
+  if (!to) return res.status(400).json({ message: 'Nouveau nom (to) requis' });
+  if (from === to) return res.status(400).json({ message: 'Le nom est inchangé' });
+  const client = await pool.connect();
+  try {
+    // Existait-il déjà une catégorie nommée "to" ? (→ fusion)
+    const existed = (await client.query(
+      `SELECT COUNT(*)::int n FROM hub_deploiements.fiches WHERE type_operation = $1`, [to]
+    )).rows[0].n > 0;
+    const result = from === null
+      ? await client.query(`UPDATE hub_deploiements.fiches SET type_operation = $1 WHERE type_operation IS NULL`, [to])
+      : await client.query(`UPDATE hub_deploiements.fiches SET type_operation = $1 WHERE type_operation = $2`, [to, from]);
+    return res.json({ from, to, updated: result.rowCount, merged: existed });
+  } catch (e) {
+    console.error('[deploiements] renameType error:', e.message);
+    return res.status(500).json({ message: e.message });
+  } finally { client.release(); }
+}
+
+module.exports = {
+  list, kpis, matches, glpiProposals, serveFile, previewFile, update, conflicts,
+  facets, mergeInstallateurs, adMatchGet, adMatchRun, mergePair, renameType,
+};
