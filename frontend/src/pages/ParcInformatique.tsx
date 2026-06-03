@@ -332,10 +332,14 @@ const ParcInformatique: React.FC = () => {
     } catch { /* silencieux */ }
   }, [token]);
 
+  const [deployConflictData, setDeployConflictData] = useState<{ total: number; by_type: Record<string, number>; rows: any[] } | null>(null);
+  const [deployConflictFilter, setDeployConflictFilter] = useState<string>('');
+
   const loadDeployConflicts = useCallback(async () => {
     try {
-      const r = await axios.get('/api/deploiements/matches', { headers: { Authorization: `Bearer ${token}` } });
-      setDeployConflicts(r.data || []);
+      const r = await axios.get('/api/deploiements/conflicts', { headers: { Authorization: `Bearer ${token}` } });
+      setDeployConflictData(r.data);
+      setDeployConflicts(r.data?.rows || []);
     } catch { setDeployConflicts([]); }
   }, [token]);
 
@@ -1326,39 +1330,78 @@ const ParcInformatique: React.FC = () => {
               })()}
 
               {/* Bandeau conflits */}
-              {(deployKpis?.nb_conflits ?? 0) > 0 && (
-                <div style={{ background: '#fff7ed', border: '1px solid #fed7aa', borderRadius: 10, padding: '10px 16px', marginBottom: 16, fontSize: '.88rem', color: '#92400e' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                    <span><b>{deployKpis.nb_conflits} conflit{deployKpis.nb_conflits > 1 ? 's' : ''} de numéro de série</b> détecté{deployKpis.nb_conflits > 1 ? 's' : ''} entre fiches et parc</span>
-                    <button onClick={() => { if (!deployConflictsOpen) loadDeployConflicts(); setDeployConflictsOpen(o => !o); }}
-                      style={{ background: 'none', border: '1px solid #fed7aa', borderRadius: 7, padding: '3px 12px', color: '#92400e', cursor: 'pointer', fontSize: '.82rem', fontWeight: 700 }}>
-                      {deployConflictsOpen ? 'Masquer' : 'Voir les détails'}
-                    </button>
-                  </div>
-                  {deployConflictsOpen && deployConflicts.length > 0 && (
-                    <div style={{ marginTop: 10, overflowX: 'auto' }}>
-                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '.82rem' }}>
-                        <thead>
-                          <tr style={{ background: '#fef3c7' }}>
-                            {['Date', 'Bénéficiaire', 'N° UC', 'S/N fiche', 'S/N parc'].map(h => (
-                              <th key={h} style={{ padding: '6px 10px', textAlign: 'left', fontWeight: 700 }}>{h}</th>
-                            ))}
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {deployConflicts.map((c: any) => (
-                            <tr key={c.id} style={{ borderTop: '1px solid #fed7aa' }}>
-                              <td style={{ padding: '5px 10px' }}>{fmtD(c.date_deploiement)}</td>
-                              <td style={{ padding: '5px 10px' }}>{c.beneficiaire || '—'}</td>
-                              <td style={{ padding: '5px 10px', fontWeight: 700 }}>{c.uc_nouveau_num}</td>
-                              <td style={{ padding: '5px 10px', fontFamily: 'monospace' }}>{c.uc_nouveau_serie}</td>
-                              <td style={{ padding: '5px 10px', fontFamily: 'monospace', color: '#b91c1c' }}>{c.parc_serie}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
+              {/* ── Incohérences déploiements ↔ parc ── */}
+              <div style={{ marginBottom: 16 }}>
+                <button onClick={() => {
+                  if (!deployConflictsOpen) loadDeployConflicts();
+                  setDeployConflictsOpen(o => !o);
+                }} style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 8, padding: '9px 18px', borderRadius: 10, cursor: 'pointer', fontWeight: 700, fontSize: '.88rem',
+                  border: `1px solid ${deployConflictData && deployConflictData.total > 0 ? '#fca5a5' : C.border}`,
+                  background: deployConflictData && deployConflictData.total > 0 ? '#fef2f2' : '#f8fafc',
+                  color: deployConflictData && deployConflictData.total > 0 ? '#b91c1c' : C.slate,
+                }}>
+                  <AlertTriangle size={15} /> Incohérences déploiements ↔ parc
+                  {deployConflictData && <span style={{ background: deployConflictData.total > 0 ? '#fca5a5' : '#e2e8f0', color: deployConflictData.total > 0 ? '#b91c1c' : C.slate, borderRadius: 20, padding: '1px 9px', fontWeight: 800, fontSize: '.8rem' }}>{deployConflictData.total}</span>}
+                  <span style={{ fontSize: '.8rem', fontWeight: 400 }}>{deployConflictsOpen ? '▲' : '▼'}</span>
+                </button>
+              </div>
+              {deployConflictsOpen && (
+                <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, marginBottom: 20, overflow: 'hidden' }}>
+                  {/* Compteurs par type */}
+                  {deployConflictData && (
+                    <div style={{ display: 'flex', gap: 12, padding: '12px 16px', borderBottom: `1px solid ${C.border}`, flexWrap: 'wrap', alignItems: 'center' }}>
+                      {([
+                        ['', 'Tous', deployConflictData.total, '#1e293b', '#f1f5f9'],
+                        ['absent_glpi', 'Absent du parc GLPI', deployConflictData.by_type?.absent_glpi ?? 0, '#b45309', '#fef3c7'],
+                        ['serie_conflit', 'N° de série conflit', deployConflictData.by_type?.serie_conflit ?? 0, '#b91c1c', '#fee2e2'],
+                        ['recupere_actif', 'Récupéré mais actif', deployConflictData.by_type?.recupere_actif ?? 0, '#7c3aed', '#faf5ff'],
+                      ] as [string, string, number, string, string][]).map(([k, label, n, color, bg]) => (
+                        <button key={k} onClick={() => setDeployConflictFilter(k)}
+                          style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '5px 12px', borderRadius: 8, border: `1px solid ${deployConflictFilter === k ? color : C.border}`, background: deployConflictFilter === k ? bg : '#fff', color: deployConflictFilter === k ? color : C.slate, cursor: 'pointer', fontWeight: 600, fontSize: '.82rem' }}>
+                          {label} <b>{n}</b>
+                        </button>
+                      ))}
                     </div>
                   )}
+                  <div style={{ overflowX: 'auto', maxHeight: 380, overflowY: 'auto' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '.82rem' }}>
+                      <thead>
+                        <tr style={{ background: '#f8fafc', position: 'sticky', top: 0 }}>
+                          {['Type', 'Référence', 'Détail', 'Date', 'Bénéficiaire', 'Direction', 'Service'].map(h => (
+                            <th key={h} style={{ padding: '8px 12px', fontWeight: 700, fontSize: '.74rem', textTransform: 'uppercase', color: C.slate, textAlign: 'left', whiteSpace: 'nowrap' }}>{h}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {(deployConflicts.filter((c: any) => !deployConflictFilter || c.type_conflit === deployConflictFilter)).map((c: any, i: number) => {
+                          const typeInfo: Record<string, { label: string; color: string; bg: string }> = {
+                            absent_glpi:   { label: 'Absent GLPI', color: '#b45309', bg: '#fef9c3' },
+                            serie_conflit: { label: 'S/N conflit', color: '#b91c1c', bg: '#fee2e2' },
+                            recupere_actif:{ label: 'Récupéré actif', color: '#7c3aed', bg: '#faf5ff' },
+                          };
+                          const ti = typeInfo[c.type_conflit] || { label: c.type_conflit, color: C.slate, bg: '#f1f5f9' };
+                          return (
+                            <tr key={i} style={{ borderTop: `1px solid ${C.border}` }}
+                              onMouseEnter={e => (e.currentTarget.style.background = '#f8fafc')} onMouseLeave={e => (e.currentTarget.style.background = '')}>
+                              <td style={{ padding: '7px 12px' }}>
+                                <span style={{ background: ti.bg, color: ti.color, padding: '2px 8px', borderRadius: 6, fontSize: '.74rem', fontWeight: 700, whiteSpace: 'nowrap' }}>{ti.label}</span>
+                              </td>
+                              <td style={{ padding: '7px 12px', fontFamily: 'monospace', fontWeight: 700 }}>{c.reference}</td>
+                              <td style={{ padding: '7px 12px', color: C.slate, fontSize: '.8rem', maxWidth: 260, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.detail || '—'}</td>
+                              <td style={{ padding: '7px 12px', whiteSpace: 'nowrap', fontFamily: 'monospace', fontSize: '.78rem' }}>{fmtD(c.date_deploiement)}</td>
+                              <td style={{ padding: '7px 12px' }}>{c.beneficiaire || '—'}</td>
+                              <td style={{ padding: '7px 12px', fontWeight: 600 }}>{c.direction || '—'}</td>
+                              <td style={{ padding: '7px 12px', color: C.slate }}>{c.service || '—'}</td>
+                            </tr>
+                          );
+                        })}
+                        {deployConflicts.filter((c: any) => !deployConflictFilter || c.type_conflit === deployConflictFilter).length === 0 && (
+                          <tr><td colSpan={7} style={{ padding: 32, textAlign: 'center', color: C.slate }}>Aucune incohérence{deployConflictFilter ? ' pour ce type' : ''}</td></tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
               )}
 

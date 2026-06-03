@@ -3,18 +3,33 @@
 const path = require('path');
 const fs = require('fs');
 const { pool } = require('../../shared/pg_db');
+const storage = require('../../shared/storage');
+const smb = require('../../shared/smb_client');
 
+// Dossier racine des fiches de déploiement. Surchargeable par variable d'env
+// (utile en Docker : pointer vers un volume monté, ex. PARC_FICHES_PATH=/data/fiches).
 const BASE_PATH_DEFAULT = '\\\\nas-syno05\\editions$\\DSIHUB\\parc\\fiches';
+function getFichesBase() {
+  const env = (process.env.PARC_FICHES_PATH || '').trim();
+  return env || BASE_PATH_DEFAULT;
+}
 
-/**
- * Retourne le chemin de base des fiches (depuis ged_settings si dispo, sinon fallback)
- */
-async function getBasePath(db) {
-  try {
-    const row = await db.get('SELECT base_path FROM ged_settings LIMIT 1');
-    if (row && row.base_path) return row.base_path;
-  } catch (e) { /* pas de table ged_settings */ }
-  return BASE_PATH_DEFAULT;
+const MIME_TYPES = {
+  '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  '.doc':  'application/msword',
+  '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  '.pdf':  'application/pdf',
+  '.jpg':  'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png', '.gif': 'image/gif',
+};
+function mimeFor(name) { return MIME_TYPES[path.extname(name).toLowerCase()] || 'application/octet-stream'; }
+
+// Normalise un chemin relatif stocké (antislashs Windows) en segments sûrs (anti-traversée).
+function normalizeRel(relPath) {
+  return String(relPath || '')
+    .replace(/\\/g, '/')
+    .split('/')
+    .filter((seg) => seg && seg !== '.' && seg !== '..')
+    .join('/');
 }
 
 /**
@@ -240,29 +255,54 @@ async function glpiProposals(req, res) {
 // ──────────────────────────────────────────────────────────────────────────────
 async function serveFile(req, res) {
   try {
-    const { path: relPath } = req.query;
-    if (!relPath) return res.status(400).json({ message: 'Paramètre path manquant' });
+    const rel = normalizeRel(req.query.path);
+    if (!rel) return res.status(400).json({ message: 'Paramètre path manquant ou invalide' });
 
-    // Sécurité : pas de traversée de répertoire
-    const cleaned = String(relPath).replace(/\.\.[/\\]/g, '');
-    const basePath = BASE_PATH_DEFAULT;
-    const fullPath = path.join(basePath, cleaned);
+    const base = getFichesBase();
+    const filename = path.basename(rel);
+    const sendHeaders = () => {
+      res.setHeader('Content-Type', mimeFor(filename));
+      res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(filename)}"`);
+    };
 
-    if (!fs.existsSync(fullPath)) {
-      return res.status(404).json({ message: 'Fichier introuvable : ' + fullPath });
+    // Cas partage Windows (UNC, ex. \\nas-syno05\editions$\…) :
+    //  • avec identifiants GED → accès SMB applicatif (fonctionne sur Docker/Linux ET Windows,
+    //    y compris pour les partages cachés "xxx$" nécessitant une authentification) ;
+    //  • sans identifiants, sous Windows uniquement → accès FS direct (l'OS gère l'auth UNC).
+    if (smb.isUncPath(base)) {
+      let creds = {};
+      try { creds = await storage.getStorageConfig(); } catch (e) { /* config indisponible */ }
+      const hasCreds = !!(creds && creds.login && creds.password);
+
+      if (hasCreds) {
+        const smbCfg = { root_path: base, login: creds.login, password: creds.password, domain: creds.domain || '' };
+        let buffer;
+        try { buffer = await smb.readFileRel(smbCfg, rel); }
+        catch (err) { return res.status(502).json({ message: `Accès SMB au partage impossible (${err.message}). Vérifiez les identifiants dans Admin → GED.` }); }
+        if (!buffer) return res.status(404).json({ message: `Fichier introuvable sur le partage : ${rel}` });
+        sendHeaders();
+        return res.send(buffer);
+      }
+
+      if (process.platform !== 'win32') {
+        return res.status(500).json({
+          message: `Le dossier des fiches est un partage Windows (${base}) inaccessible en direct sur ce serveur. ` +
+                   `Renseignez identifiant/mot de passe du partage dans Admin → GED (accès SMB), ` +
+                   `ou montez le partage et définissez PARC_FICHES_PATH vers ce point de montage.`,
+        });
+      }
+      // Windows sans identifiants → tentative d'accès FS direct ci-dessous.
     }
 
-    const ext = path.extname(fullPath).toLowerCase();
-    const mimeTypes = {
-      '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-      '.pdf':  'application/pdf',
-      '.jpg':  'image/jpeg',
-      '.jpeg': 'image/jpeg',
-      '.png':  'image/png',
-    };
-    const ct = mimeTypes[ext] || 'application/octet-stream';
-    res.setHeader('Content-Type', ct);
-    res.setHeader('Content-Disposition', `inline; filename="${path.basename(fullPath)}"`);
+    // Accès filesystem (chemin local/POSIX, lettre de lecteur, ou UNC sous Windows).
+    const fullPath = path.join(base, rel.split('/').join(path.sep));
+    if (!fs.existsSync(fullPath)) {
+      const hint = smb.isUncPath(base)
+        ? ` (partage caché nécessitant peut-être une authentification — configurez les identifiants dans Admin → GED)`
+        : '';
+      return res.status(404).json({ message: `Fichier introuvable : ${fullPath}${hint}` });
+    }
+    sendHeaders();
     fs.createReadStream(fullPath).pipe(res);
   } catch (e) {
     console.error('[deploiements] file error:', e.message);
@@ -270,4 +310,107 @@ async function serveFile(req, res) {
   }
 }
 
-module.exports = { list, kpis, matches, glpiProposals, serveFile };
+// ──────────────────────────────────────────────────────────────────────────────
+// GET /api/deploiements/conflicts — incohérences déploiements ↔ parc GLPI
+// Trois types :
+//   absent_glpi    : PC déployé (PLUS/PLUSMOINS) introuvable dans le parc
+//   serie_conflit  : PC trouvé mais numéro de série différent
+//   recupere_actif : PC marqué comme récupéré/retiré mais toujours "En service"
+// ──────────────────────────────────────────────────────────────────────────────
+async function conflicts(req, res) {
+  try {
+    const client = await pool.connect();
+    try {
+      const [absent, series, actifs] = await Promise.all([
+        // 1. Ordinateurs déployés absents du parc GLPI
+        client.query(`
+          SELECT DISTINCT ON (f.uc_nouveau_num)
+            'absent_glpi'::text AS type_conflit,
+            f.uc_nouveau_num AS reference,
+            NULL::text AS detail,
+            f.date_deploiement,
+            f.beneficiaire,
+            f.direction,
+            f.service,
+            f.type_operation,
+            f.materiel_type
+          FROM hub_deploiements.fiches f
+          WHERE f.uc_nouveau_num IS NOT NULL
+            AND (f.type_flux IN ('PLUS','PLUSMOINS') OR f.type_flux IS NULL)
+            AND NOT EXISTS (
+              SELECT 1 FROM hub_parc.items i
+              WHERE i.name = f.uc_nouveau_num AND NOT i.is_deleted
+            )
+          ORDER BY f.uc_nouveau_num, f.date_deploiement DESC NULLS LAST
+          LIMIT 500
+        `),
+        // 2. Numéros de série en conflit (déploiement ≠ GLPI)
+        client.query(`
+          SELECT
+            'serie_conflit'::text AS type_conflit,
+            f.uc_nouveau_num AS reference,
+            'Déploiement: ' || COALESCE(f.uc_nouveau_serie,'—') || ' / GLPI: ' || COALESCE(i.raw->>'serial','—') AS detail,
+            f.date_deploiement,
+            f.beneficiaire,
+            f.direction,
+            f.service,
+            f.type_operation,
+            f.materiel_type
+          FROM hub_deploiements.fiches f
+          JOIN hub_parc.items i ON i.name = f.uc_nouveau_num AND NOT i.is_deleted
+          WHERE f.uc_nouveau_serie IS NOT NULL
+            AND (i.raw->>'serial') IS NOT NULL
+            AND f.uc_nouveau_serie <> (i.raw->>'serial')
+          ORDER BY f.date_deploiement DESC NULLS LAST
+          LIMIT 300
+        `),
+        // 3. Ordinateurs récupérés/retirés toujours "En service" dans GLPI
+        client.query(`
+          SELECT DISTINCT ON (f.uc_recupere_num)
+            'recupere_actif'::text AS type_conflit,
+            f.uc_recupere_num AS reference,
+            'Statut GLPI: ' || COALESCE(i.raw->>'states_id','—') AS detail,
+            f.date_deploiement,
+            f.beneficiaire,
+            f.direction,
+            f.service,
+            f.type_operation,
+            f.materiel_type
+          FROM hub_deploiements.fiches f
+          JOIN hub_parc.items i ON i.name = f.uc_recupere_num AND NOT i.is_deleted
+          WHERE f.uc_recupere_num IS NOT NULL
+            AND (f.type_flux IN ('MOINS','PLUSMOINS') OR f.type_operation ILIKE '%retour%' OR f.type_operation ILIKE '%remplace%')
+            AND LOWER(COALESCE(i.raw->>'states_id','')) LIKE '%service%'
+          ORDER BY f.uc_recupere_num, f.date_deploiement DESC NULLS LAST
+          LIMIT 300
+        `),
+      ]);
+
+      const all = [
+        ...absent.rows.map(r => ({ ...r, type_conflit: 'absent_glpi' })),
+        ...series.rows.map(r => ({ ...r, type_conflit: 'serie_conflit' })),
+        ...actifs.rows.map(r => ({ ...r, type_conflit: 'recupere_actif' })),
+      ].sort((a, b) => {
+        const order = { absent_glpi: 0, serie_conflit: 1, recupere_actif: 2 };
+        return (order[a.type_conflit] ?? 9) - (order[b.type_conflit] ?? 9);
+      });
+
+      return res.json({
+        total: all.length,
+        by_type: {
+          absent_glpi: absent.rows.length,
+          serie_conflit: series.rows.length,
+          recupere_actif: actifs.rows.length,
+        },
+        rows: all,
+      });
+    } finally {
+      client.release();
+    }
+  } catch (e) {
+    console.error('[deploiements] conflicts error:', e.message);
+    return res.status(500).json({ message: e.message });
+  }
+}
+
+module.exports = { list, kpis, matches, glpiProposals, serveFile, conflicts };

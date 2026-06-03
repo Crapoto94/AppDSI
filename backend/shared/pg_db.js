@@ -4644,6 +4644,18 @@ async function setupPgDb() {
     try { await client.query('CREATE INDEX IF NOT EXISTS idx_fiches_date ON hub_deploiements.fiches(date_deploiement)'); } catch (e) {}
     try { await client.query('CREATE INDEX IF NOT EXISTS idx_fiches_direction ON hub_deploiements.fiches(direction)'); } catch (e) {}
     try { await client.query('CREATE INDEX IF NOT EXISTS idx_fiches_uc_nouveau_num ON hub_deploiements.fiches(uc_nouveau_num)'); } catch (e) {}
+    // Colonnes ajoutées pour l'import du fichier deploy.xlsx (synthèse des déploiements)
+    const alters = [
+      `ALTER TABLE hub_deploiements.fiches ADD COLUMN IF NOT EXISTS source TEXT DEFAULT 'fiches'`,
+      `ALTER TABLE hub_deploiements.fiches ADD COLUMN IF NOT EXISTS quantite INTEGER`,
+      `ALTER TABLE hub_deploiements.fiches ADD COLUMN IF NOT EXISTS materiel_type TEXT`,
+      `ALTER TABLE hub_deploiements.fiches ADD COLUMN IF NOT EXISTS annee_materiel INTEGER`,
+      `ALTER TABLE hub_deploiements.fiches ADD COLUMN IF NOT EXISTS neuf_reco TEXT`,
+      `ALTER TABLE hub_deploiements.fiches ADD COLUMN IF NOT EXISTS type_flux TEXT`,
+      `ALTER TABLE hub_deploiements.fiches ADD COLUMN IF NOT EXISTS est_ordi BOOLEAN`,
+      `ALTER TABLE hub_deploiements.fiches ADD COLUMN IF NOT EXISTS materiel_refs TEXT`,
+    ];
+    for (const sql of alters) { try { await client.query(sql); } catch (e) {} }
 
     console.log('[PG DB] Schema and tables initialized successfully');
   } catch (error) {
