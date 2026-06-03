@@ -4,18 +4,18 @@ import axios from 'axios';
 import Header from '../../components/Header';
 import { Send, ArrowLeft, Plus, Trash2, Search, CheckCircle, UserCheck, FileText, PenLine, X } from 'lucide-react';
 import SignaturePad from './SignaturePad';
-import { stocksApi, type Store, type Item, type StorageLocation, type BlTemplate, type Delivery } from './api';
+import { stocksApi, type Store, type ParcItem, type StorageLocation, type BlTemplate, type Delivery } from './api';
 
 const C = { indigo: '#6366f1', red: '#ef4444', green: '#22c55e', amber: '#f59e0b', slate: '#64748b', border: '#e2e8f0', text: '#1e293b', bg: '#f8fafc' };
 
-interface Line { item_id: number; label: string; quantity: number; location_id?: number | null; }
+interface Line { parc_itemtype: string; parc_glpi_id: number; label: string; quantity: number; location_id?: number | null; }
 
 export default function Sortie() {
   const navigate = useNavigate();
   const [stores, setStores] = useState<Store[]>([]);
   const [storeId, setStoreId] = useState<number | null>(null);
   const [role, setRole] = useState<string | null>(null);
-  const [items, setItems] = useState<Item[]>([]);
+  const [items, setItems] = useState<ParcItem[]>([]);
   const [locations, setLocations] = useState<StorageLocation[]>([]);
   const [templates, setTemplates] = useState<BlTemplate[]>([]);
   const [templateId, setTemplateId] = useState<string>('');
@@ -29,7 +29,7 @@ export default function Sortie() {
 
   // Lignes
   const [lines, setLines] = useState<Line[]>([]);
-  const [pick, setPick] = useState({ item_id: '', quantity: '1', location_id: '' });
+  const [pick, setPick] = useState({ item_key: '', quantity: '1', location_id: '' });
 
   // Signature du destinataire (remise immédiate)
   const [signature, setSignature] = useState<string | null>(null);
@@ -44,7 +44,7 @@ export default function Sortie() {
 
   useEffect(() => {
     stocksApi.listStores().then(d => { setStores(d); if (d.length) setStoreId(d[0].id); }).catch(e => setError(e.message));
-    stocksApi.listItems().then(setItems).catch(() => {});
+    stocksApi.listParcItems().then(setItems).catch(() => {});
     stocksApi.listBlTemplates().then(ts => {
       setTemplates(ts);
       const def = ts.find(t => t.is_default) || ts[0];
@@ -72,11 +72,13 @@ export default function Sortie() {
   }
 
   function addLine() {
-    if (!pick.item_id) return;
-    const it = items.find(i => i.id === Number(pick.item_id));
+    if (!pick.item_key) return;
+    const [parc_itemtype, glpi] = pick.item_key.split('::');
+    const parc_glpi_id = Number(glpi);
+    const it = items.find(i => i.parc_itemtype === parc_itemtype && i.parc_glpi_id === parc_glpi_id);
     if (!it) return;
-    setLines(ls => [...ls, { item_id: it.id, label: it.label, quantity: Number(pick.quantity) || 1, location_id: pick.location_id ? Number(pick.location_id) : null }]);
-    setPick({ item_id: '', quantity: '1', location_id: pick.location_id });
+    setLines(ls => [...ls, { parc_itemtype, parc_glpi_id, label: it.label, quantity: Number(pick.quantity) || 1, location_id: pick.location_id ? Number(pick.location_id) : null }]);
+    setPick({ item_key: '', quantity: '1', location_id: pick.location_id });
   }
 
   function resetForm() {
@@ -103,7 +105,7 @@ export default function Sortie() {
         beneficiary_username: beneficiary.username,
         beneficiary_email: beneficiary.email,
         template_id: templateId ? Number(templateId) : null,
-        lines: lines.map(l => ({ item_id: l.item_id, quantity: l.quantity, location_id: l.location_id })),
+        lines: lines.map(l => ({ parc_itemtype: l.parc_itemtype, parc_glpi_id: l.parc_glpi_id, quantity: l.quantity, location_id: l.location_id })),
       });
       // Phase 2 — remise immédiate si le bénéficiaire signe maintenant
       let final = prep;
@@ -215,9 +217,9 @@ export default function Sortie() {
         <div className="so-card">
           <div style={{ fontWeight: 600, marginBottom: 10 }}>Articles à sortir</div>
           <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
-            <select className="so-select" style={{ flex: 2 }} value={pick.item_id} onChange={e => setPick({ ...pick, item_id: e.target.value })}>
+            <select className="so-select" style={{ flex: 2 }} value={pick.item_key} onChange={e => setPick({ ...pick, item_key: e.target.value })}>
               <option value="">— Article —</option>
-              {items.map(i => <option key={i.id} value={i.id}>{i.label}</option>)}
+              {items.map(i => <option key={`${i.parc_itemtype}::${i.parc_glpi_id}`} value={`${i.parc_itemtype}::${i.parc_glpi_id}`}>{i.label}{i.serial ? ` (${i.serial})` : ''}</option>)}
             </select>
             <input className="so-input" style={{ flex: 1, maxWidth: 80 }} type="number" value={pick.quantity} onChange={e => setPick({ ...pick, quantity: e.target.value })} />
             <button className="so-btn" style={{ width: 'auto', padding: '0 14px' }} onClick={addLine}><Plus size={18} /></button>

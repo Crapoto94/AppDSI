@@ -33,10 +33,11 @@ module.exports = {
     async addLine(receptionId, line) {
         const r = await pgDb.run(
             `INSERT INTO hub_stocks.reception_lines
-                (reception_id, item_id, reference, label, ean, quantity_received, tracking_mode, location_id, specs)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+                (reception_id, parc_itemtype, parc_glpi_id, reference, label, ean, quantity_received, tracking_mode, location_id, specs)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
             [
-                receptionId, line.item_id || null, line.reference || null, line.label || null,
+                receptionId, line.parc_itemtype || null, line.parc_glpi_id || null,
+                line.reference || null, line.label || null,
                 line.ean || null, parseInt(line.quantity_received, 10) || 0,
                 line.tracking_mode || 'batch', line.location_id || null,
                 JSON.stringify(line.specs || {}),
@@ -46,7 +47,10 @@ module.exports = {
     },
     async listLines(receptionId) {
         return pgDb.all(
-            `SELECT * FROM hub_stocks.reception_lines WHERE reception_id = $1 ORDER BY id ASC`,
+            `SELECT rl.*, pi.raw->>'name' AS parc_label, pi.serial AS parc_serial
+             FROM hub_stocks.reception_lines rl
+             LEFT JOIN hub_parc.items pi ON pi.itemtype = rl.parc_itemtype AND pi.glpi_id = rl.parc_glpi_id
+             WHERE rl.reception_id = $1 ORDER BY rl.id ASC`,
             [receptionId]
         );
     },
@@ -54,26 +58,14 @@ module.exports = {
         await pgDb.run(`DELETE FROM hub_stocks.reception_lines WHERE id = $1 AND reception_id = $2`, [id, receptionId]);
     },
 
-    // ─── Résolution / création d'article ─────────────────────
-    async findItemByReferenceOrEan(reference, ean) {
-        if (reference) {
-            const byRef = await pgDb.get(`SELECT * FROM hub_stocks.items WHERE reference = $1 LIMIT 1`, [reference]);
-            if (byRef) return byRef;
-        }
-        if (ean) {
-            const byEan = await pgDb.get(`SELECT * FROM hub_stocks.items WHERE ean = $1 LIMIT 1`, [ean]);
-            if (byEan) return byEan;
-        }
-        return null;
-    },
-
     // ─── Articles sérialisés ─────────────────────────────────
-    async createSerialItem({ item_id, store_id, location_id, serial_number, order_number, reception_id, specs }) {
+    async createSerialItem({ parc_itemtype, parc_glpi_id, item_id, store_id, location_id, serial_number, order_number, reception_id, specs }) {
         const r = await pgDb.run(
             `INSERT INTO hub_stocks.serial_items
-                (item_id, store_id, location_id, serial_number, order_number, reception_id, specs)
-             VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-            [item_id, store_id, location_id || null, serial_number || null, order_number || null, reception_id || null, JSON.stringify(specs || {})]
+                (parc_itemtype, parc_glpi_id, item_id, store_id, location_id, serial_number, order_number, reception_id, specs)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+            [parc_itemtype || null, parc_glpi_id || null, item_id || null, store_id, location_id || null,
+             serial_number || null, order_number || null, reception_id || null, JSON.stringify(specs || {})]
         );
         return r.lastID;
     },
@@ -83,9 +75,13 @@ module.exports = {
         if (status) { params.push(status); where.push(`si.status = $${params.length}`); }
         if (missing_serial) { where.push(`(si.serial_number IS NULL OR si.serial_number = '')`); }
         return pgDb.all(
-            `SELECT si.*, i.label AS item_label, i.reference AS item_reference, i.brand, i.model
+            `SELECT si.*,
+                    COALESCE(pi.raw->>'name', i.label) AS item_label,
+                    i.reference AS item_reference, i.brand, i.model,
+                    pi.serial AS parc_serial
              FROM hub_stocks.serial_items si
-             JOIN hub_stocks.items i ON i.id = si.item_id
+             LEFT JOIN hub_parc.items pi ON pi.itemtype = si.parc_itemtype AND pi.glpi_id = si.parc_glpi_id
+             LEFT JOIN hub_stocks.items i ON i.id = si.item_id
              WHERE ${where.join(' AND ')}
              ORDER BY si.created_at DESC`,
             params

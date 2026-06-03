@@ -4095,6 +4095,40 @@ async function setupPgDb() {
     try { await client.query(`ALTER TABLE hub_stocks.deliveries DROP CONSTRAINT IF EXISTS deliveries_status_check`); } catch (e) {}
     try { await client.query(`ALTER TABLE hub_stocks.deliveries ADD CONSTRAINT deliveries_status_check CHECK (status IN ('draft','prepared','signed','delivered'))`); } catch (e) {}
 
+    // Migration stocks → parc : ajout des colonnes de référence aux équipements du parc
+    try { await client.query(`ALTER TABLE hub_stocks.stock_levels ADD COLUMN IF NOT EXISTS parc_itemtype TEXT`); } catch (e) {}
+    try { await client.query(`ALTER TABLE hub_stocks.stock_levels ADD COLUMN IF NOT EXISTS parc_glpi_id INTEGER`); } catch (e) {}
+    try { await client.query(`ALTER TABLE hub_stocks.stock_levels ALTER COLUMN item_id DROP NOT NULL`); } catch (e) {}
+    try { await client.query(`ALTER TABLE hub_stocks.stock_levels DROP CONSTRAINT IF EXISTS hub_stocks_stock_levels_item_id_store_id_location_id_stock_type_key`); } catch (e) {}
+    try { await client.query(`ALTER TABLE hub_stocks.stock_levels DROP CONSTRAINT IF EXISTS stock_levels_item_id_store_id_location_id_stock_type_key`); } catch (e) {}
+    try { await client.query(`ALTER TABLE hub_stocks.stock_levels ADD CONSTRAINT stock_levels_parc_unique UNIQUE (parc_itemtype, parc_glpi_id, store_id, location_id, stock_type)`); } catch (e) {}
+    try { await client.query(`CREATE INDEX IF NOT EXISTS idx_stocks_levels_parc ON hub_stocks.stock_levels(parc_itemtype, parc_glpi_id)`); } catch (e) {}
+
+    try { await client.query(`ALTER TABLE hub_stocks.movements ADD COLUMN IF NOT EXISTS parc_itemtype TEXT`); } catch (e) {}
+    try { await client.query(`ALTER TABLE hub_stocks.movements ADD COLUMN IF NOT EXISTS parc_glpi_id INTEGER`); } catch (e) {}
+    try { await client.query(`ALTER TABLE hub_stocks.movements ALTER COLUMN item_id DROP NOT NULL`); } catch (e) {}
+    try { await client.query(`CREATE INDEX IF NOT EXISTS idx_stocks_movements_parc ON hub_stocks.movements(parc_itemtype, parc_glpi_id)`); } catch (e) {}
+
+    try { await client.query(`ALTER TABLE hub_stocks.reception_lines ADD COLUMN IF NOT EXISTS parc_itemtype TEXT`); } catch (e) {}
+    try { await client.query(`ALTER TABLE hub_stocks.reception_lines ADD COLUMN IF NOT EXISTS parc_glpi_id INTEGER`); } catch (e) {}
+    try { await client.query(`ALTER TABLE hub_stocks.reception_lines ALTER COLUMN item_id DROP NOT NULL`); } catch (e) {}
+    try { await client.query(`CREATE INDEX IF NOT EXISTS idx_stocks_reclines_parc ON hub_stocks.reception_lines(parc_itemtype, parc_glpi_id)`); } catch (e) {}
+
+    try { await client.query(`ALTER TABLE hub_stocks.serial_items ADD COLUMN IF NOT EXISTS parc_itemtype TEXT`); } catch (e) {}
+    try { await client.query(`ALTER TABLE hub_stocks.serial_items ADD COLUMN IF NOT EXISTS parc_glpi_id INTEGER`); } catch (e) {}
+    try { await client.query(`ALTER TABLE hub_stocks.serial_items ALTER COLUMN item_id DROP NOT NULL`); } catch (e) {}
+    try { await client.query(`CREATE INDEX IF NOT EXISTS idx_stocks_serials_parc ON hub_stocks.serial_items(parc_itemtype, parc_glpi_id)`); } catch (e) {}
+
+    try { await client.query(`ALTER TABLE hub_stocks.delivery_lines ADD COLUMN IF NOT EXISTS parc_itemtype TEXT`); } catch (e) {}
+    try { await client.query(`ALTER TABLE hub_stocks.delivery_lines ADD COLUMN IF NOT EXISTS parc_glpi_id INTEGER`); } catch (e) {}
+    try { await client.query(`ALTER TABLE hub_stocks.delivery_lines ALTER COLUMN item_id DROP NOT NULL`); } catch (e) {}
+    try { await client.query(`CREATE INDEX IF NOT EXISTS idx_stocks_dlines_parc ON hub_stocks.delivery_lines(parc_itemtype, parc_glpi_id)`); } catch (e) {}
+
+    try { await client.query(`ALTER TABLE hub_stocks.loans ADD COLUMN IF NOT EXISTS parc_itemtype TEXT`); } catch (e) {}
+    try { await client.query(`ALTER TABLE hub_stocks.loans ADD COLUMN IF NOT EXISTS parc_glpi_id INTEGER`); } catch (e) {}
+    try { await client.query(`ALTER TABLE hub_stocks.loans ALTER COLUMN item_id DROP NOT NULL`); } catch (e) {}
+    try { await client.query(`CREATE INDEX IF NOT EXISTS idx_stocks_loans_parc ON hub_stocks.loans(parc_itemtype, parc_glpi_id)`); } catch (e) {}
+
     // ─── Module Réseau Ville (hub_reseau) — v2 DIP ────────────────
     // Données réelles extraites des DIP (Dossiers d'Infrastructure et de Production).
     // Géométrie en JSONB GeoJSON (PostGIS indisponible). Sites référencés via hub.sites.code_bien.

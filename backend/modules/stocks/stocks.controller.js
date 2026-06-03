@@ -12,7 +12,6 @@ const financeController = require('../finance/finance.controller');
 const { resolveStoreRole, listAccessibleStores } = require('./middleware/store-permissions');
 const { isAdminLike } = require('../../shared/middleware');
 
-// Helper : l'utilisateur est-il manager d'au moins un magasin (ou admin global) ?
 async function isManagerAnywhere(user) {
     if (isAdminLike(user)) return true;
     const stores = await listAccessibleStores(user);
@@ -28,9 +27,9 @@ module.exports = {
             const role = storeId ? await resolveStoreRole(req.user, storeId) : null;
             res.json({
                 is_admin: isAdminLike(req.user),
-                stores,                 // [{ store_id, role }]
+                stores,
                 store_id: storeId,
-                role,                   // rôle sur le magasin demandé (si store_id)
+                role,
             });
         } catch (e) {
             res.status(500).json({ message: e.message });
@@ -137,49 +136,12 @@ module.exports = {
         }
     },
 
-    // ─── Catalogue articles ──────────────────────────────────
-    async listItems(req, res) {
+    // ─── Catalogue — articles du parc (hub_parc.items) ───────
+    async listParcItems(req, res) {
         try {
-            res.json(await repo.listItems({ search: req.query.search, category: req.query.category }));
+            res.json(await repo.listParcItems({ search: req.query.search }));
         } catch (e) {
             res.status(500).json({ message: e.message });
-        }
-    },
-    async getItem(req, res) {
-        try {
-            const item = await repo.getItem(parseInt(req.params.id, 10));
-            if (!item) return res.status(404).json({ message: 'Article introuvable' });
-            res.json(item);
-        } catch (e) {
-            res.status(500).json({ message: e.message });
-        }
-    },
-    async createItem(req, res) {
-        try {
-            if (!(await isManagerAnywhere(req.user))) return res.status(403).json({ message: 'Permission refusée' });
-            if (!req.body.label) return res.status(400).json({ message: 'label requis' });
-            const id = await repo.createItem(req.body);
-            res.status(201).json({ id });
-        } catch (e) {
-            res.status(400).json({ message: e.message });
-        }
-    },
-    async updateItem(req, res) {
-        try {
-            if (!(await isManagerAnywhere(req.user))) return res.status(403).json({ message: 'Permission refusée' });
-            await repo.updateItem(parseInt(req.params.id, 10), req.body);
-            res.json({ ok: true });
-        } catch (e) {
-            res.status(400).json({ message: e.message });
-        }
-    },
-    async deleteItem(req, res) {
-        try {
-            if (!(await isManagerAnywhere(req.user))) return res.status(403).json({ message: 'Permission refusée' });
-            await repo.deleteItem(parseInt(req.params.id, 10));
-            res.json({ ok: true });
-        } catch (e) {
-            res.status(400).json({ message: e.message });
         }
     },
 
@@ -228,7 +190,6 @@ module.exports = {
 
     // ─── Commandes budgétaires (proxy) ───────────────────────
     async listOrders(req, res) {
-        // Délègue au contrôleur finance (lecture Oracle commandes)
         return financeController.getOrders(req, res);
     },
 
@@ -323,7 +284,6 @@ module.exports = {
             res.status(500).json({ message: e.message });
         }
     },
-    // Phase 1 : préparation (décrément stock + signature préparateur + BL pré-signé)
     async prepareDelivery(req, res) {
         try {
             const delivery = await deliveryService.prepareDelivery({ ...req.body, store_id: req.storeId }, req.user);
@@ -333,7 +293,6 @@ module.exports = {
             res.status(400).json({ message: e.message });
         }
     },
-    // Phase 2 : livraison (signature destinataire + régénération BL)
     async deliverDelivery(req, res) {
         try {
             const delivery = await deliveryService.deliverDelivery(parseInt(req.params.id, 10), req.storeId, req.body.recipient_signature, req.user);
@@ -351,7 +310,6 @@ module.exports = {
             res.status(500).json({ message: e.message });
         }
     },
-    // Télécharge/affiche le PDF du Bon de livraison généré
     async downloadBl(req, res) {
         try {
             const d = await deliveryService.getDelivery(parseInt(req.params.id, 10));

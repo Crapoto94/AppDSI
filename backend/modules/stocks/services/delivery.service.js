@@ -4,11 +4,6 @@ const blPdf = require('./bl-pdf.service');
 const { saveSignature } = require('./signature.util');
 
 module.exports = {
-    /**
-     * Phase 1 — PRÉPARATION.
-     * Liste le matériel, décrémente le stock, le préparateur signe à l'écran,
-     * génère un BL pré-signé. Statut final : 'prepared'.
-     */
     async prepareDelivery(data, user) {
         const {
             store_id, lines = [], template_id, preparer_signature,
@@ -23,9 +18,10 @@ module.exports = {
 
         try {
             for (const line of lines) {
-                if (!line.item_id) throw new Error('item_id requis sur chaque ligne');
+                if (!line.parc_itemtype && !line.item_id) throw new Error('parc_itemtype ou item_id requis sur chaque ligne');
                 const qty = parseInt(line.quantity, 10) || 1;
                 await stockService.applyMovement({
+                    parc_itemtype: line.parc_itemtype, parc_glpi_id: line.parc_glpi_id,
                     item_id: line.item_id, store_id, location_id: line.location_id || null,
                     serial_item_id: line.serial_item_id || null, type: 'out', stock_type: 'normal',
                     quantity: qty, reason: 'Préparation livraison',
@@ -39,7 +35,6 @@ module.exports = {
             throw e;
         }
 
-        // Signature préparateur
         let preparerSigId = null;
         if (preparer_signature) {
             try {
@@ -49,10 +44,8 @@ module.exports = {
             } catch (e) { console.error('[STOCKS] signature préparateur:', e.message); }
         }
 
-        // Persiste la signature avant génération (le PDF la lit en base)
         await repo.setPreparation(deliveryId, { preparer_signature_document_id: preparerSigId, bl_document_id: null });
 
-        // Génère le BL pré-signé (si gabarit défini)
         let blDocId = null;
         try {
             blDocId = await blPdf.generateBL(deliveryId, { withRecipient: false, user });
@@ -62,11 +55,6 @@ module.exports = {
         return repo.getDelivery(deliveryId);
     },
 
-    /**
-     * Phase 2 — LIVRAISON.
-     * Le destinataire signe ; on régénère le BL avec les deux signatures.
-     * Statut final : 'delivered'.
-     */
     async deliverDelivery(id, storeId, recipientSignature, user) {
         const delivery = await repo.getDelivery(id);
         if (!delivery) throw new Error('Livraison introuvable');

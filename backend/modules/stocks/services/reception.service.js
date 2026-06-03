@@ -1,29 +1,5 @@
 const recRepo = require('../repositories/reception.repository');
-const itemRepo = require('../repositories/stock.repository');
 const stockService = require('./stock.service');
-
-/**
- * Résout l'article d'une ligne : utilise item_id, sinon retrouve par référence/EAN,
- * sinon crée un nouvel article au catalogue.
- * @returns {Promise<number>} item_id
- */
-async function resolveItem(line) {
-    if (line.item_id) return line.item_id;
-    const existing = await recRepo.findItemByReferenceOrEan(line.reference, line.ean);
-    if (existing) return existing.id;
-    // Création auto au catalogue
-    return itemRepo.createItem({
-        reference: line.reference || null,
-        label: line.label || line.reference || line.ean || 'Article sans nom',
-        ean: line.ean || null,
-        category: line.category || (line.specs && line.specs.category) || null,
-        brand: line.brand || (line.specs && line.specs.brand) || null,
-        model: line.model || (line.specs && line.specs.model) || null,
-        specs: line.specs || {},
-        tracking_mode: line.tracking_mode || 'batch',
-        unit: line.unit || 'unité',
-    });
-}
 
 module.exports = {
     async createReception(data) {
@@ -51,12 +27,6 @@ module.exports = {
         await recRepo.deleteLine(lineId, receptionId);
     },
 
-    /**
-     * Valide la réception : pour chaque ligne, intègre le stock.
-     * - batch  : +quantité dans stock_levels (mouvement 'in').
-     * - serial : crée N serial_items (n° série différé) + +N dans stock_levels.
-     * Idempotent : ne re-traite pas une réception déjà 'received'.
-     */
     async validateReception(receptionId, user) {
         const reception = await recRepo.getReception(receptionId);
         if (!reception) throw new Error('Réception introuvable');
@@ -70,15 +40,16 @@ module.exports = {
         for (const line of lines) {
             const qty = parseInt(line.quantity_received, 10) || 0;
             if (qty <= 0) continue;
-            const itemId = await resolveItem(line);
 
             if (line.tracking_mode === 'serial') {
                 for (let i = 0; i < qty; i++) {
                     const sid = await recRepo.createSerialItem({
-                        item_id: itemId,
+                        parc_itemtype: line.parc_itemtype,
+                        parc_glpi_id: line.parc_glpi_id,
+                        item_id: line.item_id,
                         store_id: reception.store_id,
                         location_id: line.location_id,
-                        serial_number: null, // saisie différée
+                        serial_number: null,
                         order_number: reception.order_number,
                         reception_id: receptionId,
                         specs: line.specs,
@@ -87,9 +58,10 @@ module.exports = {
                 }
             }
 
-            // Incrément du niveau de stock agrégé (batch ET serial) + mouvement d'entrée
             await stockService.applyMovement({
-                item_id: itemId,
+                parc_itemtype: line.parc_itemtype,
+                parc_glpi_id: line.parc_glpi_id,
+                item_id: line.item_id,
                 store_id: reception.store_id,
                 location_id: line.location_id,
                 type: 'in',
@@ -104,6 +76,7 @@ module.exports = {
         await recRepo.setReceptionStatus(receptionId, 'received', user?.username);
         return { reception_id: receptionId, serials_created: createdSerials.length };
     },
+};
 
     listSerialItems(params) {
         return recRepo.listSerialItems(params);

@@ -4,7 +4,7 @@ import axios from 'axios';
 import Header from '../../components/Header';
 import { Repeat, ArrowLeft, Plus, Search, RotateCcw, AlertTriangle } from 'lucide-react';
 import SignaturePad from './SignaturePad';
-import { stocksApi, type Store, type Item, type Loan } from './api';
+import { stocksApi, type Store, type ParcItem, type Loan } from './api';
 
 const C = { indigo: '#6366f1', red: '#ef4444', green: '#22c55e', amber: '#f59e0b', slate: '#64748b', border: '#e2e8f0', text: '#1e293b', bg: '#f8fafc' };
 
@@ -13,7 +13,7 @@ export default function Prets() {
   const [stores, setStores] = useState<Store[]>([]);
   const [storeId, setStoreId] = useState<number | null>(null);
   const [role, setRole] = useState<string | null>(null);
-  const [items, setItems] = useState<Item[]>([]);
+  const [items, setItems] = useState<ParcItem[]>([]);
   const [loans, setLoans] = useState<Loan[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
@@ -22,7 +22,7 @@ export default function Prets() {
 
   useEffect(() => {
     stocksApi.listStores().then(d => { setStores(d); if (d.length) setStoreId(d[0].id); }).catch(e => setError(e.message));
-    stocksApi.listItems().then(setItems).catch(() => {});
+    stocksApi.listParcItems().then(setItems).catch(() => {});
   }, []);
 
   const load = useCallback(() => {
@@ -97,8 +97,8 @@ export default function Prets() {
   );
 }
 
-function LoanModal({ storeId, items, onClose, onDone }: { storeId: number; items: Item[]; onClose: () => void; onDone: () => void }) {
-  const [form, setForm] = useState({ item_id: '', quantity: '1', due_date: '' });
+function LoanModal({ storeId, items, onClose, onDone }: { storeId: number; items: ParcItem[]; onClose: () => void; onDone: () => void }) {
+  const [form, setForm] = useState({ item_key: '', quantity: '1', due_date: '' });
   const [q, setQ] = useState('');
   const [results, setResults] = useState<any[]>([]);
   const [borrower, setBorrower] = useState<{ name: string; username?: string; email?: string } | null>(null);
@@ -115,12 +115,14 @@ function LoanModal({ storeId, items, onClose, onDone }: { storeId: number; items
   }
   async function submit() {
     setErr(null);
-    if (!form.item_id) { setErr('Sélectionnez un article'); return; }
+    if (!form.item_key) { setErr('Sélectionnez un article'); return; }
+    const [parc_itemtype, glpi] = form.item_key.split('::');
+    const parc_glpi_id = Number(glpi);
     if (!borrower) { setErr('Sélectionnez un emprunteur'); return; }
     setSaving(true);
     try {
       await stocksApi.createLoan(storeId, {
-        item_id: Number(form.item_id), quantity: Number(form.quantity) || 1, due_date: form.due_date || null,
+        parc_itemtype, parc_glpi_id, quantity: Number(form.quantity) || 1, due_date: form.due_date || null,
         borrower_name: borrower.name, borrower_username: borrower.username, borrower_email: borrower.email, signature,
       });
       onDone();
@@ -138,9 +140,9 @@ function LoanModal({ storeId, items, onClose, onDone }: { storeId: number; items
         {err && <div style={{ background: '#fef2f2', border: '1px solid #fecaca', color: '#dc2626', borderRadius: 8, padding: 10, marginBottom: 12, fontSize: 13 }}>{err}</div>}
 
         <label style={label}>Article (stock de prêt) *</label>
-        <select style={field} value={form.item_id} onChange={e => setForm({ ...form, item_id: e.target.value })}>
+        <select style={field} value={form.item_key} onChange={e => setForm({ ...form, item_key: e.target.value })}>
           <option value="">— Choisir —</option>
-          {items.map(i => <option key={i.id} value={i.id}>{i.label}</option>)}
+          {items.map(i => <option key={`${i.parc_itemtype}::${i.parc_glpi_id}`} value={`${i.parc_itemtype}::${i.parc_glpi_id}`}>{i.label}{i.serial ? ` (${i.serial})` : ''}</option>)}
         </select>
 
         <div style={{ display: 'flex', gap: 10 }}>

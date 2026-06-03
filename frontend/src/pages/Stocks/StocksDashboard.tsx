@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Header from '../../components/Header';
 import { Package, AlertTriangle, ArrowDownCircle, ArrowUpCircle, Plus, Settings, RefreshCw, Truck, Barcode, Send, Repeat, TrendingDown } from 'lucide-react';
-import { stocksApi, type Store, type StockLevel, type Item, type StorageLocation, type Movement, type ForecastRow } from './api';
+import { stocksApi, type Store, type StockLevel, type ParcItem, type StorageLocation, type Movement, type ForecastRow } from './api';
 
 const C = {
   indigo: '#6366f1', red: '#ef4444', green: '#22c55e', amber: '#f59e0b',
@@ -186,7 +186,7 @@ export default function StocksDashboard() {
             <table className="stk-table">
               <thead>
                 <tr>
-                  <th>Article</th><th>Réf.</th><th>Emplacement</th>
+                  <th>Équipement</th><th>N° série</th><th>Emplacement</th>
                   <th style={{ textAlign: 'right' }}>Qté</th><th style={{ textAlign: 'right' }}>Seuil</th>
                 </tr>
               </thead>
@@ -195,8 +195,8 @@ export default function StocksDashboard() {
                   const low = (l.min_threshold || 0) > 0 && l.quantity <= (l.min_threshold || 0);
                   return (
                     <tr key={l.id}>
-                      <td style={{ fontWeight: 500 }}>{l.label}{l.brand ? <span style={{ color: C.slate }}> — {l.brand} {l.model}</span> : null}</td>
-                      <td style={{ color: C.slate }}>{l.reference || '—'}</td>
+                      <td style={{ fontWeight: 500 }}>{l.label}{l.brand ? <span style={{ color: C.slate }}> — {l.brand}</span> : null}</td>
+                      <td style={{ color: C.slate }}>{l.serial_number || '—'}</td>
                       <td style={{ color: C.slate }}>{l.location_name || '—'}</td>
                       <td style={{ textAlign: 'right', fontWeight: 700, color: low ? C.red : C.text }}>{l.quantity} {l.unit || ''}</td>
                       <td style={{ textAlign: 'right', color: C.slate }}>{l.min_threshold || '—'}</td>
@@ -255,15 +255,15 @@ export default function StocksDashboard() {
 }
 
 function MovementModal({ storeId, onClose, onDone }: { storeId: number; onClose: () => void; onDone: () => void }) {
-  const [items, setItems] = useState<Item[]>([]);
+  const [parcItems, setParcItems] = useState<ParcItem[]>([]);
   const [locations, setLocations] = useState<StorageLocation[]>([]);
   const [stores, setStores] = useState<Store[]>([]);
-  const [form, setForm] = useState({ item_id: '', type: 'in', quantity: '1', location_id: '', counterpart_store_id: '', reason: '', reference: '' });
+  const [form, setForm] = useState({ parc_itemtype: '', parc_glpi_id: '', type: 'in', quantity: '1', location_id: '', counterpart_store_id: '', reason: '', reference: '' });
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
   useEffect(() => {
-    stocksApi.listItems().then(setItems).catch(() => {});
+    stocksApi.listParcItems().then(setParcItems).catch(() => {});
     stocksApi.listLocations(storeId).then(setLocations).catch(() => {});
     stocksApi.listStores().then(setStores).catch(() => {});
   }, [storeId]);
@@ -272,11 +272,12 @@ function MovementModal({ storeId, onClose, onDone }: { storeId: number; onClose:
 
   async function submit() {
     setErr(null);
-    if (!form.item_id) { setErr('Sélectionnez un article'); return; }
+    if (!form.parc_itemtype) { setErr('Sélectionnez un équipement'); return; }
     setSaving(true);
     try {
       await stocksApi.createMovement(storeId, {
-        item_id: Number(form.item_id),
+        parc_itemtype: form.parc_itemtype,
+        parc_glpi_id: Number(form.parc_glpi_id),
         type: form.type,
         quantity: Number(form.quantity),
         location_id: form.location_id ? Number(form.location_id) : null,
@@ -301,10 +302,19 @@ function MovementModal({ storeId, onClose, onDone }: { storeId: number; onClose:
         <h2 style={{ fontSize: 18, fontWeight: 700, margin: '0 0 16px' }}>Nouveau mouvement</h2>
         {err && <div style={{ background: '#fef2f2', border: '1px solid #fecaca', color: '#dc2626', borderRadius: 8, padding: 10, marginBottom: 12, fontSize: 13 }}>{err}</div>}
 
-        <label style={label}>Article *</label>
-        <select style={field} value={form.item_id} onChange={e => upd('item_id', e.target.value)}>
+        <label style={label}>Équipement (parc) *</label>
+        <select style={field} value={form.parc_itemtype ? `${form.parc_itemtype}::${form.parc_glpi_id}` : ''} onChange={e => {
+          const val = e.target.value;
+          if (!val) { setForm(f => ({ ...f, parc_itemtype: '', parc_glpi_id: '' })); return; }
+          const [itemtype, glpi_id] = val.split('::');
+          setForm(f => ({ ...f, parc_itemtype: itemtype, parc_glpi_id: glpi_id }));
+        }}>
           <option value="">— Choisir —</option>
-          {items.map(i => <option key={i.id} value={i.id}>{i.label}{i.reference ? ` (${i.reference})` : ''}</option>)}
+          {parcItems.map(i => (
+            <option key={`${i.parc_itemtype}::${i.parc_glpi_id}`} value={`${i.parc_itemtype}::${i.parc_glpi_id}`}>
+              {i.label}{i.serial ? ` (${i.serial})` : ''} {i.brand ? `— ${i.brand}` : ''}
+            </option>
+          ))}
         </select>
 
         <label style={label}>Type de mouvement *</label>

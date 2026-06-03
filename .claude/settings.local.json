@@ -361,7 +361,20 @@
       "Bash(node -c backend/modules/calendrier-dsi/calendrier-dsi.controller.js)",
       "Bash(timeout 40 node -e ' *)",
       "Bash(node -c backend/modules/parc/parc.controller.js)",
-      "Bash(node -c backend/modules/parc/parc.routes.js)"
+      "Bash(node -c backend/modules/parc/parc.routes.js)",
+      "Bash(Get-ChildItem -Path C:\\\\dev\\\\AppDSI -Recurse -Directory -Name)",
+      "Bash(node backend/scripts/inject_mise_en_service.js)",
+      "Bash(grep -v \"Use \\\\`node\")",
+      "Bash(node backend/scripts/inject_mise_en_service.js --name=PO25201)",
+      "Bash(node backend/scripts/clear_use_date_2025_03_05.js)",
+      "Bash(Get-ChildItem -Path \"C:\\\\dev\\\\AppDSI\\\\frontend\\\\src\\\\pages\" -Filter \"*arc*\" -Recurse)",
+      "Bash(xargs grep -l \"usagers\")",
+      "Bash(node backend/scripts/fix_mise_en_service.js --name=PO20333)",
+      "Bash(node backend/scripts/fix_mise_en_service.js --apply)",
+      "Bash(node backend/scripts/list_use_date_sans_nom.js)",
+      "Bash(python)",
+      "Bash(node -e \"const p = require\\('C:/dev/AppDSI/backend/package.json'\\); console.log\\(JSON.stringify\\(Object.keys\\(p.dependencies || {}\\), null, 2\\)\\)\")",
+      "PowerShell(\\(Get-Content \"C:\\\\dev\\\\AppDSI\\\\backend\\\\shared\\\\pg_db.js\" | Measure-Object -Line\\).Lines)"
     ]
   }
 }

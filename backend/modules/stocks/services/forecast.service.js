@@ -1,38 +1,37 @@
 const { pgDb } = require('../../../shared/database');
 
-/**
- * Prévision de rupture par article pour un magasin.
- * Consommation = somme des sorties ('out' + 'loan_out') sur `days` jours.
- * jours_avant_rupture = quantité_actuelle / conso_moyenne_journalière.
- *
- * @returns {Promise<Array>} articles triés par urgence (rupture imminente d'abord)
- */
 async function forecast(storeId, days = 60) {
     const rows = await pgDb.all(
         `WITH consumption AS (
-            SELECT item_id, COALESCE(SUM(quantity), 0)::int AS consumed
-            FROM hub_stocks.movements
-            WHERE store_id = $1
-              AND type IN ('out', 'loan_out')
-              AND created_at >= CURRENT_DATE - ($2 || ' days')::interval
-            GROUP BY item_id
+            SELECT COALESCE(m.parc_itemtype, '') AS itemtype,
+                   COALESCE(m.parc_glpi_id, m.item_id) AS item_key,
+                   COALESCE(SUM(m.quantity), 0)::int AS consumed
+            FROM hub_stocks.movements m
+            WHERE m.store_id = $1
+              AND m.type IN ('out', 'loan_out')
+              AND m.created_at >= CURRENT_DATE - ($2 || ' days')::interval
+            GROUP BY COALESCE(m.parc_itemtype, ''), COALESCE(m.parc_glpi_id, m.item_id)
         ),
         stock AS (
-            SELECT sl.item_id,
+            SELECT COALESCE(sl.parc_itemtype, '') AS itemtype,
+                   COALESCE(sl.parc_glpi_id, sl.item_id) AS item_key,
                    SUM(CASE WHEN sl.stock_type = 'normal' THEN sl.quantity ELSE 0 END)::int AS qty_normal,
                    MAX(sl.min_threshold)::int AS level_threshold
             FROM hub_stocks.stock_levels sl
             WHERE sl.store_id = $1
-            GROUP BY sl.item_id
+            GROUP BY COALESCE(sl.parc_itemtype, ''), COALESCE(sl.parc_glpi_id, sl.item_id)
         )
-        SELECT i.id AS item_id, i.label, i.reference, i.unit,
+        SELECT s.itemtype, s.item_key,
+               COALESCE(pi.raw->>'name', i.label) AS label,
+               i.reference, i.unit,
                COALESCE(s.qty_normal, 0) AS quantity,
                GREATEST(COALESCE(s.level_threshold, 0), COALESCE(i.min_threshold, 0)) AS min_threshold,
                COALESCE(c.consumed, 0) AS consumed
         FROM stock s
-        JOIN hub_stocks.items i ON i.id = s.item_id
-        LEFT JOIN consumption c ON c.item_id = s.item_id
-        ORDER BY i.label ASC`,
+        LEFT JOIN hub_parc.items pi ON pi.itemtype = s.itemtype AND pi.glpi_id = s.item_key
+        LEFT JOIN hub_stocks.items i ON i.id = s.item_key
+        LEFT JOIN consumption c ON c.itemtype = s.itemtype AND c.item_key = s.item_key
+        ORDER BY label ASC`,
         [storeId, days]
     );
 
@@ -45,7 +44,7 @@ async function forecast(storeId, days = 60) {
         else if (belowThreshold) severity = 'critical';
         else if (daysToRupture !== null && daysToRupture <= 14) severity = 'warning';
         return {
-            item_id: r.item_id, label: r.label, reference: r.reference, unit: r.unit,
+            item_id: r.item_key, label: r.label, reference: r.reference, unit: r.unit,
             quantity: r.quantity, min_threshold: r.min_threshold, consumed: r.consumed,
             avg_per_day: Math.round(avgPerDay * 100) / 100,
             days_to_rupture: daysToRupture, below_threshold: belowThreshold, severity,

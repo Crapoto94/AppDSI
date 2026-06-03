@@ -72,57 +72,31 @@ module.exports = {
         await pgDb.run(`DELETE FROM hub_stocks.storage_locations WHERE id = $1`, [id]);
     },
 
-    // ─── Catalogue articles ──────────────────────────────────
-    async listItems({ search, category } = {}) {
-        const where = [];
+    // ─── Articles du parc (catalogue stocks = hub_parc.items) ─
+    async listParcItems({ search } = {}) {
+        const statesStock = ['En stock neuf', 'En stock masterisé', 'En stock'];
         const params = [];
+        const conditions = [
+            `(LOWER(pi.raw->>'name') LIKE '%stock%' OR pi.raw->>'states_id' = ANY($1))`,
+            `pi.is_deleted = false`,
+        ];
+        params.push(statesStock);
         if (search) {
             params.push(`%${search}%`);
-            where.push(`(label ILIKE $${params.length} OR reference ILIKE $${params.length} OR ean ILIKE $${params.length})`);
+            conditions.push(`(LOWER(pi.raw->>'name') LIKE LOWER($${params.length}) OR pi.serial ILIKE $${params.length})`);
         }
-        if (category) {
-            params.push(category);
-            where.push(`category = $${params.length}`);
-        }
-        const sql = `SELECT * FROM hub_stocks.items ${where.length ? 'WHERE ' + where.join(' AND ') : ''} ORDER BY label ASC`;
-        return pgDb.all(sql, params);
-    },
-    async getItem(id) {
-        return pgDb.get(`SELECT * FROM hub_stocks.items WHERE id = $1`, [id]);
-    },
-    async getItemByEan(ean) {
-        return pgDb.get(`SELECT * FROM hub_stocks.items WHERE ean = $1 LIMIT 1`, [ean]);
-    },
-    async createItem(data) {
-        const r = await pgDb.run(
-            `INSERT INTO hub_stocks.items (reference, label, category, brand, model, ean, specs, tracking_mode, unit, min_threshold, photo_document_id)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
-            [
-                data.reference || null, data.label, data.category || null, data.brand || null,
-                data.model || null, data.ean || null, JSON.stringify(data.specs || {}),
-                data.tracking_mode || 'batch', data.unit || 'unité', data.min_threshold || 0,
-                data.photo_document_id || null,
-            ]
+        return pgDb.all(
+            `SELECT pi.itemtype AS parc_itemtype, pi.glpi_id AS parc_glpi_id,
+                    pi.raw->>'name' AS label, pi.serial,
+                    pi.raw->>'manufacturers_id' AS brand,
+                    pi.raw->>'name' AS model,
+                    pi.raw->>'states_id' AS state,
+                    pi.itemtype
+             FROM hub_parc.items pi
+             WHERE ${conditions.join(' AND ')}
+             ORDER BY pi.raw->>'name' ASC`,
+            params
         );
-        return r.lastID;
-    },
-    async updateItem(id, data) {
-        await pgDb.run(
-            `UPDATE hub_stocks.items SET
-                reference = $1, label = $2, category = $3, brand = $4, model = $5, ean = $6,
-                specs = $7, tracking_mode = $8, unit = $9, min_threshold = $10, photo_document_id = $11,
-                updated_at = CURRENT_TIMESTAMP
-             WHERE id = $12`,
-            [
-                data.reference || null, data.label, data.category || null, data.brand || null,
-                data.model || null, data.ean || null, JSON.stringify(data.specs || {}),
-                data.tracking_mode || 'batch', data.unit || 'unité', data.min_threshold || 0,
-                data.photo_document_id || null, id,
-            ]
-        );
-    },
-    async deleteItem(id) {
-        await pgDb.run(`DELETE FROM hub_stocks.items WHERE id = $1`, [id]);
     },
 
     // ─── Niveaux de stock ────────────────────────────────────
@@ -134,14 +108,20 @@ module.exports = {
             typeClause = ` AND sl.stock_type = $${params.length}`;
         }
         return pgDb.all(
-            `SELECT sl.*, i.reference, i.label, i.category, i.brand, i.model, i.unit,
-                    i.tracking_mode, i.min_threshold AS item_min_threshold,
+            `SELECT sl.*,
+                    COALESCE(pi.raw->>'name', i.label) AS label,
+                    pi.raw->>'manufacturers_id' AS brand,
+                    pi.raw->>'serial' AS serial_number,
+                    pi.itemtype AS parc_itemtype,
+                    pi.glpi_id AS parc_glpi_id,
+                    i.reference, i.category, i.model, i.unit, i.tracking_mode, i.min_threshold AS item_min_threshold,
                     loc.name AS location_name
              FROM hub_stocks.stock_levels sl
-             JOIN hub_stocks.items i ON i.id = sl.item_id
+             LEFT JOIN hub_parc.items pi ON pi.itemtype = sl.parc_itemtype AND pi.glpi_id = sl.parc_glpi_id
+             LEFT JOIN hub_stocks.items i ON i.id = sl.item_id
              LEFT JOIN hub_stocks.storage_locations loc ON loc.id = sl.location_id
              WHERE sl.store_id = $1${typeClause}
-             ORDER BY i.label ASC`,
+             ORDER BY COALESCE(pi.raw->>'name', i.label) ASC`,
             params
         );
     },
@@ -166,10 +146,13 @@ module.exports = {
         params.push(offset);
         const offsetIdx = params.length;
         return pgDb.all(
-            `SELECT m.*, i.label AS item_label, i.reference AS item_reference,
+            `SELECT m.*,
+                    COALESCE(pi.raw->>'name', i.label) AS item_label,
+                    i.reference AS item_reference,
                     loc.name AS location_name
              FROM hub_stocks.movements m
-             JOIN hub_stocks.items i ON i.id = m.item_id
+             LEFT JOIN hub_parc.items pi ON pi.itemtype = m.parc_itemtype AND pi.glpi_id = m.parc_glpi_id
+             LEFT JOIN hub_stocks.items i ON i.id = m.item_id
              LEFT JOIN hub_stocks.storage_locations loc ON loc.id = m.location_id
              WHERE m.store_id = $1${itemClause}
              ORDER BY m.created_at DESC

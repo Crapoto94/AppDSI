@@ -3,11 +3,11 @@ import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import Header from '../../components/Header';
 import { ArrowLeft, Store as StoreIcon, MapPin, Users, Package, Trash2, Plus, Search, FileText, Upload, Star } from 'lucide-react';
-import { stocksApi, type Store, type StorageLocation, type Member, type Item, type MyRole, type BlTemplate } from './api';
+import { stocksApi, type Store, type StorageLocation, type Member, type MyRole, type BlTemplate } from './api';
 
 const C = { indigo: '#6366f1', red: '#ef4444', green: '#22c55e', slate: '#64748b', border: '#e2e8f0', text: '#1e293b', bg: '#f8fafc' };
 
-type Tab = 'stores' | 'locations' | 'members' | 'items' | 'bl';
+type Tab = 'stores' | 'locations' | 'members' | 'bl';
 
 export default function StocksAdmin() {
   const navigate = useNavigate();
@@ -30,7 +30,6 @@ export default function StocksAdmin() {
     { key: 'stores', label: 'Magasins', icon: <StoreIcon size={16} /> },
     { key: 'locations', label: 'Lieux', icon: <MapPin size={16} /> },
     { key: 'members', label: 'Membres', icon: <Users size={16} /> },
-    { key: 'items', label: 'Catalogue', icon: <Package size={16} /> },
     { key: 'bl', label: 'Modèles BL', icon: <FileText size={16} /> },
   ];
 
@@ -79,14 +78,13 @@ export default function StocksAdmin() {
         {tab === 'stores' && <StoresTab isAdmin={!!me?.is_admin} stores={stores} reload={loadStores} />}
         {tab === 'locations' && storeId != null && <LocationsTab storeId={storeId} />}
         {tab === 'members' && storeId != null && <MembersTab storeId={storeId} />}
-        {tab === 'items' && <ItemsTab />}
         {tab === 'bl' && <BlTemplatesTab />}
       </div>
     </div>
   );
 }
 
-// ─── Modèles de Bon de Livraison ────────────────────────────
+// Modèles de Bon de Livraison
 function BlTemplatesTab() {
   const [list, setList] = useState<BlTemplate[]>([]);
   const [name, setName] = useState('');
@@ -175,7 +173,7 @@ function BlTemplatesTab() {
   );
 }
 
-// ─── Magasins ───────────────────────────────────────────────
+// Magasins
 function StoresTab({ isAdmin, stores, reload }: { isAdmin: boolean; stores: Store[]; reload: () => Promise<void> }) {
   const [form, setForm] = useState({ name: '', code: '', address: '' });
   const [err, setErr] = useState<string | null>(null);
@@ -224,7 +222,7 @@ function StoresTab({ isAdmin, stores, reload }: { isAdmin: boolean; stores: Stor
   );
 }
 
-// ─── Lieux de stockage ──────────────────────────────────────
+// Lieux de stockage
 function LocationsTab({ storeId }: { storeId: number }) {
   const [list, setList] = useState<StorageLocation[]>([]);
   const [form, setForm] = useState({ name: '', code: '', description: '' });
@@ -273,7 +271,7 @@ function LocationsTab({ storeId }: { storeId: number }) {
   );
 }
 
-// ─── Membres (recherche AD) ─────────────────────────────────
+// Membres
 function MembersTab({ storeId }: { storeId: number }) {
   const [list, setList] = useState<Member[]>([]);
   const [q, setQ] = useState('');
@@ -342,74 +340,6 @@ function MembersTab({ storeId }: { storeId: number }) {
               </tr>
             ))}
             {list.length === 0 && <tr><td colSpan={3} style={{ textAlign: 'center', color: C.slate, padding: 16 }}>Aucun membre</td></tr>}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  );
-}
-
-// ─── Catalogue articles ─────────────────────────────────────
-function ItemsTab() {
-  const [list, setList] = useState<Item[]>([]);
-  const [search, setSearch] = useState('');
-  const [form, setForm] = useState({ label: '', reference: '', category: '', brand: '', model: '', ean: '', tracking_mode: 'batch', unit: 'unité', min_threshold: '0' });
-  const [err, setErr] = useState<string | null>(null);
-
-  const load = useCallback(() => { stocksApi.listItems({ search: search || undefined }).then(setList).catch(e => setErr(e.message)); }, [search]);
-  useEffect(() => { load(); }, [load]);
-
-  async function create() {
-    setErr(null);
-    if (!form.label) { setErr('Libellé requis'); return; }
-    try {
-      await stocksApi.createItem({ ...form, tracking_mode: form.tracking_mode as 'batch' | 'serial', min_threshold: Number(form.min_threshold) || 0 });
-      setForm({ label: '', reference: '', category: '', brand: '', model: '', ean: '', tracking_mode: 'batch', unit: 'unité', min_threshold: '0' });
-      load();
-    } catch (e: any) { setErr(e.response?.data?.message || e.message); }
-  }
-  async function remove(id: number) {
-    if (!confirm('Supprimer cet article du catalogue ?')) return;
-    try { await stocksApi.deleteItem(id); load(); } catch (e: any) { setErr(e.response?.data?.message || e.message); }
-  }
-
-  return (
-    <div className="sa-card">
-      {err && <div style={{ color: C.red, marginBottom: 10, fontSize: 13 }}>{err}</div>}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(120px,1fr))', gap: 8, marginBottom: 10 }}>
-        <input className="sa-input" placeholder="Libellé *" value={form.label} onChange={e => setForm({ ...form, label: e.target.value })} />
-        <input className="sa-input" placeholder="Référence" value={form.reference} onChange={e => setForm({ ...form, reference: e.target.value })} />
-        <input className="sa-input" placeholder="Catégorie" value={form.category} onChange={e => setForm({ ...form, category: e.target.value })} />
-        <input className="sa-input" placeholder="Marque" value={form.brand} onChange={e => setForm({ ...form, brand: e.target.value })} />
-        <input className="sa-input" placeholder="Modèle" value={form.model} onChange={e => setForm({ ...form, model: e.target.value })} />
-        <input className="sa-input" placeholder="EAN" value={form.ean} onChange={e => setForm({ ...form, ean: e.target.value })} />
-        <select className="sa-input" value={form.tracking_mode} onChange={e => setForm({ ...form, tracking_mode: e.target.value })}>
-          <option value="batch">Lot (batch)</option>
-          <option value="serial">Unitaire (n° série)</option>
-        </select>
-        <input className="sa-input" placeholder="Unité" value={form.unit} onChange={e => setForm({ ...form, unit: e.target.value })} />
-        <input className="sa-input" type="number" placeholder="Seuil min" value={form.min_threshold} onChange={e => setForm({ ...form, min_threshold: e.target.value })} />
-      </div>
-      <button className="sa-btn" onClick={create} style={{ marginBottom: 16 }}><Plus size={16} /> Ajouter l'article</button>
-
-      <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
-        <input className="sa-input" placeholder="Rechercher dans le catalogue…" value={search} onChange={e => setSearch(e.target.value)} style={{ flex: 1 }} />
-      </div>
-      <div className="sa-scroll">
-        <table className="sa-table">
-          <thead><tr><th>Libellé</th><th>Réf.</th><th>Catégorie</th><th>Marque/Modèle</th><th>Suivi</th><th></th></tr></thead>
-          <tbody>
-            {list.map(i => (
-              <tr key={i.id}>
-                <td style={{ fontWeight: 500 }}>{i.label}</td>
-                <td style={{ color: C.slate }}>{i.reference || '—'}</td>
-                <td style={{ color: C.slate }}>{i.category || '—'}</td>
-                <td style={{ color: C.slate }}>{[i.brand, i.model].filter(Boolean).join(' ') || '—'}</td>
-                <td>{i.tracking_mode === 'serial' ? 'Unitaire' : 'Lot'}</td>
-                <td><button className="sa-iconbtn" onClick={() => remove(i.id)}><Trash2 size={16} /></button></td>
-              </tr>
-            ))}
-            {list.length === 0 && <tr><td colSpan={6} style={{ textAlign: 'center', color: C.slate, padding: 16 }}>Aucun article</td></tr>}
           </tbody>
         </table>
       </div>
