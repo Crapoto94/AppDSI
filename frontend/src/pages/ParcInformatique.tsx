@@ -135,7 +135,9 @@ const ParcInformatique: React.FC = () => {
   const [stockErr, setStockErr] = useState<string | null>(null);
   const [fStockType, setFStockType] = useState('');
   const [fStockMan, setFStockMan] = useState('');
+  const [fStockStatut, setFStockStatut] = useState(''); // '' | 'En stock neuf' | 'En stock masterisé' | 'En stock'
   const [stockExpanded, setStockExpanded] = useState<Set<string>>(new Set());
+  const [stockTooltip, setStockTooltip] = useState<{ items: any[]; statut: string; total: number; x: number; y: number } | null>(null);
 
   // Détail
   const [detail, setDetail] = useState<any | null>(null);
@@ -690,8 +692,9 @@ const ParcInformatique: React.FC = () => {
               const stockTypes = [...new Set(stockGroups.map(g => g.itemtype_label).filter(Boolean))].sort();
               const stockMans  = [...new Set(stockGroups.map(g => g.manufacturer).filter(m => m && m !== '—'))].sort();
               const filtered   = stockGroups
-                .filter(g => !fStockType || g.itemtype_label === fStockType)
-                .filter(g => !fStockMan  || g.manufacturer  === fStockMan);
+                .filter(g => !fStockType  || g.itemtype_label === fStockType)
+                .filter(g => !fStockMan   || g.manufacturer   === fStockMan)
+                .filter(g => !fStockStatut || g[fStockStatut] > 0);
               const totalFiltered = filtered.reduce((s, g) => s + g.total, 0);
               // Regroupement par type
               const byType: Record<string, any[]> = {};
@@ -713,8 +716,22 @@ const ParcInformatique: React.FC = () => {
                       <option value="">Toutes les marques</option>
                       {stockMans.map(m => <option key={m} value={m}>{m}</option>)}
                     </select>
-                    {(fStockType || fStockMan) && (
-                      <button onClick={() => { setFStockType(''); setFStockMan(''); }} style={{ ...btn(C.slate), background: '#f1f5f9', color: C.text, padding: '7px 12px' }}>
+                    {/* Filtres par statut */}
+                    {[
+                      { k: 'En stock neuf',       label: 'Neuf',       color: '#059669', bg: '#f0fdf4' },
+                      { k: 'En stock masterisé',  label: 'Masterisé',  color: '#7c3aed', bg: '#f5f3ff' },
+                      { k: 'En stock',            label: 'En stock',   color: C.blue,    bg: '#eff6ff' },
+                    ].map(s => {
+                      const active = fStockStatut === s.k;
+                      return (
+                        <button key={s.k} onClick={() => setFStockStatut(active ? '' : s.k)}
+                          style={{ padding: '6px 12px', borderRadius: 20, border: `2px solid ${active ? s.color : C.border}`, background: active ? s.bg : '#fff', color: active ? s.color : C.slate, fontWeight: 700, fontSize: '.8rem', cursor: 'pointer' }}>
+                          {s.label}
+                        </button>
+                      );
+                    })}
+                    {(fStockType || fStockMan || fStockStatut) && (
+                      <button onClick={() => { setFStockType(''); setFStockMan(''); setFStockStatut(''); }} style={{ ...btn(C.slate), background: '#f1f5f9', color: C.text, padding: '7px 12px' }}>
                         <X size={13} /> Effacer
                       </button>
                     )}
@@ -729,8 +746,8 @@ const ParcInformatique: React.FC = () => {
                           <th style={{ padding: '10px 14px', fontWeight: 700, fontSize: '.78rem', textTransform: 'uppercase', letterSpacing: '.02em' }}>Marque</th>
                           <th style={{ padding: '10px 14px', fontWeight: 700, fontSize: '.78rem', textTransform: 'uppercase', letterSpacing: '.02em' }}>Modèle</th>
                           <th style={{ ...thSt, color: '#059669' }}>Neuf</th>
-                          <th style={{ ...thSt, color: C.blue }}>En stock</th>
                           <th style={{ ...thSt, color: '#7c3aed' }}>Masterisé</th>
+                          <th style={{ ...thSt, color: C.blue }}>En stock</th>
                           <th style={{ padding: '10px 14px', fontWeight: 700, fontSize: '.78rem', textTransform: 'uppercase', letterSpacing: '.02em', textAlign: 'center' }}>Âge moyen</th>
                         </tr>
                       </thead>
@@ -756,16 +773,36 @@ const ParcInformatique: React.FC = () => {
                                   </span>
                                 </td>
                               </tr>
-                              {open && (groups as any[]).map((g: any, i: number) => (
-                                <tr key={i} style={{ borderTop: `1px solid ${C.border}` }}>
-                                  <td style={{ padding: '10px 14px', fontWeight: 600, color: C.text }}>{g.manufacturer}</td>
-                                  <td style={{ padding: '10px 14px', color: C.slate }}>{g.model}</td>
-                                  <td style={{ padding: '10px 14px', textAlign: 'center' }}>{g['En stock neuf'] ? <span style={{ background: '#f0fdf4', color: '#059669', padding: '2px 10px', borderRadius: 20, fontWeight: 700, fontSize: '.82rem' }}>{g['En stock neuf']}</span> : <span style={{ color: '#cbd5e1' }}>—</span>}</td>
-                                  <td style={{ padding: '10px 14px', textAlign: 'center' }}>{g['En stock'] ? <span style={{ background: '#eff6ff', color: C.blue, padding: '2px 10px', borderRadius: 20, fontWeight: 700, fontSize: '.82rem' }}>{g['En stock']}</span> : <span style={{ color: '#cbd5e1' }}>—</span>}</td>
-                                  <td style={{ padding: '10px 14px', textAlign: 'center' }}>{g['En stock masterisé'] ? <span style={{ background: '#f5f3ff', color: '#7c3aed', padding: '2px 10px', borderRadius: 20, fontWeight: 700, fontSize: '.82rem' }}>{g['En stock masterisé']}</span> : <span style={{ color: '#cbd5e1' }}>—</span>}</td>
-                                  <td style={{ padding: '10px 14px', textAlign: 'center', color: C.slate, fontSize: '.82rem' }}>{g.age_moyen != null ? `${g.age_moyen} an${g.age_moyen >= 2 ? 's' : ''}` : <span style={{ color: '#cbd5e1' }}>—</span>}</td>
-                                </tr>
-                              ))}
+                              {open && (groups as any[]).map((g: any, i: number) => {
+                                const makeCountCell = (statut: string, color: string, bg: string) => {
+                                  const count = g[statut] || 0;
+                                  const items = (g.items?.[statut] || []) as any[];
+                                  const total = count;
+                                  if (!count) return <td key={statut} style={{ padding: '10px 14px', textAlign: 'center' }}><span style={{ color: '#cbd5e1' }}>—</span></td>;
+                                  return (
+                                    <td key={statut} style={{ padding: '10px 14px', textAlign: 'center', position: 'relative' }}>
+                                      <span
+                                        style={{ background: bg, color, padding: '2px 10px', borderRadius: 20, fontWeight: 700, fontSize: '.82rem', cursor: 'default' }}
+                                        onMouseEnter={e => {
+                                          const rect = (e.target as HTMLElement).getBoundingClientRect();
+                                          setStockTooltip({ items, statut, total, x: rect.left + rect.width / 2, y: rect.bottom + 6 });
+                                        }}
+                                        onMouseLeave={() => setStockTooltip(null)}
+                                      >{count}</span>
+                                    </td>
+                                  );
+                                };
+                                return (
+                                  <tr key={i} style={{ borderTop: `1px solid ${C.border}` }}>
+                                    <td style={{ padding: '10px 14px', fontWeight: 600, color: C.text }}>{g.manufacturer}</td>
+                                    <td style={{ padding: '10px 14px', color: C.slate }}>{g.model}</td>
+                                    {makeCountCell('En stock neuf',      '#059669', '#f0fdf4')}
+                                    {makeCountCell('En stock masterisé', '#7c3aed', '#f5f3ff')}
+                                    {makeCountCell('En stock',           C.blue,    '#eff6ff')}
+                                    <td style={{ padding: '10px 14px', textAlign: 'center', color: C.slate, fontSize: '.82rem' }}>{g.age_moyen != null ? `${g.age_moyen} an${g.age_moyen >= 2 ? 's' : ''}` : <span style={{ color: '#cbd5e1' }}>—</span>}</td>
+                                  </tr>
+                                );
+                              })}
                             </React.Fragment>
                           );
                         })}
@@ -1045,6 +1082,26 @@ const ParcInformatique: React.FC = () => {
       )}
 
       <style>{`@keyframes spin{to{transform:rotate(360deg)}}.spin{animation:spin 1s linear infinite}`}</style>
+
+      {/* ── Tooltip stock ───────────────────────────────────────────────────── */}
+      {stockTooltip && (
+        <div style={{ position: 'fixed', left: stockTooltip.x, top: stockTooltip.y, transform: 'translateX(-50%)', zIndex: 3000, background: '#1e293b', color: '#f1f5f9', borderRadius: 10, padding: '10px 14px', fontSize: '.8rem', minWidth: 240, maxWidth: 340, boxShadow: '0 8px 32px rgba(0,0,0,.35)', pointerEvents: 'none' }}>
+          <div style={{ fontWeight: 700, marginBottom: 8, color: '#fff' }}>{stockTooltip.statut} · {stockTooltip.total} unité{stockTooltip.total > 1 ? 's' : ''}</div>
+          {stockTooltip.items.map((it: any, i: number) => (
+            <div key={i} style={{ display: 'flex', flexDirection: 'column', gap: 1, padding: '4px 0', borderTop: i > 0 ? '1px solid #334155' : 'none' }}>
+              <span style={{ fontWeight: 600, color: '#e2e8f0' }}>{it.name || '(sans nom)'}</span>
+              <span style={{ color: '#94a3b8', fontSize: '.75rem' }}>
+                {it.serial ? `S/N : ${it.serial}` : 'S/N : —'}
+                {it.reception_date ? `  ·  Réception : ${fmtDate(it.reception_date)}` : ''}
+                {it.location ? `  ·  ${it.location}` : ''}
+              </span>
+            </div>
+          ))}
+          {stockTooltip.total > stockTooltip.items.length && (
+            <div style={{ marginTop: 6, color: '#64748b', fontSize: '.75rem' }}>… et {stockTooltip.total - stockTooltip.items.length} autre{stockTooltip.total - stockTooltip.items.length > 1 ? 's' : ''}</div>
+          )}
+        </div>
+      )}
 
       {/* ── Modal Recherche AD ──────────────────────────────────────────────── */}
     {adModal && (

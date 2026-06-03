@@ -511,14 +511,24 @@ function computeStockSummary(allRows) {
       manufacturer: mf, model: md, itemtype_label: il, type_key: r.type_key,
       'En stock neuf': 0, 'En stock': 0, 'En stock masterisé': 0,
       total: 0, countAge: 0, sumAge: 0,
+      // Détails par statut pour infobulles
+      items: { 'En stock neuf': [], 'En stock': [], 'En stock masterisé': [] },
     };
     const st = r.state || '';
-    if (STOCK_STATUTS.includes(st)) groups[key][st]++;
-    else groups[key]['En stock']++;
+    const bucket = STOCK_STATUTS.includes(st) ? st : 'En stock';
+    groups[key][bucket]++;
     groups[key].total++;
-    const recDate = r.reception_date || r.warranty_date;
-    if (recDate) {
-      const age = (Date.now() - new Date(recDate).getTime()) / 86400000 / 365.25;
+    // Détail de l'équipement (limité à 30 par bucket)
+    if (groups[key].items[bucket].length < 30) {
+      groups[key].items[bucket].push({
+        name: r.name || null,
+        serial: r.serial || null,
+        reception_date: r.reception_date || null,
+        location: r.location || null,
+      });
+    }
+    if (r.reception_date) {
+      const age = (Date.now() - new Date(r.reception_date).getTime()) / 86400000 / 365.25;
       if (age >= 0) { groups[key].sumAge += age; groups[key].countAge++; }
     }
   }
