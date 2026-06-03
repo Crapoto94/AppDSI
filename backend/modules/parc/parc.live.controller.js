@@ -59,11 +59,11 @@ function normalize(itemtype, it) {
     is_deleted: it.is_deleted == 1 || it.is_deleted === true,
     date_creation: str(it.date_creation),
     date_mod: str(it.date_mod),
-    // Champs financiers / mise en service — remplis par mergeInfocom()
-    buy_date: null, use_date: null, service_date: null,
+    // Champs financiers / dates — remplis par mergeInfocom()
+    buy_date: null, use_date: null, reception_date: null, service_date: null,
     supplier: null, value: null, order_number: null, immo_number: null,
     age_years: null,
-    age_source: null,   // 'use_date' | 'buy_date' | 'mise_en_service' | null
+    age_source: null,   // 'use_date' | 'buy_date' | 'reception' | null
     os: null, os_version: null,
     doc_count: 0,
     ad_found: false,          // enrichi par enrichAdFound()
@@ -73,8 +73,11 @@ function normalize(itemtype, it) {
 
 // Fusionne les données Infocom (achat / mise en service / valeur / fournisseur) ──
 // et calcule l'âge réel de l'équipement à partir de la date de mise en service.
+// Date de l'injection initiale GLPI : ignorée comme « mise en service » (import en masse).
+const INJECTION_DATE = '2025-03-05';
+
 function mergeInfocom(r, ic, now = new Date()) {
-  let serviceDate = null;
+  let receptionDate = null;
   if (ic) {
     r.buy_date = str(ic.buy_date);
     r.use_date = str(ic.use_date);
@@ -83,23 +86,25 @@ function mergeInfocom(r, ic, now = new Date()) {
     r.immo_number = str(ic.immo_number);
     r.value = num(ic.value);
 
-    // ⚠️ Dans ce parc, le champ GLPI `warranty_date` contient en réalité la
-    // DATE DE MISE EN SERVICE (et non une garantie). On l'utilise comme telle.
+    // ⚠️ Dans ce parc, le champ GLPI `warranty_date` est en réalité la DATE DE RÉCEPTION
+    // du matériel → c'est elle qui donne l'âge de la machine.
     const parsedUse = parseDate(r.use_date);
     const parsedBuy = parseDate(r.buy_date);
-    const parsedMes = parseDate(str(ic.warranty_date)); // date de mise en service
-
-    // Date de référence pour l'âge : mise en service explicite > achat > champ "mise en service".
-    serviceDate = parsedUse || parsedBuy || parsedMes;
-    r.age_source = parsedUse ? 'use_date' : parsedBuy ? 'buy_date' : parsedMes ? 'mise_en_service' : null;
+    const parsedRec = parseDate(str(ic.warranty_date)); // date de réception
+    receptionDate = parsedUse || parsedBuy || parsedRec;
+    r.age_source = parsedUse ? 'use_date' : parsedBuy ? 'buy_date' : parsedRec ? 'reception' : null;
   }
 
-  r.service_date = iso(serviceDate);
-  // Âge basé uniquement sur la date de mise en service (jamais la date de création
-  // de la fiche GLPI, qui correspond souvent à la date d'import et fausserait l'âge).
-  if (serviceDate) {
-    r.age_years = Math.round(((now.getTime() - serviceDate.getTime()) / 86400000 / 365.25) * 10) / 10;
+  r.reception_date = iso(receptionDate);
+  // Âge basé sur la date de réception (jamais la date de création de la fiche GLPI).
+  if (receptionDate) {
+    r.age_years = Math.round(((now.getTime() - receptionDate.getTime()) / 86400000 / 365.25) * 10) / 10;
   }
+
+  // Mise en service = dernière modification de la fiche, EN IGNORANT l'injection initiale
+  // (5/3/2025) : les fiches jamais modifiées depuis l'import n'ont pas de mise en service.
+  const mod = parseDate(r.date_mod);
+  r.service_date = (mod && iso(mod) > INJECTION_DATE) ? iso(mod) : null;
   return r;
 }
 
@@ -253,9 +258,10 @@ function computeKpis(lists) {
   const sansMiseEnService = pcs.filter((r) => !r.service_date).length;
   const doublonsSerie = countDuplicateSerials(pcs);
 
+  // Ajouts au parc par année : basés sur la date de réception (acquisition).
   const parAnnee = {};
   for (const r of pcs) {
-    const y = (r.service_date || '').slice(0, 4);
+    const y = (r.reception_date || '').slice(0, 4);
     if (/^\d{4}$/.test(y)) parAnnee[y] = (parAnnee[y] || 0) + 1;
   }
   const ajoutsParAnnee = Object.entries(parAnnee).map(([annee, count]) => ({ annee, count }))
@@ -308,7 +314,8 @@ function buildItemResponse(itemtype, label, item, { infocom = null, network = []
   return {
     type: undefined, label, summary,
     infocom: infocom ? {
-      buy_date: summary.buy_date, use_date: summary.use_date, service_date: summary.service_date,
+      buy_date: summary.buy_date, use_date: summary.use_date,
+      reception_date: summary.reception_date, service_date: summary.service_date,
       supplier: summary.supplier, value: summary.value,
       order_number: summary.order_number, immo_number: summary.immo_number,
     } : null,

@@ -34,10 +34,10 @@ interface Row {
   state: string | null; location: string | null; user: string | null;
   contact: string | null; contact_num: string | null; doc_count: number;
   ad_found: boolean; itemtype_label: string | null; type_key: string | null;
-  age_source: 'use_date' | 'buy_date' | 'mise_en_service' | null;
+  age_source: 'use_date' | 'buy_date' | 'reception' | null;
   group: string | null; user_tech: string | null; date_mod: string | null;
   network: string | null; uuid: string | null; supplier: string | null;
-  value: number | null; buy_date: string | null; service_date: string | null;
+  value: number | null; buy_date: string | null; reception_date: string | null; service_date: string | null;
   age_years: number | null;
   os: string | null; os_version: string | null;
 }
@@ -542,9 +542,9 @@ const ParcInformatique: React.FC = () => {
                                 {r.age_source === 'use_date'
                                   ? <span title="Calculé depuis la date de mise en service (use_date)"><CalendarCheck2 size={13} color={C.green} /></span>
                                   : r.age_source === 'buy_date'
-                                  ? <span title="Calculé depuis la date d'achat (mise en service inconnue)"><CalendarDays size={13} color={C.amber} /></span>
-                                  : r.age_source === 'mise_en_service'
-                                  ? <span title="Calculé depuis la date de mise en service"><CalendarDays size={13} color={C.green} /></span>
+                                  ? <span title="Calculé depuis la date d'achat"><CalendarDays size={13} color={C.amber} /></span>
+                                  : r.age_source === 'reception'
+                                  ? <span title="Calculé depuis la date de réception du matériel"><CalendarDays size={13} color={C.green} /></span>
                                   : null}
                                 {r.age_years} an{r.age_years >= 2 ? 's' : ''}
                               </span>
@@ -995,7 +995,8 @@ const FIELD_LABELS: Record<string, string> = {
   os: "Système d'exploitation", os_version: 'Version OS',
   contact_email: 'E-mail usager', contact_ad_name: 'Nom complet (AD)', contact_service: 'Service (AD)',
   user_email: 'E-mail utilisateur', user_ad_name: 'Nom complet (AD)', user_service: 'Service (AD)',
-  buy_date: "Date d'achat", use_date: 'Date de mise en service', service_date: 'Mise en service',
+  buy_date: "Date d'achat", use_date: 'Mise en service (GLPI)',
+  reception_date: 'Date de réception', service_date: 'Mise en service',
   supplier: 'Fournisseur', value: 'Valeur',
   order_number: 'N° de commande', immo_number: "N° d'immobilisation", age_years: 'Âge (ans)',
   date_creation: 'Date de création', date_mod: 'Dernière modification',
@@ -1009,7 +1010,7 @@ const DetailModal: React.FC<{ detail: any; token: string | null; onClose: () => 
     { title: 'Affectation', fields: ['user', 'user_email', 'user_ad_name', 'user_service', 'group', 'user_tech', 'group_tech', 'contact', 'contact_email', 'contact_ad_name', 'contact_service', 'contact_num'] },
     { title: 'Localisation', fields: ['location', 'entity'] },
     { title: 'Identification', fields: ['serial', 'otherserial', 'manufacturer', 'model', 'type', 'state', 'network', 'uuid', 'os', 'os_version', 'autoupdate'] },
-    { title: 'Achat & mise en service', fields: ['buy_date', 'use_date', 'service_date', 'supplier', 'value', 'order_number', 'immo_number', 'age_years'] },
+    { title: 'Réception, mise en service & achat', fields: ['reception_date', 'service_date', 'buy_date', 'use_date', 'supplier', 'value', 'order_number', 'immo_number', 'age_years'] },
     { title: 'Suivi', fields: ['date_creation', 'date_mod', 'comment'] },
   ];
   const fmt = (f: string, val: any) => {
