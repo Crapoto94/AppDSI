@@ -4609,6 +4609,42 @@ async function setupPgDb() {
       )
     `);
 
+    // ── hub_deploiements — Fiches de déploiement parc informatique ────────────
+    await client.query('CREATE SCHEMA IF NOT EXISTS hub_deploiements;');
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS hub_deploiements.fiches (
+        id SERIAL PRIMARY KEY,
+        fichier TEXT,
+        fichier_lie TEXT,
+        date_deploiement DATE,
+        beneficiaire TEXT,
+        direction TEXT,
+        service TEXT,
+        site TEXT,
+        installateur TEXT,
+        type_operation TEXT,
+        uc_nouveau_num TEXT,
+        uc_nouveau_serie TEXT,
+        uc_nouveau_modele TEXT,
+        uc_recupere_num TEXT,
+        uc_recupere_serie TEXT,
+        uc_recupere_modele TEXT,
+        ecran1_nouveau_num TEXT,
+        ecran1_nouveau_serie TEXT,
+        ecran1_nouveau_modele TEXT,
+        ecran1_recupere_num TEXT,
+        ecran1_recupere_serie TEXT,
+        ecran1_recupere_modele TEXT,
+        ecran2_nouveau_serie TEXT,
+        ecran2_nouveau_modele TEXT,
+        autre_designation TEXT,
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+    `);
+    try { await client.query('CREATE INDEX IF NOT EXISTS idx_fiches_date ON hub_deploiements.fiches(date_deploiement)'); } catch (e) {}
+    try { await client.query('CREATE INDEX IF NOT EXISTS idx_fiches_direction ON hub_deploiements.fiches(direction)'); } catch (e) {}
+    try { await client.query('CREATE INDEX IF NOT EXISTS idx_fiches_uc_nouveau_num ON hub_deploiements.fiches(uc_nouveau_num)'); } catch (e) {}
+
     console.log('[PG DB] Schema and tables initialized successfully');
   } catch (error) {
     console.error('[PG DB] Initialization error:', error.message);

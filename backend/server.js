@@ -2208,6 +2208,9 @@ app.use('/api/copieurs', copieursRouter);
 // Parc Module (inventaire GLPI 10 : ordinateurs, moniteurs, périphériques, imprimantes)
 app.use('/api/parc', require('./modules/parc/parc.routes'));
 
+// Déploiements Module (fiches de déploiement parc)
+app.use('/api/deploiements', require('./modules/deploiements/deploiements.routes'));
+
 // Contrats Module
 app.use('/api/contrats', contratsRouter);
 

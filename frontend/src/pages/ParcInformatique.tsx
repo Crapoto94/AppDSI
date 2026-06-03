@@ -83,7 +83,7 @@ const ParcInformatique: React.FC = () => {
   const [source, setSource] = useState<'live' | 'hub'>('hub');
   const api = axios.create({ baseURL: `/api/parc/${source}`, headers: { Authorization: `Bearer ${token}` } });
 
-  const [tab, setTab] = useState<'dashboard' | 'list' | 'stock' | 'usagers' | 'geo'>('dashboard');
+  const [tab, setTab] = useState<'dashboard' | 'list' | 'stock' | 'usagers' | 'geo' | 'deploiements'>('dashboard');
   const [kpis, setKpis] = useState<Kpis | null>(null);
   const [kpiErr, setKpiErr] = useState<string | null>(null);
   const [loadingKpi, setLoadingKpi] = useState(false);
@@ -139,6 +139,21 @@ const ParcInformatique: React.FC = () => {
   const [stockExpanded, setStockExpanded] = useState<Set<string>>(new Set());
   const [stockTooltip, setStockTooltip] = useState<{ items: any[]; statut: string; total: number; x: number; y: number } | null>(null);
   const tooltipHideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Déploiements
+  const [deploys, setDeploys] = useState<any[]>([]);
+  const [deployTotal, setDeployTotal] = useState(0);
+  const [deployKpis, setDeployKpis] = useState<any | null>(null);
+  const [deployLoading, setDeployLoading] = useState(false);
+  const [deployErr, setDeployErr] = useState<string | null>(null);
+  const [deployQ, setDeployQ] = useState('');
+  const [deployDir, setDeployDir] = useState('');
+  const [deployType, setDeployType] = useState('');
+  const [deployAnnee, setDeployAnnee] = useState('');
+  const [deployStart, setDeployStart] = useState(0);
+  const [deployLimit] = useState(50);
+  const [deployConflictsOpen, setDeployConflictsOpen] = useState(false);
+  const [deployConflicts, setDeployConflicts] = useState<any[]>([]);
 
   // Détail
   const [detail, setDetail] = useState<any | null>(null);
@@ -296,6 +311,41 @@ const ParcInformatique: React.FC = () => {
   useEffect(() => { if (tab === 'usagers') loadUsagers(); }, [tab, source]);
   useEffect(() => { if (tab === 'stock') loadStock(); }, [tab, loadStock]);
 
+  // ── Déploiements ──
+  const loadDeploys = useCallback(async () => {
+    setDeployLoading(true); setDeployErr(null);
+    try {
+      const r = await axios.get('/api/deploiements/', {
+        headers: { Authorization: `Bearer ${token}` },
+        params: { direction: deployDir || undefined, type_operation: deployType || undefined, annee: deployAnnee || undefined, q: deployQ || undefined, start: deployStart, limit: deployLimit },
+      });
+      setDeploys(r.data.rows || []); setDeployTotal(r.data.total || 0);
+    } catch (e: any) {
+      setDeployErr(e.response?.data?.message || e.message); setDeploys([]); setDeployTotal(0);
+    } finally { setDeployLoading(false); }
+  }, [token, deployDir, deployType, deployAnnee, deployQ, deployStart, deployLimit]);
+
+  const loadDeployKpis = useCallback(async () => {
+    try {
+      const r = await axios.get('/api/deploiements/kpis', { headers: { Authorization: `Bearer ${token}` } });
+      setDeployKpis(r.data);
+    } catch { /* silencieux */ }
+  }, [token]);
+
+  const loadDeployConflicts = useCallback(async () => {
+    try {
+      const r = await axios.get('/api/deploiements/matches', { headers: { Authorization: `Bearer ${token}` } });
+      setDeployConflicts(r.data || []);
+    } catch { setDeployConflicts([]); }
+  }, [token]);
+
+  useEffect(() => {
+    if (tab === 'deploiements') {
+      loadDeploys();
+      loadDeployKpis();
+    }
+  }, [tab, deployDir, deployType, deployAnnee, deployQ, deployStart]);
+
   // ─── Rendu ──────────────────────────────────────────────────────────────────
   return (
     <div style={{ minHeight: '100vh', background: C.bg }}>
@@ -348,7 +398,7 @@ const ParcInformatique: React.FC = () => {
 
         {/* Onglets */}
         <div style={{ display: 'flex', gap: 6, marginBottom: 22, borderBottom: `1px solid ${C.border}` }}>
-          {[{ k: 'dashboard', l: 'Tableau de bord', i: BarChart3 }, { k: 'list', l: 'Équipements', i: List }, { k: 'stock', l: 'Stock', i: Boxes }, { k: 'usagers', l: 'Usagers', i: Users }, { k: 'geo', l: 'Géo', i: MapPin }].map(t => {
+          {[{ k: 'dashboard', l: 'Tableau de bord', i: BarChart3 }, { k: 'list', l: 'Équipements', i: List }, { k: 'stock', l: 'Stock', i: Boxes }, { k: 'usagers', l: 'Usagers', i: Users }, { k: 'geo', l: 'Géo', i: MapPin }, { k: 'deploiements', l: 'Déploiements', i: Truck }].map(t => {
             const I = t.i; const active = tab === t.k;
             return (
               <button key={t.k} onClick={() => setTab(t.k as any)} style={{
@@ -1074,6 +1124,229 @@ const ParcInformatique: React.FC = () => {
                   </div>
                 );
               })()}
+            </div>
+          );
+        })()}
+
+        {/* ─── DÉPLOIEMENTS ─── */}
+        {tab === 'deploiements' && (() => {
+          const fmtD = (s: string | null) => {
+            if (!s) return '—';
+            const dt = s.substring(0, 10).split('-');
+            return `${dt[2]}/${dt[1]}/${dt[0]}`;
+          };
+          const matchBadge = (row: any) => {
+            if (!row.uc_nouveau_num) return null;
+            const mt = row.match_type;
+            if (mt === 'full') return <span style={{ background: '#dcfce7', color: '#15803d', padding: '1px 8px', borderRadius: 10, fontSize: '.72rem', fontWeight: 700 }}>✓ Match</span>;
+            if (mt === 'name_only') return <span style={{ background: '#fef9c3', color: '#92400e', padding: '1px 8px', borderRadius: 10, fontSize: '.72rem', fontWeight: 700 }}>N° OK / S/N ?</span>;
+            if (mt === 'conflict') return <span style={{ background: '#fee2e2', color: '#b91c1c', padding: '1px 8px', borderRadius: 10, fontSize: '.72rem', fontWeight: 700 }}>Conflit S/N</span>;
+            return <span style={{ background: '#f1f5f9', color: '#64748b', padding: '1px 8px', borderRadius: 10, fontSize: '.72rem', fontWeight: 700 }}>Non trouvé</span>;
+          };
+          const typeBadge = (op: string | null) => {
+            if (!op) return null;
+            const map: Record<string, { bg: string; color: string }> = {
+              'Remplacement de matériel': { bg: '#eff6ff', color: '#1d4ed8' },
+              'Installation nouveau matériel': { bg: '#f0fdf4', color: '#15803d' },
+              'Prêt': { bg: '#fef9c3', color: '#92400e' },
+              'Remplacement': { bg: '#f5f3ff', color: '#6d28d9' },
+            };
+            const s = map[op] || { bg: '#f1f5f9', color: '#475569' };
+            return <span style={{ background: s.bg, color: s.color, padding: '1px 8px', borderRadius: 10, fontSize: '.72rem', fontWeight: 700 }}>{op}</span>;
+          };
+
+          const dirs = deployKpis ? (deployKpis.by_direction || []).map((d: any) => d.direction).filter(Boolean) : [];
+          const types = deployKpis ? (deployKpis.by_type || []).map((t: any) => t.type_operation).filter(Boolean) : [];
+          const annees = deployKpis ? (deployKpis.by_annee || []).map((a: any) => String(a.annee)).filter(Boolean) : [];
+
+          return (
+            <div>
+              {deployErr && <div style={{ background: '#fee2e2', color: '#b91c1c', padding: '12px 16px', borderRadius: 10, marginBottom: 16, fontSize: '.88rem' }}>{deployErr}</div>}
+
+              {/* KPIs */}
+              {deployKpis && (
+                <div style={{ display: 'flex', gap: 12, marginBottom: 18, flexWrap: 'wrap' }}>
+                  <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: '14px 20px', minWidth: 140 }}>
+                    <div style={{ fontSize: '.75rem', color: C.slate, fontWeight: 600, marginBottom: 4 }}>Total fiches</div>
+                    <div style={{ fontSize: '1.7rem', fontWeight: 900, color: C.text }}>{deployKpis.total ?? 0}</div>
+                  </div>
+                  <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: '14px 20px', minWidth: 200 }}>
+                    <div style={{ fontSize: '.75rem', color: C.slate, fontWeight: 600, marginBottom: 6 }}>Rapprochements parc</div>
+                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                      <span style={{ background: '#dcfce7', color: '#15803d', padding: '2px 10px', borderRadius: 10, fontSize: '.78rem', fontWeight: 700 }}>
+                        {deployKpis.match_stats?.match_full ?? 0} match complet
+                      </span>
+                      <span style={{ background: '#fef9c3', color: '#92400e', padding: '2px 10px', borderRadius: 10, fontSize: '.78rem', fontWeight: 700 }}>
+                        {deployKpis.match_stats?.match_partial ?? 0} partiel
+                      </span>
+                      <span style={{ background: '#f1f5f9', color: '#475569', padding: '2px 10px', borderRadius: 10, fontSize: '.78rem', fontWeight: 700 }}>
+                        {deployKpis.match_stats?.no_match ?? 0} non trouvé
+                      </span>
+                      {(deployKpis.nb_conflits ?? 0) > 0 && (
+                        <span style={{ background: '#fee2e2', color: '#b91c1c', padding: '2px 10px', borderRadius: 10, fontSize: '.78rem', fontWeight: 700 }}>
+                          {deployKpis.nb_conflits} conflit{deployKpis.nb_conflits > 1 ? 's' : ''}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: '14px 20px', minWidth: 200 }}>
+                    <div style={{ fontSize: '.75rem', color: C.slate, fontWeight: 600, marginBottom: 6 }}>Par type d'opération</div>
+                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                      {(deployKpis.by_type || []).slice(0, 4).map((t: any) => (
+                        <span key={t.type_operation} style={{ background: '#eff6ff', color: C.blue, padding: '2px 10px', borderRadius: 10, fontSize: '.75rem', fontWeight: 700 }}>
+                          {t.type_operation} ({t.n})
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                  <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: '14px 20px', minWidth: 140 }}>
+                    <div style={{ fontSize: '.75rem', color: C.slate, fontWeight: 600, marginBottom: 4 }}>Avec fichier lié</div>
+                    <div style={{ fontSize: '1.4rem', fontWeight: 900, color: C.slate }}>{deployKpis.nb_fichier_lie ?? 0}</div>
+                  </div>
+                </div>
+              )}
+
+              {/* Bandeau conflits */}
+              {(deployKpis?.nb_conflits ?? 0) > 0 && (
+                <div style={{ background: '#fff7ed', border: '1px solid #fed7aa', borderRadius: 10, padding: '10px 16px', marginBottom: 16, fontSize: '.88rem', color: '#92400e' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <span><b>{deployKpis.nb_conflits} conflit{deployKpis.nb_conflits > 1 ? 's' : ''} de numéro de série</b> détecté{deployKpis.nb_conflits > 1 ? 's' : ''} entre fiches et parc</span>
+                    <button onClick={() => { if (!deployConflictsOpen) loadDeployConflicts(); setDeployConflictsOpen(o => !o); }}
+                      style={{ background: 'none', border: '1px solid #fed7aa', borderRadius: 7, padding: '3px 12px', color: '#92400e', cursor: 'pointer', fontSize: '.82rem', fontWeight: 700 }}>
+                      {deployConflictsOpen ? 'Masquer' : 'Voir les détails'}
+                    </button>
+                  </div>
+                  {deployConflictsOpen && deployConflicts.length > 0 && (
+                    <div style={{ marginTop: 10, overflowX: 'auto' }}>
+                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '.82rem' }}>
+                        <thead>
+                          <tr style={{ background: '#fef3c7' }}>
+                            {['Date', 'Bénéficiaire', 'N° UC', 'S/N fiche', 'S/N parc'].map(h => (
+                              <th key={h} style={{ padding: '6px 10px', textAlign: 'left', fontWeight: 700 }}>{h}</th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {deployConflicts.map((c: any) => (
+                            <tr key={c.id} style={{ borderTop: '1px solid #fed7aa' }}>
+                              <td style={{ padding: '5px 10px' }}>{fmtD(c.date_deploiement)}</td>
+                              <td style={{ padding: '5px 10px' }}>{c.beneficiaire || '—'}</td>
+                              <td style={{ padding: '5px 10px', fontWeight: 700 }}>{c.uc_nouveau_num}</td>
+                              <td style={{ padding: '5px 10px', fontFamily: 'monospace' }}>{c.uc_nouveau_serie}</td>
+                              <td style={{ padding: '5px 10px', fontFamily: 'monospace', color: '#b91c1c' }}>{c.parc_serie}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Filtres */}
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 16, alignItems: 'center' }}>
+                <input value={deployQ} onChange={e => { setDeployQ(e.target.value); setDeployStart(0); }} placeholder="Recherche (bénéficiaire, UC…)"
+                  style={{ border: `1px solid ${C.border}`, borderRadius: 8, padding: '8px 12px', fontSize: '.88rem', minWidth: 220 }} />
+                <select value={deployDir} onChange={e => { setDeployDir(e.target.value); setDeployStart(0); }}
+                  style={{ border: `1px solid ${C.border}`, borderRadius: 8, padding: '8px 10px', fontSize: '.88rem' }}>
+                  <option value="">Toutes directions</option>
+                  {dirs.map((d: string) => <option key={d} value={d}>{d}</option>)}
+                </select>
+                <select value={deployType} onChange={e => { setDeployType(e.target.value); setDeployStart(0); }}
+                  style={{ border: `1px solid ${C.border}`, borderRadius: 8, padding: '8px 10px', fontSize: '.88rem' }}>
+                  <option value="">Tous types</option>
+                  {types.map((t: string) => <option key={t} value={t}>{t}</option>)}
+                </select>
+                <select value={deployAnnee} onChange={e => { setDeployAnnee(e.target.value); setDeployStart(0); }}
+                  style={{ border: `1px solid ${C.border}`, borderRadius: 8, padding: '8px 10px', fontSize: '.88rem' }}>
+                  <option value="">Toutes années</option>
+                  {annees.map((a: string) => <option key={a} value={a}>{a}</option>)}
+                </select>
+                <span style={{ color: C.slate, fontSize: '.82rem', marginLeft: 4 }}>{deployTotal} fiche{deployTotal > 1 ? 's' : ''}</span>
+              </div>
+
+              {/* Tableau */}
+              {deployLoading ? (
+                <div style={{ textAlign: 'center', padding: 40, color: C.slate }}>Chargement…</div>
+              ) : (
+                <div style={{ overflowX: 'auto', background: C.card, border: `1px solid ${C.border}`, borderRadius: 12 }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '.84rem' }}>
+                    <thead>
+                      <tr style={{ background: '#f8fafc', borderBottom: `2px solid ${C.border}` }}>
+                        {['Date', 'Bénéficiaire', 'Direction / Service', 'UC fourni', 'Modèle UC', 'UC récupéré', 'Écran(s)', 'Installateur', 'Type', 'Fichier(s)'].map(h => (
+                          <th key={h} style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, color: C.slate, fontSize: '.78rem', textTransform: 'uppercase', letterSpacing: '.04em', whiteSpace: 'nowrap' }}>{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {deploys.length === 0 ? (
+                        <tr><td colSpan={10} style={{ padding: 32, textAlign: 'center', color: C.slate }}>Aucune fiche</td></tr>
+                      ) : deploys.map((row: any) => (
+                        <tr key={row.id} style={{ borderTop: `1px solid ${C.border}` }}
+                          onMouseEnter={e => (e.currentTarget.style.background = '#f8fafc')}
+                          onMouseLeave={e => (e.currentTarget.style.background = '')}>
+                          <td style={{ padding: '8px 12px', whiteSpace: 'nowrap', fontFamily: 'monospace', fontSize: '.8rem' }}>{fmtD(row.date_deploiement)}</td>
+                          <td style={{ padding: '8px 12px', fontWeight: 600 }}>{row.beneficiaire || '—'}</td>
+                          <td style={{ padding: '8px 12px', fontSize: '.8rem' }}>
+                            {row.direction && <span style={{ fontWeight: 700, color: C.text }}>{row.direction}</span>}
+                            {row.service && <span style={{ color: C.slate }}> / {row.service}</span>}
+                            {!row.direction && !row.service && '—'}
+                          </td>
+                          <td style={{ padding: '8px 12px', whiteSpace: 'nowrap' }}>
+                            {row.uc_nouveau_num ? (
+                              <span style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                                <span style={{ fontWeight: 700, fontFamily: 'monospace' }}>{row.uc_nouveau_num}</span>
+                                {matchBadge(row)}
+                              </span>
+                            ) : '—'}
+                          </td>
+                          <td style={{ padding: '8px 12px', fontSize: '.8rem', color: C.slate }}>{row.uc_nouveau_modele || '—'}</td>
+                          <td style={{ padding: '8px 12px', fontFamily: 'monospace', fontSize: '.8rem' }}>{row.uc_recupere_num || '—'}</td>
+                          <td style={{ padding: '8px 12px', textAlign: 'center' }}>
+                            {(row.ecran1_nouveau_num || row.ecran1_nouveau_serie || row.ecran2_nouveau_serie)
+                              ? <Monitor size={14} color={C.blue} title="Écran(s) inclus" />
+                              : <span style={{ color: '#cbd5e1' }}>—</span>}
+                          </td>
+                          <td style={{ padding: '8px 12px', fontSize: '.8rem' }}>{row.installateur || '—'}</td>
+                          <td style={{ padding: '8px 12px', whiteSpace: 'nowrap' }}>{typeBadge(row.type_operation)}</td>
+                          <td style={{ padding: '8px 12px', whiteSpace: 'nowrap' }}>
+                            {row.fichier && (
+                              <a href={`/api/deploiements/file?path=${encodeURIComponent(row.fichier)}`} target="_blank" rel="noreferrer"
+                                style={{ color: C.blue, display: 'inline-flex', alignItems: 'center', gap: 4 }} title={row.fichier}>
+                                <FileText size={15} />
+                              </a>
+                            )}
+                            {row.fichier_lie && (
+                              <a href={`/api/deploiements/file?path=${encodeURIComponent(row.fichier_lie)}`} target="_blank" rel="noreferrer"
+                                style={{ color: C.slate, display: 'inline-flex', alignItems: 'center', gap: 4, marginLeft: 6 }} title={row.fichier_lie}>
+                                <FileText size={13} />
+                              </a>
+                            )}
+                            {!row.fichier && <span style={{ color: '#cbd5e1' }}>—</span>}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              {/* Pagination */}
+              {deployTotal > deployLimit && (
+                <div style={{ display: 'flex', justifyContent: 'center', gap: 8, marginTop: 14 }}>
+                  <button disabled={deployStart === 0} onClick={() => setDeployStart(Math.max(0, deployStart - deployLimit))}
+                    style={{ padding: '6px 16px', borderRadius: 8, border: `1px solid ${C.border}`, background: C.card, cursor: deployStart === 0 ? 'default' : 'pointer', opacity: deployStart === 0 ? 0.4 : 1, fontSize: '.85rem', fontWeight: 600 }}>
+                    ← Préc.
+                  </button>
+                  <span style={{ lineHeight: '34px', fontSize: '.82rem', color: C.slate }}>
+                    {deployStart + 1}–{Math.min(deployStart + deployLimit, deployTotal)} / {deployTotal}
+                  </span>
+                  <button disabled={deployStart + deployLimit >= deployTotal} onClick={() => setDeployStart(deployStart + deployLimit)}
+                    style={{ padding: '6px 16px', borderRadius: 8, border: `1px solid ${C.border}`, background: C.card, cursor: deployStart + deployLimit >= deployTotal ? 'default' : 'pointer', opacity: deployStart + deployLimit >= deployTotal ? 0.4 : 1, fontSize: '.85rem', fontWeight: 600 }}>
+                    Suiv. →
+                  </button>
+                </div>
+              )}
             </div>
           );
         })()}
