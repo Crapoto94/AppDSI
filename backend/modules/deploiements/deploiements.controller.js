@@ -71,31 +71,46 @@ async function list(req, res) {
     const dataSql = `
       SELECT
         f.*,
-        i.glpi_id AS parc_glpi_id,
-        i.name AS parc_name,
-        i.raw->>'serial' AS parc_serie,
-        i.raw->>'states_id' AS parc_statut,
+        -- ── UC / PC ─────────────────────────────────────────────────────
+        uc.glpi_id        AS parc_glpi_id,
+        uc.raw->>'serial' AS parc_serie,
+        uc.raw->>'states_id'    AS parc_statut,
+        uc.raw->>'locations_id' AS uc_lieu,
         CASE
-          WHEN i.glpi_id IS NULL THEN 'none'
-          WHEN f.uc_nouveau_num = i.name
+          WHEN uc.glpi_id IS NULL THEN 'none'
+          WHEN f.uc_nouveau_num = uc.name
             AND f.uc_nouveau_serie IS NOT NULL
-            AND f.uc_nouveau_serie = (i.raw->>'serial') THEN 'full'
-          WHEN f.uc_nouveau_num = i.name
-            AND (f.uc_nouveau_serie IS NULL OR (i.raw->>'serial') IS NULL) THEN 'name_only'
-          WHEN f.uc_nouveau_num = i.name
-            AND f.uc_nouveau_serie <> (i.raw->>'serial') THEN 'conflict'
+            AND f.uc_nouveau_serie = (uc.raw->>'serial') THEN 'full'
+          WHEN f.uc_nouveau_num = uc.name
+            AND (f.uc_nouveau_serie IS NULL OR (uc.raw->>'serial') IS NULL) THEN 'name_only'
+          WHEN f.uc_nouveau_num = uc.name
+            AND f.uc_nouveau_serie <> (uc.raw->>'serial') THEN 'conflict'
           ELSE 'none'
         END AS match_type,
         CASE
-          WHEN i.glpi_id IS NOT NULL
-            AND f.uc_nouveau_num = i.name
+          WHEN uc.glpi_id IS NOT NULL
+            AND f.uc_nouveau_num = uc.name
             AND f.uc_nouveau_serie IS NOT NULL
-            AND (i.raw->>'serial') IS NOT NULL
-            AND f.uc_nouveau_serie <> (i.raw->>'serial') THEN true
+            AND (uc.raw->>'serial') IS NOT NULL
+            AND f.uc_nouveau_serie <> (uc.raw->>'serial') THEN true
           ELSE false
-        END AS has_conflict
+        END AS has_conflict,
+        -- ── Écran principal ──────────────────────────────────────────────
+        ec.raw->>'locations_id' AS ec_lieu,
+        ec.raw->>'states_id'    AS ec_statut,
+        -- ── Périphérique (serial extrait de autre_designation) ───────────
+        split_part(split_part(f.autre_designation,'(',2),')',1) AS periph_serial,
+        pe.raw->>'locations_id' AS periph_lieu,
+        pe.raw->>'states_id'    AS periph_statut,
+        pe.raw->>'name'         AS periph_nom
       FROM hub_deploiements.fiches f
-      LEFT JOIN hub_parc.items i ON i.name = f.uc_nouveau_num
+      LEFT JOIN hub_parc.items uc ON uc.name = f.uc_nouveau_num AND NOT uc.is_deleted
+      LEFT JOIN hub_parc.items ec ON ec.name = f.ecran1_nouveau_num AND NOT ec.is_deleted
+      LEFT JOIN hub_parc.items pe
+        ON f.materiel_type = 'PERIPH'
+        AND pe.itemtype = 'Peripheral'
+        AND NOT pe.is_deleted
+        AND pe.raw->>'serial' = split_part(split_part(f.autre_designation,'(',2),')',1)
       ${wClause}
       ORDER BY f.date_deploiement DESC NULLS LAST, f.id DESC
       LIMIT ${lim} OFFSET ${off}

@@ -1240,6 +1240,26 @@ const ParcInformatique: React.FC = () => {
           const types = deployKpis ? (deployKpis.by_type || []).map((t: any) => t.type_operation).filter(Boolean) : [];
           const annees = deployKpis ? (deployKpis.by_annee || []).map((a: any) => String(a.annee)).filter(Boolean) : [];
 
+          // Lieu et statut consolidés : UC > Écran > Périph selon le type de ligne
+          const rowLieu = (row: any): string | null => row.uc_lieu || row.ec_lieu || row.periph_lieu || null;
+          const rowStatutParc = (row: any): string | null => row.parc_statut || row.ec_statut || row.periph_statut || null;
+
+          // Source badge
+          const sourceBadge = (src: string | null) => {
+            if (!src || src === 'fiches') return <span style={{ background: '#f0fdf4', color: '#15803d', padding: '1px 7px', borderRadius: 8, fontSize: '.72rem', fontWeight: 700 }}>Fiche</span>;
+            if (src === 'deploy_excel') return <span style={{ background: '#eff6ff', color: '#1d4ed8', padding: '1px 7px', borderRadius: 8, fontSize: '.72rem', fontWeight: 700 }}>Excel</span>;
+            return <span style={{ background: '#f1f5f9', color: C.slate, padding: '1px 7px', borderRadius: 8, fontSize: '.72rem', fontWeight: 700 }}>{src}</span>;
+          };
+
+          // Nom affiché du périph : extrait le nom du format "Périph: NomModèle (SERIAL)" ou "Périph: null (SERIAL)"
+          const periphDisplay = (autre_designation: string | null): { nom: string | null; serial: string | null } => {
+            if (!autre_designation) return { nom: null, serial: null };
+            const m = autre_designation.match(/^Périph:\s*(.+?)\s*\(([^)]+)\)$/);
+            if (!m) return { nom: autre_designation, serial: null };
+            const nom = m[1] === 'null' ? null : m[1];
+            return { nom, serial: m[2] };
+          };
+
           return (
             <div>
               {deployErr && <div style={{ background: '#fee2e2', color: '#b91c1c', padding: '12px 16px', borderRadius: 10, marginBottom: 16, fontSize: '.88rem' }}>{deployErr}</div>}
@@ -1512,26 +1532,48 @@ const ParcInformatique: React.FC = () => {
                   <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '.84rem' }}>
                     <thead>
                       <tr style={{ background: '#f8fafc', borderBottom: `2px solid ${C.border}` }}>
-                        {['Date', 'Équipement', 'Bénéficiaire', 'Direction / Service', 'UC fourni', 'Modèle UC', 'UC récupéré', 'Écran(s)', 'Installateur', 'Type', 'Fichier(s)'].map(h => (
+                        {['Date', 'Src', 'Équipement', 'Lieu parc', 'Bénéficiaire', 'Direction / Service', 'UC fourni', 'Modèle UC', 'UC récupéré', 'Écran(s)', 'Installateur', 'Type', 'Fichier(s)'].map(h => (
                           <th key={h} style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, color: C.slate, fontSize: '.78rem', textTransform: 'uppercase', letterSpacing: '.04em', whiteSpace: 'nowrap' }}>{h}</th>
                         ))}
                       </tr>
                     </thead>
                     <tbody>
                       {deploys.length === 0 ? (
-                        <tr><td colSpan={11} style={{ padding: 32, textAlign: 'center', color: C.slate }}>Aucune fiche</td></tr>
+                        <tr><td colSpan={13} style={{ padding: 32, textAlign: 'center', color: C.slate }}>Aucune fiche</td></tr>
                       ) : deploys.map((row: any) => (
                         <tr key={row.id} style={{ borderTop: `1px solid ${C.border}`, cursor: 'pointer' }}
                           onMouseEnter={e => (e.currentTarget.style.background = '#f8fafc')}
                           onMouseLeave={e => (e.currentTarget.style.background = '')}
                           onClick={() => setDeployEditRow(row)}>
                           <td style={{ padding: '8px 12px', whiteSpace: 'nowrap', fontFamily: 'monospace', fontSize: '.8rem' }}>{fmtD(row.date_deploiement)}</td>
+                          <td style={{ padding: '8px 12px' }}>{sourceBadge(row.source)}</td>
                           <td style={{ padding: '8px 12px', whiteSpace: 'nowrap' }}>
                             {(() => { const e = equipType(row); return e.label !== '—'
                               ? <span style={{ background: e.bg, color: e.color, padding: '2px 9px', borderRadius: 10, fontSize: '.76rem', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
                                   {e.icon && <span style={{ fontSize: '.88rem' }}>{e.icon}</span>}{e.label}
                                 </span>
                               : <span style={{ color: '#cbd5e1' }}>—</span>; })()}
+                          </td>
+                          <td style={{ padding: '8px 12px', fontSize: '.78rem', maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {(() => {
+                              const lieu = rowLieu(row);
+                              const statut = rowStatutParc(row);
+                              // Périph : afficher nom + serial depuis autre_designation
+                              if (row.materiel_type === 'PERIPH' && row.autre_designation) {
+                                const pd = periphDisplay(row.autre_designation);
+                                return (
+                                  <div>
+                                    <div style={{ fontFamily: 'monospace', fontWeight: 600, color: C.text, fontSize: '.77rem' }}>{pd.serial}</div>
+                                    {pd.nom && <div style={{ color: C.slate, fontSize: '.72rem' }}>{pd.nom}</div>}
+                                    {lieu && <div style={{ color: C.slate, fontSize: '.72rem', display: 'flex', alignItems: 'center', gap: 3 }}><MapPin size={10} />{lieu}</div>}
+                                    {statut && <span style={{ background: '#f1f5f9', color: C.slate, borderRadius: 5, padding: '0 5px', fontSize: '.7rem', fontWeight: 600 }}>{statut}</span>}
+                                  </div>
+                                );
+                              }
+                              return lieu
+                                ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, color: C.slate }}><MapPin size={11} />{lieu}{statut && <span style={{ marginLeft: 4, background: '#f1f5f9', borderRadius: 5, padding: '0 5px', fontSize: '.7rem', fontWeight: 600 }}>{statut}</span>}</span>
+                                : <span style={{ color: '#cbd5e1' }}>—</span>;
+                            })()}
                           </td>
                           <td style={{ padding: '8px 12px', fontWeight: 600 }}>{row.beneficiaire || '—'}</td>
                           <td style={{ padding: '8px 12px', fontSize: '.8rem' }}>
