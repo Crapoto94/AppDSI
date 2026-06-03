@@ -1150,6 +1150,80 @@ const ParcInformatique: React.FC = () => {
             if (mt === 'conflict') return <span style={{ background: '#fee2e2', color: '#b91c1c', padding: '1px 8px', borderRadius: 10, fontSize: '.72rem', fontWeight: 700 }}>Conflit S/N</span>;
             return <span style={{ background: '#f1f5f9', color: '#64748b', padding: '1px 8px', borderRadius: 10, fontSize: '.72rem', fontWeight: 700 }}>Non trouvé</span>;
           };
+          // Détermine le type d'équipement déployé (affiché en colonne)
+          const equipType = (row: any): { label: string; color: string; bg: string; icon: string } => {
+            const mt = (row.materiel_type || '').toUpperCase().trim().replace(/\s+/g, ' ');
+            const ucNum = (row.uc_nouveau_num || row.uc_recupere_num || '').toUpperCase();
+            const isPortable = /^PO/.test(ucNum);
+
+            // ── Correspondances directes sur materiel_type (source deploy.xlsx) ──
+            if (mt) {
+              // Écrans seuls
+              if (/^(ECRAN|EC\d+|EC$)$/.test(mt)) return { label: 'Écran', color: '#0891b2', bg: '#e0f2fe', icon: '🖥' };
+              // PC fixes (UC, AIO, iMac)
+              if (mt === 'AIO' || mt === 'IMAC') return { label: 'PC Tout-en-un', color: '#7c3aed', bg: '#faf5ff', icon: '🖥' };
+              if (mt === 'UC') return { label: 'PC Fixe', color: '#1d4ed8', bg: '#dbeafe', icon: '🖥' };
+              // PC portables
+              if (mt === 'PO' || mt === 'MACBOOK') return { label: 'PC Portable', color: '#1d4ed8', bg: '#dbeafe', icon: '💻' };
+              // Imprimantes / scanners
+              if (mt === 'IMP') return { label: 'Imprimante', color: '#b45309', bg: '#fef3c7', icon: '🖨' };
+              if (mt === 'SCANNER') return { label: 'Scanner', color: '#b45309', bg: '#fef3c7', icon: '🖨' };
+              // Périphériques
+              if (mt === 'PERIPH') return { label: 'Périphérique', color: '#059669', bg: '#d1fae5', icon: '🖱' };
+              if (mt === 'TABLETTE') return { label: 'Tablette', color: '#7c3aed', bg: '#faf5ff', icon: '📱' };
+              if (mt === 'VIDEO PROJECTEUR') return { label: 'Vidéo-proj.', color: '#64748b', bg: '#f1f5f9', icon: '📽' };
+              // Bundles PC+Écran+Imprimante
+              if (mt.includes('IMP') && (mt.includes('UC') || mt.includes('PO')) && mt.includes('EC'))
+                return { label: 'PC + Écran + Imp.', color: '#dc2626', bg: '#fef2f2', icon: '🖥' };
+              // Bundles PC+Écran
+              if ((mt.startsWith('UC') || mt.startsWith('AIO')) && mt.includes('EC'))
+                return { label: 'PC Fixe + Écran', color: '#1d4ed8', bg: '#dbeafe', icon: '🖥' };
+              if (mt.startsWith('PO') && mt.includes('EC'))
+                return { label: 'PC Port. + Écran', color: '#1d4ed8', bg: '#dbeafe', icon: '💻' };
+              // Bundles PC+Imprimante
+              if ((mt.startsWith('UC') || mt.startsWith('PO')) && mt.includes('IMP'))
+                return { label: 'PC + Imprimante', color: '#1d4ed8', bg: '#dbeafe', icon: '🖥' };
+            }
+
+            // ── Fallback : inférence depuis les colonnes ──
+            const hasUcNew = !!row.uc_nouveau_num;
+            const hasEcNew = !!(row.ecran1_nouveau_num || row.ecran1_nouveau_serie || row.ecran2_nouveau_serie);
+            const hasUcRec = !!row.uc_recupere_num;
+            const hasEcRec = !!(row.ecran1_recupere_num);
+
+            if (hasUcNew && hasEcNew)
+              return isPortable
+                ? { label: 'PC Port. + Écran', color: '#1d4ed8', bg: '#dbeafe', icon: '💻' }
+                : { label: 'PC Fixe + Écran',  color: '#1d4ed8', bg: '#dbeafe', icon: '🖥' };
+            if (hasUcNew)
+              return isPortable
+                ? { label: 'PC Portable', color: '#1d4ed8', bg: '#dbeafe', icon: '💻' }
+                : { label: 'PC Fixe',     color: '#1d4ed8', bg: '#dbeafe', icon: '🖥' };
+            if (hasEcNew) return { label: 'Écran', color: '#0891b2', bg: '#e0f2fe', icon: '🖥' };
+
+            // Retours : analyser le récupéré
+            if (hasUcRec || hasEcRec) {
+              const recUcNum = (row.uc_recupere_num || '').toUpperCase();
+              const isRecPortable = /^PO/.test(recUcNum);
+              if (hasUcRec && hasEcRec)
+                return isRecPortable
+                  ? { label: 'PC Port. + Écran', color: '#64748b', bg: '#f1f5f9', icon: '💻' }
+                  : { label: 'PC Fixe + Écran',  color: '#64748b', bg: '#f1f5f9', icon: '🖥' };
+              if (hasUcRec)
+                return isRecPortable
+                  ? { label: 'PC Portable', color: '#64748b', bg: '#f1f5f9', icon: '💻' }
+                  : { label: 'PC Fixe',     color: '#64748b', bg: '#f1f5f9', icon: '🖥' };
+              if (hasEcRec) return { label: 'Écran', color: '#64748b', bg: '#f1f5f9', icon: '🖥' };
+            }
+
+            // Hints depuis type_operation
+            const op = (row.type_operation || '').toLowerCase();
+            if (op.includes('imprimante') || op.includes('impr'))
+              return { label: 'Imprimante', color: '#b45309', bg: '#fef3c7', icon: '🖨' };
+
+            return { label: '—', color: '#94a3b8', bg: 'transparent', icon: '' };
+          };
+
           const typeBadge = (op: string | null) => {
             if (!op) return null;
             const map: Record<string, { bg: string; color: string }> = {
@@ -1438,20 +1512,27 @@ const ParcInformatique: React.FC = () => {
                   <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '.84rem' }}>
                     <thead>
                       <tr style={{ background: '#f8fafc', borderBottom: `2px solid ${C.border}` }}>
-                        {['Date', 'Bénéficiaire', 'Direction / Service', 'UC fourni', 'Modèle UC', 'UC récupéré', 'Écran(s)', 'Installateur', 'Type', 'Fichier(s)'].map(h => (
+                        {['Date', 'Équipement', 'Bénéficiaire', 'Direction / Service', 'UC fourni', 'Modèle UC', 'UC récupéré', 'Écran(s)', 'Installateur', 'Type', 'Fichier(s)'].map(h => (
                           <th key={h} style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, color: C.slate, fontSize: '.78rem', textTransform: 'uppercase', letterSpacing: '.04em', whiteSpace: 'nowrap' }}>{h}</th>
                         ))}
                       </tr>
                     </thead>
                     <tbody>
                       {deploys.length === 0 ? (
-                        <tr><td colSpan={10} style={{ padding: 32, textAlign: 'center', color: C.slate }}>Aucune fiche</td></tr>
+                        <tr><td colSpan={11} style={{ padding: 32, textAlign: 'center', color: C.slate }}>Aucune fiche</td></tr>
                       ) : deploys.map((row: any) => (
                         <tr key={row.id} style={{ borderTop: `1px solid ${C.border}`, cursor: 'pointer' }}
                           onMouseEnter={e => (e.currentTarget.style.background = '#f8fafc')}
                           onMouseLeave={e => (e.currentTarget.style.background = '')}
                           onClick={() => setDeployEditRow(row)}>
                           <td style={{ padding: '8px 12px', whiteSpace: 'nowrap', fontFamily: 'monospace', fontSize: '.8rem' }}>{fmtD(row.date_deploiement)}</td>
+                          <td style={{ padding: '8px 12px', whiteSpace: 'nowrap' }}>
+                            {(() => { const e = equipType(row); return e.label !== '—'
+                              ? <span style={{ background: e.bg, color: e.color, padding: '2px 9px', borderRadius: 10, fontSize: '.76rem', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                                  {e.icon && <span style={{ fontSize: '.88rem' }}>{e.icon}</span>}{e.label}
+                                </span>
+                              : <span style={{ color: '#cbd5e1' }}>—</span>; })()}
+                          </td>
                           <td style={{ padding: '8px 12px', fontWeight: 600 }}>{row.beneficiaire || '—'}</td>
                           <td style={{ padding: '8px 12px', fontSize: '.8rem' }}>
                             {row.direction && <span style={{ fontWeight: 700, color: C.text }}>{row.direction}</span>}
