@@ -142,6 +142,7 @@ function App() {
         <Route path="/mes-reunions" element={<PrivateRoute path="/mes-reunions"><MesReunions /></PrivateRoute>} />
         <Route path="/portefeuille-projets" element={<PrivateRoute path="/portefeuille-projets"><PortefeuilleProjets /></PrivateRoute>} />
         <Route path="/revue-de-projets" element={<PrivateRoute path="/revue-de-projets"><RevueDeProjets /></PrivateRoute>} />
+        <Route path="/projets" element={<Navigate to="/portefeuille-projets" replace />} />
         <Route path="/projets/:id" element={<PrivateRoute path="/portefeuille-projets"><ProjetDetail /></PrivateRoute>} />
         <Route path="/projets/nouveau" element={<PrivateRoute path="/portefeuille-projets"><PortefeuilleProjets /></PrivateRoute>} />
         
