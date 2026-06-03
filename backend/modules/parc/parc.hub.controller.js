@@ -182,13 +182,16 @@ async function updateContactNum(req, res) {
     if (contact_num === undefined || contact_num === null) {
       return res.status(400).json({ message: 'contact_num requis' });
     }
+    // Base locale
     const r = await pool.query(
       `UPDATE hub_parc.items SET raw = jsonb_set(COALESCE(raw, '{}'), '{contact_num}', to_jsonb($1::text)) WHERE itemtype = $2 AND glpi_id = $3`,
       [contact_num, t.itemtype, id]
     );
     if (r.rowCount === 0) return res.status(404).json({ message: 'Équipement introuvable' });
+    // GLPI
+    const glpiRes = await glpi.updateItem(t.itemtype, id, { contact_num });
     clearHubCache();
-    res.json({ success: true, contact_num });
+    res.json({ success: true, contact_num, glpi_ok: glpiRes.ok });
   } catch (error) { res.status(500).json({ message: error.message }); }
 }
 
