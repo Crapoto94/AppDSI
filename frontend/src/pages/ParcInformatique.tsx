@@ -1477,21 +1477,34 @@ const ParcInformatique: React.FC = () => {
                           <td style={{ padding: '8px 12px', whiteSpace: 'nowrap' }}>{typeBadge(row.type_operation)}</td>
                           <td style={{ padding: '8px 12px', whiteSpace: 'nowrap' }} onClick={e => e.stopPropagation()}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                              {row.fichier && (
+                              {row.fichier ? (<>
+                                {/* Œil = prévisualisation */}
                                 <button onClick={() => setDocViewer({ path: row.fichier, filename: row.fichier.split(/[/\\]/).pop() || row.fichier })}
-                                  title={row.fichier} style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.blue, display: 'inline-flex', alignItems: 'center', gap: 3, padding: 0 }}>
-                                  <Eye size={15} /> <FileText size={13} />
+                                  title={`Prévisualiser : ${row.fichier}`} style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.blue, display: 'inline-flex', padding: 0 }}>
+                                  <Eye size={15} />
                                 </button>
-                              )}
-                              {row.fichier_lie && (
+                                {/* Flèche = téléchargement */}
+                                <a href={`/api/deploiements/file?path=${encodeURIComponent(row.fichier)}&token=${token || ''}`}
+                                  download title={`Télécharger : ${row.fichier}`}
+                                  style={{ color: C.blue, display: 'inline-flex', padding: 0 }}>
+                                  <Download size={14} />
+                                </a>
+                              </>) : <span style={{ color: '#cbd5e1' }}>—</span>}
+                              {row.fichier_lie && (<>
+                                {/* Œil = prévisualisation du fichier lié */}
                                 <button onClick={() => setDocViewer({ path: row.fichier_lie, filename: row.fichier_lie.split(/[/\\]/).pop() || row.fichier_lie })}
-                                  title={row.fichier_lie} style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.slate, display: 'inline-flex', alignItems: 'center', gap: 3, padding: 0 }}>
-                                  <Eye size={13} /> <FileText size={11} />
+                                  title={`Prévisualiser : ${row.fichier_lie}`} style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.slate, display: 'inline-flex', padding: 0 }}>
+                                  <Eye size={13} />
                                 </button>
-                              )}
-                              {!row.fichier && <span style={{ color: '#cbd5e1' }}>—</span>}
+                                {/* Flèche = téléchargement du fichier lié */}
+                                <a href={`/api/deploiements/file?path=${encodeURIComponent(row.fichier_lie)}&token=${token || ''}`}
+                                  download title={`Télécharger : ${row.fichier_lie}`}
+                                  style={{ color: C.slate, display: 'inline-flex', padding: 0 }}>
+                                  <Download size={12} />
+                                </a>
+                              </>)}
                               <button onClick={() => setDeployEditRow(row)} title="Modifier ce déploiement"
-                                style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.slate, marginLeft: 4, display: 'inline-flex', padding: 0 }}>
+                                style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.slate, marginLeft: 2, display: 'inline-flex', padding: 0 }}>
                                 <Edit2 size={13} />
                               </button>
                             </div>
