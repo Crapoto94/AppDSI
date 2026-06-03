@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import Header from '../components/Header';
 import axios from 'axios';
@@ -138,6 +138,7 @@ const ParcInformatique: React.FC = () => {
   const [fStockStatut, setFStockStatut] = useState(''); // '' | 'En stock neuf' | 'En stock masterisé' | 'En stock'
   const [stockExpanded, setStockExpanded] = useState<Set<string>>(new Set());
   const [stockTooltip, setStockTooltip] = useState<{ items: any[]; statut: string; total: number; x: number; y: number } | null>(null);
+  const tooltipHideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Détail
   const [detail, setDetail] = useState<any | null>(null);
@@ -784,10 +785,13 @@ const ParcInformatique: React.FC = () => {
                                       <span
                                         style={{ background: bg, color, padding: '2px 10px', borderRadius: 20, fontWeight: 700, fontSize: '.82rem', cursor: 'default' }}
                                         onMouseEnter={e => {
+                                          if (tooltipHideTimer.current) clearTimeout(tooltipHideTimer.current);
                                           const rect = (e.target as HTMLElement).getBoundingClientRect();
-                                          setStockTooltip({ items, statut, total, x: rect.left + rect.width / 2, y: rect.bottom + 6 });
+                                          setStockTooltip({ items, statut, total, x: rect.left + rect.width / 2, y: rect.bottom + 4 });
                                         }}
-                                        onMouseLeave={() => setStockTooltip(null)}
+                                        onMouseLeave={() => {
+                                          tooltipHideTimer.current = setTimeout(() => setStockTooltip(null), 180);
+                                        }}
                                       >{count}</span>
                                     </td>
                                   );
@@ -1089,25 +1093,25 @@ const ParcInformatique: React.FC = () => {
           if (!!a.serial !== !!b.serial) return a.serial ? -1 : 1;
           return (a.serial || a.name || '').localeCompare(b.serial || b.name || '');
         });
-        const maxH = 340;
+        const maxH = 360;
         const spaceBelow = window.innerHeight - stockTooltip.y;
         const top = spaceBelow > maxH + 20 ? stockTooltip.y : stockTooltip.y - maxH - 36;
+        const left = Math.max(170, Math.min(stockTooltip.x, window.innerWidth - 170));
         return (
-          <div style={{ position: 'fixed', left: Math.min(stockTooltip.x, window.innerWidth - 355), top, transform: 'translateX(-50%)', zIndex: 3000, background: '#1e293b', color: '#f1f5f9', borderRadius: 10, padding: '10px 0', fontSize: '.8rem', width: 340, boxShadow: '0 8px 32px rgba(0,0,0,.35)', pointerEvents: 'none' }}>
-            <div style={{ fontWeight: 700, color: '#fff', padding: '0 14px 8px', borderBottom: '1px solid #334155' }}>
+          <div
+            style={{ position: 'fixed', left, top, transform: 'translateX(-50%)', zIndex: 3000, background: '#1e293b', color: '#f1f5f9', borderRadius: 10, padding: '0', fontSize: '.79rem', width: 380, boxShadow: '0 8px 32px rgba(0,0,0,.4)', pointerEvents: 'auto' }}
+            onMouseEnter={() => { if (tooltipHideTimer.current) clearTimeout(tooltipHideTimer.current); }}
+            onMouseLeave={() => { tooltipHideTimer.current = setTimeout(() => setStockTooltip(null), 80); }}
+          >
+            <div style={{ fontWeight: 700, color: '#fff', padding: '8px 14px 7px', borderBottom: '1px solid #334155', fontSize: '.8rem' }}>
               {stockTooltip.statut} · {stockTooltip.total} unité{stockTooltip.total > 1 ? 's' : ''}
             </div>
-            <div style={{ maxHeight: maxH, overflowY: 'auto', padding: '4px 0' }}>
+            <div style={{ maxHeight: maxH, overflowY: 'scroll', padding: '4px 0' }}>
               {sorted.map((it: any, i: number) => (
-                <div key={i} style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: '0 8px', padding: '5px 14px', borderTop: i > 0 ? '1px solid #243249' : 'none' }}>
-                  <div>
-                    <div style={{ fontFamily: 'monospace', fontWeight: 700, color: '#e2e8f0', fontSize: '.78rem' }}>{it.serial || '—'}</div>
-                    {it.name && <div style={{ color: '#94a3b8', fontSize: '.72rem' }}>{it.name}</div>}
-                    {it.location && <div style={{ color: '#64748b', fontSize: '.72rem' }}>{it.location}</div>}
-                  </div>
-                  <div style={{ color: '#94a3b8', fontSize: '.75rem', whiteSpace: 'nowrap', textAlign: 'right' }}>
-                    {it.reception_date ? fmtDate(it.reception_date) : '—'}
-                  </div>
+                <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '3px 14px', borderTop: i > 0 ? '1px solid #1e3050' : 'none', whiteSpace: 'nowrap', overflow: 'hidden' }}>
+                  <span style={{ fontFamily: 'monospace', fontWeight: 700, color: '#e2e8f0', flexShrink: 0, fontSize: '.78rem' }}>{it.serial || '—'}</span>
+                  {it.name && <span style={{ color: '#64748b', overflow: 'hidden', textOverflow: 'ellipsis', fontSize: '.74rem' }}>{it.name}</span>}
+                  <span style={{ marginLeft: 'auto', color: '#94a3b8', flexShrink: 0, fontSize: '.74rem' }}>{it.reception_date ? fmtDate(it.reception_date) : '—'}</span>
                 </div>
               ))}
             </div>
