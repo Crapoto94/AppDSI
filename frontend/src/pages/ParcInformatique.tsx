@@ -11,6 +11,7 @@ import {
   RefreshCw, MapPin, User, Tag, Cpu, Activity, BarChart3, List,
   CheckCircle2, AlertTriangle, Layers, ChevronRight, Boxes,
   Euro, ShieldCheck, Clock, Truck, Database, FileText, Users, CalendarCheck2, CalendarDays,
+  ArrowLeftRight,
 } from 'lucide-react';
 
 // ─── Constantes ─────────────────────────────────────────────────────────────
@@ -32,7 +33,7 @@ interface Row {
   id: number; name: string | null; serial: string | null; otherserial: string | null;
   manufacturer: string | null; model: string | null; type: string | null;
   state: string | null; location: string | null; user: string | null;
-  contact: string | null; contact_num: string | null; doc_count: number;
+  contact: string | null; contact_num: string | null; contact_email: string | null; doc_count: number;
   ad_found: boolean; itemtype_label: string | null; type_key: string | null;
   age_source: 'use_date' | 'buy_date' | 'reception' | null;
   group: string | null; user_tech: string | null; date_mod: string | null;
@@ -41,6 +42,8 @@ interface Row {
   age_years: number | null;
   os: string | null; os_version: string | null;
 }
+interface AdUser { username: string; displayName: string; email: string; service: string }
+interface AdModal { row: Row; query: string; results: AdUser[] | null; loading: boolean; selected: AdUser | null; applying: boolean }
 interface UsagerRow { contact: string; ad_found: boolean; count: number; by_type: Record<string, number> }
 interface Count { label: string; count: number }
 interface Kpis {
@@ -122,6 +125,10 @@ const ParcInformatique: React.FC = () => {
   // Détail
   const [detail, setDetail] = useState<any | null>(null);
 
+  // Inversion / recherche AD
+  const [swapping, setSwapping] = useState<Record<string, boolean>>({});
+  const [adModal, setAdModal] = useState<AdModal | null>(null);
+
   // ── KPIs ──
   const loadKpis = useCallback(async (refresh = false) => {
     setLoadingKpi(true); setKpiErr(null);
@@ -173,6 +180,56 @@ const ParcInformatique: React.FC = () => {
     finally { setLoadingGeo(false); }
   }, [token, source]);
   useEffect(() => { if (tab === 'geo') loadGeo(); }, [tab, source]);
+
+  const handleSwap = async (r: Row) => {
+    const key = `${r.type_key || type}-${r.id}`;
+    if (swapping[key]) return;
+    setSwapping(s => ({ ...s, [key]: true }));
+    try {
+      const res = await axios.post(`/api/parc/hub/${r.type_key || type}/${r.id}/swap-contact`, {}, { headers: { Authorization: `Bearer ${token}` } });
+      setRows(prev => prev.map(row =>
+        row.id === r.id && row.type_key === r.type_key
+          ? { ...row, contact: res.data.contact || null, contact_num: res.data.contact_num || null, ad_found: res.data.ad_found ?? row.ad_found, contact_email: res.data.ad_email || null }
+          : row
+      ));
+    } catch (e: any) { alert(`Erreur inversion : ${e.response?.data?.message || e.message}`); }
+    finally { setSwapping(s => { const n = { ...s }; delete n[key]; return n; }); }
+  };
+
+  const openAdModal = (r: Row) => setAdModal({ row: r, query: r.contact || r.name || '', results: null, loading: false, selected: null, applying: false });
+
+  const doAdSearch = async () => {
+    if (!adModal) return;
+    setAdModal(m => m ? { ...m, loading: true, results: null, selected: null } : m);
+    try {
+      const res = await axios.post(`/api/parc/hub/${adModal.row.type_key || type}/${adModal.row.id}/ad-lookup`, { query: adModal.query }, { headers: { Authorization: `Bearer ${token}` } });
+      setAdModal(m => m ? { ...m, loading: false, results: res.data.results || [] } : m);
+    } catch (e: any) {
+      alert(`Erreur AD : ${e.response?.data?.message || e.message}`);
+      setAdModal(m => m ? { ...m, loading: false, results: [] } : m);
+    }
+  };
+
+  const applyAdUser = async () => {
+    if (!adModal?.selected) return;
+    setAdModal(m => m ? { ...m, applying: true } : m);
+    const { row, selected } = adModal;
+    try {
+      await axios.patch(`/api/parc/hub/${row.type_key || type}/${row.id}/contact`,
+        { contact: selected.displayName, email: selected.email, ad_username: selected.username, display_name: selected.displayName, service: selected.service },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      setRows(prev => prev.map(r =>
+        r.id === row.id && r.type_key === row.type_key
+          ? { ...r, contact: selected.displayName, ad_found: true, contact_email: selected.email || null }
+          : r
+      ));
+      setAdModal(null);
+    } catch (e: any) {
+      alert(`Erreur application : ${e.response?.data?.message || e.message}`);
+      setAdModal(m => m ? { ...m, applying: false } : m);
+    }
+  };
 
   const openDetail = async (id: number, typeKey?: string) => {
     const t = typeKey || type;
@@ -510,13 +567,29 @@ const ParcInformatique: React.FC = () => {
                         <td style={{ padding: '10px 14px', fontWeight: 600, color: C.text }}>{v(r.name)}</td>
                         {isTous && <td style={{ padding: '10px 14px' }}>{r.itemtype_label ? <span style={{ background: '#f1f5f9', color: C.slate, padding: '2px 8px', borderRadius: 6, fontSize: '.78rem', fontWeight: 600 }}>{r.itemtype_label}</span> : v(null)}</td>}
                         <td style={{ padding: '10px 14px' }}>
-                          {r.contact
-                            ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                                {r.ad_found && <span title="Trouvé dans l'AD"><ShieldCheck size={13} color="#7c3aed" /></span>}
-                                <User size={13} color={C.green} />
-                                {r.contact}
-                              </span>
-                            : <span style={{ color: '#cbd5e1' }}>—</span>}
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'nowrap' }}>
+                            {source === 'hub' && (
+                              <button onClick={e => { e.stopPropagation(); handleSwap(r); }} disabled={!!swapping[`${r.type_key || type}-${r.id}`]}
+                                title="Inverser Usager ↔ N° usager"
+                                style={{ background: 'none', border: `1px solid ${C.border}`, borderRadius: 5, cursor: 'pointer', padding: '2px 5px', color: C.slate, display: 'inline-flex', alignItems: 'center', flexShrink: 0 }}>
+                                {swapping[`${r.type_key || type}-${r.id}`] ? <RefreshCw size={11} className="spin" /> : <ArrowLeftRight size={11} />}
+                              </button>
+                            )}
+                            {r.contact
+                              ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+                                  {r.ad_found && <span title="Trouvé dans l'AD"><ShieldCheck size={13} color="#7c3aed" /></span>}
+                                  <User size={13} color={C.green} />
+                                  {r.contact}
+                                </span>
+                              : <span style={{ color: '#cbd5e1' }}>—</span>}
+                            {source === 'hub' && (
+                              <button onClick={e => { e.stopPropagation(); openAdModal(r); }} title="Recherche Active Directory"
+                                style={{ background: 'none', border: `1px solid ${C.border}`, borderRadius: 5, cursor: 'pointer', padding: '2px 5px', color: C.slate, display: 'inline-flex', alignItems: 'center', flexShrink: 0 }}>
+                                <Search size={11} />
+                              </button>
+                            )}
+                          </div>
+                          {r.contact_email && <div style={{ fontSize: '.72rem', color: C.slate, marginTop: 2, paddingLeft: source === 'hub' ? 26 : 0 }}>{r.contact_email}</div>}
                         </td>
                         <td style={{ padding: '10px 14px', fontSize: '.82rem', color: C.slate }}>{v(r.contact_num)}</td>
                         <td style={{ padding: '10px 14px', fontSize: '.82rem' }}>{r.group ? <span style={{ background: '#f5f3ff', color: '#7c3aed', padding: '2px 8px', borderRadius: 6, fontSize: '.76rem', fontWeight: 600 }}>{r.group}</span> : v(null)}</td>
@@ -842,6 +915,57 @@ const ParcInformatique: React.FC = () => {
       )}
 
       <style>{`@keyframes spin{to{transform:rotate(360deg)}}.spin{animation:spin 1s linear infinite}`}</style>
+
+      {/* ── Modal Recherche AD ──────────────────────────────────────────────── */}
+    {adModal && (
+      <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.45)', zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+        onClick={() => !adModal.applying && setAdModal(null)}>
+        <div style={{ background: '#fff', borderRadius: 16, padding: 28, width: 520, maxWidth: '95vw', boxShadow: '0 24px 64px rgba(0,0,0,.25)' }}
+          onClick={e => e.stopPropagation()}>
+          <div style={{ fontWeight: 700, fontSize: '1rem', marginBottom: 4 }}>Recherche Active Directory</div>
+          <div style={{ fontSize: '.82rem', color: C.slate, marginBottom: 16 }}>{adModal.row.name}</div>
+          <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+            <input type="text" value={adModal.query} autoFocus
+              onChange={e => setAdModal(m => m ? { ...m, query: e.target.value } : m)}
+              onKeyDown={e => e.key === 'Enter' && doAdSearch()}
+              placeholder="Nom, prénom ou login…"
+              style={{ flex: 1, padding: '9px 12px', border: `1px solid ${C.border}`, borderRadius: 9, fontSize: '.88rem', outline: 'none' }} />
+            <button onClick={doAdSearch} disabled={adModal.loading || !adModal.query.trim()} style={btn(C.blue)}>
+              {adModal.loading ? <RefreshCw size={14} className="spin" /> : <Search size={14} />}
+              {adModal.loading ? 'Recherche…' : 'Chercher'}
+            </button>
+          </div>
+          {adModal.results !== null && (
+            adModal.results.length === 0
+              ? <div style={{ textAlign: 'center', color: C.slate, padding: '20px 0', fontSize: '.88rem' }}>Aucun résultat</div>
+              : <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 320, overflowY: 'auto' }}>
+                  {adModal.results.map(u => {
+                    const sel = adModal.selected?.username === u.username;
+                    return (
+                      <div key={u.username} onClick={() => setAdModal(m => m ? { ...m, selected: sel ? null : u } : m)}
+                        style={{ padding: '10px 14px', borderRadius: 10, border: `2px solid ${sel ? C.blue : C.border}`, cursor: 'pointer', background: sel ? '#eff6ff' : '#fff', transition: 'border-color .15s' }}>
+                        <div style={{ fontWeight: 600, fontSize: '.9rem' }}>{u.displayName}</div>
+                        <div style={{ fontSize: '.78rem', color: C.slate, marginTop: 2 }}>
+                          {u.email || "(pas d'e-mail)"}{u.service ? ` · ${u.service}` : ''}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+          )}
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 20 }}>
+            <button onClick={() => setAdModal(null)} disabled={adModal.applying}
+              style={{ ...btn(C.slate), background: '#f1f5f9', color: C.text }}>Annuler</button>
+            {adModal.selected && (
+              <button onClick={applyAdUser} disabled={adModal.applying} style={btn(C.blue)}>
+                {adModal.applying ? <RefreshCw size={14} className="spin" /> : <CheckCircle2 size={14} />}
+                {adModal.applying ? 'Application…' : `Appliquer "${adModal.selected.displayName}"`}
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+    )}
     </div>
   );
 };
@@ -1004,8 +1128,20 @@ const FIELD_LABELS: Record<string, string> = {
 
 const DetailModal: React.FC<{ detail: any; token: string | null; onClose: () => void }> = ({ detail, token, onClose }) => {
   const [showAll, setShowAll] = useState(false);
+  const [partiLoading, setPartiLoading] = useState(false);
   const s = detail.summary || {};
   const docUrl = (id: number) => `/api/parc/file/document/${id}?token=${token || ''}`;
+  const handleParti = async () => {
+    if (partiLoading) return;
+    if (!window.confirm("Marquer cet équipement comme [PARTI] ?")) return;
+    setPartiLoading(true);
+    try {
+      await axios.patch(`/api/parc/hub/${detail.type}/${s.id}`, { contact_num: '[PARTI]' }, { headers: { Authorization: `Bearer ${token}` } });
+      s.contact_num = '[PARTI]';
+    } catch (e: any) {
+      alert(e.response?.data?.message || e.message);
+    } finally { setPartiLoading(false); }
+  };
   const groups = [
     { title: 'Affectation', fields: ['user', 'user_email', 'user_ad_name', 'user_service', 'group', 'user_tech', 'group_tech', 'contact', 'contact_email', 'contact_ad_name', 'contact_service', 'contact_num'] },
     { title: 'Localisation', fields: ['location', 'entity'] },
@@ -1050,10 +1186,17 @@ const DetailModal: React.FC<{ detail: any; token: string | null; onClose: () => 
                       {present.map(f => (
                         <div key={f} style={{ borderBottom: '1px solid #f1f5f9', paddingBottom: 5 }}>
                           <div style={{ fontSize: '.72rem', color: C.slate }}>{FIELD_LABELS[f] || f}</div>
-                          <div style={{ fontSize: '.9rem', color: C.text, fontWeight: 600 }}>
+                          <div style={{ fontSize: '.9rem', color: C.text, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8 }}>
                             {f.endsWith('_email')
                               ? <a href={`mailto:${s[f]}`} style={{ color: C.blue }}>{String(s[f])}</a>
                               : fmt(f, s[f])}
+                            {f === 'contact_num' && detail.source === 'hub' && (
+                              <button onClick={handleParti} disabled={partiLoading} style={{
+                                padding: '2px 10px', borderRadius: 6, border: `1px solid ${C.red}`, background: '#fef2f2',
+                                color: C.red, fontSize: '.72rem', fontWeight: 700, cursor: partiLoading ? 'default' : 'pointer',
+                                opacity: partiLoading ? 0.6 : 1, lineHeight: '20px',
+                              }}>{partiLoading ? '…' : '[PARTI]'}</button>
+                            )}
                           </div>
                         </div>
                       ))}
@@ -1133,6 +1276,7 @@ const DetailModal: React.FC<{ detail: any; token: string | null; onClose: () => 
         </div>
       </div>
     </div>
+
   );
 };
 

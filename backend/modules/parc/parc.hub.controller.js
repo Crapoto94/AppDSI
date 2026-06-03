@@ -2,9 +2,10 @@
 // Reproduit à l'identique le mode LIVE en réutilisant le même « cœur » (normalize,
 // mergeInfocom, applyListQuery, computeKpis, buildItemResponse, buildFilters), mais
 // en lisant les données dans la base au lieu d'interroger l'API GLPI 10.
-const { pool } = require('../../shared/database');
+const { pool, getSqlite } = require('../../shared/database');
 const glpi = require('./glpi-client');
 const { core } = require('./parc.live.controller');
+const { searchADUsersByQuery } = require('../../shared/ad_helper');
 
 // Convertit les lignes stockées (raw + infocom + os) en lignes normalisées & enrichies.
 function rowsToNormalized(itemtype, dbRows) {
@@ -171,6 +172,26 @@ async function usagersEquip(req, res) {
   } catch (error) { res.status(500).json({ message: error.message }); }
 }
 
+async function updateContactNum(req, res) {
+  try {
+    const t = glpi.typeByKey(req.params.type);
+    if (!t) return res.status(400).json({ message: 'Type invalide' });
+    const id = parseInt(req.params.id, 10);
+    if (!id) return res.status(400).json({ message: 'ID invalide' });
+    const { contact_num } = req.body;
+    if (contact_num === undefined || contact_num === null) {
+      return res.status(400).json({ message: 'contact_num requis' });
+    }
+    const r = await pool.query(
+      `UPDATE hub_parc.items SET raw = jsonb_set(COALESCE(raw, '{}'), '{contact_num}', to_jsonb($1::text)) WHERE itemtype = $2 AND glpi_id = $3`,
+      [contact_num, t.itemtype, id]
+    );
+    if (r.rowCount === 0) return res.status(404).json({ message: 'Équipement introuvable' });
+    clearHubCache();
+    res.json({ success: true, contact_num });
+  } catch (error) { res.status(500).json({ message: error.message }); }
+}
+
 async function health(req, res) {
   try {
     const r = await pool.query(`SELECT COUNT(*)::int n, MAX(last_sync) AS last FROM hub_parc.items`);
@@ -179,4 +200,112 @@ async function health(req, res) {
   } catch (error) { res.status(503).json({ ok: false, message: error.message }); }
 }
 
-module.exports = { list, item, kpis, filters, health, usagersEquip, byEmail, clearHubCache };
+// ── Inversion contact ↔ contact_num (local + GLPI + tentative AD) ─────────────
+async function swapContact(req, res) {
+  try {
+    const t = glpi.typeByKey(req.params.type);
+    if (!t) return res.status(400).json({ message: 'Type invalide' });
+    const id = parseInt(req.params.id, 10);
+    if (!id) return res.status(400).json({ message: 'ID invalide' });
+
+    const r = await pool.query(
+      `SELECT raw->>'contact' AS contact, raw->>'contact_num' AS contact_num
+       FROM hub_parc.items WHERE itemtype = $1 AND glpi_id = $2`,
+      [t.itemtype, id]
+    );
+    if (!r.rows.length) return res.status(404).json({ message: 'Équipement introuvable' });
+
+    const cur = r.rows[0];
+    const newContact    = cur.contact_num || '';
+    const newContactNum = cur.contact     || '';
+
+    // Mise à jour base locale
+    await pool.query(
+      `UPDATE hub_parc.items
+       SET raw = COALESCE(raw, '{}') || jsonb_build_object('contact', $1::text, 'contact_num', $2::text)
+       WHERE itemtype = $3 AND glpi_id = $4`,
+      [newContact, newContactNum, t.itemtype, id]
+    );
+
+    // Mise à jour GLPI
+    const glpiRes = await glpi.updateItem(t.itemtype, id, { contact: newContact, contact_num: newContactNum });
+
+    // Tentative AD sur le nouveau contact
+    let adEmail = null, adFound = false;
+    if (newContact) {
+      try {
+        const db = getSqlite();
+        const adCfg = db ? await db.get('SELECT * FROM ad_settings WHERE id = 1') : null;
+        if (adCfg && adCfg.host) {
+          const results = await searchADUsersByQuery(newContact, adCfg);
+          const match = results[0];
+          if (match && match.email) {
+            adEmail = match.email; adFound = true;
+            await pool.query(
+              `INSERT INTO hub_parc.usagers (key, source_name, ad_username, display_name, email, service, found, last_sync)
+               VALUES ($1,$2,$3,$4,$5,$6,true,NOW())
+               ON CONFLICT (key) DO UPDATE SET ad_username=$3, display_name=$4, email=$5, service=$6, found=true, last_sync=NOW()`,
+              [newContact.trim().toLowerCase(), newContact, match.username || null, match.displayName || null, match.email, match.service || null]
+            );
+          }
+        }
+      } catch (_) { /* AD indisponible */ }
+    }
+
+    clearHubCache();
+    res.json({ success: true, contact: newContact, contact_num: newContactNum, ad_email: adEmail, ad_found: adFound, glpi_ok: glpiRes.ok });
+  } catch (error) { res.status(500).json({ message: error.message }); }
+}
+
+// ── Recherche AD (renvoie les candidats sans rien écrire) ─────────────────────
+async function adLookup(req, res) {
+  const query = ((req.body || {}).query || '').trim();
+  if (!query) return res.status(400).json({ message: 'query requis' });
+  try {
+    const db = getSqlite();
+    const adCfg = db ? await db.get('SELECT * FROM ad_settings WHERE id = 1') : null;
+    if (!adCfg || !adCfg.host) return res.status(503).json({ message: 'Active Directory non configuré' });
+    const results = await searchADUsersByQuery(query, adCfg);
+    res.json({ results });
+  } catch (error) { res.status(500).json({ message: error.message }); }
+}
+
+// ── Applique un usager AD : met à jour contact local + GLPI + stocke l'email ──
+async function updateContact(req, res) {
+  try {
+    const t = glpi.typeByKey(req.params.type);
+    if (!t) return res.status(400).json({ message: 'Type invalide' });
+    const id = parseInt(req.params.id, 10);
+    if (!id) return res.status(400).json({ message: 'ID invalide' });
+
+    const { contact, email, ad_username, display_name, service } = req.body || {};
+    if (contact === undefined || contact === null) return res.status(400).json({ message: 'contact requis' });
+
+    // Base locale
+    const r = await pool.query(
+      `UPDATE hub_parc.items
+       SET raw = COALESCE(raw, '{}') || jsonb_build_object('contact', $1::text)
+       WHERE itemtype = $2 AND glpi_id = $3`,
+      [contact, t.itemtype, id]
+    );
+    if (r.rowCount === 0) return res.status(404).json({ message: 'Équipement introuvable' });
+
+    // GLPI
+    const glpiRes = await glpi.updateItem(t.itemtype, id, { contact });
+
+    // Email en base locale
+    if (contact && email) {
+      await pool.query(
+        `INSERT INTO hub_parc.usagers (key, source_name, ad_username, display_name, email, service, found, last_sync)
+         VALUES ($1,$2,$3,$4,$5,$6,true,NOW())
+         ON CONFLICT (key) DO UPDATE SET ad_username=$3, display_name=$4, email=$5, service=$6, found=true, last_sync=NOW()`,
+        [contact.trim().toLowerCase(), contact, ad_username || null, display_name || null, email, service || null]
+      );
+    }
+
+    clearHubCache();
+    res.json({ success: true, contact, glpi_ok: glpiRes.ok });
+  } catch (error) { res.status(500).json({ message: error.message }); }
+}
+
+module.exports = { list, item, kpis, filters, health, usagersEquip, byEmail, clearHubCache, updateContactNum, swapContact, adLookup, updateContact };

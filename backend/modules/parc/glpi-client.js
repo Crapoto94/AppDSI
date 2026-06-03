@@ -207,8 +207,21 @@ function cacheInfo(itemtype) {
 
 function clearCache() { _cache.clear(); }
 
+// ── Mise à jour d'une fiche GLPI (PUT /{itemtype}/{id}) ───────────────────────
+async function updateItem(itemtype, id, input) {
+  return withSession(async (sess) => {
+    const r = await axios.put(`${sess.base}/${itemtype}/${id}`, { input }, {
+      headers: { ...headersFor(sess), 'Content-Type': 'application/json' },
+      httpsAgent: sess.agent, timeout: 15000, validateStatus: () => true,
+    });
+    if (isSessionError(r.status, r.data)) throw expired();
+    return { status: r.status, data: r.data, ok: r.status >= 200 && r.status < 300 };
+  });
+}
+
 module.exports = {
   ITEM_TYPES, typeByKey,
   openSession, closeSession, fetchAll, fetchItem, fetchSub, downloadDocument,
   getItem, getSub, getAll, cacheInfo, clearCache, CACHE_TTL_MS,
+  updateItem,
 };

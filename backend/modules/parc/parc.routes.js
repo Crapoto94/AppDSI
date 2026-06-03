@@ -31,6 +31,11 @@ router.get('/hub/kpis', authenticateJWT, hub.kpis);
 router.get('/hub/usagers-equip', authenticateJWT, hub.usagersEquip);
 router.get('/hub/by-email',      authenticateJWT, hub.byEmail);
 router.get('/hub/:type/filters', authenticateJWT, hub.filters);
+// Actions sur un équipement (avant les routes paramétrées génériques)
+router.post('/hub/:type/:id/swap-contact', authenticateJWT, hub.swapContact);
+router.post('/hub/:type/:id/ad-lookup',   authenticateJWT, hub.adLookup);
+router.patch('/hub/:type/:id/contact',    authenticateJWT, hub.updateContact);
+router.patch('/hub/:type/:id', authenticateJWT, hub.updateContactNum);
 router.get('/hub/:type/:id', authenticateJWT, hub.item);
 router.get('/hub/:type', authenticateJWT, hub.list);
 

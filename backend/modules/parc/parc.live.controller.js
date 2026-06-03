@@ -328,9 +328,12 @@ function usagerKey(name) { return String(name || '').trim().toLowerCase(); }
 
 // Enrichit ad_found sur une liste de lignes normalisées (un seul aller-retour DB).
 async function enrichAdFound(rows) {
-  // 1) Déduction directe : login@DOMAIN → ad_found sans requête
+  // 1) Déduction directe : login@DOMAIN → ad_found + email sans requête
   for (const r of rows) {
-    if (r.contact && deriveEmailFromUsager(r.contact)) r.ad_found = true;
+    if (r.contact) {
+      const email = deriveEmailFromUsager(r.contact);
+      if (email) { r.ad_found = true; r.contact_email = email; }
+    }
   }
   // 2) Lookup table hub_parc.usagers pour les noms réels (ex. « Jean Dupont »)
   const keys = [...new Set(
@@ -340,11 +343,17 @@ async function enrichAdFound(rows) {
   try {
     const { pool } = require('../../shared/database');
     const result = await pool.query(
-      `SELECT key FROM hub_parc.usagers WHERE found = true AND key = ANY($1)`, [keys]
+      `SELECT key, found, email FROM hub_parc.usagers WHERE key = ANY($1)`, [keys]
     );
-    const foundKeys = new Set(result.rows.map(x => x.key));
+    const byKey = new Map(result.rows.map(x => [x.key, x]));
     for (const r of rows) {
-      if (!r.ad_found && r.contact && foundKeys.has(usagerKey(r.contact))) r.ad_found = true;
+      if (!r.ad_found && r.contact) {
+        const u = byKey.get(usagerKey(r.contact));
+        if (u) {
+          if (u.found) r.ad_found = true;
+          if (u.email) r.contact_email = u.email;
+        }
+      }
     }
   } catch (e) { /* table absente ou non synchronisée */ }
 }
