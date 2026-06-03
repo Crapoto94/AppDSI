@@ -2070,57 +2070,223 @@ const DocViewer: React.FC<{ filePath: string; filename: string; token: string | 
   const isImage = DOC_EXTS_IMAGE.includes('.' + ext);
   const isPdf   = DOC_EXTS_PDF.includes('.' + ext);
   const isDocx  = DOC_EXTS_DOCX.includes('.' + ext);
-  const [zoom, setZoom] = useState(100);
-  const [err, setErr] = useState(false);
+  const canZoom = isImage || isDocx;
+
+  const [zoom, setZoom] = useState(isDocx ? 100 : 100);
+  const [docHtml, setDocHtml] = useState<string | null>(null);    // DOCX rendered HTML body
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState<string | null>(null);
+
+  // Fetch DOCX HTML content from backend (mammoth conversion)
+  useEffect(() => {
+    if (!isDocx) { setLoading(false); return; }
+    setLoading(true); setErr(null);
+    fetch(previewUrl)
+      .then(r => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return r.text();
+      })
+      .then(html => {
+        // Extract body content only, keep styles from head
+        const headMatch = html.match(/<style[^>]*>([\s\S]*?)<\/style>/i);
+        const bodyMatch = html.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
+        const styles = headMatch ? `<style>${headMatch[1]}</style>` : '';
+        setDocHtml(styles + (bodyMatch ? bodyMatch[1] : html));
+        setLoading(false);
+      })
+      .catch(e => { setErr(e.message); setLoading(false); });
+  }, [previewUrl, isDocx]);
+
+  const ZOOM_STEPS = [25, 50, 75, 100, 125, 150, 175, 200, 250, 300];
+  const zoomIn  = () => setZoom(z => ZOOM_STEPS.find(s => s > z) ?? 300);
+  const zoomOut = () => setZoom(z => [...ZOOM_STEPS].reverse().find(s => s < z) ?? 25);
+  const zoomReset = () => setZoom(100);
+
+  // Keyboard: Escape → ferme, +/= → zoom in, - → zoom out, 0 → reset
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') { onClose(); return; }
+      if (!canZoom) return;
+      if (e.ctrlKey || e.metaKey) {
+        if (e.key === '+' || e.key === '=') { e.preventDefault(); zoomIn(); }
+        else if (e.key === '-') { e.preventDefault(); zoomOut(); }
+        else if (e.key === '0') { e.preventDefault(); zoomReset(); }
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [canZoom, onClose]);
+
+  // Ctrl+molette pour zoomer (DOCX + images)
+  useEffect(() => {
+    if (!canZoom) return;
+    const onWheel = (e: WheelEvent) => {
+      if (!e.ctrlKey && !e.metaKey) return;
+      e.preventDefault();
+      if (e.deltaY < 0) zoomIn(); else zoomOut();
+    };
+    window.addEventListener('wheel', onWheel, { passive: false });
+    return () => window.removeEventListener('wheel', onWheel);
+  }, [canZoom]);
+
+  // Print: opens a clean window with the document content and triggers print dialog
+  const handlePrint = () => {
+    const w = window.open('', '_blank', 'width=900,height=700');
+    if (!w) return;
+    if (isDocx && docHtml) {
+      w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>${filename}</title>
+        <style>
+          @page { margin: 20mm; }
+          body { font-family: system-ui, Arial, sans-serif; font-size: 11pt; line-height: 1.6; color: #000; max-width: none; }
+          table { border-collapse: collapse; width: 100%; }
+          td, th { border: 1px solid #888; padding: 5px 8px; }
+          img { max-width: 100%; }
+          h1,h2,h3,h4 { page-break-after: avoid; }
+        </style></head><body>${docHtml}</body></html>`);
+      w.document.close();
+      w.focus();
+      w.print();
+      setTimeout(() => w.close(), 500);
+    } else if (isPdf) {
+      w.location.href = previewUrl;
+      w.onload = () => w.print();
+    } else if (isImage) {
+      w.document.write(`<!DOCTYPE html><html><head><style>body{margin:0;display:flex;justify-content:center}img{max-width:100%}</style></head><body><img src="${previewUrl}"/></body></html>`);
+      w.document.close(); w.focus(); w.print();
+      setTimeout(() => w.close(), 500);
+    }
+  };
+
+  // Toolbar button style
+  const tbBtn = (active = false): React.CSSProperties => ({
+    background: active ? 'rgba(255,255,255,.15)' : 'none',
+    border: '1px solid #475569', color: '#cbd5e1', borderRadius: 7,
+    padding: '5px 10px', cursor: 'pointer', display: 'inline-flex',
+    alignItems: 'center', gap: 5, fontSize: '.8rem', fontWeight: 600,
+    whiteSpace: 'nowrap' as const,
+  });
 
   return (
-    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.7)', backdropFilter: 'blur(4px)', zIndex: 1300, display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '16px' }}>
-      {/* Barre de contrôle */}
-      <div onClick={e => e.stopPropagation()} style={{ display: 'flex', alignItems: 'center', gap: 10, background: '#1e293b', borderRadius: 12, padding: '8px 16px', marginBottom: 12, boxShadow: '0 4px 20px rgba(0,0,0,.4)', flexShrink: 0, maxWidth: '100%' }}>
+    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(8,15,30,.85)', backdropFilter: 'blur(6px)', zIndex: 1300, display: 'flex', flexDirection: 'column' }}>
+
+      {/* ── Barre d'outils ── */}
+      <div onClick={e => e.stopPropagation()}
+        style={{ display: 'flex', alignItems: 'center', gap: 10, background: '#0f172a', borderBottom: '1px solid #1e293b', padding: '10px 18px', flexShrink: 0, flexWrap: 'wrap' }}>
+
+        {/* Nom de fichier */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#f1f5f9', flex: 1, minWidth: 0 }}>
           <FileText size={16} color="#94a3b8" />
-          <span style={{ fontSize: '.85rem', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{filename}</span>
+          <span style={{ fontWeight: 700, fontSize: '.88rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 400 }}>{filename}</span>
+          <span style={{ background: '#1e3a5f', color: '#7dd3fc', borderRadius: 5, padding: '1px 8px', fontSize: '.72rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.04em', flexShrink: 0 }}>.{ext}</span>
         </div>
-        {isImage && (
-          <div style={{ display: 'flex', gap: 4 }}>
-            <button onClick={() => setZoom(z => Math.max(25, z - 25))} style={{ background: 'none', border: '1px solid #475569', color: '#94a3b8', borderRadius: 6, padding: '4px 8px', cursor: 'pointer' }}><ZoomOut size={14} /></button>
-            <span style={{ color: '#94a3b8', fontSize: '.82rem', lineHeight: '28px', minWidth: 42, textAlign: 'center' }}>{zoom}%</span>
-            <button onClick={() => setZoom(z => Math.min(300, z + 25))} style={{ background: 'none', border: '1px solid #475569', color: '#94a3b8', borderRadius: 6, padding: '4px 8px', cursor: 'pointer' }}><ZoomIn size={14} /></button>
+
+        {/* Zoom (DOCX + images) */}
+        {canZoom && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4, background: '#1e293b', borderRadius: 8, padding: '3px 6px' }}>
+            <button onClick={zoomOut}  style={tbBtn()} title="Zoom arrière (-)"><ZoomOut size={15} /></button>
+            <button onClick={zoomReset} style={{ ...tbBtn(), minWidth: 52, justifyContent: 'center', borderColor: zoom !== 100 ? '#2563eb' : '#475569', color: zoom !== 100 ? '#93c5fd' : '#cbd5e1' }} title="Remettre à 100%">
+              {zoom}%
+            </button>
+            <button onClick={zoomIn}  style={tbBtn()} title="Zoom avant (+)"><ZoomIn size={15} /></button>
           </div>
         )}
-        <a href={downloadUrl} download={filename} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: '#2563eb', color: '#fff', borderRadius: 7, padding: '5px 12px', fontSize: '.82rem', fontWeight: 600, textDecoration: 'none' }}>
-          <Download size={13} /> Télécharger
+
+        {/* Imprimer */}
+        {(isDocx || isPdf || isImage) && (
+          <button onClick={handlePrint} style={tbBtn()} title="Imprimer">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
+            Imprimer
+          </button>
+        )}
+
+        {/* Télécharger */}
+        <a href={downloadUrl} download={filename} onClick={e => e.stopPropagation()}
+          style={{ ...tbBtn(), background: '#1d4ed8', border: '1px solid #2563eb', color: '#fff', textDecoration: 'none' }}>
+          <Download size={14} /> Télécharger
         </a>
-        <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer', borderRadius: 6, padding: '4px 8px' }}><X size={18} /></button>
+
+        {/* Fermer */}
+        <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#64748b', cursor: 'pointer', padding: '4px', borderRadius: 6, display: 'inline-flex' }} title="Fermer">
+          <X size={20} />
+        </button>
       </div>
 
-      {/* Zone de contenu */}
-      <div onClick={e => e.stopPropagation()} style={{ flex: 1, width: '100%', maxWidth: isPdf ? 1000 : isDocx ? 900 : undefined, borderRadius: 12, overflow: 'hidden', background: '#fff', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
-        {err ? (
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: 300, gap: 12, color: '#94a3b8' }}>
-            <AlertTriangle size={40} color="#fca5a5" />
-            <div style={{ fontSize: '.9rem' }}>Impossible d'afficher ce fichier.</div>
-            <a href={downloadUrl} download style={{ color: C.blue, fontWeight: 600, fontSize: '.85rem' }}>Télécharger à la place</a>
+      {/* ── Zone de contenu ── */}
+      <div onClick={e => e.stopPropagation()} style={{ flex: 1, overflow: 'auto', display: 'flex', justifyContent: 'center', alignItems: isPdf ? 'stretch' : 'flex-start', padding: isPdf ? 0 : '24px 16px', background: isPdf ? '#525659' : '#1e2533', minHeight: 0 }}>
+
+        {/* Erreur */}
+        {err && (
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 14, color: '#94a3b8', marginTop: 60 }}>
+            <AlertTriangle size={48} color="#fca5a5" />
+            <div style={{ fontSize: '1rem', color: '#f1f5f9' }}>Impossible d'afficher ce fichier</div>
+            <div style={{ fontSize: '.82rem', color: '#64748b' }}>{err}</div>
+            <a href={downloadUrl} download style={{ color: '#60a5fa', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Download size={14} /> Télécharger à la place</a>
           </div>
-        ) : isImage ? (
-          <div style={{ overflow: 'auto', flex: 1, display: 'flex', justifyContent: 'center', alignItems: 'flex-start', padding: 16 }}>
-            <img src={previewUrl} alt={filename} onError={() => setErr(true)}
-              style={{ width: `${zoom}%`, maxWidth: 'none', borderRadius: 8, display: 'block' }} />
+        )}
+
+        {/* Chargement DOCX */}
+        {!err && isDocx && loading && (
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 14, color: '#94a3b8', marginTop: 60 }}>
+            <RefreshCw size={32} className="spin" />
+            <div>Conversion du document…</div>
           </div>
-        ) : isPdf ? (
-          <iframe src={previewUrl} title={filename} style={{ flex: 1, width: '100%', border: 'none', minHeight: '70vh' }}
-            onError={() => setErr(true)} />
-        ) : isDocx ? (
-          <iframe src={previewUrl} title={filename} style={{ flex: 1, width: '100%', border: 'none', minHeight: '70vh' }}
-            onError={() => setErr(true)} />
-        ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: 280, gap: 10, color: '#94a3b8' }}>
-            <FileText size={48} color="#cbd5e1" />
-            <div style={{ fontSize: '.9rem' }}>Extension <b>.{ext}</b> non prévisualisable.</div>
-            <a href={downloadUrl} download style={{ color: C.blue, fontWeight: 600, fontSize: '.85rem', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Download size={14} /> Télécharger</a>
+        )}
+
+        {/* DOCX — page blanche avec contenu HTML */}
+        {!err && isDocx && !loading && docHtml && (
+          <div style={{ width: '100%', maxWidth: 880, display: 'flex', flexDirection: 'column', gap: 0 }}>
+            {/* Feuille de papier */}
+            <div style={{
+              background: '#fff', borderRadius: 4, boxShadow: '0 4px 24px rgba(0,0,0,.4)',
+              padding: '48px 56px', minHeight: 400,
+              transformOrigin: 'top center',
+              transform: `scale(${zoom / 100})`,
+              // Compense la perte d'espace vertical causée par le scale
+              marginBottom: zoom < 100 ? `${-(100 - zoom) * 5}px` : 0,
+            }}>
+              <div
+                style={{ fontFamily: 'system-ui, Arial, sans-serif', fontSize: '10.5pt', lineHeight: 1.65, color: '#1a1a1a' }}
+                dangerouslySetInnerHTML={{ __html: docHtml }}
+              />
+            </div>
+          </div>
+        )}
+
+        {/* PDF — plein écran avec contrôles natifs du navigateur */}
+        {!err && isPdf && (
+          <iframe src={previewUrl} title={filename} onError={() => setErr('Impossible de charger le PDF')}
+            style={{ flex: 1, width: '100%', border: 'none' }} />
+        )}
+
+        {/* Image */}
+        {!err && isImage && (
+          <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'flex-start' }}>
+            <img src={previewUrl} alt={filename} onLoad={() => setLoading(false)} onError={() => setErr('Image introuvable ou inaccessible')}
+              style={{ width: `${zoom}%`, maxWidth: 'none', borderRadius: 6, boxShadow: '0 8px 32px rgba(0,0,0,.5)', display: 'block' }} />
+          </div>
+        )}
+
+        {/* Extension non supportée */}
+        {!err && !isDocx && !isPdf && !isImage && (
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, color: '#94a3b8', marginTop: 60 }}>
+            <FileText size={56} color="#334155" />
+            <div style={{ color: '#f1f5f9', fontWeight: 600 }}>Extension <b>.{ext}</b> non prévisualisable</div>
+            <a href={downloadUrl} download style={{ color: '#60a5fa', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Download size={14} /> Télécharger</a>
           </div>
         )}
       </div>
+
+      {/* ── Barre de statut (DOCX) ── */}
+      {isDocx && !loading && !err && (
+        <div style={{ background: '#0f172a', borderTop: '1px solid #1e293b', padding: '5px 18px', display: 'flex', alignItems: 'center', gap: 16, flexShrink: 0 }}>
+          <span style={{ fontSize: '.75rem', color: '#475569' }}>
+            Zoom : <b style={{ color: '#94a3b8' }}>{zoom}%</b>
+          </span>
+          <span style={{ fontSize: '.75rem', color: '#475569' }}>
+            Ctrl + molette pour zoomer · Impr. pour imprimer en qualité native
+          </span>
+        </div>
+      )}
     </div>
   );
 };
