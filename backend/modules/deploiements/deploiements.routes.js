@@ -11,6 +11,8 @@ router.get('/matches',        authenticateJWT, ctrl.matches);
 router.get('/conflicts',      authenticateJWT, ctrl.conflicts);
 router.get('/glpi-proposals', authenticateJWT, ctrl.glpiProposals);
 router.get('/file',           authenticateJWT, ctrl.serveFile);
+router.get('/preview',        authenticateJWT, ctrl.previewFile);
 router.get('/',               authenticateJWT, ctrl.list);
+router.patch('/:id',          authenticateJWT, ctrl.update);
 
 module.exports = router;

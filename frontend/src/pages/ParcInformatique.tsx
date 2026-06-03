@@ -11,7 +11,8 @@ import {
   RefreshCw, MapPin, User, Tag, Cpu, Activity, BarChart3, List,
   CheckCircle2, AlertTriangle, Layers, ChevronRight, Boxes,
   Euro, ShieldCheck, Clock, Truck, Database, FileText, Users, CalendarCheck2, CalendarDays,
-  ArrowLeftRight, Rocket, Package, Timer, TrendingUp,
+  ArrowLeftRight, Rocket, Package, Timer, TrendingUp, Edit2, Eye, ZoomIn, ZoomOut,
+  Download, ExternalLink, Image,
 } from 'lucide-react';
 
 // ─── Constantes ─────────────────────────────────────────────────────────────
@@ -334,6 +335,8 @@ const ParcInformatique: React.FC = () => {
 
   const [deployConflictData, setDeployConflictData] = useState<{ total: number; by_type: Record<string, number>; rows: any[] } | null>(null);
   const [deployConflictFilter, setDeployConflictFilter] = useState<string>('');
+  const [deployEditRow, setDeployEditRow] = useState<any | null>(null);
+  const [docViewer, setDocViewer] = useState<{ path: string; filename: string } | null>(null);
 
   const loadDeployConflicts = useCallback(async () => {
     try {
@@ -1444,9 +1447,10 @@ const ParcInformatique: React.FC = () => {
                       {deploys.length === 0 ? (
                         <tr><td colSpan={10} style={{ padding: 32, textAlign: 'center', color: C.slate }}>Aucune fiche</td></tr>
                       ) : deploys.map((row: any) => (
-                        <tr key={row.id} style={{ borderTop: `1px solid ${C.border}` }}
+                        <tr key={row.id} style={{ borderTop: `1px solid ${C.border}`, cursor: 'pointer' }}
                           onMouseEnter={e => (e.currentTarget.style.background = '#f8fafc')}
-                          onMouseLeave={e => (e.currentTarget.style.background = '')}>
+                          onMouseLeave={e => (e.currentTarget.style.background = '')}
+                          onClick={() => setDeployEditRow(row)}>
                           <td style={{ padding: '8px 12px', whiteSpace: 'nowrap', fontFamily: 'monospace', fontSize: '.8rem' }}>{fmtD(row.date_deploiement)}</td>
                           <td style={{ padding: '8px 12px', fontWeight: 600 }}>{row.beneficiaire || '—'}</td>
                           <td style={{ padding: '8px 12px', fontSize: '.8rem' }}>
@@ -1471,20 +1475,26 @@ const ParcInformatique: React.FC = () => {
                           </td>
                           <td style={{ padding: '8px 12px', fontSize: '.8rem' }}>{row.installateur || '—'}</td>
                           <td style={{ padding: '8px 12px', whiteSpace: 'nowrap' }}>{typeBadge(row.type_operation)}</td>
-                          <td style={{ padding: '8px 12px', whiteSpace: 'nowrap' }}>
-                            {row.fichier && (
-                              <a href={`/api/deploiements/file?path=${encodeURIComponent(row.fichier)}&token=${token || ''}`} target="_blank" rel="noreferrer"
-                                style={{ color: C.blue, display: 'inline-flex', alignItems: 'center', gap: 4 }} title={row.fichier}>
-                                <FileText size={15} />
-                              </a>
-                            )}
-                            {row.fichier_lie && (
-                              <a href={`/api/deploiements/file?path=${encodeURIComponent(row.fichier_lie)}&token=${token || ''}`} target="_blank" rel="noreferrer"
-                                style={{ color: C.slate, display: 'inline-flex', alignItems: 'center', gap: 4, marginLeft: 6 }} title={row.fichier_lie}>
-                                <FileText size={13} />
-                              </a>
-                            )}
-                            {!row.fichier && <span style={{ color: '#cbd5e1' }}>—</span>}
+                          <td style={{ padding: '8px 12px', whiteSpace: 'nowrap' }} onClick={e => e.stopPropagation()}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                              {row.fichier && (
+                                <button onClick={() => setDocViewer({ path: row.fichier, filename: row.fichier.split(/[/\\]/).pop() || row.fichier })}
+                                  title={row.fichier} style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.blue, display: 'inline-flex', alignItems: 'center', gap: 3, padding: 0 }}>
+                                  <Eye size={15} /> <FileText size={13} />
+                                </button>
+                              )}
+                              {row.fichier_lie && (
+                                <button onClick={() => setDocViewer({ path: row.fichier_lie, filename: row.fichier_lie.split(/[/\\]/).pop() || row.fichier_lie })}
+                                  title={row.fichier_lie} style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.slate, display: 'inline-flex', alignItems: 'center', gap: 3, padding: 0 }}>
+                                  <Eye size={13} /> <FileText size={11} />
+                                </button>
+                              )}
+                              {!row.fichier && <span style={{ color: '#cbd5e1' }}>—</span>}
+                              <button onClick={() => setDeployEditRow(row)} title="Modifier ce déploiement"
+                                style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.slate, marginLeft: 4, display: 'inline-flex', padding: 0 }}>
+                                <Edit2 size={13} />
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       ))}
@@ -1514,6 +1524,29 @@ const ParcInformatique: React.FC = () => {
         })()}
 
       </div>
+
+      {/* ─── MODAL ÉDITION DÉPLOIEMENT ─── */}
+      {deployEditRow && (
+        <DeployEditModal
+          row={deployEditRow}
+          token={token}
+          onClose={() => setDeployEditRow(null)}
+          onSaved={(updated) => {
+            setDeploys(rows => rows.map(r => r.id === updated.id ? updated : r));
+            setDeployEditRow(null);
+          }}
+        />
+      )}
+
+      {/* ─── VISIONNEUSE DE DOCUMENT ─── */}
+      {docViewer && (
+        <DocViewer
+          filePath={docViewer.path}
+          filename={docViewer.filename}
+          token={token}
+          onClose={() => setDocViewer(null)}
+        />
+      )}
 
       {/* ─── MODAL DÉTAIL ─── */}
       {detail && (
@@ -1915,6 +1948,167 @@ const DetailModal: React.FC<{ detail: any; token: string | null; onClose: () => 
       </div>
     </div>
 
+  );
+};
+
+// ═══════════════════════════════════════════════════════════════
+// MODAL ÉDITION D'UN DÉPLOIEMENT
+// ═══════════════════════════════════════════════════════════════
+const FIELD_DEFS: { key: string; label: string; type?: string; wide?: boolean }[] = [
+  { key: 'date_deploiement', label: 'Date de déploiement', type: 'date' },
+  { key: 'beneficiaire',     label: 'Bénéficiaire', wide: true },
+  { key: 'direction',        label: 'Direction' },
+  { key: 'service',          label: 'Service' },
+  { key: 'installateur',     label: 'Installateur' },
+  { key: 'type_operation',   label: "Type d'intervention", wide: true },
+  { key: 'uc_nouveau_num',   label: 'UC / PC fourni' },
+  { key: 'uc_nouveau_serie', label: 'N° série (nouveau)' },
+  { key: 'uc_nouveau_modele',label: 'Modèle (nouveau)' },
+  { key: 'uc_recupere_num',  label: 'UC récupéré' },
+  { key: 'uc_recupere_serie',label: 'N° série (récupéré)' },
+  { key: 'ecran1_nouveau_num',label: 'Écran 1 (nouveau)' },
+  { key: 'ecran1_nouveau_serie',label: 'S/N Écran 1' },
+  { key: 'ecran1_recupere_num',label: 'Écran 1 (récupéré)' },
+  { key: 'ecran2_nouveau_serie',label: 'S/N Écran 2' },
+  { key: 'materiel_type',    label: 'Type matériel' },
+  { key: 'annee_materiel',   label: 'Année matériel', type: 'number' },
+  { key: 'neuf_reco',        label: 'Neuf / Reconditionné' },
+  { key: 'quantite',         label: 'Quantité', type: 'number' },
+  { key: 'fichier',          label: 'Fichier (chemin)', wide: true },
+  { key: 'fichier_lie',      label: 'Fichier lié (chemin)', wide: true },
+  { key: 'autre_designation',label: 'Remarque / Désignation', wide: true },
+];
+
+const DeployEditModal: React.FC<{ row: any; token: string | null; onClose: () => void; onSaved: (r: any) => void }> = ({ row, token, onClose, onSaved }) => {
+  const [form, setForm] = useState<Record<string, string>>(() => {
+    const init: Record<string, string> = {};
+    for (const f of FIELD_DEFS) {
+      let v = row[f.key] ?? '';
+      if (f.type === 'date' && v) {
+        try { v = new Date(v).toISOString().slice(0, 10); } catch { v = ''; }
+      }
+      init[f.key] = String(v === null ? '' : v);
+    }
+    return init;
+  });
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const save = async () => {
+    setSaving(true); setErr(null);
+    try {
+      const r = await axios.patch(`/api/deploiements/${row.id}`, form, { headers: { Authorization: `Bearer ${token}` } });
+      onSaved(r.data);
+    } catch (e: any) {
+      setErr(e.response?.data?.message || e.message);
+    } finally { setSaving(false); }
+  };
+
+  const inp: React.CSSProperties = { width: '100%', padding: '7px 10px', border: `1px solid ${C.border}`, borderRadius: 7, fontSize: '.88rem', boxSizing: 'border-box' as const, fontFamily: 'inherit', color: C.text, outline: 'none' };
+
+  return (
+    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.55)', backdropFilter: 'blur(3px)', zIndex: 1200, display: 'flex', justifyContent: 'center', alignItems: 'flex-start', padding: '40px 16px', overflowY: 'auto' }}>
+      <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: 18, width: '100%', maxWidth: 820, boxShadow: '0 25px 60px rgba(0,0,0,.3)' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '18px 24px', borderBottom: `1px solid ${C.border}`, background: 'linear-gradient(135deg,#2563eb,#7c3aed)', borderRadius: '18px 18px 0 0' }}>
+          <div style={{ color: '#fff' }}>
+            <div style={{ fontSize: '.75rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.05em', opacity: .85 }}>Modifier le déploiement</div>
+            <div style={{ fontSize: '1.1rem', fontWeight: 800, marginTop: 2 }}>{row.beneficiaire || `Fiche #${row.id}`}</div>
+          </div>
+          <button onClick={onClose} style={{ background: 'rgba(255,255,255,.2)', border: 'none', color: '#fff', borderRadius: 10, padding: 8, cursor: 'pointer' }}><X size={18} /></button>
+        </div>
+        <div style={{ padding: 24 }}>
+          {err && <div style={{ background: '#fef2f2', border: '1px solid #fecaca', color: '#b91c1c', borderRadius: 8, padding: '10px 14px', marginBottom: 16, fontSize: '.85rem' }}>{err}</div>}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px 18px' }}>
+            {FIELD_DEFS.map(f => (
+              <div key={f.key} style={f.wide ? { gridColumn: '1 / -1' } : {}}>
+                <label style={{ display: 'block', fontSize: '.72rem', fontWeight: 700, color: C.slate, marginBottom: 4, textTransform: 'uppercase', letterSpacing: '.04em' }}>{f.label}</label>
+                <input
+                  type={f.type === 'date' ? 'date' : f.type === 'number' ? 'number' : 'text'}
+                  value={form[f.key]}
+                  onChange={e => setForm(p => ({ ...p, [f.key]: e.target.value }))}
+                  style={inp}
+                />
+              </div>
+            ))}
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 20, paddingTop: 16, borderTop: `1px solid ${C.border}` }}>
+            <button onClick={onClose} style={{ padding: '9px 20px', borderRadius: 10, border: `1px solid ${C.border}`, background: '#fff', cursor: 'pointer', fontWeight: 600 }}>Annuler</button>
+            <button onClick={save} disabled={saving} style={{ padding: '9px 24px', borderRadius: 10, border: 'none', background: saving ? '#94a3b8' : C.blue, color: '#fff', cursor: saving ? 'default' : 'pointer', fontWeight: 700 }}>
+              {saving ? 'Enregistrement…' : '✓ Enregistrer'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ═══════════════════════════════════════════════════════════════
+// VISIONNEUSE DE DOCUMENT (PDF / Image / DOCX)
+// ═══════════════════════════════════════════════════════════════
+const DOC_EXTS_IMAGE = ['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp'];
+const DOC_EXTS_PDF   = ['.pdf'];
+const DOC_EXTS_DOCX  = ['.docx', '.doc'];
+
+const DocViewer: React.FC<{ filePath: string; filename: string; token: string | null; onClose: () => void }> = ({ filePath, filename, token, onClose }) => {
+  const ext = (filename.split('.').pop() || '').toLowerCase();
+  const previewUrl = `/api/deploiements/preview?path=${encodeURIComponent(filePath)}&token=${token || ''}`;
+  const downloadUrl = `/api/deploiements/file?path=${encodeURIComponent(filePath)}&token=${token || ''}`;
+  const isImage = DOC_EXTS_IMAGE.includes('.' + ext);
+  const isPdf   = DOC_EXTS_PDF.includes('.' + ext);
+  const isDocx  = DOC_EXTS_DOCX.includes('.' + ext);
+  const [zoom, setZoom] = useState(100);
+  const [err, setErr] = useState(false);
+
+  return (
+    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.7)', backdropFilter: 'blur(4px)', zIndex: 1300, display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '16px' }}>
+      {/* Barre de contrôle */}
+      <div onClick={e => e.stopPropagation()} style={{ display: 'flex', alignItems: 'center', gap: 10, background: '#1e293b', borderRadius: 12, padding: '8px 16px', marginBottom: 12, boxShadow: '0 4px 20px rgba(0,0,0,.4)', flexShrink: 0, maxWidth: '100%' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#f1f5f9', flex: 1, minWidth: 0 }}>
+          <FileText size={16} color="#94a3b8" />
+          <span style={{ fontSize: '.85rem', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{filename}</span>
+        </div>
+        {isImage && (
+          <div style={{ display: 'flex', gap: 4 }}>
+            <button onClick={() => setZoom(z => Math.max(25, z - 25))} style={{ background: 'none', border: '1px solid #475569', color: '#94a3b8', borderRadius: 6, padding: '4px 8px', cursor: 'pointer' }}><ZoomOut size={14} /></button>
+            <span style={{ color: '#94a3b8', fontSize: '.82rem', lineHeight: '28px', minWidth: 42, textAlign: 'center' }}>{zoom}%</span>
+            <button onClick={() => setZoom(z => Math.min(300, z + 25))} style={{ background: 'none', border: '1px solid #475569', color: '#94a3b8', borderRadius: 6, padding: '4px 8px', cursor: 'pointer' }}><ZoomIn size={14} /></button>
+          </div>
+        )}
+        <a href={downloadUrl} download={filename} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: '#2563eb', color: '#fff', borderRadius: 7, padding: '5px 12px', fontSize: '.82rem', fontWeight: 600, textDecoration: 'none' }}>
+          <Download size={13} /> Télécharger
+        </a>
+        <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer', borderRadius: 6, padding: '4px 8px' }}><X size={18} /></button>
+      </div>
+
+      {/* Zone de contenu */}
+      <div onClick={e => e.stopPropagation()} style={{ flex: 1, width: '100%', maxWidth: isPdf ? 1000 : isDocx ? 900 : undefined, borderRadius: 12, overflow: 'hidden', background: '#fff', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+        {err ? (
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: 300, gap: 12, color: '#94a3b8' }}>
+            <AlertTriangle size={40} color="#fca5a5" />
+            <div style={{ fontSize: '.9rem' }}>Impossible d'afficher ce fichier.</div>
+            <a href={downloadUrl} download style={{ color: C.blue, fontWeight: 600, fontSize: '.85rem' }}>Télécharger à la place</a>
+          </div>
+        ) : isImage ? (
+          <div style={{ overflow: 'auto', flex: 1, display: 'flex', justifyContent: 'center', alignItems: 'flex-start', padding: 16 }}>
+            <img src={previewUrl} alt={filename} onError={() => setErr(true)}
+              style={{ width: `${zoom}%`, maxWidth: 'none', borderRadius: 8, display: 'block' }} />
+          </div>
+        ) : isPdf ? (
+          <iframe src={previewUrl} title={filename} style={{ flex: 1, width: '100%', border: 'none', minHeight: '70vh' }}
+            onError={() => setErr(true)} />
+        ) : isDocx ? (
+          <iframe src={previewUrl} title={filename} style={{ flex: 1, width: '100%', border: 'none', minHeight: '70vh' }}
+            onError={() => setErr(true)} />
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: 280, gap: 10, color: '#94a3b8' }}>
+            <FileText size={48} color="#cbd5e1" />
+            <div style={{ fontSize: '.9rem' }}>Extension <b>.{ext}</b> non prévisualisable.</div>
+            <a href={downloadUrl} download style={{ color: C.blue, fontWeight: 600, fontSize: '.85rem', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Download size={14} /> Télécharger</a>
+          </div>
+        )}
+      </div>
+    </div>
   );
 };
 

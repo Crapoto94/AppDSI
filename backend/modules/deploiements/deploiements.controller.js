@@ -5,6 +5,7 @@ const fs = require('fs');
 const { pool } = require('../../shared/pg_db');
 const storage = require('../../shared/storage');
 const smb = require('../../shared/smb_client');
+let mammoth; try { mammoth = require('mammoth'); } catch (e) { mammoth = null; }
 
 // Dossier racine des fiches de déploiement. Surchargeable par variable d'env
 // (utile en Docker : pointer vers un volume monté, ex. PARC_FICHES_PATH=/data/fiches).
@@ -413,4 +414,114 @@ async function conflicts(req, res) {
   }
 }
 
-module.exports = { list, kpis, matches, glpiProposals, serveFile, conflicts };
+// ── Lecture d'un fichier (Buffer), FS ou SMB ──────────────────────────────────
+async function readFileBuffer(rel) {
+  const base = getFichesBase();
+  if (smb.isUncPath(base)) {
+    let creds = {};
+    try { creds = await storage.getStorageConfig(); } catch (e) {}
+    if (creds && creds.login && creds.password) {
+      const smbCfg = { root_path: base, login: creds.login, password: creds.password, domain: creds.domain || '' };
+      const buf = await smb.readFileRel(smbCfg, rel);
+      if (!buf) throw Object.assign(new Error('Fichier introuvable sur le partage'), { status: 404 });
+      return buf;
+    }
+    if (process.platform !== 'win32') throw new Error('Partage UNC inaccessible sans identifiants (configurez-les dans Admin → GED)');
+  }
+  const fullPath = path.join(base, rel.split('/').join(path.sep));
+  if (!fs.existsSync(fullPath)) throw Object.assign(new Error(`Fichier introuvable : ${fullPath}`), { status: 404 });
+  return fs.readFileSync(fullPath);
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// GET /api/deploiements/preview?path=... — visionneuse inline
+//   PDF / images : servi en inline (Content-Disposition: inline)
+//   DOCX : converti en HTML via mammoth et renvoyé en text/html
+// ──────────────────────────────────────────────────────────────────────────────
+async function previewFile(req, res) {
+  try {
+    const rel = normalizeRel(req.query.path);
+    if (!rel) return res.status(400).json({ message: 'Paramètre path manquant' });
+    const ext = path.extname(rel).toLowerCase();
+    const filename = path.basename(rel);
+    const buf = await readFileBuffer(rel);
+
+    // DOCX → HTML
+    if ((ext === '.docx' || ext === '.doc') && mammoth) {
+      const result = await mammoth.convertToHtml({ buffer: buf });
+      const html = `<!DOCTYPE html><html><head><meta charset="utf-8">
+        <style>body{font-family:system-ui,sans-serif;padding:24px 32px;max-width:860px;margin:0 auto;line-height:1.6;color:#1e293b}
+        table{border-collapse:collapse;width:100%}td,th{border:1px solid #e2e8f0;padding:6px 10px}
+        h1,h2,h3{color:#1e293b}img{max-width:100%}</style>
+        <title>${filename}</title></head><body>${result.value}</body></html>`;
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      return res.send(html);
+    }
+
+    // PDF, images → inline
+    res.setHeader('Content-Type', mimeFor(filename));
+    res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(filename)}"`);
+    res.setHeader('Cache-Control', 'private, max-age=600');
+    res.send(buf);
+  } catch (e) {
+    if (e.status === 404) return res.status(404).json({ message: e.message });
+    console.error('[deploiements] preview error:', e.message);
+    return res.status(500).json({ message: e.message });
+  }
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// PATCH /api/deploiements/:id — modification d'une fiche
+// ──────────────────────────────────────────────────────────────────────────────
+async function update(req, res) {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (!id) return res.status(400).json({ message: 'ID invalide' });
+    const {
+      date_deploiement, beneficiaire, direction, service, installateur, type_operation,
+      uc_nouveau_num, uc_nouveau_serie, uc_nouveau_modele,
+      uc_recupere_num, uc_recupere_serie, uc_recupere_modele,
+      ecran1_nouveau_num, ecran1_nouveau_serie, ecran1_nouveau_modele,
+      ecran1_recupere_num, ecran2_nouveau_serie,
+      materiel_type, annee_materiel, neuf_reco, type_flux, quantite,
+      autre_designation, fichier, fichier_lie,
+    } = req.body;
+
+    const r = await pool.connect();
+    try {
+      const result = await r.query(
+        `UPDATE hub_deploiements.fiches SET
+           date_deploiement   = $1,  beneficiaire      = $2,  direction         = $3,
+           service            = $4,  installateur      = $5,  type_operation    = $6,
+           uc_nouveau_num     = $7,  uc_nouveau_serie  = $8,  uc_nouveau_modele = $9,
+           uc_recupere_num    = $10, uc_recupere_serie = $11, uc_recupere_modele= $12,
+           ecran1_nouveau_num = $13, ecran1_nouveau_serie = $14, ecran1_nouveau_modele = $15,
+           ecran1_recupere_num= $16, ecran2_nouveau_serie = $17,
+           materiel_type      = $18, annee_materiel    = $19, neuf_reco         = $20,
+           type_flux          = $21, quantite          = $22, autre_designation = $23,
+           fichier            = $24, fichier_lie       = $25
+         WHERE id = $26
+         RETURNING *`,
+        [
+          date_deploiement || null, beneficiaire || null, direction || null,
+          service || null, installateur || null, type_operation || null,
+          uc_nouveau_num || null, uc_nouveau_serie || null, uc_nouveau_modele || null,
+          uc_recupere_num || null, uc_recupere_serie || null, uc_recupere_modele || null,
+          ecran1_nouveau_num || null, ecran1_nouveau_serie || null, ecran1_nouveau_modele || null,
+          ecran1_recupere_num || null, ecran2_nouveau_serie || null,
+          materiel_type || null, annee_materiel ? parseInt(annee_materiel) : null, neuf_reco || null,
+          type_flux || null, quantite ? parseInt(quantite) : null, autre_designation || null,
+          fichier || null, fichier_lie || null,
+          id,
+        ]
+      );
+      if (!result.rows.length) return res.status(404).json({ message: 'Fiche introuvable' });
+      res.json(result.rows[0]);
+    } finally { r.release(); }
+  } catch (e) {
+    console.error('[deploiements] update error:', e.message);
+    return res.status(500).json({ message: e.message });
+  }
+}
+
+module.exports = { list, kpis, matches, glpiProposals, serveFile, previewFile, update, conflicts };
