@@ -1,6 +1,6 @@
 const fs = require('fs');
 const path = require('path');
-const { pgDb, getSqlite } = require('../../shared/database');
+const { pgDb, getSqlite, pool } = require('../../shared/database');
 const { logMouchard } = require('../../shared/utils');
 const storage = require('../../shared/storage');
 const { isSuperAdmin } = require('../../shared/middleware');
@@ -21,6 +21,39 @@ async function estPMO(username) {
         const user = await db.get('SELECT u.id FROM user_tiles ut JOIN users u ON u.id = ut.user_id WHERE ut.tile_id = 24 AND u.username = ?', [username]);
         return !!user;
     } catch { return false; }
+}
+
+// Retourne la liste de codes services dans le périmètre d'un PMO (via ses affectations org)
+async function getPmoServiceCodes(pmoUsername) {
+    try {
+        const assignments = await pgDb.all(
+            `SELECT service_code, secteur_code, direction_code FROM projets.pmo_assignments WHERE LOWER(pmo_username) = LOWER($1)`,
+            [pmoUsername]
+        );
+        const serviceCodes = new Set();
+        for (const a of assignments) {
+            if (a.service_code) {
+                serviceCodes.add(a.service_code.toLowerCase());
+            } else if (a.secteur_code) {
+                try {
+                    const svcs = await pgDb.all(
+                        `SELECT DISTINCT "SERVICE" as code FROM oracle.rh_siim_organigramme WHERE "SECTEUR" = $1 AND "SERVICE" IS NOT NULL AND "SERVICE" != ''`,
+                        [a.secteur_code]
+                    );
+                    for (const s of svcs) if (s.code) serviceCodes.add(s.code.toLowerCase());
+                } catch {}
+            } else if (a.direction_code) {
+                try {
+                    const svcs = await pgDb.all(
+                        `SELECT DISTINCT "SERVICE" as code FROM oracle.rh_siim_organigramme WHERE "DIRECTION" = $1 AND "SERVICE" IS DISTINCT FROM "DIRECTION" AND "SERVICE" IS NOT NULL AND "SERVICE" != ''`,
+                        [a.direction_code]
+                    );
+                    for (const s of svcs) if (s.code) serviceCodes.add(s.code.toLowerCase());
+                } catch {}
+            }
+        }
+        return Array.from(serviceCodes);
+    } catch { return []; }
 }
 
 // Retourne tous les usernames d'agents assignés à un PMO (direct + unités org + chefs de projet)
@@ -238,18 +271,8 @@ const getAll = async (req, res) => {
         let params = [];
         let paramIdx = 1;
 
-        if (!isAdmin && (!isPMO || pmo_view === 'mine')) {
-            conditions.push(`(
-                LOWER(p.created_by_username) = LOWER($${paramIdx++})
-                OR EXISTS (SELECT 1 FROM projet_roles pr WHERE pr.projet_id = p.id AND LOWER(pr.username) = LOWER($${paramIdx-1}))
-                OR EXISTS (SELECT 1 FROM projet_visibilite pv WHERE pv.projet_id = p.id AND LOWER(pv.username) = LOWER($${paramIdx-1}))
-                OR LOWER(p.commanditaire_username) = LOWER($${paramIdx-1})
-                OR LOWER(p.chef_projet_username) = LOWER($${paramIdx-1})
-                OR LOWER(p.responsable_dsi_username) = LOWER($${paramIdx-1})
-                OR LOWER(p.representant_metier_username) = LOWER($${paramIdx-1})
-                OR LOWER(p.dpo_username) = LOWER($${paramIdx-1})
-            )`);
-            params.push(username);
+        if (isAdmin) {
+            // admin voit tout
         } else if (isPMO && pmo_view === 'agents') {
             const agentUsernames = await getPmoAgentUsernames(username);
             if (agentUsernames.length === 0) {
@@ -268,6 +291,43 @@ const getAll = async (req, res) => {
                 params.push(agentUsernames);
                 paramIdx++;
             }
+        } else if (isPMO && !pmo_view) {
+            // Vue par défaut PMO : union du périmètre org + agents directs
+            let pmoServiceCodes = await getPmoServiceCodes(username);
+            if (pmoServiceCodes.length === 0 && req.user.service_code) {
+                pmoServiceCodes = [req.user.service_code.toLowerCase()];
+            }
+            const agentUsernames = await getPmoAgentUsernames(username);
+
+            if (pmoServiceCodes.length > 0 && agentUsernames.length > 0) {
+                conditions.push(`(
+                    LOWER(p.service_pilote) = ANY($${paramIdx})
+                    OR LOWER(p.chef_projet_username) = ANY($${paramIdx + 1})
+                )`);
+                params.push(pmoServiceCodes, agentUsernames);
+                paramIdx += 2;
+            } else if (pmoServiceCodes.length > 0) {
+                conditions.push(`LOWER(p.service_pilote) = ANY($${paramIdx++})`);
+                params.push(pmoServiceCodes);
+            } else if (agentUsernames.length > 0) {
+                conditions.push(`LOWER(p.chef_projet_username) = ANY($${paramIdx++})`);
+                params.push(agentUsernames);
+            } else {
+                conditions.push('1=0');
+            }
+        } else {
+            // Utilisateur standard ou PMO en vue "mine"
+            conditions.push(`(
+                LOWER(p.created_by_username) = LOWER($${paramIdx++})
+                OR EXISTS (SELECT 1 FROM projet_roles pr WHERE pr.projet_id = p.id AND LOWER(pr.username) = LOWER($${paramIdx-1}))
+                OR EXISTS (SELECT 1 FROM projet_visibilite pv WHERE pv.projet_id = p.id AND LOWER(pv.username) = LOWER($${paramIdx-1}))
+                OR LOWER(p.commanditaire_username) = LOWER($${paramIdx-1})
+                OR LOWER(p.chef_projet_username) = LOWER($${paramIdx-1})
+                OR LOWER(p.responsable_dsi_username) = LOWER($${paramIdx-1})
+                OR LOWER(p.representant_metier_username) = LOWER($${paramIdx-1})
+                OR LOWER(p.dpo_username) = LOWER($${paramIdx-1})
+            )`);
+            params.push(username);
         }
 
         if (statut) { conditions.push(`p.statut = $${paramIdx++}`); params.push(statut); }
@@ -290,7 +350,8 @@ const getAll = async (req, res) => {
                    (SELECT COUNT(*) FROM projet_taches pt WHERE pt.projet_id = p.id AND pt.statut != 'terminee' AND pt.date_fin IS NOT NULL AND pt.date_fin <= (NOW() AT TIME ZONE 'Europe/Paris')::date) as nb_taches_en_retard,
                    (SELECT COUNT(*) FROM projet_jalons pj WHERE pj.projet_id = p.id AND pj.atteint = 0 AND pj.date_jalon <= (NOW() AT TIME ZONE 'Europe/Paris')::date) as nb_jalons_en_retard,
                    EXISTS (SELECT 1 FROM projet_roles pr WHERE pr.projet_id = p.id AND LOWER(pr.username) = LOWER($${userCheckParam})) as user_est_intervenant,
-                   (SELECT STRING_AGG(ma.name, ', ') FROM projet_applications pa JOIN magapp.apps ma ON ma.id = pa.app_id WHERE pa.projet_id = p.id) as app_names
+                   (SELECT STRING_AGG(ma.name, ', ') FROM projet_applications pa JOIN magapp.apps ma ON ma.id = pa.app_id WHERE pa.projet_id = p.id) as app_names,
+                   (SELECT DISTINCT "SERVICE_L" FROM oracle.rh_siim_organigramme WHERE LOWER("SERVICE") = LOWER(p.service_pilote) LIMIT 1) as service_pilote_label
             FROM projets p
             ${where}
             ORDER BY ${orderBy}
@@ -2764,6 +2825,109 @@ const getOrgUnits = async (req, res) => {
 };
 
 // ============================================
+// USER → SERVICES AUTORISÉS
+// ============================================
+
+const getUserServices = async (req, res) => {
+    try {
+        const username = req.user.username;
+        const isAdmin = isSuperAdmin(req.user) || req.user.role === 'admin';
+
+        if (isAdmin) {
+            const rows = await pgDb.all(`
+                SELECT DISTINCT "SERVICE" as code, "SERVICE_L" as label
+                FROM oracle.rh_siim_organigramme WHERE "SERVICE" IS NOT NULL AND "SERVICE" != ''
+                ORDER BY "SERVICE_L"
+            `);
+            return res.json(rows);
+        }
+
+        const servicesSet = new Map();
+
+        // Check CP assignments
+        const cpRows = await pgDb.all(
+            `SELECT service_code FROM projets.chef_projet_services WHERE LOWER(chef_projet_username) = LOWER($1) AND service_code IS NOT NULL`,
+            [username]
+        );
+        for (const r of cpRows) {
+            if (r.service_code) servicesSet.set(r.service_code.toLowerCase(), r.service_code);
+        }
+
+        // Check PMO assignments
+        const db = getSqlite();
+        const userTile = db ? await db.get('SELECT id FROM user_tiles ut JOIN users u ON u.id = ut.user_id WHERE ut.tile_id = 24 AND LOWER(u.username) = LOWER(?)', [username]) : null;
+        if (userTile) {
+            const pmoRows = await pgDb.all(
+                `SELECT service_code, secteur_code, direction_code FROM projets.pmo_assignments WHERE LOWER(pmo_username) = LOWER($1)`,
+                [username]
+            );
+            for (const a of pmoRows) {
+                if (a.service_code) {
+                    servicesSet.set(a.service_code.toLowerCase(), a.service_code);
+                } else if (a.secteur_code && db) {
+                    const svcs = await pgDb.all(
+                        `SELECT DISTINCT "SERVICE" as code FROM oracle.rh_siim_organigramme WHERE "SECTEUR" = $1`,
+                        [a.secteur_code]
+                    );
+                    for (const s of svcs) servicesSet.set(s.code.toLowerCase(), s.code);
+                } else if (a.direction_code && db) {
+                    const svcs = await pgDb.all(
+                        `SELECT DISTINCT "SERVICE" as code FROM oracle.rh_siim_organigramme WHERE "DIRECTION" = $1 AND "SERVICE" IS DISTINCT FROM "DIRECTION"`,
+                        [a.direction_code]
+                    );
+                    for (const s of svcs) servicesSet.set(s.code.toLowerCase(), s.code);
+                }
+            }
+        }
+
+        // Fallback : service de l'utilisateur issu du profil (JWT)
+        const userServiceCode = req.user.service_code;
+        if (userServiceCode) servicesSet.set(userServiceCode.toLowerCase(), userServiceCode);
+
+        // Fetch labels — utilise pool (vrais paramètres) car pgDb inline les arrays incorrectement
+        const codes = Array.from(servicesSet.values());
+        if (codes.length === 0) return res.json([]);
+        const codesLower = codes.map(c => c.toLowerCase());
+        const placeholders = codesLower.map((_, i) => `$${i + 1}`).join(', ');
+        const labelsRes = await pool.query(
+            `SELECT DISTINCT "SERVICE" as code, "SERVICE_L" as label FROM oracle.rh_siim_organigramme WHERE LOWER("SERVICE") IN (${placeholders}) ORDER BY "SERVICE_L"`,
+            codesLower
+        );
+        res.json(labelsRes.rows);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
+const batchUpdateServicePilote = async (req, res) => {
+    try {
+        // Mise à jour du service_pilote des projets existants à partir de chef_projet_services
+        const projects = await pgDb.all(`
+            SELECT id, code, chef_projet_username, service_pilote
+            FROM projets
+            WHERE chef_projet_username IS NOT NULL
+        `);
+        let updated = 0;
+        for (const p of projects) {
+            const cpSvcs = await pgDb.all(
+                `SELECT service_code FROM projets.chef_projet_services WHERE LOWER(chef_projet_username) = LOWER($1) AND service_code IS NOT NULL`,
+                [p.chef_projet_username]
+            );
+            if (cpSvcs.length === 1 && cpSvcs[0].service_code !== p.service_pilote) {
+                await pgDb.run(
+                    `UPDATE projets.projets SET service_pilote = $1, date_modification = CURRENT_TIMESTAMP WHERE id = $2`,
+                    [cpSvcs[0].service_code, p.id]
+                );
+                updated++;
+            }
+        }
+        res.json({ message: `${updated} projet(s) mis à jour` });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
+// ============================================
 // CHEFS DE PROJET → SERVICES
 // ============================================
 
@@ -2773,7 +2937,7 @@ const listChefsProjets = async (req, res) => {
             SELECT cps.*, u.displayName
             FROM projets.chef_projet_services cps
             LEFT JOIN hub.users u ON LOWER(u.username) = LOWER(cps.chef_projet_username)
-            ORDER BY cps.chef_projet_username, cps.service_code
+            ORDER BY cps.chef_projet_username, cps.service_code NULLS FIRST
         `);
         // Group by chef de projet
         const chefs = new Map();
@@ -2785,13 +2949,31 @@ const listChefsProjets = async (req, res) => {
                     services: []
                 });
             }
-            chefs.get(r.chef_projet_username).services.push({
-                id: r.id,
-                service_code: r.service_code,
-                created_at: r.created_at
-            });
+            if (r.service_code) {
+                chefs.get(r.chef_projet_username).services.push({
+                    id: r.id,
+                    service_code: r.service_code,
+                    created_at: r.created_at
+                });
+            }
         }
         res.json(Array.from(chefs.values()));
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
+const registerChefProjet = async (req, res) => {
+    try {
+        const { chef_projet_username } = req.body;
+        if (!chef_projet_username) {
+            return res.status(400).json({ error: 'chef_projet_username requis' });
+        }
+        const result = await pgDb.run(
+            `INSERT INTO projets.chef_projet_services (chef_projet_username, service_code) VALUES ($1, NULL)`,
+            [chef_projet_username]
+        );
+        res.status(201).json({ id: result.lastID, message: 'Chef de projet enregistré' });
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
@@ -2851,5 +3033,6 @@ module.exports = {
     getCompteurs,
     toggleMiniProjet,
     getPmoAgents, addPmoAgent, removePmoAgent, getOrgUnits,
-    listChefsProjets, addChefProjetService, removeChefProjetService
+    listChefsProjets, registerChefProjet, addChefProjetService, removeChefProjetService,
+    getUserServices, batchUpdateServicePilote
 };

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { FolderOpen, Plus, Search } from 'lucide-react';
 import Header from '../components/Header';
@@ -18,6 +18,7 @@ interface Projet {
   user_est_intervenant?: boolean;
   projet_parent_id?: number; app_names?: string;
   is_mini_projet?: boolean;
+  service_pilote_label?: string;
 }
 
 interface Stats {
@@ -61,9 +62,13 @@ const PortefeuilleProjets: React.FC = () => {
   const [showAdminModal, setShowAdminModal] = useState(false);
   const [showPmoModal, setShowPmoModal] = useState(false);
   const [pmoView, setPmoView] = useState<'' | 'mine' | 'agents'>('');
-  const [groupMode, setGroupMode] = useState<'implication' | 'chef_projet'>('implication');
+  const [groupMode, setGroupMode] = useState<'implication' | 'chef_projet' | 'service'>('implication');
   const [showAgentsModal, setShowAgentsModal] = useState(false);
   const isPMO = user?.est_pmo || isAdminLike(user);
+
+  useEffect(() => {
+    if (user?.est_pmo && !isAdminLike(user)) setGroupMode('service');
+  }, [user]);
 
   const fetchProjets = useCallback(async () => {
     try {
@@ -314,8 +319,8 @@ const PortefeuilleProjets: React.FC = () => {
           )}
           {/* Toggle regroupement */}
           <div style={{ display: 'flex', background: '#f1f5f9', borderRadius: '8px', padding: '3px', gap: '2px' }}>
-            {([['implication', '📊 Par implication'], ['chef_projet', '👨‍💼 Par chef de projet']] as [string, string][]).map(([val, label]) => (
-              <button key={val} onClick={() => setGroupMode(val as 'implication' | 'chef_projet')} style={{
+            {([['implication', '📊 Par implication'], ['chef_projet', '👨‍💼 Par chef de projet'], ['service', '🏢 Par service']] as [string, string][]).map(([val, label]) => (
+              <button key={val} onClick={() => setGroupMode(val as 'implication' | 'chef_projet' | 'service')} style={{
                 padding: '6px 12px', borderRadius: '6px', border: 'none', cursor: 'pointer', fontSize: '12px', fontWeight: '600',
                 background: groupMode === val ? 'white' : 'transparent', color: groupMode === val ? '#2563eb' : '#64748b',
                 boxShadow: groupMode === val ? '0 1px 3px rgba(0,0,0,0.1)' : 'none'
@@ -353,6 +358,41 @@ const PortefeuilleProjets: React.FC = () => {
                   <div key={key}>
                     <div style={{ padding: '10px 16px', fontSize: '13px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', background: '#f8fafc', borderBottom: '2px solid #e2e8f0', borderRadius: '8px 8px 0 0' }}>
                       👨‍💼 {chefLabel} ({items.length})
+                    </div>
+                    <div style={{ background: 'white', borderRadius: '0 0 8px 8px', overflow: 'hidden', border: '1px solid #e2e8f0', borderTop: 'none' }}>
+                      <ProjetTable items={items} favoris={favoris} projetMap={projetMap} projetParentTitles={projetParentTitles} childrenMap={childrenMap} thStyle={thStyle} SortIcon={SortIcon} handleSort={handleSort} navigate={navigate} toggleFavori={toggleFavori} />
+                    </div>
+                  </div>
+                );
+              });
+            })()}
+          </div>
+        ) : groupMode === 'service' ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            {(() => {
+              const grouped: Record<string, { label: string; projets: Projet[] }> = {};
+              for (const p of projetsTries) {
+                const key = p.service_pilote || '__none__';
+                if (!grouped[key]) grouped[key] = { label: p.service_pilote_label || p.service_pilote || '— Sans service', projets: [] };
+                grouped[key].projets.push(p);
+              }
+              const keys = Object.keys(grouped).sort((a, b) => {
+                if (a === '__none__') return 1;
+                if (b === '__none__') return -1;
+                return (grouped[a].label || '').localeCompare(grouped[b].label || '');
+              });
+              return keys.map(key => {
+                const { label, projets: grpProjets } = grouped[key];
+                const items = grpProjets.flatMap(p => {
+                  const children = (childrenMap[p.id] || []).filter(c => c.service_pilote === p.service_pilote);
+                  return [{ projet: p, isChild: false } as const, ...children.map(c => ({ projet: c, isChild: true } as const))];
+                });
+                return (
+                  <div key={key}>
+                    <div style={{ padding: '10px 16px', fontSize: '13px', fontWeight: '700', color: '#475569', background: '#f1f5f9', borderBottom: '2px solid #cbd5e1', borderRadius: '8px 8px 0 0', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <span style={{ color: '#2563eb' }}>🏢</span>
+                      <span>{label}</span>
+                      <span style={{ marginLeft: 'auto', fontWeight: '500', color: '#94a3b8', fontSize: '12px' }}>{items.length} projet{items.length > 1 ? 's' : ''}</span>
                     </div>
                     <div style={{ background: 'white', borderRadius: '0 0 8px 8px', overflow: 'hidden', border: '1px solid #e2e8f0', borderTop: 'none' }}>
                       <ProjetTable items={items} favoris={favoris} projetMap={projetMap} projetParentTitles={projetParentTitles} childrenMap={childrenMap} thStyle={thStyle} SortIcon={SortIcon} handleSort={handleSort} navigate={navigate} toggleFavori={toggleFavori} />
@@ -653,6 +693,18 @@ const AdminGeneraleModal: React.FC<AdminModalProps> = ({ token, onClose }) => {
     await loadPmoAssignments(expandedPmo);
   };
 
+  const registerCp = async (username: string) => {
+    setCpSaving(true);
+    try {
+      await fetch('/api/projets/admin/chefs-projets/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ chef_projet_username: username })
+      });
+      await loadChefsProjets();
+    } catch {} finally { setCpSaving(false); }
+  };
+
   const addCpService = async (chefUsername: string) => {
     if (!cpSelectedService) return;
     setCpSaving(true);
@@ -784,18 +836,16 @@ const AdminGeneraleModal: React.FC<AdminModalProps> = ({ token, onClose }) => {
                   </div>
                   {expandedPmo === u.username && (
                     <div style={{ padding: '12px 14px 14px 36px', borderTop: '1px solid #e2e8f0', background: '#fafbfc' }}>
-                      <div style={{ display: 'flex', gap: '8px', marginBottom: '12px' }}>
-                        <select value={selectedOrgType} onChange={e => { setSelectedOrgType(e.target.value as any); setSelectedOrgCode(''); }}
-                          style={{ padding: '7px 10px', borderRadius: '6px', border: '1px solid #e2e8f0', fontSize: '12px', background: 'white' }}>
-                          <option value="service">Service</option>
-                          <option value="secteur">Secteur</option>
-                          <option value="direction">Direction</option>
-                        </select>
-                        <select value={selectedOrgCode} onChange={e => setSelectedOrgCode(e.target.value)}
-                          style={{ flex: 1, padding: '7px 10px', borderRadius: '6px', border: '1px solid #e2e8f0', fontSize: '12px', background: 'white' }}>
-                          <option value="">-- Choisir --</option>
-                          {orgOptions.map((o: any) => <option key={o.code} value={o.code}>{o.label}</option>)}
-                        </select>
+                      <OrgUnitTreePicker
+                        directions={orgUnits.directions}
+                        services={orgUnits.services}
+                        secteurs={orgUnits.secteurs}
+                        selectedOrgType={selectedOrgType}
+                        selectedOrgCode={selectedOrgCode}
+                        onChange={(type, code) => { setSelectedOrgType(type); setSelectedOrgCode(code); }}
+                        disabled={savingAssign}
+                      />
+                      <div style={{ marginTop: '8px', display: 'flex', justifyContent: 'flex-end' }}>
                         <button onClick={addOrgAssignment} disabled={!selectedOrgCode || savingAssign}
                           style={{ padding: '7px 14px', background: '#2563eb', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: '600', fontSize: '12px', opacity: !selectedOrgCode ? 0.5 : 1, whiteSpace: 'nowrap' }}>Ajouter</button>
                       </div>
@@ -835,9 +885,9 @@ const AdminGeneraleModal: React.FC<AdminModalProps> = ({ token, onClose }) => {
                           </div>
                           {!already && (
                             <button onClick={async () => {
-                              await addCpService(u.username);
+                              await registerCp(u.username);
                               cpAd.setQuery(''); cpAd.clearResults();
-                            }} style={{ padding: '4px 10px', background: '#2563eb', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: '600', fontSize: '11px' }}>Ajouter</button>
+                            }} disabled={cpSaving} style={{ padding: '4px 10px', background: '#2563eb', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: '600', fontSize: '11px', opacity: cpSaving ? 0.5 : 1 }}>Ajouter</button>
                           )}
                         </div>
                       );
@@ -861,14 +911,17 @@ const AdminGeneraleModal: React.FC<AdminModalProps> = ({ token, onClose }) => {
                   </div>
                   {expandedCp === c.chef_projet_username && (
                     <div style={{ padding: '12px 14px 14px 36px', borderTop: '1px solid #e2e8f0', background: '#fafbfc' }}>
-                      <div style={{ display: 'flex', gap: '8px', marginBottom: '12px' }}>
-                        <select value={cpSelectedService} onChange={e => setCpSelectedService(e.target.value)}
-                          style={{ flex: 1, padding: '7px 10px', borderRadius: '6px', border: '1px solid #e2e8f0', fontSize: '12px', background: 'white' }}>
-                          <option value="">-- Choisir un service --</option>
-                          {orgUnits.services.map((o: any) => (
-                            <option key={o.code} value={o.code}>{o.label} ({o.code})</option>
-                          ))}
-                        </select>
+                      <OrgUnitTreePicker
+                        directions={orgUnits.directions}
+                        services={orgUnits.services}
+                        secteurs={orgUnits.secteurs}
+                        selectedOrgType="service"
+                        selectedOrgCode={cpSelectedService}
+                        onChange={(_type, code) => setCpSelectedService(code)}
+                        disabled={cpSaving}
+                        showTypeTabs={false}
+                      />
+                      <div style={{ marginTop: '8px', display: 'flex', justifyContent: 'flex-end' }}>
                         <button onClick={() => addCpService(c.chef_projet_username)} disabled={!cpSelectedService || cpSaving}
                           style={{ padding: '7px 14px', background: '#2563eb', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: '600', fontSize: '12px', opacity: !cpSelectedService ? 0.5 : 1, whiteSpace: 'nowrap' }}>Ajouter</button>
                       </div>
@@ -1152,6 +1205,211 @@ const MesAgentsModal: React.FC<MesAgentsModalProps> = ({ token, onClose }) => {
             </>
           )}
         </div>
+      </div>
+    </div>
+  );
+};
+
+// ============================================
+// SELECTEUR D'UNITÉ ORGANISATIONNELLE EN ARBRE
+// ============================================
+interface OrgUnitTreePickerProps {
+  directions: { code: string; label: string }[];
+  services: { code: string; label: string; direction_code: string }[];
+  secteurs: { code: string; label: string; service_code: string }[];
+  selectedOrgType: 'service' | 'secteur' | 'direction';
+  selectedOrgCode: string;
+  onChange: (type: 'service' | 'secteur' | 'direction', code: string) => void;
+  disabled?: boolean;
+  showTypeTabs?: boolean;
+}
+
+const OrgUnitTreePicker: React.FC<OrgUnitTreePickerProps> = ({
+  directions, services, secteurs,
+  selectedOrgType, selectedOrgCode, onChange, disabled, showTypeTabs
+}) => {
+  const [search, setSearch] = useState('');
+  const [expandedDirs, setExpandedDirs] = useState<Set<string>>(new Set());
+  const [expandedSvcs, setExpandedSvcs] = useState<Set<string>>(new Set());
+
+  const s = search.toLowerCase().trim();
+  const hasSearch = s.length > 0;
+
+  const toggleDir = (code: string) => {
+    const next = new Set(expandedDirs);
+    if (next.has(code)) next.delete(code); else next.add(code);
+    setExpandedDirs(next);
+  };
+  const toggleSvc = (code: string) => {
+    const next = new Set(expandedSvcs);
+    if (next.has(code)) next.delete(code); else next.add(code);
+    setExpandedSvcs(next);
+  };
+
+  const svcsByDir = useMemo(() => {
+    const map: Record<string, typeof services> = {};
+    for (const svc of services) {
+      const dk = svc.direction_code || '';
+      if (!map[dk]) map[dk] = [];
+      map[dk].push(svc);
+    }
+    return map;
+  }, [services]);
+
+  const sectsBySvc = useMemo(() => {
+    const map: Record<string, typeof secteurs> = {};
+    for (const sect of secteurs) {
+      const sk = sect.service_code || '';
+      if (!map[sk]) map[sk] = [];
+      map[sk].push(sect);
+    }
+    return map;
+  }, [secteurs]);
+
+  const dirOK = (d: typeof directions[0]) => {
+    if (!hasSearch) return true;
+    const match = d.label.toLowerCase().includes(s) || d.code.toLowerCase().includes(s);
+    if (match) return true;
+    const svcs = svcsByDir[d.code] || [];
+    return svcs.some(svc =>
+      svc.label.toLowerCase().includes(s) || svc.code.toLowerCase().includes(s) ||
+      (selectedOrgType === 'secteur' && (sectsBySvc[svc.code] || []).some(sx =>
+        sx.label.toLowerCase().includes(s) || sx.code.toLowerCase().includes(s)
+      ))
+    );
+  };
+
+  const svcOK = (svc: typeof services[0]) => {
+    if (!hasSearch) return true;
+    if (svc.label.toLowerCase().includes(s) || svc.code.toLowerCase().includes(s)) return true;
+    if (selectedOrgType === 'secteur') {
+      return (sectsBySvc[svc.code] || []).some(sx =>
+        sx.label.toLowerCase().includes(s) || sx.code.toLowerCase().includes(s)
+      );
+    }
+    return false;
+  };
+
+  const sectOK = (sect: typeof secteurs[0]) => {
+    if (!hasSearch) return true;
+    return sect.label.toLowerCase().includes(s) || sect.code.toLowerCase().includes(s);
+  };
+
+  const tabStyle = (active: boolean) => ({
+    padding: '6px 12px', border: 'none', borderBottom: active ? '2px solid #2563eb' : '2px solid transparent',
+    background: active ? '#eff6ff' : 'transparent', cursor: 'pointer', fontWeight: active ? '700' : '500',
+    color: active ? '#2563eb' : '#64748b', fontSize: '12px', marginBottom: '-2px', flex: 1
+  } as React.CSSProperties);
+
+  const selectedStyle = (active: boolean) => ({
+    display: 'flex', alignItems: 'center', gap: '6px', padding: '5px 10px', borderRadius: '6px',
+    cursor: disabled ? 'default' : 'pointer', fontSize: '12px',
+    background: active ? '#dbeafe' : 'transparent',
+    color: active ? '#1d4ed8' : '#1e293b',
+    fontWeight: active ? '600' : '400',
+    border: 'none', width: '100%', textAlign: 'left' as const
+  });
+
+  const renderDir = (d: typeof directions[0]) => {
+    if (!dirOK(d)) return null;
+    const svcs = svcsByDir[d.code] || [];
+    const visibleSvcs = svcs.filter(svcOK);
+    if (selectedOrgType === 'direction') {
+      return (
+        <div key={d.code} style={{ marginBottom: '2px' }}>
+          <button style={selectedStyle(selectedOrgCode === d.code)} onClick={() => !disabled && onChange('direction', d.code)}>
+            <span style={{ fontSize: '14px' }}>📁</span> {d.label}
+          </button>
+        </div>
+      );
+    }
+    const isExpanded = hasSearch || expandedDirs.has(d.code);
+    return (
+      <div key={d.code} style={{ marginBottom: '4px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '4px', padding: '4px 8px', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: '600', color: '#475569', background: '#f8fafc', border: '1px solid #e2e8f0' }}
+          onClick={() => toggleDir(d.code)}>
+          <span style={{ fontSize: '10px', color: '#94a3b8', transition: 'transform 0.15s', transform: isExpanded ? 'rotate(90deg)' : 'none' }}>▶</span>
+          <span style={{ fontSize: '14px' }}>📁</span> {d.label}
+        </div>
+        {isExpanded && (
+          <div style={{ marginLeft: '16px', marginTop: '4px', borderLeft: '2px solid #e2e8f0', paddingLeft: '8px' }}>
+            {visibleSvcs.length === 0 && <div style={{ padding: '4px 8px', fontSize: '11px', color: '#94a3b8' }}>Aucun service</div>}
+            {visibleSvcs.map(svc => {
+              if (selectedOrgType === 'service') {
+                return (
+                  <div key={svc.code} style={{ marginBottom: '2px' }}>
+                    <button style={selectedStyle(selectedOrgCode === svc.code)} onClick={() => !disabled && onChange('service', svc.code)}>
+                      <span style={{ fontSize: '12px' }}>📄</span> {svc.label}
+                    </button>
+                  </div>
+                );
+              }
+              // secteur mode: service is expandable
+              const sects = sectsBySvc[svc.code] || [];
+              const visibleSects = sects.filter(sectOK);
+              const svcExpanded = hasSearch || expandedSvcs.has(svc.code);
+              return (
+                <div key={svc.code} style={{ marginBottom: '4px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '4px', padding: '4px 8px', borderRadius: '4px', cursor: 'pointer', fontSize: '12px', color: '#64748b' }}
+                    onClick={() => toggleSvc(svc.code)}>
+                    <span style={{ fontSize: '10px', color: '#94a3b8', transition: 'transform 0.15s', transform: svcExpanded ? 'rotate(90deg)' : 'none' }}>▶</span>
+                    <span style={{ fontSize: '12px' }}>📂</span> {svc.label}
+                  </div>
+                  {svcExpanded && (
+                    <div style={{ marginLeft: '16px', borderLeft: '2px solid #e2e8f0', paddingLeft: '8px' }}>
+                      {visibleSects.length === 0 && <div style={{ padding: '4px 8px', fontSize: '11px', color: '#94a3b8' }}>Aucun secteur</div>}
+                      {visibleSects.map(sect => (
+                        <div key={sect.code} style={{ marginBottom: '2px' }}>
+                          <button style={selectedStyle(selectedOrgCode === sect.code)} onClick={() => !disabled && onChange('secteur', sect.code)}>
+                            <span style={{ fontSize: '12px' }}>🔹</span> {sect.label}
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const showTabs = showTypeTabs !== false;
+  return (
+    <div>
+      {showTabs && (
+        <div style={{ display: 'flex', gap: '2px', borderBottom: '2px solid #e2e8f0', marginBottom: '8px' }}>
+          {(['service', 'secteur', 'direction'] as const).map(t => (
+            <button key={t} style={tabStyle(selectedOrgType === t)} onClick={() => !disabled && onChange(t, '')}>
+              {t === 'service' ? 'Service' : t === 'secteur' ? 'Secteur' : 'Direction'}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {selectedOrgType !== 'direction' && (
+        <input value={search} onChange={e => setSearch(e.target.value)}
+          placeholder="Rechercher par nom partiel..."
+          style={{ width: '100%', padding: '6px 10px', borderRadius: '6px', border: '1px solid #e2e8f0', fontSize: '12px', outline: 'none', boxSizing: 'border-box', marginBottom: '8px' }} />
+      )}
+
+      <div style={{ maxHeight: '220px', overflowY: 'auto' }}>
+        {selectedOrgType === 'direction' ? (
+          directions.length === 0 ? <p style={{ fontSize: '12px', color: '#94a3b8' }}>Aucune direction</p> :
+          directions.map(d => (
+            <div key={d.code} style={{ marginBottom: '2px' }}>
+              <button style={selectedStyle(selectedOrgCode === d.code)} onClick={() => !disabled && onChange('direction', d.code)}>
+                <span style={{ fontSize: '14px' }}>📁</span> {d.label}
+              </button>
+            </div>
+          ))
+        ) : (
+          directions.filter(dirOK).length === 0
+            ? <p style={{ fontSize: '12px', color: '#94a3b8' }}>Aucun résultat</p>
+            : directions.filter(dirOK).map(renderDir)
+        )}
       </div>
     </div>
   );

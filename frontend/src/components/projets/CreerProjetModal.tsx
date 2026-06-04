@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { X, Search, Plus, User } from 'lucide-react';
 import { useADSearch } from '../../utils/useADSearch';
 
@@ -31,6 +31,23 @@ const CreerProjetModal: React.FC<CreerProjetModalProps> = ({ isOpen, onClose, on
   const [appSearch, setAppSearch] = useState('');
   const [appResults, setAppResults] = useState<any[]>([]);
   const [appSearching, setAppSearching] = useState(false);
+  const [userServices, setUserServices] = useState<{ code: string; label: string }[]>([]);
+  const [loadingServices, setLoadingServices] = useState(true);
+
+  useEffect(() => {
+    if (!isOpen || !token) return;
+    setLoadingServices(true);
+    fetch('/api/projets/user-services', { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.json())
+      .then(data => {
+        if (Array.isArray(data)) {
+          setUserServices(data);
+          if (data.length === 1) setForm(f => ({ ...f, service_pilote: data[0].code }));
+        }
+      })
+      .catch(() => {})
+      .finally(() => setLoadingServices(false));
+  }, [isOpen, token]);
 
   const ajouterEquipe = (user: { username: string; displayName: string }) => {
     if (!equipe.find(e => e.username === user.username)) {
@@ -135,13 +152,20 @@ const CreerProjetModal: React.FC<CreerProjetModalProps> = ({ isOpen, onClose, on
             </div>
             <div>
               <label style={{ fontSize: '12px', fontWeight: '700', color: '#475569', marginBottom: '4px', display: 'block' }}>Service pilote *</label>
-              <select value={form.service_pilote} onChange={e => setForm({ ...form, service_pilote: e.target.value })} style={{ width: '100%', padding: '9px 12px', borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '14px', background: 'white' }}>
-                <option value="">Sélectionner...</option>
-                <option value="BF1">BF1 — Direction des Systèmes d'Information</option>
-                <option value="BF6">BF6 — Infrastructure Systèmes et Réseaux</option>
-                <option value="BF8">BF8 — Bureau des Projets</option>
-                <option value="BF9">BF9 — Support et Déploiement</option>
-              </select>
+              {loadingServices ? (
+                <div style={{ padding: '9px 12px', fontSize: '13px', color: '#94a3b8' }}>Chargement des services...</div>
+              ) : userServices.length === 0 ? (
+                <div style={{ padding: '9px 12px', fontSize: '13px', color: '#ef4444', background: '#fef2f2', borderRadius: '8px', border: '1px solid #fecaca' }}>
+                  Aucun service attribué — contactez un administrateur
+                </div>
+              ) : (
+                <select value={form.service_pilote} onChange={e => setForm({ ...form, service_pilote: e.target.value })} style={{ width: '100%', padding: '9px 12px', borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '14px', background: 'white' }}>
+                  <option value="">Sélectionner...</option>
+                  {userServices.map(s => (
+                    <option key={s.code} value={s.code}>{s.label || s.code}</option>
+                  ))}
+                </select>
+              )}
             </div>
           </div>
           <div>

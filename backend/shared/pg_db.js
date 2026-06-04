@@ -96,6 +96,9 @@ function escapePgValue(val) {
     if (val === null || val === undefined) return 'NULL';
     if (typeof val === 'boolean') return val ? 'TRUE' : 'FALSE';
     if (typeof val === 'number') return String(val);
+    if (Array.isArray(val)) {
+        return `ARRAY[${val.map(v => escapePgValue(v)).join(', ')}]`;
+    }
     if (val instanceof Date) {
         const pad = n => String(n).padStart(2, '0');
         return `'${val.getFullYear()}-${pad(val.getMonth() + 1)}-${pad(val.getDate())} ${pad(val.getHours())}:${pad(val.getMinutes())}:${pad(val.getSeconds())}'`;
@@ -3115,6 +3118,33 @@ async function setupPgDb() {
     await client.query(`CREATE INDEX IF NOT EXISTS idx_mob_dev_lastaction ON hub_parc.mobilite_devices(last_action_norm)`);
     await client.query(`CREATE INDEX IF NOT EXISTS idx_mob_dev_dir ON hub_parc.mobilite_devices(last_direction)`);
 
+    // ─── hub_parc : AD COMPUTERS (importés depuis l'Active Directory) ────────────
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS hub_parc.ad_computers (
+        id              SERIAL PRIMARY KEY,
+        cn              TEXT,
+        name            TEXT,
+        samaccountname  TEXT,
+        dnshostname     TEXT,
+        ipaddress       TEXT,
+        operatingsystem TEXT,
+        osversion       TEXT,
+        lastlogon       TIMESTAMP,
+        lastlogonuser   TEXT,
+        description     TEXT,
+        whencreated     TIMESTAMP,
+        enabled         BOOLEAN DEFAULT TRUE,
+        distinguishedname TEXT,
+        ou              TEXT,
+        import_batch    TEXT,
+        first_seen      TIMESTAMP DEFAULT NOW(),
+        updated_at      TIMESTAMP DEFAULT NOW()
+      )
+    `);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_ad_computers_name ON hub_parc.ad_computers(name)`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_ad_computers_sam ON hub_parc.ad_computers(samaccountname)`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_ad_computers_batch ON hub_parc.ad_computers(import_batch)`);
+
     await client.query(`
       CREATE TABLE IF NOT EXISTS hub_calendrier.evenements (
         id SERIAL PRIMARY KEY,
@@ -3742,10 +3772,11 @@ async function setupPgDb() {
       CREATE TABLE IF NOT EXISTS projets.chef_projet_services (
         id SERIAL PRIMARY KEY,
         chef_projet_username TEXT NOT NULL,
-        service_code TEXT NOT NULL,
+        service_code TEXT,
         created_at TIMESTAMPTZ DEFAULT NOW()
       );
     `);
+    try { await client.query(`ALTER TABLE projets.chef_projet_services ALTER COLUMN service_code DROP NOT NULL`); } catch (e) {}
     try { await client.query(`CREATE INDEX IF NOT EXISTS idx_cp_services_username ON projets.chef_projet_services(chef_projet_username);`); } catch (e) {}
     try { await client.query(`CREATE INDEX IF NOT EXISTS idx_cp_services_code ON projets.chef_projet_services(service_code);`); } catch (e) {}
 

@@ -9,15 +9,15 @@ import { isAdminLike } from '../utils/roles';
 interface Projet {
   id: number; code: string; titre: string; statut: string;
   priorite: number; meteo: string; score_total: number; avancement: number;
+  chef_projet_username?: string; chef_projet_display_name?: string;
 }
 
 interface Revue {
   id: number; titre: string; date_revue: string; lieu: string;
   participants: { username: string; displayName: string }[];
   projets: RevueProjet[];
-  created_at: string;
-  projet_codes?: string;
-  projet_count?: number;
+  created_at: string; created_by?: string; created_by_displayname?: string;
+  projet_codes?: string; projet_count?: number; chefs_projet?: string;
 }
 
 interface RevueProjet {
@@ -56,6 +56,9 @@ export default function RevueDeProjets() {
   const [tacheInput, setTacheInput] = useState<Record<number, { titre: string; responsable: string; echeance: string }>>({});
   const [showAddProjets, setShowAddProjets] = useState(false);
   const [addProjetSelection, setAddProjetSelection] = useState<Set<number>>(new Set());
+  const [projetSearch, setProjetSearch] = useState('');
+  const [filtreChefCreation, setFiltreChefCreation] = useState('');
+  const [addProjetSearch, setAddProjetSearch] = useState('');
   const [step2Commentaires, setStep2Commentaires] = useState<Record<number, string>>({});
   const [step2Taches, setStep2Taches] = useState<Record<number, { titre: string; responsable: string; echeance: string }[]>>({});
   const [step2TacheInput, setStep2TacheInput] = useState<Record<number, { titre: string; responsable: string; echeance: string }>>({});
@@ -154,6 +157,8 @@ export default function RevueDeProjets() {
     setStep2Taches({});
     setStep2TacheInput({});
     setStep2PrevCommentaires({});
+    setProjetSearch('');
+    setFiltreChefCreation('');
   };
 
   const addStep2Tache = (projetId: number) => {
@@ -293,10 +298,23 @@ export default function RevueDeProjets() {
   };
 
   const projetsActifs = projets.filter(p => p.statut !== 'suspendu' && p.statut !== 'refuse');
-  const mauvaisMeteo = projetsActifs
+
+  const chefsProjetMap = new Map<string, string>();
+  projetsActifs.forEach(p => {
+    if (p.chef_projet_username) chefsProjetMap.set(p.chef_projet_username, p.chef_projet_display_name || p.chef_projet_username);
+  });
+  const chefsProjetList = [...chefsProjetMap.entries()].sort((a, b) => a[1].localeCompare(b[1]));
+
+  const projetsFiltered = projetsActifs.filter(p => {
+    if (projetSearch && !p.titre.toLowerCase().includes(projetSearch.toLowerCase()) && !p.code.toLowerCase().includes(projetSearch.toLowerCase())) return false;
+    if (filtreChefCreation && p.chef_projet_username !== filtreChefCreation) return false;
+    return true;
+  });
+
+  const mauvaisMeteo = projetsFiltered
     .filter(p => p.meteo === 'orage' || p.meteo === 'nuageux')
     .sort((a, b) => b.priorite - a.priorite);
-  const autresActifs = projetsActifs
+  const autresActifs = projetsFiltered
     .filter(p => p.meteo !== 'orage' && p.meteo !== 'nuageux')
     .sort((a, b) => b.priorite - a.priorite);
 
@@ -379,7 +397,25 @@ export default function RevueDeProjets() {
               </div>
 
               <div style={{ marginBottom: '20px' }}>
-                <h3 style={{ margin: '0 0 12px', fontSize: '14px', fontWeight: '700', color: '#1e293b' }}>Projets à inclure</h3>
+                <h3 style={{ margin: '0 0 10px', fontSize: '14px', fontWeight: '700', color: '#1e293b' }}>Projets à inclure</h3>
+                <div style={{ display: 'flex', gap: '8px', marginBottom: '12px' }}>
+                  <input
+                    placeholder="Rechercher par titre ou code..."
+                    value={projetSearch}
+                    onChange={e => setProjetSearch(e.target.value)}
+                    style={{ flex: 1, padding: '8px 12px', border: '1px solid #cbd5e1', borderRadius: '8px', fontSize: '13px' }}
+                  />
+                  <select
+                    value={filtreChefCreation}
+                    onChange={e => setFiltreChefCreation(e.target.value)}
+                    style={{ padding: '8px 12px', border: '1px solid #cbd5e1', borderRadius: '8px', fontSize: '13px', background: 'white', maxWidth: '220px' }}
+                  >
+                    <option value="">Tous chefs de projet</option>
+                    {chefsProjetList.map(([username, display]) => (
+                      <option key={username} value={username}>{display}</option>
+                    ))}
+                  </select>
+                </div>
                 {mauvaisMeteo.length > 0 && (
                   <div style={{ marginBottom: '12px' }}>
                     <p style={{ margin: '0 0 8px', fontSize: '12px', fontWeight: '700', color: '#dc2626' }}>⚠️ Projets actifs avec mauvaise météo</p>
@@ -414,6 +450,9 @@ export default function RevueDeProjets() {
                 )}
                 {projetsActifs.length === 0 && (
                   <p style={{ color: '#94a3b8', fontSize: '13px' }}>Aucun projet actif disponible.</p>
+                )}
+                {projetsActifs.length > 0 && projetsFiltered.length === 0 && (
+                  <p style={{ color: '#94a3b8', fontSize: '13px' }}>Aucun projet ne correspond aux filtres.</p>
                 )}
               </div>
 
@@ -524,15 +563,21 @@ export default function RevueDeProjets() {
               </div>
 
               <div style={{ marginBottom: '16px', display: 'flex', justifyContent: 'flex-end' }}>
-                <button onClick={() => { setShowAddProjets(v => !v); setAddProjetSelection(new Set()); }} style={{ padding: '8px 14px', background: '#f0f9ff', color: '#2563eb', border: '1px solid #bfdbfe', borderRadius: '8px', cursor: 'pointer', fontWeight: '600', fontSize: '12px' }}>
+                <button onClick={() => { setShowAddProjets(v => !v); setAddProjetSelection(new Set()); setAddProjetSearch(''); }} style={{ padding: '8px 14px', background: '#f0f9ff', color: '#2563eb', border: '1px solid #bfdbfe', borderRadius: '8px', cursor: 'pointer', fontWeight: '600', fontSize: '12px' }}>
                   {showAddProjets ? '✕ Annuler' : '➕ Ajouter des projets'}
                 </button>
               </div>
 
               {showAddProjets && (
                 <div style={{ marginBottom: '20px', padding: '16px', background: 'white', borderRadius: '10px', border: '1px solid #bfdbfe' }}>
-                  <h3 style={{ margin: '0 0 12px', fontSize: '14px', fontWeight: '700', color: '#1e293b' }}>Ajouter des projets à cette revue</h3>
-                  {projets.filter(p => p.statut !== 'suspendu' && p.statut !== 'refuse' && !selectedRevue.projets.some(rp => rp.projet_id === p.id)).map(p => (
+                  <h3 style={{ margin: '0 0 10px', fontSize: '14px', fontWeight: '700', color: '#1e293b' }}>Ajouter des projets à cette revue</h3>
+                  <input
+                    placeholder="Rechercher par titre ou code..."
+                    value={addProjetSearch}
+                    onChange={e => setAddProjetSearch(e.target.value)}
+                    style={{ width: '100%', padding: '8px 12px', border: '1px solid #bfdbfe', borderRadius: '8px', fontSize: '13px', marginBottom: '10px', boxSizing: 'border-box' }}
+                  />
+                  {projets.filter(p => p.statut !== 'suspendu' && p.statut !== 'refuse' && !selectedRevue.projets.some(rp => rp.projet_id === p.id) && (!addProjetSearch || p.titre.toLowerCase().includes(addProjetSearch.toLowerCase()) || p.code.toLowerCase().includes(addProjetSearch.toLowerCase()))).map(p => (
                     <label key={p.id} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 10px', background: addProjetSelection.has(p.id) ? '#eff6ff' : 'white', border: addProjetSelection.has(p.id) ? '1px solid #bfdbfe' : '1px solid #e2e8f0', borderRadius: '8px', cursor: 'pointer', fontSize: '13px', fontWeight: '500', marginBottom: '4px' }}>
                       <input type="checkbox" checked={addProjetSelection.has(p.id)} onChange={() => setAddProjetSelection(prev => { const n = new Set(prev); if (n.has(p.id)) n.delete(p.id); else n.add(p.id); return n; })} />
                       <span>{METEO_EMOJI[p.meteo] || '➖'}</span>
@@ -541,8 +586,8 @@ export default function RevueDeProjets() {
                       <span style={{ marginLeft: 'auto', fontSize: '11px', color: '#94a3b8' }}>{PRIORITE_STARS(p.priorite)}</span>
                     </label>
                   ))}
-                  {projets.filter(p => p.statut !== 'suspendu' && p.statut !== 'refuse' && !selectedRevue.projets.some(rp => rp.projet_id === p.id)).length === 0 && (
-                    <p style={{ color: '#94a3b8', fontSize: '13px' }}>Tous les projets sont déjà dans cette revue.</p>
+                  {projets.filter(p => p.statut !== 'suspendu' && p.statut !== 'refuse' && !selectedRevue.projets.some(rp => rp.projet_id === p.id) && (!addProjetSearch || p.titre.toLowerCase().includes(addProjetSearch.toLowerCase()) || p.code.toLowerCase().includes(addProjetSearch.toLowerCase()))).length === 0 && (
+                    <p style={{ color: '#94a3b8', fontSize: '13px' }}>Aucun projet disponible.</p>
                   )}
                   {addProjetSelection.size > 0 && (
                     <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '12px' }}>
@@ -658,11 +703,25 @@ export default function RevueDeProjets() {
                     </div>
                     <span style={{ color: '#94a3b8', fontSize: '13px' }}>→</span>
                   </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '8px', borderTop: '1px solid #f1f5f9', paddingTop: '8px' }}>
-                    <span style={{ fontSize: '11px', color: '#94a3b8', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '85%' }} title={(revue as any).projet_codes || ''}>
-                      📋 {revue.projet_codes || (revue.projet_count ? `${revue.projet_count} projet(s)` : '')}
-                    </span>
-                    <span onClick={e => { e.stopPropagation(); handleDeleteRevue(revue.id); }} style={{ color: '#94a3b8', fontSize: '12px', cursor: 'pointer', padding: '2px 6px', flexShrink: 0 }} title="Supprimer">🗑️</span>
+                  <div style={{ marginTop: '8px', borderTop: '1px solid #f1f5f9', paddingTop: '8px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span style={{ fontSize: '11px', color: '#94a3b8', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '85%' }} title={revue.projet_codes || ''}>
+                        📋 {revue.projet_codes || (revue.projet_count ? `${revue.projet_count} projet(s)` : '')}
+                      </span>
+                      <span onClick={e => { e.stopPropagation(); handleDeleteRevue(revue.id); }} style={{ color: '#94a3b8', fontSize: '12px', cursor: 'pointer', padding: '2px 6px', flexShrink: 0 }} title="Supprimer">🗑️</span>
+                    </div>
+                    <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap' }}>
+                      {(revue.created_by_displayname || revue.created_by) && (
+                        <span style={{ fontSize: '11px', color: '#64748b' }}>
+                          👤 PMO : <strong>{revue.created_by_displayname || revue.created_by}</strong>
+                        </span>
+                      )}
+                      {revue.chefs_projet && (
+                        <span style={{ fontSize: '11px', color: '#64748b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={revue.chefs_projet}>
+                          🧑‍💼 {revue.chefs_projet}
+                        </span>
+                      )}
+                    </div>
                   </div>
                 </div>
               ))}

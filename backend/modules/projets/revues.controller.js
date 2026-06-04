@@ -14,18 +14,28 @@ async function estPMO(username) {
 module.exports = {
     getAll: async (req, res) => {
         try {
+            const username = req.user.username;
             const revues = await pgDb.all(`
                 SELECT r.*,
                     COUNT(DISTINCT rp.id) as projet_count,
                     COUNT(DISTINCT part.id) as participant_count,
-                    COALESCE(STRING_AGG(DISTINCT p.titre, ' | ' ORDER BY p.titre), '') as projet_codes
+                    COALESCE(STRING_AGG(DISTINCT p.titre, ' | ' ORDER BY p.titre), '') as projet_codes,
+                    (SELECT displayname FROM hub.users WHERE LOWER(username) = LOWER(r.created_by) LIMIT 1) as created_by_displayname,
+                    (SELECT STRING_AGG(DISTINCT COALESCE(NULLIF(proj.chef_projet_display_name, ''), proj.chef_projet_username), ', ')
+                     FROM projets.projets proj
+                     WHERE proj.id IN (SELECT projet_id FROM hub_rencontres.revue_projets WHERE revue_id = r.id)
+                       AND proj.chef_projet_username IS NOT NULL AND proj.chef_projet_username != '') as chefs_projet
                 FROM hub_rencontres.revues r
                 LEFT JOIN hub_rencontres.revue_projets rp ON r.id = rp.revue_id
                 LEFT JOIN hub_rencontres.revue_participants part ON r.id = part.revue_id
                 LEFT JOIN projets.projets p ON p.id = rp.projet_id
+                WHERE EXISTS (
+                    SELECT 1 FROM hub_rencontres.revue_participants rp2
+                    WHERE rp2.revue_id = r.id AND LOWER(rp2.username) = LOWER($1)
+                ) OR LOWER(r.created_by) = LOWER($1)
                 GROUP BY r.id
                 ORDER BY r.date_revue DESC
-            `);
+            `, [username]);
             res.json(revues);
         } catch (error) {
             console.error('Erreur GET revues:', error);

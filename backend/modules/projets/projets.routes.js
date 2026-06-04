@@ -29,6 +29,7 @@ router.get('/', authenticateJWT, ctrl.getAll);
 router.get('/mes-projets', authenticateJWT, ctrl.getMesProjets);
 router.get('/stats', authenticateJWT, ctrl.getStats);
 router.get('/favoris', authenticateJWT, ctrl.getFavoris);
+router.get('/user-services', authenticateJWT, ctrl.getUserServices);
 router.get('/admin/scoring-config', authenticateAdminOrPMO, ctrl.getScoringConfig);
 router.get('/admin/types-documentaires', authenticateAdminOrPMO, ctrl.getTypesDocumentaires);
 router.put('/admin/scoring-config', authenticateAdminOrPMO, ctrl.updateScoringConfig);
@@ -195,8 +196,14 @@ router.delete('/pmo/agents/:assignmentId', authenticateJWT, ctrl.removePmoAgent)
 router.get('/pmo/org-units', authenticateJWT, ctrl.getOrgUnits);
 
 // ============================================
+// USER → SERVICES AUTORISÉS
+// ============================================
+router.post('/admin/batch-update-service-pilote', authenticateAdmin, ctrl.batchUpdateServicePilote);
+
+// ============================================
 // CHEFS DE PROJET → SERVICES
 // ============================================
+router.post('/admin/chefs-projets/register', authenticateAdminOrPMO, ctrl.registerChefProjet);
 router.post('/admin/chefs-projets/add', authenticateAdminOrPMO, ctrl.addChefProjetService);
 router.delete('/admin/chefs-projets/:id', authenticateAdminOrPMO, ctrl.removeChefProjetService);
 router.get('/admin/chefs-projets', authenticateAdminOrPMO, ctrl.listChefsProjets);
