@@ -2,7 +2,7 @@ const repo = require('../repositories/bl-template.repository');
 const docs = require('../../../shared/documents.service');
 
 module.exports = {
-    list() { return repo.list(); },
+    list(category) { return repo.list(category); },
     get(id) { return repo.get(id); },
     getDefault() { return repo.getDefault(); },
 

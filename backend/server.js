@@ -2208,6 +2208,9 @@ app.use('/api/copieurs', copieursRouter);
 // Parc Module (inventaire GLPI 10 : ordinateurs, moniteurs, périphériques, imprimantes)
 app.use('/api/parc', require('./modules/parc/parc.routes'));
 
+// Parc Mobilité (téléphones & tablettes, importé depuis Excel — historique par device)
+app.use('/api/mobilite', require('./modules/mobilite/mobilite.routes'));
+
 // Déploiements Module (fiches de déploiement parc)
 app.use('/api/deploiements', require('./modules/deploiements/deploiements.routes'));
 
@@ -3006,6 +3009,14 @@ setupDb().then(async database => {
         await runAllMigrations();
     } catch (e) {
         console.error('[DOCS MIGRATION] échec:', e.message);
+    }
+
+    // Amorçage mobilité : magasin dédié + gabarits de fiche remise/retour (idempotent)
+    try {
+        const { bootstrapMobilite } = require('./modules/mobilite/mobilite.bootstrap');
+        await bootstrapMobilite();
+    } catch (e) {
+        console.error('[MOBILITE BOOTSTRAP] échec:', e.message);
     }
 
     // Deduplicate operations (keep the one with linked commands)

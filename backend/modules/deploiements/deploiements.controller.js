@@ -181,13 +181,28 @@ async function list(req, res) {
         pe.raw->>'states_id'    AS periph_statut,
         pe.raw->>'name'         AS periph_nom
       FROM hub_deploiements.fiches f
-      LEFT JOIN hub_parc.items uc ON uc.name = f.uc_nouveau_num AND NOT uc.is_deleted
-      LEFT JOIN hub_parc.items ec ON ec.name = f.ecran1_nouveau_num AND NOT ec.is_deleted
-      LEFT JOIN hub_parc.items pe
-        ON f.materiel_type = 'PERIPH'
-        AND pe.itemtype = 'Peripheral'
-        AND NOT pe.is_deleted
-        AND pe.raw->>'serial' = split_part(split_part(f.autre_designation,'(',2),')',1)
+      -- Jointures LATERAL limitées à 1 ligne : évite la duplication d'affichage
+      -- quand plusieurs items du parc portent le même nom. On privilégie l'item
+      -- dont le n° de série correspond à celui de la fiche.
+      LEFT JOIN LATERAL (
+        SELECT * FROM hub_parc.items i
+        WHERE i.name = f.uc_nouveau_num AND NOT i.is_deleted
+        ORDER BY (CASE WHEN i.raw->>'serial' = f.uc_nouveau_serie THEN 0 ELSE 1 END), i.glpi_id
+        LIMIT 1
+      ) uc ON true
+      LEFT JOIN LATERAL (
+        SELECT * FROM hub_parc.items i
+        WHERE i.name = f.ecran1_nouveau_num AND NOT i.is_deleted
+        ORDER BY (CASE WHEN i.raw->>'serial' = f.ecran1_nouveau_serie THEN 0 ELSE 1 END), i.glpi_id
+        LIMIT 1
+      ) ec ON true
+      LEFT JOIN LATERAL (
+        SELECT * FROM hub_parc.items i
+        WHERE f.materiel_type = 'PERIPH' AND i.itemtype = 'Peripheral' AND NOT i.is_deleted
+          AND i.raw->>'serial' = split_part(split_part(f.autre_designation,'(',2),')',1)
+        ORDER BY i.glpi_id
+        LIMIT 1
+      ) pe ON true
       ${wClause}
       ORDER BY ${orderBy}
       LIMIT ${lim} OFFSET ${off}
@@ -670,6 +685,33 @@ async function mergeInstallateurs(req, res) {
   }
 }
 
+// ──────────────────────────────────────────────────────────────────────────────
+// POST /api/deploiements/installateurs/rename — renomme un installateur
+//   body { from, to } : si "to" existe déjà, les fiches sont fusionnées dedans.
+// ──────────────────────────────────────────────────────────────────────────────
+async function renameInstallateur(req, res) {
+  try {
+    const from = (req.body?.from || '').trim();
+    const to = (req.body?.to || '').trim();
+    if (!from) return res.status(400).json({ message: 'from requis' });
+    if (!to) return res.status(400).json({ message: 'Nouveau nom (to) requis' });
+    if (from === to) return res.status(400).json({ message: 'Le nom est inchangé' });
+    const client = await pool.connect();
+    try {
+      const existed = (await client.query(
+        `SELECT COUNT(*)::int n FROM hub_deploiements.fiches WHERE installateur = $1`, [to]
+      )).rows[0].n > 0;
+      const result = await client.query(
+        `UPDATE hub_deploiements.fiches SET installateur = $1 WHERE installateur = $2`, [to, from]
+      );
+      return res.json({ from, to, updated: result.rowCount, merged: existed });
+    } finally { client.release(); }
+  } catch (e) {
+    console.error('[deploiements] renameInstallateur error:', e.message);
+    return res.status(500).json({ message: e.message });
+  }
+}
+
 // ── Table de cache AD (créée à la volée) ──────────────────────────────────────
 async function ensureAdCacheTable(client) {
   await client.query(`
@@ -861,5 +903,5 @@ async function renameType(req, res) {
 
 module.exports = {
   list, kpis, matches, glpiProposals, serveFile, previewFile, update, conflicts,
-  facets, mergeInstallateurs, adMatchGet, adMatchRun, mergePair, renameType,
+  facets, mergeInstallateurs, renameInstallateur, adMatchGet, adMatchRun, mergePair, renameType,
 };

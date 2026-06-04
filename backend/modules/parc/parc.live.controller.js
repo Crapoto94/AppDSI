@@ -253,12 +253,49 @@ function countDuplicateSerials(rows) {
 }
 
 // lists : { ordinateurs:[...], moniteurs:[...], … } lignes normalisées & enrichies
-function computeKpis(lists) {
+// Nombre d'ordinateurs déployés par année (fiches déploiement avec un UC neuf).
+async function loadDeploiementsParAnnee() {
+  try {
+    const { pgDb } = require('../../shared/database');
+    const rows = await pgDb.all(`
+      SELECT EXTRACT(YEAR FROM date_deploiement)::int AS annee, COUNT(*)::int AS n
+      FROM hub_deploiements.fiches
+      WHERE date_deploiement IS NOT NULL AND uc_nouveau_num IS NOT NULL AND TRIM(uc_nouveau_num) <> ''
+      GROUP BY 1 ORDER BY 1`);
+    return rows.map((r) => ({ annee: String(r.annee), count: r.n }));
+  } catch (e) { return []; }
+}
+
+// Compte les téléphones / tablettes depuis la table ad hoc « mobilité ».
+async function loadMobiliteCounts() {
+  try {
+    const { pgDb } = require('../../shared/database');
+    const rows = await pgDb.all(`SELECT famille, COUNT(*)::int AS n FROM hub_parc.mobilite_devices GROUP BY famille`);
+    const m = { telephone: 0, tablette: 0 };
+    for (const r of rows) {
+      if (r.famille === 'telephone') m.telephone = r.n;
+      else if (r.famille === 'tablette') m.tablette = r.n;
+    }
+    return m;
+  } catch (e) { return null; }
+}
+
+function computeKpis(lists, mobilite = null) {
   const keys = Object.keys(glpi.ITEM_TYPES);
-  const byType = keys.map((key) => ({
-    key, label: glpi.ITEM_TYPES[key].label,
-    count: (lists[key] || []).length, value: sumValue(lists[key] || []),
-  }));
+  const byType = keys
+    .filter((key) => key !== 'reseau') // « Équipements réseau » retiré du dashboard
+    .map((key) => ({
+      key, label: glpi.ITEM_TYPES[key].label,
+      count: (lists[key] || []).length, value: sumValue(lists[key] || []),
+    }));
+  if (mobilite) {
+    // Téléphones : comptés depuis la table ad hoc « mobilité » (et non GLPI Phone)
+    const tel = byType.find((t) => t.key === 'telephones');
+    if (tel) tel.count = mobilite.telephone;
+    else byType.push({ key: 'telephones', label: 'Téléphones', count: mobilite.telephone, value: 0 });
+    // Tablettes : nouveau type issu de la mobilité
+    byType.push({ key: 'tablettes', label: 'Tablettes', count: mobilite.tablette, value: 0 });
+  }
   const totalAll = byType.reduce((s, x) => s + x.count, 0);
   const valeurParc = Math.round(byType.reduce((s, x) => s + x.value, 0) * 100) / 100;
 
@@ -298,6 +335,7 @@ function computeKpis(lists) {
       miseEnService: { connue: miseEnServiceConnue, inconnue: sansMiseEnService, tauxConnue: pct(miseEnServiceConnue, nbPc) },
       age: { moyen: ageMoyen, aRenouveler, tauxRenouveler: pct(aRenouveler, nbPc), tranches: ageBuckets(pcs) },
       parStatut: topCounts(pcs, 'state'),
+      parGroupe: topCounts(pcs, 'group'),
       parLieu: topCounts(pcs, 'location'),
       parFabricant: topCounts(pcs, 'manufacturer'),
       parModele: topCounts(pcs, 'model'),
@@ -607,7 +645,10 @@ async function kpis(req, res) {
       try { lists[key] = (await loadType(glpi.ITEM_TYPES[key].itemtype, { refresh, ic, os, dc })).filter((r) => !r.is_deleted); }
       catch (e) { lists[key] = []; }
     }));
-    res.json({ source: 'live', ...computeKpis(lists), cache: Object.fromEntries(keys.map((k) => [k, glpi.cacheInfo(glpi.ITEM_TYPES[k].itemtype)])) });
+    const [mob, deployParAn] = await Promise.all([loadMobiliteCounts(), loadDeploiementsParAnnee()]);
+    const k = computeKpis(lists, mob);
+    k.ordinateurs.deploiementsParAnnee = deployParAn;
+    res.json({ source: 'live', ...k, cache: Object.fromEntries(keys.map((kk) => [kk, glpi.cacheInfo(glpi.ITEM_TYPES[kk].itemtype)])) });
   } catch (error) { res.status(500).json({ message: error.message }); }
 }
 
@@ -650,6 +691,6 @@ module.exports = {
   core: {
     normalize, mergeInfocom, mapPort, mapOs, mapDoc,
     applyListQuery, buildFilters, computeKpis, buildItemResponse, attachUsagerEmails,
-    enrichAdFound, computeUsagersEquip, computeStockSummary,
+    enrichAdFound, computeUsagersEquip, computeStockSummary, loadMobiliteCounts, loadDeploiementsParAnnee,
   },
 };

@@ -2,13 +2,14 @@ const { pgDb } = require('../../../shared/database');
 
 module.exports = {
     // ─── Sorties / BL ────────────────────────────────────────
-    async createDelivery({ store_id, beneficiary_name, beneficiary_username, beneficiary_email, notes, delivered_by, template_id, prepared_by }) {
+    async createDelivery({ store_id, beneficiary_name, beneficiary_username, beneficiary_email, notes, delivered_by, template_id, prepared_by, kind, meta }) {
         const r = await pgDb.run(
             `INSERT INTO hub_stocks.deliveries
-                (store_id, beneficiary_name, beneficiary_username, beneficiary_email, notes, delivered_by, template_id, prepared_by)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+                (store_id, beneficiary_name, beneficiary_username, beneficiary_email, notes, delivered_by, template_id, prepared_by, kind, meta)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb)`,
             [store_id, beneficiary_name || null, beneficiary_username || null, beneficiary_email || null,
-             notes || null, delivered_by || null, template_id || null, prepared_by || null]
+             notes || null, delivered_by || null, template_id || null, prepared_by || null,
+             kind || 'delivery', JSON.stringify(meta || {})]
         );
         return r.lastID;
     },

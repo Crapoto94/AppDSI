@@ -373,7 +373,7 @@ module.exports = {
 
     // ─── Gabarits de BL ──────────────────────────────────────
     async listBlTemplates(req, res) {
-        try { res.json(await blTemplateService.list()); }
+        try { res.json(await blTemplateService.list(req.query.category)); }
         catch (e) { res.status(500).json({ message: e.message }); }
     },
     async getBlTemplate(req, res) {

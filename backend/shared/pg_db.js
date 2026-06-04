@@ -3028,6 +3028,93 @@ async function setupPgDb() {
       )
     `);
 
+    // ─── hub_parc : MOBILITÉ (téléphones & tablettes, importé depuis Excel) ──────
+    // Modèle « historique par device » : chaque ligne du fichier source est un
+    // ÉVÉNEMENT (action : dotation, mise à disposition, prêt, retour, vol, cession…)
+    // rattaché à un appareil identifié par sa clé (IMEI normalisé, à défaut série /
+    // étiquetage / n° de ligne). La table « devices » matérialise le DERNIER état de
+    // chaque appareil + le nombre d'actions, recalculée à chaque import.
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS hub_parc.mobilite_events (
+        id            SERIAL PRIMARY KEY,
+        device_key    TEXT NOT NULL,
+        seq           INTEGER,                 -- ordre chronologique dans l'appareil
+        direction     TEXT,
+        service       TEXT,
+        agent         TEXT,
+        action        TEXT,                    -- ACTION brute (Dotation, Retour…)
+        action_norm   TEXT,                    -- action normalisée (catégorie)
+        is_retour     BOOLEAN DEFAULT FALSE,
+        date_event    DATE,
+        quantite      INTEGER,
+        type_appareil TEXT,                    -- TYPE (Iphone, Smartphone Android…)
+        famille       TEXT,                    -- 'telephone' | 'tablette' | 'sim' | 'autre'
+        modele        TEXT,
+        imei          TEXT,
+        serial        TEXT,
+        etiquetage    TEXT,
+        numero_ligne  TEXT,
+        carte_sim     TEXT,
+        code_puk      TEXT,
+        statut        TEXT,                    -- colonne PRÊT (MISE A DISPOSITION, STOCK, RETOUR DEFECTUEUX…)
+        ligne_active  TEXT,
+        forfait       TEXT,
+        mdm           TEXT,
+        pret_du       TEXT,
+        pret_au       TEXT,
+        rapport_pret  TEXT,
+        dernier_util  TEXT,
+        observations  TEXT,
+        bl            TEXT,
+        bl_date       TEXT,
+        bdc           TEXT,
+        bdc_date      TEXT,
+        raw           JSONB,
+        import_batch  TEXT,
+        created_at    TIMESTAMP DEFAULT NOW()
+      )
+    `);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_mob_events_key ON hub_parc.mobilite_events(device_key)`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_mob_events_action ON hub_parc.mobilite_events(action_norm)`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_mob_events_date ON hub_parc.mobilite_events(date_event)`);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS hub_parc.mobilite_devices (
+        device_key       TEXT PRIMARY KEY,
+        imei             TEXT,
+        serial           TEXT,
+        etiquetage       TEXT,
+        type_appareil    TEXT,
+        famille          TEXT,
+        modele           TEXT,
+        numero_ligne     TEXT,
+        carte_sim        TEXT,
+        forfait          TEXT,
+        mdm              TEXT,
+        ligne_active     TEXT,
+        -- dernier état (dernier événement chronologique)
+        last_action      TEXT,
+        last_action_norm TEXT,
+        last_statut      TEXT,
+        last_date        DATE,
+        last_direction   TEXT,
+        last_service     TEXT,
+        last_agent       TEXT,
+        dernier_util     TEXT,
+        observations     TEXT,
+        -- agrégats
+        events_count     INTEGER DEFAULT 0,
+        retours_count    INTEGER DEFAULT 0,
+        first_date       DATE,
+        is_actif         BOOLEAN DEFAULT FALSE,  -- en service (pas retourné/volé/cédé)
+        import_batch     TEXT,
+        updated_at       TIMESTAMP DEFAULT NOW()
+      )
+    `);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_mob_dev_famille ON hub_parc.mobilite_devices(famille)`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_mob_dev_lastaction ON hub_parc.mobilite_devices(last_action_norm)`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_mob_dev_dir ON hub_parc.mobilite_devices(last_direction)`);
+
     await client.query(`
       CREATE TABLE IF NOT EXISTS hub_calendrier.evenements (
         id SERIAL PRIMARY KEY,
@@ -4094,6 +4181,39 @@ async function setupPgDb() {
     // Étendre le statut pour inclure 'prepared'
     try { await client.query(`ALTER TABLE hub_stocks.deliveries DROP CONSTRAINT IF EXISTS deliveries_status_check`); } catch (e) {}
     try { await client.query(`ALTER TABLE hub_stocks.deliveries ADD CONSTRAINT deliveries_status_check CHECK (status IN ('draft','prepared','signed','delivered'))`); } catch (e) {}
+
+    // ─── Gabarits partagés (BL / remise / retour) + sorties « remise/retour » mobilité ─
+    // Le module de gabarits de /stocks/admin devient partagé : une catégorie distingue
+    // les bons de livraison classiques des fiches de remise/retour de matériel mobile.
+    try { await client.query(`ALTER TABLE hub_stocks.bl_templates ADD COLUMN IF NOT EXISTS category VARCHAR(20) DEFAULT 'bl'`); } catch (e) {}
+    // Sorties réutilisées pour la mobilité : sens (remise/retour) + variables de fiche libres.
+    try { await client.query(`ALTER TABLE hub_stocks.deliveries ADD COLUMN IF NOT EXISTS kind VARCHAR(20) DEFAULT 'delivery'`); } catch (e) {}
+    try { await client.query(`ALTER TABLE hub_stocks.deliveries ADD COLUMN IF NOT EXISTS meta JSONB DEFAULT '{}'::jsonb`); } catch (e) {}
+
+    // ─── hub_parc.mobilite_* : liaison avec le stock (cycle de vie via /stocks) ────
+    try { await client.query(`ALTER TABLE hub_parc.mobilite_devices ADD COLUMN IF NOT EXISTS serial_item_id INTEGER`); } catch (e) {}
+    try { await client.query(`ALTER TABLE hub_parc.mobilite_devices ADD COLUMN IF NOT EXISTS store_id INTEGER`); } catch (e) {}
+    try { await client.query(`ALTER TABLE hub_parc.mobilite_devices ADD COLUMN IF NOT EXISTS last_delivery_id INTEGER`); } catch (e) {}
+    try { await client.query(`ALTER TABLE hub_parc.mobilite_events ADD COLUMN IF NOT EXISTS delivery_id INTEGER`); } catch (e) {}
+    try { await client.query(`ALTER TABLE hub_parc.mobilite_events ADD COLUMN IF NOT EXISTS source VARCHAR(20) DEFAULT 'import'`); } catch (e) {}
+    try { await client.query(`CREATE INDEX IF NOT EXISTS idx_mob_dev_serialitem ON hub_parc.mobilite_devices(serial_item_id)`); } catch (e) {}
+
+    // ─── Cycle de vie par état (stock / en_attribution / attribue / sorti) ────────
+    try { await client.query(`ALTER TABLE hub_parc.mobilite_devices ADD COLUMN IF NOT EXISTS statut VARCHAR(20)`); } catch (e) {}
+    try { await client.query(`ALTER TABLE hub_parc.mobilite_devices ADD COLUMN IF NOT EXISTS pret_due_date DATE`); } catch (e) {}
+    try { await client.query(`ALTER TABLE hub_parc.mobilite_devices ADD COLUMN IF NOT EXISTS fiche_document_id INTEGER`); } catch (e) {}
+    try { await client.query(`ALTER TABLE hub_parc.mobilite_devices ADD COLUMN IF NOT EXISTS attrib JSONB DEFAULT '{}'::jsonb`); } catch (e) {}
+    // Backfill une seule fois (ne touche que les lignes sans statut) depuis la dernière action.
+    try {
+      await client.query(`
+        UPDATE hub_parc.mobilite_devices SET statut = CASE
+          WHEN last_action_norm = 'Retour' THEN 'stock'
+          WHEN last_action_norm IN ('Vol','Cession') THEN 'sorti'
+          WHEN last_action_norm IN ('Dotation','Mise à disposition','Prêt','Remplacement') THEN 'attribue'
+          ELSE 'stock' END
+        WHERE statut IS NULL`);
+    } catch (e) { console.error('[DB] backfill mobilite statut:', e.message); }
+    try { await client.query(`CREATE INDEX IF NOT EXISTS idx_mob_dev_statut ON hub_parc.mobilite_devices(statut)`); } catch (e) {}
 
     // ─── Module Réseau Ville (hub_reseau) — v2 DIP ────────────────
     // Données réelles extraites des DIP (Dossiers d'Infrastructure et de Production).

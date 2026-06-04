@@ -1,13 +1,14 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import Header from '../components/Header';
+import MobiliteView from './parc/MobiliteView';
 import axios from 'axios';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer, PieChart, Pie, Cell, AreaChart, Area,
+  ResponsiveContainer, PieChart, Pie, Cell, AreaChart, Area, Legend,
 } from 'recharts';
 import {
-  Monitor, Laptop, Printer, HardDrive, Network, Phone, Search, X,
+  Monitor, Laptop, Printer, HardDrive, Tablet, Projector, Phone, Search, X,
   RefreshCw, MapPin, User, Tag, Cpu, Activity, BarChart3, List,
   CheckCircle2, AlertTriangle, Layers, ChevronRight, Boxes,
   Euro, ShieldCheck, Clock, Truck, Database, FileText, Users, CalendarCheck2, CalendarDays,
@@ -22,10 +23,9 @@ const TYPES = [
   { key: 'moniteurs',     label: 'Moniteurs',     icon: Monitor },
   { key: 'peripheriques', label: 'Périphériques', icon: HardDrive },
   { key: 'imprimantes',   label: 'Imprimantes',   icon: Printer },
-  { key: 'reseau',        label: 'Réseau',        icon: Network },
-  { key: 'telephones',    label: 'Téléphones',    icon: Phone },
+  { key: 'telephones',    label: 'Téléphones et tablettes', icon: Phone },
 ];
-const TYPE_ICON: Record<string, any> = Object.fromEntries(TYPES.map(t => [t.key, t.icon]));
+const TYPE_ICON: Record<string, any> = { ...Object.fromEntries(TYPES.map(t => [t.key, t.icon])), tablettes: Tablet };
 const COLORS = ['#2563eb', '#7c3aed', '#0891b2', '#059669', '#d97706', '#dc2626', '#db2777', '#65a30d', '#0ea5e9', '#9333ea'];
 const C = { blue: '#2563eb', slate: '#64748b', green: '#059669', amber: '#d97706', red: '#dc2626', bg: '#f1f5f9', card: '#fff', border: '#e2e8f0', text: '#0f172a' };
 
@@ -130,12 +130,14 @@ interface Kpis {
     miseEnService: { connue: number; inconnue: number; tauxConnue: number };
     age: { moyen: number | null; aRenouveler: number; tauxRenouveler: number; tranches: Count[] };
     parStatut: Count[];
+    parGroupe: Count[];
     parLieu: Count[];
     parFabricant: Count[];
     parModele: Count[];
     parFournisseur: Count[];
     parOs: Count[];
     ajoutsParAnnee: { annee: string; count: number }[];
+    deploiementsParAnnee?: { annee: string; count: number }[];
   };
   ratios: { moniteursParPc: number; peripheriquesParPc: number };
 }
@@ -161,6 +163,10 @@ const ParcInformatique: React.FC = () => {
   const [kpis, setKpis] = useState<Kpis | null>(null);
   const [kpiErr, setKpiErr] = useState<string | null>(null);
   const [loadingKpi, setLoadingKpi] = useState(false);
+  // Modal liste d'ordinateurs concernés (doublons de série / à renouveler)
+  const [pcModal, setPcModal] = useState<{ kind: 'dup' | 'renew'; title: string } | null>(null);
+  const [pcModalRows, setPcModalRows] = useState<Row[]>([]);
+  const [pcModalLoading, setPcModalLoading] = useState(false);
 
   // Liste
   const [type, setType] = useState('ordinateurs');
@@ -248,6 +254,9 @@ const ParcInformatique: React.FC = () => {
   // Fusion manuelle de 2 fiches : ordre = [garder, compléter+supprimer]
   const [deploySel, setDeploySel] = useState<number[]>([]);
   const [pairMerging, setPairMerging] = useState(false);
+  // Renommage d'un installateur
+  const [instEdit, setInstEdit] = useState<{ from: string; value: string } | null>(null);
+  const [instSaving, setInstSaving] = useState(false);
   // Renommage / fusion des types d'opération
   const [typesOpen, setTypesOpen] = useState(false);
   const [typeEdit, setTypeEdit] = useState<{ from: string | null; value: string } | null>(null);
@@ -270,6 +279,28 @@ const ParcInformatique: React.FC = () => {
       setKpiErr(e.response?.data?.message || e.message);
     } finally { setLoadingKpi(false); }
   }, [token, source]);
+
+  // Ouvre le modal listant les ordinateurs concernés (doublons série / à renouveler)
+  const openPcModal = useCallback(async (kind: 'dup' | 'renew') => {
+    setPcModal({ kind, title: kind === 'dup' ? 'Ordinateurs en doublon de n° de série' : 'Ordinateurs à renouveler (> 5 ans)' });
+    setPcModalLoading(true); setPcModalRows([]);
+    try {
+      const r = await api.get('/tous', { params: { all: 1, deleted: '0' } });
+      const pcs: Row[] = (r.data.rows || []).filter((x: Row) => x.type_key === 'ordinateurs');
+      let out: Row[] = [];
+      if (kind === 'renew') {
+        out = pcs.filter(x => x.age_years != null && (x.age_years as number) >= 5)
+          .sort((a, b) => (b.age_years || 0) - (a.age_years || 0));
+      } else {
+        const m = new Map<string, number>();
+        for (const x of pcs) { const s = (x.serial || '').trim().toLowerCase(); if (s) m.set(s, (m.get(s) || 0) + 1); }
+        out = pcs.filter(x => { const s = (x.serial || '').trim().toLowerCase(); return s && (m.get(s) || 0) > 1; })
+          .sort((a, b) => (a.serial || '').localeCompare(b.serial || ''));
+      }
+      setPcModalRows(out);
+    } catch { setPcModalRows([]); }
+    finally { setPcModalLoading(false); }
+  }, [api]);
 
   // ── Liste ──
   const loadList = useCallback(async (refresh = false) => {
@@ -482,6 +513,25 @@ const ParcInformatique: React.FC = () => {
     } finally { setInstMerging(false); }
   }, [token, instKeep, instSel, loadDeployFacets, loadDeploys]);
 
+  // ── Renommage d'installateur ──
+  const doRenameInstallateur = useCallback(async () => {
+    if (!instEdit) return;
+    const to = instEdit.value.trim();
+    if (!to || to === instEdit.from) { setInstEdit(null); return; }
+    setInstSaving(true);
+    try {
+      await axios.post('/api/deploiements/installateurs/rename',
+        { from: instEdit.from, to },
+        { headers: { Authorization: `Bearer ${token}` } });
+      setInstEdit(null);
+      await loadDeployFacets();
+      loadDeploys();
+      loadDeployKpis();
+    } catch (e: any) {
+      alert(`Erreur renommage : ${e.response?.data?.message || e.message}`);
+    } finally { setInstSaving(false); }
+  }, [token, instEdit, loadDeployFacets, loadDeploys]);
+
   // ── Fusion manuelle de 2 fiches ──
   const toggleDeploySel = useCallback((id: number) => {
     setDeploySel(prev => {
@@ -539,7 +589,7 @@ const ParcInformatique: React.FC = () => {
   const [deployConflictData, setDeployConflictData] = useState<{ total: number; by_type: Record<string, number>; rows: any[] } | null>(null);
   const [deployConflictFilter, setDeployConflictFilter] = useState<string>('');
   const [deployEditRow, setDeployEditRow] = useState<any | null>(null);
-  const [docViewer, setDocViewer] = useState<{ path: string; filename: string } | null>(null);
+  const [docViewer, setDocViewer] = useState<{ path: string; filename: string; glpiDocId?: number | null } | null>(null);
 
   const loadDeployConflicts = useCallback(async () => {
     try {
@@ -645,10 +695,13 @@ const ParcInformatique: React.FC = () => {
                     return <StatCard key={t.key} icon={I} label={t.label} value={t.count} color={COLORS[i % COLORS.length]}
                       onClick={() => { setType(t.key); setTab('list'); }} />;
                   })}
+                  <StatCard icon={Clock} label="Âge moyen PC" value={kpis.ordinateurs.age.moyen ?? 0} suffix=" ans" color={C.slate} decimals />
+                  <StatCard icon={RefreshCw} label="PC à renouveler (>5 ans)" value={kpis.ordinateurs.age.aRenouveler}
+                    sub={`${kpis.ordinateurs.age.tauxRenouveler}%`} color={C.amber} onClick={() => openPcModal('renew')} />
                 </div>
 
-                {/* Affectation + qualité */}
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 18 }}>
+                {/* Affectation */}
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 16, marginBottom: 18 }}>
                   <Panel title="Affectation des ordinateurs" icon={User}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 24 }}>
                       <Gauge value={kpis.ordinateurs.tauxAffectation} />
@@ -689,23 +742,21 @@ const ParcInformatique: React.FC = () => {
                         </div>
                       );
                     })()}
+                    {/* Répartition par groupe */}
+                    {(kpis.ordinateurs.parGroupe || []).length > 0 && (
+                      <div style={{ marginTop: 14, paddingTop: 12, borderTop: `1px solid ${C.border}` }}>
+                        <div style={{ fontSize: '.72rem', fontWeight: 800, color: C.slate, textTransform: 'uppercase', letterSpacing: '.04em', marginBottom: 8 }}>Par groupe</div>
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                          {kpis.ordinateurs.parGroupe.map(g => (
+                            <span key={g.label} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: '#f5f3ff', border: '1px solid #ede9fe', borderRadius: 8, padding: '3px 9px', fontSize: '.78rem' }}>
+                              <span style={{ color: '#7c3aed', fontWeight: 700 }}>{g.label}</span>
+                              <span style={{ background: '#7c3aed', color: '#fff', borderRadius: 10, padding: '0 7px', fontWeight: 800, fontSize: '.72rem' }}>{g.count}</span>
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                   </Panel>
-                  <Panel title="Qualité des données" icon={CheckCircle2}>
-                    <QualityBar label="N° de série renseigné" pct={kpis.ordinateurs.qualite.tauxSerie} sub={`${kpis.ordinateurs.qualite.sansSerie} manquants`} />
-                    <QualityBar label="N° d'inventaire renseigné" pct={kpis.ordinateurs.qualite.tauxInventaire} sub={`${kpis.ordinateurs.qualite.sansInventaire} manquants`} />
-                    <QualityBar label="Lieu renseigné" pct={kpis.ordinateurs.qualite.tauxLieu} sub={`${kpis.ordinateurs.qualite.sansLieu} manquants`} />
-                  </Panel>
-                </div>
-
-                {/* Indicateurs de gestion */}
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(165px,1fr))', gap: 14, marginBottom: 18 }}>
-                  <StatCard icon={Euro} label="Valeur du parc" value={kpis.valeurParc} color="#0891b2" money />
-                  <StatCard icon={CalendarCheck2} label="Mise en service connue" value={kpis.ordinateurs.miseEnService.connue}
-                    sub={`${kpis.ordinateurs.miseEnService.tauxConnue}%`} color={C.green} />
-                  <StatCard icon={Clock} label="Âge moyen PC"
-                    value={kpis.ordinateurs.age.moyen ?? 0} suffix=" ans" color={C.slate} decimals />
-                  <StatCard icon={RefreshCw} label="PC à renouveler (>5 ans)" value={kpis.ordinateurs.age.aRenouveler}
-                    sub={`${kpis.ordinateurs.age.tauxRenouveler}%`} color={C.amber} />
                 </div>
 
                 {/* Anomalies / qualité d'inventaire */}
@@ -713,11 +764,10 @@ const ParcInformatique: React.FC = () => {
                   <Panel title="Anomalies à traiter" icon={AlertTriangle}>
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(155px,1fr))', gap: 12 }}>
                       <Anomaly label="Sans n° de série" n={kpis.ordinateurs.qualite.sansSerie} />
-                      <Anomaly label="Sans n° d'inventaire" n={kpis.ordinateurs.qualite.sansInventaire} />
                       <Anomaly label="Sans lieu" n={kpis.ordinateurs.qualite.sansLieu} />
                       <Anomaly label="Non affectés" n={kpis.ordinateurs.nonAffectes} />
                       <Anomaly label="Sans date de mise en service" n={kpis.ordinateurs.qualite.sansMiseEnService} />
-                      <Anomaly label="Doublons de série" n={kpis.ordinateurs.qualite.doublonsSerie} />
+                      <Anomaly label="Doublons de série" n={kpis.ordinateurs.qualite.doublonsSerie} onClick={() => openPcModal('dup')} />
                     </div>
                   </Panel>
                 </div>
@@ -725,7 +775,7 @@ const ParcInformatique: React.FC = () => {
                 {/* Graphiques */}
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 18 }}>
                   <Panel title="Ordinateurs par statut" icon={Activity}>
-                    <PieBlock data={kpis.ordinateurs.parStatut} />
+                    <PieBlock data={kpis.ordinateurs.parStatut.map(s => (s.label || '').trim().toLowerCase() === 'en stock' ? { ...s, label: 'En stock réusage' } : s)} />
                   </Panel>
                   <Panel title="Top fabricants" icon={Cpu}>
                     <BarBlock data={kpis.ordinateurs.parFabricant.slice(0, 8)} color="#7c3aed" />
@@ -735,9 +785,6 @@ const ParcInformatique: React.FC = () => {
                   </Panel>
                   <Panel title="Top modèles" icon={Layers}>
                     <BarBlock data={kpis.ordinateurs.parModele.slice(0, 8)} color="#059669" />
-                  </Panel>
-                  <Panel title="Top fournisseurs" icon={Truck}>
-                    <BarBlock data={kpis.ordinateurs.parFournisseur.slice(0, 8)} color="#0891b2" />
                   </Panel>
                   <Panel title="Systèmes d'exploitation" icon={Cpu}>
                     <BarBlock data={kpis.ordinateurs.parOs.slice(0, 8)} color="#d97706" />
@@ -770,21 +817,39 @@ const ParcInformatique: React.FC = () => {
                   </Panel>
                 )}
 
-                {kpis.ordinateurs.ajoutsParAnnee.length > 1 && (
-                  <Panel title="Ajouts d'ordinateurs au parc par année" icon={BarChart3}>
-                    <ResponsiveContainer width="100%" height={220}>
-                      <AreaChart data={kpis.ordinateurs.ajoutsParAnnee}>
-                        <defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="0%" stopColor={C.blue} stopOpacity={0.35} /><stop offset="100%" stopColor={C.blue} stopOpacity={0} />
-                        </linearGradient></defs>
+                {kpis.ordinateurs.ajoutsParAnnee.length > 1 && (() => {
+                  // Fusion des 2 séries par année : ajouts au parc vs ordinateurs déployés
+                  const add = kpis.ordinateurs.ajoutsParAnnee.filter(a => a.annee >= '2020');
+                  const dep = (kpis.ordinateurs.deploiementsParAnnee || []).filter(d => d.annee >= '2020');
+                  const yrs = Array.from(new Set([...add.map(a => a.annee), ...dep.map(d => d.annee)])).sort();
+                  const data = yrs.map(y => ({
+                    annee: y,
+                    ajouts: add.find(a => a.annee === y)?.count || 0,
+                    deploiements: dep.find(d => d.annee === y)?.count || 0,
+                  }));
+                  return (
+                  <Panel title="Ordinateurs : ajouts au parc vs déployés, par année" icon={BarChart3}>
+                    <ResponsiveContainer width="100%" height={240}>
+                      <AreaChart data={data}>
+                        <defs>
+                          <linearGradient id="g" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="0%" stopColor={C.blue} stopOpacity={0.35} /><stop offset="100%" stopColor={C.blue} stopOpacity={0} />
+                          </linearGradient>
+                          <linearGradient id="gDep" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="0%" stopColor="#059669" stopOpacity={0.3} /><stop offset="100%" stopColor="#059669" stopOpacity={0} />
+                          </linearGradient>
+                        </defs>
                         <CartesianGrid strokeDasharray="3 3" stroke="#eef2f7" />
                         <XAxis dataKey="annee" tick={{ fontSize: 12 }} /><YAxis tick={{ fontSize: 12 }} allowDecimals={false} />
                         <Tooltip />
-                        <Area type="monotone" dataKey="count" name="Ordinateurs" stroke={C.blue} fill="url(#g)" strokeWidth={2} />
+                        <Legend wrapperStyle={{ fontSize: '.8rem' }} />
+                        <Area type="monotone" dataKey="ajouts" name="Ajoutés au parc" stroke={C.blue} fill="url(#g)" strokeWidth={2} />
+                        <Area type="monotone" dataKey="deploiements" name="Déployés" stroke="#059669" fill="url(#gDep)" strokeWidth={2} />
                       </AreaChart>
                     </ResponsiveContainer>
                   </Panel>
-                )}
+                  );
+                })()}
               </>
             )}
           </>
@@ -807,6 +872,9 @@ const ParcInformatique: React.FC = () => {
               })}
             </div>
 
+            {/* Téléphones & tablettes : vue Mobilité dédiée (table hub_parc.mobilite_*) */}
+            {type === 'telephones' ? <MobiliteView token={token || ''} /> : (
+            <>
             {/* Filtres */}
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginBottom: 14, alignItems: 'center' }}>
               <div style={{ position: 'relative', flex: '1 1 260px' }}>
@@ -974,6 +1042,8 @@ const ParcInformatique: React.FC = () => {
                 </div>
               )}
             </div>
+            </>
+            )}
           </>
         )}
 
@@ -1062,7 +1132,9 @@ const ParcInformatique: React.FC = () => {
                                 <td colSpan={6} style={{ padding: '8px 14px', fontWeight: 800, fontSize: '.78rem', color: C.blue, textTransform: 'uppercase', letterSpacing: '.04em' }}>
                                   <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
                                     <ChevronRight size={14} style={{ transition: 'transform .18s', transform: open ? 'rotate(90deg)' : 'rotate(0deg)' }} />
-                                    {typeLabel}
+                                    {typeLabel === 'Téléphones'
+                                      ? <><Phone size={14} color="#2563eb" /><Tablet size={14} color="#7c3aed" />{typeLabel}</>
+                                      : typeLabel}
                                     <span style={{ background: '#eff6ff', color: C.blue, borderRadius: 20, padding: '1px 8px', fontWeight: 700, fontSize: '.76rem', marginLeft: 4 }}>{typeTotal}</span>
                                   </span>
                                 </td>
@@ -1397,30 +1469,30 @@ const ParcInformatique: React.FC = () => {
             // ── Correspondances directes sur materiel_type (source deploy.xlsx) ──
             if (mt) {
               // Écrans seuls
-              if (/^(ECRAN|EC\d+|EC$)$/.test(mt)) return { label: 'Écran', color: '#0891b2', bg: '#e0f2fe', icon: '🖥' };
+              if (/^(ECRAN|EC\d+|EC$)$/.test(mt)) return { label: 'Écran', color: '#0891b2', bg: '#e0f2fe', icon: 'Monitor' };
               // PC fixes (UC, AIO, iMac)
-              if (mt === 'AIO' || mt === 'IMAC') return { label: 'PC Tout-en-un', color: '#7c3aed', bg: '#faf5ff', icon: '🖥' };
-              if (mt === 'UC') return { label: 'PC Fixe', color: '#1d4ed8', bg: '#dbeafe', icon: '🖥' };
+              if (mt === 'AIO' || mt === 'IMAC') return { label: 'PC Tout-en-un', color: '#7c3aed', bg: '#faf5ff', icon: 'Monitor' };
+              if (mt === 'UC') return { label: 'PC Fixe', color: '#1d4ed8', bg: '#dbeafe', icon: 'Monitor' };
               // PC portables
-              if (mt === 'PO' || mt === 'MACBOOK') return { label: 'PC Portable', color: '#1d4ed8', bg: '#dbeafe', icon: '💻' };
+              if (mt === 'PO' || mt === 'MACBOOK') return { label: 'PC Portable', color: '#1d4ed8', bg: '#dbeafe', icon: 'Laptop' };
               // Imprimantes / scanners
-              if (mt === 'IMP') return { label: 'Imprimante', color: '#b45309', bg: '#fef3c7', icon: '🖨' };
-              if (mt === 'SCANNER') return { label: 'Scanner', color: '#b45309', bg: '#fef3c7', icon: '🖨' };
+              if (mt === 'IMP') return { label: 'Imprimante', color: '#b45309', bg: '#fef3c7', icon: 'Printer' };
+              if (mt === 'SCANNER') return { label: 'Scanner', color: '#b45309', bg: '#fef3c7', icon: 'Printer' };
               // Périphériques
-              if (mt === 'PERIPH') return { label: 'Périphérique', color: '#059669', bg: '#d1fae5', icon: '🖱' };
-              if (mt === 'TABLETTE') return { label: 'Tablette', color: '#7c3aed', bg: '#faf5ff', icon: '📱' };
-              if (mt === 'VIDEO PROJECTEUR') return { label: 'Vidéo-proj.', color: '#64748b', bg: '#f1f5f9', icon: '📽' };
+              if (mt === 'PERIPH') return { label: 'Périphérique', color: '#059669', bg: '#d1fae5', icon: 'HardDrive' };
+              if (mt === 'TABLETTE') return { label: 'Tablette', color: '#7c3aed', bg: '#faf5ff', icon: 'Tablet' };
+              if (mt === 'VIDEO PROJECTEUR') return { label: 'Vidéo-proj.', color: '#64748b', bg: '#f1f5f9', icon: 'Projector' };
               // Bundles PC+Écran+Imprimante
               if (mt.includes('IMP') && (mt.includes('UC') || mt.includes('PO')) && mt.includes('EC'))
-                return { label: 'PC + Écran + Imp.', color: '#dc2626', bg: '#fef2f2', icon: '🖥' };
+                return { label: 'PC + Écran + Imp.', color: '#dc2626', bg: '#fef2f2', icon: 'Monitor' };
               // Bundles PC+Écran
               if ((mt.startsWith('UC') || mt.startsWith('AIO')) && mt.includes('EC'))
-                return { label: 'PC Fixe + Écran', color: '#1d4ed8', bg: '#dbeafe', icon: '🖥' };
+                return { label: 'PC Fixe + Écran', color: '#1d4ed8', bg: '#dbeafe', icon: 'Monitor' };
               if (mt.startsWith('PO') && mt.includes('EC'))
-                return { label: 'PC Port. + Écran', color: '#1d4ed8', bg: '#dbeafe', icon: '💻' };
+                return { label: 'PC Port. + Écran', color: '#1d4ed8', bg: '#dbeafe', icon: 'Laptop' };
               // Bundles PC+Imprimante
               if ((mt.startsWith('UC') || mt.startsWith('PO')) && mt.includes('IMP'))
-                return { label: 'PC + Imprimante', color: '#1d4ed8', bg: '#dbeafe', icon: '🖥' };
+                return { label: 'PC + Imprimante', color: '#1d4ed8', bg: '#dbeafe', icon: 'Monitor' };
             }
 
             // ── Fallback : inférence depuis les colonnes ──
@@ -1431,13 +1503,13 @@ const ParcInformatique: React.FC = () => {
 
             if (hasUcNew && hasEcNew)
               return isPortable
-                ? { label: 'PC Port. + Écran', color: '#1d4ed8', bg: '#dbeafe', icon: '💻' }
-                : { label: 'PC Fixe + Écran',  color: '#1d4ed8', bg: '#dbeafe', icon: '🖥' };
+                ? { label: 'PC Port. + Écran', color: '#1d4ed8', bg: '#dbeafe', icon: 'Laptop' }
+                : { label: 'PC Fixe + Écran',  color: '#1d4ed8', bg: '#dbeafe', icon: 'Monitor' };
             if (hasUcNew)
               return isPortable
-                ? { label: 'PC Portable', color: '#1d4ed8', bg: '#dbeafe', icon: '💻' }
-                : { label: 'PC Fixe',     color: '#1d4ed8', bg: '#dbeafe', icon: '🖥' };
-            if (hasEcNew) return { label: 'Écran', color: '#0891b2', bg: '#e0f2fe', icon: '🖥' };
+                ? { label: 'PC Portable', color: '#1d4ed8', bg: '#dbeafe', icon: 'Laptop' }
+                : { label: 'PC Fixe',     color: '#1d4ed8', bg: '#dbeafe', icon: 'Monitor' };
+            if (hasEcNew) return { label: 'Écran', color: '#0891b2', bg: '#e0f2fe', icon: 'Monitor' };
 
             // Retours : analyser le récupéré
             if (hasUcRec || hasEcRec) {
@@ -1445,19 +1517,19 @@ const ParcInformatique: React.FC = () => {
               const isRecPortable = /^PO/.test(recUcNum);
               if (hasUcRec && hasEcRec)
                 return isRecPortable
-                  ? { label: 'PC Port. + Écran', color: '#64748b', bg: '#f1f5f9', icon: '💻' }
-                  : { label: 'PC Fixe + Écran',  color: '#64748b', bg: '#f1f5f9', icon: '🖥' };
+                  ? { label: 'PC Port. + Écran', color: '#64748b', bg: '#f1f5f9', icon: 'Laptop' }
+                  : { label: 'PC Fixe + Écran',  color: '#64748b', bg: '#f1f5f9', icon: 'Monitor' };
               if (hasUcRec)
                 return isRecPortable
-                  ? { label: 'PC Portable', color: '#64748b', bg: '#f1f5f9', icon: '💻' }
-                  : { label: 'PC Fixe',     color: '#64748b', bg: '#f1f5f9', icon: '🖥' };
-              if (hasEcRec) return { label: 'Écran', color: '#64748b', bg: '#f1f5f9', icon: '🖥' };
+                  ? { label: 'PC Portable', color: '#64748b', bg: '#f1f5f9', icon: 'Laptop' }
+                  : { label: 'PC Fixe',     color: '#64748b', bg: '#f1f5f9', icon: 'Monitor' };
+              if (hasEcRec) return { label: 'Écran', color: '#64748b', bg: '#f1f5f9', icon: 'Monitor' };
             }
 
             // Hints depuis type_operation
             const op = (row.type_operation || '').toLowerCase();
             if (op.includes('imprimante') || op.includes('impr'))
-              return { label: 'Imprimante', color: '#b45309', bg: '#fef3c7', icon: '🖨' };
+              return { label: 'Imprimante', color: '#b45309', bg: '#fef3c7', icon: 'Printer' };
 
             return { label: '—', color: '#94a3b8', bg: 'transparent', icon: '' };
           };
@@ -1871,10 +1943,10 @@ const ParcInformatique: React.FC = () => {
                     <thead>
                       <tr style={{ background: '#f8fafc', borderBottom: `2px solid ${C.border}` }}>
                         <th title="Sélection pour fusion manuelle" style={{ padding: '10px 8px 10px 12px', width: 28 }} />
-                        {([
+                          {([
                           ['Date', 'date_deploiement'], ['Src', 'source'], ['Équipement', 'equip_cat'], ['Lieu parc', 'lieu'],
                           ['Bénéficiaire', 'beneficiaire'], ['Direction / Service', 'direction'], ['UC fourni', 'uc_nouveau_num'],
-                          ['Modèle UC', 'uc_nouveau_modele'], ['UC récupéré', 'uc_recupere_num'], ['Écran(s)', 'ecran'],
+                          ['Modèle UC', 'uc_nouveau_modele'],
                           ['Installateur', 'installateur'], ['Type', 'type_operation'], ['Fichier(s)', null],
                         ] as [string, string | null][]).map(([h, sk]) => {
                           const active = sk && deploySort === sk;
@@ -1895,7 +1967,7 @@ const ParcInformatique: React.FC = () => {
                     </thead>
                     <tbody>
                       {deploys.length === 0 ? (
-                        <tr><td colSpan={14} style={{ padding: 32, textAlign: 'center', color: C.slate }}>Aucune fiche</td></tr>
+                        <tr><td colSpan={12} style={{ padding: 32, textAlign: 'center', color: C.slate }}>Aucune fiche</td></tr>
                       ) : deploys.map((row: any) => {
                         const selIdx = deploySel.indexOf(row.id);
                         return (
@@ -1914,7 +1986,19 @@ const ParcInformatique: React.FC = () => {
                           <td style={{ padding: '8px 12px', whiteSpace: 'nowrap' }}>
                             {(() => { const e = equipType(row); return e.label !== '—'
                               ? <span style={{ background: e.bg, color: e.color, padding: '2px 9px', borderRadius: 10, fontSize: '.76rem', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                                  {e.icon && <span style={{ fontSize: '.88rem' }}>{e.icon}</span>}{e.label}
+                                  {(() => {
+                                    const ICON_MAP: Record<string, React.ReactNode> = {
+                                      Monitor: <Monitor size={14} />,
+                                      Laptop: <Laptop size={14} />,
+                                      Printer: <Printer size={14} />,
+                                      HardDrive: <HardDrive size={14} />,
+                                      Tablet: <Tablet size={14} />,
+                                      Projector: <Projector size={14} />,
+                                    };
+                                    return e.icon && ICON_MAP[e.icon]
+                                      ? <span style={{ display: 'inline-flex', marginRight: 3 }}>{ICON_MAP[e.icon]}</span>
+                                      : null;
+                                  })()}{e.label}
                                 </span>
                               : <span style={{ color: '#cbd5e1' }}>—</span>; })()}
                           </td>
@@ -1957,6 +2041,7 @@ const ParcInformatique: React.FC = () => {
                               }
                               return row.beneficiaire || '—';
                             })()}
+                            {row.site && <div style={{ color: '#94a3b8', fontSize: '.74rem', marginTop: 2 }}>{row.site}</div>}
                           </td>
                           <td style={{ padding: '8px 12px', fontSize: '.8rem' }}>
                             {row.direction && <span style={{ fontWeight: 700, color: C.text }}>{row.direction}</span>}
@@ -1964,21 +2049,30 @@ const ParcInformatique: React.FC = () => {
                             {!row.direction && !row.service && '—'}
                           </td>
                           <td style={{ padding: '8px 12px', whiteSpace: 'nowrap' }}>
-                            {row.uc_nouveau_num ? (
-                              <span style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                                <span style={{ fontWeight: 700, fontFamily: 'monospace' }}>{row.uc_nouveau_num}</span>
-                                {matchBadge(row)}
-                              </span>
-                            ) : '—'}
+                            {row.equip_cat === 'ecran'
+                              ? (row.ecran1_nouveau_num || row.ecran1_nouveau_serie
+                                  ? <><div style={{ fontWeight: 700, fontFamily: 'monospace' }}>{row.ecran1_nouveau_num || row.ecran1_nouveau_serie}</div>{row.ecran1_recupere_num && <div style={{ color: '#94a3b8', fontSize: '.74rem', fontFamily: 'monospace' }}>← {row.ecran1_recupere_num}</div>}</>
+                                  : '—')
+                              : (row.uc_nouveau_num || row.uc_recupere_num
+                                  ? <><div style={{ fontWeight: 700, fontFamily: 'monospace' }}>{row.uc_nouveau_num || '—'}</div>{row.uc_recupere_num && <div style={{ color: '#94a3b8', fontSize: '.74rem', fontFamily: 'monospace', marginTop: 2 }}>← {row.uc_recupere_num}</div>}{matchBadge(row)}</>
+                                  : '—')}
                           </td>
-                          <td style={{ padding: '8px 12px', fontSize: '.8rem', color: C.slate }}>{row.uc_nouveau_modele || '—'}</td>
-                          <td style={{ padding: '8px 12px', fontFamily: 'monospace', fontSize: '.8rem' }}>{row.uc_recupere_num || '—'}</td>
-                          <td style={{ padding: '8px 12px', textAlign: 'center' }}>
-                            {(row.ecran1_nouveau_num || row.ecran1_nouveau_serie || row.ecran2_nouveau_serie)
-                              ? <span title="Écran(s) inclus"><Monitor size={14} color={C.blue} /></span>
-                              : <span style={{ color: '#cbd5e1' }}>—</span>}
+                          <td style={{ padding: '8px 12px', fontSize: '.8rem', color: C.slate }}>
+                            {row.equip_cat === 'ecran'
+                              ? (row.ecran1_nouveau_serie && row.ecran1_nouveau_num ? row.ecran1_nouveau_serie : row.uc_nouveau_modele || '—')
+                              : (row.uc_nouveau_modele || '—')}
                           </td>
-                          <td style={{ padding: '8px 12px', fontSize: '.8rem' }}>{row.installateur || '—'}</td>
+                          <td style={{ padding: '8px 12px', fontSize: '.8rem' }}>
+                            {row.installateur
+                              ? (() => {
+                                  const parts = row.installateur.split(/[\s]+/).filter(Boolean);
+                                  const initials = parts.map((p: string) => p[0].toUpperCase()).slice(0, 3).join('');
+                                  const bgColors = ['#2563eb20', '#7c3aed20', '#05966920', '#d9770620', '#0891b220', '#dc262620'];
+                                  const ci = parts.reduce((a: number, p: string) => a + p.charCodeAt(0), 0) % bgColors.length;
+                                  return <span title={row.installateur} style={{ background: bgColors[ci], color: '#1e293b', fontWeight: 800, fontSize: '.72rem', borderRadius: 8, padding: '2px 10px', display: 'inline-block', letterSpacing: '.04em', cursor: 'default' }}>{initials}</span>;
+                                })()
+                              : '—'}
+                          </td>
                           <td style={{ padding: '8px 12px', whiteSpace: 'nowrap' }}>{typeBadge(row.type_operation)}</td>
                           <td style={{ padding: '8px 12px', whiteSpace: 'nowrap' }} onClick={e => e.stopPropagation()}>
                             {(() => {
@@ -2124,26 +2218,50 @@ const ParcInformatique: React.FC = () => {
                 .filter(i => !instQ || i.installateur.toLowerCase().includes(instQ.toLowerCase()))
                 .map(i => {
                   const name = i.installateur;
+                  const editing = instEdit && instEdit.from === name;
                   const isKeep = instKeep === name;
                   const selected = instSel.has(name);
                   const onClick = () => {
+                    if (editing) return;
                     if (!instKeep) { setInstKeep(name); return; }
                     if (isKeep) return;
                     setInstSel(s => { const n = new Set(s); if (n.has(name)) n.delete(name); else n.add(name); return n; });
                   };
                   return (
                     <div key={name} onClick={onClick} style={{
-                      display: 'flex', alignItems: 'center', gap: 10, padding: '7px 10px', borderRadius: 8, cursor: isKeep ? 'default' : 'pointer',
-                      background: isKeep ? '#fef3c7' : selected ? '#eff6ff' : 'transparent',
-                      border: `1px solid ${isKeep ? '#fcd34d' : selected ? '#bfdbfe' : 'transparent'}`, marginBottom: 3,
+                      display: 'flex', alignItems: 'center', gap: 10, padding: '7px 10px', borderRadius: 8, cursor: editing ? 'default' : isKeep ? 'default' : 'pointer',
+                      background: editing ? '#ecfeff' : isKeep ? '#fef3c7' : selected ? '#eff6ff' : 'transparent',
+                      border: `1px solid ${editing ? '#a5f3fc' : isKeep ? '#fcd34d' : selected ? '#bfdbfe' : 'transparent'}`, marginBottom: 3,
                     }}>
-                      {instKeep && !isKeep && (
-                        <input type="checkbox" readOnly checked={selected} style={{ accentColor: C.blue, width: 15, height: 15 }} />
+                      {editing ? (
+                        <>
+                          <input autoFocus value={instEdit!.value} onChange={e => setInstEdit({ from: name, value: e.target.value })}
+                            onKeyDown={e => { if (e.key === 'Enter') doRenameInstallateur(); if (e.key === 'Escape') setInstEdit(null); }}
+                            onClick={e => e.stopPropagation()}
+                            style={{ flex: 1, border: `1px solid ${C.border}`, borderRadius: 6, padding: '5px 9px', fontSize: '.86rem' }} />
+                          <button onClick={e => { e.stopPropagation(); doRenameInstallateur(); }} disabled={instSaving}
+                            style={{ background: '#0891b2', border: 'none', borderRadius: 6, padding: '5px 11px', cursor: 'pointer', color: '#fff', fontWeight: 700, fontSize: '.8rem', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                            {instSaving ? <RefreshCw size={12} className="spin" /> : <CheckCircle2 size={13} />} OK
+                          </button>
+                          <button onClick={e => { e.stopPropagation(); setInstEdit(null); }} style={{ background: 'none', border: `1px solid ${C.border}`, borderRadius: 6, padding: '5px 9px', cursor: 'pointer', color: C.slate, fontSize: '.8rem' }}>Annuler</button>
+                        </>
+                      ) : (
+                        <>
+                          {instKeep && !isKeep && (
+                            <input type="checkbox" readOnly checked={selected} style={{ accentColor: C.blue, width: 15, height: 15 }} />
+                          )}
+                          <span style={{ flex: 1, fontWeight: isKeep ? 800 : 600, color: isKeep ? '#b45309' : C.text, fontSize: '.88rem' }}>
+                            {name}{isKeep && ' ✓ conservé'}
+                          </span>
+                          <span style={{ fontSize: '.76rem', color: C.slate, background: '#f1f5f9', borderRadius: 12, padding: '1px 9px', fontWeight: 700 }}>{i.n}</span>
+                          {!instKeep && (
+                            <button onClick={e => { e.stopPropagation(); setInstEdit(editing ? null : { from: name, value: name }); }}
+                              title="Renommer" style={{ background: 'none', border: `1px solid ${C.border}`, borderRadius: 6, padding: '4px 8px', cursor: 'pointer', color: C.slate, display: 'inline-flex', alignItems: 'center' }}>
+                              <Edit2 size={13} />
+                            </button>
+                          )}
+                        </>
                       )}
-                      <span style={{ flex: 1, fontWeight: isKeep ? 800 : 600, color: isKeep ? '#b45309' : C.text, fontSize: '.88rem' }}>
-                        {name}{isKeep && ' ✓ conservé'}
-                      </span>
-                      <span style={{ fontSize: '.76rem', color: C.slate, background: '#f1f5f9', borderRadius: 12, padding: '1px 9px', fontWeight: 700 }}>{i.n}</span>
                     </div>
                   );
                 })}
@@ -2160,6 +2278,50 @@ const ParcInformatique: React.FC = () => {
                 style={{ background: (!instKeep || instSel.size === 0) ? '#fcd9a5' : '#d97706', border: 'none', borderRadius: 8, padding: '8px 16px', cursor: (!instKeep || instSel.size === 0 || instMerging) ? 'default' : 'pointer', fontWeight: 800, fontSize: '.84rem', color: '#fff', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
                 {instMerging ? <RefreshCw size={14} className="spin" /> : <Users size={14} />} Fusionner
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ─── MODAL LISTE ORDINATEURS (doublons / à renouveler) ─── */}
+      {pcModal && (
+        <div onClick={() => setPcModal(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.5)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+          <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: 16, width: 'min(900px,96vw)', maxHeight: '88vh', display: 'flex', flexDirection: 'column', overflow: 'hidden', boxShadow: '0 24px 60px rgba(0,0,0,.3)' }}>
+            <div style={{ padding: '16px 20px', borderBottom: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', gap: 10 }}>
+              {pcModal.kind === 'dup' ? <AlertTriangle size={18} color={C.amber} /> : <RefreshCw size={18} color={C.amber} />}
+              <div style={{ flex: 1, fontWeight: 800, color: C.text }}>{pcModal.title} <span style={{ color: C.slate, fontWeight: 600 }}>· {pcModalRows.length}</span></div>
+              <button onClick={() => setPcModal(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.slate }}><X size={18} /></button>
+            </div>
+            <div style={{ overflow: 'auto', flex: 1 }}>
+              {pcModalLoading ? (
+                <div style={{ padding: 40, textAlign: 'center', color: C.slate }}><RefreshCw size={16} className="spin" /> Chargement…</div>
+              ) : pcModalRows.length === 0 ? (
+                <div style={{ padding: 40, textAlign: 'center', color: C.slate }}>Aucun ordinateur concerné.</div>
+              ) : (
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '.84rem' }}>
+                  <thead>
+                    <tr style={{ background: '#f8fafc', position: 'sticky', top: 0 }}>
+                      {['Nom', 'N° série', 'Lieu', 'Usager', 'Statut', 'Âge'].map(h => (
+                        <th key={h} style={{ padding: '9px 14px', textAlign: 'left', fontWeight: 700, fontSize: '.74rem', textTransform: 'uppercase', color: C.slate, whiteSpace: 'nowrap' }}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {pcModalRows.map((r, i) => (
+                      <tr key={`${r.id}-${i}`} onClick={() => openDetail(r.id, 'ordinateurs')}
+                        style={{ borderTop: `1px solid ${C.border}`, cursor: 'pointer' }}
+                        onMouseEnter={e => (e.currentTarget.style.background = '#f8fafc')} onMouseLeave={e => (e.currentTarget.style.background = '')}>
+                        <td style={{ padding: '8px 14px', fontWeight: 600, color: C.text }}>{v(r.name)}</td>
+                        <td style={{ padding: '8px 14px', fontFamily: 'monospace', fontSize: '.8rem', color: pcModal.kind === 'dup' ? C.red : C.slate }}>{v(r.serial)}</td>
+                        <td style={{ padding: '8px 14px', color: C.slate }}>{v(r.location)}</td>
+                        <td style={{ padding: '8px 14px', color: C.slate }}>{v(r.contact || r.user)}</td>
+                        <td style={{ padding: '8px 14px' }}>{r.state ? <span style={{ background: '#eff6ff', color: C.blue, padding: '2px 8px', borderRadius: 6, fontSize: '.76rem', fontWeight: 600 }}>{r.state}</span> : v(null)}</td>
+                        <td style={{ padding: '8px 14px', color: C.slate }}>{r.age_years != null ? `${r.age_years} an${r.age_years >= 2 ? 's' : ''}` : v(null)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
             </div>
           </div>
         </div>
@@ -2352,10 +2514,12 @@ const StatCard: React.FC<{ icon: any; label: string; value: number; color: strin
   </div>
 );
 
-const Anomaly: React.FC<{ label: string; n: number }> = ({ label, n }) => (
-  <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 10, border: `1px solid ${n > 0 ? '#fed7aa' : C.border}`, background: n > 0 ? '#fff7ed' : '#f8fafc' }}>
+const Anomaly: React.FC<{ label: string; n: number; onClick?: () => void }> = ({ label, n, onClick }) => (
+  <div onClick={onClick} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 10, border: `1px solid ${n > 0 ? '#fed7aa' : C.border}`, background: n > 0 ? '#fff7ed' : '#f8fafc', cursor: onClick && n > 0 ? 'pointer' : 'default' }}
+    onMouseEnter={e => { if (onClick && n > 0) e.currentTarget.style.background = '#ffedd5'; }}
+    onMouseLeave={e => { if (onClick && n > 0) e.currentTarget.style.background = '#fff7ed'; }}>
     <div style={{ fontSize: '1.4rem', fontWeight: 900, color: n > 0 ? C.amber : C.green, minWidth: 34 }}>{n}</div>
-    <div style={{ fontSize: '.78rem', color: C.slate, fontWeight: 600, lineHeight: 1.2 }}>{label}</div>
+    <div style={{ fontSize: '.78rem', color: C.slate, fontWeight: 600, lineHeight: 1.2, display: 'flex', alignItems: 'center', gap: 4 }}>{label}{onClick && n > 0 && <ChevronRight size={13} color="#cbd5e1" />}</div>
   </div>
 );
 
