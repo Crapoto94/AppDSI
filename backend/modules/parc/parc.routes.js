@@ -3,6 +3,7 @@ const router = express.Router();
 const ctrl = require('./parc.controller');
 const live = require('./parc.live.controller');
 const hub = require('./parc.hub.controller');
+const ad = require('./parc.ad.controller');
 const { authenticateJWT, authenticateGLPIControl } = require('../../shared/middleware');
 
 // ── Synchronisation depuis GLPI 10 (réservée au contrôle GLPI/admin) ──────────
@@ -38,6 +39,13 @@ router.post('/hub/:type/:id/ad-lookup', authenticateJWT, hub.adLookup);
 router.patch('/hub/:type/:id/contact', authenticateJWT, hub.updateContact);
 router.get('/hub/:type/:id', authenticateJWT, hub.item);
 router.get('/hub/:type', authenticateJWT, hub.list);
+
+// ── AD : ordinateurs de l'Active Directory (table hub_parc.ad_computers) ───────
+// L'import (énumération LDAP) est réservé au contrôle GLPI/admin.
+router.get('/ad/computers', authenticateJWT, ad.listADComputers);
+router.get('/ad/stats', authenticateJWT, ad.adStats);
+router.get('/ad/import-progress', authenticateJWT, ad.getImportProgress);
+router.post('/ad/import', authenticateGLPIControl, ad.importADComputers);
 
 // ── Consultation des tables synchronisées (hub_parc) ──────────────────────────
 router.get('/stats', authenticateJWT, ctrl.getStats);

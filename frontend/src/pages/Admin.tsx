@@ -169,7 +169,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
   const [isSyncingFollowups, setIsSyncingFollowups] = useState(false);
   const [isSyncingDescriptions, setIsSyncingDescriptions] = useState(false);
   const [isSyncingNames, setIsSyncingNames] = useState(false);
-  const [syncStatus, setSyncStatus] = useState({ active: false, processed: 0, total: 0 });
+  const [syncStatus, setSyncStatus] = useState<{ active: boolean; processed: number; total: number; phase?: string }>({ active: false, processed: 0, total: 0 });
   const [observersSyncStatus, setObserversSyncStatus] = useState({ active: false, processed: 0, total: 0 });
   const [followupsSyncStatus, setFollowupsSyncStatus] = useState({ active: false, processed: 0, total: 0 });
   const [descriptionsSyncStatus, setDescriptionsSyncStatus] = useState({ active: false, processed: 0, total: 0 });
@@ -956,7 +956,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
   };
 
   const handleSyncAllTickets = async () => {
-    if (!window.confirm("Attention : Vous allez synchroniser l'intégralité de la base GLPI (+36 000 tickets). Cette opération peut prendre quelques minutes. Souhaitez-vous continuer ?")) return;
+    if (!window.confirm("Synchronisation COMPLÈTE en une seule passe : tickets + descriptions + traitements (suivis), récupérés en parallèle. Sur l'intégralité de la base GLPI (+36 000 tickets), cela peut prendre plusieurs minutes. Continuer ?")) return;
 
     setIsSyncingAll(true);
     setSyncStatus({ active: true, processed: 0, total: 0 });
@@ -984,10 +984,11 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
     startPolling();
 
     try {
-      const response = await axios.post('/api/glpi/sync-all-tickets', {}, {
+      const response = await axios.post('/api/glpi/sync-full', {}, {
         headers: { Authorization: `Bearer ${token}` }
       });
-      alert(`Synchronisation totale réussie : ${response.data.count} / ${response.data.total} tickets importés.`);
+      const d = response.data;
+      alert(`Synchronisation complète réussie : ${d.count} / ${d.total} tickets, ${d.descriptions ?? 0} descriptions, ${d.followups ?? 0} traitements.`);
     } catch (error: any) {
       if (pollInterval) clearInterval(pollInterval);
       setSyncStatus(prev => ({ ...prev, active: false }));
@@ -3933,7 +3934,11 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                                 <div className="progress-header">
                                     <div className="progress-label">
                                         <span className="progress-spinner">⟳</span>
-                                        Synchronisation en cours...
+                                        {syncStatus.phase === 'details'
+                                          ? 'Synchronisation des descriptions + traitements...'
+                                          : syncStatus.phase === 'tickets'
+                                          ? 'Synchronisation des tickets...'
+                                          : 'Synchronisation en cours...'}
                                     </div>
                                     <div className="progress-percent">
                                         {syncStatus.total > 0 ? Math.round((syncStatus.processed / syncStatus.total) * 100) : 0}%

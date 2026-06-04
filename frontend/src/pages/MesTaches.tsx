@@ -6,7 +6,7 @@ import {
   CheckSquare, Clock, AlertTriangle, CheckCircle2,
   FolderKanban, MessageSquare, Users, RotateCcw, Filter,
   ExternalLink, RefreshCw, Inbox, Plus, X, Trash2, Upload,
-  RefreshCcw, Zap, XCircle, Send, BarChart2, ChevronDown, ChevronUp, Star,
+  RefreshCcw, Zap, XCircle, Send, BarChart2, ChevronDown, ChevronUp, Star, Pencil,
 } from 'lucide-react';
 import AddTaskModal from '../components/AddTaskModal';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
@@ -42,6 +42,13 @@ interface Task {
   is_favorite?: boolean;
 }
 
+interface AssignedAssignee {
+  username: string;
+  name: string;
+  statut: string;
+  refus_raison?: string | null;
+}
+
 interface AssignedTask {
   id: number;
   responsable: string;
@@ -53,6 +60,10 @@ interface AssignedTask {
   source: string;
   source_title: string;
   refus_raison?: string | null;
+  is_team_task?: boolean;
+  team_group_id?: string | null;
+  assignee_count?: number;
+  assignees?: AssignedAssignee[];
 }
 
 interface KpiPoint {
@@ -335,6 +346,26 @@ const MesTaches: React.FC = () => {
       setAssignedTasks(Array.isArray(data) ? data : []);
     } catch { setAssignedTasks([]); }
     finally { setAssignedLoading(false); }
+  };
+
+  // ── Édition d'une tâche que j'ai créée (perso ou affectée) ───────────────────
+  const [editData, setEditData] = useState<{ id: number; description: string; echeance: string; isTeam: boolean } | null>(null);
+  const [savingEdit, setSavingEdit] = useState(false);
+
+  const saveEdit = async () => {
+    if (!editData) return;
+    if (!editData.description.trim()) return;
+    setSavingEdit(true);
+    try {
+      const res = await fetch(`/api/tasks/edit/${editData.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ description: editData.description.trim(), echeance: editData.echeance || null }),
+      });
+      if (!res.ok) { const e = await res.json().catch(() => ({})); alert(e.error || 'Erreur lors de la modification'); }
+      else { setEditData(null); fetchTasks(); if (showAssigned) fetchAssigned(); }
+    } catch { alert('Erreur réseau'); }
+    finally { setSavingEdit(false); }
   };
 
   const fetchKpiHistory = async () => {
@@ -849,10 +880,33 @@ const MesTaches: React.FC = () => {
                           <div style={{ fontSize: 11, color: '#dc2626', marginTop: 2 }}>❌ Refus : {t.refus_raison}</div>
                         )}
                       </td>
-                      <td style={{ padding: '8px 12px', color: '#475569', fontSize: 12 }}>{t.responsable}</td>
+                      <td style={{ padding: '8px 12px', color: '#475569', fontSize: 12 }}>
+                        {(t.assignee_count ?? 1) > 1 ? (
+                          <div>
+                            <span style={{ display: 'inline-block', background: '#eef2ff', color: '#4f46e5', borderRadius: 6, padding: '1px 7px', fontWeight: 700, fontSize: 11, marginBottom: 3 }}>
+                              👥 Équipe · {t.assignee_count}
+                            </span>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                              {(t.assignees || []).map(a => (
+                                <span key={a.username} style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                                  <span style={{ width: 6, height: 6, borderRadius: '50%', flexShrink: 0, background: ['terminé', 'terminee'].includes(a.statut) ? '#22c55e' : a.statut === 'en_cours' ? '#f59e0b' : a.statut === 'refuse' ? '#ef4444' : '#cbd5e1' }} />
+                                  {a.name}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        ) : t.responsable}
+                      </td>
                       <td style={{ padding: '8px 12px' }}><EcheanceBadge d={t.echeance} /></td>
                       <td style={{ padding: '8px 12px' }}>{statusBadge(t.statut)}</td>
-                      <td style={{ padding: '8px 12px', textAlign: 'center' }}>
+                      <td style={{ padding: '8px 12px', textAlign: 'center', whiteSpace: 'nowrap' }}>
+                        <button
+                          onClick={() => setEditData({ id: t.id, description: t.description, echeance: (t.echeance || '').slice(0, 10), isTeam: !!t.is_team_task })}
+                          title="Modifier"
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#6366f1', padding: 4, verticalAlign: 'middle' }}
+                        >
+                          <Pencil size={14} />
+                        </button>
                         <button
                           onClick={() => deleteAssignedTask(t.id)}
                           title="Supprimer"
@@ -1036,6 +1090,17 @@ const MesTaches: React.FC = () => {
                           💬 {noteCount || '+'}
                         </button>
 
+                        {/* Modifier (tâches que j'ai créées) */}
+                        {task.created_by && task.created_by.toLowerCase() === currentUsername.toLowerCase() && (
+                          <button
+                            onClick={() => setEditData({ id: task.id, description: task.description, echeance: (task.echeance || '').slice(0, 10), isTeam: !!task.is_team_task })}
+                            title="Modifier"
+                            style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#6366f1', padding: 4, marginLeft: 2, verticalAlign: 'middle' }}
+                          >
+                            <Pencil size={14} />
+                          </button>
+                        )}
+
                         {/* Supprimer (personnel uniquement) */}
                         {task.source === 'personal' && (
                           <button
@@ -1139,6 +1204,44 @@ const MesTaches: React.FC = () => {
           onConfirm={raison => handleRefuse(refuseTask, raison)}
           onClose={() => setRefuseTask(null)}
         />
+      )}
+
+      {editData && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}
+          onClick={() => !savingEdit && setEditData(null)}>
+          <div style={{ background: '#fff', borderRadius: 16, padding: 24, width: 480, maxWidth: '90vw' }} onClick={e => e.stopPropagation()}>
+            <h3 style={{ margin: '0 0 16px', fontSize: 17, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 8 }}>
+              <Pencil size={16} /> Modifier la tâche
+            </h3>
+            {editData.isTeam && (
+              <div style={{ background: '#eef2ff', color: '#4338ca', padding: '8px 12px', borderRadius: 8, fontSize: 12, marginBottom: 12 }}>
+                👥 Tâche d'équipe : la modification s'appliquera à tous les destinataires.
+              </div>
+            )}
+            <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 4 }}>Description</label>
+            <textarea
+              value={editData.description}
+              onChange={e => setEditData(d => d && { ...d, description: e.target.value })}
+              rows={4}
+              style={{ width: '100%', padding: '10px 14px', border: '1px solid #e2e8f0', borderRadius: 8, fontSize: 14, fontFamily: 'inherit', outline: 'none', resize: 'vertical', boxSizing: 'border-box', marginBottom: 16 }}
+            />
+            <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 4 }}>Échéance</label>
+            <input type="date" value={editData.echeance}
+              onChange={e => setEditData(d => d && { ...d, echeance: e.target.value })}
+              style={{ width: '100%', padding: '10px 14px', border: '1px solid #e2e8f0', borderRadius: 8, fontSize: 14, outline: 'none', boxSizing: 'border-box', marginBottom: 24 }}
+            />
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+              <button onClick={() => setEditData(null)} disabled={savingEdit}
+                style={{ padding: '10px 20px', border: '1px solid #e2e8f0', borderRadius: 8, background: '#fff', cursor: 'pointer', fontSize: 14, color: '#475569' }}>
+                Annuler
+              </button>
+              <button onClick={saveEdit} disabled={savingEdit || !editData.description.trim()}
+                style={{ padding: '10px 20px', border: 'none', borderRadius: 8, background: '#6366f1', color: '#fff', cursor: 'pointer', fontWeight: 600, fontSize: 14, opacity: (savingEdit || !editData.description.trim()) ? 0.6 : 1 }}>
+                {savingEdit ? 'Enregistrement...' : 'Enregistrer'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       <style>{`

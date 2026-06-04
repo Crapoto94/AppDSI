@@ -1019,6 +1019,43 @@ router.put('/config-bulk', authenticateTicketAdmin, async (req, res) => {
     } catch (e) { res.status(400).json({ message: e.message }); }
 });
 
+// ─── Clôture : log des clôtures (auto + par demandeurs/techniciens) ──────────
+router.get('/closure-log', authenticateTicketAdmin, async (req, res) => {
+    try {
+        const limit = Math.min(parseInt(req.query.limit) || 200, 1000);
+        const offset = parseInt(req.query.offset) || 0;
+        const rows = await pgDb.all(`
+            SELECT h.id, h.ticket_id, h.created_at, h.comment, h.user_id, h.username,
+                   COALESCE(un.displayName, uid.displayName, h.username) AS closed_by,
+                   t.title AS ticket_title,
+                   t.requester_name,
+                   (h.user_id IS NULL AND h.username IS NULL) AS is_auto,
+                   (un.email IS NOT NULL AND LOWER(un.email) = LOWER(COALESCE(t.requester_email_22, ''))) AS by_requester
+            FROM hub_tickets.ticket_history h
+            LEFT JOIN hub.users un ON LOWER(un.username) = LOWER(h.username)
+            LEFT JOIN hub.users uid ON h.username IS NULL AND h.user_id = uid.id
+            LEFT JOIN hub_tickets.tickets t ON h.ticket_id = t.glpi_id
+            WHERE h.action = 'status_changed' AND h.field_name = 'status' AND h.new_value = '6'
+            ORDER BY h.created_at DESC
+            LIMIT $1 OFFSET $2
+        `, [limit, offset]);
+        const count = await pgDb.get(`
+            SELECT COUNT(*) AS total FROM hub_tickets.ticket_history
+            WHERE action = 'status_changed' AND field_name = 'status' AND new_value = '6'
+        `);
+        res.json({ rows, total: parseInt(count.total) });
+    } catch (e) { res.status(500).json({ message: e.message }); }
+});
+
+// Déclenche manuellement la clôture automatique (même logique que le cron de minuit).
+router.post('/closure/run', authenticateTicketAdmin, async (req, res) => {
+    try {
+        const workflowService = require('./services/workflow.service');
+        const result = await workflowService.autoCloseResolvedTickets();
+        res.json({ message: result.disabled ? 'Clôture automatique désactivée (délai = 0).' : `${result.closed} ticket(s) clos.`, ...result });
+    } catch (e) { res.status(500).json({ message: e.message }); }
+});
+
 // ─── Journal (ticket history) ─────────────────────────────────────
 router.get('/journal', authenticateTicketAdmin, async (req, res) => {
     try {

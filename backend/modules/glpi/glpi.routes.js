@@ -32,6 +32,7 @@ router.put('/tickets/:id/close', authenticateJWT, glpiController.closeTicket);
 router.post('/sync-user-names', authenticateGLPIControl, glpiController.syncUserNames);
 router.post('/sync-recent', authenticateInternalOrAdmin, glpiController.syncRecent);
 router.post('/sync-all-tickets', authenticateInternalOrAdmin, glpiController.syncAllTickets);
+router.post('/sync-full', authenticateInternalOrAdmin, glpiController.syncFull);
 router.post('/sync-observers', authenticateInternalOrAdmin, glpiController.syncObservers);
 router.post('/sync-observers-recent', authenticateInternalOrAdmin, glpiController.syncObservers); // Reuse syncObservers or specific logic if needed
 router.post('/sync-followups', authenticateInternalOrAdmin, glpiController.syncFollowups);

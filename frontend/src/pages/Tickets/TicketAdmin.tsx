@@ -6,7 +6,7 @@ import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianG
 import AutoResolution from '../Admin/AutoResolution';
 import ResponseTemplatesAdmin from './ResponseTemplatesAdmin';
 import KnowledgeBaseAdmin from './KnowledgeBaseAdmin';
-type Tab = 'categories' | 'category_mapping' | 'sla' | 'rules' | 'vip' | 'journal' | 'templates' | 'triggers' | 'technicians' | 'groups' | 'group_mapping' | 'escalade' | 'roles' | 'params' | 'live_config' | 'satisfaction' | 'auto_resolution' | 'response_auto' | 'knowledge_base';
+type Tab = 'categories' | 'category_mapping' | 'sla' | 'rules' | 'vip' | 'journal' | 'templates' | 'triggers' | 'technicians' | 'groups' | 'group_mapping' | 'escalade' | 'roles' | 'params' | 'closure' | 'live_config' | 'satisfaction' | 'auto_resolution' | 'response_auto' | 'knowledge_base';
 
 const btn = (active: boolean): React.CSSProperties => ({
   padding: '8px 16px', border: 'none', borderRadius: 8, cursor: 'pointer',
@@ -150,6 +150,7 @@ export default function TicketAdmin() {
     { key: 'escalade',    label: '⬆️ Escalade' },
     { key: 'roles',       label: '🔐 Rôles' },
     { key: 'params',      label: '⚙️ Paramètres' },
+    { key: 'closure',     label: '🔒 Clôture' },
     { key: 'live_config',  label: '🟢 Live' },
     { key: 'auto_resolution', label: '🤖 Résolution auto' },
     { key: 'satisfaction', label: '⭐ Satisfaction' },
@@ -183,6 +184,7 @@ export default function TicketAdmin() {
         {tab === 'escalade'    && <EscaladeManager />}
         {tab === 'roles'       && <RolePermissionsManager />}
         {tab === 'params'       && <TicketParamsManager />}
+        {tab === 'closure'      && <ClosureManager />}
         {tab === 'satisfaction' && <SatisfactionTab />}
         {tab === 'auto_resolution' && <div style={{ margin: -24 }}><AutoResolution /></div>}
         {tab === 'response_auto' && <ResponseTemplatesAdmin />}
@@ -3509,17 +3511,6 @@ function TicketParamsManager() {
         </div>
       </div>
 
-      {/* Tickets */}
-      <div style={sectionStyle}>
-        <div style={sectionTitleStyle}>🎫 Tickets</div>
-        <div style={rowStyle}>
-          <label style={lblStyle}>Temps de clôture automatique (jours)</label>
-          <input type="number" value={get('auto_close_days', '7')} onChange={e => set('auto_close_days', e.target.value)}
-            style={{ ...inputStyle, width: 80 }} min={0} />
-          <span style={{ fontSize: 11, color: '#94a3b8' }}>0 = désactivé. Les tickets résolus seront fermés après ce délai.</span>
-        </div>
-      </div>
-
       {/* Fonctionnalités */}
       <div style={sectionStyle}>
         <div style={sectionTitleStyle}>✨ Fonctionnalités</div>
@@ -3556,6 +3547,139 @@ function TicketParamsManager() {
           style={{ padding: '8px 20px', background: saving ? '#94a3b8' : '#6366f1', color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer', fontWeight: 600, fontSize: 13 }}>
           {saving ? 'Enregistrement...' : 'Enregistrer tout'}
         </button>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CLOSURE MANAGER — délai de clôture auto + log des clôtures
+// ─────────────────────────────────────────────────────────────────────────────
+function ClosureManager() {
+  const token = localStorage.getItem('token');
+  const h = { Authorization: `Bearer ${token}` };
+  const [days, setDays] = useState<string>('7');
+  const [loaded, setLoaded] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [running, setRunning] = useState(false);
+  const [log, setLog] = useState<any[]>([]);
+  const [total, setTotal] = useState(0);
+  const [loadingLog, setLoadingLog] = useState(true);
+
+  const loadLog = () => {
+    setLoadingLog(true);
+    axios.get('/api/tickets/admin/closure-log?limit=200', { headers: h })
+      .then(r => { setLog(r.data.rows || []); setTotal(r.data.total || 0); })
+      .catch(() => {})
+      .finally(() => setLoadingLog(false));
+  };
+
+  useEffect(() => {
+    axios.get('/api/tickets/admin/config-all', { headers: h })
+      .then(r => setDays(String(r.data?.auto_close_days ?? '7')))
+      .catch(() => {})
+      .finally(() => setLoaded(true));
+    loadLog();
+  }, []);
+
+  async function saveDays() {
+    setSaving(true);
+    try {
+      await axios.put('/api/tickets/admin/config-bulk', { auto_close_days: days }, { headers: h });
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+    } catch (e: any) { alert(e.response?.data?.message || 'Erreur'); }
+    setSaving(false);
+  }
+
+  async function runNow() {
+    if (!window.confirm('Lancer maintenant la clôture automatique des tickets résolus dépassant le délai ?')) return;
+    setRunning(true);
+    try {
+      const r = await axios.post('/api/tickets/admin/closure/run', {}, { headers: h });
+      alert(r.data?.message || 'Terminé.');
+      loadLog();
+    } catch (e: any) { alert(e.response?.data?.message || 'Erreur'); }
+    setRunning(false);
+  }
+
+  const sectionStyle: React.CSSProperties = { border: '1px solid #e2e8f0', borderRadius: 10, padding: 20, marginBottom: 16, background: '#f8fafc' };
+  const sectionTitleStyle: React.CSSProperties = { fontSize: 14, fontWeight: 700, marginBottom: 14, color: '#18181b' };
+
+  const fmtDate = (s: string) => s ? new Date(s).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' }) : '—';
+  const sourceBadge = (row: any) => {
+    if (row.is_auto) return <span style={{ background: '#ede9fe', color: '#6d28d9', padding: '2px 8px', borderRadius: 10, fontSize: 11, fontWeight: 700 }}>Automatique</span>;
+    if (row.by_requester) return <span style={{ background: '#dbeafe', color: '#1d4ed8', padding: '2px 8px', borderRadius: 10, fontSize: 11, fontWeight: 700 }}>Demandeur</span>;
+    return <span style={{ background: '#dcfce7', color: '#15803d', padding: '2px 8px', borderRadius: 10, fontSize: 11, fontWeight: 700 }}>Technicien</span>;
+  };
+
+  return (
+    <div>
+      <h3 style={{ margin: '0 0 20px', fontSize: 16, fontWeight: 700 }}>🔒 Clôture des tickets</h3>
+
+      {/* Réglage du délai */}
+      <div style={sectionStyle}>
+        <div style={sectionTitleStyle}>Clôture automatique</div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+          <label style={{ fontSize: 13, fontWeight: 500, color: '#374151' }}>Durée avant clôture auto (jours, une fois le ticket résolu)</label>
+          <input type="number" min={0} value={loaded ? days : ''} onChange={e => setDays(e.target.value)}
+            style={{ ...inputStyle, width: 80 }} />
+          <button onClick={saveDays} disabled={saving}
+            style={{ padding: '8px 16px', background: saving ? '#94a3b8' : '#6366f1', color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer', fontWeight: 600, fontSize: 13 }}>
+            {saving ? 'Enregistrement...' : 'Enregistrer'}
+          </button>
+          {saved && <span style={{ fontSize: 12, color: '#16a34a', fontWeight: 600 }}>✓ Enregistré</span>}
+        </div>
+        <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 8 }}>
+          0 = désactivé. La clôture s'exécute automatiquement chaque nuit à minuit. Par défaut : 7 jours.
+        </div>
+        <div style={{ marginTop: 12 }}>
+          <button onClick={runNow} disabled={running}
+            style={{ padding: '7px 14px', background: running ? '#94a3b8' : '#fff', color: '#6366f1', border: '1px solid #6366f1', borderRadius: 8, cursor: 'pointer', fontWeight: 600, fontSize: 12 }}>
+            {running ? 'En cours...' : '▶ Lancer la clôture maintenant'}
+          </button>
+        </div>
+      </div>
+
+      {/* Log des clôtures */}
+      <div style={sectionStyle}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+          <div style={sectionTitleStyle}>Log des clôtures {total > 0 && <span style={{ fontWeight: 500, color: '#94a3b8' }}>({total})</span>}</div>
+          <button onClick={loadLog} style={{ padding: '5px 12px', background: '#fff', border: '1px solid #e2e8f0', borderRadius: 6, cursor: 'pointer', fontSize: 12, fontWeight: 600, color: '#475569' }}>↻ Rafraîchir</button>
+        </div>
+        {loadingLog ? (
+          <div style={{ padding: 20, textAlign: 'center', color: '#94a3b8' }}>Chargement...</div>
+        ) : log.length === 0 ? (
+          <div style={{ padding: 20, textAlign: 'center', color: '#94a3b8', fontSize: 13 }}>Aucune clôture enregistrée.</div>
+        ) : (
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+              <thead>
+                <tr style={{ textAlign: 'left', color: '#64748b', borderBottom: '1px solid #e2e8f0' }}>
+                  <th style={{ padding: '8px 10px' }}>Ticket</th>
+                  <th style={{ padding: '8px 10px' }}>Titre</th>
+                  <th style={{ padding: '8px 10px' }}>Clôturé par</th>
+                  <th style={{ padding: '8px 10px' }}>Source</th>
+                  <th style={{ padding: '8px 10px' }}>Date</th>
+                </tr>
+              </thead>
+              <tbody>
+                {log.map(row => (
+                  <tr key={row.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                    <td style={{ padding: '8px 10px', fontWeight: 700, whiteSpace: 'nowrap' }}>
+                      <a href={`/tickets/${row.ticket_id}`} style={{ color: '#6366f1', textDecoration: 'none' }}>#{row.ticket_id}</a>
+                    </td>
+                    <td style={{ padding: '8px 10px', maxWidth: 320, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={row.ticket_title}>{row.ticket_title || '—'}</td>
+                    <td style={{ padding: '8px 10px' }}>{row.is_auto ? 'Système' : (row.closed_by || '—')}</td>
+                    <td style={{ padding: '8px 10px' }}>{sourceBadge(row)}</td>
+                    <td style={{ padding: '8px 10px', whiteSpace: 'nowrap', color: '#64748b' }}>{fmtDate(row.created_at)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
     </div>
   );

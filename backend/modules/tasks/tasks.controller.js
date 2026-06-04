@@ -101,6 +101,35 @@ async function getUserDisplayName(username) {
     }
 }
 
+// Prévient par mail le créateur d'une tâche qu'un membre l'a refusée.
+// Ne bloque pas les autres membres (refus individuel). Silencieux si pas de mail/destinataire.
+async function notifyCreatorOfRefusal({ createdBy, refuserUsername, description, isTeamTask, raison }) {
+    if (!sendMailFn || !createdBy) return;
+    // Inutile de se notifier soi-même.
+    if (createdBy.toLowerCase() === (refuserUsername || '').toLowerCase()) return;
+
+    const creator = await pool.query(
+        'SELECT email, displayname FROM hub.users WHERE LOWER(username) = LOWER($1)',
+        [createdBy]
+    );
+    const to = creator.rows[0]?.email;
+    if (!to) return;
+
+    const refuserName = await getUserDisplayName(refuserUsername);
+    const esc = (s) => String(s || '').replace(/[<>&]/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c]));
+    const teamNote = isTeamTask
+        ? '<p style="color:#64748b;font-size:13px;">Il s\'agit d\'une tâche d\'équipe : les autres membres ne sont pas bloqués et peuvent toujours la réaliser.</p>'
+        : '';
+    const html = `
+        <h2 style="margin:0 0 8px;">Tâche refusée</h2>
+        <p><strong>${esc(refuserName)}</strong> a refusé la tâche suivante :</p>
+        <blockquote style="margin:8px 0;padding:8px 12px;border-left:3px solid #ef4444;background:#fef2f2;">${esc(description) || '(sans description)'}</blockquote>
+        <p><strong>Raison du refus :</strong> ${esc(raison)}</p>
+        ${teamNote}
+    `;
+    await sendMailFn(to, '❌ Tâche refusée — DSI Hub', html, [], 'task_alert');
+}
+
 module.exports = {
 
     // GET /api/tasks
@@ -129,7 +158,7 @@ module.exports = {
                         ut.created_by,
                         ut.refus_raison
                     FROM hub.user_tasks ut
-                    WHERE LOWER(ut.username) = $1 OR LOWER(ut.created_by) = $1
+                    WHERE LOWER(ut.username) = $1
 
                     UNION ALL
 
@@ -472,7 +501,7 @@ module.exports = {
             // updated in place rather than mis-routed to a synthetic-id branch.
             let taskContext = null;
             const { rows: utRows } = await pool.query(
-                'SELECT context_source, context_id, description FROM hub.user_tasks WHERE id = $1',
+                'SELECT context_source, context_id, description, team_group_id, is_team_task, created_by FROM hub.user_tasks WHERE id = $1',
                 [id]
             );
             if (utRows.length > 0) taskContext = utRows[0];
@@ -488,11 +517,31 @@ module.exports = {
                             'UPDATE hub.user_tasks SET statut = $1, refus_raison = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $3',
                             [statut, refus_raison, id]
                         );
+                        // Refus individuel (ne bloque pas les autres membres) : on prévient
+                        // le créateur de la tâche par mail si ce n'est pas lui qui refuse.
+                        try {
+                            await notifyCreatorOfRefusal({
+                                createdBy: taskContext?.created_by,
+                                refuserUsername: req.user.username,
+                                description: taskContext?.description,
+                                isTeamTask: taskContext?.is_team_task,
+                                raison: refus_raison,
+                            });
+                        } catch (e) { console.error('[tasks] notify refusal failed:', e.message); }
                     } else {
                         await pool.query(
                             'UPDATE hub.user_tasks SET statut = $1, refus_raison = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = $2',
                             [statut, id]
                         );
+                        // Tâche d'équipe : le statut est partagé. Le premier qui avance/termine
+                        // la tâche la fait avancer/terminer pour tous les membres du groupe.
+                        // (Le refus reste individuel — non propagé.)
+                        if (taskContext?.team_group_id) {
+                            await pool.query(
+                                'UPDATE hub.user_tasks SET statut = $1, refus_raison = NULL, updated_at = CURRENT_TIMESTAMP WHERE team_group_id = $2',
+                                [statut, taskContext.team_group_id]
+                            );
+                        }
                     }
                     break;
                 case 'transcript':
@@ -595,6 +644,70 @@ module.exports = {
     },
 
     // DELETE /api/tasks/personal/:id
+    // Supprime une tâche personnelle/assignée. Pour une tâche d'équipe (team_group_id),
+    // supprime toutes les lignes du groupe afin qu'elle disparaisse en une seule action.
+    async deleteTask(req, res) {
+        const { id } = req.params;
+        try {
+            const { rows } = await pool.query('SELECT team_group_id FROM hub.user_tasks WHERE id = $1', [id]);
+            if (rows.length === 0) return res.status(404).json({ error: 'Tâche introuvable' });
+
+            let ids;
+            if (rows[0].team_group_id) {
+                const { rows: grp } = await pool.query('SELECT id FROM hub.user_tasks WHERE team_group_id = $1', [rows[0].team_group_id]);
+                ids = grp.map(r => r.id);
+            } else {
+                ids = [parseInt(id, 10)];
+            }
+
+            try { await pool.query("DELETE FROM hub.task_notes WHERE source = 'personal' AND task_id::integer = ANY($1)", [ids]); } catch (e) { /* notes facultatives */ }
+            await pool.query('DELETE FROM hub.user_tasks WHERE id = ANY($1)', [ids]);
+            res.json({ success: true, deleted: ids.length });
+        } catch (error) {
+            res.status(500).json({ error: error.message });
+        }
+    },
+
+    // PATCH /api/tasks/edit/:id  { description?, echeance? }
+    // Modifie une tâche que J'AI créée (personnelle ou affectée à d'autres). Seul le
+    // créateur est autorisé. Pour une tâche d'équipe, la modification s'applique à
+    // toutes les lignes du groupe (la tâche reste unique).
+    async editTask(req, res) {
+        const { id } = req.params;
+        const { description, echeance } = req.body;
+        const username = req.user.username;
+        try {
+            const { rows } = await pool.query(
+                'SELECT created_by, team_group_id FROM hub.user_tasks WHERE id = $1', [id]
+            );
+            if (rows.length === 0) return res.status(404).json({ error: 'Tâche introuvable' });
+            const task = rows[0];
+            if ((task.created_by || '').toLowerCase() !== username.toLowerCase()) {
+                return res.status(403).json({ error: 'Seul le créateur peut modifier cette tâche' });
+            }
+            if (description !== undefined && !String(description).trim()) {
+                return res.status(400).json({ error: 'Description requise' });
+            }
+
+            const sets = [];
+            const params = [];
+            let i = 1;
+            if (description !== undefined) { sets.push(`description = $${i++}`); params.push(String(description).trim()); }
+            if (echeance !== undefined) { sets.push(`echeance = $${i++}`); params.push(echeance || null); }
+            if (sets.length === 0) return res.json({ success: true, updated: 0 });
+            sets.push('updated_at = CURRENT_TIMESTAMP');
+
+            let whereSql;
+            if (task.team_group_id) { whereSql = `team_group_id = $${i}`; params.push(task.team_group_id); }
+            else { whereSql = `id = $${i}`; params.push(parseInt(id, 10)); }
+
+            await pool.query(`UPDATE hub.user_tasks SET ${sets.join(', ')} WHERE ${whereSql}`, params);
+            res.json({ success: true });
+        } catch (error) {
+            res.status(500).json({ error: error.message });
+        }
+    },
+
     async toggleFavorite(req, res) {
         const { source, id } = req.params;
         try {
@@ -1163,16 +1276,44 @@ module.exports = {
     async getAssignedByMe(req, res) {
         const username = req.user.username;
         try {
+            // Une tâche d'équipe est stockée en N lignes (1 par destinataire) liées par
+            // team_group_id. On la présente comme UNE seule tâche, avec la liste de tous
+            // les destinataires (assignees) et un statut global. Les tâches solo restent
+            // groupées par leur id propre.
             const { rows } = await pool.query(
-                `SELECT ut.id, ut.username AS responsable, ut.description, ut.echeance::text AS echeance,
-                        ut.statut, ut.created_at, ut.updated_at::text AS updated_at,
-                        ut.context_source, ut.context_title, ut.refus_raison,
-                        COALESCE(ut.context_source, 'personal') AS source,
-                        COALESCE(ut.context_title, 'Tâche personnelle') AS source_title
+                `SELECT
+                    MIN(ut.id) AS id,
+                    ut.team_group_id,
+                    bool_or(COALESCE(ut.is_team_task, false)) AS is_team_task,
+                    MIN(ut.description) AS description,
+                    MIN(ut.echeance::text) AS echeance,
+                    MIN(ut.created_at) AS created_at,
+                    MAX(ut.updated_at::text) AS updated_at,
+                    COALESCE(MIN(ut.context_source), 'personal') AS source,
+                    COALESCE(MIN(ut.context_source), 'personal') AS context_source,
+                    COALESCE(MIN(ut.context_title), 'Tâche personnelle') AS source_title,
+                    COALESCE(MIN(ut.context_title), 'Tâche personnelle') AS context_title,
+                    COUNT(*)::int AS assignee_count,
+                    string_agg(COALESCE(u.displayName, ut.username), ', ' ORDER BY COALESCE(u.displayName, ut.username)) AS responsable,
+                    json_agg(json_build_object(
+                        'username', ut.username,
+                        'name', COALESCE(u.displayName, ut.username),
+                        'statut', ut.statut,
+                        'refus_raison', ut.refus_raison
+                    ) ORDER BY COALESCE(u.displayName, ut.username)) AS assignees,
+                    CASE
+                        WHEN bool_or(ut.statut IN ('terminé','terminee')) THEN 'terminé'
+                        WHEN bool_or(ut.statut = 'en_cours') THEN 'en_cours'
+                        WHEN bool_or(ut.statut = 'refuse') THEN 'refuse'
+                        ELSE 'a_faire'
+                    END AS statut,
+                    string_agg(DISTINCT ut.refus_raison, ' · ') FILTER (WHERE ut.refus_raison IS NOT NULL AND ut.refus_raison <> '') AS refus_raison
                  FROM hub.user_tasks ut
+                 LEFT JOIN hub.users u ON LOWER(u.username) = LOWER(ut.username)
                  WHERE LOWER(ut.created_by) = LOWER($1)
                    AND LOWER(ut.username) != LOWER($1)
-                 ORDER BY ut.created_at DESC`,
+                 GROUP BY COALESCE(ut.team_group_id::text, 'solo:' || ut.id::text), ut.team_group_id
+                 ORDER BY MIN(ut.created_at) DESC`,
                 [username]
             );
             res.json(rows);

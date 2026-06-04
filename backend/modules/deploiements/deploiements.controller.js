@@ -230,14 +230,25 @@ async function list(req, res) {
 // ──────────────────────────────────────────────────────────────────────────────
 async function kpis(req, res) {
   try {
+    // Filtre année optionnel : restreint les KPIs et la cadence à l'année choisie.
+    // La liste des années disponibles (by_annee) reste TOUJOURS globale pour alimenter le sélecteur.
+    const annee = req.query.annee ? parseInt(req.query.annee, 10) : null;
+    const anneeOk = Number.isInteger(annee);
+    // Clause de filtrage par année sur la colonne date_deploiement (préfixe table paramétrable).
+    const yearWhere = (prefix = '') => anneeOk
+      ? `EXTRACT(YEAR FROM ${prefix}date_deploiement)::int = ${annee}`
+      : null;
+    const andYear = (prefix = '') => anneeOk ? ` AND ${yearWhere(prefix)}` : '';
+
     const client = await pool.connect();
     try {
-      const [total, byType, byDir, byAnnee, byAnneeEquip, byInstallateur, ficLie, matchStats, conflits] = await Promise.all([
-        client.query('SELECT COUNT(*)::int AS n FROM hub_deploiements.fiches'),
-        client.query(`SELECT type_operation, COUNT(*)::int AS n FROM hub_deploiements.fiches WHERE type_operation IS NOT NULL GROUP BY type_operation ORDER BY n DESC`),
-        client.query(`SELECT direction, COUNT(*)::int AS n FROM hub_deploiements.fiches WHERE direction IS NOT NULL GROUP BY direction ORDER BY n DESC LIMIT 10`),
+      const [total, byType, byDir, byAnnee, byAnneeEquip, byMoisEquip, byInstallateur, ficLie, matchStats, conflits] = await Promise.all([
+        client.query(`SELECT COUNT(*)::int AS n FROM hub_deploiements.fiches${anneeOk ? ` WHERE ${yearWhere()}` : ''}`),
+        client.query(`SELECT type_operation, COUNT(*)::int AS n FROM hub_deploiements.fiches WHERE type_operation IS NOT NULL${andYear()} GROUP BY type_operation ORDER BY n DESC`),
+        client.query(`SELECT direction, COUNT(*)::int AS n FROM hub_deploiements.fiches WHERE direction IS NOT NULL${andYear()} GROUP BY direction ORDER BY n DESC LIMIT 10`),
+        // Liste des années disponibles — non filtrée, pour le sélecteur
         client.query(`SELECT EXTRACT(YEAR FROM date_deploiement)::int AS annee, COUNT(*)::int AS n FROM hub_deploiements.fiches WHERE date_deploiement IS NOT NULL GROUP BY 1 ORDER BY 1`),
-        // Cadence annuelle décomposée par catégorie d'équipement
+        // Cadence annuelle décomposée par catégorie d'équipement (vue globale, sans filtre année)
         client.query(`
           SELECT EXTRACT(YEAR FROM f.date_deploiement)::int AS annee, (${EQUIP_CAT_SQL}) AS cat, COUNT(*)::int AS n
           FROM hub_deploiements.fiches f
@@ -245,8 +256,18 @@ async function kpis(req, res) {
           GROUP BY 1, 2
           ORDER BY 1
         `),
-        client.query(`SELECT installateur, COUNT(*)::int AS n FROM hub_deploiements.fiches WHERE installateur IS NOT NULL GROUP BY installateur ORDER BY n DESC LIMIT 10`),
-        client.query(`SELECT COUNT(*)::int AS n FROM hub_deploiements.fiches WHERE fichier_lie IS NOT NULL`),
+        // Cadence mensuelle (mois 1-12) pour l'année sélectionnée — vide si aucune année
+        anneeOk
+          ? client.query(`
+              SELECT EXTRACT(MONTH FROM f.date_deploiement)::int AS mois, (${EQUIP_CAT_SQL}) AS cat, COUNT(*)::int AS n
+              FROM hub_deploiements.fiches f
+              WHERE f.date_deploiement IS NOT NULL AND ${yearWhere('f.')}
+              GROUP BY 1, 2
+              ORDER BY 1
+            `)
+          : Promise.resolve({ rows: [] }),
+        client.query(`SELECT installateur, COUNT(*)::int AS n FROM hub_deploiements.fiches WHERE installateur IS NOT NULL${andYear()} GROUP BY installateur ORDER BY n DESC LIMIT 10`),
+        client.query(`SELECT COUNT(*)::int AS n FROM hub_deploiements.fiches WHERE fichier_lie IS NOT NULL${andYear()}`),
         client.query(`
           SELECT
             COUNT(*)::int AS total_uc,
@@ -259,7 +280,7 @@ async function kpis(req, res) {
             SUM(CASE WHEN i.glpi_id IS NULL THEN 1 ELSE 0 END)::int AS no_match
           FROM hub_deploiements.fiches f
           LEFT JOIN hub_parc.items i ON i.name = f.uc_nouveau_num
-          WHERE f.uc_nouveau_num IS NOT NULL
+          WHERE f.uc_nouveau_num IS NOT NULL${andYear('f.')}
         `),
         client.query(`
           SELECT COUNT(*)::int AS n
@@ -267,7 +288,7 @@ async function kpis(req, res) {
           JOIN hub_parc.items i ON i.name = f.uc_nouveau_num
           WHERE f.uc_nouveau_serie IS NOT NULL
             AND (i.raw->>'serial') IS NOT NULL
-            AND f.uc_nouveau_serie <> (i.raw->>'serial')
+            AND f.uc_nouveau_serie <> (i.raw->>'serial')${andYear('f.')}
         `),
       ]);
 
@@ -277,6 +298,7 @@ async function kpis(req, res) {
         by_direction: byDir.rows,
         by_annee: byAnnee.rows,
         by_annee_equip: byAnneeEquip.rows,
+        by_mois_equip: byMoisEquip.rows,
         by_installateur: byInstallateur.rows,
         nb_fichier_lie: ficLie.rows[0].n,
         match_stats: matchStats.rows[0],

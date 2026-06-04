@@ -78,6 +78,8 @@ function normalize(itemtype, it) {
     os: null, os_version: null,
     doc_count: 0,
     ad_found: false,          // enrichi par enrichAdFound()
+    ad_last_seen: null,       // dernière connexion AD du PC — enrichi par enrichAdComputer()
+    ad_last_user: null,       // dernier utilisateur connu côté AD
     itemtype_label: null,     // rempli par loadAllTypes() pour la vue "TOUS"
   };
 }
@@ -176,6 +178,25 @@ function applyListQuery(rows, query) {
   if (query.renouveler === '1') rows = rows.filter((r) => r.age_years != null && r.age_years >= 5);
   if (query.ad === '1') rows = rows.filter((r) => r.ad_found);
   if (query.ad === '0') rows = rows.filter((r) => !r.ad_found);
+  // Filtre « vue AD » : ancienneté de la dernière connexion du PC dans l'AD.
+  if (query.ad_seen) {
+    const daysSince = (r) => {
+      if (!r.ad_last_seen) return null;
+      const d = new Date(r.ad_last_seen);
+      if (isNaN(d.getTime())) return null;
+      return Math.floor((Date.now() - d.getTime()) / 86400000);
+    };
+    rows = rows.filter((r) => {
+      const n = daysSince(r);
+      switch (query.ad_seen) {
+        case 'fresh':    return n != null && n <= 30;
+        case 'warn':     return n != null && n > 30 && n <= 90;
+        case 'stale':    return n != null && n > 90;
+        case 'notfound': return n == null;
+        default:         return true;
+      }
+    });
+  }
   if (query.docs === '1') rows = rows.filter((r) => r.doc_count > 0);
   // stock=0 (défaut) : exclut les machines en stock ; stock=1 : affiche tout (ajout).
   // Exception : si un filtre état est explicitement choisi, on ne l'écrase pas.
@@ -266,6 +287,19 @@ async function loadDeploiementsParAnnee() {
   } catch (e) { return []; }
 }
 
+// Déploiements d'ordinateurs par mois (YYYY-MM), pour la vue mensuelle du graphique.
+async function loadDeploiementsParMois() {
+  try {
+    const { pgDb } = require('../../shared/database');
+    const rows = await pgDb.all(`
+      SELECT TO_CHAR(date_deploiement, 'YYYY-MM') AS mois, COUNT(*)::int AS n
+      FROM hub_deploiements.fiches
+      WHERE date_deploiement IS NOT NULL AND uc_nouveau_num IS NOT NULL AND TRIM(uc_nouveau_num) <> ''
+      GROUP BY 1 ORDER BY 1`);
+    return rows.map((r) => ({ mois: r.mois, count: r.n }));
+  } catch (e) { return []; }
+}
+
 // Compte les téléphones / tablettes depuis la table ad hoc « mobilité ».
 async function loadMobiliteCounts() {
   try {
@@ -308,14 +342,20 @@ function computeKpis(lists, mobilite = null) {
   const sansMiseEnService = pcs.filter((r) => !r.service_date).length;
   const doublonsSerie = countDuplicateSerials(pcs);
 
-  // Ajouts au parc par année : basés sur la date de réception (acquisition).
+  // Ajouts au parc par année / par mois : basés sur la date de réception (acquisition).
   const parAnnee = {};
+  const parMois = {};
   for (const r of pcs) {
-    const y = (r.reception_date || '').slice(0, 4);
+    const d = (r.reception_date || '');
+    const y = d.slice(0, 4);
     if (/^\d{4}$/.test(y)) parAnnee[y] = (parAnnee[y] || 0) + 1;
+    const ym = d.slice(0, 7); // YYYY-MM
+    if (/^\d{4}-\d{2}$/.test(ym)) parMois[ym] = (parMois[ym] || 0) + 1;
   }
   const ajoutsParAnnee = Object.entries(parAnnee).map(([annee, count]) => ({ annee, count }))
     .sort((a, b) => a.annee.localeCompare(b.annee));
+  const ajoutsParMois = Object.entries(parMois).map(([mois, count]) => ({ mois, count }))
+    .sort((a, b) => a.mois.localeCompare(b.mois));
 
   const ages = pcs.map((r) => r.age_years).filter((a) => a != null);
   const ageMoyen = ages.length ? Math.round((ages.reduce((s, a) => s + a, 0) / ages.length) * 10) / 10 : null;
@@ -342,6 +382,7 @@ function computeKpis(lists, mobilite = null) {
       parFournisseur: topCounts(pcs, 'supplier'),
       parOs: topCounts(pcs, 'os'),
       ajoutsParAnnee,
+      ajoutsParMois,
     },
     ratios: {
       moniteursParPc: nbPc ? Math.round(((lists.moniteurs || []).length / nbPc) * 100) / 100 : 0,
@@ -404,6 +445,43 @@ async function enrichAdFound(rows) {
           if (u.found) r.ad_found = true;
           if (u.email) r.contact_email = u.email;
         }
+      }
+    }
+  } catch (e) { /* table absente ou non synchronisée */ }
+}
+
+// Enrichit ad_last_seen / ad_last_user en rapprochant le nom de l'équipement des
+// ordinateurs importés de l'AD (table hub_parc.ad_computers). Match par nom (le
+// samAccountName d'un ordinateur AD = nom + « $ »). Un seul aller-retour DB.
+async function enrichAdComputer(rows) {
+  const names = [...new Set(
+    rows.filter(r => r.name).map(r => String(r.name).trim().toLowerCase())
+  )].filter(Boolean);
+  if (!names.length) return;
+  try {
+    const { pool } = require('../../shared/database');
+    const result = await pool.query(
+      `SELECT name, samaccountname, lastlogon, lastlogonuser, description FROM hub_parc.ad_computers
+       WHERE LOWER(name) = ANY($1)`, [names]
+    );
+    const byName = new Map();
+    for (const x of result.rows) {
+      const key = (x.name || '').trim().toLowerCase();
+      if (!key) continue;
+      // En cas de doublon, on garde la connexion la plus récente.
+      const prev = byName.get(key);
+      if (!prev || (x.lastlogon && (!prev.lastlogon || new Date(x.lastlogon) > new Date(prev.lastlogon)))) {
+        byName.set(key, x);
+      }
+    }
+    for (const r of rows) {
+      if (!r.name) continue;
+      const m = byName.get(String(r.name).trim().toLowerCase());
+      if (m) {
+        r.ad_last_seen = m.lastlogon || null;
+        // L'objet ordinateur AD ne porte pas le « dernier utilisateur » : on prend
+        // uniquement ce que l'AD enregistre dans description (saisi par le support).
+        r.ad_last_user = m.lastlogonuser || m.description || null;
       }
     }
   } catch (e) { /* table absente ou non synchronisée */ }
@@ -502,6 +580,7 @@ async function loadType(itemtype, { refresh = false, ic = null, os = null, dc = 
     return r;
   });
   await enrichAdFound(result);
+  await enrichAdComputer(result);
   return result;
 }
 
@@ -645,9 +724,10 @@ async function kpis(req, res) {
       try { lists[key] = (await loadType(glpi.ITEM_TYPES[key].itemtype, { refresh, ic, os, dc })).filter((r) => !r.is_deleted); }
       catch (e) { lists[key] = []; }
     }));
-    const [mob, deployParAn] = await Promise.all([loadMobiliteCounts(), loadDeploiementsParAnnee()]);
+    const [mob, deployParAn, deployParMois] = await Promise.all([loadMobiliteCounts(), loadDeploiementsParAnnee(), loadDeploiementsParMois()]);
     const k = computeKpis(lists, mob);
     k.ordinateurs.deploiementsParAnnee = deployParAn;
+    k.ordinateurs.deploiementsParMois = deployParMois;
     res.json({ source: 'live', ...k, cache: Object.fromEntries(keys.map((kk) => [kk, glpi.cacheInfo(glpi.ITEM_TYPES[kk].itemtype)])) });
   } catch (error) { res.status(500).json({ message: error.message }); }
 }
@@ -691,6 +771,6 @@ module.exports = {
   core: {
     normalize, mergeInfocom, mapPort, mapOs, mapDoc,
     applyListQuery, buildFilters, computeKpis, buildItemResponse, attachUsagerEmails,
-    enrichAdFound, computeUsagersEquip, computeStockSummary, loadMobiliteCounts, loadDeploiementsParAnnee,
+    enrichAdFound, enrichAdComputer, computeUsagersEquip, computeStockSummary, loadMobiliteCounts, loadDeploiementsParAnnee, loadDeploiementsParMois,
   },
 };

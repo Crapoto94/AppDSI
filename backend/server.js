@@ -5436,6 +5436,17 @@ cron.schedule('0 * * * *', () => {
     dsiDashboardCtrl.runScheduledSends().catch(e => console.error('[CRON dsi-dash]', e.message));
 }, { timezone: 'Europe/Paris' });
 
+// ─── Tickets : clôture automatique des tickets résolus, tous les jours à minuit ──
+cron.schedule('0 0 * * *', async () => {
+    console.log('[CRON] Clôture automatique des tickets résolus (minuit)...');
+    try {
+        const result = await require('./modules/tickets/services/workflow.service').autoCloseResolvedTickets();
+        if (!result.disabled) console.log(`[CRON auto-close] ${result.closed} ticket(s) clos (délai ${result.days} j).`);
+    } catch (e) {
+        console.error('[CRON auto-close]', e.message);
+    }
+}, { timezone: 'Europe/Paris' });
+
 // ─── Tâches : injection mail + cron 8h ──────────────────────────────────────
 tasksCtrl.setSendMail(sendMail);
 // Tous les jours à 8h00

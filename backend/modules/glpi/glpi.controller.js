@@ -86,6 +86,11 @@ function isAnySyncActive() {
 
 const SYNC_BUSY_MSG = 'Une synchronisation est déjà en cours. Attendez qu\'elle se termine avant d\'en lancer une autre.';
 
+// Nombre de tickets traités en parallèle pendant la phase « détails » (description + suivis).
+// Chaque ticket déclenche jusqu'à 2 requêtes GLPI simultanées → ~2× cette valeur de requêtes en vol.
+// Ajustable selon la capacité du serveur GLPI ; 80 offre un bon compromis vitesse/charge.
+const DETAIL_CONCURRENCY = 80;
+
 // ─── LDAP batch lookup: username[] → Map<username, fullName> ─────────────────
 async function ldapBatchLookup(adSettings, usernames) {
     const resultMap = new Map();
@@ -664,6 +669,169 @@ const glpiController = {
         }
     },
 
+    // ── Synchronisation COMPLÈTE en une seule passe ─────────────────────────────
+    // 1) Liste complète des tickets (recherche paginée, champs de base + métadonnées)
+    // 2) Détails : description (content) + suivis (followups) récupérés EN MÊME TEMPS,
+    //    par ticket, en parallèle, avec forte concurrence.
+    // La description n'est re-téléchargée que si elle manque encore (gros gain en re-sync) ;
+    // les suivis sont toujours rafraîchis car ils évoluent au fil du temps.
+    syncFull: async (req, res) => {
+        if (isAnySyncActive()) return res.status(409).json({ message: SYNC_BUSY_MSG });
+        const triggeredBy = req.user?.username || 'admin';
+        glpiSyncCancelled = false;
+        glpiSyncProgress = { active: true, processed: 0, total: 0, startTime: new Date().toISOString(), lastUpdate: new Date().toISOString(), type: 'full', phase: 'tickets' };
+
+        let syncLogId = null;
+        try {
+            const db = getSqlite();
+            const settings = await db.get('SELECT * FROM glpi_settings WHERE id = 1');
+            if (!settings || !settings.url) {
+                glpiSyncProgress.active = false;
+                return res.status(400).json({ message: 'GLPI non configuré' });
+            }
+
+            const url = glpiController.getApiUrl(settings.url);
+            const commonHeaders = { 'App-Token': settings.app_token?.trim() || '', 'Content-Type': 'application/json', 'Accept': 'application/json' };
+            const authHeader = glpiController.getAuthHeader(settings);
+
+            const sessionRes = await axios.get(`${url}/initSession`, { headers: { ...commonHeaders, 'Authorization': authHeader } });
+            const sessionToken = sessionRes.data?.session_token;
+            if (!sessionToken) throw new Error('Session GLPI échouée');
+
+            await axios.get(`${url}/getMyProfiles?session_token=${sessionToken}`, { headers: commonHeaders });
+            await axios.get(`${url}/getFullSession?session_token=${sessionToken}`, { headers: commonHeaders });
+
+            // ── PHASE 1 : liste complète des tickets ────────────────────────────
+            const countRes = await axios.get(`${url}/search/Ticket?session_token=${sessionToken}&range=0-1&get_all_entities=1`, { headers: commonHeaders });
+            const totalCount = parseInt(countRes.data.totalcount, 10) || 0;
+            glpiSyncProgress.total = totalCount;
+
+            const logResult = await pool.query(
+                `INSERT INTO glpi.sync_logs (sync_type, sync_mode, triggered_by, status, total_tickets) VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+                ['tickets', 'full', triggeredBy, 'running', totalCount]
+            );
+            syncLogId = logResult.rows[0]?.id;
+
+            if (totalCount === 0) {
+                await axios.get(`${url}/killSession?session_token=${sessionToken}`, { headers: { ...commonHeaders, 'Session-Token': sessionToken } });
+                if (syncLogId) await pool.query(`UPDATE glpi.sync_logs SET status = 'completed', processed_tickets = 0, completed_at = CURRENT_TIMESTAMP WHERE id = $1`, [syncLogId]);
+                glpiSyncProgress.active = false;
+                return res.json({ success: true, count: 0, followups: 0, descriptions: 0 });
+            }
+
+            const batchSize = 200;
+            let processedCount = 0;
+            const forcedFields = [1, 2, 3, 10, 11, 7, 12, 14, 15, 16, 17, 19, 83, 24, 9, 80, 4, 34, 22, 21];
+            const forcedStr = forcedFields.map(id => `forcedisplay[${id}]=${id}`).join('&');
+
+            for (let start = 0; start < totalCount; start += batchSize) {
+                if (glpiSyncCancelled) {
+                    glpiSyncProgress.active = false; glpiSyncCancelled = false;
+                    await axios.get(`${url}/killSession?session_token=${sessionToken}`, { headers: { ...commonHeaders, 'Session-Token': sessionToken } });
+                    if (syncLogId) await pool.query(`UPDATE glpi.sync_logs SET status = 'cancelled', processed_tickets = $1, completed_at = CURRENT_TIMESTAMP WHERE id = $2`, [processedCount, syncLogId]);
+                    return res.status(499).json({ message: 'Synchronisation annulée' });
+                }
+                const end = Math.min(start + batchSize, totalCount);
+                const batchRes = await axios.get(`${url}/search/Ticket?session_token=${sessionToken}&range=${start}-${end - 1}&get_all_entities=1&${forcedStr}`, { headers: commonHeaders });
+                if (batchRes.data && Array.isArray(batchRes.data.data)) {
+                    await glpiController.saveTicketsToPg(batchRes.data.data);
+                    processedCount += batchRes.data.data.length;
+                    glpiSyncProgress.processed = processedCount;
+                    glpiSyncProgress.lastUpdate = new Date().toISOString();
+                }
+            }
+
+            // ── PHASE 2 : détails (description + suivis) en une passe parallélisée ──
+            glpiSyncProgress.phase = 'details';
+            glpiSyncProgress.processed = 0;
+            const detailRows = await pgDb.all(
+                `SELECT glpi_id, (content IS NULL OR content = '') AS needs_content FROM glpi.tickets ORDER BY glpi_id DESC`
+            );
+            glpiSyncProgress.total = detailRows.length;
+
+            let descUpdated = 0;
+            let followupsInserted = 0;
+
+            for (let i = 0; i < detailRows.length; i += DETAIL_CONCURRENCY) {
+                if (glpiSyncCancelled) {
+                    glpiSyncProgress.active = false; glpiSyncCancelled = false;
+                    await axios.get(`${url}/killSession?session_token=${sessionToken}`, { headers: { ...commonHeaders, 'Session-Token': sessionToken } });
+                    if (syncLogId) await pool.query(`UPDATE glpi.sync_logs SET status = 'cancelled', processed_tickets = $1, completed_at = CURRENT_TIMESTAMP WHERE id = $2`, [processedCount, syncLogId]);
+                    return res.status(499).json({ message: 'Synchronisation annulée' });
+                }
+
+                const batch = detailRows.slice(i, i + DETAIL_CONCURRENCY);
+                // Pour chaque ticket : description (si manquante) + suivis, lancés simultanément
+                const settled = await Promise.all(batch.map(t => Promise.allSettled([
+                    t.needs_content
+                        ? axios.get(`${url}/Ticket/${t.glpi_id}?session_token=${sessionToken}`, { headers: commonHeaders, timeout: 10000 })
+                        : Promise.resolve(null),
+                    axios.get(`${url}/Ticket/${t.glpi_id}/ITILFollowup?session_token=${sessionToken}`, { headers: commonHeaders, timeout: 8000 }),
+                ])));
+
+                const contentToUpdate = [];
+                const followupsToInsert = [];
+                settled.forEach((pair, idx) => {
+                    const ticketId = batch[idx].glpi_id;
+                    const [descR, fuR] = pair;
+                    if (descR.status === 'fulfilled' && descR.value && descR.value.data?.content) {
+                        contentToUpdate.push({ glpi_id: ticketId, content: descR.value.data.content });
+                    }
+                    if (fuR.status === 'fulfilled') {
+                        const fus = Array.isArray(fuR.value.data) ? fuR.value.data : [];
+                        fus.forEach(fu => {
+                            if (fu.content) {
+                                followupsToInsert.push({
+                                    ticket_id: ticketId,
+                                    content: fu.content,
+                                    author_name: fu.users_id?.name || fu.users_id?.toString() || '',
+                                    author_email: fu.users_id?.email || '',
+                                    is_private: fu.is_private || 0,
+                                    date_creation: fu.date || null,
+                                });
+                            }
+                        });
+                    }
+                });
+
+                if (contentToUpdate.length > 0) {
+                    const valuesSql = contentToUpdate.map((_, k) => `($${k * 2 + 1}::integer, $${k * 2 + 2}::text)`).join(', ');
+                    const params = contentToUpdate.flatMap(r => [r.glpi_id, r.content]);
+                    await pool.query(
+                        `UPDATE glpi.tickets SET content = v.content, last_sync = CURRENT_TIMESTAMP
+                         FROM (VALUES ${valuesSql}) AS v(glpi_id, content) WHERE glpi.tickets.glpi_id = v.glpi_id`, params);
+                    await pool.query(
+                        `UPDATE hub_tickets.tickets SET content = v.content
+                         FROM (VALUES ${valuesSql}) AS v(glpi_id, content)
+                         WHERE hub_tickets.tickets.glpi_id = v.glpi_id
+                           AND (hub_tickets.tickets.content IS NULL OR hub_tickets.tickets.content = '')`, params);
+                    descUpdated += contentToUpdate.length;
+                }
+                if (followupsToInsert.length > 0) {
+                    await glpiController.saveFollowupsToPg(followupsToInsert);
+                    followupsInserted += followupsToInsert.length;
+                }
+
+                glpiSyncProgress.processed = Math.min(i + DETAIL_CONCURRENCY, detailRows.length);
+                glpiSyncProgress.lastUpdate = new Date().toISOString();
+            }
+
+            if (syncLogId) {
+                await pool.query(`UPDATE glpi.sync_logs SET status = 'completed', processed_tickets = $1, completed_at = CURRENT_TIMESTAMP WHERE id = $2`, [processedCount, syncLogId]);
+            }
+            await axios.get(`${url}/killSession?session_token=${sessionToken}`, { headers: { ...commonHeaders, 'Session-Token': sessionToken } });
+            glpiSyncProgress.active = false;
+            res.json({ success: true, count: processedCount, total: totalCount, descriptions: descUpdated, followups: followupsInserted });
+        } catch (error) {
+            console.error('[GLPI] Sync Full Error:', error.message);
+            if (syncLogId) {
+                try { await pool.query(`UPDATE glpi.sync_logs SET status = 'error', error_message = $1, completed_at = CURRENT_TIMESTAMP WHERE id = $2`, [error.message, syncLogId]); } catch { /* ignore */ }
+            }
+            glpiSyncProgress.active = false;
+            res.status(500).json({ message: error.message });
+        }
+    },
+
     syncObservers: async (req, res) => {
         if (isAnySyncActive()) return res.status(409).json({ message: SYNC_BUSY_MSG });
         const triggeredBy = req.user?.username || 'admin';
@@ -762,7 +930,7 @@ const glpiController = {
             const tickets = await pgDb.all('SELECT glpi_id FROM glpi.tickets ORDER BY glpi_id DESC');
             followupsSyncProgress.total = tickets.length;
 
-            const CONCURRENCY = 50;
+            const CONCURRENCY = DETAIL_CONCURRENCY;
             for (let i = 0; i < tickets.length; i += CONCURRENCY) {
                 if (followupsSyncCancelled) {
                     followupsSyncProgress.active = false;
@@ -847,7 +1015,7 @@ const glpiController = {
                 return res.json({ success: true, count: 0, message: 'Tous les tickets ont déjà une description.' });
             }
 
-            const CONCURRENCY = 50;
+            const CONCURRENCY = DETAIL_CONCURRENCY;
             let updated = 0;
 
             for (let i = 0; i < ticketList.length; i += CONCURRENCY) {

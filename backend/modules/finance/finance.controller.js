@@ -98,10 +98,14 @@ module.exports = {
     getOperations: async (req, res) => {
         const { fiscalYear } = req.query;
         try {
-            let query = 'SELECT * FROM oracle.operations';
+            let query = `SELECT o.*, (
+                SELECT COUNT(*) FROM oracle.oracle_links l
+                WHERE l.target_table = 'orders' AND l.operation_id = o.id
+            ) AS orders_count
+            FROM oracle.operations o`;
             const params = [];
             if (fiscalYear) {
-                query += ' WHERE exercice = $1';
+                query += ' WHERE o.exercice = $1';
                 params.push(String(fiscalYear));
             }
             const operations = await pgDb.all(query, params);
@@ -109,6 +113,53 @@ module.exports = {
         } catch (error) {
             console.error('[Finance] getOperations error:', error);
             res.status(500).json({ message: 'Erreur lors de la lecture des opérations', error: error.message });
+        }
+    },
+
+    // Commandes associées à une opération (via oracle.oracle_links — même source que le badge de comptage).
+    getOperationOrders: async (req, res) => {
+        const id = req.params.id;
+        try {
+            const result = await pool.query(`
+                SELECT c."COMMANDE_COMMANDE" AS num,
+                       TRIM(CONCAT(COALESCE(c."COMMANDE_LIBELLE", ''), ' ', COALESCE(c."COMMANDE_CMD_LIBELLE2", ''))) AS libelle,
+                       c."COMMANDE_CMD_DATECOMMANDE" AS date_commande,
+                       c."SERVICEFI_LIBELLE" AS service,
+                       c."section" AS section,
+                       c."COMMANDE_MONTANT_HT" AS montant_ht,
+                       c."COMMANDE_MONTANT_TTC" AS montant_ttc
+                FROM oracle.oracle_links l
+                JOIN oracle.commandes_with_section c ON TRIM(c."COMMANDE_COMMANDE") = l.target_id
+                WHERE l.target_table = 'orders' AND l.operation_id = $1
+                ORDER BY c."COMMANDE_CMD_DATECOMMANDE" DESC NULLS LAST`, [id]);
+
+            const parseNum = (val) => {
+                if (val === null || val === undefined || val === '') return 0;
+                const num = parseFloat(String(val).trim().replace(',', '.').replace(/[^\d.\-]/g, ''));
+                return isNaN(num) ? 0 : num;
+            };
+            const fmtEur = (val) => parseNum(val).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' });
+            const fmtDate = (val) => {
+                if (!val) return '';
+                const d = new Date(val);
+                return isNaN(d.getTime()) ? String(val) : d.toLocaleDateString('fr-FR');
+            };
+            const fmtSection = (s) => s === 'Fonctionnement' ? 'F' : s === 'Investissement' ? 'I' : (s || '');
+
+            const columns = ['N° Commande', 'Libellé', 'Date', 'Service', 'Section', 'Montant HT', 'Montant TTC'].map(name => ({ name }));
+            const rows = result.rows.map(r => ({
+                'N° Commande': String(r.num || '').trim(),
+                'Libellé': r.libelle || '',
+                'Date': fmtDate(r.date_commande),
+                'Service': r.service || '',
+                'Section': fmtSection(r.section),
+                'Montant HT': fmtEur(r.montant_ht),
+                'Montant TTC': fmtEur(r.montant_ttc),
+            }));
+            res.json({ columns, rows });
+        } catch (error) {
+            console.error(`[Finance] getOperationOrders(${id}) error:`, error);
+            res.status(500).json({ message: 'Erreur lors de la lecture des commandes de l\'opération', error: error.message });
         }
     },
 

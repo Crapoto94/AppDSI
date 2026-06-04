@@ -35,6 +35,7 @@ async function loadTypeRows(typeKey, { refresh = false } = {}) {
   const r = await pool.query(`SELECT raw, infocom, os, documents FROM hub_parc.items WHERE itemtype = $1`, [t.itemtype]);
   const rows = rowsToNormalized(t.itemtype, r.rows);
   await core.enrichAdFound(rows);
+  await core.enrichAdComputer(rows);
   _hubCache.set(t.itemtype, { rows, ts: Date.now() });
   return rows;
 }
@@ -108,9 +109,10 @@ async function kpis(req, res) {
     await Promise.all(keys.map(async (key) => {
       lists[key] = (await loadTypeRows(key)).filter((r) => !r.is_deleted);
     }));
-    const [mob, deployParAn] = await Promise.all([core.loadMobiliteCounts(), core.loadDeploiementsParAnnee()]);
+    const [mob, deployParAn, deployParMois] = await Promise.all([core.loadMobiliteCounts(), core.loadDeploiementsParAnnee(), core.loadDeploiementsParMois()]);
     const k = core.computeKpis(lists, mob);
     k.ordinateurs.deploiementsParAnnee = deployParAn;
+    k.ordinateurs.deploiementsParMois = deployParMois;
     res.json({ source: 'hub', ...k, cache: { synced_at: await lastSync() } });
   } catch (error) { res.status(500).json({ message: error.message }); }
 }

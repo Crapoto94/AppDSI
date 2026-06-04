@@ -851,7 +851,7 @@ const Budget: React.FC = () => {
       else {
         next.add(opId);
         if (!opsCommandsData[opId]) {
-          fetch(`/api/finance/field-mapping/resolve/Op%C3%A9rations/children/${opId}`, {
+          fetch(`/api/budget/operations/${opId}/orders`, {
             headers: { 'Authorization': `Bearer ${token}` }
           }).then(r => r.ok && r.json()).then(data => {
             if (data) setOpsCommandsData(prev => ({ ...prev, [opId]: { columns: data.columns || [], rows: data.rows || [] } }));
@@ -1447,6 +1447,50 @@ const Budget: React.FC = () => {
                   </div>
                 </div>
 
+                {view === 'operations' && (() => {
+                  const kpi = operations.reduce((acc, op) => {
+                    const section = getSectionFromM57(op['C. Nature']);
+                    const planned = parseFloat(op['Montant prévu'] || op['montant_prevu'] || 0) || 0;
+                    const used = parseFloat(op['used_amount'] || op['Montant utilisé'] || 0) || 0;
+                    acc.planned += planned;
+                    acc.used += used;
+                    if (section === 'F') acc.usedF += used;
+                    else if (section === 'I') acc.usedI += used;
+                    return acc;
+                  }, { planned: 0, used: 0, usedF: 0, usedI: 0 });
+                  const pct = kpi.planned > 0 ? (kpi.used / kpi.planned) * 100 : 0;
+                  const fmt = (n: number) => n.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 });
+                  const card: React.CSSProperties = {
+                    flex: '1 1 0', minWidth: '160px', background: 'white', border: '1px solid var(--color-slate-200)',
+                    borderRadius: '12px', padding: '0.85rem 1.1rem', display: 'flex', flexDirection: 'column', gap: '0.25rem'
+                  };
+                  const label: React.CSSProperties = { fontSize: '0.72rem', fontWeight: 600, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.03em' };
+                  const value: React.CSSProperties = { fontSize: '1.25rem', fontWeight: 700, color: 'var(--color-navy)' };
+                  return (
+                    <div style={{ display: 'flex', gap: '1rem', marginBottom: '1rem', flexWrap: 'wrap' }}>
+                      <div style={card}>
+                        <span style={label}>Réalisé Fonctionnement</span>
+                        <span style={{ ...value, color: 'var(--color-green-500)' }}>{fmt(kpi.usedF)}</span>
+                      </div>
+                      <div style={card}>
+                        <span style={label}>Réalisé Investissement</span>
+                        <span style={{ ...value, color: 'var(--color-blue-500)' }}>{fmt(kpi.usedI)}</span>
+                      </div>
+                      <div style={card}>
+                        <span style={label}>Montant total prévu</span>
+                        <span style={value}>{fmt(kpi.planned)}</span>
+                      </div>
+                      <div style={card}>
+                        <span style={label}>Réalisation globale</span>
+                        <span style={{ ...value, color: pct > 100 ? '#ef4444' : 'var(--color-navy)' }}>{Math.round(pct)}%</span>
+                        <div className="progress-track" style={{ marginTop: '2px' }}>
+                          <div className="progress-bar" style={{ width: `${Math.min(pct, 100)}%`, backgroundColor: pct > 100 ? '#ef4444' : 'var(--color-green-500)' }} />
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
+
                 <div className="table-card">
                   <div className="table-responsive">
                     <table className="modern-table table-bordered">
@@ -1526,10 +1570,29 @@ const Budget: React.FC = () => {
                               >
                                 {view === 'operations' && (
                                   <td style={{ textAlign: 'center', verticalAlign: 'middle', width: '32px', padding: '4px' }}>
-                                    <button className="icon-btn" onClick={(e) => { e.stopPropagation(); toggleExpandedOp(row.id); }}
-                                      style={{ width: '28px', height: '28px', cursor: 'pointer' }} title="Voir les commandes liées">
-                                      {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-                                    </button>
+                                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px' }}>
+                                      <button className="icon-btn" onClick={(e) => { e.stopPropagation(); toggleExpandedOp(row.id); }}
+                                        style={{ width: '28px', height: '28px', cursor: 'pointer' }} title="Voir les commandes liées">
+                                        {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                                      </button>
+                                      {(() => {
+                                        const cnt = parseInt(row.orders_count ?? 0, 10) || 0;
+                                        return (
+                                          <span
+                                            title={`${cnt} commande${cnt > 1 ? 's' : ''} associée${cnt > 1 ? 's' : ''}`}
+                                            style={{
+                                              display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                                              minWidth: '20px', height: '20px', padding: '0 6px', borderRadius: '10px',
+                                              fontSize: '0.7rem', fontWeight: 700, lineHeight: 1,
+                                              background: cnt > 0 ? 'var(--color-navy)' : '#e2e8f0',
+                                              color: cnt > 0 ? 'white' : '#94a3b8'
+                                            }}
+                                          >
+                                            {cnt}
+                                          </span>
+                                        );
+                                      })()}
+                                    </div>
                                   </td>
                                 )}
                                 {(() => {

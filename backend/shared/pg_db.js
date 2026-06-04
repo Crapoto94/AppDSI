@@ -3143,6 +3143,9 @@ async function setupPgDb() {
     `);
     await client.query(`CREATE INDEX IF NOT EXISTS idx_ad_computers_name ON hub_parc.ad_computers(name)`);
     await client.query(`CREATE INDEX IF NOT EXISTS idx_ad_computers_sam ON hub_parc.ad_computers(samaccountname)`);
+    // Unicité du samAccountName : nécessaire pour l'upsert de l'import AD
+    // (ON CONFLICT (samaccountname)). Les ordinateurs AD ont toujours un sAMAccountName.
+    await client.query(`CREATE UNIQUE INDEX IF NOT EXISTS uq_ad_computers_sam ON hub_parc.ad_computers(samaccountname)`);
     await client.query(`CREATE INDEX IF NOT EXISTS idx_ad_computers_batch ON hub_parc.ad_computers(import_batch)`);
 
     await client.query(`

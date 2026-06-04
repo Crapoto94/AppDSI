@@ -35,6 +35,7 @@ router.get('/debug/orders-sample', authenticateJWT, async (req, res) => {
 
 // Operations CRUD
 router.get('/operations', authenticateJWT, financeController.getOperations);
+router.get('/operations/:id/orders', authenticateJWT, financeController.getOperationOrders);
 router.post('/operations', authenticateAdminOrFinances, financeController.createOperation);
 router.put('/operations/:id', authenticateAdminOrFinances, financeController.updateOperation);
 router.delete('/operations/:id', authenticateAdminOrFinances, financeController.deleteOperation);

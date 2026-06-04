@@ -41,6 +41,7 @@ router.post('/todo-sync/run',     authenticateJWT, (req, res) => controller.runT
 // ─── Task CRUD ────────────────────────────────────────────────────────────────
 router.get('/',                   authenticateJWT, (req, res) => controller.getMyTasks(req, res));
 router.post('/',                  authenticateJWT, requireTicketPermission("ticket:create"), (req, res) => controller.createTask(req, res));
+router.patch('/edit/:id',         authenticateJWT, (req, res) => controller.editTask(req, res));
 router.patch('/:source/:id/favorite',      authenticateJWT, (req, res) => controller.toggleFavorite(req, res));
 router.patch('/:source/:id',      authenticateJWT, (req, res) => controller.updateTaskStatus(req, res));
 router.delete('/personal/:id',    authenticateJWT, (req, res) => controller.deleteTask(req, res));

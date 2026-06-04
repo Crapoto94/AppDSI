@@ -107,6 +107,44 @@ module.exports = {
             ticket_id: ticketId, user
         });
     },
+
+    // Clôture automatique des tickets résolus (statut 5) depuis plus de N jours.
+    // N est lu depuis hub_tickets.module_config (clé auto_close_days, défaut 7 ; 0 = désactivé).
+    // Déclenché par le cron de minuit. Chaque clôture est tracée dans ticket_history
+    // (action status_changed, new_value 6, auteur = Système) afin d'alimenter le log de clôture.
+    async autoCloseResolvedTickets() {
+        const cfg = await pgDb.get("SELECT value FROM hub_tickets.module_config WHERE key = 'auto_close_days'");
+        const days = parseInt(cfg?.value ?? '7', 10);
+        if (!Number.isFinite(days) || days <= 0) {
+            return { closed: 0, days, disabled: true };
+        }
+
+        const rows = await pgDb.all(`
+            SELECT glpi_id FROM hub_tickets.tickets
+            WHERE status = 5
+              AND date_solved IS NOT NULL
+              AND date_solved < NOW() - ($1 * INTERVAL '1 day')
+        `, [days]);
+
+        let closed = 0;
+        for (const t of rows) {
+            try {
+                await ticketRepo.update(t.glpi_id, { status: 6 });
+                await historyRepo.log(t.glpi_id, null, 'status_changed', 'status', '5', '6',
+                    `Clôture automatique (résolu depuis plus de ${days} j)`, null);
+                try {
+                    const sla = await slaRepo.findByTicket(t.glpi_id);
+                    if (sla) await slaRepo.updateSlaStatus(sla.id, 'ok');
+                } catch (e) { /* SLA facultatif */ }
+                try { await notificationService.trigger('ticket.closed', { ticket_id: t.glpi_id }); } catch (e) { /* notif facultative */ }
+                closed++;
+            } catch (e) {
+                console.error(`[AUTO-CLOSE] Échec clôture ticket ${t.glpi_id}:`, e.message);
+            }
+        }
+        if (closed > 0) console.log(`[AUTO-CLOSE] ${closed} ticket(s) clos automatiquement (délai ${days} j).`);
+        return { closed, days };
+    },
 };
 
 async function resolveUserId(user) {

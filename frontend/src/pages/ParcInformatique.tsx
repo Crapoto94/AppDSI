@@ -13,7 +13,7 @@ import {
   CheckCircle2, AlertTriangle, Layers, ChevronRight, Boxes,
   Euro, ShieldCheck, Clock, Truck, Database, FileText, Users, CalendarCheck2, CalendarDays,
   ArrowLeftRight, Rocket, Package, Timer, TrendingUp, Edit2, Eye, ZoomIn, ZoomOut,
-  Download, ExternalLink, Image,
+  Download, ExternalLink, Image, Server,
 } from 'lucide-react';
 
 // ─── Constantes ─────────────────────────────────────────────────────────────
@@ -115,6 +115,7 @@ interface Row {
   value: number | null; buy_date: string | null; delivery_date: string | null; reception_date: string | null; service_date: string | null;
   age_years: number | null;
   os: string | null; os_version: string | null;
+  ad_last_seen: string | null; ad_last_user: string | null;
 }
 interface AdUser { username: string; displayName: string; email: string; service: string }
 interface AdModal { row: Row; query: string; results: AdUser[] | null; loading: boolean; selected: AdUser | null; applying: boolean }
@@ -138,6 +139,8 @@ interface Kpis {
     parOs: Count[];
     ajoutsParAnnee: { annee: string; count: number }[];
     deploiementsParAnnee?: { annee: string; count: number }[];
+    ajoutsParMois?: { mois: string; count: number }[];
+    deploiementsParMois?: { mois: string; count: number }[];
   };
   ratios: { moniteursParPc: number; peripheriquesParPc: number };
 }
@@ -154,12 +157,33 @@ const fmtDate = (s: string | null | undefined): string | null => {
 // ─── Helpers ────────────────────────────────────────────────────────────────
 const v = (x: any) => (x === null || x === undefined || x === '') ? <span style={{ color: '#cbd5e1' }}>—</span> : x;
 
+// Pastille « vu dans l'AD » : couleur selon l'ancienneté de la dernière connexion
+//  • < 30 j → vert   • 30–90 j → orange   • > 90 j → rouge
+const AdSeenDot: React.FC<{ lastSeen: string | null; lastUser: string | null }> = ({ lastSeen, lastUser }) => {
+  const notFound = (
+    <span title="Introuvable dans l'AD" style={{ display: 'inline-flex', flexShrink: 0 }}>
+      <X size={13} color="#dc2626" strokeWidth={3} />
+    </span>
+  );
+  // Non trouvé dans l'AD → croix rouge.
+  if (!lastSeen) return notFound;
+  const d = new Date(lastSeen);
+  if (isNaN(d.getTime())) return notFound;
+  const days = Math.floor((Date.now() - d.getTime()) / 86400000);
+  const color = days <= 30 ? '#16a34a' : days <= 90 ? '#d97706' : '#dc2626';
+  const dateStr = d.toLocaleDateString('fr-FR');
+  const tip = `Vu dans l'AD le ${dateStr} (il y a ${days} j)` + (lastUser ? `\nDernier utilisateur : ${lastUser}` : '');
+  return (
+    <span title={tip} style={{ display: 'inline-block', width: 9, height: 9, borderRadius: '50%', background: color, flexShrink: 0, boxShadow: '0 0 0 2px #fff' }} />
+  );
+};
+
 const ParcInformatique: React.FC = () => {
   const { token } = useAuth();
   const [source, setSource] = useState<'live' | 'hub'>('hub');
   const api = axios.create({ baseURL: `/api/parc/${source}`, headers: { Authorization: `Bearer ${token}` } });
 
-  const [tab, setTab] = useState<'dashboard' | 'list' | 'stock' | 'usagers' | 'geo' | 'deploiements'>('dashboard');
+  const [tab, setTab] = useState<'dashboard' | 'list' | 'stock' | 'usagers' | 'geo' | 'deploiements' | 'ad'>('dashboard');
   const [kpis, setKpis] = useState<Kpis | null>(null);
   const [kpiErr, setKpiErr] = useState<string | null>(null);
   const [loadingKpi, setLoadingKpi] = useState(false);
@@ -178,13 +202,15 @@ const ParcInformatique: React.FC = () => {
   const [loadingList, setLoadingList] = useState(false);
   const [listErr, setListErr] = useState<string | null>(null);
   const [affecte, setAffecte] = useState<'' | '1' | '0'>('');
-  const [filters, setFilters] = useState<{ locations: string[]; states: string[]; manufacturers: string[]; suppliers: string[]; groups: string[] }>({ locations: [], states: [], manufacturers: [], suppliers: [], groups: [] });
+  const [filters, setFilters] = useState<{ locations: string[]; states: string[]; manufacturers: string[]; suppliers: string[]; groups: string[]; types: string[] }>({ locations: [], states: [], manufacturers: [], suppliers: [], groups: [], types: [] });
   const [fLocation, setFLocation] = useState('');
   const [fState, setFState] = useState('');
   const [fMan, setFMan] = useState('');
   const [fSupplier, setFSupplier] = useState('');
   const [fMise, setFMise] = useState('');
   const [fGroup, setFGroup] = useState('');
+  const [fType, setFType] = useState('');
+  const [fAdSeen, setFAdSeen] = useState(''); // '' | 'fresh' | 'warn' | 'stale' | 'notfound'
   const [fAd, setFAd] = useState<'' | '1' | '0'>();
   const [fDocs, setFDocs] = useState(false);
   const [fStock, setFStock] = useState(false);
@@ -199,6 +225,9 @@ const ParcInformatique: React.FC = () => {
   const [geoExpanded, setGeoExpanded] = useState<Set<string>>(new Set());
   const [geoSelectedLoc, setGeoSelectedLoc] = useState<string | null>(null);
   const [geoSelectedType, setGeoSelectedType] = useState<string | null>(null);
+
+  // Graphique « ajouts vs déployés » : bascule année / mois
+  const [pcAddVueMois, setPcAddVueMois] = useState(false);
 
   // Usagers
   const [usagers, setUsagers] = useState<UsagerRow[]>([]);
@@ -242,6 +271,19 @@ const ParcInformatique: React.FC = () => {
   const [deployFacets, setDeployFacets] = useState<{ directions: { direction: string; n: number }[]; installateurs: { installateur: string; n: number }[]; types: { type_operation: string; n: number }[] }>({ directions: [], installateurs: [], types: [] });
   // Rapprochement AD des bénéficiaires
   const [adMap, setAdMap] = useState<Record<string, { found: boolean; display_name: string | null; email: string | null; service: string | null }>>({});
+
+  // Onglet AD : ordinateurs de l'Active Directory (hub_parc.ad_computers)
+  const [adRows, setAdRows] = useState<any[]>([]);
+  const [adTotal, setAdTotal] = useState(0);
+  const [adStart, setAdStart] = useState(0);
+  const [adLimit] = useState(100);
+  const [adQ, setAdQ] = useState('');
+  const [adEnabled, setAdEnabled] = useState<'' | 'true' | 'false'>('');
+  const [adLoading, setAdLoading] = useState(false);
+  const [adErr, setAdErr] = useState<string | null>(null);
+  const [adStatsData, setAdStatsData] = useState<any | null>(null);
+  const [adImport, setAdImport] = useState<any | null>(null);
+  const adPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [adStatus, setAdStatus] = useState<{ total: number; cached: number; remaining: number; matched: number } | null>(null);
   const [adRunning, setAdRunning] = useState(false);
   const [adProgress, setAdProgress] = useState<{ done: number; total: number } | null>(null);
@@ -310,6 +352,8 @@ const ParcInformatique: React.FC = () => {
         q, start, limit, affecte: affecte || undefined,
         location: fLocation || undefined, state: fState || undefined, manufacturer: fMan || undefined,
         supplier: fSupplier || undefined, mise: fMise || undefined, group: fGroup || undefined,
+        type_filter: fType || undefined,
+        ad_seen: fAdSeen || undefined,
         ad: fAd || undefined, docs: fDocs ? '1' : undefined, stock: fStock ? '1' : '0',
         sort: sortCol, dir: sortDir,
         refresh: refresh ? 1 : undefined,
@@ -318,20 +362,20 @@ const ParcInformatique: React.FC = () => {
     } catch (e: any) {
       setListErr(e.response?.data?.message || e.message); setRows([]); setTotal(0);
     } finally { setLoadingList(false); }
-  }, [type, q, start, limit, affecte, fLocation, fState, fMan, fSupplier, fMise, fAd, fDocs, fStock, fGroup, sortCol, sortDir, token, source]);
+  }, [type, q, start, limit, affecte, fLocation, fState, fMan, fSupplier, fMise, fType, fAdSeen, fAd, fDocs, fStock, fGroup, sortCol, sortDir, token, source]);
 
   const loadFilters = useCallback(async () => {
     try {
       const r = await api.get(`/${type}/filters`);
-      setFilters({ locations: r.data.locations || [], states: r.data.states || [], manufacturers: r.data.manufacturers || [], suppliers: r.data.suppliers || [], groups: r.data.groups || [] });
-    } catch { setFilters({ locations: [], states: [], manufacturers: [], suppliers: [], groups: [] }); }
+      setFilters({ locations: r.data.locations || [], states: r.data.states || [], manufacturers: r.data.manufacturers || [], suppliers: r.data.suppliers || [], groups: r.data.groups || [], types: r.data.types || [] });
+    } catch { setFilters({ locations: [], states: [], manufacturers: [], suppliers: [], groups: [], types: [] }); }
   }, [type, token, source]);
 
   // Efface les erreurs résiduelles quand on bascule de source (live ↔ hub)
   useEffect(() => { setKpiErr(null); setListErr(null); setUsagerErr(null); }, [source]);
   useEffect(() => { loadKpis(); }, [loadKpis]);
-  useEffect(() => { if (tab === 'list') { loadList(); } }, [tab, type, start, affecte, fLocation, fState, fMan, fSupplier, fMise, fAd, fDocs, fStock, fGroup, sortCol, sortDir, source]);
-  useEffect(() => { if (tab === 'list') { setStart(0); setFLocation(''); setFState(''); setFMan(''); setFSupplier(''); setFMise(''); setFAd(undefined); setFDocs(false); setFStock(false); setFGroup(''); setSortCol('name'); setSortDir('asc'); loadFilters(); } }, [type, tab, source]);
+  useEffect(() => { if (tab === 'list') { loadList(); } }, [tab, type, start, affecte, fLocation, fState, fMan, fSupplier, fMise, fType, fAdSeen, fAd, fDocs, fStock, fGroup, sortCol, sortDir, source]);
+  useEffect(() => { if (tab === 'list') { setStart(0); setFLocation(''); setFState(''); setFMan(''); setFSupplier(''); setFMise(''); setFGroup(''); setFType(''); setFAdSeen(''); setFAd(undefined); setFDocs(false); setFStock(false); setSortCol('name'); setSortDir('asc'); loadFilters(); } }, [type, tab, source]);
 
   const loadGeo = useCallback(async () => {
     setLoadingGeo(true); setGeoErr(null);
@@ -581,10 +625,13 @@ const ParcInformatique: React.FC = () => {
 
   const loadDeployKpis = useCallback(async () => {
     try {
-      const r = await axios.get('/api/deploiements/kpis', { headers: { Authorization: `Bearer ${token}` } });
+      const r = await axios.get('/api/deploiements/kpis', {
+        headers: { Authorization: `Bearer ${token}` },
+        params: { annee: deployAnnee || undefined },
+      });
       setDeployKpis(r.data);
     } catch { /* silencieux */ }
-  }, [token]);
+  }, [token, deployAnnee]);
 
   const [deployConflictData, setDeployConflictData] = useState<{ total: number; by_type: Record<string, number>; rows: any[] } | null>(null);
   const [deployConflictFilter, setDeployConflictFilter] = useState<string>('');
@@ -610,6 +657,58 @@ const ParcInformatique: React.FC = () => {
   useEffect(() => {
     if (tab === 'deploiements') { loadDeployFacets(); loadAdMatch(); }
   }, [tab]);
+
+  // ─── Onglet AD (ordinateurs Active Directory) ────────────────────────────────
+  const loadAdComputers = useCallback(async () => {
+    setAdLoading(true); setAdErr(null);
+    try {
+      const params: any = { limit: adLimit, offset: adStart };
+      if (adQ) params.q = adQ;
+      if (adEnabled) params.enabled = adEnabled;
+      const r = await axios.get('/api/parc/ad/computers', { params, headers: { Authorization: `Bearer ${token}` } });
+      setAdRows(r.data.rows || []);
+      setAdTotal(r.data.total || 0);
+    } catch (e: any) {
+      setAdErr(e?.response?.data?.message || 'Erreur de chargement');
+      setAdRows([]); setAdTotal(0);
+    } finally { setAdLoading(false); }
+  }, [token, adLimit, adStart, adQ, adEnabled]);
+
+  const loadAdStats = useCallback(async () => {
+    try {
+      const r = await axios.get('/api/parc/ad/stats', { headers: { Authorization: `Bearer ${token}` } });
+      setAdStatsData(r.data);
+      setAdImport(r.data?.import || null);
+    } catch { /* silencieux */ }
+  }, [token]);
+
+  const startAdImport = useCallback(async () => {
+    setAdErr(null);
+    try {
+      await axios.post('/api/parc/ad/import', {}, { headers: { Authorization: `Bearer ${token}` } });
+      setAdImport({ running: true, count: 0 });
+      // Démarre le suivi de progression.
+      if (adPollRef.current) clearInterval(adPollRef.current);
+      adPollRef.current = setInterval(async () => {
+        try {
+          const r = await axios.get('/api/parc/ad/import-progress', { headers: { Authorization: `Bearer ${token}` } });
+          setAdImport(r.data);
+          if (!r.data.running) {
+            if (adPollRef.current) { clearInterval(adPollRef.current); adPollRef.current = null; }
+            loadAdStats();
+            loadAdComputers();
+          }
+        } catch { /* on continue */ }
+      }, 1500);
+    } catch (e: any) {
+      setAdErr(e?.response?.data?.message || 'Impossible de démarrer l\'import');
+    }
+  }, [token, loadAdStats, loadAdComputers]);
+
+  useEffect(() => { if (tab === 'ad') loadAdComputers(); }, [tab, adStart, adQ, adEnabled, loadAdComputers]);
+  useEffect(() => { if (tab === 'ad') { setAdStart(0); loadAdStats(); } }, [tab]);
+  // Nettoyage du timer de progression au démontage.
+  useEffect(() => () => { if (adPollRef.current) clearInterval(adPollRef.current); }, []);
 
   // ─── Rendu ──────────────────────────────────────────────────────────────────
   return (
@@ -663,7 +762,7 @@ const ParcInformatique: React.FC = () => {
 
         {/* Onglets */}
         <div style={{ display: 'flex', gap: 6, marginBottom: 22, borderBottom: `1px solid ${C.border}` }}>
-          {[{ k: 'dashboard', l: 'Tableau de bord', i: BarChart3 }, { k: 'list', l: 'Équipements', i: List }, { k: 'stock', l: 'Stock', i: Boxes }, { k: 'usagers', l: 'Usagers', i: Users }, { k: 'geo', l: 'Géo', i: MapPin }, { k: 'deploiements', l: 'Déploiements', i: Truck }].map(t => {
+          {[{ k: 'dashboard', l: 'Tableau de bord', i: BarChart3 }, { k: 'list', l: 'Équipements', i: List }, { k: 'stock', l: 'Stock', i: Boxes }, { k: 'usagers', l: 'Usagers', i: Users }, { k: 'geo', l: 'Géo', i: MapPin }, { k: 'deploiements', l: 'Déploiements', i: Truck }, { k: 'ad', l: 'AD', i: Server }].map(t => {
             const I = t.i; const active = tab === t.k;
             return (
               <button key={t.k} onClick={() => setTab(t.k as any)} style={{
@@ -818,17 +917,47 @@ const ParcInformatique: React.FC = () => {
                 )}
 
                 {kpis.ordinateurs.ajoutsParAnnee.length > 1 && (() => {
-                  // Fusion des 2 séries par année : ajouts au parc vs ordinateurs déployés
-                  const add = kpis.ordinateurs.ajoutsParAnnee.filter(a => a.annee >= '2020');
-                  const dep = (kpis.ordinateurs.deploiementsParAnnee || []).filter(d => d.annee >= '2020');
-                  const yrs = Array.from(new Set([...add.map(a => a.annee), ...dep.map(d => d.annee)])).sort();
-                  const data = yrs.map(y => ({
-                    annee: y,
-                    ajouts: add.find(a => a.annee === y)?.count || 0,
-                    deploiements: dep.find(d => d.annee === y)?.count || 0,
-                  }));
+                  // Fusion des 2 séries : ajouts au parc vs ordinateurs déployés.
+                  // Granularité annuelle par défaut, mensuelle si « Vue mois » est actif.
+                  const MOIS_COURTS = ['janv.', 'févr.', 'mars', 'avr.', 'mai', 'juin', 'juil.', 'août', 'sept.', 'oct.', 'nov.', 'déc.'];
+                  let data: { label: string; ajouts: number; deploiements: number }[];
+                  if (pcAddVueMois) {
+                    const add = (kpis.ordinateurs.ajoutsParMois || []).filter(a => a.mois >= '2020-01');
+                    const dep = (kpis.ordinateurs.deploiementsParMois || []).filter(d => d.mois >= '2020-01');
+                    const months = Array.from(new Set([...add.map(a => a.mois), ...dep.map(d => d.mois)])).sort();
+                    data = months.map(m => {
+                      const [y, mm] = m.split('-');
+                      return {
+                        label: `${MOIS_COURTS[parseInt(mm, 10) - 1]} ${y.slice(2)}`,
+                        ajouts: add.find(a => a.mois === m)?.count || 0,
+                        deploiements: dep.find(d => d.mois === m)?.count || 0,
+                      };
+                    });
+                  } else {
+                    const add = kpis.ordinateurs.ajoutsParAnnee.filter(a => a.annee >= '2020');
+                    const dep = (kpis.ordinateurs.deploiementsParAnnee || []).filter(d => d.annee >= '2020');
+                    const yrs = Array.from(new Set([...add.map(a => a.annee), ...dep.map(d => d.annee)])).sort();
+                    data = yrs.map(y => ({
+                      label: y,
+                      ajouts: add.find(a => a.annee === y)?.count || 0,
+                      deploiements: dep.find(d => d.annee === y)?.count || 0,
+                    }));
+                  }
+                  const toggleBtn = (
+                    <button
+                      onClick={() => setPcAddVueMois(v => !v)}
+                      style={{
+                        display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 12px', borderRadius: 8, cursor: 'pointer',
+                        border: `1px solid ${pcAddVueMois ? C.blue : C.border}`, background: pcAddVueMois ? C.blue : C.card,
+                        color: pcAddVueMois ? '#fff' : C.text, fontWeight: 700, fontSize: '.78rem',
+                      }}
+                      title={pcAddVueMois ? 'Repasser en granularité annuelle' : 'Afficher la granularité mensuelle'}
+                    >
+                      <CalendarDays size={13} /> {pcAddVueMois ? 'Vue année' : 'Vue mois'}
+                    </button>
+                  );
                   return (
-                  <Panel title="Ordinateurs : ajouts au parc vs déployés, par année" icon={BarChart3}>
+                  <Panel title={`Ordinateurs : ajouts au parc vs déployés, par ${pcAddVueMois ? 'mois' : 'année'}`} icon={BarChart3} right={toggleBtn}>
                     <ResponsiveContainer width="100%" height={240}>
                       <AreaChart data={data}>
                         <defs>
@@ -840,7 +969,7 @@ const ParcInformatique: React.FC = () => {
                           </linearGradient>
                         </defs>
                         <CartesianGrid strokeDasharray="3 3" stroke="#eef2f7" />
-                        <XAxis dataKey="annee" tick={{ fontSize: 12 }} /><YAxis tick={{ fontSize: 12 }} allowDecimals={false} />
+                        <XAxis dataKey="label" tick={{ fontSize: 12 }} interval={pcAddVueMois ? 'preserveStartEnd' : 0} minTickGap={pcAddVueMois ? 16 : 5} /><YAxis tick={{ fontSize: 12 }} allowDecimals={false} />
                         <Tooltip />
                         <Legend wrapperStyle={{ fontSize: '.8rem' }} />
                         <Area type="monotone" dataKey="ajouts" name="Ajoutés au parc" stroke={C.blue} fill="url(#g)" strokeWidth={2} />
@@ -883,6 +1012,16 @@ const ParcInformatique: React.FC = () => {
                   placeholder="Nom, série, inventaire, utilisateur, usager, n° usager, lieu…"
                   style={{ width: '100%', padding: '9px 12px 9px 36px', borderRadius: 10, border: `1px solid ${C.border}`, fontSize: '.9rem', boxSizing: 'border-box' }} />
               </div>
+              {filters.types.length > 0 &&
+                <Select value={fType} onChange={v => { setStart(0); setFType(v); }} placeholder="Tous les types" options={filters.types} />}
+              {(type === 'ordinateurs' || type === 'tous') &&
+                <select value={fAdSeen} onChange={e => { setStart(0); setFAdSeen(e.target.value); }} style={selStyle}>
+                  <option value="">AD : tous</option>
+                  <option value="fresh">🟢 Vu &lt; 30 j</option>
+                  <option value="warn">🟠 Vu 30–90 j</option>
+                  <option value="stale">🔴 Vu &gt; 90 j</option>
+                  <option value="notfound">✕ Introuvable dans l'AD</option>
+                </select>}
               <Select value={fLocation} onChange={setFLocation} placeholder="Tous les lieux" options={filters.locations} />
               <Select value={fState} onChange={setFState} placeholder="Tous les statuts" options={filters.states} />
               <Select value={fMan} onChange={setFMan} placeholder="Tous les fabricants" options={filters.manufacturers} />
@@ -959,7 +1098,13 @@ const ParcInformatique: React.FC = () => {
                     {rows.map(r => (
                       <tr key={`${r.itemtype_label}-${r.id}`} onClick={() => openDetail(r.id, r.type_key || undefined)} style={{ borderTop: `1px solid ${C.border}`, cursor: 'pointer' }}
                         onMouseEnter={e => (e.currentTarget.style.background = '#f8fafc')} onMouseLeave={e => (e.currentTarget.style.background = '')}>
-                        <td style={{ padding: '10px 14px', fontWeight: 600, color: C.text }}>{v(r.name)}</td>
+                        <td style={{ padding: '10px 14px', fontWeight: 600, color: C.text }}>
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                            {(type === 'ordinateurs' || (isTous && r.type_key === 'ordinateurs')) &&
+                              <AdSeenDot lastSeen={r.ad_last_seen} lastUser={r.ad_last_user} />}
+                            {v(r.name)}
+                          </span>
+                        </td>
                         {isTous && <td style={{ padding: '10px 14px' }}>{r.itemtype_label ? <span style={{ background: '#f1f5f9', color: C.slate, padding: '2px 8px', borderRadius: 6, fontSize: '.78rem', fontWeight: 600 }}>{r.itemtype_label}</span> : v(null)}</td>}
                         <td style={{ padding: '10px 14px' }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'nowrap' }}>
@@ -1620,22 +1765,29 @@ const ParcInformatique: React.FC = () => {
               {deployKpis && (() => {
                 const card: React.CSSProperties = { background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: 16, display: 'flex', flexDirection: 'column' };
                 const titleSt: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: 7, fontSize: '.82rem', fontWeight: 800, color: C.text, marginBottom: 12 };
-                const ms = deployKpis.match_stats || {};
-                const totalUc = ms.total_uc || 0;
-                const matchData = [
-                  { label: 'Match complet', value: ms.match_full || 0, color: '#059669' },
-                  { label: 'Partiel (S/N ?)', value: ms.match_partial || 0, color: '#d97706' },
-                  { label: 'Non trouvé', value: ms.no_match || 0, color: '#94a3b8' },
-                ].filter(d => d.value > 0);
-                const tauxMatch = totalUc ? Math.round(((ms.match_full || 0) / totalUc) * 100) : 0;
-                // Cadence annuelle décomposée par catégorie d'équipement (barres empilées)
-                const cadenceMap = new Map<string, any>();
-                for (const r of (deployKpis.by_annee_equip || [])) {
-                  const y = String(r.annee);
-                  if (!cadenceMap.has(y)) cadenceMap.set(y, { annee: y, total: 0 });
-                  const o = cadenceMap.get(y); o[r.cat] = (o[r.cat] || 0) + r.n; o.total += r.n;
+                // Cadence : annuelle par défaut, mensuelle (mois par mois) quand une année est sélectionnée
+                const cadenceMensuelle = !!deployAnnee;
+                const MOIS_LABELS = ['Janv.', 'Févr.', 'Mars', 'Avr.', 'Mai', 'Juin', 'Juil.', 'Août', 'Sept.', 'Oct.', 'Nov.', 'Déc.'];
+                let cadence: any[];
+                if (cadenceMensuelle) {
+                  // 12 mois pré-initialisés pour un axe continu
+                  const moisRows = Array.from({ length: 12 }, (_, i) => ({ periode: MOIS_LABELS[i], mois: i + 1, total: 0 }));
+                  for (const r of (deployKpis.by_mois_equip || [])) {
+                    const m = parseInt(r.mois, 10);
+                    if (m >= 1 && m <= 12) {
+                      const o: any = moisRows[m - 1]; o[r.cat] = (o[r.cat] || 0) + r.n; o.total += r.n;
+                    }
+                  }
+                  cadence = moisRows;
+                } else {
+                  const cadenceMap = new Map<string, any>();
+                  for (const r of (deployKpis.by_annee_equip || [])) {
+                    const y = String(r.annee);
+                    if (!cadenceMap.has(y)) cadenceMap.set(y, { periode: y, total: 0 });
+                    const o = cadenceMap.get(y); o[r.cat] = (o[r.cat] || 0) + r.n; o.total += r.n;
+                  }
+                  cadence = [...cadenceMap.values()].sort((a, b) => a.periode.localeCompare(b.periode));
                 }
-                const cadence = [...cadenceMap.values()].sort((a, b) => a.annee.localeCompare(b.annee));
                 const cadenceCats = CADENCE_CATS.filter(c => cadence.some(row => (row[c.key] || 0) > 0));
                 const types = (deployKpis.by_type || []).map((t: any) => ({ label: t.type_operation, value: t.n }));
                 const dirs = (deployKpis.by_direction || []).slice(0, 8).map((d: any) => ({ label: d.direction, n: d.n }));
@@ -1645,15 +1797,15 @@ const ParcInformatique: React.FC = () => {
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(330px, 1fr))', gap: 14, marginBottom: 18 }}>
                     {/* Cadence annuelle par type d'équipement (empilé) */}
                     <div style={{ ...card, gridColumn: 'span 2', minWidth: 0 }}>
-                      <div style={titleSt}><TrendingUp size={15} color={C.blue} /> Cadence de déploiement par année — par type d'équipement</div>
+                      <div style={titleSt}><TrendingUp size={15} color={C.blue} /> {cadenceMensuelle ? `Cadence de déploiement ${deployAnnee} — mois par mois, par type d'équipement` : 'Cadence de déploiement par année — par type d\'équipement'}</div>
                       <ResponsiveContainer width="100%" height={230}>
                         <BarChart data={cadence} margin={{ top: 4, right: 12, bottom: 0, left: -18 }}>
                           <CartesianGrid strokeDasharray="3 3" stroke="#eef2f7" vertical={false} />
-                          <XAxis dataKey="annee" tick={{ fontSize: 11 }} />
+                          <XAxis dataKey="periode" tick={{ fontSize: 11 }} />
                           <YAxis allowDecimals={false} tick={{ fontSize: 11 }} />
                           <Tooltip
                             formatter={(v: any, n: any) => [`${v} déploiement(s)`, (CADENCE_CATS.find(c => c.key === n) || { label: n }).label]}
-                            labelFormatter={(l) => `Année ${l}`}
+                            labelFormatter={(l) => cadenceMensuelle ? `${l} ${deployAnnee}` : `Année ${l}`}
                           />
                           {cadenceCats.map((c, i) => (
                             <Bar key={c.key} dataKey={c.key} stackId="eq" fill={c.color}
@@ -1668,36 +1820,6 @@ const ParcInformatique: React.FC = () => {
                             <span style={{ width: 9, height: 9, borderRadius: 2, background: c.color }} />{c.label}
                           </span>
                         ))}
-                      </div>
-                    </div>
-
-                    {/* Rapprochement parc (donut + taux) */}
-                    <div style={card}>
-                      <div style={titleSt}><CheckCircle2 size={15} color="#059669" /> Rapprochement avec le parc</div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1 }}>
-                        <div style={{ position: 'relative', width: 120, height: 120, flexShrink: 0 }}>
-                          <ResponsiveContainer width="100%" height="100%">
-                            <PieChart>
-                              <Pie data={matchData} dataKey="value" nameKey="label" cx="50%" cy="50%" innerRadius={38} outerRadius={56} paddingAngle={2}>
-                                {matchData.map((d, i) => <Cell key={i} fill={d.color} />)}
-                              </Pie>
-                              <Tooltip formatter={(v: any, n: any) => [`${v}`, n]} />
-                            </PieChart>
-                          </ResponsiveContainer>
-                          <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none' }}>
-                            <div style={{ fontSize: '1.3rem', fontWeight: 900, color: '#059669' }}>{tauxMatch}%</div>
-                            <div style={{ fontSize: '.62rem', color: C.slate }}>matchés</div>
-                          </div>
-                        </div>
-                        <div style={{ flex: 1, fontSize: '.78rem' }}>
-                          {matchData.map(d => (
-                            <div key={d.label} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '2px 0' }}>
-                              <span style={{ width: 9, height: 9, borderRadius: 2, background: d.color, flexShrink: 0 }} />
-                              <span style={{ color: C.slate, flex: 1 }}>{d.label}</span>
-                              <b style={{ color: C.text }}>{d.value}</b>
-                            </div>
-                          ))}
-                        </div>
                       </div>
                     </div>
 
@@ -2423,6 +2545,122 @@ const ParcInformatique: React.FC = () => {
         );
       })()}
 
+        {/* ─── AD (ordinateurs Active Directory) ─── */}
+        {tab === 'ad' && (
+          <div>
+            <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+            {/* Bandeau actions + statistiques */}
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center', marginBottom: 16 }}>
+              <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', flex: 1 }}>
+                {[
+                  { label: 'Ordinateurs', val: adStatsData?.total ?? '—', color: C.blue },
+                  { label: 'Actifs', val: adStatsData?.enabled ?? '—', color: C.green },
+                  { label: 'Désactivés', val: adStatsData?.disabled ?? '—', color: C.red },
+                ].map(s => (
+                  <div key={s.label} style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 10, padding: '10px 16px', minWidth: 120 }}>
+                    <div style={{ fontSize: '1.4rem', fontWeight: 800, color: s.color }}>{s.val}</div>
+                    <div style={{ fontSize: '.72rem', fontWeight: 700, color: C.slate, textTransform: 'uppercase', letterSpacing: '.04em' }}>{s.label}</div>
+                  </div>
+                ))}
+                <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 10, padding: '10px 16px', minWidth: 180 }}>
+                  <div style={{ fontSize: '.9rem', fontWeight: 700, color: C.text }}>
+                    {adStatsData?.last_sync ? new Date(adStatsData.last_sync).toLocaleString('fr-FR') : 'Jamais'}
+                  </div>
+                  <div style={{ fontSize: '.72rem', fontWeight: 700, color: C.slate, textTransform: 'uppercase', letterSpacing: '.04em' }}>Dernière synchro</div>
+                </div>
+              </div>
+              <button onClick={startAdImport} disabled={adImport?.running}
+                style={{ ...btn(C.blue), opacity: adImport?.running ? .6 : 1, display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                <RefreshCw size={15} style={adImport?.running ? { animation: 'spin 1s linear infinite' } : undefined} />
+                {adImport?.running ? `Import en cours… (${adImport?.count ?? 0})` : 'Importer depuis l\'AD'}
+              </button>
+            </div>
+
+            {adImport?.running && (
+              <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', color: '#1e40af', borderRadius: 10, padding: '10px 14px', marginBottom: 14, fontSize: '.85rem' }}>
+                Énumération de l'Active Directory en cours… {adImport.count ?? 0} ordinateur(s) traité(s){adImport.total ? ` / ${adImport.total}` : ''}.
+              </div>
+            )}
+            {adImport && !adImport.running && adImport.error && (
+              <div style={{ background: '#fef2f2', border: '1px solid #fecaca', color: '#b91c1c', borderRadius: 10, padding: '10px 14px', marginBottom: 14, fontSize: '.85rem' }}>
+                Échec de l'import : {adImport.error}
+              </div>
+            )}
+
+            {/* Filtres */}
+            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 14 }}>
+              <div style={{ position: 'relative', flex: 1, minWidth: 220 }}>
+                <Search size={15} style={{ position: 'absolute', left: 11, top: 10, color: C.slate }} />
+                <input type="text" value={adQ} placeholder="Nom, login, DNS, OS, description…"
+                  onChange={e => { setAdStart(0); setAdQ(e.target.value); }}
+                  style={{ width: '100%', padding: '9px 12px 9px 34px', border: `1px solid ${C.border}`, borderRadius: 9, fontSize: '.88rem', outline: 'none', boxSizing: 'border-box' }} />
+              </div>
+              <select value={adEnabled} onChange={e => { setAdStart(0); setAdEnabled(e.target.value as any); }}
+                style={{ padding: '9px 12px', border: `1px solid ${C.border}`, borderRadius: 9, fontSize: '.88rem', outline: 'none' }}>
+                <option value="">Tous les états</option>
+                <option value="true">Actifs uniquement</option>
+                <option value="false">Désactivés uniquement</option>
+              </select>
+            </div>
+
+            {adErr && <div style={{ color: C.red, marginBottom: 12, fontSize: '.85rem' }}>{adErr}</div>}
+
+            {/* Tableau */}
+            <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, overflow: 'hidden' }}>
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '.84rem' }}>
+                  <thead>
+                    <tr style={{ background: '#f8fafc', textAlign: 'left', color: C.slate }}>
+                      {['Nom', 'DNS', 'Système', 'Version', 'Dernière connexion', 'OU', 'État', 'Description'].map(h => (
+                        <th key={h} style={{ padding: '10px 12px', fontWeight: 700, whiteSpace: 'nowrap', borderBottom: `1px solid ${C.border}` }}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {adLoading ? (
+                      <tr><td colSpan={8} style={{ padding: 24, textAlign: 'center', color: C.slate }}>Chargement…</td></tr>
+                    ) : adRows.length === 0 ? (
+                      <tr><td colSpan={8} style={{ padding: 24, textAlign: 'center', color: C.slate }}>
+                        Aucun ordinateur. Lancez un import depuis l'AD.
+                      </td></tr>
+                    ) : adRows.map(r => (
+                      <tr key={r.id} style={{ borderBottom: `1px solid ${C.border}` }}>
+                        <td style={{ padding: '8px 12px', fontWeight: 600, whiteSpace: 'nowrap' }}>{v(r.name)}</td>
+                        <td style={{ padding: '8px 12px', color: C.slate }}>{v(r.dnshostname)}</td>
+                        <td style={{ padding: '8px 12px' }}>{v(r.operatingsystem)}</td>
+                        <td style={{ padding: '8px 12px', color: C.slate }}>{v(r.osversion)}</td>
+                        <td style={{ padding: '8px 12px', whiteSpace: 'nowrap' }}>{r.lastlogon ? new Date(r.lastlogon).toLocaleDateString('fr-FR') : v(null)}</td>
+                        <td style={{ padding: '8px 12px', color: C.slate }}>{v(r.ou)}</td>
+                        <td style={{ padding: '8px 12px' }}>
+                          <span style={{ fontSize: '.72rem', fontWeight: 700, padding: '2px 8px', borderRadius: 20,
+                            background: r.enabled ? '#dcfce7' : '#fee2e2', color: r.enabled ? '#166534' : '#b91c1c' }}>
+                            {r.enabled ? 'Actif' : 'Désactivé'}
+                          </span>
+                        </td>
+                        <td style={{ padding: '8px 12px', color: C.slate, maxWidth: 280, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={r.description || ''}>{v(r.description)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              {/* Pagination */}
+              {adTotal > adLimit && (
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', borderTop: `1px solid ${C.border}` }}>
+                  <span style={{ fontSize: '.8rem', color: C.slate }}>
+                    {adStart + 1}–{Math.min(adStart + adLimit, adTotal)} sur {adTotal}
+                  </span>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <button disabled={adStart === 0} onClick={() => setAdStart(Math.max(0, adStart - adLimit))}
+                      style={{ ...btn(C.slate), opacity: adStart === 0 ? .5 : 1 }}>Précédent</button>
+                    <button disabled={adStart + adLimit >= adTotal} onClick={() => setAdStart(adStart + adLimit)}
+                      style={{ ...btn(C.slate), opacity: adStart + adLimit >= adTotal ? .5 : 1 }}>Suivant</button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
       {/* ── Modal Recherche AD ──────────────────────────────────────────────── */}
     {adModal && (
       <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.45)', zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
@@ -2523,10 +2761,11 @@ const Anomaly: React.FC<{ label: string; n: number; onClick?: () => void }> = ({
   </div>
 );
 
-const Panel: React.FC<{ title: string; icon: any; children: React.ReactNode }> = ({ title, icon: I, children }) => (
+const Panel: React.FC<{ title: string; icon: any; children: React.ReactNode; right?: React.ReactNode }> = ({ title, icon: I, children, right }) => (
   <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: 18 }}>
     <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14, fontWeight: 800, color: C.text, fontSize: '.95rem' }}>
-      <I size={17} color={C.blue} /> {title}
+      <I size={17} color={C.blue} /> <span>{title}</span>
+      {right && <div style={{ marginLeft: 'auto' }}>{right}</div>}
     </div>
     {children}
   </div>

@@ -113,8 +113,125 @@ async function searchADUsersByQuery(query, config) {
     });
 }
 
+/**
+ * Convertit un « generalizedTime » LDAP (ex. « 20230115093000.0Z ») en Date JS.
+ */
+function parseGeneralizedTime(val) {
+    if (!val) return null;
+    const s = String(val);
+    const m = s.match(/^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})/);
+    if (!m) return null;
+    const [, y, mo, d, h, mi, se] = m;
+    const dt = new Date(Date.UTC(+y, +mo - 1, +d, +h, +mi, +se));
+    return isNaN(dt.getTime()) ? null : dt;
+}
+
+/**
+ * Convertit un « filetime » Active Directory (100-ns depuis 1601) en Date JS.
+ */
+function parseFiletime(val) {
+    if (!val) return null;
+    const n = Number(val);
+    if (!n || isNaN(n) || n <= 0) return null;
+    return new Date(n / 10000 - 11644473600000);
+}
+
+/**
+ * Énumère TOUS les ordinateurs (objectClass=computer) de l'Active Directory.
+ * Utilise le contrôle de pagination LDAP pour dépasser la limite serveur (≈1000).
+ * La Promise se résout toujours (jamais reject) avec la liste des machines trouvées.
+ */
+async function searchADComputers(config, { onProgress } = {}) {
+    return new Promise((resolve, reject) => {
+        const results = [];
+        let settled = false;
+
+        const client = ldap.createClient({
+            url: `ldap://${config.host}:${config.port}`,
+            connectTimeout: 10000,
+            timeout: 30000
+        });
+
+        const finish = (val, err) => {
+            if (settled) return;
+            settled = true;
+            clearTimeout(guard);
+            try { client.destroy(); } catch (e) { /* ignore */ }
+            if (err) reject(err); else resolve(val);
+        };
+
+        // Garde-temps global : 5 minutes max pour une énumération complète.
+        const guard = setTimeout(() => {
+            console.error('[AD] Timeout sur l\'énumération des ordinateurs — abandon.');
+            finish(results);
+        }, 5 * 60 * 1000);
+
+        client.on('error', (err) => {
+            console.error('LDAP Client Error:', err.message);
+            finish(null, err);
+        });
+
+        client.bind(config.bind_dn, config.bind_password, (err) => {
+            if (err) {
+                console.error('LDAP Bind Error:', err.message);
+                return finish(null, err);
+            }
+
+            const opts = {
+                filter: '(objectClass=computer)',
+                scope: 'sub',
+                attributes: [
+                    'cn', 'name', 'sAMAccountName', 'dNSHostName',
+                    'operatingSystem', 'operatingSystemVersion',
+                    'lastLogonTimestamp', 'description', 'whenCreated',
+                    'userAccountControl', 'distinguishedName'
+                ],
+                paged: { pageSize: 500, pagePause: false }
+            };
+
+            client.search(config.base_dn, opts, (err2, searchRes) => {
+                if (err2) return finish(null, err2);
+
+                searchRes.on('searchEntry', (entry) => {
+                    const c = flattenLDAPEntry(entry);
+                    if (!c) return;
+                    const dn = c.distinguishedName || c.dn || '';
+                    // OU = premier composant OU= du DN
+                    const ouMatch = /OU=([^,]+)/i.exec(dn);
+                    const uac = parseInt(c.userAccountControl, 10) || 0;
+                    results.push({
+                        cn:                c.cn || null,
+                        name:              c.name || c.cn || null,
+                        samaccountname:    c.sAMAccountName || null,
+                        dnshostname:       c.dNSHostName || null,
+                        operatingsystem:   c.operatingSystem || null,
+                        osversion:         c.operatingSystemVersion || null,
+                        lastlogon:         parseFiletime(c.lastLogonTimestamp),
+                        description:       Array.isArray(c.description) ? c.description.join(' ') : (c.description || null),
+                        whencreated:       parseGeneralizedTime(c.whenCreated),
+                        enabled:           (uac & 2) === 0,   // ACCOUNTDISABLE = 0x2
+                        distinguishedname: dn || null,
+                        ou:                ouMatch ? ouMatch[1] : null
+                    });
+                    if (onProgress && results.length % 200 === 0) onProgress(results.length);
+                });
+
+                searchRes.on('error', (e) => {
+                    // Une SizeLimitExceeded malgré la pagination : on garde ce qu'on a.
+                    if (e && e.name === 'SizeLimitExceededError') return finish(results);
+                    finish(null, e);
+                });
+                searchRes.on('end', () => finish(results));
+            });
+        });
+    });
+}
+
 module.exports = {
     searchADUsersByQuery,
+    searchADComputers,
     deriveEmailFromUsager,
+    parseGeneralizedTime,
+    parseFiletime,
     EMAIL_DOMAIN
 };
