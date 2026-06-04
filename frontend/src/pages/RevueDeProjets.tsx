@@ -4,6 +4,7 @@ import Header from '../components/Header';
 import { useAuth } from '../contexts/AuthContext';
 import AddTaskModal from '../components/AddTaskModal';
 import { useADSearch } from '../utils/useADSearch';
+import { isAdminLike } from '../utils/roles';
 
 interface Projet {
   id: number; code: string; titre: string; statut: string;
@@ -39,7 +40,7 @@ const PRIORITE_STARS = (n: number) => '⭐'.repeat(Math.max(1, Math.min(5, n)));
 
 export default function RevueDeProjets() {
   const { token, user } = useAuth();
-  const isPMO = user?.est_pmo || user?.role === 'admin';
+  const isPMO = user?.est_pmo || isAdminLike(user);
 
   const [revues, setRevues] = useState<Revue[]>([]);
   const [selectedRevue, setSelectedRevue] = useState<Revue | null>(null);

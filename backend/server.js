@@ -583,6 +583,16 @@ app.get('/api/auth/me', authenticateJWT, async (req, res) => {
             user.est_pmo = false;
         }
 
+        // PMO users automatically get access to project routes
+        if (user.est_pmo && user.authorized_urls && !user.authorized_urls.includes('*')) {
+            const projectUrls = ['/portefeuille-projets', '/revue-de-projets', '/projets'];
+            for (const url of projectUrls) {
+                if (!user.authorized_urls.includes(url)) {
+                    user.authorized_urls.push(url);
+                }
+            }
+        }
+
         res.json({ ...user, auth_source: source });
     } catch (error) {
         res.status(500).json({ message: 'Erreur lors de la récupération du profil', error: error.message });
