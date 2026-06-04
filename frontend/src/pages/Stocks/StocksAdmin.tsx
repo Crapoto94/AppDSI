@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import Header from '../../components/Header';
 import { ArrowLeft, Store as StoreIcon, MapPin, Users, Package, Trash2, Plus, Search, FileText, Upload, Star, Code, X } from 'lucide-react';
-import { stocksApi, type Store, type StorageLocation, type Member, type Item, type MyRole, type BlTemplate } from './api';
+import { stocksApi, type Store, type StorageLocation, type Member, type MyRole, type BlTemplate } from './api';
 import BlTemplateDesigner from './BlTemplateDesigner';
 
 const C = { indigo: '#6366f1', red: '#ef4444', green: '#22c55e', slate: '#64748b', border: '#e2e8f0', text: '#1e293b', bg: '#f8fafc' };
