@@ -517,6 +517,42 @@ const AdminGeneraleModal: React.FC<AdminModalProps> = ({ token, onClose }) => {
   const [tab, setTab] = useState('scoring');
   const [loading, setLoading] = useState(true);
 
+  const [pmoUsers, setPmoUsers] = useState<any[]>([]);
+  const pmoAd = useADSearch(token);
+  const [expandedPmo, setExpandedPmo] = useState<string | null>(null);
+  const [pmoAssignments, setPmoAssignments] = useState<any[]>([]);
+  const [orgUnits, setOrgUnits] = useState<{ directions: any[]; services: any[]; secteurs: any[] }>({ directions: [], services: [], secteurs: [] });
+  const [selectedOrgType, setSelectedOrgType] = useState<'service' | 'secteur' | 'direction'>('service');
+  const [selectedOrgCode, setSelectedOrgCode] = useState('');
+  const [savingAssign, setSavingAssign] = useState(false);
+  const [loadingAssign, setLoadingAssign] = useState(false);
+
+  const loadPmos = useCallback(async () => {
+    try {
+      const r = await fetch('/api/admin/pmo/list', { headers: { Authorization: `Bearer ${token}` } });
+      const data = await r.json();
+      if (Array.isArray(data)) setPmoUsers(data);
+    } catch (e) { console.error('Erreur chargement PMO:', e); }
+  }, [token]);
+
+  const loadOrgUnits = useCallback(async () => {
+    try {
+      const r = await fetch('/api/projets/pmo/org-units', { headers: { Authorization: `Bearer ${token}` } });
+      const data = await r.json();
+      if (data?.directions) setOrgUnits(data);
+    } catch {}
+  }, [token]);
+
+  const loadPmoAssignments = useCallback(async (username: string) => {
+    setLoadingAssign(true);
+    try {
+      const r = await fetch(`/api/projets/pmo/agents?pmo_username=${encodeURIComponent(username)}`, { headers: { Authorization: `Bearer ${token}` } });
+      const data = await r.json();
+      if (Array.isArray(data)) setPmoAssignments(data);
+    } catch {}
+    setLoadingAssign(false);
+  }, [token]);
+
   useEffect(() => {
     setLoading(true);
     Promise.all([
@@ -524,8 +560,10 @@ const AdminGeneraleModal: React.FC<AdminModalProps> = ({ token, onClose }) => {
         .then(r => r.json()).then(d => { if (Array.isArray(d)) setScoringConfig(d); }).catch(() => {}),
       fetch('/api/projets/admin/types-documentaires', { headers: { Authorization: `Bearer ${token}` } })
         .then(r => r.json()).then(d => { if (Array.isArray(d)) setDocTypes(d); }).catch(() => {}),
+      loadPmos(),
+      loadOrgUnits(),
     ]).finally(() => setLoading(false));
-  }, [token]);
+  }, [token, loadPmos, loadOrgUnits]);
 
   const saveScoring = async () => {
     await fetch('/api/projets/admin/scoring-config', {
@@ -539,6 +577,71 @@ const AdminGeneraleModal: React.FC<AdminModalProps> = ({ token, onClose }) => {
       body: JSON.stringify({ types: docTypes })
     });
   };
+
+  const togglePmo = async (username: string, isPmo: boolean) => {
+    try {
+      await fetch('/api/admin/pmo/toggle', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ username, is_pmo: isPmo })
+      });
+      await loadPmos();
+    } catch (e) { console.error('Erreur toggle PMO:', e); }
+  };
+
+  const expandPmo = async (username: string) => {
+    if (expandedPmo === username) {
+      setExpandedPmo(null);
+      return;
+    }
+    setExpandedPmo(username);
+    await loadPmoAssignments(username);
+  };
+
+  const getOrgLabel = (a: any) => {
+    if (a.service_code) {
+      const s = orgUnits.services.find(x => x.code === a.service_code);
+      return `Service : ${s?.label || a.service_code}`;
+    }
+    if (a.secteur_code) {
+      const s = orgUnits.secteurs.find(x => x.code === a.secteur_code);
+      return `Secteur : ${s?.label || a.secteur_code}`;
+    }
+    if (a.direction_code) {
+      const d = orgUnits.directions.find(x => x.code === a.direction_code);
+      return `Direction : ${d?.label || a.direction_code}`;
+    }
+    return '—';
+  };
+
+  const addOrgAssignment = async () => {
+    if (!selectedOrgCode || !expandedPmo) return;
+    setSavingAssign(true);
+    try {
+      const body: any = {};
+      if (selectedOrgType === 'service') body.service_code = selectedOrgCode;
+      else if (selectedOrgType === 'secteur') body.secteur_code = selectedOrgCode;
+      else body.direction_code = selectedOrgCode;
+      await fetch(`/api/projets/pmo/agents?pmo_username=${encodeURIComponent(expandedPmo)}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify(body)
+      });
+      setSelectedOrgCode('');
+      await loadPmoAssignments(expandedPmo);
+    } catch {} finally { setSavingAssign(false); }
+  };
+
+  const removeAssignment = async (id: number) => {
+    if (!expandedPmo) return;
+    await fetch(`/api/projets/pmo/agents/${id}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } });
+    await loadPmoAssignments(expandedPmo);
+  };
+
+  const orgAssignments = pmoAssignments.filter(a => a.service_code || a.secteur_code || a.direction_code);
+  const orgOptions = selectedOrgType === 'service' ? orgUnits.services
+    : selectedOrgType === 'secteur' ? orgUnits.secteurs
+    : orgUnits.directions;
 
   if (loading) return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
@@ -560,7 +663,8 @@ const AdminGeneraleModal: React.FC<AdminModalProps> = ({ token, onClose }) => {
         <div style={{ display: 'flex', gap: '2px', borderBottom: '2px solid #e2e8f0', padding: '0 24px' }}>
           {[
             { key: 'scoring', label: '📊 Scoring' },
-            { key: 'docTypes', label: '📄 Types docs' }
+            { key: 'docTypes', label: '📄 Types docs' },
+            { key: 'pmo', label: '👥 PMO' }
           ].map(t => (
             <button key={t.key} onClick={() => setTab(t.key)} style={{
               padding: '10px 18px', border: 'none', borderBottom: tab === t.key ? '2px solid #2563eb' : '2px solid transparent',
@@ -603,6 +707,77 @@ const AdminGeneraleModal: React.FC<AdminModalProps> = ({ token, onClose }) => {
                   <label style={{ fontSize: '12px', color: '#64748b', cursor: 'pointer' }}>
                     <input type="checkbox" checked={t.obligatoire} onChange={e => { const n = [...docTypes]; n[i] = { ...n[i], obligatoire: e.target.checked ? 1 : 0 }; setDocTypes(n); }} /> Obligatoire
                   </label>
+                </div>
+              ))}
+            </div>
+          )}
+          {tab === 'pmo' && (
+            <div>
+              <div style={{ marginBottom: '16px', position: 'relative' }}>
+                <input value={pmoAd.query} onChange={e => pmoAd.setQuery(e.target.value)} placeholder="Rechercher un utilisateur AD à désigner PMO..."
+                  style={{ width: '100%', padding: '9px 12px', borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '14px', background: 'white', outline: 'none', boxSizing: 'border-box' }} />
+                {pmoAd.searching && <span style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', fontSize: '12px', color: '#94a3b8' }}>...</span>}
+                {pmoAd.results.length > 0 && (
+                  <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: 'white', border: '1px solid #e2e8f0', borderRadius: '8px', marginTop: '4px', zIndex: 10, maxHeight: '200px', overflowY: 'auto', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}>
+                    {pmoAd.results.map((u: any) => (
+                      <div key={u.username} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 12px', borderBottom: '1px solid #f1f5f9' }}>
+                        <div>
+                          <span style={{ fontSize: '13px', color: '#1e293b' }}>{u.displayName || u.username}</span>
+                          <div style={{ fontSize: '11px', color: '#94a3b8' }}>{u.email}{u.service ? ` — ${u.service}` : ''}</div>
+                        </div>
+                        <button onClick={() => togglePmo(u.username, true)} style={{ padding: '4px 10px', background: '#2563eb', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: '600', fontSize: '11px' }}>Désigner PMO</button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div style={{ fontSize: '13px', fontWeight: '700', color: '#64748b', marginBottom: '8px', textTransform: 'uppercase' }}>PMO ({pmoUsers.length})</div>
+              {pmoUsers.length === 0 ? (
+                <p style={{ color: '#94a3b8', fontSize: '13px' }}>Aucun PMO désigné.</p>
+              ) : pmoUsers.map((u: any) => (
+                <div key={u.id} style={{ border: '1px solid #e2e8f0', borderRadius: '8px', marginBottom: '8px', overflow: 'hidden' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 14px', background: expandedPmo === u.username ? '#f8fafc' : 'white', cursor: 'pointer' }}
+                    onClick={() => expandPmo(u.username)}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <span style={{ fontSize: '12px', color: '#94a3b8', transition: 'transform 0.15s', transform: expandedPmo === u.username ? 'rotate(90deg)' : 'none' }}>▶</span>
+                      <span style={{ fontSize: '14px', fontWeight: '600', color: '#1e293b' }}>{u.username}</span>
+                      <span style={{ fontSize: '11px', color: '#64748b' }}>{u.displayName || ''}</span>
+                    </div>
+                    <button onClick={e => { e.stopPropagation(); togglePmo(u.username, false); }}
+                      style={{ padding: '4px 10px', background: '#ef4444', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: '600', fontSize: '11px' }}>Retirer</button>
+                  </div>
+                  {expandedPmo === u.username && (
+                    <div style={{ padding: '12px 14px 14px 36px', borderTop: '1px solid #e2e8f0', background: '#fafbfc' }}>
+                      <div style={{ display: 'flex', gap: '8px', marginBottom: '12px' }}>
+                        <select value={selectedOrgType} onChange={e => { setSelectedOrgType(e.target.value as any); setSelectedOrgCode(''); }}
+                          style={{ padding: '7px 10px', borderRadius: '6px', border: '1px solid #e2e8f0', fontSize: '12px', background: 'white' }}>
+                          <option value="service">Service</option>
+                          <option value="secteur">Secteur</option>
+                          <option value="direction">Direction</option>
+                        </select>
+                        <select value={selectedOrgCode} onChange={e => setSelectedOrgCode(e.target.value)}
+                          style={{ flex: 1, padding: '7px 10px', borderRadius: '6px', border: '1px solid #e2e8f0', fontSize: '12px', background: 'white' }}>
+                          <option value="">-- Choisir --</option>
+                          {orgOptions.map((o: any) => <option key={o.code} value={o.code}>{o.label}</option>)}
+                        </select>
+                        <button onClick={addOrgAssignment} disabled={!selectedOrgCode || savingAssign}
+                          style={{ padding: '7px 14px', background: '#2563eb', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: '600', fontSize: '12px', opacity: !selectedOrgCode ? 0.5 : 1, whiteSpace: 'nowrap' }}>Ajouter</button>
+                      </div>
+                      <div style={{ fontSize: '12px', fontWeight: '700', color: '#64748b', marginBottom: '6px' }}>Services / Directions attribués</div>
+                      {loadingAssign ? (
+                        <p style={{ color: '#94a3b8', fontSize: '12px' }}>Chargement...</p>
+                      ) : orgAssignments.length === 0 ? (
+                        <p style={{ color: '#94a3b8', fontSize: '12px' }}>Aucune unité organisationnelle.</p>
+                      ) : orgAssignments.map((a: any) => (
+                        <div key={a.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 10px', borderRadius: '6px', background: 'white', border: '1px solid #e2e8f0', marginBottom: '4px' }}>
+                          <span style={{ fontSize: '12px', color: '#1e293b' }}>{getOrgLabel(a)}</span>
+                          <button onClick={() => removeAssignment(a.id)}
+                            style={{ padding: '3px 8px', background: '#fee2e2', color: '#b91c1c', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: '600', fontSize: '10px' }}>Retirer</button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
