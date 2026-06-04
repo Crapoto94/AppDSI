@@ -128,7 +128,7 @@ const pgDb = {
     },
     run: async (sql, params = []) => {
         let query = convertSqliteToPostgres(sql);
-        if (query.toUpperCase().includes('INSERT') && !query.toUpperCase().includes('INTO HUB.USERS') && !query.toUpperCase().includes('INTO GLPI.') && !query.toUpperCase().includes('INTO HUB_TICKETS.TICKETS') && !query.toUpperCase().includes('INTO HUB_TICKETS.TECHNICIAN_PROFILES') && !query.toUpperCase().includes('INTO HUB_TICKETS.MODULE_CONFIG')) {
+        if (query.toUpperCase().includes('INSERT') && !query.toUpperCase().includes('INTO HUB.USERS') && !query.toUpperCase().includes('INTO HUB.MODULE_SETTINGS') && !query.toUpperCase().includes('INTO GLPI.') && !query.toUpperCase().includes('INTO HUB_TICKETS.TICKETS') && !query.toUpperCase().includes('INTO HUB_TICKETS.TECHNICIAN_PROFILES') && !query.toUpperCase().includes('INTO HUB_TICKETS.MODULE_CONFIG')) {
             query += ' RETURNING id';
         }
         query = inlineParams(query, params);

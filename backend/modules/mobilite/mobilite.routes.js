@@ -35,6 +35,7 @@ router.get('/fiche/:id', ctrl.downloadFiche);
 
 // ─── Routes paramétrées (en dernier) ─────────────────────────
 router.get('/devices', ctrl.devices);
+router.patch('/devices/:key', ctrl.updateDevice);
 router.get('/devices/:key/events', ctrl.deviceEvents);
 
 module.exports = router;

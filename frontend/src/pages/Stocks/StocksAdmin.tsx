@@ -4,6 +4,7 @@ import axios from 'axios';
 import Header from '../../components/Header';
 import { ArrowLeft, Store as StoreIcon, MapPin, Users, Package, Trash2, Plus, Search, FileText, Upload, Star, Code, X } from 'lucide-react';
 import { stocksApi, type Store, type StorageLocation, type Member, type Item, type MyRole, type BlTemplate } from './api';
+import BlTemplateDesigner from './BlTemplateDesigner';
 
 const C = { indigo: '#6366f1', red: '#ef4444', green: '#22c55e', slate: '#64748b', border: '#e2e8f0', text: '#1e293b', bg: '#f8fafc' };
 
@@ -93,6 +94,7 @@ function BlTemplatesTab() {
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [editing, setEditing] = useState<BlTemplate | null>(null);
+  const [designing, setDesigning] = useState<BlTemplate | null>(null);
 
   const load = useCallback(() => { stocksApi.listBlTemplates().then(setList).catch(e => setErr(e.message)); }, []);
   useEffect(() => { load(); }, [load]);
@@ -175,7 +177,8 @@ function BlTemplatesTab() {
                       <Upload size={14} /> PDF
                       <input type="file" accept="application/pdf" style={{ display: 'none' }} onChange={e => { const f = e.target.files?.[0]; if (f) uploadBase(t, f); e.currentTarget.value = ''; }} />
                     </label>
-                    <button className="sa-btn sa-btn-ghost" style={{ padding: '5px 9px' }} onClick={() => setEditing(t)}><Code size={14} /> Champs</button>
+                    <button className="sa-btn sa-btn-ghost" style={{ padding: '5px 9px' }} onClick={() => setDesigning(t)} title="Placer les variables graphiquement"><Code size={14} /> Champs</button>
+                    <button className="sa-btn sa-btn-ghost" style={{ padding: '5px 9px' }} onClick={() => setEditing(t)} title="Éditeur JSON avancé">JSON</button>
                     <button className="sa-btn sa-btn-ghost" style={{ padding: '5px 9px' }} onClick={() => rename(t)}>Renommer</button>
                     <button className="sa-iconbtn" onClick={() => remove(t)} title="Supprimer"><Trash2 size={16} /></button>
                   </div>
@@ -188,6 +191,7 @@ function BlTemplatesTab() {
       </div>
 
       {editing && <FieldsEditor template={editing} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); load(); }} />}
+      {designing && <BlTemplateDesigner template={designing} onClose={() => setDesigning(null)} onSaved={() => { setDesigning(null); load(); }} />}
     </div>
   );
 }

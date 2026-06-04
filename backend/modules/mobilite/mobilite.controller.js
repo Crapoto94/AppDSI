@@ -117,12 +117,24 @@ exports.devices = async (req, res) => {
     else if (mdm === 'non') where.push("(mdm IS NULL OR mdm NOT ILIKE 'oui')");
     if (actif === '1') where.push('is_actif = TRUE');
     else if (actif === '0') where.push('is_actif = FALSE');
-    // Cycle de vie : la liste principale ne montre par défaut que les appareils
-    // « attribués » (en service) — stock / en_attribution / cession / vol masqués.
-    const cycle = req.query.cycle;
-    if (cycle) add('statut = ?', cycle);
-    else if (req.query.include_sorti === '1') where.push("statut IN ('attribue','sorti')");
-    else where.push("statut = 'attribue'");
+    // Catégorie d'affichage (« bucket ») prioritaire sur le cycle :
+    //  • stock : disponibles en stock, hors rebut    • rebut : défectueux / volés / cassés / perdus
+    const REBUT = "(last_statut ~* 'd[ée]fectueux|vol[ée]?|cass|\\mhs\\M|panne|perdu|rebut')";
+    const bucket = req.query.bucket;
+    if (bucket === 'rebut') {
+      where.push(REBUT);
+    } else if (bucket === 'stock') {
+      where.push("statut = 'stock'");
+      where.push(`NOT ${REBUT}`);
+    } else {
+      // Cycle de vie : la liste principale ne montre par défaut que les appareils
+      // « attribués » (en service) — stock / en_attribution / cession / vol masqués.
+      const cycle = req.query.cycle;
+      if (cycle === 'tous') { /* aucun filtre de statut : tous les appareils */ }
+      else if (cycle) add('statut = ?', cycle);
+      else if (req.query.include_sorti === '1') where.push("statut IN ('attribue','sorti')");
+      else where.push("statut = 'attribue'");
+    }
     if (q) {
       const like = `%${String(q).trim()}%`;
       p.push(like);
@@ -164,6 +176,34 @@ exports.deviceEvents = async (req, res) => {
     res.json({ device: dev.rows[0] || null, events: r.rows });
   } catch (e) {
     console.error('[mobilite] deviceEvents', e);
+    res.status(500).json({ error: e.message });
+  }
+};
+
+// ── Édition libre d'un appareil (champs descriptifs + dernier état) ────────────
+exports.updateDevice = async (req, res) => {
+  const store = await requireMob(req, res, 'operator'); if (!store) return;
+  try {
+    const key = req.params.key;
+    const ALLOWED = [
+      'modele', 'imei', 'serial', 'etiquetage', 'type_appareil', 'famille',
+      'numero_ligne', 'carte_sim', 'forfait', 'mdm', 'observations', 'last_statut', 'statut',
+    ];
+    const sets = []; const vals = [];
+    for (const f of ALLOWED) {
+      if (Object.prototype.hasOwnProperty.call(req.body || {}, f)) {
+        const v = req.body[f]; vals.push(v === '' ? null : v); sets.push(`${f} = $${vals.length}`);
+      }
+    }
+    if (!sets.length) return res.status(400).json({ error: 'Aucun champ à modifier' });
+    vals.push(key);
+    const r = await pool.query(
+      `UPDATE hub_parc.mobilite_devices SET ${sets.join(', ')}, updated_at = NOW()
+       WHERE device_key = $${vals.length} RETURNING *`, vals);
+    if (!r.rows.length) return res.status(404).json({ error: 'Appareil introuvable' });
+    res.json(r.rows[0]);
+  } catch (e) {
+    console.error('[mobilite] updateDevice', e);
     res.status(500).json({ error: e.message });
   }
 };
@@ -554,60 +594,51 @@ exports.quickReturn = async (req, res) => {
   } catch (e) { console.error('[mobilite] quickReturn', e); res.status(500).json({ error: e.message }); }
 };
 
-// ── Retour d'un agent → fiche retour ; l'appareil revient en stock ────────────
+// ── Retour AVEC fiche (device-centric) → l'appareil revient en stock ──────────
+// Variante « riche » du retour : génère une fiche de retour signée. Le retour
+// 1-clic (quickReturn) reste disponible sans fiche.
 exports.returnDevice = async (req, res) => {
   const store = await requireMob(req, res, 'operator'); if (!store) return;
   try {
     const b = req.body || {};
-    const serialItemId = b.serial_item_id ? parseInt(b.serial_item_id, 10) : null;
-    if (!serialItemId) return res.status(400).json({ error: 'Appareil (serial_item_id) requis' });
-    const si = await pgDb.get(
-      `SELECT si.*, i.label AS item_label, i.model, i.category FROM hub_stocks.serial_items si
-       JOIN hub_stocks.items i ON i.id = si.item_id WHERE si.id = $1 AND si.store_id = $2`,
-      [serialItemId, store.id]);
-    if (!si) return res.status(404).json({ error: 'Appareil introuvable' });
+    const key = b.device_key;
+    if (!key) return res.status(400).json({ error: 'Appareil (device_key) requis' });
+    const dev = await getDevice(key);
+    if (!dev) return res.status(404).json({ error: 'Appareil introuvable' });
 
-    const tpl = b.template_id
-      ? await blTemplateRepo.get(b.template_id)
-      : (await blTemplateRepo.list()).find(t => t.category === 'retour');
-    const agent = b.agent || {};
-    const designation = si.item_label || si.model || 'Téléphone';
-    const meta = {
-      'etat.retour': b.etat_retour || 'Fonctionnel',
-      'agent.direction': agent.direction || '',
-      'agent.service': agent.service || '',
-      'agent.nom': agent.nom || agent.displayName || '',
-      'date.retour': fmtDateFr(b.date_retour),
-      designation, imei: si.serial_number || '', numero_ligne: b.numero_ligne || '',
-      'motif.retour': b.motif || '',
+    const tpl = (await blTemplateRepo.list('retour'))[0] || (await blTemplateRepo.list()).find(t => t.category === 'retour');
+    const designation = dev.modele || dev.type_appareil || 'Téléphone';
+    let recipientSigDoc = null, preparerSigDoc = null;
+    if (b.recipient_signature) { try { recipientSigDoc = await saveSignature(b.recipient_signature, { entityType: 'mobilite_retour_sig', entityId: 0, uploadedBy: req.user?.username, title: 'Signature-agent' }); } catch (e) { console.error(e.message); } }
+    if (b.preparer_signature) { try { preparerSigDoc = await saveSignature(b.preparer_signature, { entityType: 'mobilite_retour_sig', entityId: 0, uploadedBy: req.user?.username, title: 'Signature-DSI' }); } catch (e) { console.error(e.message); } }
+
+    const scalarMap = {
+      '{fiche.numero}': dev.device_key, '{date}': fmtDateFr(new Date()), '{date.retour}': fmtDateFr(b.date_retour),
+      '{store.name}': store.name, '{etat.retour}': b.etat_retour || 'Fonctionnel', '{motif.retour}': b.motif || '',
+      '{agent.nom}': dev.last_agent || '', '{agent.direction}': dev.last_direction || '', '{agent.service}': dev.last_service || '',
+      '{designation}': designation, '{imei}': dev.imei || '', '{numero_serie}': dev.imei || dev.serial || '',
+      '{numero_ligne}': dev.numero_ligne || '', '{tech.nom}': req.user?.username || '', '{preparer.name}': req.user?.username || '',
     };
-
-    let ret = await returnService.prepareReturn({
-      store_id: store.id, template_id: tpl?.id || null, meta,
-      beneficiary_name: agent.nom || agent.displayName || null,
-      beneficiary_email: agent.email || null,
-      notes: b.motif || null,
-      preparer_signature: b.preparer_signature || null,
-      lines: [{ item_id: si.item_id, serial_item_id: si.id, quantity: 1, location_id: si.location_id || null }],
-    }, req.user);
-    if (b.recipient_signature) {
-      ret = await returnService.confirmReturn(ret.id, store.id, b.recipient_signature, req.user);
-    }
+    let ficheDocId = null;
+    try {
+      ficheDocId = await blPdf.generateFicheFromContext({
+        templateId: tpl?.id, scalarMap, lineMaps: [scalarMap],
+        preparerSignatureDocId: preparerSigDoc, recipientSignatureDocId: recipientSigDoc,
+        user: req.user, filename: `fiche-retour-${designation}.pdf`, entityType: 'mobilite_fiche', entityId: 0,
+      });
+    } catch (e) { console.error('[mobilite] génération fiche retour:', e.message); }
 
     await logMobiliteEvent({
-      device_key: deviceKeyFor(si), action: 'Retour', action_norm: 'Retour',
-      direction: agent.direction || null, service: agent.service || null,
-      agent: agent.nom || agent.displayName || null,
-      statut: b.etat_retour && /defect/i.test(b.etat_retour) ? 'RETOUR DEFECTUEUX' : 'RETOUR',
-      type_appareil: si.category || null, famille: familleFromCategory(si.category),
-      modele: designation, imei: si.serial_number || null, serial: si.serial_number || null,
-      numero_ligne: b.numero_ligne || null, observations: b.motif || null,
-      serial_item_id: si.id, store_id: store.id, delivery_id: ret.id, date_event: b.date_retour || new Date(),
+      device_key: key, action: 'Retour', action_norm: 'Retour',
+      statut: b.etat_retour && /defect|cass/i.test(b.etat_retour) ? 'RETOUR DEFECTUEUX' : 'RETOUR',
+      type_appareil: dev.type_appareil, famille: dev.famille || 'telephone', modele: designation,
+      imei: dev.imei, serial: dev.serial, numero_ligne: dev.numero_ligne, observations: b.motif || null,
+      serial_item_id: dev.serial_item_id, store_id: store.id, date_event: b.date_retour || new Date(),
     });
-    // Le device repasse en stock (cohérent avec le retour 1-clic).
-    await pool.query(`UPDATE hub_parc.mobilite_devices SET statut='stock', last_direction=NULL, last_service=NULL, last_agent=NULL, attrib='{}'::jsonb, pret_due_date=NULL, updated_at=NOW() WHERE device_key=$1`, [deviceKeyFor(si)]);
+    await pool.query(`UPDATE hub_parc.mobilite_devices SET statut='stock', last_direction=NULL, last_service=NULL, last_agent=NULL, attrib='{}'::jsonb, pret_due_date=NULL, fiche_document_id=$2, updated_at=NOW() WHERE device_key=$1`, [key, ficheDocId]);
+    if (dev.serial_item_id) await pool.query(`UPDATE hub_stocks.serial_items SET status='in_stock', updated_at=NOW() WHERE id=$1`, [dev.serial_item_id]);
 
-    res.json({ return_id: ret.id, status: ret.status, fiche_document_id: ret.bl_document_id });
+    res.json({ ok: true, statut: 'stock', fiche_document_id: ficheDocId });
   } catch (e) { console.error('[mobilite] returnDevice', e); res.status(500).json({ error: e.message }); }
 };
 

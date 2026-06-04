@@ -11,9 +11,9 @@ import {
 import {
   Smartphone, Tablet, Search, X, RefreshCw, History, Boxes, Activity,
   ShieldCheck, Signal, Tag, AlertTriangle, CheckCircle2, ArrowDownLeft,
-  PackagePlus, UserCheck, Package,
+  PackagePlus, UserCheck, Package, Hourglass, Upload, Pencil, Check,
 } from 'lucide-react';
-import { EntryModal, AttributeModal, ReturnModal, StockTab } from './MobiliteActions';
+import { EntryModal, AttributeModal, ReturnModal, AttributionsTab } from './MobiliteActions';
 import { mobiliteApi, type MobStore, type SerialItem } from './mobiliteApi';
 
 const C = { blue: '#2563eb', slate: '#64748b', green: '#059669', amber: '#d97706', red: '#dc2626', purple: '#7c3aed', cyan: '#0891b2', bg: '#f1f5f9', card: '#fff', border: '#e2e8f0', text: '#0f172a' };
@@ -61,13 +61,28 @@ const fmtDate = (s: string | null) => {
 export default function MobiliteView({ token }: { token: string }) {
   const api = axios.create({ baseURL: '/api/mobilite', headers: { Authorization: `Bearer ${token}` } });
 
-  const [view, setView] = useState<'dashboard' | 'list' | 'stock'>('dashboard');
+  const [view, setView] = useState<'dashboard' | 'list' | 'stock' | 'rebut' | 'attributions'>('dashboard');
+  const isListView = view === 'list' || view === 'stock' || view === 'rebut';
+  const [editDevice, setEditDevice] = useState<Device | null>(null);
+  const [savingEdit, setSavingEdit] = useState(false);
   // Cycle de vie (stock / attribution / retour) via le module /stocks
   const [store, setStore] = useState<MobStore | null>(null);
   const [modal, setModal] = useState<null | 'entry' | 'attribute' | 'return'>(null);
   const [preset, setPreset] = useState<SerialItem | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
+  const [importing, setImporting] = useState(false);
   const canOperate = !!store && (store.my_role === 'operator' || store.my_role === 'manager');
+  const isManager = !!store && store.my_role === 'manager';
+
+  const doImport = async (file: File) => {
+    if (!confirm('Importer ce fichier ÉCRASE TOTALEMENT la base mobile (appareils + historique). Continuer ?')) return;
+    setImporting(true);
+    try {
+      const r = await mobiliteApi.importExcel(token, file);
+      alert(`Import terminé : ${r.devices} appareils, ${r.events} événements.`);
+      loadKpis(); loadFilters(); if (view === 'list') loadList(); setReloadKey(k => k + 1);
+    } catch (e: any) { alert(e.response?.data?.error || e.message); } finally { setImporting(false); }
+  };
   const [kpis, setKpis] = useState<Kpis | null>(null);
   const [loadingKpi, setLoadingKpi] = useState(false);
   const [devices, setDevices] = useState<Device[]>([]);
@@ -85,6 +100,8 @@ export default function MobiliteView({ token }: { token: string }) {
   const [fSim, setFSim] = useState('');
   const [fMdm, setFMdm] = useState('');
   const [fActif, setFActif] = useState('');
+  const [includeSorti, setIncludeSorti] = useState(false);
+  const [listScope, setListScope] = useState<'attribue' | 'tous'>('attribue'); // 'tous' = tous états
   const [sortCol, setSortCol] = useState('last_date');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
   const [start, setStart] = useState(0);
@@ -105,16 +122,42 @@ export default function MobiliteView({ token }: { token: string }) {
   const loadList = useCallback(async () => {
     setLoadingList(true);
     try {
-      const r = await api.get('/devices', { params: { q, famille: fFamille, action: fAction, direction: fDirection, statut: fStatut, forfait: fForfait, sim: fSim, mdm: fMdm, actif: fActif, sort: sortCol, dir: sortDir, start, limit: LIMIT } });
+      const bucket = view === 'stock' ? 'stock' : view === 'rebut' ? 'rebut' : undefined;
+      const r = await api.get('/devices', { params: { q, famille: fFamille, action: fAction, direction: fDirection, statut: fStatut, forfait: fForfait, sim: fSim, mdm: fMdm, actif: fActif, bucket, cycle: !bucket && listScope === 'tous' ? 'tous' : undefined, include_sorti: !bucket && listScope === 'attribue' && includeSorti ? 1 : undefined, sort: sortCol, dir: sortDir, start, limit: LIMIT } });
       setDevices(r.data.items); setTotal(r.data.total);
     } catch { /* noop */ } finally { setLoadingList(false); }
-  }, [q, fFamille, fAction, fDirection, fStatut, fForfait, fSim, fMdm, fActif, sortCol, sortDir, start, token]);
+  }, [q, fFamille, fAction, fDirection, fStatut, fForfait, fSim, fMdm, fActif, includeSorti, listScope, sortCol, sortDir, start, token, view]);
 
   useEffect(() => { loadKpis(); loadFilters(); mobiliteApi.getStore(token).then(setStore).catch(() => setStore(null)); }, [loadKpis, loadFilters, token]);
-  useEffect(() => { if (view === 'list') loadList(); /* eslint-disable-next-line */ }, [view, fFamille, fAction, fDirection, fStatut, fForfait, fSim, fMdm, fActif, sortCol, sortDir, start]);
+  useEffect(() => { if (isListView) loadList(); /* eslint-disable-next-line */ }, [view, fFamille, fAction, fDirection, fStatut, fForfait, fSim, fMdm, fActif, includeSorti, listScope, sortCol, sortDir, start]);
+
+  // Retour 1-clic depuis la liste principale.
+  const quickReturn = async (d: Device) => {
+    if (!canOperate) return;
+    if (!confirm(`Retour de « ${d.modele || 'appareil'} » au stock ? (sans agent ni direction)`)) return;
+    try { await mobiliteApi.quickReturn(token, d.device_key); loadList(); loadKpis(); setReloadKey(k => k + 1); }
+    catch (e: any) { alert(e.response?.data?.error || e.message); }
+  };
 
   // Après une action (entrée/attribution/retour) : rafraîchit KPIs, liste, stock.
-  const afterAction = () => { setModal(null); setPreset(null); loadKpis(); if (view === 'list') loadList(); setReloadKey(k => k + 1); };
+  const afterAction = () => { setModal(null); setPreset(null); loadKpis(); if (isListView) loadList(); setReloadKey(k => k + 1); };
+
+  // Remise au stock d'un appareil au rebut (ex. après réparation).
+  const restoreToStock = async (d: Device) => {
+    if (!canOperate) return;
+    if (!confirm(`Remettre « ${d.modele || 'appareil'} » dans le stock réutilisable ?`)) return;
+    try { await mobiliteApi.updateDevice(token, d.device_key, { statut: 'stock', last_statut: 'STOCK' }); loadList(); loadKpis(); setReloadKey(k => k + 1); }
+    catch (e: any) { alert(e.response?.data?.error || e.message); }
+  };
+
+  // Enregistrement de l'édition d'un appareil.
+  const saveDeviceEdit = async (patch: Record<string, unknown>) => {
+    if (!editDevice) return;
+    setSavingEdit(true);
+    try { await mobiliteApi.updateDevice(token, editDevice.device_key, patch); setEditDevice(null); loadList(); loadKpis(); }
+    catch (e: any) { alert(e.response?.data?.error || e.message); }
+    finally { setSavingEdit(false); }
+  };
 
   const openHistory = async (d: Device) => {
     setHist({ device: d, events: [], loading: true });
@@ -171,7 +214,7 @@ export default function MobiliteView({ token }: { token: string }) {
     <div>
       {/* Sous-onglets + actions cycle de vie */}
       <div style={{ display: 'flex', gap: 6, marginBottom: 18, flexWrap: 'wrap', alignItems: 'center' }}>
-        {([['dashboard', 'Tableau de bord', Activity], ['list', 'Appareils', Smartphone], ['stock', 'Stock', Package]] as const).map(([k, l, I]) => (
+        {([['dashboard', 'Tableau de bord', Activity], ['list', 'Appareils', Smartphone], ['stock', 'Stock', Package], ['rebut', 'Rebut', AlertTriangle], ['attributions', 'Attributions en cours', Hourglass]] as const).map(([k, l, I]) => (
           <button key={k} onClick={() => setView(k)} style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '9px 16px', borderRadius: 10, border: `1px solid ${view === k ? C.blue : C.border}`, background: view === k ? C.blue : C.card, color: view === k ? '#fff' : C.slate, fontWeight: 700, fontSize: '.86rem', cursor: 'pointer' }}>
             <I size={15} /> {l}
           </button>
@@ -180,18 +223,24 @@ export default function MobiliteView({ token }: { token: string }) {
           {canOperate && <>
             <button onClick={() => setModal('entry')} style={actBtn('#0891b2')}><PackagePlus size={15} /> Entrer en stock</button>
             <button onClick={() => { setPreset(null); setModal('attribute'); }} style={actBtn('#2563eb')}><UserCheck size={15} /> Attribuer</button>
-            <button onClick={() => { setPreset(null); setModal('return'); }} style={actBtn('#d97706')}><ArrowDownLeft size={15} /> Retour</button>
+            <button onClick={() => { setPreset(null); setModal('return'); }} style={actBtn('#d97706')}><ArrowDownLeft size={15} /> Retour (fiche)</button>
           </>}
+          {isManager && (
+            <label style={{ ...actBtn('#64748b'), cursor: 'pointer' }}>
+              <Upload size={15} /> {importing ? 'Import…' : 'Importer Excel'}
+              <input type="file" accept=".xlsx,.xls" style={{ display: 'none' }} disabled={importing}
+                onChange={e => { const f = e.target.files?.[0]; if (f) doImport(f); e.currentTarget.value = ''; }} />
+            </label>
+          )}
           <button onClick={() => { loadKpis(); if (view === 'list') loadList(); setReloadKey(k => k + 1); }} style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '9px 16px', borderRadius: 10, border: `1px solid ${C.border}`, background: C.card, color: C.slate, fontWeight: 700, fontSize: '.86rem', cursor: 'pointer' }}>
             <RefreshCw size={15} className={loadingKpi || loadingList ? 'spin' : ''} /> Actualiser
           </button>
         </div>
       </div>
 
-      {/* ─── STOCK (appareils non attribués) ─── */}
-      {view === 'stock' && (
-        <StockTab token={token} canOperate={canOperate} reloadKey={reloadKey}
-          onAttribute={(s) => { setPreset(s); setModal('attribute'); }} />
+      {/* ─── ATTRIBUTIONS EN COURS ─── */}
+      {view === 'attributions' && (
+        <AttributionsTab token={token} canOperate={canOperate} reloadKey={reloadKey} onChanged={() => { loadKpis(); setReloadKey(k => k + 1); }} />
       )}
 
       {/* ─── Modales cycle de vie ─── */}
@@ -291,8 +340,20 @@ export default function MobiliteView({ token }: { token: string }) {
       {view === 'dashboard' && !kpis && loadingKpi && <div style={{ padding: 40, textAlign: 'center', color: C.slate }}><RefreshCw className="spin" /> Chargement…</div>}
 
       {/* ─── LISTE DES APPAREILS ─── */}
-      {view === 'list' && (
+      {isListView && (
         <>
+          {/* Périmètre : appareils en service (défaut) ou TOUS les états — uniquement « Appareils » */}
+          {view === 'list' && (
+            <div style={{ display: 'inline-flex', gap: 4, marginBottom: 12, background: C.bg, padding: 4, borderRadius: 10 }}>
+              {([['attribue', 'En service'], ['tous', 'TOUS']] as const).map(([k, l]) => (
+                <button key={k} onClick={() => { setListScope(k); setStart(0); }} style={{
+                  padding: '7px 16px', borderRadius: 8, border: 'none', cursor: 'pointer', fontWeight: 800, fontSize: '.82rem',
+                  background: listScope === k ? C.blue : 'transparent', color: listScope === k ? '#fff' : C.slate,
+                }}>{l}</button>
+              ))}
+            </div>
+          )}
+          {view === 'rebut' && <div style={{ marginBottom: 12, fontSize: '.84rem', color: C.amber, display: 'inline-flex', alignItems: 'center', gap: 7, background: '#fffbeb', border: `1px solid #fde68a`, borderRadius: 10, padding: '8px 12px' }}><AlertTriangle size={15} /> Appareils défectueux, volés, cassés ou perdus — hors service.</div>}
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginBottom: 14, alignItems: 'center' }}>
             <div style={{ position: 'relative', flex: '1 1 240px' }}>
               <Search size={16} style={{ position: 'absolute', left: 11, top: 11, color: C.slate }} />
@@ -308,10 +369,12 @@ export default function MobiliteView({ token }: { token: string }) {
               <option value="">Tout dernier état</option>
               {filters.actions.map(f => <option key={f.value} value={f.value}>{f.label} ({f.count})</option>)}
             </select>
-            <select value={fDirection} onChange={e => { setFDirection(e.target.value); setStart(0); }} style={selStyle}>
-              <option value="">Toutes directions</option>
-              {filters.directions.map(f => <option key={f.value} value={f.value}>{f.label} ({f.count})</option>)}
-            </select>
+            {view === 'list' && (
+              <select value={fDirection} onChange={e => { setFDirection(e.target.value); setStart(0); }} style={selStyle}>
+                <option value="">Toutes directions</option>
+                {filters.directions.map(f => <option key={f.value} value={f.value}>{f.label} ({f.count})</option>)}
+              </select>
+            )}
             <select value={fStatut} onChange={e => { setFStatut(e.target.value); setStart(0); }} style={selStyle}>
               <option value="">Tous statuts</option>
               {filters.statuts.map(f => <option key={f.value} value={f.value}>{f.label} ({f.count})</option>)}
@@ -329,6 +392,11 @@ export default function MobiliteView({ token }: { token: string }) {
             <select value={fActif} onChange={e => { setFActif(e.target.value); setStart(0); }} style={selStyle}>
               <option value="">État : tous</option><option value="1">En service</option><option value="0">Sorti / retourné</option>
             </select>
+            {view === 'list' && (
+              <label title="Afficher aussi les cessions et vols (masqués par défaut)" style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '8px 12px', borderRadius: 10, border: `1px solid ${includeSorti ? C.amber : C.border}`, background: includeSorti ? '#fffbeb' : '#fff', cursor: 'pointer', fontWeight: 700, fontSize: '.82rem', color: includeSorti ? C.amber : C.slate }}>
+                <input type="checkbox" checked={includeSorti} onChange={e => { setIncludeSorti(e.target.checked); setStart(0); }} style={{ accentColor: C.amber }} /> Inclure cessions/vols
+              </label>
+            )}
             <button onClick={resetFilters} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 12px', borderRadius: 10, border: `1px solid ${C.border}`, background: '#fff', color: C.slate, fontWeight: 700, fontSize: '.84rem', cursor: 'pointer' }}><X size={14} /> Réinitialiser</button>
           </div>
 
@@ -346,8 +414,8 @@ export default function MobiliteView({ token }: { token: string }) {
                     <Th col="imei">IMEI / Série</Th>
                     <Th col="numero_ligne">N° ligne</Th>
                     <Th>SIM / MDM</Th>
-                    <Th col="last_direction">Direction</Th>
-                    <Th col="last_agent">Agent</Th>
+                    {view === 'list' && <Th col="last_direction">Direction</Th>}
+                    {view === 'list' && <Th col="last_agent">Agent</Th>}
                     <Th col="last_action">Dernier état</Th>
                     <Th col="last_date">Date</Th>
                     <Th col="events_count">Actions</Th>
@@ -364,7 +432,12 @@ export default function MobiliteView({ token }: { token: string }) {
                             <FI size={16} /> {FM.label}
                           </span>
                         </td>
-                        <td style={{ padding: '9px 12px', fontWeight: 600, color: C.text }}>{d.modele || '—'}</td>
+                        <td style={{ padding: '9px 12px', fontWeight: 600, color: C.text }}>
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                            {d.modele || '—'}
+                            {d.observations && <span title={d.observations} style={{ display: 'inline-flex', color: C.amber, cursor: 'help' }}><AlertTriangle size={13} /></span>}
+                          </span>
+                        </td>
                         <td style={{ padding: '9px 12px', color: C.slate, fontSize: '.78rem', fontFamily: 'monospace' }}>{d.imei || d.serial || d.etiquetage || '—'}</td>
                         <td style={{ padding: '9px 12px', whiteSpace: 'nowrap' }}>{d.numero_ligne || '—'}</td>
                         <td style={{ padding: '9px 12px', whiteSpace: 'nowrap' }}>
@@ -372,22 +445,46 @@ export default function MobiliteView({ token }: { token: string }) {
                           {(d.mdm || '').toLowerCase() === 'oui' && <span style={{ color: C.green }} title="Sous MDM"><ShieldCheck size={14} /></span>}
                           {(d.carte_sim || '').toLowerCase() !== 'oui' && (d.mdm || '').toLowerCase() !== 'oui' && '—'}
                         </td>
-                        <td style={{ padding: '9px 12px', fontSize: '.8rem' }}>{d.last_direction || '—'}</td>
-                        <td style={{ padding: '9px 12px', fontSize: '.8rem' }}>{d.last_agent || d.dernier_util || '—'}</td>
+                        {view === 'list' && <td style={{ padding: '9px 12px', fontSize: '.8rem' }}>{d.last_direction || '—'}</td>}
+                        {view === 'list' && <td style={{ padding: '9px 12px', fontSize: '.8rem' }}>{d.last_agent || d.dernier_util || '—'}</td>}
                         <td style={{ padding: '9px 12px' }}><ActionBadge action={d.last_action_norm} statut={d.last_statut} /></td>
                         <td style={{ padding: '9px 12px', whiteSpace: 'nowrap', color: C.slate }}>{fmtDate(d.last_date)}</td>
-                        <td style={{ padding: '9px 12px' }}>
+                        <td style={{ padding: '9px 12px', whiteSpace: 'nowrap' }}>
                           <button onClick={() => openHistory(d)} title="Voir l'historique des actions"
                             style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '4px 10px', borderRadius: 20, border: `1px solid ${d.events_count > 1 ? C.blue : C.border}`, background: d.events_count > 1 ? '#eff6ff' : '#fff', color: d.events_count > 1 ? C.blue : C.slate, fontWeight: 800, fontSize: '.8rem', cursor: 'pointer' }}>
                             <History size={13} /> {d.events_count}
                             {d.retours_count > 0 && <span title={`${d.retours_count} retour(s)`} style={{ color: C.amber }}>↩{d.retours_count}</span>}
                           </button>
+                          {canOperate && view === 'list' && ['Mise à disposition', 'Prêt', 'Dotation'].includes(d.last_action_norm || '') && (
+                            <button onClick={() => quickReturn(d)} title="Retour au stock (sans agent)"
+                              style={{ marginLeft: 6, display: 'inline-flex', alignItems: 'center', gap: 4, padding: '4px 9px', borderRadius: 20, border: `1px solid ${C.amber}`, background: '#fffbeb', color: C.amber, fontWeight: 700, fontSize: '.78rem', cursor: 'pointer' }}>
+                              <ArrowDownLeft size={12} /> Retour
+                            </button>
+                          )}
+                          {canOperate && view === 'stock' && (
+                            <button onClick={() => { setPreset(d as unknown as SerialItem); setModal('attribute'); }} title="Attribuer cet appareil"
+                              style={{ marginLeft: 6, display: 'inline-flex', alignItems: 'center', gap: 4, padding: '4px 9px', borderRadius: 20, border: `1px solid ${C.blue}`, background: '#eff6ff', color: C.blue, fontWeight: 700, fontSize: '.78rem', cursor: 'pointer' }}>
+                              <UserCheck size={12} /> Attribuer
+                            </button>
+                          )}
+                          {canOperate && view === 'rebut' && (
+                            <button onClick={() => restoreToStock(d)} title="Remettre dans le stock réutilisable"
+                              style={{ marginLeft: 6, display: 'inline-flex', alignItems: 'center', gap: 4, padding: '4px 9px', borderRadius: 20, border: `1px solid ${C.green}`, background: '#ecfdf5', color: C.green, fontWeight: 700, fontSize: '.78rem', cursor: 'pointer' }}>
+                              <Package size={12} /> Remettre en stock
+                            </button>
+                          )}
+                          {canOperate && (
+                            <button onClick={() => setEditDevice(d)} title="Modifier l'appareil"
+                              style={{ marginLeft: 6, display: 'inline-flex', alignItems: 'center', gap: 4, padding: '4px 9px', borderRadius: 20, border: `1px solid ${C.border}`, background: '#fff', color: C.slate, fontWeight: 700, fontSize: '.78rem', cursor: 'pointer' }}>
+                              <Pencil size={12} /> Éditer
+                            </button>
+                          )}
                         </td>
                       </tr>
                     );
                   })}
                   {!loadingList && devices.length === 0 && (
-                    <tr><td colSpan={10} style={{ padding: 40, textAlign: 'center', color: C.slate }}>Aucun appareil ne correspond aux filtres.</td></tr>
+                    <tr><td colSpan={view === 'list' ? 10 : 8} style={{ padding: 40, textAlign: 'center', color: C.slate }}>Aucun appareil ne correspond aux filtres.</td></tr>
                   )}
                 </tbody>
               </table>
@@ -403,6 +500,9 @@ export default function MobiliteView({ token }: { token: string }) {
           </div>
         </>
       )}
+
+      {/* ─── MODAL ÉDITION APPAREIL ─── */}
+      {editDevice && <EditDeviceModal device={editDevice} saving={savingEdit} onClose={() => setEditDevice(null)} onSave={saveDeviceEdit} />}
 
       {/* ─── MODAL HISTORIQUE ─── */}
       {hist && (
@@ -448,6 +548,64 @@ export default function MobiliteView({ token }: { token: string }) {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// ── Modale d'édition d'un appareil ────────────────────────────────────────────
+function EditDeviceModal({ device, saving, onClose, onSave }: { device: Device; saving: boolean; onClose: () => void; onSave: (patch: Record<string, unknown>) => void }) {
+  const C = { blue: '#2563eb', slate: '#64748b', border: '#e2e8f0', text: '#0f172a', bg: '#f8fafc' };
+  const [f, setF] = useState({
+    modele: device.modele || '', imei: device.imei || '', serial: device.serial || '',
+    type_appareil: device.type_appareil || '', famille: device.famille || '',
+    numero_ligne: device.numero_ligne || '', forfait: device.forfait || '',
+    carte_sim: (device.carte_sim || '').toLowerCase() === 'oui' ? 'oui' : 'non',
+    mdm: (device.mdm || '').toLowerCase() === 'oui' ? 'oui' : 'non',
+    last_statut: device.last_statut || '', observations: device.observations || '',
+  });
+  const set = (k: keyof typeof f) => (e: any) => setF(s => ({ ...s, [k]: e.target.value }));
+  const input: React.CSSProperties = { width: '100%', boxSizing: 'border-box', padding: '8px 11px', borderRadius: 8, border: `1px solid ${C.border}`, fontSize: '.88rem' };
+  const label: React.CSSProperties = { fontSize: '.74rem', fontWeight: 700, color: C.slate, marginBottom: 4, display: 'block' };
+  const fld = (k: keyof typeof f, lbl: string, ph?: string) => (
+    <div><label style={label}>{lbl}</label><input style={input} value={f[k]} onChange={set(k)} placeholder={ph} /></div>
+  );
+  return (
+    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.55)', zIndex: 1100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+      <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: 16, width: 'min(640px,96vw)', maxHeight: '90vh', overflow: 'auto', boxShadow: '0 24px 60px rgba(0,0,0,.3)' }}>
+        <div style={{ padding: '15px 20px', borderBottom: `1px solid ${C.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center', position: 'sticky', top: 0, background: '#fff' }}>
+          <div style={{ fontWeight: 900, fontSize: '1.02rem', color: C.text, display: 'flex', alignItems: 'center', gap: 9 }}><Pencil size={18} color={C.blue} /> Modifier l'appareil</div>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.slate }}><X size={20} /></button>
+        </div>
+        <div style={{ padding: 20, display: 'grid', gap: 12 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            {fld('modele', 'Modèle')}
+            <div><label style={label}>Famille</label>
+              <select style={input} value={f.famille} onChange={set('famille')}>
+                <option value="telephone">Téléphone</option><option value="tablette">Tablette</option><option value="sim">Carte SIM</option><option value="autre">Autre</option>
+              </select>
+            </div>
+            {fld('imei', 'IMEI')}
+            {fld('serial', 'N° de série')}
+            {fld('type_appareil', "Type d'appareil", 'ex : Smartphone Android')}
+            {fld('numero_ligne', 'N° de ligne', '06 …')}
+            {fld('forfait', 'Forfait')}
+            {fld('last_statut', 'Dernier état', 'ex : STOCK, RETOUR DÉFECTUEUX…')}
+            <div><label style={label}>Carte SIM</label>
+              <select style={input} value={f.carte_sim} onChange={set('carte_sim')}><option value="non">Non</option><option value="oui">Oui</option></select>
+            </div>
+            <div><label style={label}>Sous MDM</label>
+              <select style={input} value={f.mdm} onChange={set('mdm')}><option value="non">Non</option><option value="oui">Oui</option></select>
+            </div>
+          </div>
+          <div><label style={label}>Observations</label><textarea style={{ ...input, minHeight: 64, resize: 'vertical' }} value={f.observations} onChange={set('observations')} /></div>
+          <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+            <button onClick={onClose} style={{ ...input, width: 'auto', cursor: 'pointer', fontWeight: 700, color: C.slate }}>Annuler</button>
+            <button onClick={() => onSave(f)} disabled={saving} style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '9px 16px', borderRadius: 9, border: 'none', background: C.blue, color: '#fff', fontWeight: 700, fontSize: '.86rem', cursor: 'pointer' }}>
+              {saving ? <RefreshCw size={15} className="spin" /> : <Check size={15} />} Enregistrer
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

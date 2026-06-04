@@ -408,6 +408,20 @@ module.exports = {
             res.json(await blTemplateService.uploadBase(parseInt(req.params.id, 10), req.file, req.user));
         } catch (e) { res.status(400).json({ message: e.message }); }
     },
+    // PDF de fond d'un gabarit (pour l'éditeur graphique de champs)
+    async downloadBlTemplateBase(req, res) {
+        try {
+            const t = await blTemplateService.get(parseInt(req.params.id, 10));
+            if (!t || !t.base_document_id) return res.status(404).json({ message: 'Aucun PDF de fond' });
+            const v = await docs.readVersion(t.base_document_id);
+            let buf = v?.buffer ? (Buffer.isBuffer(v.buffer) ? v.buffer : Buffer.from(v.buffer))
+                : (v?.absolutePath ? await fs.promises.readFile(v.absolutePath) : null);
+            if (!buf) return res.status(404).json({ message: 'Fichier introuvable' });
+            res.setHeader('Content-Type', 'application/pdf');
+            res.setHeader('Content-Disposition', `inline; filename="template-${t.id}-base.pdf"`);
+            res.send(buf);
+        } catch (e) { res.status(500).json({ message: e.message }); }
+    },
 
     // ─── Prêts ───────────────────────────────────────────────
     async listLoans(req, res) {

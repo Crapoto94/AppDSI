@@ -4043,10 +4043,10 @@ app.put('/api/admin/modules/:key', authenticateAdmin, async (req, res) => {
             return res.status(404).json({ message: 'Module inconnu' });
         }
         const isVisible = req.body?.is_visible === true || req.body?.is_visible === 'true';
-        await pgDb.run(
+        await pool.query(
             `INSERT INTO hub.module_settings (module_key, is_visible, updated_at)
              VALUES ($1, $2, CURRENT_TIMESTAMP)
-             ON CONFLICT (module_key) DO UPDATE SET is_visible = EXCLUDED.is_visible, updated_at = CURRENT_TIMESTAMP`,
+             ON CONFLICT (module_key) DO UPDATE SET is_visible = $2, updated_at = CURRENT_TIMESTAMP`,
             [key, isVisible]
         );
         res.json({ key, is_visible: isVisible });

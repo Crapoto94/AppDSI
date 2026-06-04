@@ -15,6 +15,7 @@ router.get('/my-role', ctrl.getMyRole);
 
 // ─── Gabarits de BL ──────────────────────────────────────────
 router.get('/bl-templates', ctrl.listBlTemplates);
+router.get('/bl-templates/:id/base', ctrl.downloadBlTemplateBase);
 router.get('/bl-templates/:id', ctrl.getBlTemplate);
 router.post('/bl-templates', ctrl.createBlTemplate);
 router.put('/bl-templates/:id', ctrl.updateBlTemplate);

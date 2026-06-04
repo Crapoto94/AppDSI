@@ -34,6 +34,7 @@ const MODULES_REGISTRY = [
     { key: 'reunions',     title: 'Réunions',              icon: 'Calendar',     description: 'Réunions et comptes-rendus.', url: '/mes-reunions' },
     { key: 'magapp',       title: 'Magasin d\'applications',icon: 'AppWindow',    description: 'Galerie d\'applications et logiciels métiers.', url: '/admin/magapp' },
     { key: 'taches',       title: 'Mes Tâches',            icon: 'CheckSquare',  description: 'Gestion des tâches et suivis.', url: '/mes-taches' },
+    { key: 'parc',         title: 'Parc informatique',     icon: 'Monitor',      description: 'Inventaire et suivi du parc informatique (équipements, déploiements, mobilité).', url: '/parc' },
 ];
 
 module.exports = { MODULES_REGISTRY };
