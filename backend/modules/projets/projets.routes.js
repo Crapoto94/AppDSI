@@ -194,4 +194,11 @@ router.post('/pmo/agents', authenticateJWT, ctrl.addPmoAgent);
 router.delete('/pmo/agents/:assignmentId', authenticateJWT, ctrl.removePmoAgent);
 router.get('/pmo/org-units', authenticateJWT, ctrl.getOrgUnits);
 
+// ============================================
+// CHEFS DE PROJET → SERVICES
+// ============================================
+router.post('/admin/chefs-projets/add', authenticateAdminOrPMO, ctrl.addChefProjetService);
+router.delete('/admin/chefs-projets/:id', authenticateAdminOrPMO, ctrl.removeChefProjetService);
+router.get('/admin/chefs-projets', authenticateAdminOrPMO, ctrl.listChefsProjets);
+
 module.exports = router;

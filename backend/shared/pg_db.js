@@ -3737,6 +3737,18 @@ async function setupPgDb() {
     `);
     try { await client.query(`CREATE INDEX IF NOT EXISTS idx_pmo_assign_pmo ON projets.pmo_assignments(pmo_username);`); } catch (e) {}
 
+    // Chef de projet → services assignment table
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS projets.chef_projet_services (
+        id SERIAL PRIMARY KEY,
+        chef_projet_username TEXT NOT NULL,
+        service_code TEXT NOT NULL,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      );
+    `);
+    try { await client.query(`CREATE INDEX IF NOT EXISTS idx_cp_services_username ON projets.chef_projet_services(chef_projet_username);`); } catch (e) {}
+    try { await client.query(`CREATE INDEX IF NOT EXISTS idx_cp_services_code ON projets.chef_projet_services(service_code);`); } catch (e) {}
+
     // ── Live chat ──────────────────────────────────────────────────────
     try { await client.query(`ALTER TABLE hub_tickets.tickets ADD COLUMN IF NOT EXISTS is_live BOOLEAN DEFAULT false`); } catch (e) {}
 

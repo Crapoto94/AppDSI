@@ -527,6 +527,12 @@ const AdminGeneraleModal: React.FC<AdminModalProps> = ({ token, onClose }) => {
   const [savingAssign, setSavingAssign] = useState(false);
   const [loadingAssign, setLoadingAssign] = useState(false);
 
+  const [chefsProjets, setChefsProjets] = useState<any[]>([]);
+  const cpAd = useADSearch(token);
+  const [expandedCp, setExpandedCp] = useState<string | null>(null);
+  const [cpSelectedService, setCpSelectedService] = useState('');
+  const [cpSaving, setCpSaving] = useState(false);
+
   const loadPmos = useCallback(async () => {
     try {
       const r = await fetch('/api/admin/pmo/list', { headers: { Authorization: `Bearer ${token}` } });
@@ -540,6 +546,14 @@ const AdminGeneraleModal: React.FC<AdminModalProps> = ({ token, onClose }) => {
       const r = await fetch('/api/projets/pmo/org-units', { headers: { Authorization: `Bearer ${token}` } });
       const data = await r.json();
       if (data?.directions) setOrgUnits(data);
+    } catch {}
+  }, [token]);
+
+  const loadChefsProjets = useCallback(async () => {
+    try {
+      const r = await fetch('/api/projets/admin/chefs-projets', { headers: { Authorization: `Bearer ${token}` } });
+      const data = await r.json();
+      if (Array.isArray(data)) setChefsProjets(data);
     } catch {}
   }, [token]);
 
@@ -562,8 +576,9 @@ const AdminGeneraleModal: React.FC<AdminModalProps> = ({ token, onClose }) => {
         .then(r => r.json()).then(d => { if (Array.isArray(d)) setDocTypes(d); }).catch(() => {}),
       loadPmos(),
       loadOrgUnits(),
+      loadChefsProjets(),
     ]).finally(() => setLoading(false));
-  }, [token, loadPmos, loadOrgUnits]);
+  }, [token, loadPmos, loadOrgUnits, loadChefsProjets]);
 
   const saveScoring = async () => {
     await fetch('/api/projets/admin/scoring-config', {
@@ -638,6 +653,25 @@ const AdminGeneraleModal: React.FC<AdminModalProps> = ({ token, onClose }) => {
     await loadPmoAssignments(expandedPmo);
   };
 
+  const addCpService = async (chefUsername: string) => {
+    if (!cpSelectedService) return;
+    setCpSaving(true);
+    try {
+      await fetch('/api/projets/admin/chefs-projets/add', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ chef_projet_username: chefUsername, service_code: cpSelectedService })
+      });
+      setCpSelectedService('');
+      await loadChefsProjets();
+    } catch {} finally { setCpSaving(false); }
+  };
+
+  const removeCpService = async (id: number) => {
+    await fetch(`/api/projets/admin/chefs-projets/${id}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } });
+    await loadChefsProjets();
+  };
+
   const orgAssignments = pmoAssignments.filter(a => a.service_code || a.secteur_code || a.direction_code);
   const orgOptions = selectedOrgType === 'service' ? orgUnits.services
     : selectedOrgType === 'secteur' ? orgUnits.secteurs
@@ -664,7 +698,8 @@ const AdminGeneraleModal: React.FC<AdminModalProps> = ({ token, onClose }) => {
           {[
             { key: 'scoring', label: '📊 Scoring' },
             { key: 'docTypes', label: '📄 Types docs' },
-            { key: 'pmo', label: '👥 PMO' }
+            { key: 'pmo', label: '👥 PMO' },
+            { key: 'chefs', label: '👤 Chefs de projet' }
           ].map(t => (
             <button key={t.key} onClick={() => setTab(t.key)} style={{
               padding: '10px 18px', border: 'none', borderBottom: tab === t.key ? '2px solid #2563eb' : '2px solid transparent',
@@ -776,6 +811,80 @@ const AdminGeneraleModal: React.FC<AdminModalProps> = ({ token, onClose }) => {
                             style={{ padding: '3px 8px', background: '#fee2e2', color: '#b91c1c', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: '600', fontSize: '10px' }}>Retirer</button>
                         </div>
                       ))}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+          {tab === 'chefs' && (
+            <div>
+              <div style={{ marginBottom: '16px', position: 'relative' }}>
+                <input value={cpAd.query} onChange={e => cpAd.setQuery(e.target.value)} placeholder="Rechercher un utilisateur AD..."
+                  style={{ width: '100%', padding: '9px 12px', borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '14px', background: 'white', outline: 'none', boxSizing: 'border-box' }} />
+                {cpAd.searching && <span style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', fontSize: '12px', color: '#94a3b8' }}>...</span>}
+                {cpAd.results.length > 0 && (
+                  <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: 'white', border: '1px solid #e2e8f0', borderRadius: '8px', marginTop: '4px', zIndex: 10, maxHeight: '200px', overflowY: 'auto', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}>
+                    {cpAd.results.map((u: any) => {
+                      const already = chefsProjets.some(c => c.chef_projet_username.toLowerCase() === u.username.toLowerCase());
+                      return (
+                        <div key={u.username} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 12px', borderBottom: '1px solid #f1f5f9' }}>
+                          <div>
+                            <span style={{ fontSize: '13px', color: '#1e293b' }}>{u.displayName || u.username}</span>
+                            <div style={{ fontSize: '11px', color: '#94a3b8' }}>{u.email}{u.service ? ` — ${u.service}` : ''}</div>
+                          </div>
+                          {!already && (
+                            <button onClick={async () => {
+                              await addCpService(u.username);
+                              cpAd.setQuery(''); cpAd.clearResults();
+                            }} style={{ padding: '4px 10px', background: '#2563eb', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: '600', fontSize: '11px' }}>Ajouter</button>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              <div style={{ fontSize: '13px', fontWeight: '700', color: '#64748b', marginBottom: '8px', textTransform: 'uppercase' }}>Chefs de projet ({chefsProjets.length})</div>
+              {chefsProjets.length === 0 ? (
+                <p style={{ color: '#94a3b8', fontSize: '13px' }}>Aucun chef de projet enregistré.</p>
+              ) : chefsProjets.map((c: any) => (
+                <div key={c.chef_projet_username} style={{ border: '1px solid #e2e8f0', borderRadius: '8px', marginBottom: '8px', overflow: 'hidden' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 14px', background: expandedCp === c.chef_projet_username ? '#f8fafc' : 'white', cursor: 'pointer' }}
+                    onClick={() => setExpandedCp(expandedCp === c.chef_projet_username ? null : c.chef_projet_username)}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <span style={{ fontSize: '12px', color: '#94a3b8', transition: 'transform 0.15s', transform: expandedCp === c.chef_projet_username ? 'rotate(90deg)' : 'none' }}>▶</span>
+                      <span style={{ fontSize: '14px', fontWeight: '600', color: '#1e293b' }}>{c.chef_projet_username}</span>
+                      <span style={{ fontSize: '11px', color: '#64748b' }}>{c.displayName || ''}</span>
+                    </div>
+                  </div>
+                  {expandedCp === c.chef_projet_username && (
+                    <div style={{ padding: '12px 14px 14px 36px', borderTop: '1px solid #e2e8f0', background: '#fafbfc' }}>
+                      <div style={{ display: 'flex', gap: '8px', marginBottom: '12px' }}>
+                        <select value={cpSelectedService} onChange={e => setCpSelectedService(e.target.value)}
+                          style={{ flex: 1, padding: '7px 10px', borderRadius: '6px', border: '1px solid #e2e8f0', fontSize: '12px', background: 'white' }}>
+                          <option value="">-- Choisir un service --</option>
+                          {orgUnits.services.map((o: any) => (
+                            <option key={o.code} value={o.code}>{o.label} ({o.code})</option>
+                          ))}
+                        </select>
+                        <button onClick={() => addCpService(c.chef_projet_username)} disabled={!cpSelectedService || cpSaving}
+                          style={{ padding: '7px 14px', background: '#2563eb', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: '600', fontSize: '12px', opacity: !cpSelectedService ? 0.5 : 1, whiteSpace: 'nowrap' }}>Ajouter</button>
+                      </div>
+                      <div style={{ fontSize: '12px', fontWeight: '700', color: '#64748b', marginBottom: '6px' }}>Services ({c.services.length})</div>
+                      {c.services.length === 0 ? (
+                        <p style={{ color: '#94a3b8', fontSize: '12px' }}>Aucun service assigné.</p>
+                      ) : c.services.map((s: any) => {
+                        const svcLabel = orgUnits.services.find((x: any) => x.code === s.service_code)?.label || s.service_code;
+                        return (
+                          <div key={s.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 10px', borderRadius: '6px', background: 'white', border: '1px solid #e2e8f0', marginBottom: '4px' }}>
+                            <span style={{ fontSize: '12px', color: '#1e293b' }}>{svcLabel}</span>
+                            <button onClick={() => removeCpService(s.id)}
+                              style={{ padding: '3px 8px', background: '#fee2e2', color: '#b91c1c', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: '600', fontSize: '10px' }}>Retirer</button>
+                          </div>
+                        );
+                      })}
                     </div>
                   )}
                 </div>

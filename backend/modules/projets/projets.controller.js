@@ -23,7 +23,7 @@ async function estPMO(username) {
     } catch { return false; }
 }
 
-// Retourne tous les usernames d'agents assignés à un PMO (direct + unités org)
+// Retourne tous les usernames d'agents assignés à un PMO (direct + unités org + chefs de projet)
 async function getPmoAgentUsernames(pmoUsername) {
     try {
         const assignments = await pgDb.all(
@@ -32,14 +32,28 @@ async function getPmoAgentUsernames(pmoUsername) {
         );
         const usernames = new Set();
         const db = getSqlite();
+
+        // Helper: resolve chef de projet usernames for a list of service codes
+        const addChefsByServices = async (serviceCodes) => {
+            if (serviceCodes.length === 0) return;
+            const cpRows = await pgDb.all(
+                `SELECT DISTINCT chef_projet_username FROM projets.chef_projet_services WHERE LOWER(service_code) = ANY($1)`,
+                [serviceCodes.map(s => s.toLowerCase())]
+            );
+            for (const r of cpRows) {
+                if (r.chef_projet_username) usernames.add(r.chef_projet_username.toLowerCase());
+            }
+        };
+
         for (const a of assignments) {
             if (a.agent_username) usernames.add(a.agent_username.toLowerCase());
             if ((a.service_code || a.secteur_code || a.direction_code) && db) {
                 let rows = [];
+                let serviceCodesForChefs = [];
                 if (a.service_code) {
                     rows = await db.all('SELECT username FROM users WHERE LOWER(service_code) = LOWER(?)', [a.service_code]);
+                    serviceCodesForChefs = [a.service_code];
                 } else if (a.secteur_code) {
-                    // Get services in this secteur from oracle, then match users
                     try {
                         const services = await pgDb.all(
                             `SELECT DISTINCT "SERVICE" as service_code FROM oracle.rh_siim_organigramme WHERE "SECTEUR" = $1`,
@@ -48,21 +62,25 @@ async function getPmoAgentUsernames(pmoUsername) {
                         for (const svc of services) {
                             const users = await db.all('SELECT username FROM users WHERE LOWER(service_code) = LOWER(?)', [svc.service_code]);
                             rows = rows.concat(users);
+                            serviceCodesForChefs.push(svc.service_code);
                         }
                     } catch {}
                 } else if (a.direction_code) {
                     try {
                         const services = await pgDb.all(
-                            `SELECT DISTINCT "SERVICE" as service_code FROM oracle.rh_siim_organigramme WHERE "DIRECTION" = $1`,
+                            `SELECT DISTINCT "SERVICE" as service_code FROM oracle.rh_siim_organigramme WHERE "DIRECTION" = $1 AND "SERVICE" IS DISTINCT FROM "DIRECTION"`,
                             [a.direction_code]
                         );
                         for (const svc of services) {
                             const users = await db.all('SELECT username FROM users WHERE LOWER(service_code) = LOWER(?)', [svc.service_code]);
                             rows = rows.concat(users);
+                            serviceCodesForChefs.push(svc.service_code);
                         }
                     } catch {}
                 }
                 for (const r of rows) if (r.username) usernames.add(r.username.toLowerCase());
+                // Also resolve chefs de projet assigned to these services
+                await addChefsByServices(serviceCodesForChefs);
             }
         }
         return Array.from(usernames);
@@ -2745,6 +2763,66 @@ const getOrgUnits = async (req, res) => {
     }
 };
 
+// ============================================
+// CHEFS DE PROJET → SERVICES
+// ============================================
+
+const listChefsProjets = async (req, res) => {
+    try {
+        const rows = await pgDb.all(`
+            SELECT cps.*, u.displayName
+            FROM projets.chef_projet_services cps
+            LEFT JOIN hub.users u ON LOWER(u.username) = LOWER(cps.chef_projet_username)
+            ORDER BY cps.chef_projet_username, cps.service_code
+        `);
+        // Group by chef de projet
+        const chefs = new Map();
+        for (const r of rows) {
+            if (!chefs.has(r.chef_projet_username)) {
+                chefs.set(r.chef_projet_username, {
+                    chef_projet_username: r.chef_projet_username,
+                    displayName: r.displayName || null,
+                    services: []
+                });
+            }
+            chefs.get(r.chef_projet_username).services.push({
+                id: r.id,
+                service_code: r.service_code,
+                created_at: r.created_at
+            });
+        }
+        res.json(Array.from(chefs.values()));
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
+const addChefProjetService = async (req, res) => {
+    try {
+        const { chef_projet_username, service_code } = req.body;
+        if (!chef_projet_username || !service_code) {
+            return res.status(400).json({ error: 'chef_projet_username et service_code requis' });
+        }
+        const result = await pgDb.run(
+            `INSERT INTO projets.chef_projet_services (chef_projet_username, service_code) VALUES ($1, $2)`,
+            [chef_projet_username, service_code]
+        );
+        res.status(201).json({ id: result.lastID, message: 'Service assigné au chef de projet' });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
+const removeChefProjetService = async (req, res) => {
+    try {
+        const { id } = req.params;
+        await pgDb.run(`DELETE FROM projets.chef_projet_services WHERE id = $1`, [id]);
+        res.json({ message: 'Assignation supprimée' });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
 module.exports = {
     setSendMail,
     getAll, getMesProjets, getById, create, update, remove,
@@ -2772,5 +2850,6 @@ module.exports = {
     getApplications, ajouterApplication, supprimerApplication, searchApps,
     getCompteurs,
     toggleMiniProjet,
-    getPmoAgents, addPmoAgent, removePmoAgent, getOrgUnits
+    getPmoAgents, addPmoAgent, removePmoAgent, getOrgUnits,
+    listChefsProjets, addChefProjetService, removeChefProjetService
 };
