@@ -464,8 +464,9 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
         headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ is_visible: isVisible }),
       });
-      if (!response.ok) throw new Error('échec');
-    } catch {
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    } catch (err: any) {
+      alert(`Erreur mise à jour module : ${err.message || 'échec'}`);
       // rollback en cas d'erreur
       setAppModules(prev => prev.map(m => m.key === key ? { ...m, is_visible: !isVisible } : m));
     }

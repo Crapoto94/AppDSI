@@ -108,7 +108,10 @@ async function kpis(req, res) {
     await Promise.all(keys.map(async (key) => {
       lists[key] = (await loadTypeRows(key)).filter((r) => !r.is_deleted);
     }));
-    res.json({ source: 'hub', ...core.computeKpis(lists), cache: { synced_at: await lastSync() } });
+    const [mob, deployParAn] = await Promise.all([core.loadMobiliteCounts(), core.loadDeploiementsParAnnee()]);
+    const k = core.computeKpis(lists, mob);
+    k.ordinateurs.deploiementsParAnnee = deployParAn;
+    res.json({ source: 'hub', ...k, cache: { synced_at: await lastSync() } });
   } catch (error) { res.status(500).json({ message: error.message }); }
 }
 

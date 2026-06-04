@@ -7,13 +7,13 @@ module.exports = {
     async prepareDelivery(data, user) {
         const {
             store_id, lines = [], template_id, preparer_signature,
-            beneficiary_name, beneficiary_username, beneficiary_email, notes,
+            beneficiary_name, beneficiary_username, beneficiary_email, notes, kind, meta,
         } = data;
         if (!Array.isArray(lines) || lines.length === 0) throw new Error('Au moins une ligne est requise');
 
         const deliveryId = await repo.createDelivery({
             store_id, beneficiary_name, beneficiary_username, beneficiary_email, notes,
-            delivered_by: user?.username, template_id, prepared_by: user?.username,
+            delivered_by: user?.username, template_id, prepared_by: user?.username, kind, meta,
         });
 
         try {

@@ -4,6 +4,11 @@ import react from '@vitejs/plugin-react'
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react()],
+  // Pré-bundle pdfjs-dist (sinon « Outdated Optimize Dep » au 1er import à chaud)
+  optimizeDeps: {
+    include: ['pdfjs-dist'],
+  },
+  worker: { format: 'es' },
   server: {
     host: true,
     port: 5173,

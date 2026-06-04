@@ -2208,6 +2208,9 @@ app.use('/api/copieurs', copieursRouter);
 // Parc Module (inventaire GLPI 10 : ordinateurs, moniteurs, périphériques, imprimantes)
 app.use('/api/parc', require('./modules/parc/parc.routes'));
 
+// Parc Mobilité (téléphones & tablettes, importé depuis Excel — historique par device)
+app.use('/api/mobilite', require('./modules/mobilite/mobilite.routes'));
+
 // Déploiements Module (fiches de déploiement parc)
 app.use('/api/deploiements', require('./modules/deploiements/deploiements.routes'));
 
@@ -3006,6 +3009,14 @@ setupDb().then(async database => {
         await runAllMigrations();
     } catch (e) {
         console.error('[DOCS MIGRATION] échec:', e.message);
+    }
+
+    // Amorçage mobilité : magasin dédié + gabarits de fiche remise/retour (idempotent)
+    try {
+        const { bootstrapMobilite } = require('./modules/mobilite/mobilite.bootstrap');
+        await bootstrapMobilite();
+    } catch (e) {
+        console.error('[MOBILITE BOOTSTRAP] échec:', e.message);
     }
 
     // Deduplicate operations (keep the one with linked commands)
@@ -4032,10 +4043,10 @@ app.put('/api/admin/modules/:key', authenticateAdmin, async (req, res) => {
             return res.status(404).json({ message: 'Module inconnu' });
         }
         const isVisible = req.body?.is_visible === true || req.body?.is_visible === 'true';
-        await pgDb.run(
+        await pool.query(
             `INSERT INTO hub.module_settings (module_key, is_visible, updated_at)
              VALUES ($1, $2, CURRENT_TIMESTAMP)
-             ON CONFLICT (module_key) DO UPDATE SET is_visible = EXCLUDED.is_visible, updated_at = CURRENT_TIMESTAMP`,
+             ON CONFLICT (module_key) DO UPDATE SET is_visible = $2, updated_at = CURRENT_TIMESTAMP`,
             [key, isVisible]
         );
         res.json({ key, is_visible: isVisible });

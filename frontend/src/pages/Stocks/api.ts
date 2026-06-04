@@ -116,7 +116,7 @@ export interface Delivery {
 }
 export interface BlTemplate {
   id: number; name: string; base_document_id?: number | null; fields?: Array<Record<string, unknown>>;
-  is_default?: boolean; created_by?: string; created_at?: string; updated_at?: string;
+  category?: 'bl' | 'remise' | 'retour'; is_default?: boolean; created_by?: string; created_at?: string; updated_at?: string;
 }
 export interface Loan {
   id: number; store_id: number; parc_itemtype?: string; parc_glpi_id?: number; item_id?: number; serial_item_id?: number | null; borrower_name?: string;

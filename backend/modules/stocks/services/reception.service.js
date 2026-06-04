@@ -76,7 +76,6 @@ module.exports = {
         await recRepo.setReceptionStatus(receptionId, 'received', user?.username);
         return { reception_id: receptionId, serials_created: createdSerials.length };
     },
-};
 
     listSerialItems(params) {
         return recRepo.listSerialItems(params);

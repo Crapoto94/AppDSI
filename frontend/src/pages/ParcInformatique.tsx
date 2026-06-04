@@ -1,17 +1,19 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import Header from '../components/Header';
+import MobiliteView from './parc/MobiliteView';
 import axios from 'axios';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer, PieChart, Pie, Cell, AreaChart, Area,
+  ResponsiveContainer, PieChart, Pie, Cell, AreaChart, Area, Legend,
 } from 'recharts';
 import {
-  Monitor, Laptop, Printer, HardDrive, Network, Phone, Search, X,
+  Monitor, Laptop, Printer, HardDrive, Tablet, Projector, Phone, Search, X,
   RefreshCw, MapPin, User, Tag, Cpu, Activity, BarChart3, List,
   CheckCircle2, AlertTriangle, Layers, ChevronRight, Boxes,
   Euro, ShieldCheck, Clock, Truck, Database, FileText, Users, CalendarCheck2, CalendarDays,
-  ArrowLeftRight,
+  ArrowLeftRight, Rocket, Package, Timer, TrendingUp, Edit2, Eye, ZoomIn, ZoomOut,
+  Download, ExternalLink, Image,
 } from 'lucide-react';
 
 // ─── Constantes ─────────────────────────────────────────────────────────────
@@ -21,12 +23,84 @@ const TYPES = [
   { key: 'moniteurs',     label: 'Moniteurs',     icon: Monitor },
   { key: 'peripheriques', label: 'Périphériques', icon: HardDrive },
   { key: 'imprimantes',   label: 'Imprimantes',   icon: Printer },
-  { key: 'reseau',        label: 'Réseau',        icon: Network },
-  { key: 'telephones',    label: 'Téléphones',    icon: Phone },
+  { key: 'telephones',    label: 'Téléphones et tablettes', icon: Phone },
 ];
-const TYPE_ICON: Record<string, any> = Object.fromEntries(TYPES.map(t => [t.key, t.icon]));
+const TYPE_ICON: Record<string, any> = { ...Object.fromEntries(TYPES.map(t => [t.key, t.icon])), tablettes: Tablet };
 const COLORS = ['#2563eb', '#7c3aed', '#0891b2', '#059669', '#d97706', '#dc2626', '#db2777', '#65a30d', '#0ea5e9', '#9333ea'];
 const C = { blue: '#2563eb', slate: '#64748b', green: '#059669', amber: '#d97706', red: '#dc2626', bg: '#f1f5f9', card: '#fff', border: '#e2e8f0', text: '#0f172a' };
+
+// ─── Déploiements : référentiel des directions (intitulés issus de l'organigramme RH) ──
+const DIR_INFO: Record<string, string> = {
+  DSI:   "Direction des Systèmes d'Information",
+  DRH:   'Direction des Ressources Humaines',
+  DSALE: 'Direction Scolaire, Accueils de Loisirs et Éducation',
+  DCOM:  'Direction de la Communication',
+  DAC:   'Direction de la Culture',
+  DBC:   'Direction des Bâtiments Communaux',
+  DAPF:  'Direction Actions et Prestations aux Familles',
+  DSANTE:'Direction de la Santé',
+  DEP:   'Direction des Espaces Publics',
+  DDU:   'Direction du Développement Urbain',
+  DCCAS: "Centre Communal d'Action Sociale (CCAS)",
+  DAJCP: 'Direction des Affaires Juridiques et de la Commande Publique',
+  DDS:   'Direction des Sports',
+  DJEUN: 'Direction de la Jeunesse',
+  DSF:   'Direction des Services Financiers',
+  DDAC:  'Direction Démocratie et Action Citoyenne',
+  DG:    'Direction Générale des Services',
+  ELUS:  'Élus et Cabinet',
+  CMS:   'Centre Médical de Santé',
+};
+// Regroupe les variantes (casse, orthographe, libellés longs) vers un code canonique.
+const dirCanonical = (raw: string): string => {
+  const u = (raw || '').trim().toUpperCase();
+  if (!u) return '';
+  if (u.includes('SECRET') || u === 'ELUS' || u === 'ELUES' || u === 'ELU') return 'ELUS';
+  if (u.includes('GENERALE') || u === 'DG') return 'DG';
+  if (u.includes('SPORT')) return 'DDS';
+  if (u.includes('DDU')) return 'DDU';
+  if (u === 'DOSTIC') return 'DSI'; // DOSTIC a fusionné dans la DSI
+  const code = u.normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^A-Z]/g, '');
+  return code || u;
+};
+const dirLabel = (canon: string): string => DIR_INFO[canon] ? `${canon} — ${DIR_INFO[canon]}` : canon;
+
+// Normalisation d'un nom de bénéficiaire (identique au backend) pour la clé de cache AD.
+const normName = (v: string | null | undefined): string =>
+  v ? String(v).normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim() : '';
+
+const EQUIP_OPTIONS: { key: string; label: string; icon: string }[] = [
+  { key: 'pc_portable',  label: 'PC portable',          icon: '💻' },
+  { key: 'pc_fixe',      label: 'PC fixe',              icon: '🖥' },
+  { key: 'ecran',        label: 'Écran',                icon: '🖥' },
+  { key: 'imprimante',   label: 'Imprimante / scanner', icon: '🖨' },
+  { key: 'peripherique', label: 'Périphérique',         icon: '🖱' },
+  { key: 'autre',        label: 'Autre / indéterminé',  icon: '📦' },
+];
+// Métadonnées d'affichage par code de catégorie (renvoyé par l'API : row.equip_cat)
+const EQUIP_CAT_META: Record<string, { label: string; color: string; bg: string; icon: string }> = {
+  pc_portable_ecran: { label: 'PC Port. + Écran', color: '#1d4ed8', bg: '#dbeafe', icon: '💻' },
+  pc_fixe_ecran:     { label: 'PC Fixe + Écran',  color: '#1d4ed8', bg: '#dbeafe', icon: '🖥' },
+  pc_imp:            { label: 'PC + Imprimante',  color: '#1d4ed8', bg: '#dbeafe', icon: '🖥' },
+  pc_portable:       { label: 'PC Portable',      color: '#1d4ed8', bg: '#dbeafe', icon: '💻' },
+  pc_fixe:           { label: 'PC Fixe',          color: '#1d4ed8', bg: '#dbeafe', icon: '🖥' },
+  imprimante:        { label: 'Imprimante',       color: '#b45309', bg: '#fef3c7', icon: '🖨' },
+  peripherique:      { label: 'Périphérique',     color: '#059669', bg: '#d1fae5', icon: '🖱' },
+  ecran:             { label: 'Écran',            color: '#0891b2', bg: '#e0f2fe', icon: '🖥' },
+  autre:             { label: '—',                color: '#94a3b8', bg: 'transparent', icon: '' },
+};
+// Ordre + couleurs distinctes pour la cadence empilée par catégorie d'équipement
+const CADENCE_CATS: { key: string; label: string; color: string }[] = [
+  { key: 'pc_portable',       label: 'PC portable',       color: '#2563eb' },
+  { key: 'pc_portable_ecran', label: 'PC port. + écran',  color: '#60a5fa' },
+  { key: 'pc_fixe',           label: 'PC fixe',           color: '#7c3aed' },
+  { key: 'pc_fixe_ecran',     label: 'PC fixe + écran',   color: '#c084fc' },
+  { key: 'pc_imp',            label: 'PC + imprimante',   color: '#db2777' },
+  { key: 'ecran',             label: 'Écran',             color: '#0891b2' },
+  { key: 'imprimante',        label: 'Imprimante',        color: '#d97706' },
+  { key: 'peripherique',      label: 'Périphérique',      color: '#059669' },
+  { key: 'autre',             label: 'Autre',             color: '#94a3b8' },
+];
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 interface Row {
@@ -56,12 +130,14 @@ interface Kpis {
     miseEnService: { connue: number; inconnue: number; tauxConnue: number };
     age: { moyen: number | null; aRenouveler: number; tauxRenouveler: number; tranches: Count[] };
     parStatut: Count[];
+    parGroupe: Count[];
     parLieu: Count[];
     parFabricant: Count[];
     parModele: Count[];
     parFournisseur: Count[];
     parOs: Count[];
     ajoutsParAnnee: { annee: string; count: number }[];
+    deploiementsParAnnee?: { annee: string; count: number }[];
   };
   ratios: { moniteursParPc: number; peripheriquesParPc: number };
 }
@@ -87,6 +163,10 @@ const ParcInformatique: React.FC = () => {
   const [kpis, setKpis] = useState<Kpis | null>(null);
   const [kpiErr, setKpiErr] = useState<string | null>(null);
   const [loadingKpi, setLoadingKpi] = useState(false);
+  // Modal liste d'ordinateurs concernés (doublons de série / à renouveler)
+  const [pcModal, setPcModal] = useState<{ kind: 'dup' | 'renew'; title: string } | null>(null);
+  const [pcModalRows, setPcModalRows] = useState<Row[]>([]);
+  const [pcModalLoading, setPcModalLoading] = useState(false);
 
   // Liste
   const [type, setType] = useState('ordinateurs');
@@ -151,9 +231,36 @@ const ParcInformatique: React.FC = () => {
   const [deployType, setDeployType] = useState('');
   const [deployAnnee, setDeployAnnee] = useState('');
   const [deployStart, setDeployStart] = useState(0);
-  const [deployLimit] = useState(50);
+  const [deployLimit, setDeployLimit] = useState(50);
+  const [deploySort, setDeploySort] = useState('date_deploiement');
+  const [deploySortDir, setDeploySortDir] = useState<'asc' | 'desc'>('desc');
   const [deployConflictsOpen, setDeployConflictsOpen] = useState(false);
   const [deployConflicts, setDeployConflicts] = useState<any[]>([]);
+  const [deployEquip, setDeployEquip] = useState('');
+  const [deployInstall, setDeployInstall] = useState('');
+  // Facettes complètes (directions + installateurs) pour filtres et fusion
+  const [deployFacets, setDeployFacets] = useState<{ directions: { direction: string; n: number }[]; installateurs: { installateur: string; n: number }[]; types: { type_operation: string; n: number }[] }>({ directions: [], installateurs: [], types: [] });
+  // Rapprochement AD des bénéficiaires
+  const [adMap, setAdMap] = useState<Record<string, { found: boolean; display_name: string | null; email: string | null; service: string | null }>>({});
+  const [adStatus, setAdStatus] = useState<{ total: number; cached: number; remaining: number; matched: number } | null>(null);
+  const [adRunning, setAdRunning] = useState(false);
+  const [adProgress, setAdProgress] = useState<{ done: number; total: number } | null>(null);
+  // Fusion d'installateurs
+  const [instOpen, setInstOpen] = useState(false);
+  const [instKeep, setInstKeep] = useState<string | null>(null);
+  const [instSel, setInstSel] = useState<Set<string>>(new Set());
+  const [instMerging, setInstMerging] = useState(false);
+  const [instQ, setInstQ] = useState('');
+  // Fusion manuelle de 2 fiches : ordre = [garder, compléter+supprimer]
+  const [deploySel, setDeploySel] = useState<number[]>([]);
+  const [pairMerging, setPairMerging] = useState(false);
+  // Renommage d'un installateur
+  const [instEdit, setInstEdit] = useState<{ from: string; value: string } | null>(null);
+  const [instSaving, setInstSaving] = useState(false);
+  // Renommage / fusion des types d'opération
+  const [typesOpen, setTypesOpen] = useState(false);
+  const [typeEdit, setTypeEdit] = useState<{ from: string | null; value: string } | null>(null);
+  const [typeSaving, setTypeSaving] = useState(false);
 
   // Détail
   const [detail, setDetail] = useState<any | null>(null);
@@ -172,6 +279,28 @@ const ParcInformatique: React.FC = () => {
       setKpiErr(e.response?.data?.message || e.message);
     } finally { setLoadingKpi(false); }
   }, [token, source]);
+
+  // Ouvre le modal listant les ordinateurs concernés (doublons série / à renouveler)
+  const openPcModal = useCallback(async (kind: 'dup' | 'renew') => {
+    setPcModal({ kind, title: kind === 'dup' ? 'Ordinateurs en doublon de n° de série' : 'Ordinateurs à renouveler (> 5 ans)' });
+    setPcModalLoading(true); setPcModalRows([]);
+    try {
+      const r = await api.get('/tous', { params: { all: 1, deleted: '0' } });
+      const pcs: Row[] = (r.data.rows || []).filter((x: Row) => x.type_key === 'ordinateurs');
+      let out: Row[] = [];
+      if (kind === 'renew') {
+        out = pcs.filter(x => x.age_years != null && (x.age_years as number) >= 5)
+          .sort((a, b) => (b.age_years || 0) - (a.age_years || 0));
+      } else {
+        const m = new Map<string, number>();
+        for (const x of pcs) { const s = (x.serial || '').trim().toLowerCase(); if (s) m.set(s, (m.get(s) || 0) + 1); }
+        out = pcs.filter(x => { const s = (x.serial || '').trim().toLowerCase(); return s && (m.get(s) || 0) > 1; })
+          .sort((a, b) => (a.serial || '').localeCompare(b.serial || ''));
+      }
+      setPcModalRows(out);
+    } catch { setPcModalRows([]); }
+    finally { setPcModalLoading(false); }
+  }, [api]);
 
   // ── Liste ──
   const loadList = useCallback(async (refresh = false) => {
@@ -315,15 +444,140 @@ const ParcInformatique: React.FC = () => {
   const loadDeploys = useCallback(async () => {
     setDeployLoading(true); setDeployErr(null);
     try {
+      // deployDir contient un code canonique : on renvoie toutes ses variantes brutes
+      let directions: string | undefined;
+      if (deployDir) {
+        const vars = deployFacets.directions.filter(d => dirCanonical(d.direction) === deployDir).map(d => d.direction);
+        directions = vars.length ? vars.join(',') : deployDir;
+      }
       const r = await axios.get('/api/deploiements/', {
         headers: { Authorization: `Bearer ${token}` },
-        params: { direction: deployDir || undefined, type_operation: deployType || undefined, annee: deployAnnee || undefined, q: deployQ || undefined, start: deployStart, limit: deployLimit },
+        params: { directions, type_operation: deployType || undefined, annee: deployAnnee || undefined, equip: deployEquip || undefined, installateur: deployInstall || undefined, q: deployQ || undefined, start: deployStart, limit: deployLimit, sort: deploySort, dir: deploySortDir },
       });
       setDeploys(r.data.rows || []); setDeployTotal(r.data.total || 0);
     } catch (e: any) {
       setDeployErr(e.response?.data?.message || e.message); setDeploys([]); setDeployTotal(0);
     } finally { setDeployLoading(false); }
-  }, [token, deployDir, deployType, deployAnnee, deployQ, deployStart, deployLimit]);
+  }, [token, deployDir, deployType, deployAnnee, deployEquip, deployInstall, deployQ, deployStart, deployLimit, deploySort, deploySortDir, deployFacets]);
+
+  const loadDeployFacets = useCallback(async () => {
+    try {
+      const r = await axios.get('/api/deploiements/facets', { headers: { Authorization: `Bearer ${token}` } });
+      setDeployFacets({ directions: r.data.directions || [], installateurs: r.data.installateurs || [], types: r.data.types || [] });
+    } catch { /* silencieux */ }
+  }, [token]);
+
+  // ── Rapprochement AD ──
+  const loadAdMatch = useCallback(async () => {
+    try {
+      const r = await axios.get('/api/deploiements/ad-match', { headers: { Authorization: `Bearer ${token}` } });
+      setAdMap(r.data.map || {});
+      setAdStatus({ total: r.data.total, cached: r.data.cached, remaining: r.data.remaining, matched: r.data.matched });
+    } catch { /* silencieux */ }
+  }, [token]);
+
+  const runAdMatch = useCallback(async (refresh = false) => {
+    if (adRunning) return;
+    setAdRunning(true);
+    try {
+      let done = false; let guard = 0; let total = adStatus?.total || 0; let firstRefresh = refresh;
+      while (!done && guard < 200) {
+        guard++;
+        const r = await axios.post('/api/deploiements/ad-match/run', { batch: 30, refresh: firstRefresh }, { headers: { Authorization: `Bearer ${token}` } });
+        firstRefresh = false; // le refresh ne doit s'appliquer qu'au 1er lot
+        total = r.data.total || total;
+        done = r.data.done;
+        setAdProgress({ done: Math.max(0, total - (r.data.remaining || 0)), total });
+        if (done) break;
+      }
+      await loadAdMatch();
+    } catch (e: any) {
+      alert(`Erreur rapprochement AD : ${e.response?.data?.message || e.message}`);
+    } finally { setAdRunning(false); setAdProgress(null); }
+  }, [token, adRunning, adStatus, loadAdMatch]);
+
+  // ── Fusion d'installateurs ──
+  const doMergeInstallateurs = useCallback(async () => {
+    if (!instKeep || instSel.size === 0) return;
+    setInstMerging(true);
+    try {
+      await axios.post('/api/deploiements/installateurs/merge',
+        { keep: instKeep, merge: [...instSel] },
+        { headers: { Authorization: `Bearer ${token}` } });
+      setInstOpen(false); setInstKeep(null); setInstSel(new Set());
+      await loadDeployFacets();
+      loadDeploys();
+      loadDeployKpis();
+    } catch (e: any) {
+      alert(`Erreur fusion : ${e.response?.data?.message || e.message}`);
+    } finally { setInstMerging(false); }
+  }, [token, instKeep, instSel, loadDeployFacets, loadDeploys]);
+
+  // ── Renommage d'installateur ──
+  const doRenameInstallateur = useCallback(async () => {
+    if (!instEdit) return;
+    const to = instEdit.value.trim();
+    if (!to || to === instEdit.from) { setInstEdit(null); return; }
+    setInstSaving(true);
+    try {
+      await axios.post('/api/deploiements/installateurs/rename',
+        { from: instEdit.from, to },
+        { headers: { Authorization: `Bearer ${token}` } });
+      setInstEdit(null);
+      await loadDeployFacets();
+      loadDeploys();
+      loadDeployKpis();
+    } catch (e: any) {
+      alert(`Erreur renommage : ${e.response?.data?.message || e.message}`);
+    } finally { setInstSaving(false); }
+  }, [token, instEdit, loadDeployFacets, loadDeploys]);
+
+  // ── Fusion manuelle de 2 fiches ──
+  const toggleDeploySel = useCallback((id: number) => {
+    setDeploySel(prev => {
+      if (prev.includes(id)) return prev.filter(x => x !== id);
+      if (prev.length >= 2) return [prev[1], id]; // garde le 2e choisi + le nouveau
+      return [...prev, id];
+    });
+  }, []);
+
+  const doMergePair = useCallback(async () => {
+    if (deploySel.length !== 2) return;
+    setPairMerging(true);
+    try {
+      const r = await axios.post('/api/deploiements/merge',
+        { keep_id: deploySel[0], merge_id: deploySel[1] },
+        { headers: { Authorization: `Bearer ${token}` } });
+      setDeploySel([]);
+      loadDeploys();
+      loadDeployKpis();
+      loadDeployFacets();
+      const n = (r.data.filled || []).length;
+      // petit retour visuel non bloquant via le compteur (les listes se rechargent)
+      console.info(`Fusion : ${n} champ(s) complété(s) sur la fiche conservée.`);
+    } catch (e: any) {
+      alert(`Erreur fusion : ${e.response?.data?.message || e.message}`);
+    } finally { setPairMerging(false); }
+  }, [token, deploySel, loadDeploys, loadDeployFacets]);
+
+  // ── Renommage / fusion d'un type d'opération ──
+  const doRenameType = useCallback(async () => {
+    if (!typeEdit) return;
+    const to = typeEdit.value.trim();
+    if (!to || to === typeEdit.from) { setTypeEdit(null); return; }
+    setTypeSaving(true);
+    try {
+      await axios.post('/api/deploiements/types/rename',
+        { from: typeEdit.from, to },
+        { headers: { Authorization: `Bearer ${token}` } });
+      setTypeEdit(null);
+      await loadDeployFacets();
+      loadDeploys();
+      loadDeployKpis();
+    } catch (e: any) {
+      alert(`Erreur renommage : ${e.response?.data?.message || e.message}`);
+    } finally { setTypeSaving(false); }
+  }, [token, typeEdit, loadDeployFacets, loadDeploys]);
 
   const loadDeployKpis = useCallback(async () => {
     try {
@@ -332,10 +586,16 @@ const ParcInformatique: React.FC = () => {
     } catch { /* silencieux */ }
   }, [token]);
 
+  const [deployConflictData, setDeployConflictData] = useState<{ total: number; by_type: Record<string, number>; rows: any[] } | null>(null);
+  const [deployConflictFilter, setDeployConflictFilter] = useState<string>('');
+  const [deployEditRow, setDeployEditRow] = useState<any | null>(null);
+  const [docViewer, setDocViewer] = useState<{ path: string; filename: string; glpiDocId?: number | null } | null>(null);
+
   const loadDeployConflicts = useCallback(async () => {
     try {
-      const r = await axios.get('/api/deploiements/matches', { headers: { Authorization: `Bearer ${token}` } });
-      setDeployConflicts(r.data || []);
+      const r = await axios.get('/api/deploiements/conflicts', { headers: { Authorization: `Bearer ${token}` } });
+      setDeployConflictData(r.data);
+      setDeployConflicts(r.data?.rows || []);
     } catch { setDeployConflicts([]); }
   }, [token]);
 
@@ -344,7 +604,12 @@ const ParcInformatique: React.FC = () => {
       loadDeploys();
       loadDeployKpis();
     }
-  }, [tab, deployDir, deployType, deployAnnee, deployQ, deployStart]);
+  }, [tab, deployDir, deployType, deployAnnee, deployEquip, deployInstall, deployQ, deployStart, deployLimit, deploySort, deploySortDir]);
+
+  // Facettes + cache AD : chargés une fois à l'entrée de l'onglet
+  useEffect(() => {
+    if (tab === 'deploiements') { loadDeployFacets(); loadAdMatch(); }
+  }, [tab]);
 
   // ─── Rendu ──────────────────────────────────────────────────────────────────
   return (
@@ -430,10 +695,13 @@ const ParcInformatique: React.FC = () => {
                     return <StatCard key={t.key} icon={I} label={t.label} value={t.count} color={COLORS[i % COLORS.length]}
                       onClick={() => { setType(t.key); setTab('list'); }} />;
                   })}
+                  <StatCard icon={Clock} label="Âge moyen PC" value={kpis.ordinateurs.age.moyen ?? 0} suffix=" ans" color={C.slate} decimals />
+                  <StatCard icon={RefreshCw} label="PC à renouveler (>5 ans)" value={kpis.ordinateurs.age.aRenouveler}
+                    sub={`${kpis.ordinateurs.age.tauxRenouveler}%`} color={C.amber} onClick={() => openPcModal('renew')} />
                 </div>
 
-                {/* Affectation + qualité */}
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 18 }}>
+                {/* Affectation */}
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 16, marginBottom: 18 }}>
                   <Panel title="Affectation des ordinateurs" icon={User}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 24 }}>
                       <Gauge value={kpis.ordinateurs.tauxAffectation} />
@@ -446,23 +714,49 @@ const ParcInformatique: React.FC = () => {
                         </div>
                       </div>
                     </div>
+                    {/* Répartition par statut GLPI */}
+                    {(() => {
+                      const stat = kpis.ordinateurs.parStatut || [];
+                      const sumBy = (re: RegExp) => stat.filter(s => re.test((s.label || '').trim())).reduce((a, s) => a + s.count, 0);
+                      const exact = (name: string) => stat.filter(s => (s.label || '').trim().toLowerCase() === name).reduce((a, s) => a + s.count, 0);
+                      const buckets = [
+                        { label: 'Neufs', sub: 'stock neuf + masterisé', n: sumBy(/stock\s*neuf/i) + sumBy(/masteris/i), color: '#059669' },
+                        { label: 'Réusage', sub: 'en stock', n: exact('en stock'), color: '#0891b2' },
+                        { label: 'En service', sub: '', n: sumBy(/en service/i), color: '#2563eb' },
+                        { label: 'En prêt', sub: '', n: sumBy(/pr[êe]t/i), color: '#7c3aed' },
+                        { label: 'Attente récup.', sub: '', n: sumBy(/r[ée]cup/i), color: '#d97706' },
+                        { label: 'Rebut / cassés', sub: 'cassé, panne, perdu…', n: sumBy(/cass|rebut|panne|\bhs\b|en panne|perdu|vol|vendu/i), color: '#dc2626' },
+                      ];
+                      return (
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, marginTop: 16, paddingTop: 14, borderTop: `1px solid ${C.border}` }}>
+                          {buckets.map(b => (
+                            <div key={b.label} title={b.sub || b.label} style={{ background: '#f8fafc', border: `1px solid ${C.border}`, borderRadius: 10, padding: '8px 10px' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                <span style={{ width: 9, height: 9, borderRadius: 3, background: b.color, flexShrink: 0 }} />
+                                <span style={{ fontSize: '1.15rem', fontWeight: 900, color: C.text }}>{b.n}</span>
+                              </div>
+                              <div style={{ fontSize: '.72rem', fontWeight: 700, color: C.slate, marginTop: 1 }}>{b.label}</div>
+                              {b.sub && <div style={{ fontSize: '.64rem', color: '#94a3b8' }}>{b.sub}</div>}
+                            </div>
+                          ))}
+                        </div>
+                      );
+                    })()}
+                    {/* Répartition par groupe */}
+                    {(kpis.ordinateurs.parGroupe || []).length > 0 && (
+                      <div style={{ marginTop: 14, paddingTop: 12, borderTop: `1px solid ${C.border}` }}>
+                        <div style={{ fontSize: '.72rem', fontWeight: 800, color: C.slate, textTransform: 'uppercase', letterSpacing: '.04em', marginBottom: 8 }}>Par groupe</div>
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                          {kpis.ordinateurs.parGroupe.map(g => (
+                            <span key={g.label} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: '#f5f3ff', border: '1px solid #ede9fe', borderRadius: 8, padding: '3px 9px', fontSize: '.78rem' }}>
+                              <span style={{ color: '#7c3aed', fontWeight: 700 }}>{g.label}</span>
+                              <span style={{ background: '#7c3aed', color: '#fff', borderRadius: 10, padding: '0 7px', fontWeight: 800, fontSize: '.72rem' }}>{g.count}</span>
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                   </Panel>
-                  <Panel title="Qualité des données" icon={CheckCircle2}>
-                    <QualityBar label="N° de série renseigné" pct={kpis.ordinateurs.qualite.tauxSerie} sub={`${kpis.ordinateurs.qualite.sansSerie} manquants`} />
-                    <QualityBar label="N° d'inventaire renseigné" pct={kpis.ordinateurs.qualite.tauxInventaire} sub={`${kpis.ordinateurs.qualite.sansInventaire} manquants`} />
-                    <QualityBar label="Lieu renseigné" pct={kpis.ordinateurs.qualite.tauxLieu} sub={`${kpis.ordinateurs.qualite.sansLieu} manquants`} />
-                  </Panel>
-                </div>
-
-                {/* Indicateurs de gestion */}
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(165px,1fr))', gap: 14, marginBottom: 18 }}>
-                  <StatCard icon={Euro} label="Valeur du parc" value={kpis.valeurParc} color="#0891b2" money />
-                  <StatCard icon={CalendarCheck2} label="Mise en service connue" value={kpis.ordinateurs.miseEnService.connue}
-                    sub={`${kpis.ordinateurs.miseEnService.tauxConnue}%`} color={C.green} />
-                  <StatCard icon={Clock} label="Âge moyen PC"
-                    value={kpis.ordinateurs.age.moyen ?? 0} suffix=" ans" color={C.slate} decimals />
-                  <StatCard icon={RefreshCw} label="PC à renouveler (>5 ans)" value={kpis.ordinateurs.age.aRenouveler}
-                    sub={`${kpis.ordinateurs.age.tauxRenouveler}%`} color={C.amber} />
                 </div>
 
                 {/* Anomalies / qualité d'inventaire */}
@@ -470,11 +764,10 @@ const ParcInformatique: React.FC = () => {
                   <Panel title="Anomalies à traiter" icon={AlertTriangle}>
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(155px,1fr))', gap: 12 }}>
                       <Anomaly label="Sans n° de série" n={kpis.ordinateurs.qualite.sansSerie} />
-                      <Anomaly label="Sans n° d'inventaire" n={kpis.ordinateurs.qualite.sansInventaire} />
                       <Anomaly label="Sans lieu" n={kpis.ordinateurs.qualite.sansLieu} />
                       <Anomaly label="Non affectés" n={kpis.ordinateurs.nonAffectes} />
                       <Anomaly label="Sans date de mise en service" n={kpis.ordinateurs.qualite.sansMiseEnService} />
-                      <Anomaly label="Doublons de série" n={kpis.ordinateurs.qualite.doublonsSerie} />
+                      <Anomaly label="Doublons de série" n={kpis.ordinateurs.qualite.doublonsSerie} onClick={() => openPcModal('dup')} />
                     </div>
                   </Panel>
                 </div>
@@ -482,7 +775,7 @@ const ParcInformatique: React.FC = () => {
                 {/* Graphiques */}
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 18 }}>
                   <Panel title="Ordinateurs par statut" icon={Activity}>
-                    <PieBlock data={kpis.ordinateurs.parStatut} />
+                    <PieBlock data={kpis.ordinateurs.parStatut.map(s => (s.label || '').trim().toLowerCase() === 'en stock' ? { ...s, label: 'En stock réusage' } : s)} />
                   </Panel>
                   <Panel title="Top fabricants" icon={Cpu}>
                     <BarBlock data={kpis.ordinateurs.parFabricant.slice(0, 8)} color="#7c3aed" />
@@ -492,9 +785,6 @@ const ParcInformatique: React.FC = () => {
                   </Panel>
                   <Panel title="Top modèles" icon={Layers}>
                     <BarBlock data={kpis.ordinateurs.parModele.slice(0, 8)} color="#059669" />
-                  </Panel>
-                  <Panel title="Top fournisseurs" icon={Truck}>
-                    <BarBlock data={kpis.ordinateurs.parFournisseur.slice(0, 8)} color="#0891b2" />
                   </Panel>
                   <Panel title="Systèmes d'exploitation" icon={Cpu}>
                     <BarBlock data={kpis.ordinateurs.parOs.slice(0, 8)} color="#d97706" />
@@ -527,21 +817,39 @@ const ParcInformatique: React.FC = () => {
                   </Panel>
                 )}
 
-                {kpis.ordinateurs.ajoutsParAnnee.length > 1 && (
-                  <Panel title="Ajouts d'ordinateurs au parc par année" icon={BarChart3}>
-                    <ResponsiveContainer width="100%" height={220}>
-                      <AreaChart data={kpis.ordinateurs.ajoutsParAnnee}>
-                        <defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="0%" stopColor={C.blue} stopOpacity={0.35} /><stop offset="100%" stopColor={C.blue} stopOpacity={0} />
-                        </linearGradient></defs>
+                {kpis.ordinateurs.ajoutsParAnnee.length > 1 && (() => {
+                  // Fusion des 2 séries par année : ajouts au parc vs ordinateurs déployés
+                  const add = kpis.ordinateurs.ajoutsParAnnee.filter(a => a.annee >= '2020');
+                  const dep = (kpis.ordinateurs.deploiementsParAnnee || []).filter(d => d.annee >= '2020');
+                  const yrs = Array.from(new Set([...add.map(a => a.annee), ...dep.map(d => d.annee)])).sort();
+                  const data = yrs.map(y => ({
+                    annee: y,
+                    ajouts: add.find(a => a.annee === y)?.count || 0,
+                    deploiements: dep.find(d => d.annee === y)?.count || 0,
+                  }));
+                  return (
+                  <Panel title="Ordinateurs : ajouts au parc vs déployés, par année" icon={BarChart3}>
+                    <ResponsiveContainer width="100%" height={240}>
+                      <AreaChart data={data}>
+                        <defs>
+                          <linearGradient id="g" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="0%" stopColor={C.blue} stopOpacity={0.35} /><stop offset="100%" stopColor={C.blue} stopOpacity={0} />
+                          </linearGradient>
+                          <linearGradient id="gDep" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="0%" stopColor="#059669" stopOpacity={0.3} /><stop offset="100%" stopColor="#059669" stopOpacity={0} />
+                          </linearGradient>
+                        </defs>
                         <CartesianGrid strokeDasharray="3 3" stroke="#eef2f7" />
                         <XAxis dataKey="annee" tick={{ fontSize: 12 }} /><YAxis tick={{ fontSize: 12 }} allowDecimals={false} />
                         <Tooltip />
-                        <Area type="monotone" dataKey="count" name="Ordinateurs" stroke={C.blue} fill="url(#g)" strokeWidth={2} />
+                        <Legend wrapperStyle={{ fontSize: '.8rem' }} />
+                        <Area type="monotone" dataKey="ajouts" name="Ajoutés au parc" stroke={C.blue} fill="url(#g)" strokeWidth={2} />
+                        <Area type="monotone" dataKey="deploiements" name="Déployés" stroke="#059669" fill="url(#gDep)" strokeWidth={2} />
                       </AreaChart>
                     </ResponsiveContainer>
                   </Panel>
-                )}
+                  );
+                })()}
               </>
             )}
           </>
@@ -564,6 +872,9 @@ const ParcInformatique: React.FC = () => {
               })}
             </div>
 
+            {/* Téléphones & tablettes : vue Mobilité dédiée (table hub_parc.mobilite_*) */}
+            {type === 'telephones' ? <MobiliteView token={token || ''} /> : (
+            <>
             {/* Filtres */}
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginBottom: 14, alignItems: 'center' }}>
               <div style={{ position: 'relative', flex: '1 1 260px' }}>
@@ -731,6 +1042,8 @@ const ParcInformatique: React.FC = () => {
                 </div>
               )}
             </div>
+            </>
+            )}
           </>
         )}
 
@@ -819,7 +1132,9 @@ const ParcInformatique: React.FC = () => {
                                 <td colSpan={6} style={{ padding: '8px 14px', fontWeight: 800, fontSize: '.78rem', color: C.blue, textTransform: 'uppercase', letterSpacing: '.04em' }}>
                                   <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
                                     <ChevronRight size={14} style={{ transition: 'transform .18s', transform: open ? 'rotate(90deg)' : 'rotate(0deg)' }} />
-                                    {typeLabel}
+                                    {typeLabel === 'Téléphones'
+                                      ? <><Phone size={14} color="#2563eb" /><Tablet size={14} color="#7c3aed" />{typeLabel}</>
+                                      : typeLabel}
                                     <span style={{ background: '#eff6ff', color: C.blue, borderRadius: 20, padding: '1px 8px', fontWeight: 700, fontSize: '.76rem', marginLeft: 4 }}>{typeTotal}</span>
                                   </span>
                                 </td>
@@ -1143,6 +1458,82 @@ const ParcInformatique: React.FC = () => {
             if (mt === 'conflict') return <span style={{ background: '#fee2e2', color: '#b91c1c', padding: '1px 8px', borderRadius: 10, fontSize: '.72rem', fontWeight: 700 }}>Conflit S/N</span>;
             return <span style={{ background: '#f1f5f9', color: '#64748b', padding: '1px 8px', borderRadius: 10, fontSize: '.72rem', fontWeight: 700 }}>Non trouvé</span>;
           };
+          // Détermine le type d'équipement déployé (affiché en colonne).
+          // Source de vérité : la catégorie calculée par l'API (row.equip_cat).
+          const equipType = (row: any): { label: string; color: string; bg: string; icon: string } => {
+            if (row.equip_cat && EQUIP_CAT_META[row.equip_cat]) return EQUIP_CAT_META[row.equip_cat];
+            const mt = (row.materiel_type || '').toUpperCase().trim().replace(/\s+/g, ' ');
+            const ucNum = (row.uc_nouveau_num || row.uc_recupere_num || '').toUpperCase();
+            const isPortable = /^PO/.test(ucNum);
+
+            // ── Correspondances directes sur materiel_type (source deploy.xlsx) ──
+            if (mt) {
+              // Écrans seuls
+              if (/^(ECRAN|EC\d+|EC$)$/.test(mt)) return { label: 'Écran', color: '#0891b2', bg: '#e0f2fe', icon: 'Monitor' };
+              // PC fixes (UC, AIO, iMac)
+              if (mt === 'AIO' || mt === 'IMAC') return { label: 'PC Tout-en-un', color: '#7c3aed', bg: '#faf5ff', icon: 'Monitor' };
+              if (mt === 'UC') return { label: 'PC Fixe', color: '#1d4ed8', bg: '#dbeafe', icon: 'Monitor' };
+              // PC portables
+              if (mt === 'PO' || mt === 'MACBOOK') return { label: 'PC Portable', color: '#1d4ed8', bg: '#dbeafe', icon: 'Laptop' };
+              // Imprimantes / scanners
+              if (mt === 'IMP') return { label: 'Imprimante', color: '#b45309', bg: '#fef3c7', icon: 'Printer' };
+              if (mt === 'SCANNER') return { label: 'Scanner', color: '#b45309', bg: '#fef3c7', icon: 'Printer' };
+              // Périphériques
+              if (mt === 'PERIPH') return { label: 'Périphérique', color: '#059669', bg: '#d1fae5', icon: 'HardDrive' };
+              if (mt === 'TABLETTE') return { label: 'Tablette', color: '#7c3aed', bg: '#faf5ff', icon: 'Tablet' };
+              if (mt === 'VIDEO PROJECTEUR') return { label: 'Vidéo-proj.', color: '#64748b', bg: '#f1f5f9', icon: 'Projector' };
+              // Bundles PC+Écran+Imprimante
+              if (mt.includes('IMP') && (mt.includes('UC') || mt.includes('PO')) && mt.includes('EC'))
+                return { label: 'PC + Écran + Imp.', color: '#dc2626', bg: '#fef2f2', icon: 'Monitor' };
+              // Bundles PC+Écran
+              if ((mt.startsWith('UC') || mt.startsWith('AIO')) && mt.includes('EC'))
+                return { label: 'PC Fixe + Écran', color: '#1d4ed8', bg: '#dbeafe', icon: 'Monitor' };
+              if (mt.startsWith('PO') && mt.includes('EC'))
+                return { label: 'PC Port. + Écran', color: '#1d4ed8', bg: '#dbeafe', icon: 'Laptop' };
+              // Bundles PC+Imprimante
+              if ((mt.startsWith('UC') || mt.startsWith('PO')) && mt.includes('IMP'))
+                return { label: 'PC + Imprimante', color: '#1d4ed8', bg: '#dbeafe', icon: 'Monitor' };
+            }
+
+            // ── Fallback : inférence depuis les colonnes ──
+            const hasUcNew = !!row.uc_nouveau_num;
+            const hasEcNew = !!(row.ecran1_nouveau_num || row.ecran1_nouveau_serie || row.ecran2_nouveau_serie);
+            const hasUcRec = !!row.uc_recupere_num;
+            const hasEcRec = !!(row.ecran1_recupere_num);
+
+            if (hasUcNew && hasEcNew)
+              return isPortable
+                ? { label: 'PC Port. + Écran', color: '#1d4ed8', bg: '#dbeafe', icon: 'Laptop' }
+                : { label: 'PC Fixe + Écran',  color: '#1d4ed8', bg: '#dbeafe', icon: 'Monitor' };
+            if (hasUcNew)
+              return isPortable
+                ? { label: 'PC Portable', color: '#1d4ed8', bg: '#dbeafe', icon: 'Laptop' }
+                : { label: 'PC Fixe',     color: '#1d4ed8', bg: '#dbeafe', icon: 'Monitor' };
+            if (hasEcNew) return { label: 'Écran', color: '#0891b2', bg: '#e0f2fe', icon: 'Monitor' };
+
+            // Retours : analyser le récupéré
+            if (hasUcRec || hasEcRec) {
+              const recUcNum = (row.uc_recupere_num || '').toUpperCase();
+              const isRecPortable = /^PO/.test(recUcNum);
+              if (hasUcRec && hasEcRec)
+                return isRecPortable
+                  ? { label: 'PC Port. + Écran', color: '#64748b', bg: '#f1f5f9', icon: 'Laptop' }
+                  : { label: 'PC Fixe + Écran',  color: '#64748b', bg: '#f1f5f9', icon: 'Monitor' };
+              if (hasUcRec)
+                return isRecPortable
+                  ? { label: 'PC Portable', color: '#64748b', bg: '#f1f5f9', icon: 'Laptop' }
+                  : { label: 'PC Fixe',     color: '#64748b', bg: '#f1f5f9', icon: 'Monitor' };
+              if (hasEcRec) return { label: 'Écran', color: '#64748b', bg: '#f1f5f9', icon: 'Monitor' };
+            }
+
+            // Hints depuis type_operation
+            const op = (row.type_operation || '').toLowerCase();
+            if (op.includes('imprimante') || op.includes('impr'))
+              return { label: 'Imprimante', color: '#b45309', bg: '#fef3c7', icon: 'Printer' };
+
+            return { label: '—', color: '#94a3b8', bg: 'transparent', icon: '' };
+          };
+
           const typeBadge = (op: string | null) => {
             if (!op) return null;
             const map: Record<string, { bg: string; color: string }> = {
@@ -1155,9 +1546,28 @@ const ParcInformatique: React.FC = () => {
             return <span style={{ background: s.bg, color: s.color, padding: '1px 8px', borderRadius: 10, fontSize: '.72rem', fontWeight: 700 }}>{op}</span>;
           };
 
-          const dirs = deployKpis ? (deployKpis.by_direction || []).map((d: any) => d.direction).filter(Boolean) : [];
           const types = deployKpis ? (deployKpis.by_type || []).map((t: any) => t.type_operation).filter(Boolean) : [];
           const annees = deployKpis ? (deployKpis.by_annee || []).map((a: any) => String(a.annee)).filter(Boolean) : [];
+
+          // Lieu et statut consolidés : UC > Écran > Périph selon le type de ligne
+          const rowLieu = (row: any): string | null => row.uc_lieu || row.ec_lieu || row.periph_lieu || null;
+          const rowStatutParc = (row: any): string | null => row.parc_statut || row.ec_statut || row.periph_statut || null;
+
+          // Source badge
+          const sourceBadge = (src: string | null) => {
+            if (!src || src === 'fiches') return <span style={{ background: '#f0fdf4', color: '#15803d', padding: '1px 7px', borderRadius: 8, fontSize: '.72rem', fontWeight: 700 }}>Fiche</span>;
+            if (src === 'deploy_excel') return <span style={{ background: '#eff6ff', color: '#1d4ed8', padding: '1px 7px', borderRadius: 8, fontSize: '.72rem', fontWeight: 700 }}>Excel</span>;
+            return <span style={{ background: '#f1f5f9', color: C.slate, padding: '1px 7px', borderRadius: 8, fontSize: '.72rem', fontWeight: 700 }}>{src}</span>;
+          };
+
+          // Nom affiché du périph : extrait le nom du format "Périph: NomModèle (SERIAL)" ou "Périph: null (SERIAL)"
+          const periphDisplay = (autre_designation: string | null): { nom: string | null; serial: string | null } => {
+            if (!autre_designation) return { nom: null, serial: null };
+            const m = autre_designation.match(/^Périph:\s*(.+?)\s*\(([^)]+)\)$/);
+            if (!m) return { nom: autre_designation, serial: null };
+            const nom = m[1] === 'null' ? null : m[1];
+            return { nom, serial: m[2] };
+          };
 
           return (
             <div>
@@ -1206,64 +1616,323 @@ const ParcInformatique: React.FC = () => {
                 </div>
               )}
 
-              {/* Bandeau conflits */}
-              {(deployKpis?.nb_conflits ?? 0) > 0 && (
-                <div style={{ background: '#fff7ed', border: '1px solid #fed7aa', borderRadius: 10, padding: '10px 16px', marginBottom: 16, fontSize: '.88rem', color: '#92400e' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                    <span><b>{deployKpis.nb_conflits} conflit{deployKpis.nb_conflits > 1 ? 's' : ''} de numéro de série</b> détecté{deployKpis.nb_conflits > 1 ? 's' : ''} entre fiches et parc</span>
-                    <button onClick={() => { if (!deployConflictsOpen) loadDeployConflicts(); setDeployConflictsOpen(o => !o); }}
-                      style={{ background: 'none', border: '1px solid #fed7aa', borderRadius: 7, padding: '3px 12px', color: '#92400e', cursor: 'pointer', fontSize: '.82rem', fontWeight: 700 }}>
-                      {deployConflictsOpen ? 'Masquer' : 'Voir les détails'}
-                    </button>
-                  </div>
-                  {deployConflictsOpen && deployConflicts.length > 0 && (
-                    <div style={{ marginTop: 10, overflowX: 'auto' }}>
-                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '.82rem' }}>
-                        <thead>
-                          <tr style={{ background: '#fef3c7' }}>
-                            {['Date', 'Bénéficiaire', 'N° UC', 'S/N fiche', 'S/N parc'].map(h => (
-                              <th key={h} style={{ padding: '6px 10px', textAlign: 'left', fontWeight: 700 }}>{h}</th>
-                            ))}
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {deployConflicts.map((c: any) => (
-                            <tr key={c.id} style={{ borderTop: '1px solid #fed7aa' }}>
-                              <td style={{ padding: '5px 10px' }}>{fmtD(c.date_deploiement)}</td>
-                              <td style={{ padding: '5px 10px' }}>{c.beneficiaire || '—'}</td>
-                              <td style={{ padding: '5px 10px', fontWeight: 700 }}>{c.uc_nouveau_num}</td>
-                              <td style={{ padding: '5px 10px', fontFamily: 'monospace' }}>{c.uc_nouveau_serie}</td>
-                              <td style={{ padding: '5px 10px', fontFamily: 'monospace', color: '#b91c1c' }}>{c.parc_serie}</td>
-                            </tr>
+              {/* ── Graphiques de déploiement ── */}
+              {deployKpis && (() => {
+                const card: React.CSSProperties = { background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: 16, display: 'flex', flexDirection: 'column' };
+                const titleSt: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: 7, fontSize: '.82rem', fontWeight: 800, color: C.text, marginBottom: 12 };
+                const ms = deployKpis.match_stats || {};
+                const totalUc = ms.total_uc || 0;
+                const matchData = [
+                  { label: 'Match complet', value: ms.match_full || 0, color: '#059669' },
+                  { label: 'Partiel (S/N ?)', value: ms.match_partial || 0, color: '#d97706' },
+                  { label: 'Non trouvé', value: ms.no_match || 0, color: '#94a3b8' },
+                ].filter(d => d.value > 0);
+                const tauxMatch = totalUc ? Math.round(((ms.match_full || 0) / totalUc) * 100) : 0;
+                // Cadence annuelle décomposée par catégorie d'équipement (barres empilées)
+                const cadenceMap = new Map<string, any>();
+                for (const r of (deployKpis.by_annee_equip || [])) {
+                  const y = String(r.annee);
+                  if (!cadenceMap.has(y)) cadenceMap.set(y, { annee: y, total: 0 });
+                  const o = cadenceMap.get(y); o[r.cat] = (o[r.cat] || 0) + r.n; o.total += r.n;
+                }
+                const cadence = [...cadenceMap.values()].sort((a, b) => a.annee.localeCompare(b.annee));
+                const cadenceCats = CADENCE_CATS.filter(c => cadence.some(row => (row[c.key] || 0) > 0));
+                const types = (deployKpis.by_type || []).map((t: any) => ({ label: t.type_operation, value: t.n }));
+                const dirs = (deployKpis.by_direction || []).slice(0, 8).map((d: any) => ({ label: d.direction, n: d.n }));
+                const installs = (deployKpis.by_installateur || []).slice(0, 8).map((i: any) => ({ label: i.installateur, n: i.n }));
+
+                return (
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(330px, 1fr))', gap: 14, marginBottom: 18 }}>
+                    {/* Cadence annuelle par type d'équipement (empilé) */}
+                    <div style={{ ...card, gridColumn: 'span 2', minWidth: 0 }}>
+                      <div style={titleSt}><TrendingUp size={15} color={C.blue} /> Cadence de déploiement par année — par type d'équipement</div>
+                      <ResponsiveContainer width="100%" height={230}>
+                        <BarChart data={cadence} margin={{ top: 4, right: 12, bottom: 0, left: -18 }}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="#eef2f7" vertical={false} />
+                          <XAxis dataKey="annee" tick={{ fontSize: 11 }} />
+                          <YAxis allowDecimals={false} tick={{ fontSize: 11 }} />
+                          <Tooltip
+                            formatter={(v: any, n: any) => [`${v} déploiement(s)`, (CADENCE_CATS.find(c => c.key === n) || { label: n }).label]}
+                            labelFormatter={(l) => `Année ${l}`}
+                          />
+                          {cadenceCats.map((c, i) => (
+                            <Bar key={c.key} dataKey={c.key} stackId="eq" fill={c.color}
+                              radius={i === cadenceCats.length - 1 ? [4, 4, 0, 0] : [0, 0, 0, 0]} maxBarSize={48} />
                           ))}
-                        </tbody>
-                      </table>
+                        </BarChart>
+                      </ResponsiveContainer>
+                      {/* Légende */}
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, justifyContent: 'center', marginTop: 6 }}>
+                        {cadenceCats.map(c => (
+                          <span key={c.key} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: '.7rem', color: C.slate }}>
+                            <span style={{ width: 9, height: 9, borderRadius: 2, background: c.color }} />{c.label}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Rapprochement parc (donut + taux) */}
+                    <div style={card}>
+                      <div style={titleSt}><CheckCircle2 size={15} color="#059669" /> Rapprochement avec le parc</div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1 }}>
+                        <div style={{ position: 'relative', width: 120, height: 120, flexShrink: 0 }}>
+                          <ResponsiveContainer width="100%" height="100%">
+                            <PieChart>
+                              <Pie data={matchData} dataKey="value" nameKey="label" cx="50%" cy="50%" innerRadius={38} outerRadius={56} paddingAngle={2}>
+                                {matchData.map((d, i) => <Cell key={i} fill={d.color} />)}
+                              </Pie>
+                              <Tooltip formatter={(v: any, n: any) => [`${v}`, n]} />
+                            </PieChart>
+                          </ResponsiveContainer>
+                          <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none' }}>
+                            <div style={{ fontSize: '1.3rem', fontWeight: 900, color: '#059669' }}>{tauxMatch}%</div>
+                            <div style={{ fontSize: '.62rem', color: C.slate }}>matchés</div>
+                          </div>
+                        </div>
+                        <div style={{ flex: 1, fontSize: '.78rem' }}>
+                          {matchData.map(d => (
+                            <div key={d.label} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '2px 0' }}>
+                              <span style={{ width: 9, height: 9, borderRadius: 2, background: d.color, flexShrink: 0 }} />
+                              <span style={{ color: C.slate, flex: 1 }}>{d.label}</span>
+                              <b style={{ color: C.text }}>{d.value}</b>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Type d'opération (donut) */}
+                    <div style={card}>
+                      <div style={titleSt}><ArrowLeftRight size={15} color="#7c3aed" /> Par type d'opération</div>
+                      <ResponsiveContainer width="100%" height={170}>
+                        <PieChart>
+                          <Pie data={types} dataKey="value" nameKey="label" cx="50%" cy="50%" outerRadius={62} label={(e: any) => e.value}>
+                            {types.map((_: any, i: number) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
+                          </Pie>
+                          <Tooltip />
+                        </PieChart>
+                      </ResponsiveContainer>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, justifyContent: 'center' }}>
+                        {types.map((t: any, i: number) => (
+                          <span key={t.label} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: '.7rem', color: C.slate }}>
+                            <span style={{ width: 8, height: 8, borderRadius: 2, background: COLORS[i % COLORS.length] }} />{t.label}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Top directions */}
+                    <div style={card}>
+                      <div style={titleSt}><MapPin size={15} color="#0891b2" /> Top directions déployées</div>
+                      <ResponsiveContainer width="100%" height={Math.max(150, dirs.length * 26)}>
+                        <BarChart data={dirs} layout="vertical" margin={{ left: 8, right: 26, top: 0, bottom: 0 }}>
+                          <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#eef2f7" />
+                          <XAxis type="number" allowDecimals={false} tick={{ fontSize: 10 }} />
+                          <YAxis type="category" dataKey="label" width={120} tick={{ fontSize: 10 }} />
+                          <Tooltip formatter={(v: any) => [`${v} fiche(s)`, '']} />
+                          <Bar dataKey="n" fill="#0891b2" radius={[0, 4, 4, 0]} barSize={14} label={{ position: 'right', fontSize: 10, fill: C.slate }} />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </div>
+
+                    {/* Top installateurs */}
+                    {installs.length > 0 && (
+                      <div style={card}>
+                        <div style={titleSt}><User size={15} color="#d97706" /> Top installateurs</div>
+                        <ResponsiveContainer width="100%" height={Math.max(150, installs.length * 26)}>
+                          <BarChart data={installs} layout="vertical" margin={{ left: 8, right: 26, top: 0, bottom: 0 }}>
+                            <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#eef2f7" />
+                            <XAxis type="number" allowDecimals={false} tick={{ fontSize: 10 }} />
+                            <YAxis type="category" dataKey="label" width={110} tick={{ fontSize: 10 }} />
+                            <Tooltip formatter={(v: any) => [`${v} déploiement(s)`, '']} />
+                            <Bar dataKey="n" fill="#d97706" radius={[0, 4, 4, 0]} barSize={14} label={{ position: 'right', fontSize: 10, fill: C.slate }} />
+                          </BarChart>
+                        </ResponsiveContainer>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+
+              {/* Bandeau conflits */}
+              {/* ── Incohérences déploiements ↔ parc ── */}
+              <div style={{ marginBottom: 16 }}>
+                <button onClick={() => {
+                  if (!deployConflictsOpen) loadDeployConflicts();
+                  setDeployConflictsOpen(o => !o);
+                }} style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 8, padding: '9px 18px', borderRadius: 10, cursor: 'pointer', fontWeight: 700, fontSize: '.88rem',
+                  border: `1px solid ${deployConflictData && deployConflictData.total > 0 ? '#fca5a5' : C.border}`,
+                  background: deployConflictData && deployConflictData.total > 0 ? '#fef2f2' : '#f8fafc',
+                  color: deployConflictData && deployConflictData.total > 0 ? '#b91c1c' : C.slate,
+                }}>
+                  <AlertTriangle size={15} /> Incohérences déploiements ↔ parc
+                  {deployConflictData && <span style={{ background: deployConflictData.total > 0 ? '#fca5a5' : '#e2e8f0', color: deployConflictData.total > 0 ? '#b91c1c' : C.slate, borderRadius: 20, padding: '1px 9px', fontWeight: 800, fontSize: '.8rem' }}>{deployConflictData.total}</span>}
+                  <span style={{ fontSize: '.8rem', fontWeight: 400 }}>{deployConflictsOpen ? '▲' : '▼'}</span>
+                </button>
+              </div>
+              {deployConflictsOpen && (
+                <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, marginBottom: 20, overflow: 'hidden' }}>
+                  {/* Compteurs par type */}
+                  {deployConflictData && (
+                    <div style={{ display: 'flex', gap: 12, padding: '12px 16px', borderBottom: `1px solid ${C.border}`, flexWrap: 'wrap', alignItems: 'center' }}>
+                      {([
+                        ['', 'Tous', deployConflictData.total, '#1e293b', '#f1f5f9'],
+                        ['absent_glpi', 'Absent du parc GLPI', deployConflictData.by_type?.absent_glpi ?? 0, '#b45309', '#fef3c7'],
+                        ['serie_conflit', 'N° de série conflit', deployConflictData.by_type?.serie_conflit ?? 0, '#b91c1c', '#fee2e2'],
+                        ['recupere_actif', 'Récupéré mais actif', deployConflictData.by_type?.recupere_actif ?? 0, '#7c3aed', '#faf5ff'],
+                      ] as [string, string, number, string, string][]).map(([k, label, n, color, bg]) => (
+                        <button key={k} onClick={() => setDeployConflictFilter(k)}
+                          style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '5px 12px', borderRadius: 8, border: `1px solid ${deployConflictFilter === k ? color : C.border}`, background: deployConflictFilter === k ? bg : '#fff', color: deployConflictFilter === k ? color : C.slate, cursor: 'pointer', fontWeight: 600, fontSize: '.82rem' }}>
+                          {label} <b>{n}</b>
+                        </button>
+                      ))}
                     </div>
                   )}
+                  <div style={{ overflowX: 'auto', maxHeight: 380, overflowY: 'auto' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '.82rem' }}>
+                      <thead>
+                        <tr style={{ background: '#f8fafc', position: 'sticky', top: 0 }}>
+                          {['Type', 'Référence', 'Détail', 'Date', 'Bénéficiaire', 'Direction', 'Service'].map(h => (
+                            <th key={h} style={{ padding: '8px 12px', fontWeight: 700, fontSize: '.74rem', textTransform: 'uppercase', color: C.slate, textAlign: 'left', whiteSpace: 'nowrap' }}>{h}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {(deployConflicts.filter((c: any) => !deployConflictFilter || c.type_conflit === deployConflictFilter)).map((c: any, i: number) => {
+                          const typeInfo: Record<string, { label: string; color: string; bg: string }> = {
+                            absent_glpi:   { label: 'Absent GLPI', color: '#b45309', bg: '#fef9c3' },
+                            serie_conflit: { label: 'S/N conflit', color: '#b91c1c', bg: '#fee2e2' },
+                            recupere_actif:{ label: 'Récupéré actif', color: '#7c3aed', bg: '#faf5ff' },
+                          };
+                          const ti = typeInfo[c.type_conflit] || { label: c.type_conflit, color: C.slate, bg: '#f1f5f9' };
+                          return (
+                            <tr key={i} style={{ borderTop: `1px solid ${C.border}` }}
+                              onMouseEnter={e => (e.currentTarget.style.background = '#f8fafc')} onMouseLeave={e => (e.currentTarget.style.background = '')}>
+                              <td style={{ padding: '7px 12px' }}>
+                                <span style={{ background: ti.bg, color: ti.color, padding: '2px 8px', borderRadius: 6, fontSize: '.74rem', fontWeight: 700, whiteSpace: 'nowrap' }}>{ti.label}</span>
+                              </td>
+                              <td style={{ padding: '7px 12px', fontFamily: 'monospace', fontWeight: 700 }}>{c.reference}</td>
+                              <td style={{ padding: '7px 12px', color: C.slate, fontSize: '.8rem', maxWidth: 260, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.detail || '—'}</td>
+                              <td style={{ padding: '7px 12px', whiteSpace: 'nowrap', fontFamily: 'monospace', fontSize: '.78rem' }}>{fmtD(c.date_deploiement)}</td>
+                              <td style={{ padding: '7px 12px' }}>{c.beneficiaire || '—'}</td>
+                              <td style={{ padding: '7px 12px', fontWeight: 600 }}>{c.direction || '—'}</td>
+                              <td style={{ padding: '7px 12px', color: C.slate }}>{c.service || '—'}</td>
+                            </tr>
+                          );
+                        })}
+                        {deployConflicts.filter((c: any) => !deployConflictFilter || c.type_conflit === deployConflictFilter).length === 0 && (
+                          <tr><td colSpan={7} style={{ padding: 32, textAlign: 'center', color: C.slate }}>Aucune incohérence{deployConflictFilter ? ' pour ce type' : ''}</td></tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
               )}
 
               {/* Filtres */}
+              {(() => {
+                // Regroupe les directions (variantes → code canonique) pour une liste explicite
+                const dirGroups = (() => {
+                  const m = new Map<string, { canon: string; variants: string[]; n: number }>();
+                  for (const d of deployFacets.directions) {
+                    const canon = dirCanonical(d.direction);
+                    if (!canon) continue;
+                    if (!m.has(canon)) m.set(canon, { canon, variants: [], n: 0 });
+                    const g = m.get(canon)!; g.variants.push(d.direction); g.n += d.n;
+                  }
+                  return [...m.values()].sort((a, b) => b.n - a.n);
+                })();
+                const selStyleD: React.CSSProperties = { border: `1px solid ${C.border}`, borderRadius: 8, padding: '8px 10px', fontSize: '.88rem' };
+                return (
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 16, alignItems: 'center' }}>
                 <input value={deployQ} onChange={e => { setDeployQ(e.target.value); setDeployStart(0); }} placeholder="Recherche (bénéficiaire, UC…)"
                   style={{ border: `1px solid ${C.border}`, borderRadius: 8, padding: '8px 12px', fontSize: '.88rem', minWidth: 220 }} />
-                <select value={deployDir} onChange={e => { setDeployDir(e.target.value); setDeployStart(0); }}
-                  style={{ border: `1px solid ${C.border}`, borderRadius: 8, padding: '8px 10px', fontSize: '.88rem' }}>
+                <select value={deployDir} onChange={e => { setDeployDir(e.target.value); setDeployStart(0); }} style={selStyleD} title="Direction">
                   <option value="">Toutes directions</option>
-                  {dirs.map((d: string) => <option key={d} value={d}>{d}</option>)}
+                  {dirGroups.map(g => <option key={g.canon} value={g.canon}>{dirLabel(g.canon)} ({g.n})</option>)}
                 </select>
-                <select value={deployType} onChange={e => { setDeployType(e.target.value); setDeployStart(0); }}
-                  style={{ border: `1px solid ${C.border}`, borderRadius: 8, padding: '8px 10px', fontSize: '.88rem' }}>
+                <select value={deployEquip} onChange={e => { setDeployEquip(e.target.value); setDeployStart(0); }} style={selStyleD} title="Type d'équipement">
+                  <option value="">Tous équipements</option>
+                  {EQUIP_OPTIONS.map(o => <option key={o.key} value={o.key}>{o.icon} {o.label}</option>)}
+                </select>
+                <select value={deployInstall} onChange={e => { setDeployInstall(e.target.value); setDeployStart(0); }} style={selStyleD} title="Installateur">
+                  <option value="">Tous installateurs</option>
+                  {deployFacets.installateurs.map(i => <option key={i.installateur} value={i.installateur}>{i.installateur} ({i.n})</option>)}
+                </select>
+                <select value={deployType} onChange={e => { setDeployType(e.target.value); setDeployStart(0); }} style={selStyleD}>
                   <option value="">Tous types</option>
                   {types.map((t: string) => <option key={t} value={t}>{t}</option>)}
                 </select>
-                <select value={deployAnnee} onChange={e => { setDeployAnnee(e.target.value); setDeployStart(0); }}
-                  style={{ border: `1px solid ${C.border}`, borderRadius: 8, padding: '8px 10px', fontSize: '.88rem' }}>
+                <select value={deployAnnee} onChange={e => { setDeployAnnee(e.target.value); setDeployStart(0); }} style={selStyleD}>
                   <option value="">Toutes années</option>
                   {annees.map((a: string) => <option key={a} value={a}>{a}</option>)}
                 </select>
                 <span style={{ color: C.slate, fontSize: '.82rem', marginLeft: 4 }}>{deployTotal} fiche{deployTotal > 1 ? 's' : ''}</span>
+
+                <div style={{ flex: 1 }} />
+
+                {/* Rapprochement AD des bénéficiaires */}
+                <button onClick={() => runAdMatch(false)} disabled={adRunning}
+                  title="Rechercher tous les bénéficiaires dans l'Active Directory et afficher le nom normalisé"
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '8px 13px', borderRadius: 8, border: `1px solid ${C.border}`, background: '#fff', cursor: adRunning ? 'default' : 'pointer', fontWeight: 700, fontSize: '.84rem', color: '#7c3aed', opacity: adRunning ? 0.7 : 1 }}>
+                  <ShieldCheck size={15} className={adRunning ? 'spin' : ''} />
+                  {adRunning
+                    ? `Rapprochement AD… ${adProgress ? `${adProgress.done}/${adProgress.total}` : ''}`
+                    : 'Rapprocher AD'}
+                </button>
+                {adStatus && !adRunning && (
+                  <span style={{ fontSize: '.78rem', color: C.slate }} title={`${adStatus.cached}/${adStatus.total} bénéficiaires traités`}>
+                    <b style={{ color: '#7c3aed' }}>{adStatus.matched}</b> dans l'AD
+                    {adStatus.remaining > 0 && <span style={{ color: C.amber }}> · {adStatus.remaining} à traiter</span>}
+                  </span>
+                )}
+
+                {/* Fusion des graphies d'installateur */}
+                <button onClick={() => { setInstOpen(true); setInstKeep(null); setInstSel(new Set()); }}
+                  title="Fusionner les variantes d'un même installateur"
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '8px 13px', borderRadius: 8, border: `1px solid ${C.border}`, background: '#fff', cursor: 'pointer', fontWeight: 700, fontSize: '.84rem', color: '#d97706' }}>
+                  <Users size={15} /> Fusionner installateurs
+                </button>
+                <button onClick={() => { setTypesOpen(true); setTypeEdit(null); }}
+                  title="Renommer / fusionner les types de déploiement"
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '8px 13px', borderRadius: 8, border: `1px solid ${C.border}`, background: '#fff', cursor: 'pointer', fontWeight: 700, fontSize: '.84rem', color: '#0891b2' }}>
+                  <Tag size={15} /> Type de déploiements
+                </button>
               </div>
+                );
+              })()}
+
+              {/* Barre d'action : fusion manuelle de 2 fiches */}
+              {deploySel.length > 0 && (() => {
+                const sel = deploySel.map(id => deploys.find(d => d.id === id)).filter(Boolean) as any[];
+                const lbl = (r: any) => r ? `${fmtD(r.date_deploiement)} · ${r.beneficiaire || '—'}${r.uc_nouveau_num ? ' · ' + r.uc_nouveau_num : ''}` : '—';
+                return (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginBottom: 14, padding: '10px 16px', borderRadius: 12, background: '#eff6ff', border: '1px solid #bfdbfe' }}>
+                    <span style={{ fontWeight: 800, color: C.blue, fontSize: '.85rem' }}>Fusion manuelle</span>
+                    {deploySel.length < 2 ? (
+                      <span style={{ fontSize: '.82rem', color: C.slate }}>Sélectionnez une 2<sup>e</sup> fiche à fusionner dans la 1<sup>re</sup>.</span>
+                    ) : (
+                      <span style={{ fontSize: '.82rem', color: C.slate }}>
+                        On garde <b style={{ color: C.text }}>#{deploySel[0]}</b> ({lbl(sel[0])}), complétée avec <b style={{ color: C.text }}>#{deploySel[1]}</b> ({lbl(sel[1])}) — qui sera supprimée.
+                      </span>
+                    )}
+                    <div style={{ flex: 1 }} />
+                    {deploySel.length === 2 && (
+                      <button onClick={() => setDeploySel([deploySel[1], deploySel[0]])} title="Inverser : garder l'autre"
+                        style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '6px 11px', borderRadius: 8, border: `1px solid ${C.border}`, background: '#fff', cursor: 'pointer', fontWeight: 700, fontSize: '.8rem', color: C.slate }}>
+                        <ArrowLeftRight size={13} /> Inverser
+                      </button>
+                    )}
+                    <button onClick={() => setDeploySel([])}
+                      style={{ padding: '6px 11px', borderRadius: 8, border: `1px solid ${C.border}`, background: '#fff', cursor: 'pointer', fontWeight: 700, fontSize: '.8rem', color: C.slate }}>Annuler</button>
+                    <button onClick={doMergePair} disabled={deploySel.length !== 2 || pairMerging}
+                      style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 14px', borderRadius: 8, border: 'none', background: deploySel.length === 2 ? C.blue : '#93c5fd', cursor: deploySel.length === 2 && !pairMerging ? 'pointer' : 'default', fontWeight: 800, fontSize: '.82rem', color: '#fff' }}>
+                      {pairMerging ? <RefreshCw size={13} className="spin" /> : <ArrowLeftRight size={13} />} Fusionner
+                    </button>
+                  </div>
+                );
+              })()}
 
               {/* Tableau */}
               {deployLoading ? (
@@ -1273,78 +1942,225 @@ const ParcInformatique: React.FC = () => {
                   <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '.84rem' }}>
                     <thead>
                       <tr style={{ background: '#f8fafc', borderBottom: `2px solid ${C.border}` }}>
-                        {['Date', 'Bénéficiaire', 'Direction / Service', 'UC fourni', 'Modèle UC', 'UC récupéré', 'Écran(s)', 'Installateur', 'Type', 'Fichier(s)'].map(h => (
-                          <th key={h} style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, color: C.slate, fontSize: '.78rem', textTransform: 'uppercase', letterSpacing: '.04em', whiteSpace: 'nowrap' }}>{h}</th>
-                        ))}
+                        <th title="Sélection pour fusion manuelle" style={{ padding: '10px 8px 10px 12px', width: 28 }} />
+                          {([
+                          ['Date', 'date_deploiement'], ['Src', 'source'], ['Équipement', 'equip_cat'], ['Lieu parc', 'lieu'],
+                          ['Bénéficiaire', 'beneficiaire'], ['Direction / Service', 'direction'], ['UC fourni', 'uc_nouveau_num'],
+                          ['Modèle UC', 'uc_nouveau_modele'],
+                          ['Installateur', 'installateur'], ['Type', 'type_operation'], ['Fichier(s)', null],
+                        ] as [string, string | null][]).map(([h, sk]) => {
+                          const active = sk && deploySort === sk;
+                          return (
+                            <th key={h} onClick={() => {
+                              if (!sk) return;
+                              if (deploySort === sk) setDeploySortDir(d => d === 'asc' ? 'desc' : 'asc');
+                              else { setDeploySort(sk); setDeploySortDir('asc'); }
+                              setDeployStart(0);
+                            }}
+                              style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, color: active ? C.blue : C.slate, fontSize: '.78rem', textTransform: 'uppercase', letterSpacing: '.04em', whiteSpace: 'nowrap', cursor: sk ? 'pointer' : 'default', userSelect: 'none' }}>
+                              {h}
+                              {sk && <span style={{ marginLeft: 4, opacity: active ? 1 : 0.3 }}>{active ? (deploySortDir === 'asc' ? '↑' : '↓') : '↕'}</span>}
+                            </th>
+                          );
+                        })}
                       </tr>
                     </thead>
                     <tbody>
                       {deploys.length === 0 ? (
-                        <tr><td colSpan={10} style={{ padding: 32, textAlign: 'center', color: C.slate }}>Aucune fiche</td></tr>
-                      ) : deploys.map((row: any) => (
-                        <tr key={row.id} style={{ borderTop: `1px solid ${C.border}` }}
-                          onMouseEnter={e => (e.currentTarget.style.background = '#f8fafc')}
-                          onMouseLeave={e => (e.currentTarget.style.background = '')}>
+                        <tr><td colSpan={12} style={{ padding: 32, textAlign: 'center', color: C.slate }}>Aucune fiche</td></tr>
+                      ) : deploys.map((row: any) => {
+                        const selIdx = deploySel.indexOf(row.id);
+                        return (
+                        <tr key={row.id} style={{ borderTop: `1px solid ${C.border}`, cursor: 'pointer', background: selIdx >= 0 ? '#eff6ff' : undefined }}
+                          onMouseEnter={e => { if (selIdx < 0) e.currentTarget.style.background = '#f8fafc'; }}
+                          onMouseLeave={e => { if (selIdx < 0) e.currentTarget.style.background = ''; }}
+                          onClick={() => setDeployEditRow(row)}>
+                          <td style={{ padding: '8px 8px 8px 12px', textAlign: 'center' }} onClick={e => { e.stopPropagation(); toggleDeploySel(row.id); }}>
+                            <span style={{ position: 'relative', display: 'inline-flex' }}>
+                              <input type="checkbox" readOnly checked={selIdx >= 0} title="Sélectionner pour fusion" style={{ accentColor: C.blue, width: 15, height: 15, cursor: 'pointer' }} />
+                              {selIdx >= 0 && <span style={{ position: 'absolute', top: -8, right: -10, background: C.blue, color: '#fff', borderRadius: 8, fontSize: '.6rem', fontWeight: 800, padding: '0 4px' }}>{selIdx + 1}</span>}
+                            </span>
+                          </td>
                           <td style={{ padding: '8px 12px', whiteSpace: 'nowrap', fontFamily: 'monospace', fontSize: '.8rem' }}>{fmtD(row.date_deploiement)}</td>
-                          <td style={{ padding: '8px 12px', fontWeight: 600 }}>{row.beneficiaire || '—'}</td>
+                          <td style={{ padding: '8px 12px' }}>{sourceBadge(row.source)}</td>
+                          <td style={{ padding: '8px 12px', whiteSpace: 'nowrap' }}>
+                            {(() => { const e = equipType(row); return e.label !== '—'
+                              ? <span style={{ background: e.bg, color: e.color, padding: '2px 9px', borderRadius: 10, fontSize: '.76rem', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                                  {(() => {
+                                    const ICON_MAP: Record<string, React.ReactNode> = {
+                                      Monitor: <Monitor size={14} />,
+                                      Laptop: <Laptop size={14} />,
+                                      Printer: <Printer size={14} />,
+                                      HardDrive: <HardDrive size={14} />,
+                                      Tablet: <Tablet size={14} />,
+                                      Projector: <Projector size={14} />,
+                                    };
+                                    return e.icon && ICON_MAP[e.icon]
+                                      ? <span style={{ display: 'inline-flex', marginRight: 3 }}>{ICON_MAP[e.icon]}</span>
+                                      : null;
+                                  })()}{e.label}
+                                </span>
+                              : <span style={{ color: '#cbd5e1' }}>—</span>; })()}
+                          </td>
+                          <td style={{ padding: '8px 12px', fontSize: '.78rem', maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {(() => {
+                              const lieu = rowLieu(row);
+                              const statut = rowStatutParc(row);
+                              // Périph : afficher nom + serial depuis autre_designation
+                              if (row.materiel_type === 'PERIPH' && row.autre_designation) {
+                                const pd = periphDisplay(row.autre_designation);
+                                return (
+                                  <div>
+                                    <div style={{ fontFamily: 'monospace', fontWeight: 600, color: C.text, fontSize: '.77rem' }}>{pd.serial}</div>
+                                    {pd.nom && <div style={{ color: C.slate, fontSize: '.72rem' }}>{pd.nom}</div>}
+                                    {lieu && <div style={{ color: C.slate, fontSize: '.72rem', display: 'flex', alignItems: 'center', gap: 3 }}><MapPin size={10} />{lieu}</div>}
+                                    {statut && <span style={{ background: '#f1f5f9', color: C.slate, borderRadius: 5, padding: '0 5px', fontSize: '.7rem', fontWeight: 600 }}>{statut}</span>}
+                                  </div>
+                                );
+                              }
+                              return lieu
+                                ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, color: C.slate }}><MapPin size={11} />{lieu}{statut && <span style={{ marginLeft: 4, background: '#f1f5f9', borderRadius: 5, padding: '0 5px', fontSize: '.7rem', fontWeight: 600 }}>{statut}</span>}</span>
+                                : <span style={{ color: '#cbd5e1' }}>—</span>;
+                            })()}
+                          </td>
+                          <td style={{ padding: '8px 12px', fontWeight: 600 }}>
+                            {(() => {
+                              const ad = row.beneficiaire ? adMap[normName(row.beneficiaire)] : null;
+                              if (ad && ad.found) {
+                                return (
+                                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                                    <span title={`Trouvé dans l'AD${ad.email ? ` · ${ad.email}` : ''}${ad.service ? ` · ${ad.service}` : ''}`}>
+                                      <ShieldCheck size={13} color="#7c3aed" />
+                                    </span>
+                                    <span>{ad.display_name || row.beneficiaire}</span>
+                                    {ad.display_name && normName(ad.display_name) !== normName(row.beneficiaire) && (
+                                      <span style={{ color: '#cbd5e1', fontWeight: 400, fontSize: '.74rem' }} title={`Saisi : ${row.beneficiaire}`}>({row.beneficiaire})</span>
+                                    )}
+                                  </span>
+                                );
+                              }
+                              return row.beneficiaire || '—';
+                            })()}
+                            {row.site && <div style={{ color: '#94a3b8', fontSize: '.74rem', marginTop: 2 }}>{row.site}</div>}
+                          </td>
                           <td style={{ padding: '8px 12px', fontSize: '.8rem' }}>
                             {row.direction && <span style={{ fontWeight: 700, color: C.text }}>{row.direction}</span>}
                             {row.service && <span style={{ color: C.slate }}> / {row.service}</span>}
                             {!row.direction && !row.service && '—'}
                           </td>
                           <td style={{ padding: '8px 12px', whiteSpace: 'nowrap' }}>
-                            {row.uc_nouveau_num ? (
-                              <span style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                                <span style={{ fontWeight: 700, fontFamily: 'monospace' }}>{row.uc_nouveau_num}</span>
-                                {matchBadge(row)}
-                              </span>
-                            ) : '—'}
+                            {row.equip_cat === 'ecran'
+                              ? (row.ecran1_nouveau_num || row.ecran1_nouveau_serie
+                                  ? <><div style={{ fontWeight: 700, fontFamily: 'monospace' }}>{row.ecran1_nouveau_num || row.ecran1_nouveau_serie}</div>{row.ecran1_recupere_num && <div style={{ color: '#94a3b8', fontSize: '.74rem', fontFamily: 'monospace' }}>← {row.ecran1_recupere_num}</div>}</>
+                                  : '—')
+                              : (row.uc_nouveau_num || row.uc_recupere_num
+                                  ? <><div style={{ fontWeight: 700, fontFamily: 'monospace' }}>{row.uc_nouveau_num || '—'}</div>{row.uc_recupere_num && <div style={{ color: '#94a3b8', fontSize: '.74rem', fontFamily: 'monospace', marginTop: 2 }}>← {row.uc_recupere_num}</div>}{matchBadge(row)}</>
+                                  : '—')}
                           </td>
-                          <td style={{ padding: '8px 12px', fontSize: '.8rem', color: C.slate }}>{row.uc_nouveau_modele || '—'}</td>
-                          <td style={{ padding: '8px 12px', fontFamily: 'monospace', fontSize: '.8rem' }}>{row.uc_recupere_num || '—'}</td>
-                          <td style={{ padding: '8px 12px', textAlign: 'center' }}>
-                            {(row.ecran1_nouveau_num || row.ecran1_nouveau_serie || row.ecran2_nouveau_serie)
-                              ? <Monitor size={14} color={C.blue} title="Écran(s) inclus" />
-                              : <span style={{ color: '#cbd5e1' }}>—</span>}
+                          <td style={{ padding: '8px 12px', fontSize: '.8rem', color: C.slate }}>
+                            {row.equip_cat === 'ecran'
+                              ? (row.ecran1_nouveau_serie && row.ecran1_nouveau_num ? row.ecran1_nouveau_serie : row.uc_nouveau_modele || '—')
+                              : (row.uc_nouveau_modele || '—')}
                           </td>
-                          <td style={{ padding: '8px 12px', fontSize: '.8rem' }}>{row.installateur || '—'}</td>
+                          <td style={{ padding: '8px 12px', fontSize: '.8rem' }}>
+                            {row.installateur
+                              ? (() => {
+                                  const parts = row.installateur.split(/[\s]+/).filter(Boolean);
+                                  const initials = parts.map((p: string) => p[0].toUpperCase()).slice(0, 3).join('');
+                                  const bgColors = ['#2563eb20', '#7c3aed20', '#05966920', '#d9770620', '#0891b220', '#dc262620'];
+                                  const ci = parts.reduce((a: number, p: string) => a + p.charCodeAt(0), 0) % bgColors.length;
+                                  return <span title={row.installateur} style={{ background: bgColors[ci], color: '#1e293b', fontWeight: 800, fontSize: '.72rem', borderRadius: 8, padding: '2px 10px', display: 'inline-block', letterSpacing: '.04em', cursor: 'default' }}>{initials}</span>;
+                                })()
+                              : '—'}
+                          </td>
                           <td style={{ padding: '8px 12px', whiteSpace: 'nowrap' }}>{typeBadge(row.type_operation)}</td>
-                          <td style={{ padding: '8px 12px', whiteSpace: 'nowrap' }}>
-                            {row.fichier && (
-                              <a href={`/api/deploiements/file?path=${encodeURIComponent(row.fichier)}`} target="_blank" rel="noreferrer"
-                                style={{ color: C.blue, display: 'inline-flex', alignItems: 'center', gap: 4 }} title={row.fichier}>
-                                <FileText size={15} />
-                              </a>
-                            )}
-                            {row.fichier_lie && (
-                              <a href={`/api/deploiements/file?path=${encodeURIComponent(row.fichier_lie)}`} target="_blank" rel="noreferrer"
-                                style={{ color: C.slate, display: 'inline-flex', alignItems: 'center', gap: 4, marginLeft: 6 }} title={row.fichier_lie}>
-                                <FileText size={13} />
-                              </a>
-                            )}
-                            {!row.fichier && <span style={{ color: '#cbd5e1' }}>—</span>}
+                          <td style={{ padding: '8px 12px', whiteSpace: 'nowrap' }} onClick={e => e.stopPropagation()}>
+                            {(() => {
+                              // Document GLPI (prioritaire sur le chemin NAS quand disponible)
+                              const glpiDocId: number | null = row.glpi_document_id || null;
+                              const glpiPreviewUrl  = glpiDocId ? `/api/parc/file/document/${glpiDocId}?token=${token || ''}` : null;
+                              const glpiFilename    = glpiDocId ? (row.fichier ? (row.fichier.split(/[/\\]/).pop() || 'document') : `document-${glpiDocId}`) : null;
+                              // Fichier NAS (utilisé uniquement si pas de doc GLPI)
+                              const nasFile   = !glpiDocId && row.fichier ? row.fichier : null;
+                              const nasPreviewPath = nasFile;
+                              const hasDoc = !!(glpiDocId || nasFile || row.fichier_lie);
+                              return (
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                  {glpiDocId ? (<>
+                                    {/* Document GLPI — badge distinctif + œil + téléchargement */}
+                                    <span title="Document GLPI" style={{ background: '#ede9fe', color: '#7c3aed', borderRadius: 4, padding: '0 4px', fontSize: '.68rem', fontWeight: 700, letterSpacing: '.02em' }}>GLPI</span>
+                                    <button onClick={() => setDocViewer({ path: '', filename: glpiFilename || 'document', glpiDocId })}
+                                      title={`Prévisualiser : ${glpiFilename}`} style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.blue, display: 'inline-flex', padding: 0 }}>
+                                      <Eye size={15} />
+                                    </button>
+                                    <a href={glpiPreviewUrl!} download={glpiFilename || true} title={`Télécharger : ${glpiFilename}`}
+                                      style={{ color: C.blue, display: 'inline-flex', padding: 0 }}>
+                                      <Download size={14} />
+                                    </a>
+                                  </>) : nasFile ? (<>
+                                    <button onClick={() => setDocViewer({ path: nasFile, filename: nasFile.split(/[/\\]/).pop() || nasFile })}
+                                      title={`Prévisualiser : ${nasFile}`} style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.blue, display: 'inline-flex', padding: 0 }}>
+                                      <Eye size={15} />
+                                    </button>
+                                    <a href={`/api/deploiements/file?path=${encodeURIComponent(nasFile)}&token=${token || ''}`}
+                                      download title={`Télécharger : ${nasFile}`}
+                                      style={{ color: C.blue, display: 'inline-flex', padding: 0 }}>
+                                      <Download size={14} />
+                                    </a>
+                                  </>) : null}
+                                  {row.fichier_lie && (<>
+                                    <button onClick={() => setDocViewer({ path: row.fichier_lie, filename: row.fichier_lie.split(/[/\\]/).pop() || row.fichier_lie })}
+                                      title={`Prévisualiser lié : ${row.fichier_lie}`} style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.slate, display: 'inline-flex', padding: 0 }}>
+                                      <Eye size={13} />
+                                    </button>
+                                    <a href={`/api/deploiements/file?path=${encodeURIComponent(row.fichier_lie)}&token=${token || ''}`}
+                                      download title={`Télécharger lié : ${row.fichier_lie}`}
+                                      style={{ color: C.slate, display: 'inline-flex', padding: 0 }}>
+                                      <Download size={12} />
+                                    </a>
+                                  </>)}
+                                  {!hasDoc && <span style={{ color: '#cbd5e1' }}>—</span>}
+                                  <button onClick={() => setDeployEditRow(row)} title="Modifier ce déploiement"
+                                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.slate, marginLeft: 2, display: 'inline-flex', padding: 0 }}>
+                                    <Edit2 size={13} />
+                                  </button>
+                                </div>
+                              );
+                            })()}
                           </td>
                         </tr>
-                      ))}
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
               )}
 
-              {/* Pagination */}
-              {deployTotal > deployLimit && (
-                <div style={{ display: 'flex', justifyContent: 'center', gap: 8, marginTop: 14 }}>
-                  <button disabled={deployStart === 0} onClick={() => setDeployStart(Math.max(0, deployStart - deployLimit))}
-                    style={{ padding: '6px 16px', borderRadius: 8, border: `1px solid ${C.border}`, background: C.card, cursor: deployStart === 0 ? 'default' : 'pointer', opacity: deployStart === 0 ? 0.4 : 1, fontSize: '.85rem', fontWeight: 600 }}>
-                    ← Préc.
-                  </button>
-                  <span style={{ lineHeight: '34px', fontSize: '.82rem', color: C.slate }}>
-                    {deployStart + 1}–{Math.min(deployStart + deployLimit, deployTotal)} / {deployTotal}
-                  </span>
-                  <button disabled={deployStart + deployLimit >= deployTotal} onClick={() => setDeployStart(deployStart + deployLimit)}
-                    style={{ padding: '6px 16px', borderRadius: 8, border: `1px solid ${C.border}`, background: C.card, cursor: deployStart + deployLimit >= deployTotal ? 'default' : 'pointer', opacity: deployStart + deployLimit >= deployTotal ? 0.4 : 1, fontSize: '.85rem', fontWeight: 600 }}>
-                    Suiv. →
-                  </button>
+              {/* Pagination + nombre d'items par page */}
+              {deployTotal > 0 && (
+                <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 14, marginTop: 14, flexWrap: 'wrap' }}>
+                  <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '.82rem', color: C.slate }}>
+                    Afficher
+                    <select value={deployLimit} onChange={e => { setDeployLimit(parseInt(e.target.value, 10)); setDeployStart(0); }}
+                      style={{ border: `1px solid ${C.border}`, borderRadius: 8, padding: '5px 8px', fontSize: '.82rem', fontWeight: 600 }}>
+                      {[25, 50, 100, 200, 500].map(n => <option key={n} value={n}>{n}</option>)}
+                      <option value={5000}>Tout</option>
+                    </select>
+                    par page
+                  </label>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <button disabled={deployStart === 0} onClick={() => setDeployStart(Math.max(0, deployStart - deployLimit))}
+                      style={{ padding: '6px 16px', borderRadius: 8, border: `1px solid ${C.border}`, background: C.card, cursor: deployStart === 0 ? 'default' : 'pointer', opacity: deployStart === 0 ? 0.4 : 1, fontSize: '.85rem', fontWeight: 600 }}>
+                      ← Préc.
+                    </button>
+                    <span style={{ lineHeight: '34px', fontSize: '.82rem', color: C.slate }}>
+                      {deployStart + 1}–{Math.min(deployStart + deployLimit, deployTotal)} / {deployTotal}
+                    </span>
+                    <button disabled={deployStart + deployLimit >= deployTotal} onClick={() => setDeployStart(deployStart + deployLimit)}
+                      style={{ padding: '6px 16px', borderRadius: 8, border: `1px solid ${C.border}`, background: C.card, cursor: deployStart + deployLimit >= deployTotal ? 'default' : 'pointer', opacity: deployStart + deployLimit >= deployTotal ? 0.4 : 1, fontSize: '.85rem', fontWeight: 600 }}>
+                      Suiv. →
+                    </button>
+                  </div>
                 </div>
               )}
             </div>
@@ -1352,6 +2168,221 @@ const ParcInformatique: React.FC = () => {
         })()}
 
       </div>
+
+      {/* ─── MODAL ÉDITION DÉPLOIEMENT ─── */}
+      {deployEditRow && (
+        <DeployEditModal
+          row={deployEditRow}
+          token={token}
+          onClose={() => setDeployEditRow(null)}
+          onSaved={(updated) => {
+            setDeploys(rows => rows.map(r => r.id === updated.id ? updated : r));
+            setDeployEditRow(null);
+          }}
+        />
+      )}
+
+      {/* ─── MODAL FUSION INSTALLATEURS ─── */}
+      {instOpen && (
+        <div onClick={() => setInstOpen(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.5)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+          <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: 16, width: 'min(560px,96vw)', maxHeight: '88vh', display: 'flex', flexDirection: 'column', overflow: 'hidden', boxShadow: '0 24px 60px rgba(0,0,0,.3)' }}>
+            <div style={{ padding: '16px 20px', borderBottom: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', gap: 10 }}>
+              <Users size={18} color="#d97706" />
+              <div style={{ flex: 1 }}>
+                <div style={{ fontWeight: 800, color: C.text }}>Fusionner les installateurs</div>
+                <div style={{ fontSize: '.78rem', color: C.slate }}>
+                  {instKeep ? <>On conserve <b style={{ color: '#d97706' }}>{instKeep}</b> — cochez les graphies à fusionner dedans.</> : 'Cliquez d\'abord sur l\'installateur à conserver.'}
+                </div>
+              </div>
+              <button onClick={() => setInstOpen(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.slate }}><X size={18} /></button>
+            </div>
+
+            {/* Conservé */}
+            {instKeep && (
+              <div style={{ padding: '10px 20px', borderBottom: `1px solid ${C.border}`, background: '#fffbeb', display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ fontSize: '.78rem', color: C.slate }}>Conservé :</span>
+                <span style={{ background: '#fef3c7', color: '#b45309', padding: '2px 10px', borderRadius: 8, fontWeight: 700, fontSize: '.84rem' }}>{instKeep}</span>
+                <button onClick={() => { setInstKeep(null); setInstSel(new Set()); }} style={{ marginLeft: 'auto', background: 'none', border: `1px solid ${C.border}`, borderRadius: 6, padding: '3px 9px', cursor: 'pointer', fontSize: '.78rem', color: C.slate }}>Changer</button>
+              </div>
+            )}
+
+            {/* Recherche */}
+            <div style={{ padding: '10px 20px 0' }}>
+              <input value={instQ} onChange={e => setInstQ(e.target.value)} placeholder="Filtrer…"
+                style={{ width: '100%', boxSizing: 'border-box', border: `1px solid ${C.border}`, borderRadius: 8, padding: '7px 11px', fontSize: '.86rem' }} />
+            </div>
+
+            {/* Liste */}
+            <div style={{ overflowY: 'auto', padding: '10px 12px', flex: 1 }}>
+              {deployFacets.installateurs
+                .filter(i => !instQ || i.installateur.toLowerCase().includes(instQ.toLowerCase()))
+                .map(i => {
+                  const name = i.installateur;
+                  const editing = instEdit && instEdit.from === name;
+                  const isKeep = instKeep === name;
+                  const selected = instSel.has(name);
+                  const onClick = () => {
+                    if (editing) return;
+                    if (!instKeep) { setInstKeep(name); return; }
+                    if (isKeep) return;
+                    setInstSel(s => { const n = new Set(s); if (n.has(name)) n.delete(name); else n.add(name); return n; });
+                  };
+                  return (
+                    <div key={name} onClick={onClick} style={{
+                      display: 'flex', alignItems: 'center', gap: 10, padding: '7px 10px', borderRadius: 8, cursor: editing ? 'default' : isKeep ? 'default' : 'pointer',
+                      background: editing ? '#ecfeff' : isKeep ? '#fef3c7' : selected ? '#eff6ff' : 'transparent',
+                      border: `1px solid ${editing ? '#a5f3fc' : isKeep ? '#fcd34d' : selected ? '#bfdbfe' : 'transparent'}`, marginBottom: 3,
+                    }}>
+                      {editing ? (
+                        <>
+                          <input autoFocus value={instEdit!.value} onChange={e => setInstEdit({ from: name, value: e.target.value })}
+                            onKeyDown={e => { if (e.key === 'Enter') doRenameInstallateur(); if (e.key === 'Escape') setInstEdit(null); }}
+                            onClick={e => e.stopPropagation()}
+                            style={{ flex: 1, border: `1px solid ${C.border}`, borderRadius: 6, padding: '5px 9px', fontSize: '.86rem' }} />
+                          <button onClick={e => { e.stopPropagation(); doRenameInstallateur(); }} disabled={instSaving}
+                            style={{ background: '#0891b2', border: 'none', borderRadius: 6, padding: '5px 11px', cursor: 'pointer', color: '#fff', fontWeight: 700, fontSize: '.8rem', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                            {instSaving ? <RefreshCw size={12} className="spin" /> : <CheckCircle2 size={13} />} OK
+                          </button>
+                          <button onClick={e => { e.stopPropagation(); setInstEdit(null); }} style={{ background: 'none', border: `1px solid ${C.border}`, borderRadius: 6, padding: '5px 9px', cursor: 'pointer', color: C.slate, fontSize: '.8rem' }}>Annuler</button>
+                        </>
+                      ) : (
+                        <>
+                          {instKeep && !isKeep && (
+                            <input type="checkbox" readOnly checked={selected} style={{ accentColor: C.blue, width: 15, height: 15 }} />
+                          )}
+                          <span style={{ flex: 1, fontWeight: isKeep ? 800 : 600, color: isKeep ? '#b45309' : C.text, fontSize: '.88rem' }}>
+                            {name}{isKeep && ' ✓ conservé'}
+                          </span>
+                          <span style={{ fontSize: '.76rem', color: C.slate, background: '#f1f5f9', borderRadius: 12, padding: '1px 9px', fontWeight: 700 }}>{i.n}</span>
+                          {!instKeep && (
+                            <button onClick={e => { e.stopPropagation(); setInstEdit(editing ? null : { from: name, value: name }); }}
+                              title="Renommer" style={{ background: 'none', border: `1px solid ${C.border}`, borderRadius: 6, padding: '4px 8px', cursor: 'pointer', color: C.slate, display: 'inline-flex', alignItems: 'center' }}>
+                              <Edit2 size={13} />
+                            </button>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  );
+                })}
+            </div>
+
+            {/* Pied */}
+            <div style={{ padding: '14px 20px', borderTop: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', gap: 10 }}>
+              <span style={{ fontSize: '.8rem', color: C.slate }}>
+                {instKeep && instSel.size > 0 ? `${instSel.size} graphie(s) → «${instKeep}»` : 'Sélection vide'}
+              </span>
+              <div style={{ flex: 1 }} />
+              <button onClick={() => setInstOpen(false)} style={{ background: '#fff', border: `1px solid ${C.border}`, borderRadius: 8, padding: '8px 14px', cursor: 'pointer', fontWeight: 700, fontSize: '.84rem', color: C.slate }}>Annuler</button>
+              <button onClick={doMergeInstallateurs} disabled={!instKeep || instSel.size === 0 || instMerging}
+                style={{ background: (!instKeep || instSel.size === 0) ? '#fcd9a5' : '#d97706', border: 'none', borderRadius: 8, padding: '8px 16px', cursor: (!instKeep || instSel.size === 0 || instMerging) ? 'default' : 'pointer', fontWeight: 800, fontSize: '.84rem', color: '#fff', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                {instMerging ? <RefreshCw size={14} className="spin" /> : <Users size={14} />} Fusionner
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ─── MODAL LISTE ORDINATEURS (doublons / à renouveler) ─── */}
+      {pcModal && (
+        <div onClick={() => setPcModal(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.5)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+          <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: 16, width: 'min(900px,96vw)', maxHeight: '88vh', display: 'flex', flexDirection: 'column', overflow: 'hidden', boxShadow: '0 24px 60px rgba(0,0,0,.3)' }}>
+            <div style={{ padding: '16px 20px', borderBottom: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', gap: 10 }}>
+              {pcModal.kind === 'dup' ? <AlertTriangle size={18} color={C.amber} /> : <RefreshCw size={18} color={C.amber} />}
+              <div style={{ flex: 1, fontWeight: 800, color: C.text }}>{pcModal.title} <span style={{ color: C.slate, fontWeight: 600 }}>· {pcModalRows.length}</span></div>
+              <button onClick={() => setPcModal(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.slate }}><X size={18} /></button>
+            </div>
+            <div style={{ overflow: 'auto', flex: 1 }}>
+              {pcModalLoading ? (
+                <div style={{ padding: 40, textAlign: 'center', color: C.slate }}><RefreshCw size={16} className="spin" /> Chargement…</div>
+              ) : pcModalRows.length === 0 ? (
+                <div style={{ padding: 40, textAlign: 'center', color: C.slate }}>Aucun ordinateur concerné.</div>
+              ) : (
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '.84rem' }}>
+                  <thead>
+                    <tr style={{ background: '#f8fafc', position: 'sticky', top: 0 }}>
+                      {['Nom', 'N° série', 'Lieu', 'Usager', 'Statut', 'Âge'].map(h => (
+                        <th key={h} style={{ padding: '9px 14px', textAlign: 'left', fontWeight: 700, fontSize: '.74rem', textTransform: 'uppercase', color: C.slate, whiteSpace: 'nowrap' }}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {pcModalRows.map((r, i) => (
+                      <tr key={`${r.id}-${i}`} onClick={() => openDetail(r.id, 'ordinateurs')}
+                        style={{ borderTop: `1px solid ${C.border}`, cursor: 'pointer' }}
+                        onMouseEnter={e => (e.currentTarget.style.background = '#f8fafc')} onMouseLeave={e => (e.currentTarget.style.background = '')}>
+                        <td style={{ padding: '8px 14px', fontWeight: 600, color: C.text }}>{v(r.name)}</td>
+                        <td style={{ padding: '8px 14px', fontFamily: 'monospace', fontSize: '.8rem', color: pcModal.kind === 'dup' ? C.red : C.slate }}>{v(r.serial)}</td>
+                        <td style={{ padding: '8px 14px', color: C.slate }}>{v(r.location)}</td>
+                        <td style={{ padding: '8px 14px', color: C.slate }}>{v(r.contact || r.user)}</td>
+                        <td style={{ padding: '8px 14px' }}>{r.state ? <span style={{ background: '#eff6ff', color: C.blue, padding: '2px 8px', borderRadius: 6, fontSize: '.76rem', fontWeight: 600 }}>{r.state}</span> : v(null)}</td>
+                        <td style={{ padding: '8px 14px', color: C.slate }}>{r.age_years != null ? `${r.age_years} an${r.age_years >= 2 ? 's' : ''}` : v(null)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ─── MODAL TYPES DE DÉPLOIEMENT ─── */}
+      {typesOpen && (
+        <div onClick={() => { setTypesOpen(false); setTypeEdit(null); }} style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.5)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+          <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: 16, width: 'min(560px,96vw)', maxHeight: '88vh', display: 'flex', flexDirection: 'column', overflow: 'hidden', boxShadow: '0 24px 60px rgba(0,0,0,.3)' }}>
+            <div style={{ padding: '16px 20px', borderBottom: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', gap: 10 }}>
+              <Tag size={18} color="#0891b2" />
+              <div style={{ flex: 1 }}>
+                <div style={{ fontWeight: 800, color: C.text }}>Types de déploiement</div>
+                <div style={{ fontSize: '.78rem', color: C.slate }}>Renommez un type ; si le nouveau nom existe déjà, les catégories fusionnent.</div>
+              </div>
+              <button onClick={() => { setTypesOpen(false); setTypeEdit(null); }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.slate }}><X size={18} /></button>
+            </div>
+            <div style={{ overflowY: 'auto', padding: '10px 12px', flex: 1 }}>
+              {deployFacets.types && deployFacets.types.length > 0 ? deployFacets.types.map(t => {
+                const editing = typeEdit && typeEdit.from === t.type_operation;
+                const willMerge = editing && deployFacets.types.some(x => x.type_operation !== t.type_operation && x.type_operation === typeEdit!.value.trim());
+                return (
+                  <div key={t.type_operation} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 10px', borderRadius: 8, marginBottom: 3, background: editing ? '#ecfeff' : 'transparent', border: `1px solid ${editing ? '#a5f3fc' : 'transparent'}` }}>
+                    {editing ? (
+                      <>
+                        <input autoFocus value={typeEdit!.value} onChange={e => setTypeEdit({ from: t.type_operation, value: e.target.value })}
+                          onKeyDown={e => { if (e.key === 'Enter') doRenameType(); if (e.key === 'Escape') setTypeEdit(null); }}
+                          style={{ flex: 1, border: `1px solid ${C.border}`, borderRadius: 6, padding: '5px 9px', fontSize: '.86rem' }} />
+                        {willMerge && <span title="Fusionnera avec la catégorie existante" style={{ background: '#fef3c7', color: '#b45309', padding: '1px 7px', borderRadius: 6, fontSize: '.7rem', fontWeight: 700 }}>fusion</span>}
+                        <button onClick={doRenameType} disabled={typeSaving} style={{ background: '#0891b2', border: 'none', borderRadius: 6, padding: '5px 11px', cursor: 'pointer', color: '#fff', fontWeight: 700, fontSize: '.8rem', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                          {typeSaving ? <RefreshCw size={12} className="spin" /> : <CheckCircle2 size={13} />} OK
+                        </button>
+                        <button onClick={() => setTypeEdit(null)} style={{ background: 'none', border: `1px solid ${C.border}`, borderRadius: 6, padding: '5px 9px', cursor: 'pointer', color: C.slate, fontSize: '.8rem' }}>Annuler</button>
+                      </>
+                    ) : (
+                      <>
+                        <span style={{ flex: 1, fontWeight: 600, color: C.text, fontSize: '.88rem' }}>{t.type_operation}</span>
+                        <span style={{ fontSize: '.76rem', color: C.slate, background: '#f1f5f9', borderRadius: 12, padding: '1px 9px', fontWeight: 700 }}>{t.n}</span>
+                        <button onClick={() => setTypeEdit({ from: t.type_operation, value: t.type_operation })}
+                          title="Renommer" style={{ background: 'none', border: `1px solid ${C.border}`, borderRadius: 6, padding: '4px 8px', cursor: 'pointer', color: C.slate, display: 'inline-flex', alignItems: 'center' }}>
+                          <Edit2 size={13} />
+                        </button>
+                      </>
+                    )}
+                  </div>
+                );
+              }) : <div style={{ padding: 24, textAlign: 'center', color: C.slate }}>Aucun type</div>}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ─── VISIONNEUSE DE DOCUMENT ─── */}
+      {docViewer && (
+        <DocViewer
+          filePath={docViewer.path}
+          filename={docViewer.filename}
+          token={token}
+          onClose={() => setDocViewer(null)}
+        />
+      )}
 
       {/* ─── MODAL DÉTAIL ─── */}
       {detail && (
@@ -1483,10 +2514,12 @@ const StatCard: React.FC<{ icon: any; label: string; value: number; color: strin
   </div>
 );
 
-const Anomaly: React.FC<{ label: string; n: number }> = ({ label, n }) => (
-  <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 10, border: `1px solid ${n > 0 ? '#fed7aa' : C.border}`, background: n > 0 ? '#fff7ed' : '#f8fafc' }}>
+const Anomaly: React.FC<{ label: string; n: number; onClick?: () => void }> = ({ label, n, onClick }) => (
+  <div onClick={onClick} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 10, border: `1px solid ${n > 0 ? '#fed7aa' : C.border}`, background: n > 0 ? '#fff7ed' : '#f8fafc', cursor: onClick && n > 0 ? 'pointer' : 'default' }}
+    onMouseEnter={e => { if (onClick && n > 0) e.currentTarget.style.background = '#ffedd5'; }}
+    onMouseLeave={e => { if (onClick && n > 0) e.currentTarget.style.background = '#fff7ed'; }}>
     <div style={{ fontSize: '1.4rem', fontWeight: 900, color: n > 0 ? C.amber : C.green, minWidth: 34 }}>{n}</div>
-    <div style={{ fontSize: '.78rem', color: C.slate, fontWeight: 600, lineHeight: 1.2 }}>{label}</div>
+    <div style={{ fontSize: '.78rem', color: C.slate, fontWeight: 600, lineHeight: 1.2, display: 'flex', alignItems: 'center', gap: 4 }}>{label}{onClick && n > 0 && <ChevronRight size={13} color="#cbd5e1" />}</div>
   </div>
 );
 
@@ -1753,6 +2786,333 @@ const DetailModal: React.FC<{ detail: any; token: string | null; onClose: () => 
       </div>
     </div>
 
+  );
+};
+
+// ═══════════════════════════════════════════════════════════════
+// MODAL ÉDITION D'UN DÉPLOIEMENT
+// ═══════════════════════════════════════════════════════════════
+const FIELD_DEFS: { key: string; label: string; type?: string; wide?: boolean }[] = [
+  { key: 'date_deploiement', label: 'Date de déploiement', type: 'date' },
+  { key: 'beneficiaire',     label: 'Bénéficiaire', wide: true },
+  { key: 'direction',        label: 'Direction' },
+  { key: 'service',          label: 'Service' },
+  { key: 'installateur',     label: 'Installateur' },
+  { key: 'type_operation',   label: "Type d'intervention", wide: true },
+  { key: 'uc_nouveau_num',   label: 'UC / PC fourni' },
+  { key: 'uc_nouveau_serie', label: 'N° série (nouveau)' },
+  { key: 'uc_nouveau_modele',label: 'Modèle (nouveau)' },
+  { key: 'uc_recupere_num',  label: 'UC récupéré' },
+  { key: 'uc_recupere_serie',label: 'N° série (récupéré)' },
+  { key: 'ecran1_nouveau_num',label: 'Écran 1 (nouveau)' },
+  { key: 'ecran1_nouveau_serie',label: 'S/N Écran 1' },
+  { key: 'ecran1_recupere_num',label: 'Écran 1 (récupéré)' },
+  { key: 'ecran2_nouveau_serie',label: 'S/N Écran 2' },
+  { key: 'materiel_type',    label: 'Type matériel' },
+  { key: 'annee_materiel',   label: 'Année matériel', type: 'number' },
+  { key: 'neuf_reco',        label: 'Neuf / Reconditionné' },
+  { key: 'quantite',         label: 'Quantité', type: 'number' },
+  { key: 'fichier',          label: 'Fichier (chemin)', wide: true },
+  { key: 'fichier_lie',      label: 'Fichier lié (chemin)', wide: true },
+  { key: 'autre_designation',label: 'Remarque / Désignation', wide: true },
+];
+
+const DeployEditModal: React.FC<{ row: any; token: string | null; onClose: () => void; onSaved: (r: any) => void }> = ({ row, token, onClose, onSaved }) => {
+  const [form, setForm] = useState<Record<string, string>>(() => {
+    const init: Record<string, string> = {};
+    for (const f of FIELD_DEFS) {
+      let v = row[f.key] ?? '';
+      if (f.type === 'date' && v) {
+        try { v = new Date(v).toISOString().slice(0, 10); } catch { v = ''; }
+      }
+      init[f.key] = String(v === null ? '' : v);
+    }
+    return init;
+  });
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const save = async () => {
+    setSaving(true); setErr(null);
+    try {
+      const r = await axios.patch(`/api/deploiements/${row.id}`, form, { headers: { Authorization: `Bearer ${token}` } });
+      onSaved(r.data);
+    } catch (e: any) {
+      setErr(e.response?.data?.message || e.message);
+    } finally { setSaving(false); }
+  };
+
+  const inp: React.CSSProperties = { width: '100%', padding: '7px 10px', border: `1px solid ${C.border}`, borderRadius: 7, fontSize: '.88rem', boxSizing: 'border-box' as const, fontFamily: 'inherit', color: C.text, outline: 'none' };
+
+  return (
+    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.55)', backdropFilter: 'blur(3px)', zIndex: 1200, display: 'flex', justifyContent: 'center', alignItems: 'flex-start', padding: '40px 16px', overflowY: 'auto' }}>
+      <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: 18, width: '100%', maxWidth: 820, boxShadow: '0 25px 60px rgba(0,0,0,.3)' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '18px 24px', borderBottom: `1px solid ${C.border}`, background: 'linear-gradient(135deg,#2563eb,#7c3aed)', borderRadius: '18px 18px 0 0' }}>
+          <div style={{ color: '#fff' }}>
+            <div style={{ fontSize: '.75rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.05em', opacity: .85 }}>Modifier le déploiement</div>
+            <div style={{ fontSize: '1.1rem', fontWeight: 800, marginTop: 2 }}>{row.beneficiaire || `Fiche #${row.id}`}</div>
+          </div>
+          <button onClick={onClose} style={{ background: 'rgba(255,255,255,.2)', border: 'none', color: '#fff', borderRadius: 10, padding: 8, cursor: 'pointer' }}><X size={18} /></button>
+        </div>
+        <div style={{ padding: 24 }}>
+          {err && <div style={{ background: '#fef2f2', border: '1px solid #fecaca', color: '#b91c1c', borderRadius: 8, padding: '10px 14px', marginBottom: 16, fontSize: '.85rem' }}>{err}</div>}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px 18px' }}>
+            {FIELD_DEFS.map(f => (
+              <div key={f.key} style={f.wide ? { gridColumn: '1 / -1' } : {}}>
+                <label style={{ display: 'block', fontSize: '.72rem', fontWeight: 700, color: C.slate, marginBottom: 4, textTransform: 'uppercase', letterSpacing: '.04em' }}>{f.label}</label>
+                <input
+                  type={f.type === 'date' ? 'date' : f.type === 'number' ? 'number' : 'text'}
+                  value={form[f.key]}
+                  onChange={e => setForm(p => ({ ...p, [f.key]: e.target.value }))}
+                  style={inp}
+                />
+              </div>
+            ))}
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 20, paddingTop: 16, borderTop: `1px solid ${C.border}` }}>
+            <button onClick={onClose} style={{ padding: '9px 20px', borderRadius: 10, border: `1px solid ${C.border}`, background: '#fff', cursor: 'pointer', fontWeight: 600 }}>Annuler</button>
+            <button onClick={save} disabled={saving} style={{ padding: '9px 24px', borderRadius: 10, border: 'none', background: saving ? '#94a3b8' : C.blue, color: '#fff', cursor: saving ? 'default' : 'pointer', fontWeight: 700 }}>
+              {saving ? 'Enregistrement…' : '✓ Enregistrer'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ═══════════════════════════════════════════════════════════════
+// VISIONNEUSE DE DOCUMENT (PDF / Image / DOCX)
+// ═══════════════════════════════════════════════════════════════
+const DOC_EXTS_IMAGE = ['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp'];
+const DOC_EXTS_PDF   = ['.pdf'];
+const DOC_EXTS_DOCX  = ['.docx', '.doc'];
+
+const DocViewer: React.FC<{ filePath: string; filename: string; token: string | null; onClose: () => void }> = ({ filePath, filename, token, onClose }) => {
+  const ext = (filename.split('.').pop() || '').toLowerCase();
+  const previewUrl = `/api/deploiements/preview?path=${encodeURIComponent(filePath)}&token=${token || ''}`;
+  const downloadUrl = `/api/deploiements/file?path=${encodeURIComponent(filePath)}&token=${token || ''}`;
+  const isImage = DOC_EXTS_IMAGE.includes('.' + ext);
+  const isPdf   = DOC_EXTS_PDF.includes('.' + ext);
+  const isDocx  = DOC_EXTS_DOCX.includes('.' + ext);
+  const canZoom = isImage || isDocx;
+
+  const [zoom, setZoom] = useState(isDocx ? 100 : 100);
+  const [docHtml, setDocHtml] = useState<string | null>(null);    // DOCX rendered HTML body
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState<string | null>(null);
+
+  // Fetch DOCX HTML content from backend (mammoth conversion)
+  useEffect(() => {
+    if (!isDocx) { setLoading(false); return; }
+    setLoading(true); setErr(null);
+    fetch(previewUrl)
+      .then(r => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return r.text();
+      })
+      .then(html => {
+        // Extract body content only, keep styles from head
+        const headMatch = html.match(/<style[^>]*>([\s\S]*?)<\/style>/i);
+        const bodyMatch = html.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
+        const styles = headMatch ? `<style>${headMatch[1]}</style>` : '';
+        setDocHtml(styles + (bodyMatch ? bodyMatch[1] : html));
+        setLoading(false);
+      })
+      .catch(e => { setErr(e.message); setLoading(false); });
+  }, [previewUrl, isDocx]);
+
+  const ZOOM_STEPS = [25, 50, 75, 100, 125, 150, 175, 200, 250, 300];
+  const zoomIn  = () => setZoom(z => ZOOM_STEPS.find(s => s > z) ?? 300);
+  const zoomOut = () => setZoom(z => [...ZOOM_STEPS].reverse().find(s => s < z) ?? 25);
+  const zoomReset = () => setZoom(100);
+
+  // Keyboard: Escape → ferme, +/= → zoom in, - → zoom out, 0 → reset
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') { onClose(); return; }
+      if (!canZoom) return;
+      if (e.ctrlKey || e.metaKey) {
+        if (e.key === '+' || e.key === '=') { e.preventDefault(); zoomIn(); }
+        else if (e.key === '-') { e.preventDefault(); zoomOut(); }
+        else if (e.key === '0') { e.preventDefault(); zoomReset(); }
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [canZoom, onClose]);
+
+  // Ctrl+molette pour zoomer (DOCX + images)
+  useEffect(() => {
+    if (!canZoom) return;
+    const onWheel = (e: WheelEvent) => {
+      if (!e.ctrlKey && !e.metaKey) return;
+      e.preventDefault();
+      if (e.deltaY < 0) zoomIn(); else zoomOut();
+    };
+    window.addEventListener('wheel', onWheel, { passive: false });
+    return () => window.removeEventListener('wheel', onWheel);
+  }, [canZoom]);
+
+  // Print: opens a clean window with the document content and triggers print dialog
+  const handlePrint = () => {
+    const w = window.open('', '_blank', 'width=900,height=700');
+    if (!w) return;
+    if (isDocx && docHtml) {
+      w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>${filename}</title>
+        <style>
+          @page { margin: 20mm; }
+          body { font-family: system-ui, Arial, sans-serif; font-size: 11pt; line-height: 1.6; color: #000; max-width: none; }
+          table { border-collapse: collapse; width: 100%; }
+          td, th { border: 1px solid #888; padding: 5px 8px; }
+          img { max-width: 100%; }
+          h1,h2,h3,h4 { page-break-after: avoid; }
+        </style></head><body>${docHtml}</body></html>`);
+      w.document.close();
+      w.focus();
+      w.print();
+      setTimeout(() => w.close(), 500);
+    } else if (isPdf) {
+      w.location.href = previewUrl;
+      w.onload = () => w.print();
+    } else if (isImage) {
+      w.document.write(`<!DOCTYPE html><html><head><style>body{margin:0;display:flex;justify-content:center}img{max-width:100%}</style></head><body><img src="${previewUrl}"/></body></html>`);
+      w.document.close(); w.focus(); w.print();
+      setTimeout(() => w.close(), 500);
+    }
+  };
+
+  // Toolbar button style
+  const tbBtn = (active = false): React.CSSProperties => ({
+    background: active ? 'rgba(255,255,255,.15)' : 'none',
+    border: '1px solid #475569', color: '#cbd5e1', borderRadius: 7,
+    padding: '5px 10px', cursor: 'pointer', display: 'inline-flex',
+    alignItems: 'center', gap: 5, fontSize: '.8rem', fontWeight: 600,
+    whiteSpace: 'nowrap' as const,
+  });
+
+  return (
+    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(8,15,30,.85)', backdropFilter: 'blur(6px)', zIndex: 1300, display: 'flex', flexDirection: 'column' }}>
+
+      {/* ── Barre d'outils ── */}
+      <div onClick={e => e.stopPropagation()}
+        style={{ display: 'flex', alignItems: 'center', gap: 10, background: '#0f172a', borderBottom: '1px solid #1e293b', padding: '10px 18px', flexShrink: 0, flexWrap: 'wrap' }}>
+
+        {/* Nom de fichier */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#f1f5f9', flex: 1, minWidth: 0 }}>
+          <FileText size={16} color="#94a3b8" />
+          <span style={{ fontWeight: 700, fontSize: '.88rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 400 }}>{filename}</span>
+          <span style={{ background: '#1e3a5f', color: '#7dd3fc', borderRadius: 5, padding: '1px 8px', fontSize: '.72rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.04em', flexShrink: 0 }}>.{ext}</span>
+        </div>
+
+        {/* Zoom (DOCX + images) */}
+        {canZoom && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4, background: '#1e293b', borderRadius: 8, padding: '3px 6px' }}>
+            <button onClick={zoomOut}  style={tbBtn()} title="Zoom arrière (-)"><ZoomOut size={15} /></button>
+            <button onClick={zoomReset} style={{ ...tbBtn(), minWidth: 52, justifyContent: 'center', borderColor: zoom !== 100 ? '#2563eb' : '#475569', color: zoom !== 100 ? '#93c5fd' : '#cbd5e1' }} title="Remettre à 100%">
+              {zoom}%
+            </button>
+            <button onClick={zoomIn}  style={tbBtn()} title="Zoom avant (+)"><ZoomIn size={15} /></button>
+          </div>
+        )}
+
+        {/* Imprimer */}
+        {(isDocx || isPdf || isImage) && (
+          <button onClick={handlePrint} style={tbBtn()} title="Imprimer">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
+            Imprimer
+          </button>
+        )}
+
+        {/* Télécharger */}
+        <a href={downloadUrl} download={filename} onClick={e => e.stopPropagation()}
+          style={{ ...tbBtn(), background: '#1d4ed8', border: '1px solid #2563eb', color: '#fff', textDecoration: 'none' }}>
+          <Download size={14} /> Télécharger
+        </a>
+
+        {/* Fermer */}
+        <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#64748b', cursor: 'pointer', padding: '4px', borderRadius: 6, display: 'inline-flex' }} title="Fermer">
+          <X size={20} />
+        </button>
+      </div>
+
+      {/* ── Zone de contenu ── */}
+      <div onClick={e => e.stopPropagation()} style={{ flex: 1, overflow: 'auto', display: 'flex', justifyContent: 'center', alignItems: isPdf ? 'stretch' : 'flex-start', padding: isPdf ? 0 : '24px 16px', background: isPdf ? '#525659' : '#1e2533', minHeight: 0 }}>
+
+        {/* Erreur */}
+        {err && (
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 14, color: '#94a3b8', marginTop: 60 }}>
+            <AlertTriangle size={48} color="#fca5a5" />
+            <div style={{ fontSize: '1rem', color: '#f1f5f9' }}>Impossible d'afficher ce fichier</div>
+            <div style={{ fontSize: '.82rem', color: '#64748b' }}>{err}</div>
+            <a href={downloadUrl} download style={{ color: '#60a5fa', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Download size={14} /> Télécharger à la place</a>
+          </div>
+        )}
+
+        {/* Chargement DOCX */}
+        {!err && isDocx && loading && (
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 14, color: '#94a3b8', marginTop: 60 }}>
+            <RefreshCw size={32} className="spin" />
+            <div>Conversion du document…</div>
+          </div>
+        )}
+
+        {/* DOCX — page blanche avec contenu HTML */}
+        {!err && isDocx && !loading && docHtml && (
+          <div style={{ width: '100%', maxWidth: 880, display: 'flex', flexDirection: 'column', gap: 0 }}>
+            {/* Feuille de papier */}
+            <div style={{
+              background: '#fff', borderRadius: 4, boxShadow: '0 4px 24px rgba(0,0,0,.4)',
+              padding: '48px 56px', minHeight: 400,
+              transformOrigin: 'top center',
+              transform: `scale(${zoom / 100})`,
+              // Compense la perte d'espace vertical causée par le scale
+              marginBottom: zoom < 100 ? `${-(100 - zoom) * 5}px` : 0,
+            }}>
+              <div
+                style={{ fontFamily: 'system-ui, Arial, sans-serif', fontSize: '10.5pt', lineHeight: 1.65, color: '#1a1a1a' }}
+                dangerouslySetInnerHTML={{ __html: docHtml }}
+              />
+            </div>
+          </div>
+        )}
+
+        {/* PDF — plein écran avec contrôles natifs du navigateur */}
+        {!err && isPdf && (
+          <iframe src={previewUrl} title={filename} onError={() => setErr('Impossible de charger le PDF')}
+            style={{ flex: 1, width: '100%', border: 'none' }} />
+        )}
+
+        {/* Image */}
+        {!err && isImage && (
+          <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'flex-start' }}>
+            <img src={previewUrl} alt={filename} onLoad={() => setLoading(false)} onError={() => setErr('Image introuvable ou inaccessible')}
+              style={{ width: `${zoom}%`, maxWidth: 'none', borderRadius: 6, boxShadow: '0 8px 32px rgba(0,0,0,.5)', display: 'block' }} />
+          </div>
+        )}
+
+        {/* Extension non supportée */}
+        {!err && !isDocx && !isPdf && !isImage && (
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, color: '#94a3b8', marginTop: 60 }}>
+            <FileText size={56} color="#334155" />
+            <div style={{ color: '#f1f5f9', fontWeight: 600 }}>Extension <b>.{ext}</b> non prévisualisable</div>
+            <a href={downloadUrl} download style={{ color: '#60a5fa', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Download size={14} /> Télécharger</a>
+          </div>
+        )}
+      </div>
+
+      {/* ── Barre de statut (DOCX) ── */}
+      {isDocx && !loading && !err && (
+        <div style={{ background: '#0f172a', borderTop: '1px solid #1e293b', padding: '5px 18px', display: 'flex', alignItems: 'center', gap: 16, flexShrink: 0 }}>
+          <span style={{ fontSize: '.75rem', color: '#475569' }}>
+            Zoom : <b style={{ color: '#94a3b8' }}>{zoom}%</b>
+          </span>
+          <span style={{ fontSize: '.75rem', color: '#475569' }}>
+            Ctrl + molette pour zoomer · Impr. pour imprimer en qualité native
+          </span>
+        </div>
+      )}
+    </div>
   );
 };
 

@@ -2,8 +2,9 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import Header from '../../components/Header';
-import { ArrowLeft, Store as StoreIcon, MapPin, Users, Package, Trash2, Plus, Search, FileText, Upload, Star } from 'lucide-react';
-import { stocksApi, type Store, type StorageLocation, type Member, type MyRole, type BlTemplate } from './api';
+import { ArrowLeft, Store as StoreIcon, MapPin, Users, Package, Trash2, Plus, Search, FileText, Upload, Star, Code, X } from 'lucide-react';
+import { stocksApi, type Store, type StorageLocation, type Member, type Item, type MyRole, type BlTemplate } from './api';
+import BlTemplateDesigner from './BlTemplateDesigner';
 
 const C = { indigo: '#6366f1', red: '#ef4444', green: '#22c55e', slate: '#64748b', border: '#e2e8f0', text: '#1e293b', bg: '#f8fafc' };
 
@@ -90,6 +91,8 @@ function BlTemplatesTab() {
   const [name, setName] = useState('');
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [editing, setEditing] = useState<BlTemplate | null>(null);
+  const [designing, setDesigning] = useState<BlTemplate | null>(null);
 
   const load = useCallback(() => { stocksApi.listBlTemplates().then(setList).catch(e => setErr(e.message)); }, []);
   useEffect(() => { load(); }, [load]);
@@ -123,13 +126,21 @@ function BlTemplatesTab() {
     catch (e: any) { setErr(e.response?.data?.message || e.message); }
     finally { setBusy(false); }
   }
+  async function setCategory(t: BlTemplate, category: string) {
+    try { await stocksApi.updateBlTemplate(t.id, { category: category as any }); load(); }
+    catch (e: any) { setErr(e.response?.data?.message || e.message); }
+  }
+
+  const CAT_LABEL: Record<string, string> = { bl: 'Bon de livraison', remise: 'Fiche de remise', retour: 'Fiche de retour' };
 
   return (
     <div className="sa-card">
-      <div style={{ fontWeight: 700, marginBottom: 6 }}>Modèles de bon de livraison</div>
+      <div style={{ fontWeight: 700, marginBottom: 6 }}>Modèles de documents (partagés)</div>
       <div style={{ fontSize: 12, color: C.slate, marginBottom: 14 }}>
-        Chaque modèle s'appuie sur un PDF de fond (en-tête, mentions) sur lequel les champs du BL sont imprimés.
-        Le modèle « par défaut » est proposé automatiquement lors d'une sortie.
+        Chaque modèle s'appuie sur un PDF de fond (en-tête, mentions) sur lequel les champs sont imprimés.
+        La <b>catégorie</b> détermine où le modèle est proposé : <i>bon de livraison</i> (sorties stock),
+        <i> fiche de remise</i> / <i>fiche de retour</i> (parc mobilité — téléphones &amp; tablettes).
+        Le bouton <b>Champs</b> permet de positionner les variables.
       </div>
       {err && <div style={{ color: C.red, marginBottom: 10, fontSize: 13 }}>{err}</div>}
 
@@ -141,12 +152,17 @@ function BlTemplatesTab() {
       <div className="sa-scroll">
         <table className="sa-table">
           <thead>
-            <tr><th>Nom</th><th>PDF de fond</th><th>Défaut</th><th style={{ width: 220 }}>Actions</th></tr>
+            <tr><th>Nom</th><th>Catégorie</th><th>PDF de fond</th><th>Défaut</th><th style={{ width: 280 }}>Actions</th></tr>
           </thead>
           <tbody>
             {list.map(t => (
               <tr key={t.id}>
                 <td style={{ fontWeight: 600 }}>{t.name}</td>
+                <td>
+                  <select className="sa-input" style={{ padding: '4px 8px', fontSize: 12 }} value={t.category || 'bl'} onChange={e => setCategory(t, e.target.value)}>
+                    {Object.entries(CAT_LABEL).map(([k, l]) => <option key={k} value={k}>{l}</option>)}
+                  </select>
+                </td>
                 <td>{t.base_document_id
                   ? <span style={{ color: C.green, fontSize: 12 }}>✓ chargé</span>
                   : <span style={{ color: C.slate, fontSize: 12 }}>aucun</span>}</td>
@@ -159,15 +175,86 @@ function BlTemplatesTab() {
                       <Upload size={14} /> PDF
                       <input type="file" accept="application/pdf" style={{ display: 'none' }} onChange={e => { const f = e.target.files?.[0]; if (f) uploadBase(t, f); e.currentTarget.value = ''; }} />
                     </label>
+                    <button className="sa-btn sa-btn-ghost" style={{ padding: '5px 9px' }} onClick={() => setDesigning(t)} title="Placer les variables graphiquement"><Code size={14} /> Champs</button>
+                    <button className="sa-btn sa-btn-ghost" style={{ padding: '5px 9px' }} onClick={() => setEditing(t)} title="Éditeur JSON avancé">JSON</button>
                     <button className="sa-btn sa-btn-ghost" style={{ padding: '5px 9px' }} onClick={() => rename(t)}>Renommer</button>
                     <button className="sa-iconbtn" onClick={() => remove(t)} title="Supprimer"><Trash2 size={16} /></button>
                   </div>
                 </td>
               </tr>
             ))}
-            {list.length === 0 && <tr><td colSpan={4} style={{ color: C.slate, textAlign: 'center', padding: 16 }}>Aucun modèle. Créez-en un puis chargez son PDF de fond.</td></tr>}
+            {list.length === 0 && <tr><td colSpan={5} style={{ color: C.slate, textAlign: 'center', padding: 16 }}>Aucun modèle. Créez-en un puis chargez son PDF de fond.</td></tr>}
           </tbody>
         </table>
+      </div>
+
+      {editing && <FieldsEditor template={editing} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); load(); }} />}
+      {designing && <BlTemplateDesigner template={designing} onClose={() => setDesigning(null)} onSaved={() => { setDesigning(null); load(); }} />}
+    </div>
+  );
+}
+
+// Liste des variables disponibles pour les gabarits (aide à la saisie des champs).
+const TEMPLATE_VARIABLES: { group: string; vars: string[] }[] = [
+  { group: 'Fiche', vars: ['{fiche.numero}', '{date}', '{date.remise}', '{date.retour}', '{store.name}', '{etat}', '{etat.retour}', '{motif.retour}'] },
+  { group: 'Agent', vars: ['{agent.nom}', '{agent.service}', '{agent.direction}', '{agent.email}'] },
+  { group: 'Matériel', vars: ['{designation}', '{imei}', '{numero_serie}', '{numero_ligne}', '{chargeur}', '{cable}'] },
+  { group: 'BL', vars: ['{bl.numero}', '{beneficiary.name}', '{beneficiary.email}', '{preparer.name}', '{delivered_by}'] },
+  { group: 'Lignes (répétées)', vars: ['{ligne.designation}', '{ligne.modele}', '{ligne.imei}', '{ligne.serial}', '{ligne.numero_ligne}', '{ligne.quantite}'] },
+  { group: 'Signatures (type)', vars: ['signature_preparer', 'signature_recipient'] },
+];
+
+function FieldsEditor({ template, onClose, onSaved }: { template: BlTemplate; onClose: () => void; onSaved: () => void }) {
+  const [json, setJson] = useState(() => JSON.stringify(template.fields || [], null, 2));
+  const [err, setErr] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  async function save() {
+    let parsed: unknown;
+    try { parsed = JSON.parse(json); } catch (e: any) { setErr('JSON invalide : ' + e.message); return; }
+    if (!Array.isArray(parsed)) { setErr('La racine doit être un tableau de champs.'); return; }
+    setBusy(true); setErr(null);
+    try { await stocksApi.updateBlTemplate(template.id, { fields: parsed as any }); onSaved(); }
+    catch (e: any) { setErr(e.response?.data?.message || e.message); }
+    finally { setBusy(false); }
+  }
+
+  return (
+    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.5)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+      <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: 14, width: 'min(900px,96vw)', maxHeight: '90vh', overflow: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,.3)' }}>
+        <div style={{ padding: '14px 18px', borderBottom: `1px solid ${C.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center', position: 'sticky', top: 0, background: '#fff' }}>
+          <div style={{ fontWeight: 700 }}>Champs du modèle — {template.name}</div>
+          <button className="sa-iconbtn" onClick={onClose}><X size={18} /></button>
+        </div>
+        <div style={{ padding: 18, display: 'grid', gridTemplateColumns: '1fr 280px', gap: 16 }}>
+          <div>
+            <div style={{ fontSize: 12, color: C.slate, marginBottom: 8 }}>
+              Tableau JSON de champs. Chaque champ : <code>{'{ type, page, x, y, font_size, bold, align, width, row_height, variable }'}</code>.
+              Origine (0,0) en haut-gauche, en points (A4 ≈ 595×842). <code>type</code> : <code>text</code>, <code>signature_preparer</code> ou <code>signature_recipient</code>.
+            </div>
+            <textarea value={json} onChange={e => setJson(e.target.value)} spellCheck={false}
+              style={{ width: '100%', minHeight: 360, fontFamily: 'monospace', fontSize: 12, padding: 10, border: `1px solid ${C.border}`, borderRadius: 8, boxSizing: 'border-box' }} />
+            {err && <div style={{ color: C.red, fontSize: 13, marginTop: 8 }}>{err}</div>}
+            <div style={{ marginTop: 12, display: 'flex', gap: 8 }}>
+              <button className="sa-btn" onClick={save} disabled={busy}>Enregistrer les champs</button>
+              <button className="sa-btn sa-btn-ghost" onClick={onClose}>Annuler</button>
+            </div>
+          </div>
+          <div>
+            <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 8 }}>Variables disponibles</div>
+            {TEMPLATE_VARIABLES.map(g => (
+              <div key={g.group} style={{ marginBottom: 10 }}>
+                <div style={{ fontSize: 11, color: C.slate, textTransform: 'uppercase', marginBottom: 3 }}>{g.group}</div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                  {g.vars.map(v => (
+                    <code key={v} title="Cliquer pour copier" onClick={() => navigator.clipboard?.writeText(v)}
+                      style={{ fontSize: 11, background: C.bg, border: `1px solid ${C.border}`, borderRadius: 6, padding: '2px 5px', cursor: 'pointer' }}>{v}</code>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
       </div>
     </div>
   );
