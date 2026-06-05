@@ -314,16 +314,16 @@ module.exports = {
     // ─── Actions ────────────────────────────────────────────────
 async assign(req, res) {
         try {
-            const { technician_id, technician_username, group_id } = req.body;
+            const { technician_id, technician_username, group_id, keepGroup } = req.body;
             const ticketId = parseInt(req.params.id);
-            console.log('[ASSIGN] ticketId=%d technician_id=%s technician_username=%s user=%s(%s)', ticketId, technician_id, technician_username, req.user?.username, req.user?.id);
-            await assignmentService.assign(ticketId, { technician_id, technician_username, group_id }, req.user);
+            console.log('[ASSIGN] ticketId=%d technician_id=%s technician_username=%s keepGroup=%s user=%s(%s)', ticketId, technician_id, technician_username, keepGroup, req.user?.username, req.user?.id);
+            await assignmentService.assign(ticketId, { technician_id, technician_username, group_id, keepGroup }, req.user);
 
             // Propagation de l'assignation à tous les membres du groupe
             const siblingIds = await groupRepo.getSiblingIds(ticketId);
             for (const sibId of siblingIds) {
                 try {
-                    await assignmentService.assign(sibId, { technician_id, technician_username, group_id }, req.user);
+                    await assignmentService.assign(sibId, { technician_id, technician_username, group_id, keepGroup }, req.user);
                 } catch (e) { console.error(`[GROUP] assign propagation to #${sibId} failed:`, e.message); }
             }
 

@@ -10,6 +10,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { LineChart, Line, ResponsiveContainer, Tooltip } from 'recharts';
 
 const KPI_FILTERS: Record<string, { label: string; params?: Record<string, string> }> = {
+  new:       { label: 'Nouveaux',   params: { status_in: '1' } },
   open:      { label: 'Ouverts',    params: { status_in: '1,2,3' } },
   in_progress: { label: 'En cours', params: { status_in: '2,3' } },
   waiting:   { label: 'En attente', params: { status_in: '4' } },
@@ -100,7 +101,7 @@ export default function TicketsDashboard() {
   const [liveTickerMsg, setLiveTickerMsg] = useState<string | null>(null);
   const [activeLiveFilter, setActiveLiveFilter] = useState(false);
   const [liveStats, setLiveStats] = useState<any>(null);
-  const ALL_KPI_KEYS = ['open','in_progress','waiting','critical','resolved','problems','sla_breached','age','wait_time','resolve_time','live_chat'];
+  const ALL_KPI_KEYS = ['new','open','in_progress','waiting','critical','resolved','problems','sla_breached','age','wait_time','resolve_time','live_chat'];
   const [selectedKpis, setSelectedKpis] = useState<string[]>(ALL_KPI_KEYS);
   const [showKpiConfig, setShowKpiConfig] = useState(false);
   const limit = 50;
@@ -350,6 +351,19 @@ export default function TicketsDashboard() {
     showResolvedRef.current = showResolved;
     loadData(activeFilter, activeUserFilter, 1, search, activeCategory, activeSubcategory, activeSoftware);
   }, [showResolved]);
+
+  // Recherche : recharge (avec debounce) à chaque modification du champ.
+  // Le premier rendu est ignoré (le chargement initial est fait à part).
+  const searchMountRef = useRef(true);
+  useEffect(() => {
+    if (searchMountRef.current) { searchMountRef.current = false; return; }
+    const t = setTimeout(() => {
+      setPage(1);
+      loadData(activeFilter, activeUserFilter, 1, search, activeCategory, activeSubcategory, activeSoftware);
+    }, 350);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [search]);
 
   function handleCategoryFilter(categoryId: number | 'none' | null, subcategoryId: number | null) {
     setActiveCategory(categoryId);
@@ -906,6 +920,10 @@ export default function TicketsDashboard() {
 
         // Config unifiée : statuts + temps dans le même tableau
         const allCards = [
+          { key: 'new',          label: 'Nouveaux',         color: '#0ea5e9', filterKey: 'new' as string|null,
+            value: stats?.new || 0, histKey: 'new', fKey: 'new',
+            sub: `${getTypeCounts('new').incident} inc · ${getTypeCounts('new').request} dem`,
+            goodDown: true },
           { key: 'open',         label: 'Ouverts',          color: '#6366f1', filterKey: 'open' as string|null,
             value: stats?.open || 0, histKey: 'open', fKey: 'open',
             sub: `${getTypeCounts('open').incident} inc · ${getTypeCounts('open').request} dem`,
@@ -960,7 +978,7 @@ export default function TicketsDashboard() {
                 Indicateurs {selectedKpis.length < allCards.length && `(${selectedKpis.length}/${allCards.length})`}
               </span>
               <div style={{ display: 'flex', gap: 6 }}>
-                {isAdmin && (
+                {['superadmin', 'superadmins', 'admin', 'supervisor', 'superviseur'].includes((resolvedRole ?? user?.role ?? '').toLowerCase().trim()) && (
                   <button onClick={() => setShowKpiConfig(!showKpiConfig)}
                     style={{ padding: '4px 12px', border: '1px solid #e2e8f0', borderRadius: 6, background: showKpiConfig ? '#eef2ff' : '#fff', cursor: 'pointer', fontSize: 11, fontWeight: 600, color: '#6366f1' }}>
                     {showKpiConfig ? '✓ Terminé' : 'Configurer les KPI'}

@@ -4,7 +4,7 @@ const historyRepo = require('../repositories/history.repository');
 const notificationService = require('./notification.service');
 
 module.exports = {
-    async assign(ticketId, { technician_id, technician_username, group_id }, user) {
+    async assign(ticketId, { technician_id, technician_username, group_id, keepGroup }, user) {
         const ticket = await ticketRepo.findById(ticketId);
         if (!ticket) throw new Error('Ticket non trouvé');
 
@@ -33,6 +33,17 @@ module.exports = {
             }
         }
 
+        // Préserver le groupe déjà affecté si demandé (et si aucun groupe explicite fourni).
+        // Permet d'affecter un technicien « en plus » du groupe sans perdre l'affectation groupe.
+        let resolvedGroupId = group_id || null;
+        if (!resolvedGroupId && keepGroup) {
+            const existingGroup = await pgDb.get(
+                'SELECT group_id FROM hub_tickets.ticket_assignments WHERE ticket_id = $1 AND group_id IS NOT NULL ORDER BY id ASC LIMIT 1',
+                [ticketId]
+            );
+            if (existingGroup) resolvedGroupId = existingGroup.group_id;
+        }
+
         // Remove old assignments for this ticket
         await pgDb.run('DELETE FROM hub_tickets.ticket_assignments WHERE ticket_id = $1', [ticketId]);
 
@@ -41,7 +52,7 @@ module.exports = {
             INSERT INTO hub_tickets.ticket_assignments
                 (ticket_id, technician_id, group_id, assigned_by, is_primary)
             VALUES ($1, $2, $3, $4, true)
-        `, [ticketId, resolvedTechId || null, group_id || null, resolvedUserId]);
+        `, [ticketId, resolvedTechId || null, resolvedGroupId, resolvedUserId]);
 
         if (resolvedTechId) {
             try {
@@ -59,6 +70,8 @@ module.exports = {
             await notificationService.trigger('ticket.assigned', { ticket_id: ticketId, user, technician_id: resolvedTechId });
         }
 
+        // On ne journalise une (ré)affectation de groupe que si elle est explicite,
+        // pas lorsqu'on se contente de préserver le groupe déjà en place.
         if (group_id) {
             try {
                 await historyRepo.log(ticketId, resolvedUserId, 'assigned_group', 'group_id',

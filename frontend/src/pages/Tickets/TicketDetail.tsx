@@ -14,6 +14,7 @@ import DocumentSuggestions from './DocumentSuggestions';
 import type { AttachDoc } from './DocumentSuggestions';
 import { Phone } from 'lucide-react';
 import { formatDateTime, formatDate as formatDateParis } from '../../utils/datetime';
+import UserHoverCard from '../../components/tickets/UserHoverCard';
 
 function decodeHtml(str: string) {
   const txt = document.createElement('textarea');
@@ -1402,7 +1403,11 @@ export default function TicketDetail() {
               <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: ticket.requester?.email ? 4 : 0 }}>
                 <div style={{ flexShrink: 0, width: 22, height: 22, borderRadius: '50%', background: avatarColor(ticket.requester?.name || ''), display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 9, fontWeight: 700, color: '#fff' }}>{getInitials(ticket.requester?.name || '')}</div>
                 <div style={{ minWidth: 0 }}>
-                  <div style={{ fontSize: 12, fontWeight: 600, color: '#18181b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ticket.requester?.name || 'Anonyme'}</div>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: '#18181b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    <UserHoverCard email={ticket.requester?.email || ticket.email_alt || ticket.requester_email_22}>
+                      {ticket.requester?.name || 'Anonyme'}
+                    </UserHoverCard>
+                  </div>
                   {ticket.requester?.email && (
                     <a href={`mailto:${ticket.requester.email}`} style={{ fontSize: 11, color: '#6366f1', textDecoration: 'none', display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ticket.requester.email}</a>
                   )}

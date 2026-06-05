@@ -108,7 +108,8 @@ export default function TicketKanban({ tickets, loading, total, totalPages, page
       try {
         const token = localStorage.getItem('token');
         if (user?.username) {
-          await axios.post(`/api/tickets/${ticketId}/assign`, { technician_username: user.username }, {
+          // Affectation perso ; keepGroup conserve l'éventuel groupe déjà affecté
+          await axios.post(`/api/tickets/${ticketId}/assign`, { technician_username: user.username, keepGroup: true }, {
             headers: { Authorization: `Bearer ${token}` }
           });
         }

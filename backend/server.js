@@ -744,6 +744,85 @@ app.get('/api/ad/my-info', authenticateJWT, async (req, res) => {
     }
 });
 
+// ─── Fiche détaillée d'un usager (survol d'un nom/email dans les tickets) ──────
+// Combine l'Active Directory (fonction, service, direction, téléphones) et le
+// téléphone de contact saisi lors d'une création de ticket. Caché 10 min.
+const _adUserInfoCache = new Map(); // clé email/username → { data, ts }
+const AD_USER_INFO_TTL = 10 * 60 * 1000;
+
+app.get('/api/ad/user-info', authenticateJWT, async (req, res) => {
+    const email = String(req.query.email || '').trim();
+    const username = String(req.query.username || '').trim();
+    const cacheKey = (email || username).toLowerCase();
+    if (!cacheKey) return res.json(null);
+
+    const cached = _adUserInfoCache.get(cacheKey);
+    if (cached && Date.now() - cached.ts < AD_USER_INFO_TTL) return res.json(cached.data);
+
+    const result = {
+        displayName: '', title: '', department: '', company: '',
+        phones: { telephoneNumber: '', mobile: '', ipPhone: '', otherTelephone: '' },
+        contact_phone: null,
+    };
+
+    // 1) Téléphone de contact : dernier ticket du demandeur avec un numéro saisi
+    try {
+        const { pgDb } = require('./shared/database');
+        if (email) {
+            const row = await pgDb.get(
+                `SELECT requester_phone FROM hub_tickets.tickets
+                 WHERE LOWER(COALESCE(NULLIF(email_alt, ''), requester_email_22)) = LOWER($1)
+                   AND requester_phone IS NOT NULL AND requester_phone <> ''
+                 ORDER BY date_creation DESC LIMIT 1`, [email]);
+            result.contact_phone = row?.requester_phone || null;
+        }
+    } catch (e) { /* facultatif */ }
+
+    // 2) Active Directory : fonction / service / direction / téléphones
+    try {
+        const adSettings = await db.get('SELECT * FROM ad_settings WHERE id = 1');
+        if (adSettings && adSettings.is_enabled && (email || username)) {
+            const adData = await new Promise((resolve) => {
+                const client = ldap.createClient({ url: `ldap://${adSettings.host}:${adSettings.port}`, connectTimeout: 5000, timeout: 5000 });
+                const done = (v) => { try { client.destroy(); } catch (e) { /* ignore */ } resolve(v); };
+                client.on('error', () => done(null));
+                client.bind(adSettings.bind_dn, adSettings.bind_password, (err) => {
+                    if (err) return done(null);
+                    const esc = (s) => s.replace(/[*()\\\x00]/g, '\\$&');
+                    const filter = email
+                        ? `(&(objectClass=user)(mail=${esc(email)}))`
+                        : `(&(objectClass=user)(sAMAccountName=${esc(username)}))`;
+                    const opts = { filter, scope: 'sub', sizeLimit: 1,
+                        attributes: ['displayName', 'cn', 'title', 'department', 'company', 'telephoneNumber', 'mobile', 'ipPhone', 'otherTelephone'] };
+                    client.search(adSettings.base_dn, opts, (err, sr) => {
+                        if (err) return done(null);
+                        let found = null;
+                        sr.on('searchEntry', (entry) => { found = flattenLDAPEntry(entry); });
+                        sr.on('end', () => done(found));
+                        sr.on('error', () => done(found));
+                    });
+                });
+            });
+            if (adData) {
+                const pick = (v) => Array.isArray(v) ? (v[0] || '') : (v || '');
+                result.displayName = decodeLDAPString(pick(adData.displayName) || pick(adData.cn) || '');
+                result.title = decodeLDAPString(pick(adData.title));
+                result.department = decodeLDAPString(pick(adData.department));
+                result.company = decodeLDAPString(pick(adData.company));
+                result.phones = {
+                    telephoneNumber: pick(adData.telephoneNumber),
+                    mobile: pick(adData.mobile),
+                    ipPhone: pick(adData.ipPhone),
+                    otherTelephone: pick(adData.otherTelephone),
+                };
+            }
+        }
+    } catch (e) { console.error('[AD user-info]', e.message); }
+
+    _adUserInfoCache.set(cacheKey, { data: result, ts: Date.now() });
+    res.json(result);
+});
+
 // Azure AD (Entra ID) Settings API
 // Route publique : retourne uniquement is_enabled (pour Login.tsx)
 app.get('/api/azure-ad-settings/status', async (req, res) => {

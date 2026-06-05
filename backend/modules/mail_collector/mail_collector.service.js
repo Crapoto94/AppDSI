@@ -188,8 +188,16 @@ class MailCollectorService {
     // Keep UTC as is for storage to avoid offset issues
     const emailDate = rdt ? new Date(rdt).toISOString() : new Date().toISOString();
 
-    // Check for VIP status
-    const vipUser = await pgDb.get('SELECT is_vip FROM hub.users WHERE email = ?', [from.email]);
+    // Statut VIP : la liste VIP est dans hub_tickets.vip_users, rapprochée par EMAIL
+    // (même logique que l'affichage des tickets). Non bloquant.
+    let isVip = false;
+    try {
+      const vipRow = await pgDb.get(
+        'SELECT 1 AS vip FROM hub_tickets.vip_users WHERE LOWER(email) = LOWER(?) LIMIT 1',
+        [from.email || '']
+      );
+      isVip = !!vipRow;
+    } catch (e) { console.error('[MAIL] VIP lookup failed:', e.message); }
 
     const ticketId = await ticketRepo.create({
       title: subject,
@@ -200,7 +208,8 @@ class MailCollectorService {
       source: 'mail',
       date_creation: emailDate,
       status: 1,
-      priority: vipUser?.is_vip ? 1 : 3, // Set high priority for VIP
+      priority: 3,       // Priorité normale par défaut (échelle GLPI : 5 = critique)
+      is_vip: isVip,     // Marque le ticket VIP si le demandeur figure dans la liste VIP
       urgency: 3,
       impact: 2
     });

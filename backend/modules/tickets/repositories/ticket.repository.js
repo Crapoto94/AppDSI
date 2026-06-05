@@ -330,12 +330,17 @@ module.exports = {
         if (filters.requester_email) conds.push(`LOWER(COALESCE(NULLIF(t.email_alt,''), t.requester_email_22)) = LOWER('${esc(filters.requester_email)}')`);
         if (filters.search) {
             const s = esc(filters.search);
-            conds.push(`(t.name ILIKE '%${s}%' OR CAST(t.glpi_id AS TEXT) ILIKE '%${s}%')`);
+            conds.push(`(t.title ILIKE '%${s}%' OR CAST(t.glpi_id AS TEXT) ILIKE '%${s}%')`);
         }
         const whereClause = conds.length ? `WHERE ${conds.join(' AND ')}` : '';
         const stats = await pgDb.get(`
             SELECT
                 COUNT(*) as total,
+                COUNT(*) FILTER (WHERE status = 1) as new,
+                -- incident = tout nouveau ticket qui n'est pas une demande explicite
+                -- (inclut les tickets live non classés, type NULL) → inc + dem = new
+                COUNT(*) FILTER (WHERE status = 1 AND type::text IS DISTINCT FROM '2') as new_incident,
+                COUNT(*) FILTER (WHERE status = 1 AND type::text = '2') as new_request,
                 COUNT(*) FILTER (WHERE status IN (1,2,3)) as open,
                 COUNT(*) FILTER (WHERE status = 5) as resolved,
                 COUNT(*) FILTER (WHERE status = 6) as closed,

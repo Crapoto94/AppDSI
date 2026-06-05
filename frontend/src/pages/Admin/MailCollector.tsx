@@ -191,6 +191,28 @@ export default function MailCollector() {
     }
   };
 
+  const clearLogs = async (onlyInvalid: boolean) => {
+    if (!selectedCollectorId) return;
+    const msg = onlyInvalid
+      ? 'Supprimer uniquement les entrées sans date valide (affichées 01/01/1970) ?'
+      : "Effacer TOUT l'historique d'import de cette boîte mail ?";
+    if (!confirm(msg)) return;
+    try {
+      const res = await axios.delete(`/api/mail-collector/${selectedCollectorId}/logs${onlyInvalid ? '?only_invalid=1' : ''}`, { headers: getHeaders() });
+      alert(`${res.data.deleted ?? 0} entrée(s) supprimée(s).`);
+      loadLogs(selectedCollectorId);
+    } catch (error: any) {
+      alert('Erreur: ' + (error.response?.data?.message || error.message));
+    }
+  };
+
+  // Affichage défensif : un run_at nul/invalide donne 01/01/1970 → on affiche « — ».
+  const fmtRunAt = (v: any) => {
+    const d = new Date(v);
+    if (!v || isNaN(d.getTime()) || d.getFullYear() < 2000) return '—';
+    return d.toLocaleString('fr', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+  };
+
   const paginatedLogs = logs.slice((logPage - 1) * ITEMS_PER_PAGE, logPage * ITEMS_PER_PAGE);
   const totalPages = Math.ceil(logs.length / ITEMS_PER_PAGE);
 
@@ -456,9 +478,17 @@ export default function MailCollector() {
               }
             </select>
             {selectedCollectorId && (
-              <button style={{ ...s.btn('secondary'), display: 'flex', alignItems: 'center', gap: '6px' }} onClick={() => loadLogs(selectedCollectorId)}>
-                <Clock size={16} /> Actualiser
-              </button>
+              <>
+                <button style={{ ...s.btn('secondary'), display: 'flex', alignItems: 'center', gap: '6px' }} onClick={() => loadLogs(selectedCollectorId)}>
+                  <Clock size={16} /> Actualiser
+                </button>
+                <button style={{ ...s.btn('secondary'), display: 'flex', alignItems: 'center', gap: '6px' }} onClick={() => clearLogs(true)} title="Supprimer les entrées datées 01/01/1970">
+                  🧹 Nettoyer les 1970
+                </button>
+                <button style={{ ...s.btn('danger'), display: 'flex', alignItems: 'center', gap: '6px' }} onClick={() => clearLogs(false)}>
+                  <Trash2 size={16} /> Effacer l'historique
+                </button>
+              </>
             )}
           </div>
 
@@ -500,7 +530,7 @@ export default function MailCollector() {
                     return (
                       <tr key={log.id}>
                         <td style={s.td}>
-                          <div style={{ fontWeight: '500' }}>{new Date(log.run_at).toLocaleString('fr', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</div>
+                          <div style={{ fontWeight: '500' }}>{fmtRunAt(log.run_at)}</div>
                         </td>
                         <td style={s.td}>
                           <span style={s.badge(statusColor(log.status))}>

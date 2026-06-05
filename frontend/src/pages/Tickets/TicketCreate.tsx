@@ -66,17 +66,19 @@ export default function TicketCreate() {
     const isVip = key in vipMap;
     const isElu = !!vipMap[key];
     setRequesterVip({ vip: isVip, elu: isElu });
-    setForm(f => ({ ...f, requester_email: email, requester_name: name, is_vip: isVip ? true : f.is_vip }));
+    // On vide le téléphone à chaque changement de demandeur pour ne pas conserver
+    // celui du demandeur précédent ; il sera rempli si un numéro est connu.
+    setForm(f => ({ ...f, requester_email: email, requester_name: name, is_vip: isVip ? true : f.is_vip, requester_phone: '' }));
     fetchRequesterPhone(email);
   }
 
   async function fetchRequesterPhone(email: string) {
-    if (!email) return;
+    if (!email) { setForm(f => ({ ...f, requester_phone: '' })); return; }
     try {
       const token = localStorage.getItem('token');
       const res = await axios.get(`/api/tickets/my-phone?email=${encodeURIComponent(email)}`, { headers: { Authorization: `Bearer ${token}` } });
-      if (res.data?.phone) setForm(f => ({ ...f, requester_phone: res.data.phone }));
-    } catch (e) { /* silencieux */ }
+      setForm(f => ({ ...f, requester_phone: res.data?.phone || '' }));
+    } catch (e) { setForm(f => ({ ...f, requester_phone: '' })); }
   }
 
   async function loadSites() {

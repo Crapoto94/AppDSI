@@ -2,6 +2,7 @@ import React, { useState, Fragment } from 'react';
 import axios from 'axios';
 import { useAuth } from '../../contexts/AuthContext';
 import { formatDate as formatDateParis } from '../../utils/datetime';
+import UserHoverCard from '../../components/tickets/UserHoverCard';
 
 const STATUS_NAMES: Record<number, string> = {
   1: 'Nouveau', 2: 'En cours (Attribué)', 3: 'En cours (Planifié)',
@@ -627,7 +628,11 @@ export default function TicketList({
                     {/* Demandeur */}
                     <td style={{ ...tdStyle, textAlign: 'left', maxWidth: 200 }}>
                       <div style={{ fontSize: isChild ? 12 : 13, color: '#1e293b', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        {isChild ? `#${data.ticket_id}` : (data.requester_name || 'Anonyme')}
+                        {isChild ? `#${data.ticket_id}` : (
+                          <UserHoverCard email={data.email_alt || data.requester_email || data.requester_email_22}>
+                            {data.requester_name || 'Anonyme'}
+                          </UserHoverCard>
+                        )}
                       </div>
                       <div style={{ fontSize: isChild ? 11 : 11, color: '#64748b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                         {isChild ? '' : (data.requester_service || data.requester_email || '')}

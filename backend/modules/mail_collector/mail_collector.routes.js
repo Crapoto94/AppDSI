@@ -30,5 +30,6 @@ router.delete('/:id', authenticateAdmin, mailCollectorController.delete);
 router.get('/:id', authenticateJWT, mailCollectorController.getById);
 router.post('/:id/run', authenticateJWT, mailCollectorController.runNow);
 router.get('/:id/logs', authenticateJWT, mailCollectorController.getLogs);
+router.delete('/:id/logs', authenticateAdmin, mailCollectorController.clearLogs);
 
 module.exports = router;

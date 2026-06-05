@@ -161,6 +161,24 @@ module.exports = {
     }
   },
 
+  // DELETE /:id/logs — efface l'historique d'import d'un collecteur.
+  // ?only_invalid=1 ne supprime que les entrées sans date valide (affichées 01/01/1970).
+  clearLogs: async (req, res) => {
+    try {
+      const onlyInvalid = req.query.only_invalid === '1' || req.query.only_invalid === 'true';
+      const where = onlyInvalid
+        ? "collector_id = ? AND (run_at IS NULL OR run_at < '2000-01-01')"
+        : 'collector_id = ?';
+      const result = await pgDb.run(
+        `DELETE FROM hub_tickets.mail_collector_logs WHERE ${where}`,
+        [req.params.id]
+      );
+      res.json({ success: true, deleted: result.changes ?? 0 });
+    } catch (error) {
+      res.status(500).json({ message: 'Erreur effacement historique', error: error.message });
+    }
+  },
+
   getStats: async (req, res) => {
     try {
       const stats = await pgDb.all(`
