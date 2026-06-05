@@ -235,6 +235,8 @@ class MailCollectorService {
         ticket_id: ticketId,
         user: { username: 'system', displayName: 'Collecteur Mail' }
       });
+      // Emit SSE event
+      ticketEmitter.emit('ticket-created', { ticket_id: ticketId });
     } catch (e) { console.error('[MAIL] notification trigger failed:', e.message); }
 
     return ticketId;
