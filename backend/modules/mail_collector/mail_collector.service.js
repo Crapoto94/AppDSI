@@ -436,9 +436,12 @@ class MailCollectorService {
 
             // Attachments
             let attachCount = 0;
+            console.log(`[MAIL-DEBUG] Ticket ${ticketId} created. hasAttachments=${email.hasAttachments}`);
             if (email.hasAttachments) {
               const attachments = await this.downloadAttachments(token, collector.mailbox, email.id, axiosOpts);
+              console.log(`[MAIL-DEBUG] Downloaded ${attachments.length} attachments for ticket ${ticketId}`);
               attachCount = await this.addAttachments(ticketId, attachments, 'system');
+              console.log(`[MAIL-DEBUG] Added ${attachCount} attachments to ticket ${ticketId}`);
               log.attachments_processed += attachCount;
             }
 
