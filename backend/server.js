@@ -4,6 +4,8 @@
 // cohérente (Paris) en dev comme en conteneur (sinon UTC = décalage de 1-2h).
 process.env.TZ = process.env.TZ || 'Europe/Paris';
 
+process.env.TZ = 'Europe/Paris';
+
 const express = require('express');
 const http = require('http');
 const jwt = require('jsonwebtoken');
