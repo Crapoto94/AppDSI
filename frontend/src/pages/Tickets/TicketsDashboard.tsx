@@ -8,6 +8,7 @@ import TicketInbox from './TicketInbox';
 import LiveSessionsPanel from './LiveSessionsPanel';
 import { useAuth } from '../../contexts/AuthContext';
 import { LineChart, Line, ResponsiveContainer, Tooltip } from 'recharts';
+import { useRealtimeNotifications } from '../../hooks/useRealtimeNotifications';
 
 const KPI_FILTERS: Record<string, { label: string; params?: Record<string, string> }> = {
   new:       { label: 'Nouveaux',   params: { status_in: '1' } },
@@ -42,6 +43,13 @@ const ROLE_LABELS: Record<string, { label: string; color: string; bg: string }> 
 
 export default function TicketsDashboard() {
   const { user } = useAuth();
+  
+  // Real-time notification hook
+  useRealtimeNotifications(() => {
+    // Reload data when a new ticket is detected
+    loadData(activeFilter, activeUserFilter, page, search, activeCategory, activeSubcategory, activeSoftware);
+  });
+
   const [resolvedRole, setResolvedRole] = useState<string | null>(null);
   const [canViewKpi, setCanViewKpi] = useState(true);
   // Vue initiale : « live » si on arrive via la bulle de chat (/tickets?view=live).
