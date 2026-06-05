@@ -4262,8 +4262,24 @@ app.get('/api/tiles', async (req, res) => {
             if (!admin) {
                 tiles = tiles.filter(t => !t.is_module || !t.module_key || visByKey[t.module_key] !== false);
             }
+            
+            // Tenter de récupérer le chef de projet si c'est une tuile liée à une application MagApp
+            for (const tile of tiles) {
+                if (tile.is_module && tile.module_key === 'magapp') {
+                    // Chercher le nom de l'application dans les liens pour essayer de trouver le chef de projet
+                    // C'est une approximation, le modèle actuel est limité pour lier précisément une tuile à une appli spécifique
+                    // On va chercher dans tous les liens de la tuile si un URL correspond à une appli MagApp
+                    for (const link of tile.links) {
+                        const app = await pgDb.get('SELECT project_manager_name FROM magapp_apps WHERE url = $1 LIMIT 1', [link.url]);
+                        if (app && app.project_manager_name) {
+                            tile.project_manager_name = app.project_manager_name;
+                            break;
+                        }
+                    }
+                }
+            }
         } catch (e) {
-            console.error('[TILES] Filtrage des tuiles-module échoué:', e.message);
+            console.error('[TILES] Filtrage/enrichissement des tuiles-module échoué:', e.message);
         }
 
         res.json(tiles);
@@ -4299,8 +4315,21 @@ app.get('/api/tiles-auth', authenticateJWT, async (req, res) => {
             if (!admin) {
                 tiles = tiles.filter(t => !t.is_module || !t.module_key || visByKey[t.module_key] !== false);
             }
+            
+            // Tenter de récupérer le chef de projet si c'est une tuile liée à une application MagApp
+            for (const tile of tiles) {
+                if (tile.is_module && tile.module_key === 'magapp' && tile.links) {
+                    for (const link of tile.links) {
+                        const app = await pgDb.get('SELECT project_manager_name FROM magapp_apps WHERE url = $1 LIMIT 1', [link.url]);
+                        if (app && app.project_manager_name) {
+                            tile.project_manager_name = app.project_manager_name;
+                            break;
+                        }
+                    }
+                }
+            }
         } catch (e) {
-            console.error('[TILES-AUTH] Filtrage des tuiles-module échoué:', e.message);
+            console.error('[TILES-AUTH] Filtrage/enrichissement des tuiles-module échoué:', e.message);
         }
 
         res.json(tiles);

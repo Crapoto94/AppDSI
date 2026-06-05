@@ -36,7 +36,7 @@ Votre rôle est rappelé par une **pastille colorée** en haut de page. Le rôle
 
 ## 2. Comment un ticket entre dans le système
 
-Un ticket peut être créé par **quatre canaux**. Quelle que soit l'origine, il rejoint la même file et suit le même cycle de vie.
+Un ticket peut être créé par **cinq canaux**. Quelle que soit l'origine, il rejoint la même file et suit le même cycle de vie.
 
 ### 2.1 Saisie manuelle (formulaire)
 Création directe dans l'application (bouton **Nouveau ticket**). Le formulaire comporte :
@@ -60,8 +60,11 @@ Les e-mails reçus sur des boîtes O365 surveillées sont **transformés automat
 ### 2.3 Par le chat en direct (Live)
 Une **session de chat** ouverte par un usager génère un ticket associé. À la fin de la conversation, le ticket est **classé (Incident / Demande)** puis clôturé. La trace de l'échange et un résumé sont conservés.
 
-### 2.4 Par synchronisation GLPI
-Les tickets gérés dans **GLPI** sont synchronisés dans le hub (avec descriptions, suivis, demandeurs, observateurs). Les **transpositions** (catégories, groupes) assurent la correspondance avec le référentiel interne. C'est le canal des environnements encore connectés à GLPI.
+### 2.4 Par le Magasin d'applications (MagApp)
+Si cette fonctionnalité est activée, les utilisateurs peuvent directement déposer une demande de support depuis le Magasin d'applications, en lien avec une application spécifique. Cela permet une meilleure contextualisation de la demande dès l'ouverture.
+
+### 2.5 Par synchronisation GLPI (historique)
+Cette méthode a été utilisée pour **récupérer la base de tickets existante** lors de la migration. **Elle n'est plus utilisée** pour les nouveaux tickets, le support étant désormais assuré directement par le module Tickets. Pour les environnements encore connectés, cette section est conservée pour des besoins de consultation d'historique.
 
 ---
 

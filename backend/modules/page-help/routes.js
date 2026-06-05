@@ -24,21 +24,37 @@ router.get('/', authenticateJWT, async (req, res) => {
     } catch (e) { res.status(500).json({ message: e.message }); }
 });
 
-// GET /api/page-help/:page — retourne l'aide pour une page
+// GET /api/page-help/:page — retourne l'aide pour une page (lecture directe depuis les fichiers Markdown)
 router.get('/:page', async (req, res) => {
     try {
         const page = decodeURIComponent(req.params.page);
-        const row = await pgDb.get('SELECT * FROM hub.page_help WHERE page_path = $1', [page]);
-        if (!row) return res.json(null);
-        if (!row.content_html) {
-            try {
-                const mdParse = await getMarkedParse();
-                row.content_html = mdParse(row.content);
-            } catch (e) {
-                row.content_html = `<pre>${row.content}</pre>`;
-            }
-        }
-        res.json(row);
+        
+        // Mappage page -> fichier
+        const MAP = {
+            '/tickets':        'GUIDE-TECHNICIEN-TICKETS.md',
+            '/tickets/stats':  'GUIDE-STATISTIQUES-TICKETS.md',
+            '/tickets/admin':  'GUIDE-ADMIN-TICKETS.md',
+        };
+
+        const fileName = MAP[page];
+        if (!fileName) return res.json(null);
+
+        const path = require('path');
+        const docsDir = path.join(__dirname, '..', '..', '..', 'docs');
+        const filePath = path.join(docsDir, fileName);
+
+        if (!fs.existsSync(filePath)) return res.json(null);
+
+        const content = fs.readFileSync(filePath, 'utf8');
+        
+        const mdParse = await getMarkedParse();
+        const contentHtml = mdParse(content);
+
+        res.json({
+            page_path: page,
+            content: content,
+            content_html: contentHtml
+        });
     } catch (e) { res.status(500).json({ message: e.message }); }
 });
 

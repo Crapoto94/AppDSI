@@ -338,6 +338,12 @@ const Header: React.FC<HeaderProps> = () => {
                                 onClick={() => setShowNavDropdown(false)}
                               >
                                 {link.label}
+                                {/* @ts-expect-error accessing extended property */}
+                                {tile.project_manager_name && (
+                                  <div style={{ fontSize: '10px', color: '#94a3b8', marginTop: '2px', fontStyle: 'italic' }}>
+                                    Chef de projet: {tile.project_manager_name}
+                                  </div>
+                                )}
                               </Link>
                             ))}
                           </div>
@@ -632,7 +638,39 @@ const Header: React.FC<HeaderProps> = () => {
               <button className="close-btn" onClick={() => setShowHelp(false)}><X size={24} /></button>
             </div>
             <div className="modal-body">
-              <div className="help-md" dangerouslySetInnerHTML={{ __html: helpData.content_html || '' }} />
+              <input
+                type="text"
+                placeholder="Rechercher dans l'aide..."
+                onChange={(e) => {
+                  const term = e.target.value.toLowerCase();
+                  const mdEl = document.querySelector('.help-md');
+                  if (!mdEl) return;
+                  const elements = mdEl.querySelectorAll('h1, h2, h3, p, li');
+                  elements.forEach(el => {
+                    if (term && el.textContent?.toLowerCase().includes(term)) {
+                      el.style.backgroundColor = '#fef08a';
+                    } else {
+                      el.style.backgroundColor = 'transparent';
+                    }
+                  });
+                }}
+                style={{ width: '100%', padding: '8px', marginBottom: '16px', border: '1px solid #cbd5e1', borderRadius: '4px' }}
+              />
+              <div
+                className="help-md"
+                dangerouslySetInnerHTML={{ __html: helpData.content_html || '' }}
+                onClick={(e) => {
+                  const target = e.target as HTMLElement;
+                  if (target.tagName === 'A' && target.getAttribute('href')?.startsWith('#')) {
+                    e.preventDefault();
+                    const id = target.getAttribute('href')?.substring(1);
+                    const element = document.getElementById(id || '');
+                    if (element) {
+                      element.scrollIntoView({ behavior: 'smooth' });
+                    }
+                  }
+                }}
+              />
             </div>
           </div>
         </div>
