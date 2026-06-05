@@ -33,12 +33,15 @@ class MailScheduler {
       console.log(`[MailScheduler] Initialisation de ${collectors.length} collecteurs...`);
 
       for (const collector of collectors) {
+        console.log(`[MAIL-DEBUG] Traitement du collecteur ID: ${collector.id}`);
         // VÃ©rification de l'activation LOCALE (SQLite) - EXCLUSIVE
         const localSetting = await sqlite.get('SELECT value FROM local_settings WHERE key = ?', [`mail_collector_${collector.id}_enabled`]);
+        console.log(`[MAIL-DEBUG] localSetting pour ${collector.id}:`, localSetting);
 
         // Si le réglage n'existe pas encore, on initialise par défaut à 'true' (donc enabled)
         // dans SQLite pour éviter qu'ils soient tous désactivés lors de la migration.
         if (!localSetting) {
+            console.log(`[MAIL-DEBUG] Pas de réglage local pour ${collector.id}, création par défaut.`);
             await sqlite.run('INSERT INTO local_settings (key, value) VALUES (?, ?)', [`mail_collector_${collector.id}_enabled`, 'true']);
         }
 
