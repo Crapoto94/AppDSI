@@ -132,7 +132,14 @@ class MailCollectorService {
             }
 
             fs.writeFileSync(destPath, contentBinary);
-            uploaded.push({ filename, originalName: att.name, path: destPath });
+            uploaded.push({
+              filename,
+              originalName: att.name,
+              path: destPath,
+              buffer: contentBinary,
+              mimetype: att.contentType || 'application/octet-stream',
+              size: contentBinary.length
+            });
           } catch (e) {
             console.error(`Erreur téléchargement attachment ${att.name}:`, e.message);
           }
@@ -273,20 +280,23 @@ class MailCollectorService {
     let count = 0;
     for (const att of attachments) {
       try {
-        const stat = fs.statSync(att.path);
         const user = await pgDb.get('SELECT id FROM hub.users WHERE username = ?', [username]);
 
         await attachmentRepo.create(ticketId, {
-          filename: att.filename,
           originalname: att.originalName,
-          path: att.path,
-          size: stat.size,
-          mimetype: 'application/octet-stream'
-        }, { id: user?.id || 1 });
+          buffer: att.buffer,
+          size: att.size,
+          mimetype: att.mimetype
+        }, { id: user?.id || 1, username });
 
         count++;
+
+        // Nettoyage du fichier temporaire
+        if (att.path && fs.existsSync(att.path)) {
+          try { fs.unlinkSync(att.path); } catch (err) {}
+        }
       } catch (e) {
-        console.error(`Erreur ajout attachment ${att.filename}:`, e.message);
+        console.error(`Erreur ajout attachment ${att.originalName}:`, e.message);
       }
     }
 
