@@ -7,11 +7,18 @@ export const useRealtimeNotifications = (onTicketCreated: (data: any) => void) =
       Notification.requestPermission();
     }
 
-    // 2. Initialiser SSE
-    // Note: ensure the URL is correct for your proxy/API setup
-    const eventSource = new EventSource('/api/tickets/updates', { withCredentials: true });
+    // 2. Initialiser SSE avec le token en query param
+    const token = localStorage.getItem('token');
+    const url = `/api/tickets/updates?token=${token}`;
+    console.log('[SSE] Attempting to connect to:', url);
+    const eventSource = new EventSource(url);
+
+    eventSource.onopen = () => {
+      console.log('[SSE] Connection opened');
+    };
 
     eventSource.onmessage = (event) => {
+      console.log('[SSE] Message received:', event.data);
       try {
         const data = JSON.parse(event.data);
         
@@ -31,10 +38,11 @@ export const useRealtimeNotifications = (onTicketCreated: (data: any) => void) =
     };
 
     eventSource.onerror = (err) => {
-      console.error('SSE Error:', err);
-      eventSource.close();
+      console.error('[SSE] Error:', err);
     };
 
-    return () => eventSource.close();
-  }, [onTicketCreated]);
+    return () => {
+      console.log('[SSE] Closing connection');
+      eventSource.close();
+    };  }, [onTicketCreated]);
 };
