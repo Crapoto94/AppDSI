@@ -8,6 +8,7 @@ const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 30 
 
 router.get('/', authenticateJWT, ctrl.list);
 router.get('/kpis', authenticateJWT, ctrl.kpis);
+router.get('/reconciliation', authenticateJWT, ctrl.reconciliation);
 router.post('/import', authenticateJWT, upload.single('file'), ctrl.importExcel);
 
 module.exports = router;

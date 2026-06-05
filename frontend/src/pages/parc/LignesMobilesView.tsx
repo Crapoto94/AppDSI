@@ -3,7 +3,7 @@
 // table et force l'opérateur à « SFR ». Vue branchée dans l'onglet « Lignes mobiles ».
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import axios from 'axios';
-import { Search, X, RefreshCw, Upload, Signal, Filter } from 'lucide-react';
+import { Search, X, RefreshCw, Upload, Signal, Filter, GitCompare, AlertTriangle, Smartphone, ArrowRight } from 'lucide-react';
 
 const C = { blue: '#2563eb', slate: '#64748b', green: '#059669', amber: '#d97706', red: '#dc2626', card: '#fff', border: '#e2e8f0', text: '#0f172a', bg: '#f8fafc' };
 
@@ -26,7 +26,29 @@ interface Ligne {
   type_offre: string | null;
 }
 
+const RECO_LABELS: Record<string, string> = {
+  ligne_sans_appareil: 'Ligne sans appareil',
+  appareil_sans_ligne: 'Appareil sans ligne',
+  imei_divergent: 'IMEI divergent',
+  numero_divergent: 'N° de ligne divergent',
+  ligne_active_appareil_non_attribue: 'Ligne active / appareil non attribué',
+  ligne_coupee_appareil_attribue: 'Ligne coupée / appareil attribué',
+  titulaire_divergent: 'Titulaire divergent',
+  forfait_divergent: 'Forfait divergent',
+};
+
+interface RecoItem {
+  type: string; severity: 'high' | 'medium' | 'low'; titre: string; action: string;
+  numero_ligne: string | null; imei: string | null;
+  sfr: any | null; device: any | null;
+}
+interface RecoData {
+  summary: { total_lignes: number; total_appareils: number; appareils_rapproches: number; total_desalignements: number; par_type: Record<string, number>; par_gravite: { high: number; medium: number; low: number } };
+  items: RecoItem[];
+}
+
 export default function LignesMobilesView({ token }: { token: string }) {
+  const [view, setView] = useState<'lignes' | 'reco'>('lignes');
   const [lignes, setLignes] = useState<Ligne[]>([]);
   const [loading, setLoading] = useState(true);
   const [kpis, setKpis] = useState<{ total: number; par_statut: { statut: string; n: number }[]; last_import: string | null } | null>(null);
@@ -35,6 +57,23 @@ export default function LignesMobilesView({ token }: { token: string }) {
   const [importing, setImporting] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const h = { Authorization: `Bearer ${token}` };
+
+  // ── Rapprochement (réconciliation lignes SFR ↔ appareils) ──
+  const [reco, setReco] = useState<RecoData | null>(null);
+  const [recoLoading, setRecoLoading] = useState(false);
+  const [recoType, setRecoType] = useState('');
+  const [recoSeverity, setRecoSeverity] = useState('');
+
+  const loadReco = useCallback(async () => {
+    setRecoLoading(true);
+    try {
+      const r = await axios.get('/api/lignes-mobiles/reconciliation', { headers: h });
+      setReco(r.data);
+    } catch { setReco(null); }
+    finally { setRecoLoading(false); }
+  }, [token]);
+
+  useEffect(() => { if (view === 'reco' && !reco) loadReco(); }, [view, reco, loadReco]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -85,6 +124,21 @@ export default function LignesMobilesView({ token }: { token: string }) {
 
   return (
     <div>
+      {/* Sélecteur de vue */}
+      <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+        {([['lignes', 'Lignes mobiles', Signal], ['reco', 'Rapprochement appareils', GitCompare]] as [typeof view, string, any][]).map(([k, label, Ic]) => (
+          <button key={k} onClick={() => setView(k)}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '8px 16px', borderRadius: 8, cursor: 'pointer', fontWeight: 700, fontSize: 13,
+              border: `1px solid ${view === k ? C.blue : C.border}`, background: view === k ? C.blue : '#fff', color: view === k ? '#fff' : '#475569' }}>
+            <Ic size={15} /> {label}
+            {k === 'reco' && reco && reco.summary.total_desalignements > 0 && (
+              <span style={{ background: view === k ? 'rgba(255,255,255,.25)' : '#fee2e2', color: view === k ? '#fff' : '#b91c1c', borderRadius: 10, padding: '0 7px', fontSize: 11, fontWeight: 800 }}>{reco.summary.total_desalignements}</span>
+            )}
+          </button>
+        ))}
+      </div>
+
+      {view === 'reco' ? renderReco() : (<>
       {/* KPIs + actions */}
       <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap', marginBottom: 16 }}>
         <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: '12px 18px', minWidth: 130 }}>
@@ -178,6 +232,122 @@ export default function LignesMobilesView({ token }: { token: string }) {
           </table>
         )}
       </div>
+      </>)}
     </div>
   );
+
+  // ── Rendu de la vue rapprochement ──
+  function renderReco() {
+    const sevColor = (s: string) => s === 'high' ? { bg: '#fee2e2', c: '#b91c1c', label: 'Critique' }
+      : s === 'medium' ? { bg: '#ffedd5', c: '#9a3412', label: 'À surveiller' }
+      : { bg: '#f1f5f9', c: '#475569', label: 'Info' };
+    const filtered = (reco?.items || []).filter(it =>
+      (!recoType || it.type === recoType) && (!recoSeverity || it.severity === recoSeverity));
+
+    const tdS: React.CSSProperties = { padding: '8px 12px', fontSize: 12.5, color: C.text, borderBottom: '1px solid #f1f5f9', verticalAlign: 'top' };
+    const thS: React.CSSProperties = { padding: '9px 12px', textAlign: 'left', fontSize: 11, fontWeight: 700, color: '#475569', textTransform: 'uppercase', borderBottom: '1px solid ' + C.border };
+
+    return (
+      <div>
+        {/* Résumé */}
+        <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center', marginBottom: 16 }}>
+          {[
+            { l: 'Lignes SFR', v: reco?.summary.total_lignes ?? 0, ic: <Signal size={14} /> },
+            { l: 'Appareils', v: reco?.summary.total_appareils ?? 0, ic: <Smartphone size={14} /> },
+            { l: 'Rapprochés', v: reco?.summary.appareils_rapproches ?? 0, ic: <GitCompare size={14} /> },
+            { l: 'Désalignements', v: reco?.summary.total_desalignements ?? 0, ic: <AlertTriangle size={14} />, hot: true },
+          ].map(c => (
+            <div key={c.l} style={{ background: C.card, border: `1px solid ${c.hot ? '#fca5a5' : C.border}`, borderRadius: 12, padding: '12px 18px', minWidth: 120 }}>
+              <div style={{ fontSize: 12, color: C.slate, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6 }}>{c.ic} {c.l}</div>
+              <div style={{ fontSize: 24, fontWeight: 900, color: c.hot ? '#b91c1c' : C.text }}>{c.v}</div>
+            </div>
+          ))}
+          <div style={{ display: 'flex', gap: 6, marginLeft: 'auto' }}>
+            {(['high', 'medium', 'low'] as const).map(s => {
+              const sc = sevColor(s); const n = reco?.summary.par_gravite[s] ?? 0;
+              return <span key={s} onClick={() => setRecoSeverity(recoSeverity === s ? '' : s)}
+                style={{ cursor: 'pointer', background: recoSeverity === s ? sc.c : sc.bg, color: recoSeverity === s ? '#fff' : sc.c, padding: '6px 12px', borderRadius: 10, fontSize: 12, fontWeight: 700 }}>
+                {sc.label} · {n}</span>;
+            })}
+          </div>
+          <button onClick={loadReco} title="Recalculer" style={{ display: 'inline-flex', alignItems: 'center', padding: '9px 12px', borderRadius: 8, cursor: 'pointer', border: `1px solid ${C.border}`, background: '#fff', color: '#475569' }}><RefreshCw size={15} /></button>
+        </div>
+
+        {/* Filtres par type (cartes cliquables) */}
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 14 }}>
+          <button onClick={() => setRecoType('')} style={{ padding: '6px 12px', borderRadius: 20, cursor: 'pointer', fontSize: 12, fontWeight: 700, border: `1px solid ${!recoType ? C.blue : C.border}`, background: !recoType ? C.blue : '#fff', color: !recoType ? '#fff' : '#475569' }}>Tout ({reco?.items.length ?? 0})</button>
+          {Object.entries(reco?.summary.par_type || {}).sort((a, b) => b[1] - a[1]).map(([t, n]) => (
+            <button key={t} onClick={() => setRecoType(recoType === t ? '' : t)}
+              style={{ padding: '6px 12px', borderRadius: 20, cursor: 'pointer', fontSize: 12, fontWeight: 700, border: `1px solid ${recoType === t ? C.blue : C.border}`, background: recoType === t ? C.blue : '#fff', color: recoType === t ? '#fff' : '#475569' }}>
+              {RECO_LABELS[t] || t} ({n})
+            </button>
+          ))}
+        </div>
+
+        {/* Tableau des désalignements */}
+        <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, overflow: 'auto' }}>
+          {recoLoading ? (
+            <div style={{ padding: 40, textAlign: 'center', color: '#94a3b8' }}>Analyse en cours…</div>
+          ) : !reco ? (
+            <div style={{ padding: 40, textAlign: 'center', color: '#94a3b8' }}>Aucune donnée. Importez les lignes et synchronisez la mobilité.</div>
+          ) : filtered.length === 0 ? (
+            <div style={{ padding: 50, textAlign: 'center', color: '#15803d', fontWeight: 600 }}>✓ Aucun désalignement pour ce filtre.</div>
+          ) : (
+            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <thead>
+                <tr>
+                  <th style={thS}>Gravité</th>
+                  <th style={thS}>Désalignement</th>
+                  <th style={thS}>Côté SFR</th>
+                  <th style={thS}>Côté parc mobilité</th>
+                  <th style={thS}>Action conseillée</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.map((it, i) => {
+                  const sc = sevColor(it.severity);
+                  return (
+                    <tr key={i}>
+                      <td style={tdS}><span style={{ background: sc.bg, color: sc.c, padding: '2px 8px', borderRadius: 8, fontSize: 11, fontWeight: 700, whiteSpace: 'nowrap' }}>{sc.label}</span></td>
+                      <td style={{ ...tdS, fontWeight: 600, maxWidth: 200 }}>
+                        {it.titre}
+                        <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>{RECO_LABELS[it.type] || it.type}</div>
+                      </td>
+                      <td style={tdS}>
+                        {it.sfr ? (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                            <span style={{ fontWeight: 700 }}>{it.sfr.numero_ligne || '—'}</span>
+                            <span style={{ color: C.slate }}>{it.sfr.titulaire || '—'}</span>
+                            {it.sfr.forfait && <span style={{ color: '#94a3b8', fontSize: 11 }}>{it.sfr.forfait}</span>}
+                            {it.sfr.statut_ligne && <span style={{ fontSize: 11 }}>Statut : {it.sfr.statut_ligne}</span>}
+                            {it.sfr.imei && <span style={{ fontFamily: 'monospace', fontSize: 11, color: '#94a3b8' }}>IMEI {it.sfr.imei}</span>}
+                          </div>
+                        ) : <span style={{ color: '#cbd5e1' }}>— absent —</span>}
+                      </td>
+                      <td style={tdS}>
+                        {it.device ? (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                            <span style={{ fontWeight: 700 }}>{it.device.modele || it.device.famille || '—'}</span>
+                            <span style={{ color: C.slate }}>{it.device.agent || '—'}{it.device.service ? ` · ${it.device.service}` : ''}</span>
+                            {it.device.statut && <span style={{ fontSize: 11 }}>État : {it.device.statut}</span>}
+                            {it.device.numero_ligne && <span style={{ fontSize: 11 }}>N° {it.device.numero_ligne}</span>}
+                            {it.device.imei && <span style={{ fontFamily: 'monospace', fontSize: 11, color: '#94a3b8' }}>IMEI {it.device.imei}</span>}
+                          </div>
+                        ) : <span style={{ color: '#cbd5e1' }}>— absent —</span>}
+                      </td>
+                      <td style={{ ...tdS, maxWidth: 260, whiteSpace: 'normal' }}>
+                        <span style={{ display: 'inline-flex', alignItems: 'flex-start', gap: 5, color: '#475569' }}>
+                          <ArrowRight size={13} style={{ marginTop: 2, flexShrink: 0, color: C.blue }} /> {it.action}
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </div>
+    );
+  }
 }

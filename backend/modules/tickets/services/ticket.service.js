@@ -8,6 +8,7 @@ const slaService = require('./sla.service');
 const observerRepo = require('../repositories/observer.repository');
 const ticketDto = require('../dtos/ticket.dto');
 const { normalizeRole } = require('../middleware/ticket-permissions');
+const teamsService = require('./teams.service');
 
 function normalizeTicketType(type) {
     if (type === 1 || type === '1' || type === 'incident') return 1;
@@ -78,6 +79,14 @@ module.exports = {
 
         process.nextTick(async () => {
             try {
+                await teamsService.notifyCrisis(ticketId);
+            } catch (e) {
+                console.error('[TEAMS] notify failed:', e.message);
+            }
+        });
+
+        process.nextTick(async () => {
+            try {
                 await assignmentService.autoAssign({ glpi_id: ticketId, ...ticketData });
             } catch (e) {
                 console.error('[AUTO-ASSIGN]', e.message);
@@ -139,6 +148,15 @@ module.exports = {
                 }
             }
         }
+
+        // Notify Teams if ticket meets crisis criteria
+        process.nextTick(async () => {
+            try {
+                await teamsService.notifyCrisis(id);
+            } catch (e) {
+                console.error('[TEAMS] notify failed on update:', e.message);
+            }
+        });
     },
 
     async setSolution(id, solution, user) {
@@ -152,6 +170,14 @@ module.exports = {
         }
 
         await notificationService.trigger('ticket.resolved', { ticket_id: id, user, solution });
+
+        process.nextTick(async () => {
+            try {
+                await teamsService.notifyResolved(id);
+            } catch (e) {
+                console.error('[TEAMS] notifyResolved failed:', e.message);
+            }
+        });
     },
 
     async resolveProblem(problemId, autoResolveLinked, solution, user) {

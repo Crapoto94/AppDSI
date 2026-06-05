@@ -6,7 +6,7 @@ import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianG
 import AutoResolution from '../Admin/AutoResolution';
 import ResponseTemplatesAdmin from './ResponseTemplatesAdmin';
 import KnowledgeBaseAdmin from './KnowledgeBaseAdmin';
-type Tab = 'categories' | 'category_mapping' | 'sla' | 'rules' | 'vip' | 'journal' | 'templates' | 'triggers' | 'technicians' | 'groups' | 'group_mapping' | 'escalade' | 'roles' | 'params' | 'closure' | 'live_config' | 'satisfaction' | 'auto_resolution' | 'response_auto' | 'knowledge_base';
+type Tab = 'categories' | 'category_mapping' | 'sla' | 'rules' | 'vip' | 'journal' | 'templates' | 'triggers' | 'technicians' | 'groups' | 'group_mapping' | 'escalade' | 'roles' | 'params' | 'closure' | 'live_config' | 'satisfaction' | 'auto_resolution' | 'response_auto' | 'knowledge_base' | 'teams';
 
 const btn = (active: boolean): React.CSSProperties => ({
   padding: '8px 16px', border: 'none', borderRadius: 8, cursor: 'pointer',
@@ -156,6 +156,7 @@ export default function TicketAdmin() {
     { key: 'satisfaction', label: '⭐ Satisfaction' },
     { key: 'response_auto', label: '💬 Réponses auto' },
     { key: 'knowledge_base', label: '📚 Base documentaire' },
+    { key: 'teams',          label: '🔄 Teams' },
   ];
 
   return (
@@ -189,6 +190,7 @@ export default function TicketAdmin() {
         {tab === 'auto_resolution' && <div style={{ margin: -24 }}><AutoResolution /></div>}
         {tab === 'response_auto' && <ResponseTemplatesAdmin />}
         {tab === 'knowledge_base' && <KnowledgeBaseAdmin />}
+        {tab === 'teams' && <TeamsConfig />}
         {tab === 'live_config' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
 
@@ -3972,6 +3974,124 @@ function GroupMappingManager() {
             {displayedRows.length === 0 && <tr><td colSpan={3} style={{ padding: 30, textAlign: 'center', color: '#cbd5e1' }}>{onlyUnmapped ? 'Tous les groupes sont mappés 🎉' : 'Aucun groupe GLPI utilisé.'}</td></tr>}
           </tbody>
         </table>
+      </div>
+    </div>
+  );
+}
+
+function TeamsConfig() {
+  const token = localStorage.getItem('token');
+  const [cfg, setCfg] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState<'ok' | 'ko' | null>(null);
+
+  useEffect(() => {
+    axios.get('/api/tickets/admin/teams-config', { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => setCfg(r.data))
+      .catch(() => setCfg({ teams_enabled: 'false', teams_webhook_url: '', teams_min_urgency: '4', teams_min_impact: '4', teams_channel_name: 'crise', teams_portal_url: 'https://dsihub.ivry.local' }))
+      .finally(() => setLoading(false));
+  }, [token]);
+
+  const update = (key: string, val: any) => setCfg((prev: any) => ({ ...prev, [key]: val }));
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      await axios.put('/api/tickets/admin/teams-config', cfg, { headers: { Authorization: `Bearer ${token}` } });
+    } catch (e) { console.error(e); }
+    finally { setSaving(false); }
+  };
+
+  const testWebhook = async () => {
+    setTesting(true);
+    setTestResult(null);
+    try {
+      await axios.post('/api/tickets/admin/test-teams-webhook', { teams_webhook_url: cfg.teams_webhook_url }, { headers: { Authorization: `Bearer ${token}` } });
+      setTestResult('ok');
+    } catch (e) { setTestResult('ko'); }
+    finally { setTesting(false); }
+  };
+
+  const inputS = { padding: '8px 12px', border: '1px solid #e2e8f0', borderRadius: 6, fontSize: 13, outline: 'none', width: '100%', boxSizing: 'border-box' as const };
+  const labelS = { fontSize: 13, fontWeight: 600, color: '#475569', marginBottom: 4 };
+
+  if (loading) return <div style={{ color: '#94a3b8', padding: 20 }}>Chargement...</div>;
+  if (!cfg) return <div style={{ color: '#ef4444', padding: 20 }}>Erreur de chargement</div>;
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+      <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 12, padding: 20 }}>
+        <div style={{ fontWeight: 700, fontSize: 15, color: '#1e293b', marginBottom: 16 }}>🔗 Configuration du webhook Teams</div>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
+          <label style={{ fontWeight: 600, fontSize: 13, color: '#475569', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
+            <input type="checkbox" checked={cfg.teams_enabled === 'true'} onChange={e => update('teams_enabled', e.target.checked)} />
+            Activer l'envoi vers Teams
+          </label>
+        </div>
+
+        <div style={{ marginBottom: 12 }}>
+          <div style={labelS}>URL du webhook Teams</div>
+          <input style={inputS} value={cfg.teams_webhook_url || ''} onChange={e => update('teams_webhook_url', e.target.value)} placeholder="https://...webhook.office.com/..." />
+        </div>
+
+        <div style={{ marginBottom: 12 }}>
+          <div style={labelS}>URL du portail DSI Hub</div>
+          <input style={inputS} value={cfg.teams_portal_url || ''} onChange={e => update('teams_portal_url', e.target.value)} placeholder="https://dsihub.ivry.local" />
+          <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>Utilisé pour le lien "Voir le ticket" dans le message Teams</div>
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 16 }}>
+          <div>
+            <div style={labelS}>Urgence minimale</div>
+            <select style={inputS} value={cfg.teams_min_urgency || '4'} onChange={e => update('teams_min_urgency', e.target.value)}>
+              <option value="2">Basse (2)</option>
+              <option value="3">Normale (3)</option>
+              <option value="4">Haute (4)</option>
+              <option value="5">Très haute (5)</option>
+            </select>
+            <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>Seuil minimum d'urgence pour déclencher l'alerte</div>
+          </div>
+          <div>
+            <div style={labelS}>Impact minimal</div>
+            <select style={inputS} value={cfg.teams_min_impact || '4'} onChange={e => update('teams_min_impact', e.target.value)}>
+              <option value="2">1 utilisateur (2)</option>
+              <option value="3">Groupe de travail (3)</option>
+              <option value="4">Service / Direction (4)</option>
+              <option value="5">Global (5)</option>
+            </select>
+            <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>Seuil minimum d'impact pour déclencher l'alerte</div>
+          </div>
+        </div>
+
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button onClick={save} disabled={saving} style={{
+            padding: '8px 16px', background: '#6366f1', color: '#fff', border: 'none', borderRadius: 6,
+            cursor: 'pointer', fontWeight: 600, fontSize: 13, opacity: saving ? 0.6 : 1
+          }}>
+            {saving ? 'Enregistrement...' : '💾 Enregistrer'}
+          </button>
+          <button onClick={testWebhook} disabled={testing || !cfg.teams_webhook_url} style={{
+            padding: '8px 16px', background: '#f1f5f9', color: '#475569', border: '1px solid #e2e8f0', borderRadius: 6,
+            cursor: 'pointer', fontWeight: 600, fontSize: 13, opacity: testing || !cfg.teams_webhook_url ? 0.6 : 1
+          }}>
+            {testing ? 'Test en cours...' : '📤 Tester le webhook'}
+          </button>
+          {testResult === 'ok' && <span style={{ color: '#16a34a', fontSize: 13, fontWeight: 600, display: 'flex', alignItems: 'center' }}>✓ Succès</span>}
+          {testResult === 'ko' && <span style={{ color: '#dc2626', fontSize: 13, fontWeight: 600, display: 'flex', alignItems: 'center' }}>✗ Échec</span>}
+        </div>
+      </div>
+
+      <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 12, padding: 20 }}>
+        <div style={{ fontWeight: 700, fontSize: 15, color: '#1e293b', marginBottom: 8 }}>📋 Fonctionnement</div>
+        <ul style={{ fontSize: 13, color: '#64748b', lineHeight: 1.8, margin: 0, paddingLeft: 20 }}>
+          <li>Un message est envoyé dans le canal <strong>Teams</strong> configuré quand un ticket atteint les seuils d'<strong>urgence</strong> et d'<strong>impact</strong> définis ci-dessus.</li>
+          <li>Un message de <strong>résolution</strong> est envoyé quand le ticket critique est résolu (statut 5).</li>
+          <li>Les messages contiennent un lien direct vers le ticket dans le portail DSI Hub.</li>
+          <li>Utilisez le bouton "Tester" ci-dessus pour valider la connexion avant d'activer.</li>
+        </ul>
       </div>
     </div>
   );

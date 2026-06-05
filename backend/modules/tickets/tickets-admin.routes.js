@@ -1761,4 +1761,59 @@ router.delete('/knowledge-documents/:id', authenticateJWT, authenticateTicketAdm
     } catch (e) { res.status(500).json({ message: e.message }); }
 });
 
+// ─── Teams Crisis Webhook ──────────────────────────────────────
+router.get('/teams-config', authenticateJWT, async (req, res) => {
+    try {
+        const rows = await pgDb.all(
+            `SELECT key, value FROM hub_tickets.module_config WHERE key LIKE 'teams_%'`
+        );
+        const cfg = { teams_enabled: 'false', teams_webhook_url: '', teams_min_urgency: '4', teams_min_impact: '4', teams_channel_name: 'crise', teams_portal_url: 'https://dsihub.ivry.local' };
+        for (const r of rows) cfg[r.key] = r.value;
+        res.json(cfg);
+    } catch (e) { res.status(500).json({ message: e.message }); }
+});
+
+router.put('/teams-config', authenticateJWT, authenticateTicketAdmin, async (req, res) => {
+    try {
+        const { teams_enabled, teams_webhook_url, teams_min_urgency, teams_min_impact, teams_channel_name, teams_portal_url } = req.body;
+        const upsert = (key, val) => pgDb.run(
+            `INSERT INTO hub_tickets.module_config (key, value) VALUES ($1, $2)
+             ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
+            [key, String(val ?? '')]
+        );
+        if (teams_enabled     !== undefined) await upsert('teams_enabled',     teams_enabled ? 'true' : 'false');
+        if (teams_webhook_url !== undefined) await upsert('teams_webhook_url', teams_webhook_url || '');
+        if (teams_min_urgency !== undefined) await upsert('teams_min_urgency', String(teams_min_urgency));
+        if (teams_min_impact  !== undefined) await upsert('teams_min_impact',  String(teams_min_impact));
+        if (teams_channel_name!== undefined) await upsert('teams_channel_name',teams_channel_name || 'crise');
+        if (teams_portal_url  !== undefined) await upsert('teams_portal_url',  teams_portal_url || 'https://dsihub.ivry.local');
+        res.json({ success: true });
+    } catch (e) { res.status(500).json({ message: e.message }); }
+});
+
+router.post('/test-teams-webhook', authenticateJWT, authenticateTicketAdmin, async (req, res) => {
+    try {
+        const webhookUrl = req.body.teams_webhook_url;
+        if (!webhookUrl) return res.status(400).json({ message: 'URL du webhook requise' });
+
+        const testCard = {
+            '@type': 'MessageCard',
+            '@context': 'http://schema.org/extensions',
+            themeColor: '0072C6',
+            title: '🔧 Test de connexion Teams',
+            text: 'Ce message confirme que le webhook Teams est correctement configuré.',
+            sections: [{ facts: [{ name: 'Date', value: new Date().toLocaleString('fr-FR') }] }]
+        };
+
+        const axios = require('axios');
+        await axios.post(webhookUrl, testCard, {
+            headers: { 'Content-Type': 'application/json' },
+            timeout: 10000,
+        });
+        res.json({ success: true });
+    } catch (e) {
+        res.status(500).json({ message: 'Erreur : ' + (e.response?.data || e.message) });
+    }
+});
+
 module.exports = router;

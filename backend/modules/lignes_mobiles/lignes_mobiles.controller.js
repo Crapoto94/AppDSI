@@ -152,6 +152,154 @@ module.exports = {
     }
   },
 
+  // GET /api/lignes-mobiles/reconciliation
+  // Rapproche les lignes SFR (hub_parc.lignes_mobiles) et les appareils mobiles
+  // (hub_parc.mobilite_devices) par IMEI puis par n° de ligne, et liste tous les
+  // désalignements, avec le détail des deux côtés + une recommandation d'action.
+  reconciliation: async (req, res) => {
+    try {
+      const lignes = await pgDb.all(`
+        SELECT id, numero_ligne, imei, nom, prenom, raison_sociale, forfait, type_offre,
+               statut_ligne, date_mise_en_service, date_fin_engagement
+        FROM hub_parc.lignes_mobiles`);
+      const devices = await pgDb.all(`
+        SELECT device_key, imei, numero_ligne, modele, type_appareil, famille,
+               last_agent, last_service, last_direction, forfait, statut, is_actif,
+               last_action_norm, last_date
+        FROM hub_parc.mobilite_devices`);
+
+      const digits = (s) => String(s || '').replace(/\D/g, '');
+      const last10 = (s) => { const d = digits(s); return d.length > 10 ? d.slice(-10) : d; };
+      const normName = (s) => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim();
+      const nameTokens = (s) => new Set(normName(s).split(' ').filter(t => t.length > 2));
+      const ligneActive = (s) => /actif/i.test(s || '') && !/r[ée]sil|suspend|cl0tur|cl[oô]tur/i.test(s || '');
+      const ligneCoupee = (s) => /r[ée]sil|suspend|cl[oô]tur/i.test(s || '');
+      const deviceAttribue = (d) => d.statut === 'attribue' || d.statut === 'en_attribution' || (d.statut == null && d.is_actif === true);
+      const isPhone = (d) => ['telephone', 'tablette'].includes((d.famille || '').toLowerCase());
+
+      // Index des appareils par IMEI et par n° de ligne (normalisés)
+      const devByImei = new Map();
+      const devByNum = new Map();
+      for (const d of devices) {
+        const ki = digits(d.imei); if (ki) { (devByImei.get(ki) || devByImei.set(ki, []).get(ki)).push(d); }
+        const kn = last10(d.numero_ligne); if (kn) { (devByNum.get(kn) || devByNum.set(kn, []).get(kn)).push(d); }
+      }
+
+      const items = [];
+      const matchedKeys = new Set();
+      const push = (type, severity, l, d, titre, action, extra = {}) => {
+        items.push({
+          type, severity, titre, action,
+          numero_ligne: l ? l.numero_ligne : (d ? d.numero_ligne : null),
+          imei: l ? l.imei : (d ? d.imei : null),
+          sfr: l ? { id: l.id, numero_ligne: l.numero_ligne, imei: l.imei, titulaire: [l.nom, l.prenom].filter(Boolean).join(' ') || l.raison_sociale, forfait: l.forfait, type_offre: l.type_offre, statut_ligne: l.statut_ligne, date_mise_en_service: l.date_mise_en_service, date_fin_engagement: l.date_fin_engagement } : null,
+          device: d ? { device_key: d.device_key, imei: d.imei, numero_ligne: d.numero_ligne, modele: d.modele, famille: d.famille, agent: d.last_agent, service: d.last_service, direction: d.last_direction, forfait: d.forfait, statut: d.statut, is_actif: d.is_actif, derniere_action: d.last_action_norm, last_date: d.last_date } : null,
+          ...extra,
+        });
+      };
+
+      for (const l of lignes) {
+        const ki = digits(l.imei);
+        const kn = last10(l.numero_ligne);
+        const byImei = ki ? devByImei.get(ki) : null;
+        const byNum = kn ? devByNum.get(kn) : null;
+        const d = (byImei && byImei[0]) || (byNum && byNum[0]) || null;
+
+        if (!d) {
+          // Aucun appareil rapproché. Une ligne sans IMEI = probablement une SIM data/clé 4G.
+          const hasImei = !!ki;
+          const dataLike = /data|internet|m2m|modem/i.test(`${l.type_offre} ${l.forfait}`);
+          push('ligne_sans_appareil',
+            hasImei ? 'high' : (dataLike ? 'low' : 'medium'),
+            l, null,
+            hasImei ? 'Ligne avec terminal SFR introuvable dans le parc mobilité'
+                    : 'Ligne SFR sans appareil rapproché',
+            hasImei ? "Créer/importer l'appareil dans le parc mobilité ou vérifier l'IMEI."
+                    : (dataLike ? 'Ligne data/SIM seule — vérifier si un suivi d\'appareil est nécessaire.'
+                                : 'Identifier l\'appareil porteur de cette ligne et le rattacher.'));
+          continue;
+        }
+        matchedKeys.add(d.device_key);
+
+        // IMEI / numéro divergents (le rapprochement a réussi par une clé mais pas l'autre)
+        if (ki && digits(d.imei) && ki !== digits(d.imei)) {
+          push('imei_divergent', 'medium', l, d,
+            'IMEI différent entre SFR et le parc pour ce numéro',
+            'Le numéro est associé à un autre terminal côté parc : vérifier un changement de téléphone / SIM swap.');
+        }
+        if (kn && last10(d.numero_ligne) && kn !== last10(d.numero_ligne)) {
+          push('numero_divergent', 'medium', l, d,
+            'N° de ligne différent entre SFR et le parc pour cet IMEI',
+            'Le terminal porte un autre numéro côté parc : mettre à jour le n° de ligne de l\'appareil.');
+        }
+
+        // Statuts croisés ligne ↔ appareil
+        if (ligneActive(l.statut_ligne) && !deviceAttribue(d)) {
+          push('ligne_active_appareil_non_attribue', 'medium', l, d,
+            'Forfait SFR actif mais appareil non attribué',
+            `Appareil « ${d.statut || 'non en service'} » alors que la ligne est facturée : réattribuer l'appareil ou résilier/suspendre la ligne.`);
+        }
+        if (ligneCoupee(l.statut_ligne) && deviceAttribue(d)) {
+          push('ligne_coupee_appareil_attribue', 'high', l, d,
+            'Appareil en service sur une ligne résiliée/suspendue',
+            'L\'agent utilise un appareil dont la ligne est coupée : réactiver la ligne ou récupérer l\'appareil.');
+        }
+
+        // Titulaire SFR ↔ agent parc
+        const sfrName = [l.nom, l.prenom].filter(Boolean).join(' ') || l.raison_sociale;
+        if (sfrName && d.last_agent) {
+          const a = nameTokens(sfrName), b = nameTokens(d.last_agent);
+          const inter = [...a].some(t => b.has(t));
+          if (a.size && b.size && !inter) {
+            push('titulaire_divergent', 'low', l, d,
+              'Titulaire SFR différent de l\'agent affecté dans le parc',
+              'Vérifier qui détient réellement la ligne/l\'appareil (mutation, prêt, erreur de saisie).');
+          }
+        }
+
+        // Forfait divergent
+        if (l.forfait && d.forfait && normName(l.forfait) !== normName(d.forfait)) {
+          push('forfait_divergent', 'low', l, d,
+            'Forfait différent entre SFR et le parc',
+            'Aligner le forfait enregistré sur l\'appareil avec celui facturé par SFR.');
+        }
+      }
+
+      // Appareils mobiles sans ligne SFR rapprochée
+      for (const d of devices) {
+        if (matchedKeys.has(d.device_key)) continue;
+        if (!isPhone(d)) continue; // on ignore les non-téléphones (autres familles)
+        push('appareil_sans_ligne', deviceAttribue(d) ? 'medium' : 'low', null, d,
+          'Appareil mobile sans ligne SFR connue',
+          deviceAttribue(d) ? 'Appareil attribué sans forfait SFR rapproché : vérifier la ligne associée (autre opérateur ? IMEI/numéro manquant côté SFR ?).'
+                            : 'Appareil sans ligne — normal s\'il est en stock/sorti ; sinon rattacher une ligne.');
+      }
+
+      const order = { high: 0, medium: 1, low: 2 };
+      items.sort((a, b) => (order[a.severity] - order[b.severity]) || a.type.localeCompare(b.type));
+
+      const counts = {};
+      for (const it of items) counts[it.type] = (counts[it.type] || 0) + 1;
+      const bySeverity = { high: 0, medium: 0, low: 0 };
+      for (const it of items) bySeverity[it.severity]++;
+
+      res.json({
+        summary: {
+          total_lignes: lignes.length,
+          total_appareils: devices.length,
+          appareils_rapproches: matchedKeys.size,
+          total_desalignements: items.length,
+          par_type: counts,
+          par_gravite: bySeverity,
+        },
+        items,
+      });
+    } catch (error) {
+      console.error('[lignes-mobiles] reconciliation error:', error.message);
+      res.status(500).json({ message: 'Erreur lors du rapprochement', error: error.message });
+    }
+  },
+
   // GET /api/lignes-mobiles/kpis
   kpis: async (req, res) => {
     try {
