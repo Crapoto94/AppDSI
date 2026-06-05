@@ -184,7 +184,7 @@ exports.updateBacklogItem = async (req, res) => {
     const { id } = req.params;
     const { title, description, category, status, created_by, admin_comment, tile_id } = req.body;
 
-    const validStatuses = ['open', 'in_progress', 'accepted', 'rejected', 'completed'];
+    const validStatuses = ['open', 'in_progress', 'discussion', 'accepted', 'rejected', 'completed'];
     if (status && !validStatuses.includes(status)) {
       return res.status(400).json({ error: 'Invalid status' });
     }
@@ -295,6 +295,7 @@ exports.updateBacklogItem = async (req, res) => {
           const statusLabels = {
             'open': 'En attente',
             'in_progress': 'En cours',
+            'discussion': 'En discussion',
             'accepted': 'Acceptée',
             'rejected': 'Rejetée',
             'completed': 'Complétée'
@@ -306,6 +307,7 @@ exports.updateBacklogItem = async (req, res) => {
           let emailContent = `
             <h2>Mise à jour de votre demande</h2>
             <p>Votre demande <strong>"${currentItem.title}"</strong> a été mise à jour.</p>
+            <p><strong>Catégorie :</strong> ${currentItem.category}</p>
             <p><strong>Statut précédent :</strong> ${oldStatusLabel}</p>
             <p><strong>Nouveau statut :</strong> ${newStatusLabel}</p>
           `;

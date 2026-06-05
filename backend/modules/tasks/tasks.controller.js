@@ -130,6 +130,44 @@ async function notifyCreatorOfRefusal({ createdBy, refuserUsername, description,
     await sendMailFn(to, '❌ Tâche refusée — DSI Hub', html, [], 'task_alert');
 }
 
+// Prévient par mail chaque destinataire (≠ créateur) qu'une tâche vient de lui être
+// affectée. Notification immédiate et inconditionnelle (indépendante de l'opt-in du
+// récap quotidien). Silencieuse si pas de service mail / d'adresse ; non bloquante.
+async function notifyTaskAssignment({ targets, creatorUsername, description, echeance, isTeamTask, contextTitle }) {
+    if (!sendMailFn) return;
+    const recipients = (targets || []).filter(u => u && u.toLowerCase() !== (creatorUsername || '').toLowerCase());
+    if (recipients.length === 0) return;
+
+    const creatorName = await getUserDisplayName(creatorUsername);
+    const esc = (s) => String(s || '').replace(/[<>&]/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c]));
+    const echStr = echeance ? `<p><strong>Échéance :</strong> ${esc(String(echeance).slice(0, 10))}</p>` : '';
+    const ctxStr = (contextTitle && contextTitle !== 'Tâche personnelle')
+        ? `<p style="color:#64748b;font-size:13px;">Contexte : ${esc(contextTitle)}</p>` : '';
+    const teamNote = isTeamTask
+        ? '<p style="color:#64748b;font-size:13px;">Il s\'agit d\'une tâche d\'équipe : le premier qui la termine la termine pour tout le monde.</p>'
+        : '';
+
+    for (const uname of recipients) {
+        try {
+            const r = await pool.query('SELECT email FROM hub.users WHERE LOWER(username) = LOWER($1)', [uname]);
+            const to = r.rows[0]?.email;
+            if (!to) continue;
+            const html = `
+                <h2 style="margin:0 0 8px;">Nouvelle tâche assignée</h2>
+                <p><strong>${esc(creatorName)}</strong> vous a affecté une tâche :</p>
+                <blockquote style="margin:8px 0;padding:8px 12px;border-left:3px solid #6366f1;background:#eef2ff;">${esc(description) || '(sans description)'}</blockquote>
+                ${echStr}
+                ${ctxStr}
+                ${teamNote}
+                <p style="color:#64748b;font-size:13px;margin-top:12px;">Retrouvez-la dans <em>Mes Tâches</em> sur DSI Hub.</p>
+            `;
+            await sendMailFn(to, '📋 Nouvelle tâche assignée — DSI Hub', html, [], 'task_alert');
+        } catch (e) {
+            console.error('[tasks] notify assignment failed for', uname, ':', e.message);
+        }
+    }
+}
+
 module.exports = {
 
     // GET /api/tasks
@@ -440,6 +478,14 @@ module.exports = {
                 );
                 created.push(rows[0]);
             }
+            // Notification immédiate des destinataires (≠ créateur). Fire-and-forget :
+            // n'attend pas l'envoi des mails pour répondre, et n'échoue jamais la création.
+            notifyTaskAssignment({
+                targets, creatorUsername: creator,
+                description: description.trim(), echeance: echeance || null,
+                isTeamTask: is_team_task, contextTitle: context_title,
+            }).catch(e => console.error('[tasks] notify assignment error:', e.message));
+
             // Return single row for personal tasks, array for team
             res.status(201).json(created.length === 1 ? created[0] : created);
         } catch (error) {

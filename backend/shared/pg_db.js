@@ -3477,9 +3477,17 @@ async function setupPgDb() {
         version VARCHAR(20) NOT NULL,
         release_date VARCHAR(20),
         changes JSONB NOT NULL DEFAULT '[]',
+        release_notes_md TEXT,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     `);
+
+    // Add release_notes_md column if missing (safe migration)
+    try {
+      await client.query(`ALTER TABLE hub.changelog_versions ADD COLUMN IF NOT EXISTS release_notes_md TEXT`);
+    } catch (e) {
+      console.log('[PG DB] ALTER release_notes_md skipped:', e.message);
+    }
 
     // Seed changelog from JSON file if table is empty
     try {

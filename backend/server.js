@@ -37,6 +37,14 @@ const transcriptManagerRouter = require('./modules/transcriptmanager/transcriptm
 const consommablesRouter = require('./modules/consommables/consommables.routes');
 const { recalculateAllOperations, deduplicateOperations } = require('./modules/finance/finance.controller');
 const multer = require('multer');
+let _markedParse = null;
+async function getMarkedParse() {
+    if (!_markedParse) {
+        const mod = await import('marked');
+        _markedParse = mod.parse;
+    }
+    return _markedParse;
+}
 const fs = require('fs');
 const path = require('path');
 const pdf = require('pdf-parse');
@@ -2460,6 +2468,12 @@ const backlogStorage = multer.diskStorage({
 });
 const backlogUpload = multer({ storage: backlogStorage, limits: { fileSize: 25 * 1024 * 1024 } });
 
+const versionStorage = multer.diskStorage({
+    destination: (req, file, cb) => cb(null, backlogUploadDir),
+    filename: (req, file, cb) => cb(null, `version-md-${Date.now()}-${file.originalname}`)
+});
+const versionUpload = multer({ storage: versionStorage, limits: { fileSize: 25 * 1024 * 1024 } });
+
 app.post('/api/admin/magapp/maintenances/upload', authenticateMagappControl, maintenanceUpload.array('files', 10), async (req, res) => {
     try {
         const { maintenance_id } = req.body;
@@ -2679,7 +2693,7 @@ app.get('/api/changelog', async (req, res) => {
         const rows = await pgDb.all('SELECT * FROM hub.changelog_versions ORDER BY id DESC');
         res.json({
             currentVersion: rows.length > 0 ? rows[0].version : '0.1.0',
-            history: rows.map(r => ({ version: r.version, date: r.release_date, changes: r.changes }))
+            history: rows.map(r => ({ version: r.version, date: r.release_date, changes: r.changes, release_notes_md: r.release_notes_md }))
         });
     } catch (err) {
         res.status(500).json({ message: 'Error reading changelog' });
@@ -2783,9 +2797,21 @@ app.post('/api/release', authenticateAdmin, async (req, res) => {
 });
 
 // New Release from Backlog API (for AdminBacklog)
-app.post('/api/release-from-backlog', authenticateAdmin, async (req, res) => {
+app.post('/api/release-from-backlog', authenticateAdmin, versionUpload.single('mdFile'), async (req, res) => {
     try {
         const { version: customVersion, description } = req.body;
+
+        // Convert uploaded MD file if provided
+        let releaseNotesMd = '';
+        if (req.file) {
+            try {
+                const mdContent = fs.readFileSync(req.file.path, 'utf8');
+                const mdParse = await getMarkedParse();
+                releaseNotesMd = mdParse(mdContent);
+            } catch (mdErr) {
+                console.error('[RELEASE] Error parsing MD file:', mdErr.message);
+            }
+        }
 
         // 1. Récupérer la version et la date de la dernière release depuis PostgreSQL
         const latestRow = await pgDb.get('SELECT version, release_date FROM hub.changelog_versions ORDER BY id DESC LIMIT 1');
@@ -2858,8 +2884,8 @@ app.post('/api/release-from-backlog', authenticateAdmin, async (req, res) => {
         // 6. Insérer dans PostgreSQL
         const releaseDate = new Date().toLocaleDateString('fr-FR');
         await pgDb.run(
-            'INSERT INTO hub.changelog_versions (version, release_date, changes) VALUES ($1, $2, $3)',
-            [newVersion, releaseDate, JSON.stringify(changes)]
+            'INSERT INTO hub.changelog_versions (version, release_date, changes, release_notes_md) VALUES ($1, $2, $3, $4)',
+            [newVersion, releaseDate, JSON.stringify(changes), releaseNotesMd || null]
         );
 
         // 7. Git commit
