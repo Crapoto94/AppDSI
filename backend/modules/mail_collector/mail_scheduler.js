@@ -25,6 +25,10 @@ class MailScheduler {
     try {
       const sqlite = getSqlite();
       console.log(`[MAIL-DEBUG] initSchedules called.`);
+      
+      // Ensure table exists
+      await sqlite.run('CREATE TABLE IF NOT EXISTS local_settings (key TEXT PRIMARY KEY, value TEXT)');
+
       const collectors = await pgDb.all('SELECT * FROM hub_tickets.mail_collectors');
       console.log(`[MailScheduler] Initialisation de ${collectors.length} collecteurs...`);
 
