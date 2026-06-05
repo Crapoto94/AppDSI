@@ -1,5 +1,5 @@
 const cron = require('node-cron');
-const { pgDb } = require('../../shared/database');
+const { pgDb, getSqlite } = require('../../shared/database');
 const MailCollectorService = require('./mail_collector.service');
 
 class MailScheduler {
@@ -24,19 +24,27 @@ class MailScheduler {
 
   static async initSchedules() {
     try {
-      const collectors = await pgDb.all(
-        'SELECT * FROM hub_tickets.mail_collectors WHERE is_enabled = true'
-      );
+      const collectors = await pgDb.all('SELECT * FROM hub_tickets.mail_collectors');
+      const sqlite = getSqlite();
 
       for (const collector of collectors) {
+        // VÃ©rification de l'activation LOCALE (SQLite) pour Ã©viter les conflits PROD/DEV
+        const localSetting = await sqlite.get('SELECT value FROM local_settings WHERE key = ?', [`mail_collector_${collector.id}_enabled`]);
+        const isEnabledLocally = localSetting ? localSetting.value === 'true' : collector.is_enabled;
+
+        if (!isEnabledLocally) {
+          console.log(`[MailScheduler] Collecteur ${collector.id} (${collector.name}) ignorÃ© (dÃ©sactivÃ© localement)`);
+          continue;
+        }
+
         const cronExpr = this.frequencyToCron(collector.frequency);
         if (!cronExpr) continue;
         this.scheduleCollector(collector, cronExpr);
       }
 
-      console.log(`✅ Mail Scheduler: ${collectors.length} collecteurs initialisés`);
+      console.log(`âœ… Mail Scheduler: ${Object.keys(this.tasks).length} collecteurs initialisÃ©s`);
     } catch (error) {
-      console.error('❌ Erreur initialisation Mail Scheduler:', error.message);
+      console.error('â Œ Erreur initialisation Mail Scheduler:', error.message);
     }
   }
 
@@ -49,7 +57,15 @@ class MailScheduler {
     this.tasks[collectorId] = cron.schedule(cronExpr, async () => {
       try {
         const col = typeof collector === 'object' ? collector : await pgDb.get('SELECT * FROM hub_tickets.mail_collectors WHERE id = ?', [collectorId]);
-        if (!col || !col.is_enabled) return;
+        if (!col) return;
+
+        // VÃ©rification de l'activation LOCALE (SQLite)
+        const sqlite = getSqlite();
+        const localSetting = await sqlite.get('SELECT value FROM local_settings WHERE key = ?', [`mail_collector_${col.id}_enabled`]);
+        const isEnabledLocally = localSetting ? localSetting.value === 'true' : col.is_enabled;
+
+        if (!isEnabledLocally) return;
+
         console.log(`[MailScheduler] Collecte démarrée: collecteur ${collectorId}`);
         const log = await this.runCollector(col);
         if (log) console.log(`[MailScheduler] Collecte terminée: ${log.emails_imported}/${log.emails_received} importés`);

@@ -30,87 +30,87 @@ INSERT INTO hub_tickets.ticket_sequence (last_id)
 SELECT COALESCE(MAX(glpi_id), 10000000) FROM hub_tickets.tickets;
 
 -- Seed notification templates
-INSERT INTO hub_tickets.notification_templates (slug, label, subject, body_html) VALUES
+INSERT INTO hub_tickets.notification_templates (slug, label, subject, body_html, is_active) VALUES
 ('ticket_created', 'Création de ticket',
  '{{app_name}} - Ticket #{{ticket_id}} créé : {{ticket_title}}',
- '<h2>Ticket #{{ticket_id}} - {{ticket_title}}</h2><p>Bonjour {{recipient_name}},</p><p>Un nouveau ticket a été créé :</p><table cellpadding="4"><tr><td><strong>Priorité :</strong></td><td>{{priority_label}}</td></tr><tr><td><strong>Type :</strong></td><td>{{type_label}}</td></tr><tr><td><strong>Statut :</strong></td><td>{{status_label}}</td></tr></table><p>{{ticket_content}}</p><p><a href="{{app_url}}/tickets/{{ticket_id}}" style="background:#6366f1;color:#fff;padding:10px 20px;border-radius:6px;text-decoration:none;">Voir le ticket</a></p>'),
+ '<h2>Ticket #{{ticket_id}} - {{ticket_title}}</h2><p>Bonjour {{recipient_name}},</p><p>Un nouveau ticket a été créé :</p><table cellpadding="4"><tr><td><strong>Priorité :</strong></td><td>{{priority_label}}</td></tr><tr><td><strong>Type :</strong></td><td>{{type_label}}</td></tr><tr><td><strong>Statut :</strong></td><td>{{status_label}}</td></tr></table><p>{{ticket_content}}</p><p><a href="{{app_url}}/tickets/{{ticket_id}}" style="background:#6366f1;color:#fff;padding:10px 20px;border-radius:6px;text-decoration:none;">Voir le ticket</a></p>', true),
 ('ticket_assigned', 'Assignation de ticket',
  '{{app_name}} - Ticket #{{ticket_id}} vous a été assigné',
- '<h2>Ticket #{{ticket_id}} - {{ticket_title}}</h2><p>Bonjour {{assignee_name}},</p><p>Le ticket <strong>#{{ticket_id}}</strong> vous a été assigné.</p><table cellpadding="4"><tr><td><strong>Priorité :</strong></td><td>{{priority_label}}</td></tr><tr><td><strong>Demandeur :</strong></td><td>{{requester_name}}</td></tr></table><p><a href="{{app_url}}/tickets/{{ticket_id}}" style="background:#6366f1;color:#fff;padding:10px 20px;border-radius:6px;text-decoration:none;">Voir le ticket</a></p>'),
+ '<h2>Ticket #{{ticket_id}} - {{ticket_title}}</h2><p>Bonjour {{assignee_name}},</p><p>Le ticket <strong>#{{ticket_id}}</strong> vous a été assigné.</p><table cellpadding="4"><tr><td><strong>Priorité :</strong></td><td>{{priority_label}}</td></tr><tr><td><strong>Demandeur :</strong></td><td>{{requester_name}}</td></tr></table><p><a href="{{app_url}}/tickets/{{ticket_id}}" style="background:#6366f1;color:#fff;padding:10px 20px;border-radius:6px;text-decoration:none;">Voir le ticket</a></p>', true),
 ('ticket_status_changed', 'Changement de statut',
  '{{app_name}} - Ticket #{{ticket_id}} : {{old_status}} → {{new_status}}',
- '<h2>Ticket #{{ticket_id}} - {{ticket_title}}</h2><p>Le statut du ticket est passé de <strong>{{old_status}}</strong> à <strong>{{new_status}}</strong>.</p><p><a href="{{app_url}}/tickets/{{ticket_id}}" style="background:#6366f1;color:#fff;padding:10px 20px;border-radius:6px;text-decoration:none;">Voir le ticket</a></p>'),
+ '<h2>Ticket #{{ticket_id}} - {{ticket_title}}</h2><p>Le statut du ticket est passé de <strong>{{old_status}}</strong> à <strong>{{new_status}}</strong>.</p><p><a href="{{app_url}}/tickets/{{ticket_id}}" style="background:#6366f1;color:#fff;padding:10px 20px;border-radius:6px;text-decoration:none;">Voir le ticket</a></p>', true),
 ('ticket_new_comment', 'Nouveau commentaire',
  '{{app_name}} - Nouveau commentaire sur le ticket #{{ticket_id}}',
- '<h2>Ticket #{{ticket_id}} - {{ticket_title}}</h2><p><strong>{{author_name}}</strong> a ajouté un commentaire :</p><blockquote style="border-left:4px solid #6366f1;padding:8px 16px;margin:8px 0;">{{comment_content}}</blockquote><p><a href="{{app_url}}/tickets/{{ticket_id}}" style="background:#6366f1;color:#fff;padding:10px 20px;border-radius:6px;text-decoration:none;">Voir le ticket</a></p>'),
+ '<h2>Ticket #{{ticket_id}} - {{ticket_title}}</h2><p><strong>{{author_name}}</strong> a ajouté un commentaire :</p><blockquote style="border-left:4px solid #6366f1;padding:8px 16px;margin:8px 0;">{{comment_content}}</blockquote><p><a href="{{app_url}}/tickets/{{ticket_id}}" style="background:#6366f1;color:#fff;padding:10px 20px;border-radius:6px;text-decoration:none;">Voir le ticket</a></p>', true),
 ('sla_warning', 'Alerte SLA - Limite proche',
  '{{app_name}} - ALERTE SLA : Ticket #{{ticket_id}} approche de la limite',
- '<h2>⚠️ Alerte SLA</h2><p>Le ticket <strong>#{{ticket_id}} - {{ticket_title}}</strong> approche de sa deadline.</p><p><strong>{{sla_type}} :</strong> {{sla_deadline}}</p><p><a href="{{app_url}}/tickets/{{ticket_id}}" style="background:#ef4444;color:#fff;padding:10px 20px;border-radius:6px;text-decoration:none;">Agir maintenant</a></p>'),
+ '<h2>⚠️ Alerte SLA</h2><p>Le ticket <strong>#{{ticket_id}} - {{ticket_title}}</strong> approche de sa deadline.</p><p><strong>{{sla_type}} :</strong> {{sla_deadline}}</p><p><a href="{{app_url}}/tickets/{{ticket_id}}" style="background:#ef4444;color:#fff;padding:10px 20px;border-radius:6px;text-decoration:none;">Agir maintenant</a></p>', true),
 ('sla_breached', 'Dépassement SLA',
  '{{app_name}} - DÉPASSEMENT SLA : Ticket #{{ticket_id}}',
- '<h2>🚨 Dépassement SLA</h2><p>Le ticket <strong>#{{ticket_id}} - {{ticket_title}}</strong> a dépassé sa deadline.</p><p><strong>{{sla_type}} :</strong> {{sla_deadline}}</p><p><a href="{{app_url}}/tickets/{{ticket_id}}" style="background:#dc2626;color:#fff;padding:10px 20px;border-radius:6px;text-decoration:none;">Voir le ticket</a></p>'),
+ '<h2>🚨 Dépassement SLA</h2><p>Le ticket <strong>#{{ticket_id}} - {{ticket_title}}</strong> a dépassé sa deadline.</p><p><strong>{{sla_type}} :</strong> {{sla_deadline}}</p><p><a href="{{app_url}}/tickets/{{ticket_id}}" style="background:#dc2626;color:#fff;padding:10px 20px;border-radius:6px;text-decoration:none;">Voir le ticket</a></p>', true),
 ('ticket_resolved', 'Ticket résolu',
  '{{app_name}} - Ticket #{{ticket_id}} résolu',
- '<h2>Ticket #{{ticket_id}} - {{ticket_title}}</h2><p>Bonjour {{recipient_name}},</p><p>Votre ticket a été résolu par <strong>{{technician_name}}</strong>.</p><blockquote style="border-left:4px solid #22c55e;padding:8px 16px;margin:8px 0;">{{solution_text}}</blockquote><p><a href="{{app_url}}/tickets/{{ticket_id}}" style="background:#22c55e;color:#fff;padding:10px 20px;border-radius:6px;text-decoration:none;">Voir la solution</a></p>'),
+ '<h2>Ticket #{{ticket_id}} - {{ticket_title}}</h2><p>Bonjour {{recipient_name}},</p><p>Votre ticket a été résolu par <strong>{{technician_name}}</strong>.</p><blockquote style="border-left:4px solid #22c55e;padding:8px 16px;margin:8px 0;">{{solution_text}}</blockquote><p><a href="{{app_url}}/tickets/{{ticket_id}}" style="background:#22c55e;color:#fff;padding:10px 20px;border-radius:6px;text-decoration:none;">Voir la solution</a></p>', true),
 ('ticket_closed', 'Ticket fermé',
  '{{app_name}} - Ticket #{{ticket_id}} fermé',
- '<h2>Ticket #{{ticket_id}} - {{ticket_title}}</h2><p>Le ticket est maintenant fermé.</p>'),
+ '<h2>Ticket #{{ticket_id}} - {{ticket_title}}</h2><p>Le ticket est maintenant fermé.</p>', true),
 ('ticket_reopened', 'Ticket réouvert',
  '{{app_name}} - Ticket #{{ticket_id}} réouvert',
- '<h2>Ticket #{{ticket_id}} - {{ticket_title}}</h2><p>Le ticket a été réouvert par <strong>{{reopened_by}}</strong>.</p><p><a href="{{app_url}}/tickets/{{ticket_id}}" style="background:#f59e0b;color:#fff;padding:10px 20px;border-radius:6px;text-decoration:none;">Voir le ticket</a></p>'),
+ '<h2>Ticket #{{ticket_id}} - {{ticket_title}}</h2><p>Le ticket a été réouvert par <strong>{{reopened_by}}</strong>.</p><p><a href="{{app_url}}/tickets/{{ticket_id}}" style="background:#f59e0b;color:#fff;padding:10px 20px;border-radius:6px;text-decoration:none;">Voir le ticket</a></p>', true),
 ('ticket_comment_reply', 'Réponse au commentaire',
  '{{app_name}} - Ticket #{{ticket_id}} : Réponse reçue',
- '<h2>Ticket #{{ticket_id}} - {{ticket_title}}</h2><p>Bonjour {{recipient_name}},</p><p>Il y a une réponse à votre demande :</p><blockquote style="border-left:4px solid #6366f1;padding:8px 16px;margin:8px 0;">{{comment_content}}</blockquote><p>Voir <strong>{{author_name}}</strong> a répondu à votre ticket.</p><p><a href="{{app_url}}/tickets/{{ticket_id}}" style="background:#6366f1;color:#fff;padding:10px 20px;border-radius:6px;text-decoration:none;">Voir le ticket</a></p>')
+ '<h2>Ticket #{{ticket_id}} - {{ticket_title}}</h2><p>Bonjour {{recipient_name}},</p><p>Il y a une réponse à votre demande :</p><blockquote style="border-left:4px solid #6366f1;padding:8px 16px;margin:8px 0;">{{comment_content}}</blockquote><p>Voir <strong>{{author_name}}</strong> a répondu à votre ticket.</p><p><a href="{{app_url}}/tickets/{{ticket_id}}" style="background:#6366f1;color:#fff;padding:10px 20px;border-radius:6px;text-decoration:none;">Voir le ticket</a></p>', true)
 ON CONFLICT (slug) DO NOTHING;
 
 -- Seed déclencheurs de notifications par défaut
-INSERT INTO hub_tickets.notification_triggers (event, template_slug, recipient_type) VALUES
+INSERT INTO hub_tickets.notification_triggers (event, template_slug, recipient_type, is_active) VALUES
 -- Création de ticket
-('ticket.created', 'ticket_created', 'requester'),
-('ticket.created', 'ticket_created', 'technician'),
-('ticket.created', 'ticket_created', 'group'),
-('ticket.created', 'ticket_created', 'supervisor'),
-('ticket.created', 'ticket_created', 'watchers'),
+('ticket.created', 'ticket_created', 'requester', true),
+('ticket.created', 'ticket_created', 'technician', true),
+('ticket.created', 'ticket_created', 'group', true),
+('ticket.created', 'ticket_created', 'supervisor', true),
+('ticket.created', 'ticket_created', 'watchers', true),
 -- Assignation de ticket
-('ticket.assigned', 'ticket_assigned', 'technician'),
-('ticket.assigned', 'ticket_assigned', 'requester'),
-('ticket.assigned', 'ticket_assigned', 'group'),
-('ticket.assigned', 'ticket_assigned', 'supervisor'),
+('ticket.assigned', 'ticket_assigned', 'technician', true),
+('ticket.assigned', 'ticket_assigned', 'requester', true),
+('ticket.assigned', 'ticket_assigned', 'group', true),
+('ticket.assigned', 'ticket_assigned', 'supervisor', true),
 -- Changement de statut
-('ticket.status_changed', 'ticket_status_changed', 'requester'),
-('ticket.status_changed', 'ticket_status_changed', 'technician'),
-('ticket.status_changed', 'ticket_status_changed', 'group'),
-('ticket.status_changed', 'ticket_status_changed', 'watchers'),
+('ticket.status_changed', 'ticket_status_changed', 'requester', true),
+('ticket.status_changed', 'ticket_status_changed', 'technician', true),
+('ticket.status_changed', 'ticket_status_changed', 'group', true),
+('ticket.status_changed', 'ticket_status_changed', 'watchers', true),
 -- Nouveau commentaire
-('ticket.comment_added', 'ticket_new_comment', 'requester'),
-('ticket.comment_added', 'ticket_new_comment', 'watchers'),
-('ticket.comment_added', 'ticket_new_comment', 'technician'),
-('ticket.comment_added', 'ticket_new_comment', 'group'),
+('ticket.comment_added', 'ticket_new_comment', 'requester', true),
+('ticket.comment_added', 'ticket_new_comment', 'watchers', true),
+('ticket.comment_added', 'ticket_new_comment', 'technician', true),
+('ticket.comment_added', 'ticket_new_comment', 'group', true),
 -- Alerte SLA (limite proche)
-('ticket.sla_warning', 'sla_warning', 'technician'),
-('ticket.sla_warning', 'sla_warning', 'group'),
-('ticket.sla_warning', 'sla_warning', 'supervisor'),
-('ticket.sla_warning', 'sla_warning', 'admin'),
+('ticket.sla_warning', 'sla_warning', 'technician', true),
+('ticket.sla_warning', 'sla_warning', 'group', true),
+('ticket.sla_warning', 'sla_warning', 'supervisor', true),
+('ticket.sla_warning', 'sla_warning', 'admin', true),
 -- Dépassement SLA
-('ticket.sla_breached', 'sla_breached', 'technician'),
-('ticket.sla_breached', 'sla_breached', 'group'),
-('ticket.sla_breached', 'sla_breached', 'supervisor'),
-('ticket.sla_breached', 'sla_breached', 'admin'),
+('ticket.sla_breached', 'sla_breached', 'technician', true),
+('ticket.sla_breached', 'sla_breached', 'group', true),
+('ticket.sla_breached', 'sla_breached', 'supervisor', true),
+('ticket.sla_breached', 'sla_breached', 'admin', true),
 -- Ticket résolu
-('ticket.resolved', 'ticket_resolved', 'requester'),
-('ticket.resolved', 'ticket_resolved', 'watchers'),
-('ticket.resolved', 'ticket_resolved', 'admin'),
+('ticket.resolved', 'ticket_resolved', 'requester', true),
+('ticket.resolved', 'ticket_resolved', 'watchers', true),
+('ticket.resolved', 'ticket_resolved', 'admin', true),
 -- Ticket fermé
-('ticket.closed', 'ticket_closed', 'requester'),
-('ticket.closed', 'ticket_closed', 'technician'),
-('ticket.closed', 'ticket_closed', 'group'),
-('ticket.closed', 'ticket_closed', 'admin'),
-('ticket.closed', 'ticket_closed', 'watchers'),
+('ticket.closed', 'ticket_closed', 'requester', true),
+('ticket.closed', 'ticket_closed', 'technician', true),
+('ticket.closed', 'ticket_closed', 'group', true),
+('ticket.closed', 'ticket_closed', 'admin', true),
+('ticket.closed', 'ticket_closed', 'watchers', true),
 -- Ticket réouvert
-('ticket.reopened', 'ticket_reopened', 'technician'),
-('ticket.reopened', 'ticket_reopened', 'group'),
-('ticket.reopened', 'ticket_reopened', 'supervisor'),
-('ticket.reopened', 'ticket_reopened', 'watchers')
+('ticket.reopened', 'ticket_reopened', 'technician', true),
+('ticket.reopened', 'ticket_reopened', 'group', true),
+('ticket.reopened', 'ticket_reopened', 'supervisor', true),
+('ticket.reopened', 'ticket_reopened', 'watchers', true)
 ON CONFLICT (event, recipient_type) DO NOTHING;
 
 -- Seed calendrier ouvré par défaut

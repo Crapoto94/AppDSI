@@ -648,6 +648,11 @@ async function setupPgDb() {
         UNIQUE(event, recipient_type)
       );
     `);
+    try {
+        await client.query(`UPDATE hub_tickets.notification_templates SET is_active = true WHERE is_active IS NULL`);
+        await client.query(`UPDATE hub_tickets.notification_triggers SET is_active = true WHERE is_active IS NULL`);
+    } catch (e) { console.error('[MIGRATIONS] notifications is_active repair:', e.message); }
+
     await client.query(`
       CREATE TABLE IF NOT EXISTS hub_tickets.notification_queue (
         id SERIAL PRIMARY KEY,

@@ -1486,7 +1486,7 @@ router.post('/reinit-notifications', authenticateTicketAdmin, async (req, res) =
 
         for (const [slug, label, subject, body] of templates) {
             await client.query(
-                'INSERT INTO hub_tickets.notification_templates (slug, label, subject, body_html) VALUES ($1, $2, $3, $4)',
+                'INSERT INTO hub_tickets.notification_templates (slug, label, subject, body_html, is_active) VALUES ($1, $2, $3, $4, true)',
                 [slug, label, subject, body]
             );
         }
@@ -1535,8 +1535,8 @@ router.post('/reinit-notifications', authenticateTicketAdmin, async (req, res) =
         let triggersInserted = 0;
         for (const [event, slug, recipient] of triggers) {
             const r = await client.query(
-                `INSERT INTO hub_tickets.notification_triggers (event, template_slug, recipient_type)
-                 VALUES ($1, $2, $3)`,
+                `INSERT INTO hub_tickets.notification_triggers (event, template_slug, recipient_type, is_active)
+                 VALUES ($1, $2, $3, true)`,
                 [event, slug, recipient]
             );
             triggersInserted += r.rowCount || 0;

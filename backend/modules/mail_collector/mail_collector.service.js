@@ -8,6 +8,7 @@ const commentRepo = require('../tickets/repositories/comment.repository');
 const attachmentRepo = require('../tickets/repositories/attachment.repository');
 const ticketRepo = require('../tickets/repositories/ticket.repository');
 const historyRepo = require('../tickets/repositories/history.repository');
+const notificationService = require('../tickets/services/notification.service');
 const { toParisSql } = require('../../shared/utils');
 const fs = require('fs');
 const path = require('path');
@@ -220,6 +221,14 @@ class MailCollectorService {
       await historyRepo.log(ticketId, null, 'created', 'status', null, '1',
         `Ticket créé via collecteur mail (${from.email || ''})`, 'Collecteur mail');
     } catch (e) { console.error('[MAIL] history log failed:', e.message); }
+
+    // Trigger notification
+    try {
+      await notificationService.trigger('ticket.created', {
+        ticket_id: ticketId,
+        user: { username: 'system', displayName: 'Collecteur Mail' }
+      });
+    } catch (e) { console.error('[MAIL] notification trigger failed:', e.message); }
 
     return ticketId;
   }
