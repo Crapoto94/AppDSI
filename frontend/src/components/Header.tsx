@@ -75,6 +75,28 @@ const Header: React.FC<HeaderProps> = () => {
   const [navTiles, setNavTiles] = useState<TileData[]>([]);
   const navDropdownRef = useRef<HTMLDivElement>(null);
   const adminDropdownRef = useRef<HTMLDivElement>(null);
+  const [helpData, setHelpData] = useState<{ page_path: string; content_html: string } | null>(null);
+  const [showHelp, setShowHelp] = useState(false);
+
+  useEffect(() => {
+    const path = location.pathname;
+    if (!path || path === '/') { setHelpData(null); return; }
+    // Essaie le chemin exact, puis le préfixe de 1er niveau (ex : /tickets/123 → /tickets)
+    const candidates = [path];
+    const seg = '/' + (path.split('/').filter(Boolean)[0] || '');
+    if (seg !== path && seg !== '/') candidates.push(seg);
+    let cancelled = false;
+    (async () => {
+      for (const p of candidates) {
+        try {
+          const r = await axios.get(`/api/page-help/${encodeURIComponent(p)}`);
+          if (!cancelled && r.data && r.data.content_html) { setHelpData(r.data); return; }
+        } catch { /* ignore */ }
+      }
+      if (!cancelled) setHelpData(null);
+    })();
+    return () => { cancelled = true; };
+  }, [location.pathname]);
 
   useEffect(() => {
     fetchChangelog();
@@ -387,6 +409,16 @@ const Header: React.FC<HeaderProps> = () => {
                   )}
                 </div>
               )}
+              {helpData && (
+                <button onClick={() => setShowHelp(true)}
+                  title="Aide sur cette page"
+                  className="help-pulse"
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 14px', borderRadius: 20, border: 'none', cursor: 'pointer',
+                    background: 'linear-gradient(135deg, #2563eb, #4f46e5)', color: '#fff', fontWeight: 700, fontSize: 13,
+                    boxShadow: '0 4px 14px -4px rgba(37,99,235,0.55)' }}>
+                  <HelpCircle size={18} /> Aide
+                </button>
+              )}
               <button onClick={handleLogout} className="btn-logout" title="Déconnexion">
                 <LogOut size={20} />
               </button>
@@ -590,7 +622,55 @@ const Header: React.FC<HeaderProps> = () => {
         </div>
       )}
 
+      {showHelp && helpData && (
+        <div className="modal-overlay" onClick={() => setShowHelp(false)}>
+          <div className="modal-content" onClick={e => e.stopPropagation()} style={{ maxWidth: 800 }}>
+            <div className="modal-header">
+              <div style={{ fontWeight: 800, fontSize: 16, color: '#1e293b', display: 'flex', alignItems: 'center', gap: 8 }}>
+                <HelpCircle size={20} /> Aide
+              </div>
+              <button className="close-btn" onClick={() => setShowHelp(false)}><X size={24} /></button>
+            </div>
+            <div className="modal-body">
+              <div className="help-md" dangerouslySetInnerHTML={{ __html: helpData.content_html || '' }} />
+            </div>
+          </div>
+        </div>
+      )}
+
       <style>{`
+        /* ── Rendu du Markdown d'aide ── */
+        .help-md { font-size: 14.5px; color: #334155; line-height: 1.7; }
+        .help-md > *:first-child { margin-top: 0; }
+        .help-md h1 { font-size: 1.5rem; font-weight: 800; color: #0f172a; margin: 0 0 6px; }
+        .help-md h2 { font-size: 1.18rem; font-weight: 800; color: #1e293b; margin: 26px 0 10px; padding-bottom: 6px; border-bottom: 2px solid #eef2f7; }
+        .help-md h3 { font-size: 1.02rem; font-weight: 700; color: #334155; margin: 18px 0 6px; }
+        .help-md p { margin: 8px 0; }
+        .help-md ul, .help-md ol { margin: 8px 0; padding-left: 22px; }
+        .help-md li { margin: 4px 0; }
+        .help-md li > ul { margin: 4px 0; }
+        .help-md a { color: #2563eb; text-decoration: none; }
+        .help-md a:hover { text-decoration: underline; }
+        .help-md hr { border: none; border-top: 1px solid #e2e8f0; margin: 22px 0; }
+        .help-md code { background: #f1f5f9; color: #be123c; padding: 1px 6px; border-radius: 5px;
+          font-family: "SFMono-Regular", Consolas, Menlo, monospace; font-size: 0.85em; }
+        .help-md pre { background: #0f172a; color: #e2e8f0; padding: 14px 16px; border-radius: 10px; overflow: auto; font-size: 13px; line-height: 1.5; }
+        .help-md pre code { background: none; color: inherit; padding: 0; }
+        .help-md blockquote { margin: 12px 0; padding: 8px 14px; border-left: 4px solid #93c5fd; background: #eff6ff; color: #1e3a8a; border-radius: 0 8px 8px 0; }
+        .help-md blockquote p { margin: 4px 0; }
+        .help-md table { width: 100%; border-collapse: collapse; margin: 14px 0; font-size: 13.5px;
+          border: 1px solid #e2e8f0; border-radius: 10px; overflow: hidden; }
+        .help-md th, .help-md td { border: 1px solid #e9eef5; padding: 9px 12px; text-align: left; vertical-align: top; }
+        .help-md th { background: #f1f5f9; color: #334155; font-weight: 700; }
+        .help-md tbody tr:nth-child(even) { background: #f8fafc; }
+        .help-md strong { color: #0f172a; }
+
+        .help-pulse { animation: helpPulse 2.4s ease-in-out infinite; }
+        .help-pulse:hover { filter: brightness(1.08); animation: none; }
+        @keyframes helpPulse {
+          0%, 100% { box-shadow: 0 4px 14px -4px rgba(37,99,235,0.55); }
+          50% { box-shadow: 0 0 0 5px rgba(37,99,235,0.18); }
+        }
         .main-header {
           height: var(--header-height);
           background-color: var(--white);

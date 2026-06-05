@@ -765,7 +765,7 @@ export default function CalendrierDSI() {
 
   // Catégories créables manuellement via la modale (les absences/télétravail/hotline
   // sont alimentées automatiquement : SEDIT, sync, overrides).
-  const CREATABLE_CATEGORIES: Categorie[] = ['deplacement', 'deploiement', 'hotline'];
+  const CREATABLE_CATEGORIES: Categorie[] = ['deplacement', 'deploiement', 'reunion', 'hotline'];
 
   const openEditModal = (evt: Evenement) => {
     const readOnly = (evt.generated && evt.categorie !== 'hotline') || evt.source === 'maintenance-table' || evt.source === 'o365' || evt.created_by === 'auto-rh' || evt.created_by === 'auto-rh-pending';
