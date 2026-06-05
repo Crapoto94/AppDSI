@@ -3128,8 +3128,7 @@ setupDb().then(async database => {
         const MailScheduler = require('./modules/mail_collector/mail_scheduler');
 
         await MailRulesService.createDefaultRules();
-        console.log(`[MAIL-DEBUG] Database instance type: ${typeof database}, value: ${!!database}`);
-        await MailScheduler.initSchedules(database);
+        await MailScheduler.initSchedules();
         console.log('[MAIL COLLECTOR] Initialized');
     } catch (e) {
         console.error('[MAIL COLLECTOR] Init error:', e.message);

@@ -21,16 +21,24 @@ class MailScheduler {
   static async runCollector(collector) {
     return await MailCollectorService.performCollection(collector.id);
   }
-  static async initSchedules(sqlite) {
+  static async initSchedules() {
     try {
-      console.log(`[MAIL-DEBUG] initSchedules called. sqlite is null: ${!sqlite}`);
+      const sqlite = getSqlite();
+      console.log(`[MAIL-DEBUG] initSchedules called.`);
       const collectors = await pgDb.all('SELECT * FROM hub_tickets.mail_collectors');
       console.log(`[MailScheduler] Initialisation de ${collectors.length} collecteurs...`);
 
       for (const collector of collectors) {
-        // VÃ©rification de l'activation LOCALE (SQLite)
+        // VÃ©rification de l'activation LOCALE (SQLite) - EXCLUSIVE
         const localSetting = await sqlite.get('SELECT value FROM local_settings WHERE key = ?', [`mail_collector_${collector.id}_enabled`]);
-        const isEnabledLocally = localSetting ? localSetting.value === 'true' : collector.is_enabled;
+
+        // Si le réglage n'existe pas encore, on initialise par défaut à 'true' (donc enabled)
+        // dans SQLite pour éviter qu'ils soient tous désactivés lors de la migration.
+        if (!localSetting) {
+            await sqlite.run('INSERT INTO local_settings (key, value) VALUES (?, ?)', [`mail_collector_${collector.id}_enabled`, 'true']);
+        }
+
+        const isEnabledLocally = localSetting ? localSetting.value === 'true' : true;
 
         console.log(`[MailScheduler] Collecteur ${collector.id} (${collector.name}): enabled=${isEnabledLocally}, freq=${collector.frequency}`);
 
@@ -44,14 +52,15 @@ class MailScheduler {
            console.log(`[MailScheduler] Collecteur ${collector.id} (${collector.name}) ignorÃ© (pas de cron valide)`);
            continue;
         }
-        
+
         this.scheduleCollector(collector, cronExpr, sqlite);
       }
 
-      console.log(`âœ… Mail Scheduler: ${Object.keys(this.tasks).length} collecteurs initialisÃ©s`);
+      console.log(`✅ Mail Scheduler: ${Object.keys(this.tasks).length} collecteurs initialisÃ©s`);
     } catch (error) {
-      console.error('â Œ Erreur initialisation Mail Scheduler:', error.message);
+      console.error('❌ Erreur initialisation Mail Scheduler:', error.message);
     }
+  }
   }
 
   static scheduleCollector(collector, cronExpr, sqlite) {
