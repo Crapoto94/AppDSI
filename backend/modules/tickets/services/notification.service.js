@@ -1,8 +1,16 @@
-const { pgDb } = require('../../../shared/database');
+const { pgDb, getSqlite } = require('../../../shared/database');
 
 module.exports = {
     async trigger(event, context) {
         try {
+            // Check if mail is enabled locally in SQLite before doing anything
+            const sqlite = getSqlite();
+            const mailSettings = await sqlite.get('SELECT global_enable FROM mail_settings WHERE id = 1');
+            if (!mailSettings || !mailSettings.global_enable) {
+                console.log('[NOTIFICATION] Mail sending disabled locally, skipping trigger');
+                return;
+            }
+
             const triggers = await pgDb.all(`
                 SELECT nt.*, ntr.recipient_type
                 FROM hub_tickets.notification_triggers ntr
