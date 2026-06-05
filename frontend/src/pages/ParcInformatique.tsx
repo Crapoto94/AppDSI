@@ -2,6 +2,7 @@ import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import Header from '../components/Header';
 import MobiliteView from './parc/MobiliteView';
+import LignesMobilesView from './parc/LignesMobilesView';
 import axios from 'axios';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -13,7 +14,7 @@ import {
   CheckCircle2, AlertTriangle, Layers, ChevronRight, Boxes,
   Euro, ShieldCheck, Clock, Truck, Database, FileText, Users, CalendarCheck2, CalendarDays,
   ArrowLeftRight, Rocket, Package, Timer, TrendingUp, Edit2, Eye, ZoomIn, ZoomOut,
-  Download, ExternalLink, Image, Server,
+  Download, ExternalLink, Image, Server, Signal,
 } from 'lucide-react';
 
 // ─── Constantes ─────────────────────────────────────────────────────────────
@@ -183,7 +184,7 @@ const ParcInformatique: React.FC = () => {
   const [source, setSource] = useState<'live' | 'hub'>('hub');
   const api = axios.create({ baseURL: `/api/parc/${source}`, headers: { Authorization: `Bearer ${token}` } });
 
-  const [tab, setTab] = useState<'dashboard' | 'list' | 'stock' | 'usagers' | 'geo' | 'deploiements' | 'ad'>('dashboard');
+  const [tab, setTab] = useState<'dashboard' | 'list' | 'stock' | 'usagers' | 'geo' | 'deploiements' | 'ad' | 'lignes'>('dashboard');
   const [kpis, setKpis] = useState<Kpis | null>(null);
   const [kpiErr, setKpiErr] = useState<string | null>(null);
   const [loadingKpi, setLoadingKpi] = useState(false);
@@ -762,7 +763,7 @@ const ParcInformatique: React.FC = () => {
 
         {/* Onglets */}
         <div style={{ display: 'flex', gap: 6, marginBottom: 22, borderBottom: `1px solid ${C.border}` }}>
-          {[{ k: 'dashboard', l: 'Tableau de bord', i: BarChart3 }, { k: 'list', l: 'Équipements', i: List }, { k: 'stock', l: 'Stock', i: Boxes }, { k: 'usagers', l: 'Usagers', i: Users }, { k: 'geo', l: 'Géo', i: MapPin }, { k: 'deploiements', l: 'Déploiements', i: Truck }, { k: 'ad', l: 'AD', i: Server }].map(t => {
+          {[{ k: 'dashboard', l: 'Tableau de bord', i: BarChart3 }, { k: 'list', l: 'Équipements', i: List }, { k: 'stock', l: 'Stock', i: Boxes }, { k: 'usagers', l: 'Usagers', i: Users }, { k: 'geo', l: 'Géo', i: MapPin }, { k: 'deploiements', l: 'Déploiements', i: Truck }, { k: 'lignes', l: 'Lignes mobiles', i: Signal }, { k: 'ad', l: 'AD', i: Server }].map(t => {
             const I = t.i; const active = tab === t.k;
             return (
               <button key={t.k} onClick={() => setTab(t.k as any)} style={{
@@ -2544,6 +2545,9 @@ const ParcInformatique: React.FC = () => {
           </div>
         );
       })()}
+
+        {/* ─── Lignes mobiles (forfaits / SIM importés depuis lignes.xlsx) ─── */}
+        {tab === 'lignes' && <LignesMobilesView token={token || ''} />}
 
         {/* ─── AD (ordinateurs Active Directory) ─── */}
         {tab === 'ad' && (

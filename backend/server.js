@@ -2229,6 +2229,9 @@ app.use('/api/parc', require('./modules/parc/parc.routes'));
 // Parc Mobilité (téléphones & tablettes, importé depuis Excel — historique par device)
 app.use('/api/mobilite', require('./modules/mobilite/mobilite.routes'));
 
+// Lignes mobiles (forfaits / SIM, importées depuis lignes.xlsx — opérateur SFR)
+app.use('/api/lignes-mobiles', require('./modules/lignes_mobiles/lignes_mobiles.routes'));
+
 // Déploiements Module (fiches de déploiement parc)
 app.use('/api/deploiements', require('./modules/deploiements/deploiements.routes'));
 

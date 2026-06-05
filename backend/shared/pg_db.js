@@ -3118,6 +3118,42 @@ async function setupPgDb() {
     await client.query(`CREATE INDEX IF NOT EXISTS idx_mob_dev_lastaction ON hub_parc.mobilite_devices(last_action_norm)`);
     await client.query(`CREATE INDEX IF NOT EXISTS idx_mob_dev_dir ON hub_parc.mobilite_devices(last_direction)`);
 
+    // ─── hub_parc : LIGNES MOBILES (forfaits/SIM, importées depuis lignes.xlsx) ──
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS hub_parc.lignes_mobiles (
+        id                       SERIAL PRIMARY KEY,
+        numero_ligne             TEXT,
+        operateur                TEXT DEFAULT 'SFR',
+        civilite                 TEXT,
+        nom                      TEXT,
+        prenom                   TEXT,
+        email                    TEXT,
+        siren                    TEXT,
+        raison_sociale           TEXT,
+        numero_contrat           TEXT,
+        numero_titulaire         TEXT,
+        numero_cf                TEXT,
+        nom_cf                   TEXT,
+        statut_ligne             TEXT,
+        date_mise_en_service     DATE,
+        date_fin_engagement      DATE,
+        date_facturation         DATE,
+        forfait                  TEXT,
+        terminal                 TEXT,
+        imei                     TEXT,
+        format_sim               TEXT,
+        numero_csim              TEXT,
+        eid                      TEXT,
+        type_offre               TEXT,
+        ligne_secondaire         TEXT,
+        numero_ligne_principale  TEXT,
+        raw_data                 JSONB,
+        imported_at              TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_lignes_mob_numero ON hub_parc.lignes_mobiles(numero_ligne)`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_lignes_mob_statut ON hub_parc.lignes_mobiles(statut_ligne)`);
+
     // ─── hub_parc : AD COMPUTERS (importés depuis l'Active Directory) ────────────
     await client.query(`
       CREATE TABLE IF NOT EXISTS hub_parc.ad_computers (
