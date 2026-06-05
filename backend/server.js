@@ -3206,8 +3206,12 @@ app.get('/api/tickets/updates', (req, res, next) => {
     res.flushHeaders();
 
     const onTicketEvent = (data) => {
-        console.log(`[SSE] Emitting ticket-created event to client:`, data);
-        res.write(`data: ${JSON.stringify(data)}\n\n`);
+        try {
+            console.log(`[SSE] Emitting ticket-created event to client:`, data);
+            res.write(`data: ${JSON.stringify(data)}\n\n`);
+        } catch (e) {
+            console.error('[SSE] Write error:', e);
+        }
     };
 
     ticketEmitter.on('ticket-created', onTicketEvent);
@@ -3215,6 +3219,7 @@ app.get('/api/tickets/updates', (req, res, next) => {
 
     req.on('close', () => {
         ticketEmitter.removeListener('ticket-created', onTicketEvent);
+        console.log('[SSE] Client disconnected');
     });
 });
 
