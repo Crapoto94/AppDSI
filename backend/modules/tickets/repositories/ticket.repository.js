@@ -387,11 +387,14 @@ module.exports = {
     async getDashboardUserCounts(user) {
         const requesterEmail = user?.email || '';
         const username = user?.username || '';
+        // COUNT(DISTINCT t.glpi_id) : le LEFT JOIN sur ticket_assignments duplique les
+        // lignes (un ticket peut avoir plusieurs assignations) ; sans DISTINCT, les
+        // compteurs sont gonflés et incohérents avec la liste filtrée.
         return pgDb.get(`
             SELECT
-                COUNT(*) FILTER (WHERE ta.technician_id = (SELECT id FROM hub.users WHERE LOWER(username) = LOWER($1))) as assigned_to_me,
-                COUNT(*) FILTER (WHERE LOWER(t.requester_email_22) = LOWER($2)) as requested_by_me,
-                COUNT(*) FILTER (WHERE t.is_vip = true) as vip
+                COUNT(DISTINCT t.glpi_id) FILTER (WHERE ta.technician_id = (SELECT id FROM hub.users WHERE LOWER(username) = LOWER($1))) as assigned_to_me,
+                COUNT(DISTINCT t.glpi_id) FILTER (WHERE LOWER(COALESCE(NULLIF(t.email_alt, ''), t.requester_email_22)) = LOWER($2)) as requested_by_me,
+                COUNT(DISTINCT t.glpi_id) FILTER (WHERE t.is_vip = true) as vip
             FROM hub_tickets.tickets t
             LEFT JOIN hub_tickets.ticket_assignments ta ON t.glpi_id = ta.ticket_id
             WHERE t.status IN (1,2,3,4,5)
