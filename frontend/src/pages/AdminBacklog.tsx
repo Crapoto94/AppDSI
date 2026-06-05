@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Check, X, Clock, AlertCircle, Trash2, Edit2, Filter, User, Download, Zap, ChevronUp } from 'lucide-react';
+import ReactQuill from 'react-quill-new';
+import 'react-quill-new/dist/quill.snow.css';
 import axios from 'axios';
 import { useAuth } from '../contexts/AuthContext';
 import { useADSearch } from '../utils/useADSearch';
@@ -49,9 +51,11 @@ const AdminBacklog: React.FC = () => {
   const [showVersionModal, setShowVersionModal] = useState(false);
   const [versionData, setVersionData] = useState<any>(null);
   const [versionLoading, setVersionLoading] = useState(false);
-  const [versionDescription, setVersionDescription] = useState('');
-  const [releaseProposedVersion, setReleaseProposedVersion] = useState('');
-  const [isReleasing, setIsReleasing] = useState(false);
+const [versionDescription, setVersionDescription] = useState('');
+const [versionHtmlSource, setVersionHtmlSource] = useState(false);
+const [releaseProposedVersion, setReleaseProposedVersion] = useState('');
+const [isReleasing, setIsReleasing] = useState(false);
+const [versionMdFile, setVersionMdFile] = useState<File | null>(null);
 
   const categoryColors: Record<string, { bg: string; text: string; border: string }> = {
     'Bug': { bg: '#fee2e2', text: '#991b1b', border: '#fca5a5' },
@@ -63,9 +67,10 @@ const AdminBacklog: React.FC = () => {
   const statusOptions = [
     { value: 'open', label: 'En attente', icon: Clock, color: '#f59e0b' },
     { value: 'in_progress', label: 'En cours', icon: AlertCircle, color: '#3b82f6' },
+    { value: 'discussion', label: 'En discussion', icon: AlertCircle, color: '#8b5cf6' },
     { value: 'accepted', label: 'Accepté', icon: Check, color: '#10b981' },
     { value: 'rejected', label: 'Rejeté', icon: X, color: '#ef4444' },
-    { value: 'completed', label: 'Complété', icon: Check, color: '#8b5cf6' }
+    { value: 'completed', label: 'Complété', icon: Check, color: '#64748b' }
   ];
 
   useEffect(() => {
@@ -183,15 +188,18 @@ const AdminBacklog: React.FC = () => {
 
     setIsReleasing(true);
     try {
-      const response = await axios.post('/api/release-from-backlog', {
-        version: releaseProposedVersion,
-        description: versionDescription
-      }, {
-        headers: { Authorization: `Bearer ${token}` }
+      const formData = new FormData();
+      formData.append('version', releaseProposedVersion);
+      formData.append('description', versionDescription);
+      if (versionMdFile) formData.append('mdFile', versionMdFile);
+
+      const response = await axios.post('/api/release-from-backlog', formData, {
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'multipart/form-data' }
       });
       alert(`Version ${response.data.version} créée avec succès !`);
       setShowVersionModal(false);
       setVersionDescription('');
+      setVersionMdFile(null);
     } catch (error: any) {
       console.error('Error releasing version:', error);
       alert('Erreur : ' + (error.response?.data?.message || error.message));
@@ -641,6 +649,19 @@ const AdminBacklog: React.FC = () => {
 
                       {editingStatusId === item.id ? (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', width: '100%' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.85rem', color: '#475569' }}>
+                            <span style={{ fontWeight: '600' }}>Catégorie :</span>
+                            <span style={{
+                              display: 'inline-block',
+                              background: catColor?.bg,
+                              color: catColor?.text,
+                              padding: '2px 8px',
+                              borderRadius: '4px',
+                              fontSize: '0.8rem',
+                              fontWeight: '600',
+                              border: `1px solid ${catColor?.border}`
+                            }}>{item.category}</span>
+                          </div>
                           <div style={{ display: 'flex', gap: '8px' }}>
                             <select
                               value={editingStatus}
@@ -902,6 +923,53 @@ const AdminBacklog: React.FC = () => {
 
                     {/* Description Field */}
                     <div style={{ marginBottom: '24px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+                        <label style={{ fontSize: '0.85rem', fontWeight: '700', color: '#475569' }}>
+                          📝 Ajouter une note (optionnel)
+                        </label>
+                        <button
+                          type="button"
+                          onClick={() => setVersionHtmlSource(v => !v)}
+                          title={versionHtmlSource ? "Revenir à l'éditeur visuel" : 'Afficher / éditer le HTML brut'}
+                          style={{
+                            display: 'inline-flex', alignItems: 'center', gap: '5px',
+                            padding: '4px 10px', borderRadius: '6px', cursor: 'pointer', fontSize: '0.72rem', fontWeight: 700,
+                            border: `1px solid ${versionHtmlSource ? '#7c3aed' : '#cbd5e1'}`,
+                            background: versionHtmlSource ? '#7c3aed' : '#fff',
+                            color: versionHtmlSource ? '#fff' : '#475569',
+                          }}
+                        >
+                          {'</>'} {versionHtmlSource ? 'Éditeur visuel' : 'HTML brut'}
+                        </button>
+                      </div>
+                      {versionHtmlSource ? (
+                        <textarea
+                          value={versionDescription}
+                          onChange={e => setVersionDescription(e.target.value)}
+                          placeholder="<p>Code HTML…</p>"
+                          spellCheck={false}
+                          style={{
+                            width: '100%', minHeight: '180px', padding: '12px', boxSizing: 'border-box',
+                            border: '2px solid #e2e8f0', borderRadius: '8px', resize: 'vertical', outline: 'none',
+                            fontFamily: 'Consolas, "Liberation Mono", Menlo, monospace', fontSize: '0.82rem',
+                            lineHeight: 1.5, color: '#1e293b', background: '#f8fafc',
+                          }}
+                        />
+                      ) : (
+                        <div style={{ border: '2px solid #e2e8f0', borderRadius: '8px', overflow: 'hidden' }}>
+                          <ReactQuill
+                            value={versionDescription}
+                            onChange={setVersionDescription}
+                            placeholder="Ex: Améliorations majeures de performance et stabilité"
+                            modules={{ toolbar: [['bold', 'italic', 'underline'], [{ list: 'ordered' }, { list: 'bullet' }], ['link'], ['clean']] }}
+                            style={{ fontFamily: 'inherit', fontSize: '0.9rem' }}
+                          />
+                        </div>
+                      )}
+                    </div>
+
+                    {/* MD File Upload for Major Versions */}
+                    <div style={{ marginBottom: '24px', padding: '16px', background: '#f8fafc', border: '2px dashed #cbd5e1', borderRadius: '8px' }}>
                       <label style={{
                         display: 'block',
                         fontSize: '0.85rem',
@@ -909,24 +977,22 @@ const AdminBacklog: React.FC = () => {
                         color: '#475569',
                         marginBottom: '8px'
                       }}>
-                        📝 Ajouter une note (optionnel)
+                        📄 Fichier Markdown pour version majeure (optionnel)
                       </label>
-                      <textarea
-                        value={versionDescription}
-                        onChange={e => setVersionDescription(e.target.value)}
-                        placeholder="Ex: Améliorations majeures de performance et stabilité"
-                        style={{
-                          width: '100%',
-                          padding: '12px',
-                          border: '2px solid #e2e8f0',
-                          borderRadius: '8px',
-                          fontSize: '0.9rem',
-                          fontFamily: 'inherit',
-                          resize: 'vertical',
-                          minHeight: '80px',
-                          boxSizing: 'border-box'
-                        }}
+                      <p style={{ fontSize: '0.8rem', color: '#94a3b8', margin: '0 0 10px' }}>
+                        Importez un fichier .md qui sera affiché aux utilisateurs (utilisé pour les versions majeures)
+                      </p>
+                      <input
+                        type="file"
+                        accept=".md,text/markdown"
+                        onChange={e => setVersionMdFile(e.target.files?.[0] || null)}
+                        style={{ fontSize: '0.85rem' }}
                       />
+                      {versionMdFile && (
+                        <div style={{ marginTop: '8px', fontSize: '0.85rem', color: '#16a34a', fontWeight: '600' }}>
+                          ✓ {versionMdFile.name} ({(versionMdFile.size / 1024).toFixed(1)} Ko)
+                        </div>
+                      )}
                     </div>
 
                     {/* Buttons */}

@@ -368,6 +368,49 @@ const MesTaches: React.FC = () => {
     finally { setSavingEdit(false); }
   };
 
+  // ── Changement rapide de l'échéance (uniquement sur les tâches que j'ai créées) ──
+  const [editEcheanceId, setEditEcheanceId] = useState<number | null>(null);
+
+  const saveEcheance = async (id: number, value: string) => {
+    setEditEcheanceId(null);
+    try {
+      const res = await fetch(`/api/tasks/edit/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ echeance: value || null }),
+      });
+      if (!res.ok) { const e = await res.json().catch(() => ({})); alert(e.error || "Erreur lors de la modification de l'échéance"); }
+      else { fetchTasks(); if (showAssigned) fetchAssigned(); }
+    } catch { alert('Erreur réseau'); }
+  };
+
+  // Rendu d'une cellule échéance : éditable en un clic si je suis le créateur.
+  // Fonction (et non composant) pour éviter tout remount du champ pendant l'édition.
+  const renderEcheance = (id: number, echeance: string | null, canEdit: boolean) => {
+    if (canEdit && editEcheanceId === id) {
+      return (
+        <input
+          type="date" autoFocus
+          defaultValue={(echeance || '').slice(0, 10)}
+          onChange={e => saveEcheance(id, e.target.value)}
+          onBlur={() => setEditEcheanceId(null)}
+          onKeyDown={e => { if (e.key === 'Escape') setEditEcheanceId(null); }}
+          style={{ padding: '4px 6px', border: '1px solid #cbd5e1', borderRadius: 6, fontSize: 12, outline: 'none' }}
+        />
+      );
+    }
+    if (canEdit) {
+      return (
+        <span onClick={() => setEditEcheanceId(id)} title="Cliquer pour modifier l'échéance"
+          style={{ cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+          <EcheanceBadge d={echeance} />
+          <Pencil size={11} style={{ color: '#94a3b8' }} />
+        </span>
+      );
+    }
+    return <EcheanceBadge d={echeance} />;
+  };
+
   const fetchKpiHistory = async () => {
     setKpiLoading(true);
     try {
@@ -897,7 +940,7 @@ const MesTaches: React.FC = () => {
                           </div>
                         ) : t.responsable}
                       </td>
-                      <td style={{ padding: '8px 12px' }}><EcheanceBadge d={t.echeance} /></td>
+                      <td style={{ padding: '8px 12px' }}>{renderEcheance(t.id, t.echeance, true)}</td>
                       <td style={{ padding: '8px 12px' }}>{statusBadge(t.statut)}</td>
                       <td style={{ padding: '8px 12px', textAlign: 'center', whiteSpace: 'nowrap' }}>
                         <button
@@ -1039,9 +1082,13 @@ const MesTaches: React.FC = () => {
                         <SourceChip task={task} />
                       </td>
 
-                      {/* Échéance */}
+                      {/* Échéance (modifiable en un clic si je suis le créateur) */}
                       <td style={{ padding: '10px 12px' }}>
-                        <EcheanceBadge d={task.echeance} />
+                        {renderEcheance(
+                          task.id,
+                          task.echeance,
+                          !!task.created_by && task.created_by.toLowerCase() === currentUsername.toLowerCase()
+                        )}
                       </td>
 
                       {/* Statut */}

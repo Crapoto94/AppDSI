@@ -38,9 +38,10 @@ const WhatsNew: React.FC = () => {
   const statusColors: Record<string, { color: string; label: string }> = {
     'open': { color: '#f59e0b', label: 'En attente' },
     'in_progress': { color: '#3b82f6', label: 'En cours' },
+    'discussion': { color: '#8b5cf6', label: 'En discussion' },
     'accepted': { color: '#10b981', label: 'Accepté' },
     'rejected': { color: '#ef4444', label: 'Rejeté' },
-    'completed': { color: '#8b5cf6', label: 'Complété' }
+    'completed': { color: '#64748b', label: 'Complété' }
   };
 
   useEffect(() => {
@@ -65,7 +66,7 @@ const WhatsNew: React.FC = () => {
     const statusMatch = filterStatus === 'all' || item.status === filterStatus;
     return categoryMatch && statusMatch;
   }).sort((a, b) => {
-    const statusOrder: Record<string, number> = { 'open': 0, 'in_progress': 1, 'accepted': 2, 'rejected': 3, 'completed': 4 };
+    const statusOrder: Record<string, number> = { 'open': 0, 'in_progress': 1, 'discussion': 2, 'accepted': 3, 'rejected': 4, 'completed': 5 };
     return (statusOrder[a.status] || 5) - (statusOrder[b.status] || 5);
   });
 
@@ -154,6 +155,7 @@ const WhatsNew: React.FC = () => {
                 <option value='all'>Tous les statuts</option>
                 <option value='open'>En attente</option>
                 <option value='in_progress'>En cours</option>
+                <option value='discussion'>En discussion</option>
                 <option value='accepted'>Accepté</option>
                 <option value='rejected'>Rejeté</option>
                 <option value='completed'>Complété</option>

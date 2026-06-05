@@ -139,12 +139,20 @@ const PortefeuilleProjets: React.FC = () => {
   }
 
   const projetsTries = [...projets].sort((a, b) => {
-    const aFav = favoris.includes(a.id) ? -1 : 0;
-    const bFav = favoris.includes(b.id) ? -1 : 0;
-    if (aFav !== bFav) return aFav - bFav;
-    const impA = niveauImplication(a);
-    const impB = niveauImplication(b);
-    if (impA !== impB) return impA - impB;
+    // Ordre par défaut (aucune colonne explicitement choisie) : favoris d'abord,
+    // puis niveau d'implication, puis date. Dès qu'une colonne est sélectionnée
+    // (Météo, Statut, Priorité, Avancement…), on trie PUREMENT par cette colonne
+    // pour que le tri soit pleinement effectif, y compris dans les vues groupées.
+    if (sortColumn === 'date') {
+      const aFav = favoris.includes(a.id) ? -1 : 0;
+      const bFav = favoris.includes(b.id) ? -1 : 0;
+      if (aFav !== bFav) return aFav - bFav;
+      const impA = niveauImplication(a);
+      const impB = niveauImplication(b);
+      if (impA !== impB) return impA - impB;
+      const cmpDate = (a.date_modification || '').localeCompare(b.date_modification || '');
+      return sortDir === 'asc' ? cmpDate : -cmpDate;
+    }
     let cmp = 0;
     switch (sortColumn) {
       case 'titre':
@@ -179,6 +187,8 @@ const PortefeuilleProjets: React.FC = () => {
       default:
         cmp = (a.date_modification || '').localeCompare(b.date_modification || '');
     }
+    // Égalités (ex. même météo) : ordre déterministe par titre puis id.
+    if (cmp === 0) cmp = (a.titre || '').localeCompare(b.titre || '') || (a.id - b.id);
     return sortDir === 'asc' ? cmp : -cmp;
   });
 
@@ -471,19 +481,19 @@ interface ProjetTableProps {
   navigate: (path: string) => void;
   toggleFavori: (projetId: number, estFavori: boolean) => void;
 }
-const ProjetTable: React.FC<ProjetTableProps> = ({ items, favoris, navigate, toggleFavori }) => (
+const ProjetTable: React.FC<ProjetTableProps> = ({ items, favoris, navigate, toggleFavori, thStyle, SortIcon, handleSort }) => (
   <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '14px' }}>
     <thead>
       <tr style={{ background: '#f8fafc' }}>
-        <th style={{ padding: '10px 16px', textAlign: 'left', color: '#475569', fontWeight: '700', fontSize: '11px', textTransform: 'uppercase', cursor: 'pointer', userSelect: 'none' }}>Projet</th>
-        <th style={{ padding: '10px 16px', textAlign: 'left', color: '#475569', fontWeight: '700', fontSize: '11px', textTransform: 'uppercase', cursor: 'pointer', userSelect: 'none' }}>Chef de projet</th>
-        <th style={{ padding: '10px 16px', textAlign: 'center', color: '#475569', fontWeight: '700', fontSize: '11px', textTransform: 'uppercase' }}>Météo</th>
-        <th style={{ padding: '10px 16px', textAlign: 'left', color: '#475569', fontWeight: '700', fontSize: '11px', textTransform: 'uppercase', cursor: 'pointer', userSelect: 'none' }}>Statut</th>
-        <th style={{ padding: '10px 16px', textAlign: 'left', color: '#475569', fontWeight: '700', fontSize: '11px', textTransform: 'uppercase' }}>Service</th>
-        <th style={{ padding: '10px 16px', textAlign: 'center', color: '#475569', fontWeight: '700', fontSize: '11px', textTransform: 'uppercase' }}>Priorité</th>
-        <th style={{ padding: '10px 16px', textAlign: 'center', color: '#475569', fontWeight: '700', fontSize: '11px', textTransform: 'uppercase' }}>Score</th>
-        <th style={{ padding: '10px 16px', textAlign: 'left', color: '#475569', fontWeight: '700', fontSize: '11px', textTransform: 'uppercase' }}>Avancement</th>
-        <th style={{ padding: '10px 16px', textAlign: 'center', color: '#475569', fontWeight: '700', fontSize: '11px', textTransform: 'uppercase' }}>⚠️</th>
+        <th style={thStyle('titre')} onClick={() => handleSort('titre')}>Projet <SortIcon column="titre" /></th>
+        <th style={thStyle('chef_projet')} onClick={() => handleSort('chef_projet')}>Chef de projet <SortIcon column="chef_projet" /></th>
+        <th style={thStyle('meteo')} onClick={() => handleSort('meteo')}>Météo <SortIcon column="meteo" /></th>
+        <th style={thStyle('statut')} onClick={() => handleSort('statut')}>Statut <SortIcon column="statut" /></th>
+        <th style={thStyle('service_pilote')} onClick={() => handleSort('service_pilote')}>Service <SortIcon column="service_pilote" /></th>
+        <th style={thStyle('priorite')} onClick={() => handleSort('priorite')}>Priorité <SortIcon column="priorite" /></th>
+        <th style={thStyle('score')} onClick={() => handleSort('score')}>Score <SortIcon column="score" /></th>
+        <th style={thStyle('avancement')} onClick={() => handleSort('avancement')}>Avancement <SortIcon column="avancement" /></th>
+        <th style={thStyle('alertes')} onClick={() => handleSort('alertes')}>⚠️ <SortIcon column="alertes" /></th>
         <th style={{ padding: '10px 16px', textAlign: 'center', cursor: 'default', width: '40px', color: '#475569', fontWeight: '700', fontSize: '11px', textTransform: 'uppercase' }}>⭐</th>
       </tr>
     </thead>

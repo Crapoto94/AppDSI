@@ -431,6 +431,18 @@ const Header: React.FC<HeaderProps> = () => {
                         <span className="release-date">{release.date}</span>
                       </div>
                       <div className="release-changes">
+                        {release.release_notes_md && (
+                          <div style={{
+                            marginBottom: '16px',
+                            padding: '16px',
+                            background: '#f8fafc',
+                            borderRadius: '8px',
+                            border: '1px solid #e2e8f0',
+                            color: '#334155',
+                            lineHeight: 1.7,
+                            fontSize: '0.9rem'
+                          }} dangerouslySetInnerHTML={{ __html: release.release_notes_md }} />
+                        )}
                         {release.changes.map((change: string, cIdx: number) => {
                           // Check if this is a category header (### Type)
                           const categoryMatch = change.match(/^###\s+(.+)$/);
@@ -460,6 +472,17 @@ const Header: React.FC<HeaderProps> = () => {
                                 <span>{colors.icon}</span>
                                 <span>{category}</span>
                               </div>
+                            );
+                          }
+                          // Check if this is HTML content (description from WYSIWYG)
+                          const isHtml = /<[a-z][\s\S]*>/i.test(change);
+                          if (isHtml) {
+                            return (
+                              <div key={cIdx} style={{
+                                marginBottom: '12px',
+                                color: '#64748b',
+                                lineHeight: 1.6
+                              }} dangerouslySetInnerHTML={{ __html: change }} />
                             );
                           }
                           // Regular item with bullet
@@ -498,9 +521,9 @@ const Header: React.FC<HeaderProps> = () => {
                       <p className="empty-backlog">Aucune demande pour le moment</p>
                     ) : (
                       (() => {
-                        const statusOrder = { 'open': 0, 'in_progress': 1, 'accepted': 2, 'rejected': 3, 'completed': 4 };
-                        const statusLabels = { 'open': 'En attente', 'in_progress': 'En cours', 'accepted': 'Acceptée', 'rejected': 'Rejetée', 'completed': 'Complétée' };
-                        const statusColors = { 'open': '#f59e0b', 'in_progress': '#3b82f6', 'accepted': '#10b981', 'rejected': '#ef4444', 'completed': '#8b5cf6' };
+                        const statusOrder = { 'open': 0, 'in_progress': 1, 'discussion': 2, 'accepted': 3, 'rejected': 4, 'completed': 5 };
+                        const statusLabels = { 'open': 'En attente', 'in_progress': 'En cours', 'discussion': 'En discussion', 'accepted': 'Acceptée', 'rejected': 'Rejetée', 'completed': 'Complétée' };
+                        const statusColors = { 'open': '#f59e0b', 'in_progress': '#3b82f6', 'discussion': '#8b5cf6', 'accepted': '#10b981', 'rejected': '#ef4444', 'completed': '#64748b' };
 
                         const sorted = [...backlogItems].sort((a, b) =>
                           (statusOrder[a.status as keyof typeof statusOrder] || 5) - (statusOrder[b.status as keyof typeof statusOrder] || 5)
