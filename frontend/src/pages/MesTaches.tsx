@@ -6,7 +6,7 @@ import {
   CheckSquare, Clock, AlertTriangle, CheckCircle2,
   FolderKanban, MessageSquare, Users, RotateCcw, Filter,
   ExternalLink, RefreshCw, Inbox, Plus, X, Trash2, Upload,
-  RefreshCcw, Zap, XCircle, Send, BarChart2, ChevronDown, ChevronUp, Star, Pencil,
+  RefreshCcw, Zap, XCircle, Send, BarChart2, ChevronDown, ChevronUp, Star, Pencil, Globe, Lock,
 } from 'lucide-react';
 import AddTaskModal from '../components/AddTaskModal';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
@@ -40,6 +40,8 @@ interface Task {
   created_by?: string | null;
   refus_raison?: string | null;
   is_favorite?: boolean;
+  priority?: string;
+  is_public?: boolean;
 }
 
 interface AssignedAssignee {
@@ -62,6 +64,8 @@ interface AssignedTask {
   refus_raison?: string | null;
   is_team_task?: boolean;
   team_group_id?: string | null;
+  priority?: string;
+  is_public?: boolean;
   assignee_count?: number;
   assignees?: AssignedAssignee[];
 }
@@ -142,6 +146,22 @@ function statusBadge(statut: string) {
   const c = cfg[statut] || cfg.a_faire;
   return (
     <span style={{ padding: '3px 10px', borderRadius: 10, background: c.bg, color: c.color, fontWeight: 600, fontSize: 11 }}>
+      {c.label}
+    </span>
+  );
+}
+
+const PRIORITY_COLORS: Record<string, { bg: string; color: string; label: string }> = {
+  basse:   { bg: '#f0fdf4', color: '#16a34a', label: '↓ Basse' },
+  normale: { bg: '#f8fafc', color: '#64748b', label: '— Normale' },
+  haute:   { bg: '#fef2f2', color: '#dc2626', label: '↑ Haute' },
+};
+
+function PriorityBadge({ priority }: { priority?: string }) {
+  if (!priority || priority === 'normale') return null;
+  const c = PRIORITY_COLORS[priority] || PRIORITY_COLORS.normale;
+  return (
+    <span style={{ padding: '1px 7px', borderRadius: 6, background: c.bg, color: c.color, fontWeight: 700, fontSize: 10, whiteSpace: 'nowrap' }}>
       {c.label}
     </span>
   );
@@ -349,7 +369,7 @@ const MesTaches: React.FC = () => {
   };
 
   // ── Édition d'une tâche que j'ai créée (perso ou affectée) ───────────────────
-  const [editData, setEditData] = useState<{ id: number; description: string; echeance: string; isTeam: boolean } | null>(null);
+  const [editData, setEditData] = useState<{ id: number; description: string; echeance: string; priority: string; is_public: boolean; isTeam: boolean } | null>(null);
   const [savingEdit, setSavingEdit] = useState(false);
 
   const saveEdit = async () => {
@@ -360,7 +380,7 @@ const MesTaches: React.FC = () => {
       const res = await fetch(`/api/tasks/edit/${editData.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ description: editData.description.trim(), echeance: editData.echeance || null }),
+        body: JSON.stringify({ description: editData.description.trim(), echeance: editData.echeance || null, priority: editData.priority, is_public: editData.is_public }),
       });
       if (!res.ok) { const e = await res.json().catch(() => ({})); alert(e.error || 'Erreur lors de la modification'); }
       else { setEditData(null); fetchTasks(); if (showAssigned) fetchAssigned(); }
@@ -546,6 +566,23 @@ const MesTaches: React.FC = () => {
     } catch (e) { console.error('Erreur favori:', e); }
   };
 
+  const togglePublic = async (task: Task) => {
+    if (task.source !== 'personal') return;
+    const nextPublic = !task.is_public;
+    try {
+      const res = await fetch(`/api/tasks/edit/${task.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ is_public: nextPublic }),
+      });
+      if (res.ok) {
+        setTasks(prev => prev.map(t =>
+          (t.source === task.source && t.id === task.id) ? { ...t, is_public: nextPublic } : t
+        ));
+      }
+    } catch (e) { console.error('Erreur toggle public:', e); }
+  };
+
   const handleCreated = (created: any) => {
     const toAdd = Array.isArray(created) ? created : [created];
     setTasks(prev => [
@@ -722,6 +759,9 @@ const MesTaches: React.FC = () => {
       aVal = a.source_title?.toLowerCase() || ''; bVal = b.source_title?.toLowerCase() || '';
     } else if (sortField === 'statut') {
       aVal = a.statut; bVal = b.statut;
+    } else if (sortField === 'priority') {
+      const order: Record<string, string> = { haute: '0', normale: '1', basse: '2' };
+      aVal = order[a.priority || 'normale']; bVal = order[b.priority || 'normale'];
     }
     const cmp = aVal.localeCompare(bVal);
     return sortDir === 'asc' ? cmp : -cmp;
@@ -944,7 +984,7 @@ const MesTaches: React.FC = () => {
                       <td style={{ padding: '8px 12px' }}>{statusBadge(t.statut)}</td>
                       <td style={{ padding: '8px 12px', textAlign: 'center', whiteSpace: 'nowrap' }}>
                         <button
-                          onClick={() => setEditData({ id: t.id, description: t.description, echeance: (t.echeance || '').slice(0, 10), isTeam: !!t.is_team_task })}
+                          onClick={() => setEditData({ id: t.id, description: t.description, echeance: (t.echeance || '').slice(0, 10), priority: t.priority || 'normale', is_public: !!t.is_public, isTeam: !!t.is_team_task })}
                           title="Modifier"
                           style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#6366f1', padding: 4, verticalAlign: 'middle' }}
                         >
@@ -1062,6 +1102,12 @@ const MesTaches: React.FC = () => {
                                 <Users size={13} />
                               </span>
                             )}
+                            {task.is_public && (
+                              <span title="Tâche publique" style={{ color: '#16a34a', flexShrink: 0 }}>
+                                <Globe size={13} />
+                              </span>
+                            )}
+                            <PriorityBadge priority={task.priority} />
                             {task.description || '—'}
                           </span>
                           {affectedBy && (
@@ -1137,10 +1183,21 @@ const MesTaches: React.FC = () => {
                           💬 {noteCount || '+'}
                         </button>
 
+                        {/* Public/Privé (tâches que j'ai créées) */}
+                        {task.source === 'personal' && task.created_by && task.created_by.toLowerCase() === currentUsername.toLowerCase() && (
+                          <button
+                            onClick={() => togglePublic(task)}
+                            title={task.is_public ? 'Rendre privée' : 'Rendre publique'}
+                            style={{ background: 'none', border: 'none', cursor: 'pointer', color: task.is_public ? '#16a34a' : '#94a3b8', padding: 4, marginLeft: 2, verticalAlign: 'middle' }}
+                          >
+                            {task.is_public ? <Globe size={14} /> : <Lock size={14} />}
+                          </button>
+                        )}
+
                         {/* Modifier (tâches que j'ai créées) */}
                         {task.created_by && task.created_by.toLowerCase() === currentUsername.toLowerCase() && (
                           <button
-                            onClick={() => setEditData({ id: task.id, description: task.description, echeance: (task.echeance || '').slice(0, 10), isTeam: !!task.is_team_task })}
+                            onClick={() => setEditData({ id: task.id, description: task.description, echeance: (task.echeance || '').slice(0, 10), priority: task.priority || 'normale', is_public: !!task.is_public, isTeam: !!task.is_team_task })}
                             title="Modifier"
                             style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#6366f1', padding: 4, marginLeft: 2, verticalAlign: 'middle' }}
                           >
@@ -1275,8 +1332,40 @@ const MesTaches: React.FC = () => {
             <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 4 }}>Échéance</label>
             <input type="date" value={editData.echeance}
               onChange={e => setEditData(d => d && { ...d, echeance: e.target.value })}
-              style={{ width: '100%', padding: '10px 14px', border: '1px solid #e2e8f0', borderRadius: 8, fontSize: 14, outline: 'none', boxSizing: 'border-box', marginBottom: 24 }}
+              style={{ width: '100%', padding: '10px 14px', border: '1px solid #e2e8f0', borderRadius: 8, fontSize: 14, outline: 'none', boxSizing: 'border-box', marginBottom: 16 }}
             />
+            <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 4 }}>Priorité</label>
+            <div style={{ display: 'flex', gap: 6, marginBottom: 16 }}>
+              {(['basse', 'normale', 'haute'] as const).map(p => {
+                const colors: Record<string, { bg: string; color: string; border: string }> = {
+                  basse:  { bg: '#f0fdf4', color: '#16a34a', border: '#bbf7d0' },
+                  normale: { bg: '#f8fafc', color: '#64748b', border: '#e2e8f0' },
+                  haute:  { bg: '#fef2f2', color: '#dc2626', border: '#fecaca' },
+                };
+                const c = colors[p];
+                return (
+                  <button key={p} onClick={() => setEditData(d => d && { ...d, priority: p })}
+                    style={{ flex: 1, padding: '6px 10px', borderRadius: 7, fontSize: 12, fontWeight: 600, cursor: 'pointer', border: `1.5px solid ${editData.priority === p ? c.color : '#e2e8f0'}`, background: editData.priority === p ? c.bg : 'white', color: editData.priority === p ? c.color : '#475569' }}
+                  >
+                    {p === 'basse' ? '↓ Basse' : p === 'haute' ? '↑ Haute' : '— Normale'}
+                  </button>
+                );
+              })}
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: editData.is_public ? '#f0fdf4' : '#f8fafc', border: `1px solid ${editData.is_public ? '#bbf7d0' : '#e2e8f0'}`, borderRadius: 8, padding: '8px 12px', marginBottom: 24 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                {editData.is_public ? <Globe size={14} style={{ color: '#16a34a' }} /> : <Lock size={14} style={{ color: '#94a3b8' }} />}
+                <span style={{ fontSize: 13, fontWeight: 600, color: editData.is_public ? '#16a34a' : '#475569' }}>
+                  {editData.is_public ? 'Publique' : 'Privée'}
+                </span>
+              </div>
+              <button
+                onClick={() => setEditData(d => d && { ...d, is_public: !d.is_public })}
+                style={{ width: 36, height: 20, borderRadius: 10, border: 'none', cursor: 'pointer', background: editData.is_public ? '#16a34a' : '#cbd5e1', transition: 'background 0.2s', position: 'relative', flexShrink: 0 }}
+              >
+                <span style={{ position: 'absolute', top: 2, left: editData.is_public ? 18 : 2, width: 16, height: 16, borderRadius: '50%', background: 'white', transition: 'left 0.2s', display: 'block' }} />
+              </button>
+            </div>
             <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
               <button onClick={() => setEditData(null)} disabled={savingEdit}
                 style={{ padding: '10px 20px', border: '1px solid #e2e8f0', borderRadius: 8, background: '#fff', cursor: 'pointer', fontSize: 14, color: '#475569' }}>

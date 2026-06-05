@@ -194,9 +194,42 @@ module.exports = {
                         ut.is_team_task,
                         ut.team_group_id::text AS team_group_id,
                         ut.created_by,
-                        ut.refus_raison
+                        ut.refus_raison,
+                        ut.priority,
+                        ut.is_public
                     FROM hub.user_tasks ut
                     WHERE LOWER(ut.username) = $1
+
+                    UNION ALL
+
+                    SELECT
+                        COALESCE(ut.context_source, 'personal') AS source,
+                        ut.id,
+                        ut.context_id AS source_id,
+                        COALESCE(ut.context_title, 'Tâche personnelle') AS source_title,
+                        ut.description,
+                        ut.echeance::text AS echeance,
+                        ut.statut,
+                        ut.username   AS responsable,
+                        ut.created_at,
+                        ut.updated_at::text AS updated_at,
+                        ut.is_team_task,
+                        ut.team_group_id::text AS team_group_id,
+                        ut.created_by,
+                        ut.refus_raison,
+                        ut.priority,
+                        ut.is_public
+                    FROM hub.user_tasks ut
+                    WHERE ut.is_public = true
+                      AND LOWER(ut.username) != $1
+                      AND LOWER(ut.username) IN (
+                          SELECT LOWER(u2.username) FROM hub.users u2
+                          WHERE u2.service_code IS NOT NULL AND u2.service_code != ''
+                            AND u2.service_code = (
+                                SELECT hu.service_code FROM hub.users hu
+                                WHERE LOWER(hu.username) = $1
+                            )
+                      )
 
                     UNION ALL
 
@@ -214,7 +247,9 @@ module.exports = {
                         FALSE         AS is_team_task,
                         NULL          AS team_group_id,
                         NULL          AS created_by,
-                        NULL          AS refus_raison
+                        NULL          AS refus_raison,
+                        NULL          AS priority,
+                        FALSE         AS is_public
                     FROM transcript.tasks t
                     JOIN transcript.meetings m ON t.meeting_id = m.id
                     WHERE t.is_completed = 0
@@ -236,7 +271,9 @@ module.exports = {
                         FALSE                  AS is_team_task,
                         NULL                   AS team_group_id,
                         NULL                   AS created_by,
-                        NULL                   AS refus_raison
+                        NULL                   AS refus_raison,
+                        NULL                   AS priority,
+                        FALSE                  AS is_public
                     FROM projets.projet_taches pt
                     JOIN projets.projets p ON pt.projet_id = p.id
                     WHERE pt.statut NOT IN ('terminé','terminee','terminée')
@@ -258,7 +295,9 @@ module.exports = {
                         FALSE                   AS is_team_task,
                         NULL                    AS team_group_id,
                         NULL                    AS created_by,
-                        NULL                    AS refus_raison
+                        NULL                    AS refus_raison,
+                        NULL                    AS priority,
+                        FALSE                   AS is_public
                     FROM projets.projet_taches_standalone pts
                     JOIN projets.projets p ON pts.projet_id = p.id
                     WHERE pts.statut NOT IN ('terminé','terminee','terminée')
@@ -281,7 +320,9 @@ module.exports = {
                         FALSE                  AS is_team_task,
                         NULL                   AS team_group_id,
                         NULL                   AS created_by,
-                        NULL                   AS refus_raison
+                        NULL                   AS refus_raison,
+                        NULL                   AS priority,
+                        FALSE                  AS is_public
                     FROM hub_rencontres.rencontres_suivi rs
                     JOIN hub_rencontres.rencontres_budgetaires rb ON rs.rencontre_id = rb.id
                     WHERE rs.statut NOT IN ('terminé', 'done')
@@ -303,7 +344,9 @@ module.exports = {
                         FALSE                AS is_team_task,
                         NULL                 AS team_group_id,
                         NULL                 AS created_by,
-                        NULL                 AS refus_raison
+                        NULL                 AS refus_raison,
+                        NULL                 AS priority,
+                        FALSE                AS is_public
                     FROM hub_rencontres.revue_taches rt
                     JOIN hub_rencontres.revues rv ON rt.revue_id = rv.id
                     WHERE rt.statut != 'terminé'
@@ -325,7 +368,9 @@ module.exports = {
                         FALSE                AS is_team_task,
                         NULL                 AS team_group_id,
                         NULL                 AS created_by,
-                        NULL                 AS refus_raison
+                        NULL                 AS refus_raison,
+                        NULL                 AS priority,
+                        FALSE                AS is_public
                     FROM hub_rencontres.rencontres_reunions r
                     CROSS JOIN LATERAL json_array_elements(
                         CASE WHEN r.liste_taches IS NOT NULL AND r.liste_taches NOT IN ('', '[]')
@@ -435,7 +480,8 @@ module.exports = {
         const {
             description, echeance,
             context_source = 'personal', context_id = null, context_title = null,
-            is_team_task = false, assignees = [], service_code = null
+            is_team_task = false, assignees = [], service_code = null,
+            priority = 'normale', is_public = false
         } = req.body;
         if (!description?.trim()) return res.status(400).json({ error: 'Description requise' });
         try {
@@ -465,17 +511,19 @@ module.exports = {
 
             const created = [];
             for (const uname of targets) {
-                const { rows } = await pool.query(
-                    `INSERT INTO hub.user_tasks
-                       (username, description, echeance, statut,
-                        is_team_task, team_group_id, created_by,
-                        context_source, context_id, context_title)
-                     VALUES ($1,$2,$3,'a_faire',$4,$5,$6,$7,$8,$9)
-                     RETURNING *`,
+                    const { rows } = await pool.query(
+                        `INSERT INTO hub.user_tasks
+                           (username, description, echeance, statut,
+                            is_team_task, team_group_id, created_by,
+                            context_source, context_id, context_title,
+                            priority, is_public)
+                         VALUES ($1,$2,$3,'a_faire',$4,$5,$6,$7,$8,$9,$10,$11)
+                         RETURNING *`,
                     [uname, description.trim(), echeance || null,
                      is_team_task, teamGroupId, creator,
-                     context_source, context_id, context_title]
-                );
+                     context_source, context_id, context_title,
+                     priority, is_public]
+                    );
                 created.push(rows[0]);
             }
             // Notification immédiate des destinataires (≠ créateur). Fire-and-forget :
@@ -720,7 +768,7 @@ module.exports = {
     // toutes les lignes du groupe (la tâche reste unique).
     async editTask(req, res) {
         const { id } = req.params;
-        const { description, echeance } = req.body;
+        const { description, echeance, priority, is_public } = req.body;
         const username = req.user.username;
         try {
             const { rows } = await pool.query(
@@ -740,6 +788,8 @@ module.exports = {
             let i = 1;
             if (description !== undefined) { sets.push(`description = $${i++}`); params.push(String(description).trim()); }
             if (echeance !== undefined) { sets.push(`echeance = $${i++}`); params.push(echeance || null); }
+            if (priority !== undefined) { sets.push(`priority = $${i++}`); params.push(priority); }
+            if (is_public !== undefined) { sets.push(`is_public = $${i++}`); params.push(!!is_public); }
             if (sets.length === 0) return res.json({ success: true, updated: 0 });
             sets.push('updated_at = CURRENT_TIMESTAMP');
 
@@ -1331,6 +1381,8 @@ module.exports = {
                     MIN(ut.id) AS id,
                     ut.team_group_id,
                     bool_or(COALESCE(ut.is_team_task, false)) AS is_team_task,
+                    MIN(ut.priority) AS priority,
+                    bool_or(COALESCE(ut.is_public, false)) AS is_public,
                     MIN(ut.description) AS description,
                     MIN(ut.echeance::text) AS echeance,
                     MIN(ut.created_at) AS created_at,

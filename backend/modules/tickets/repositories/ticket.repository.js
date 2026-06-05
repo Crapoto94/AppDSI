@@ -252,8 +252,9 @@ module.exports = {
                 (glpi_id, title, content, status, priority, urgency, impact,
                  type, category, date_creation, date_mod, source,
                  requester_name, requester_email_22, location, solution, is_vip,
-                 resolution_method, knowledge_article, category_id, subcategory_id, software_id)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
+                 resolution_method, knowledge_article, category_id, subcategory_id, software_id,
+                 requester_phone)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)
         `, [
             id, data.title, data.content || '', data.status || 1,
             data.priority || 3, data.urgency || 3, data.impact || 2,
@@ -262,7 +263,8 @@ module.exports = {
             data.requester_name || '', data.requester_email || '',
             data.location || '', data.solution || '', !!data.is_vip,
             data.resolution_method || null, data.knowledge_article || null,
-            data.category_id || null, data.subcategory_id || null, data.software_id || null
+            data.category_id || null, data.subcategory_id || null, data.software_id || null,
+            data.requester_phone || null
         ]);
 
         return id;

@@ -181,6 +181,7 @@ router.get('/config/public', authenticateJWT, async (req, res) => {
 
 // ─── CRUD Tickets (doit être APRÈS les routes spécifiques) ────────
 router.get('/requester/:email', authenticateJWT, (req, res) => controller.getByRequester(req, res));
+router.get('/my-phone', authenticateJWT, (req, res) => controller.getMyPhone(req, res));
 router.delete('/bulk', authenticateJWT, (req, res) => controller.bulkDelete(req, res));
 router.get('/', authenticateJWT, (req, res) => controller.getAll(req, res));
 router.get('/:id', authenticateJWT, (req, res) => controller.getById(req, res));

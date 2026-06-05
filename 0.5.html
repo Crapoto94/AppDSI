@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DSI Hub — Version 0.5</title>
+<style>
+  :root {
+    --bg: #f8fafc;
+    --card: #ffffff;
+    --border: #e2e8f0;
+    --text: #1e293b;
+    --muted: #64748b;
+    --primary: #2563eb;
+    --primary-soft: #eff6ff;
+    --accent: #6366f1;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    line-height: 1.6;
+    font-size: 15px;
+  }
+  .wrap { max-width: 980px; margin: 0 auto; padding: 40px 24px 80px; }
+  h2 {
+    font-size: 22px;
+    margin: 40px 0 16px;
+    padding-bottom: 8px;
+    border-bottom: 2px solid var(--border);
+    color: #0f172a;
+  }
+  h2:first-of-type { margin-top: 0; }
+  h3 {
+    font-size: 17px;
+    margin: 28px 0 8px;
+    color: #0f172a;
+  }
+  p { margin: 8px 0; }
+  ul { margin: 8px 0 8px 0; padding-left: 22px; }
+  li { margin: 5px 0; }
+  code {
+    background: #f1f5f9;
+    color: #be123c;
+    padding: 1px 6px;
+    border-radius: 5px;
+    font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+    font-size: 13px;
+  }
+  hr { border: none; border-top: 1px solid var(--border); margin: 32px 0; }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 14px 0;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow: hidden;
+  }
+  th, td { padding: 10px 16px; text-align: left; border-bottom: 1px solid var(--border); }
+  th { background: var(--primary-soft); color: var(--primary); font-weight: 700; font-size: 13px; text-transform: uppercase; letter-spacing: .02em; }
+  tr:last-child td { border-bottom: none; }
+  td strong { color: #0f172a; }
+  .section-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-left: 4px solid var(--accent);
+    border-radius: 10px;
+    padding: 6px 20px 16px;
+    margin: 18px 0;
+  }
+  .section-card h3 { margin-top: 16px; }
+  .section-card .intro { color: var(--muted); font-style: italic; }
+  .footer { margin-top: 40px; color: var(--muted); font-size: 13px; text-align: center; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h2>En bref</h2>
+  <table>
+    <thead>
+      <tr><th>Indicateur</th><th>Valeur</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Période couverte</td><td>7 mai → 4 juin 2026</td></tr>
+      <tr><td>Commits</td><td><strong>620</strong></td></tr>
+      <tr><td>Nouvelles fonctionnalités (<code>feat</code>)</td><td><strong>215</strong></td></tr>
+      <tr><td>Corrections (<code>fix</code>)</td><td><strong>269</strong></td></tr>
+      <tr><td>Versions livrées</td><td>v0.3.8 → <strong>v0.5</strong></td></tr>
+      <tr><td>Nouveaux modules majeurs</td><td>Parc, Copieurs, Projets, Backlog, Mail Collector, Réseau/Infra, Stocks</td></tr>
+    </tbody>
+  </table>
+
+  <hr>
+
+  <h2>Les grandes nouveautés par domaine</h2>
+
+  <div class="section-card">
+    <h3>🎫 Tickets — un module ITSM complet</h3>
+    <p class="intro">Le cœur de la plateforme s'est étoffé en un véritable outil de gestion de services.</p>
+    <ul>
+      <li><strong>Module ITSM complet</strong> : KPI historisés, tri des colonnes, vues Table / Kanban / Inbox (scroll infini).</li>
+      <li><strong>SLA</strong> : définitions, calendriers ouvrés, suivi des dépassements, bouton de réinitialisation (purge + recalcul) et table de conversion jours ouvrés → minutes.</li>
+      <li><strong>Règles d'affectation</strong> : actions automatiques (<code>set_vip</code>, <code>boost_priority</code>, <code>set_type</code>, <code>set_category</code>, <code>add_tag</code>), onglet VIP, icônes de catégorie.</li>
+      <li><strong>Workflow</strong> : bouton « Solutionner » (commentaire → solution + Résolu), filtre Type (Incidents / Demandes), classification des tickets live avant clôture.</li>
+      <li><strong>Réponses automatiques</strong>, <strong>base documentaire (KB)</strong> et parcours d'aide complet, docs MagApp rattachés au logiciel.</li>
+      <li><strong>Journal</strong> séquentiel de l'historique d'un ticket, page de <strong>paramètres configurables</strong> (chat, couleurs, AD, clôture auto, dictée vocale).</li>
+      <li><strong>Clôture automatique</strong> des tickets résolus (délai paramétrable, cron de minuit, log des clôtures auto + demandeurs) et affichage des résolus par défaut.</li>
+    </ul>
+  </div>
+
+  <div class="section-card">
+    <h3>✅ Mes Tâches — agrégation multi-sources</h3>
+    <ul>
+      <li><strong>Module unifié</strong> agrégeant les tâches de tous les modules (tickets, projets, réunions, rencontres, transcripts, MS To-Do).</li>
+      <li><strong>API de tâches d'équipe unifiée</strong> + <code>AddTaskModal</code> réutilisé partout (projets, réunions…).</li>
+      <li>Présentation en tableau, <strong>notes &amp; pièces jointes</strong>, synchronisation <strong>MS To-Do</strong>, tuile à 3 badges.</li>
+      <li><strong>Tâches d'équipe</strong> : tâche unique partagée, statut commun (le premier qui la termine la termine pour tous), liste des destinataires, notification du créateur en cas de refus, <strong>mail à l'affectation</strong> et édition propagée au groupe.</li>
+      <li>Alertes email quotidiennes (opt-in) + bascule de préférence.</li>
+    </ul>
+  </div>
+
+  <div class="section-card">
+    <h3>📁 Projets &amp; Gouvernance — portefeuille PMO</h3>
+    <ul>
+      <li><strong>Module Portefeuille Projets</strong> : schéma PostgreSQL, API REST, interface React.</li>
+      <li><strong>Sous-projets</strong> indentés sous le parent, colonnes triables, rupture visuelle par niveau d'implication.</li>
+      <li><strong>Gouvernance</strong> : comités/comitologie, chef de projet métier (AD), membres de comité, cases DPD/RSSI, recherche AD.</li>
+      <li><strong>PMO</strong> : visibilité sur tous les projets, filtrage par périmètre, groupement par chef de projet, tri par implication.</li>
+      <li><strong>Étapes personnalisables</strong> par projet avec fil d'Ariane et filtre workflow.</li>
+      <li>Applications liées, projet parent, types documentaires, upload de fichiers, gestion des transcripts (MeetingDetail).</li>
+      <li><strong>Réunions</strong> : page « Mes réunions », modale de détail directe, comités, heure de création (datetime-local), commentaires participants, PJ dans les CR, ajout auto du créateur.</li>
+    </ul>
+  </div>
+
+  <div class="section-card">
+    <h3>🖨️ Copieurs — gestion de flotte SNMP</h3>
+    <ul>
+      <li><strong>Module complet</strong> : CRUD, ping, déplacement, géolocalisation/carte avec clustering, import PaperCut.</li>
+      <li><strong>Collecte SNMP automatique</strong> (toners, erreurs, compteurs) avec <strong>cron quotidien à 11h</strong>, test SNMP direct, SNMP Walk de diagnostic, barre de progression.</li>
+      <li><strong>Relevés détaillés Canon</strong> (A4/A3, N&amp;B/couleur), mapping SNMP Koesio, gestion compteurs/tarifs/relevés.</li>
+      <li><strong>Imports Excel</strong> (Canon trimestriel, annuel reconstruit, refonte par mainteneur/année).</li>
+      <li><strong>Tableau de bord KPI</strong> : évolution des copies, coûts, alertes dégressives, projection annuelle au 31/12 avec graphiques (barres hachurées, lignes pointillées).</li>
+    </ul>
+  </div>
+
+  <div class="section-card">
+    <h3>💻 Parc informatique, Déploiements &amp; Mobilité</h3>
+    <ul>
+      <li><strong>Module de parc live/hub</strong> synchronisé depuis <strong>GLPI 10</strong> (schéma <code>hub_parc</code>, 4 tables).</li>
+      <li><strong>Tableau de bord</strong> remanié : pyramide des âges, widgets DSI, tri des colonnes, onglet Géo, infobulles de détail, filtres par statut.</li>
+      <li><strong>Déploiements</strong> : import <code>deploy.xlsx</code>, rapprochement avec le parc/AD/GLPI, détection d'incohérences, colonne Équipement à type inféré (PC, écran, bundle…), édition de fiche, visionneuse PDF/image/DOCX, <strong>graphiques de cadence</strong> (par année / mois).</li>
+      <li><strong>Mobilité</strong> : onglet Rebut, listes stock/rebut, édition d'appareils.</li>
+      <li>Recherche AD, inversion usager/n° usager, email dans la liste.</li>
+    </ul>
+  </div>
+
+  <div class="section-card">
+    <h3>🔄 GLPI — synchronisation</h3>
+    <ul>
+      <li><strong>Onglet GLPI 10</strong> unifié (token d'API unique) dans les Synchronisations.</li>
+      <li>Sync « récents » enrichie (50 derniers tickets + descriptions + commentaires) et <strong>synchro complète en une passe</strong> (tickets + descriptions + suivis en parallèle).</li>
+      <li>Synchro des <strong>noms/prénoms</strong> des demandeurs et observateurs via API GLPI + AD.</li>
+    </ul>
+  </div>
+
+  <div class="section-card">
+    <h3>💶 Budget, Finance &amp; Oracle</h3>
+    <ul>
+      <li><strong>Module d'automatisation Oracle</strong> : scheduler, logs, stockage des synchros, tables de paramètres (RH &amp; Finances).</li>
+      <li><strong>Migration commandes/factures vers PostgreSQL</strong>, colonnes dynamiques, onglet Tiers intégré.</li>
+      <li><strong>Field mapping</strong> + <code>MappedDataTable</code>, expressions arithmétiques, filtre factures.</li>
+      <li><strong>Opérations</strong> : badge du nombre de commandes, déroulé des commandes liées, KPI réalisé fonctionnement/investissement, total prévu et % de réalisation.</li>
+    </ul>
+  </div>
+
+  <div class="section-card">
+    <h3>✉️ Mail, Notifications &amp; Collecteur</h3>
+    <ul>
+      <li><strong>Mail Collector</strong> : création automatique de tickets depuis les e-mails O365 (logs, routage, fréquences).</li>
+      <li><strong>Module d'automatisation des e-mails</strong> + onglet alertes tâches + journal global des envois.</li>
+      <li>Consolidation des réglages <strong>O365 / Azure AD</strong>, file de notifications, pagination des logs, <strong>kill-switch</strong> pour stopper tous les envois.</li>
+      <li>Éditeur HTML de templates, recherche de l'e-mail via AD en priorité pour les notifications de changement de statut.</li>
+    </ul>
+  </div>
+
+  <div class="section-card">
+    <h3>📝 Backlog &amp; « What's New »</h3>
+    <ul>
+      <li><strong>Système de backlog</strong> : formulaire de soumission, interface admin, pièces jointes, sélection module/tuile, commentaires admin, archivage.</li>
+      <li>Édition titre/demandeur avec recherche AD, regroupement par statut, mise en avant des demandes de l'utilisateur.</li>
+      <li><strong>Version release</strong> depuis l'admin backlog + page <strong>« Nouveautés »</strong> publique.</li>
+    </ul>
+  </div>
+
+  <div class="section-card">
+    <h3>💬 Live &amp; Chat</h3>
+    <ul>
+      <li><strong>Sessions live</strong> : pré-clôture (demandeur/timeout) puis finalisation technicien, classification Incident/Demande, template <code>live_summary</code>.</li>
+      <li>Chat-frontend conteneurisé (Docker DMZ) lisant le branding depuis la config admin, EmojiPicker, panneau des sessions.</li>
+      <li><strong>Alertes d'urgence</strong> : contacts mobile/urgence d'équipe, configuration WhatsApp.</li>
+    </ul>
+  </div>
+
+  <div class="section-card">
+    <h3>🌐 Réseau / Infra, Stocks &amp; autres modules</h3>
+    <ul>
+      <li><strong>Module Réseau/Infra</strong> : carte des switchs et liens, dashboard, API, schéma, sites filtrés par équipement, couche cœur.</li>
+      <li><strong>Module Stocks</strong> : workflow livraison/BL complet, modèles de BL, stats/KPI, transposition.</li>
+      <li><strong>Inventaire</strong> : dashboard hôtes/alertes/incidents/vulnérabilités/SIEM.</li>
+      <li><strong>Calendrier DSI</strong> : refonte UI, intégration O365 (auto-sync, mapping catégories), vue jour multi-colonnes, couleur DSI.</li>
+      <li><strong>Dashboard DSI</strong> : tuiles déplaçables avec ordre persistant, badges contrats expirés/bientôt expirés.</li>
+      <li><strong>Consommables</strong> (organigramme, écoles, récap annuel), <strong>Contrats</strong>, <strong>Certificats</strong> (visionneuse PDF + accès SMB en conteneur), modules <strong>Ville</strong> et <strong>Transcripts</strong> (partage par direction/service).</li>
+    </ul>
+  </div>
+
+  <hr>
+
+  <h2>Stabilisation</h2>
+  <p>Au-delà des nouveautés, <strong>269 corrections</strong> ont consolidé la plateforme. Les zones les plus travaillées :</p>
+  <table>
+    <thead>
+      <tr><th>Domaine</th><th>Corrections</th><th>Domaine</th><th>Corrections</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Tickets</td><td>22</td><td>GLPI</td><td>8</td></tr>
+      <tr><td>Mail / notifications</td><td>19</td><td>Réseau</td><td>7</td></tr>
+      <tr><td>Oracle</td><td>10</td><td>Stocks / Réunions</td><td>6</td></tr>
+      <tr><td>Copieurs</td><td>10</td><td>SLA / Parc</td><td>5</td></tr>
+      <tr><td>Projets / Calendrier / Backlog</td><td>9 chacun</td><td>Tâches / Budget</td><td>2-4</td></tr>
+    </tbody>
+  </table>
+
+</div>
+</body>
+</html>

@@ -7,6 +7,9 @@ module.exports = {
         if (data.title && data.title.length > 500) {
             errors.push('Le titre ne doit pas dépasser 500 caractères');
         }
+        if (!data.requester_phone || typeof data.requester_phone !== 'string' || data.requester_phone.trim().length === 0) {
+            errors.push('Le numéro de téléphone du demandeur est requis');
+        }
         if (data.type && ![1, 2, '1', '2', 'incident', 'request'].includes(data.type)) {
             errors.push('Type invalide (1=incident, 2=demande)');
         }

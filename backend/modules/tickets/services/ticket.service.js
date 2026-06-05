@@ -38,9 +38,20 @@ module.exports = {
             type: normalizeTicketType(data.type) || 1,
             requester_name: data.requester_name || user.displayName || user.username,
             requester_email: data.requester_email || user.email,
+            requester_phone: data.requester_phone || null,
         };
 
         const ticketId = await ticketRepo.create(ticketData);
+
+        // Save phone to user profile for next-time auto-fill
+        if (ticketData.requester_phone) {
+            try {
+                await pgDb.run(
+                    `UPDATE hub.users SET requester_phone = $1 WHERE LOWER(username) = LOWER($2)`,
+                    [ticketData.requester_phone, user.username]
+                );
+            } catch (e) { console.error('[TICKET] save phone to user failed:', e.message); }
+        }
 
         try { await historyRepo.log(ticketId, user.id, 'created', 'status', null, '1', 'Ticket créé', user.username); }
         catch (e) { console.error('[TICKET] history log failed:', e.message); }

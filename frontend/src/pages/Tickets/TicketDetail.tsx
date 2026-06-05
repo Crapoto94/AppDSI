@@ -12,6 +12,7 @@ import ProblemModal from './ProblemModal';
 import ResponseSuggestions from './ResponseSuggestions';
 import DocumentSuggestions from './DocumentSuggestions';
 import type { AttachDoc } from './DocumentSuggestions';
+import { Phone } from 'lucide-react';
 import { formatDateTime, formatDate as formatDateParis } from '../../utils/datetime';
 
 function decodeHtml(str: string) {
@@ -1404,6 +1405,11 @@ export default function TicketDetail() {
                   <div style={{ fontSize: 12, fontWeight: 600, color: '#18181b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ticket.requester?.name || 'Anonyme'}</div>
                   {ticket.requester?.email && (
                     <a href={`mailto:${ticket.requester.email}`} style={{ fontSize: 11, color: '#6366f1', textDecoration: 'none', display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ticket.requester.email}</a>
+                  )}
+                  {ticket.requester?.phone && (
+                    <div style={{ fontSize: 11, color: '#71717a', display: 'flex', alignItems: 'center', gap: 3, marginTop: 2 }}>
+                      <Phone size={11} /> {ticket.requester.phone}
+                    </div>
                   )}
                 </div>
               </div>

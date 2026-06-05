@@ -13,6 +13,7 @@ const workflowService = require('./services/workflow.service');
 const assignmentService = require('./services/assignment.service');
 const notificationService = require('./services/notification.service');
 const slaService = require('./services/sla.service');
+const { validateCreate } = require('./validators/ticket.validator');
 const ticketDto = require('./dtos/ticket.dto');
 const groupRepo = require('./repositories/ticket-group.repository');
 const multer = require('multer');
@@ -213,6 +214,10 @@ module.exports = {
 
     async create(req, res) {
         try {
+            const errors = validateCreate(req.body);
+            if (errors.length > 0) {
+                return res.status(400).json({ message: errors.join('; ') });
+            }
             const ticketId = await ticketService.create(req.body, req.user);
             res.status(201).json({ id: ticketId, message: 'Ticket créé' });
             try {
@@ -221,6 +226,42 @@ module.exports = {
             } catch (_) { /* emit best-effort */ }
         } catch (error) {
             res.status(400).json({ message: error.message });
+        }
+    },
+
+    async getMyPhone(req, res) {
+        try {
+            const email = req.query.email || req.user.email;
+            const username = req.user.username;
+            let phone = null;
+            if (req.query.email) {
+                // Phone for a specific requester → look up last ticket by that email
+                const { rows: ticketRows } = await pool.query(
+                    `SELECT requester_phone FROM hub_tickets.tickets
+                     WHERE LOWER(requester_email_22) = LOWER($1)
+                       AND requester_phone IS NOT NULL
+                     ORDER BY date_creation DESC LIMIT 1`,
+                    [email]
+                );
+                phone = ticketRows[0]?.requester_phone || null;
+            } else {
+                // Phone for the current user → try profile first, then fallback to tickets
+                const { rows } = await pool.query('SELECT requester_phone FROM hub.users WHERE LOWER(username) = LOWER($1)', [username]);
+                phone = rows[0]?.requester_phone || null;
+                if (!phone) {
+                    const { rows: ticketRows } = await pool.query(
+                        `SELECT requester_phone FROM hub_tickets.tickets
+                         WHERE LOWER(requester_email_22) = LOWER($1)
+                           AND requester_phone IS NOT NULL
+                         ORDER BY date_creation DESC LIMIT 1`,
+                        [req.user.email || username]
+                    );
+                    phone = ticketRows[0]?.requester_phone || null;
+                }
+            }
+            res.json({ phone });
+        } catch (error) {
+            res.status(500).json({ message: error.message });
         }
     },
 

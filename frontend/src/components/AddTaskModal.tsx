@@ -4,7 +4,7 @@
  * tâche d'équipe par personnes (recherche AD) ou par service.
  */
 import React, { useState, useEffect } from 'react';
-import { X, Plus, Users, UserPlus, Trash2, ChevronDown } from 'lucide-react';
+import { X, Plus, Users, UserPlus, Trash2, ChevronDown, Globe, Lock } from 'lucide-react';
 import { useADSearch } from '../utils/useADSearch';
 import type { ADUser } from '../utils/useADSearch';
 
@@ -40,6 +40,8 @@ const AddTaskModal: React.FC<AddTaskModalProps> = ({
 }) => {
   const [description, setDescription] = useState('');
   const [echeance, setEcheance]       = useState('');
+  const [priority, setPriority]       = useState('normale');
+  const [isPublic, setIsPublic]       = useState(false);
   const [saving, setSaving]           = useState(false);
   const [error, setError]             = useState<string | null>(null);
 
@@ -100,6 +102,8 @@ const AddTaskModal: React.FC<AddTaskModalProps> = ({
       const body: Record<string, any> = {
         description: description.trim(),
         echeance: echeance || null,
+        priority,
+        is_public: isPublic,
         context_source: contextSource,
         context_id: contextId || null,
         context_title: contextTitle || null,
@@ -181,6 +185,35 @@ const AddTaskModal: React.FC<AddTaskModalProps> = ({
               onChange={e => setEcheance(e.target.value)}
               style={{ width: '100%', borderRadius: 8, border: '1px solid #e2e8f0', padding: '9px 12px', fontSize: 14, boxSizing: 'border-box', outline: 'none', fontFamily: 'inherit' }}
             />
+          </div>
+
+          {/* Priorité */}
+          <div>
+            <label style={{ fontSize: 12, fontWeight: 700, color: '#374151', display: 'block', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+              Priorité
+            </label>
+            <div style={{ display: 'flex', gap: 6 }}>
+              {(['basse', 'normale', 'haute'] as const).map(p => {
+                const colors: Record<string, { bg: string; color: string; border: string }> = {
+                  basse:  { bg: '#f0fdf4', color: '#16a34a', border: '#bbf7d0' },
+                  normale: { bg: '#f8fafc', color: '#64748b', border: '#e2e8f0' },
+                  haute:  { bg: '#fef2f2', color: '#dc2626', border: '#fecaca' },
+                };
+                const c = colors[p];
+                return (
+                  <button key={p} onClick={() => setPriority(p)}
+                    style={{
+                      flex: 1, padding: '6px 10px', borderRadius: 7, fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                      border: `1.5px solid ${priority === p ? c.color : '#e2e8f0'}`,
+                      background: priority === p ? c.bg : 'white',
+                      color: priority === p ? c.color : '#475569',
+                    }}
+                  >
+                    {p === 'basse' ? '↓ Basse' : p === 'haute' ? '↑ Haute' : '— Normale'}
+                  </button>
+                );
+              })}
+            </div>
           </div>
 
           {/* Responsable (single, visible pour tous les contextes) */}
@@ -323,6 +356,23 @@ const AddTaskModal: React.FC<AddTaskModalProps> = ({
                 )}
               </div>
             )}
+          </div>
+
+          {/* ── Public / Private toggle ──────────────────────────────────────── */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: isPublic ? '#f0fdf4' : '#f8fafc', border: `1px solid ${isPublic ? '#bbf7d0' : '#e2e8f0'}`, borderRadius: 10, padding: '10px 14px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              {isPublic ? <Globe size={16} style={{ color: '#16a34a' }} /> : <Lock size={16} style={{ color: '#94a3b8' }} />}
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 700, color: isPublic ? '#16a34a' : '#475569' }}>{isPublic ? 'Tâche publique' : 'Tâche privée'}</div>
+                <div style={{ fontSize: 11, color: '#94a3b8' }}>{isPublic ? 'Visible par tous les membres de mon service' : 'Visible par moi uniquement'}</div>
+              </div>
+            </div>
+            <button
+              onClick={() => setIsPublic(!isPublic)}
+              style={{ width: 40, height: 22, borderRadius: 11, border: 'none', cursor: 'pointer', background: isPublic ? '#16a34a' : '#cbd5e1', transition: 'background 0.2s', position: 'relative', flexShrink: 0 }}
+            >
+              <span style={{ position: 'absolute', top: 3, left: isPublic ? 20 : 3, width: 16, height: 16, borderRadius: '50%', background: 'white', transition: 'left 0.2s', display: 'block' }} />
+            </button>
           </div>
 
           {/* Error */}

@@ -259,7 +259,8 @@ async function setupPgDb() {
     try { await client.query('ALTER TABLE hub_tickets.assignment_rules ALTER COLUMN assign_to_id DROP NOT NULL'); } catch (e) {}
     try { await client.query('ALTER TABLE hub_tickets.assignment_rules ADD COLUMN IF NOT EXISTS assign_to_value VARCHAR(255)'); } catch (e) {}
     try { await client.query('ALTER TABLE hub_tickets.tickets ADD COLUMN IF NOT EXISTS software_id INTEGER REFERENCES magapp.apps(id) ON DELETE SET NULL'); } catch (e) {}
-
+    try { await client.query("ALTER TABLE hub_tickets.tickets ADD COLUMN IF NOT EXISTS requester_phone VARCHAR(30)"); } catch (e) {}
+    
     // Supprimer la FK sur user_id (hub.users est vidée à chaque restart)
     try { await client.query('ALTER TABLE hub_tickets.ticket_history DROP CONSTRAINT IF EXISTS ticket_history_user_id_fkey'); } catch (e) {}
     await client.query(`
@@ -1075,10 +1076,11 @@ async function setupPgDb() {
 
     await client.query(`
       CREATE TABLE IF NOT EXISTS hub_tickets.module_config (
-        key VARCHAR(100) PRIMARY KEY,
+        key VARCHAR(100),
         value TEXT
       );
     `);
+    try { await client.query(`ALTER TABLE hub_tickets.module_config ADD PRIMARY KEY (key)`); } catch (e) {}
 
     await client.query(`
       CREATE TABLE IF NOT EXISTS hub_tickets.escalade_config (
@@ -3575,6 +3577,8 @@ async function setupPgDb() {
     try { await client.query(`CREATE INDEX IF NOT EXISTS idx_user_tasks_todo ON hub.user_tasks(todo_task_id) WHERE todo_task_id IS NOT NULL`); } catch (e) {}
     try { await client.query(`ALTER TABLE hub.user_tasks ADD COLUMN IF NOT EXISTS refus_raison TEXT`); } catch (e) {}
     try { await client.query(`ALTER TABLE hub.user_tasks ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP`); } catch (e) {}
+    try { await client.query(`ALTER TABLE hub.user_tasks ADD COLUMN IF NOT EXISTS priority TEXT DEFAULT 'normale'`); } catch (e) {}
+    try { await client.query(`ALTER TABLE hub.user_tasks ADD COLUMN IF NOT EXISTS is_public BOOLEAN DEFAULT FALSE`); } catch (e) {}
     try { await client.query(`
         CREATE TABLE IF NOT EXISTS hub.todo_reunion_task_map (
             reunion_id  INTEGER NOT NULL,
@@ -3614,6 +3618,7 @@ async function setupPgDb() {
 
     // Préférence d'alerte mail quotidienne (Mes Tâches) — colonne legacy dans hub.users, conservée pour compatibilité
     try { await client.query(`ALTER TABLE hub.users ADD COLUMN IF NOT EXISTS task_alert_email BOOLEAN DEFAULT FALSE`); } catch (e) {}
+    try { await client.query(`ALTER TABLE hub.users ADD COLUMN IF NOT EXISTS requester_phone VARCHAR(30)`); } catch (e) {}
 
     // Journal global de tous les emails envoyés par l'application
     await client.query(`

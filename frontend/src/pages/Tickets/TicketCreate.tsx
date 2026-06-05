@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import Header from '../../components/Header';
 import RequesterSearch from '../../components/RequesterSearch';
+import { Phone } from 'lucide-react';
 
 const TYPES = [
   { value: 1, label: 'Incident', icon: '!' },
@@ -12,7 +13,7 @@ export default function TicketCreate() {
   const [form, setForm] = useState({
     title: '', content: '', type: 1, priority: 3, impact: 2,
     category_id: '', subcategory_id: '', software_id: '', requester_name: '', requester_email: '',
-    location: '', is_vip: false
+    location: '', is_vip: false, requester_phone: ''
   });
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
@@ -38,7 +39,16 @@ export default function TicketCreate() {
     loadCategoriesAndApps();
     loadSites();
     loadVips();
+    fetchSavedPhone();
   }, []);
+
+  async function fetchSavedPhone() {
+    try {
+      const token = localStorage.getItem('token');
+      const res = await axios.get('/api/tickets/my-phone', { headers: { Authorization: `Bearer ${token}` } });
+      if (res.data?.phone) setForm(f => ({ ...f, requester_phone: res.data.phone }));
+    } catch (e) { /* silencieux */ }
+  }
 
   async function loadVips() {
     try {
@@ -57,6 +67,16 @@ export default function TicketCreate() {
     const isElu = !!vipMap[key];
     setRequesterVip({ vip: isVip, elu: isElu });
     setForm(f => ({ ...f, requester_email: email, requester_name: name, is_vip: isVip ? true : f.is_vip }));
+    fetchRequesterPhone(email);
+  }
+
+  async function fetchRequesterPhone(email: string) {
+    if (!email) return;
+    try {
+      const token = localStorage.getItem('token');
+      const res = await axios.get(`/api/tickets/my-phone?email=${encodeURIComponent(email)}`, { headers: { Authorization: `Bearer ${token}` } });
+      if (res.data?.phone) setForm(f => ({ ...f, requester_phone: res.data.phone }));
+    } catch (e) { /* silencieux */ }
   }
 
   async function loadSites() {
@@ -173,6 +193,7 @@ export default function TicketCreate() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!form.title.trim()) { setError('Le titre est requis'); return; }
+    if (!form.requester_phone.trim()) { setError('Le numéro de téléphone du demandeur est requis'); return; }
     setSubmitting(true);
     setError('');
     try {
@@ -188,6 +209,7 @@ export default function TicketCreate() {
         software_id: form.software_id ? parseInt(form.software_id) : null,
         requester_name: form.requester_name,
         requester_email: form.requester_email,
+        requester_phone: form.requester_phone,
         location: form.location,
         is_vip: form.is_vip,
         observer_ids: observers.map(o => ({ user_id: o.id, name: o.name, email: o.email, username: o.username }))
@@ -450,6 +472,17 @@ export default function TicketCreate() {
                 </div>
               )}
             </div>
+          </div>
+
+          <div>
+            <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 6 }}>
+              <Phone size={14} style={{ verticalAlign: 'middle', marginRight: 6 }} />
+              Téléphone du demandeur *
+            </label>
+            <input value={form.requester_phone} onChange={e => setForm(f => ({ ...f, requester_phone: e.target.value }))}
+              placeholder="Ex: 06 12 34 56 78"
+              type="tel"
+              style={{ width: '100%', padding: '10px 14px', border: '1px solid #e2e8f0', borderRadius: 8, fontSize: 14, outline: 'none', boxSizing: 'border-box' }} />
           </div>
 
           <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end', borderTop: '1px solid #e2e8f0', paddingTop: 20, marginTop: 8 }}>
