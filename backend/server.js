@@ -48,6 +48,7 @@ async function getMarkedParse() {
     return _markedParse;
 }
 const fs = require('fs');
+const ticketEmitter = require('./shared/ticketEmitter');
 const path = require('path');
 const pdf = require('pdf-parse');
 const nodemailer = require('nodemailer');
@@ -3192,7 +3193,32 @@ setupDb().then(async database => {
         console.error('[Oracle Scheduler] Error:', e.message);
     }
 
-    // Seed consumable email templates
+    // SSE Route for real-time ticket updates
+app.get('/api/tickets/updates', (req, res, next) => {
+    if (req.query.token) {
+        req.headers.authorization = `Bearer ${req.query.token}`;
+    }
+    next();
+}, authenticateJWT, (req, res) => {
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.flushHeaders();
+
+    const onTicketEvent = (data) => {
+        console.log(`[SSE] Emitting ticket-created event to client:`, data);
+        res.write(`data: ${JSON.stringify(data)}\n\n`);
+    };
+
+    ticketEmitter.on('ticket-created', onTicketEvent);
+    console.log('[SSE] Client connected to /api/tickets/updates');
+
+    req.on('close', () => {
+        ticketEmitter.removeListener('ticket-created', onTicketEvent);
+    });
+});
+
+// Seed consumable email templates
     try {
         const consumableTemplates = [
             {
