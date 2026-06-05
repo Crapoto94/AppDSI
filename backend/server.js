@@ -3122,6 +3122,19 @@ setupDb().then(async database => {
     // Initialize PostgreSQL for MagApp
     await setupPgDb();
 
+    // Initialiser Mail Collector
+    try {
+        const MailRulesService = require('./modules/mail_collector/mail_rules.service');
+        const MailScheduler = require('./modules/mail_collector/mail_scheduler');
+
+        await MailRulesService.createDefaultRules();
+        console.log(`[MAIL-DEBUG] Database instance type: ${typeof database}, value: ${!!database}`);
+        await MailScheduler.initSchedules(database);
+        console.log('[MAIL COLLECTOR] Initialized');
+    } catch (e) {
+        console.error('[MAIL COLLECTOR] Init error:', e.message);
+    }
+
     // Migration one-shot des tables documentaires existantes vers hub_docs
     // (idempotente via hub_docs.migration_log)
     try {
@@ -5685,20 +5698,6 @@ app.get('/api/public/kb-document/:id', async (req, res) => {
 // Charger les permissions tickets depuis la DB au démarrage
 const { loadPermissionsFromDb } = require('./modules/tickets/middleware/ticket-permissions');
 loadPermissionsFromDb().catch(e => console.error('[TICKETS] loadPermissions failed:', e.message));
-
-// Initialiser Mail Collector
-(async () => {
-  try {
-    const MailRulesService = require('./modules/mail_collector/mail_rules.service');
-    const MailScheduler = require('./modules/mail_collector/mail_scheduler');
-
-    await MailRulesService.createDefaultRules();
-    await MailScheduler.initSchedules();
-    console.log('[MAIL COLLECTOR] Initialized');
-  } catch (e) {
-    console.error('[MAIL COLLECTOR] Init error:', e.message);
-  }
-})();
 
 // Cron: Vérification SLA toutes les minutes
 cron.schedule('* * * * *', async () => {

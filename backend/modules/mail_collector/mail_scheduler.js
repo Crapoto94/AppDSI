@@ -21,11 +21,10 @@ class MailScheduler {
   static async runCollector(collector) {
     return await MailCollectorService.performCollection(collector.id);
   }
-
-  static async initSchedules() {
+  static async initSchedules(sqlite) {
     try {
+      console.log(`[MAIL-DEBUG] initSchedules called. sqlite is null: ${!sqlite}`);
       const collectors = await pgDb.all('SELECT * FROM hub_tickets.mail_collectors');
-      const sqlite = getSqlite();
       console.log(`[MailScheduler] Initialisation de ${collectors.length} collecteurs...`);
 
       for (const collector of collectors) {
@@ -46,7 +45,7 @@ class MailScheduler {
            continue;
         }
         
-        this.scheduleCollector(collector, cronExpr);
+        this.scheduleCollector(collector, cronExpr, sqlite);
       }
 
       console.log(`âœ… Mail Scheduler: ${Object.keys(this.tasks).length} collecteurs initialisÃ©s`);
@@ -55,7 +54,7 @@ class MailScheduler {
     }
   }
 
-  static scheduleCollector(collector, cronExpr) {
+  static scheduleCollector(collector, cronExpr, sqlite) {
     const collectorId = typeof collector === 'object' ? collector.id : collector;
     if (this.tasks[collectorId]) {
       this.tasks[collectorId].stop();
@@ -67,7 +66,6 @@ class MailScheduler {
         if (!col) return;
 
         // VÃ©rification de l'activation LOCALE (SQLite)
-        const sqlite = getSqlite();
         const localSetting = await sqlite.get('SELECT value FROM local_settings WHERE key = ?', [`mail_collector_${col.id}_enabled`]);
         const isEnabledLocally = localSetting ? localSetting.value === 'true' : col.is_enabled;
 
