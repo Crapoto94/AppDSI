@@ -26,11 +26,14 @@ class MailScheduler {
     try {
       const collectors = await pgDb.all('SELECT * FROM hub_tickets.mail_collectors');
       const sqlite = getSqlite();
+      console.log(`[MailScheduler] Initialisation de ${collectors.length} collecteurs...`);
 
       for (const collector of collectors) {
-        // VÃ©rification de l'activation LOCALE (SQLite) pour Ã©viter les conflits PROD/DEV
+        // VÃ©rification de l'activation LOCALE (SQLite)
         const localSetting = await sqlite.get('SELECT value FROM local_settings WHERE key = ?', [`mail_collector_${collector.id}_enabled`]);
         const isEnabledLocally = localSetting ? localSetting.value === 'true' : collector.is_enabled;
+
+        console.log(`[MailScheduler] Collecteur ${collector.id} (${collector.name}): enabled=${isEnabledLocally}, freq=${collector.frequency}`);
 
         if (!isEnabledLocally) {
           console.log(`[MailScheduler] Collecteur ${collector.id} (${collector.name}) ignorÃ© (dÃ©sactivÃ© localement)`);
@@ -38,7 +41,11 @@ class MailScheduler {
         }
 
         const cronExpr = this.frequencyToCron(collector.frequency);
-        if (!cronExpr) continue;
+        if (!cronExpr) {
+           console.log(`[MailScheduler] Collecteur ${collector.id} (${collector.name}) ignorÃ© (pas de cron valide)`);
+           continue;
+        }
+        
         this.scheduleCollector(collector, cronExpr);
       }
 
