@@ -3598,6 +3598,20 @@ async function setupPgDb() {
       )
     `);
 
+    // ─── Aide contextuelle par page (paramétrable dans /admin/hub > Aide) ────────
+    // id SERIAL pour rester compatible avec pgDb.run (qui ajoute RETURNING id),
+    // page_path UNIQUE pour permettre l'upsert ON CONFLICT (page_path).
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS hub.page_help (
+        id           SERIAL PRIMARY KEY,
+        page_path    TEXT UNIQUE NOT NULL,
+        content      TEXT,
+        content_html TEXT,
+        created_by   TEXT,
+        updated_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
     // Préférence d'alerte mail quotidienne (Mes Tâches) — colonne legacy dans hub.users, conservée pour compatibilité
     try { await client.query(`ALTER TABLE hub.users ADD COLUMN IF NOT EXISTS task_alert_email BOOLEAN DEFAULT FALSE`); } catch (e) {}
 

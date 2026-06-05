@@ -5366,6 +5366,11 @@ emailAutoCtrl.setSendMail(sendMail);
 app.use('/api/admin/email-automation', emailAutoRouter);
 
 // ============================================
+// AIDE CONTEXTUELLE PAR PAGE (paramétrable dans /admin/hub > Aide)
+// ============================================
+app.use('/api/page-help', require('./modules/page-help/routes'));
+
+// ============================================
 // O365 CALENDAR
 // ============================================
 app.use('/api/admin/o365-calendar', o365CalendarRouter);

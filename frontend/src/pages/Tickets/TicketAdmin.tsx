@@ -3984,13 +3984,14 @@ function TeamsConfig() {
   const [cfg, setCfg] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [saveMsg, setSaveMsg] = useState<'ok' | 'ko' | null>(null);
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<'ok' | 'ko' | null>(null);
 
   useEffect(() => {
     axios.get('/api/tickets/admin/teams-config', { headers: { Authorization: `Bearer ${token}` } })
       .then(r => setCfg(r.data))
-      .catch(() => setCfg({ teams_enabled: 'false', teams_webhook_url: '', teams_min_urgency: '4', teams_min_impact: '4', teams_channel_name: 'crise', teams_portal_url: 'https://dsihub.ivry.local' }))
+      .catch(() => setCfg({ teams_enabled: 'false', teams_webhook_url: '', teams_thread_title: '🚨 Incident Critique', teams_min_urgency: '4', teams_min_impact: '4', teams_channel_name: 'crise', teams_portal_url: 'https://dsihub.ivry.local' }))
       .finally(() => setLoading(false));
   }, [token]);
 
@@ -3998,9 +3999,14 @@ function TeamsConfig() {
 
   const save = async () => {
     setSaving(true);
+    setSaveMsg(null);
     try {
       await axios.put('/api/tickets/admin/teams-config', cfg, { headers: { Authorization: `Bearer ${token}` } });
-    } catch (e) { console.error(e); }
+      setSaveMsg('ok');
+    } catch (e: any) {
+      console.error('[TEAMS-SAVE]', e.response?.data || e.message);
+      setSaveMsg('ko');
+    }
     finally { setSaving(false); }
   };
 
@@ -4027,7 +4033,7 @@ function TeamsConfig() {
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
           <label style={{ fontWeight: 600, fontSize: 13, color: '#475569', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
-            <input type="checkbox" checked={cfg.teams_enabled === 'true'} onChange={e => update('teams_enabled', e.target.checked)} />
+            <input type="checkbox" checked={cfg.teams_enabled === 'true' || cfg.teams_enabled === true} onChange={e => update('teams_enabled', e.target.checked ? 'true' : 'false')} />
             Activer l'envoi vers Teams
           </label>
         </div>
@@ -4035,6 +4041,12 @@ function TeamsConfig() {
         <div style={{ marginBottom: 12 }}>
           <div style={labelS}>URL du webhook Teams</div>
           <input style={inputS} value={cfg.teams_webhook_url || ''} onChange={e => update('teams_webhook_url', e.target.value)} placeholder="https://...webhook.office.com/..." />
+        </div>
+
+        <div style={{ marginBottom: 12 }}>
+          <div style={labelS}>Nom du fil de discussion (thread)</div>
+          <input style={inputS} value={cfg.teams_thread_title || ''} onChange={e => update('teams_thread_title', e.target.value)} placeholder="🚨 Incident Critique" />
+          <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>Titre du message envoyé dans le canal Teams</div>
         </div>
 
         <div style={{ marginBottom: 12 }}>
@@ -4073,6 +4085,8 @@ function TeamsConfig() {
           }}>
             {saving ? 'Enregistrement...' : '💾 Enregistrer'}
           </button>
+          {saveMsg === 'ok' && <span style={{ color: '#16a34a', fontSize: 13, fontWeight: 600, display: 'flex', alignItems: 'center' }}>✓ Enregistré</span>}
+          {saveMsg === 'ko' && <span style={{ color: '#dc2626', fontSize: 13, fontWeight: 600, display: 'flex', alignItems: 'center' }}>✗ Erreur d'enregistrement</span>}
           <button onClick={testWebhook} disabled={testing || !cfg.teams_webhook_url} style={{
             padding: '8px 16px', background: '#f1f5f9', color: '#475569', border: '1px solid #e2e8f0', borderRadius: 6,
             cursor: 'pointer', fontWeight: 600, fontSize: 13, opacity: testing || !cfg.teams_webhook_url ? 0.6 : 1

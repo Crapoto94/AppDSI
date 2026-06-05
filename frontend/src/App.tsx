@@ -23,6 +23,7 @@ import AccessRequestPage from './pages/AccessRequestPage';
 import AdminAccessRequests from './pages/AdminAccessRequests';
 import AccessRequestOverlay from './components/AccessRequestOverlay';
 import AdminLayout from './components/AdminLayout';
+import HelpButton from './components/HelpButton';
 import FrizbiSettings from './pages/FrizbiSettings';
 import RencontresBudgetaires from './pages/RencontresBudgetaires';
 import MesReunions from './pages/MesReunions';
@@ -113,7 +114,7 @@ const PrivateRoute = ({ children, allowedRoles, path }: { children: React.ReactN
     }
   }
 
-  return <>{children}</>;
+  return <>{children}<HelpButton /></>;
 };
 
 function App() {

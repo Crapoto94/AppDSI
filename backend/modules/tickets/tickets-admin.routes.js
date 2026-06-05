@@ -1767,7 +1767,7 @@ router.get('/teams-config', authenticateJWT, async (req, res) => {
         const rows = await pgDb.all(
             `SELECT key, value FROM hub_tickets.module_config WHERE key LIKE 'teams_%'`
         );
-        const cfg = { teams_enabled: 'false', teams_webhook_url: '', teams_min_urgency: '4', teams_min_impact: '4', teams_channel_name: 'crise', teams_portal_url: 'https://dsihub.ivry.local' };
+        const cfg = { teams_enabled: 'false', teams_webhook_url: '', teams_thread_title: '🚨 Incident Critique', teams_min_urgency: '4', teams_min_impact: '4', teams_channel_name: 'crise', teams_portal_url: 'https://dsihub.ivry.local' };
         for (const r of rows) cfg[r.key] = r.value;
         res.json(cfg);
     } catch (e) { res.status(500).json({ message: e.message }); }
@@ -1775,20 +1775,26 @@ router.get('/teams-config', authenticateJWT, async (req, res) => {
 
 router.put('/teams-config', authenticateJWT, authenticateTicketAdmin, async (req, res) => {
     try {
-        const { teams_enabled, teams_webhook_url, teams_min_urgency, teams_min_impact, teams_channel_name, teams_portal_url } = req.body;
+        const { teams_enabled, teams_webhook_url, teams_thread_title, teams_min_urgency, teams_min_impact, teams_channel_name, teams_portal_url } = req.body;
+        console.log('[TEAMS-CONFIG] Saving:', JSON.stringify({ teams_enabled, teams_webhook_url: (teams_webhook_url || '').slice(0, 50) + '...', teams_thread_title }));
         const upsert = (key, val) => pgDb.run(
             `INSERT INTO hub_tickets.module_config (key, value) VALUES ($1, $2)
              ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
             [key, String(val ?? '')]
         );
-        if (teams_enabled     !== undefined) await upsert('teams_enabled',     teams_enabled ? 'true' : 'false');
-        if (teams_webhook_url !== undefined) await upsert('teams_webhook_url', teams_webhook_url || '');
-        if (teams_min_urgency !== undefined) await upsert('teams_min_urgency', String(teams_min_urgency));
-        if (teams_min_impact  !== undefined) await upsert('teams_min_impact',  String(teams_min_impact));
-        if (teams_channel_name!== undefined) await upsert('teams_channel_name',teams_channel_name || 'crise');
-        if (teams_portal_url  !== undefined) await upsert('teams_portal_url',  teams_portal_url || 'https://dsihub.ivry.local');
+        if (teams_enabled      !== undefined) await upsert('teams_enabled',      (teams_enabled === true || teams_enabled === 'true') ? 'true' : 'false');
+        if (teams_webhook_url  !== undefined) await upsert('teams_webhook_url',  teams_webhook_url || '');
+        if (teams_thread_title !== undefined) await upsert('teams_thread_title', teams_thread_title || '🚨 Incident Critique');
+        if (teams_min_urgency  !== undefined) await upsert('teams_min_urgency',  String(teams_min_urgency));
+        if (teams_min_impact   !== undefined) await upsert('teams_min_impact',   String(teams_min_impact));
+        if (teams_channel_name !== undefined) await upsert('teams_channel_name', teams_channel_name || 'crise');
+        if (teams_portal_url   !== undefined) await upsert('teams_portal_url',   teams_portal_url || 'https://dsihub.ivry.local');
+        console.log('[TEAMS-CONFIG] Save successful');
         res.json({ success: true });
-    } catch (e) { res.status(500).json({ message: e.message }); }
+    } catch (e) {
+        console.error('[TEAMS-CONFIG] Save error:', e.message, e.stack);
+        res.status(500).json({ message: e.message });
+    }
 });
 
 router.post('/test-teams-webhook', authenticateJWT, authenticateTicketAdmin, async (req, res) => {
