@@ -61,7 +61,6 @@ class MailScheduler {
       console.error('❌ Erreur initialisation Mail Scheduler:', error.message);
     }
   }
-  }
 
   static scheduleCollector(collector, cronExpr, sqlite) {
     const collectorId = typeof collector === 'object' ? collector.id : collector;
