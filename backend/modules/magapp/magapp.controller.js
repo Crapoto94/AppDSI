@@ -1001,11 +1001,12 @@ const MagAppController = {
     // Évolution des usages : clics agrégés par semaine sur les 12 dernières semaines.
     getClicksTimeline: async (req, res) => {
         try {
-            const rows = await pgDb.all(`
+            // pool.query direct (le wrapper pgDb mal-gère cette requête à base de date_trunc/to_char)
+            const { rows } = await pool.query(`
                 SELECT to_char(date_trunc('week', clicked_at), 'YYYY-MM-DD') AS week,
                        COUNT(*)::int AS clicks,
                        COUNT(DISTINCT username)::int AS users
-                FROM magapp_clicks
+                FROM magapp.clicks
                 WHERE clicked_at >= CURRENT_DATE - INTERVAL '12 weeks'
                 GROUP BY 1
                 ORDER BY 1
