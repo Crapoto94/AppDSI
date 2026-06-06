@@ -998,6 +998,25 @@ const MagAppController = {
         }
     },
 
+    // Évolution des usages : clics agrégés par semaine sur les 12 dernières semaines.
+    getClicksTimeline: async (req, res) => {
+        try {
+            const rows = await pgDb.all(`
+                SELECT to_char(date_trunc('week', clicked_at), 'YYYY-MM-DD') AS week,
+                       COUNT(*)::int AS clicks,
+                       COUNT(DISTINCT username)::int AS users
+                FROM magapp_clicks
+                WHERE clicked_at >= CURRENT_DATE - INTERVAL '12 weeks'
+                GROUP BY 1
+                ORDER BY 1
+            `);
+            res.json(rows);
+        } catch (error) {
+            console.error('[MAGAPP] Error fetching clicks timeline:', error.message);
+            res.json([]);
+        }
+    },
+
     // Library
     getAppDocs: async (req, res) => {
         try {

@@ -12,6 +12,7 @@ magappBaseRouter.post('/categories', authenticateMagappControl, MagAppController
 magappBaseRouter.put('/categories/:id', authenticateMagappControl, MagAppController.updateCategory);
 magappBaseRouter.delete('/categories/:id', authenticateMagappControl, MagAppController.deleteCategory);
 magappBaseRouter.get('/apps', tryAuthenticateJWT, MagAppController.getApps);
+magappBaseRouter.get('/clicks-timeline', tryAuthenticateJWT, MagAppController.getClicksTimeline);
 magappBaseRouter.post('/apps', authenticateMagappControl, MagAppController.createApp);
 magappBaseRouter.put('/apps/:id', authenticateMagappControl, MagAppController.updateApp);
 magappBaseRouter.delete('/apps/:id', authenticateMagappControl, MagAppController.deleteApp);

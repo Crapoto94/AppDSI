@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import Header from '../components/Header';
-import { Plus, Edit2, Trash2, Save, X, Globe, LayoutGrid, BarChart2, Bell, Tag, Code, CheckCircle, Settings, Users, Lightbulb, GraduationCap, Star, FileText, Wrench, Calendar, Paperclip, Download } from 'lucide-react';
+import { Plus, Edit2, Trash2, Save, X, Globe, LayoutGrid, BarChart2, Bell, Tag, Code, CheckCircle, Settings, Users, Lightbulb, GraduationCap, Star, FileText, Wrench, Calendar, Paperclip, Download, Search, ChevronRight, Layers, Banknote, ShieldAlert } from 'lucide-react';
+import { ResponsiveContainer, AreaChart, Area, XAxis, Tooltip as RTooltip } from 'recharts';
 import ReactQuill from 'react-quill-new';
 import 'react-quill-new/dist/quill.snow.css';
 
@@ -202,6 +203,11 @@ const MagappAdmin: React.FC = () => {
   const [filterPublished, setFilterPublished] = useState<'all' | 'oui' | 'non'>('all');
   const [filterContracts, setFilterContracts] = useState<'all' | 'with' | 'without'>('all');
   const [filterDsi, setFilterDsi] = useState<'all' | 'dsi' | 'other'>('all');
+  const [appSearch, setAppSearch] = useState('');
+  const [filterCategory, setFilterCategory] = useState<number | 'all'>('all');
+  const [appSort, setAppSort] = useState<'name' | 'users' | 'orders' | 'docs'>('name');
+  const [selectedAppId, setSelectedAppId] = useState<number | null>(null);
+  const [clicksTimeline, setClicksTimeline] = useState<{ week: string; clicks: number; users: number }[]>([]);
 
   // Modal tickets par logiciel
   const [ticketModal, setTicketModal] = useState<{ appId: number; appName: string; type: '1' | '2' } | null>(null);
@@ -268,6 +274,10 @@ const MagappAdmin: React.FC = () => {
         });
       }
       if (mercatorRes.ok) setMercatorApps(await mercatorRes.json());
+      fetch('/api/magapp/clicks-timeline', { headers })
+        .then(r => r.ok ? r.json() : [])
+        .then(d => setClicksTimeline(Array.isArray(d) ? d : []))
+        .catch(() => {});
       fetchLibrary();
     } catch (e) { console.error(e); }
   };
@@ -882,6 +892,8 @@ const MagappAdmin: React.FC = () => {
 
 
   const filteredStats = showAllStats ? stats : stats.filter(s => s.today_clicks > 0);
+  const catName = (id: number) => categories.find(c => c.id === id)?.name || '—';
+
   const filteredApps = apps.filter(app => {
     const publishedMatch = filterPublished === 'all' || app.present_magapp === filterPublished;
     const contractMatch =
@@ -889,8 +901,43 @@ const MagappAdmin: React.FC = () => {
       (filterContracts === 'with' && (app.contract_count || 0) > 0) ||
       (filterContracts === 'without' && (app.contract_count || 0) === 0);
     const dsiMatch = filterDsi === 'all' || (filterDsi === 'dsi' && app.dsi_only) || (filterDsi === 'other' && !app.dsi_only);
-    return publishedMatch && contractMatch && dsiMatch;
+    const categoryMatch = filterCategory === 'all' || app.category_id === filterCategory;
+    const s = appSearch.trim().toLowerCase();
+    const searchMatch = !s ||
+      (app.name || '').toLowerCase().includes(s) ||
+      (app.url || '').toLowerCase().includes(s) ||
+      (app.description || '').toLowerCase().includes(s) ||
+      (app.project_manager_name || '').toLowerCase().includes(s);
+    return publishedMatch && contractMatch && dsiMatch && categoryMatch && searchMatch;
+  }).sort((a, b) => {
+    if (appSort === 'users') return (b.user_count || 0) - (a.user_count || 0);
+    if (appSort === 'orders') return (b.orders_amount || 0) - (a.orders_amount || 0);
+    if (appSort === 'docs') return ((b.normal_doc_count || 0) + (b.technical_doc_count || 0)) - ((a.normal_doc_count || 0) + (a.technical_doc_count || 0));
+    return (a.name || '').localeCompare(b.name || '', 'fr');
   });
+
+  // KPI généraux (sur l'ensemble du catalogue)
+  const magKpi = {
+    total: apps.length,
+    published: apps.filter(a => a.present_magapp === 'oui').length,
+    hidden: apps.filter(a => a.present_magapp !== 'oui').length,
+    maintenance: apps.filter(a => (a.ongoing_maintenance_count || 0) > 0).length,
+    dsi: apps.filter(a => a.dsi_only).length,
+    users: apps.reduce((s, a) => s + (a.user_count || 0), 0),
+    docs: apps.reduce((s, a) => s + (a.normal_doc_count || 0) + (a.technical_doc_count || 0), 0),
+    contracts: apps.reduce((s, a) => s + (a.contract_count || 0), 0),
+    ordersAmount: apps.reduce((s, a) => s + (a.orders_amount || 0), 0),
+  };
+  const eur0 = (n: number) => n.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 });
+  const selApp = selectedAppId != null ? apps.find(a => a.id === selectedAppId) || null : null;
+
+  // Styles (refonte master-détail)
+  const mkCard: React.CSSProperties = { background: '#fff', border: '1px solid #e8ecf3', borderRadius: 14, padding: '14px 16px', boxShadow: '0 1px 2px rgba(16,24,40,.04)' };
+  const mkLabel: React.CSSProperties = { fontSize: '.72rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '.04em' };
+  const mkBig: React.CSSProperties = { fontSize: '1.45rem', fontWeight: 800, color: '#0f172a', lineHeight: 1.1 };
+  const mkSub: React.CSSProperties = { fontSize: '.74rem', color: '#94a3b8', marginTop: 3 };
+  const mkSelect: React.CSSProperties = { padding: '8px 10px', border: '1px solid #e2e8f0', borderRadius: 9, fontSize: '.82rem', color: '#334155', background: '#fff', outline: 'none', cursor: 'pointer' };
+  const totalClicks12 = clicksTimeline.reduce((s, r) => s + (r.clicks || 0), 0);
 
   return (
     <div className="magapp-admin-container animate-fade-in">
@@ -931,187 +978,169 @@ const MagappAdmin: React.FC = () => {
         <main className="admin-workspace-v2">
           {activeTab === 'apps' && (
             <div className="workspace-grid" style={{ gridTemplateColumns: '1fr' }}>
-              <section className="workspace-section">
-                <div className="section-header">
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
-                    <h2>Annuaire ({filteredApps.length})</h2>
-                    <div className="header-icon-v2"><LayoutGrid size={20} /></div>
-                    
-                    <div className="filter-group-v2" style={{ marginLeft: '10px' }}>
-                      <button 
-                        className={`filter-btn-v2 ${filterPublished === 'all' ? 'active' : ''}`}
-                        onClick={() => setFilterPublished('all')}
-                      >
-                        Toutes
-                      </button>
-                      <button 
-                        className={`filter-btn-v2 ${filterPublished === 'oui' ? 'active' : ''}`}
-                        onClick={() => setFilterPublished('oui')}
-                      >
-                        Publiées
-                      </button>
-                      <button 
-                        className={`filter-btn-v2 ${filterPublished === 'non' ? 'active' : ''}`}
-                        onClick={() => setFilterPublished('non')}
-                      >
-                        Masquées
-                      </button>
+              <section className="workspace-section" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                {/* ===== KPI band ===== */}
+                <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap' }}>
+                  <div style={{ ...mkCard, flex: '2 1 300px', minWidth: 280, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    <div style={mkLabel}>Évolution des usages · clics / semaine</div>
+                    <div style={{ height: 64 }}>
+                      <ResponsiveContainer width="100%" height="100%">
+                        <AreaChart data={clicksTimeline} margin={{ top: 6, right: 2, left: 2, bottom: 0 }}>
+                          <defs>
+                            <linearGradient id="magUsage" x1="0" y1="0" x2="0" y2="1">
+                              <stop offset="0%" stopColor="#6366f1" stopOpacity={0.35} />
+                              <stop offset="100%" stopColor="#6366f1" stopOpacity={0} />
+                            </linearGradient>
+                          </defs>
+                          <XAxis dataKey="week" hide />
+                          <RTooltip formatter={(v: any) => [`${v} clic(s)`, '']} labelFormatter={(l: any) => `Semaine du ${l}`} contentStyle={{ borderRadius: 8, border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,.12)', fontSize: 12 }} />
+                          <Area type="monotone" dataKey="clicks" stroke="#6366f1" strokeWidth={2} fill="url(#magUsage)" />
+                        </AreaChart>
+                      </ResponsiveContainer>
                     </div>
-
-                    <div className="filter-group-v2" style={{ marginLeft: '10px' }}>
-                      <button
-                        className={`filter-btn-v2 ${filterContracts === 'all' ? 'active' : ''}`}
-                        onClick={() => setFilterContracts('all')}
-                      >
-                        Tous
-                      </button>
-                      <button
-                        className={`filter-btn-v2 ${filterContracts === 'with' ? 'active' : ''}`}
-                        onClick={() => setFilterContracts('with')}
-                      >
-                        Avec contrat
-                      </button>
-                      <button
-                        className={`filter-btn-v2 ${filterContracts === 'without' ? 'active' : ''}`}
-                        onClick={() => setFilterContracts('without')}
-                      >
-                        Sans contrat
-                      </button>
-                    </div>
-
-                    <div className="filter-group-v2" style={{ marginLeft: '10px' }}>
-                      <button
-                        className={`filter-btn-v2 ${filterDsi === 'all' ? 'active' : ''}`}
-                        onClick={() => setFilterDsi('all')}
-                      >
-                        Toutes
-                      </button>
-                      <button
-                        className={`filter-btn-v2 ${filterDsi === 'dsi' ? 'active' : ''}`}
-                        onClick={() => setFilterDsi('dsi')}
-                      >
-                        DSI
-                      </button>
-                      <button
-                        className={`filter-btn-v2 ${filterDsi === 'other' ? 'active' : ''}`}
-                        onClick={() => setFilterDsi('other')}
-                      >
-                        Autre
-                      </button>
-                    </div>
+                    <div style={mkSub}>{totalClicks12.toLocaleString('fr-FR')} clics sur 12 semaines</div>
                   </div>
-                  <button className="primary-btn-v2" onClick={() => { setEditingApp(null); setShowAppModal(true); }}>
+
+                  <div style={{ ...mkCard, flex: '1 1 150px', minWidth: 150 }}>
+                    <div style={mkLabel}>Applications</div>
+                    <div style={mkBig}>{magKpi.total}</div>
+                    <div style={mkSub}><span style={{ color: '#16a34a', fontWeight: 700 }}>{magKpi.published} publiées</span> · {magKpi.hidden} masquées</div>
+                  </div>
+
+                  <div style={{ ...mkCard, flex: '1 1 150px', minWidth: 150 }}>
+                    <div style={mkLabel}>Maintenance · DSI</div>
+                    <div style={mkBig}>{magKpi.maintenance}</div>
+                    <div style={mkSub}>{magKpi.maintenance} en cours · {magKpi.dsi} réservées DSI</div>
+                  </div>
+
+                  <div style={{ ...mkCard, flex: '1 1 170px', minWidth: 170 }}>
+                    <div style={mkLabel}>Commandes associées</div>
+                    <div style={{ ...mkBig, color: '#1e40af' }}>{eur0(magKpi.ordersAmount)}</div>
+                    <div style={mkSub}>total TTC lié aux logiciels</div>
+                  </div>
+
+                  <div style={{ ...mkCard, flex: '1 1 170px', minWidth: 170 }}>
+                    <div style={mkLabel}>Utilisateurs · Docs · Contrats</div>
+                    <div style={mkBig}>{magKpi.users} <span style={{ fontSize: '.9rem', color: '#94a3b8', fontWeight: 600 }}>util.</span></div>
+                    <div style={mkSub}>{magKpi.docs} documents · {magKpi.contracts} contrats</div>
+                  </div>
+                </div>
+
+                {/* ===== Toolbar filtres ===== */}
+                <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+                  <div style={{ position: 'relative', flex: '1 1 240px', minWidth: 220 }}>
+                    <Search size={16} style={{ position: 'absolute', left: 11, top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
+                    <input type="text" placeholder="Rechercher une application…" value={appSearch} onChange={e => setAppSearch(e.target.value)}
+                      style={{ width: '100%', padding: '9px 12px 9px 34px', border: '1px solid #e2e8f0', borderRadius: 9, fontSize: '.85rem', outline: 'none', boxSizing: 'border-box' }} />
+                  </div>
+                  <select value={filterCategory} onChange={e => setFilterCategory(e.target.value === 'all' ? 'all' : parseInt(e.target.value))} style={mkSelect}>
+                    <option value="all">Toutes catégories</option>
+                    {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                  </select>
+                  <select value={filterPublished} onChange={e => setFilterPublished(e.target.value as any)} style={mkSelect}>
+                    <option value="all">Statut : tous</option>
+                    <option value="oui">Publiées</option>
+                    <option value="non">Masquées</option>
+                  </select>
+                  <select value={filterDsi} onChange={e => setFilterDsi(e.target.value as any)} style={mkSelect}>
+                    <option value="all">DSI : toutes</option>
+                    <option value="dsi">Réservées DSI</option>
+                    <option value="other">Hors DSI</option>
+                  </select>
+                  <select value={filterContracts} onChange={e => setFilterContracts(e.target.value as any)} style={mkSelect}>
+                    <option value="all">Contrats : tous</option>
+                    <option value="with">Avec contrat</option>
+                    <option value="without">Sans contrat</option>
+                  </select>
+                  <select value={appSort} onChange={e => setAppSort(e.target.value as any)} style={mkSelect}>
+                    <option value="name">Tri : nom</option>
+                    <option value="users">Tri : utilisateurs</option>
+                    <option value="orders">Tri : montant commandes</option>
+                    <option value="docs">Tri : documents</option>
+                  </select>
+                  <button className="primary-btn-v2" style={{ marginLeft: 'auto' }} onClick={() => { setEditingApp(null); setShowAppModal(true); }}>
                     <Plus size={18} /> Nouvelle Application
                   </button>
                 </div>
-                
-                <div className="apps-grid-v2">
-                  {filteredApps.map(app => (
-                    <div key={app.id} className={`app-card-v2 ${app.present_magapp === 'oui' ? 'is-published' : ''}`}>
-                      {/* Ticket badges — top-right corner, clickable */}
-                      {ticketCounts[app.id] !== undefined && ticketCounts[app.id].total > 0 && (
-                        <div style={{ position: 'absolute', top: 10, right: 10, display: 'flex', gap: 4, zIndex: 2 }}>
-                          {ticketCounts[app.id].incident_count > 0 && (
-                            <button
-                              onClick={e => { e.stopPropagation(); openTicketModal(app.id, app.name, '1'); }}
-                              title={`${ticketCounts[app.id].incident_count} incident(s) ouvert(s) — cliquer pour voir`}
-                              style={{ display: 'inline-flex', alignItems: 'center', gap: 3, padding: '3px 8px', borderRadius: 20, background: '#fee2e2', color: '#991b1b', fontSize: '0.7rem', fontWeight: 700, boxShadow: '0 1px 3px rgba(0,0,0,0.12)', border: 'none', cursor: 'pointer' }}
-                            >
-                              ⚠ {ticketCounts[app.id].incident_count}
-                            </button>
-                          )}
-                          {ticketCounts[app.id].request_count > 0 && (
-                            <button
-                              onClick={e => { e.stopPropagation(); openTicketModal(app.id, app.name, '2'); }}
-                              title={`${ticketCounts[app.id].request_count} demande(s) ouvert(s) — cliquer pour voir`}
-                              style={{ display: 'inline-flex', alignItems: 'center', gap: 3, padding: '3px 8px', borderRadius: 20, background: '#fef3c7', color: '#92400e', fontSize: '0.7rem', fontWeight: 700, boxShadow: '0 1px 3px rgba(0,0,0,0.12)', border: 'none', cursor: 'pointer' }}
-                            >
-                              + {ticketCounts[app.id].request_count}
-                            </button>
-                          )}
-                        </div>
-                      )}
-                      <div className="app-card-inner-v2">
-                        <img src={app.icon} alt="" onError={(e) => { (e.target as HTMLImageElement).src = '/api/img/default.png'; }} />
-                        <div className="app-details-v2">
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-                            <h4 style={{ margin: 0 }}>{app.name}</h4>
-                            {app.mercator_id && <div className="status-dot mercator" title={`Lié à Mercator : ${app.mercator_name}`}></div>}
-                            {(!app.mercator_id && app.lien_mercator) && <div className="status-dot mercator" title="Lien Mercator renseigné (ancienne version)"></div>}
-                          </div>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '6px', flexWrap: 'wrap' }}>
-                            {app.present_magapp === 'oui'
-                              ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '3px 8px', borderRadius: '20px', background: '#dcfce7', color: '#166534', fontSize: '0.72rem', fontWeight: 700 }}>● Publiée</span>
-                              : <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '3px 8px', borderRadius: '20px', background: '#f1f5f9', color: '#64748b', fontSize: '0.72rem', fontWeight: 700 }}>● Masquée</span>
-                            }
-                            {app.user_count !== undefined && app.user_count > 0 && (
-                              <span title={`${app.user_count} utilisateur(s)`} style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '3px 8px', borderRadius: '20px', background: '#fee2e2', color: '#991b1b', fontSize: '0.72rem', fontWeight: 700 }}>
-                                👤 {app.user_count}
-                              </span>
-                            )}
-                            {app.contract_count !== undefined && app.contract_count > 0 && (
-                              <span title={`${app.contract_count} contrat(s) dans le module Contrats`} style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '3px 8px', borderRadius: '20px', background: '#fef3c7', color: '#92400e', fontSize: '0.72rem', fontWeight: 700 }}>
-                                📋 {app.contract_count}
-                              </span>
-                            )}
-                            {app.orders_amount !== undefined && app.orders_amount > 0 && (
-                              <span title={`${app.orders_count || 0} commande(s) associée(s) — total TTC`} style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '3px 8px', borderRadius: '20px', background: '#dbeafe', color: '#1e40af', fontSize: '0.72rem', fontWeight: 700 }}>
-                                💶 {app.orders_amount.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 })}
-                              </span>
-                            )}
-                            {app.dsi_only ? (
-                              <span title="Application réservée à la DSI" style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '3px 8px', borderRadius: '20px', background: '#1e293b', color: 'white', fontSize: '0.72rem', fontWeight: 700 }}>
-                                DSI
-                              </span>
-                            ) : null}
-                            <span
-                              title="Cliquer pour ajouter un document"
-                              onClick={e => {
-                                e.stopPropagation();
-                                setEditingDoc(null);
-                                setNewDoc({ title: '', description: '', app_id: app.id, doc_type: 'pdf', url: '', is_favorite: false, is_technical: false, is_obsolete: false });
-                                setShowDocModal(true);
-                              }}
-                              style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '3px 8px', borderRadius: '20px', background: '#eef2ff', color: '#4338ca', fontSize: '0.72rem', fontWeight: 700, cursor: 'pointer' }}
-                            >
-                              📄 {app.normal_doc_count || 0},{app.technical_doc_count || 0}
+
+                {/* ===== Master-détail ===== */}
+                <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start' }}>
+                  {/* Liste */}
+                  <div style={{ ...mkCard, padding: 0, flex: '0 0 340px', maxWidth: 340, overflow: 'hidden' }}>
+                    <div style={{ padding: '10px 14px', borderBottom: '1px solid #eef1f6', fontSize: '.75rem', fontWeight: 700, color: '#64748b' }}>{filteredApps.length} application(s)</div>
+                    <div style={{ maxHeight: '64vh', overflowY: 'auto' }}>
+                      {filteredApps.map(app => {
+                        const active = app.id === selectedAppId;
+                        return (
+                          <button key={app.id} onClick={() => setSelectedAppId(app.id)}
+                            style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', border: 'none', borderLeft: active ? '3px solid #6366f1' : '3px solid transparent', background: active ? '#f5f3ff' : 'transparent', cursor: 'pointer', textAlign: 'left', borderBottom: '1px solid #f1f5f9' }}>
+                            <img src={app.icon} alt="" onError={(e) => { (e.target as HTMLImageElement).src = '/api/img/default.png'; }} style={{ width: 30, height: 30, borderRadius: 7, objectFit: 'contain', flexShrink: 0 }} />
+                            <span style={{ flex: 1, minWidth: 0 }}>
+                              <span style={{ display: 'block', fontWeight: 600, fontSize: '.85rem', color: '#1e293b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{app.name}</span>
+                              <span style={{ display: 'block', fontSize: '.72rem', color: '#94a3b8' }}>{catName(app.category_id)}</span>
                             </span>
-                            {app.project_manager_name && (
-                              <span title={`Chef de projet : ${app.project_manager_name}`} style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', padding: '3px 8px', borderRadius: '20px', background: '#e0f2fe', color: '#0369a1', fontSize: '0.72rem', fontWeight: 700 }}>
-                                <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: '18px', height: '18px', borderRadius: '50%', background: '#0ea5e9', color: 'white', fontSize: '0.6rem', fontWeight: 800, flexShrink: 0 }}>
-                                  {app.project_manager_name.split(' ').slice(0, 2).map((w: string) => w[0]).join('').toUpperCase()}
-                                </span>
-                                {app.project_manager_name}
-                              </span>
-                            )}
+                            <span title={app.present_magapp === 'oui' ? 'Publiée' : 'Masquée'} style={{ width: 8, height: 8, borderRadius: '50%', background: app.present_magapp === 'oui' ? '#22c55e' : '#cbd5e1', flexShrink: 0 }} />
+                          </button>
+                        );
+                      })}
+                      {filteredApps.length === 0 && <div style={{ padding: 24, textAlign: 'center', color: '#94a3b8', fontSize: '.85rem' }}>Aucune application</div>}
+                    </div>
+                  </div>
+
+                  {/* Détail */}
+                  <div style={{ ...mkCard, flex: 1, minHeight: 320 }}>
+                    {!selApp ? (
+                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: 280, color: '#94a3b8', gap: 10 }}>
+                        <ChevronRight size={36} />
+                        <div style={{ fontSize: '.9rem' }}>Sélectionnez une application pour voir le détail</div>
+                      </div>
+                    ) : (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 14 }}>
+                          <img src={selApp.icon} alt="" onError={(e) => { (e.target as HTMLImageElement).src = '/api/img/default.png'; }} style={{ width: 52, height: 52, borderRadius: 12, objectFit: 'contain', border: '1px solid #eef1f6' }} />
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <h2 style={{ margin: 0, fontSize: '1.2rem', color: '#0f172a' }}>{selApp.name}</h2>
+                            <div style={{ fontSize: '.8rem', color: '#64748b', marginTop: 2 }}>{catName(selApp.category_id)}{selApp.app_type ? ` · ${selApp.app_type}` : ''}</div>
+                            {selApp.url && <a href={selApp.url} target="_blank" rel="noreferrer" style={{ fontSize: '.78rem', color: '#6366f1', wordBreak: 'break-all' }}>{selApp.url}</a>}
                           </div>
-                          <p style={{ margin: '4px 0 0', fontSize: '0.78rem', color: '#94a3b8' }}>{app.url}</p>
+                          <div style={{ display: 'flex', gap: 8 }}>
+                            <button className="primary-btn-v2" onClick={() => { setEditingApp(selApp); setShowAppModal(true); }}><Edit2 size={16} /> Modifier</button>
+                            <button className="primary-btn-v2" style={{ background: '#fee2e2', color: '#b91c1c' }} onClick={() => handleDeleteApp(selApp)}><Trash2 size={16} /></button>
+                          </div>
                         </div>
-                        <div className="app-actions-v2">
-                          <button
-                            onClick={() => openMaintenanceModal(app.id)}
-                            title={
-                              app.ongoing_maintenance_count && app.ongoing_maintenance_count > 0 ? `${app.ongoing_maintenance_count} maintenance(s) en cours` :
-                              app.future_maintenance_count && app.future_maintenance_count > 0 ? `${app.future_maintenance_count} maintenance(s) future(s)` :
-                              "Programmer une maintenance"
-                            }
-                            style={
-                              app.ongoing_maintenance_count && app.ongoing_maintenance_count > 0 ? { background: '#fef2f2', color: '#dc2626' } :
-                              app.future_maintenance_count && app.future_maintenance_count > 0 ? { background: '#fef3c7', color: '#d97706' } :
-                              undefined
-                            }
-                            className={
-                              app.ongoing_maintenance_count && app.ongoing_maintenance_count > 0 ? 'has-ongoing-maint' :
-                              app.future_maintenance_count && app.future_maintenance_count > 0 ? 'has-future-maint' :
-                              ''
-                            }
-                          ><Wrench size={16} /></button>
-                          <button onClick={() => { setEditingApp(app); setShowAppModal(true); }}><Edit2 size={16} /></button>
-                          <button onClick={() => handleDeleteApp(app)} className="delete"><Trash2 size={16} /></button>
+
+                        {selApp.description && <p style={{ margin: 0, fontSize: '.85rem', color: '#475569', lineHeight: 1.5 }}>{selApp.description}</p>}
+
+                        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '4px 10px', borderRadius: 20, background: selApp.present_magapp === 'oui' ? '#dcfce7' : '#f1f5f9', color: selApp.present_magapp === 'oui' ? '#166534' : '#64748b', fontSize: '.74rem', fontWeight: 700 }}>● {selApp.present_magapp === 'oui' ? 'Publiée' : 'Masquée'}</span>
+                          {selApp.dsi_only ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '4px 10px', borderRadius: 20, background: '#1e293b', color: '#fff', fontSize: '.74rem', fontWeight: 700 }}><ShieldAlert size={13} /> DSI</span> : null}
+                          {(selApp.ongoing_maintenance_count || 0) > 0 && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '4px 10px', borderRadius: 20, background: '#fef2f2', color: '#dc2626', fontSize: '.74rem', fontWeight: 700 }}><Wrench size={13} /> Maintenance</span>}
+                          {selApp.mercator_id ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '4px 10px', borderRadius: 20, background: '#ecfeff', color: '#0e7490', fontSize: '.74rem', fontWeight: 700 }}>Mercator</span> : null}
+                        </div>
+
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 10 }}>
+                          <div style={{ border: '1px solid #eef1f6', borderRadius: 10, padding: '10px 12px' }}><div style={mkLabel}>👤 Utilisateurs</div><div style={{ ...mkBig, fontSize: '1.2rem' }}>{selApp.user_count || 0}</div></div>
+                          <div style={{ border: '1px solid #eef1f6', borderRadius: 10, padding: '10px 12px', cursor: 'pointer' }} onClick={() => { setEditingDoc(null); setNewDoc({ title: '', description: '', app_id: selApp.id, doc_type: 'pdf', url: '', is_favorite: false, is_technical: false, is_obsolete: false }); setShowDocModal(true); }}><div style={mkLabel}>📄 Documents</div><div style={{ ...mkBig, fontSize: '1.2rem' }}>{(selApp.normal_doc_count || 0) + (selApp.technical_doc_count || 0)}</div></div>
+                          <div style={{ border: '1px solid #eef1f6', borderRadius: 10, padding: '10px 12px' }}><div style={mkLabel}>📋 Contrats</div><div style={{ ...mkBig, fontSize: '1.2rem' }}>{selApp.contract_count || 0}</div></div>
+                          <div style={{ border: '1px solid #eef1f6', borderRadius: 10, padding: '10px 12px' }}><div style={mkLabel}>💶 Commandes</div><div style={{ ...mkBig, fontSize: '1.1rem', color: '#1e40af' }}>{eur0(selApp.orders_amount || 0)}</div><div style={{ fontSize: '.7rem', color: '#94a3b8' }}>{selApp.orders_count || 0} cmd</div></div>
+                        </div>
+
+                        {selApp.project_manager_name && (
+                          <div style={{ fontSize: '.82rem', color: '#334155' }}><span style={{ color: '#94a3b8' }}>Chef de projet : </span><strong>{selApp.project_manager_name}</strong></div>
+                        )}
+
+                        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', borderTop: '1px solid #f1f5f9', paddingTop: 14 }}>
+                          <button className="primary-btn-v2" style={{ background: '#eef2ff', color: '#4338ca' }} onClick={() => openMaintenanceModal(selApp.id)}><Wrench size={15} /> Maintenance</button>
+                          {ticketCounts[selApp.id] && ticketCounts[selApp.id].incident_count > 0 && (
+                            <button className="primary-btn-v2" style={{ background: '#fee2e2', color: '#991b1b' }} onClick={() => openTicketModal(selApp.id, selApp.name, '1')}>⚠ {ticketCounts[selApp.id].incident_count} incident(s)</button>
+                          )}
+                          {ticketCounts[selApp.id] && ticketCounts[selApp.id].request_count > 0 && (
+                            <button className="primary-btn-v2" style={{ background: '#fef3c7', color: '#92400e' }} onClick={() => openTicketModal(selApp.id, selApp.name, '2')}>+ {ticketCounts[selApp.id].request_count} demande(s)</button>
+                          )}
                         </div>
                       </div>
-                    </div>
-                  ))}
+                    )}
+                  </div>
                 </div>
               </section>
 
