@@ -1670,6 +1670,7 @@ async function setupPgDb() {
     try { await client.query(`ALTER TABLE hub_rencontres.rencontres_reunions ADD COLUMN IF NOT EXISTS outlook_event_id TEXT`); } catch (e) {}
     try { await client.query(`ALTER TABLE hub_rencontres.rencontres_reunions ADD COLUMN IF NOT EXISTS outlook_web_link TEXT`); } catch (e) {}
     try { await client.query(`ALTER TABLE hub_rencontres.rencontres_reunions ADD COLUMN IF NOT EXISTS teams_join_url TEXT`); } catch (e) {}
+    try { await client.query(`ALTER TABLE hub.encadrants ADD COLUMN IF NOT EXISTS telephone_perso VARCHAR(30)`); } catch (e) {}
 
     await client.query(`
       CREATE TABLE IF NOT EXISTS hub_rencontres.rencontres_budgetaires (
@@ -4968,6 +4969,18 @@ async function setupPgDb() {
         )
       `);
     } catch (e) { console.error('[PG DB] api_keys:', e.message); }
+
+    // ─── hub.encadrants : téléphones des directeurs / resp. de service ──────────
+    try {
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS hub.encadrants (
+          matricule        VARCHAR(20) PRIMARY KEY,
+          telephone        VARCHAR(30),
+          telephone_perso  VARCHAR(30),
+          updated_at       TIMESTAMPTZ DEFAULT NOW()
+        )
+      `);
+    } catch (e) { console.error('[PG DB] hub.encadrants:', e.message); }
 
     console.log('[PG DB] Schema and tables initialized successfully');
   } catch (error) {

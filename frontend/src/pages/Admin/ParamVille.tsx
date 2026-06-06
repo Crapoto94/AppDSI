@@ -1,7 +1,8 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
+import Header from '../../components/Header';
 import axios from 'axios';
-import { Plus, Edit2, Trash2, Upload, Search, ChevronUp, ChevronDown, ChevronsUpDown, X, MapPin, ChevronRight, List, Network } from 'lucide-react';
+import { Plus, Edit2, Trash2, Upload, Search, ChevronUp, ChevronDown, ChevronsUpDown, X, MapPin, ChevronRight, List, Network, Phone, UserCheck, UserX, AlertTriangle, RefreshCw, CheckCircle } from 'lucide-react';
 import AdminOrganisation from '../AdminOrganisation';
 import 'leaflet/dist/leaflet.css';
 import { MapContainer, TileLayer, Marker, Popup, useMap, useMapEvents } from 'react-leaflet';
@@ -456,10 +457,322 @@ const TreeRow = ({
   );
 };
 
+// ─── Onglet Encadrants ────────────────────────────────────────────────────────
+interface Encadrant {
+  matricule: string; nom: string; prenom: string;
+  direction_code: string; direction_label: string;
+  service_code: string; service_label: string;
+  poste: string; role: 'dg' | 'directeur' | 'responsable_service';
+  is_direction_service: boolean;
+  email: string; ad_phone: string; telephone: string; telephone_perso: string; position: string;
+}
+interface ADMember { username: string; displayName: string; email: string; title: string; department: string; }
+
+function EncadrantsTab({ token }: { token: string | null }) {
+  const [encadrants, setEncadrants] = useState<Encadrant[]>([]);
+  const [adGroup, setADGroup] = useState<ADMember[]>([]);
+  const [adGroupsList, setADGroupsList] = useState<{ dn: string; cn: string; displayName: string; mail: string }[]>([]);
+  const [loadingGroupsList, setLoadingGroupsList] = useState(false);
+  const [selectedGroupDN, setSelectedGroupDN] = useState('');
+  const [groupsFilter, setGroupsFilter] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [loadingAD, setLoadingAD] = useState(false);
+  const [error, setError] = useState('');
+  const [saving, setSaving] = useState<string | null>(null);
+  const [editPhones, setEditPhones] = useState<Record<string, { pro: string; perso: string }>>({});
+  const [searchQ, setSearchQ] = useState('');
+  const [filterRole, setFilterRole] = useState<'all' | 'dg' | 'directeur' | 'responsable_service'>('all');
+  const [showADCompare, setShowADCompare] = useState(false);
+  const [saveMsg, setSaveMsg] = useState('');
+
+  const load = useCallback(async () => {
+    setLoading(true); setError('');
+    try {
+      const r = await fetch('/api/admin/rh/encadrants', { headers: { Authorization: `Bearer ${token}` } });
+      const d = await r.json();
+      if (r.ok) {
+        setEncadrants(d);
+        const init: Record<string, { pro: string; perso: string }> = {};
+        d.forEach((e: Encadrant) => { init[e.matricule] = { pro: e.telephone || '', perso: e.telephone_perso || '' }; });
+        setEditPhones(init);
+      } else setError(d.error || 'Erreur chargement');
+    } catch { setError('Erreur réseau'); }
+    finally { setLoading(false); }
+  }, [token]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const savePhone = async (matricule: string) => {
+    setSaving(matricule);
+    try {
+      const phones = editPhones[matricule] || { pro: '', perso: '' };
+      const r = await fetch(`/api/admin/rh/encadrants/${matricule}/telephone`, {
+        method: 'PUT',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ telephone: phones.pro, telephone_perso: phones.perso })
+      });
+      if (r.ok) {
+        setEncadrants(prev => prev.map(e => e.matricule === matricule
+          ? { ...e, telephone: phones.pro, telephone_perso: phones.perso } : e));
+        setSaveMsg('✔ Téléphones enregistrés');
+        setTimeout(() => setSaveMsg(''), 2000);
+      }
+    } finally { setSaving(null); }
+  };
+
+  const loadADGroupsList = useCallback(async () => {
+    setLoadingGroupsList(true);
+    try {
+      const r = await fetch('/api/admin/rh/encadrants/ad-groups-list', { headers: { Authorization: `Bearer ${token}` } });
+      const d = await r.json();
+      if (r.ok) setADGroupsList(d.groups || []);
+    } catch { }
+    finally { setLoadingGroupsList(false); }
+  }, [token]);
+
+  const loadADGroup = async (dn?: string) => {
+    const target = dn || selectedGroupDN;
+    if (!target) return;
+    setLoadingAD(true); setADGroup([]);
+    try {
+      const r = await fetch(`/api/admin/rh/encadrants/ad-group?dn=${encodeURIComponent(target)}`, { headers: { Authorization: `Bearer ${token}` } });
+      const d = await r.json();
+      if (r.ok) setADGroup(d.members || []);
+      else setError(d.error || 'Erreur liste AD');
+    } catch { setError('Erreur réseau AD'); }
+    finally { setLoadingAD(false); }
+  };
+
+  const filtered = encadrants.filter(e => {
+    if (filterRole !== 'all' && e.role !== filterRole) return false;
+    if (!searchQ) return true;
+    const q = searchQ.toLowerCase();
+    return `${e.prenom} ${e.nom} ${e.direction_label} ${e.service_label} ${e.poste}`.toLowerCase().includes(q);
+  });
+
+  // Comparaison AD
+  const encadrantEmails = new Set(encadrants.map(e => e.email.toLowerCase()).filter(Boolean));
+  const adEmails = new Set(adGroup.map(m => m.email.toLowerCase()).filter(Boolean));
+  const absentsAD = encadrants.filter(e => e.email && !adEmails.has(e.email.toLowerCase())); // dans RH mais pas AD
+  const absentsRH = adGroup.filter(m => m.email && !encadrantEmails.has(m.email.toLowerCase())); // dans AD mais pas RH
+
+  const roleColor = (r: string) =>
+    r === 'dg'         ? { bg: '#faf5ff', text: '#6b21a8', border: '#e9d5ff' } :
+    r === 'directeur'  ? { bg: '#eff6ff', text: '#1d4ed8', border: '#bfdbfe' }
+                       : { bg: '#f0fdf4', text: '#15803d', border: '#bbf7d0' };
+  const roleLabel = (r: string) =>
+    r === 'dg' ? 'Dir. Général·e' : r === 'directeur' ? 'Directeur·trice' : 'Resp. service';
+  const dgCount = encadrants.filter(e => e.role === 'dg').length;
+  const dirCount = encadrants.filter(e => e.role === 'directeur').length;
+  const respCount = encadrants.filter(e => e.role === 'responsable_service').length;
+
+  if (loading) return <div style={{ textAlign: 'center', padding: 60, color: '#64748b' }}>Chargement des encadrants…</div>;
+
+  return (
+    <div style={{ marginTop: 24 }}>
+      {/* En-tête */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20, flexWrap: 'wrap' }}>
+        <div style={{ flex: 1, minWidth: 200 }}>
+          <h2 style={{ margin: 0, fontSize: 18, fontWeight: 800, color: '#1e293b' }}>👔 Encadrants</h2>
+          <p style={{ margin: '2px 0 0', fontSize: 13, color: '#64748b' }}>
+            {dgCount > 0 && <span style={{ marginRight: 10 }}><span style={{ fontWeight: 700, color: '#6b21a8' }}>{dgCount}</span> DG/DGA</span>}
+            <span style={{ marginRight: 10 }}><span style={{ fontWeight: 700, color: '#1d4ed8' }}>{dirCount}</span> directeurs</span>
+            <span><span style={{ fontWeight: 700, color: '#15803d' }}>{respCount}</span> resp. de service</span>
+          </p>
+        </div>
+        <button onClick={load} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px', background: '#f1f5f9', border: '1px solid #e2e8f0', borderRadius: 8, cursor: 'pointer', fontWeight: 600, fontSize: 13, color: '#475569' }}>
+          <RefreshCw size={14} /> Actualiser
+        </button>
+        <button onClick={() => { setShowADCompare(v => !v); if (!showADCompare && !adGroupsList.length) loadADGroupsList(); }}
+          style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px', background: showADCompare ? '#eff6ff' : '#f8fafc', border: `1px solid ${showADCompare ? '#bfdbfe' : '#e2e8f0'}`, borderRadius: 8, cursor: 'pointer', fontWeight: 600, fontSize: 13, color: showADCompare ? '#1d4ed8' : '#475569' }}>
+          Comparer avec liste AD
+        </button>
+      </div>
+
+      {error && <div style={{ padding: '10px 14px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 8, color: '#b91c1c', fontSize: 13, marginBottom: 16 }}>{error}</div>}
+      {saveMsg && <div style={{ padding: '10px 14px', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 8, color: '#15803d', fontSize: 13, fontWeight: 700, marginBottom: 16 }}>{saveMsg}</div>}
+
+      {/* Filtres */}
+      <div style={{ display: 'flex', gap: 10, marginBottom: 16, flexWrap: 'wrap', alignItems: 'center' }}>
+        <input value={searchQ} onChange={e => setSearchQ(e.target.value)} placeholder="Rechercher un encadrant, direction, service…"
+          style={{ flex: 1, minWidth: 220, padding: '8px 12px', border: '1px solid #e2e8f0', borderRadius: 8, fontSize: 13 }} />
+        {(['all', 'dg', 'directeur', 'responsable_service'] as const).map(r => {
+          const active = filterRole === r;
+          const rc = r === 'dg' ? { bg: '#6b21a8', off: '#faf5ff', border: '#e9d5ff' }
+                   : r === 'directeur' ? { bg: '#1d4ed8', off: '#eff6ff', border: '#bfdbfe' }
+                   : r === 'responsable_service' ? { bg: '#15803d', off: '#f0fdf4', border: '#bbf7d0' }
+                   : { bg: '#2563eb', off: 'white', border: '#e2e8f0' };
+          return (
+            <button key={r} onClick={() => setFilterRole(r)}
+              style={{ padding: '7px 14px', borderRadius: 8, border: `1px solid ${active ? rc.bg : rc.border}`, fontSize: 12, fontWeight: 700, cursor: 'pointer',
+                background: active ? rc.bg : rc.off, color: active ? 'white' : '#475569' }}>
+              {r === 'all' ? 'Tous' : r === 'dg' ? 'DG / DGA' : r === 'directeur' ? 'Directeurs' : 'Resp. service'}
+            </button>
+          );
+        })}
+        <span style={{ fontSize: 12, color: '#94a3b8' }}>{filtered.length} affiché{filtered.length > 1 ? 's' : ''}</span>
+      </div>
+
+      {/* Tableau */}
+      <div style={{ background: 'white', borderRadius: 12, border: '1px solid #e2e8f0', overflow: 'hidden' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+          <thead>
+            <tr style={{ background: '#f8fafc' }}>
+              {['Nom', 'Rôle', 'Direction', 'Service', 'Email', 'Téléphones'].map(h => (
+                <th key={h} style={{ padding: '10px 14px', textAlign: 'left', fontWeight: 700, color: '#475569', fontSize: 12, borderBottom: '1px solid #e2e8f0' }}>{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {filtered.map((e, i) => {
+              const rc = roleColor(e.role);
+              const cur = editPhones[e.matricule] || { pro: '', perso: '' };
+              const phoneChanged = cur.pro !== (e.telephone || '') || cur.perso !== (e.telephone_perso || '');
+              return (
+                <tr key={e.matricule} style={{ borderBottom: '1px solid #f1f5f9', background: i % 2 === 0 ? 'white' : '#fafafa' }}>
+                  <td style={{ padding: '10px 14px' }}>
+                    <div style={{ fontWeight: 700, color: '#1e293b' }}>{e.prenom} {e.nom}</div>
+                    <div style={{ fontSize: 11, color: '#94a3b8' }}>{e.poste}</div>
+                    {e.is_direction_service && <span style={{ fontSize: 10, color: '#7c3aed', fontWeight: 600 }}>• service d'accueil direction</span>}
+                  </td>
+                  <td style={{ padding: '10px 14px' }}>
+                    <span style={{ display: 'inline-block', padding: '3px 9px', borderRadius: 8, fontSize: 11, fontWeight: 700, background: rc.bg, color: rc.text, border: `1px solid ${rc.border}` }}>
+                      {roleLabel(e.role)}
+                    </span>
+                  </td>
+                  <td style={{ padding: '10px 14px', color: '#475569' }}>
+                    <div style={{ fontWeight: 600 }}>{e.direction_label}</div>
+                    <div style={{ fontSize: 11, color: '#94a3b8' }}>{e.direction_code}</div>
+                  </td>
+                  <td style={{ padding: '10px 14px', color: '#475569' }}>
+                    {e.is_direction_service
+                      ? <span style={{ color: '#7c3aed', fontStyle: 'italic', fontSize: 12 }}>= direction</span>
+                      : <><div style={{ fontWeight: 600 }}>{e.service_label}</div><div style={{ fontSize: 11, color: '#94a3b8' }}>{e.service_code}</div></>}
+                  </td>
+                  <td style={{ padding: '10px 14px' }}>
+                    {e.email
+                      ? <a href={`mailto:${e.email}`} style={{ color: '#2563eb', textDecoration: 'none', fontWeight: 500 }}>{e.email}</a>
+                      : <span style={{ color: '#94a3b8', fontSize: 12 }}>Non trouvé AD</span>}
+                    {e.ad_phone && <div style={{ fontSize: 11, color: '#64748b' }}>📞 {e.ad_phone} (AD)</div>}
+                  </td>
+                  <td style={{ padding: '10px 14px' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                        <span style={{ fontSize: 10, fontWeight: 700, color: '#64748b', width: 32 }}>PRO</span>
+                        <input
+                          value={cur.pro}
+                          onChange={ev => setEditPhones(prev => ({ ...prev, [e.matricule]: { ...cur, pro: ev.target.value } }))}
+                          onKeyDown={ev => ev.key === 'Enter' && savePhone(e.matricule)}
+                          placeholder="01 xx xx xx xx"
+                          style={{ width: 120, padding: '4px 7px', border: `1px solid ${cur.pro !== (e.telephone || '') ? '#f59e0b' : '#e2e8f0'}`, borderRadius: 6, fontSize: 12 }}
+                        />
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                        <span style={{ fontSize: 10, fontWeight: 700, color: '#64748b', width: 32 }}>PERSO</span>
+                        <input
+                          value={cur.perso}
+                          onChange={ev => setEditPhones(prev => ({ ...prev, [e.matricule]: { ...cur, perso: ev.target.value } }))}
+                          onKeyDown={ev => ev.key === 'Enter' && savePhone(e.matricule)}
+                          placeholder="06 xx xx xx xx"
+                          style={{ width: 120, padding: '4px 7px', border: `1px solid ${cur.perso !== (e.telephone_perso || '') ? '#f59e0b' : '#e2e8f0'}`, borderRadius: 6, fontSize: 12 }}
+                        />
+                      </div>
+                    </div>
+                    {phoneChanged && (
+                      <button onClick={() => savePhone(e.matricule)} disabled={saving === e.matricule}
+                        style={{ marginTop: 4, padding: '3px 10px', background: '#2563eb', color: 'white', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 11, fontWeight: 700 }}>
+                        {saving === e.matricule ? '…' : '✔ Enregistrer'}
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+        {filtered.length === 0 && <div style={{ padding: 40, textAlign: 'center', color: '#94a3b8' }}>Aucun encadrant trouvé.</div>}
+      </div>
+
+      {/* Comparaison liste AD */}
+      {showADCompare && (
+        <div style={{ marginTop: 24, background: 'white', borderRadius: 12, border: '1px solid #e2e8f0', padding: 20 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16, flexWrap: 'wrap' }}>
+            <h3 style={{ margin: 0, fontSize: 15, fontWeight: 800, color: '#1e293b', whiteSpace: 'nowrap' }}>Comparer avec</h3>
+            {loadingGroupsList
+              ? <span style={{ fontSize: 13, color: '#94a3b8' }}>Chargement des groupes AD…</span>
+              : (
+                <div style={{ position: 'relative', flex: 1, maxWidth: 400 }}>
+                  <input
+                    placeholder="Filtrer les groupes AD…"
+                    value={groupsFilter}
+                    onChange={e => setGroupsFilter(e.target.value)}
+                    style={{ width: '100%', padding: '7px 10px', border: '1px solid #e2e8f0', borderRadius: 6, fontSize: 13, boxSizing: 'border-box' }}
+                  />
+                  {adGroupsList.length > 0 && (
+                    <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 100, background: 'white', border: '1px solid #e2e8f0', borderRadius: 8, boxShadow: '0 8px 24px rgba(0,0,0,0.1)', maxHeight: 220, overflowY: 'auto', marginTop: 2 }}>
+                      {adGroupsList
+                        .filter(g => !groupsFilter || g.displayName.toLowerCase().includes(groupsFilter.toLowerCase()) || g.cn.toLowerCase().includes(groupsFilter.toLowerCase()))
+                        .map(g => (
+                          <div key={g.dn} onClick={() => { setSelectedGroupDN(g.dn); setGroupsFilter(g.displayName); loadADGroup(g.dn); }}
+                            style={{ padding: '8px 12px', cursor: 'pointer', fontSize: 13, color: '#1e293b', borderBottom: '1px solid #f1f5f9' }}
+                            onMouseEnter={e => (e.currentTarget.style.background = '#f0f9ff')}
+                            onMouseLeave={e => (e.currentTarget.style.background = '')}>
+                            <span style={{ fontWeight: 600 }}>{g.displayName}</span>
+                            {g.mail && <span style={{ fontSize: 11, color: '#64748b', marginLeft: 8 }}>{g.mail}</span>}
+                          </div>
+                        ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            {adGroup.length > 0 && <span style={{ fontSize: 12, fontWeight: 700, color: '#16a34a' }}>✓ {adGroup.length} membres chargés</span>}
+            {loadingAD && <span style={{ fontSize: 12, color: '#94a3b8' }}>Chargement…</span>}
+          </div>
+
+          {adGroup.length > 0 && (
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
+              {/* Dans RH mais absent de la liste AD */}
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+                  <AlertTriangle size={16} color="#d97706" />
+                  <span style={{ fontWeight: 700, fontSize: 13, color: '#92400e' }}>Dans RH, absent de la liste AD ({absentsAD.length})</span>
+                </div>
+                {absentsAD.length === 0
+                  ? <p style={{ color: '#16a34a', fontSize: 13 }}>✔ Tous les encadrants RH sont dans la liste AD.</p>
+                  : absentsAD.map(e => (
+                    <div key={e.matricule} style={{ padding: '7px 12px', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 8, marginBottom: 6, fontSize: 13 }}>
+                      <strong>{e.prenom} {e.nom}</strong> <span style={{ color: '#92400e' }}>({e.direction_label})</span>
+                      <br /><span style={{ fontSize: 11, color: '#64748b' }}>{e.email || 'email inconnu'}</span>
+                    </div>
+                  ))}
+              </div>
+              {/* Dans la liste AD mais absent du RH */}
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+                  <UserX size={16} color="#2563eb" />
+                  <span style={{ fontWeight: 700, fontSize: 13, color: '#1d4ed8' }}>Dans liste AD, absent du RH ({absentsRH.length})</span>
+                </div>
+                {absentsRH.length === 0
+                  ? <p style={{ color: '#16a34a', fontSize: 13 }}>✔ Tous les membres AD figurent dans le référentiel RH.</p>
+                  : absentsRH.map(m => (
+                    <div key={m.username} style={{ padding: '7px 12px', background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 8, marginBottom: 6, fontSize: 13 }}>
+                      <strong>{m.displayName}</strong>
+                      <br /><span style={{ fontSize: 11, color: '#64748b' }}>{m.email} · {m.title || m.department}</span>
+                    </div>
+                  ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Composant principal ──────────────────────────────────────────────────────
 export default function ParamVille() {
-  const { user: _user } = useAuth();
-  const [selectedTab, setSelectedTab] = useState<'general' | 'elus' | 'sites' | 'ecoles' | 'carte' | 'organisation'>('general');
+  const { user: _user, token } = useAuth();
+  const [selectedTab, setSelectedTab] = useState<'general' | 'elus' | 'sites' | 'ecoles' | 'carte' | 'organisation' | 'encadrants'>('general');
 
   const [config, setConfig] = useState<VilleConfig>({ nom: '', code_postal: '' });
 
@@ -843,14 +1156,16 @@ export default function ParamVille() {
   const CITY_CENTER: [number, number] = [48.8129, 2.3838];
 
   return (
+    <div style={{ minHeight: '100vh', background: '#f8fafc' }}>
+      <Header />
     <div style={s.container}>
       <h1 style={s.title}>Paramètres Ville</h1>
       <p style={s.subtitle}>Configuration générale, élus, sites et écoles</p>
 
       <div style={s.tabs}>
-        {(['general', 'elus', 'sites', 'ecoles', 'carte', 'organisation'] as const).map(tab => (
+        {(['general', 'elus', 'sites', 'ecoles', 'carte', 'organisation', 'encadrants'] as const).map(tab => (
           <button key={tab} style={s.tab(selectedTab === tab)} onClick={() => setSelectedTab(tab)}>
-            {tab === 'general' ? '⚙️ Général' : tab === 'elus' ? '👤 Élus' : tab === 'sites' ? '🏢 Sites' : tab === 'ecoles' ? '🏫 Écoles' : tab === 'carte' ? '🗺️ Carte' : '🏛️ Organisation'}
+            {tab === 'general' ? '⚙️ Général' : tab === 'elus' ? '👤 Élus' : tab === 'sites' ? '🏢 Sites' : tab === 'ecoles' ? '🏫 Écoles' : tab === 'carte' ? '🗺️ Carte' : tab === 'organisation' ? '🏛️ Organisation' : '👔 Encadrants'}
           </button>
         ))}
       </div>
@@ -861,6 +1176,9 @@ export default function ParamVille() {
           <AdminOrganisation />
         </div>
       )}
+
+      {/* ─── ENCADRANTS ──────────────────────────────────────────── */}
+      {selectedTab === 'encadrants' && <EncadrantsTab token={token} />}
 
       {/* ─── GÉNÉRAL ─────────────────────────────────────────────── */}
       {selectedTab === 'general' && (
@@ -1475,6 +1793,7 @@ export default function ParamVille() {
           </div>
         </>
       )}
+    </div>
     </div>
   );
 }

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { X, Plus, Send, Upload, Trash2, FileText, Users } from 'lucide-react';
+import { X, Plus, Send, Upload, Trash2, FileText, Users, Video, CalendarClock } from 'lucide-react';
 import TranscriptUploadModal from './TranscriptUploadModal';
 import TranscriptViewModal from './TranscriptViewModal';
 import AddTaskModal from './AddTaskModal';
@@ -11,6 +11,8 @@ interface Reunion {
   description?: string; releve_decision?: string; liste_taches?: string;
   statut: string; created_by?: string; participants?: any[]; demandes?: any[];
   transcript_id?: number | null;
+  duree_minutes?: number; ordre_du_jour?: string; outlook_web_link?: string;
+  teams_join_url?: string; outlook_event_id?: string;
 }
 
 interface Attachment {
@@ -43,6 +45,9 @@ const ReunionDetailModal: React.FC<Props> = ({ isOpen, reunionId, token, userRol
   const [isUploadingAttachment, setIsUploadingAttachment] = useState(false);
   const [isSavingReunion, setIsSavingReunion] = useState(false);
   const [sendingCompteRendu, setSendingCompteRendu] = useState(false);
+  const [showReschedule, setShowReschedule] = useState(false);
+  const [rescheduleData, setRescheduleData] = useState({ date_reunion: '', lieu: '', duree_minutes: 60, notify: true });
+  const [isRescheduling, setIsRescheduling] = useState(false);
   const [showCreateDemandeModal, setShowCreateDemandeModal] = useState(false);
   const [showTranscriptUpload, setShowTranscriptUpload] = useState(false);
   const [showTranscriptView, setShowTranscriptView] = useState(false);
@@ -167,6 +172,40 @@ const ReunionDetailModal: React.FC<Props> = ({ isOpen, reunionId, token, userRol
     finally { setSendingCompteRendu(false); }
   };
 
+  const openReschedule = () => {
+    if (!selectedReunion) return;
+    const raw = (selectedReunion.date_reunion || '').replace(' ', 'T').slice(0, 16);
+    setRescheduleData({ date_reunion: raw, lieu: selectedReunion.lieu || '', duree_minutes: selectedReunion.duree_minutes || 60, notify: true });
+    setShowReschedule(true);
+  };
+
+  const handleReschedule = async () => {
+    if (!selectedReunion || !rescheduleData.date_reunion) { alert('Date/heure requise'); return; }
+    setIsRescheduling(true);
+    try {
+      const res = await fetch(`/api/rencontres-reunions/${selectedReunion.id}/reschedule`, {
+        method: 'PUT',
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(rescheduleData)
+      });
+      const data = await res.json();
+      if (res.ok) {
+        const r = data.reschedule || {};
+        let msg = '✅ Réunion reprogrammée.';
+        if (r.notified) msg += ` ${r.notified} participant(s) notifié(s) par email.`;
+        if (r.outlookUpdated === true) msg += ' Évènement Outlook mis à jour.';
+        else if (r.outlookUpdated === false) msg += " (Échec mise à jour Outlook.)";
+        alert(msg);
+        setShowReschedule(false);
+        fetchReunion();
+        onUpdated?.();
+      } else {
+        alert(`❌ Erreur : ${data.error}`);
+      }
+    } catch { alert('❌ Erreur réseau'); }
+    finally { setIsRescheduling(false); }
+  };
+
   const handleDeleteParticipant = async (pid: number) => {
     await fetch(`/api/reunion-participants/${pid}`, { method: 'DELETE', headers: { 'Authorization': `Bearer ${token}` } });
     fetchReunion();
@@ -266,6 +305,15 @@ const ReunionDetailModal: React.FC<Props> = ({ isOpen, reunionId, token, userRol
             <input type="text" style={{width: '100%', margin: '0 0 4px', fontSize: '17px', fontWeight: '800', color: '#1e293b', border: '1px solid #e2e8f0', borderRadius: '4px', padding: '2px 4px'}} value={selectedReunion.titre} onChange={e => setSelectedReunion(v => ({...v!, titre: e.target.value}))} />
             <input type="date" style={{width: 'auto', fontSize: '13px', color: '#64748b', border: '1px solid #e2e8f0', borderRadius: '4px', padding: '2px 4px'}} value={selectedReunion.date_reunion.split('T')[0]} onChange={e => setSelectedReunion(v => ({...v!, date_reunion: e.target.value}))} />
             <input type="text" style={{marginLeft: '10px', fontSize: '13px', color: '#64748b', border: '1px solid #e2e8f0', borderRadius: '4px', padding: '2px 4px'}} value={selectedReunion.lieu || ''} onChange={e => setSelectedReunion(v => ({...v!, lieu: e.target.value}))} placeholder="Lieu" />
+            {selectedReunion.duree_minutes ? (
+              <span style={{marginLeft: '10px', fontSize: '12px', color: '#64748b'}}>⏱ {selectedReunion.duree_minutes >= 60 ? `${Math.floor(selectedReunion.duree_minutes / 60)} h${selectedReunion.duree_minutes % 60 ? ' ' + (selectedReunion.duree_minutes % 60) : ''}` : `${selectedReunion.duree_minutes} min`}</span>
+            ) : null}
+            {selectedReunion.outlook_web_link && (
+              <a href={selectedReunion.outlook_web_link} target="_blank" rel="noreferrer" style={{marginLeft: '10px', fontSize: '12px', color: '#2563eb', fontWeight: 600, textDecoration: 'none'}}>📅 Voir dans Outlook</a>
+            )}
+            {selectedReunion.teams_join_url && (
+              <a href={selectedReunion.teams_join_url} target="_blank" rel="noreferrer" style={{marginLeft: '10px', fontSize: '12px', color: '#5b5fc7', fontWeight: 600, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '4px'}}><Video size={13} /> Rejoindre Teams</a>
+            )}
           </div>
           <div style={{display: 'flex', gap: '8px'}}>
             {selectedReunion.transcript_id ? (
@@ -288,12 +336,60 @@ const ReunionDetailModal: React.FC<Props> = ({ isOpen, reunionId, token, userRol
               <Send size={14} /> {sendingCompteRendu ? 'Envoi...' : 'Compte rendu'}
             </button>
             {(userRole === 'admin' || (currentUsername && selectedReunion.created_by === currentUsername)) && (
+              <button onClick={openReschedule} style={{padding: '8px 14px', background: '#fff7ed', color: '#c2410c', border: '1px solid #fed7aa', borderRadius: '8px', cursor: 'pointer', fontWeight: '600', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px'}} title="Modifier la date / le lieu et notifier les participants"><CalendarClock size={14} /> Reprogrammer</button>
+            )}
+            {(userRole === 'admin' || (currentUsername && selectedReunion.created_by === currentUsername)) && (
               <button onClick={handleDeleteReunion} style={{padding: '8px 14px', background: '#fee2e2', color: '#dc2626', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: '600', fontSize: '13px'}}><Trash2 size={14} /></button>
             )}
             <button onClick={onClose} style={{background: '#f1f5f9', border: 'none', cursor: 'pointer', width: '32px', height: '32px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center'}}><X size={16} /></button>
           </div>
         </div>
         <div style={{flex: 1, overflowY: 'auto', padding: '20px 24px'}}>
+          {/* Reprogrammation */}
+          {showReschedule && (
+            <div style={{marginBottom: '20px', padding: '16px', background: '#fff7ed', border: '1px solid #fed7aa', borderRadius: '10px'}}>
+              <h3 style={{margin: '0 0 12px', fontSize: '14px', fontWeight: 800, color: '#9a3412', display: 'flex', alignItems: 'center', gap: '7px'}}><CalendarClock size={16} /> Reprogrammer la réunion</h3>
+              <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '12px'}}>
+                <div>
+                  <label style={{display: 'block', fontSize: '11px', fontWeight: 700, color: '#9a3412', marginBottom: '4px'}}>NOUVELLE DATE & HEURE</label>
+                  <input type="datetime-local" value={rescheduleData.date_reunion} onChange={e => setRescheduleData(v => ({...v, date_reunion: e.target.value}))} style={{width: '100%', padding: '8px 10px', border: '1px solid #fdba74', borderRadius: '6px', fontSize: '13px'}} />
+                </div>
+                <div>
+                  <label style={{display: 'block', fontSize: '11px', fontWeight: 700, color: '#9a3412', marginBottom: '4px'}}>DURÉE</label>
+                  <select value={rescheduleData.duree_minutes} onChange={e => setRescheduleData(v => ({...v, duree_minutes: parseInt(e.target.value, 10)}))} style={{width: '100%', padding: '8px 10px', border: '1px solid #fdba74', borderRadius: '6px', fontSize: '13px', background: 'white'}}>
+                    <option value={15}>15 minutes</option>
+                    <option value={30}>30 minutes</option>
+                    <option value={45}>45 minutes</option>
+                    <option value={60}>1 heure</option>
+                    <option value={90}>1 h 30</option>
+                    <option value={120}>2 heures</option>
+                    <option value={180}>3 heures</option>
+                    <option value={240}>4 heures</option>
+                    <option value={480}>Journée (8 h)</option>
+                  </select>
+                </div>
+                <div style={{gridColumn: '1/-1'}}>
+                  <label style={{display: 'block', fontSize: '11px', fontWeight: 700, color: '#9a3412', marginBottom: '4px'}}>LIEU</label>
+                  <input type="text" value={rescheduleData.lieu} onChange={e => setRescheduleData(v => ({...v, lieu: e.target.value}))} placeholder="Lieu" style={{width: '100%', padding: '8px 10px', border: '1px solid #fdba74', borderRadius: '6px', fontSize: '13px'}} />
+                </div>
+              </div>
+              <label style={{display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', color: '#9a3412', fontWeight: 600, marginBottom: '12px', cursor: 'pointer'}}>
+                <input type="checkbox" checked={rescheduleData.notify} onChange={e => setRescheduleData(v => ({...v, notify: e.target.checked}))} />
+                Notifier les participants par email (message de modification){selectedReunion.outlook_event_id ? ' + mise à jour de l\'évènement Outlook' : ''}
+              </label>
+              <div style={{display: 'flex', justifyContent: 'flex-end', gap: '8px'}}>
+                <button onClick={() => setShowReschedule(false)} disabled={isRescheduling} style={{padding: '8px 16px', background: 'white', color: '#475569', border: '1px solid #e2e8f0', borderRadius: '8px', cursor: 'pointer', fontWeight: 600, fontSize: '13px'}}>Annuler</button>
+                <button onClick={handleReschedule} disabled={isRescheduling} style={{padding: '8px 16px', background: '#ea580c', color: 'white', border: 'none', borderRadius: '8px', cursor: isRescheduling ? 'wait' : 'pointer', fontWeight: 700, fontSize: '13px'}}>{isRescheduling ? 'Envoi…' : 'Reprogrammer et notifier'}</button>
+              </div>
+            </div>
+          )}
+          {/* Ordre du jour */}
+          {selectedReunion.ordre_du_jour && selectedReunion.ordre_du_jour.replace(/<[^>]*>/g, '').trim() && (
+            <div style={{marginBottom: '20px'}}>
+              <h3 style={{margin: '0 0 8px', fontSize: '13px', fontWeight: 700, color: '#1e293b'}}>📋 Ordre du jour</h3>
+              <div style={{padding: '12px 14px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: '14px', lineHeight: 1.7, color: '#1e293b'}} dangerouslySetInnerHTML={{__html: selectedReunion.ordre_du_jour}} />
+            </div>
+          )}
           {/* Participants */}
           <div style={{marginBottom: '20px'}}>
             <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px'}}>

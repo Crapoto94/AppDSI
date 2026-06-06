@@ -1,12 +1,13 @@
 const express = require('express');
 const router = express.Router();
 const rhController = require('./rh.controller');
-const { authenticateAdmin } = require('../../shared/middleware');
+const encadrantsCtrl = require('./encadrants.controller');
+const { authenticateAdmin, authenticateJWT } = require('../../shared/middleware');
 
 // Stats and Hierarchy
 router.get('/stats', authenticateAdmin, rhController.getStats);
 router.get('/hierarchy', authenticateAdmin, rhController.getHierarchy);
-router.get('/organisation-chart', authenticateAdmin, rhController.getOrganisationChart);
+router.get('/organisation-chart', authenticateJWT, rhController.getOrganisationChart); // lecture : tout utilisateur connecté
 router.get('/onboarding', authenticateAdmin, rhController.getOnboarding);
 
 // Agents Management
@@ -31,6 +32,12 @@ router.post('/sync-ad', authenticateAdmin, rhController.syncAD);
 router.get('/sync-azure/progress', authenticateAdmin, rhController.getAzureSyncProgress);
 router.post('/sync-azure', authenticateAdmin, rhController.syncAzure);
 router.get('/logs', authenticateAdmin, rhController.getLogs);
+
+// Encadrants (directeurs + resp. service) — lecture et téléphones : tout utilisateur connecté
+router.get('/encadrants', authenticateJWT, encadrantsCtrl.getEncadrants);
+router.put('/encadrants/:matricule/telephone', authenticateJWT, encadrantsCtrl.updateTelephone);
+router.get('/encadrants/ad-groups-list', authenticateJWT, encadrantsCtrl.listADGroups);
+router.get('/encadrants/ad-group', authenticateJWT, encadrantsCtrl.getADGroup);
 
 // AD Matching & Proposals
 router.get('/ad-proposals', authenticateAdmin, rhController.getADProposals);

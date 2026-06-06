@@ -203,7 +203,7 @@ function App() {
           <Route path="email-automation" element={<AdminMail />} />
           <Route path="backlog" element={<AdminBacklogMerged />} />
           <Route path="o365-mail" element={<AdminMail />} />
-          <Route path="param-ville" element={<ParamVille />} />
+          {/* param-ville déplacé hors du parent admin → cf. route standalone ci-dessous */}
           <Route path="organisation" element={<AdminOrganisation />} />
           <Route path="tickets" element={<TicketAdmin />} />
           <Route path="ged" element={<AdminGED />} />
@@ -214,6 +214,7 @@ function App() {
         </Route>
 
         <Route path="/admin/magapp" element={<PrivateRoute path="/admin/magapp"><MagappAdmin /></PrivateRoute>} />
+        <Route path="/admin/param-ville" element={<PrivateRoute path="/admin/param-ville"><ParamVille /></PrivateRoute>} />
         <Route path="/dsi-dashboard" element={<PrivateRoute allowedRoles={['admin', 'superadmin']}><DsiDashboard /></PrivateRoute>} />
       </Routes>
     </BrowserRouter>

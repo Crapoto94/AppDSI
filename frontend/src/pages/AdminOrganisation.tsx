@@ -4,21 +4,30 @@ import { useAuth } from '../contexts/AuthContext';
 import {
   Building2, ChevronDown, ChevronRight,
   Layers, FolderOpen, Folder, Network,
-  RefreshCw, AlertCircle, Loader2, Users
+  RefreshCw, AlertCircle, Loader2, Users,
+  UserCheck, UserX, AlertTriangle
 } from 'lucide-react';
 
-interface Secteur {
+interface Manager {
+  responsable?: string | null;
+  responsable_poste?: string | null;
+  responsable_role?: string | null;
+  vacant?: boolean;
+  ambiguite?: string | null;
+}
+
+interface Secteur extends Manager {
   code: string;
   label: string;
 }
 
-interface Service {
+interface Service extends Manager {
   code: string;
   label: string;
   secteurs: Secteur[];
 }
 
-interface Direction {
+interface Direction extends Manager {
   code: string;
   label: string;
   services: Service[];
@@ -35,6 +44,32 @@ const DIR_COLORS = [
   { bg: '#fff7ed', border: '#f97316', badge: '#c2410c', icon: '#f97316' },
   { bg: '#f8fafc', border: '#64748b', badge: '#334155', icon: '#64748b' },
 ];
+
+// Pastille « responsable » affichée à chaque niveau (directeur / resp. service / resp. secteur)
+const ResponsableBadge: React.FC<{ m: Manager; size?: 'sm' | 'md' }> = ({ m, size = 'md' }) => {
+  const fs = size === 'sm' ? 11 : 12;
+  const pad = size === 'sm' ? '2px 8px' : '3px 10px';
+  if (m.vacant || !m.responsable) {
+    return (
+      <span
+        title={m.ambiguite || undefined}
+        style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: pad, borderRadius: 8, fontSize: fs, fontWeight: 700, background: '#fef2f2', color: '#b91c1c', border: '1px solid #fecaca', whiteSpace: 'nowrap' }}
+      >
+        <UserX size={fs + 2} /> Vacant
+        {m.ambiguite && <AlertTriangle size={fs} style={{ color: '#d97706' }} />}
+      </span>
+    );
+  }
+  return (
+    <span
+      title={[m.responsable_poste, m.ambiguite].filter(Boolean).join(' — ') || undefined}
+      style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: pad, borderRadius: 8, fontSize: fs, fontWeight: 700, background: m.ambiguite ? '#fffbeb' : '#f0fdf4', color: m.ambiguite ? '#b45309' : '#15803d', border: `1px solid ${m.ambiguite ? '#fde68a' : '#bbf7d0'}`, whiteSpace: 'nowrap' }}
+    >
+      <UserCheck size={fs + 2} /> {m.responsable}
+      {m.ambiguite && <AlertTriangle size={fs} style={{ color: '#d97706' }} />}
+    </span>
+  );
+};
 
 const AdminOrganisation: React.FC = () => {
   const { token } = useAuth();
@@ -219,6 +254,7 @@ const AdminOrganisation: React.FC = () => {
                       {dir.services.reduce((a, s) => a + s.secteurs.length, 0)} secteur{dir.services.reduce((a, s) => a + s.secteurs.length, 0) > 1 ? 's' : ''}
                     </p>
                   </div>
+                  <ResponsableBadge m={dir} />
                   <span style={{ padding: '3px 10px', borderRadius: 20, fontSize: 11, fontWeight: 800, background: color.badge, color: 'white' }}>
                     {dir.code}
                   </span>
@@ -253,6 +289,7 @@ const AdminOrganisation: React.FC = () => {
                                   : <Layers size={16} style={{ color: '#94a3b8', flexShrink: 0 }} />
                                 }
                                 <span style={{ flex: 1, fontWeight: 700, fontSize: 13, color: '#1e293b' }}>{svc.label}</span>
+                                <ResponsableBadge m={svc} size="sm" />
                                 <span style={{ fontSize: 11, fontWeight: 600, color: '#64748b', background: '#e2e8f0', padding: '2px 8px', borderRadius: 12 }}>
                                   {svc.code}
                                 </span>
@@ -276,6 +313,7 @@ const AdminOrganisation: React.FC = () => {
                                     <div key={sec.code} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 12px', background: '#f8fafc', borderRadius: 8, border: '1px solid #f1f5f9' }}>
                                       <div style={{ width: 6, height: 6, borderRadius: '50%', background: color.border, flexShrink: 0 }} />
                                       <span style={{ flex: 1, fontSize: 13, color: '#374151', fontWeight: 600 }}>{sec.label}</span>
+                                      <ResponsableBadge m={sec} size="sm" />
                                       <span style={{ fontSize: 11, fontWeight: 600, color: '#94a3b8', background: '#e2e8f0', padding: '2px 8px', borderRadius: 12 }}>
                                         {sec.code}
                                       </span>

@@ -54,10 +54,13 @@ router.delete('/suivi/:id', authenticateJWT, rencontresCtrl.deleteSuivi);
 const reunionRouter = express.Router();
 
 reunionRouter.post('/generate', authenticateJWT, reunionsCtrl.generate);
+reunionRouter.post('/free-slots', authenticateJWT, reunionsCtrl.freeSlots);
 reunionRouter.get('/', authenticateJWT, reunionsCtrl.getAll);
 reunionRouter.post('/', authenticateJWT, reunionsCtrl.create);
 reunionRouter.get('/:id', authenticateJWT, reunionsCtrl.getById);
 reunionRouter.post('/:id/compte-rendu', authenticateJWT, reunionsCtrl.sendCompteRendu);
+reunionRouter.post('/:id/outlook', authenticateJWT, reunionsCtrl.createOutlookEvent);
+reunionRouter.put('/:id/reschedule', authenticateJWT, reunionsCtrl.reschedule);
 reunionRouter.put('/:id', authenticateJWT, reunionsCtrl.update);
 reunionRouter.delete('/:id', authenticateJWT, reunionsCtrl.deleteOne);
 reunionRouter.delete('/', authenticateAdminUI, reunionsCtrl.deleteAll);

@@ -49,11 +49,11 @@ const readVille = authenticateAdminOrApiKey('ville');
  */
 
 // Onglet Général
-router.get('/config', readVille, villeController.getConfig);
+router.get('/config', authenticateJWT, villeController.getConfig);   // lecture : tout utilisateur connecté
 router.put('/config', authenticateAdmin, villeController.updateConfig);
 
 // Onglet Élus
-router.get('/elus', readVille, villeController.getElus);
+router.get('/elus', authenticateJWT, villeController.getElus);
 router.post('/elus', authenticateAdmin, villeController.createElu);
 router.put('/elus/:id', authenticateAdmin, villeController.updateElu);
 router.delete('/elus/:id', authenticateAdmin, villeController.deleteElu);
@@ -61,13 +61,13 @@ router.post('/elus/import', authenticateAdmin, upload.single('file'), villeContr
 
 // Onglet Sites
 router.get('/sites/list', authenticateJWT, villeController.getSitesList);
-router.get('/sites', readVille, villeController.getSites);
+router.get('/sites', authenticateJWT, villeController.getSites);
 router.post('/sites/import', authenticateAdmin, upload.single('file'), villeController.importSites);
 router.put('/sites/:id', authenticateAdmin, villeController.updateSite);
 router.patch('/sites/:id/geocode', authenticateAdmin, villeController.saveGeocode);
 
 // Onglet Écoles
-router.get('/ecoles', readVille, villeController.getEcoles);
+router.get('/ecoles', authenticateJWT, villeController.getEcoles);
 router.post('/ecoles', authenticateAdmin, villeController.createEcole);
 router.put('/ecoles/:id', authenticateAdmin, villeController.updateEcole);
 router.delete('/ecoles/:id', authenticateAdmin, villeController.deleteEcole);

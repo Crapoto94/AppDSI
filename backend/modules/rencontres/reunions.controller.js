@@ -10,6 +10,27 @@ const MODULE = 'rencontres';
 let sendMailFn = null;
 module.exports.setSendMail = (fn) => { sendMailFn = fn; };
 
+// Lit les pièces jointes d'une réunion et renvoie [{ name, contentType, contentBytes(base64), size }]
+async function readReunionAttachmentsBase64(reunionId) {
+    const attachments = await pgDb.all('SELECT * FROM reunion_attachments WHERE reunion_id=? ORDER BY created_at DESC', [reunionId]);
+    const out = [];
+    for (const att of attachments) {
+        try {
+            const storagePath = att.file_path || (storage.isStoragePath(att.filename) ? att.filename : null);
+            let buf = null;
+            if (storagePath) {
+                const f = await storage.getFileForServe(storagePath);
+                if (f) buf = f.buffer || fs.readFileSync(f.absolutePath);
+            } else {
+                const filePath = path.join(__dirname, '..', '..', 'file_reunions', att.filename);
+                if (fs.existsSync(filePath)) buf = fs.readFileSync(filePath);
+            }
+            if (buf) out.push({ name: att.original_name || att.filename, contentType: att.mimetype || 'application/octet-stream', contentBytes: buf.toString('base64'), size: buf.length });
+        } catch (e) { console.warn('[REUNION] lecture PJ échouée:', e.message); }
+    }
+    return out;
+}
+
 module.exports = {
     setSendMail: (fn) => { sendMailFn = fn; },
 
@@ -79,12 +100,15 @@ module.exports = {
     // POST: Créer une nouvelle réunion
     create: async (req, res) => {
         try {
-            const { titre, date_reunion, annee, lieu, description, releve_decision, liste_taches, statut, participants, source } = req.body;
+            const { titre, date_reunion, annee, lieu, description, releve_decision, liste_taches, statut, participants, source, duree_minutes, ordre_du_jour, create_outlook, is_teams } = req.body;
             const username = req.user?.username || 'unknown';
+            const duree = parseInt(duree_minutes, 10) || 60;
+            // Si réunion Teams sans lieu précisé, on libelle le lieu
+            const lieuFinal = (is_teams && (!lieu || !lieu.trim())) ? 'Microsoft Teams' : lieu;
 
             const result = await pgDb.run(
-                `INSERT INTO rencontres_reunions (titre, date_reunion, annee, lieu, description, releve_decision, liste_taches, statut, created_by, source) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-                [titre, date_reunion, annee || new Date().getFullYear(), lieu, description, releve_decision || null, liste_taches || null, statut || 'planifiée', username, source || 'rencontres_budgetaires']
+                `INSERT INTO rencontres_reunions (titre, date_reunion, annee, lieu, description, releve_decision, liste_taches, statut, created_by, source, duree_minutes, ordre_du_jour) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                [titre, date_reunion, annee || new Date().getFullYear(), lieuFinal, description, releve_decision || null, liste_taches || null, statut || 'planifiée', username, source || 'rencontres_budgetaires', duree, ordre_du_jour || null]
             );
 
             const reunionId = result.lastID;
@@ -100,9 +124,11 @@ module.exports = {
             }
 
             // Auto-ajouter le créateur comme participant s'il n'est pas déjà présent
+            let creatorEmail = req.user?.email || null;
             if (!addedUsernames.has(username)) {
                 const userInfo = await pgDb.get('SELECT displayName, email FROM hub.users WHERE username=?', [username]);
                 if (userInfo) {
+                    if (!creatorEmail) creatorEmail = userInfo.email || null;
                     const nameParts = (userInfo.displayName || username).split(' ');
                     const prenom = nameParts[0] || '';
                     const nom = nameParts.slice(1).join(' ') || username;
@@ -112,10 +138,129 @@ module.exports = {
                     );
                 }
             }
+            if (!creatorEmail) {
+                const ui = await pgDb.get('SELECT email FROM hub.users WHERE username=?', [username]);
+                creatorEmail = ui?.email || null;
+            }
+
+            // Création de l'évènement Outlook dans la boîte de l'utilisateur connecté (optionnel)
+            let outlook = null;
+            console.log(`[REUNION] create_outlook=${create_outlook} organizerEmail=${creatorEmail || '(aucun)'} user=${username}`);
+            if (create_outlook) {
+                try {
+                    if (!creatorEmail) throw new Error(`Aucune adresse email associée à votre compte (${username}). Renseignez l'email dans hub.users.`);
+                    const { createOutlookEvent } = require('./outlook.service');
+                    // Inviter les participants (hors créateur) qui ont un email
+                    const attendees = (Array.isArray(participants) ? participants : [])
+                        .filter(p => p.email && p.email.includes('@'))
+                        .map(p => ({
+                            email: p.email,
+                            name: `${p.prenom ? p.prenom + ' ' : ''}${p.nom || ''}`.trim() || p.email,
+                            optional: p.statut_presence === 'info'
+                        }));
+
+                    const evt = await createOutlookEvent({
+                        organizerEmail: creatorEmail,
+                        titre,
+                        dateReunion: date_reunion,
+                        dureeMinutes: duree,
+                        ordreDuJour: ordre_du_jour || description || '',
+                        lieu: lieuFinal,
+                        attendees,
+                        isTeams: !!is_teams
+                    });
+
+                    console.log(`[REUNION] Évènement Outlook créé dans la boîte ${creatorEmail} (id=${evt.id})${evt.teamsJoinUrl ? ' [Teams]' : ''}`);
+                    await pgDb.run('UPDATE rencontres_reunions SET outlook_event_id=?, outlook_web_link=?, teams_join_url=? WHERE id=?', [evt.id, evt.webLink || null, evt.teamsJoinUrl || null, reunionId]);
+                    outlook = { created: true, webLink: evt.webLink || null, mailbox: creatorEmail, teamsJoinUrl: evt.teamsJoinUrl || null };
+                } catch (e) {
+                    console.error('[REUNION] Création Outlook échouée:', e.response?.data?.error?.message || e.message);
+                    outlook = { created: false, error: e.response?.data?.error?.message || e.message };
+                }
+            }
 
             const reunion = await pgDb.get('SELECT * FROM rencontres_reunions WHERE id=?', [reunionId]);
+            reunion.outlook = outlook;
             res.status(201).json(reunion);
         } catch (error) { res.status(500).json({ error: error.message }); }
+    },
+
+    // POST: Prochains créneaux communs libres pour une liste de participants
+    freeSlots: async (req, res) => {
+        try {
+            const { emails, participants, duree_minutes, after_hours } = req.body;
+            const username = req.user?.username || 'unknown';
+            let organizerEmail = req.user?.email || null;
+            const ui = await pgDb.get('SELECT displayName, email FROM hub.users WHERE username=?', [username]);
+            if (!organizerEmail) organizerEmail = ui?.email || null;
+            if (!organizerEmail) return res.status(400).json({ error: "Aucune adresse email associée à votre compte." });
+
+            // Normalise les participants (email + nom) ; accepte aussi `emails` simple.
+            let parts = [];
+            if (Array.isArray(participants)) {
+                parts = participants
+                    .filter(p => p && p.email && String(p.email).includes('@'))
+                    .map(p => ({ email: p.email, name: p.name || p.email }));
+            } else if (Array.isArray(emails)) {
+                parts = emails.filter(e => e && String(e).includes('@')).map(e => ({ email: e, name: e }));
+            }
+
+            const { findCommonSlots } = require('./outlook.service');
+            const slots = await findCommonSlots({
+                organizerEmail,
+                organizerName: (ui?.displayName || username) + ' (vous)',
+                participants: parts,
+                durationMinutes: parseInt(duree_minutes, 10) || 60,
+                afterHours: !!after_hours,
+                count: 5
+            });
+            res.json({ slots, organizerEmail });
+        } catch (error) {
+            console.error('[REUNION] freeSlots:', error.message);
+            res.status(500).json({ error: error.message });
+        }
+    },
+
+    // POST: Crée l'évènement Outlook/Teams pour une réunion existante (avec ses PJ jointes)
+    createOutlookEvent: async (req, res) => {
+        try {
+            const { id } = req.params;
+            const { is_teams } = req.body;
+            const reunion = await pgDb.get('SELECT * FROM rencontres_reunions WHERE id=?', [id]);
+            if (!reunion) return res.status(404).json({ error: 'Réunion non trouvée' });
+
+            // Organisateur = créateur (sa boîte). Repli sur l'utilisateur courant.
+            const organizer = await pgDb.get('SELECT email FROM hub.users WHERE username=?', [reunion.created_by]);
+            const organizerEmail = organizer?.email || req.user?.email || null;
+            if (!organizerEmail) return res.status(400).json({ error: "Aucune adresse email associée au créateur de la réunion." });
+
+            const participants = await pgDb.all('SELECT * FROM reunion_participants WHERE reunion_id=?', [id]);
+            const attendees = participants
+                .filter(p => p.email && p.email.includes('@'))
+                .map(p => ({ email: p.email, name: `${p.prenom ? p.prenom + ' ' : ''}${p.nom || ''}`.trim() || p.email, optional: p.statut_presence === 'info' }));
+
+            const attachments = await readReunionAttachmentsBase64(id);
+
+            const { createOutlookEvent } = require('./outlook.service');
+            const evt = await createOutlookEvent({
+                organizerEmail,
+                titre: reunion.titre,
+                dateReunion: reunion.date_reunion,
+                dureeMinutes: reunion.duree_minutes || 60,
+                ordreDuJour: reunion.ordre_du_jour || reunion.description || '',
+                lieu: reunion.lieu,
+                attendees,
+                isTeams: !!is_teams,
+                attachments
+            });
+
+            console.log(`[REUNION] Évènement Outlook créé pour réunion ${id} dans ${organizerEmail} (id=${evt.id}, ${evt.attachedCount}/${attachments.length} PJ jointes)${evt.teamsJoinUrl ? ' [Teams]' : ''}`);
+            await pgDb.run('UPDATE rencontres_reunions SET outlook_event_id=?, outlook_web_link=?, teams_join_url=? WHERE id=?', [evt.id, evt.webLink || null, evt.teamsJoinUrl || null, id]);
+            res.json({ created: true, webLink: evt.webLink || null, teamsJoinUrl: evt.teamsJoinUrl || null, mailbox: organizerEmail, attachments: evt.attachedCount });
+        } catch (error) {
+            console.error('[REUNION] createOutlookEvent:', error.response?.data?.error?.message || error.message);
+            res.status(500).json({ created: false, error: error.response?.data?.error?.message || error.message });
+        }
     },
 
     // GET: Récupérer une réunion spécifique
@@ -321,6 +466,82 @@ ${tasksHtml}
             await pgDb.run(`UPDATE rencontres_reunions SET titre=?, date_reunion=?, annee=?, lieu=?, description=?, releve_decision=?, liste_taches=?, statut=?, updated_at=CURRENT_TIMESTAMP WHERE id=?`, [titre, date_reunion, annee, lieu, description, releve_decision || null, liste_taches || null, statut, id]);
             const reunion = await pgDb.get('SELECT * FROM rencontres_reunions WHERE id=?', [id]);
             res.json(reunion);
+        } catch (error) { res.status(500).json({ error: error.message }); }
+    },
+
+    // PUT: Reprogrammer une réunion (date / heure / lieu / durée) + notification email + MAJ Outlook
+    reschedule: async (req, res) => {
+        try {
+            const { id } = req.params;
+            const { date_reunion, lieu, duree_minutes, notify } = req.body;
+
+            const reunion = await pgDb.get('SELECT * FROM rencontres_reunions WHERE id=?', [id]);
+            if (!reunion) return res.status(404).json({ error: 'Réunion non trouvée' });
+
+            const isAdmin = isAdminLike(req.user);
+            const isCreator = req.user?.username && reunion.created_by === req.user.username;
+            if (!isAdmin && !isCreator) return res.status(403).json({ error: "Seuls l'administrateur ou le créateur peuvent reprogrammer cette réunion" });
+
+            const newDate = date_reunion || reunion.date_reunion;
+            const newLieu = (lieu !== undefined) ? lieu : reunion.lieu;
+            const newDuree = duree_minutes != null ? (parseInt(duree_minutes, 10) || reunion.duree_minutes || 60) : (reunion.duree_minutes || 60);
+            const annee = newDate ? new Date(newDate).getFullYear() : reunion.annee;
+
+            const fmtDate = (d) => d ? new Date(d).toLocaleString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—';
+            const oldDateStr = fmtDate(reunion.date_reunion);
+            const newDateStr = fmtDate(newDate);
+            const dateChanged = new Date(reunion.date_reunion).getTime() !== new Date(newDate).getTime();
+            const lieuChanged = (reunion.lieu || '') !== (newLieu || '');
+
+            // 1) Mise à jour BDD
+            await pgDb.run('UPDATE rencontres_reunions SET date_reunion=?, lieu=?, duree_minutes=?, annee=?, updated_at=CURRENT_TIMESTAMP WHERE id=?', [newDate, newLieu, newDuree, annee, id]);
+
+            // 2) Mise à jour de l'évènement Outlook (si lié)
+            let outlookUpdated = null;
+            if (reunion.outlook_event_id) {
+                try {
+                    const organizer = await pgDb.get('SELECT email FROM hub.users WHERE username=?', [reunion.created_by]);
+                    const organizerEmail = organizer?.email || req.user?.email;
+                    const { updateOutlookEvent } = require('./outlook.service');
+                    await updateOutlookEvent({ organizerEmail, eventId: reunion.outlook_event_id, dateReunion: newDate, dureeMinutes: newDuree, lieu: newLieu });
+                    outlookUpdated = true;
+                } catch (e) {
+                    console.error('[REUNION] MAJ Outlook échouée:', e.response?.data?.error?.message || e.message);
+                    outlookUpdated = false;
+                }
+            }
+
+            // 3) Notification email aux participants
+            let notified = 0;
+            if (notify && (dateChanged || lieuChanged)) {
+                const participants = await pgDb.all('SELECT * FROM reunion_participants WHERE reunion_id=?', [id]);
+                const emails = participants.map(p => p.email).filter(e => e && e.includes('@'));
+                if (emails.length > 0 && sendMailFn) {
+                    const changeRows = [];
+                    if (dateChanged) changeRows.push(`<tr><td style="padding:8px 12px;color:#475569;font-weight:700">Date &amp; heure</td><td style="padding:8px 12px;color:#dc2626;text-decoration:line-through">${oldDateStr}</td><td style="padding:8px 12px;color:#16a34a;font-weight:700">${newDateStr}</td></tr>`);
+                    if (lieuChanged) changeRows.push(`<tr><td style="padding:8px 12px;color:#475569;font-weight:700">Lieu</td><td style="padding:8px 12px;color:#dc2626;text-decoration:line-through">${reunion.lieu || '—'}</td><td style="padding:8px 12px;color:#16a34a;font-weight:700">${newLieu || '—'}</td></tr>`);
+                    const teamsHtml = reunion.teams_join_url ? `<p style="margin:16px 0 0"><a href="${reunion.teams_join_url}" style="display:inline-block;background:#5b5fc7;color:white;padding:10px 18px;border-radius:8px;text-decoration:none;font-weight:700">Rejoindre la réunion Teams</a></p>` : '';
+                    const content = `
+<h1 style="color:#1e293b;margin:0 0 8px;font-size:22px;font-weight:900">✏️ Réunion modifiée</h1>
+<h2 style="color:#0f172a;margin:0 0 16px;font-size:18px">${reunion.titre}</h2>
+<div style="margin-bottom:16px;padding:12px 16px;background:#fef3c7;border:1px solid #fde68a;border-radius:8px;font-size:14px;color:#92400e">
+  Les informations de cette réunion ont été <strong>modifiées</strong>. Merci de mettre à jour votre agenda.
+</div>
+<table style="width:100%;border-collapse:collapse;font-size:13px;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden">
+  <thead><tr style="background:#f8fafc"><th style="padding:8px 12px;text-align:left;color:#475569">Champ</th><th style="padding:8px 12px;text-align:left;color:#475569">Avant</th><th style="padding:8px 12px;text-align:left;color:#475569">Après</th></tr></thead>
+  <tbody>${changeRows.join('')}</tbody>
+</table>
+${teamsHtml}`;
+                    const subject = `Réunion modifiée — ${reunion.titre} (${newDateStr})`;
+                    for (const email of emails) {
+                        try { await sendMailFn(email, subject, content, []); notified++; } catch (e) { console.error(`[REUNION] notif modif à ${email}:`, e.message); }
+                    }
+                }
+            }
+
+            const updated = await pgDb.get('SELECT * FROM rencontres_reunions WHERE id=?', [id]);
+            updated.reschedule = { outlookUpdated, notified, dateChanged, lieuChanged };
+            res.json(updated);
         } catch (error) { res.status(500).json({ error: error.message }); }
     },
 
