@@ -206,6 +206,7 @@ const MagappAdmin: React.FC = () => {
   const [appSearch, setAppSearch] = useState('');
   const [filterCategory, setFilterCategory] = useState<number | 'all'>('all');
   const [appSort, setAppSort] = useState<'name' | 'users' | 'orders' | 'docs'>('name');
+  const [filterPM, setFilterPM] = useState<string>('all');
   const [selectedAppId, setSelectedAppId] = useState<number | null>(null);
   const [clicksTimeline, setClicksTimeline] = useState<{ week: string; clicks: number; users: number }[]>([]);
 
@@ -902,13 +903,15 @@ const MagappAdmin: React.FC = () => {
       (filterContracts === 'without' && (app.contract_count || 0) === 0);
     const dsiMatch = filterDsi === 'all' || (filterDsi === 'dsi' && app.dsi_only) || (filterDsi === 'other' && !app.dsi_only);
     const categoryMatch = filterCategory === 'all' || app.category_id === filterCategory;
+    const pmMatch = filterPM === 'all'
+      || (filterPM === '__none__' ? !app.project_manager_name : app.project_manager_name === filterPM);
     const s = appSearch.trim().toLowerCase();
     const searchMatch = !s ||
       (app.name || '').toLowerCase().includes(s) ||
       (app.url || '').toLowerCase().includes(s) ||
       (app.description || '').toLowerCase().includes(s) ||
       (app.project_manager_name || '').toLowerCase().includes(s);
-    return publishedMatch && contractMatch && dsiMatch && categoryMatch && searchMatch;
+    return publishedMatch && contractMatch && dsiMatch && categoryMatch && searchMatch && pmMatch;
   }).sort((a, b) => {
     if (appSort === 'users') return (b.user_count || 0) - (a.user_count || 0);
     if (appSort === 'orders') return (b.orders_amount || 0) - (a.orders_amount || 0);
@@ -938,6 +941,7 @@ const MagappAdmin: React.FC = () => {
   const mkSub: React.CSSProperties = { fontSize: '.74rem', color: '#94a3b8', marginTop: 3 };
   const mkSelect: React.CSSProperties = { padding: '8px 10px', border: '1px solid #e2e8f0', borderRadius: 9, fontSize: '.82rem', color: '#334155', background: '#fff', outline: 'none', cursor: 'pointer' };
   const totalClicks12 = clicksTimeline.reduce((s, r) => s + (r.clicks || 0), 0);
+  const projectManagers = [...new Set(apps.map(a => a.project_manager_name).filter((n): n is string => !!n))].sort((a, b) => a.localeCompare(b, 'fr'));
 
   return (
     <div className="magapp-admin-container animate-fade-in">
@@ -1052,6 +1056,11 @@ const MagappAdmin: React.FC = () => {
                     <option value="with">Avec contrat</option>
                     <option value="without">Sans contrat</option>
                   </select>
+                  <select value={filterPM} onChange={e => setFilterPM(e.target.value)} style={mkSelect}>
+                    <option value="all">Chef de projet : tous</option>
+                    <option value="__none__">Sans chef de projet</option>
+                    {projectManagers.map(pm => <option key={pm} value={pm}>{pm}</option>)}
+                  </select>
                   <select value={appSort} onChange={e => setAppSort(e.target.value as any)} style={mkSelect}>
                     <option value="name">Tri : nom</option>
                     <option value="users">Tri : utilisateurs</option>
@@ -1071,17 +1080,30 @@ const MagappAdmin: React.FC = () => {
                     <div style={{ maxHeight: '64vh', overflowY: 'auto' }}>
                       {filteredApps.map(app => {
                         const active = app.id === selectedAppId;
+                        const tc = ticketCounts[app.id];
+                        const docTotal = (app.normal_doc_count || 0) + (app.technical_doc_count || 0);
+                        const pill: React.CSSProperties = { display: 'inline-flex', alignItems: 'center', gap: 3, padding: '1px 6px', borderRadius: 10, fontSize: '.66rem', fontWeight: 700, lineHeight: 1.5 };
                         return (
                           <button key={app.id} onClick={() => setSelectedAppId(app.id)}
-                            style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', border: 'none', borderLeft: active ? '3px solid #6366f1' : '3px solid transparent', background: active ? '#f5f3ff' : 'transparent', cursor: 'pointer', textAlign: 'left', borderBottom: '1px solid #f1f5f9' }}>
-                            <img src={app.icon} alt="" onError={(e) => { (e.target as HTMLImageElement).src = '/api/img/default.png'; }} style={{ width: 30, height: 30, borderRadius: 7, objectFit: 'contain', flexShrink: 0 }} />
-                            <span style={{ flex: 1, minWidth: 0 }}>
-                              <span style={{ display: 'block', fontWeight: 600, fontSize: '.85rem', color: '#1e293b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{app.name}</span>
-                              <span style={{ display: 'block', fontSize: '.72rem', color: '#94a3b8' }}>{catName(app.category_id)}</span>
+                            style={{ width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'stretch', gap: 6, padding: '10px 14px', border: 'none', borderLeft: active ? '3px solid #6366f1' : '3px solid transparent', background: active ? '#f5f3ff' : 'transparent', cursor: 'pointer', textAlign: 'left', borderBottom: '1px solid #f1f5f9' }}>
+                            <span style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                              <img src={app.icon} alt="" onError={(e) => { (e.target as HTMLImageElement).src = '/api/img/default.png'; }} style={{ width: 30, height: 30, borderRadius: 7, objectFit: 'contain', flexShrink: 0 }} />
+                              <span style={{ flex: 1, minWidth: 0 }}>
+                                <span style={{ display: 'block', fontWeight: 600, fontSize: '.85rem', color: '#1e293b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{app.name}</span>
+                                <span style={{ display: 'block', fontSize: '.72rem', color: '#94a3b8', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{catName(app.category_id)}{app.project_manager_name ? ` · ${app.project_manager_name}` : ''}</span>
+                              </span>
+                              <span title={app.present_magapp === 'oui' ? 'Publiée' : 'Masquée'} style={{ width: 8, height: 8, borderRadius: '50%', background: app.present_magapp === 'oui' ? '#22c55e' : '#cbd5e1', flexShrink: 0 }} />
                             </span>
-                            <span title={app.present_magapp === 'oui' ? 'Publiée' : 'Masquée'} style={{ width: 8, height: 8, borderRadius: '50%', background: app.present_magapp === 'oui' ? '#22c55e' : '#cbd5e1', flexShrink: 0 }} />
+                            <span style={{ display: 'flex', flexWrap: 'wrap', gap: 4, paddingLeft: 40 }}>
+                              <span style={{ ...pill, background: '#f1f5f9', color: '#475569' }} title={`${app.user_count || 0} utilisateur(s)`}>👤 {app.user_count || 0}</span>
+                              {tc && tc.incident_count > 0 && <span style={{ ...pill, background: '#fee2e2', color: '#991b1b' }} title={`${tc.incident_count} incident(s) ouvert(s)`}>⚠ {tc.incident_count}</span>}
+                              {tc && tc.request_count > 0 && <span style={{ ...pill, background: '#fef3c7', color: '#92400e' }} title={`${tc.request_count} demande(s) ouverte(s)`}>＋ {tc.request_count}</span>}
+                              {(app.orders_amount || 0) > 0 && <span style={{ ...pill, background: '#dbeafe', color: '#1e40af' }} title={`Coût calculé — ${app.orders_count || 0} commande(s)`}>💶 {eur0(app.orders_amount || 0)}</span>}
+                              {docTotal > 0 && <span style={{ ...pill, background: '#eef2ff', color: '#4338ca' }} title={`${docTotal} document(s)`}>📄 {docTotal}</span>}
+                              {(app.contract_count || 0) > 0 && <span style={{ ...pill, background: '#fef9c3', color: '#854d0e' }} title={`${app.contract_count} contrat(s)`}>📋 {app.contract_count}</span>}
+                            </span>
                           </button>
-                        );
+                          );
                       })}
                       {filteredApps.length === 0 && <div style={{ padding: 24, textAlign: 'center', color: '#94a3b8', fontSize: '.85rem' }}>Aucune application</div>}
                     </div>
