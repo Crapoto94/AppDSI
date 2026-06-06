@@ -38,6 +38,8 @@ interface AppItem {
   future_maintenance_count?: number;
   ongoing_maintenance_count?: number;
   dsi_only?: number;
+  orders_amount?: number;
+  orders_count?: number;
 }
 
 interface Maintenance {
@@ -1050,6 +1052,11 @@ const MagappAdmin: React.FC = () => {
                             {app.contract_count !== undefined && app.contract_count > 0 && (
                               <span title={`${app.contract_count} contrat(s) dans le module Contrats`} style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '3px 8px', borderRadius: '20px', background: '#fef3c7', color: '#92400e', fontSize: '0.72rem', fontWeight: 700 }}>
                                 📋 {app.contract_count}
+                              </span>
+                            )}
+                            {app.orders_amount !== undefined && app.orders_amount > 0 && (
+                              <span title={`${app.orders_count || 0} commande(s) associée(s) — total TTC`} style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '3px 8px', borderRadius: '20px', background: '#dbeafe', color: '#1e40af', fontSize: '0.72rem', fontWeight: 700 }}>
+                                💶 {app.orders_amount.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 })}
                               </span>
                             )}
                             {app.dsi_only ? (

@@ -106,6 +106,36 @@ const MagAppController = {
             if (!isMagappAdmin) {
                 apps = apps.filter(a => !a.dsi_only);
             }
+
+            // Montant total (TTC) des commandes associées à chaque logiciel (via oracle.oracle_links.app_id).
+            try {
+                const linkRes = await pool.query(`
+                    SELECT ol.app_id, c."COMMANDE_MONTANT_TTC" AS ttc
+                    FROM oracle.oracle_links ol
+                    JOIN oracle.gf_oracle_commande c ON TRIM(c."COMMANDE_COMMANDE") = ol.target_id
+                    WHERE ol.target_table = 'orders' AND ol.app_id IS NOT NULL
+                `);
+                const parseNum = (val) => {
+                    if (val === undefined || val === null || val === '') return 0;
+                    const n = parseFloat(String(val).trim().replace(',', '.').replace(/[^\d.\-]/g, ''));
+                    return isNaN(n) ? 0 : n;
+                };
+                const amountByApp = {};
+                const countByApp = {};
+                for (const r of linkRes.rows) {
+                    const k = String(r.app_id);
+                    amountByApp[k] = (amountByApp[k] || 0) + parseNum(r.ttc);
+                    countByApp[k] = (countByApp[k] || 0) + 1;
+                }
+                apps = apps.map(a => ({
+                    ...a,
+                    orders_amount: amountByApp[String(a.id)] || 0,
+                    orders_count: countByApp[String(a.id)] || 0,
+                }));
+            } catch (e) {
+                console.error('[MAGAPP] orders_amount par app:', e.message);
+            }
+
             res.json(apps);
         } catch (err) {
             console.error('[MAGAPP] Error fetching apps:', err.message);
