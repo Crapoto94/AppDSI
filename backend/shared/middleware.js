@@ -269,9 +269,21 @@ const authenticateConsommablesAdmin = (req, res, next) => {
 };
 
 // ─── API Key middleware ─────────────────────────────────────────────────────────
+// Extrait une clé API depuis X-API-Key, ?api_key=, ou Authorization: Bearer dsk_...
+const extractApiKey = (req) => {
+  const header = req.headers['x-api-key'] || req.query.api_key;
+  if (header) return header;
+  const auth = req.headers['authorization'] || '';
+  if (auth.startsWith('Bearer ')) {
+    const token = auth.slice(7).trim();
+    if (token.startsWith('dsk_')) return token;
+  }
+  return null;
+};
+
 const authenticateApiKey = async (req, res, next) => {
-  const key = req.headers['x-api-key'] || req.query.api_key;
-  if (!key) return res.status(401).json({ error: 'Clé API requise (X-API-Key)' });
+  const key = extractApiKey(req);
+  if (!key) return res.status(401).json({ error: 'Clé API requise (en-tête X-API-Key ou Authorization: Bearer dsk_...)' });
   const prefix = key.length > 20 ? key.slice(0, 20) : key;
   try {
     const { rows } = await pool.query(
@@ -316,6 +328,10 @@ const requireApiScope = (scope) => (req, res, next) => {
 };
 
 const authenticateJWTorApiKey = async (req, res, next) => {
+  // Clé API fournie via X-API-Key, ?api_key= ou Authorization: Bearer dsk_...
+  if (extractApiKey(req)) {
+    return authenticateApiKey(req, res, next);
+  }
   const authHeader = req.headers['authorization'];
   if (authHeader && authHeader.startsWith('Bearer ')) {
     return authenticateJWT(req, res, next);
@@ -327,11 +343,14 @@ const authenticateJWTorApiKey = async (req, res, next) => {
 // Idéal pour exposer en lecture des données d'administration sans ouvrir l'accès
 // à tous les utilisateurs connectés.
 const authenticateAdminOrApiKey = (scope) => (req, res, next) => {
+  // Voie clé API : authenticateApiKey gère l'échec (réponse envoyée, callback non appelé).
+  if (extractApiKey(req)) {
+    return authenticateApiKey(req, res, () => requireApiScope(scope)(req, res, next));
+  }
   const authHeader = req.headers['authorization'];
   if (authHeader && authHeader.startsWith('Bearer ')) {
     return authenticateAdmin(req, res, next);
   }
-  // Voie clé API : authenticateApiKey gère l'échec (réponse envoyée, callback non appelé).
   return authenticateApiKey(req, res, () => requireApiScope(scope)(req, res, next));
 };
 
