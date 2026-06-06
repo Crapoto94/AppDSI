@@ -1,6 +1,7 @@
 const jwt = require('jsonwebtoken');
 const { SECRET_KEY } = require('./config');
 const { getSqlite } = require('./database');
+const { pool } = require('./database');
 
 // ─── Role helpers ─────────────────────────────────────────────────────────────
 /** "Superadmin" → sees ALL data, full system access (formerly 'admin') */
@@ -267,6 +268,61 @@ const authenticateConsommablesAdmin = (req, res, next) => {
     });
 };
 
+// ─── API Key middleware ─────────────────────────────────────────────────────────
+const authenticateApiKey = async (req, res, next) => {
+  const key = req.headers['x-api-key'] || req.query.api_key;
+  if (!key) return res.status(401).json({ error: 'Clé API requise (X-API-Key)' });
+  const prefix = key.length > 20 ? key.slice(0, 20) : key;
+  try {
+    const { rows } = await pool.query(
+      `SELECT id, name, key_hash, scope, expires_at, is_active FROM hub.api_keys WHERE key_prefix = $1`,
+      [prefix]
+    );
+    for (const row of rows) {
+      const valid = await require('bcryptjs').compare(key.slice(20), row.key_hash);
+      if (!valid) continue;
+      if (!row.is_active) return res.status(403).json({ error: 'Clé API désactivée' });
+      if (row.expires_at && new Date(row.expires_at) < new Date()) return res.status(403).json({ error: 'Clé API expirée' });
+      await pool.query('UPDATE hub.api_keys SET last_used_at = NOW() WHERE id = $1', [row.id]);
+      req.apiKey = { id: row.id, name: row.name, scope: row.scope };
+      // Identité de service synthétique : les contrôleurs/services attendent un req.user.
+      // user_id null est toléré (pas de FK sur ticket_history.user_id).
+      req.user = {
+        id: null,
+        username: `apikey:${row.name}`,
+        email: null,
+        role: 'user',
+        displayName: `API · ${row.name}`,
+        via_api_key: true,
+      };
+      break;
+    }
+    if (!req.apiKey) return res.status(403).json({ error: 'Clé API invalide' });
+    next();
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+};
+
+const requireApiScope = (scope) => (req, res, next) => {
+  // Requête authentifiée par clé API : on vérifie le périmètre (module).
+  if (req.apiKey) {
+    if (req.apiKey.scope === '*' || req.apiKey.scope === scope) return next();
+    return res.status(403).json({ error: `Cette clé n'a pas accès au module ${scope}` });
+  }
+  // Requête authentifiée par JWT (UI/session) : pas de restriction de périmètre.
+  if (req.user) return next();
+  return res.status(401).json({ error: 'Authentification requise' });
+};
+
+const authenticateJWTorApiKey = async (req, res, next) => {
+  const authHeader = req.headers['authorization'];
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    return authenticateJWT(req, res, next);
+  }
+  return authenticateApiKey(req, res, next);
+};
+
 module.exports = {
     authenticateJWT,
     tryAuthenticateJWT,
@@ -278,6 +334,9 @@ module.exports = {
     authenticateMagappControl,
     authenticateGLPIControl,
     authenticateConsommablesAdmin,
+    authenticateApiKey,
+    requireApiScope,
+    authenticateJWTorApiKey,
     isSuperAdmin,
     isAdminLike,
 };

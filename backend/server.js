@@ -3255,6 +3255,39 @@ setupDb().then(async database => {
     httpServer.listen(PORT, '0.0.0.0', () => {
         console.log(`Backend server running on http://0.0.0.0:${PORT}`);
     });
+
+    // ============================================
+    // SWAGGER / API DOCS
+    // ============================================
+    try {
+        const swaggerJsdoc = require('swagger-jsdoc');
+        const swaggerUi = require('swagger-ui-express');
+        const swaggerSpec = swaggerJsdoc({
+            definition: {
+                openapi: '3.0.0',
+                info: {
+                    title: 'DSI Hub API',
+                    version: '1.0.0',
+                    description: 'API REST du portail DSI Hub – documentation interactive des endpoints disponibles.',
+                },
+                servers: [{ url: `http://localhost:${PORT}`, description: 'Local' }],
+                components: {
+                    securitySchemes: {
+                        ApiKeyAuth: { type: 'apiKey', in: 'header', name: 'X-API-Key' },
+                        BearerAuth: { type: 'http', scheme: 'bearer', bearerFormat: 'JWT' },
+                    },
+                },
+            },
+            apis: ['./server.js', './modules/**/*.routes.js', './modules/**/*.controller.js'],
+        });
+        app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec, {
+            customCss: '.swagger-ui .topbar { display: none }',
+            customSiteTitle: 'DSI Hub API Docs',
+        }));
+        console.log('[SWAGGER] API docs at /api/docs');
+    } catch (e) {
+        console.log('[SWAGGER] Not available:', e.message);
+    }
 }).catch(err => {
     console.error('Failed to setup database:', err);
     process.exit(1);
@@ -5491,6 +5524,7 @@ const emailAutoRouter = require('./modules/email-automation/email-automation.rou
 const emailAutoCtrl = require('./modules/email-automation/email-automation.controller');
 const o365CalendarRouter = require('./modules/o365-calendar/o365-calendar.routes');
 const o365CalendarCtrl = require('./modules/o365-calendar/o365-calendar.controller');
+const apiKeysRouter = require('./modules/api-keys/api-keys.routes');
 emailAutoCtrl.setSendMail(sendMail);
 
 app.use('/api/admin/email-automation', emailAutoRouter);
@@ -5504,6 +5538,11 @@ app.use('/api/page-help', require('./modules/page-help/routes'));
 // O365 CALENDAR
 // ============================================
 app.use('/api/admin/o365-calendar', o365CalendarRouter);
+
+// ============================================
+// API KEYS
+// ============================================
+app.use('/api/admin/api-keys', apiKeysRouter);
 
 // Cron: auto-sync O365 calendars every 30 minutes
 cron.schedule('*/30 * * * *', async () => {

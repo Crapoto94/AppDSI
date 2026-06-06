@@ -3,8 +3,42 @@ const router  = express.Router();
 const multer  = require('multer');
 const path    = require('path');
 const jwt     = require('jsonwebtoken');
-const { authenticateJWT } = require('../../shared/middleware');
+
+/**
+ * @openapi
+ * /api/tasks:
+ *   get:
+ *     tags: [Tâches]
+ *     summary: Liste les tâches personnelles de l'utilisateur connecté
+ *     security:
+ *       - BearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Tableau de tâches
+ * /api/tasks/by-context:
+ *   get:
+ *     tags: [Tâches]
+ *     summary: Récupère les tâches liées à un contexte (ticket, projet...)
+ *     security:
+ *       - BearerAuth: []
+ *       - ApiKeyAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: source
+ *         required: true
+ *         schema: { type: string, enum: [ticket, projet] }
+ *       - in: query
+ *         name: id
+ *         required: true
+ *         schema: { type: integer }
+ *     responses:
+ *       200:
+ *         description: Tableau de tâches
+ */
+const { authenticateJWT, authenticateJWTorApiKey, requireApiScope } = require('../../shared/middleware');
 const { requireTicketPermission } = require('../tickets/middleware/ticket-permissions');
+// JWT (UI) OU clé API restreinte au module « tasks »
+const apiTasks = [authenticateJWTorApiKey, requireApiScope('tasks')];
 const { SECRET_KEY } = require('../../shared/config');
 const controller = require('./tasks.controller');
 
@@ -31,7 +65,7 @@ router.get('/assign-alert-pref',  authenticateJWT, (req, res) => controller.getA
 router.patch('/assign-alert-pref',authenticateJWT, (req, res) => controller.setAssignAlertPref(req, res));
 router.post('/alert-test',        authenticateJWT, (req, res) => controller.sendTestAlert(req, res));
 router.get('/services',           authenticateJWT, (req, res) => controller.getServices(req, res));
-router.get('/by-context',         authenticateJWT, (req, res) => controller.getTasksByContext(req, res));
+router.get('/by-context',         apiTasks, (req, res) => controller.getTasksByContext(req, res));
 router.get('/assigned-by-me',     authenticateJWT, (req, res) => controller.getAssignedByMe(req, res));
 router.get('/kpi-history',        authenticateJWT, (req, res) => controller.getKpiHistory(req, res));
 

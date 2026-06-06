@@ -58,6 +58,7 @@ import ParamVille from './pages/Admin/ParamVille';
 import HubSettings from './pages/Admin/HubSettings';
 import SecurityMenu from './pages/Admin/SecurityMenu';
 import AutoResolution from './pages/Admin/AutoResolution';
+import ApiKeysAdmin from './pages/Admin/ApiKeys';
 import AutoResolutionConfirm from './pages/AutoResolutionConfirm';
 import StocksDashboard from './pages/Stocks/StocksDashboard';
 import ReseauDashboard from './pages/Reseau/ReseauDashboard';
@@ -209,6 +210,7 @@ function App() {
           <Route path="inventaire" element={<AdminInventaire />} />
           <Route path="infra" element={<AdminInfra />} />
           <Route path="security" element={<SecurityMenu />} />
+          <Route path="api-keys" element={<ApiKeysAdmin />} />
         </Route>
 
         <Route path="/admin/magapp" element={<PrivateRoute path="/admin/magapp"><MagappAdmin /></PrivateRoute>} />

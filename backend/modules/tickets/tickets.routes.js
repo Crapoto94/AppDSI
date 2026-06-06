@@ -1,9 +1,89 @@
 const express = require('express');
 const router = express.Router();
-const { authenticateJWT, authenticateAdmin } = require('../../shared/middleware');
+const { authenticateJWT, authenticateJWTorApiKey, requireApiScope, authenticateAdmin } = require('../../shared/middleware');
 const { pgDb } = require('../../shared/database');
+// JWT (UI) OU clé API restreinte au module « tickets »
+const apiTickets = [authenticateJWTorApiKey, requireApiScope('tickets')];
 const { requireTicketPermission } = require('./middleware/ticket-permissions');
 const controller = require('./tickets.controller');
+
+/**
+ * @openapi
+ * /api/tickets:
+ *   get:
+ *     tags: [Tickets]
+ *     summary: Liste paginée des tickets
+ *     security:
+ *       - BearerAuth: []
+ *       - ApiKeyAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: page
+ *         schema: { type: integer, default: 1 }
+ *       - in: query
+ *         name: limit
+ *         schema: { type: integer, default: 50 }
+ *       - in: query
+ *         name: status
+ *         schema: { type: string }
+ *       - in: query
+ *         name: search
+ *         schema: { type: string }
+ *     responses:
+ *       200:
+ *         description: Tableau de tickets
+ *   post:
+ *     tags: [Tickets]
+ *     summary: Crée un nouveau ticket
+ *     security:
+ *       - BearerAuth: []
+ *       - ApiKeyAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [title]
+ *             properties:
+ *               title:       { type: string }
+ *               description: { type: string }
+ *               requester_email: { type: string }
+ *               category_id: { type: integer }
+ *               urgent:      { type: boolean }
+ *     responses:
+ *       201:
+ *         description: Ticket créé
+ * /api/tickets/{id}:
+ *   get:
+ *     tags: [Tickets]
+ *     summary: Détail d'un ticket
+ *     security:
+ *       - BearerAuth: []
+ *       - ApiKeyAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: integer }
+ *     responses:
+ *       200:
+ *         description: Objet ticket
+ *   patch:
+ *     tags: [Tickets]
+ *     summary: Met à jour un ticket
+ *     security:
+ *       - BearerAuth: []
+ *       - ApiKeyAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: integer }
+ *     responses:
+ *       200:
+ *         description: OK
+ */
 
 // ─── Rôle résolu du ticket module ───────────────────────────────
 router.get('/my-role', authenticateJWT, async (req, res) => {
@@ -183,11 +263,11 @@ router.get('/config/public', authenticateJWT, async (req, res) => {
 router.get('/requester/:email', authenticateJWT, (req, res) => controller.getByRequester(req, res));
 router.get('/my-phone', authenticateJWT, (req, res) => controller.getMyPhone(req, res));
 router.delete('/bulk', authenticateJWT, (req, res) => controller.bulkDelete(req, res));
-router.get('/', authenticateJWT, (req, res) => controller.getAll(req, res));
-router.get('/:id', authenticateJWT, (req, res) => controller.getById(req, res));
-router.post('/', authenticateJWT, (req, res) => controller.create(req, res));
-router.put('/:id', authenticateJWT, (req, res) => controller.update(req, res));
-router.patch('/:id', authenticateJWT, (req, res) => controller.update(req, res));
+router.get('/', apiTickets, (req, res) => controller.getAll(req, res));
+router.get('/:id', apiTickets, (req, res) => controller.getById(req, res));
+router.post('/', apiTickets, (req, res) => controller.create(req, res));
+router.put('/:id', apiTickets, (req, res) => controller.update(req, res));
+router.patch('/:id', apiTickets, (req, res) => controller.update(req, res));
 router.delete('/:id', authenticateJWT, (req, res) => controller.delete(req, res));
 
 module.exports = router;

@@ -4940,6 +4940,24 @@ async function setupPgDb() {
     ];
     for (const sql of alters) { try { await client.query(sql); } catch (e) {} }
 
+    // ─── API Keys ─────────────────────────────────────────────────────────
+    try {
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS hub.api_keys (
+          id           SERIAL PRIMARY KEY,
+          name         VARCHAR(255) NOT NULL,
+          key_hash     VARCHAR(255) NOT NULL,
+          key_prefix   VARCHAR(20) NOT NULL,
+          scope        VARCHAR(50) NOT NULL DEFAULT '*',
+          expires_at   TIMESTAMPTZ,
+          is_active    BOOLEAN DEFAULT TRUE,
+          created_by   VARCHAR(100),
+          created_at   TIMESTAMPTZ DEFAULT NOW(),
+          last_used_at TIMESTAMPTZ
+        )
+      `);
+    } catch (e) { console.error('[PG DB] api_keys:', e.message); }
+
     console.log('[PG DB] Schema and tables initialized successfully');
   } catch (error) {
     console.error('[PG DB] Initialization error:', error.message);
