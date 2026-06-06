@@ -38,6 +38,7 @@ interface TileData {
   is_authorized: boolean;
   is_public: boolean;
   links: { label: string; url: string; is_internal: boolean }[];
+  project_manager_name?: string;
 }
 
 interface HeaderProps {
@@ -340,7 +341,6 @@ const Header: React.FC<HeaderProps> = () => {
                                 onClick={() => setShowNavDropdown(false)}
                               >
                                 {link.label}
-                                {/* @ts-expect-error accessing extended property */}
                                 {tile.project_manager_name && (
                                   <div style={{ fontSize: '10px', color: '#94a3b8', marginTop: '2px', fontStyle: 'italic' }}>
                                     Chef de projet: {tile.project_manager_name}
@@ -650,10 +650,11 @@ const Header: React.FC<HeaderProps> = () => {
                   if (!mdEl) return;
                   const elements = mdEl.querySelectorAll('h1, h2, h3, p, li');
                   elements.forEach(el => {
-                    if (term && el.textContent?.toLowerCase().includes(term)) {
-                      el.style.backgroundColor = '#fef08a';
+                    const hEl = el as HTMLElement;
+                    if (term && hEl.textContent?.toLowerCase().includes(term)) {
+                      hEl.style.backgroundColor = '#fef08a';
                     } else {
-                      el.style.backgroundColor = 'transparent';
+                      hEl.style.backgroundColor = 'transparent';
                     }
                   });
                 }}
