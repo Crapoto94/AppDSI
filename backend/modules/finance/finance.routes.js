@@ -49,6 +49,7 @@ router.get('/orders', authenticateJWT, financeController.getOrders);
 router.get('/orders/years', authenticateJWT, financeController.getOrderYears);
 router.post('/orders/bulk-assign', authenticateJWT, financeController.bulkAssign);
 router.post('/orders/:id/assign-operation', authenticateJWT, financeController.assignOperation);
+router.post('/orders/:id/assign-app', authenticateJWT, financeController.assignApp);
 
 // Imports & Scanning
 router.post('/scan-exercice', authenticateAdminOrFinances, upload.single('file'), financeController.scanExercice);

@@ -498,7 +498,8 @@ module.exports = {
                 c."SERVICEFI_CLEACCES",
                 c."SERVICEFI_LIBELLE",
                 c."section",
-                l.operation_id
+                l.operation_id,
+                l.app_id
             FROM oracle.commandes_with_section c
             LEFT JOIN oracle.oracle_links l ON l.target_id = TRIM(c."COMMANDE_COMMANDE") AND l.target_table = 'orders'`;
 
@@ -513,6 +514,13 @@ module.exports = {
             const opResult = await pool.query('SELECT id, "LIBELLE" FROM oracle.operations');
             const opMap = {};
             opResult.rows.forEach(o => { opMap[o.id] = o.LIBELLE; });
+
+            // Get apps (logiciels métier) for labels
+            const appMap = {};
+            try {
+                const appResult = await pool.query('SELECT id, name FROM magapp.apps');
+                appResult.rows.forEach(a => { appMap[a.id] = a.name; });
+            } catch (e) { /* magapp.apps absent : on ignore */ }
 
             const parseNum = (val) => {
                 if (!val || val === null || val === undefined) return 0;
@@ -537,10 +545,14 @@ module.exports = {
                 const htAmount = parseNum(order.COMMANDE_MONTANT_HT);
                 const ttcAmount = parseNum(order.COMMANDE_MONTANT_TTC);
 
+                const appId = order.app_id || null;
+
                 const cleaned = {
                     id: orderId,
                     operation_id: operationId,
                     operation_label: operationId ? opMap[operationId] : null,
+                    app_id: appId,
+                    app_label: appId ? (appMap[appId] || null) : null,
                     section,
                     _lines: [],
                     _total_ht: htAmount,
@@ -664,6 +676,35 @@ module.exports = {
             res.json({ message: 'Affectation groupée réussie' });
         } catch (error) {
             res.status(500).json({ message: 'Erreur affectation groupée', error: error.message });
+        }
+    },
+
+    // Associe (ou dissocie) une commande à un logiciel métier (magapp.apps).
+    // Même principe que assignOperation : on stocke app_id sur la ligne oracle_links
+    // de la commande, sans toucher à operation_id.
+    assignApp: async (req, res) => {
+        const { app_id } = req.body;
+        const order_id = req.params.id;
+        try {
+            let nr = order_id;
+            try {
+                const result = await pool.query(`SELECT "COMMANDE_COMMANDE" FROM oracle.gf_oracle_commande WHERE "COMMANDE_COMMANDE" = $1 LIMIT 1`, [order_id.trim()]);
+                if (result.rows.length > 0) nr = String(result.rows[0].COMMANDE_COMMANDE).trim();
+            } catch (e) { /* fallback: use order_id */ }
+
+            if (app_id) {
+                await pgDb.run(
+                    `INSERT INTO oracle.oracle_links (target_table, target_id, app_id) VALUES ('orders', $1, $2)
+                     ON CONFLICT (target_table, target_id) DO UPDATE SET app_id = EXCLUDED.app_id`,
+                    [nr, app_id]
+                );
+            } else {
+                await pgDb.run(`UPDATE oracle.oracle_links SET app_id = NULL WHERE target_table = 'orders' AND target_id = $1`, [nr]);
+            }
+            res.json({ message: 'Association logiciel réussie' });
+        } catch (error) {
+            console.error('[assignApp]', error);
+            res.status(500).json({ message: 'Erreur association logiciel', error: error.message });
         }
     }
 };

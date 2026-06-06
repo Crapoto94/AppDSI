@@ -1662,6 +1662,11 @@ async function setupPgDb() {
 
     try { await client.query(`ALTER TABLE hub_rencontres.rencontres_reunions ADD COLUMN IF NOT EXISTS source TEXT DEFAULT 'rencontres_budgetaires'`); } catch (e) {}
     try { await client.query(`ALTER TABLE hub_rencontres.reunion_participants ADD COLUMN IF NOT EXISTS commentaire TEXT`); } catch (e) {}
+    try { await client.query(`ALTER TABLE hub_rencontres.rencontres_reunions ADD COLUMN IF NOT EXISTS duree_minutes INTEGER DEFAULT 60`); } catch (e) {}
+    try { await client.query(`ALTER TABLE hub_rencontres.rencontres_reunions ADD COLUMN IF NOT EXISTS ordre_du_jour TEXT`); } catch (e) {}
+    try { await client.query(`ALTER TABLE hub_rencontres.rencontres_reunions ADD COLUMN IF NOT EXISTS outlook_event_id TEXT`); } catch (e) {}
+    try { await client.query(`ALTER TABLE hub_rencontres.rencontres_reunions ADD COLUMN IF NOT EXISTS outlook_web_link TEXT`); } catch (e) {}
+    try { await client.query(`ALTER TABLE hub_rencontres.rencontres_reunions ADD COLUMN IF NOT EXISTS teams_join_url TEXT`); } catch (e) {}
 
     await client.query(`
       CREATE TABLE IF NOT EXISTS hub_rencontres.rencontres_budgetaires (
@@ -2402,9 +2407,12 @@ async function setupPgDb() {
         target_table TEXT NOT NULL,
         target_id TEXT NOT NULL,
         operation_id INTEGER,
+        app_id INTEGER,
         UNIQUE(target_table, target_id)
       )
     `);
+    // Association d'une commande à un logiciel métier (magapp.apps)
+    try { await client.query('ALTER TABLE oracle.oracle_links ADD COLUMN IF NOT EXISTS app_id INTEGER'); } catch (e) {}
 
     // operations - budget operations (mirror SQLite columns)
     await client.query(`

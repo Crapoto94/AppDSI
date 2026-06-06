@@ -330,6 +330,12 @@ const Budget: React.FC = () => {
   const [selectedOrderForOp, setSelectedOrderForOp] = useState<any>(null);
   const [opSearchTerm, setOpSearchTerm] = useState('');
 
+  // Association commande → logiciel métier (magapp.apps)
+  const [showAppSelector, setShowAppSelector] = useState(false);
+  const [selectedOrderForApp, setSelectedOrderForApp] = useState<any>(null);
+  const [appSearchTerm, setAppSearchTerm] = useState('');
+  const [apps, setApps] = useState<any[]>([]);
+
   const [expandedOrders, setExpandedOrders] = useState<string[]>([]);
   const toggleExpand = (id: string) => setExpandedOrders(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
 
@@ -759,6 +765,15 @@ const Budget: React.FC = () => {
     if (token) fetchData();
   }, [currentFiscalYear, budgetScope, token]);
 
+  // Liste des logiciels métier (apps magapp) pour l'association des commandes
+  useEffect(() => {
+    if (!token) return;
+    fetch('/api/apps', { headers: { 'Authorization': `Bearer ${token}` } })
+      .then(r => r.ok ? r.json() : [])
+      .then(data => setApps(Array.isArray(data) ? data : []))
+      .catch(() => {});
+  }, [token]);
+
   useEffect(() => {
     if (isRaw) {
       const tableMap: any = { 'lines': 'budget_lines', 'invoices': 'invoices', 'orders': 'orders', 'operations': 'operations' };
@@ -876,6 +891,27 @@ const Budget: React.FC = () => {
         await fetchData();
       } else {
         alert('Erreur lors de l\'affectation');
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const handleAssignApp = async (appId: number | null, orderOverride?: any) => {
+    const target = orderOverride || selectedOrderForApp;
+    if (!target) return;
+    try {
+      const response = await fetch(`/api/budget/orders/${target.id}/assign-app`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ app_id: appId })
+      });
+      if (response.ok) {
+        setShowAppSelector(false);
+        setSelectedOrderForApp(null);
+        await fetchData();
+      } else {
+        alert('Erreur lors de l\'association du logiciel');
       }
     } catch (e) {
       console.error(e);
@@ -1622,6 +1658,7 @@ const Budget: React.FC = () => {
                             ));
                           })()}
                           {view === 'orders' && <th style={{ whiteSpace: 'nowrap', minWidth: '110px' }}>Opération</th>}
+                          {view === 'orders' && <th style={{ whiteSpace: 'nowrap', minWidth: '110px' }}>Logiciel</th>}
                         </tr>
                       </thead>
                       <tbody>
@@ -1995,6 +2032,35 @@ const Budget: React.FC = () => {
                                         onClick={(e) => { e.stopPropagation(); setSelectedOrderForOp(row); setShowOpSelector(true); }}
                                       >
                                         <Plus size={12} /> Affecter
+                                      </button>
+                                    )}
+                                  </td>
+                                )}
+
+                                {view === 'orders' && (
+                                  <td style={{ whiteSpace: 'nowrap' }}>
+                                    {row.app_label ? (
+                                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                        <span style={{ fontWeight: 600, color: 'var(--color-blue-500)', fontSize: '0.85rem' }}>{row.app_label}</span>
+                                        {isAuthorizedToEdit && (
+                                          <button
+                                            className="icon-btn"
+                                            style={{ padding: '2px', color: 'var(--color-ivry)' }}
+                                            onClick={(e) => { e.stopPropagation(); handleAssignApp(null, row); }}
+                                            title="Dissocier le logiciel"
+                                          >
+                                            <X size={14} />
+                                          </button>
+                                        )}
+                                      </div>
+                                    ) : (
+                                      <button
+                                        className="toolbar-btn"
+                                        style={{ padding: '4px 8px', fontSize: '0.75rem', background: 'var(--color-blue-500)', color: 'white' }}
+                                        onClick={(e) => { e.stopPropagation(); setSelectedOrderForApp(row); setAppSearchTerm(''); setShowAppSelector(true); }}
+                                        title="Associer un logiciel métier"
+                                      >
+                                        <Plus size={12} /> APP
                                       </button>
                                     )}
                                   </td>
@@ -2451,6 +2517,75 @@ const Budget: React.FC = () => {
                               className="toolbar-btn" 
                               style={{ padding: '4px 8px', fontSize: '0.75rem', background: 'var(--color-navy)', color: 'white' }}
                               onClick={() => handleAssignOperation(op.id)}
+                            >
+                              Choisir
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {showAppSelector && (
+          <div className="modal-backdrop" onClick={() => setShowAppSelector(false)}>
+            <div className="modal-window" onClick={e => e.stopPropagation()}>
+              <div className="modal-header">
+                <h2 className="modal-title">Associer un logiciel métier</h2>
+                <button className="icon-btn" onClick={() => setShowAppSelector(false)}><X size={20} /></button>
+              </div>
+              <div className="modal-body">
+                <div className="search-input-wrapper" style={{ marginBottom: '1.5rem' }}>
+                  <Search size={16} className="search-icon" />
+                  <input
+                    type="text"
+                    placeholder="Filtrer les logiciels (nom, éditeur...)"
+                    value={appSearchTerm}
+                    onChange={(e) => setAppSearchTerm(e.target.value)}
+                    className="search-input"
+                    style={{ width: '100%' }}
+                    autoFocus
+                  />
+                </div>
+                <div className="table-responsive" style={{ maxHeight: '50vh' }}>
+                  <table className="modern-table">
+                    <thead>
+                      <tr>
+                        <th>Logiciel</th>
+                        <th>Catégorie</th>
+                        <th>Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr key="none">
+                        <td colSpan={2} style={{ color: '#64748b', fontStyle: 'italic' }}>Aucun logiciel (Dissocier)</td>
+                        <td style={{ textAlign: 'right' }}>
+                          <button
+                            className="toolbar-btn"
+                            style={{ padding: '4px 8px', fontSize: '0.75rem' }}
+                            onClick={() => handleAssignApp(null)}
+                          >
+                            Dissocier
+                          </button>
+                        </td>
+                      </tr>
+                      {apps.filter(a => {
+                        const s = appSearchTerm.toLowerCase();
+                        return (a.name || '').toLowerCase().includes(s) ||
+                               (a.category_name || a.description || '').toLowerCase().includes(s);
+                      }).map(a => (
+                        <tr key={a.id}>
+                          <td style={{ fontWeight: 600 }}>{a.name}</td>
+                          <td style={{ fontSize: '0.8rem' }}>{a.category_name || ''}</td>
+                          <td style={{ textAlign: 'right' }}>
+                            <button
+                              className="toolbar-btn"
+                              style={{ padding: '4px 8px', fontSize: '0.75rem', background: 'var(--color-blue-500)', color: 'white' }}
+                              onClick={() => handleAssignApp(a.id)}
                             >
                               Choisir
                             </button>
