@@ -12,7 +12,7 @@ import ProblemModal from './ProblemModal';
 import ResponseSuggestions from './ResponseSuggestions';
 import DocumentSuggestions from './DocumentSuggestions';
 import type { AttachDoc } from './DocumentSuggestions';
-import { Phone } from 'lucide-react';
+import { Phone, MessageSquare, Upload, X } from 'lucide-react';
 import { formatDateTime, formatDate as formatDateParis } from '../../utils/datetime';
 import UserHoverCard from '../../components/tickets/UserHoverCard';
 
@@ -78,6 +78,13 @@ export default function TicketDetail() {
   const [comments, setComments] = useState<any[]>([]);
   const [history, setHistory] = useState<any[]>([]);
   const [ticketTasks, setTicketTasks] = useState<any[]>([]);
+  const [expandedTaskId, setExpandedTaskId] = useState<number | null>(null);
+  const [taskNotes, setTaskNotes] = useState<Record<number, any[]>>({});
+  const [taskNoteInput, setTaskNoteInput] = useState('');
+  const [taskNoteLoading, setTaskNoteLoading] = useState<Record<number, boolean>>({});
+  const taskFileInputRef = useRef<HTMLInputElement>(null);
+  const [uploadingTaskNote, setUploadingTaskNote] = useState(false);
+  const taskNoteTargetId = useRef<number | null>(null);
   const [newComment, setNewComment] = useState('');
   const [commentPrivate, setCommentPrivate] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -403,6 +410,85 @@ export default function TicketDetail() {
     } catch (e: any) {
       alert(e.response?.data?.message || 'Erreur lors de la mise à jour de la tâche');
     }
+  }
+
+  async function loadTaskNotes(taskId: number) {
+    const t = ticketTasks.find(t => t.id === taskId);
+    if (!t) return;
+    setTaskNoteLoading(prev => ({ ...prev, [taskId]: true }));
+    try {
+      const token = localStorage.getItem('token');
+      const source = t.context_source || 'personal';
+      const res = await axios.get(`/api/tasks/${source}/${taskId}/notes`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setTaskNotes(prev => ({ ...prev, [taskId]: res.data || [] }));
+    } catch { setTaskNotes(prev => ({ ...prev, [taskId]: [] })); }
+    finally { setTaskNoteLoading(prev => ({ ...prev, [taskId]: false })); }
+  }
+
+  function toggleTaskNotes(taskId: number) {
+    if (expandedTaskId === taskId) {
+      setExpandedTaskId(null);
+    } else {
+      setExpandedTaskId(taskId);
+      if (!taskNotes[taskId]) loadTaskNotes(taskId);
+    }
+  }
+
+  async function addTaskNote(taskId: number) {
+    if (!taskNoteInput.trim()) return;
+    const t = ticketTasks.find(t => t.id === taskId);
+    if (!t) return;
+    try {
+      const token = localStorage.getItem('token');
+      const source = t.context_source || 'personal';
+      await axios.post(`/api/tasks/${source}/${taskId}/notes`,
+        { content: taskNoteInput },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      setTaskNoteInput('');
+      await loadTaskNotes(taskId);
+    } catch { /* ignore */ }
+  }
+
+  function triggerTaskFileUpload(taskId: number) {
+    taskNoteTargetId.current = taskId;
+    taskFileInputRef.current?.click();
+  }
+
+  async function uploadTaskNoteFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    const taskId = taskNoteTargetId.current;
+    if (!file || !taskId) return;
+    const t = ticketTasks.find(t => t.id === taskId);
+    if (!t) return;
+    setUploadingTaskNote(true);
+    try {
+      const token = localStorage.getItem('token');
+      const source = t.context_source || 'personal';
+      const formData = new FormData();
+      formData.append('file', file);
+      await axios.post(`/api/tasks/${source}/${taskId}/notes/file`, formData, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      await loadTaskNotes(taskId);
+    } catch { /* ignore */ }
+    finally { setUploadingTaskNote(false); if (taskFileInputRef.current) taskFileInputRef.current.value = ''; }
+  }
+
+  async function deleteTaskNote(taskId: number, noteId: number) {
+    if (!window.confirm('Supprimer cette note ?')) return;
+    const t = ticketTasks.find(t => t.id === taskId);
+    if (!t) return;
+    try {
+      const token = localStorage.getItem('token');
+      const source = t.context_source || 'personal';
+      await axios.delete(`/api/tasks/${source}/${taskId}/notes/${noteId}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      await loadTaskNotes(taskId);
+    } catch { /* ignore */ }
   }
 
   async function doChangeStatus(newStatus: number, comment?: string) {
@@ -989,7 +1075,10 @@ export default function TicketDetail() {
                     const statut = task.statut || 'a_faire';
                     const done = statut === 'terminé';
                     const inprog = statut === 'en_cours';
-                    return (
+                    const isExpanded = expandedTaskId === task.id;
+                    const notes = taskNotes[task.id] || [];
+                    const noteCount = task.note_count || 0;
+                    return (<>
                       <div key={task.id} style={{
                         display: 'flex', alignItems: 'center', gap: 10,
                         padding: '8px 12px', borderRadius: 7,
@@ -1016,13 +1105,77 @@ export default function TicketDetail() {
                             📅 {formatDateParis(task.echeance)}
                           </span>
                         )}
+                        <button onClick={() => toggleTaskNotes(task.id)}
+                          title={`${noteCount} note(s)`}
+                          style={{
+                            background: noteCount > 0 ? '#eff6ff' : 'transparent',
+                            border: noteCount > 0 ? '1px solid #bfdbfe' : 'none',
+                            borderRadius: 4, cursor: 'pointer',
+                            color: isExpanded ? '#2563eb' : noteCount > 0 ? '#1d4ed8' : '#94a3b8',
+                            padding: '2px 5px', marginLeft: 2,
+                            fontWeight: noteCount > 0 ? 700 : 400, fontSize: 10,
+                            lineHeight: '18px', verticalAlign: 'middle'
+                          }}>
+                          <MessageSquare size={12} style={{ verticalAlign: 'middle', marginRight: 2 }} />
+                          {noteCount || '+'}
+                        </button>
                       </div>
-                    );
+                      {isExpanded && (
+                        <div style={{ padding: '4px 12px 8px 12px', background: '#fafafa', borderRadius: '0 0 7px 7px', marginTop: -5 }}>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                            {notes.length === 0 && taskNoteLoading[task.id] && (
+                              <div style={{ fontSize: 11, color: '#94a3b8', padding: '4px 0' }}>Chargement...</div>
+                            )}
+                            {notes.length === 0 && !taskNoteLoading[task.id] && (
+                              <div style={{ fontSize: 11, color: '#94a3b8', padding: '4px 0' }}>Aucune note pour l'instant.</div>
+                            )}
+                            {notes.map((n: any, ni: number) => (
+                              <div key={n.id} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '3px 0', fontSize: 11, borderBottom: ni < notes.length - 1 ? '1px solid #f1f5f9' : 'none' }}>
+                                {n.type === 'file' ? (
+                                  <a
+                                    href={`/api/tasks/${task.context_source || 'ticket'}/${task.id}/notes/${n.id}/file?mode=inline&token=${localStorage.getItem('token')}`}
+                                    target="_blank" rel="noopener noreferrer"
+                                    style={{ flex: 1, color: '#2563eb', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 4 }}
+                                  >
+                                    <Upload size={10} /> {n.filename || n.content}
+                                  </a>
+                                ) : (
+                                  <span style={{ flex: 1, color: '#1e293b' }}>{n.content}</span>
+                                )}
+                                <span style={{ fontSize: 9, color: '#94a3b8', whiteSpace: 'nowrap' }}>
+                                  {n.created_by} · {n.created_at ? new Date(n.created_at).toLocaleDateString('fr-FR') : ''}
+                                </span>
+                                <button onClick={() => deleteTaskNote(task.id, n.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ef4444', padding: 1, lineHeight: 1 }} title="Supprimer">
+                                  <X size={10} />
+                                </button>
+                              </div>
+                            ))}
+                            <div style={{ display: 'flex', gap: 4, marginTop: 4 }}>
+                              <input
+                                type="text"
+                                placeholder="Ajouter une note..."
+                                style={{ flex: 1, padding: '4px 8px', border: '1px solid #cbd5e1', borderRadius: 4, fontSize: 11 }}
+                                value={taskNoteInput}
+                                onChange={e => setTaskNoteInput(e.target.value)}
+                                onKeyDown={e => { if (e.key === 'Enter') addTaskNote(task.id); }}
+                              />
+                              <button onClick={() => addTaskNote(task.id)} style={{ padding: '4px 8px', background: '#2563eb', color: 'white', border: 'none', borderRadius: 4, cursor: 'pointer', fontWeight: 600, fontSize: 10, whiteSpace: 'nowrap' }}>
+                                Ajouter
+                              </button>
+                              <button onClick={() => triggerTaskFileUpload(task.id)} disabled={uploadingTaskNote} style={{ padding: '4px 8px', background: '#f1f5f9', color: '#475569', border: '1px solid #e2e8f0', borderRadius: 4, cursor: 'pointer', fontWeight: 600, fontSize: 10, whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: 3 }}>
+                                <Upload size={10} /> {uploadingTaskNote ? '...' : 'Fichier'}
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </>);
                   })}
                 </div>
               ) : (
                 <p style={{ fontSize: 12, color: '#a1a1aa', fontStyle: 'italic', margin: '0 0 4px' }}>Aucune tâche</p>
               )}
+              <input ref={taskFileInputRef} type="file" style={{ display: 'none' }} onChange={uploadTaskNoteFile} />
             </div>
 
             {/* ACTIVITÉ */}

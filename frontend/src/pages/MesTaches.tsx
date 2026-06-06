@@ -810,9 +810,10 @@ const MesTaches: React.FC = () => {
             <p style={{ color: '#64748b', margin: '4px 0 0', fontSize: 13 }}>Toutes vos tâches assignées, tous modules confondus</p>
           </div>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-            {/* Toggle alerte */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 12px', background: 'white', border: '1px solid #e2e8f0', borderRadius: 8 }}>
-              <span style={{ fontSize: 12, color: '#475569', fontWeight: 600, whiteSpace: 'nowrap' }}>🔔 Alertes 8h</span>
+            {/* Toggle M'avertir */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 12px', background: 'white', border: '1px solid #e2e8f0', borderRadius: 8 }}
+              title="Recevoir un email à chaque tâche qui m'est affectée">
+              <span style={{ fontSize: 12, color: '#475569', fontWeight: 600, whiteSpace: 'nowrap' }}>🔔 M'avertir</span>
               <Toggle checked={alertEnabled} onChange={() => toggleAlert()} disabled={alertLoading} />
               {alertEnabled && (
                 <button onClick={sendTest} disabled={testSending} style={{ padding: '2px 8px', background: '#eff6ff', color: '#2563eb', border: '1px solid #bfdbfe', borderRadius: 6, cursor: 'pointer', fontSize: 11, fontWeight: 600 }}>

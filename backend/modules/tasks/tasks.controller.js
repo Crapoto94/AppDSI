@@ -133,10 +133,22 @@ async function notifyCreatorOfRefusal({ createdBy, refuserUsername, description,
 // Prévient par mail chaque destinataire (≠ créateur) qu'une tâche vient de lui être
 // affectée. Notification immédiate et inconditionnelle (indépendante de l'opt-in du
 // récap quotidien). Silencieuse si pas de service mail / d'adresse ; non bloquante.
-async function notifyTaskAssignment({ targets, creatorUsername, description, echeance, isTeamTask, contextTitle }) {
+async function notifyTaskAssignment({ targets, creatorUsername, description, echeance, isTeamTask, contextTitle, contextSource }) {
     if (!sendMailFn) return;
+    // Ne pas notifier pour les tâches personnelles
+    if (contextSource === 'personal') return;
     const recipients = (targets || []).filter(u => u && u.toLowerCase() !== (creatorUsername || '').toLowerCase());
     if (recipients.length === 0) return;
+
+    // Récupérer les préférences d'alerte pour tous les destinataires en une requête
+    let prefMap = {};
+    try {
+        const prefRows = await pool.query(
+            'SELECT LOWER(username) AS un, task_alert_email FROM hub.user_prefs WHERE LOWER(username) = ANY($1)',
+            [recipients.map(u => u.toLowerCase())]
+        );
+        for (const row of prefRows.rows) prefMap[row.un] = row.task_alert_email === true;
+    } catch (e) { /* ignore */ }
 
     const creatorName = await getUserDisplayName(creatorUsername);
     const esc = (s) => String(s || '').replace(/[<>&]/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c]));
@@ -149,6 +161,8 @@ async function notifyTaskAssignment({ targets, creatorUsername, description, ech
 
     for (const uname of recipients) {
         try {
+            // Respecter le toggle "M'avertir" de chaque destinataire
+            if (prefMap[uname.toLowerCase()] === false) continue;
             const r = await pool.query('SELECT email FROM hub.users WHERE LOWER(username) = LOWER($1)', [uname]);
             const to = r.rows[0]?.email;
             if (!to) continue;
@@ -532,6 +546,7 @@ module.exports = {
                 targets, creatorUsername: creator,
                 description: description.trim(), echeance: echeance || null,
                 isTeamTask: is_team_task, contextTitle: context_title,
+                contextSource: context_source,
             }).catch(e => console.error('[tasks] notify assignment error:', e.message));
 
             // Return single row for personal tasks, array for team
@@ -563,19 +578,23 @@ module.exports = {
         const { source, id } = req.query;
         if (!source || !id) return res.status(400).json({ error: 'source et id requis' });
         try {
-            const { rows } = await pool.query(
-                `SELECT ut.*, tn_count.cnt AS note_count
+            const { rows: tasks } = await pool.query(
+                `SELECT ut.*,
+                    (SELECT COUNT(*) FROM hub.task_notes tn WHERE tn.source = $1 AND tn.task_id = ut.id::text) AS note_count
                  FROM hub.user_tasks ut
-                 LEFT JOIN (
-                     SELECT task_id::integer AS tid, COUNT(*) AS cnt
-                     FROM hub.task_notes WHERE source = 'personal'
-                     GROUP BY task_id
-                 ) tn_count ON tn_count.tid = ut.id
                  WHERE ut.context_source = $1 AND ut.context_id = $2
                  ORDER BY ut.created_at ASC`,
                 [source, parseInt(id)]
             );
-            res.json(rows);
+            // Enrich each task with its notes
+            for (const task of tasks) {
+                const { rows: notes } = await pool.query(
+                    `SELECT * FROM hub.task_notes WHERE source = $1 AND task_id = $2 ORDER BY created_at ASC`,
+                    [source, String(task.id)]
+                );
+                task.notes = notes || [];
+            }
+            res.json(tasks);
         } catch (error) {
             res.status(500).json({ error: error.message });
         }
