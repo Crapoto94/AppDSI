@@ -10,6 +10,7 @@ const ticketRepo = require('../tickets/repositories/ticket.repository');
 const historyRepo = require('../tickets/repositories/history.repository');
 const notificationService = require('../tickets/services/notification.service');
 const { toParisSql } = require('../../shared/utils');
+const ticketEmitter = require('../../shared/ticketEmitter');
 const fs = require('fs');
 const path = require('path');
 

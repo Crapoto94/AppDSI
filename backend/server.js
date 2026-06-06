@@ -1103,7 +1103,7 @@ app.get('/api/auth/azure/callback', async (req, res) => {
         const username = email.split('@')[0].toLowerCase();
 
         // 3. Authentifier ou créer l'utilisateur localement (SQLite pour Hub)
-        let user = await db.get('SELECT id, username, role, service_code, service_complement FROM users WHERE LOWER(username) = LOWER(?)', [username]);
+        let user = await db.get('SELECT id, username, role, service_code, service_complement, displayName FROM users WHERE LOWER(username) = LOWER(?)', [username]);
 
         if (!user) {
             console.log(`[AZURE] Utilisateur ${username} non trouvé en SQLite. Création automatique...`);
@@ -1112,10 +1112,10 @@ app.get('/api/auth/azure/callback', async (req, res) => {
             const isApproved = 1; // AD Verified
 
             const result = await db.run(
-                'INSERT INTO users (username, role, is_approved) VALUES (?, ?, ?)',
-                [username, role, isApproved]
+                'INSERT INTO users (username, role, is_approved, displayName) VALUES (?, ?, ?, ?)',
+                [username, role, isApproved, azureUser.displayName || null]
             );
-            user = await db.get('SELECT id, username, role, service_code, service_complement FROM users WHERE id = ?', [result.lastID]);
+            user = await db.get('SELECT id, username, role, service_code, service_complement, displayName FROM users WHERE id = ?', [result.lastID]);
         }
 
         // 4. Également s'assurer qu'il existe dans PostgreSQL (MagApp base)
@@ -1134,6 +1134,7 @@ app.get('/api/auth/azure/callback', async (req, res) => {
         const accessToken = jwt.sign({
             id: user.id,
             username: user.username,
+            displayName: azureUser.displayName || user.displayName || null,
             role: user.role,
             email: email,
             service_code: user.service_code,
@@ -3193,35 +3194,6 @@ setupDb().then(async database => {
         console.error('[Oracle Scheduler] Error:', e.message);
     }
 
-    // SSE Route for real-time ticket updates
-app.get('/api/tickets/updates', (req, res, next) => {
-    if (req.query.token) {
-        req.headers.authorization = `Bearer ${req.query.token}`;
-    }
-    next();
-}, authenticateJWT, (req, res) => {
-    res.setHeader('Content-Type', 'text/event-stream');
-    res.setHeader('Cache-Control', 'no-cache');
-    res.setHeader('Connection', 'keep-alive');
-    res.flushHeaders();
-
-    const onTicketEvent = (data) => {
-        try {
-            console.log(`[SSE] Emitting ticket-created event to client:`, data);
-            res.write(`data: ${JSON.stringify(data)}\n\n`);
-        } catch (e) {
-            console.error('[SSE] Write error:', e);
-        }
-    };
-
-    ticketEmitter.on('ticket-created', onTicketEvent);
-    console.log('[SSE] Client connected to /api/tickets/updates');
-
-    req.on('close', () => {
-        ticketEmitter.removeListener('ticket-created', onTicketEvent);
-        console.log('[SSE] Client disconnected');
-    });
-});
 
 // Seed consumable email templates
     try {
@@ -3964,7 +3936,7 @@ app.post(['/api/login', '/api/auth/magapp-login'], async (req, res) => {
         let magappUser = null;
         if (!user) {
             try {
-                const r = await pool.query('SELECT username, role, is_approved, email, service_code, service_complement FROM magapp.users WHERE username = $1', [username.toLowerCase()]);
+                const r = await pool.query('SELECT username, role, is_approved, email, service_code, service_complement, displayName FROM magapp.users WHERE username = $1', [username.toLowerCase()]);
                 magappUser = r.rows[0] || null;
             } catch (pgErr) { console.error('[BYPASS magapp.users]', pgErr.message); }
             if (!magappUser) {
@@ -3995,6 +3967,7 @@ app.post(['/api/login', '/api/auth/magapp-login'], async (req, res) => {
             const accessToken = jwt.sign({
                 id: u.id || 0,
                 username: u.username,
+                displayName: u.displayName || null,
                 role: u.role,
                 is_approved: u.is_approved,
                 service_code: u.service_code,
@@ -4007,6 +3980,7 @@ app.post(['/api/login', '/api/auth/magapp-login'], async (req, res) => {
                 user: {
                     id: u.id || 0,
                     username: u.username,
+                    displayName: u.displayName || null,
                     role: u.role,
                     is_approved: u.is_approved,
                     service_code: u.service_code,
@@ -4044,7 +4018,7 @@ app.post(['/api/login', '/api/auth/magapp-login'], async (req, res) => {
                     } catch (pgErr) { console.error('[AD sync magapp]', pgErr.message); }
                 } else {
                     try {
-                        const r = await pool.query('SELECT username, role, is_approved, email, service_code, service_complement FROM magapp.users WHERE username = $1', [username.toLowerCase()]);
+                const r = await pool.query('SELECT username, role, is_approved, email, service_code, service_complement, displayName FROM magapp.users WHERE username = $1', [username.toLowerCase()]);
                         magappUser = r.rows[0] || null;
                     } catch (pgErr) { console.error('[AD magapp.users]', pgErr.message); }
                     if (!magappUser) {
@@ -4079,6 +4053,7 @@ app.post(['/api/login', '/api/auth/magapp-login'], async (req, res) => {
                     const accessToken = jwt.sign({
                         id: u.id || 0,
                         username: u.username,
+                        displayName: u.displayName || adUser.displayName || null,
                         role: u.role,
                         is_approved: u.is_approved,
                         service_code: u.service_code || null,
@@ -4092,6 +4067,7 @@ app.post(['/api/login', '/api/auth/magapp-login'], async (req, res) => {
                         user: {
                             id: u.id || 0,
                             username: u.username,
+                            displayName: u.displayName || adUser.displayName || null,
                             role: u.role,
                             is_approved: u.is_approved,
                             service_code: u.service_code || null,
@@ -4128,6 +4104,7 @@ app.post(['/api/login', '/api/auth/magapp-login'], async (req, res) => {
                 const accessToken = jwt.sign({
                     id: user.id,
                     username: user.username,
+                    displayName: user.displayName || null,
                     role: user.role,
                     is_approved: isApproved,
                     service_code: user.service_code,
@@ -5676,6 +5653,37 @@ app.use('/api/projets', projetsRouter);
 // ============================================
 // TICKETS - Module ITSM
 // ============================================
+
+// SSE Route for real-time ticket updates (must be BEFORE the tickets router)
+app.get('/api/tickets/updates', (req, res, next) => {
+    if (req.query.token) {
+        req.headers.authorization = `Bearer ${req.query.token}`;
+    }
+    next();
+}, authenticateJWT, (req, res) => {
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.flushHeaders();
+
+    const onTicketEvent = (data) => {
+        try {
+            console.log(`[SSE] Emitting ticket-created event to client:`, data);
+            res.write(`data: ${JSON.stringify(data)}\n\n`);
+        } catch (e) {
+            console.error('[SSE] Write error:', e);
+        }
+    };
+
+    ticketEmitter.on('ticket-created', onTicketEvent);
+    console.log('[SSE] Client connected to /api/tickets/updates');
+
+    req.on('close', () => {
+        ticketEmitter.removeListener('ticket-created', onTicketEvent);
+        console.log('[SSE] Client disconnected');
+    });
+});
+
 const ticketsRouter = require('./modules/tickets/tickets.routes');
 const ticketsAdminRouter = require('./modules/tickets/tickets-admin.routes');
 const ticketsCtrl = require('./modules/tickets/tickets.controller');

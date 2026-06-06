@@ -551,18 +551,28 @@ export default function TicketList({
                     {/* Logiciel */}
                     <td style={tdStyle}>
                       {data.software_name ? (
-                        <span style={{
-                          display: 'inline-block', padding: '3px 10px', borderRadius: 20,
-                          fontSize: isChild ? 11 : 12, fontWeight: 500,
-                          background: '#e0e7ff',
-                          color: '#4f46e5',
-                          maxWidth: 150,
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis',
-                          whiteSpace: 'nowrap'
-                        }} title={data.software_name}>
-                          💾 {data.software_name}
-                        </span>
+                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
+                          <span style={{
+                            display: 'inline-block', padding: '3px 10px', borderRadius: 20,
+                            fontSize: isChild ? 11 : 12, fontWeight: 500,
+                            background: '#e0e7ff',
+                            color: '#4f46e5',
+                            maxWidth: 150,
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap'
+                          }} title={data.software_name}>
+                            💾 {data.software_name}
+                          </span>
+                          {data.project_manager_name && (
+                            <span style={{
+                              fontSize: 10, color: '#64748b', whiteSpace: 'nowrap',
+                              maxWidth: 150, overflow: 'hidden', textOverflow: 'ellipsis'
+                            }} title={data.project_manager_name}>
+                              👤 {data.project_manager_name}
+                            </span>
+                          )}
+                        </div>
                       ) : <span style={{ color: '#94a3b8', fontSize: 12 }}>—</span>}
                     </td>
 

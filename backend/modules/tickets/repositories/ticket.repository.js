@@ -6,6 +6,8 @@ SELECT t.*,
            -- Email demandeur fiable : GLPI champ 22 (requester_email_22) contient parfois
            -- l'email du technicien ; le champ 34 (email_alt) porte alors le vrai demandeur.
            COALESCE(NULLIF(t.email_alt, ''), t.requester_email_22) AS requester_email_resolved,
+           -- Résout le displayName du demandeur si requester_name est un login
+           COALESCE(NULLIF((SELECT hu.displayName FROM hub.users hu WHERE LOWER(hu.username) = LOWER(t.requester_name) AND hu.displayName IS NOT NULL AND hu.displayName != '' LIMIT 1), ''), t.requester_name) AS requester_name,
            ta.technician_id, tga.group_id,
            tca.category_id as assigned_category_id,
            ts.label as status_label,
@@ -20,6 +22,7 @@ SELECT t.*,
             tgm_sub.bundle_members,
             problem_sub.problem_linked_tickets,
            ma.name as software_name,
+           ma.project_manager_name as project_manager_name,
            tc.name as category_name,
            tsc.name as subcategory_name,
              (SELECT vu.is_elu FROM hub_tickets.vip_users vu

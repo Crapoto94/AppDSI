@@ -48,6 +48,7 @@ module.exports = {
             subcategory_name: ticket.subcategory_name || null,
             software_id: ticket.software_id || null,
             software_name: ticket.software_name || null,
+            project_manager_name: ticket.project_manager_name || null,
             requester: {
                 name: ticket.requester_name,
                 email: ticket.requester_email_resolved || ticket.requester_email_22,
@@ -123,6 +124,7 @@ module.exports = {
             date_mod: ticket.date_mod,
             software_id: ticket.software_id || null,
             software_name: ticket.software_name || null,
+            project_manager_name: ticket.project_manager_name || null,
             category_id: ticket.category_id || null,
             category_name: ticket.category_name || null,
             subcategory_id: ticket.subcategory_id || null,

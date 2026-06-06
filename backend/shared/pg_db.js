@@ -515,6 +515,16 @@ async function setupPgDb() {
     await client.query(`CREATE INDEX IF NOT EXISTS idx_tickets_status_mod ON hub_tickets.tickets(status, date_mod DESC)`);
     await client.query(`CREATE INDEX IF NOT EXISTS idx_tickets_date_mod ON hub_tickets.tickets(date_mod DESC)`);
     await client.query(`CREATE INDEX IF NOT EXISTS idx_tickets_priority_status ON hub_tickets.tickets(priority, status)`);
+    // Index simples pour les colonnes de filtrage (type, priority, etc.)
+    try { await client.query('CREATE INDEX IF NOT EXISTS idx_tickets_type ON hub_tickets.tickets(type)'); } catch (e) {}
+    try { await client.query('CREATE INDEX IF NOT EXISTS idx_tickets_priority ON hub_tickets.tickets(priority)'); } catch (e) {}
+    try { await client.query('CREATE INDEX IF NOT EXISTS idx_tickets_subcategory_id ON hub_tickets.tickets(subcategory_id)'); } catch (e) {}
+    try { await client.query('CREATE INDEX IF NOT EXISTS idx_tickets_software_id ON hub_tickets.tickets(software_id)'); } catch (e) {}
+    try { await client.query('CREATE INDEX IF NOT EXISTS idx_tickets_is_vip ON hub_tickets.tickets(is_vip)'); } catch (e) {}
+    try { await client.query('CREATE INDEX IF NOT EXISTS idx_tickets_email_alt ON hub_tickets.tickets(email_alt)'); } catch (e) {}
+    try { await client.query("CREATE INDEX IF NOT EXISTS idx_tickets_is_live ON hub_tickets.tickets(is_live) WHERE is_live IS TRUE"); } catch (e) {}
+    // Index fonctionnel LOWER(email) pour les sous-requêtes vip_users
+    try { await client.query('CREATE INDEX IF NOT EXISTS idx_vip_users_email_lower ON hub_tickets.vip_users(LOWER(email))'); } catch (e) {}
     // Trigrams pour la recherche ILIKE (nécessite l'extension pg_trgm).
     try { await client.query(`CREATE EXTENSION IF NOT EXISTS pg_trgm`); } catch (e) {}
     try { await client.query(`CREATE INDEX IF NOT EXISTS idx_tickets_title_trgm ON hub_tickets.tickets USING gin(title gin_trgm_ops)`); } catch (e) {}

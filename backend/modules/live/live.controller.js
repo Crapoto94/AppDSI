@@ -640,7 +640,7 @@ async function uploadAttachment(req, res) {
         // Corrige l'encodage et sauvegarde via storage
         if (file && file.originalname) file.originalname = storage.fixUploadName(file.originalname);
         const saved = await storage.saveFile(MODULE, id, file);
-        const attachmentUrl = `/${saved.dbPath}`;
+        const attachmentUrl = `/api/${saved.dbPath}`;
 
         const result = await pgDb.run(`
             INSERT INTO hub_tickets.live_messages

@@ -330,7 +330,9 @@ const Header: React.FC<HeaderProps> = () => {
                               <span className="nav-tile-icon">{getTileIcon(tile.icon)}</span>
                               <span className="nav-tile-title">{tile.title}</span>
                             </div>
-                            {internalLinks.map((link, idx) => (
+                            {internalLinks.map((link, idx) => {
+                              console.log('Tile link:', link, 'Tile:', tile);
+                              return (
                               <Link
                                 key={idx}
                                 to={link.url}
@@ -345,7 +347,8 @@ const Header: React.FC<HeaderProps> = () => {
                                   </div>
                                 )}
                               </Link>
-                            ))}
+                              );
+                            })}
                           </div>
                         );
                       })}

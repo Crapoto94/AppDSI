@@ -1,6 +1,9 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 
 export const useRealtimeNotifications = (onTicketCreated: (data: any) => void) => {
+  const savedCallback = useRef(onTicketCreated);
+  savedCallback.current = onTicketCreated;
+
   useEffect(() => {
     // 1. Demander la permission lors du montage du composant
     if ('Notification' in window && Notification.permission === 'default') {
@@ -31,7 +34,7 @@ export const useRealtimeNotifications = (onTicketCreated: (data: any) => void) =
         }
 
         // Déclencher le callback pour mettre à jour l'UI
-        onTicketCreated(data);
+        savedCallback.current(data);
       } catch (e) {
         console.error('Error processing SSE message:', e);
       }
@@ -44,5 +47,5 @@ export const useRealtimeNotifications = (onTicketCreated: (data: any) => void) =
     return () => {
       console.log('[SSE] Closing connection');
       eventSource.close();
-    };  }, [onTicketCreated]);
+    };  }, []);
 };

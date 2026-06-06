@@ -888,6 +888,11 @@ export default function TicketDetail() {
             {ticket.software_name && (
               <span style={{ display: 'inline-flex', alignItems: 'center', padding: '1px 7px', borderRadius: 4, fontSize: 10, fontWeight: 600, background: '#f0fdf4', color: '#16a34a', flexShrink: 0 }}>
                 💾 {ticket.software_name}
+                {ticket.project_manager_name && (
+                  <span style={{ marginLeft: 6, fontWeight: 400, color: '#64748b' }}>
+                    👤 {ticket.project_manager_name}
+                  </span>
+                )}
               </span>
             )}
             {/* Pills inline avec le titre */}
