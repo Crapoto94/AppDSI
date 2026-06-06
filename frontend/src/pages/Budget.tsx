@@ -636,7 +636,7 @@ const Budget: React.FC = () => {
   const [editingCell, setEditingCell] = useState<{ id: number, key: string } | null>(null);
   const [cellValue, setCellValue] = useState<any>('');
 
-  const isAuthorizedToEdit = ['admin', 'finances', 'compta'].includes(currentUser.role);
+  const isAuthorizedToEdit = ['superadmin', 'admin', 'finances', 'compta'].includes(currentUser.role);
 
   const handleCellUpdate = async (row: any, key: string, newValue: any) => {
     if (row[key] === newValue) {
@@ -663,7 +663,7 @@ const Budget: React.FC = () => {
   };
 
   const handleCreateOp = async () => {
-    const emptyRow = { 'Service': '', 'Service Complément': '', 'LIBELLE': 'Nouvelle Opération', 'MCO': '', 'C. Fonc.': '', 'C. Nature': '', 'Montant prévu': 0, 'Terminé': 'NON', 'Commentaire': '' };
+    const emptyRow = { 'Service': '', 'Service Complément': '', 'LIBELLE': 'Nouvelle Opération', 'MCO': '', 'C. Fonc.': '', 'C. Nature': '', 'Montant prévu': 0, 'Terminé': 'NON', 'Commentaire': '', 'exercice': String(currentFiscalYear) };
     try {
       const response = await fetch('/api/budget/operations', {
         method: 'POST',
@@ -1042,7 +1042,10 @@ const Budget: React.FC = () => {
         data = data.filter((row: any) => Object.values(row).some(v => v?.toString().toLowerCase().includes(sTerm)));
       }
       for (const [key, filterValue] of Object.entries(columnFilters)) {
-        if (filterValue) {
+        if (!filterValue) continue;
+        if ((key === 'Section' || key === 'section') && view === 'operations') {
+          data = data.filter((row: any) => getSectionFromM57(row['C. Nature']) === filterValue);
+        } else {
           data = data.filter((row: any) => (row[key] || '').toString().toLowerCase().includes(filterValue.toLowerCase()));
         }
       }
@@ -1058,6 +1061,59 @@ const Budget: React.FC = () => {
     }
     return data;
   }, [view, budgetLines, groupedBudgetLines, invoices, operations, filteredOrders, searchTerm, columnFilters, sortConfig, showZeroBudget, sectionFilter, m57Plan]);
+
+  // Évolution cumulée des commandes liées aux opérations actuellement filtrées.
+  const opsChartData = useMemo(() => {
+    if (view !== 'operations') return [];
+    const opIds = new Set(
+      (filteredData as any[]).filter(o => o && o.id != null).map(o => String(o.id))
+    );
+    const weekly: Record<string, { f: number; i: number }> = {};
+    orders.forEach((order: any) => {
+      const opId = order.operation_id;
+      if (opId == null || !opIds.has(String(opId))) return;
+      const dateStr = order['Date de la commande'] || order.date;
+      if (!dateStr) return;
+      let date = new Date(dateStr);
+      if (isNaN(date.getTime())) {
+        const m = String(dateStr).match(/(\d{4})-(\d{2})-(\d{2})/);
+        if (m) date = new Date(m[0]);
+      }
+      if (isNaN(date.getTime())) return;
+      const key = `${date.getFullYear()}-W${getWeekNumber(date).toString().padStart(2, '0')}`;
+      const amt = typeof order['Montant TTC'] === 'number'
+        ? order['Montant TTC']
+        : parseFloat(String(order['Montant TTC'] || order.amount_ttc || 0).replace(',', '.')) || 0;
+      const section = order.section || order['Section'] || getSectionFromM57(order['Article par nature'] || order.nature || '');
+      if (!weekly[key]) weekly[key] = { f: 0, i: 0 };
+      if (section === 'F' || section === 'Fonctionnement') weekly[key].f += amt;
+      else if (section === 'I' || section === 'Investissement') weekly[key].i += amt;
+    });
+    let cf = 0, ci = 0;
+    return Object.keys(weekly).sort().map(k => {
+      cf += weekly[k].f; ci += weekly[k].i;
+      return { week: k, fonctionnement: Math.round(cf), investissement: Math.round(ci), total: Math.round(cf + ci) };
+    });
+  }, [view, filteredData, orders, m57Plan]);
+
+  // Valeurs distinctes pour les filtres en liste déroulante (service, nature, section…)
+  const filterOptions = useMemo(() => {
+    const base: any[] = view === 'orders' ? groupedOrders : view === 'operations' ? operations : groupedBudgetLines;
+    const opts: Record<string, string[]> = {};
+    for (const c of ['Service', 'Service émetteur', 'Service Complément', 'C. Nature']) {
+      const s = new Set<string>();
+      base.forEach((r: any) => { const v = r?.[c]; if (v != null && String(v).trim() !== '') s.add(String(v).trim()); });
+      opts[c] = [...s].sort((a, b) => a.localeCompare(b, 'fr'));
+    }
+    if (view === 'operations') {
+      const s = new Set<string>();
+      base.forEach((r: any) => { const sec = getSectionFromM57(r['C. Nature']); if (sec) s.add(sec); });
+      opts['Section'] = [...s].sort();
+    }
+    return opts;
+  }, [view, groupedOrders, operations, groupedBudgetLines, m57Plan]);
+
+  const DROPDOWN_FILTER_COLS = ['Service', 'Service émetteur', 'Service Complément', 'C. Nature', 'Section'];
 
   const visibleColumns = useMemo(() => {
     if (filteredData.length === 0) return [];
@@ -1454,10 +1510,10 @@ const Budget: React.FC = () => {
                     const used = parseFloat(op['used_amount'] || op['Montant utilisé'] || 0) || 0;
                     acc.planned += planned;
                     acc.used += used;
-                    if (section === 'F') acc.usedF += used;
-                    else if (section === 'I') acc.usedI += used;
+                    if (section === 'F') { acc.usedF += used; acc.plannedF += planned; }
+                    else if (section === 'I') { acc.usedI += used; acc.plannedI += planned; }
                     return acc;
-                  }, { planned: 0, used: 0, usedF: 0, usedI: 0 });
+                  }, { planned: 0, used: 0, usedF: 0, usedI: 0, plannedF: 0, plannedI: 0 });
                   const pct = kpi.planned > 0 ? (kpi.used / kpi.planned) * 100 : 0;
                   const fmt = (n: number) => n.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 });
                   const card: React.CSSProperties = {
@@ -1471,14 +1527,17 @@ const Budget: React.FC = () => {
                       <div style={card}>
                         <span style={label}>Réalisé Fonctionnement</span>
                         <span style={{ ...value, color: 'var(--color-green-500)' }}>{fmt(kpi.usedF)}</span>
+                        <span style={{ fontSize: '0.72rem', color: '#94a3b8' }}>Prévu : {fmt(kpi.plannedF)}</span>
                       </div>
                       <div style={card}>
                         <span style={label}>Réalisé Investissement</span>
                         <span style={{ ...value, color: 'var(--color-blue-500)' }}>{fmt(kpi.usedI)}</span>
+                        <span style={{ fontSize: '0.72rem', color: '#94a3b8' }}>Prévu : {fmt(kpi.plannedI)}</span>
                       </div>
                       <div style={card}>
                         <span style={label}>Montant total prévu</span>
                         <span style={value}>{fmt(kpi.planned)}</span>
+                        <span style={{ fontSize: '0.72rem', color: '#94a3b8' }}>F {fmt(kpi.plannedF)} · I {fmt(kpi.plannedI)}</span>
                       </div>
                       <div style={card}>
                         <span style={label}>Réalisation globale</span>
@@ -1490,6 +1549,29 @@ const Budget: React.FC = () => {
                     </div>
                   );
                 })()}
+
+                {view === 'operations' && opsChartData.length > 0 && (
+                  <div className="table-card" style={{ marginBottom: '1rem' }}>
+                    <div style={{ padding: '1.25rem', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <h3 style={{ margin: 0, color: 'var(--color-navy)', fontSize: '1.1rem', fontWeight: 700 }}>Évolution cumulée des commandes affectées aux opérations</h3>
+                      <span style={{ fontSize: '0.8rem', color: '#64748b', fontStyle: 'italic' }}>* S'adapte aux filtres (section, service, nature, recherche)</span>
+                    </div>
+                    <div style={{ padding: '1.5rem', height: '340px' }}>
+                      <ResponsiveContainer width="100%" height="100%">
+                        <LineChart data={opsChartData}>
+                          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                          <XAxis dataKey="week" axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 12 }} dy={10} />
+                          <YAxis axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 12 }} tickFormatter={(val) => `${(val / 1000).toFixed(0)}k€`} />
+                          <Tooltip formatter={(value: any) => [new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR' }).format(value), '']} contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }} />
+                          <Legend wrapperStyle={{ paddingTop: '20px' }} />
+                          <Line type="monotone" dataKey="total" name="Total" stroke="#0f172a" strokeWidth={3} dot={false} activeDot={{ r: 6 }} />
+                          <Line type="monotone" dataKey="fonctionnement" name="Fonctionnement" stroke="#22c55e" strokeWidth={2} dot={false} activeDot={{ r: 5 }} />
+                          <Line type="monotone" dataKey="investissement" name="Investissement" stroke="#3b82f6" strokeWidth={2} dot={false} activeDot={{ r: 5 }} />
+                        </LineChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </div>
+                )}
 
                 <div className="table-card">
                   <div className="table-responsive">
@@ -1511,14 +1593,30 @@ const Budget: React.FC = () => {
                                       <span className="sort-indicator">{sortConfig.direction === 'asc' ? ' ↑' : ' ↓'}</span>
                                     )}
                                   </div>
-                                  <input 
-                                    type="text" 
-                                    placeholder="Filtrer..."
-                                    value={columnFilters[col] || ''}
-                                    onChange={(e) => handleColumnFilterChange(col, e.target.value)}
-                                    onClick={(e) => e.stopPropagation()}
-                                    className="col-filter-input"
-                                  />
+                                  {DROPDOWN_FILTER_COLS.includes(col) && (col === 'Section' || (filterOptions[col]?.length)) ? (
+                                    <select
+                                      value={columnFilters[col] || ''}
+                                      onChange={(e) => handleColumnFilterChange(col, e.target.value)}
+                                      onClick={(e) => e.stopPropagation()}
+                                      className="col-filter-input"
+                                    >
+                                      <option value="">Tous</option>
+                                      {col === 'Section'
+                                        ? ([['F', 'Fonctionnement'], ['I', 'Investissement']] as [string, string][])
+                                            .filter(([v]) => !(filterOptions['Section']?.length) || filterOptions['Section'].includes(v))
+                                            .map(([v, l]) => (<option key={v} value={v}>{l}</option>))
+                                        : (filterOptions[col] || []).map(v => (<option key={v} value={v}>{v}</option>))}
+                                    </select>
+                                  ) : (
+                                    <input
+                                      type="text"
+                                      placeholder="Filtrer..."
+                                      value={columnFilters[col] || ''}
+                                      onChange={(e) => handleColumnFilterChange(col, e.target.value)}
+                                      onClick={(e) => e.stopPropagation()}
+                                      className="col-filter-input"
+                                    />
+                                  )}
                                 </div>
                               </th>
                             ));

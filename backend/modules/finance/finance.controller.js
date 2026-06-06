@@ -19,24 +19,43 @@ function parseNum(val) {
     return isNaN(num) ? 0 : num;
 }
 
+// Calcule le montant consommé (TTC des commandes liées) par opération.
+// Source unique de vérité, utilisée à la fois pour l'affichage dynamique
+// (getOperations) et pour la persistance (recalculateAllOperations).
+// → { [operation_id]: used_amount }
+const computeUsedMap = async () => {
+    const usedMap = {};
+    const links = await pgDb.all("SELECT target_id, operation_id FROM oracle.oracle_links WHERE target_table = 'orders' AND operation_id IS NOT NULL");
+    if (links.length === 0) return usedMap;
+
+    // Récupère les montants TTC en une seule requête (plutôt qu'un appel par lien).
+    const ids = [...new Set(links.map(l => String(l.target_id).trim()))];
+    const orderTotals = {};
+    try {
+        const { rows } = await pool.query(
+            `SELECT TRIM("COMMANDE_COMMANDE") AS num, "COMMANDE_MONTANT_TTC" AS ttc
+             FROM oracle.gf_oracle_commande WHERE TRIM("COMMANDE_COMMANDE") = ANY($1)`,
+            [ids]
+        );
+        for (const r of rows) orderTotals[r.num] = parseNum(r.ttc);
+    } catch (e) {
+        console.error('[Finance] computeUsedMap montants:', e.message);
+    }
+
+    for (const link of links) {
+        const opId = String(link.operation_id);
+        const amt = orderTotals[String(link.target_id).trim()] || 0;
+        usedMap[opId] = (usedMap[opId] || 0) + amt;
+    }
+    return usedMap;
+};
+
 const recalculateAllOperations = async () => {
     try {
-        const links = await pgDb.all("SELECT target_id, operation_id FROM oracle.oracle_links WHERE target_table = 'orders' AND operation_id IS NOT NULL");
-
-        const orderTotals = {};
-        for (const link of links) {
-            try {
-                const order = await pool.query(`SELECT "COMMANDE_MONTANT_TTC" FROM oracle.gf_oracle_commande WHERE "COMMANDE_COMMANDE" = $1`, [link.target_id.trim()]);
-                if (order.rows.length > 0) {
-                    orderTotals[link.target_id.trim()] = parseNum(order.rows[0].COMMANDE_MONTANT_TTC);
-                }
-            } catch (e) { /* skip */ }
-        }
-
+        const usedMap = await computeUsedMap();
         const operations = await pgDb.all('SELECT id FROM oracle.operations');
         for (const op of operations) {
-            const linkedOrders = links.filter(l => String(l.operation_id) === String(op.id));
-            const used = linkedOrders.reduce((acc, l) => acc + (orderTotals[l.target_id.trim()] || 0), 0);
+            const used = usedMap[String(op.id)] || 0;
             await pgDb.run('UPDATE oracle.operations SET used_amount = $1 WHERE id = $2', [used, op.id]);
         }
         console.log('[Finance] Synchronisation montants terminée.');
@@ -109,6 +128,16 @@ module.exports = {
                 params.push(String(fiscalYear));
             }
             const operations = await pgDb.all(query, params);
+            // used_amount calculé dynamiquement à chaque lecture (dégrèvement immédiat
+            // après affectation d'une commande, sans redémarrage du backend).
+            try {
+                const usedMap = await computeUsedMap();
+                for (const op of operations) {
+                    op.used_amount = usedMap[String(op.id)] || 0;
+                }
+            } catch (e) {
+                console.error('[Finance] getOperations used_amount dynamique:', e.message);
+            }
             res.json(operations);
         } catch (error) {
             console.error('[Finance] getOperations error:', error);
@@ -163,10 +192,19 @@ module.exports = {
         }
     },
 
+    // Colonnes réellement présentes dans oracle.operations (évite les erreurs SQL
+    // quand le front renvoie des champs calculés comme orders_count).
+    OPERATION_COLUMNS: [
+        'budget_id', 'Service', 'Service Complément', 'LIBELLE', 'MCO', 'C. Fonc.',
+        'C. Nature', 'Montant prévu', 'Terminé', 'Commentaire', 'Section',
+        'exercice', 'CODE_FONCTION', 'montant_prevu',
+    ],
+
     createOperation: async (req, res) => {
         const data = req.body;
         try {
-            const cols = Object.keys(data).filter(k => data[k] !== undefined);
+            const allowed = module.exports.OPERATION_COLUMNS;
+            const cols = Object.keys(data).filter(k => allowed.includes(k) && data[k] !== undefined);
             const vals = cols.map(k => data[k]);
             const placeholders = cols.map((_, i) => `$${i + 1}`).join(',');
             const quotedCols = cols.map(c => `"${c}"`).join(',');
@@ -185,7 +223,9 @@ module.exports = {
         const id = req.params.id;
         const data = req.body;
         try {
-            const cols = Object.keys(data).filter(k => data[k] !== undefined);
+            const allowed = module.exports.OPERATION_COLUMNS;
+            const cols = Object.keys(data).filter(k => allowed.includes(k) && data[k] !== undefined);
+            if (cols.length === 0) return res.json({ message: 'Aucun champ modifiable' });
             const sets = cols.map((k, i) => `"${k}" = $${i + 1}`).join(',');
             const vals = [...cols.map(k => data[k]), id];
             await pgDb.run(`UPDATE oracle.operations SET ${sets} WHERE id = $${cols.length + 1}`, vals);
