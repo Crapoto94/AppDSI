@@ -323,6 +323,18 @@ const authenticateJWTorApiKey = async (req, res, next) => {
   return authenticateApiKey(req, res, next);
 };
 
+// Accès humain réservé aux admins (JWT) OU clé API restreinte au module `scope`.
+// Idéal pour exposer en lecture des données d'administration sans ouvrir l'accès
+// à tous les utilisateurs connectés.
+const authenticateAdminOrApiKey = (scope) => (req, res, next) => {
+  const authHeader = req.headers['authorization'];
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    return authenticateAdmin(req, res, next);
+  }
+  // Voie clé API : authenticateApiKey gère l'échec (réponse envoyée, callback non appelé).
+  return authenticateApiKey(req, res, () => requireApiScope(scope)(req, res, next));
+};
+
 module.exports = {
     authenticateJWT,
     tryAuthenticateJWT,
@@ -337,6 +349,7 @@ module.exports = {
     authenticateApiKey,
     requireApiScope,
     authenticateJWTorApiKey,
+    authenticateAdminOrApiKey,
     isSuperAdmin,
     isAdminLike,
 };

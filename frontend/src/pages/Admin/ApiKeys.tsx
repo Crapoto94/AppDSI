@@ -14,6 +14,34 @@ interface ApiKey {
   last_used_at: string | null;
 }
 
+// Modules exposables via clé API (correspond aux tuiles / modules du hub).
+// Le périmètre est stocké pour chaque clé ; l'enforcement est actif sur les
+// modules dont les routes utilisent requireApiScope (tickets, tasks, ville…).
+const MODULES: { value: string; label: string }[] = [
+  { value: 'tickets', label: 'Tickets' },
+  { value: 'tasks', label: 'Tâches' },
+  { value: 'ville', label: 'Paramétrage Ville (élus, écoles, sites, organisation)' },
+  { value: 'projets', label: 'Projets' },
+  { value: 'magapp', label: 'MagApp' },
+  { value: 'consommables', label: 'Consommables' },
+  { value: 'contrats', label: 'Contrats' },
+  { value: 'copieurs', label: 'Copieurs' },
+  { value: 'certificates', label: 'Certificats' },
+  { value: 'parc', label: 'Parc informatique' },
+  { value: 'reseau', label: 'Réseau' },
+  { value: 'infra', label: 'Infrastructure' },
+  { value: 'stocks', label: 'Stocks' },
+  { value: 'telecom', label: 'Télécom' },
+  { value: 'lignes_mobiles', label: 'Lignes mobiles' },
+  { value: 'mobilite', label: 'Mobilité' },
+  { value: 'rh', label: 'RH' },
+  { value: 'finance', label: 'Finance' },
+  { value: 'rencontres', label: 'Rencontres budgétaires' },
+  { value: 'deploiements', label: 'Déploiements' },
+  { value: 'glpi', label: 'GLPI' },
+  { value: 'documents', label: 'Documents / GED' },
+];
+
 export default function ApiKeysAdmin() {
   const { token } = useAuth();
   const [keys, setKeys] = useState<ApiKey[]>([]);
@@ -100,7 +128,7 @@ export default function ApiKeysAdmin() {
     setTimeout(() => setMessage(''), 3000);
   };
 
-  const scopeLabel = (s: string) => s === '*' ? 'Tous les modules' : s;
+  const scopeLabel = (s: string) => s === '*' ? 'Tous les modules' : (MODULES.find(m => m.value === s)?.label || s);
 
   return (
     <div className="api-page" style={{ maxWidth: 900, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 22 }}>
@@ -267,11 +295,13 @@ export default function ApiKeysAdmin() {
                     }}
                   >
                     <option value="*">Tous les modules</option>
-                    <option value="tickets">Tickets</option>
-                    <option value="tasks">Tâches</option>
-                    <option value="projets">Projets</option>
-                    <option value="magapp">MagApp</option>
+                    {MODULES.map(m => (
+                      <option key={m.value} value={m.value}>{m.label}</option>
+                    ))}
                   </select>
+                  <span style={{ fontSize: '0.72rem', color: '#94a3b8' }}>
+                    Le périmètre restreint la clé aux endpoints du module choisi.
+                  </span>
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
                   <label style={{ fontSize: '0.78rem', fontWeight: 700, color: '#475569' }}>Expiration (optionnelle)</label>
