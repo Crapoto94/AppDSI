@@ -411,6 +411,9 @@ app.use('/api', (req, res, next) => {
     res.set('Cache-Control', 'no-store, no-cache, must-revalidate, private');
     next();
 });
+// Passerelle clés API : si une clé est présente, authentifie + scope + lecture seule (GET).
+// Sans clé → laisse passer vers l'authentification JWT habituelle.
+app.use('/api', require('./shared/middleware').apiKeyGate);
 app.use('/img', express.static(path.join(__dirname, 'magapp_img')));
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 app.use('/api/uploads', express.static(path.join(__dirname, 'uploads')));
@@ -3267,8 +3270,30 @@ setupDb().then(async database => {
                 openapi: '3.0.0',
                 info: {
                     title: 'DSI Hub API',
-                    version: '1.0.0',
-                    description: 'API REST du portail DSI Hub – documentation interactive des endpoints disponibles.',
+                    version: '1.1.0',
+                    description: [
+                        '## API REST du portail DSI Hub',
+                        '',
+                        "Deux modes d'authentification :",
+                        '- **BearerAuth** — jeton JWT de session (interface web), accès complet.',
+                        "- **ApiKeyAuth** — clé API (en-tête `X-API-Key: dsk_...`, ou `Authorization: Bearer dsk_...`).",
+                        '',
+                        '### Accès par clé API',
+                        "Une clé API donne un accès **en lecture seule** (méthode `GET` uniquement) aux endpoints du **module** sur lequel elle est scopée. ",
+                        "Une clé de périmètre `*` accède à tous les modules. Les clés se créent et se gèrent dans `/admin/api-keys`. ",
+                        "Chaque clé peut avoir une date d'expiration et être désactivée à tout moment.",
+                        '',
+                        '### Correspondance périmètre → endpoints',
+                        "Le périmètre est déduit du préfixe d'URL. Modules exposés :",
+                        '`tickets` (/api/tickets, /api/auto-resolution) · `tasks` (/api/tasks) · `ville` (/api/ville) · ',
+                        '`projets` (/api/projets, /api/revues) · `copieurs` · `consommables` (/api/consumable) · `contrats` · ',
+                        '`certificates` · `parc` · `reseau` (/api/network) · `infra` · `stocks` · `telecom` · ',
+                        '`lignes_mobiles` (/api/lignes-mobiles) · `mobilite` · `deploiements` · `finance` (/api/budget, /api/finance, /api/tiers, /api/contacts) · ',
+                        '`rh` (/api/admin/rh) · `rencontres` (/api/rencontres-*) · `glpi` · `documents` (/api/documents, /api/ged) · ',
+                        '`calendrier` (/api/calendrier-dsi) · `live` · `mail` (/api/mail-collector) · `transcript` · `dashboard` (/api/dsi-dashboard) · `dxf` (/api/maps/dxf) · `oracle`.',
+                        '',
+                        "Les endpoints ci-dessous documentés explicitement sont des exemples ; tout endpoint `GET` du module ciblé est accessible avec une clé scopée.",
+                    ].join('\n'),
                 },
                 servers: [{ url: `http://localhost:${PORT}`, description: 'Local' }],
                 components: {

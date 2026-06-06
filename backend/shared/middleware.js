@@ -282,6 +282,7 @@ const extractApiKey = (req) => {
 };
 
 const authenticateApiKey = async (req, res, next) => {
+  if (req.apiKey) return next(); // déjà authentifié en amont (passerelle)
   const key = extractApiKey(req);
   if (!key) return res.status(401).json({ error: 'Clé API requise (en-tête X-API-Key ou Authorization: Bearer dsk_...)' });
   const prefix = key.length > 20 ? key.slice(0, 20) : key;
@@ -303,7 +304,10 @@ const authenticateApiKey = async (req, res, next) => {
         id: null,
         username: `apikey:${row.name}`,
         email: null,
-        role: 'user',
+        // Rôle élevé en LECTURE seule : l'accès est déjà borné par le périmètre
+        // de la clé + la passerelle qui n'autorise que les requêtes GET.
+        role: 'superadmin',
+        is_approved: 1,
         displayName: `API · ${row.name}`,
         via_api_key: true,
       };
@@ -354,21 +358,95 @@ const authenticateAdminOrApiKey = (scope) => (req, res, next) => {
   return authenticateApiKey(req, res, () => requireApiScope(scope)(req, res, next));
 };
 
+// ─── Passerelle API globale (lecture seule, scopée par module) ──────────────────
+// Correspondance segment d'URL (après /api) → périmètre logique (scope) de la clé.
+const SEG_TO_SCOPE = {
+  tickets: 'tickets', 'auto-resolution': 'tickets',
+  tasks: 'tasks',
+  ville: 'ville',
+  projets: 'projets', revues: 'projets',
+  copieurs: 'copieurs',
+  consumable: 'consommables',
+  contrats: 'contrats',
+  certificates: 'certificates',
+  parc: 'parc',
+  network: 'reseau',
+  infra: 'infra',
+  stocks: 'stocks',
+  telecom: 'telecom',
+  'lignes-mobiles': 'lignes_mobiles',
+  mobilite: 'mobilite',
+  deploiements: 'deploiements',
+  budget: 'finance', finance: 'finance', tiers: 'finance', contacts: 'finance',
+  rh: 'rh',
+  'rencontres-budgetaires': 'rencontres', 'rencontres-reunions': 'rencontres',
+  'directions-services': 'rencontres', 'direction-emails': 'rencontres',
+  glpi: 'glpi',
+  documents: 'documents', ged: 'documents', storage: 'documents',
+  'calendrier-dsi': 'calendrier',
+  live: 'live',
+  'mail-collector': 'mail',
+  transcriptmanager: 'transcript',
+  'dsi-dashboard': 'dashboard',
+  maps: 'dxf',
+  'oracle-automation': 'oracle',
+};
+
+// Déduit le périmètre (scope) attendu depuis le chemin relatif à /api.
+const scopeForPath = (relPath) => {
+  const parts = String(relPath || '').split('?')[0].split('/').filter(Boolean);
+  if (parts.length === 0) return null;
+  let seg = parts[0];
+  if (seg === 'admin') seg = parts[1]; // ex: /admin/rh → rh
+  return SEG_TO_SCOPE[seg] || null;
+};
+
+// Monté sur /api AVANT les routers. Si une clé API est présente :
+//  - authentifie la clé,
+//  - n'autorise QUE les requêtes GET (lecture seule),
+//  - vérifie que le périmètre de la clé couvre le module ciblé.
+// Sans clé API → laisse passer (authentification JWT habituelle).
+const apiKeyGate = (req, res, next) => {
+  if (!extractApiKey(req)) return next();
+  return authenticateApiKey(req, res, () => {
+    if (req.method !== 'GET') {
+      return res.status(403).json({ error: 'Clé API : accès en lecture seule (GET uniquement)' });
+    }
+    const scope = scopeForPath(req.path);
+    if (!scope) {
+      return res.status(403).json({ error: 'Ce chemin n\'est pas exposé via clé API' });
+    }
+    if (req.apiKey.scope !== '*' && req.apiKey.scope !== scope) {
+      return res.status(403).json({ error: `Cette clé n'a pas accès au module ${scope}` });
+    }
+    next();
+  });
+};
+
+// Laisse passer les requêtes déjà authentifiées par la passerelle (req.apiKey),
+// sinon applique le middleware d'origine.
+const bypassIfApiKey = (fn) => (req, res, next) => {
+  if (req.apiKey) return next();
+  return fn(req, res, next);
+};
+
 module.exports = {
-    authenticateJWT,
+    authenticateJWT: bypassIfApiKey(authenticateJWT),
     tryAuthenticateJWT,
-    authenticateAdmin,
-    authenticateAdminUI,
-    authenticateInternalOrAdmin,
-    authenticateAdminOrFinances,
-    authenticateAdminOrPMO,
-    authenticateMagappControl,
-    authenticateGLPIControl,
-    authenticateConsommablesAdmin,
+    authenticateAdmin: bypassIfApiKey(authenticateAdmin),
+    authenticateAdminUI: bypassIfApiKey(authenticateAdminUI),
+    authenticateInternalOrAdmin: bypassIfApiKey(authenticateInternalOrAdmin),
+    authenticateAdminOrFinances: bypassIfApiKey(authenticateAdminOrFinances),
+    authenticateAdminOrPMO: bypassIfApiKey(authenticateAdminOrPMO),
+    authenticateMagappControl: bypassIfApiKey(authenticateMagappControl),
+    authenticateGLPIControl: bypassIfApiKey(authenticateGLPIControl),
+    authenticateConsommablesAdmin: bypassIfApiKey(authenticateConsommablesAdmin),
     authenticateApiKey,
     requireApiScope,
     authenticateJWTorApiKey,
     authenticateAdminOrApiKey,
+    apiKeyGate,
+    scopeForPath,
     isSuperAdmin,
     isAdminLike,
 };
