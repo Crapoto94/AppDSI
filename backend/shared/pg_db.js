@@ -1671,6 +1671,8 @@ async function setupPgDb() {
     try { await client.query(`ALTER TABLE hub_rencontres.rencontres_reunions ADD COLUMN IF NOT EXISTS outlook_web_link TEXT`); } catch (e) {}
     try { await client.query(`ALTER TABLE hub_rencontres.rencontres_reunions ADD COLUMN IF NOT EXISTS teams_join_url TEXT`); } catch (e) {}
     try { await client.query(`ALTER TABLE hub.encadrants ADD COLUMN IF NOT EXISTS telephone_perso VARCHAR(30)`); } catch (e) {}
+    try { await client.query(`ALTER TABLE hub.encadrants ADD COLUMN IF NOT EXISTS ad_username VARCHAR(100)`); } catch (e) {}
+    try { await client.query(`ALTER TABLE hub.encadrants ADD COLUMN IF NOT EXISTS email_override VARCHAR(255)`); } catch (e) {}
 
     await client.query(`
       CREATE TABLE IF NOT EXISTS hub_rencontres.rencontres_budgetaires (

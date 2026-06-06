@@ -202,77 +202,149 @@ module.exports = {
 
             if (!agents.length) return res.json([]);
 
-            // 2. Téléphones stockés
-            const phones = await pgDb.all('SELECT matricule, telephone, telephone_perso FROM hub.encadrants');
-            const phoneMap = new Map(phones.map(p => [p.matricule, { telephone: p.telephone, telephone_perso: p.telephone_perso }]));
+            // 2. Données stockées (téléphones + liens AD manuels)
+            const phones = await pgDb.all('SELECT matricule, telephone, telephone_perso, ad_username, email_override FROM hub.encadrants');
+            const phoneMap = new Map(phones.map(p => [p.matricule, { telephone: p.telephone, telephone_perso: p.telephone_perso, ad_username: p.ad_username, email_override: p.email_override }]));
 
-            // 3. Emails depuis l'AD : recherche batch par displayName (NOM + PRENOM)
-            // oracle.rh_v_extract_dsi n'a pas de colonne ad_username → on cherche par nom.
+            // 3. Emails depuis l'AD par employeeID = MATRICULE (fiable, pas de matching par nom)
+            // Batch LDAP en chunks de 50 : filtre (&(objectClass=user)(|(employeeID=m1)(employeeID=m2)...))
             const emailMap = new Map(); // matricule → { email, ad_phone }
             try {
                 const db = getSqlite();
                 const adSettings = await db.get('SELECT * FROM ad_settings WHERE id=1');
                 if (adSettings && adSettings.is_enabled && adSettings.host) {
-                    await new Promise((resolve) => {
-                        let settled = false;
-                        const finish = () => { if (!settled) { settled = true; resolve(); } };
-                        const client = ldap.createClient({
-                            url: `ldap://${adSettings.host}:${adSettings.port || 389}`,
-                            connectTimeout: 6000, timeout: 15000
-                        });
-                        const guard = setTimeout(() => { client.destroy(); finish(); }, 20000);
-                        client.on('error', () => { clearTimeout(guard); finish(); });
-                        client.bind(adSettings.bind_dn, adSettings.bind_password, (err) => {
-                            if (err) { clearTimeout(guard); return finish(); }
+                    // Nettoie et valide les matricules : trim + seulement alphanum/tiret
+                    const esc = (v) => String(v).trim().replace(/[*()\\\x00]/g, '\\$&');
+                    const matricules = agents
+                        .map(a => String(a.MATRICULE || '').trim())
+                        .filter(m => m && /^[A-Za-z0-9\-]+$/.test(m)); // AD employeeID = chiffres/lettres uniquement
 
-                            // Récupérer tous les users AD avec mail (une seule requête paginée)
-                            const adByDisplay = new Map(); // normalize(displayName) → {mail, phone}
-                            const normalize = (s) => (s||'').normalize('NFD').replace(/[̀-ͯ]/g,'').toUpperCase().trim();
+                    const CHUNK = 50;
+                    for (let i = 0; i < matricules.length; i += CHUNK) {
+                        const chunk = matricules.slice(i, i + CHUNK);
+                        if (!chunk.length) continue;
+                        const filter = chunk.length === 1
+                            ? `(&(objectClass=user)(employeeID=${esc(chunk[0])}))`
+                            : `(&(objectClass=user)(|${chunk.map(m => `(employeeID=${esc(m)})`).join('')}))`;
 
-                            client.search(adSettings.base_dn, {
-                                filter: '(&(objectClass=user)(mail=*))',
-                                scope: 'sub',
-                                attributes: ['displayName', 'cn', 'mail', 'telephoneNumber', 'mobile'],
-                                paged: { pageSize: 500, pagePause: false }
-                            }, (err2, r) => {
-                                if (err2) { clearTimeout(guard); return finish(); }
-                                r.on('searchEntry', (entry) => {
-                                    const u = flattenLDAPEntry(entry);
-                                    const dn = decodeLDAPString(u.displayName || u.cn || '');
-                                    const mail = Array.isArray(u.mail) ? u.mail[0] : (u.mail || '');
-                                    const phone = Array.isArray(u.telephoneNumber) ? u.telephoneNumber[0] : (u.telephoneNumber || '');
-                                    const mobile = Array.isArray(u.mobile) ? u.mobile[0] : (u.mobile || '');
-                                    if (dn && mail) adByDisplay.set(normalize(dn), { email: mail, ad_phone: phone || mobile });
-                                });
-                                r.on('error', () => { clearTimeout(guard); finish(); });
-                                r.on('end', () => {
+                        await new Promise((resolve) => {
+                            let settled = false;
+                            const finish = () => { if (!settled) { settled = true; resolve(); } };
+                            const client = ldap.createClient({
+                                url: `ldap://${adSettings.host}:${adSettings.port || 389}`,
+                                connectTimeout: 6000, timeout: 12000
+                            });
+                            const guard = setTimeout(() => { client.destroy(); finish(); }, 15000);
+                            client.on('error', (e) => { console.warn('[ENCADRANTS] LDAP err:', e.message); clearTimeout(guard); finish(); });
+                            client.bind(adSettings.bind_dn, adSettings.bind_password, (err) => {
+                                if (err) { clearTimeout(guard); return finish(); }
+                                // client.search peut lever une erreur SYNCHRONE si le filtre est rejeté
+                                // par la version de @ldapjs/filter → on l'attrape explicitement.
+                                try {
+                                    client.search(adSettings.base_dn, {
+                                        filter, scope: 'sub',
+                                        attributes: ['employeeID', 'mail', 'telephoneNumber', 'mobile']
+                                    }, (err2, r) => {
+                                        if (err2) { console.warn('[ENCADRANTS] search err:', err2.message); clearTimeout(guard); return finish(); }
+                                        r.on('searchEntry', (entry) => {
+                                            const u = flattenLDAPEntry(entry);
+                                            const empId = String(Array.isArray(u.employeeID) ? u.employeeID[0] : (u.employeeID || '')).trim();
+                                            const mail  = Array.isArray(u.mail) ? u.mail[0] : (u.mail || '');
+                                            const phone = Array.isArray(u.telephoneNumber) ? u.telephoneNumber[0] : (u.telephoneNumber || '');
+                                            const mobile = Array.isArray(u.mobile) ? u.mobile[0] : (u.mobile || '');
+                                            if (empId && mail) emailMap.set(empId, { email: mail, ad_phone: phone || mobile });
+                                        });
+                                        r.on('error', (e) => { console.warn('[ENCADRANTS] entry err:', e.message); clearTimeout(guard); finish(); });
+                                        r.on('end', () => { clearTimeout(guard); client.destroy(); finish(); });
+                                    });
+                                } catch (syncErr) {
+                                    // Filtre rejeté synchronement par ldapjs — log + on continue sans crash
+                                    console.warn('[ENCADRANTS] filtre LDAP rejeté (employeeID non supporté ?):', syncErr.message, '| filtre:', filter.slice(0, 120));
                                     clearTimeout(guard);
                                     client.destroy();
-                                    // Matcher chaque encadrant par PRENOM NOM ou NOM PRENOM
-                                    for (const a of agents) {
-                                        const np = normalize(`${a.PRENOM} ${a.NOM}`);
-                                        const pn = normalize(`${a.NOM} ${a.PRENOM}`);
-                                        const match = adByDisplay.get(np) || adByDisplay.get(pn);
-                                        if (match) emailMap.set(a.MATRICULE, match);
-                                    }
                                     finish();
-                                });
+                                }
                             });
                         });
-                    });
+                    }
                 }
             } catch (e) {
                 console.warn('[ENCADRANTS] AD enrichissement échoué:', e.message);
             }
 
+            // 3b. Fallback par displayName pour les agents sans email après la recherche par matricule
+            const missingAgents = agents.filter(a => !emailMap.has(a.MATRICULE));
+            if (missingAgents.length > 0) {
+                try {
+                    const db2 = getSqlite();
+                    const adSettings2 = await db2.get('SELECT * FROM ad_settings WHERE id=1');
+                    if (adSettings2 && adSettings2.is_enabled && adSettings2.host) {
+                        const norm = (s) => (s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase().trim();
+                        await new Promise((resolve) => {
+                            let settled = false;
+                            const finish = () => { if (!settled) { settled = true; resolve(); } };
+                            const client = ldap.createClient({
+                                url: `ldap://${adSettings2.host}:${adSettings2.port || 389}`,
+                                connectTimeout: 6000, timeout: 20000
+                            });
+                            const guard = setTimeout(() => { client.destroy(); finish(); }, 25000);
+                            client.on('error', () => { clearTimeout(guard); finish(); });
+                            client.bind(adSettings2.bind_dn, adSettings2.bind_password, (err) => {
+                                if (err) { clearTimeout(guard); return finish(); }
+                                // Une seule requête : tous les users AD avec mail
+                                const adByDisplay = new Map();
+                                try {
+                                    client.search(adSettings2.base_dn, {
+                                        filter: '(&(objectClass=user)(mail=*))',
+                                        scope: 'sub',
+                                        attributes: ['displayName', 'cn', 'mail', 'telephoneNumber', 'mobile'],
+                                        paged: { pageSize: 500, pagePause: false }
+                                    }, (err2, r) => {
+                                        if (err2) { clearTimeout(guard); return finish(); }
+                                        r.on('searchEntry', (entry) => {
+                                            const u = flattenLDAPEntry(entry);
+                                            const dn = decodeLDAPString(u.displayName || u.cn || '');
+                                            const mail = Array.isArray(u.mail) ? u.mail[0] : (u.mail || '');
+                                            const phone = Array.isArray(u.telephoneNumber) ? u.telephoneNumber[0] : (u.telephoneNumber || '');
+                                            const mobile = Array.isArray(u.mobile) ? u.mobile[0] : (u.mobile || '');
+                                            if (dn && mail) adByDisplay.set(norm(dn), { email: mail, ad_phone: phone || mobile });
+                                        });
+                                        r.on('error', () => { clearTimeout(guard); finish(); });
+                                        r.on('end', () => {
+                                            clearTimeout(guard); client.destroy();
+                                            // Matcher par PRENOM NOM ou NOM PRENOM
+                                            for (const a of missingAgents) {
+                                                const np = norm(`${a.PRENOM} ${a.NOM}`);
+                                                const pn = norm(`${a.NOM} ${a.PRENOM}`);
+                                                const match = adByDisplay.get(np) || adByDisplay.get(pn);
+                                                if (match) emailMap.set(a.MATRICULE, match);
+                                            }
+                                            finish();
+                                        });
+                                    });
+                                } catch (syncErr) {
+                                    console.warn('[ENCADRANTS] fallback displayName rejeté:', syncErr.message);
+                                    clearTimeout(guard); client.destroy(); finish();
+                                }
+                            });
+                        });
+                    }
+                } catch (e) {
+                    console.warn('[ENCADRANTS] fallback displayName échoué:', e.message);
+                }
+            }
+
             // 4. Assembler la réponse
             const result = agents.map(a => {
                 const adData = emailMap.get(a.MATRICULE) || {};
+                const stored = phoneMap.get(a.MATRICULE) || {};
                 const poste = (a.POSTE_L || '').toUpperCase();
                 const isDirecteur = poste.startsWith('DIRECTEUR');
                 const isDG = isDirecteur && poste.includes('GENERAL');
                 const role = isDG ? 'dg' : (isDirecteur ? 'directeur' : 'responsable_service');
                 const isDirSvc = role === 'responsable_service' && isDirectionService(a.DIRECTION, a.SERVICE);
+                // Email : priorité à l'override manuel, puis à l'AD
+                const email = stored.email_override || adData.email || '';
                 return {
                     matricule: a.MATRICULE,
                     nom: a.NOM,
@@ -284,10 +356,12 @@ module.exports = {
                     poste: a.POSTE_L,
                     role,
                     is_direction_service: isDirSvc,
-                    email: adData.email || '',
+                    email,
+                    email_source: stored.email_override ? 'manuel' : (adData.email ? 'ad' : ''),
                     ad_phone: adData.ad_phone || '',
-                    telephone: phoneMap.get(a.MATRICULE)?.telephone || '',
-                    telephone_perso: phoneMap.get(a.MATRICULE)?.telephone_perso || '',
+                    ad_username: stored.ad_username || '',
+                    telephone: stored.telephone || '',
+                    telephone_perso: stored.telephone_perso || '',
                     position: a.POSITION_L
                 };
             });
@@ -323,6 +397,87 @@ module.exports = {
             res.json({ ok: true, matricule, telephone: tel, telephone_perso: telPerso });
         } catch (error) {
             console.error('[ENCADRANTS] updateTelephone:', error.message);
+            res.status(500).json({ error: error.message });
+        }
+    },
+
+    /**
+     * GET /api/admin/rh/encadrants/ad-search?q=...
+     * Recherche d'un utilisateur AD par nom/prénom (pour liaison manuelle).
+     */
+    searchAD: async (req, res) => {
+        try {
+            const q = (req.query.q || '').trim();
+            if (!q || q.length < 2) return res.json([]);
+            const db = getSqlite();
+            const adSettings = await db.get('SELECT * FROM ad_settings WHERE id=1');
+            if (!adSettings || !adSettings.is_enabled || !adSettings.host) return res.json([]);
+
+            const results = await new Promise((resolve) => {
+                const found = [];
+                let settled = false;
+                const finish = (v) => { if (!settled) { settled = true; resolve(v); } };
+                const client = ldap.createClient({ url: `ldap://${adSettings.host}:${adSettings.port || 389}`, connectTimeout: 5000, timeout: 8000 });
+                const guard = setTimeout(() => { client.destroy(); finish(found); }, 12000);
+                client.on('error', () => { clearTimeout(guard); finish(found); });
+                client.bind(adSettings.bind_dn, adSettings.bind_password, (err) => {
+                    if (err) { clearTimeout(guard); return finish(found); }
+                    const esc = (s) => s.replace(/[*()\\\x00]/g, '\\$&');
+                    const e = esc(q);
+                    const filter = `(&(objectClass=user)(mail=*)(|(displayName=*${e}*)(cn=*${e}*)(sAMAccountName=*${e}*)))`;
+                    try {
+                        client.search(adSettings.base_dn, {
+                            filter, scope: 'sub', sizeLimit: 20,
+                            attributes: ['sAMAccountName', 'displayName', 'cn', 'mail', 'title', 'department', 'employeeID']
+                        }, (err2, r) => {
+                            if (err2) { clearTimeout(guard); return finish(found); }
+                            r.on('searchEntry', (entry) => {
+                                const u = flattenLDAPEntry(entry);
+                                const mail = Array.isArray(u.mail) ? u.mail[0] : (u.mail || '');
+                                if (!mail) return;
+                                found.push({
+                                    username: u.sAMAccountName || '',
+                                    displayName: decodeLDAPString(u.displayName || u.cn || ''),
+                                    email: mail,
+                                    title: decodeLDAPString(Array.isArray(u.title) ? u.title[0] : (u.title || '')),
+                                    department: decodeLDAPString(Array.isArray(u.department) ? u.department[0] : (u.department || '')),
+                                    employeeID: Array.isArray(u.employeeID) ? u.employeeID[0] : (u.employeeID || '')
+                                });
+                            });
+                            r.on('error', () => { clearTimeout(guard); finish(found); });
+                            r.on('end', () => { clearTimeout(guard); client.destroy(); finish(found); });
+                        });
+                    } catch (se) { clearTimeout(guard); client.destroy(); finish(found); }
+                });
+            });
+            res.json(results);
+        } catch (error) {
+            console.error('[ENCADRANTS] searchAD:', error.message);
+            res.status(500).json({ error: error.message });
+        }
+    },
+
+    /**
+     * PUT /api/admin/rh/encadrants/:matricule/ad-link
+     * Lie manuellement un encadrant à un compte AD (sauvegarde username + email).
+     */
+    linkAD: async (req, res) => {
+        try {
+            const { matricule } = req.params;
+            const { ad_username, email } = req.body;
+            const { pool } = require('../../shared/database');
+            await pool.query(
+                `INSERT INTO hub.encadrants (matricule, ad_username, email_override, updated_at)
+                 VALUES ($1, $2, $3, NOW())
+                 ON CONFLICT (matricule) DO UPDATE
+                   SET ad_username = EXCLUDED.ad_username,
+                       email_override = EXCLUDED.email_override,
+                       updated_at = NOW()`,
+                [matricule, ad_username || null, email || null]
+            );
+            res.json({ ok: true, matricule, ad_username, email });
+        } catch (error) {
+            console.error('[ENCADRANTS] linkAD:', error.message);
             res.status(500).json({ error: error.message });
         }
     },

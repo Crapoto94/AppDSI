@@ -464,8 +464,11 @@ interface Encadrant {
   service_code: string; service_label: string;
   poste: string; role: 'dg' | 'directeur' | 'responsable_service';
   is_direction_service: boolean;
-  email: string; ad_phone: string; telephone: string; telephone_perso: string; position: string;
+  email: string; email_source: 'ad' | 'manuel' | '';
+  ad_phone: string; ad_username: string;
+  telephone: string; telephone_perso: string; position: string;
 }
+interface ADSearchResult { username: string; displayName: string; email: string; title: string; department: string; employeeID: string; }
 interface ADMember { username: string; displayName: string; email: string; title: string; department: string; }
 
 function EncadrantsTab({ token }: { token: string | null }) {
@@ -475,6 +478,10 @@ function EncadrantsTab({ token }: { token: string | null }) {
   const [loadingGroupsList, setLoadingGroupsList] = useState(false);
   const [selectedGroupDN, setSelectedGroupDN] = useState('');
   const [groupsFilter, setGroupsFilter] = useState('');
+  const [adLinkMatricule, setADLinkMatricule] = useState<string | null>(null);
+  const [adSearchQ, setADSearchQ] = useState('');
+  const [adSearchResults, setADSearchResults] = useState<ADSearchResult[]>([]);
+  const [adSearchLoading, setADSearchLoading] = useState(false);
   const [loading, setLoading] = useState(false);
   const [loadingAD, setLoadingAD] = useState(false);
   const [error, setError] = useState('');
@@ -541,6 +548,36 @@ function EncadrantsTab({ token }: { token: string | null }) {
       else setError(d.error || 'Erreur liste AD');
     } catch { setError('Erreur réseau AD'); }
     finally { setLoadingAD(false); }
+  };
+
+  const searchAD = async (q: string) => {
+    if (!q || q.length < 2) { setADSearchResults([]); return; }
+    setADSearchLoading(true);
+    try {
+      const r = await fetch(`/api/admin/rh/encadrants/ad-search?q=${encodeURIComponent(q)}`, { headers: { Authorization: `Bearer ${token}` } });
+      const d = await r.json();
+      setADSearchResults(Array.isArray(d) ? d : []);
+    } catch { setADSearchResults([]); }
+    finally { setADSearchLoading(false); }
+  };
+
+  const linkToAD = async (matricule: string, result: ADSearchResult) => {
+    try {
+      const r = await fetch(`/api/admin/rh/encadrants/${matricule}/ad-link`, {
+        method: 'PUT',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ad_username: result.username, email: result.email })
+      });
+      if (r.ok) {
+        setEncadrants(prev => prev.map(e => e.matricule === matricule
+          ? { ...e, email: result.email, email_source: 'manuel', ad_username: result.username }
+          : e));
+        setSaveMsg(`✔ Lien AD créé : ${result.displayName} → ${result.email}`);
+        setTimeout(() => setSaveMsg(''), 3000);
+        setADLinkMatricule(null);
+        setADSearchQ(''); setADSearchResults([]);
+      }
+    } catch { setError('Erreur lors de la liaison AD'); }
   };
 
   const filtered = encadrants.filter(e => {
@@ -650,10 +687,59 @@ function EncadrantsTab({ token }: { token: string | null }) {
                       : <><div style={{ fontWeight: 600 }}>{e.service_label}</div><div style={{ fontSize: 11, color: '#94a3b8' }}>{e.service_code}</div></>}
                   </td>
                   <td style={{ padding: '10px 14px' }}>
-                    {e.email
-                      ? <a href={`mailto:${e.email}`} style={{ color: '#2563eb', textDecoration: 'none', fontWeight: 500 }}>{e.email}</a>
-                      : <span style={{ color: '#94a3b8', fontSize: 12 }}>Non trouvé AD</span>}
-                    {e.ad_phone && <div style={{ fontSize: 11, color: '#64748b' }}>📞 {e.ad_phone} (AD)</div>}
+                    {e.email ? (
+                      <div>
+                        <a href={`mailto:${e.email}`} style={{ color: '#2563eb', textDecoration: 'none', fontWeight: 500, fontSize: 13 }}>{e.email}</a>
+                        {e.email_source === 'manuel' && <span title="Lien manuel" style={{ marginLeft: 5, fontSize: 10, color: '#7c3aed', fontWeight: 700 }}>manuel</span>}
+                        {e.ad_phone && <div style={{ fontSize: 11, color: '#64748b' }}>📞 {e.ad_phone}</div>}
+                        <button onClick={() => { setADLinkMatricule(e.matricule); setADSearchQ(`${e.prenom} ${e.nom}`); searchAD(`${e.prenom} ${e.nom}`); }}
+                          style={{ marginTop: 2, fontSize: 10, color: '#64748b', background: 'none', border: 'none', cursor: 'pointer', padding: 0, textDecoration: 'underline' }}>
+                          Modifier lien AD
+                        </button>
+                      </div>
+                    ) : (
+                      <button onClick={() => { setADLinkMatricule(e.matricule); setADSearchQ(`${e.prenom} ${e.nom}`); searchAD(`${e.prenom} ${e.nom}`); }}
+                        style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '4px 10px', background: '#fef3c7', border: '1px solid #fde68a', borderRadius: 6, cursor: 'pointer', fontSize: 12, fontWeight: 700, color: '#92400e' }}>
+                        🔍 Lier à l'AD
+                      </button>
+                    )}
+                    {/* Panel de recherche AD inline */}
+                    {adLinkMatricule === e.matricule && (
+                      <div style={{ marginTop: 8, padding: 12, background: 'white', border: '1px solid #e2e8f0', borderRadius: 8, boxShadow: '0 4px 16px rgba(0,0,0,0.1)', minWidth: 300, position: 'relative', zIndex: 50 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+                          <strong style={{ fontSize: 12, color: '#1e293b' }}>Rechercher dans l'AD</strong>
+                          <button onClick={() => { setADLinkMatricule(null); setADSearchQ(''); setADSearchResults([]); }}
+                            style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', padding: 0 }}>✕</button>
+                        </div>
+                        <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
+                          <input value={adSearchQ} onChange={ev => setADSearchQ(ev.target.value)}
+                            onKeyDown={ev => ev.key === 'Enter' && searchAD(adSearchQ)}
+                            placeholder="Nom, prénom…" autoFocus
+                            style={{ flex: 1, padding: '6px 8px', border: '1px solid #e2e8f0', borderRadius: 6, fontSize: 12 }} />
+                          <button onClick={() => searchAD(adSearchQ)} disabled={adSearchLoading}
+                            style={{ padding: '6px 12px', background: '#2563eb', color: 'white', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 12, fontWeight: 700 }}>
+                            {adSearchLoading ? '…' : '🔍'}
+                          </button>
+                        </div>
+                        {adSearchResults.length > 0 && (
+                          <div style={{ maxHeight: 180, overflowY: 'auto', border: '1px solid #f1f5f9', borderRadius: 6 }}>
+                            {adSearchResults.map(r => (
+                              <div key={r.username} onClick={() => linkToAD(e.matricule, r)}
+                                style={{ padding: '7px 10px', cursor: 'pointer', borderBottom: '1px solid #f1f5f9', fontSize: 12 }}
+                                onMouseEnter={ev => (ev.currentTarget.style.background = '#f0f9ff')}
+                                onMouseLeave={ev => (ev.currentTarget.style.background = '')}>
+                                <div style={{ fontWeight: 700, color: '#1e293b' }}>{r.displayName}</div>
+                                <div style={{ color: '#64748b' }}>{r.email}{r.department ? ` · ${r.department}` : ''}</div>
+                                {r.employeeID && <div style={{ fontSize: 10, color: '#94a3b8' }}>Matricule AD : {r.employeeID}</div>}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        {adSearchResults.length === 0 && !adSearchLoading && adSearchQ.length >= 2 && (
+                          <div style={{ fontSize: 12, color: '#94a3b8', textAlign: 'center', padding: 8 }}>Aucun résultat</div>
+                        )}
+                      </div>
+                    )}
                   </td>
                   <td style={{ padding: '10px 14px' }}>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>

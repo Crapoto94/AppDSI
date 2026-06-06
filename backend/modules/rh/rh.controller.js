@@ -282,6 +282,7 @@ const rhController = {
                 WHERE "DIRECTION" IS NOT NULL
                   AND "DIRECTION" NOT LIKE '$%'
                   AND "DIRECTION" != ''
+                  AND "DIRECTION" NOT IN ('AA', 'BZ')
             `);
 
             // Build hierarchy: Direction → Service → Secteur
