@@ -1003,11 +1003,11 @@ const MagAppController = {
         try {
             const appId = req.query.app_id ? parseInt(req.query.app_id, 10) : null;
             const params = [];
-            let where = "clicked_at >= CURRENT_DATE - INTERVAL '12 weeks'";
+            let where = "clicked_at >= date_trunc('month', CURRENT_DATE) - INTERVAL '11 months'";
             if (appId) { params.push(appId); where += ` AND app_id = $${params.length}`; }
             // pool.query direct (le wrapper pgDb mal-gère cette requête à base de date_trunc/to_char)
             const { rows } = await pool.query(`
-                SELECT to_char(date_trunc('week', clicked_at), 'YYYY-MM-DD') AS week,
+                SELECT to_char(date_trunc('month', clicked_at), 'YYYY-MM') AS month,
                        COUNT(*)::int AS clicks,
                        COUNT(DISTINCT username)::int AS users
                 FROM magapp.clicks

@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import Header from '../components/Header';
 import { Plus, Edit2, Trash2, Save, X, Globe, LayoutGrid, BarChart2, Bell, Tag, Code, CheckCircle, Settings, Users, Lightbulb, GraduationCap, Star, FileText, Wrench, Calendar, Paperclip, Download, Search, ChevronRight, Layers, Banknote, ShieldAlert, ExternalLink } from 'lucide-react';
-import { ResponsiveContainer, AreaChart, Area, XAxis, Tooltip as RTooltip } from 'recharts';
+import { ResponsiveContainer, BarChart, Bar, XAxis, Tooltip as RTooltip } from 'recharts';
 import ReactQuill from 'react-quill-new';
 import 'react-quill-new/dist/quill.snow.css';
 
@@ -209,7 +209,7 @@ const MagappAdmin: React.FC = () => {
   const [appSort, setAppSort] = useState<'name' | 'users' | 'orders' | 'docs'>('name');
   const [filterPM, setFilterPM] = useState<string>('all');
   const [selectedAppId, setSelectedAppId] = useState<number | null>(null);
-  const [clicksTimeline, setClicksTimeline] = useState<{ week: string; clicks: number; users: number }[]>([]);
+  const [clicksTimeline, setClicksTimeline] = useState<{ month: string; clicks: number; users: number }[]>([]);
   const [allContracts, setAllContracts] = useState<any[]>([]);
   const [infoModal, setInfoModal] = useState<{ title: string } | null>(null);
   const [infoItems, setInfoItems] = useState<{ primary: string; secondary?: string; right?: string }[]>([]);
@@ -998,6 +998,17 @@ const MagappAdmin: React.FC = () => {
   const mkSub: React.CSSProperties = { fontSize: '.74rem', color: '#94a3b8', marginTop: 3 };
   const mkSelect: React.CSSProperties = { padding: '8px 10px', border: '1px solid #e2e8f0', borderRadius: 9, fontSize: '.82rem', color: '#334155', background: '#fff', outline: 'none', cursor: 'pointer' };
   const totalClicks12 = clicksTimeline.reduce((s, r) => s + (r.clicks || 0), 0);
+  // 'YYYY-MM' → 'avr. 25' (court) / 'avril 2025' (long)
+  const monthLabel = (ym: string) => {
+    const [y, m] = String(ym).split('-').map(Number);
+    if (!y || !m) return ym;
+    return new Date(y, m - 1, 1).toLocaleDateString('fr-FR', { month: 'short', year: '2-digit' });
+  };
+  const monthLabelLong = (ym: string) => {
+    const [y, m] = String(ym).split('-').map(Number);
+    if (!y || !m) return ym;
+    return new Date(y, m - 1, 1).toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' });
+  };
   const projectManagers = [...new Set(apps.map(a => a.project_manager_name).filter((n): n is string => !!n))].sort((a, b) => a.localeCompare(b, 'fr'));
 
   return (
@@ -1043,23 +1054,17 @@ const MagappAdmin: React.FC = () => {
                 {/* ===== KPI band ===== */}
                 <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap' }}>
                   <div style={{ ...mkCard, flex: '2 1 300px', minWidth: 280, display: 'flex', flexDirection: 'column', gap: 4 }}>
-                    <div style={mkLabel}>Évolution des usages · clics / semaine{selApp ? ` · ${selApp.name}` : ' · global'}</div>
-                    <div style={{ height: 64 }}>
+                    <div style={mkLabel}>Évolution des usages · clics / mois{selApp ? ` · ${selApp.name}` : ' · global'}</div>
+                    <div style={{ height: 110 }}>
                       <ResponsiveContainer width="100%" height="100%">
-                        <AreaChart data={clicksTimeline} margin={{ top: 6, right: 2, left: 2, bottom: 0 }}>
-                          <defs>
-                            <linearGradient id="magUsage" x1="0" y1="0" x2="0" y2="1">
-                              <stop offset="0%" stopColor="#6366f1" stopOpacity={0.35} />
-                              <stop offset="100%" stopColor="#6366f1" stopOpacity={0} />
-                            </linearGradient>
-                          </defs>
-                          <XAxis dataKey="week" hide />
-                          <RTooltip formatter={(v: any) => [`${v} clic(s)`, '']} labelFormatter={(l: any) => `Semaine du ${l}`} contentStyle={{ borderRadius: 8, border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,.12)', fontSize: 12 }} />
-                          <Area type="monotone" dataKey="clicks" stroke="#6366f1" strokeWidth={2} fill="url(#magUsage)" />
-                        </AreaChart>
+                        <BarChart data={clicksTimeline} margin={{ top: 6, right: 2, left: 2, bottom: 0 }}>
+                          <XAxis dataKey="month" tickFormatter={monthLabel} tick={{ fontSize: 10, fill: '#94a3b8' }} axisLine={false} tickLine={false} interval={0} />
+                          <RTooltip formatter={(v: any) => [`${v} clic(s)`, '']} labelFormatter={(l: any) => monthLabelLong(l)} contentStyle={{ borderRadius: 8, border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,.12)', fontSize: 12 }} cursor={{ fill: 'rgba(99,102,241,.08)' }} />
+                          <Bar dataKey="clicks" fill="#6366f1" radius={[4, 4, 0, 0]} maxBarSize={28} />
+                        </BarChart>
                       </ResponsiveContainer>
                     </div>
-                    <div style={mkSub}>{totalClicks12.toLocaleString('fr-FR')} clics sur 12 semaines</div>
+                    <div style={mkSub}>{totalClicks12.toLocaleString('fr-FR')} clics sur 12 mois</div>
                   </div>
 
                   <div style={{ ...mkCard, flex: '1 1 150px', minWidth: 150 }}>
