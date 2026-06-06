@@ -284,6 +284,7 @@ const MesTaches: React.FC = () => {
   const [loading, setLoading]       = useState(true);
   const [filterSource, setFilterSource] = useState<string>('all');
   const [filterStatut, setFilterStatut] = useState<string>('pending');
+  const [filterPriority, setFilterPriority] = useState<string>('all');
   const [updating, setUpdating]     = useState<string | null>(null);
 
   // ── Sort ─────────────────────────────────────────────────────────────────────
@@ -763,11 +764,12 @@ const MesTaches: React.FC = () => {
       const isProjet = filterSource === 'projet' && (t.source === 'projet' || t.source === 'projet_standalone');
       if (!isProjet && t.source !== filterSource) return false;
     }
-    if (filterStatut === 'pending') return !TERMINAL_STATUTS.includes(t.statut);
-    if (filterStatut === 'en_cours') return t.statut === 'en_cours';
-    if (filterStatut === 'terminé') return TERMINAL_STATUTS.includes(t.statut);
+    if (filterStatut === 'pending' && TERMINAL_STATUTS.includes(t.statut)) return false;
+    if (filterStatut === 'en_cours' && t.statut !== 'en_cours') return false;
+    if (filterStatut === 'terminé' && !TERMINAL_STATUTS.includes(t.statut)) return false;
+    if (filterPriority !== 'all' && (t.priority || 'normale') !== filterPriority) return false;
     return true;
-  }), [tasks, filterSource, filterStatut]);
+  }), [tasks, filterSource, filterStatut, filterPriority]);
 
   const sorted = useMemo(() => [...filtered].sort((a, b) => {
     let aVal = '', bVal = '';
@@ -1064,6 +1066,24 @@ const MesTaches: React.FC = () => {
                 {l}
                 {cnt > 0 && (
                   <span style={{ background: filterStatut === v ? 'rgba(255,255,255,0.25)' : '#94a3b8', color: 'white', borderRadius: 8, padding: '0 4px', fontSize: 9, fontWeight: 700, lineHeight: '14px' }}>
+                    {cnt}
+                  </span>
+                )}
+              </button>
+            ))}
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ fontSize: 12, fontWeight: 600, color: '#64748b' }}>Priorité :</span>
+            {[
+              { v: 'all', l: 'Toutes' },
+              { v: 'haute', l: '↑ Haute', cnt: tasks.filter(t => t.priority === 'haute').length },
+              { v: 'normale', l: '— Normale', cnt: tasks.filter(t => !t.priority || t.priority === 'normale').length },
+              { v: 'basse', l: '↓ Basse', cnt: tasks.filter(t => t.priority === 'basse').length },
+            ].map(({ v, l, cnt = 0 }) => (
+              <button key={v} onClick={() => setFilterPriority(v)} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 10px', borderRadius: 20, fontSize: 11, fontWeight: 600, cursor: 'pointer', border: filterPriority === v ? '2px solid #334155' : '1px solid #e2e8f0', background: filterPriority === v ? '#334155' : 'white', color: filterPriority === v ? 'white' : '#475569' }}>
+                {l}
+                {cnt > 0 && (
+                  <span style={{ background: filterPriority === v ? 'rgba(255,255,255,0.25)' : '#94a3b8', color: 'white', borderRadius: 8, padding: '0 4px', fontSize: 9, fontWeight: 700, lineHeight: '14px' }}>
                     {cnt}
                   </span>
                 )}
