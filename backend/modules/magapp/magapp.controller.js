@@ -145,12 +145,12 @@ const MagAppController = {
 
     createApp: async (req, res) => {
         try {
-            const { name, category_id, description, url, icon, display_order, is_maintenance, maintenance_start, maintenance_end, app_type, present_magapp, present_onboard, email_createur, mercator_id, mercator_name, project_manager_username, project_manager_name, dsi_only } = req.body;
+            const { name, category_id, description, url, url_test, icon, display_order, is_maintenance, maintenance_start, maintenance_end, app_type, present_magapp, present_onboard, email_createur, mercator_id, mercator_name, project_manager_username, project_manager_name, dsi_only } = req.body;
 
             const result = await pgDb.run(`
-                INSERT INTO magapp_apps (name, category_id, description, url, icon, display_order, is_maintenance, maintenance_start, maintenance_end, app_type, present_magapp, present_onboard, email_createur, mercator_id, mercator_name, project_manager_username, project_manager_name, dsi_only)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            `, [name, category_id, description, url, icon, display_order, is_maintenance, maintenance_start, maintenance_end, app_type, present_magapp, present_onboard, email_createur, mercator_id, mercator_name, project_manager_username || '', project_manager_name || '', !!dsi_only]);
+                INSERT INTO magapp_apps (name, category_id, description, url, url_test, icon, display_order, is_maintenance, maintenance_start, maintenance_end, app_type, present_magapp, present_onboard, email_createur, mercator_id, mercator_name, project_manager_username, project_manager_name, dsi_only)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            `, [name, category_id, description, url, url_test || null, icon, display_order, is_maintenance, maintenance_start, maintenance_end, app_type, present_magapp, present_onboard, email_createur, mercator_id, mercator_name, project_manager_username || '', project_manager_name || '', !!dsi_only]);
 
             res.json({ id: result.lastID, message: 'Application créée' });
         } catch (err) {
@@ -162,13 +162,13 @@ const MagAppController = {
     updateApp: async (req, res) => {
         try {
             const { id } = req.params;
-            const { name, category_id, description, url, icon, display_order, is_maintenance, maintenance_start, maintenance_end, app_type, present_magapp, present_onboard, email_createur, mercator_id, mercator_name, project_manager_username, project_manager_name, dsi_only } = req.body;
+            const { name, category_id, description, url, url_test, icon, display_order, is_maintenance, maintenance_start, maintenance_end, app_type, present_magapp, present_onboard, email_createur, mercator_id, mercator_name, project_manager_username, project_manager_name, dsi_only } = req.body;
 
             await pgDb.run(`
                 UPDATE magapp_apps
-                SET name = ?, category_id = ?, description = ?, url = ?, icon = ?, display_order = ?, is_maintenance = ?, maintenance_start = ?, maintenance_end = ?, app_type = ?, present_magapp = ?, present_onboard = ?, email_createur = ?, mercator_id = ?, mercator_name = ?, project_manager_username = ?, project_manager_name = ?, dsi_only = ?
+                SET name = ?, category_id = ?, description = ?, url = ?, url_test = ?, icon = ?, display_order = ?, is_maintenance = ?, maintenance_start = ?, maintenance_end = ?, app_type = ?, present_magapp = ?, present_onboard = ?, email_createur = ?, mercator_id = ?, mercator_name = ?, project_manager_username = ?, project_manager_name = ?, dsi_only = ?
                 WHERE id = ?
-            `, [name, category_id, description, url, icon, display_order, is_maintenance, maintenance_start, maintenance_end, app_type, present_magapp, present_onboard, email_createur, mercator_id, mercator_name, project_manager_username || '', project_manager_name || '', !!dsi_only, id]);
+            `, [name, category_id, description, url, url_test || null, icon, display_order, is_maintenance, maintenance_start, maintenance_end, app_type, present_magapp, present_onboard, email_createur, mercator_id, mercator_name, project_manager_username || '', project_manager_name || '', !!dsi_only, id]);
 
             res.json({ message: 'Application mise à jour' });
         } catch (err) {

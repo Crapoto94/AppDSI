@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import Header from '../components/Header';
-import { Plus, Edit2, Trash2, Save, X, Globe, LayoutGrid, BarChart2, Bell, Tag, Code, CheckCircle, Settings, Users, Lightbulb, GraduationCap, Star, FileText, Wrench, Calendar, Paperclip, Download, Search, ChevronRight, Layers, Banknote, ShieldAlert } from 'lucide-react';
+import { Plus, Edit2, Trash2, Save, X, Globe, LayoutGrid, BarChart2, Bell, Tag, Code, CheckCircle, Settings, Users, Lightbulb, GraduationCap, Star, FileText, Wrench, Calendar, Paperclip, Download, Search, ChevronRight, Layers, Banknote, ShieldAlert, ExternalLink } from 'lucide-react';
 import { ResponsiveContainer, AreaChart, Area, XAxis, Tooltip as RTooltip } from 'recharts';
 import ReactQuill from 'react-quill-new';
 import 'react-quill-new/dist/quill.snow.css';
@@ -27,6 +27,7 @@ interface AppItem {
   present_magapp: string;
   present_onboard: string;
   email_createur: string;
+  url_test?: string;
   lien_mercator: string;
   mercator_id: number | null;
   mercator_name: string;
@@ -718,8 +719,9 @@ const MagappAdmin: React.FC = () => {
             name: '', 
             category_id: categories[0]?.id || 1, 
             description: '', 
-            url: '', 
-            icon: '/api/img/default.png', 
+            url: '',
+            url_test: '',
+            icon: '/api/img/default.png',
             display_order: 0,
             is_maintenance: 0,
             maintenance_start: '',
@@ -1161,6 +1163,7 @@ const MagappAdmin: React.FC = () => {
                               {tc && tc.request_count > 0 && <span style={{ ...pill, background: '#fef3c7', color: '#92400e' }} title={`${tc.request_count} demande(s) ouverte(s)`}>＋ {tc.request_count}</span>}
                               {(app.orders_amount || 0) > 0 && <span style={{ ...pill, background: '#dbeafe', color: '#1e40af' }} title={`Coût calculé — ${app.orders_count || 0} commande(s)`}>💶 {eur0(app.orders_amount || 0)}</span>}
                               <span style={{ ...pill, background: '#eef2ff', color: '#4338ca' }} title={`${docTotal} documentation(s) associée(s)`}>📄 {docTotal}</span>
+                              {app.url_test ? <span style={{ ...pill, background: '#fae8ff', color: '#86198f' }} title={`Version de test : ${app.url_test}`}>🧪 Test</span> : null}
                               {(app.contract_count || 0) > 0 && <span style={{ ...pill, background: '#fef9c3', color: '#854d0e' }} title={`${app.contract_count} contrat(s)`}>📋 {app.contract_count}</span>}
                             </span>
                           </button>
@@ -1185,6 +1188,7 @@ const MagappAdmin: React.FC = () => {
                             <h2 style={{ margin: 0, fontSize: '1.2rem', color: '#0f172a' }}>{selApp.name}</h2>
                             <div style={{ fontSize: '.8rem', color: '#64748b', marginTop: 2 }}>{catName(selApp.category_id)}{selApp.app_type ? ` · ${selApp.app_type}` : ''}</div>
                             {selApp.url && <a href={selApp.url} target="_blank" rel="noreferrer" style={{ fontSize: '.78rem', color: '#6366f1', wordBreak: 'break-all' }}>{selApp.url}</a>}
+                            {selApp.url_test && <div style={{ marginTop: 2 }}><a href={selApp.url_test} target="_blank" rel="noreferrer" style={{ fontSize: '.76rem', color: '#a21caf', wordBreak: 'break-all' }}>🧪 Test : {selApp.url_test}</a></div>}
                           </div>
                           <div style={{ display: 'flex', gap: 8 }}>
                             <button className="primary-btn-v2" onClick={() => { setEditingApp(selApp); setShowAppModal(true); }}><Edit2 size={16} /> Modifier</button>
@@ -1259,6 +1263,10 @@ const MagappAdmin: React.FC = () => {
                           <div className="form-group-v2">
                             <label>URL</label>
                             <input type="text" value={editingApp ? editingApp.url : newApp.url} onChange={e => editingApp ? setEditingApp({...editingApp, url: e.target.value}) : setNewApp({...newApp, url: e.target.value})} />
+                          </div>
+                          <div className="form-group-v2">
+                            <label>URL de version de test</label>
+                            <input type="text" placeholder="https://… (optionnel)" value={editingApp ? (editingApp.url_test || '') : (newApp.url_test || '')} onChange={e => editingApp ? setEditingApp({...editingApp, url_test: e.target.value}) : setNewApp({...newApp, url_test: e.target.value})} />
                           </div>
                           <div className="form-group-v2">
                             <label>Catégorie</label>
@@ -2467,6 +2475,16 @@ const MagappAdmin: React.FC = () => {
                                   </td>
                                   <td>
                                     <div className="action-btns-v2" style={{ display: 'flex', gap: '8px' }}>
+                                      <a 
+                                        href={doc.doc_type === 'youtube' && !doc.url.startsWith('http') ? `https://www.youtube.com/watch?v=${doc.url}` : doc.url} 
+                                        target="_blank" 
+                                        rel="noopener noreferrer" 
+                                        className="action-btn-v2" 
+                                        style={{ background: '#e0f2fe', color: '#0369a1', padding: '6px', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}
+                                        title="Ouvrir le document"
+                                      >
+                                        <ExternalLink size={16} />
+                                      </a>
                                       <button className="action-btn-v2" style={{ background: '#f1f5f9', border: 'none', padding: '6px', borderRadius: '8px', cursor: 'pointer' }} onClick={() => { setEditingDoc(doc); setShowDocModal(true); }}><Edit2 size={16} /></button>
                                       <button className="action-btn-v2" style={{ background: '#fee2e2', color: '#dc2626', border: 'none', padding: '6px', borderRadius: '8px', cursor: 'pointer' }} onClick={() => handleDeleteDoc(doc.id)}><Trash2 size={16} /></button>
                                     </div>

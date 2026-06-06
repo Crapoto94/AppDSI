@@ -1527,6 +1527,9 @@ async function setupPgDb() {
     try {
       await client.query(`ALTER TABLE magapp.apps ADD COLUMN IF NOT EXISTS dsi_only BOOLEAN DEFAULT FALSE`);
     } catch (e) {}
+    try {
+      await client.query(`ALTER TABLE magapp.apps ADD COLUMN IF NOT EXISTS url_test VARCHAR(1024) DEFAULT ''`);
+    } catch (e) {}
 
     await client.query(`
       CREATE TABLE IF NOT EXISTS magapp.doc_interactions (
