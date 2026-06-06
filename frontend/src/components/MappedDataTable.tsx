@@ -426,7 +426,8 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
                       const tdStyle: React.CSSProperties = {};
                       if (cs?.bold) tdStyle.fontWeight = 'bold';
                       if (cs?.color && cs.color !== '#000000') tdStyle.color = cs.color;
-                      return <td key={col.name} className="mdt-cell" style={tdStyle}>{formatCell(row[col.name], col)}</td>;
+                      const cellTitle = row[col.name] != null && row[col.name] !== '' ? String(row[col.name]) : undefined;
+                      return <td key={col.name} className="mdt-cell" style={tdStyle} title={cellTitle}>{formatCell(row[col.name], col)}</td>;
                     })}
                     {showActions && (
                       <td className="mdt-cell" style={{ whiteSpace: 'nowrap' }}>
@@ -511,7 +512,7 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
                               <tr key={ci} className="mdt-child-row-item">
                                                                 {(childVisibleCols.length > 0 ? childVisibleCols : child.columns.map((c: MappingColumn) => c.name)).map((cn: string) => {
                                   const cc = child.columns.find((c: MappingColumn) => c.name === cn);
-                                  return cc ? <td key={cc.name} className="mdt-child-cell">{formatCell(cr[cc.name], cc)}</td> : null;
+                                  return cc ? <td key={cc.name} className="mdt-child-cell" title={cr[cc.name] != null && cr[cc.name] !== '' ? String(cr[cc.name]) : undefined}>{formatCell(cr[cc.name], cc)}</td> : null;
                                 })}
                               </tr>
                             ))}
