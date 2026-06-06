@@ -155,7 +155,7 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
 
   useEffect(() => {
     axios.get('/api/budget/operations', { headers }).then(res => setOperations(res.data || [])).catch(() => {});
-    axios.get('/api/apps', { headers }).then(res => setApps(Array.isArray(res.data) ? res.data : [])).catch(() => {});
+    axios.get('/api/magapp/apps', { headers }).then(res => setApps(Array.isArray(res.data) ? res.data : [])).catch(() => {});
     axios.get('/api/settings', { headers }).then(res => {
       const settings = res.data || [];
       const s = settings.find((s: any) => s.setting_key === 'url_sedit_fi');
