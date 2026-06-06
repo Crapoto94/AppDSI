@@ -3305,6 +3305,91 @@ setupDb().then(async database => {
             },
             apis: ['./server.js', './modules/**/*.routes.js', './modules/**/*.controller.js'],
         });
+
+        // ─── Génération automatique des chemins GET exposés via clé API ───────────
+        // Introspecte le .stack de chaque router de module exposé et ajoute chaque
+        // route GET au spec OpenAPI (sans écraser les annotations explicites).
+        try {
+            const { scopeForPath } = require('./shared/middleware');
+            const exposedMounts = [
+                ['/api/tickets', './modules/tickets/tickets.routes'],
+                ['/api/tickets/admin', './modules/tickets/tickets-admin.routes'],
+                ['/api/tickets/groups', './modules/tickets/ticket-groups.routes'],
+                ['/api/auto-resolution', './modules/auto-resolution/auto-resolution.routes'],
+                ['/api/tasks', './modules/tasks/tasks.routes'],
+                ['/api/ville', './modules/ville/ville.routes'],
+                ['/api/projets', './modules/projets/projets.routes'],
+                ['/api/revues', './modules/projets/revues.routes'],
+                ['/api/copieurs', './modules/copieurs/copieurs.routes'],
+                ['/api/consumable', './modules/consommables/consommables.routes'],
+                ['/api/contrats', './modules/contrats/contrats.routes'],
+                ['/api/certificates', './modules/certificates/certificates.routes'],
+                ['/api/parc', './modules/parc/parc.routes'],
+                ['/api/network', './modules/reseau/reseau.routes'],
+                ['/api/infra', './modules/infra/infra.routes'],
+                ['/api/stocks', './modules/stocks/stocks.routes'],
+                ['/api/telecom', './modules/telecom/telecom.routes'],
+                ['/api/lignes-mobiles', './modules/lignes_mobiles/lignes_mobiles.routes'],
+                ['/api/mobilite', './modules/mobilite/mobilite.routes'],
+                ['/api/deploiements', './modules/deploiements/deploiements.routes'],
+                ['/api/budget', './modules/finance/finance.routes'],
+                ['/api/finance/field-mapping', './modules/finance/field-mapping.routes'],
+                ['/api/tiers', './modules/finance/tiers.routes'],
+                ['/api/contacts', './modules/finance/contacts.routes'],
+                ['/api/admin/rh', './modules/rh/rh.routes'],
+                ['/api/rencontres-budgetaires', './modules/rencontres/rencontres.routes'],
+                ['/api/glpi', './modules/glpi/glpi.routes'],
+                ['/api/documents', './modules/documents/documents.routes'],
+                ['/api/ged', './modules/ged/ged.routes'],
+                ['/api/calendrier-dsi', './modules/calendrier-dsi/calendrier-dsi.routes'],
+                ['/api/live', './modules/live/live.routes'],
+                ['/api/mail-collector', './modules/mail_collector/mail_collector.routes'],
+                ['/api/transcriptmanager', './modules/transcriptmanager/transcriptmanager.routes'],
+                ['/api/dsi-dashboard', './modules/dsi-dashboard/dsi-dashboard.routes'],
+                ['/api/maps/dxf', './modules/dxf/dxf.routes'],
+            ];
+            swaggerSpec.paths = swaggerSpec.paths || {};
+            const tagsSet = new Set();
+            let added = 0;
+            for (const [mount, modPath] of exposedMounts) {
+                let router;
+                try { router = require(modPath); } catch (e) { continue; }
+                for (const layer of ((router && router.stack) || [])) {
+                    const route = layer.route;
+                    if (!route || !route.methods || !route.methods.get) continue;
+                    let p = Array.isArray(route.path) ? route.path[0] : route.path;
+                    if (typeof p !== 'string') continue;
+                    const full = mount + (p === '/' ? '' : p);
+                    const scope = scopeForPath(full.replace(/^\/api/, ''));
+                    if (!scope) continue;
+                    const oapiPath = full.replace(/:([A-Za-z0-9_]+)/g, '{$1}');
+                    if (swaggerSpec.paths[oapiPath] && swaggerSpec.paths[oapiPath].get) continue;
+                    const params = (oapiPath.match(/\{([A-Za-z0-9_]+)\}/g) || []).map(m => ({
+                        name: m.slice(1, -1), in: 'path', required: true, schema: { type: 'string' },
+                    }));
+                    swaggerSpec.paths[oapiPath] = swaggerSpec.paths[oapiPath] || {};
+                    swaggerSpec.paths[oapiPath].get = {
+                        tags: [scope],
+                        summary: `GET ${full}`,
+                        description: `Lecture seule. Accessible avec une clé API de périmètre \`${scope}\` (ou \`*\`), ou un JWT de session.`,
+                        security: [{ ApiKeyAuth: [] }, { BearerAuth: [] }],
+                        ...(params.length ? { parameters: params } : {}),
+                        responses: {
+                            200: { description: 'Succès' },
+                            403: { description: 'Clé absente, périmètre insuffisant, ou méthode non autorisée' },
+                        },
+                    };
+                    tagsSet.add(scope);
+                    added++;
+                }
+            }
+            swaggerSpec.tags = [...new Set([...(swaggerSpec.tags || []).map(t => t.name), ...tagsSet])]
+                .map(name => ({ name }));
+            console.log(`[SWAGGER] ${added} routes GET exposées documentées automatiquement`);
+        } catch (e) {
+            console.log('[SWAGGER] Auto-doc des routes échouée:', e.message);
+        }
+
         app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec, {
             customCss: '.swagger-ui .topbar { display: none }',
             customSiteTitle: 'DSI Hub API Docs',
