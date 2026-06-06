@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import { useAuth } from '../contexts/AuthContext';
-import { Search, ChevronUp, ChevronDown, ChevronRight, Columns, ExternalLink, Link2 } from 'lucide-react';
+import { Search, ChevronUp, ChevronDown, ChevronRight, Columns, ExternalLink, Link2, AppWindow } from 'lucide-react';
 
 interface MappingColumn {
   name: string;
@@ -64,6 +64,10 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
   const [assignModal, setAssignModal] = useState<{ linkId: string; currentOpId: number | null; currentOpLabel: string | null } | null>(null);
   const [opSearch, setOpSearch] = useState('');
   const [opFilter, setOpFilter] = useState<'I' | 'F' | null>(null);
+  // Association commande → logiciel métier (magapp.apps)
+  const [apps, setApps] = useState<any[]>([]);
+  const [appModal, setAppModal] = useState<{ linkId: string; currentAppId: number | null; currentAppLabel: string | null } | null>(null);
+  const [appSearch, setAppSearch] = useState('');
   const [childRubriqueId, setChildRubriqueId] = useState<number | null>(null);
   const [childLinkColumn, setChildLinkColumn] = useState<string | null>(null);
   const [expandedRows, setExpandedRows] = useState<Set<number>>(new Set());
@@ -151,6 +155,7 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
 
   useEffect(() => {
     axios.get('/api/budget/operations', { headers }).then(res => setOperations(res.data || [])).catch(() => {});
+    axios.get('/api/apps', { headers }).then(res => setApps(Array.isArray(res.data) ? res.data : [])).catch(() => {});
     axios.get('/api/settings', { headers }).then(res => {
       const settings = res.data || [];
       const s = settings.find((s: any) => s.setting_key === 'url_sedit_fi');
@@ -229,6 +234,23 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
       fetchData(searchTerm, currentPage * pageSize);
     } catch (err) {
       alert("Erreur lors de l'affectation");
+    }
+  };
+
+  const handleAssignApp = async (appId: number | null, linkIdOverride?: string) => {
+    const linkId = linkIdOverride ?? appModal?.linkId;
+    if (!linkId) return;
+    try {
+      await axios.post('/api/finance/field-mapping/assign-app', {
+        rubrique_name: rubriqueName,
+        link_id: linkId,
+        app_id: appId
+      }, { headers });
+      setAppModal(null);
+      setAppSearch('');
+      fetchData(searchTerm, currentPage * pageSize);
+    } catch (err) {
+      alert("Erreur lors de l'association du logiciel");
     }
   };
 
@@ -431,6 +453,18 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
                                 <Link2 size={12} /> Associer
                               </button>
                             ) : null}
+                            {linkId && row._app_id ? (
+                              <span title={row._app_label || ''} style={{ fontSize: '11px', color: '#2563eb', fontWeight: 500, cursor: 'pointer', borderBottom: '1px dashed #2563eb', display: 'inline-flex', alignItems: 'center', gap: '3px' }}
+                                onClick={() => setAppModal({ linkId: String(linkId), currentAppId: row._app_id, currentAppLabel: row._app_label })}>
+                                <AppWindow size={12} />{(row._app_label || '').length > 22 ? (row._app_label || '').substring(0, 20) + '...' : row._app_label}
+                              </span>
+                            ) : linkId ? (
+                              <button title="Associer à un logiciel métier"
+                                onClick={() => setAppModal({ linkId: String(linkId), currentAppId: null, currentAppLabel: null })}
+                                style={{ background: '#2563eb', color: 'white', border: 'none', borderRadius: '4px', padding: '3px 8px', fontSize: '11px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '3px' }}>
+                                <AppWindow size={12} /> APP
+                              </button>
+                            ) : null}
                           </div>
                         </div>
                       </td>
@@ -555,6 +589,42 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
             </div>
             <div style={{ marginTop: '16px', textAlign: 'right' }}>
               <button className="mdt-page-btn" onClick={() => { setAssignModal(null); setOpSearch(''); setOpFilter(null); }}>Annuler</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {appModal && (
+        <div className="mdt-modal-overlay" onClick={() => { setAppModal(null); setAppSearch(''); }}>
+          <div className="mdt-modal" onClick={e => e.stopPropagation()} style={{ maxWidth: '500px' }}>
+            <h3 style={{ margin: '0 0 16px', fontSize: '16px' }}>Associer à un logiciel métier</h3>
+            <p style={{ fontSize: '13px', color: '#64748b', margin: '0 0 16px' }}>
+              Commande n° <strong>{appModal.linkId}</strong>
+              {appModal.currentAppId && <span style={{ marginLeft: '8px' }}>(logiciel actuel : {appModal.currentAppLabel || appModal.currentAppId})</span>}
+            </p>
+            <div style={{ marginBottom: '12px' }}>
+              <input type="text" placeholder="Rechercher un logiciel..." value={appSearch}
+                onChange={e => setAppSearch(e.target.value)}
+                style={{ width: '100%', padding: '8px 12px', border: '1px solid #e2e8f0', borderRadius: '6px', fontSize: '13px', outline: 'none', boxSizing: 'border-box' }} />
+            </div>
+            <div style={{ maxHeight: '300px', overflowY: 'auto' }}>
+              <div onClick={() => handleAssignApp(null)}
+                style={{ padding: '8px 12px', cursor: 'pointer', borderRadius: '6px', background: '#fef2f2', border: '1px solid #fecaca', marginBottom: '4px', fontSize: '13px' }}>
+                <strong style={{ color: '#ef4444' }}>Dissocier</strong> — Aucun logiciel
+              </div>
+              {apps
+                .filter(a => !appSearch || (a.name || '').toLowerCase().includes(appSearch.toLowerCase()) || (a.category_name || '').toLowerCase().includes(appSearch.toLowerCase()))
+                .sort((a, b) => ((a.name || '')).localeCompare(b.name || ''))
+                .map(a => (
+                <div key={a.id} onClick={() => handleAssignApp(a.id)}
+                  style={{ padding: '8px 12px', cursor: 'pointer', borderRadius: '6px', background: appModal.currentAppId === a.id ? '#eff6ff' : 'transparent', border: '1px solid #e5e7eb', marginBottom: '4px', fontSize: '13px' }}>
+                  <div style={{ fontWeight: 600 }}>{a.name}</div>
+                  {a.category_name && <div style={{ color: '#64748b', fontSize: '11px' }}>{a.category_name}</div>}
+                </div>
+              ))}
+            </div>
+            <div style={{ marginTop: '16px', textAlign: 'right' }}>
+              <button className="mdt-page-btn" onClick={() => { setAppModal(null); setAppSearch(''); }}>Annuler</button>
             </div>
           </div>
         </div>

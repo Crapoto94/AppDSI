@@ -22,6 +22,7 @@ router.get('/resolve/:name/children/:parentValue', authenticateJWT, fieldMapping
 router.get('/years/:name', authenticateJWT, fieldMappingController.getAvailableYears);
 
 router.post('/assign-operation', authenticateJWT, fieldMappingController.assignOperation);
+router.post('/assign-app', authenticateJWT, fieldMappingController.assignApp);
 router.get('/operations', authenticateJWT, fieldMappingController.getOperations);
 
 module.exports = router;

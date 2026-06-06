@@ -509,9 +509,12 @@ resolveMapping: async (req, res) => {
         const linkIds = rows.map(r => String(r[linkRowKey] || '').trim()).filter(Boolean);
         if (linkIds.length > 0) {
           const linksResult = await pool.query(
-            `SELECT ol.target_id, ol.operation_id, o."LIBELLE" as operation_label, o."Service" as operation_service
+            `SELECT ol.target_id, ol.operation_id, ol.app_id,
+                    o."LIBELLE" as operation_label, o."Service" as operation_service,
+                    a.name as app_label
              FROM oracle.oracle_links ol
              LEFT JOIN oracle.operations o ON o.id = ol.operation_id
+             LEFT JOIN magapp.apps a ON a.id = ol.app_id
              WHERE ol.target_table = $1 AND ol.target_id = ANY($2)`,
             [rubrique.link_target, linkIds]
           );
@@ -524,10 +527,12 @@ resolveMapping: async (req, res) => {
               _operation_id: link?.operation_id || null,
               _operation_label: link?.operation_label || null,
               _operation_service: link?.operation_service || null,
+              _app_id: link?.app_id || null,
+              _app_label: link?.app_label || null,
             };
           });
         } else {
-          rows = rows.map(row => ({ ...row, _operation_id: null, _operation_label: null, _operation_service: null }));
+          rows = rows.map(row => ({ ...row, _operation_id: null, _operation_label: null, _operation_service: null, _app_id: null, _app_label: null }));
         }
       }
 
@@ -646,6 +651,40 @@ resolveMapping: async (req, res) => {
     } catch (error) {
       console.error('[FieldMapping] assignOperation error:', error);
       res.status(500).json({ message: "Erreur lors de l'affectation", error: error.message });
+    }
+  },
+
+  // Associe (ou dissocie) une commande à un logiciel métier (magapp.apps).
+  // Même principe que assignOperation, sur la colonne app_id de oracle_links.
+  assignApp: async (req, res) => {
+    const { rubrique_name, link_id, app_id } = req.body;
+    try {
+      const rubriqueResult = await pool.query(
+        "SELECT * FROM finance.field_mapping_rubriques WHERE name = $1", [rubrique_name]
+      );
+      if (rubriqueResult.rowCount === 0) return res.status(404).json({ message: `Rubrique '${rubrique_name}' non trouvée` });
+      const rubrique = rubriqueResult.rows[0];
+      if (!rubrique.link_target || !rubrique.link_id_column) {
+        return res.status(400).json({ message: 'Cette rubrique ne supporte pas les liens' });
+      }
+      const targetId = String(link_id).trim();
+
+      if (app_id) {
+        await pool.query(
+          `INSERT INTO oracle.oracle_links (target_table, target_id, app_id) VALUES ($1, $2, $3)
+           ON CONFLICT (target_table, target_id) DO UPDATE SET app_id = EXCLUDED.app_id`,
+          [rubrique.link_target, targetId, app_id]
+        );
+      } else {
+        await pool.query(
+          `UPDATE oracle.oracle_links SET app_id = NULL WHERE target_table = $1 AND target_id = $2`,
+          [rubrique.link_target, targetId]
+        );
+      }
+      res.json({ message: 'Association logiciel réussie' });
+    } catch (error) {
+      console.error('[FieldMapping] assignApp error:', error);
+      res.status(500).json({ message: "Erreur lors de l'association du logiciel", error: error.message });
     }
   },
 
