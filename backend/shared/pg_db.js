@@ -3618,10 +3618,13 @@ async function setupPgDb() {
       CREATE TABLE IF NOT EXISTS hub.user_prefs (
         username TEXT PRIMARY KEY,
         task_alert_email BOOLEAN DEFAULT FALSE,
+        task_assign_alert BOOLEAN DEFAULT FALSE,
         ms_todo_sync BOOLEAN DEFAULT FALSE,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     `);
+
+    try { await client.query(`ALTER TABLE hub.user_prefs ADD COLUMN IF NOT EXISTS task_assign_alert BOOLEAN DEFAULT FALSE`); } catch (e) {}
 
     // ─── Aide contextuelle par page (paramétrable dans /admin/hub > Aide) ────────
     // id SERIAL pour rester compatible avec pgDb.run (qui ajoute RETURNING id),

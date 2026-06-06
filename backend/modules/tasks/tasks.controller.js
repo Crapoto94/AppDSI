@@ -144,10 +144,10 @@ async function notifyTaskAssignment({ targets, creatorUsername, description, ech
     let prefMap = {};
     try {
         const prefRows = await pool.query(
-            'SELECT LOWER(username) AS un, task_alert_email FROM hub.user_prefs WHERE LOWER(username) = ANY($1)',
+            'SELECT LOWER(username) AS un, task_assign_alert FROM hub.user_prefs WHERE LOWER(username) = ANY($1)',
             [recipients.map(u => u.toLowerCase())]
         );
-        for (const row of prefRows.rows) prefMap[row.un] = row.task_alert_email === true;
+        for (const row of prefRows.rows) prefMap[row.un] = row.task_assign_alert === true;
     } catch (e) { /* ignore */ }
 
     const creatorName = await getUserDisplayName(creatorUsername);
@@ -986,6 +986,39 @@ module.exports = {
                 `INSERT INTO hub.user_prefs (username, task_alert_email, updated_at)
                  VALUES ($1, $2, NOW())
                  ON CONFLICT (username) DO UPDATE SET task_alert_email = EXCLUDED.task_alert_email, updated_at = NOW()`,
+                [username, !!enabled]
+            );
+            res.json({ ok: true, enabled: !!enabled });
+        } catch (error) {
+            res.status(500).json({ error: error.message });
+        }
+    },
+
+    // ─── ASSIGN ALERT PREF ───────────────────────────────────────────────────────
+
+    // GET /api/tasks/assign-alert-pref
+    async getAssignAlertPref(req, res) {
+        const username = req.user.username.toLowerCase();
+        try {
+            const r = await pool.query(
+                'SELECT task_assign_alert FROM hub.user_prefs WHERE username = $1',
+                [username]
+            );
+            res.json({ enabled: r.rows[0]?.task_assign_alert === true });
+        } catch (error) {
+            res.status(500).json({ error: error.message });
+        }
+    },
+
+    // PATCH /api/tasks/assign-alert-pref  { enabled: boolean }
+    async setAssignAlertPref(req, res) {
+        const username = req.user.username.toLowerCase();
+        const { enabled } = req.body;
+        try {
+            await pool.query(
+                `INSERT INTO hub.user_prefs (username, task_assign_alert, updated_at)
+                 VALUES ($1, $2, NOW())
+                 ON CONFLICT (username) DO UPDATE SET task_assign_alert = EXCLUDED.task_assign_alert, updated_at = NOW()`,
                 [username, !!enabled]
             );
             res.json({ ok: true, enabled: !!enabled });

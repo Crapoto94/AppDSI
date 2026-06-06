@@ -27,6 +27,8 @@ const authJwtOrQuery = (req, res, next) => {
 router.get('/count',              authenticateJWT, (req, res) => controller.getMyTasksCount(req, res));
 router.get('/alert-pref',         authenticateJWT, (req, res) => controller.getAlertPref(req, res));
 router.patch('/alert-pref',       authenticateJWT, (req, res) => controller.setAlertPref(req, res));
+router.get('/assign-alert-pref',  authenticateJWT, (req, res) => controller.getAssignAlertPref(req, res));
+router.patch('/assign-alert-pref',authenticateJWT, (req, res) => controller.setAssignAlertPref(req, res));
 router.post('/alert-test',        authenticateJWT, (req, res) => controller.sendTestAlert(req, res));
 router.get('/services',           authenticateJWT, (req, res) => controller.getServices(req, res));
 router.get('/by-context',         authenticateJWT, (req, res) => controller.getTasksByContext(req, res));

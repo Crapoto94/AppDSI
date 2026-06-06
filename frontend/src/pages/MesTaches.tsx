@@ -307,11 +307,14 @@ const MesTaches: React.FC = () => {
   // ── Confirmation modal ────────────────────────────────────────────────────────
   const [confirmModal, setConfirmModal] = useState<{ title: string; message: string; onConfirm: () => void; isDangerous?: boolean } | null>(null);
 
-  // ── Alert pref ───────────────────────────────────────────────────────────────
+  // ── Alert pref (daily recap) ────────────────────────────────────────────
   const [alertEnabled, setAlertEnabled] = useState(false);
   const [alertLoading, setAlertLoading] = useState(false);
   const [testSending, setTestSending]   = useState(false);
   const [testMsg, setTestMsg]           = useState<{ ok: boolean; text: string } | null>(null);
+  // ── Assign alert (immediate on assignment) ──────────────────────────────
+  const [assignAlertEnabled, setAssignAlertEnabled] = useState(false);
+  const [assignAlertLoading, setAssignAlertLoading] = useState(false);
 
   // ── MS Todo sync ─────────────────────────────────────────────────────────────
   const [todoEnabled, setTodoEnabled]   = useState(false);
@@ -347,6 +350,14 @@ const MesTaches: React.FC = () => {
       const res = await fetch('/api/tasks/alert-pref', { headers: { Authorization: `Bearer ${token}` } });
       const data = await res.json();
       setAlertEnabled(data.enabled === true);
+    } catch { /* ignore */ }
+  }, [token]);
+
+  const fetchAssignAlertPref = useCallback(async () => {
+    try {
+      const res = await fetch('/api/tasks/assign-alert-pref', { headers: { Authorization: `Bearer ${token}` } });
+      const data = await res.json();
+      setAssignAlertEnabled(data.enabled === true);
     } catch { /* ignore */ }
   }, [token]);
 
@@ -441,7 +452,7 @@ const MesTaches: React.FC = () => {
     finally { setKpiLoading(false); }
   };
 
-  useEffect(() => { fetchTasks(); fetchAlertPref(); fetchTodoPref(); }, [fetchTasks, fetchAlertPref, fetchTodoPref]);
+  useEffect(() => { fetchTasks(); fetchAlertPref(); fetchAssignAlertPref(); fetchTodoPref(); }, [fetchTasks, fetchAlertPref, fetchAssignAlertPref, fetchTodoPref]);
 
   const syncedOnMount = useRef(false);
   useEffect(() => {
@@ -599,6 +610,15 @@ const MesTaches: React.FC = () => {
       await fetch('/api/tasks/alert-pref', { method: 'PATCH', headers: authHeaders, body: JSON.stringify({ enabled: next }) });
       setAlertEnabled(next);
     } finally { setAlertLoading(false); }
+  };
+
+  const toggleAssignAlert = async () => {
+    setAssignAlertLoading(true);
+    const next = !assignAlertEnabled;
+    try {
+      await fetch('/api/tasks/assign-alert-pref', { method: 'PATCH', headers: authHeaders, body: JSON.stringify({ enabled: next }) });
+      setAssignAlertEnabled(next);
+    } finally { setAssignAlertLoading(false); }
   };
 
   const sendTest = async () => {
@@ -811,9 +831,16 @@ const MesTaches: React.FC = () => {
           </div>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
             {/* Toggle M'avertir */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 12px', background: 'white', border: '1px solid #e2e8f0', borderRadius: 8 }}
-              title="Recevoir un email à chaque tâche qui m'est affectée">
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 12px', background: 'white', border: '1px solid #e2e8f0', borderRadius: 8, cursor: 'default' }}
+              title="Recevoir un email à chaque tâche qui m'est affectée (sauf tâches personnelles)">
               <span style={{ fontSize: 12, color: '#475569', fontWeight: 600, whiteSpace: 'nowrap' }}>🔔 M'avertir</span>
+              <Toggle checked={assignAlertEnabled} onChange={() => toggleAssignAlert()} disabled={assignAlertLoading} />
+            </div>
+
+            {/* Toggle Rappel 8h */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 12px', background: 'white', border: '1px solid #e2e8f0', borderRadius: 8, cursor: 'default' }}
+              title="Recevoir un récapitulatif de toutes mes tâches chaque matin à 8h">
+              <span style={{ fontSize: 12, color: '#475569', fontWeight: 600, whiteSpace: 'nowrap' }}>📋 Rappel 8h</span>
               <Toggle checked={alertEnabled} onChange={() => toggleAlert()} disabled={alertLoading} />
               {alertEnabled && (
                 <button onClick={sendTest} disabled={testSending} style={{ padding: '2px 8px', background: '#eff6ff', color: '#2563eb', border: '1px solid #bfdbfe', borderRadius: 6, cursor: 'pointer', fontSize: 11, fontWeight: 600 }}>
