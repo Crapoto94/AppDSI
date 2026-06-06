@@ -2926,13 +2926,18 @@ app.post('/api/release-from-backlog', authenticateAdmin, versionUpload.single('m
 
         // 3. Get completed backlog items updated since last version
         const completedBacklog = await pgDb.all(
-            "SELECT title, category FROM hub.backlog WHERE status = 'completed' AND updated_at >= $1 ORDER BY updated_at DESC",
+            "SELECT title, category, tile_id FROM hub.backlog WHERE status = 'completed' AND updated_at >= $1 ORDER BY updated_at DESC",
             [lastVersionDate.toISOString()]
         );
 
         if (completedBacklog.length === 0) {
             return res.status(400).json({ message: "Aucun backlog complété depuis la dernière version." });
         }
+
+        // Fetch tiles from SQLite to get their titles
+        const tiles = await db.all('SELECT id, title FROM tiles');
+        const tileMap = {};
+        tiles.forEach(t => tileMap[t.id] = t.title);
 
         // 4. Calculer la nouvelle version
         let newVersion = customVersion;
@@ -2942,30 +2947,23 @@ app.post('/api/release-from-backlog', authenticateAdmin, versionUpload.single('m
             newVersion = parts.join('.');
         }
 
-        // 5. Grouper par catégorie et construire le tableau de changements
-        const byCategory = {
-            'Bug': [],
-            'Amélioration': [],
-            'Nouvelle fonctionnalité': [],
-            'Graphisme': []
-        };
+        // 5. Grouper par module et construire le tableau de changements
+        const byModule = {};
 
         for (const item of completedBacklog) {
-            const cat = item.category || 'Autre';
-            if (byCategory[cat]) {
-                byCategory[cat].push(item.title);
-            } else {
-                if (!byCategory['Autre']) byCategory['Autre'] = [];
-                byCategory['Autre'].push(item.title);
+            const moduleName = item.tile_id ? (tileMap[item.tile_id] || 'Module inconnu') : 'Général / Hub';
+            if (!byModule[moduleName]) {
+                byModule[moduleName] = [];
             }
+            byModule[moduleName].push(item.title);
         }
 
         const changes = [];
         if (description) changes.push(description);
 
-        for (const [category, items] of Object.entries(byCategory)) {
+        for (const [moduleName, items] of Object.entries(byModule)) {
             if (items.length > 0) {
-                changes.push(`### ${category}`);
+                changes.push(`### ${moduleName}`);
                 items.forEach(title => changes.push(`• ${title}`));
             }
         }
@@ -3033,33 +3031,31 @@ app.get('/api/backlog/ready-for-release', authenticateAdmin, async (req, res) =>
 
         // Get completed backlog items since last version
         const completedBacklog = await pgDb.all(
-            "SELECT * FROM hub.backlog WHERE status = 'completed' AND updated_at >= $1 ORDER BY category, title",
+            "SELECT * FROM hub.backlog WHERE status = 'completed' AND updated_at >= $1 ORDER BY tile_id, title",
             [lastVersionDate.toISOString()]
         );
 
-        // Group by category
-        const byCategory = {
-            'Bug': [],
-            'Amélioration': [],
-            'Nouvelle fonctionnalité': [],
-            'Graphisme': []
-        };
+        // Fetch tiles from SQLite to get their titles
+        const tiles = await db.all('SELECT id, title FROM tiles');
+        const tileMap = {};
+        tiles.forEach(t => tileMap[t.id] = t.title);
+
+        // Group by module (tile)
+        const byModule = {};
 
         for (const item of completedBacklog) {
-            const cat = item.category || 'Autre';
-            if (byCategory[cat]) {
-                byCategory[cat].push(item);
-            } else {
-                if (!byCategory['Autre']) byCategory['Autre'] = [];
-                byCategory['Autre'].push(item);
+            const moduleName = item.tile_id ? (tileMap[item.tile_id] || 'Module inconnu') : 'Général / Hub';
+            if (!byModule[moduleName]) {
+                byModule[moduleName] = [];
             }
+            byModule[moduleName].push(item);
         }
 
         res.json({
             currentVersion,
             nextVersion,
             completedItems: completedBacklog,
-            groupedByCategory: byCategory,
+            groupedByModule: byModule,
             count: completedBacklog.length
         });
     } catch (error) {

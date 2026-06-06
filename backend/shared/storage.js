@@ -439,7 +439,14 @@ async function deletePath(relPath) {
     const root = resolveRoot(config);
     const abs = resolveAbsolute(root, relPath);
     if (!abs) throw new Error('Chemin invalide.');
-    if (abs === path.resolve(root)) throw new Error('Suppression de la racine interdite.');
+
+    // En mode SMB (Linux/Docker), resolveAbsolute peut renvoyer un chemin qui ne correspond pas
+    // strictement à resolveRoot(config) via path.resolve. On vérifie la vacuité du relPath.
+    const cleanRel = (relPath || '').replace(/\\/g, '/').split('/').filter(Boolean).join('/');
+    if (!cleanRel || cleanRel === '.' || cleanRel === '..') {
+        throw new Error('Suppression de la racine interdite.');
+    }
+
     if (fs.existsSync(abs)) fs.rmSync(abs, { recursive: true, force: true });
 }
 

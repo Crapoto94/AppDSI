@@ -860,44 +860,34 @@ const [versionMdFile, setVersionMdFile] = useState<File | null>(null);
                       </div>
                     </div>
 
-                    {/* Backlog Items List - Grouped by Category */}
-                    {versionData.completedItems.length > 0 && versionData.groupedByCategory && (
+                    {/* Backlog Items List - Grouped by Module */}
+                    {versionData.completedItems.length > 0 && versionData.groupedByModule && (
                       <div style={{ marginBottom: '24px' }}>
                         <h3 style={{ fontSize: '0.95rem', fontWeight: '700', color: '#1e293b', marginBottom: '12px' }}>
-                          ✅ Backlog complétés
+                          ✅ Backlog complétés (par module)
                         </h3>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', maxHeight: '400px', overflow: 'auto' }}>
-                          {Object.entries(versionData.groupedByCategory).map(([category, items]: [string, any]) => {
+                          {Object.entries(versionData.groupedByModule).map(([moduleName, items]: [string, any]) => {
                             if (!items || items.length === 0) return null;
 
-                            const categoryColors: Record<string, { bg: string; text: string; border: string; icon: string }> = {
-                              'Bug': { bg: '#fee2e2', text: '#991b1b', border: '#fca5a5', icon: '🐛' },
-                              'Amélioration': { bg: '#dbeafe', text: '#1e40af', border: '#93c5fd', icon: '⬆️' },
-                              'Nouvelle fonctionnalité': { bg: '#e9d5ff', text: '#5b21b6', border: '#d8b4fe', icon: '✨' },
-                              'Graphisme': { bg: '#fed7aa', text: '#92400e', border: '#fdba74', icon: '🎨' },
-                              'Autre': { bg: '#f3f4f6', text: '#374151', border: '#d1d5db', icon: '📝' }
-                            };
-
-                            const colors = categoryColors[category] || categoryColors['Autre'];
-
                             return (
-                              <div key={category}>
+                              <div key={moduleName}>
                                 <div style={{
                                   display: 'flex',
                                   alignItems: 'center',
                                   gap: '8px',
                                   fontSize: '0.85rem',
                                   fontWeight: '700',
-                                  color: colors.text,
+                                  color: '#1e293b',
                                   marginBottom: '8px'
                                 }}>
-                                  <span>{colors.icon}</span>
-                                  <span>{category}</span>
+                                  <span>📦</span>
+                                  <span>{moduleName}</span>
                                   <span style={{ fontSize: '0.75rem', opacity: 0.7 }}>({items.length})</span>
                                 </div>
                                 <div style={{
-                                  background: colors.bg,
-                                  border: `1px solid ${colors.border}`,
+                                  background: '#f8fafc',
+                                  border: '1px solid #e2e8f0',
                                   borderRadius: '8px',
                                   padding: '10px',
                                   marginBottom: '8px'
@@ -905,12 +895,12 @@ const [versionMdFile, setVersionMdFile] = useState<File | null>(null);
                                   {items.map((item: any) => (
                                     <div key={item.id} style={{
                                       padding: '6px 0',
-                                      borderBottom: `1px solid ${colors.border}`,
-                                      color: colors.text,
+                                      borderBottom: '1px solid #e2e8f0',
+                                      color: '#334155',
                                       fontSize: '0.9rem',
                                       lineHeight: 1.4
                                     }}>
-                                      • {item.title}
+                                      • <span style={{ fontWeight: '600', fontSize: '0.75rem', color: '#64748b' }}>[{item.category}]</span> {item.title}
                                     </div>
                                   ))}
                                 </div>

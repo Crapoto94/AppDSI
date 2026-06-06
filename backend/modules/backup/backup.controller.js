@@ -864,13 +864,29 @@ function applyRetentionFs(dir, keep) {
 /** Applique la rétention dans le stockage (_backups), FS ou SMB. */
 async function applyRetentionStorage(keep) {
   let list;
-  try { list = await storage.listDirectory(BACKUP_SUBDIR); } catch (e) { return { kept: [], deleted: [] }; }
+  try {
+    list = await storage.listDirectory(BACKUP_SUBDIR);
+  } catch (e) {
+    console.error(`[Backup Retention] Error listing ${BACKUP_SUBDIR}:`, e.message);
+    return { kept: [], deleted: [] };
+  }
+
   const files = (list.entries || [])
     .filter(e => !e.isFolder && /^backup_global_.*\.zip$/i.test(e.name))
     .sort((a, b) => b.name.localeCompare(a.name));
+
   const kept = files.slice(0, keep).map(x => x.name);
   const toDelete = files.slice(keep);
-  for (const x of toDelete) { try { await storage.deletePath(x.relPath); } catch (e) {} }
+
+  for (const x of toDelete) {
+    try {
+      // Use deletePath with the relative path from the entry
+      await storage.deletePath(x.relPath);
+    } catch (e) {
+      console.error(`[Backup Retention] Failed to delete ${x.relPath}:`, e.message);
+    }
+  }
+
   return { kept, deleted: toDelete.map(x => x.name) };
 }
 
