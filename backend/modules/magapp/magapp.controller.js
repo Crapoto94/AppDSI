@@ -1001,19 +1001,44 @@ const MagAppController = {
     // Évolution des usages : clics agrégés par semaine sur les 12 dernières semaines.
     getClicksTimeline: async (req, res) => {
         try {
+            const appId = req.query.app_id ? parseInt(req.query.app_id, 10) : null;
+            const params = [];
+            let where = "clicked_at >= CURRENT_DATE - INTERVAL '12 weeks'";
+            if (appId) { params.push(appId); where += ` AND app_id = $${params.length}`; }
             // pool.query direct (le wrapper pgDb mal-gère cette requête à base de date_trunc/to_char)
             const { rows } = await pool.query(`
                 SELECT to_char(date_trunc('week', clicked_at), 'YYYY-MM-DD') AS week,
                        COUNT(*)::int AS clicks,
                        COUNT(DISTINCT username)::int AS users
                 FROM magapp.clicks
-                WHERE clicked_at >= CURRENT_DATE - INTERVAL '12 weeks'
+                WHERE ${where}
                 GROUP BY 1
                 ORDER BY 1
-            `);
+            `, params);
             res.json(rows);
         } catch (error) {
             console.error('[MAGAPP] Error fetching clicks timeline:', error.message);
+            res.json([]);
+        }
+    },
+
+    // Commandes associées à un logiciel (via oracle_links.app_id) — pour la liste au clic.
+    getAppOrders: async (req, res) => {
+        try {
+            const { rows } = await pool.query(`
+                SELECT TRIM(c."COMMANDE_COMMANDE") AS num,
+                       TRIM(CONCAT(COALESCE(c."COMMANDE_LIBELLE", ''), ' ', COALESCE(c."COMMANDE_CMD_LIBELLE2", ''))) AS libelle,
+                       c."COMMANDE_CMD_DATECOMMANDE" AS date_commande,
+                       c."SERVICEFI_LIBELLE" AS service,
+                       c."COMMANDE_MONTANT_TTC" AS montant_ttc
+                FROM oracle.oracle_links ol
+                JOIN oracle.gf_oracle_commande c ON TRIM(c."COMMANDE_COMMANDE") = ol.target_id
+                WHERE ol.target_table = 'orders' AND ol.app_id = $1
+                ORDER BY c."COMMANDE_CMD_DATECOMMANDE" DESC
+            `, [parseInt(req.params.id, 10)]);
+            res.json(rows);
+        } catch (error) {
+            console.error('[MAGAPP] Error fetching app orders:', error.message);
             res.json([]);
         }
     },

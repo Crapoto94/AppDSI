@@ -34,6 +34,7 @@ magappBaseRouter.get('/versions', MagAppController.getVersions);
 magappBaseRouter.get('/user-version', authenticateJWT, MagAppController.getUserVersion);
 magappBaseRouter.post('/user-version', authenticateJWT, MagAppController.recordUserVersionSeen);
 magappBaseRouter.get('/apps/:id/docs', tryAuthenticateJWT, MagAppController.getAppDocs);
+magappBaseRouter.get('/apps/:id/orders', tryAuthenticateJWT, MagAppController.getAppOrders);
 magappBaseRouter.post('/docs/:id/interaction', authenticateJWT, MagAppController.recordDocInteraction);
 
 // Admin routes under /api/magapp

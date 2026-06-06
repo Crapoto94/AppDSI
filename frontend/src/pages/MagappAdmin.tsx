@@ -209,6 +209,10 @@ const MagappAdmin: React.FC = () => {
   const [filterPM, setFilterPM] = useState<string>('all');
   const [selectedAppId, setSelectedAppId] = useState<number | null>(null);
   const [clicksTimeline, setClicksTimeline] = useState<{ week: string; clicks: number; users: number }[]>([]);
+  const [allContracts, setAllContracts] = useState<any[]>([]);
+  const [infoModal, setInfoModal] = useState<{ title: string } | null>(null);
+  const [infoItems, setInfoItems] = useState<{ primary: string; secondary?: string; right?: string }[]>([]);
+  const [infoLoading, setInfoLoading] = useState(false);
 
   // Modal tickets par logiciel
   const [ticketModal, setTicketModal] = useState<{ appId: number; appName: string; type: '1' | '2' } | null>(null);
@@ -313,12 +317,12 @@ const MagappAdmin: React.FC = () => {
           try {
             const contrats = await contratsRes.json();
             if (Array.isArray(contrats)) {
+              setAllContracts(contrats);
               contrats.forEach((c: any) => {
                 if (c.app_id) {
                   contractCount[c.app_id] = (contractCount[c.app_id] || 0) + 1;
                 }
               });
-              console.log('[MagappAdmin] Contrats comptés:', contractCount);
             }
           } catch (e) {
             console.error('[MagappAdmin] Erreur parsing contrats:', e);
@@ -638,6 +642,43 @@ const MagappAdmin: React.FC = () => {
   };
 
   useEffect(() => { fetchData(); fetchApps(); fetchVersions(); fetchSubscriptions(); fetchIdeas(); }, []);
+
+  // Courbe d'usages filtrée par le logiciel sélectionné (ou globale si aucun).
+  useEffect(() => {
+    const url = selectedAppId ? `/api/magapp/clicks-timeline?app_id=${selectedAppId}` : '/api/magapp/clicks-timeline';
+    fetch(url, { headers: { 'Authorization': `Bearer ${token}` } })
+      .then(r => r.ok ? r.json() : [])
+      .then(d => setClicksTimeline(Array.isArray(d) ? d : []))
+      .catch(() => {});
+  }, [selectedAppId]);
+
+  // Liste détaillée au clic sur un KPI du panneau (utilisateurs, docs, contrats, commandes).
+  const openAppList = async (kind: 'users' | 'docs' | 'contracts' | 'orders', app: AppItem) => {
+    const fmtDate = (d?: string) => d ? new Date(d).toLocaleDateString('fr-FR') : '';
+    if (kind === 'contracts') {
+      const items = allContracts.filter((c: any) => c.app_id === app.id)
+        .map((c: any) => ({ primary: c.objet || c.raison_sociale || `Contrat #${c.id}`, secondary: c.raison_sociale || c.tiers_nom || '', right: c.date_fin ? `échéance ${fmtDate(c.date_fin)}` : '' }));
+      setInfoItems(items); setInfoModal({ title: `Contrats — ${app.name}` }); return;
+    }
+    setInfoLoading(true); setInfoItems([]); setInfoModal({ title: `${kind === 'users' ? 'Utilisateurs' : kind === 'docs' ? 'Documents' : 'Commandes'} — ${app.name}` });
+    try {
+      const headers = { 'Authorization': `Bearer ${token}` };
+      if (kind === 'users') {
+        const r = await fetch(`/api/magapp/apps/${app.id}/users`, { headers });
+        const d = r.ok ? await r.json() : [];
+        setInfoItems((Array.isArray(d) ? d : []).map((u: any) => ({ primary: u.display_name || u.username, secondary: u.username, right: u.last_connection ? `dernière connexion ${fmtDate(u.last_connection)}` : (u.source || '') })));
+      } else if (kind === 'docs') {
+        const r = await fetch(`/api/magapp/apps/${app.id}/docs`, { headers });
+        const d = r.ok ? await r.json() : [];
+        setInfoItems((Array.isArray(d) ? d : []).filter((x: any) => !x.is_obsolete).map((x: any) => ({ primary: x.title, secondary: x.description || '', right: (x.doc_type || '').toUpperCase() })));
+      } else if (kind === 'orders') {
+        const r = await fetch(`/api/magapp/apps/${app.id}/orders`, { headers });
+        const d = r.ok ? await r.json() : [];
+        setInfoItems((Array.isArray(d) ? d : []).map((o: any) => ({ primary: o.libelle || o.num, secondary: `N° ${o.num}${o.date_commande ? ' · ' + fmtDate(o.date_commande) : ''}${o.service ? ' · ' + o.service : ''}`, right: (Number(String(o.montant_ttc).replace(',', '.')) || 0).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 }) })));
+      }
+    } catch (e) { /* ignore */ }
+    setInfoLoading(false);
+  };
   useEffect(() => {
     if (activeTab === 'subscriptions') fetchSubscriptions();
     if (activeTab === 'versions') fetchVersions();
@@ -1000,7 +1041,7 @@ const MagappAdmin: React.FC = () => {
                 {/* ===== KPI band ===== */}
                 <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap' }}>
                   <div style={{ ...mkCard, flex: '2 1 300px', minWidth: 280, display: 'flex', flexDirection: 'column', gap: 4 }}>
-                    <div style={mkLabel}>Évolution des usages · clics / semaine</div>
+                    <div style={mkLabel}>Évolution des usages · clics / semaine{selApp ? ` · ${selApp.name}` : ' · global'}</div>
                     <div style={{ height: 64 }}>
                       <ResponsiveContainer width="100%" height="100%">
                         <AreaChart data={clicksTimeline} margin={{ top: 6, right: 2, left: 2, bottom: 0 }}>
@@ -1037,10 +1078,16 @@ const MagappAdmin: React.FC = () => {
                     <div style={mkSub}>total TTC lié aux logiciels</div>
                   </div>
 
-                  <div style={{ ...mkCard, flex: '1 1 170px', minWidth: 170 }}>
-                    <div style={mkLabel}>Utilisateurs · Docs · Contrats</div>
+                  <div style={{ ...mkCard, flex: '1 1 150px', minWidth: 150 }}>
+                    <div style={mkLabel}>Utilisateurs · Contrats</div>
                     <div style={mkBig}>{magKpi.users} <span style={{ fontSize: '.9rem', color: '#94a3b8', fontWeight: 600 }}>util.</span></div>
-                    <div style={mkSub}>{magKpi.docs} documents · {magKpi.contracts} contrats</div>
+                    <div style={mkSub}>{magKpi.contracts} contrats liés</div>
+                  </div>
+
+                  <div style={{ ...mkCard, flex: '1 1 150px', minWidth: 150 }}>
+                    <div style={mkLabel}>Documents</div>
+                    <div style={mkBig}>{magKpi.docs}</div>
+                    <div style={mkSub}>documentations associées</div>
                   </div>
                 </div>
 
@@ -1113,7 +1160,7 @@ const MagappAdmin: React.FC = () => {
                               {tc && tc.incident_count > 0 && <span style={{ ...pill, background: '#fee2e2', color: '#991b1b' }} title={`${tc.incident_count} incident(s) ouvert(s)`}>⚠ {tc.incident_count}</span>}
                               {tc && tc.request_count > 0 && <span style={{ ...pill, background: '#fef3c7', color: '#92400e' }} title={`${tc.request_count} demande(s) ouverte(s)`}>＋ {tc.request_count}</span>}
                               {(app.orders_amount || 0) > 0 && <span style={{ ...pill, background: '#dbeafe', color: '#1e40af' }} title={`Coût calculé — ${app.orders_count || 0} commande(s)`}>💶 {eur0(app.orders_amount || 0)}</span>}
-                              {docTotal > 0 && <span style={{ ...pill, background: '#eef2ff', color: '#4338ca' }} title={`${docTotal} document(s)`}>📄 {docTotal}</span>}
+                              <span style={{ ...pill, background: '#eef2ff', color: '#4338ca' }} title={`${docTotal} documentation(s) associée(s)`}>📄 {docTotal}</span>
                               {(app.contract_count || 0) > 0 && <span style={{ ...pill, background: '#fef9c3', color: '#854d0e' }} title={`${app.contract_count} contrat(s)`}>📋 {app.contract_count}</span>}
                             </span>
                           </button>
@@ -1155,10 +1202,10 @@ const MagappAdmin: React.FC = () => {
                         </div>
 
                         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 10 }}>
-                          <div style={{ border: '1px solid #eef1f6', borderRadius: 10, padding: '10px 12px' }}><div style={mkLabel}>👤 Utilisateurs</div><div style={{ ...mkBig, fontSize: '1.2rem' }}>{selApp.user_count || 0}</div></div>
-                          <div style={{ border: '1px solid #eef1f6', borderRadius: 10, padding: '10px 12px', cursor: 'pointer' }} onClick={() => { setEditingDoc(null); setNewDoc({ title: '', description: '', app_id: selApp.id, doc_type: 'pdf', url: '', is_favorite: false, is_technical: false, is_obsolete: false }); setShowDocModal(true); }}><div style={mkLabel}>📄 Documents</div><div style={{ ...mkBig, fontSize: '1.2rem' }}>{(selApp.normal_doc_count || 0) + (selApp.technical_doc_count || 0)}</div></div>
-                          <div style={{ border: '1px solid #eef1f6', borderRadius: 10, padding: '10px 12px' }}><div style={mkLabel}>📋 Contrats</div><div style={{ ...mkBig, fontSize: '1.2rem' }}>{selApp.contract_count || 0}</div></div>
-                          <div style={{ border: '1px solid #eef1f6', borderRadius: 10, padding: '10px 12px' }}><div style={mkLabel}>💶 Commandes</div><div style={{ ...mkBig, fontSize: '1.1rem', color: '#1e40af' }}>{eur0(selApp.orders_amount || 0)}</div><div style={{ fontSize: '.7rem', color: '#94a3b8' }}>{selApp.orders_count || 0} cmd</div></div>
+                          <div style={{ border: '1px solid #eef1f6', borderRadius: 10, padding: '10px 12px', cursor: 'pointer' }} title="Voir la liste des utilisateurs" onClick={() => openAppList('users', selApp)}><div style={mkLabel}>👤 Utilisateurs ›</div><div style={{ ...mkBig, fontSize: '1.2rem' }}>{selApp.user_count || 0}</div></div>
+                          <div style={{ border: '1px solid #eef1f6', borderRadius: 10, padding: '10px 12px', cursor: 'pointer' }} title="Voir la liste des documents" onClick={() => openAppList('docs', selApp)}><div style={mkLabel}>📄 Documents ›</div><div style={{ ...mkBig, fontSize: '1.2rem' }}>{(selApp.normal_doc_count || 0) + (selApp.technical_doc_count || 0)}</div></div>
+                          <div style={{ border: '1px solid #eef1f6', borderRadius: 10, padding: '10px 12px', cursor: 'pointer' }} title="Voir la liste des contrats" onClick={() => openAppList('contracts', selApp)}><div style={mkLabel}>📋 Contrats ›</div><div style={{ ...mkBig, fontSize: '1.2rem' }}>{selApp.contract_count || 0}</div></div>
+                          <div style={{ border: '1px solid #eef1f6', borderRadius: 10, padding: '10px 12px', cursor: 'pointer' }} title="Voir la liste des commandes" onClick={() => openAppList('orders', selApp)}><div style={mkLabel}>💶 Commandes ›</div><div style={{ ...mkBig, fontSize: '1.1rem', color: '#1e40af' }}>{eur0(selApp.orders_amount || 0)}</div><div style={{ fontSize: '.7rem', color: '#94a3b8' }}>{selApp.orders_count || 0} cmd</div></div>
                         </div>
 
                         {selApp.project_manager_name && (
@@ -1167,6 +1214,7 @@ const MagappAdmin: React.FC = () => {
 
                         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', borderTop: '1px solid #f1f5f9', paddingTop: 14 }}>
                           <button className="primary-btn-v2" style={{ background: '#eef2ff', color: '#4338ca' }} onClick={() => openMaintenanceModal(selApp.id)}><Wrench size={15} /> Maintenance</button>
+                          <button className="primary-btn-v2" style={{ background: '#ecfeff', color: '#0e7490' }} onClick={() => { setEditingDoc(null); setNewDoc({ title: '', description: '', app_id: selApp.id, doc_type: 'pdf', url: '', is_favorite: false, is_technical: false, is_obsolete: false }); setShowDocModal(true); }}><Plus size={15} /> Document</button>
                           {ticketCounts[selApp.id] && ticketCounts[selApp.id].incident_count > 0 && (
                             <button className="primary-btn-v2" style={{ background: '#fee2e2', color: '#991b1b' }} onClick={() => openTicketModal(selApp.id, selApp.name, '1')}>⚠ {ticketCounts[selApp.id].incident_count} incident(s)</button>
                           )}
@@ -1501,6 +1549,32 @@ const MagappAdmin: React.FC = () => {
               )}
 
               {/* Modal tickets par logiciel */}
+              {infoModal && (
+                <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000 }} onClick={() => setInfoModal(null)}>
+                  <div style={{ background: '#fff', borderRadius: 14, width: 'min(560px, 92vw)', maxHeight: '80vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }} onClick={e => e.stopPropagation()}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 18px', borderBottom: '1px solid #eef1f6' }}>
+                      <h3 style={{ margin: 0, fontSize: '1rem', color: '#0f172a' }}>{infoModal.title} <span style={{ color: '#94a3b8', fontWeight: 600 }}>({infoItems.length})</span></h3>
+                      <button className="close-modal-btn" onClick={() => setInfoModal(null)}><X size={20} /></button>
+                    </div>
+                    <div style={{ overflowY: 'auto', padding: '8px 0' }}>
+                      {infoLoading ? (
+                        <div style={{ padding: 28, textAlign: 'center', color: '#94a3b8' }}>Chargement…</div>
+                      ) : infoItems.length === 0 ? (
+                        <div style={{ padding: 28, textAlign: 'center', color: '#94a3b8' }}>Aucun élément</div>
+                      ) : infoItems.map((it, i) => (
+                        <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '9px 18px', borderBottom: '1px solid #f4f6fa' }}>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontWeight: 600, fontSize: '.86rem', color: '#1e293b' }}>{it.primary}</div>
+                            {it.secondary && <div style={{ fontSize: '.74rem', color: '#94a3b8' }}>{it.secondary}</div>}
+                          </div>
+                          {it.right && <div style={{ fontSize: '.78rem', color: '#475569', fontWeight: 600, whiteSpace: 'nowrap' }}>{it.right}</div>}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {ticketModal && (
                 <div
                   style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000 }}
