@@ -55,12 +55,11 @@ SELECT t.*,
          LIMIT 1
      ) tga ON true
      LEFT JOIN hub_tickets.technician_groups tg2 ON tga.group_id = tg2.id
-     LEFT JOIN (SELECT DISTINCT ON (LOWER(email)) email, service_code, service_complement FROM magapp.users ORDER BY LOWER(email)) mu ON LOWER(mu.email) = LOWER(COALESCE(NULLIF(t.email_alt, ''), t.requester_email_22))
-     LEFT JOIN (SELECT DISTINCT ON (ticket_id) ticket_id, category_id FROM hub_tickets.ticket_category_assignments ORDER BY ticket_id) tca ON tca.ticket_id = t.glpi_id
+      LEFT JOIN LATERAL (SELECT email, service_code, service_complement FROM magapp.users WHERE LOWER(email) = LOWER(COALESCE(NULLIF(t.email_alt, ''), t.requester_email_22)) LIMIT 1) mu ON true
+      LEFT JOIN LATERAL (SELECT category_id FROM hub_tickets.ticket_category_assignments WHERE ticket_id = t.glpi_id LIMIT 1) tca ON true
      LEFT JOIN hub_tickets.ticket_status ts ON t.status = ts.id
-      LEFT JOIN (
-          SELECT DISTINCT ON (tgm.ticket_id)
-              tgm.ticket_id,
+      LEFT JOIN LATERAL (
+          SELECT
               tgm.group_id AS bundle_id,
               tg.name AS bundle_name,
               tg.problem_ticket_id AS bundle_problem_ticket_id,
@@ -71,26 +70,27 @@ SELECT t.*,
                  AND m.ticket_id != tgm.ticket_id) AS bundle_members
           FROM hub_tickets.ticket_group_members tgm
           LEFT JOIN hub_tickets.ticket_groups tg ON tg.id = tgm.group_id
-          ORDER BY tgm.ticket_id
-      ) tgm_sub ON tgm_sub.ticket_id = t.glpi_id
-      LEFT JOIN (
+          WHERE tgm.ticket_id = t.glpi_id
+          LIMIT 1
+      ) tgm_sub ON true
+      LEFT JOIN LATERAL (
           SELECT
-              tg.problem_ticket_id,
               COALESCE(json_agg(json_build_object('ticket_id', m.ticket_id, 'title', mt.title, 'status', mt.status, 'priority', mt.priority, 'type', mt.type, 'date_creation', mt.date_creation, 'impact', mt.impact, 'source', mt.source)), '[]'::json) AS problem_linked_tickets
           FROM hub_tickets.ticket_groups tg
           JOIN hub_tickets.ticket_group_members m ON m.group_id = tg.id
           JOIN hub_tickets.tickets mt ON mt.glpi_id = m.ticket_id
-          GROUP BY tg.problem_ticket_id
-      ) problem_sub ON problem_sub.problem_ticket_id = t.glpi_id AND t.type = '3'
+          WHERE tg.problem_ticket_id = t.glpi_id
+      ) problem_sub ON true AND t.type = '3'
      LEFT JOIN magapp.apps ma ON t.software_id = ma.id
      LEFT JOIN hub_tickets.ticket_categories tc ON t.category_id = tc.id
      LEFT JOIN hub_tickets.ticket_categories tsc ON t.subcategory_id = tsc.id
-     LEFT JOIN (
-         SELECT DISTINCT ON (ts2.ticket_id) ts2.ticket_id, ts2.sla_status
-         FROM hub_tickets.ticket_sla ts2
-         JOIN hub_tickets.sla_definitions sd2 ON ts2.sla_definition_id = sd2.id AND sd2.is_active = true
-         ORDER BY ts2.ticket_id
-     ) tsla ON tsla.ticket_id = t.glpi_id
+      LEFT JOIN LATERAL (
+          SELECT ts2.sla_status
+          FROM hub_tickets.ticket_sla ts2
+          JOIN hub_tickets.sla_definitions sd2 ON ts2.sla_definition_id = sd2.id AND sd2.is_active = true
+          WHERE ts2.ticket_id = t.glpi_id
+          LIMIT 1
+      ) tsla ON true
 `;
 
 module.exports = {

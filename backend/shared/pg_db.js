@@ -407,6 +407,7 @@ async function setupPgDb() {
       );
     `);
     await client.query(`CREATE INDEX IF NOT EXISTS idx_tca_cat ON hub_tickets.ticket_category_assignments(category_id)`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_tca_ticket_id ON hub_tickets.ticket_category_assignments(ticket_id)`);
 
     await client.query(`
       CREATE TABLE IF NOT EXISTS hub_tickets.ticket_tags (
@@ -613,6 +614,7 @@ async function setupPgDb() {
       );
     `);
     await client.query(`CREATE INDEX IF NOT EXISTS idx_ts_status ON hub_tickets.ticket_sla(sla_status)`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_ts_ticket_id ON hub_tickets.ticket_sla(ticket_id)`);
 
     await client.query(`
       CREATE TABLE IF NOT EXISTS hub_tickets.ticket_sla_pauses (
@@ -924,6 +926,7 @@ async function setupPgDb() {
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         `);
+        await client.query(`CREATE INDEX IF NOT EXISTS idx_tg_problem_ticket_id ON hub_tickets.ticket_groups(problem_ticket_id)`);
         await client.query(`
             CREATE TABLE IF NOT EXISTS hub_tickets.ticket_group_members (
                 id SERIAL PRIMARY KEY,
@@ -934,6 +937,8 @@ async function setupPgDb() {
                 UNIQUE(ticket_id)
             )
         `);
+        await client.query(`CREATE INDEX IF NOT EXISTS idx_tgm_ticket_id ON hub_tickets.ticket_group_members(ticket_id)`);
+        await client.query(`CREATE INDEX IF NOT EXISTS idx_tgm_group_id ON hub_tickets.ticket_group_members(group_id)`);
         // Nettoyage : appartenances orphelines (groupe parent supprimé) qui se rattachent
         // par erreur aux tickets ré-importés après un « Récupérer GLPI ».
         await client.query(`
@@ -1471,6 +1476,7 @@ async function setupPgDb() {
       `);
       console.log('[PG DB] Copie hub.users → magapp.users effectuée');
     } catch (e) { console.error('[MIGRATION magapp.users]', e.message); }
+    try { await client.query('CREATE INDEX IF NOT EXISTS idx_magapp_users_lower_email ON magapp.users(LOWER(email))'); } catch (e) {}
 
     try {
       await client.query(`ALTER TABLE magapp.settings ADD COLUMN IF NOT EXISTS show_create_buttons BOOLEAN DEFAULT true`);
