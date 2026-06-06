@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
-import { Search, Loader2, Clock, Bell, User, Heart, X, LogOut, LifeBuoy, AlertTriangle, Activity, CheckCircle2, XCircle, Tag, Lightbulb, Paperclip, Eye, BarChart3, Briefcase, FileText, MessageSquare, GraduationCap, Star, ShoppingCart } from 'lucide-react';
+import { Search, Loader2, Clock, Bell, User, Heart, X, LogOut, LifeBuoy, AlertTriangle, Activity, CheckCircle2, XCircle, Tag, Lightbulb, Paperclip, Eye, BarChart3, Briefcase, FileText, MessageSquare, GraduationCap, Star, ShoppingCart, FlaskConical } from 'lucide-react';
 import './index.css';
 import logoDsiHub from './assets/DSI.png';
 import Login from './Login';
@@ -31,6 +31,7 @@ interface AppItem {
   present_onboard: string;
   email_createur: string;
   lien_mercator: string;
+  url_test?: string;
   doc_count?: number;
 }
 
@@ -2743,6 +2744,33 @@ const AppCard: React.FC<AppCardProps> = ({ app, isFavorite, isSubscribed, showSu
       </a>
 
       <div className="card-actions" style={{ position: 'absolute', right: '25px', display: 'flex', gap: '8px', zIndex: 5 }}>
+        {app.url_test && (
+          <a
+            className="animate-hover"
+            href={app.url_test}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={(e) => e.stopPropagation()}
+            title={`Accéder à la version de test : ${app.url_test}`}
+            style={{
+              background: 'white',
+              border: '1px dashed #c4b5fd',
+              borderRadius: '50%',
+              width: '32px',
+              height: '32px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              cursor: 'pointer',
+              boxShadow: '0 2px 4px rgba(0,0,0,0.05)',
+              color: '#8b5cf6',
+              transition: 'all 0.2s',
+              textDecoration: 'none'
+            }}
+          >
+            <FlaskConical size={15} />
+          </a>
+        )}
         {showSubscriptions && (
           <button 
             className="subscribe-btn-custom animate-hover"
