@@ -244,6 +244,20 @@ const MagappAdmin: React.FC = () => {
 
   const token = localStorage.getItem('token');
 
+  // Les compteurs (COUNT) reviennent de PostgreSQL en chaînes → coercition numérique
+  // pour éviter les concaténations lors des sommes (KPI, totaux).
+  const normApps = (list: any[]): AppItem[] => (Array.isArray(list) ? list : []).map((a: any) => ({
+    ...a,
+    user_count: Number(a.user_count) || 0,
+    normal_doc_count: Number(a.normal_doc_count) || 0,
+    technical_doc_count: Number(a.technical_doc_count) || 0,
+    future_maintenance_count: Number(a.future_maintenance_count) || 0,
+    ongoing_maintenance_count: Number(a.ongoing_maintenance_count) || 0,
+    contract_count: Number(a.contract_count) || 0,
+    orders_amount: Number(a.orders_amount) || 0,
+    orders_count: Number(a.orders_count) || 0,
+  }));
+
   const fetchData = async () => {
     try {
       const headers = { 'Authorization': `Bearer ${token}` };
@@ -256,7 +270,7 @@ const MagappAdmin: React.FC = () => {
         fetch('/api/magapp/mercator-apps', { headers })
       ]);
 
-      if (appsRes.ok) setApps(await appsRes.json());
+      if (appsRes.ok) setApps(normApps(await appsRes.json()));
       if (catsRes.ok) setCategories(await catsRes.json());
       if (statsRes.ok) setStats(await statsRes.json());
       if (pgSettingsRes.ok) setPostgresSettings(await pgSettingsRes.json());
@@ -291,7 +305,7 @@ const MagappAdmin: React.FC = () => {
       ]);
 
       if (appsRes.ok) {
-        const appsList = await appsRes.json();
+        const appsList = normApps(await appsRes.json());
         const contractCount: Record<number, number> = {};
 
         // Compter les contrats par app_id
