@@ -36,6 +36,8 @@ router.get('/logs', authenticateAdmin, rhController.getLogs);
 // Encadrants (directeurs + resp. service) — lecture et téléphones : tout utilisateur connecté
 router.get('/encadrants', authenticateJWT, encadrantsCtrl.getEncadrants);
 router.put('/encadrants/:matricule/telephone', authenticateJWT, encadrantsCtrl.updateTelephone);
+router.get('/encadrants/parc-phones', authenticateJWT, encadrantsCtrl.parcPhones);
+router.post('/encadrants/parc-phones/apply', authenticateJWT, encadrantsCtrl.parcPhonesApply);
 router.get('/encadrants/ad-search', authenticateJWT, encadrantsCtrl.searchAD);
 router.put('/encadrants/:matricule/ad-link', authenticateJWT, encadrantsCtrl.linkAD);
 router.get('/encadrants/ad-groups-list', authenticateJWT, encadrantsCtrl.listADGroups);

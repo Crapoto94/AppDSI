@@ -402,6 +402,155 @@ module.exports = {
     },
 
     /**
+     * GET /api/admin/rh/encadrants/parc-phones
+     * Propose les téléphones pro à remplir depuis hub_parc.mobilite_devices,
+     * en matchant last_agent (NOM Prenom) avec les encadrants.
+     */
+    parcPhones: async (req, res) => {
+        try {
+            const norm = (s) => (s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase().replace(/[^A-Z0-9 ]+/g, ' ').replace(/\s+/g, ' ').trim();
+
+            // 1. Encadrants actifs
+            const agents = await pgDb.all(`
+                SELECT "MATRICULE","NOM","PRENOM","DIRECTION_L","SERVICE_L","POSTE_L"
+                FROM oracle.rh_v_extract_dsi
+                WHERE ${ACTIVE_FILTER}
+                  AND (
+                    "POSTE_L" LIKE 'DIRECTEUR%GENERAL%'
+                    OR "POSTE_L" LIKE 'DIRECTEUR·TRICE D%'
+                    OR "POSTE_L" LIKE 'RESPONSABLE DU SERVICE%'
+                  )
+                  AND "POSTE_L" NOT LIKE '%CABINET%'
+                  AND "POSTE_L" NOT LIKE '%ARTISTIQUE%'
+                  AND "POSTE_L" NOT LIKE '%MAISON DE QUARTIER%'
+                  AND "POSTE_L" NOT LIKE '%CRECHE%'
+                  AND "POSTE_L" NOT LIKE '%MULTI ACCUEIL%'
+                  AND "POSTE_L" NOT LIKE '%MULTI-ACCUEIL%'
+                  AND "POSTE_L" NOT LIKE '%RESIDENCES AUTONOMIE%'
+            `);
+
+            // 2. Appareils actifs attribués (téléphones) depuis le parc
+            const devices = await pgDb.all(`
+                SELECT last_agent, numero_ligne, type_appareil, famille
+                FROM hub_parc.mobilite_devices
+                WHERE is_actif = true AND statut = 'attribue'
+                  AND famille = 'telephone'
+                  AND numero_ligne IS NOT NULL AND numero_ligne != ''
+                  AND last_agent IS NOT NULL AND last_agent != '' AND last_agent NOT LIKE 'Ex %'
+            `);
+
+            // 3. Index encadrants : NOM+PRENOM (appareils) et NOM seul (lignes mobiles)
+            const encMap = new Map();
+            const byNom = new Map();
+            const firstAlpha = (s) => { const m = norm(s).match(/[A-Z]/); return m ? m[0] : ''; };
+            for (const a of agents) {
+                encMap.set(norm(`${a.NOM} ${a.PRENOM}`), a);
+                encMap.set(norm(`${a.PRENOM} ${a.NOM}`), a);
+                const k = norm(a.NOM);
+                if (!byNom.has(k)) byNom.set(k, []);
+                byNom.get(k).push(a);
+            }
+
+            // 4. Téléphones déjà enregistrés
+            const existing = await pgDb.all('SELECT matricule, telephone FROM hub.encadrants WHERE telephone IS NOT NULL AND telephone != \'\'');
+            const existingMap = new Map(existing.map(e => [e.matricule, e.telephone]));
+
+            const matchByMat = new Map(); // matricule → match (1 par encadrant, appareil prioritaire)
+
+            // 5a. PASSE 1 — Appareils mobiles (mobilite_devices)
+            for (const d of devices) {
+                const nameRaw = d.last_agent.split(' - ')[0].trim();
+                const agent = encMap.get(norm(nameRaw));
+                if (!agent || matchByMat.has(agent.MATRICULE)) continue;
+                matchByMat.set(agent.MATRICULE, {
+                    matricule: agent.MATRICULE, nom: agent.NOM, prenom: agent.PRENOM,
+                    direction: agent.DIRECTION_L, service: agent.SERVICE_L, poste: agent.POSTE_L,
+                    source: 'appareil', parc_agent: d.last_agent, parc_numero: d.numero_ligne, parc_type: d.type_appareil,
+                    telephone_actuel: existingMap.get(agent.MATRICULE) || null,
+                    already_set: !!existingMap.get(agent.MATRICULE)
+                });
+            }
+
+            // 5b. PASSE 2 — Lignes mobiles (lignes_mobiles) pour les encadrants non encore matchés.
+            // Exclut les MultiSIM ; en cas de plusieurs lignes, priorité au forfait VOIX sur la DATA.
+            const lignes = await pgDb.all(`
+                SELECT numero_ligne, nom, prenom, forfait
+                FROM hub_parc.lignes_mobiles
+                WHERE (statut_ligne IS NULL OR statut_ligne NOT IN ('Suspendue', 'Résiliée', 'Resiliee'))
+                  AND ligne_secondaire != 'MULTI-SIM'
+                  AND forfait NOT LIKE 'MultiSIM%'
+                  AND numero_ligne IS NOT NULL AND numero_ligne != ''
+            `);
+            // Score : forfait voix > data
+            const ligneScore = (f) => {
+                const x = (f || '').toUpperCase();
+                if (x.startsWith('FORFAIT MOBILE') || x.includes('VOIX')) return 3;
+                if (x.startsWith('INTERNET MOBILE')) return 1; // clé data
+                return 2;
+            };
+            // Regroupe les meilleures lignes par encadrant (NOM + initiale prénom)
+            const bestLigne = new Map(); // matricule → { numero, forfait, score }
+            for (const l of lignes) {
+                const cands = byNom.get(norm(l.nom));
+                if (!cands) continue;
+                const ini = firstAlpha(l.prenom);
+                const hits = cands.filter(a => firstAlpha(a.PRENOM) === ini);
+                if (hits.length !== 1) continue; // ambigu → on ignore
+                const agent = hits[0];
+                if (matchByMat.has(agent.MATRICULE)) continue; // déjà via appareil
+                const sc = ligneScore(l.forfait);
+                const cur = bestLigne.get(agent.MATRICULE);
+                if (!cur || sc > cur.score) bestLigne.set(agent.MATRICULE, { agent, numero: l.numero_ligne, forfait: l.forfait, score: sc });
+            }
+            for (const { agent, numero, forfait } of bestLigne.values()) {
+                matchByMat.set(agent.MATRICULE, {
+                    matricule: agent.MATRICULE, nom: agent.NOM, prenom: agent.PRENOM,
+                    direction: agent.DIRECTION_L, service: agent.SERVICE_L, poste: agent.POSTE_L,
+                    source: 'ligne_mobile', parc_agent: `${agent.NOM} ${agent.PRENOM}`, parc_numero: numero, parc_type: forfait,
+                    telephone_actuel: existingMap.get(agent.MATRICULE) || null,
+                    already_set: !!existingMap.get(agent.MATRICULE)
+                });
+            }
+
+            const matches = Array.from(matchByMat.values()).sort((a, b) => `${a.nom} ${a.prenom}`.localeCompare(`${b.nom} ${b.prenom}`, 'fr'));
+            res.json({ matches, total: matches.length, no_phone: agents.length - matches.length });
+        } catch (error) {
+            console.error('[ENCADRANTS] parcPhones:', error.message);
+            res.status(500).json({ error: error.message });
+        }
+    },
+
+    /**
+     * POST /api/admin/rh/encadrants/parc-phones/apply
+     * Applique les téléphones matchés (body: [{ matricule, telephone }])
+     * Seulement pour ceux sans téléphone ou avec override=true.
+     */
+    parcPhonesApply: async (req, res) => {
+        try {
+            const { items, override = false } = req.body; // items: [{ matricule, telephone }]
+            if (!Array.isArray(items) || !items.length) return res.status(400).json({ error: 'items requis' });
+            const { pool } = require('../../shared/database');
+            let applied = 0;
+            for (const { matricule, telephone } of items) {
+                if (!matricule || !telephone) continue;
+                await pool.query(
+                    `INSERT INTO hub.encadrants (matricule, telephone, updated_at)
+                     VALUES ($1, $2, NOW())
+                     ON CONFLICT (matricule) DO UPDATE
+                       SET telephone = CASE WHEN $3 OR hub.encadrants.telephone IS NULL OR hub.encadrants.telephone = '' THEN EXCLUDED.telephone ELSE hub.encadrants.telephone END,
+                           updated_at = NOW()`,
+                    [matricule, telephone, override]
+                );
+                applied++;
+            }
+            res.json({ ok: true, applied });
+        } catch (error) {
+            console.error('[ENCADRANTS] parcPhonesApply:', error.message);
+            res.status(500).json({ error: error.message });
+        }
+    },
+
+    /**
      * GET /api/admin/rh/encadrants/ad-search?q=...
      * Recherche d'un utilisateur AD par nom/prénom (pour liaison manuelle).
      */

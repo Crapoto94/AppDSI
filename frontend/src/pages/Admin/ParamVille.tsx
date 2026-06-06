@@ -478,6 +478,11 @@ function EncadrantsTab({ token }: { token: string | null }) {
   const [loadingGroupsList, setLoadingGroupsList] = useState(false);
   const [selectedGroupDN, setSelectedGroupDN] = useState('');
   const [groupsFilter, setGroupsFilter] = useState('');
+  const [showParcImport, setShowParcImport] = useState(false);
+  const [parcMatches, setParcMatches] = useState<{ matricule: string; nom: string; prenom: string; direction: string; poste: string; source: string; parc_agent: string; parc_numero: string; parc_type: string; telephone_actuel: string | null; already_set: boolean }[]>([]);
+  const [loadingParc, setLoadingParc] = useState(false);
+  const [applyingParc, setApplyingParc] = useState(false);
+  const [parcSelection, setParcSelection] = useState<Set<string>>(new Set());
   const [adLinkMatricule, setADLinkMatricule] = useState<string | null>(null);
   const [adSearchQ, setADSearchQ] = useState('');
   const [adSearchResults, setADSearchResults] = useState<ADSearchResult[]>([]);
@@ -550,6 +555,42 @@ function EncadrantsTab({ token }: { token: string | null }) {
     finally { setLoadingAD(false); }
   };
 
+  const loadParcPhones = async () => {
+    setLoadingParc(true);
+    try {
+      const r = await fetch('/api/admin/rh/encadrants/parc-phones', { headers: { Authorization: `Bearer ${token}` } });
+      const d = await r.json();
+      if (r.ok) {
+        setParcMatches(d.matches || []);
+        // Pré-sélectionner ceux sans téléphone existant
+        setParcSelection(new Set(d.matches.filter((m: any) => !m.already_set).map((m: any) => m.matricule)));
+        setShowParcImport(true);
+      } else setError(d.error || 'Erreur import parc');
+    } catch { setError('Erreur réseau'); }
+    finally { setLoadingParc(false); }
+  };
+
+  const applyParcPhones = async () => {
+    const items = parcMatches.filter(m => parcSelection.has(m.matricule)).map(m => ({ matricule: m.matricule, telephone: m.parc_numero }));
+    if (!items.length) return;
+    setApplyingParc(true);
+    try {
+      const r = await fetch('/api/admin/rh/encadrants/parc-phones/apply', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ items })
+      });
+      const d = await r.json();
+      if (r.ok) {
+        setSaveMsg(`✔ ${d.applied} téléphone(s) importé(s) depuis le Parc`);
+        setTimeout(() => setSaveMsg(''), 3000);
+        setShowParcImport(false);
+        load(); // recharge la liste
+      }
+    } catch { setError('Erreur lors de l\'import'); }
+    finally { setApplyingParc(false); }
+  };
+
   const searchAD = async (q: string) => {
     if (!q || q.length < 2) { setADSearchResults([]); return; }
     setADSearchLoading(true);
@@ -620,6 +661,9 @@ function EncadrantsTab({ token }: { token: string | null }) {
         <button onClick={load} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px', background: '#f1f5f9', border: '1px solid #e2e8f0', borderRadius: 8, cursor: 'pointer', fontWeight: 600, fontSize: 13, color: '#475569' }}>
           <RefreshCw size={14} /> Actualiser
         </button>
+        <button onClick={loadParcPhones} disabled={loadingParc} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 8, cursor: 'pointer', fontWeight: 600, fontSize: 13, color: '#15803d' }}>
+          📱 {loadingParc ? 'Chargement…' : 'Importer depuis le Parc'}
+        </button>
         <button onClick={() => { setShowADCompare(v => !v); if (!showADCompare && !adGroupsList.length) loadADGroupsList(); }}
           style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px', background: showADCompare ? '#eff6ff' : '#f8fafc', border: `1px solid ${showADCompare ? '#bfdbfe' : '#e2e8f0'}`, borderRadius: 8, cursor: 'pointer', fontWeight: 600, fontSize: 13, color: showADCompare ? '#1d4ed8' : '#475569' }}>
           Comparer avec liste AD
@@ -628,6 +672,62 @@ function EncadrantsTab({ token }: { token: string | null }) {
 
       {error && <div style={{ padding: '10px 14px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 8, color: '#b91c1c', fontSize: 13, marginBottom: 16 }}>{error}</div>}
       {saveMsg && <div style={{ padding: '10px 14px', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 8, color: '#15803d', fontSize: 13, fontWeight: 700, marginBottom: 16 }}>{saveMsg}</div>}
+
+      {/* Preview import Parc */}
+      {showParcImport && parcMatches.length > 0 && (
+        <div style={{ marginBottom: 20, background: 'white', borderRadius: 12, border: '1px solid #bbf7d0', overflow: 'hidden' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '14px 20px', background: '#f0fdf4', borderBottom: '1px solid #bbf7d0' }}>
+            <span style={{ fontWeight: 800, fontSize: 14, color: '#15803d' }}>📱 Import depuis le Parc — {parcMatches.length} correspondances</span>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#475569', cursor: 'pointer', marginLeft: 'auto' }}>
+              <input type="checkbox" checked={parcSelection.size === parcMatches.length}
+                onChange={e => setParcSelection(e.target.checked ? new Set(parcMatches.map(m => m.matricule)) : new Set())} />
+              Tout sélectionner
+            </label>
+            <button onClick={applyParcPhones} disabled={applyingParc || parcSelection.size === 0}
+              style={{ padding: '7px 16px', background: '#16a34a', color: 'white', border: 'none', borderRadius: 8, cursor: 'pointer', fontWeight: 700, fontSize: 13 }}>
+              {applyingParc ? '…' : `✔ Appliquer (${parcSelection.size})`}
+            </button>
+            <button onClick={() => setShowParcImport(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: 18, lineHeight: 1 }}>✕</button>
+          </div>
+          <div style={{ maxHeight: 320, overflowY: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+              <thead>
+                <tr style={{ background: '#f8fafc', position: 'sticky', top: 0 }}>
+                  {['', 'Encadrant', 'Poste', 'Source', 'Numéro (Parc)', 'Tel. actuel'].map(h => (
+                    <th key={h} style={{ padding: '8px 12px', textAlign: 'left', fontWeight: 700, color: '#475569', borderBottom: '1px solid #e2e8f0' }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {parcMatches.map(m => (
+                  <tr key={m.matricule} style={{ borderBottom: '1px solid #f1f5f9', background: parcSelection.has(m.matricule) ? '#f0fdf4' : 'white' }}>
+                    <td style={{ padding: '7px 12px' }}>
+                      <input type="checkbox" checked={parcSelection.has(m.matricule)}
+                        onChange={e => setParcSelection(prev => { const s = new Set(prev); e.target.checked ? s.add(m.matricule) : s.delete(m.matricule); return s; })} />
+                    </td>
+                    <td style={{ padding: '7px 12px' }}>
+                      <div style={{ fontWeight: 700 }}>{m.prenom} {m.nom}</div>
+                      <div style={{ fontSize: 11, color: '#64748b' }}>{m.direction}</div>
+                    </td>
+                    <td style={{ padding: '7px 12px', color: '#475569', fontSize: 11 }}>{m.poste.replace('DIRECTEUR·TRICE ', 'Dir. ').replace('RESPONSABLE DU SERVICE ', 'Resp. ')}</td>
+                    <td style={{ padding: '7px 12px' }}>
+                      <span title={m.parc_type} style={{ fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 6, background: m.source === 'appareil' ? '#eff6ff' : '#fdf4ff', color: m.source === 'appareil' ? '#1d4ed8' : '#7e22ce' }}>
+                        {m.source === 'appareil' ? '📱 Appareil' : '📞 Ligne'}
+                      </span>
+                    </td>
+                    <td style={{ padding: '7px 12px', fontWeight: 700, color: '#16a34a' }}>{m.parc_numero}</td>
+                    <td style={{ padding: '7px 12px' }}>
+                      {m.telephone_actuel
+                        ? <span style={{ color: '#f59e0b', fontWeight: 600 }}>{m.telephone_actuel} ⚠</span>
+                        : <span style={{ color: '#94a3b8' }}>—</span>}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       {/* Filtres */}
       <div style={{ display: 'flex', gap: 10, marginBottom: 16, flexWrap: 'wrap', alignItems: 'center' }}>
