@@ -1143,24 +1143,43 @@ const PlanningTab: React.FC<{ projetId: number; token: string | null }> = ({ pro
   const [editJalon, setEditJalon] = useState<{ id: number; titre: string; date_jalon: string; atteint: number; groupe_id: number | null } | null>(null);
   const [showAddDep, setShowAddDep] = useState(false);
   const [newDep, setNewDep] = useState({ source_type: 'tache', source_id: '', depend_type: 'tache', depend_id: '' });
+  const [withSub, setWithSub] = useState(false);
+  const [hasSub, setHasSub] = useState(false);
 
   const loadData = useCallback(async () => {
     try {
+      const sub = withSub ? '?include_children=1' : '';
       const [rt, rj, rg, rd, rv] = await Promise.all([
-        fetch(`/api/projets/${projetId}/taches`, { headers: { Authorization: `Bearer ${token}` } }),
-        fetch(`/api/projets/${projetId}/jalons`, { headers: { Authorization: `Bearer ${token}` } }),
+        fetch(`/api/projets/${projetId}/taches${sub}`, { headers: { Authorization: `Bearer ${token}` } }),
+        fetch(`/api/projets/${projetId}/jalons${sub}`, { headers: { Authorization: `Bearer ${token}` } }),
         fetch(`/api/projets/${projetId}/groupes-taches`, { headers: { Authorization: `Bearer ${token}` } }),
         fetch(`/api/projets/${projetId}/dependances`, { headers: { Authorization: `Bearer ${token}` } }),
         fetch(`/api/projets/${projetId}/verifier-dependances`, { headers: { Authorization: `Bearer ${token}` } })
       ]);
-      const dt = await rt.json(); if (Array.isArray(dt)) setTaches(dt);
-      const dj = await rj.json(); if (Array.isArray(dj)) setJalons(dj);
+      const tag = (arr: any[]) => arr.map((x: any) => x.est_sous_projet && x.projet_titre ? { ...x, titre: `[${x.projet_titre}] ${x.titre}` } : x);
+      const dt = await rt.json(); if (Array.isArray(dt)) setTaches(tag(dt));
+      const dj = await rj.json(); if (Array.isArray(dj)) setJalons(tag(dj));
       const dg = await rg.json(); if (Array.isArray(dg)) setGroupes(dg);
       const dd = await rd.json(); if (Array.isArray(dd)) setDependances(dd);
       const dv = await rv.json(); if (dv.alertes) setAlertesDep(dv.alertes);
+      if (withSub && (Array.isArray(dt) || Array.isArray(dj))) {
+        setHasSub([...(Array.isArray(dt) ? dt : []), ...(Array.isArray(dj) ? dj : [])].some((x: any) => x.est_sous_projet));
+      }
     } catch {}
-  }, [projetId, token]);
+  }, [projetId, token, withSub]);
   useEffect(() => { loadData(); }, [loadData]);
+
+  // Détecte la présence de sous-projets (pour proposer le toggle)
+  useEffect(() => {
+    fetch(`/api/projets/${projetId}/taches?include_children=1`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.ok ? r.json() : [])
+      .then(d => { if (Array.isArray(d) && d.some((x: any) => x.est_sous_projet)) setHasSub(true); })
+      .catch(() => {});
+    fetch(`/api/projets/${projetId}/jalons?include_children=1`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.ok ? r.json() : [])
+      .then(d => { if (Array.isArray(d) && d.some((x: any) => x.est_sous_projet)) setHasSub(true); })
+      .catch(() => {});
+  }, [projetId, token]);
 
   const addTache = async () => {
     if (!newTache.titre) return;
@@ -1303,6 +1322,16 @@ const PlanningTab: React.FC<{ projetId: number; token: string | null }> = ({ pro
 
   return (
     <div>
+      {hasSub && (
+        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '12px' }}>
+          <button
+            onClick={() => setWithSub(v => !v)}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', padding: '7px 14px', borderRadius: '8px', border: '1px solid', borderColor: withSub ? '#2563eb' : '#e2e8f0', background: withSub ? '#eff6ff' : 'white', color: withSub ? '#2563eb' : '#475569', fontSize: '13px', fontWeight: 600, cursor: 'pointer' }}
+          >
+            {withSub ? '☑' : '☐'} Inclure les sous-projets
+          </button>
+        </div>
+      )}
       {tachesEnRetard.length > 0 && (
         <div style={{ background: '#fef2f2', borderRadius: '10px', border: '1px solid #fecaca', padding: '12px 16px', marginBottom: '16px' }}>
           <div style={{ fontSize: '13px', fontWeight: '700', color: '#dc2626' }}>⚠️ {tachesEnRetard.length} tâche(s) en retard</div>

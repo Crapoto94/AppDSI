@@ -1924,6 +1924,73 @@ const getJournal = async (req, res) => {
     }
 };
 
+// Planning général : agrège tâches + jalons des projets dont l'utilisateur est
+// responsable. Superadmin = tous ; PMO = projets de son périmètre ; sinon chef
+// de projet = ses projets (chef_projet_username).
+const getPlanningGlobal = async (req, res) => {
+    try {
+        const username = req.user.username;
+        const isAdmin = isSuperAdmin(req.user);
+        const isPMO = await estPMO(username);
+        let projIds = [];
+
+        if (isAdmin) {
+            const rows = await pgDb.all('SELECT id FROM projets');
+            projIds = rows.map(r => r.id);
+        } else if (isPMO) {
+            const agents = await getPmoAgentUsernames(username);
+            const lower = [...new Set([username, ...agents].map(a => String(a).toLowerCase()))];
+            const { rows } = await pool.query(
+                `SELECT DISTINCT p.id FROM projets p
+                 WHERE LOWER(p.chef_projet_username) = ANY($1)
+                    OR LOWER(p.created_by_username) = ANY($1)
+                    OR EXISTS (SELECT 1 FROM projets.projet_roles pr WHERE pr.projet_id = p.id AND LOWER(pr.username) = ANY($1))`,
+                [lower]
+            );
+            projIds = rows.map(r => r.id);
+        } else {
+            const rows = await pgDb.all('SELECT id FROM projets WHERE LOWER(chef_projet_username) = LOWER($1)', [username]);
+            projIds = rows.map(r => r.id);
+        }
+
+        if (projIds.length === 0) return res.json({ taches: [], jalons: [], projets: [] });
+        const ph = projIds.map((_, i) => `$${i + 1}`).join(',');
+        const taches = await pgDb.all(`SELECT t.*, p.titre AS projet_titre, p.code AS projet_code FROM projet_taches t JOIN projets p ON p.id = t.projet_id WHERE t.projet_id IN (${ph}) ORDER BY t.date_debut`, projIds);
+        const jalons = await pgDb.all(`SELECT j.*, p.titre AS projet_titre, p.code AS projet_code FROM projet_jalons j JOIN projets p ON p.id = j.projet_id WHERE j.projet_id IN (${ph}) ORDER BY j.date_jalon`, projIds);
+        const projets = await pgDb.all(`SELECT id, code, titre, chef_projet_username, chef_projet_display_name FROM projets WHERE id IN (${ph}) ORDER BY titre`, projIds);
+        res.json({ taches, jalons, projets });
+    } catch (error) {
+        console.error('[Projets] getPlanningGlobal:', error.message);
+        res.status(500).json({ error: error.message });
+    }
+};
+
+// Journal global : toutes les entrées de tous les projets (admin/PMO), triées par date.
+const getJournalGlobal = async (req, res) => {
+    try {
+        const limit = Math.min(parseInt(req.query.limit) || 500, 2000);
+        const type_entree = req.query.type_entree;
+        const conditions = [];
+        const params = [];
+        if (type_entree) { params.push(type_entree); conditions.push(`j.type_entree = $${params.length}`); }
+        const where = conditions.length ? 'WHERE ' + conditions.join(' AND ') : '';
+        params.push(limit);
+        const entries = await pgDb.all(`
+            SELECT j.*, p.code AS projet_code, p.titre AS projet_titre,
+                   (SELECT displayname FROM hub.users WHERE LOWER(username) = LOWER(j.username) LIMIT 1) AS username_displayname
+            FROM projet_journal j
+            JOIN projets p ON p.id = j.projet_id
+            ${where}
+            ORDER BY j.date_entree DESC
+            LIMIT $${params.length}
+        `, params);
+        res.json(entries);
+    } catch (error) {
+        console.error('[Projets] getJournalGlobal:', error.message);
+        res.status(500).json({ error: error.message });
+    }
+};
+
 const ajouterEntreeJournal = async (req, res) => {
     try {
         const { id } = req.params;
@@ -2153,7 +2220,20 @@ const getNotifications = async (req, res) => {
 const getTaches = async (req, res) => {
     try {
         const { id } = req.params;
-        const taches = await pgDb.all('SELECT * FROM projet_taches WHERE projet_id = $1 ORDER BY ordre, date_debut', [id]);
+        const includeChildren = req.query.include_children === '1' || req.query.include_children === 'true';
+        let ids = [id];
+        if (includeChildren) {
+            const kids = await pgDb.all('SELECT id FROM projets WHERE projet_parent_id = $1', [id]);
+            ids = [id, ...kids.map(k => k.id)];
+        }
+        const placeholders = ids.map((_, i) => `$${i + 1}`).join(',');
+        const taches = await pgDb.all(
+            `SELECT t.*, p.titre AS projet_titre, (t.projet_id <> $${ids.length + 1}) AS est_sous_projet
+             FROM projet_taches t JOIN projets p ON p.id = t.projet_id
+             WHERE t.projet_id IN (${placeholders})
+             ORDER BY t.ordre, t.date_debut`,
+            [...ids, id]
+        );
         res.json(taches);
     } catch (error) {
         res.status(500).json({ error: error.message });
@@ -2226,7 +2306,20 @@ const supprimerTache = async (req, res) => {
 const getJalons = async (req, res) => {
     try {
         const { id } = req.params;
-        const jalons = await pgDb.all('SELECT * FROM projet_jalons WHERE projet_id = $1 ORDER BY date_jalon', [id]);
+        const includeChildren = req.query.include_children === '1' || req.query.include_children === 'true';
+        let ids = [id];
+        if (includeChildren) {
+            const kids = await pgDb.all('SELECT id FROM projets WHERE projet_parent_id = $1', [id]);
+            ids = [id, ...kids.map(k => k.id)];
+        }
+        const placeholders = ids.map((_, i) => `$${i + 1}`).join(',');
+        const jalons = await pgDb.all(
+            `SELECT j.*, p.titre AS projet_titre, (j.projet_id <> $${ids.length + 1}) AS est_sous_projet
+             FROM projet_jalons j JOIN projets p ON p.id = j.projet_id
+             WHERE j.projet_id IN (${placeholders})
+             ORDER BY j.date_jalon`,
+            [...ids, id]
+        );
         res.json(jalons);
     } catch (error) {
         res.status(500).json({ error: error.message });
@@ -3050,7 +3143,7 @@ module.exports = {
     creerDocument, updateDocumentType, supprimerDocument, uploadVersion, uploadVersionsVrac, getDocuments, getDocumentDetail, telechargerVersion, getControlesDocuments,
     enregistrerScore, getScores, getScoreCalcule,
     lierReunion, delierReunion, getReunionsLiees,
-    getJournal, ajouterEntreeJournal, supprimerEntreeJournal,
+    getJournal, getJournalGlobal, getPlanningGlobal, ajouterEntreeJournal, supprimerEntreeJournal,
     getIndicateurs, ajouterIndicateur,
     getStats,
     getScoringConfig, updateScoringConfig, getTypesDocumentaires, updateTypesDocumentaires,

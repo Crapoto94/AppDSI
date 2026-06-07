@@ -28,6 +28,8 @@ import RencontresBudgetaires from './pages/RencontresBudgetaires';
 import MesReunions from './pages/MesReunions';
 import PortefeuilleProjets from './pages/PortefeuilleProjets';
 import RevueDeProjets from './pages/RevueDeProjets';
+import LogProjets from './pages/LogProjets';
+import PlanningGeneral from './pages/PlanningGeneral';
 import ProjetDetail from './pages/ProjetDetail';
 import TranscriptManager from './pages/TranscriptManager';
 import TranscriptMeetingDetail from './pages/TranscriptManager/MeetingDetail';
@@ -143,6 +145,8 @@ function App() {
         <Route path="/mes-reunions" element={<PrivateRoute path="/mes-reunions"><MesReunions /></PrivateRoute>} />
         <Route path="/portefeuille-projets" element={<PrivateRoute path="/portefeuille-projets"><PortefeuilleProjets /></PrivateRoute>} />
         <Route path="/revue-de-projets" element={<PrivateRoute path="/revue-de-projets"><RevueDeProjets /></PrivateRoute>} />
+        <Route path="/projets-log" element={<PrivateRoute path="/portefeuille-projets"><LogProjets /></PrivateRoute>} />
+        <Route path="/planning-general" element={<PrivateRoute path="/portefeuille-projets"><PlanningGeneral /></PrivateRoute>} />
         <Route path="/projets" element={<Navigate to="/portefeuille-projets" replace />} />
         <Route path="/projets/:id" element={<PrivateRoute path="/portefeuille-projets"><ProjetDetail /></PrivateRoute>} />
         <Route path="/projets/nouveau" element={<PrivateRoute path="/portefeuille-projets"><PortefeuilleProjets /></PrivateRoute>} />

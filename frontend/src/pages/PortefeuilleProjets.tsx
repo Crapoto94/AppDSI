@@ -308,6 +308,14 @@ const PortefeuilleProjets: React.FC = () => {
               📋 Revue de projets
             </button>
           )}
+          <button onClick={() => navigate('/planning-general')} style={{ padding: '9px 16px', borderRadius: '8px', border: '1px solid #e2e8f0', background: 'white', cursor: 'pointer', fontWeight: '600', fontSize: '13px', color: '#64748b', display: 'flex', alignItems: 'center', gap: '4px' }}>
+            🗓️ Planning général
+          </button>
+          {isPMO && (
+            <button onClick={() => navigate('/projets-log')} style={{ padding: '9px 16px', borderRadius: '8px', border: '1px solid #e2e8f0', background: 'white', cursor: 'pointer', fontWeight: '600', fontSize: '13px', color: '#64748b', display: 'flex', alignItems: 'center', gap: '4px' }}>
+              📜 Log de projets
+            </button>
+          )}
           {isSuperAdmin(user) && (
             <button onClick={() => setShowPmoModal(true)} style={{ padding: '9px 16px', borderRadius: '8px', border: '1px solid #e2e8f0', background: 'white', cursor: 'pointer', fontWeight: '600', fontSize: '13px', color: '#64748b', display: 'flex', alignItems: 'center', gap: '4px' }}>
               👥 Gestion des PMO
@@ -509,7 +517,6 @@ const ProjetTable: React.FC<ProjetTableProps> = ({ items, favoris, navigate, tog
                 <span style={{ fontSize: '10px', fontWeight: '600', padding: '1px 6px', borderRadius: '4px', background: '#f0fdf4', color: '#16a34a', border: '1px solid #bbf7d0' }}>mini</span>
               )}
             </div>
-            <div style={{ fontSize: '11px', color: '#94a3b8' }}>{p.code}</div>
             {p.app_names && <div style={{ fontSize: '10px', color: '#2563eb', marginTop: '2px' }}>📱 {p.app_names}</div>}
             {nestChildren && (childrenMap[p.id]?.length > 0) && (
               <div style={{ marginTop: '6px', display: 'flex', flexDirection: 'column', gap: '3px', borderLeft: '2px solid #e2e8f0', paddingLeft: '8px' }}>
