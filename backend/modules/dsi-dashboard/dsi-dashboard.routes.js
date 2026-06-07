@@ -1,11 +1,10 @@
 const express = require('express');
 const router = express.Router();
-const { authenticateJWT, authenticateAdminUI } = require('../../shared/middleware');
+const { authenticateJWT, authenticateAdminOrPMO } = require('../../shared/middleware');
 const ctrl = require('./dsi-dashboard.controller');
 
-// Accès réservé aux admins (admin OU superadmin). NB : dans ce codebase `authenticateAdmin`
-// = superadmin uniquement → on utilise `authenticateAdminUI` (isAdminLike) pour inclure 'admin'.
-router.use(authenticateJWT, authenticateAdminUI);
+// Accès aux admins (admin/superadmin) ET aux PMO de projets (tuile PMO).
+router.use(authenticateJWT, authenticateAdminOrPMO);
 
 router.get('/',              (req, res) => ctrl.listDashboards(req, res));
 router.post('/',             (req, res) => ctrl.createDashboard(req, res));

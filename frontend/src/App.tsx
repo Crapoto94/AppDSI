@@ -71,7 +71,7 @@ import StocksPrets from './pages/Stocks/Prets';
 import ParcInformatique from './pages/ParcInformatique';
 
 // Protected Route Component
-const PrivateRoute = ({ children, allowedRoles, path }: { children: React.ReactNode, allowedRoles?: string[], path?: string }) => {
+const PrivateRoute = ({ children, allowedRoles, allowPmo, path }: { children: React.ReactNode, allowedRoles?: string[], allowPmo?: boolean, path?: string }) => {
   const token = localStorage.getItem('token');
   const restrictedPath = localStorage.getItem('restrictedPath');
   let user: any = {};
@@ -104,7 +104,7 @@ const PrivateRoute = ({ children, allowedRoles, path }: { children: React.ReactN
     }
   }
 
-  if (allowedRoles && !allowedRoles.includes(user.role)) return <Navigate to="/" />;
+  if (allowedRoles && !allowedRoles.includes(user.role) && !(allowPmo && user.est_pmo)) return <Navigate to="/" />;
   
   if (path && user.authorized_urls && !user.authorized_urls.includes('*')) {
     // Basic prefix matching or exact matching
@@ -215,7 +215,7 @@ function App() {
 
         <Route path="/admin/magapp" element={<PrivateRoute path="/admin/magapp"><MagappAdmin /></PrivateRoute>} />
         <Route path="/admin/param-ville" element={<PrivateRoute path="/admin/param-ville"><ParamVille /></PrivateRoute>} />
-        <Route path="/dsi-dashboard" element={<PrivateRoute allowedRoles={['admin', 'superadmin']}><DsiDashboard /></PrivateRoute>} />
+        <Route path="/dsi-dashboard" element={<PrivateRoute allowedRoles={['admin', 'superadmin']} allowPmo><DsiDashboard /></PrivateRoute>} />
       </Routes>
     </BrowserRouter>
   );

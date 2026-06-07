@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, Link, useLocation } from 'react-router-dom';
-import { User, LogOut, Info, X, Settings, Plus, Trash2, CheckCircle2, Clock, AlertTriangle, Github, Loader2, LayoutGrid, HelpCircle } from 'lucide-react';
+import { User, LogOut, Info, X, Settings, Plus, Trash2, CheckCircle2, Clock, AlertTriangle, Github, Loader2, LayoutGrid, HelpCircle, LayoutDashboard } from 'lucide-react';
 import * as LucideIcons from 'lucide-react';
 import { isAdminLike } from '../utils/roles';
 import axios from 'axios';
@@ -356,6 +356,17 @@ const Header: React.FC<HeaderProps> = () => {
                   </div>
                 )}
               </div>
+
+              {(isAdminLike(user) || user?.est_pmo) && (
+                <Link
+                  to="/dsi-dashboard"
+                  className={`admin-link ${location.pathname.startsWith('/dsi-dashboard') ? 'active' : ''}`}
+                  title="Tableau de bord DSI"
+                  style={{ display: 'flex', alignItems: 'center', padding: '8px', borderRadius: 8, color: location.pathname.startsWith('/dsi-dashboard') ? 'var(--secondary-color)' : '#64748b' }}
+                >
+                  <LayoutDashboard size={20} />
+                </Link>
+              )}
 
               {isAdminLike(user) && (
                 <div ref={adminDropdownRef} style={{ position: 'relative' }}>

@@ -599,7 +599,7 @@ app.get('/api/auth/me', authenticateJWT, async (req, res) => {
 
         // PMO users automatically get access to project routes
         if (user.est_pmo && user.authorized_urls && !user.authorized_urls.includes('*')) {
-            const projectUrls = ['/portefeuille-projets', '/revue-de-projets', '/projets'];
+            const projectUrls = ['/portefeuille-projets', '/revue-de-projets', '/projets', '/dsi-dashboard'];
             for (const url of projectUrls) {
                 if (!user.authorized_urls.includes(url)) {
                     user.authorized_urls.push(url);
