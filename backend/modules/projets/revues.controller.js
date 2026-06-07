@@ -15,6 +15,14 @@ module.exports = {
     getAll: async (req, res) => {
         try {
             const username = req.user.username;
+            // Un superadmin voit toutes les revues ; les autres voient celles dont ils
+            // sont créateur ou participant.
+            const seeAll = isSuperAdmin(req.user);
+            const whereClause = seeAll ? '' : `
+                WHERE EXISTS (
+                    SELECT 1 FROM hub_rencontres.revue_participants rp2
+                    WHERE rp2.revue_id = r.id AND LOWER(rp2.username) = LOWER($1)
+                ) OR LOWER(r.created_by) = LOWER($1)`;
             const revues = await pgDb.all(`
                 SELECT r.*,
                     COUNT(DISTINCT rp.id) as projet_count,
@@ -29,13 +37,10 @@ module.exports = {
                 LEFT JOIN hub_rencontres.revue_projets rp ON r.id = rp.revue_id
                 LEFT JOIN hub_rencontres.revue_participants part ON r.id = part.revue_id
                 LEFT JOIN projets.projets p ON p.id = rp.projet_id
-                WHERE EXISTS (
-                    SELECT 1 FROM hub_rencontres.revue_participants rp2
-                    WHERE rp2.revue_id = r.id AND LOWER(rp2.username) = LOWER($1)
-                ) OR LOWER(r.created_by) = LOWER($1)
+                ${whereClause}
                 GROUP BY r.id
                 ORDER BY r.date_revue DESC
-            `, [username]);
+            `, seeAll ? [] : [username]);
             res.json(revues);
         } catch (error) {
             console.error('Erreur GET revues:', error);
