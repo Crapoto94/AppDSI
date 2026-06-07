@@ -39,38 +39,38 @@ export default function PlanningGeneral() {
     );
   }, [data, projFilter, hideDone]);
 
-  // Échelle temporelle globale
-  const { minMs, ganttW, monthTicks } = useMemo(() => {
+  // Échelle temporelle globale — on ignore les dates aberrantes (données corrompues,
+  // ex. année 52026) pour ne pas faire exploser la largeur du Gantt.
+  const SANE_MIN = +new Date('2015-01-01');
+  const SANE_MAX = +new Date('2100-01-01');
+  const saneMs = (d?: string) => { if (!d) return null; const n = +new Date(d); return (!isNaN(n) && n >= SANE_MIN && n <= SANE_MAX) ? n : null; };
+
+  const { minMs, range, ganttW, monthTicks } = useMemo(() => {
     const ds: number[] = [];
-    for (const t of data.taches || []) { if (t.date_debut) ds.push(+new Date(t.date_debut)); if (t.date_fin) ds.push(+new Date(t.date_fin)); }
-    for (const j of data.jalons || []) { if (j.date_jalon) ds.push(+new Date(j.date_jalon)); }
-    const valid = ds.filter(n => !isNaN(n));
-    let min = valid.length ? Math.min(...valid) : Date.now();
-    let max = valid.length ? Math.max(...valid) : Date.now() + 30 * DAY;
+    for (const t of data.taches || []) { const a = saneMs(t.date_debut); const b = saneMs(t.date_fin); if (a) ds.push(a); if (b) ds.push(b); }
+    for (const j of data.jalons || []) { const a = saneMs(j.date_jalon); if (a) ds.push(a); }
+    let min = ds.length ? Math.min(...ds) : Date.now();
+    let max = ds.length ? Math.max(...ds) : Date.now() + 30 * DAY;
     min -= 5 * DAY; max += 5 * DAY;
-    const totalDays = Math.max((max - min) / DAY, 30);
-    const w = Math.max(totalDays * PX_PER_DAY, 700);
-    // ticks mensuels
+    const rg = Math.max(max - min, DAY);
+    const totalDays = Math.max(rg / DAY, 30);
+    const w = Math.min(Math.max(totalDays * PX_PER_DAY, 700), 20000);
     const ticks: { x: number; label: string }[] = [];
     const d = new Date(min); d.setDate(1); d.setHours(0, 0, 0, 0);
-    while (+d <= max) {
-      const x = ((+d - min) / (max - min)) * w;
+    let guard = 0;
+    while (+d <= max && guard++ < 1200) {
+      const x = ((+d - min) / rg) * w;
       if (x >= 0) ticks.push({ x, label: d.toLocaleDateString('fr-FR', { month: 'short', year: '2-digit' }) });
       d.setMonth(d.getMonth() + 1);
     }
-    return { minMs: min, maxMs: max, ganttW: w, monthTicks: ticks };
+    return { minMs: min, range: rg, ganttW: w, monthTicks: ticks };
   }, [data]);
 
-  const range = useMemo(() => {
-    const ds: number[] = [];
-    for (const t of data.taches || []) { if (t.date_debut) ds.push(+new Date(t.date_debut)); if (t.date_fin) ds.push(+new Date(t.date_fin)); }
-    for (const j of data.jalons || []) { if (j.date_jalon) ds.push(+new Date(j.date_jalon)); }
-    const valid = ds.filter(n => !isNaN(n));
-    const max = (valid.length ? Math.max(...valid) : Date.now() + 30 * DAY) + 5 * DAY;
-    return Math.max(max - minMs, 1);
-  }, [data, minMs]);
-
-  const toX = (d?: string) => d ? ((+new Date(d) - minMs) / range) * ganttW : 0;
+  const toX = (d?: string) => {
+    const n = saneMs(d);
+    if (n == null) return 0;
+    return Math.max(0, Math.min(((n - minMs) / range) * ganttW, ganttW));
+  };
   const today = new Date(); today.setHours(0, 0, 0, 0);
 
   const totalItems = (data.taches?.length || 0) + (data.jalons?.length || 0);
