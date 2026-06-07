@@ -30,7 +30,7 @@ router.get('/mes-projets', authenticateJWT, ctrl.getMesProjets);
 router.get('/stats', authenticateJWT, ctrl.getStats);
 router.get('/favoris', authenticateJWT, ctrl.getFavoris);
 router.get('/user-services', authenticateJWT, ctrl.getUserServices);
-router.get('/journal-global', authenticateAdminOrPMO, ctrl.getJournalGlobal);
+router.get('/journal-global', authenticateJWT, ctrl.getJournalGlobal);
 router.get('/planning-global', authenticateJWT, ctrl.getPlanningGlobal);
 router.get('/admin/scoring-config', authenticateAdminOrPMO, ctrl.getScoringConfig);
 router.get('/admin/types-documentaires', authenticateAdminOrPMO, ctrl.getTypesDocumentaires);

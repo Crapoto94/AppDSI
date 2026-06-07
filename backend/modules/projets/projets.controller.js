@@ -1965,26 +1965,68 @@ const getPlanningGlobal = async (req, res) => {
     }
 };
 
-// Journal global : toutes les entrées de tous les projets (admin/PMO), triées par date.
+// Renvoie les IDs de projets visibles par l'utilisateur (mêmes règles que getAll).
+async function getVisibleProjetIds(user) {
+    const username = user.username;
+    if (isSuperAdmin(user)) {
+        const rows = await pgDb.all('SELECT id FROM projets');
+        return rows.map(r => r.id);
+    }
+    const isPMO = await estPMO(username);
+    if (isPMO) {
+        let pmoServiceCodes = await getPmoServiceCodes(username);
+        if (pmoServiceCodes.length === 0 && user.service_code) pmoServiceCodes = [user.service_code.toLowerCase()];
+        const agents = (await getPmoAgentUsernames(username)).map(a => String(a).toLowerCase());
+        const conds = []; const params = [];
+        if (pmoServiceCodes.length) { params.push(pmoServiceCodes); conds.push(`LOWER(p.service_pilote) = ANY($${params.length})`); }
+        if (agents.length) { params.push(agents); conds.push(`LOWER(p.chef_projet_username) = ANY($${params.length})`); }
+        params.push(username.toLowerCase());
+        conds.push(`(LOWER(p.created_by_username) = $${params.length}
+            OR LOWER(p.chef_projet_username) = $${params.length}
+            OR EXISTS (SELECT 1 FROM projets.projet_roles pr WHERE pr.projet_id = p.id AND LOWER(pr.username) = $${params.length})
+            OR EXISTS (SELECT 1 FROM projets.projet_visibilite pv WHERE pv.projet_id = p.id AND LOWER(pv.username) = $${params.length}))`);
+        const { rows } = await pool.query(`SELECT p.id FROM projets.projets p WHERE ${conds.join(' OR ')}`, params);
+        return rows.map(r => r.id);
+    }
+    const { rows } = await pool.query(`
+        SELECT p.id FROM projets.projets p WHERE
+            LOWER(p.created_by_username) = LOWER($1)
+            OR EXISTS (SELECT 1 FROM projets.projet_roles pr WHERE pr.projet_id = p.id AND LOWER(pr.username) = LOWER($1))
+            OR EXISTS (SELECT 1 FROM projets.projet_visibilite pv WHERE pv.projet_id = p.id AND LOWER(pv.username) = LOWER($1))
+            OR LOWER(p.commanditaire_username) = LOWER($1)
+            OR LOWER(p.chef_projet_username) = LOWER($1)
+            OR LOWER(p.responsable_dsi_username) = LOWER($1)
+            OR LOWER(p.representant_metier_username) = LOWER($1)
+            OR LOWER(p.dpo_username) = LOWER($1)`, [username]);
+    return rows.map(r => r.id);
+}
+
+// Journal global : agrégation des journaux des projets visibles par l'utilisateur, triés par date.
 const getJournalGlobal = async (req, res) => {
     try {
         const limit = Math.min(parseInt(req.query.limit) || 500, 2000);
         const type_entree = req.query.type_entree;
+        const isAdmin = isSuperAdmin(req.user);
         const conditions = [];
         const params = [];
+        if (!isAdmin) {
+            const ids = await getVisibleProjetIds(req.user);
+            if (ids.length === 0) return res.json([]);
+            params.push(ids); conditions.push(`j.projet_id = ANY($${params.length})`);
+        }
         if (type_entree) { params.push(type_entree); conditions.push(`j.type_entree = $${params.length}`); }
         const where = conditions.length ? 'WHERE ' + conditions.join(' AND ') : '';
         params.push(limit);
-        const entries = await pgDb.all(`
+        const { rows } = await pool.query(`
             SELECT j.*, p.code AS projet_code, p.titre AS projet_titre,
                    (SELECT displayname FROM hub.users WHERE LOWER(username) = LOWER(j.username) LIMIT 1) AS username_displayname
-            FROM projet_journal j
-            JOIN projets p ON p.id = j.projet_id
+            FROM projets.projet_journal j
+            JOIN projets.projets p ON p.id = j.projet_id
             ${where}
             ORDER BY j.date_entree DESC
             LIMIT $${params.length}
         `, params);
-        res.json(entries);
+        res.json(rows);
     } catch (error) {
         console.error('[Projets] getJournalGlobal:', error.message);
         res.status(500).json({ error: error.message });

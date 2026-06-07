@@ -311,11 +311,9 @@ const PortefeuilleProjets: React.FC = () => {
           <button onClick={() => navigate('/planning-general')} style={{ padding: '9px 16px', borderRadius: '8px', border: '1px solid #e2e8f0', background: 'white', cursor: 'pointer', fontWeight: '600', fontSize: '13px', color: '#64748b', display: 'flex', alignItems: 'center', gap: '4px' }}>
             🗓️ Planning général
           </button>
-          {isPMO && (
-            <button onClick={() => navigate('/projets-log')} style={{ padding: '9px 16px', borderRadius: '8px', border: '1px solid #e2e8f0', background: 'white', cursor: 'pointer', fontWeight: '600', fontSize: '13px', color: '#64748b', display: 'flex', alignItems: 'center', gap: '4px' }}>
-              📜 Log de projets
-            </button>
-          )}
+          <button onClick={() => navigate('/projets-log')} style={{ padding: '9px 16px', borderRadius: '8px', border: '1px solid #e2e8f0', background: 'white', cursor: 'pointer', fontWeight: '600', fontSize: '13px', color: '#64748b', display: 'flex', alignItems: 'center', gap: '4px' }}>
+            📜 Journal général
+          </button>
           {isSuperAdmin(user) && (
             <button onClick={() => setShowPmoModal(true)} style={{ padding: '9px 16px', borderRadius: '8px', border: '1px solid #e2e8f0', background: 'white', cursor: 'pointer', fontWeight: '600', fontSize: '13px', color: '#64748b', display: 'flex', alignItems: 'center', gap: '4px' }}>
               👥 Gestion des PMO
