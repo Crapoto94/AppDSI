@@ -8,16 +8,18 @@ interface SlideshowSettings {
   rotation_seconds: number;
   rotation_order: number;
   rotation_filter: { period?: FilterPeriod; group_id?: number | null };
+  slideshow_name?: string;
 }
 
 interface Props {
   dashboardName: string;
   current: SlideshowSettings;
+  existingNames?: string[];
   onSave: (s: SlideshowSettings) => void;
   onClose: () => void;
 }
 
-export default function SlideshowSettingsModal({ dashboardName, current, onSave, onClose }: Props) {
+export default function SlideshowSettingsModal({ dashboardName, current, existingNames = [], onSave, onClose }: Props) {
   const [s, setS] = useState<SlideshowSettings>({ ...current });
 
   const field = <K extends keyof SlideshowSettings>(k: K, v: SlideshowSettings[K]) =>
@@ -73,6 +75,25 @@ export default function SlideshowSettingsModal({ dashboardName, current, onSave,
 
         {s.is_rotating && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            {/* Slideshow name */}
+            <div>
+              <label style={{ fontSize: 12, fontWeight: 600, color: '#374151', display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+                <Play size={13} /> Diaporama
+              </label>
+              <input
+                type="text"
+                list="slideshow-names"
+                placeholder="Nom du diaporama"
+                value={s.slideshow_name || ''}
+                onChange={e => field('slideshow_name', e.target.value)}
+                style={{ width: '100%', padding: '8px 10px', border: '1px solid #e2e8f0', borderRadius: 8, fontSize: 13, outline: 'none', boxSizing: 'border-box' }}
+              />
+              <datalist id="slideshow-names">
+                {existingNames.map(n => <option key={n} value={n} />)}
+              </datalist>
+              <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 4 }}>Ce tableau rejoint ce diaporama. Créez plusieurs diaporamas en saisissant des noms différents.</div>
+            </div>
+
             {/* Duration */}
             <div>
               <label style={{ fontSize: 12, fontWeight: 600, color: '#374151', display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>

@@ -26,7 +26,10 @@ interface Dashboard {
   rotation_seconds: number;
   rotation_order: number;
   rotation_filter: { period?: FilterPeriod; group_id?: number | null };
+  slideshow_name?: string;
 }
+
+const SLIDESHOW_DEFAULT_NAME = 'Diaporama principal';
 interface WidgetItem {
   id?: number;
   widget_key: string; pos_x: number; pos_y: number; width: number; height: number; config_json: any;
@@ -112,6 +115,22 @@ export default function DsiDashboard() {
     .filter(d => d.is_rotating)
     .sort((a, b) => a.rotation_order - b.rotation_order);
 
+  // Diaporamas nommés : groupe les tableaux rotatifs par slideshow_name
+  const slideshowGroups = (() => {
+    const map = new Map<string, Dashboard[]>();
+    for (const d of rotatingDashboards) {
+      const key = (d.slideshow_name && d.slideshow_name.trim()) || SLIDESHOW_DEFAULT_NAME;
+      if (!map.has(key)) map.set(key, []);
+      map.get(key)!.push(d);
+    }
+    return [...map.entries()].map(([name, dashes]) => ({ name, dashes })).sort((a, b) => a.name.localeCompare(b.name, 'fr'));
+  })();
+
+  // Liste des tableaux du diaporama en cours de lecture
+  const [slideshowDashes, setSlideshowDashes] = useState<Dashboard[]>([]);
+  const [slideshowName, setSlideshowName] = useState<string>('');
+  const [showSlideshowMenu, setShowSlideshowMenu] = useState(false);
+
   // ── Load dashboards ──────────────────────────────────────────────────────
   useEffect(() => {
     axios.get('/api/dsi-dashboard', { headers })
@@ -175,12 +194,15 @@ export default function DsiDashboard() {
     }, seconds * 1000);
   }, []);
 
-  const startSlideshow = () => {
-    if (rotatingDashboards.length === 0) return;
+  const startSlideshow = (dashes: Dashboard[], name: string) => {
+    if (!dashes || dashes.length === 0) return;
+    setShowSlideshowMenu(false);
+    setSlideshowDashes(dashes);
+    setSlideshowName(name);
     setSlideshowActive(true);
     setSlideshowPaused(false);
     setSlideshowIndex(0);
-    advanceSlideshow(0, rotatingDashboards);
+    advanceSlideshow(0, dashes);
   };
 
   const stopSlideshow = () => {
@@ -197,19 +219,21 @@ export default function DsiDashboard() {
 
   const resumeSlideshow = () => {
     setSlideshowPaused(false);
-    advanceSlideshow(slideshowIndex, rotatingDashboards);
+    advanceSlideshow(slideshowIndex, slideshowDashes);
   };
 
   const prevSlide = () => {
-    const idx = (slideshowIndex - 1 + rotatingDashboards.length) % rotatingDashboards.length;
+    if (slideshowDashes.length === 0) return;
+    const idx = (slideshowIndex - 1 + slideshowDashes.length) % slideshowDashes.length;
     setSlideshowIndex(idx);
-    advanceSlideshow(idx, rotatingDashboards);
+    advanceSlideshow(idx, slideshowDashes);
   };
 
   const nextSlide = () => {
-    const idx = (slideshowIndex + 1) % rotatingDashboards.length;
+    if (slideshowDashes.length === 0) return;
+    const idx = (slideshowIndex + 1) % slideshowDashes.length;
     setSlideshowIndex(idx);
-    advanceSlideshow(idx, rotatingDashboards);
+    advanceSlideshow(idx, slideshowDashes);
   };
 
   // cleanup on unmount
@@ -309,7 +333,7 @@ export default function DsiDashboard() {
 
   const saveSlideshowSettings = async (settings: {
     is_rotating: boolean; rotation_seconds: number;
-    rotation_order: number; rotation_filter: any;
+    rotation_order: number; rotation_filter: any; slideshow_name?: string;
   }) => {
     if (!activeDashId) return;
     try {
@@ -324,11 +348,11 @@ export default function DsiDashboard() {
   const dashFilter: DashboardFilter = activeDash?.rotation_filter || {};
 
   // Which slide is showing (for display in slideshow bar)
-  const currentSlideDash = slideshowActive
-    ? rotatingDashboards[slideshowIndex % rotatingDashboards.length]
+  const currentSlideDash = slideshowActive && slideshowDashes.length > 0
+    ? slideshowDashes[slideshowIndex % slideshowDashes.length]
     : null;
-  const nextSlideDash = slideshowActive && rotatingDashboards.length > 1
-    ? rotatingDashboards[(slideshowIndex + 1) % rotatingDashboards.length]
+  const nextSlideDash = slideshowActive && slideshowDashes.length > 1
+    ? slideshowDashes[(slideshowIndex + 1) % slideshowDashes.length]
     : null;
 
   if (loadingDash) {
@@ -425,13 +449,35 @@ export default function DsiDashboard() {
             </>
           ) : (
             <>
-              {rotatingDashboards.length > 0 && (
-                <button onClick={startSlideshow} style={btnStyle('slideshow')}>
+              {slideshowGroups.length === 1 && (
+                <button onClick={() => startSlideshow(slideshowGroups[0].dashes, slideshowGroups[0].name)} style={btnStyle('slideshow')} title={slideshowGroups[0].name}>
                   <Play size={15} /> Diaporama
                   <span style={{ background: 'rgba(251,191,36,.3)', borderRadius: 10, padding: '1px 6px', fontSize: 11 }}>
-                    {rotatingDashboards.length}
+                    {slideshowGroups[0].dashes.length}
                   </span>
                 </button>
+              )}
+              {slideshowGroups.length > 1 && (
+                <div style={{ position: 'relative' }}>
+                  <button onClick={() => setShowSlideshowMenu(v => !v)} style={btnStyle('slideshow')}>
+                    <Play size={15} /> Diaporama ▾
+                    <span style={{ background: 'rgba(251,191,36,.3)', borderRadius: 10, padding: '1px 6px', fontSize: 11 }}>
+                      {slideshowGroups.length}
+                    </span>
+                  </button>
+                  {showSlideshowMenu && (
+                    <div style={{ position: 'absolute', top: '100%', right: 0, marginTop: 6, background: 'white', borderRadius: 10, boxShadow: '0 10px 30px rgba(0,0,0,.18)', minWidth: 220, zIndex: 60, overflow: 'hidden' }}>
+                      <div style={{ padding: '8px 12px', fontSize: 11, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', borderBottom: '1px solid #f1f5f9' }}>Choisir un diaporama</div>
+                      {slideshowGroups.map(g => (
+                        <button key={g.name} onClick={() => startSlideshow(g.dashes, g.name)}
+                          style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', gap: 10, padding: '9px 12px', border: 'none', background: 'white', cursor: 'pointer', textAlign: 'left', fontSize: 13, color: '#1e293b' }}>
+                          <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}><Play size={13} color="#f59e0b" /> {g.name}</span>
+                          <span style={{ background: '#fef3c7', color: '#92400e', borderRadius: 10, padding: '1px 7px', fontSize: 11, fontWeight: 700 }}>{g.dashes.length}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
               )}
               {activeDashId && (
                 <>
@@ -587,6 +633,11 @@ export default function DsiDashboard() {
           zIndex: 200, background: '#0f172a', borderRadius: 12, padding: '8px 20px',
           boxShadow: '0 8px 24px rgba(0,0,0,.3)', display: 'flex', alignItems: 'center', gap: 12,
         }}>
+          {slideshowName && (
+            <span style={{ color: '#fbbf24', fontSize: 12, fontWeight: 700 }}>
+              {slideshowName} · {(slideshowIndex % slideshowDashes.length) + 1}/{slideshowDashes.length}
+            </span>
+          )}
           <span style={{ color: 'rgba(255,255,255,.5)', fontSize: 11 }}>
             {Math.round(currentSlideDash.rotation_seconds * (1 - slideshowProgress / 100))}s
           </span>
@@ -620,7 +671,9 @@ export default function DsiDashboard() {
             rotation_seconds: activeDash.rotation_seconds || 30,
             rotation_order: activeDash.rotation_order || 0,
             rotation_filter: activeDash.rotation_filter || {},
+            slideshow_name: activeDash.slideshow_name || SLIDESHOW_DEFAULT_NAME,
           }}
+          existingNames={slideshowGroups.map(g => g.name)}
           onSave={saveSlideshowSettings}
           onClose={() => setShowSlideshowSettings(false)}
         />

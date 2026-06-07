@@ -52,7 +52,7 @@ const ctrl = {
           'UPDATE hub.dsi_dashboards SET is_default = false WHERE username = $1', [req.user.username]
         );
       }
-      const { rotation_seconds, rotation_order, rotation_filter, is_rotating } = req.body;
+      const { rotation_seconds, rotation_order, rotation_filter, is_rotating, slideshow_name } = req.body;
       const r = await pool.query(
         `UPDATE hub.dsi_dashboards SET
           name = COALESCE($1, name),
@@ -60,11 +60,13 @@ const ctrl = {
           is_rotating = COALESCE($5, is_rotating),
           rotation_seconds = COALESCE($6, rotation_seconds),
           rotation_order = COALESCE($7, rotation_order),
-          rotation_filter = COALESCE($8, rotation_filter)
+          rotation_filter = COALESCE($8, rotation_filter),
+          slideshow_name = COALESCE($9, slideshow_name)
          WHERE id = $3 AND username = $4 RETURNING *`,
         [name || null, is_default ?? null, id, req.user.username,
          is_rotating ?? null, rotation_seconds ?? null, rotation_order ?? null,
-         rotation_filter ? JSON.stringify(rotation_filter) : null]
+         rotation_filter ? JSON.stringify(rotation_filter) : null,
+         (slideshow_name && String(slideshow_name).trim()) || null]
       );
       res.json(r.rows[0]);
     } catch (e) {

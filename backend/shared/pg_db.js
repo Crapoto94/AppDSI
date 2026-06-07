@@ -4847,6 +4847,7 @@ async function setupPgDb() {
     await client.query(`ALTER TABLE hub.dsi_dashboards ADD COLUMN IF NOT EXISTS rotation_seconds INT NOT NULL DEFAULT 30`);
     await client.query(`ALTER TABLE hub.dsi_dashboards ADD COLUMN IF NOT EXISTS rotation_order INT NOT NULL DEFAULT 0`);
     await client.query(`ALTER TABLE hub.dsi_dashboards ADD COLUMN IF NOT EXISTS rotation_filter JSONB NOT NULL DEFAULT '{}'`);
+    await client.query(`ALTER TABLE hub.dsi_dashboards ADD COLUMN IF NOT EXISTS slideshow_name TEXT NOT NULL DEFAULT 'Diaporama principal'`);
     await client.query(`
       CREATE TABLE IF NOT EXISTS hub.dsi_dashboard_widgets (
         id SERIAL PRIMARY KEY,
