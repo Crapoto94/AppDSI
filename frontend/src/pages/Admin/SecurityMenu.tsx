@@ -20,6 +20,7 @@ interface AutoConfig {
   weekday: number;
   destPath: string;
   retention: number;
+  alertAfterDays: number;
   recipients: Recipient[];
   lastRun: { at: string; ok: boolean; message: string; file?: string; location?: string } | null;
   storageRoot?: string;
@@ -175,7 +176,7 @@ export default function SecurityMenu() {
         body: JSON.stringify({
           enabled: auto.enabled, frequency: auto.frequency, hour: auto.hour,
           weekday: auto.weekday, destPath: auto.destPath, retention: auto.retention,
-          recipients: auto.recipients,
+          alertAfterDays: auto.alertAfterDays, recipients: auto.recipients,
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -563,6 +564,15 @@ export default function SecurityMenu() {
                       onChange={(e) => patchAuto({ retention: parseInt(e.target.value, 10) || 1 })}
                     />
                     <small>Les sauvegardes les plus anciennes au-delà de ce nombre sont supprimées automatiquement.</small>
+                  </div>
+                  <div className="sec-field">
+                    <label>Seuil d'alerte (jours)</label>
+                    <input
+                      type="number" min={0} max={365}
+                      value={auto.alertAfterDays ?? 0}
+                      onChange={(e) => patchAuto({ alertAfterDays: Math.max(0, parseInt(e.target.value, 10) || 0) })}
+                    />
+                    <small>Envoie une alerte e-mail aux destinataires si aucune sauvegarde réussie depuis ce nombre de jours. <strong>0 = automatique</strong> selon la fréquence (quotidien : 2 j, hebdo : 8 j, mensuel : 32 j).</small>
                   </div>
                 </div>
 

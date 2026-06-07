@@ -2,10 +2,14 @@ const express = require('express');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
-const { authenticateAdmin } = require('../../shared/middleware');
+const { authenticateAdmin, authenticateJWT } = require('../../shared/middleware');
 const controller = require('./backup.controller');
 
 const router = express.Router();
+
+// État synthétique de la sauvegarde (non sensible) — accessible à tout utilisateur
+// authentifié pour le widget du tableau de bord. Déclaré AVANT le garde superadmin.
+router.get('/health-summary', authenticateJWT, controller.getHealthSummary);
 
 // Disk storage: backups can be very large (hundreds of MB). Streaming the
 // upload to disk avoids buffering the whole file in memory.

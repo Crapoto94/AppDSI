@@ -1072,6 +1072,33 @@ async function checkBackupHealth() {
   return { alerted: true, ageDays: Math.round(ageDays) };
 }
 
+/** GET /health-summary : état synthétique non sensible (pour le widget dashboard). */
+async function getHealthSummary(req, res) {
+  try {
+    const cfg = await getAutoConfig();
+    const last = cfg.lastRun && cfg.lastRun.at ? new Date(cfg.lastRun.at) : null;
+    const lastOk = !!(last && cfg.lastRun.ok);
+    const ageDays = lastOk ? (Date.now() - last.getTime()) / 86400000 : null;
+    const threshold = maxAgeDays(cfg);
+    const healthy = !cfg.enabled ? null : (lastOk && ageDays != null && ageDays <= threshold);
+    res.json({
+      enabled: !!cfg.enabled,
+      frequency: cfg.frequency,
+      lastRun: cfg.lastRun ? {
+        at: cfg.lastRun.at,
+        ok: !!cfg.lastRun.ok,
+        message: cfg.lastRun.message || '',
+        file: cfg.lastRun.file || null,
+      } : null,
+      ageDays: ageDays == null ? null : Math.round(ageDays),
+      thresholdDays: threshold,
+      healthy,
+    });
+  } catch (e) {
+    res.status(500).json({ message: e.message });
+  }
+}
+
 module.exports = {
   exportSqlite,
   exportPostgres,
@@ -1094,4 +1121,5 @@ module.exports = {
   runAutoNow,
   runAutomaticBackup,
   checkBackupHealth,
+  getHealthSummary,
 };

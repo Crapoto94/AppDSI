@@ -271,6 +271,15 @@ export const WIDGET_REGISTRY: WidgetDef[] = [
     defaultSize: { w: 5, h: 3 },
     minSize: { w: 3, h: 2 },
   },
+  // ── Système ───────────────────────────────────────────────────────────────
+  {
+    key: 'backup_status',
+    label: 'État sauvegarde auto',
+    description: 'Statut de la dernière sauvegarde automatique (à jour / en retard)',
+    module: 'Système',
+    defaultSize: { w: 3, h: 2 },
+    minSize: { w: 2, h: 2 },
+  },
 ];
 
 export const WIDGET_MODULES = [...new Set(WIDGET_REGISTRY.map(w => w.module))];

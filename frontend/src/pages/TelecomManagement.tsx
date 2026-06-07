@@ -48,14 +48,18 @@ interface BillingAccount {
 }
 
 interface Commitment {
-  id: number;
+  id?: number;
   commitment_number: string;
   label: string;
   amount: number;
   invoiced_amount: number;
   year: number;
   operator_name: string;
-  function_code: string;
+  function_code?: string;
+  section?: string;
+  // Champs dynamiques renvoyés par /api/telecom/engagements (issus du budget)
+  engaged_amount?: number | null;
+  remaining_amount?: number | null;
 }
 
 interface TelecomInvoice {
@@ -737,7 +741,7 @@ const TelecomManagement: React.FC = () => {
                     const remaining = c.remaining_amount;
                     const dynamic = c.engaged_amount != null;
                     return (
-                    <tr key={c.id}>
+                    <tr key={c.id ?? c.commitment_number}>
                       <td className="year-cell">{c.year}</td>
                       <td className="num-cell">{c.commitment_number}</td>
                       <td>{c.label}</td>
