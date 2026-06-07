@@ -151,10 +151,10 @@ export const WIDGET_REGISTRY: WidgetDef[] = [
   {
     key: 'budget_kpi',
     label: 'KPIs Budget',
-    description: 'Budget alloué, commandé, facturé',
+    description: 'Commandé, facturé, à traiter, engagement, prévu/réalisé opérations (année en cours)',
     module: 'Budget',
-    defaultSize: { w: 6, h: 2 },
-    minSize: { w: 4, h: 2 },
+    defaultSize: { w: 8, h: 3 },
+    minSize: { w: 5, h: 2 },
   },
   {
     key: 'budget_trend',
@@ -171,6 +171,22 @@ export const WIDGET_REGISTRY: WidgetDef[] = [
     module: 'Budget',
     defaultSize: { w: 4, h: 3 },
     minSize: { w: 3, h: 2 },
+  },
+  {
+    key: 'budget_recent_invoices',
+    label: '10 dernières factures',
+    description: 'Dernières factures et leur état (année en cours)',
+    module: 'Budget',
+    defaultSize: { w: 6, h: 4 },
+    minSize: { w: 4, h: 3 },
+  },
+  {
+    key: 'budget_recent_orders',
+    label: '10 dernières commandes',
+    description: 'Dernières commandes et leur état d\'affectation (année en cours)',
+    module: 'Budget',
+    defaultSize: { w: 6, h: 4 },
+    minSize: { w: 4, h: 3 },
   },
   // ── MagApp ────────────────────────────────────────────────────────────────
   {
