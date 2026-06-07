@@ -5,7 +5,7 @@ import {
   Euro, FileText, ShoppingCart, AlertCircle, 
   Plus, Trash2, Send, ExternalLink, Columns, Palette, ChevronRight, ChevronDown
 } from 'lucide-react';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ReferenceLine } from 'recharts';
 import BudgetManagementTab from '../components/BudgetManagementTab';
 import MappedDataTable from '../components/MappedDataTable';
 import { useAuth } from '../contexts/AuthContext';
@@ -37,10 +37,20 @@ const Budget: React.FC = () => {
     </svg>
   );
 
-  const [view, setView] = useState<'summary' | 'lines' | 'invoices' | 'orders' | 'tiers' | 'operations' | 'gestion'>('summary');
+  const [view, setView] = useState<'summary' | 'lines' | 'engagements' | 'invoices' | 'orders' | 'tiers' | 'operations' | 'gestion'>('summary');
   const [isRaw, setIsRaw] = useState(false);
   const [rawData, setRawData] = useState<any[]>([]);
   const [budgetLines, setBudgetLines] = useState<any[]>([]);
+  const [engagements, setEngagements] = useState<any[]>([]);
+  const [bcFilter, setBcFilter] = useState<'all' | 'with' | 'without'>('all');
+  const [ensFilter, setEnsFilter] = useState(false);
+  const [etatFilter, setEtatFilter] = useState<'all' | 'Soldé' | 'Entier' | 'Partiellement soldé'>('all');
+  const [typeFilter, setTypeFilter] = useState<'all' | 'reports' | 'Report' | 'Rattachement' | 'Engagement'>('all');
+  const [telecomFilter, setTelecomFilter] = useState(false);
+  const [opsRiskFilter, setOpsRiskFilter] = useState(false); // opérations orange/rouge (réalisé ≥ 75% du prévu)
+  const resetEngagementFilters = () => {
+    setBcFilter('all'); setEnsFilter(false); setEtatFilter('all'); setTypeFilter('all'); setTelecomFilter(false); setSectionFilter('all');
+  };
   const [invoices, setInvoices] = useState<any[]>([]);
   const [orders, setOrders] = useState<any[]>([]);
   const [operations, setOperations] = useState<any[]>([]);
@@ -484,6 +494,58 @@ const Budget: React.FC = () => {
     return weekNo;
   };
 
+  const weekKeyForNov = (year: number) => `${year}-W${String(getWeekNumber(new Date(year, 10, 1))).padStart(2, '0')}`;
+
+  // Construit une série hebdomadaire cumulée couvrant toute l'année (W01→dernière
+  // semaine ISO) et prolonge une projection (run-rate du réalisé) jusqu'au 1er nov.
+  const buildYearlySeries = (weeklySums: Record<string, { f: number, i: number }>, year: number) => {
+    const pad = (w: number) => `${year}-W${String(w).padStart(2, '0')}`;
+    const weeksInYear = getWeekNumber(new Date(year, 11, 28)); // le 28/12 est toujours en dernière semaine ISO
+    const novWeek = getWeekNumber(new Date(year, 10, 1));      // semaine du 1er novembre
+
+    // Dernière semaine disposant de données réelles.
+    let lastDataWeek = 0;
+    for (let w = 1; w <= weeksInYear; w++) {
+      const s = weeklySums[pad(w)];
+      if (s && (s.f || s.i)) lastDataWeek = w;
+    }
+
+    // Cumul réel jusqu'à lastDataWeek.
+    let cumF = 0, cumI = 0, lastCumF = 0, lastCumI = 0;
+    const actual: Record<number, { f: number, i: number }> = {};
+    for (let w = 1; w <= weeksInYear; w++) {
+      const s = weeklySums[pad(w)];
+      if (s) { cumF += s.f; cumI += s.i; }
+      if (w <= lastDataWeek) { actual[w] = { f: cumF, i: cumI }; lastCumF = cumF; lastCumI = cumI; }
+    }
+
+    // Rythme hebdomadaire moyen du réalisé.
+    const rateF = lastDataWeek > 0 ? lastCumF / lastDataWeek : 0;
+    const rateI = lastDataWeek > 0 ? lastCumI / lastDataWeek : 0;
+
+    const data: any[] = [];
+    for (let w = 1; w <= weeksInYear; w++) {
+      const a = actual[w];
+      const point: any = { week: pad(w), weekNum: w };
+      point.fonctionnement = a ? Math.round(a.f) : null;
+      point.investissement = a ? Math.round(a.i) : null;
+      point.total = a ? Math.round(a.f + a.i) : null;
+      // Projection linéaire de la dernière semaine réelle jusqu'au 1er novembre.
+      if (lastDataWeek > 0 && w >= lastDataWeek && w <= novWeek) {
+        const pf = rateF * w, pi = rateI * w;
+        point.projFonctionnement = Math.round(pf);
+        point.projInvestissement = Math.round(pi);
+        point.projTotal = Math.round(pf + pi);
+      } else {
+        point.projFonctionnement = null;
+        point.projInvestissement = null;
+        point.projTotal = null;
+      }
+      data.push(point);
+    }
+    return data;
+  };
+
   const parseExcelDate = (val: any) => {
     if (!val) return null;
     const serial = parseFloat(val);
@@ -562,28 +624,8 @@ const Budget: React.FC = () => {
       console.warn('[CHART DEBUG] Aucune commande avec montant valide. Total commandes:', orders.length);
     }
 
-    const sortedWeeks = Object.keys(weeklySums).sort();
-    let cumF = 0;
-    let cumI = 0;
-
-    const result = sortedWeeks.map(week => {
-      cumF += weeklySums[week].f;
-      cumI += weeklySums[week].i;
-      return {
-        week,
-        fonctionnement: Math.round(cumF),
-        investissement: Math.round(cumI)
-      };
-    });
-
-    if (result.length > 0) {
-      console.log('[CHART] Final data points:', result.length);
-      console.log('[CHART] First point:', result[0]);
-      console.log('[CHART] Last point:', result[result.length - 1]);
-    }
-
-    return result;
-  }, [orders, m57Plan]);
+    return buildYearlySeries(weeklySums, currentFiscalYear);
+  }, [orders, m57Plan, currentFiscalYear]);
 
   const invoiceStats = useMemo(() => {
     const now = new Date();
@@ -725,8 +767,9 @@ const Budget: React.FC = () => {
       }
     };
 
-    const [linesRes, invoicesRes, ordersRes, operationsRes, m57Res, settingsRes] = await Promise.all([
+    const [linesRes, engagementsRes, invoicesRes, ordersRes, operationsRes, m57Res, settingsRes] = await Promise.all([
       createFetch(`/api/budget/lines?${queryParams}`),
+      createFetch(`/api/budget/engagements?${queryParams}`),
       createFetch(`/api/budget/invoices?${queryParams}`),
       createFetch(`/api/budget/orders?${queryParams}`),
       createFetch(`/api/budget/operations?${queryParams}`),
@@ -736,6 +779,7 @@ const Budget: React.FC = () => {
 
     try {
       if (linesRes.ok) setBudgetLines(await linesRes.json());
+      if (engagementsRes.ok) setEngagements(await engagementsRes.json());
       if (invoicesRes.ok) setInvoices(await invoicesRes.json());
       if (ordersRes.ok) setOrders(await ordersRes.json());
       if (operationsRes.ok) setOperations(await operationsRes.json());
@@ -808,6 +852,78 @@ const Budget: React.FC = () => {
     }
   };
 
+  const linesFileInputRef = useRef<HTMLInputElement>(null);
+  const [isImportingLines, setIsImportingLines] = useState(false);
+
+  const handleReimportLines = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!window.confirm("Réimporter ce fichier remplacera l'intégralité des lignes d'exécution existantes. Continuer ?")) {
+      e.target.value = '';
+      return;
+    }
+    setIsImportingLines(true);
+    const formData = new FormData();
+    formData.append('file', file);
+    try {
+      const response = await fetch('/api/budget/import-lines', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` },
+        body: formData
+      });
+      if (response.ok) {
+        const result = await response.json();
+        setMessage(result.message);
+        await fetchData();
+        setTimeout(() => setMessage(''), 4000);
+      } else {
+        const errText = await response.text();
+        alert(`Erreur: ${errText}`);
+      }
+    } catch (err) {
+      alert('Erreur de connexion');
+    } finally {
+      setIsImportingLines(false);
+      e.target.value = '';
+    }
+  };
+
+  const engagementsFileInputRef = useRef<HTMLInputElement>(null);
+  const [isImportingEngagements, setIsImportingEngagements] = useState(false);
+
+  const handleReimportEngagements = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!window.confirm("Réimporter ce fichier remplacera l'intégralité des engagements existants. Continuer ?")) {
+      e.target.value = '';
+      return;
+    }
+    setIsImportingEngagements(true);
+    const formData = new FormData();
+    formData.append('file', file);
+    try {
+      const response = await fetch('/api/budget/import-engagements', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` },
+        body: formData
+      });
+      if (response.ok) {
+        const result = await response.json();
+        setMessage(result.message);
+        await fetchData();
+        setTimeout(() => setMessage(''), 4000);
+      } else {
+        const errText = await response.text();
+        alert(`Erreur: ${errText}`);
+      }
+    } catch (err) {
+      alert('Erreur de connexion');
+    } finally {
+      setIsImportingEngagements(false);
+      e.target.value = '';
+    }
+  };
+
   const requestSort = (key: string) => {
     let direction: 'asc' | 'desc' = 'asc';
     if (sortConfig && sortConfig.key === key && sortConfig.direction === 'asc') {
@@ -844,19 +960,56 @@ const Budget: React.FC = () => {
   const [expandedOps, setExpandedOps] = useState<Set<number>>(new Set());
   const [opsCommandsData, setOpsCommandsData] = useState<Record<number, { columns: any[], rows: any[] }>>({});
   const [opsCmdVisibleCols, setOpsCmdVisibleCols] = useState<string[]>([]);
+
+  // Logiciels métier (magapp.apps) pour l'association commande → logiciel.
+  const [apps, setApps] = useState<any[]>([]);
+  const [appModal, setAppModal] = useState<{ opId: number; orderNum: string; currentAppId: number | null; currentAppLabel: string } | null>(null);
+  const [appSearch, setAppSearch] = useState('');
+
+  useEffect(() => {
+    if (!token) return;
+    fetch('/api/magapp/apps', { headers: { 'Authorization': `Bearer ${token}` } })
+      .then(r => r.ok ? r.json() : [])
+      .then(data => setApps(Array.isArray(data) ? data : []))
+      .catch(() => {});
+  }, [token]);
+
+  const fetchOpOrders = async (opId: number) => {
+    try {
+      const r = await fetch(`/api/budget/operations/${opId}/orders`, { headers: { 'Authorization': `Bearer ${token}` } });
+      if (r.ok) {
+        const data = await r.json();
+        setOpsCommandsData(prev => ({ ...prev, [opId]: { columns: data.columns || [], rows: data.rows || [] } }));
+      }
+    } catch { /* silencieux */ }
+  };
+
+  const assignAppToOrder = async (opId: number, orderNum: string, appId: number | null) => {
+    try {
+      const r = await fetch(`/api/budget/orders/${encodeURIComponent(orderNum)}/assign-app`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ app_id: appId })
+      });
+      if (r.ok) {
+        setAppModal(null);
+        setAppSearch('');
+        await fetchOpOrders(opId);
+      } else {
+        alert("Erreur lors de l'association du logiciel");
+      }
+    } catch {
+      alert("Erreur de connexion");
+    }
+  };
+
   const toggleExpandedOp = (opId: number) => {
     setExpandedOps(prev => {
       const next = new Set(prev);
       if (next.has(opId)) { next.delete(opId); }
       else {
         next.add(opId);
-        if (!opsCommandsData[opId]) {
-          fetch(`/api/budget/operations/${opId}/orders`, {
-            headers: { 'Authorization': `Bearer ${token}` }
-          }).then(r => r.ok && r.json()).then(data => {
-            if (data) setOpsCommandsData(prev => ({ ...prev, [opId]: { columns: data.columns || [], rows: data.rows || [] } }));
-          }).catch(() => {});
-        }
+        if (!opsCommandsData[opId]) fetchOpOrders(opId);
       }
       return next;
     });
@@ -1000,7 +1153,7 @@ const Budget: React.FC = () => {
   });
 
   const filteredData = useMemo(() => {
-    let data = view === 'lines' ? groupedBudgetLines : view === 'invoices' ? invoices : view === 'operations' ? operations : filteredOrders;
+    let data = view === 'lines' ? groupedBudgetLines : view === 'engagements' ? engagements : view === 'invoices' ? invoices : view === 'operations' ? operations : filteredOrders;
 
     if (view === 'operations') {
       const seen = new Set<string>();
@@ -1032,6 +1185,37 @@ const Budget: React.FC = () => {
           return section === sectionFilter;
         });
       }
+      // Opérations « orange/rouge » : réalisé ≥ 75 % du prévu (et dépassements).
+      if (opsRiskFilter) {
+        data = data.filter((op: any) => {
+          const planned = parseFloat(op['Montant prévu'] || op['montant_prevu'] || 0) || 0;
+          const used = parseFloat(op['used_amount'] || op['Montant utilisé'] || 0) || 0;
+          return planned > 0 && (used / planned) * 100 > 75;
+        });
+      }
+    }
+
+    if (view === 'engagements') {
+      if (sectionFilter !== 'all') {
+        data = data.filter((row: any) => row.Section === sectionFilter || row.section === sectionFilter);
+      }
+      if (bcFilter === 'with') {
+        data = data.filter((row: any) => row.has_bc);
+      } else if (bcFilter === 'without') {
+        data = data.filter((row: any) => !row.has_bc);
+      }
+      if (ensFilter) {
+        data = data.filter((row: any) => row.is_ens);
+      }
+      if (etatFilter !== 'all') {
+        data = data.filter((row: any) => row['État'] === etatFilter);
+      }
+      if (typeFilter === 'reports') {
+        data = data.filter((row: any) => row['Type mvt'] === 'Report' || row['Type mvt'] === 'Rattachement');
+      }
+      if (telecomFilter) {
+        data = data.filter((row: any) => row.is_telecom || (row['Article par nature'] || '').toString().includes('6262'));
+      }
     }
 
     // Suppression du filtre restrictif sur le numéro de facture fournisseur
@@ -1061,7 +1245,7 @@ const Budget: React.FC = () => {
       }
     }
     return data;
-  }, [view, budgetLines, groupedBudgetLines, invoices, operations, filteredOrders, searchTerm, columnFilters, sortConfig, showZeroBudget, sectionFilter, m57Plan]);
+  }, [view, budgetLines, groupedBudgetLines, engagements, bcFilter, ensFilter, etatFilter, typeFilter, telecomFilter, opsRiskFilter, invoices, operations, filteredOrders, searchTerm, columnFilters, sortConfig, showZeroBudget, sectionFilter, m57Plan]);
 
   // Évolution cumulée des commandes liées aux opérations actuellement filtrées.
   const opsChartData = useMemo(() => {
@@ -1090,12 +1274,20 @@ const Budget: React.FC = () => {
       if (section === 'F' || section === 'Fonctionnement') weekly[key].f += amt;
       else if (section === 'I' || section === 'Investissement') weekly[key].i += amt;
     });
-    let cf = 0, ci = 0;
-    return Object.keys(weekly).sort().map(k => {
-      cf += weekly[k].f; ci += weekly[k].i;
-      return { week: k, fonctionnement: Math.round(cf), investissement: Math.round(ci), total: Math.round(cf + ci) };
-    });
-  }, [view, filteredData, orders, m57Plan]);
+    return buildYearlySeries(weekly, currentFiscalYear);
+  }, [view, filteredData, orders, m57Plan, currentFiscalYear]);
+
+  // Montant total prévu (F / I) des opérations filtrées — repères « effet ciseau ».
+  const opsPlanned = useMemo(() => {
+    if (view !== 'operations') return { f: 0, i: 0 };
+    return (filteredData as any[]).reduce((acc, op) => {
+      const section = getSectionFromM57(op['C. Nature']);
+      const planned = parseFloat(op['Montant prévu'] || op['montant_prevu'] || 0) || 0;
+      if (section === 'F') acc.f += planned;
+      else if (section === 'I') acc.i += planned;
+      return acc;
+    }, { f: 0, i: 0 });
+  }, [view, filteredData, m57Plan]);
 
   // Valeurs distinctes pour les filtres en liste déroulante (service, nature, section…)
   const filterOptions = useMemo(() => {
@@ -1133,6 +1325,13 @@ const Budget: React.FC = () => {
       return invoiceColumns.filter(c => available.includes(c));
     } else if (view === 'operations') {
       return opColumns.filter(c => available.includes(c));
+    } else if (view === 'engagements') {
+      const ENGAGEMENT_COLUMNS = [
+        'Code mouvement', 'Type mvt', 'État', 'Libellé', 'Nom tiers', 'Section',
+        'Imputation', 'Article par nature', 'Chapitre par nature',
+        'Montant engagé', 'Réalisé', 'Reste engagé', 'Bon de commande'
+      ];
+      return ENGAGEMENT_COLUMNS.filter(c => available.includes(c));
     }
     return available;
   }, [filteredData, view, orderColumns, invoiceColumns, opColumns]);
@@ -1142,6 +1341,22 @@ const Budget: React.FC = () => {
     if (section === 'Investissement' || section === 'I') return 'row-investment';
     return '';
   };
+
+  // Montant alloué et section d'une ligne budgétaire (le « Budget voté » fait foi).
+  const lineAlloc = (l: any) => parseFloat(String(l['Budget voté'] ?? l.allocated_amount ?? 0).replace(',', '.')) || 0;
+  const lineSection = (l: any) => (l.Section || l.section || '').toString().trim();
+
+  // Totaux des lignes budgétaires par section (base : Budget voté).
+  const linesTotals = useMemo(() => {
+    return budgetLines.reduce((acc: { f: number; i: number; total: number }, l: any) => {
+      const amt = lineAlloc(l);
+      const sec = lineSection(l);
+      if (sec === 'F') acc.f += amt;
+      else if (sec === 'I') acc.i += amt;
+      acc.total += amt;
+      return acc;
+    }, { f: 0, i: 0, total: 0 });
+  }, [budgetLines]);
 
   return (
     <div className="budget-page">
@@ -1186,7 +1401,7 @@ const Budget: React.FC = () => {
             </div>
           </div>
           <div className="view-tabs">
-            {['summary', 'lines', 'invoices', 'orders', 'tiers', 'operations', 'gestion'].map(tab => {
+            {['summary', 'lines', 'engagements', 'invoices', 'orders', 'tiers', 'operations', 'gestion'].map(tab => {
               // Only admin/finances/compta can see 'gestion'
               if (tab === 'gestion' && !['admin', 'finances', 'compta'].includes(currentUser.role)) return null;
               return (
@@ -1221,6 +1436,7 @@ const Budget: React.FC = () => {
                 >
                   {tab === 'summary' && 'Résumé'}
                   {tab === 'lines' && 'Lignes'}
+                  {tab === 'engagements' && 'Engagements'}
                   {tab === 'invoices' && 'Factures'}
                   {tab === 'orders' && 'Commandes'}
                   {tab === 'tiers' && 'Tiers'}
@@ -1275,12 +1491,12 @@ const Budget: React.FC = () => {
                       <div className="card-icon"><Euro size={24} /></div>
                       <div>
                         <h3 className="card-title">Budget Alloué Total</h3>
-                        <p className="card-value">{Math.round(budgetLines.reduce((acc, curr) => acc + (curr.allocated_amount || 0), 0)).toLocaleString()} €</p>
+                        <p className="card-value">{Math.round(budgetLines.reduce((acc, curr) => acc + lineAlloc(curr), 0)).toLocaleString()} €</p>
                       </div>
                     </div>
                     <div style={{ width: '100%', fontSize: '0.85rem', color: '#64748b', display: 'flex', justifyContent: 'space-between', marginTop: '0.5rem', borderTop: '1px solid #f1f5f9', paddingTop: '0.5rem' }}>
-                      <span>Fonc: {Math.round(budgetLines.filter(l => l.section === 'F').reduce((acc, curr) => acc + (curr.allocated_amount || 0), 0)).toLocaleString()} €</span>
-                      <span>Inv: {Math.round(budgetLines.filter(l => l.section === 'I').reduce((acc, curr) => acc + (curr.allocated_amount || 0), 0)).toLocaleString()} €</span>
+                      <span>Fonc: {Math.round(budgetLines.filter(l => lineSection(l) === 'F').reduce((acc, curr) => acc + lineAlloc(curr), 0)).toLocaleString()} €</span>
+                      <span>Inv: {Math.round(budgetLines.filter(l => lineSection(l) === 'I').reduce((acc, curr) => acc + lineAlloc(curr), 0)).toLocaleString()} €</span>
                     </div>
                   </div>
                   <div className="dashboard-card secondary" style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: '0.5rem' }}>
@@ -1334,18 +1550,20 @@ const Budget: React.FC = () => {
                 <div className="table-card">
                   <div style={{ padding: '1.25rem', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <h3 style={{ margin: 0, color: 'var(--color-navy)', fontSize: '1.1rem', fontWeight: 700 }}>Évolution Cumulée des Dépenses (par semaine)</h3>
-                    <span style={{ fontSize: '0.8rem', color: '#64748b', fontStyle: 'italic' }}>* Basé sur les dates de commande et le montant TTC</span>
+                    <span style={{ fontSize: '0.8rem', color: '#64748b', fontStyle: 'italic' }}>* Réalisé (trait plein) + projection au 1er nov. (pointillés), sur toute l'année</span>
                   </div>
                   <div style={{ padding: '1.5rem', height: '400px' }}>
                     <ResponsiveContainer width="100%" height="100%">
                       <LineChart data={chartData}>
                         <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                        <XAxis 
-                          dataKey="week" 
-                          axisLine={false} 
-                          tickLine={false} 
+                        <XAxis
+                          dataKey="week"
+                          axisLine={false}
+                          tickLine={false}
                           tick={{ fill: '#64748b', fontSize: 12 }}
                           dy={10}
+                          interval={3}
+                          tickFormatter={(w: string) => (w && w.includes('-W')) ? 'S' + w.split('-W')[1] : w}
                         />
                         <YAxis 
                           axisLine={false} 
@@ -1358,23 +1576,48 @@ const Budget: React.FC = () => {
                           contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
                         />
                         <Legend wrapperStyle={{ paddingTop: '20px' }} />
-                        <Line 
-                          type="monotone" 
-                          dataKey="fonctionnement" 
-                          name="Fonctionnement" 
-                          stroke="#22c55e" 
-                          strokeWidth={3} 
-                          dot={{ r: 4, fill: '#22c55e', strokeWidth: 2, stroke: '#fff' }}
-                          activeDot={{ r: 6 }} 
-                        />
-                        <Line 
-                          type="monotone" 
-                          dataKey="investissement" 
-                          name="Investissement" 
-                          stroke="#3b82f6" 
-                          strokeWidth={3} 
-                          dot={{ r: 4, fill: '#3b82f6', strokeWidth: 2, stroke: '#fff' }}
+                        <ReferenceLine x={weekKeyForNov(currentFiscalYear)} stroke="#94a3b8" strokeDasharray="4 4" label={{ value: '1er nov.', position: 'insideTopRight', fill: '#64748b', fontSize: 11 }} />
+                        <Line
+                          type="monotone"
+                          dataKey="fonctionnement"
+                          name="Fonctionnement"
+                          stroke="#22c55e"
+                          strokeWidth={3}
+                          dot={{ r: 3, fill: '#22c55e', strokeWidth: 2, stroke: '#fff' }}
                           activeDot={{ r: 6 }}
+                          connectNulls={false}
+                        />
+                        <Line
+                          type="monotone"
+                          dataKey="investissement"
+                          name="Investissement"
+                          stroke="#3b82f6"
+                          strokeWidth={3}
+                          dot={{ r: 3, fill: '#3b82f6', strokeWidth: 2, stroke: '#fff' }}
+                          activeDot={{ r: 6 }}
+                          connectNulls={false}
+                        />
+                        <Line
+                          type="monotone"
+                          dataKey="projFonctionnement"
+                          name="Projection Fonc."
+                          stroke="#22c55e"
+                          strokeWidth={2}
+                          strokeDasharray="6 5"
+                          dot={false}
+                          activeDot={{ r: 4 }}
+                          connectNulls
+                        />
+                        <Line
+                          type="monotone"
+                          dataKey="projInvestissement"
+                          name="Projection Inv."
+                          stroke="#3b82f6"
+                          strokeWidth={2}
+                          strokeDasharray="6 5"
+                          dot={false}
+                          activeDot={{ r: 4 }}
+                          connectNulls
                         />
                       </LineChart>
                     </ResponsiveContainer>
@@ -1383,7 +1626,7 @@ const Budget: React.FC = () => {
               </div>
             )}
 
-            {['lines', 'operations'].includes(view) && (
+            {['lines', 'operations', 'engagements'].includes(view) && (
               <div className="orders-container">
                 <div className="toolbar">
                   <div className="toolbar-actions">
@@ -1395,14 +1638,98 @@ const Budget: React.FC = () => {
                     <button className="toolbar-btn" onClick={() => setShowM57(true)}>
                       <BookOpen size={16} /> Plan M57
                     </button>
+                    {view === 'operations' && (
+                      <button
+                        className={`toolbar-btn ${opsRiskFilter ? 'active' : ''}`}
+                        onClick={() => setOpsRiskFilter(!opsRiskFilter)}
+                        style={{ background: opsRiskFilter ? '#f97316' : 'white', color: opsRiskFilter ? 'white' : 'inherit', borderColor: opsRiskFilter ? '#f97316' : 'var(--color-slate-200)' }}
+                        title="Opérations à surveiller : réalisé ≥ 75 % du prévu (orange) ou dépassé (rouge)"
+                      >
+                        <AlertCircle size={16} /> Orange / Rouge
+                      </button>
+                    )}
                     {view === 'lines' && (
-                      <button 
+                      <button
                         className={`toolbar-btn ${showZeroBudget ? 'active' : ''}`}
                         onClick={() => setShowZeroBudget(!showZeroBudget)}
                         style={{ background: showZeroBudget ? 'var(--color-navy)' : 'white', color: showZeroBudget ? 'white' : 'var(--color-slate-700)' }}
                       >
                         <Eye size={16} /> {showZeroBudget ? 'Masquer nuls' : 'Afficher tout'}
                       </button>
+                    )}
+                    {view === 'lines' && isAuthorizedToEdit && (
+                      <>
+                        <input
+                          type="file"
+                          hidden
+                          ref={linesFileInputRef}
+                          accept=".xls,.xlsx"
+                          onChange={handleReimportLines}
+                        />
+                        <button
+                          className="toolbar-btn"
+                          onClick={() => linesFileInputRef.current?.click()}
+                          disabled={isImportingLines}
+                          title="Réimporter le fichier Excel des lignes d'exécution (remplace les lignes existantes)"
+                        >
+                          <Upload size={16} /> {isImportingLines ? 'Import en cours…' : 'Réimporter le fichier Excel'}
+                        </button>
+                      </>
+                    )}
+                    {view === 'engagements' && (
+                      <div className="section-quick-filters" style={{ display: 'flex', gap: '0.5rem' }}>
+                        <button
+                          className={`toolbar-btn ${bcFilter === 'with' ? 'active' : ''}`}
+                          onClick={() => setBcFilter(bcFilter === 'with' ? 'all' : 'with')}
+                          style={{ background: bcFilter === 'with' ? 'var(--color-navy)' : 'white', color: bcFilter === 'with' ? 'white' : 'inherit' }}
+                          title="Engagements rattachés à un bon de commande"
+                        >
+                          Avec BC
+                        </button>
+                        <button
+                          className={`toolbar-btn ${bcFilter === 'without' ? 'active' : ''}`}
+                          onClick={() => setBcFilter(bcFilter === 'without' ? 'all' : 'without')}
+                          style={{ background: bcFilter === 'without' ? '#ef4444' : 'white', color: bcFilter === 'without' ? 'white' : 'inherit' }}
+                          title="Engagements sans bon de commande"
+                        >
+                          Sans BC
+                        </button>
+                        <button
+                          className={`toolbar-btn ${ensFilter ? 'active' : ''}`}
+                          onClick={() => setEnsFilter(!ensFilter)}
+                          style={{ background: ensFilter ? '#b45309' : 'white', color: ensFilter ? 'white' : 'inherit' }}
+                          title="ENS : Engagements Non Soldés des années précédentes (reports / rattachements encore ouverts)"
+                        >
+                          ENS
+                        </button>
+                        <button
+                          className={`toolbar-btn ${telecomFilter ? 'active' : ''}`}
+                          onClick={() => setTelecomFilter(!telecomFilter)}
+                          style={{ background: telecomFilter ? '#7c3aed' : 'white', color: telecomFilter ? 'white' : 'inherit' }}
+                          title="Engagements télécom (article par nature 6262)"
+                        >
+                          Télécom
+                        </button>
+                      </div>
+                    )}
+                    {view === 'engagements' && isAuthorizedToEdit && (
+                      <>
+                        <input
+                          type="file"
+                          hidden
+                          ref={engagementsFileInputRef}
+                          accept=".xls,.xlsx"
+                          onChange={handleReimportEngagements}
+                        />
+                        <button
+                          className="toolbar-btn"
+                          onClick={() => engagementsFileInputRef.current?.click()}
+                          disabled={isImportingEngagements}
+                          title="Réimporter le fichier Excel des engagements (remplace les engagements existants)"
+                        >
+                          <Upload size={16} /> {isImportingEngagements ? 'Import en cours…' : 'Réimporter le fichier Excel'}
+                        </button>
+                      </>
                     )}
                   </div>
                     {view === 'operations' && (
@@ -1461,7 +1788,7 @@ const Budget: React.FC = () => {
                         className="search-input"
                       />
                     </div>
-                    {['orders', 'operations', 'lines'].includes(view) && (
+                    {['orders', 'operations', 'lines', 'engagements'].includes(view) && (
                       <div className="section-quick-filters" style={{ display: 'flex', gap: '0.5rem' }}>
                         <button 
                           className={`toolbar-btn ${sectionFilter === 'F' ? 'active' : ''}`}
@@ -1504,19 +1831,168 @@ const Budget: React.FC = () => {
                   </div>
                 </div>
 
+                {view === 'lines' && (() => {
+                  const fmt = (n: number) => n.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 });
+                  const card: React.CSSProperties = {
+                    flex: '1 1 0', minWidth: '170px', background: 'white', border: '1px solid var(--color-slate-200)',
+                    borderRadius: '12px', padding: '0.85rem 1.1rem', display: 'flex', flexDirection: 'column', gap: '0.25rem'
+                  };
+                  const label: React.CSSProperties = { fontSize: '0.72rem', fontWeight: 600, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.03em' };
+                  const value: React.CSSProperties = { fontSize: '1.25rem', fontWeight: 700, color: 'var(--color-navy)' };
+                  return (
+                    <div style={{ display: 'flex', gap: '1rem', marginBottom: '1rem', flexWrap: 'wrap' }}>
+                      <div style={card}>
+                        <span style={label}>Budget voté total</span>
+                        <span style={value}>{fmt(linesTotals.total)}</span>
+                      </div>
+                      <div style={card}>
+                        <span style={label}>Fonctionnement</span>
+                        <span style={{ ...value, color: 'var(--color-green-500)' }}>{fmt(linesTotals.f)}</span>
+                      </div>
+                      <div style={card}>
+                        <span style={label}>Investissement</span>
+                        <span style={{ ...value, color: 'var(--color-blue-500)' }}>{fmt(linesTotals.i)}</span>
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {view === 'engagements' && (() => {
+                  const k = engagements.reduce((acc, e) => {
+                    const ttc = parseFloat(e['Montant engagé'] || 0) || 0;
+                    const reste = parseFloat(e['Reste engagé'] || 0) || 0;
+                    const type = e['Type mvt'];
+                    if (e.has_bc) { acc.withBcCount++; acc.withBcAmount += ttc; }
+                    else { acc.withoutBcCount++; acc.withoutBcAmount += ttc; }
+                    if (type === 'Report') { acc.reportCount++; acc.reportAmount += ttc; }
+                    else if (type === 'Rattachement') { acc.rattachCount++; acc.rattachAmount += ttc; }
+                    const etat = e['État'];
+                    if (etat === 'Soldé') { acc.soldeCount++; acc.soldeAmount += ttc; }
+                    else if (etat === 'Entier') { acc.entierCount++; acc.entierAmount += ttc; }
+                    else if (etat === 'Partiellement soldé') { acc.partielCount++; acc.partielAmount += ttc; }
+                    if (e.is_ens) { acc.ensCount++; acc.ensAmount += reste; }
+                    acc.total += ttc;
+                    return acc;
+                  }, { withBcCount: 0, withBcAmount: 0, withoutBcCount: 0, withoutBcAmount: 0, reportCount: 0, reportAmount: 0, rattachCount: 0, rattachAmount: 0, soldeCount: 0, soldeAmount: 0, entierCount: 0, entierAmount: 0, partielCount: 0, partielAmount: 0, ensCount: 0, ensAmount: 0, total: 0 });
+                  const fmt = (n: number) => n.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 });
+                  const card: React.CSSProperties = {
+                    flex: '1 1 0', minWidth: '170px', background: 'white', border: '1px solid var(--color-slate-200)',
+                    borderRadius: '12px', padding: '0.85rem 1.1rem', display: 'flex', flexDirection: 'column', gap: '0.25rem'
+                  };
+                  const label: React.CSSProperties = { fontSize: '0.72rem', fontWeight: 600, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.03em' };
+                  const value: React.CSSProperties = { fontSize: '1.25rem', fontWeight: 700, color: 'var(--color-navy)' };
+                  const sub: React.CSSProperties = { fontSize: '0.72rem', color: '#94a3b8' };
+                  const noFilter = bcFilter === 'all' && !ensFilter && etatFilter === 'all' && typeFilter === 'all' && !telecomFilter && sectionFilter === 'all';
+                  const clickable = (active: boolean, color: string): React.CSSProperties => ({
+                    ...card, cursor: 'pointer',
+                    borderColor: active ? color : 'var(--color-slate-200)',
+                    boxShadow: active ? `0 0 0 1px ${color}` : undefined
+                  });
+                  return (
+                    <div style={{ display: 'flex', gap: '1rem', marginBottom: '1rem', flexWrap: 'wrap' }}>
+                      <div
+                        style={clickable(noFilter, 'var(--color-navy)')}
+                        onClick={resetEngagementFilters}
+                        title="Réinitialiser les filtres et afficher tous les engagements"
+                      >
+                        <span style={label}>Total engagé</span>
+                        <span style={value}>{fmt(k.total)}</span>
+                        <span style={sub}>{engagements.length} engagements{noFilter ? ' · tous' : ''}</span>
+                      </div>
+                      <div
+                        style={clickable(bcFilter === 'with', 'var(--color-navy)')}
+                        onClick={() => setBcFilter(bcFilter === 'with' ? 'all' : 'with')}
+                        title="Filtrer les engagements liés à un bon de commande"
+                      >
+                        <span style={label}>Avec bon de commande</span>
+                        <span style={{ ...value, color: 'var(--color-navy)' }}>{fmt(k.withBcAmount)}</span>
+                        <span style={sub}>{k.withBcCount} engagements{bcFilter === 'with' ? ' · filtré' : ''}</span>
+                      </div>
+                      <div
+                        style={clickable(bcFilter === 'without', '#ef4444')}
+                        onClick={() => setBcFilter(bcFilter === 'without' ? 'all' : 'without')}
+                        title="Filtrer les engagements sans bon de commande"
+                      >
+                        <span style={label}>Sans bon de commande</span>
+                        <span style={{ ...value, color: '#ef4444' }}>{fmt(k.withoutBcAmount)}</span>
+                        <span style={sub}>{k.withoutBcCount} engagements{bcFilter === 'without' ? ' · filtré' : ''}</span>
+                      </div>
+                      <div
+                        style={clickable(typeFilter === 'reports', 'var(--color-blue-500)')}
+                        onClick={() => setTypeFilter(typeFilter === 'reports' ? 'all' : 'reports')}
+                        title="Filtrer les reports et rattachements (années précédentes)"
+                      >
+                        <span style={label}>Reports / Rattachements</span>
+                        <span style={{ ...value, color: 'var(--color-blue-500)' }}>{fmt(k.reportAmount + k.rattachAmount)}</span>
+                        <span style={sub}>{k.reportCount} reports (I) · {k.rattachCount} rattach. (F){typeFilter === 'reports' ? ' · filtré' : ''}</span>
+                      </div>
+                      {([
+                        { key: 'Soldé', lbl: 'Soldés', color: '#15803d', count: k.soldeCount, amount: k.soldeAmount },
+                        { key: 'Entier', lbl: 'Entiers', color: '#1d4ed8', count: k.entierCount, amount: k.entierAmount },
+                        { key: 'Partiellement soldé', lbl: 'Part. soldés', color: '#b45309', count: k.partielCount, amount: k.partielAmount }
+                      ] as const).map(s => {
+                        const active = etatFilter === s.key;
+                        return (
+                          <div
+                            key={s.key}
+                            style={{ ...card, cursor: 'pointer', borderColor: active ? s.color : 'var(--color-slate-200)', boxShadow: active ? `0 0 0 1px ${s.color}` : undefined }}
+                            onClick={() => setEtatFilter(active ? 'all' : s.key)}
+                            title={`Filtrer les engagements ${s.lbl.toLowerCase()}`}
+                          >
+                            <span style={label}>{s.lbl}</span>
+                            <span style={{ ...value, color: s.color }}>{fmt(s.amount)}</span>
+                            <span style={sub}>{s.count} engagements{active ? ' · filtré' : ''}</span>
+                          </div>
+                        );
+                      })}
+                      <div
+                        style={{ ...card, cursor: 'pointer', borderColor: ensFilter ? '#b45309' : 'var(--color-slate-200)', boxShadow: ensFilter ? '0 0 0 1px #b45309' : undefined }}
+                        onClick={() => setEnsFilter(!ensFilter)}
+                        title="ENS : Engagements Non Soldés des années précédentes (reste à solder)"
+                      >
+                        <span style={label}>ENS (années préc.)</span>
+                        <span style={{ ...value, color: '#b45309' }}>{fmt(k.ensAmount)}</span>
+                        <span style={sub}>{k.ensCount} engagements{ensFilter ? ' · filtré' : ''}</span>
+                      </div>
+                    </div>
+                  );
+                })()}
+
                 {view === 'operations' && (() => {
-                  const kpi = operations.reduce((acc, op) => {
+                  // Les KPI reflètent les opérations actuellement filtrées (section, service, nature, recherche).
+                  const byService: Record<string, { planned: number; used: number; usedF: number; usedI: number; plannedF: number; plannedI: number }> = {};
+                  const kpi = (filteredData as any[]).reduce((acc, op) => {
                     const section = getSectionFromM57(op['C. Nature']);
                     const planned = parseFloat(op['Montant prévu'] || op['montant_prevu'] || 0) || 0;
                     const used = parseFloat(op['used_amount'] || op['Montant utilisé'] || 0) || 0;
+                    const done = (op['Terminé'] || '').toString().toUpperCase() === 'OUI';
                     acc.planned += planned;
                     acc.used += used;
                     if (section === 'F') { acc.usedF += used; acc.plannedF += planned; }
                     else if (section === 'I') { acc.usedI += used; acc.plannedI += planned; }
+                    // Reste à consommer : uniquement pour les opérations non terminées.
+                    if (!done) {
+                      const reste = planned - used;
+                      acc.reste += reste;
+                      if (section === 'F') acc.resteF += reste;
+                      else if (section === 'I') acc.resteI += reste;
+                    }
+                    const svc = (op['Service'] || op['Service Complément'] || '').toString().trim() || 'Non renseigné';
+                    if (!byService[svc]) byService[svc] = { planned: 0, used: 0, usedF: 0, usedI: 0, plannedF: 0, plannedI: 0 };
+                    byService[svc].planned += planned;
+                    byService[svc].used += used;
+                    if (section === 'F') { byService[svc].usedF += used; byService[svc].plannedF += planned; }
+                    else if (section === 'I') { byService[svc].usedI += used; byService[svc].plannedI += planned; }
                     return acc;
-                  }, { planned: 0, used: 0, usedF: 0, usedI: 0, plannedF: 0, plannedI: 0 });
+                  }, { planned: 0, used: 0, usedF: 0, usedI: 0, plannedF: 0, plannedI: 0, reste: 0, resteF: 0, resteI: 0 });
                   const pct = kpi.planned > 0 ? (kpi.used / kpi.planned) * 100 : 0;
                   const fmt = (n: number) => n.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 });
+                  const services = Object.entries(byService).sort((a, b) => b[1].planned - a[1].planned);
+                  const servicesF = services.filter(([, v]) => v.usedF > 0).sort((a, b) => b[1].usedF - a[1].usedF);
+                  const servicesI = services.filter(([, v]) => v.usedI > 0).sort((a, b) => b[1].usedI - a[1].usedI);
+                  const svcList: React.CSSProperties = { display: 'flex', flexDirection: 'column', gap: '2px', marginTop: '6px', paddingTop: '6px', borderTop: '1px solid #f1f5f9', maxHeight: '96px', overflowY: 'auto' };
+                  const svcRow: React.CSSProperties = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', fontSize: '0.72rem' };
+                  const svcName: React.CSSProperties = { color: '#64748b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '120px' };
                   const card: React.CSSProperties = {
                     flex: '1 1 0', minWidth: '160px', background: 'white', border: '1px solid var(--color-slate-200)',
                     borderRadius: '12px', padding: '0.85rem 1.1rem', display: 'flex', flexDirection: 'column', gap: '0.25rem'
@@ -1527,18 +2003,49 @@ const Budget: React.FC = () => {
                     <div style={{ display: 'flex', gap: '1rem', marginBottom: '1rem', flexWrap: 'wrap' }}>
                       <div style={card}>
                         <span style={label}>Réalisé Fonctionnement</span>
-                        <span style={{ ...value, color: 'var(--color-green-500)' }}>{fmt(kpi.usedF)}</span>
-                        <span style={{ fontSize: '0.72rem', color: '#94a3b8' }}>Prévu : {fmt(kpi.plannedF)}</span>
+                        <span style={value}><span style={{ color: 'var(--color-green-500)' }}>{fmt(kpi.usedF)}</span><span style={{ color: '#94a3b8', fontWeight: 500 }}> / {fmt(kpi.plannedF)}</span></span>
+                        {servicesF.length > 0 && (
+                          <div style={svcList}>
+                            {servicesF.map(([svc, v]) => (
+                              <div key={svc} style={svcRow} title={`Réalisé F ${fmt(v.usedF)} / Prévu F ${fmt(v.plannedF)}`}>
+                                <span style={svcName}>{svc}</span>
+                                <span style={{ whiteSpace: 'nowrap' }}><span style={{ fontWeight: 600, color: 'var(--color-green-500)' }}>{fmt(v.usedF)}</span><span style={{ color: '#94a3b8' }}> / {fmt(v.plannedF)}</span></span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
                       </div>
                       <div style={card}>
                         <span style={label}>Réalisé Investissement</span>
-                        <span style={{ ...value, color: 'var(--color-blue-500)' }}>{fmt(kpi.usedI)}</span>
-                        <span style={{ fontSize: '0.72rem', color: '#94a3b8' }}>Prévu : {fmt(kpi.plannedI)}</span>
+                        <span style={value}><span style={{ color: 'var(--color-blue-500)' }}>{fmt(kpi.usedI)}</span><span style={{ color: '#94a3b8', fontWeight: 500 }}> / {fmt(kpi.plannedI)}</span></span>
+                        {servicesI.length > 0 && (
+                          <div style={svcList}>
+                            {servicesI.map(([svc, v]) => (
+                              <div key={svc} style={svcRow} title={`Réalisé I ${fmt(v.usedI)} / Prévu I ${fmt(v.plannedI)}`}>
+                                <span style={svcName}>{svc}</span>
+                                <span style={{ whiteSpace: 'nowrap' }}><span style={{ fontWeight: 600, color: 'var(--color-blue-500)' }}>{fmt(v.usedI)}</span><span style={{ color: '#94a3b8' }}> / {fmt(v.plannedI)}</span></span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
                       </div>
-                      <div style={card}>
+                      <div style={{ ...card, flex: '1.6 1 240px' }}>
                         <span style={label}>Montant total prévu</span>
                         <span style={value}>{fmt(kpi.planned)}</span>
                         <span style={{ fontSize: '0.72rem', color: '#94a3b8' }}>F {fmt(kpi.plannedF)} · I {fmt(kpi.plannedI)}</span>
+                        {services.length > 0 && (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', marginTop: '6px', paddingTop: '6px', borderTop: '1px solid #f1f5f9', maxHeight: '96px', overflowY: 'auto' }}>
+                            {services.map(([svc, v]) => {
+                              const ratio = v.planned > 0 ? (v.used / v.planned) * 100 : 0;
+                              return (
+                                <div key={svc} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', fontSize: '0.72rem' }} title={`Réalisé ${fmt(v.used)} / Prévu ${fmt(v.planned)} (${Math.round(ratio)}%)`}>
+                                  <span style={{ color: '#64748b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '120px' }}>{svc}</span>
+                                  <span style={{ fontWeight: 600, color: 'var(--color-navy)', whiteSpace: 'nowrap' }}>{fmt(v.planned)}</span>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
                       </div>
                       <div style={card}>
                         <span style={label}>Réalisation globale</span>
@@ -1547,27 +2054,36 @@ const Budget: React.FC = () => {
                           <div className="progress-bar" style={{ width: `${Math.min(pct, 100)}%`, backgroundColor: pct > 100 ? '#ef4444' : 'var(--color-green-500)' }} />
                         </div>
                       </div>
+                      <div style={card}>
+                        <span style={label}>Reste (op. en cours)</span>
+                        <span style={{ ...value, color: kpi.reste < 0 ? '#ef4444' : 'var(--color-navy)' }}>{fmt(kpi.reste)}</span>
+                        <span style={{ fontSize: '0.72rem', color: '#94a3b8' }}>F {fmt(kpi.resteF)} · I {fmt(kpi.resteI)}</span>
+                      </div>
                     </div>
                   );
                 })()}
 
-                {view === 'operations' && opsChartData.length > 0 && (
+                {view === 'operations' && opsChartData.some((d: any) => d.total != null) && (
                   <div className="table-card" style={{ marginBottom: '1rem' }}>
                     <div style={{ padding: '1.25rem', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                       <h3 style={{ margin: 0, color: 'var(--color-navy)', fontSize: '1.1rem', fontWeight: 700 }}>Évolution cumulée des commandes affectées aux opérations</h3>
-                      <span style={{ fontSize: '0.8rem', color: '#64748b', fontStyle: 'italic' }}>* S'adapte aux filtres (section, service, nature, recherche)</span>
+                      <span style={{ fontSize: '0.8rem', color: '#64748b', fontStyle: 'italic' }}>* Réalisé + projection au 1er nov. vs montant prévu F/I (repères horizontaux) — effet ciseau · s'adapte aux filtres</span>
                     </div>
                     <div style={{ padding: '1.5rem', height: '340px' }}>
                       <ResponsiveContainer width="100%" height="100%">
                         <LineChart data={opsChartData}>
                           <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                          <XAxis dataKey="week" axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 12 }} dy={10} />
-                          <YAxis axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 12 }} tickFormatter={(val) => `${(val / 1000).toFixed(0)}k€`} />
+                          <XAxis dataKey="week" axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 12 }} dy={10} interval={3} tickFormatter={(w: string) => (w && w.includes('-W')) ? 'S' + w.split('-W')[1] : w} />
+                          <YAxis axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 12 }} domain={[0, (dataMax: number) => Math.max(dataMax, opsPlanned.f, opsPlanned.i) * 1.05]} tickFormatter={(val) => `${(val / 1000).toFixed(0)}k€`} />
                           <Tooltip formatter={(value: any) => [new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR' }).format(value), '']} contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }} />
                           <Legend wrapperStyle={{ paddingTop: '20px' }} />
-                          <Line type="monotone" dataKey="total" name="Total" stroke="#0f172a" strokeWidth={3} dot={false} activeDot={{ r: 6 }} />
-                          <Line type="monotone" dataKey="fonctionnement" name="Fonctionnement" stroke="#22c55e" strokeWidth={2} dot={false} activeDot={{ r: 5 }} />
-                          <Line type="monotone" dataKey="investissement" name="Investissement" stroke="#3b82f6" strokeWidth={2} dot={false} activeDot={{ r: 5 }} />
+                          <ReferenceLine x={weekKeyForNov(currentFiscalYear)} stroke="#94a3b8" strokeDasharray="4 4" label={{ value: '1er nov.', position: 'insideTopRight', fill: '#64748b', fontSize: 11 }} />
+                          {opsPlanned.f > 0 && <ReferenceLine y={opsPlanned.f} stroke="#22c55e" strokeDasharray="8 4" strokeWidth={1.5} label={{ value: 'Prévu F', position: 'insideTopLeft', fill: '#16a34a', fontSize: 11 }} />}
+                          {opsPlanned.i > 0 && <ReferenceLine y={opsPlanned.i} stroke="#3b82f6" strokeDasharray="8 4" strokeWidth={1.5} label={{ value: 'Prévu I', position: 'insideBottomLeft', fill: '#2563eb', fontSize: 11 }} />}
+                          <Line type="monotone" dataKey="fonctionnement" name="Réalisé F" stroke="#22c55e" strokeWidth={2.5} dot={false} activeDot={{ r: 5 }} connectNulls={false} />
+                          <Line type="monotone" dataKey="investissement" name="Réalisé I" stroke="#3b82f6" strokeWidth={2.5} dot={false} activeDot={{ r: 5 }} connectNulls={false} />
+                          <Line type="monotone" dataKey="projFonctionnement" name="Projection F" stroke="#22c55e" strokeWidth={2} strokeDasharray="6 5" dot={false} activeDot={{ r: 4 }} connectNulls />
+                          <Line type="monotone" dataKey="projInvestissement" name="Projection I" stroke="#3b82f6" strokeWidth={2} strokeDasharray="6 5" dot={false} activeDot={{ r: 4 }} connectNulls />
                         </LineChart>
                       </ResponsiveContainer>
                     </div>
@@ -1803,6 +2319,29 @@ const Budget: React.FC = () => {
                                           </div>
                                         </div>
                                       );
+                                    } else if (col === 'État') {
+                                      const val = row[col];
+                                      const map: Record<string, { bg: string; fg: string }> = {
+                                        'Soldé': { bg: '#dcfce7', fg: '#15803d' },
+                                        'Entier': { bg: '#dbeafe', fg: '#1d4ed8' },
+                                        'Partiellement soldé': { bg: '#fef3c7', fg: '#b45309' }
+                                      };
+                                      const c = map[val] || { bg: '#f1f5f9', fg: '#64748b' };
+                                      content = (
+                                        <span style={{ display: 'inline-block', padding: '2px 8px', borderRadius: '9999px', fontSize: '0.72rem', fontWeight: 600, background: c.bg, color: c.fg, whiteSpace: 'nowrap' }}>
+                                          {val}{row.is_ens ? ' · ENS' : ''}
+                                        </span>
+                                      );
+                                    } else if (col === 'Bon de commande' && view === 'engagements') {
+                                      content = row.has_bc ? (
+                                        <span title={`Commande ${row['Bon de commande']}`} style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '2px 8px', borderRadius: '9999px', fontSize: '0.72rem', fontWeight: 600, background: '#dcfce7', color: '#15803d', whiteSpace: 'nowrap' }}>
+                                          <CheckCircle size={12} /> {row['Bon de commande']}
+                                        </span>
+                                      ) : (
+                                        <span title="Engagement non rattaché à un bon de commande" style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '2px 8px', borderRadius: '9999px', fontSize: '0.72rem', fontWeight: 600, background: '#fee2e2', color: '#b91c1c', whiteSpace: 'nowrap' }}>
+                                          <X size={12} /> Non lié
+                                        </span>
+                                      );
                                     } else if (col === 'status' || col === 'Etat' || col === 'termine' || col === 'Terminé') {
                                       const val = row[col];
                                       const isDone = val === 'Payée' || val === 'OUI' || val === 1;
@@ -1815,6 +2354,7 @@ const Budget: React.FC = () => {
                                       col === 'Mt. engagé' || col === 'Mt. facturé' ||
                                       col === 'Mt. pré-mandaté' || col === 'Mt. mandaté' ||
                                       col === 'Mt. payé' || col === 'Montant prévu' ||
+                                      col === 'Reste engagé' || col === 'Réalisé' || col === 'Montant engagé' ||
                                       col.toUpperCase().includes('MONTANT') || col.toUpperCase().includes('TOTAL')
                                     ) {
                                       const val = view === 'orders' ? (row[col] || row._total_ht) : row[col];
@@ -1840,8 +2380,8 @@ const Budget: React.FC = () => {
                                       content = (
                                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                                           {isExpandable && view === 'lines' && (
-                                            <span style={{ fontSize: '12px', color: '#64748b' }}>
-                                              {isExpanded ? 'â–¼' : 'â–¶'} ({linesCount})
+                                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '2px', fontSize: '12px', color: '#64748b' }}>
+                                              {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />} ({linesCount})
                                             </span>
                                           )}
                                           <span style={{ maxWidth: '450px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
@@ -1857,8 +2397,8 @@ const Budget: React.FC = () => {
                                         content = (
                                           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                                             {isExpandable && (
-                                              <span style={{ fontSize: '12px', color: '#64748b' }}>
-                                                {isExpanded ? 'â–¼' : 'â–¶'} {linesCount > 1 ? `(${linesCount} lignes)` : ''}
+                                              <span style={{ display: 'inline-flex', alignItems: 'center', gap: '2px', fontSize: '12px', color: '#64748b' }}>
+                                                {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />} {linesCount > 1 ? `(${linesCount} lignes)` : ''}
                                               </span>
                                             )}
                                             <span style={{ maxWidth: '450px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={firstLineDesc || row.description}>
@@ -2112,7 +2652,30 @@ const Budget: React.FC = () => {
                                             {opsChild.rows.map((cr: any, ci: number) => (
                                               <tr key={ci} style={{ borderBottom: '1px dashed #e2e8f0' }}>
                                                 {(opsCmdVisibleCols.length > 0 ? opsCmdVisibleCols : opsChild.columns.map((c: any) => c.name)).map((cn: string) => (
-                                                  <td key={cn} style={{ padding: '4px' }}>{cr[cn]}</td>
+                                                  <td key={cn} style={{ padding: '4px' }}>
+                                                    {cn === 'Logiciel' ? (
+                                                      cr._app_id ? (
+                                                        <span
+                                                          title="Modifier le logiciel associé"
+                                                          style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '11px', color: '#059669', fontWeight: 600, cursor: isAuthorizedToEdit ? 'pointer' : 'default', borderBottom: isAuthorizedToEdit ? '1px dashed #059669' : 'none' }}
+                                                          onClick={() => isAuthorizedToEdit && setAppModal({ opId: row.id, orderNum: cr._num, currentAppId: cr._app_id, currentAppLabel: cr._app_label })}
+                                                        >
+                                                          {cr.Logiciel}
+                                                        </span>
+                                                      ) : isAuthorizedToEdit ? (
+                                                        <button
+                                                          title="Associer à un logiciel métier"
+                                                          className="icon-btn"
+                                                          style={{ display: 'inline-flex', alignItems: 'center', gap: '3px', fontSize: '11px', padding: '2px 6px', color: 'var(--color-navy)', border: '1px dashed #cbd5e1', borderRadius: '6px' }}
+                                                          onClick={() => setAppModal({ opId: row.id, orderNum: cr._num, currentAppId: null, currentAppLabel: '' })}
+                                                        >
+                                                          <Plus size={11} /> Logiciel
+                                                        </button>
+                                                      ) : (
+                                                        <span style={{ color: '#cbd5e1' }}>—</span>
+                                                      )
+                                                    ) : cr[cn]}
+                                                  </td>
                                                 ))}
                                               </tr>
                                             ))}
@@ -2341,6 +2904,58 @@ const Budget: React.FC = () => {
             </div>
           );
         })()}
+        {appModal && (
+          <div className="modal-backdrop" onClick={() => { setAppModal(null); setAppSearch(''); }}>
+            <div className="modal-window" onClick={e => e.stopPropagation()} style={{ maxWidth: '460px' }}>
+              <div className="modal-header">
+                <h2 className="modal-title">Associer à un logiciel métier</h2>
+                <button className="icon-btn" onClick={() => { setAppModal(null); setAppSearch(''); }}><X size={20} /></button>
+              </div>
+              <div className="modal-body">
+                <p style={{ fontSize: '0.85rem', color: '#64748b', marginTop: 0 }}>
+                  Commande {appModal.orderNum}
+                  {appModal.currentAppId ? <span style={{ marginLeft: '8px' }}>(logiciel actuel : {appModal.currentAppLabel || appModal.currentAppId})</span> : null}
+                </p>
+                <div className="search-input-wrapper" style={{ marginBottom: '0.75rem' }}>
+                  <Search size={16} className="search-icon" />
+                  <input
+                    type="text"
+                    placeholder="Rechercher un logiciel..."
+                    value={appSearch}
+                    onChange={(e) => setAppSearch(e.target.value)}
+                    className="search-input"
+                    style={{ width: '100%' }}
+                    autoFocus
+                  />
+                </div>
+                <div style={{ maxHeight: '45vh', overflowY: 'auto', border: '1px solid #e2e8f0', borderRadius: '8px' }}>
+                  {appModal.currentAppId && (
+                    <div
+                      style={{ padding: '8px 12px', cursor: 'pointer', borderBottom: '1px solid #f1f5f9' }}
+                      onClick={() => assignAppToOrder(appModal.opId, appModal.orderNum, null)}
+                    >
+                      <strong style={{ color: '#ef4444' }}>Dissocier</strong> — Aucun logiciel
+                    </div>
+                  )}
+                  {apps
+                    .filter((a: any) => (a.name || '').toLowerCase().includes(appSearch.toLowerCase()))
+                    .map((a: any) => (
+                      <div
+                        key={a.id}
+                        style={{ padding: '8px 12px', cursor: 'pointer', borderBottom: '1px solid #f1f5f9', background: a.id === appModal.currentAppId ? '#ecfdf5' : 'transparent' }}
+                        onClick={() => assignAppToOrder(appModal.opId, appModal.orderNum, a.id)}
+                      >
+                        {a.name}
+                      </div>
+                    ))}
+                  {apps.filter((a: any) => (a.name || '').toLowerCase().includes(appSearch.toLowerCase())).length === 0 && (
+                    <div style={{ padding: '12px', color: '#94a3b8', fontSize: '0.85rem' }}>Aucun logiciel trouvé.</div>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
         {showM57 && (
           <div className="modal-backdrop" onClick={() => setShowM57(false)}>
             <div className="modal-window" onClick={e => e.stopPropagation()}>

@@ -43,6 +43,7 @@ router.delete('/operations/:id', authenticateAdminOrFinances, financeController.
 // Invoices & Lines
 router.get('/invoices', authenticateJWT, financeController.getInvoices);
 router.get('/lines', authenticateJWT, financeController.getLines);
+router.get('/engagements', authenticateJWT, financeController.getEngagements);
 
 // Orders
 router.get('/orders', authenticateJWT, financeController.getOrders);
@@ -54,6 +55,7 @@ router.post('/orders/:id/assign-app', authenticateJWT, financeController.assignA
 // Imports & Scanning
 router.post('/scan-exercice', authenticateAdminOrFinances, upload.single('file'), financeController.scanExercice);
 router.post('/import-lines', authenticateAdminOrFinances, upload.single('file'), financeController.importLines);
+router.post('/import-engagements', authenticateAdminOrFinances, upload.single('file'), financeController.importEngagements);
 router.post('/import-invoices', authenticateAdminOrFinances, upload.single('file'), financeController.importInvoices);
 router.post('/import-orders', authenticateAdminOrFinances, upload.single('file'), financeController.importOrders);
 

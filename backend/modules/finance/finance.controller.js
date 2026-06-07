@@ -19,6 +19,71 @@ function parseNum(val) {
     return isNaN(num) ? 0 : num;
 }
 
+// --- Lignes d'exécution budgétaires (oracle.budget_lines) ---
+// Colonnes telles qu'exportées depuis SEDIT (« Liste des lignes d'exécution »).
+const BUDGET_LINE_TEXT_COLS = [
+    'Code', 'Libellé', 'Masque', 'Sens', 'Section', 'Article par nature',
+    'Chapitre par nature', 'Référence Fonctionnelle', "Opération d'équipement",
+    'Service Gestionnaire', 'EQUIPEMENT', 'TVA', 'JE'
+];
+const BUDGET_LINE_NUM_COLS = [
+    'Budget voté', 'Disponible', 'Mt. prévision', 'Mt. pré-engagé', 'Mt. engagé',
+    'Mt. facturé', 'Mt. pré-mandaté', 'Mt. mandaté', 'Mt. payé'
+];
+
+async function ensureBudgetLinesTable(client) {
+    const cols = [
+        '"id" SERIAL PRIMARY KEY',
+        ...BUDGET_LINE_TEXT_COLS.map(c => `"${c}" TEXT`),
+        ...BUDGET_LINE_NUM_COLS.map(c => `"${c}" NUMERIC`),
+        '"imported_at" TIMESTAMPTZ DEFAULT now()'
+    ].join(', ');
+    const runner = client || pool;
+    await runner.query('CREATE SCHEMA IF NOT EXISTS oracle');
+    await runner.query(`CREATE TABLE IF NOT EXISTS oracle.budget_lines (${cols})`);
+}
+
+// --- Engagements budgétaires (oracle.budget_engagements) ---
+// Colonnes telles qu'exportées depuis SEDIT (« Liste des engagements »).
+const ENGAGEMENT_NUM_COLS = [
+    'Reste engagé', 'Montant initial', 'Montant HT', 'Montant TVA', 'Montant TTC',
+    'Montant budgétaire', 'Montant service fait', 'Montant rattachement'
+];
+const ENGAGEMENT_TEXT_COLS = [
+    'Organisme', 'Budget', 'Exercice', 'Type', 'Code mouvement', 'Libellé mouvement',
+    'Code tiers', 'Nom tiers', 'Complément tiers', 'Prénom tiers', 'Références bancaires',
+    'N° ligne', 'Libellé', 'Imputation', 'Sens', 'Section', 'Article par nature',
+    'Chapitre par nature', 'Référence Fonctionnelle', "Opération d'équipement",
+    'Service Gestionnaire', 'EQUIPEMENT', 'TVA', 'JE', 'Régime TVA', 'Avancement',
+    'Taux TVA', 'Coefficient de déduction TVA', 'Date service fait', 'Immobilisation',
+    'Facture', 'Facture tiers', 'Commande', 'Marché', 'Tranche',
+    "Code nomenclature d'achat", "Libellé nomenclature d'achat", 'Mvt. provisionnel/Anticipé',
+    'type Prov/Ant', 'Mandat', 'Bordereau', 'Date mandat', 'Type mandat',
+    'Mandat rattachement', 'Exercice de rattachement', 'Contrepassation'
+];
+
+async function ensureEngagementsTable(client) {
+    const cols = [
+        '"id" SERIAL PRIMARY KEY',
+        ...ENGAGEMENT_TEXT_COLS.map(c => `"${c}" TEXT`),
+        ...ENGAGEMENT_NUM_COLS.map(c => `"${c}" NUMERIC`),
+        '"imported_at" TIMESTAMPTZ DEFAULT now()'
+    ].join(', ');
+    const runner = client || pool;
+    await runner.query('CREATE SCHEMA IF NOT EXISTS oracle');
+    await runner.query(`CREATE TABLE IF NOT EXISTS oracle.budget_engagements (${cols})`);
+}
+
+// Déduit le type d'engagement à partir du libellé mouvement / code mouvement.
+// Reports (investissement) et rattachements (fonctionnement) sont les engagements
+// repris de l'exercice précédent (codes 24D…, 25D…).
+function deriveEngagementType(row) {
+    const lib = (row['Libellé mouvement'] || row['Libellé'] || '').toString().toUpperCase();
+    if (lib.includes('REPORT')) return 'Report';
+    if (lib.includes('RATTACH')) return 'Rattachement';
+    return 'Engagement';
+}
+
 // Calcule le montant consommé (TTC des commandes liées) par opération.
 // Source unique de vérité, utilisée à la fois pour l'affichage dynamique
 // (getOperations) et pour la persistance (recalculateAllOperations).
@@ -156,9 +221,12 @@ module.exports = {
                        c."SERVICEFI_LIBELLE" AS service,
                        c."section" AS section,
                        c."COMMANDE_MONTANT_HT" AS montant_ht,
-                       c."COMMANDE_MONTANT_TTC" AS montant_ttc
+                       c."COMMANDE_MONTANT_TTC" AS montant_ttc,
+                       l.app_id AS app_id,
+                       a.name AS app_label
                 FROM oracle.oracle_links l
                 JOIN oracle.commandes_with_section c ON TRIM(c."COMMANDE_COMMANDE") = l.target_id
+                LEFT JOIN magapp.apps a ON a.id = l.app_id
                 WHERE l.target_table = 'orders' AND l.operation_id = $1
                 ORDER BY c."COMMANDE_CMD_DATECOMMANDE" DESC NULLS LAST`, [id]);
 
@@ -175,7 +243,7 @@ module.exports = {
             };
             const fmtSection = (s) => s === 'Fonctionnement' ? 'F' : s === 'Investissement' ? 'I' : (s || '');
 
-            const columns = ['N° Commande', 'Libellé', 'Date', 'Service', 'Section', 'Montant HT', 'Montant TTC'].map(name => ({ name }));
+            const columns = ['N° Commande', 'Libellé', 'Date', 'Service', 'Section', 'Montant HT', 'Montant TTC', 'Logiciel'].map(name => ({ name }));
             const rows = result.rows.map(r => ({
                 'N° Commande': String(r.num || '').trim(),
                 'Libellé': r.libelle || '',
@@ -184,6 +252,11 @@ module.exports = {
                 'Section': fmtSection(r.section),
                 'Montant HT': fmtEur(r.montant_ht),
                 'Montant TTC': fmtEur(r.montant_ttc),
+                'Logiciel': r.app_label || '',
+                // Champs techniques (non affichés comme colonnes) pour l'association logiciel.
+                _num: String(r.num || '').trim(),
+                _app_id: r.app_id || null,
+                _app_label: r.app_label || '',
             }));
             res.json({ columns, rows });
         } catch (error) {
@@ -277,19 +350,27 @@ module.exports = {
 
             if (rows.length === 0) return res.json({ message: '0 lignes importées' });
 
+            const allCols = [...BUDGET_LINE_TEXT_COLS, ...BUDGET_LINE_NUM_COLS];
+            const quotedKeys = allCols.map(c => `"${c}"`).join(',');
+            const placeholders = allCols.map((_, i) => `$${i + 1}`).join(',');
+
             let imported = 0;
             const client = await pool.connect();
             try {
+                await ensureBudgetLinesTable(client);
                 await client.query('BEGIN');
+                // Réimport = remplacement complet du référentiel des lignes d'exécution.
+                await client.query('TRUNCATE oracle.budget_lines RESTART IDENTITY');
                 for (const row of rows) {
-                    const code = row['Code'] || row.code || row['Numéro de compte'] || '';
+                    const code = (row['Code'] || row.code || row['Numéro de compte'] || '').toString().trim();
                     if (!code) continue;
 
-                    const keys = Object.keys(row).filter(k => row[k] !== undefined && row[k] !== null);
-                    const values = keys.map(k => row[k]);
-                    const placeholders = keys.map((_, i) => `$${i + 1}`).join(',');
-                    const quotedKeys = keys.map(k => `"${k}"`).join(',');
-                    await client.query(`INSERT INTO oracle.budget_lines (${quotedKeys}) VALUES (${placeholders}) ON CONFLICT DO NOTHING`, values);
+                    const values = allCols.map(col => {
+                        if (BUDGET_LINE_NUM_COLS.includes(col)) return parseNum(row[col]);
+                        const v = row[col];
+                        return v === undefined || v === null ? null : String(v).trim();
+                    });
+                    await client.query(`INSERT INTO oracle.budget_lines (${quotedKeys}) VALUES (${placeholders})`, values);
                     imported++;
                 }
                 await client.query('COMMIT');
@@ -299,7 +380,7 @@ module.exports = {
             } finally {
                 client.release();
             }
-            res.json({ message: `${imported} lignes importées ou mises à jour.` });
+            res.json({ message: `${imported} lignes d'exécution importées.` });
         } catch (error) {
             console.error('[Finance] Import Lines error:', error);
             res.status(500).json({ message: 'Erreur import lines', error: error.message });
@@ -453,13 +534,155 @@ module.exports = {
     },
 
     getLines: async (req, res) => {
-        const { fiscalYear, budgetScope } = req.query;
         try {
-            // For now, return empty array as budget_lines sync is not yet implemented
-            // TODO: Implement budget lines sync from Oracle
-            res.json([]);
+            await ensureBudgetLinesTable();
+            // NB : pas encore de distinction crédits 2026 / reports 2025 dans l'export,
+            // on renvoie donc l'ensemble des lignes quel que soit l'exercice demandé.
+            const allCols = [...BUDGET_LINE_TEXT_COLS, ...BUDGET_LINE_NUM_COLS];
+            const select = allCols.map(c => `"${c}"`).join(', ');
+            const result = await pool.query(
+                `SELECT ${select} FROM oracle.budget_lines ORDER BY "Chapitre par nature", "Code"`
+            );
+            const cleaned = result.rows.map(row => {
+                const out = {};
+                for (const c of BUDGET_LINE_TEXT_COLS) out[c] = (row[c] || '').toString().trim();
+                for (const c of BUDGET_LINE_NUM_COLS) out[c] = parseNum(row[c]);
+                return out;
+            });
+            res.json(cleaned);
         } catch (error) {
+            console.error('[Finance] getLines error:', error);
             res.status(500).json({ message: 'Erreur lecture lignes', error: error.message });
+        }
+    },
+
+    importEngagements: async (req, res) => {
+        if (!req.file) return res.status(400).send('No file uploaded.');
+        try {
+            const workbook = xlsx.readFile(req.file.path);
+            const sheetName = workbook.SheetNames[0];
+            const rows = xlsx.utils.sheet_to_json(workbook.Sheets[sheetName]);
+
+            if (rows.length === 0) return res.json({ message: '0 engagement importé' });
+
+            const allCols = [...ENGAGEMENT_TEXT_COLS, ...ENGAGEMENT_NUM_COLS];
+            const quotedKeys = allCols.map(c => `"${c}"`).join(',');
+            const placeholders = allCols.map((_, i) => `$${i + 1}`).join(',');
+
+            let imported = 0;
+            const client = await pool.connect();
+            try {
+                await ensureEngagementsTable(client);
+                await client.query('BEGIN');
+                // Réimport = remplacement complet des engagements de l'exercice.
+                await client.query('TRUNCATE oracle.budget_engagements RESTART IDENTITY');
+                for (const row of rows) {
+                    const code = (row['Code mouvement'] || '').toString().trim();
+                    if (!code) continue;
+
+                    const values = allCols.map(col => {
+                        if (ENGAGEMENT_NUM_COLS.includes(col)) return parseNum(row[col]);
+                        const v = row[col];
+                        return v === undefined || v === null ? null : String(v).trim();
+                    });
+                    await client.query(`INSERT INTO oracle.budget_engagements (${quotedKeys}) VALUES (${placeholders})`, values);
+                    imported++;
+                }
+                await client.query('COMMIT');
+            } catch (e) {
+                await client.query('ROLLBACK');
+                throw e;
+            } finally {
+                client.release();
+            }
+            res.json({ message: `${imported} engagements importés.` });
+        } catch (error) {
+            console.error('[Finance] Import Engagements error:', error);
+            res.status(500).json({ message: 'Erreur import engagements', error: error.message });
+        } finally {
+            if (req.file) fs.unlinkSync(req.file.path);
+        }
+    },
+
+    getEngagements: async (req, res) => {
+        try {
+            await ensureEngagementsTable();
+            const allCols = [...ENGAGEMENT_TEXT_COLS, ...ENGAGEMENT_NUM_COLS];
+            const select = allCols.map(c => `"${c}"`).join(', ');
+            const result = await pool.query(
+                `SELECT ${select} FROM oracle.budget_engagements ORDER BY "Code mouvement"`
+            );
+
+            // Un engagement (Code mouvement) est éclaté en plusieurs lignes : par code
+            // fonction, et par avancement. Les lignes E1 portent le solde restant engagé,
+            // les lignes TR sont les mouvements (réalisé). On agrège donc par engagement :
+            //   - Montant engagé (total)  = Σ "Montant TTC" de toutes les lignes
+            //   - Reste engagé (solde)    = Σ "Reste engagé" (≈ Σ TTC des lignes E1)
+            //   - Réalisé (consommé)      = Montant engagé − Reste engagé (≈ Σ TTC des lignes TR)
+            const groups = {};
+            for (const row of result.rows) {
+                const code = (row['Code mouvement'] || '').toString().trim();
+                if (!code) continue;
+                let g = groups[code];
+                if (!g) {
+                    g = groups[code] = {
+                        code, montant: 0, solde: 0,
+                        section: '', tiers: '', libelle: '', imputation: '', chapitre: '', exercice: '',
+                        commande: '', fonctions: new Set(), natures: new Set()
+                    };
+                }
+                g.montant += parseNum(row['Montant TTC']);
+                g.solde += parseNum(row['Reste engagé']);
+                const fonc = (row['Référence Fonctionnelle'] || '').toString().trim(); if (fonc) g.fonctions.add(fonc);
+                const nat = (row['Article par nature'] || '').toString().trim(); if (nat) g.natures.add(nat);
+                if (!g.commande) { const c = (row['Commande'] || '').toString().trim(); if (c) g.commande = c; }
+                if (!g.section) g.section = (row['Section'] || '').toString().trim();
+                if (!g.tiers) g.tiers = (row['Nom tiers'] || '').toString().trim();
+                if (!g.libelle) g.libelle = (row['Libellé mouvement'] || row['Libellé'] || '').toString().trim();
+                if (!g.imputation) g.imputation = (row['Imputation'] || '').toString().trim();
+                if (!g.chapitre) g.chapitre = (row['Chapitre par nature'] || '').toString().trim();
+                if (!g.exercice) g.exercice = (row['Exercice'] || '').toString().trim();
+            }
+
+            const round2 = (n) => Math.round(n * 100) / 100;
+            const cleaned = Object.values(groups).map(g => {
+                const montant = round2(g.montant);
+                const solde = round2(g.solde);
+                const realise = round2(montant - solde);
+                const type = deriveEngagementType({ 'Libellé mouvement': g.libelle });
+                const natures = [...g.natures];
+
+                let etat;
+                if (Math.abs(solde) < 0.01) etat = 'Soldé';
+                else if (montant > 0 && Math.abs(solde - montant) < 0.01) etat = 'Entier';
+                else etat = 'Partiellement soldé';
+
+                return {
+                    'Code mouvement': g.code,
+                    'Type mvt': type,
+                    'État': etat,
+                    'Libellé': g.libelle,
+                    'Nom tiers': g.tiers,
+                    'Section': g.section,
+                    'Imputation': g.imputation,
+                    'Article par nature': natures.join(', '),
+                    'Chapitre par nature': g.chapitre,
+                    'Référence Fonctionnelle': [...g.fonctions].join(', '),
+                    'Montant engagé': montant,
+                    'Réalisé': realise,
+                    'Reste engagé': solde,
+                    'Bon de commande': g.commande,
+                    'Exercice': g.exercice,
+                    has_bc: g.commande !== '',
+                    is_ens: (type === 'Report' || type === 'Rattachement') && solde > 0.01,
+                    is_telecom: natures.includes('6262')
+                };
+            }).sort((a, b) => a['Code mouvement'].localeCompare(b['Code mouvement']));
+
+            res.json(cleaned);
+        } catch (error) {
+            console.error('[Finance] getEngagements error:', error);
+            res.status(500).json({ message: 'Erreur lecture engagements', error: error.message });
         }
     },
 
