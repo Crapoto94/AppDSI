@@ -1,7 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const pdf = require('pdf-parse');
-const { getSqlite, pgDb } = require('../../shared/database');
+const { pgDb, pool } = require('../../shared/database');
 const storage = require('../../shared/storage');
 
 const MODULE = 'telecom';
@@ -10,8 +10,7 @@ module.exports = {
     // --- Operators ---
     getOperators: async (req, res) => {
         try {
-            const db = getSqlite();
-            const operators = await db.all('SELECT * FROM telecom_operators ORDER BY name');
+            const operators = await pgDb.all('SELECT * FROM hub_telecom.operators ORDER BY name');
             res.json(operators);
         } catch (error) {
             res.status(500).json({ message: 'Error fetching operators', error: error.message });
@@ -21,8 +20,7 @@ module.exports = {
     createOperator: async (req, res) => {
         const { name, logo_url } = req.body;
         try {
-            const db = getSqlite();
-            const result = await db.run('INSERT INTO telecom_operators (name, logo_url) VALUES (?, ?)', [name, logo_url]);
+            const result = await pgDb.run('INSERT INTO hub_telecom.operators (name, logo_url) VALUES (?, ?)', [name, logo_url]);
             res.json({ id: result.lastID, message: 'Opérateur créé' });
         } catch (error) {
             res.status(500).json({ message: 'Error creating operator', error: error.message });
@@ -32,8 +30,7 @@ module.exports = {
     updateOperator: async (req, res) => {
         const { name, logo_url } = req.body;
         try {
-            const db = getSqlite();
-            await db.run('UPDATE telecom_operators SET name = ?, logo_url = ? WHERE id = ?', [name, logo_url, req.params.id]);
+            await pgDb.run('UPDATE hub_telecom.operators SET name = ?, logo_url = ? WHERE id = ?', [name, logo_url, req.params.id]);
             res.json({ message: 'Opérateur mis à jour' });
         } catch (error) {
             res.status(500).json({ message: 'Error updating operator', error: error.message });
@@ -42,8 +39,7 @@ module.exports = {
 
     deleteOperator: async (req, res) => {
         try {
-            const db = getSqlite();
-            await db.run('DELETE FROM telecom_operators WHERE id = ?', [req.params.id]);
+            await pgDb.run('DELETE FROM hub_telecom.operators WHERE id = ?', [req.params.id]);
             res.json({ message: 'Opérateur supprimé' });
         } catch (error) {
             res.status(500).json({ message: 'Error deleting operator', error: error.message });
@@ -53,14 +49,13 @@ module.exports = {
     // --- Billing Accounts ---
     getBillingAccounts: async (req, res) => {
         try {
-            const db = getSqlite();
             const { operator_id } = req.query;
             let query = `
                 SELECT a.*, o.name as operator_name,
-                       (SELECT COUNT(*) FROM telecom_invoices WHERE billing_account_id = a.id) as invoice_count,
-                       (SELECT COALESCE(SUM(amount_ttc), 0) FROM telecom_invoices WHERE billing_account_id = a.id) as total_invoiced
-                FROM telecom_billing_accounts a
-                JOIN telecom_operators o ON a.operator_id = o.id
+                       (SELECT COUNT(*) FROM hub_telecom.invoices WHERE billing_account_id = a.id) as invoice_count,
+                       (SELECT COALESCE(SUM(amount_ttc), 0) FROM hub_telecom.invoices WHERE billing_account_id = a.id) as total_invoiced
+                FROM hub_telecom.billing_accounts a
+                JOIN hub_telecom.operators o ON a.operator_id = o.id
             `;
             let params = [];
 
@@ -71,7 +66,7 @@ module.exports = {
 
             query += " ORDER BY o.name, a.account_number";
 
-            const accounts = await db.all(query, params);
+            const accounts = await pgDb.all(query, params);
             res.json(accounts);
         } catch (error) {
             res.status(500).json({ message: 'Error fetching accounts', error: error.message });
@@ -80,13 +75,12 @@ module.exports = {
 
     getOperatorAccounts: async (req, res) => {
         try {
-            const db = getSqlite();
-            const accounts = await db.all(`
+            const accounts = await pgDb.all(`
                 SELECT a.*, o.name as operator_name,
-                       (SELECT COUNT(*) FROM telecom_invoices WHERE billing_account_id = a.id) as invoice_count,
-                       (SELECT COALESCE(SUM(amount_ttc), 0) FROM telecom_invoices WHERE billing_account_id = a.id) as total_invoiced
-                FROM telecom_billing_accounts a
-                JOIN telecom_operators o ON a.operator_id = o.id
+                       (SELECT COUNT(*) FROM hub_telecom.invoices WHERE billing_account_id = a.id) as invoice_count,
+                       (SELECT COALESCE(SUM(amount_ttc), 0) FROM hub_telecom.invoices WHERE billing_account_id = a.id) as total_invoiced
+                FROM hub_telecom.billing_accounts a
+                JOIN hub_telecom.operators o ON a.operator_id = o.id
                 WHERE a.operator_id = ?
                 ORDER BY a.account_number
             `, [req.params.operatorId]);
@@ -102,10 +96,9 @@ module.exports = {
             customer_number, market_number, function_code, commitment_number
         } = req.body;
         try {
-            const db = getSqlite();
-            const result = await db.run(`
-                INSERT INTO telecom_billing_accounts 
-                (operator_id, account_number, type, designation, customer_number, market_number, function_code, commitment_number) 
+            const result = await pgDb.run(`
+                INSERT INTO hub_telecom.billing_accounts
+                (operator_id, account_number, type, designation, customer_number, market_number, function_code, commitment_number)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             `, [operator_id, account_number, type, designation, customer_number, market_number, function_code, commitment_number]);
             res.json({ id: result.lastID, message: 'Compte créé' });
@@ -120,11 +113,10 @@ module.exports = {
             customer_number, market_number, function_code, commitment_number
         } = req.body;
         try {
-            const db = getSqlite();
-            await db.run(`
-                UPDATE telecom_billing_accounts 
-                SET operator_id = ?, account_number = ?, type = ?, designation = ?, 
-                    customer_number = ?, market_number = ?, function_code = ?, commitment_number = ? 
+            await pgDb.run(`
+                UPDATE hub_telecom.billing_accounts
+                SET operator_id = ?, account_number = ?, type = ?, designation = ?,
+                    customer_number = ?, market_number = ?, function_code = ?, commitment_number = ?
                 WHERE id = ?
             `, [operator_id, account_number, type, designation, customer_number, market_number, function_code, commitment_number, req.params.id]);
             res.json({ message: 'Compte mis à jour' });
@@ -135,8 +127,7 @@ module.exports = {
 
     deleteBillingAccount: async (req, res) => {
         try {
-            const db = getSqlite();
-            await db.run('DELETE FROM telecom_billing_accounts WHERE id = ?', [req.params.id]);
+            await pgDb.run('DELETE FROM hub_telecom.billing_accounts WHERE id = ?', [req.params.id]);
             res.json({ message: 'Compte supprimé' });
         } catch (error) {
             res.status(500).json({ message: 'Error deleting account', error: error.message });
@@ -144,72 +135,76 @@ module.exports = {
     },
 
     // --- Commitments ---
-    getCommitments: async (req, res) => {
+    // Engagements télécom récupérés dynamiquement depuis les engagements budgétaires
+    // (oracle.budget_engagements) : on ne garde que les engagements ayant au moins une
+    // ligne de nature 6262 (télécom). Pas d'import à ce niveau.
+    getTelecomEngagements: async (req, res) => {
         try {
-            const db = getSqlite();
-            const commitments = await db.all(`
-                SELECT c.*, o.name as operator_name, a.account_number
-                FROM telecom_commitments c
-                JOIN telecom_operators o ON c.operator_id = o.id
-                LEFT JOIN telecom_billing_accounts a ON c.billing_account_id = a.id
-                ORDER BY c.commitment_number
+            const r = await pool.query(`
+                SELECT "Code mouvement" AS code, "Montant TTC" AS ttc, "Reste engagé" AS reste,
+                       "Article par nature" AS nat, "Libellé mouvement" AS lib, "Libellé" AS lib2,
+                       "Nom tiers" AS tiers, "Exercice" AS ex, "Section" AS sec
+                FROM oracle.budget_engagements
+                WHERE "Code mouvement" IN (
+                    SELECT "Code mouvement" FROM oracle.budget_engagements WHERE TRIM("Article par nature") = '6262'
+                )
             `);
-            res.json(commitments);
-        } catch (error) {
-            res.status(500).json({ message: 'Error fetching commitments', error: error.message });
-        }
-    },
 
-    createCommitment: async (req, res) => {
-        const { commitment_number, label, amount, year, operator_name, function_code } = req.body;
-        try {
-            const db = getSqlite();
-            const result = await db.run(`
-                INSERT INTO telecom_commitments 
-                (commitment_number, label, amount, year, operator_name, function_code) 
-                VALUES (?, ?, ?, ?, ?, ?)
-            `, [commitment_number, label, amount, year, operator_name, function_code]);
-            res.json({ id: result.lastID, message: 'Engagement créé' });
-        } catch (error) {
-            res.status(500).json({ message: 'Error creating commitment', error: error.message });
-        }
-    },
+            const num = (v) => {
+                if (v === null || v === undefined || v === '') return 0;
+                const n = parseFloat(String(v).trim().replace(',', '.').replace(/[^\d.\-]/g, ''));
+                return isNaN(n) ? 0 : n;
+            };
+            const round2 = (n) => Math.round(n * 100) / 100;
 
-    updateCommitment: async (req, res) => {
-        const { commitment_number, label, amount, year, operator_name, function_code } = req.body;
-        try {
-            const db = getSqlite();
-            await db.run(`
-                UPDATE telecom_commitments 
-                SET commitment_number = ?, label = ?, amount = ?, year = ?, operator_name = ?, function_code = ? 
-                WHERE id = ?
-            `, [commitment_number, label, amount, year, operator_name, function_code, req.params.id]);
-            res.json({ message: 'Engagement mis à jour' });
-        } catch (error) {
-            res.status(500).json({ message: 'Error updating commitment', error: error.message });
-        }
-    },
+            const groups = {};
+            for (const row of r.rows) {
+                const code = (row.code || '').toString().trim();
+                if (!code) continue;
+                let g = groups[code];
+                if (!g) g = groups[code] = { code, montant: 0, solde: 0, label: '', tiers: '', year: '', section: '' };
+                g.montant += num(row.ttc);
+                g.solde += num(row.reste);
+                if (!g.label) g.label = (row.lib || row.lib2 || '').toString().trim();
+                if (!g.tiers) g.tiers = (row.tiers || '').toString().trim();
+                if (!g.year) g.year = (row.ex || '').toString().trim();
+                if (!g.section) g.section = (row.sec || '').toString().trim();
+            }
 
-    deleteCommitment: async (req, res) => {
-        try {
-            const db = getSqlite();
-            await db.run('DELETE FROM telecom_commitments WHERE id = ?', [req.params.id]);
-            res.json({ message: 'Engagement supprimé' });
+            const list = Object.values(groups).map(g => {
+                const engaged = round2(g.montant);
+                const remaining = round2(g.solde);
+                const invoiced = round2(engaged - remaining); // réalisé / consommé
+                return {
+                    commitment_number: g.code,
+                    label: g.label,
+                    operator_name: g.tiers,
+                    year: g.year,
+                    section: g.section,
+                    amount: engaged,
+                    engaged_amount: engaged,
+                    remaining_amount: remaining,
+                    invoiced_amount: invoiced
+                };
+            }).sort((a, b) => a.commitment_number.localeCompare(b.commitment_number));
+
+            res.json(list);
         } catch (error) {
-            res.status(500).json({ message: 'Error deleting commitment', error: error.message });
+            console.error('[Telecom] getTelecomEngagements error:', error);
+            res.status(500).json({ message: 'Erreur lecture engagements télécom', error: error.message });
         }
     },
 
     // --- Invoices ---
     getInvoices: async (req, res) => {
         try {
-            const db = getSqlite();
-            const invoices = await db.all(`
+            const invoices = await pgDb.all(`
                 SELECT i.*, o.name as operator_name, a.account_number,
-                (SELECT "Etat" FROM invoices WHERE LOWER(TRIM("N° Facture fournisseur")) = LOWER(TRIM(i.invoice_number)) LIMIT 1) as general_status
-                FROM telecom_invoices i
-                JOIN telecom_operators o ON i.operator_id = o.id
-                LEFT JOIN telecom_billing_accounts a ON i.billing_account_id = a.id
+                (SELECT f."FACETAT_LIBELLE" FROM oracle.gf_oracle_facture f
+                   WHERE LOWER(TRIM(f."FACTURE_REFERENCE")) = LOWER(TRIM(i.invoice_number)) LIMIT 1) as general_status
+                FROM hub_telecom.invoices i
+                JOIN hub_telecom.operators o ON i.operator_id = o.id
+                LEFT JOIN hub_telecom.billing_accounts a ON i.billing_account_id = a.id
                 ORDER BY i.invoice_date DESC
             `);
             res.json(invoices);
@@ -222,7 +217,6 @@ module.exports = {
         if (!req.file) return res.status(400).json({ message: 'No file uploaded' });
 
         try {
-            const db = getSqlite();
             const dataBuffer = fs.readFileSync(req.file.path);
             const pdfData = await pdf(dataBuffer);
             const content = pdfData.text;
@@ -273,7 +267,7 @@ module.exports = {
             }
 
             const { overwrite } = req.body;
-            const existingInvoice = await db.get('SELECT id, file_path FROM telecom_invoices WHERE invoice_number = ?', [invoice_number]);
+            const existingInvoice = await pgDb.get('SELECT id, file_path FROM hub_telecom.invoices WHERE invoice_number = ?', [invoice_number]);
 
             if (existingInvoice && overwrite !== 'true') {
                 return res.status(409).json({
@@ -285,7 +279,7 @@ module.exports = {
             let operator_id = null;
             let billing_account_id = null;
 
-            const allAccounts = await db.all('SELECT id, operator_id, account_number FROM telecom_billing_accounts');
+            const allAccounts = await pgDb.all('SELECT id, operator_id, account_number FROM hub_telecom.billing_accounts');
 
             // 1. Essayer le numéro de compte extrait explicitement
             if (account_number) {
@@ -309,7 +303,7 @@ module.exports = {
 
             // 3. Si toujours pas de compte, essayer de matcher au moins l'opérateur par son nom
             if (!operator_id) {
-                const operators = await db.all('SELECT id, name FROM telecom_operators');
+                const operators = await pgDb.all('SELECT id, name FROM hub_telecom.operators');
                 for (const op of operators) {
                     if (content.toUpperCase().includes(op.name.toUpperCase())) {
                         operator_id = op.id;
@@ -333,13 +327,13 @@ module.exports = {
                         if (fs.existsSync(oldPath)) fs.unlinkSync(oldPath);
                     }
                 }
-                await db.run(
-                    'UPDATE telecom_invoices SET operator_id = ?, billing_account_id = ?, amount_ttc = ?, invoice_date = ?, file_path = ?, uploaded_at = CURRENT_TIMESTAMP WHERE id = ?',
+                await pgDb.run(
+                    'UPDATE hub_telecom.invoices SET operator_id = ?, billing_account_id = ?, amount_ttc = ?, invoice_date = ?, file_path = ?, uploaded_at = CURRENT_TIMESTAMP WHERE id = ?',
                     [operator_id, billing_account_id, amount_ttc, invoice_date, saved.dbPath, existingInvoice.id]
                 );
             } else {
-                const result = await db.run(
-                    'INSERT INTO telecom_invoices (invoice_number, operator_id, billing_account_id, amount_ttc, invoice_date, file_path) VALUES (?, ?, ?, ?, ?, ?)',
+                const result = await pgDb.run(
+                    'INSERT INTO hub_telecom.invoices (invoice_number, operator_id, billing_account_id, amount_ttc, invoice_date, file_path) VALUES (?, ?, ?, ?, ?, ?)',
                     [invoice_number, operator_id, billing_account_id, amount_ttc, invoice_date, saved.dbPath]
                 );
                 finalId = result.lastID;
@@ -385,9 +379,8 @@ module.exports = {
             invoice_number = invoice_number.slice(0, -1);
         }
         try {
-            const db = getSqlite();
-            await db.run(
-                'UPDATE telecom_invoices SET invoice_number = ?, operator_id = ?, billing_account_id = ?, amount_ttc = ?, invoice_date = ? WHERE id = ?',
+            await pgDb.run(
+                'UPDATE hub_telecom.invoices SET invoice_number = ?, operator_id = ?, billing_account_id = ?, amount_ttc = ?, invoice_date = ? WHERE id = ?',
                 [invoice_number, operator_id, billing_account_id, amount_ttc, invoice_date, req.params.id]
             );
             res.json({ message: 'Facture mise à jour avec succès' });
@@ -398,8 +391,7 @@ module.exports = {
 
     deleteInvoice: async (req, res) => {
         try {
-            const db = getSqlite();
-            const inv = await db.get('SELECT file_path FROM telecom_invoices WHERE id = ?', [req.params.id]);
+            const inv = await pgDb.get('SELECT file_path FROM hub_telecom.invoices WHERE id = ?', [req.params.id]);
             if (inv && inv.file_path) {
                 if (storage.isStoragePath(inv.file_path)) {
                     await storage.deleteFile(inv.file_path);
@@ -408,7 +400,7 @@ module.exports = {
                     if (fs.existsSync(fullPath)) fs.unlinkSync(fullPath);
                 }
             }
-            await db.run('DELETE FROM telecom_invoices WHERE id = ?', [req.params.id]);
+            await pgDb.run('DELETE FROM hub_telecom.invoices WHERE id = ?', [req.params.id]);
             res.json({ message: 'Facture supprimée' });
         } catch (error) {
             res.status(500).json({ message: 'Error deleting invoice', error: error.message });

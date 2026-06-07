@@ -126,7 +126,8 @@ const TelecomManagement: React.FC = () => {
         setAllTiers(data.tiers || []);
       }
 
-      const commRes = await fetch('/api/telecom/commitments', { headers: { 'Authorization': `Bearer ${token}` } });
+      // Engagements télécom récupérés depuis le budget (nature 6262), pas d'import.
+      const commRes = await fetch('/api/telecom/engagements', { headers: { 'Authorization': `Bearer ${token}` } });
       if (commRes.ok) setCommitments(await commRes.json());
 
       const invRes = await fetch('/api/telecom/invoices', { headers: { 'Authorization': `Bearer ${token}` } });
@@ -226,31 +227,6 @@ const TelecomManagement: React.FC = () => {
   const startEditAccount = (acc: BillingAccount) => {
     setEditingAccount(acc);
     setShowAddAccount(acc.operator_id);
-  };
-
-  const handleImportCommitments = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    const formData = new FormData();
-    formData.append('file', file);
-
-    try {
-      const res = await fetch('/api/telecom/import-commitments', {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${token}` },
-        body: formData
-      });
-      if (res.ok) {
-        const data = await res.json();
-        alert(data.message);
-        fetchData();
-      } else {
-        alert("Erreur lors de l'import");
-      }
-    } catch (e) {
-      alert("Erreur de connexion");
-    }
   };
 
   const handleUploadInvoice = async (e: React.ChangeEvent<HTMLInputElement> | null, overwrite = false, existingFile?: File) => {
@@ -737,19 +713,8 @@ const TelecomManagement: React.FC = () => {
         {activeTab === 'lines' && (
           <div className="tab-content">
             <div className="section-header">
-              <h2>Référentiel des engagements Télécom</h2>
-              <div className="action-group">
-                <input 
-                  type="file" 
-                  id="import-commitments" 
-                  style={{ display: 'none' }} 
-                  accept=".xlsx,.xls"
-                  onChange={handleImportCommitments}
-                />
-                <button className="import-btn" onClick={() => document.getElementById('import-commitments')?.click()}>
-                  <Upload size={18} /> Importer les engagements
-                </button>
-              </div>
+              <h2>Engagements Télécom (nature 6262)</h2>
+              <span style={{ fontSize: '0.85rem', color: '#64748b' }}>Issus du suivi budgétaire — montant engagé et reste actualisés automatiquement</span>
             </div>
 
             <div className="commitments-table-wrapper admin-card">
@@ -761,27 +726,38 @@ const TelecomManagement: React.FC = () => {
                     <th>Libellé</th>
                     <th>Opérateur</th>
                     <th>Montant Engagé</th>
+                    <th>Reste Engagé</th>
                     <th>Montant Facturé</th>
                     <th>Solde</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {commitments.map(c => (
+                  {commitments.map(c => {
+                    const engaged = c.engaged_amount ?? c.amount ?? 0;
+                    const remaining = c.remaining_amount;
+                    const dynamic = c.engaged_amount != null;
+                    return (
                     <tr key={c.id}>
                       <td className="year-cell">{c.year}</td>
                       <td className="num-cell">{c.commitment_number}</td>
                       <td>{c.label}</td>
                       <td>{c.operator_name}</td>
-                      <td className="amount-cell">{(c.amount || 0).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}</td>
-                      <td className="amount-cell" style={{ color: '#64748b' }}>{(c.invoiced_amount || 0).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}</td>
-                      <td className="amount-cell" style={{ color: ((c.amount || 0) - (c.invoiced_amount || 0)) < 0 ? '#ef4444' : '#059669', fontWeight: 700 }}>
-                        {((c.amount || 0) - (c.invoiced_amount || 0)).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}
+                      <td className="amount-cell" title={dynamic ? 'Montant récupéré dynamiquement depuis les engagements budgétaires' : 'Montant importé (engagement budgétaire non trouvé)'}>
+                        {(engaged || 0).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}
+                        {!dynamic && <span style={{ color: '#f59e0b', marginLeft: 4 }} title="Engagement budgétaire non trouvé">*</span>}
                       </td>
-                      
+                      <td className="amount-cell" style={{ color: remaining == null ? '#cbd5e1' : (remaining > 0 ? '#2563eb' : '#059669'), fontWeight: 600 }}>
+                        {remaining == null ? '—' : remaining.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}
+                      </td>
+                      <td className="amount-cell" style={{ color: '#64748b' }}>{(c.invoiced_amount || 0).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}</td>
+                      <td className="amount-cell" style={{ color: ((engaged || 0) - (c.invoiced_amount || 0)) < 0 ? '#ef4444' : '#059669', fontWeight: 700 }}>
+                        {((engaged || 0) - (c.invoiced_amount || 0)).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}
+                      </td>
                     </tr>
-                  ))}
+                    );
+                  })}
                   {commitments.length === 0 && (
-                    <tr><td colSpan={8} style={{ textAlign: 'center', padding: '40px', color: '#64748b' }}>Aucun engagement importé</td></tr>
+                    <tr><td colSpan={8} style={{ textAlign: 'center', padding: '40px', color: '#64748b' }}>Aucun engagement télécom (nature 6262) dans le suivi budgétaire</td></tr>
                   )}
                 </tbody>
               </table>

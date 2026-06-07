@@ -9,10 +9,12 @@
  * Multiplateforme : node-cron n'a aucune dépendance OS (Windows dev / Linux prod).
  */
 const cron = require('node-cron');
+const { getSqlite } = require('../../shared/database');
 const controller = require('./backup.controller');
 
-let task = null;       // tâche cron courante (ou null)
+let task = null;        // tâche cron de sauvegarde (ou null)
 let currentExpr = null;
+let watchdogTask = null; // tâche cron de surveillance (alerte si retard)
 
 /**
  * Construit l'expression cron à partir de la config.
@@ -64,14 +66,38 @@ function reschedule(cfg) {
   console.log(`[Backup Scheduler] Programmée : ${cfg.frequency} (cron: ${expr})`);
 }
 
-/** Initialisation au démarrage du serveur : lit la config et programme. */
-async function init() {
+/**
+ * Surveillance quotidienne : alerte par e-mail si aucune sauvegarde réussie
+ * depuis trop longtemps. Toujours active (indépendante de la fréquence choisie).
+ */
+function startWatchdog() {
+  if (watchdogTask) return;
+  // tous les jours à 09:00
+  watchdogTask = cron.schedule('0 9 * * *', () => {
+    controller.checkBackupHealth().catch((e) => {
+      console.error('[Backup Watchdog] Échec vérification :', e.message);
+    });
+  });
+  console.log('[Backup Scheduler] Surveillance activée (alerte si retard, 09:00).');
+}
+
+/**
+ * Initialisation au démarrage du serveur : lit la config et programme.
+ * Retry si SQLite n'est pas encore prêt (la config y est stockée), pour rester
+ * robuste quel que soit l'ordre d'initialisation (conteneur Docker).
+ */
+async function init(attempt = 0) {
+  if (!getSqlite() && attempt < 10) {
+    setTimeout(() => init(attempt + 1).catch(() => {}), 3000);
+    return;
+  }
   try {
     const cfg = await controller.getAutoConfig();
     reschedule(cfg);
+    startWatchdog();
   } catch (e) {
     console.error('[Backup Scheduler] Erreur init :', e.message);
   }
 }
 
-module.exports = { init, reschedule, stop, cronExpr, get currentExpr() { return currentExpr; } };
+module.exports = { init, reschedule, stop, cronExpr, startWatchdog, get currentExpr() { return currentExpr; } };

@@ -4985,6 +4985,44 @@ async function setupPgDb() {
       `);
     } catch (e) { console.error('[PG DB] hub.encadrants:', e.message); }
 
+    // ─── hub_telecom : opérateurs, comptes de facturation et factures télécom ────
+    try {
+      await client.query(`CREATE SCHEMA IF NOT EXISTS hub_telecom`);
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS hub_telecom.operators (
+          id        SERIAL PRIMARY KEY,
+          tier_id   INTEGER UNIQUE,
+          name      TEXT,
+          logo_url  TEXT
+        )
+      `);
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS hub_telecom.billing_accounts (
+          id                SERIAL PRIMARY KEY,
+          operator_id       INTEGER REFERENCES hub_telecom.operators(id) ON DELETE CASCADE,
+          account_number    TEXT,
+          type              TEXT,
+          designation       TEXT,
+          customer_number   TEXT,
+          market_number     TEXT,
+          function_code     TEXT,
+          commitment_number TEXT
+        )
+      `);
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS hub_telecom.invoices (
+          id                 SERIAL PRIMARY KEY,
+          invoice_number     TEXT,
+          operator_id        INTEGER REFERENCES hub_telecom.operators(id),
+          billing_account_id INTEGER REFERENCES hub_telecom.billing_accounts(id),
+          amount_ttc         NUMERIC,
+          invoice_date       DATE,
+          file_path          TEXT,
+          uploaded_at        TIMESTAMPTZ DEFAULT NOW()
+        )
+      `);
+    } catch (e) { console.error('[PG DB] hub_telecom:', e.message); }
+
     console.log('[PG DB] Schema and tables initialized successfully');
   } catch (error) {
     console.error('[PG DB] Initialization error:', error.message);

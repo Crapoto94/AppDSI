@@ -3135,6 +3135,17 @@ setupDb().then(async database => {
         console.error('[MAIL COLLECTOR] Init error:', e.message);
     }
 
+    // Planificateur de sauvegarde automatique — initialisé ICI (et non au top-level)
+    // car getAutoConfig() lit la config dans SQLite : la base doit être prête,
+    // sinon le cron se programme avec la config par défaut (enabled:false) et ne
+    // tourne jamais après un redémarrage (conteneur Docker).
+    try {
+        await require('./modules/backup/backup.scheduler').init();
+        console.log('[BACKUP SCHEDULER] Initialized');
+    } catch (e) {
+        console.error('[BACKUP SCHEDULER] Init error:', e.message);
+    }
+
     // Migration one-shot des tables documentaires existantes vers hub_docs
     // (idempotente via hub_docs.migration_log)
     try {
@@ -5868,7 +5879,10 @@ app.use('/api/ville', require('./modules/ville/ville.routes'));
 const backupCtrl = require('./modules/backup/backup.controller');
 backupCtrl.setSendMail(sendMail);
 app.use('/api/backup', require('./modules/backup/backup.routes'));
-require('./modules/backup/backup.scheduler').init();
+// NB : le planificateur de sauvegarde auto est initialisé dans le bloc setupDb().then()
+// (après que SQLite soit prêt), pas ici — sinon getAutoConfig() lit null et le cron
+// se programme désactivé, ce qui empêchait la sauvegarde auto de repartir après un
+// redémarrage du conteneur.
 
 // DSI Dashboard module (le contrôleur est déjà requis plus haut pour l'injection mail/cron)
 app.use('/api/dsi-dashboard', require('./modules/dsi-dashboard/dsi-dashboard.routes'));

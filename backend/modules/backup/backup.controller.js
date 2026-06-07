@@ -765,6 +765,8 @@ const DEFAULT_AUTO_CONFIG = {
   retention: 7,          // nombre de sauvegardes à conserver
   recipients: [],        // [{ email, displayName }] destinataires des rapports
   lastRun: null,         // { at, ok, message, file, location }
+  alertAfterDays: 0,     // seuil d'alerte « retard » en jours (0 = auto selon la fréquence)
+  lastAlertAt: null,     // horodatage de la dernière alerte envoyée (anti-spam)
 };
 
 /** Lit la configuration de la sauvegarde automatique (SQLite app_settings). */
@@ -824,6 +826,7 @@ async function saveAutoConfigRoute(req, res) {
       weekday: Math.min(6, Math.max(0, parseInt(b.weekday, 10))) || 0,
       destPath: typeof b.destPath === 'string' ? b.destPath.trim() : cur.destPath,
       retention: Math.min(365, Math.max(1, parseInt(b.retention, 10) || cur.retention || 7)),
+      alertAfterDays: Math.max(0, parseInt(b.alertAfterDays, 10) || 0),
       recipients: Array.isArray(b.recipients)
         ? b.recipients.filter(r => r && r.email).map(r => ({ email: String(r.email), displayName: String(r.displayName || r.email) }))
         : cur.recipients,
@@ -1004,6 +1007,71 @@ async function runAutomaticBackup(trigger = 'auto') {
   }
 }
 
+// ─── Surveillance : alerte si aucune sauvegarde depuis trop longtemps ─────────
+
+/** Seuil d'ancienneté toléré (jours) selon la fréquence, avec marge. */
+function maxAgeDays(cfg) {
+  if (cfg.alertAfterDays && parseInt(cfg.alertAfterDays, 10) > 0) return parseInt(cfg.alertAfterDays, 10);
+  switch (cfg.frequency) {
+    case 'daily':   return 2;
+    case 'monthly': return 32;
+    case 'weekly':
+    default:        return 8;
+  }
+}
+
+/**
+ * Vérifie l'ancienneté de la dernière sauvegarde réussie et envoie une alerte
+ * e-mail aux destinataires si elle dépasse le seuil. Anti-spam : au plus une
+ * alerte par 24 h (mémorisée dans cfg.lastAlertAt).
+ * Appelée quotidiennement par le scheduler.
+ */
+async function checkBackupHealth() {
+  const cfg = await getAutoConfig();
+  if (!cfg.enabled) return { skipped: 'disabled' };
+
+  const last = cfg.lastRun && cfg.lastRun.at ? new Date(cfg.lastRun.at) : null;
+  const lastOk = last && cfg.lastRun.ok;
+  const ageDays = lastOk ? (Date.now() - last.getTime()) / 86400000 : Infinity;
+  const threshold = maxAgeDays(cfg);
+  if (ageDays <= threshold) return { ok: true, ageDays: Math.round(ageDays) };
+
+  // Anti-spam : une alerte / 24 h max
+  const lastAlert = cfg.lastAlertAt ? new Date(cfg.lastAlertAt) : null;
+  if (lastAlert && (Date.now() - lastAlert.getTime()) < 23 * 3600 * 1000) {
+    return { alerted: false, throttled: true };
+  }
+
+  const recips = (cfg.recipients || []).filter(r => r && r.email);
+  if (!recips.length || !sendMailFn) {
+    console.warn('[Backup Watchdog] Aucune sauvegarde récente mais pas de destinataire/sendMail.');
+    return { alerted: false, noRecipients: true };
+  }
+
+  const lastTxt = lastOk ? `${last.toLocaleString('fr-FR')} (il y a ${Math.round(ageDays)} jours)` : 'aucune sauvegarde réussie enregistrée';
+  const subject = `[DSI Hub] ⚠️ Sauvegarde automatique en retard (> ${threshold} j)`;
+  const content = `
+    <h2 style="margin:0 0 8px;color:#dc2626">Alerte sauvegarde automatique</h2>
+    <p>Aucune sauvegarde réussie n'a été détectée dans le délai attendu.</p>
+    <table cellpadding="6" style="border-collapse:collapse;border:1px solid #e2e8f0">
+      <tr><td><strong>Dernière sauvegarde OK</strong></td><td>${lastTxt}</td></tr>
+      <tr><td><strong>Fréquence configurée</strong></td><td>${cfg.frequency}</td></tr>
+      <tr><td><strong>Seuil d'alerte</strong></td><td>${threshold} jours</td></tr>
+    </table>
+    <p style="margin-top:12px;color:#475569">Vérifiez le planificateur, l'espace de stockage et la destination des sauvegardes.
+    Vous pouvez lancer une sauvegarde immédiate depuis l'administration (« Lancer maintenant »).</p>
+  `;
+  for (const r of recips) {
+    try { await sendMailFn(r.email, subject, content, [], 'backup-watchdog'); }
+    catch (e) { console.error(`[Backup Watchdog] échec e-mail ${r.email}:`, e.message); }
+  }
+
+  cfg.lastAlertAt = new Date().toISOString();
+  try { await saveAutoConfigObj(cfg); } catch (e) {}
+  console.warn(`[Backup Watchdog] Alerte envoyée (${Math.round(ageDays)} j > ${threshold} j).`);
+  return { alerted: true, ageDays: Math.round(ageDays) };
+}
+
 module.exports = {
   exportSqlite,
   exportPostgres,
@@ -1025,4 +1093,5 @@ module.exports = {
   saveAutoConfigRoute,
   runAutoNow,
   runAutomaticBackup,
+  checkBackupHealth,
 };

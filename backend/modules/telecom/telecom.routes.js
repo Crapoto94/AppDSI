@@ -21,11 +21,8 @@ router.post('/billing-accounts', authenticateAdmin, telecomController.createBill
 router.put('/billing-accounts/:id', authenticateAdmin, telecomController.updateBillingAccount);
 router.delete('/billing-accounts/:id', authenticateAdmin, telecomController.deleteBillingAccount);
 
-// Commitments
-router.get('/commitments', authenticateJWT, telecomController.getCommitments);
-router.post('/commitments', authenticateAdmin, telecomController.createCommitment);
-router.put('/commitments/:id', authenticateAdmin, telecomController.updateCommitment);
-router.delete('/commitments/:id', authenticateAdmin, telecomController.deleteCommitment);
+// Engagements télécom (lecture dynamique depuis le suivi budgétaire, nature 6262)
+router.get('/engagements', authenticateJWT, telecomController.getTelecomEngagements);
 
 // Invoices
 router.get('/invoices', authenticateJWT, telecomController.getInvoices);

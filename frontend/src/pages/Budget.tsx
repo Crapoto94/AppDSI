@@ -1212,9 +1212,13 @@ const Budget: React.FC = () => {
       }
       if (typeFilter === 'reports') {
         data = data.filter((row: any) => row['Type mvt'] === 'Report' || row['Type mvt'] === 'Rattachement');
+      } else if (typeFilter !== 'all') {
+        data = data.filter((row: any) => row['Type mvt'] === typeFilter);
       }
       if (telecomFilter) {
         data = data.filter((row: any) => row.is_telecom || (row['Article par nature'] || '').toString().includes('6262'));
+        // On masque les engagements télécom déjà couverts par un bon de commande de l'année en cours.
+        data = data.filter((row: any) => !(row.has_bc && Number(row.bc_year) === Number(currentFiscalYear)));
       }
     }
 
@@ -1245,7 +1249,7 @@ const Budget: React.FC = () => {
       }
     }
     return data;
-  }, [view, budgetLines, groupedBudgetLines, engagements, bcFilter, ensFilter, etatFilter, typeFilter, telecomFilter, opsRiskFilter, invoices, operations, filteredOrders, searchTerm, columnFilters, sortConfig, showZeroBudget, sectionFilter, m57Plan]);
+  }, [view, budgetLines, groupedBudgetLines, engagements, bcFilter, ensFilter, etatFilter, typeFilter, telecomFilter, opsRiskFilter, currentFiscalYear, invoices, operations, filteredOrders, searchTerm, columnFilters, sortConfig, showZeroBudget, sectionFilter, m57Plan]);
 
   // Évolution cumulée des commandes liées aux opérations actuellement filtrées.
   const opsChartData = useMemo(() => {
@@ -1332,6 +1336,9 @@ const Budget: React.FC = () => {
         'Montant engagé', 'Réalisé', 'Reste engagé', 'Bon de commande'
       ];
       return ENGAGEMENT_COLUMNS.filter(c => available.includes(c));
+    } else if (view === 'lines') {
+      const HIDDEN_LINE_COLUMNS = ['Code', 'Masque', 'Sens', 'Référence Fonctionnelle', "Opération d'équipement", 'EQUIPEMENT', 'TVA', 'JE'];
+      return available.filter(c => !HIDDEN_LINE_COLUMNS.includes(c));
     }
     return available;
   }, [filteredData, view, orderColumns, invoiceColumns, opColumns]);
@@ -1706,7 +1713,7 @@ const Budget: React.FC = () => {
                           className={`toolbar-btn ${telecomFilter ? 'active' : ''}`}
                           onClick={() => setTelecomFilter(!telecomFilter)}
                           style={{ background: telecomFilter ? '#7c3aed' : 'white', color: telecomFilter ? 'white' : 'inherit' }}
-                          title="Engagements télécom (article par nature 6262)"
+                          title="Engagements télécom (nature 6262), hors ceux déjà couverts par un bon de commande de l'année en cours"
                         >
                           Télécom
                         </button>
@@ -1833,48 +1840,78 @@ const Budget: React.FC = () => {
 
                 {view === 'lines' && (() => {
                   const fmt = (n: number) => n.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 });
+                  // Reports (investissement) et rattachements (fonctionnement) issus des engagements :
+                  // ce sont des crédits repris de l'exercice précédent, inclus dans le « Budget voté ».
+                  const carry = engagements.reduce((acc, e) => {
+                    const m = parseFloat(e['Montant engagé'] || 0) || 0;
+                    if (e['Type mvt'] === 'Report') acc.reportsI += m;
+                    else if (e['Type mvt'] === 'Rattachement') acc.rattachF += m;
+                    return acc;
+                  }, { reportsI: 0, rattachF: 0 });
+                  const newF = linesTotals.f - carry.rattachF;
+                  const newI = linesTotals.i - carry.reportsI;
                   const card: React.CSSProperties = {
                     flex: '1 1 0', minWidth: '170px', background: 'white', border: '1px solid var(--color-slate-200)',
                     borderRadius: '12px', padding: '0.85rem 1.1rem', display: 'flex', flexDirection: 'column', gap: '0.25rem'
                   };
                   const label: React.CSSProperties = { fontSize: '0.72rem', fontWeight: 600, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.03em' };
                   const value: React.CSSProperties = { fontSize: '1.25rem', fontWeight: 700, color: 'var(--color-navy)' };
+                  const sub: React.CSSProperties = { fontSize: '0.72rem', color: '#94a3b8' };
                   return (
                     <div style={{ display: 'flex', gap: '1rem', marginBottom: '1rem', flexWrap: 'wrap' }}>
                       <div style={card}>
                         <span style={label}>Budget voté total</span>
                         <span style={value}>{fmt(linesTotals.total)}</span>
+                        <span style={sub}>F {fmt(linesTotals.f)} · I {fmt(linesTotals.i)}</span>
                       </div>
                       <div style={card}>
                         <span style={label}>Fonctionnement</span>
                         <span style={{ ...value, color: 'var(--color-green-500)' }}>{fmt(linesTotals.f)}</span>
                       </div>
                       <div style={card}>
-                        <span style={label}>Investissement</span>
-                        <span style={{ ...value, color: 'var(--color-blue-500)' }}>{fmt(linesTotals.i)}</span>
+                        <span style={label}>Investissement (crédits nouveaux)</span>
+                        <span style={{ ...value, color: 'var(--color-blue-500)' }}>{fmt(newI)}</span>
+                        <span style={sub}>Voté {fmt(linesTotals.i)} − reports {fmt(carry.reportsI)}</span>
+                      </div>
+                      <div style={card}>
+                        <span style={label}>Reports / Rattachements</span>
+                        <span style={{ ...value, color: '#b45309' }}>{fmt(carry.reportsI + carry.rattachF)}</span>
+                        <span style={sub}>Reports (I) {fmt(carry.reportsI)} · Rattach. (F) {fmt(carry.rattachF)}</span>
+                      </div>
+                      <div style={{ ...card, borderColor: '#16a34a' }}>
+                        <span style={label}>Nouveaux crédits réels</span>
+                        <span style={{ ...value, color: '#16a34a' }}>{fmt(newF + newI)}</span>
+                        <span style={sub}>F {fmt(newF)} · I {fmt(newI)}</span>
                       </div>
                     </div>
                   );
                 })()}
 
                 {view === 'engagements' && (() => {
+                  const zT = () => ({ r: 0, ra: 0, n: 0 });
+                  const addT = (b: { r: number; ra: number; n: number }, type: string, amt: number) => {
+                    if (type === 'Report') b.r += amt; else if (type === 'Rattachement') b.ra += amt; else b.n += amt;
+                  };
                   const k = engagements.reduce((acc, e) => {
                     const ttc = parseFloat(e['Montant engagé'] || 0) || 0;
                     const reste = parseFloat(e['Reste engagé'] || 0) || 0;
                     const type = e['Type mvt'];
-                    if (e.has_bc) { acc.withBcCount++; acc.withBcAmount += ttc; }
-                    else { acc.withoutBcCount++; acc.withoutBcAmount += ttc; }
+                    acc.total += ttc; addT(acc.totalT, type, ttc);
+                    if (e.has_bc) { acc.withBcCount++; acc.withBcAmount += ttc; addT(acc.withBcT, type, ttc); }
+                    else { acc.withoutBcCount++; acc.withoutBcAmount += ttc; addT(acc.withoutBcT, type, ttc); }
                     if (type === 'Report') { acc.reportCount++; acc.reportAmount += ttc; }
                     else if (type === 'Rattachement') { acc.rattachCount++; acc.rattachAmount += ttc; }
+                    else { acc.engCount++; acc.engAmount += ttc; }
                     const etat = e['État'];
-                    if (etat === 'Soldé') { acc.soldeCount++; acc.soldeAmount += ttc; }
-                    else if (etat === 'Entier') { acc.entierCount++; acc.entierAmount += ttc; }
-                    else if (etat === 'Partiellement soldé') { acc.partielCount++; acc.partielAmount += ttc; }
-                    if (e.is_ens) { acc.ensCount++; acc.ensAmount += reste; }
-                    acc.total += ttc;
+                    if (etat === 'Soldé') { acc.soldeCount++; acc.soldeAmount += ttc; addT(acc.soldeT, type, ttc); }
+                    else if (etat === 'Entier') { acc.entierCount++; acc.entierAmount += ttc; addT(acc.entierT, type, ttc); }
+                    else if (etat === 'Partiellement soldé') { acc.partielCount++; acc.partielAmount += ttc; addT(acc.partielT, type, ttc); }
+                    if (e.is_ens) { acc.ensCount++; acc.ensAmount += reste; addT(acc.ensT, type, reste); }
                     return acc;
-                  }, { withBcCount: 0, withBcAmount: 0, withoutBcCount: 0, withoutBcAmount: 0, reportCount: 0, reportAmount: 0, rattachCount: 0, rattachAmount: 0, soldeCount: 0, soldeAmount: 0, entierCount: 0, entierAmount: 0, partielCount: 0, partielAmount: 0, ensCount: 0, ensAmount: 0, total: 0 });
+                  }, { withBcCount: 0, withBcAmount: 0, withoutBcCount: 0, withoutBcAmount: 0, reportCount: 0, reportAmount: 0, rattachCount: 0, rattachAmount: 0, engCount: 0, engAmount: 0, soldeCount: 0, soldeAmount: 0, entierCount: 0, entierAmount: 0, partielCount: 0, partielAmount: 0, ensCount: 0, ensAmount: 0, total: 0,
+                       totalT: zT(), withBcT: zT(), withoutBcT: zT(), soldeT: zT(), entierT: zT(), partielT: zT(), ensT: zT() });
                   const fmt = (n: number) => n.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 });
+                  const fmtK = (n: number) => Math.abs(n) >= 1000 ? `${Math.round(n / 1000)}k€` : `${Math.round(n)}€`;
                   const card: React.CSSProperties = {
                     flex: '1 1 0', minWidth: '170px', background: 'white', border: '1px solid var(--color-slate-200)',
                     borderRadius: '12px', padding: '0.85rem 1.1rem', display: 'flex', flexDirection: 'column', gap: '0.25rem'
@@ -1888,6 +1925,29 @@ const Budget: React.FC = () => {
                     borderColor: active ? color : 'var(--color-slate-200)',
                     boxShadow: active ? `0 0 0 1px ${color}` : undefined
                   });
+                  // Répartition Report / Rattachement / Nouveau engagement, cliquable (filtre).
+                  const TYPES = [
+                    { key: 'Report', short: 'Rep', color: '#2563eb' },
+                    { key: 'Rattachement', short: 'Rat', color: '#0d9488' },
+                    { key: 'Engagement', short: 'Nouv', color: '#7c3aed' }
+                  ] as const;
+                  const tLine = (b: { r: number; ra: number; n: number }) => (
+                    <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap', marginTop: '3px' }} onClick={(ev) => ev.stopPropagation()}>
+                      {TYPES.map(t => {
+                        const amt = t.key === 'Report' ? b.r : t.key === 'Rattachement' ? b.ra : b.n;
+                        const active = typeFilter === t.key;
+                        return (
+                          <span key={t.key}
+                            onClick={() => setTypeFilter(active ? 'all' : t.key)}
+                            title={`${t.key === 'Engagement' ? 'Nouveaux engagements' : t.key + 's'} — cliquer pour filtrer`}
+                            style={{ cursor: 'pointer', fontSize: '0.64rem', fontWeight: 600, padding: '1px 6px', borderRadius: '6px', whiteSpace: 'nowrap', background: active ? t.color : `${t.color}1a`, color: active ? '#fff' : t.color }}
+                          >
+                            {t.short} {fmtK(amt)}
+                          </span>
+                        );
+                      })}
+                    </div>
+                  );
                   return (
                     <div style={{ display: 'flex', gap: '1rem', marginBottom: '1rem', flexWrap: 'wrap' }}>
                       <div
@@ -1898,6 +1958,7 @@ const Budget: React.FC = () => {
                         <span style={label}>Total engagé</span>
                         <span style={value}>{fmt(k.total)}</span>
                         <span style={sub}>{engagements.length} engagements{noFilter ? ' · tous' : ''}</span>
+                        {tLine(k.totalT)}
                       </div>
                       <div
                         style={clickable(bcFilter === 'with', 'var(--color-navy)')}
@@ -1907,6 +1968,7 @@ const Budget: React.FC = () => {
                         <span style={label}>Avec bon de commande</span>
                         <span style={{ ...value, color: 'var(--color-navy)' }}>{fmt(k.withBcAmount)}</span>
                         <span style={sub}>{k.withBcCount} engagements{bcFilter === 'with' ? ' · filtré' : ''}</span>
+                        {tLine(k.withBcT)}
                       </div>
                       <div
                         style={clickable(bcFilter === 'without', '#ef4444')}
@@ -1916,20 +1978,22 @@ const Budget: React.FC = () => {
                         <span style={label}>Sans bon de commande</span>
                         <span style={{ ...value, color: '#ef4444' }}>{fmt(k.withoutBcAmount)}</span>
                         <span style={sub}>{k.withoutBcCount} engagements{bcFilter === 'without' ? ' · filtré' : ''}</span>
+                        {tLine(k.withoutBcT)}
                       </div>
                       <div
                         style={clickable(typeFilter === 'reports', 'var(--color-blue-500)')}
                         onClick={() => setTypeFilter(typeFilter === 'reports' ? 'all' : 'reports')}
                         title="Filtrer les reports et rattachements (années précédentes)"
                       >
-                        <span style={label}>Reports / Rattachements</span>
-                        <span style={{ ...value, color: 'var(--color-blue-500)' }}>{fmt(k.reportAmount + k.rattachAmount)}</span>
-                        <span style={sub}>{k.reportCount} reports (I) · {k.rattachCount} rattach. (F){typeFilter === 'reports' ? ' · filtré' : ''}</span>
+                        <span style={label}>Reports / Rattach. / Nouveaux</span>
+                        <span style={{ ...value, color: 'var(--color-blue-500)' }}>{fmt(k.reportAmount + k.rattachAmount + k.engAmount)}</span>
+                        <span style={sub}>{k.reportCount} rep. · {k.rattachCount} rat. · {k.engCount} nouv.{typeFilter === 'reports' ? ' · filtré' : ''}</span>
+                        {tLine(k.totalT)}
                       </div>
                       {([
-                        { key: 'Soldé', lbl: 'Soldés', color: '#15803d', count: k.soldeCount, amount: k.soldeAmount },
-                        { key: 'Entier', lbl: 'Entiers', color: '#1d4ed8', count: k.entierCount, amount: k.entierAmount },
-                        { key: 'Partiellement soldé', lbl: 'Part. soldés', color: '#b45309', count: k.partielCount, amount: k.partielAmount }
+                        { key: 'Soldé', lbl: 'Soldés', color: '#15803d', count: k.soldeCount, amount: k.soldeAmount, t: k.soldeT },
+                        { key: 'Entier', lbl: 'Entiers', color: '#1d4ed8', count: k.entierCount, amount: k.entierAmount, t: k.entierT },
+                        { key: 'Partiellement soldé', lbl: 'Part. soldés', color: '#b45309', count: k.partielCount, amount: k.partielAmount, t: k.partielT }
                       ] as const).map(s => {
                         const active = etatFilter === s.key;
                         return (
@@ -1942,6 +2006,7 @@ const Budget: React.FC = () => {
                             <span style={label}>{s.lbl}</span>
                             <span style={{ ...value, color: s.color }}>{fmt(s.amount)}</span>
                             <span style={sub}>{s.count} engagements{active ? ' · filtré' : ''}</span>
+                            {tLine(s.t)}
                           </div>
                         );
                       })}
@@ -1953,6 +2018,7 @@ const Budget: React.FC = () => {
                         <span style={label}>ENS (années préc.)</span>
                         <span style={{ ...value, color: '#b45309' }}>{fmt(k.ensAmount)}</span>
                         <span style={sub}>{k.ensCount} engagements{ensFilter ? ' · filtré' : ''}</span>
+                        {tLine(k.ensT)}
                       </div>
                     </div>
                   );

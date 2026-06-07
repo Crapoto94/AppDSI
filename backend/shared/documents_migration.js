@@ -330,12 +330,10 @@ async function migrateProjetsVersions() {
 
 async function migrateTelecom() {
     const SRC = 'sqlite.telecom_invoices';
-    let db;
-    try { db = getSqlite(); } catch (e) { return; }
-    if (!db) return;
     let rows = [];
     try {
-        rows = await db.all('SELECT * FROM telecom_invoices WHERE file_path IS NOT NULL AND file_path <> ""');
+        const { pgDb } = require('./database');
+        rows = await pgDb.all(`SELECT * FROM hub_telecom.invoices WHERE file_path IS NOT NULL AND file_path <> ''`);
     } catch (e) { return; }
     let imported = 0;
     for (const r of rows) {

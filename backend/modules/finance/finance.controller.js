@@ -644,6 +644,20 @@ module.exports = {
                 if (!g.exercice) g.exercice = (row['Exercice'] || '').toString().trim();
             }
 
+            // Année du bon de commande associé (pour distinguer les BC de l'exercice en cours).
+            const cmdYear = {};
+            const allCmds = [...new Set(Object.values(groups).map(g => g.commande).filter(Boolean))];
+            if (allCmds.length > 0) {
+                try {
+                    const cy = await pool.query(
+                        `SELECT TRIM("COMMANDE_COMMANDE") AS c, EXTRACT(YEAR FROM "COMMANDE_CMD_DATECOMMANDE"::date) AS y
+                         FROM oracle.gf_oracle_commande WHERE TRIM("COMMANDE_COMMANDE") = ANY($1)`,
+                        [allCmds]
+                    );
+                    cy.rows.forEach(r => { if (r.c) cmdYear[r.c] = r.y ? parseInt(r.y) : null; });
+                } catch (e) { /* table commandes absente : on ignore l'année du BC */ }
+            }
+
             const round2 = (n) => Math.round(n * 100) / 100;
             const cleaned = Object.values(groups).map(g => {
                 const montant = round2(g.montant);
@@ -674,6 +688,7 @@ module.exports = {
                     'Bon de commande': g.commande,
                     'Exercice': g.exercice,
                     has_bc: g.commande !== '',
+                    bc_year: g.commande ? (cmdYear[g.commande] ?? null) : null,
                     is_ens: (type === 'Report' || type === 'Rattachement') && solde > 0.01,
                     is_telecom: natures.includes('6262')
                 };
