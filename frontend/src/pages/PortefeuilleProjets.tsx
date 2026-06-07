@@ -202,7 +202,9 @@ const PortefeuilleProjets: React.FC = () => {
   }
 
   const servicesList = projets.length > 0 ? [...new Set(projets.map(p => p.service_pilote))].sort() : [];
-  const chefsList = [...new Set(projets.filter(p => p.chef_projet_username).map(p => p.chef_projet_username))].sort() as string[];
+  const chefsMap = new Map<string, string>();
+  projets.forEach(p => { if (p.chef_projet_username) chefsMap.set(p.chef_projet_username, p.chef_projet_display_name || p.chef_projet_username); });
+  const chefsList = [...chefsMap.entries()].sort((a, b) => a[1].localeCompare(b[1]));
 
   const handleSort = (column: string) => {
     if (sortColumn === column) {
@@ -293,7 +295,7 @@ const PortefeuilleProjets: React.FC = () => {
           {isPMO && (
             <select value={filtreChefProjet} onChange={e => setFiltreChefProjet(e.target.value)} style={{ padding: '9px 12px', borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '13px', background: 'white', cursor: 'pointer' }}>
               <option value="">Tous chefs de projet</option>
-              {chefsList.map(c => <option key={c} value={c}>{c}</option>)}
+              {chefsList.map(([u, label]) => <option key={u} value={u}>{label}</option>)}
             </select>
           )}
           {isPMO && (
@@ -393,10 +395,8 @@ const PortefeuilleProjets: React.FC = () => {
               });
               return keys.map(key => {
                 const { label, projets: grpProjets } = grouped[key];
-                const items = grpProjets.flatMap(p => {
-                  const children = (childrenMap[p.id] || []).filter(c => c.service_pilote === p.service_pilote);
-                  return [{ projet: p, isChild: false } as const, ...children.map(c => ({ projet: c, isChild: true } as const))];
-                });
+                // Sous-projets affichés dans la cellule du parent (nestChildren) → on ne liste que les parents
+                const items = grpProjets.filter(p => !(p.projet_parent_id && projetMap[p.projet_parent_id])).map(p => ({ projet: p, isChild: false } as const));
                 return (
                   <div key={key}>
                     <div style={{ padding: '10px 16px', fontSize: '13px', fontWeight: '700', color: '#475569', background: '#f1f5f9', borderBottom: '2px solid #cbd5e1', borderRadius: '8px 8px 0 0', display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -405,7 +405,7 @@ const PortefeuilleProjets: React.FC = () => {
                       <span style={{ marginLeft: 'auto', fontWeight: '500', color: '#94a3b8', fontSize: '12px' }}>{items.length} projet{items.length > 1 ? 's' : ''}</span>
                     </div>
                     <div style={{ background: 'white', borderRadius: '0 0 8px 8px', overflow: 'hidden', border: '1px solid #e2e8f0', borderTop: 'none' }}>
-                      <ProjetTable items={items} favoris={favoris} projetMap={projetMap} projetParentTitles={projetParentTitles} childrenMap={childrenMap} thStyle={thStyle} SortIcon={SortIcon} handleSort={handleSort} navigate={navigate} toggleFavori={toggleFavori} />
+                      <ProjetTable items={items} favoris={favoris} projetMap={projetMap} projetParentTitles={projetParentTitles} childrenMap={childrenMap} thStyle={thStyle} SortIcon={SortIcon} handleSort={handleSort} navigate={navigate} toggleFavori={toggleFavori} nestChildren />
                     </div>
                   </div>
                 );
@@ -426,17 +426,15 @@ const PortefeuilleProjets: React.FC = () => {
                 return imp === niveau;
               });
               if (rootItems.length === 0) return null;
-              const items = rootItems.flatMap(p => {
-                const children = childrenMap[p.id] || [];
-                return [{ projet: p, isChild: false } as const, ...children.map(c => ({ projet: c, isChild: true } as const))];
-              });
+              // Sous-projets affichés dans la cellule du parent (nestChildren)
+              const items = rootItems.map(p => ({ projet: p, isChild: false } as const));
               return (
                 <div key={niveau}>
                   <div style={{ padding: '10px 16px', fontSize: '13px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', background: '#f8fafc', borderBottom: '2px solid #e2e8f0', borderRadius: '8px 8px 0 0', marginTop: niveau > 0 ? '12px' : 0 }}>
                     {label} ({items.length})
                   </div>
                   <div style={{ background: 'white', borderRadius: niveau > 0 ? '0 0 8px 8px' : '0', overflow: 'hidden', border: '1px solid #e2e8f0', borderTop: 'none' }}>
-                    <ProjetTable items={items} favoris={favoris} projetMap={projetMap} projetParentTitles={projetParentTitles} childrenMap={childrenMap} thStyle={thStyle} SortIcon={SortIcon} handleSort={handleSort} navigate={navigate} toggleFavori={toggleFavori} />
+                    <ProjetTable items={items} favoris={favoris} projetMap={projetMap} projetParentTitles={projetParentTitles} childrenMap={childrenMap} thStyle={thStyle} SortIcon={SortIcon} handleSort={handleSort} navigate={navigate} toggleFavori={toggleFavori} nestChildren />
                   </div>
                 </div>
               );
@@ -480,8 +478,9 @@ interface ProjetTableProps {
   handleSort: (column: string) => void;
   navigate: (path: string) => void;
   toggleFavori: (projetId: number, estFavori: boolean) => void;
+  nestChildren?: boolean;
 }
-const ProjetTable: React.FC<ProjetTableProps> = ({ items, favoris, navigate, toggleFavori, thStyle, SortIcon, handleSort }) => (
+const ProjetTable: React.FC<ProjetTableProps> = ({ items, favoris, navigate, toggleFavori, thStyle, SortIcon, handleSort, childrenMap, nestChildren }) => (
   <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '14px' }}>
     <thead>
       <tr style={{ background: '#f8fafc' }}>
@@ -512,6 +511,19 @@ const ProjetTable: React.FC<ProjetTableProps> = ({ items, favoris, navigate, tog
             </div>
             <div style={{ fontSize: '11px', color: '#94a3b8' }}>{p.code}</div>
             {p.app_names && <div style={{ fontSize: '10px', color: '#2563eb', marginTop: '2px' }}>📱 {p.app_names}</div>}
+            {nestChildren && (childrenMap[p.id]?.length > 0) && (
+              <div style={{ marginTop: '6px', display: 'flex', flexDirection: 'column', gap: '3px', borderLeft: '2px solid #e2e8f0', paddingLeft: '8px' }}>
+                {childrenMap[p.id].map(c => (
+                  <div key={c.id} onClick={e => { e.stopPropagation(); navigate(`/projets/${c.id}`); }} title={c.titre}
+                    style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '12px', color: '#475569', cursor: 'pointer', flexWrap: 'wrap' }}>
+                    <span style={{ color: '#94a3b8' }}>↳</span>
+                    <span style={{ fontWeight: 600 }}>{c.titre}</span>
+                    {c.statut && <span style={{ fontSize: '9px', padding: '0 5px', borderRadius: '4px', background: `${STATUT_COLORS[c.statut] || '#94a3b8'}20`, color: STATUT_COLORS[c.statut] || '#94a3b8' }}>{STATUT_LABELS[c.statut] || c.statut}</span>}
+                    {(c.chef_projet_display_name || c.chef_projet_username) && <span style={{ fontSize: '10px', color: '#94a3b8' }}>· {c.chef_projet_display_name || c.chef_projet_username}</span>}
+                  </div>
+                ))}
+              </div>
+            )}
           </td>
           <td style={{ padding: '12px 16px', color: '#475569', fontSize: '13px' }}>{p.chef_projet_display_name || p.chef_projet_username || '—'}</td>
           <td style={{ padding: '12px 16px', textAlign: 'center', fontSize: '18px' }}>

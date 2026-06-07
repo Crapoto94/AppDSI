@@ -260,6 +260,40 @@ function getStatutLabel(statut) {
 // CRUD PROJETS
 // ============================================
 
+// Reformate un nom "NOM Prénom" en "Prénom Nom" (les tokens tout en majuscules
+// sont considérés comme le nom de famille). Laisse intact si indéterminable.
+function formatPrenomNom(name) {
+    if (!name) return name;
+    const tokens = String(name).trim().split(/\s+/);
+    if (tokens.length < 2) return name;
+    const isUpper = (t) => t.replace(/[-']/g, '').length >= 2 && t === t.toLocaleUpperCase('fr') && /[A-ZÀ-Þ]/.test(t);
+    const nom = tokens.filter(isUpper);
+    const prenom = tokens.filter(t => !isUpper(t));
+    if (nom.length && prenom.length) return [...prenom, ...nom].join(' ');
+    return name;
+}
+
+// Résout chef_projet_display_name depuis l'annuaire (hub.users) par login et
+// normalise tous les chefs de projet en "Prénom Nom".
+async function resolveChefDisplayNames(projets) {
+    try {
+        const usernames = [...new Set(projets.map(p => p.chef_projet_username).filter(Boolean).map(u => String(u).toLowerCase()))];
+        const nameMap = {};
+        if (usernames.length) {
+            const { rows } = await pool.query('SELECT LOWER(username) AS u, displayname FROM hub.users WHERE LOWER(username) = ANY($1)', [usernames]);
+            for (const r of rows) if (r.displayname) nameMap[r.u] = r.displayname;
+        }
+        for (const p of projets) {
+            const u = p.chef_projet_username ? String(p.chef_projet_username).toLowerCase() : null;
+            const resolved = (u && nameMap[u]) || p.chef_projet_display_name || p.chef_projet_username || null;
+            if (resolved) p.chef_projet_display_name = formatPrenomNom(resolved);
+        }
+    } catch (e) {
+        console.error('[Projets] resolveChefDisplayNames:', e.message);
+    }
+    return projets;
+}
+
 const getAll = async (req, res) => {
     try {
         const { statut, service_pilote, niveau, priorite, chef_projet, q, tri, pmo_view } = req.query;
@@ -357,6 +391,7 @@ const getAll = async (req, res) => {
             ORDER BY ${orderBy}
         `, [...params, username]);
 
+        await resolveChefDisplayNames(projets);
         res.json(projets);
     } catch (error) {
         res.status(500).json({ error: error.message });
@@ -407,6 +442,7 @@ const getMesProjets = async (req, res) => {
             params = [username];
         }
         const projets = await pgDb.all(query, params);
+        await resolveChefDisplayNames(projets);
         res.json(projets);
     } catch (error) {
         res.status(500).json({ error: error.message });
