@@ -62,7 +62,7 @@ const Dashboard: React.FC = () => {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify({ tileOrder: cleanOrder })
+        body: JSON.stringify({ tileOrder: order })
       });
       console.log('Tile order saved:', order);
     } catch (error) {
