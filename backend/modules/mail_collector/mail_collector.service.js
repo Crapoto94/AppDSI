@@ -139,7 +139,10 @@ class MailCollectorService {
               path: destPath,
               buffer: contentBinary,
               mimetype: att.contentType || 'application/octet-stream',
-              size: contentBinary.length
+              size: contentBinary.length,
+              // Images inline du corps : référencées par cid:<contentId> dans le HTML
+              isInline: att.isInline === true,
+              contentId: (att.contentId || '').replace(/^<|>$/g, '')
             });
           } catch (e) {
             console.error(`Erreur téléchargement attachment ${att.name}:`, e.message);
@@ -280,21 +283,26 @@ class MailCollectorService {
   }
 
   static async addAttachments(ticketId, attachments, username) {
-    if (!attachments || attachments.length === 0) return 0;
+    if (!attachments || attachments.length === 0) return [];
 
-    let count = 0;
+    const created = [];
     for (const att of attachments) {
       try {
         const user = await pgDb.get('SELECT id FROM hub.users WHERE username = ?', [username]);
 
-        await attachmentRepo.create(ticketId, {
+        const inserted = await attachmentRepo.create(ticketId, {
           originalname: att.originalName,
           buffer: att.buffer,
           size: att.size,
           mimetype: att.mimetype
         }, { id: user?.id || 1, username });
 
-        count++;
+        created.push({
+          id: inserted?.id,
+          contentId: att.contentId || null,
+          isInline: !!att.isInline,
+          mimetype: att.mimetype
+        });
 
         // Nettoyage du fichier temporaire
         if (att.path && fs.existsSync(att.path)) {
@@ -305,7 +313,57 @@ class MailCollectorService {
       }
     }
 
-    return count;
+    return created;
+  }
+
+  // Remplace les src="cid:..." d'un HTML par l'URL des PJ stockées du ticket.
+  // Fonction pure (pas d'accès base) — réutilisée pour la description et les commentaires.
+  static rewriteCidInHtml(html, ticketId, createdAttachments) {
+    if (!html) return html;
+    const inlineMap = {};
+    for (const att of createdAttachments || []) {
+      if (att && att.contentId && att.id) inlineMap[String(att.contentId).trim().toLowerCase()] = att.id;
+    }
+    if (Object.keys(inlineMap).length === 0) return html;
+    return html.replace(
+      /src\s*=\s*(["'])\s*cid:([^"']+)\1/gi,
+      (m, q, cid) => {
+        const id = inlineMap[String(cid).trim().toLowerCase()];
+        return id ? `src=${q}/api/tickets/${ticketId}/attachments/${id}${q}` : m;
+      }
+    );
+  }
+
+  // Réécrit les images inline (src="cid:...") du corps du ticket vers les
+  // pièces jointes stockées, pour qu'elles s'affichent dans la description.
+  static async rewriteInlineImages(ticketId, createdAttachments) {
+    try {
+      const ticket = await ticketRepo.findById(ticketId);
+      const html = ticket?.content || '';
+      const rewritten = this.rewriteCidInHtml(html, ticketId, createdAttachments);
+      if (rewritten !== html) {
+        await ticketRepo.update(ticketId, { content: rewritten });
+      }
+    } catch (e) {
+      console.error('[MAIL] rewriteInlineImages failed:', e.message);
+    }
+  }
+
+  // Idem pour un commentaire (réponse mail) : réécrit les cid: vers les PJ du ticket.
+  static async rewriteCommentInlineImages(commentId, ticketId, createdAttachments) {
+    try {
+      if (!commentId) return;
+      const row = await pgDb.get('SELECT content FROM hub_tickets.ticket_followups WHERE id = $1', [commentId]);
+      const html = row?.content || '';
+      const rewritten = this.rewriteCidInHtml(html, ticketId, createdAttachments);
+      if (rewritten !== html) {
+        const hash = require('crypto').createHash('md5').update(rewritten).digest('hex');
+        await pgDb.run('UPDATE hub_tickets.ticket_followups SET content = $1, content_hash = $2 WHERE id = $3',
+          [rewritten, hash, commentId]);
+      }
+    } catch (e) {
+      console.error('[MAIL] rewriteCommentInlineImages failed:', e.message);
+    }
   }
 
   static async collectMailbox(collector, token, o365Settings, axiosOpts) {
@@ -395,13 +453,14 @@ class MailCollectorService {
             const from = this.extractFromEmail(email);
             const content = this.extractReplyContent(email.body?.content);
 
+            let createdComment = null;
             if (content) {
               const systemUser = {
                 username: from.email.split('@')[0],
                 displayName: from.name,
                 email: from.email
               };
-              await commentRepo.create(existingTicket, {
+              createdComment = await commentRepo.create(existingTicket, {
                 content,
                 is_private: 0
               }, systemUser);
@@ -414,8 +473,10 @@ class MailCollectorService {
             // Attachments pour le commentaire
             if (email.hasAttachments) {
               const attachments = await this.downloadAttachments(token, collector.mailbox, email.id, axiosOpts);
-              const attachCount = await this.addAttachments(existingTicket, attachments, 'system');
-              log.attachments_processed += attachCount;
+              const createdAtt = await this.addAttachments(existingTicket, attachments, 'system');
+              log.attachments_processed += createdAtt.length;
+              // Affiche les images inline (cid:) dans le commentaire
+              if (createdComment) await this.rewriteCommentInlineImages(createdComment.id, existingTicket, createdAtt);
             }
 
             // Enregistrer le mapping
@@ -440,9 +501,12 @@ class MailCollectorService {
             if (email.hasAttachments) {
               const attachments = await this.downloadAttachments(token, collector.mailbox, email.id, axiosOpts);
               console.log(`[MAIL-DEBUG] Downloaded ${attachments.length} attachments for ticket ${ticketId}`);
-              attachCount = await this.addAttachments(ticketId, attachments, 'system');
+              const createdAtt = await this.addAttachments(ticketId, attachments, 'system');
+              attachCount = createdAtt.length;
               console.log(`[MAIL-DEBUG] Added ${attachCount} attachments to ticket ${ticketId}`);
               log.attachments_processed += attachCount;
+              // Affiche les images inline (cid:) dans la description du ticket
+              await this.rewriteInlineImages(ticketId, createdAtt);
             }
 
             // Mapping (avec la règle qui a déterminé la classification)

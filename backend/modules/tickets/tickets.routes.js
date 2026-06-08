@@ -106,8 +106,9 @@ router.get('/has-permission/:action', authenticateJWT, async (req, res) => {
 // ─── Escalade targets ───────────────────────────────────────────
 router.get('/escalade/targets', authenticateJWT, async (req, res) => {
     try {
-        const [agents, groups] = await Promise.all([
+        const [agents, supervisors, groups] = await Promise.all([
             pgDb.all(`SELECT * FROM hub_tickets.escalade_config WHERE type = 'escalade_target' AND target_type = 'agent' ORDER BY display_name`),
+            pgDb.all(`SELECT * FROM hub_tickets.escalade_config WHERE type = 'escalade_target' AND target_type = 'supervisor' ORDER BY display_name`),
             pgDb.all(`
                 SELECT g.id, g.name, g.description, g.is_default,
                        COALESCE(json_agg(json_build_object('user_id', m.user_id, 'displayName', u.displayName, 'username', u.username))
@@ -120,8 +121,8 @@ router.get('/escalade/targets', authenticateJWT, async (req, res) => {
                 ORDER BY g.name
             `),
         ]);
-        res.json({ agents, groups });
-    } catch (e) { res.status(500).json({ agents: [], groups: [] }); }
+        res.json({ agents, supervisors, groups });
+    } catch (e) { res.status(500).json({ agents: [], supervisors: [], groups: [] }); }
 });
 
 // ─── Dashboard & Stats ───────────────────────────────────────────
@@ -213,7 +214,8 @@ router.get('/:id/assignees', authenticateJWT, async (req, res) => {
         const rows = await pgDb.all(`
             SELECT ta.id, ta.technician_id, ta.group_id, ta.is_primary, ta.assigned_at,
                    u.displayName as technician_name, u.username, u.email,
-                   g.name as group_name
+                   g.name as group_name,
+                   (SELECT COUNT(*) FROM hub_tickets.technician_group_members m WHERE m.group_id = ta.group_id) as group_member_count
             FROM hub_tickets.ticket_assignments ta
             LEFT JOIN hub.users u ON ta.technician_id = u.id
             LEFT JOIN hub_tickets.technician_groups g ON ta.group_id = g.id

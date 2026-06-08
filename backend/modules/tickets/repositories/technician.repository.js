@@ -88,6 +88,30 @@ module.exports = {
         `);
     },
 
+    // Techniciens disponibles appartenant au GROUPE PAR DÉFAUT (équipe de premier niveau).
+    // Ce sont les seuls visibles à l'assignation tant qu'aucune escalade n'est faite.
+    // Repli : si aucun groupe par défaut n'est configuré, on renvoie tous les disponibles.
+    async findAvailableInDefaultGroup() {
+        const defaultGroup = await pgDb.get(
+            `SELECT id FROM hub_tickets.technician_groups WHERE is_default = true AND is_active = true ORDER BY id LIMIT 1`
+        );
+        if (!defaultGroup) return this.findAvailable();
+        return pgDb.all(`
+            SELECT tp.user_id, tp.module_role, tp.status,
+                   u.displayName, u.email,
+                   (SELECT COUNT(*) FROM hub_tickets.ticket_assignments ta
+                    JOIN hub_tickets.tickets t ON ta.ticket_id = t.glpi_id
+                    WHERE ta.technician_id = tp.user_id AND t.status NOT IN (5,6,8)) as active_tickets
+            FROM hub_tickets.technician_profiles tp
+            JOIN hub.users u ON tp.user_id = u.id
+            JOIN hub_tickets.technician_group_members tgm
+                 ON tgm.user_id = tp.user_id AND tgm.group_id = $1
+            WHERE tp.status = 'active'
+               OR (tp.status = 'paused' AND tp.paused_until IS NOT NULL AND tp.paused_until <= CURRENT_TIMESTAMP)
+            ORDER BY active_tickets ASC
+        `, [defaultGroup.id]);
+    },
+
     async getTicketsByTechnician(userId) {
         return pgDb.all(`
             SELECT t.glpi_id, t.title, t.status, ts.label as status_label

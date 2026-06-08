@@ -44,6 +44,19 @@ module.exports = {
             if (existingGroup) resolvedGroupId = existingGroup.group_id;
         }
 
+        // Si on assigne un technicien membre du GROUPE PAR DÉFAUT sans groupe explicite,
+        // on rattache aussi le ticket à ce groupe par défaut (technicien + groupe).
+        if (!resolvedGroupId && resolvedTechId) {
+            const defaultGroup = await pgDb.get(`
+                SELECT g.id
+                FROM hub_tickets.technician_groups g
+                JOIN hub_tickets.technician_group_members m ON m.group_id = g.id
+                WHERE g.is_default = true AND g.is_active = true AND m.user_id = $1
+                ORDER BY g.id LIMIT 1
+            `, [resolvedTechId]);
+            if (defaultGroup) resolvedGroupId = defaultGroup.id;
+        }
+
         // Remove old assignments for this ticket
         await pgDb.run('DELETE FROM hub_tickets.ticket_assignments WHERE ticket_id = $1', [ticketId]);
 

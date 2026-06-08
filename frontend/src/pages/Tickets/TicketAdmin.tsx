@@ -3248,7 +3248,7 @@ function EscaladeManager() {
   const [technicians, setTechnicians] = useState<any[]>([]);
   const [groups, setGroups] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [targetType, setTargetType] = useState<'agent' | 'group'>('agent');
+  const [targetType, setTargetType] = useState<'agent' | 'supervisor' | 'group'>('agent');
 
   useEffect(() => { loadAll(); }, []);
 
@@ -3295,6 +3295,22 @@ function EscaladeManager() {
       } else {
         await axios.post('/api/tickets/admin/escalade/target', {
           target_type: 'agent', user_id: tech.user_id, username: tech.username,
+          display_name: tech.displayname || tech.displayName, email: tech.email
+        }, { headers: { Authorization: `Bearer ${token}` } });
+      }
+      loadAll();
+    } catch (e: any) { alert(e.response?.data?.message || 'Erreur'); }
+  }
+
+  async function toggleTargetSupervisor(tech: any) {
+    const token = localStorage.getItem('token');
+    const existing = escaladeTargets.find(t => t.target_type === 'supervisor' && t.user_id === tech.user_id);
+    try {
+      if (existing) {
+        await axios.delete(`/api/tickets/admin/escalade/target/${existing.id}`, { headers: { Authorization: `Bearer ${token}` } });
+      } else {
+        await axios.post('/api/tickets/admin/escalade/target', {
+          target_type: 'supervisor', user_id: tech.user_id, username: tech.username,
           display_name: tech.displayname || tech.displayName, email: tech.email
         }, { headers: { Authorization: `Bearer ${token}` } });
       }
@@ -3358,13 +3374,17 @@ function EscaladeManager() {
         <p style={{ margin: '0 0 16px', fontSize: 12, color: '#71717a' }}>Agents ou groupes vers lesquels escalader un ticket.</p>
 
         <div style={{ display: 'flex', gap: 4, marginBottom: 12 }}>
+          <button onClick={() => setTargetType('group')}
+            style={{ padding: '5px 14px', borderRadius: 6, border: 'none', cursor: 'pointer', fontWeight: 600, fontSize: 12, background: targetType === 'group' ? '#6366f1' : '#f1f5f9', color: targetType === 'group' ? '#fff' : '#475569' }}>
+            👥 Groupe
+          </button>
           <button onClick={() => setTargetType('agent')}
             style={{ padding: '5px 14px', borderRadius: 6, border: 'none', cursor: 'pointer', fontWeight: 600, fontSize: 12, background: targetType === 'agent' ? '#6366f1' : '#f1f5f9', color: targetType === 'agent' ? '#fff' : '#475569' }}>
             👤 Agent
           </button>
-          <button onClick={() => setTargetType('group')}
-            style={{ padding: '5px 14px', borderRadius: 6, border: 'none', cursor: 'pointer', fontWeight: 600, fontSize: 12, background: targetType === 'group' ? '#6366f1' : '#f1f5f9', color: targetType === 'group' ? '#fff' : '#475569' }}>
-            👥 Groupe
+          <button onClick={() => setTargetType('supervisor')}
+            style={{ padding: '5px 14px', borderRadius: 6, border: 'none', cursor: 'pointer', fontWeight: 600, fontSize: 12, background: targetType === 'supervisor' ? '#6366f1' : '#f1f5f9', color: targetType === 'supervisor' ? '#fff' : '#475569' }}>
+            🎯 Superviseur
           </button>
         </div>
 
@@ -3374,6 +3394,14 @@ function EscaladeManager() {
             {activeTechs.map(tech => {
               const isIn = escaladeTargets.some(t => t.target_type === 'agent' && t.user_id === tech.user_id);
               return techRow(tech, isIn, () => toggleTargetAgent(tech), '#8b5cf6');
+            })}
+          </div>
+        ) : targetType === 'supervisor' ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {activeTechs.length === 0 && <div style={{ fontSize: 12, color: '#a1a1aa', fontStyle: 'italic' }}>Aucun technicien actif</div>}
+            {activeTechs.map(tech => {
+              const isIn = escaladeTargets.some(t => t.target_type === 'supervisor' && t.user_id === tech.user_id);
+              return techRow(tech, isIn, () => toggleTargetSupervisor(tech), '#f59e0b');
             })}
           </div>
         ) : (

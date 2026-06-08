@@ -27,7 +27,7 @@ function decodeHtml(str: string) {
 function rewriteGlpiImages(html: string): string {
   if (!html) return html;
   const token = localStorage.getItem('token') || '';
-  return html.replace(
+  let out = html.replace(
     /(?:https?:\/\/[^"'\s)]*?)?\/glpi\/front\/document\.send\.php\?([^"'\s)]*)/gi,
     (_m, qs) => {
       const params = new URLSearchParams(String(qs).replace(/&amp;/g, '&'));
@@ -36,11 +36,22 @@ function rewriteGlpiImages(html: string): string {
       return `/api/glpi/document/${docid}?token=${encodeURIComponent(token || "")}`;
     }
   );
+  // Images inline collectées par mail (cid: réécrits en /api/tickets/.../attachments/...) :
+  // ajoute le token d'auth aux URLs de PJ qui n'en ont pas encore.
+  out = out.replace(
+    /(src\s*=\s*["'])(\/api\/tickets\/\d+\/attachments\/\d+)((?:\?[^"']*)?)(["'])/gi,
+    (_m, p1, url, qs, p4) => {
+      if (/[?&]token=/.test(qs)) return _m;
+      const sep = qs ? '&' : '?';
+      return `${p1}${url}${qs}${sep}token=${encodeURIComponent(token)}${p4}`;
+    }
+  );
+  return out;
 }
 
 const STATUS_COLORS: Record<number, string> = {
   1: '#6366f1', 2: '#8b5cf6', 3: '#f59e0b',
-  4: '#f97316', 5: '#22c55e', 6: '#64748b'
+  4: '#f97316', 5: '#22c55e', 6: '#64748b', 7: '#64748b', 8: '#ef4444'
 };
 
 const PRIORITY_COLORS: Record<number, string> = {
@@ -58,7 +69,7 @@ const IMPACT_INFO: Record<number, { icon: string; label: string }> = {
 
 const STATUS_NAMES: Record<number, string> = {
   1: 'Nouveau', 2: 'En cours (Attribué)', 3: 'En cours (Planifié)',
-  4: 'En attente', 5: 'Résolu', 6: 'Clos'
+  4: 'En attente', 5: 'Résolu', 6: 'Clos', 7: 'Clos', 8: 'Rejeté'
 };
 
 const VALID_TRANSITIONS: Record<number, { to: number; label: string; color: string }[]> = {
@@ -69,6 +80,55 @@ const VALID_TRANSITIONS: Record<number, { to: number; label: string; color: stri
   5: [{ to: 6, label: 'Fermer', color: '#64748b' }, { to: 3, label: 'Réouvrir', color: '#f59e0b' }],
   6: [{ to: 3, label: 'Réouvrir', color: '#f59e0b' }],
 };
+
+// Sélecteur de logiciel : trié alphabétiquement + zone de recherche filtrante.
+function SoftwareSelect({ apps, value, onChange }: { apps: any[]; value: string; onChange: (v: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const [q, setQ] = useState('');
+  const ref = useRef<HTMLDivElement>(null);
+
+  const sorted = useMemo(
+    () => [...(apps || [])].sort((a, b) => (a.name || '').localeCompare(b.name || '', 'fr', { sensitivity: 'base' })),
+    [apps]
+  );
+  const needle = q.trim().toLowerCase();
+  const filtered = needle ? sorted.filter(a => (a.name || '').toLowerCase().includes(needle)) : sorted;
+  const selected = (apps || []).find(a => a.id.toString() === value);
+
+  useEffect(() => {
+    function onDoc(e: MouseEvent) { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false); }
+    document.addEventListener('mousedown', onDoc);
+    return () => document.removeEventListener('mousedown', onDoc);
+  }, []);
+
+  const itemStyle: React.CSSProperties = { padding: '6px 9px', fontSize: 12, cursor: 'pointer', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' };
+
+  return (
+    <div ref={ref} style={{ position: 'relative', width: '100%', maxWidth: 180 }}>
+      <button type="button" onClick={() => { setOpen(o => !o); setQ(''); }}
+        style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6, width: '100%', padding: '5px 7px', border: '1px solid #e4e4e7', borderRadius: 6, fontSize: 12, background: '#fff', cursor: 'pointer', textAlign: 'left' }}>
+        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: selected ? '#3f3f46' : '#a1a1aa' }}>{selected ? selected.name : '— Non défini —'}</span>
+        <span style={{ fontSize: 9, color: '#a1a1aa', flexShrink: 0 }}>▾</span>
+      </button>
+      {open && (
+        <div style={{ position: 'absolute', top: 'calc(100% + 4px)', left: 0, right: 0, zIndex: 60, background: '#fff', border: '1px solid #e4e4e7', borderRadius: 8, boxShadow: '0 8px 24px rgba(0,0,0,0.12)', overflow: 'hidden' }}>
+          <input autoFocus value={q} onChange={e => setQ(e.target.value)} placeholder="Rechercher un logiciel…"
+            style={{ width: '100%', boxSizing: 'border-box', padding: '7px 9px', border: 'none', borderBottom: '1px solid #f1f5f9', fontSize: 12, outline: 'none' }} />
+          <div style={{ maxHeight: 220, overflowY: 'auto' }}>
+            <div onClick={() => { onChange(''); setOpen(false); }} style={{ ...itemStyle, color: '#a1a1aa' }}>— Non défini —</div>
+            {filtered.map(a => (
+              <div key={a.id} onClick={() => { onChange(a.id.toString()); setOpen(false); }}
+                onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = '#f4f4f5'; }}
+                onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = a.id.toString() === value ? '#eef2ff' : '#fff'; }}
+                style={{ ...itemStyle, color: '#3f3f46', background: a.id.toString() === value ? '#eef2ff' : '#fff' }}>{a.name}</div>
+            ))}
+            {filtered.length === 0 && <div style={{ padding: 9, fontSize: 12, color: '#a1a1aa' }}>Aucun résultat</div>}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function TicketDetail() {
   const { id } = useParams();
@@ -224,7 +284,10 @@ export default function TicketDetail() {
         axios.get('/api/magapp/apps', { headers: { Authorization: `Bearer ${token}` } })
       ]);
       setCategories(catRes.data || []);
-      setApps((appRes.data || []).filter((a: any) => a.present_magapp === 'oui'));
+      // Toutes les applications du catalogue, y compris non publiées sur le portail
+      // (un ticket peut concerner un applicatif interne non exposé). Les apps dsi_only
+      // restent filtrées côté serveur pour les non-admins.
+      setApps(appRes.data || []);
     } catch (e) { console.error('Failed to load categories/apps:', e); }
   }
 
@@ -780,9 +843,11 @@ export default function TicketDetail() {
       try {
         const escRes = await axios.get('/api/tickets/escalade/targets', { headers: h });
         const escData = escRes.data || {};
-        const agents = escData.agents || [];
-        const groups = escData.groups || [];
-        setEscaladeTargets([...agents, ...groups.map((g: any) => ({ ...g, target_type: 'group' }))]);
+        const agents = (escData.agents || []).map((a: any) => ({ ...a, target_type: 'agent' }));
+        const supervisors = (escData.supervisors || []).map((s: any) => ({ ...s, target_type: 'supervisor' }));
+        const groups = (escData.groups || []).map((g: any) => ({ ...g, target_type: 'group' }));
+        // Ordre d'affichage : groupes d'escalade, puis agents, puis superviseurs.
+        setEscaladeTargets([...groups, ...agents, ...supervisors]);
       } catch (e: any) {
         console.warn('[OPEN_ASSIGN] Escalade targets failed, continuing without them:', e.message);
         setEscaladeTargets([]);
@@ -1549,13 +1614,14 @@ export default function TicketDetail() {
             <div style={SF}>
               <span style={SL}>Assigné</span>
               {(() => {
-                // Affectation : peut être un groupe ET/OU un technicien (les deux à la fois pour 43997)
-                const hasAssigneeGroup = assignees.length > 0 && assignees[0].group_name;
-                const groupName = hasAssigneeGroup ? assignees[0].group_name : ticket.assignee_group_name;
-                const groupMembers = hasAssigneeGroup ? assignees.length : null;
-                const techName = (!hasAssigneeGroup && assignees.length > 0 && assignees[0].technician_name)
-                  ? assignees[0].technician_name
-                  : ticket.technician_name;
+                // Affectation : peut être un groupe ET/OU un technicien (les deux à la fois)
+                const groupRow = assignees.find((a: any) => a.group_name);
+                const hasAssigneeGroup = !!groupRow;
+                const groupName = hasAssigneeGroup ? groupRow.group_name : ticket.assignee_group_name;
+                // Nombre réel de membres du groupe (et non le nombre de lignes d'affectation)
+                const groupMembers = hasAssigneeGroup ? (Number(groupRow.group_member_count) || null) : null;
+                const techRow = assignees.find((a: any) => a.technician_name);
+                const techName = techRow ? techRow.technician_name : ticket.technician_name;
                 if (!groupName && !techName) {
                   return <span style={{ fontSize: 12, color: '#a1a1aa', fontStyle: 'italic' }}>Non assigné</span>;
                 }
@@ -1617,11 +1683,8 @@ export default function TicketDetail() {
               <div style={SF}>
                 <span style={SL}>Logiciel</span>
                 {editingInfo ? (
-                  <select value={editForm.software_id || ''} onChange={e => setEditForm({...editForm, software_id: e.target.value})}
-                    style={{ padding: '5px 7px', border: '1px solid #e4e4e7', borderRadius: 6, fontSize: 12, background: '#fff', width: '100%', maxWidth: 180 }}>
-                    <option value="">— Non défini —</option>
-                    {apps.map(a => <option key={a.id} value={a.id.toString()}>{a.name}</option>)}
-                  </select>
+                  <SoftwareSelect apps={apps} value={editForm.software_id || ''}
+                    onChange={v => setEditForm({ ...editForm, software_id: v })} />
                 ) : (
                   <span style={SV}>{ticket.software_name || '—'}</span>
                 )}
@@ -2090,38 +2153,41 @@ export default function TicketDetail() {
                 <>
                   {(() => {
                     const agents = escaladeTargets.filter((t: any) => t.target_type === 'agent');
+                    const supervisors = escaladeTargets.filter((t: any) => t.target_type === 'supervisor');
                     const groups = escaladeTargets.filter((t: any) => t.target_type === 'group');
+                    // Bloc agent / superviseur (même structure, couleur différente)
+                    const agentBlock = (list: any[], title: string, color: string, bg: string, border: string, nameColor: string, subColor: string) => (
+                      <>
+                        <div style={{ fontSize: 10, fontWeight: 700, color, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>{title}</div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginBottom: 12 }}>
+                          {list.map((t: any) => (
+                            <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 12px', borderRadius: 8, border: `1px solid ${border}`, background: bg }}>
+                              <div style={{ width: 28, height: 28, borderRadius: '50%', background: color, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, color: '#fff', flexShrink: 0, fontWeight: 700 }}>
+                                {(t.display_name || t.username || '?')[0].toUpperCase()}
+                              </div>
+                              <div style={{ flex: 1, minWidth: 0 }}>
+                                <div style={{ fontSize: 13, fontWeight: 600, color: nameColor }}>{t.display_name || t.username}</div>
+                                <div style={{ fontSize: 11, color: subColor }}>{t.email || t.username}</div>
+                              </div>
+                              <button onClick={() => { assignTechnician(t.user_id); }}
+                                style={{ padding: '5px 12px', background: color, color: '#fff', border: 'none', borderRadius: 6, fontWeight: 600, fontSize: 11, cursor: 'pointer', flexShrink: 0 }}>
+                                Escalader
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      </>
+                    );
                     return (
                       <>
                         <div style={{ fontSize: 11, color: '#71717a', marginBottom: 10, lineHeight: 1.5 }}>
-                          Escalader vers un agent ou un groupe. Le ticket sera assigné au technicien le moins occupé du groupe.
+                          Escalader vers un groupe, un agent ou un superviseur. Pour un groupe, le ticket sera assigné au technicien le moins occupé.
                         </div>
-                        {agents.length > 0 && (
-                          <>
-                            <div style={{ fontSize: 10, fontWeight: 700, color: '#8b5cf6', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>👤 Agents d'escalade</div>
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginBottom: agents.length > 0 && groups.length > 0 ? 12 : 0 }}>
-                              {agents.map((t: any) => (
-                                <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 12px', borderRadius: 8, border: '1px solid #c4b5fd', background: '#faf5ff' }}>
-                                  <div style={{ width: 28, height: 28, borderRadius: '50%', background: '#8b5cf6', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, color: '#fff', flexShrink: 0, fontWeight: 700 }}>
-                                    {(t.display_name || t.username || '?')[0].toUpperCase()}
-                                  </div>
-                                  <div style={{ flex: 1, minWidth: 0 }}>
-                                    <div style={{ fontSize: 13, fontWeight: 600, color: '#1e1b4b' }}>{t.display_name || t.username}</div>
-                                    <div style={{ fontSize: 11, color: '#7c3aed' }}>{t.email || t.username}</div>
-                                  </div>
-                                  <button onClick={() => { assignTechnician(t.user_id); }}
-                                    style={{ padding: '5px 12px', background: '#8b5cf6', color: '#fff', border: 'none', borderRadius: 6, fontWeight: 600, fontSize: 11, cursor: 'pointer', flexShrink: 0 }}>
-                                    Escalader
-                                  </button>
-                                </div>
-                              ))}
-                            </div>
-                          </>
-                        )}
+                        {/* 1. Groupes d'escalade */}
                         {groups.length > 0 && (
                           <>
                             <div style={{ fontSize: 10, fontWeight: 700, color: '#22c55e', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>👥 Groupes d'escalade</div>
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginBottom: 12 }}>
                               {groups.map((g: any) => (
                                 <div key={g.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 12px', borderRadius: 8, border: '1px solid #86efac', background: '#f0fdf4' }}>
                                   <div style={{ width: 28, height: 28, borderRadius: 6, background: '#22c55e', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, color: '#fff', flexShrink: 0 }}>
@@ -2149,8 +2215,12 @@ export default function TicketDetail() {
                             </div>
                           </>
                         )}
-                        {agents.length === 0 && groups.length === 0 && (
-                          <div style={{ textAlign: 'center', padding: 30, color: '#94a3b8', fontSize: 13 }}>Aucune cible d'escalade configurée.<br /><span style={{ fontSize: 11 }}>Configurez des groupes dans Admin → Groupes.</span></div>
+                        {/* 2. Agents d'escalade */}
+                        {agents.length > 0 && agentBlock(agents, "👤 Agents d'escalade", '#8b5cf6', '#faf5ff', '#c4b5fd', '#1e1b4b', '#7c3aed')}
+                        {/* 3. Superviseurs d'escalade */}
+                        {supervisors.length > 0 && agentBlock(supervisors, '🎯 Superviseurs', '#f59e0b', '#fffbeb', '#fcd34d', '#78350f', '#b45309')}
+                        {agents.length === 0 && supervisors.length === 0 && groups.length === 0 && (
+                          <div style={{ textAlign: 'center', padding: 30, color: '#94a3b8', fontSize: 13 }}>Aucune cible d'escalade configurée.<br /><span style={{ fontSize: 11 }}>Configurez des groupes, agents ou superviseurs dans Admin → Escalade.</span></div>
                         )}
                       </>
                     );

@@ -4,11 +4,11 @@ import { useAuth } from '../../contexts/AuthContext';
 
 const STATUS_NAMES: Record<number, string> = {
   1: 'Nouveau', 2: 'En cours', 3: 'Planifié',
-  4: 'En attente', 5: 'Résolu', 6: 'Clos'
+  4: 'En attente', 5: 'Résolu', 6: 'Clos', 7: 'Clos', 8: 'Rejeté'
 };
 const STATUS_COLORS: Record<number, string> = {
   1: '#6366f1', 2: '#8b5cf6', 3: '#f59e0b',
-  4: '#f97316', 5: '#22c55e', 6: '#64748b'
+  4: '#f97316', 5: '#22c55e', 6: '#64748b', 7: '#64748b', 8: '#ef4444'
 };
 const PRIORITY_COLORS: Record<number, string> = {
   2: '#22c55e', 3: '#f59e0b', 4: '#f97316', 5: '#ef4444',

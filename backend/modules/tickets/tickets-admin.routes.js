@@ -778,7 +778,7 @@ router.post('/technicians/reapply-assignments', authenticateTicketAdmin, async (
 
 router.get('/technicians/available', authenticateJWT, async (req, res) => {
     try {
-        const list = await technicianRepo.findAvailable();
+        const list = await technicianRepo.findAvailableInDefaultGroup();
         res.json(list.filter(t => (t.module_role || 'technician') === 'technician'));
     } catch (e) { res.status(500).json({ message: e.message }); }
 });

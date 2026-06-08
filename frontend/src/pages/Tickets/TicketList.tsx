@@ -6,12 +6,12 @@ import UserHoverCard from '../../components/tickets/UserHoverCard';
 
 const STATUS_NAMES: Record<number, string> = {
   1: 'Nouveau', 2: 'En cours (Attribué)', 3: 'En cours (Planifié)',
-  4: 'En attente', 5: 'Résolu', 6: 'Clos'
+  4: 'En attente', 5: 'Résolu', 6: 'Clos', 7: 'Clos', 8: 'Rejeté'
 };
 
 const STATUS_COLORS: Record<number, string> = {
   1: '#6366f1', 2: '#8b5cf6', 3: '#f59e0b',
-  4: '#f97316', 5: '#22c55e', 6: '#64748b'
+  4: '#f97316', 5: '#22c55e', 6: '#64748b', 7: '#64748b', 8: '#ef4444'
 };
 
 // priority 2=Basse -> 1 dot, 3=Normale -> 2, 4=Haute -> 3, 5=Tres haute -> 4

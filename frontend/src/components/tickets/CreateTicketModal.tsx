@@ -1,7 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
+import ReactQuill from 'react-quill-new';
+import 'react-quill-new/dist/quill.snow.css';
 import RequesterSearch from '../RequesterSearch';
-import { X, Ticket, HelpCircle, AlertCircle, PlusCircle, Search, MapPin, Star, Phone } from 'lucide-react';
+import { X, Ticket, HelpCircle, AlertCircle, PlusCircle, Search, MapPin, Star, Phone, Paperclip } from 'lucide-react';
+import { uploadInlineImages, QUILL_MODULES, isQuillEmpty } from '../../pages/Tickets/ticketEditor';
 
 interface Props {
   onClose: () => void;
@@ -11,6 +14,14 @@ const TYPES = [
   { value: 1, label: 'Incident', icon: <AlertCircle size={20} /> },
   { value: 2, label: 'Demande', icon: <PlusCircle size={20} /> },
 ];
+
+// Types/limites alignés sur le middleware d'upload des tickets (backend).
+const ALLOWED_MIME = ['application/pdf', 'image/png', 'image/jpeg', 'application/msword',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.ms-excel', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'application/zip', 'text/plain'];
+const MAX_FILE_SIZE = 20 * 1024 * 1024;
+const ACCEPT_EXT = '.pdf,.png,.jpg,.jpeg,.doc,.docx,.xls,.xlsx,.zip,.txt';
 
 export default function CreateTicketModal({ onClose }: Props) {
   const [form, setForm] = useState({
@@ -36,6 +47,27 @@ export default function CreateTicketModal({ onClose }: Props) {
   const [selectedSite, setSelectedSite] = useState<any>(null);
   const [vipMap, setVipMap] = useState<Record<string, boolean>>({});
   const [requesterVip, setRequesterVip] = useState<{ vip: boolean; elu: boolean }>({ vip: false, elu: false });
+  const [files, setFiles] = useState<File[]>([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  function addFiles(list: FileList | null) {
+    if (!list) return;
+    const valid: File[] = [];
+    for (const f of Array.from(list)) {
+      if (!ALLOWED_MIME.includes(f.type)) { setError(`Type de fichier non autorisé : ${f.name}`); continue; }
+      if (f.size > MAX_FILE_SIZE) { setError(`Fichier trop volumineux (max 20 Mo) : ${f.name}`); continue; }
+      valid.push(f);
+    }
+    setFiles(prev => {
+      const seen = new Set(prev.map(p => p.name + p.size));
+      return [...prev, ...valid.filter(f => !seen.has(f.name + f.size))];
+    });
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  }
+
+  function removeFile(idx: number) {
+    setFiles(prev => prev.filter((_, i) => i !== idx));
+  }
 
   useEffect(() => {
     loadCategoriesAndApps();
@@ -102,7 +134,8 @@ export default function CreateTicketModal({ onClose }: Props) {
         axios.get('/api/magapp/apps', { headers: { Authorization: `Bearer ${token}` } })
       ]);
       setCategories(catRes.data || []);
-      setApps((appRes.data || []).filter((a: any) => a.present_magapp === 'oui'));
+      // Toutes les applications du catalogue, y compris non publiées sur le portail.
+      setApps(appRes.data || []);
     } catch (e) {
       console.error('Failed to load categories/apps:', e);
     } finally {
@@ -202,7 +235,7 @@ export default function CreateTicketModal({ onClose }: Props) {
       const token = localStorage.getItem('token');
       const submitData = {
         title: form.title,
-        content: form.content,
+        content: isQuillEmpty(form.content) ? '' : form.content,
         type: form.type,
         priority: form.priority,
         impact: form.impact,
@@ -217,7 +250,27 @@ export default function CreateTicketModal({ onClose }: Props) {
         observer_ids: observers.map(o => ({ user_id: o.id, name: o.name, email: o.email, username: o.username }))
       };
       const res = await axios.post('/api/tickets', submitData, { headers: { Authorization: `Bearer ${token}` } });
-      window.location.href = `/tickets/${res.data.id}`;
+      const ticketId = res.data.id;
+      // Upload des pièces jointes (1 fichier par requête, non bloquant en cas d'échec unitaire)
+      const failed: string[] = [];
+      for (const f of files) {
+        const fd = new FormData();
+        fd.append('file', f);
+        try {
+          await axios.post(`/api/tickets/${ticketId}/attachments`, fd, { headers: { Authorization: `Bearer ${token}` } });
+        } catch (e) { console.error('Upload PJ échoué:', f.name, e); failed.push(f.name); }
+      }
+      if (failed.length) alert(`Ticket créé, mais ${failed.length} pièce(s) jointe(s) non envoyée(s) : ${failed.join(', ')}`);
+      // Images inline (collées dans la description) : upload en PJ + réécriture du HTML
+      if (!isQuillEmpty(form.content)) {
+        try {
+          const newContent = await uploadInlineImages(form.content, ticketId, token);
+          if (newContent !== form.content) {
+            await axios.patch(`/api/tickets/${ticketId}`, { content: newContent }, { headers: { Authorization: `Bearer ${token}` } });
+          }
+        } catch (e) { console.error('Réécriture images inline échouée:', e); }
+      }
+      window.location.href = `/tickets/${ticketId}`;
     } catch (err: any) {
       setError(err.response?.data?.message || 'Erreur lors de la création');
     } finally {
@@ -288,10 +341,35 @@ export default function CreateTicketModal({ onClose }: Props) {
             {/* Description */}
             <div>
               <label style={labelStyle}>Description</label>
-              <textarea value={form.content} onChange={e => setForm(f => ({ ...f, content: e.target.value }))}
-                placeholder="Détaillez votre demande ici..."
-                rows={4}
-                style={{ ...inputStyle, resize: 'vertical', minHeight: 100, fontFamily: 'inherit' }} />
+              <div style={{ background: '#fff', borderRadius: 10 }}>
+                <ReactQuill theme="snow" value={form.content} onChange={v => setForm(f => ({ ...f, content: v }))}
+                  modules={QUILL_MODULES}
+                  placeholder="Détaillez votre demande ici (images possibles)..." />
+              </div>
+            </div>
+
+            {/* Pièces jointes */}
+            <div>
+              <label style={labelStyle}>
+                <Paperclip size={14} style={{ verticalAlign: 'middle', marginRight: 6 }} />
+                Pièces jointes
+              </label>
+              <input ref={fileInputRef} type="file" multiple accept={ACCEPT_EXT}
+                onChange={e => addFiles(e.target.files)}
+                style={{ fontSize: 13, color: '#475569' }} />
+              {files.length > 0 && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 10 }}>
+                  {files.map((f, i) => (
+                    <div key={i} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, padding: '8px 12px', background: '#fff', border: '1px solid #e2e8f0', borderRadius: 8 }}>
+                      <span style={{ fontSize: 13, color: '#334155', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        📎 {f.name} <span style={{ color: '#94a3b8', fontSize: 11 }}>({Math.round(f.size / 1024)} Ko)</span>
+                      </span>
+                      <X size={16} onClick={() => removeFile(i)} style={{ cursor: 'pointer', color: '#ef4444', flexShrink: 0 }} />
+                    </div>
+                  ))}
+                </div>
+              )}
+              <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 6 }}>PDF, images, Office, ZIP, TXT — 20 Mo max par fichier.</div>
             </div>
 
             {/* Priority & Impact */}
