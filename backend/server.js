@@ -4637,7 +4637,7 @@ app.patch('/api/user-prefs/dashboard-columns', authenticateJWT, async (req, res)
         if (![3, 4, 5].includes(c)) {
             return res.status(400).json({ error: 'Le nombre de colonnes doit être 3, 4 ou 5' });
         }
-        await pgDb.run(
+        await pool.query(
             `INSERT INTO hub.user_prefs (username, dashboard_columns, updated_at)
              VALUES ($1, $2, NOW())
              ON CONFLICT (username) DO UPDATE SET dashboard_columns = EXCLUDED.dashboard_columns, updated_at = NOW()`,
