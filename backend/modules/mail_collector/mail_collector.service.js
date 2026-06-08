@@ -446,10 +446,20 @@ class MailCollectorService {
             }
 
             // Mapping (avec la règle qui a déterminé la classification)
-            await pgDb.run(
-              'INSERT INTO hub_tickets.ticket_email_mapping (ticket_id, email_message_id, email_in_reply_to, is_initial_email, email_from, email_received_at, mail_rule_id) VALUES (?, ?, ?, true, ?, ?, ?)',
-              [ticketId, msgId, null, this.extractFromEmail(email).email, email.receivedDateTime, classif.ruleId || null]
-            );
+            try {
+              await pgDb.run(
+                'INSERT INTO hub_tickets.ticket_email_mapping (ticket_id, email_message_id, email_in_reply_to, is_initial_email, email_from, email_received_at, mail_rule_id) VALUES (?, ?, ?, true, ?, ?, ?)',
+                [ticketId, msgId, null, this.extractFromEmail(email).email, email.receivedDateTime, classif.ruleId || null]
+              );
+            } catch (e) {
+              if (e.message && e.message.includes('mail_rule_id')) {
+                // Colonne pas encore migrée : fallback sans mail_rule_id
+                await pgDb.run(
+                  'INSERT INTO hub_tickets.ticket_email_mapping (ticket_id, email_message_id, email_in_reply_to, is_initial_email, email_from, email_received_at) VALUES (?, ?, ?, true, ?, ?)',
+                  [ticketId, msgId, null, this.extractFromEmail(email).email, email.receivedDateTime]
+                );
+              } else { throw e; }
+            }
 
             log.tickets_created++;
             log.emails_imported++;
