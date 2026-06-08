@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import Header from '../components/Header';
-import { Plus, Edit2, Trash2, Save, X, Globe, LayoutGrid, BarChart2, Bell, Tag, Code, CheckCircle, Settings, Users, Lightbulb, GraduationCap, Star, FileText, Wrench, Calendar, Paperclip, Download, Search, ChevronRight, Layers, Banknote, ShieldAlert, ExternalLink, Upload } from 'lucide-react';
+import { Plus, Edit2, Trash2, Save, X, Globe, LayoutGrid, BarChart2, Bell, Tag, Code, CheckCircle, Settings, Users, Lightbulb, GraduationCap, Star, FileText, Wrench, Calendar, Paperclip, Download, Search, ChevronRight, Layers, Banknote, ShieldAlert, ExternalLink } from 'lucide-react';
 import { ResponsiveContainer, LineChart, Line, ReferenceLine, CartesianGrid, XAxis, YAxis, Tooltip as RTooltip } from 'recharts';
 import ReactQuill from 'react-quill-new';
 import 'react-quill-new/dist/quill.snow.css';
@@ -193,7 +193,7 @@ const MagappAdmin: React.FC = () => {
   const [showDocModal, setShowDocModal] = useState(false);
   const [docFile, setDocFile] = useState<File | null>(null);
   const [isUploading, setIsUploading] = useState(false);
-  const [isMigrating, setIsMigrating] = useState(false);
+
   const [ticketCounts, setTicketCounts] = useState<Record<number, { incident_count: number; request_count: number; total: number }>>({});
   const [versions, setVersions] = useState<AppVersion[]>([]);
   const [mercatorApps, setMercatorApps] = useState<{id: number, name: string, description?: string}[]>([]);
@@ -521,30 +521,6 @@ const MagappAdmin: React.FC = () => {
         });
         if (response.ok) { fetchLibrary(); fetchApps(); setDocsModalData(prev => prev.filter(d => d.id !== id)); }
       } catch (err) { console.error(err); }
-    }
-  };
-
-  const handleMigrateUploads = async () => {
-    if (!window.confirm('Migrer les documents du dossier uploads/ vers le stockage GED ? Cette action va copier les fichiers et mettre à jour les URLs.')) return;
-    setIsMigrating(true);
-    try {
-      const response = await fetch('/api/admin/magapp/migrate-uploads', {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      if (response.ok) {
-        const result = await response.json();
-        alert(`Migration terminée : ${result.migrated} migrés, ${result.skipped} ignorés, ${result.errors} erreurs sur ${result.total} documents`);
-        fetchLibrary();
-        fetchApps();
-      } else {
-        alert('Erreur lors de la migration');
-      }
-    } catch (err) {
-      console.error(err);
-      alert('Erreur lors de la migration');
-    } finally {
-      setIsMigrating(false);
     }
   };
 
@@ -2494,9 +2470,6 @@ const MagappAdmin: React.FC = () => {
                   </div>
                   <button className="primary-btn-v2" onClick={() => { setEditingDoc(null); setNewDoc({ title: '', app_id: apps[0]?.id || 0, doc_type: 'pdf', url: '', is_favorite: false, is_technical: false, is_obsolete: false }); setShowDocModal(true); }}>
                     <Plus size={18} /> Nouveau Document
-                  </button>
-                  <button onClick={handleMigrateUploads} disabled={isMigrating} style={{ padding: '10px 16px', borderRadius: '10px', border: 'none', background: '#fef3c7', color: '#92400e', fontWeight: 700, fontSize: '0.8rem', cursor: isMigrating ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: 6, opacity: isMigrating ? 0.7 : 1 }}>
-                    <Upload size={16} /> {isMigrating ? 'Migration...' : 'Migrer uploads → GED'}
                   </button>
                 </div>
 
