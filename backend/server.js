@@ -4624,7 +4624,7 @@ app.get('/api/user-prefs/dashboard-columns', authenticateJWT, async (req, res) =
             'SELECT dashboard_columns FROM hub.user_prefs WHERE username = $1',
             [req.user.username]
         );
-        res.json({ columns: row?.dashboard_columns ?? 4 });
+        res.json({ columns: row?.dashboard_columns ?? 3 });
     } catch (error) {
         res.status(500).json({ error: error.message });
     }

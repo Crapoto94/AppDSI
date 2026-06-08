@@ -27,7 +27,7 @@ const Dashboard: React.FC = () => {
   const [tileOrder, setTileOrder] = useState<number[]>([]);
   const [loading, setLoading] = useState(true);
   const [restrictedMessage, setRestrictedMessage] = useState('');
-  const [columns, setColumns] = useState(4);
+  const [columns, setColumns] = useState(3);
   const saveColumns = async (c: number) => {
     setColumns(c);
     try {
@@ -130,7 +130,7 @@ const Dashboard: React.FC = () => {
           axios.get('/api/certificates/renewal-count', { headers }).catch(() => ({ data: { count: 0 } })),
           axios.get('/api/contrats/expiry-count', { headers }).catch(() => ({ data: { expired: 0, soon: 0 } })),
           axios.get('/api/tasks/count', { headers }).catch(() => ({ data: { count: 0, overdue: 0, en_cours: 0, a_faire: 0 } })),
-          axios.get('/api/user-prefs/dashboard-columns', { headers }).catch(() => ({ data: { columns: 4 } }))
+          axios.get('/api/user-prefs/dashboard-columns', { headers }).catch(() => ({ data: { columns: 3 } }))
         ]);
         setColumns(columnsRes.data.columns);
 
