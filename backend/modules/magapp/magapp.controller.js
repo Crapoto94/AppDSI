@@ -1331,7 +1331,7 @@ const MagAppController = {
                         originalname: filename.replace(/^\d+-\d+-/, '')
                     });
 
-                    const newUrl = '/' + saved.dbPath;
+                    const newUrl = '/api/' + saved.dbPath;
                     await pool.query('UPDATE magapp.app_docs SET url = $1 WHERE id = $2', [newUrl, doc.id]);
 
                     results.migrated++;

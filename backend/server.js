@@ -2498,7 +2498,7 @@ app.post('/api/admin/magapp/docs/upload', authenticateMagappControl, magappDocsU
         console.log(`[MagApp Upload] appName reçu: "${appName}", fichier: ${req.file.originalname}`);
 
         const saved = await documentStorage.saveFile('magapp_docs', appName, req.file);
-        const fileUrl = '/' + saved.dbPath;
+        const fileUrl = '/api/' + saved.dbPath;
         console.log(`[MagApp Upload] Fichier sauvegardé: ${fileUrl}`);
         res.json({ url: fileUrl });
     } catch (error) {

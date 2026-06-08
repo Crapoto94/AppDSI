@@ -2777,7 +2777,7 @@ const MagappAdmin: React.FC = () => {
             </div>
             <div style={{ flex: 1, background: '#f1f5f9', position: 'relative' }}>
               {activeDoc.doc_type === 'pdf' && (
-                <iframe src={activeDoc.url.startsWith('http') || activeDoc.url.startsWith('/uploads') || activeDoc.url.startsWith('/storage') ? activeDoc.url : `/api/magapp/docs/file/${activeDoc.url}`}
+                <iframe src={activeDoc.url.startsWith('http') ? activeDoc.url : (activeDoc.url.startsWith('/uploads') || activeDoc.url.startsWith('/api/storage') ? activeDoc.url : (activeDoc.url.startsWith('/storage') ? '/api' + activeDoc.url : `/api/magapp/docs/file/${activeDoc.url}`))}
                   style={{ width: '100%', height: '100%', border: 'none' }} title={activeDoc.title} />
               )}
               {activeDoc.doc_type === 'youtube' && (
