@@ -322,47 +322,41 @@ class MailCollectorService {
 
     try {
       let allEmails = [];
-      const lastRunTime = collector.last_run ? new Date(collector.last_run).getTime() : 0;
+      // Filtre côté API : ne récupère que les emails depuis le dernier run (ou tout si premier run).
+      // $orderby garanti + $filter délégué à Graph → plus aucun risque d'arrêt prématuré de pagination.
+      const filterDate = collector.last_run
+        ? new Date(collector.last_run).toISOString()
+        : '1970-01-01T00:00:00Z';
+
+      const baseParams = {
+        $top: 100,
+        $select: 'id,subject,receivedDateTime,from,toRecipients,ccRecipients,body,bodyPreview,internetMessageId,hasAttachments',
+        $orderby: 'receivedDateTime desc',
+        $filter: `receivedDateTime ge ${filterDate}`,
+      };
 
       let nextLink = null;
       const firstRes = await axios.get(
         `https://graph.microsoft.com/v1.0/users/${collector.mailbox}/messages`,
-        {
-          ...axiosOpts,
-          headers: { Authorization: `Bearer ${token}` },
-          params: {
-            $top: 100,
-            $select: 'id,subject,receivedDateTime,from,toRecipients,ccRecipients,body,bodyPreview,internetMessageId,hasAttachments'
-          }
-        }
+        { ...axiosOpts, headers: { Authorization: `Bearer ${token}` }, params: baseParams }
       );
-
-      let pageEmails = firstRes.data.value || [];
-      for (const email of pageEmails) {
-        if (new Date(email.receivedDateTime).getTime() >= lastRunTime) {
-          allEmails.push(email);
-        }
-      }
-
+      allEmails.push(...(firstRes.data.value || []));
       nextLink = firstRes.data['@odata.nextLink'] || null;
-      let oldestInPage = pageEmails.length > 0 ? new Date(pageEmails[pageEmails.length - 1].receivedDateTime).getTime() : 0;
 
-      while (nextLink && oldestInPage >= lastRunTime) {
-        const pageRes = await axios.get(nextLink, {
-          ...axiosOpts,
-          headers: { Authorization: `Bearer ${token}` }
-        });
-        pageEmails = pageRes.data.value || [];
-        for (const email of pageEmails) {
-          if (new Date(email.receivedDateTime).getTime() >= lastRunTime) {
-            allEmails.push(email);
-          }
-        }
+      // Paginer jusqu'à épuisement (le $filter garantit que toutes les pages contiennent des emails récents)
+      while (nextLink) {
+        const pageRes = await axios.get(nextLink, { ...axiosOpts, headers: { Authorization: `Bearer ${token}` } });
+        allEmails.push(...(pageRes.data.value || []));
         nextLink = pageRes.data['@odata.nextLink'] || null;
-        oldestInPage = pageEmails.length > 0 ? new Date(pageEmails[pageEmails.length - 1].receivedDateTime).getTime() : 0;
       }
 
       log.emails_received = allEmails.length;
+
+      // Résoudre l'ID du dossier de destination une seule fois avant la boucle
+      let successFolderId = null;
+      if (collector.success_folder && collector.success_folder.trim()) {
+        successFolderId = await this.resolveOrCreateFolder(collector.mailbox, collector.success_folder.trim(), token, axiosOpts);
+      }
 
       for (const email of allEmails) {
         try {
@@ -429,6 +423,7 @@ class MailCollectorService {
             );
 
             log.emails_imported++;
+            if (successFolderId) await this.moveMessage(collector.mailbox, email.id, successFolderId, token, axiosOpts);
           } else {
             // Nouveau ticket
             const classif = await MailRulesService.classifyTicket(email.subject, email.body?.content);
@@ -456,6 +451,7 @@ class MailCollectorService {
 
             log.tickets_created++;
             log.emails_imported++;
+            if (successFolderId) await this.moveMessage(collector.mailbox, email.id, successFolderId, token, axiosOpts);
           }
         } catch (e) {
           console.error('Erreur traitement email:', e.message);
@@ -568,6 +564,40 @@ class MailCollectorService {
         next.setHours(next.getHours() + 1);
     }
     return next;
+  }
+
+  // Trouve un dossier Graph par nom (dans la boîte de réception) ou le crée s'il n'existe pas.
+  // Retourne le folderId, ou null en cas d'erreur (non bloquant).
+  static async resolveOrCreateFolder(mailbox, folderName, token, axiosOpts) {
+    const base = `https://graph.microsoft.com/v1.0/users/${mailbox}/mailFolders`;
+    const headers = { Authorization: `Bearer ${token}` };
+    try {
+      // Cherche dans les dossiers de premier niveau
+      const res = await axios.get(base, { ...axiosOpts, headers, params: { $top: 100 } });
+      const found = (res.data.value || []).find(f => f.displayName.toLowerCase() === folderName.toLowerCase());
+      if (found) return found.id;
+
+      // Crée le dossier s'il n'existe pas
+      const created = await axios.post(base, { displayName: folderName }, { ...axiosOpts, headers });
+      console.log(`[MAIL-COLLECTOR] Dossier "${folderName}" créé dans ${mailbox}`);
+      return created.data.id;
+    } catch (e) {
+      console.error(`[MAIL-COLLECTOR] Impossible de résoudre le dossier "${folderName}":`, e.message);
+      return null;
+    }
+  }
+
+  // Déplace un message Graph vers un dossier. Non bloquant : les erreurs sont loggées sans faire échouer l'import.
+  static async moveMessage(mailbox, graphMessageId, folderId, token, axiosOpts) {
+    try {
+      await axios.post(
+        `https://graph.microsoft.com/v1.0/users/${mailbox}/messages/${graphMessageId}/move`,
+        { destinationId: folderId },
+        { ...axiosOpts, headers: { Authorization: `Bearer ${token}` } }
+      );
+    } catch (e) {
+      console.warn(`[MAIL-COLLECTOR] Déplacement message ${graphMessageId} échoué:`, e.message);
+    }
   }
 }
 

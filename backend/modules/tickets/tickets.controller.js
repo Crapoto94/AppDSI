@@ -180,9 +180,20 @@ module.exports = {
     // ─── CRUD ───────────────────────────────────────────────────
     async getAll(req, res) {
         try {
-            const { page = 1, limit = 25, sort = 'date_creation', order = 'desc', ...filters } = req.query;
-            const result = await ticketService.findAll(filters, { page: parseInt(page), limit: parseInt(limit), sort, order }, req.user);
+            const { page = 1, limit = 25, sort = 'date_creation', order = 'desc', lite, ...filters } = req.query;
+            const result = await ticketService.findAll(filters, { page: parseInt(page), limit: parseInt(limit), sort, order, lite: lite === '1' || lite === 'true' }, req.user);
             res.json(result);
+        } catch (error) {
+            res.status(500).json({ message: error.message });
+        }
+    },
+
+    async getBatchDetails(req, res) {
+        try {
+            const ids = String(req.query.ids || '').split(',').map(Number).filter(n => n > 0);
+            if (ids.length === 0) return res.json([]);
+            const data = await ticketService.getBatchDetails(ids);
+            res.json(data);
         } catch (error) {
             res.status(500).json({ message: error.message });
         }

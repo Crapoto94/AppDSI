@@ -3966,6 +3966,7 @@ async function setupPgDb() {
     try { await client.query('ALTER TABLE hub_tickets.mail_collectors ALTER COLUMN next_run TYPE TIMESTAMPTZ'); } catch (e) {}
     try { await client.query('ALTER TABLE hub_tickets.mail_collectors ALTER COLUMN created_at TYPE TIMESTAMPTZ'); } catch (e) {}
     try { await client.query('ALTER TABLE hub_tickets.mail_collectors ALTER COLUMN updated_at TYPE TIMESTAMPTZ'); } catch (e) {}
+    try { await client.query("ALTER TABLE hub_tickets.mail_collectors ADD COLUMN IF NOT EXISTS success_folder TEXT DEFAULT NULL"); } catch (e) {}
 
     // Live chat destinations
     try { await client.query("ALTER TABLE hub_tickets.live_sessions ADD COLUMN IF NOT EXISTS chat_type VARCHAR(20) DEFAULT 'ville'"); } catch (e) {}

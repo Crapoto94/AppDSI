@@ -1,6 +1,74 @@
 const { pgDb, pool } = require('../../../shared/database');
 const { toParisSql } = require('../../../shared/utils');
 
+// Version allégée : supprime les 2 agrégations JSON lourdes, history_count et waiting_reason.
+// Utilisée pour le 1er chargement afin d'afficher la liste immédiatement.
+const LITE_BASE_SELECT = `
+SELECT t.*,
+           COALESCE(NULLIF(t.email_alt, ''), t.requester_email_22) AS requester_email_resolved,
+           COALESCE(NULLIF((SELECT hu.displayName FROM hub.users hu WHERE LOWER(hu.username) = LOWER(t.requester_name) AND hu.displayName IS NOT NULL AND hu.displayName != '' LIMIT 1), ''), t.requester_name) AS requester_name,
+           ta.technician_id, tga.group_id,
+           tca.category_id as assigned_category_id,
+           ts.label as status_label,
+           tu.displayName as technician_name,
+           tg2.name as assignee_group_name,
+           tp.status as technician_status,
+           mu.service_code as requester_service_code,
+           mu.service_complement as requester_service,
+           tgm_sub.bundle_id,
+           tgm_sub.bundle_name,
+           tgm_sub.bundle_problem_ticket_id,
+           ma.name as software_name,
+           ma.project_manager_name as project_manager_name,
+           tc.name as category_name,
+           tsc.name as subcategory_name,
+           (SELECT vu.is_elu FROM hub_tickets.vip_users vu
+            WHERE LOWER(vu.email) = LOWER(COALESCE(NULLIF(t.email_alt, ''), t.requester_email_22)) LIMIT 1) as requester_is_elu,
+           (SELECT COUNT(*) FROM hub_tickets.observers o WHERE o.ticket_id = t.glpi_id AND o.is_active = 1) as observer_count,
+           (SELECT COUNT(*) FROM hub_tickets.ticket_followups tf WHERE tf.ticket_id = t.glpi_id) as followups_count,
+           (SELECT COUNT(*) FROM hub.user_tasks ut WHERE ut.context_source = 'ticket' AND ut.context_id = t.glpi_id AND ut.statut != 'terminé') as tasks_count,
+           tsla.sla_status
+     FROM hub_tickets.tickets t
+     LEFT JOIN LATERAL (
+         SELECT technician_id FROM hub_tickets.ticket_assignments
+         WHERE ticket_id = t.glpi_id AND technician_id IS NOT NULL
+         ORDER BY (is_primary = true) DESC, technician_id ASC
+         LIMIT 1
+     ) ta ON true
+     LEFT JOIN hub_tickets.technician_profiles tp ON ta.technician_id = tp.user_id
+     LEFT JOIN hub.users tu ON ta.technician_id = tu.id
+     LEFT JOIN LATERAL (
+         SELECT group_id FROM hub_tickets.ticket_assignments
+         WHERE ticket_id = t.glpi_id AND group_id IS NOT NULL
+         ORDER BY (is_primary = true) DESC
+         LIMIT 1
+     ) tga ON true
+     LEFT JOIN hub_tickets.technician_groups tg2 ON tga.group_id = tg2.id
+     LEFT JOIN LATERAL (SELECT email, service_code, service_complement FROM magapp.users WHERE LOWER(email) = LOWER(COALESCE(NULLIF(t.email_alt, ''), t.requester_email_22)) LIMIT 1) mu ON true
+     LEFT JOIN LATERAL (SELECT category_id FROM hub_tickets.ticket_category_assignments WHERE ticket_id = t.glpi_id LIMIT 1) tca ON true
+     LEFT JOIN hub_tickets.ticket_status ts ON t.status = ts.id
+     LEFT JOIN LATERAL (
+         SELECT
+             tgm.group_id AS bundle_id,
+             tg.name AS bundle_name,
+             tg.problem_ticket_id AS bundle_problem_ticket_id
+         FROM hub_tickets.ticket_group_members tgm
+         LEFT JOIN hub_tickets.ticket_groups tg ON tg.id = tgm.group_id
+         WHERE tgm.ticket_id = t.glpi_id
+         LIMIT 1
+     ) tgm_sub ON true
+     LEFT JOIN magapp.apps ma ON t.software_id = ma.id
+     LEFT JOIN hub_tickets.ticket_categories tc ON t.category_id = tc.id
+     LEFT JOIN hub_tickets.ticket_categories tsc ON t.subcategory_id = tsc.id
+     LEFT JOIN LATERAL (
+         SELECT ts2.sla_status
+         FROM hub_tickets.ticket_sla ts2
+         JOIN hub_tickets.sla_definitions sd2 ON ts2.sla_definition_id = sd2.id AND sd2.is_active = true
+         WHERE ts2.ticket_id = t.glpi_id
+         LIMIT 1
+     ) tsla ON true
+`;
+
 const BASE_SELECT = `
 SELECT t.*,
            -- Email demandeur fiable : GLPI champ 22 (requester_email_22) contient parfois
@@ -218,7 +286,8 @@ module.exports = {
         )`;
         params.push(pagination.limit, offset);
         const idWhere = `WHERE t.glpi_id IN (SELECT glpi_id FROM page_ids)`;
-        const sql = `${cte} ${BASE_SELECT} ${idWhere} ORDER BY t.${sortCol} ${sortDir}`;
+        const selectBlock = pagination.lite ? LITE_BASE_SELECT : BASE_SELECT;
+        const sql = `${cte} ${selectBlock} ${idWhere} ORDER BY t.${sortCol} ${sortDir}`;
 
         const rows = await pgDb.all(sql, params);
 
@@ -231,6 +300,49 @@ module.exports = {
                 totalPages: Math.ceil(total / pagination.limit),
             }
         };
+    },
+
+    async findBatchDetails(ids) {
+        if (!ids || ids.length === 0) return [];
+        const { rows } = await pool.query(`
+            SELECT
+                t.glpi_id,
+                tgm_sub.bundle_members,
+                problem_sub.problem_linked_tickets,
+                (SELECT h2.comment FROM hub_tickets.ticket_history h2
+                 WHERE h2.ticket_id = t.glpi_id AND h2.action = 'status_changed' AND h2.new_value = '4'
+                 ORDER BY h2.created_at DESC LIMIT 1) AS waiting_reason,
+                (SELECT COUNT(*) FROM hub_tickets.ticket_history h WHERE h.ticket_id = t.glpi_id) AS history_count
+            FROM hub_tickets.tickets t
+            LEFT JOIN LATERAL (
+                SELECT (
+                    SELECT COALESCE(json_agg(json_build_object(
+                        'ticket_id', m.ticket_id, 'title', mt.title, 'status', mt.status,
+                        'priority', mt.priority, 'type', mt.type, 'date_creation', mt.date_creation,
+                        'impact', mt.impact, 'source', mt.source
+                    )), '[]'::json)
+                    FROM hub_tickets.ticket_group_members m
+                    JOIN hub_tickets.tickets mt ON mt.glpi_id = m.ticket_id
+                    WHERE m.group_id = tgm.group_id AND m.ticket_id != tgm.ticket_id
+                ) AS bundle_members
+                FROM hub_tickets.ticket_group_members tgm
+                WHERE tgm.ticket_id = t.glpi_id
+                LIMIT 1
+            ) tgm_sub ON true
+            LEFT JOIN LATERAL (
+                SELECT COALESCE(json_agg(json_build_object(
+                    'ticket_id', m.ticket_id, 'title', mt.title, 'status', mt.status,
+                    'priority', mt.priority, 'type', mt.type, 'date_creation', mt.date_creation,
+                    'impact', mt.impact, 'source', mt.source
+                )), '[]'::json) AS problem_linked_tickets
+                FROM hub_tickets.ticket_groups tg
+                JOIN hub_tickets.ticket_group_members m ON m.group_id = tg.id
+                JOIN hub_tickets.tickets mt ON mt.glpi_id = m.ticket_id
+                WHERE tg.problem_ticket_id = t.glpi_id
+            ) problem_sub ON true AND t.type = '3'
+            WHERE t.glpi_id = ANY($1::int[])
+        `, [ids]);
+        return rows;
     },
 
     async create(data) {

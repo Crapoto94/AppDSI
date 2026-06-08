@@ -146,16 +146,27 @@ module.exports = {
 
   getLogs: async (req, res) => {
     try {
-      const logs = await pgDb.all(
-        `SELECT l.* FROM hub_tickets.mail_collector_logs l
-         JOIN hub_tickets.mail_collectors c ON l.collector_id = c.id
-         WHERE c.id = ?
-         ORDER BY l.run_at DESC
-         LIMIT 50`,
-        [req.params.id]
-      );
+      const limit  = Math.min(Math.max(parseInt(req.query.limit)  || 50, 1), 500);
+      const offset = Math.max(parseInt(req.query.offset) || 0, 0);
+      const hideZeros = req.query.hide_zeros === '1';
+      const zeroFilter = hideZeros ? ' AND l.emails_received > 0' : '';
 
-      res.json(logs);
+      const [logs, countRow] = await Promise.all([
+        pgDb.all(
+          `SELECT l.* FROM hub_tickets.mail_collector_logs l
+           WHERE l.collector_id = ?${zeroFilter}
+           ORDER BY l.run_at DESC
+           LIMIT ? OFFSET ?`,
+          [req.params.id, limit, offset]
+        ),
+        pgDb.get(
+          `SELECT COUNT(*) as total FROM hub_tickets.mail_collector_logs l
+           WHERE l.collector_id = ?${zeroFilter}`,
+          [req.params.id]
+        )
+      ]);
+
+      res.json({ data: logs, total: parseInt(countRow?.total || 0), limit, offset });
     } catch (error) {
       res.status(500).json({ message: 'Erreur récupération logs', error: error.message });
     }

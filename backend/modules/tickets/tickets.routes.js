@@ -263,6 +263,7 @@ router.get('/config/public', authenticateJWT, async (req, res) => {
 router.get('/requester/:email', authenticateJWT, (req, res) => controller.getByRequester(req, res));
 router.get('/my-phone', authenticateJWT, (req, res) => controller.getMyPhone(req, res));
 router.delete('/bulk', authenticateJWT, (req, res) => controller.bulkDelete(req, res));
+router.get('/batch-details', apiTickets, (req, res) => controller.getBatchDetails(req, res));
 router.get('/', apiTickets, (req, res) => controller.getAll(req, res));
 router.get('/:id', apiTickets, (req, res) => controller.getById(req, res));
 router.post('/', apiTickets, (req, res) => controller.create(req, res));

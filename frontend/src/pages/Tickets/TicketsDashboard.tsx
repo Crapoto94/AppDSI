@@ -241,6 +241,29 @@ export default function TicketsDashboard() {
       const statsQs = new URLSearchParams(statsParams).toString();
       const cacheKey = qs + '|' + statsQs;
 
+      const h = { Authorization: `Bearer ${token}` };
+
+      // ── Enrichissement en 2ème passe : bundle_members, linked_tickets, waiting_reason, history_count ──
+      const enrichWithDetails = async (liteTickets: any[]) => {
+        if (liteTickets.length === 0) return liteTickets;
+        try {
+          const ids = liteTickets.map((t: any) => t.id).join(',');
+          const dr = await axios.get(`/api/tickets/batch-details?ids=${ids}`, { headers: h });
+          const detailMap = new Map((dr.data || []).map((d: any) => [d.id, d]));
+          return liteTickets.map((t: any) => {
+            const d = detailMap.get(t.id);
+            if (!d) return t;
+            return {
+              ...t,
+              bundle: t.bundle ? { ...t.bundle, members: d.bundle_members || [] } : null,
+              linked_tickets: d.linked_tickets || [],
+              waiting_reason: d.waiting_reason ?? t.waiting_reason,
+              history_count: d.history_count ?? t.history_count,
+            };
+          });
+        } catch { return liteTickets; }
+      };
+
       // Serve depuis le cache si disponible et récent, puis rafraîchit en arrière-plan.
       const cached = resultCache.current.get(cacheKey);
       if (!silent && cached && Date.now() - cached.ts < CACHE_TTL) {
@@ -249,14 +272,16 @@ export default function TicketsDashboard() {
         setTotalPages(cached.totalPages);
         setStats(cached.stats);
         setLoading(false);
-        // Rafraîchissement silencieux en arrière-plan pour garder la fraîcheur.
+        // Rafraîchissement silencieux en arrière-plan.
         (async () => {
           try {
             const [tr, sr] = await Promise.all([
-              axios.get(`/api/tickets?${qs}`, { headers: { Authorization: `Bearer ${token}` } }),
-              axios.get(`/api/tickets/dashboard/stats${statsQs ? '?' + statsQs : ''}`, { headers: { Authorization: `Bearer ${token}` } }),
+              axios.get(`/api/tickets?lite=1&${qs}`, { headers: h }),
+              axios.get(`/api/tickets/dashboard/stats${statsQs ? '?' + statsQs : ''}`, { headers: h }),
             ]);
-            const fresh = { tickets: tr.data.data || [], total: tr.data.pagination?.total || 0, totalPages: tr.data.pagination?.totalPages || 1, stats: sr.data, ts: Date.now() };
+            const lite = tr.data.data || [];
+            const enriched = await enrichWithDetails(lite);
+            const fresh = { tickets: enriched, total: tr.data.pagination?.total || 0, totalPages: tr.data.pagination?.totalPages || 1, stats: sr.data, ts: Date.now() };
             resultCache.current.set(cacheKey, fresh);
             setTickets(fresh.tickets); setTotal(fresh.total); setTotalPages(fresh.totalPages); setStats(fresh.stats);
           } catch { /* ignore background errors */ }
@@ -264,20 +289,27 @@ export default function TicketsDashboard() {
         return;
       }
 
+      // 1ère passe : lite + stats en parallèle → affichage immédiat
       const [ticketsRes, statsRes] = await Promise.all([
-        axios.get(`/api/tickets?${qs}`, { headers: { Authorization: `Bearer ${token}` } }),
-        axios.get(`/api/tickets/dashboard/stats${statsQs ? '?' + statsQs : ''}`, { headers: { Authorization: `Bearer ${token}` } }),
+        axios.get(`/api/tickets?lite=1&${qs}`, { headers: h }),
+        axios.get(`/api/tickets/dashboard/stats${statsQs ? '?' + statsQs : ''}`, { headers: h }),
       ]);
-      const fresh = { tickets: ticketsRes.data.data || [], total: ticketsRes.data.pagination?.total || 0, totalPages: ticketsRes.data.pagination?.totalPages || 1, stats: statsRes.data, ts: Date.now() };
+      const liteTickets = ticketsRes.data.data || [];
+      const pag = ticketsRes.data.pagination || {};
+      setTickets(liteTickets);
+      setTotal(pag.total || 0);
+      setTotalPages(pag.totalPages || 1);
+      setStats(statsRes.data);
+      if (!silent) setLoading(false);
+
+      // 2ème passe : enrichissement en arrière-plan
+      const enriched = await enrichWithDetails(liteTickets);
+      const fresh = { tickets: enriched, total: pag.total || 0, totalPages: pag.totalPages || 1, stats: statsRes.data, ts: Date.now() };
       resultCache.current.set(cacheKey, fresh);
-      setTickets(fresh.tickets);
-      setTotal(fresh.total);
-      setTotalPages(fresh.totalPages);
-      setStats(fresh.stats);
+      setTickets(enriched);
     } catch (e: any) {
       console.error('Failed to load tickets:', e);
       if (e.response?.data?.message) alert('Erreur serveur: ' + e.response.data.message);
-    } finally {
       if (!silent) setLoading(false);
     }
   }, [page, search, sortKey, sortDir, activeLiveFilter]);

@@ -13,6 +13,7 @@ interface MailCollector {
   is_enabled: boolean;
   last_run: string | null;
   next_run: string | null;
+  success_folder: string | null;
 }
 
 interface MailRule {
@@ -54,7 +55,7 @@ const MODULES = [
   { value: 'copieurs', label: 'Copieurs (importer les interventions SAV Koesio)' },
 ];
 
-const ITEMS_PER_PAGE = 10;
+const DEFAULT_PER_PAGE = 50;
 
 export default function MailCollector() {
   const { user } = useAuth();
@@ -70,6 +71,9 @@ export default function MailCollector() {
   const [formData, setFormData] = useState<Partial<MailCollector>>({ frequency: 'hourly', module: 'tickets' });
   const [ruleData, setRuleData] = useState<Partial<MailRule>>({});
   const [logPage, setLogPage] = useState(1);
+  const [logsPerPage, setLogsPerPage] = useState(DEFAULT_PER_PAGE);
+  const [logsTotal, setLogsTotal] = useState(0);
+  const [hideZeros, setHideZeros] = useState(false);
 
   const getHeaders = () => ({ Authorization: `Bearer ${localStorage.getItem('token')}` });
 
@@ -101,11 +105,17 @@ export default function MailCollector() {
     finally { setLoading(false); }
   };
 
-  const loadLogs = async (collectorId: number) => {
+  const loadLogs = async (collectorId: number, page = logPage, perPage = logsPerPage, zeros = hideZeros) => {
     setLoading(true);
     try {
-      const res = await axios.get(`/api/mail-collector/${collectorId}/logs`, { headers: getHeaders() });
-      setLogs(res.data);
+      const params: Record<string, string> = {
+        limit: String(perPage),
+        offset: String((page - 1) * perPage),
+      };
+      if (zeros) params.hide_zeros = '1';
+      const res = await axios.get(`/api/mail-collector/${collectorId}/logs`, { headers: getHeaders(), params });
+      setLogs(res.data.data ?? res.data);
+      setLogsTotal(res.data.total ?? (res.data.data ?? res.data).length);
     } catch (error) { console.error(error); }
     finally { setLoading(false); }
   };
@@ -213,8 +223,8 @@ export default function MailCollector() {
     return d.toLocaleString('fr', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
   };
 
-  const paginatedLogs = logs.slice((logPage - 1) * ITEMS_PER_PAGE, logPage * ITEMS_PER_PAGE);
-  const totalPages = Math.ceil(logs.length / ITEMS_PER_PAGE);
+  const paginatedLogs = logs; // server-side pagination — logs is already the current page
+  const totalPages = Math.ceil(logsTotal / logsPerPage);
 
   const s = {
     container: { padding: '24px', maxWidth: '1400px', margin: '0 auto' },
@@ -308,6 +318,15 @@ export default function MailCollector() {
                 <input style={s.input} value={formData.domain_filter || ''} onChange={e => setFormData({...formData, domain_filter: e.target.value})} placeholder="ivry94.fr (optionnel)" />
               </div>
               <div style={s.row}>
+                <span style={s.label}>Dossier après collecte</span>
+                <div>
+                  <input style={s.input} value={(formData as any).success_folder || ''} onChange={e => setFormData({...formData, success_folder: e.target.value} as any)} placeholder="Collect_ok (optionnel)" />
+                  <div style={{ fontSize: 12, color: '#6b7280', marginTop: 4 }}>
+                    Nom du dossier O365 où déplacer les emails après import. Laissez vide pour ne pas déplacer.
+                  </div>
+                </div>
+              </div>
+              <div style={s.row}>
                 <span style={s.label}>Module</span>
                 <select style={s.input} value={formData.module || 'tickets'} onChange={e => setFormData({...formData, module: e.target.value})}>
                   {MODULES.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
@@ -342,7 +361,8 @@ export default function MailCollector() {
                   <td style={s.td}>
                     <div style={{ fontWeight: '600', color: '#111827' }}>{c.name}</div>
                     <code style={{ fontSize: '12px', color: '#6b7280' }}>{c.mailbox}</code>
-                    {c.domain_filter && <div style={{ fontSize: '12px', color: '#9ca3af', marginTop: '4px' }}>Domaine: {c.domain_filter}</div>}
+                    {c.domain_filter && <div style={{ fontSize: '12px', color: '#9ca3af', marginTop: '2px' }}>🌐 {c.domain_filter}</div>}
+                    {c.success_folder && <div style={{ fontSize: '12px', color: '#059669', marginTop: '2px' }}>📁 → {c.success_folder}</div>}
                   </td>
                   <td style={s.td}>{modLabel(c.module || 'tickets')}</td>
                   <td style={s.td}><span style={s.badge('#8b5cf6')}>{freqLabel(c.frequency)}</span></td>
@@ -482,6 +502,30 @@ export default function MailCollector() {
                 <button style={{ ...s.btn('secondary'), display: 'flex', alignItems: 'center', gap: '6px' }} onClick={() => loadLogs(selectedCollectorId)}>
                   <Clock size={16} /> Actualiser
                 </button>
+                <button
+                  onClick={() => {
+                    const next = !hideZeros;
+                    setHideZeros(next);
+                    setLogPage(1);
+                    loadLogs(selectedCollectorId, 1, logsPerPage, next);
+                  }}
+                  style={{ ...s.btn(hideZeros ? 'primary' : 'secondary'), display: 'flex', alignItems: 'center', gap: '6px' }}
+                  title="Masquer les exécutions sans aucun email reçu"
+                >
+                  {hideZeros ? '👁 Afficher les 0' : '🚫 Masquer les 0'}
+                </button>
+                <select
+                  value={logsPerPage}
+                  onChange={e => {
+                    const n = Number(e.target.value);
+                    setLogsPerPage(n);
+                    setLogPage(1);
+                    loadLogs(selectedCollectorId, 1, n, hideZeros);
+                  }}
+                  style={{ padding: '7px 10px', borderRadius: '6px', border: '1px solid #e5e7eb', fontSize: '13px', color: '#374151', cursor: 'pointer' }}
+                >
+                  {[25, 50, 100, 200, 500].map(n => <option key={n} value={n}>{n} / page</option>)}
+                </select>
                 <button style={{ ...s.btn('secondary'), display: 'flex', alignItems: 'center', gap: '6px' }} onClick={() => clearLogs(true)} title="Supprimer les entrées datées 01/01/1970">
                   🧹 Nettoyer les 1970
                 </button>
@@ -505,7 +549,8 @@ export default function MailCollector() {
             <>
               <div style={{ marginBottom: '16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 <span style={{ fontSize: '14px', color: '#6b7280' }}>
-                  Total: <strong>{logs.length}</strong> exécution(s) | Page {logPage} sur {totalPages}
+                  <strong>{logsTotal}</strong> exécution(s){hideZeros ? ' (zéros masqués)' : ''} — page {logPage} sur {totalPages || 1}
+                  {logsTotal > 0 && <span style={{ marginLeft: 8 }}>({((logPage - 1) * logsPerPage) + 1}–{Math.min(logPage * logsPerPage, logsTotal)})</span>}
                 </span>
               </div>
               <table style={s.table}>
@@ -568,27 +613,47 @@ export default function MailCollector() {
                 <div style={s.pagination}>
                   <button
                     style={{ ...s.pageBtn(false), cursor: logPage === 1 ? 'not-allowed' : 'pointer', opacity: logPage === 1 ? 0.5 : 1 }}
-                    onClick={() => setLogPage(Math.max(1, logPage - 1))}
+                    onClick={() => { setLogPage(1); loadLogs(selectedCollectorId!, 1); }}
                     disabled={logPage === 1}
-                  >
-                    <ChevronLeft size={16} />
-                  </button>
-                  {Array.from({ length: totalPages }, (_, i) => i + 1).map(p => (
-                    <button
-                      key={p}
-                      style={s.pageBtn(p === logPage)}
-                      onClick={() => setLogPage(p)}
-                    >
-                      {p}
-                    </button>
-                  ))}
+                    title="Première page"
+                  >«</button>
+                  <button
+                    style={{ ...s.pageBtn(false), cursor: logPage === 1 ? 'not-allowed' : 'pointer', opacity: logPage === 1 ? 0.5 : 1 }}
+                    onClick={() => { const p = Math.max(1, logPage - 1); setLogPage(p); loadLogs(selectedCollectorId!, p); }}
+                    disabled={logPage === 1}
+                  ><ChevronLeft size={16} /></button>
+
+                  {(() => {
+                    const pages: (number | '…')[] = [];
+                    if (totalPages <= 7) {
+                      for (let i = 1; i <= totalPages; i++) pages.push(i);
+                    } else {
+                      pages.push(1);
+                      if (logPage > 4) pages.push('…');
+                      const start = Math.max(2, logPage - 2);
+                      const end   = Math.min(totalPages - 1, logPage + 2);
+                      for (let i = start; i <= end; i++) pages.push(i);
+                      if (logPage < totalPages - 3) pages.push('…');
+                      pages.push(totalPages);
+                    }
+                    return pages.map((p, i) =>
+                      p === '…'
+                        ? <span key={`el${i}`} style={{ padding: '0 4px', color: '#9ca3af' }}>…</span>
+                        : <button key={p} style={s.pageBtn(p === logPage)} onClick={() => { setLogPage(p as number); loadLogs(selectedCollectorId!, p as number); }}>{p}</button>
+                    );
+                  })()}
+
                   <button
                     style={{ ...s.pageBtn(false), cursor: logPage === totalPages ? 'not-allowed' : 'pointer', opacity: logPage === totalPages ? 0.5 : 1 }}
-                    onClick={() => setLogPage(Math.min(totalPages, logPage + 1))}
+                    onClick={() => { const p = Math.min(totalPages, logPage + 1); setLogPage(p); loadLogs(selectedCollectorId!, p); }}
                     disabled={logPage === totalPages}
-                  >
-                    <ChevronRight size={16} />
-                  </button>
+                  ><ChevronRight size={16} /></button>
+                  <button
+                    style={{ ...s.pageBtn(false), cursor: logPage === totalPages ? 'not-allowed' : 'pointer', opacity: logPage === totalPages ? 0.5 : 1 }}
+                    onClick={() => { setLogPage(totalPages); loadLogs(selectedCollectorId!, totalPages); }}
+                    disabled={logPage === totalPages}
+                    title="Dernière page"
+                  >»</button>
                 </div>
               )}
             </>

@@ -26,6 +26,17 @@ module.exports = {
         };
     },
 
+    async getBatchDetails(ids) {
+        const rows = await ticketRepo.findBatchDetails(ids);
+        return rows.map(r => ({
+            id: r.glpi_id,
+            bundle_members: r.bundle_members || [],
+            linked_tickets: r.problem_linked_tickets || [],
+            waiting_reason: r.waiting_reason || null,
+            history_count: parseInt(r.history_count) || 0,
+        }));
+    },
+
     async findById(id, user) {
         const ticket = await ticketRepo.findById(id);
         if (!ticket) return null;
