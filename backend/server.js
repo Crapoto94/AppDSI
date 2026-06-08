@@ -2989,36 +2989,17 @@ app.post('/api/release-from-backlog', authenticateAdmin, versionUpload.single('m
             }
         }
 
-        // 1. Récupérer la version et la date de la dernière release depuis PostgreSQL
-        const latestRow = await pgDb.get('SELECT version, release_date FROM hub.changelog_versions ORDER BY id DESC LIMIT 1');
+        // 1. Récupérer la version courante
+        const latestRow = await pgDb.get('SELECT version FROM hub.changelog_versions ORDER BY id DESC LIMIT 1');
         const currentVersion = latestRow ? latestRow.version : '0.1.0';
 
-        // 2. Calculer la date de la dernière version pour filtrer les backlogs
-        let lastVersionDate;
-        if (latestRow && latestRow.release_date) {
-            const dateStr = latestRow.release_date;
-            const frenchMatch = dateStr.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-            if (frenchMatch) {
-                const [_, day, month, year] = frenchMatch;
-                lastVersionDate = new Date(year, parseInt(month) - 1, day);
-            } else {
-                lastVersionDate = new Date(dateStr);
-                if (isNaN(lastVersionDate.getTime())) {
-                    lastVersionDate = new Date('2024-01-01');
-                }
-            }
-        } else {
-            lastVersionDate = new Date('2024-01-01');
-        }
-
-        // 3. Get completed backlog items updated since last version
+        // 2. Get completed backlog items not yet released
         const completedBacklog = await pgDb.all(
-            "SELECT title, category, tile_id FROM hub.backlog WHERE status = 'completed' AND updated_at >= $1 ORDER BY updated_at DESC",
-            [lastVersionDate.toISOString()]
+            "SELECT id, title, category, tile_id FROM hub.backlog WHERE status = 'completed' AND released_at IS NULL ORDER BY updated_at DESC"
         );
 
         if (completedBacklog.length === 0) {
-            return res.status(400).json({ message: "Aucun backlog complété depuis la dernière version." });
+            return res.status(400).json({ message: "Aucun nouveau backlog complété à publier." });
         }
 
         // Fetch tiles from SQLite to get their titles
@@ -3062,7 +3043,15 @@ app.post('/api/release-from-backlog', authenticateAdmin, versionUpload.single('m
             [newVersion, releaseDate, JSON.stringify(changes), releaseNotesMd || null]
         );
 
-        // 7. Git commit
+        // 7. Mark released backlog items
+        const releasedIds = completedBacklog.map(i => i.id).filter(Boolean);
+        if (releasedIds.length > 0) {
+            await pgDb.run(
+                `UPDATE hub.backlog SET released_at = CURRENT_TIMESTAMP WHERE id IN (${releasedIds.join(',')})`
+            );
+        }
+
+        // 8. Git commit
         exec(`git add . && git commit -m "Release v${newVersion}"`, (error, stdout, stderr) => {
             if (error) {
                 console.error(`Git Error: ${error.message}`);
@@ -3090,7 +3079,7 @@ app.post('/api/release-from-backlog', authenticateAdmin, versionUpload.single('m
 app.get('/api/backlog/ready-for-release', authenticateAdmin, async (req, res) => {
     try {
         // Récupérer la version actuelle depuis PostgreSQL
-        const latestRow = await pgDb.get('SELECT version, release_date FROM hub.changelog_versions ORDER BY id DESC LIMIT 1');
+        const latestRow = await pgDb.get('SELECT version FROM hub.changelog_versions ORDER BY id DESC LIMIT 1');
         const currentVersion = latestRow ? latestRow.version : '0.1.0';
 
         // Calculer la prochaine version
@@ -3098,28 +3087,9 @@ app.get('/api/backlog/ready-for-release', authenticateAdmin, async (req, res) =>
         parts[parts.length - 1] = parseInt(parts[parts.length - 1]) + 1;
         const nextVersion = parts.join('.');
 
-        // Calculer la date de la dernière version
-        let lastVersionDate;
-        if (latestRow && latestRow.release_date) {
-            const dateStr = latestRow.release_date;
-            const frenchMatch = dateStr.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-            if (frenchMatch) {
-                const [_, day, month, year] = frenchMatch;
-                lastVersionDate = new Date(year, parseInt(month) - 1, day);
-            } else {
-                lastVersionDate = new Date(dateStr);
-                if (isNaN(lastVersionDate.getTime())) {
-                    lastVersionDate = new Date('2024-01-01');
-                }
-            }
-        } else {
-            lastVersionDate = new Date('2024-01-01');
-        }
-
-        // Get completed backlog items since last version
+        // Get completed backlog items not yet included in a release
         const completedBacklog = await pgDb.all(
-            "SELECT * FROM hub.backlog WHERE status = 'completed' AND updated_at >= $1 ORDER BY tile_id, title",
-            [lastVersionDate.toISOString()]
+            "SELECT * FROM hub.backlog WHERE status = 'completed' AND released_at IS NULL ORDER BY tile_id, title"
         );
 
         // Fetch tiles from SQLite to get their titles

@@ -3485,6 +3485,20 @@ async function setupPgDb() {
       `);
     } catch (e) {}
 
+    // Track which backlog items have been included in a release
+    try {
+      await client.query(`
+        ALTER TABLE hub.backlog ADD COLUMN IF NOT EXISTS released_at TIMESTAMP
+      `);
+    } catch (e) {}
+    // Mark all existing completed items as already released so they don't reappear
+    try {
+      await client.query(`
+        UPDATE hub.backlog SET released_at = COALESCE(updated_at, CURRENT_TIMESTAMP)
+        WHERE status = 'completed' AND released_at IS NULL
+      `);
+    } catch (e) {}
+
     // Tiles and tile_links for dashboard
     await client.query(`
       CREATE TABLE IF NOT EXISTS hub.tiles (
