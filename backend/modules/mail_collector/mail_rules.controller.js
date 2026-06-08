@@ -24,7 +24,7 @@ module.exports = {
 
   create: async (req, res) => {
     try {
-      const { name, type, keywords, priority, is_active, category_id } = req.body;
+      const { name, type, keywords, priority, is_active, category_id, software_id } = req.body;
       if (!name || !type || !keywords) {
         return res.status(400).json({ message: 'Champs requis: name, type, keywords' });
       }
@@ -33,8 +33,8 @@ module.exports = {
       }
 
       const result = await pgDb.run(
-        'INSERT INTO hub_tickets.mail_rules (name, type, keywords, priority, is_active, category_id) VALUES (?, ?, ?, ?, ?, ?)',
-        [name, type, keywords, priority || 100, is_active !== false, category_id || null]
+        'INSERT INTO hub_tickets.mail_rules (name, type, keywords, priority, is_active, category_id, software_id) VALUES (?, ?, ?, ?, ?, ?, ?)',
+        [name, type, keywords, priority || 100, is_active !== false, category_id || null, software_id || null]
       );
 
       const rule = await pgDb.get('SELECT * FROM hub_tickets.mail_rules WHERE id = ?', [result.lastID]);
@@ -50,7 +50,7 @@ module.exports = {
       const existing = await pgDb.get('SELECT * FROM hub_tickets.mail_rules WHERE id = ?', [req.params.id]);
       if (!existing) return res.status(404).json({ message: 'Règle non trouvée' });
 
-      const { name, type, keywords, priority, is_active, category_id } = req.body;
+      const { name, type, keywords, priority, is_active, category_id, software_id } = req.body;
       if (type && !['demande', 'incident'].includes(type)) {
         return res.status(400).json({ message: 'Type doit être demande ou incident' });
       }
@@ -64,6 +64,7 @@ module.exports = {
       if (priority !== undefined) { updates.push('priority = ?'); values.push(priority); }
       if (is_active !== undefined) { updates.push('is_active = ?'); values.push(is_active); }
       if (category_id !== undefined) { updates.push('category_id = ?'); values.push(category_id || null); }
+      if (software_id !== undefined) { updates.push('software_id = ?'); values.push(software_id || null); }
 
       if (updates.length === 0) return res.status(400).json({ message: 'Aucun champ à mettre à jour' });
 

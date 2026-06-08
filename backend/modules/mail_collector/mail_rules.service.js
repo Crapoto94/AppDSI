@@ -10,12 +10,14 @@ class MailRulesService {
     return pgDb.all(`
       SELECT r.*,
         tc.name AS category_name,
+        a.name AS software_name,
         COALESCE(
           (SELECT COUNT(*) FROM hub_tickets.ticket_email_mapping m WHERE m.mail_rule_id = r.id),
           0
         ) AS usage_count
       FROM hub_tickets.mail_rules r
       LEFT JOIN hub_tickets.ticket_categories tc ON tc.id = r.category_id
+      LEFT JOIN magapp.apps a ON a.id = r.software_id
       ORDER BY r.priority ASC, r.created_at DESC
     `);
   }
@@ -100,7 +102,7 @@ class MailRulesService {
   static async classifyTicket(title, content) {
     const rules = await this.getRules();
     if (rules.length === 0) {
-      return { type: 2, typeLabel: 'demande', ruleId: null, categoryId: null };
+      return { type: 2, typeLabel: 'demande', ruleId: null, categoryId: null, softwareId: null };
     }
 
     const textToAnalyze = `${title} ${(content || '').substring(0, 200)}`;
@@ -144,6 +146,7 @@ class MailRulesService {
       type, typeLabel, matches,
       ruleId: bestRule?.id || null,
       categoryId: bestRule?.category_id || null,
+      softwareId: bestRule?.software_id || null,
     };
   }
 }

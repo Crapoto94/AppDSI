@@ -25,6 +25,8 @@ interface MailRule {
   is_active: boolean;
   category_id: number | null;
   category_name: string | null;
+  software_id: number | null;
+  software_name: string | null;
   usage_count: number;
 }
 
@@ -65,6 +67,9 @@ export default function MailCollector() {
   const [collectors, setCollectors] = useState<MailCollector[]>([]);
   const [rules, setRules] = useState<MailRule[]>([]);
   const [categories, setCategories] = useState<{id: number; name: string}[]>([]);
+  const [apps, setApps] = useState<{id: number; name: string}[]>([]);
+  const [rulesError, setRulesError] = useState<string | null>(null);
+  const [catsError, setCatsError] = useState<string | null>(null);
   const [logs, setLogs] = useState<CollectorLog[]>([]);
   const [selectedTab, setSelectedTab] = useState<'collectors' | 'rules' | 'logs'>('collectors');
   const [selectedCollectorId, setSelectedCollectorId] = useState<number | null>(null);
@@ -103,15 +108,29 @@ export default function MailCollector() {
 
   const loadRules = async () => {
     setLoading(true);
+    setRulesError(null);
+    setCatsError(null);
     try {
-      const [rulesRes, catsRes] = await Promise.all([
-        axios.get('/api/mail-collector/rules', { headers: getHeaders() }),
-        axios.get('/api/tickets/admin/categories', { headers: getHeaders() }),
-      ]);
+      const rulesRes = await axios.get('/api/mail-collector/rules', { headers: getHeaders() });
       setRules(rulesRes.data);
+    } catch (error: any) {
+      console.error(error);
+      setRulesError('Impossible de charger les règles');
+    }
+    try {
+      const catsRes = await axios.get('/api/tickets/admin/categories', { headers: getHeaders() });
       setCategories((catsRes.data || []).map((c: any) => ({ id: c.id, name: c.name })));
-    } catch (error) { console.error(error); }
-    finally { setLoading(false); }
+    } catch (error: any) {
+      console.error(error);
+      setCatsError('Impossible de charger les catégories');
+    }
+    try {
+      const appsRes = await axios.get('/api/magapp/apps', { headers: getHeaders() });
+      setApps((appsRes.data || []).map((a: any) => ({ id: a.id, name: a.name })));
+    } catch (error: any) {
+      console.error(error);
+    }
+    setLoading(false);
   };
 
   const loadLogs = async (collectorId: number, page = logPage, perPage = logsPerPage, zeros = hideZeros) => {
@@ -465,6 +484,14 @@ export default function MailCollector() {
                   <option value="">— Aucune —</option>
                   {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                 </select>
+                {catsError && <span style={{ fontSize: 12, color: '#ef4444', marginLeft: 8 }}>{catsError}</span>}
+              </div>
+              <div style={s.row}>
+                <span style={s.label}>Logiciel auto</span>
+                <select style={s.input} value={(ruleData as any).software_id || ''} onChange={e => setRuleData({...ruleData, software_id: e.target.value ? parseInt(e.target.value) : null} as any)}>
+                  <option value="">— Aucun —</option>
+                  {apps.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                </select>
               </div>
               <button style={s.btn('primary')} onClick={createRule}>{editingRuleId ? 'Enregistrer' : 'Créer'}</button>
             </div>
@@ -477,6 +504,7 @@ export default function MailCollector() {
                 <th style={s.th}>Type</th>
                 <th style={s.th}>Mots-clés</th>
                 <th style={s.th}>Catégorie auto</th>
+                <th style={s.th}>Logiciel auto</th>
                 <th style={{ ...s.th, textAlign: 'center' as const }}>Utilisée</th>
                 <th style={s.th}>Priorité</th>
                 <th style={s.th}>Actions</th>
@@ -502,6 +530,11 @@ export default function MailCollector() {
                       ? <span style={s.badge('#0ea5e9')}>{r.category_name}</span>
                       : <span style={{ color: '#d1d5db', fontSize: '12px' }}>—</span>}
                   </td>
+                  <td style={s.td}>
+                    {r.software_name
+                      ? <span style={s.badge('#8b5cf6')}>{r.software_name}</span>
+                      : <span style={{ color: '#d1d5db', fontSize: '12px' }}>—</span>}
+                  </td>
                   <td style={{ ...s.td, textAlign: 'center' as const }}>
                     <span style={s.badge(Number(r.usage_count) > 0 ? '#10b981' : '#9ca3af')}>
                       {r.usage_count ?? 0}
@@ -520,7 +553,7 @@ export default function MailCollector() {
                 </tr>
               ))}
               {rules.length === 0 && (
-                <tr><td colSpan={7} style={{ ...s.td, textAlign: 'center', color: '#9ca3af', padding: '40px' }}>Aucune règle configurée</td></tr>
+                <tr><td colSpan={8} style={{ ...s.td, textAlign: 'center', color: '#9ca3af', padding: '40px' }}>Aucune règle configurée</td></tr>
               )}
             </tbody>
           </table>

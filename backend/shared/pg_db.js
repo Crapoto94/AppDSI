@@ -3968,6 +3968,7 @@ async function setupPgDb() {
     try { await client.query('ALTER TABLE hub_tickets.mail_collectors ALTER COLUMN updated_at TYPE TIMESTAMPTZ'); } catch (e) {}
     try { await client.query("ALTER TABLE hub_tickets.mail_collectors ADD COLUMN IF NOT EXISTS success_folder TEXT DEFAULT NULL"); } catch (e) {}
     try { await client.query("ALTER TABLE hub_tickets.mail_rules ADD COLUMN IF NOT EXISTS category_id INTEGER DEFAULT NULL REFERENCES hub_tickets.ticket_categories(id) ON DELETE SET NULL"); } catch (e) {}
+    try { await client.query("ALTER TABLE hub_tickets.mail_rules ADD COLUMN IF NOT EXISTS software_id INTEGER DEFAULT NULL REFERENCES magapp.apps(id) ON DELETE SET NULL"); } catch (e) {}
     try { await client.query("ALTER TABLE hub_tickets.ticket_email_mapping ADD COLUMN IF NOT EXISTS mail_rule_id INTEGER DEFAULT NULL REFERENCES hub_tickets.mail_rules(id) ON DELETE SET NULL"); } catch (e) {}
 
     // Live chat destinations

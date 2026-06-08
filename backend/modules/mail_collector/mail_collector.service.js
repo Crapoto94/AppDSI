@@ -222,6 +222,7 @@ class MailCollectorService {
       urgency: 3,
       impact: 2,
       ...(classificationResult.categoryId ? { category_id: classificationResult.categoryId } : {}),
+      ...(classificationResult.softwareId ? { software_id: classificationResult.softwareId } : {}),
     });
 
     // Entrée de journal pour la création via collecteur (sinon absente, car on n'passe pas
