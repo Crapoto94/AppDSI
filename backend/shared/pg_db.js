@@ -3487,17 +3487,22 @@ async function setupPgDb() {
 
     // Track which backlog items have been included in a release
     try {
-      await client.query(`
-        ALTER TABLE hub.backlog ADD COLUMN IF NOT EXISTS released_at TIMESTAMP
-      `);
-    } catch (e) {}
-    // Mark all existing completed items as already released so they don't reappear
-    try {
-      await client.query(`
-        UPDATE hub.backlog SET released_at = COALESCE(updated_at, CURRENT_TIMESTAMP)
-        WHERE status = 'completed' AND released_at IS NULL
-      `);
-    } catch (e) {}
+      // Backfill UNIQUEMENT à la création de la colonne. Sinon (exécuté à chaque
+      // démarrage), tout backlog complété depuis la dernière release serait
+      // immédiatement marqué comme publié → la montée de version afficherait 0.
+      const relCol = await client.query(
+        "SELECT 1 FROM information_schema.columns WHERE table_schema='hub' AND table_name='backlog' AND column_name='released_at'"
+      );
+      const releasedAtExisted = relCol.rows.length > 0;
+      await client.query(`ALTER TABLE hub.backlog ADD COLUMN IF NOT EXISTS released_at TIMESTAMP`);
+      if (!releasedAtExisted) {
+        // Première création : on considère l'existant déjà publié pour ne pas le refaire surgir.
+        await client.query(`
+          UPDATE hub.backlog SET released_at = COALESCE(updated_at, CURRENT_TIMESTAMP)
+          WHERE status = 'completed' AND released_at IS NULL
+        `);
+      }
+    } catch (e) { console.error('[MIGRATIONS] backlog.released_at:', e.message); }
 
     // Tiles and tile_links for dashboard
     await client.query(`
