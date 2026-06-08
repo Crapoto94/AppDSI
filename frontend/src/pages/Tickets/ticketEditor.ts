@@ -20,7 +20,7 @@ export function isQuillEmpty(html: string): boolean {
 // Upload des images base64 (collées/insérées dans l'éditeur) en pièces jointes du
 // ticket, puis renvoie le HTML avec les src réécrits vers l'URL de la PJ stockée
 // (/api/tickets/{id}/attachments/{attId}) — même principe que les images inline des mails.
-export async function uploadInlineImages(html: string, ticketId: number, token: string): Promise<string> {
+export async function uploadInlineImages(html: string, ticketId: number, token: string | null): Promise<string> {
   if (!html || !html.includes('data:image/')) return html;
   let result = html;
   const matches = [...html.matchAll(/src="(data:(image\/[a-zA-Z0-9+.-]+);base64,([^"]+))"/g)];
