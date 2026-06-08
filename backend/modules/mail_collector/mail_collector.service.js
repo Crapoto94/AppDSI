@@ -571,20 +571,20 @@ class MailCollectorService {
   // Trouve un dossier Graph par nom (dans la boîte de réception) ou le crée s'il n'existe pas.
   // Retourne le folderId, ou null en cas d'erreur (non bloquant).
   static async resolveOrCreateFolder(mailbox, folderName, token, axiosOpts) {
-    const base = `https://graph.microsoft.com/v1.0/users/${mailbox}/mailFolders`;
+    // Le dossier est créé en sous-dossier de la boîte de réception (inbox/childFolders)
+    const inboxChildren = `https://graph.microsoft.com/v1.0/users/${mailbox}/mailFolders/inbox/childFolders`;
     const headers = { Authorization: `Bearer ${token}` };
     try {
-      // Cherche dans les dossiers de premier niveau
-      const res = await axios.get(base, { ...axiosOpts, headers, params: { $top: 100 } });
+      const res = await axios.get(inboxChildren, { ...axiosOpts, headers, params: { $top: 100 } });
       const found = (res.data.value || []).find(f => f.displayName.toLowerCase() === folderName.toLowerCase());
       if (found) return found.id;
 
-      // Crée le dossier s'il n'existe pas
-      const created = await axios.post(base, { displayName: folderName }, { ...axiosOpts, headers });
-      console.log(`[MAIL-COLLECTOR] Dossier "${folderName}" créé dans ${mailbox}`);
+      // Crée le sous-dossier dans l'inbox s'il n'existe pas
+      const created = await axios.post(inboxChildren, { displayName: folderName }, { ...axiosOpts, headers });
+      console.log(`[MAIL-COLLECTOR] Sous-dossier inbox/"${folderName}" créé dans ${mailbox}`);
       return created.data.id;
     } catch (e) {
-      console.error(`[MAIL-COLLECTOR] Impossible de résoudre le dossier "${folderName}":`, e.message);
+      console.error(`[MAIL-COLLECTOR] Impossible de résoudre le sous-dossier inbox/"${folderName}":`, e.message);
       return null;
     }
   }
