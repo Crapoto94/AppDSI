@@ -68,6 +68,7 @@ export default function MailCollector() {
   const [showNewCollector, setShowNewCollector] = useState(false);
   const [editingCollectorId, setEditingCollectorId] = useState<number | null>(null);
   const [showNewRule, setShowNewRule] = useState(false);
+  const [editingRuleId, setEditingRuleId] = useState<number | null>(null);
   const [formData, setFormData] = useState<Partial<MailCollector>>({ frequency: 'hourly', module: 'tickets' });
   const [ruleData, setRuleData] = useState<Partial<MailRule>>({});
   const [logPage, setLogPage] = useState(1);
@@ -136,11 +137,20 @@ export default function MailCollector() {
     }
   };
 
+  const resetRuleForm = () => {
+    setRuleData({});
+    setShowNewRule(false);
+    setEditingRuleId(null);
+  };
+
   const createRule = async () => {
     try {
-      await axios.post('/api/mail-collector/rules', ruleData, { headers: getHeaders() });
-      setRuleData({});
-      setShowNewRule(false);
+      if (editingRuleId) {
+        await axios.put(`/api/mail-collector/rules/${editingRuleId}`, ruleData, { headers: getHeaders() });
+      } else {
+        await axios.post('/api/mail-collector/rules', ruleData, { headers: getHeaders() });
+      }
+      resetRuleForm();
       loadRules();
     } catch (error: any) {
       alert('Erreur création: ' + (error.response?.data?.message || error.message));
@@ -411,12 +421,17 @@ export default function MailCollector() {
       {/* ── RULES ── */}
       {selectedTab === 'rules' && (
         <>
-          <button style={s.btn(showNewRule ? 'secondary' : 'success')} onClick={() => setShowNewRule(!showNewRule)}>
+          <button style={s.btn(showNewRule ? 'secondary' : 'success')} onClick={() => {
+            if (showNewRule) { resetRuleForm(); } else { setShowNewRule(true); }
+          }}>
             {showNewRule ? '✕ Annuler' : <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><Plus size={16} /> Nouvelle règle</span>}
           </button>
 
           {showNewRule && (
             <div style={s.form}>
+              <h3 style={{ margin: '0 0 16px', fontSize: '15px', fontWeight: '600', color: '#111827' }}>
+                {editingRuleId ? '✏️ Modifier la règle' : '➕ Nouvelle règle'}
+              </h3>
               <div style={s.row}>
                 <span style={s.label}>Nom</span>
                 <input style={s.input} value={ruleData.name || ''} onChange={e => setRuleData({...ruleData, name: e.target.value})} placeholder="Règle incidents" />
@@ -436,7 +451,7 @@ export default function MailCollector() {
                 <span style={s.label}>Priorité</span>
                 <input type="number" style={s.input} value={ruleData.priority || 100} onChange={e => setRuleData({...ruleData, priority: parseInt(e.target.value)})} />
               </div>
-              <button style={s.btn('primary')} onClick={createRule}>Créer</button>
+              <button style={s.btn('primary')} onClick={createRule}>{editingRuleId ? 'Enregistrer' : 'Créer'}</button>
             </div>
           )}
 
@@ -466,7 +481,15 @@ export default function MailCollector() {
                     </details>
                   </td>
                   <td style={s.td}><span style={s.badge('#8b5cf6')}>{r.priority}</span></td>
-                  <td style={s.td}><button style={{ ...s.btn('danger'), padding: '6px 10px', fontSize: '12px' }} onClick={() => deleteRule(r.id)}><Trash2 size={16} /></button></td>
+                  <td style={{ ...s.td, display: 'flex', gap: '6px' }}>
+                    <button style={{ ...s.btn('warning'), padding: '6px 10px', fontSize: '12px' }} title="Modifier" onClick={() => {
+                      setRuleData(r);
+                      setEditingRuleId(r.id);
+                      setShowNewRule(true);
+                      window.scrollTo({ top: 0, behavior: 'smooth' });
+                    }}><Edit2 size={16} /></button>
+                    <button style={{ ...s.btn('danger'), padding: '6px 10px', fontSize: '12px' }} onClick={() => deleteRule(r.id)}><Trash2 size={16} /></button>
+                  </td>
                 </tr>
               ))}
               {rules.length === 0 && (
