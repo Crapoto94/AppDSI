@@ -23,6 +23,9 @@ interface MailRule {
   keywords: string;
   priority: number;
   is_active: boolean;
+  category_id: number | null;
+  category_name: string | null;
+  usage_count: number;
 }
 
 interface CollectorLog {
@@ -61,6 +64,7 @@ export default function MailCollector() {
   const { user } = useAuth();
   const [collectors, setCollectors] = useState<MailCollector[]>([]);
   const [rules, setRules] = useState<MailRule[]>([]);
+  const [categories, setCategories] = useState<{id: number; name: string}[]>([]);
   const [logs, setLogs] = useState<CollectorLog[]>([]);
   const [selectedTab, setSelectedTab] = useState<'collectors' | 'rules' | 'logs'>('collectors');
   const [selectedCollectorId, setSelectedCollectorId] = useState<number | null>(null);
@@ -100,8 +104,12 @@ export default function MailCollector() {
   const loadRules = async () => {
     setLoading(true);
     try {
-      const res = await axios.get('/api/mail-collector/rules', { headers: getHeaders() });
-      setRules(res.data);
+      const [rulesRes, catsRes] = await Promise.all([
+        axios.get('/api/mail-collector/rules', { headers: getHeaders() }),
+        axios.get('/api/tickets/admin/categories', { headers: getHeaders() }),
+      ]);
+      setRules(rulesRes.data);
+      setCategories((catsRes.data || []).map((c: any) => ({ id: c.id, name: c.name })));
     } catch (error) { console.error(error); }
     finally { setLoading(false); }
   };
@@ -451,6 +459,13 @@ export default function MailCollector() {
                 <span style={s.label}>Priorité</span>
                 <input type="number" style={s.input} value={ruleData.priority || 100} onChange={e => setRuleData({...ruleData, priority: parseInt(e.target.value)})} />
               </div>
+              <div style={s.row}>
+                <span style={s.label}>Catégorie auto</span>
+                <select style={s.input} value={(ruleData as any).category_id || ''} onChange={e => setRuleData({...ruleData, category_id: e.target.value ? parseInt(e.target.value) : null} as any)}>
+                  <option value="">— Aucune —</option>
+                  {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                </select>
+              </div>
               <button style={s.btn('primary')} onClick={createRule}>{editingRuleId ? 'Enregistrer' : 'Créer'}</button>
             </div>
           )}
@@ -461,6 +476,8 @@ export default function MailCollector() {
                 <th style={s.th}>Nom de la règle</th>
                 <th style={s.th}>Type</th>
                 <th style={s.th}>Mots-clés</th>
+                <th style={s.th}>Catégorie auto</th>
+                <th style={{ ...s.th, textAlign: 'center' as const }}>Utilisée</th>
                 <th style={s.th}>Priorité</th>
                 <th style={s.th}>Actions</th>
               </tr>
@@ -480,6 +497,16 @@ export default function MailCollector() {
                       </div>
                     </details>
                   </td>
+                  <td style={s.td}>
+                    {r.category_name
+                      ? <span style={s.badge('#0ea5e9')}>{r.category_name}</span>
+                      : <span style={{ color: '#d1d5db', fontSize: '12px' }}>—</span>}
+                  </td>
+                  <td style={{ ...s.td, textAlign: 'center' as const }}>
+                    <span style={s.badge(Number(r.usage_count) > 0 ? '#10b981' : '#9ca3af')}>
+                      {r.usage_count ?? 0}
+                    </span>
+                  </td>
                   <td style={s.td}><span style={s.badge('#8b5cf6')}>{r.priority}</span></td>
                   <td style={{ ...s.td, display: 'flex', gap: '6px' }}>
                     <button style={{ ...s.btn('warning'), padding: '6px 10px', fontSize: '12px' }} title="Modifier" onClick={() => {
@@ -493,7 +520,7 @@ export default function MailCollector() {
                 </tr>
               ))}
               {rules.length === 0 && (
-                <tr><td colSpan={5} style={{ ...s.td, textAlign: 'center', color: '#9ca3af', padding: '40px' }}>Aucune règle configurée</td></tr>
+                <tr><td colSpan={7} style={{ ...s.td, textAlign: 'center', color: '#9ca3af', padding: '40px' }}>Aucune règle configurée</td></tr>
               )}
             </tbody>
           </table>

@@ -7,7 +7,17 @@ class MailRulesService {
   }
 
   static async getAllRules() {
-    return pgDb.all('SELECT * FROM hub_tickets.mail_rules ORDER BY priority ASC, created_at DESC');
+    return pgDb.all(`
+      SELECT r.*,
+        tc.name AS category_name,
+        COALESCE(
+          (SELECT COUNT(*) FROM hub_tickets.ticket_email_mapping m WHERE m.mail_rule_id = r.id),
+          0
+        ) AS usage_count
+      FROM hub_tickets.mail_rules r
+      LEFT JOIN hub_tickets.ticket_categories tc ON tc.id = r.category_id
+      ORDER BY r.priority ASC, r.created_at DESC
+    `);
   }
 
   static async createDefaultRules() {
@@ -90,22 +100,27 @@ class MailRulesService {
   static async classifyTicket(title, content) {
     const rules = await this.getRules();
     if (rules.length === 0) {
-      return { type: 2, typeLabel: 'demande' };
+      return { type: 2, typeLabel: 'demande', ruleId: null, categoryId: null };
     }
 
     const textToAnalyze = `${title} ${(content || '').substring(0, 200)}`;
     const normalizedText = this.normalizeText(textToAnalyze);
 
-    const matches = { demande: 0, incident: 0 };
-
+    // Compter les correspondances par règle individuelle
+    const ruleHits = [];
     for (const rule of rules) {
       const keywords = rule.keywords.split('|').map(k => k.trim()).filter(k => k);
+      let count = 0;
       for (const keyword of keywords) {
-        const normalizedKeyword = this.normalizeText(keyword);
-        if (normalizedText.includes(normalizedKeyword)) {
-          matches[rule.type] = (matches[rule.type] || 0) + 1;
-        }
+        if (normalizedText.includes(this.normalizeText(keyword))) count++;
       }
+      if (count > 0) ruleHits.push({ count, rule });
+    }
+
+    // Agréger par type pour déterminer le gagnant
+    const matches = { demande: 0, incident: 0 };
+    for (const { count, rule } of ruleHits) {
+      matches[rule.type] = (matches[rule.type] || 0) + count;
     }
 
     let type = 2;
@@ -115,7 +130,21 @@ class MailRulesService {
       typeLabel = 'incident';
     }
 
-    return { type, typeLabel, matches };
+    // Trouver la règle avec le plus de correspondances pour le type gagnant
+    let bestRule = null;
+    let bestCount = 0;
+    for (const { count, rule } of ruleHits) {
+      if (rule.type === typeLabel && count > bestCount) {
+        bestCount = count;
+        bestRule = rule;
+      }
+    }
+
+    return {
+      type, typeLabel, matches,
+      ruleId: bestRule?.id || null,
+      categoryId: bestRule?.category_id || null,
+    };
   }
 }
 

@@ -217,10 +217,11 @@ class MailCollectorService {
       source: 'mail',
       date_creation: emailDate,
       status: 1,
-      priority: 3,       // Priorité normale par défaut (échelle GLPI : 5 = critique)
-      is_vip: isVip,     // Marque le ticket VIP si le demandeur figure dans la liste VIP
+      priority: 3,
+      is_vip: isVip,
       urgency: 3,
-      impact: 2
+      impact: 2,
+      ...(classificationResult.categoryId ? { category_id: classificationResult.categoryId } : {}),
     });
 
     // Entrée de journal pour la création via collecteur (sinon absente, car on n'passe pas
@@ -443,10 +444,10 @@ class MailCollectorService {
               log.attachments_processed += attachCount;
             }
 
-            // Mapping
+            // Mapping (avec la règle qui a déterminé la classification)
             await pgDb.run(
-              'INSERT INTO hub_tickets.ticket_email_mapping (ticket_id, email_message_id, email_in_reply_to, is_initial_email, email_from, email_received_at) VALUES (?, ?, ?, true, ?, ?)',
-              [ticketId, msgId, null, this.extractFromEmail(email).email, email.receivedDateTime]
+              'INSERT INTO hub_tickets.ticket_email_mapping (ticket_id, email_message_id, email_in_reply_to, is_initial_email, email_from, email_received_at, mail_rule_id) VALUES (?, ?, ?, true, ?, ?, ?)',
+              [ticketId, msgId, null, this.extractFromEmail(email).email, email.receivedDateTime, classif.ruleId || null]
             );
 
             log.tickets_created++;
