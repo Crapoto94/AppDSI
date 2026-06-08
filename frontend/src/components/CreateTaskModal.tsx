@@ -1,5 +1,12 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import axios from 'axios';
+
+interface TicketGroup {
+  id: number;
+  name: string;
+  description: string | null;
+  members: string[];
+}
 
 interface Props {
   ticketId: number;
@@ -9,13 +16,24 @@ interface Props {
 }
 
 export default function CreateTaskModal({ ticketId, ticketTitle, onClose, onCreated }: Props) {
+  const [assignMode, setAssignMode] = useState<'person' | 'group'>('person');
   const [description, setDescription] = useState('');
   const [assigneeQuery, setAssigneeQuery] = useState('');
   const [adResults, setAdResults] = useState<any[]>([]);
   const [selectedUser, setSelectedUser] = useState<any>(null);
+  const [ticketGroups, setTicketGroups] = useState<TicketGroup[]>([]);
+  const [selectedGroupId, setSelectedGroupId] = useState<number | ''>('');
   const [echeance, setEcheance] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
+
+  const token = localStorage.getItem('token');
+
+  useEffect(() => {
+    axios.get('/api/tasks/ticket-groups', { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => setTicketGroups(r.data))
+      .catch(() => {});
+  }, []);
 
   let debounceTimer: ReturnType<typeof setTimeout>;
 
@@ -24,7 +42,6 @@ export default function CreateTaskModal({ ticketId, ticketTitle, onClose, onCrea
     clearTimeout(debounceTimer);
     debounceTimer = setTimeout(async () => {
       try {
-        const token = localStorage.getItem('token');
         const res = await axios.get(`/api/ad/search?q=${encodeURIComponent(q)}`, {
           headers: { Authorization: `Bearer ${token}` }
         });
@@ -35,19 +52,25 @@ export default function CreateTaskModal({ ticketId, ticketTitle, onClose, onCrea
 
   async function handleSubmit() {
     if (!description.trim()) { setError('Description requise'); return; }
-    if (!selectedUser) { setError('Veuillez sélectionner un assigné'); return; }
+    if (assignMode === 'person' && !selectedUser) { setError('Veuillez sélectionner un assigné'); return; }
+    if (assignMode === 'group' && !selectedGroupId) { setError('Veuillez sélectionner un groupe'); return; }
     setSubmitting(true);
     setError('');
     try {
-      const token = localStorage.getItem('token');
-      await axios.post('/api/tasks', {
+      const payload: any = {
         description: description.trim(),
         echeance: echeance || null,
         context_source: 'ticket',
         context_id: ticketId,
         context_title: ticketTitle,
-        assignees: [selectedUser.username]
-      }, { headers: { Authorization: `Bearer ${token}` } });
+      };
+      if (assignMode === 'group') {
+        payload.ticket_group_id = selectedGroupId;
+        payload.is_team_task = true;
+      } else {
+        payload.assignees = [selectedUser.username];
+      }
+      await axios.post('/api/tasks', payload, { headers: { Authorization: `Bearer ${token}` } });
       onCreated(description.trim());
       onClose();
     } catch (e: any) {
@@ -57,13 +80,15 @@ export default function CreateTaskModal({ ticketId, ticketTitle, onClose, onCrea
     }
   }
 
+  const selectedGroup = ticketGroups.find(g => g.id === selectedGroupId);
+
   return (
     <div style={{
       position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)',
       display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000
     }} onClick={onClose}>
       <div style={{
-        background: '#fff', borderRadius: 16, padding: 24, width: 500, maxHeight: '90vh', overflow: 'auto'
+        background: '#fff', borderRadius: 16, padding: 24, width: 520, maxHeight: '90vh', overflow: 'auto'
       }} onClick={e => e.stopPropagation()}>
         <h3 style={{ margin: '0 0 16px 0', fontSize: 18, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8 }}>
           <span>📋</span> Nouvelle tâche
@@ -75,51 +100,112 @@ export default function CreateTaskModal({ ticketId, ticketTitle, onClose, onCrea
           </div>
         )}
 
+        {/* Toggle personne / groupe */}
         <div style={{ marginBottom: 16 }}>
-          <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 4 }}>Assigné *</label>
-          <div style={{ position: 'relative' }}>
-            <input
-              value={assigneeQuery}
-              onChange={e => { setAssigneeQuery(e.target.value); searchAD(e.target.value); setSelectedUser(null); }}
-              placeholder="Rechercher un utilisateur dans l'annuaire..."
-              style={{
-                width: '100%', padding: '10px 14px', border: '1px solid #e2e8f0',
-                borderRadius: 8, fontSize: 14, outline: 'none', boxSizing: 'border-box'
-              }}
-            />
-            {selectedUser && (
-              <div style={{
-                marginTop: 6, padding: '6px 12px', background: '#eef2ff', borderRadius: 6,
-                fontSize: 13, display: 'flex', alignItems: 'center', gap: 8
-              }}>
-                <span style={{ fontWeight: 600 }}>{selectedUser.displayName}</span>
-                <span style={{ color: '#64748b' }}>{selectedUser.email}</span>
-                <button onClick={() => { setSelectedUser(null); setAssigneeQuery(''); }}
-                  style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', color: '#ef4444', fontSize: 14 }}>
-                  ✕
-                </button>
-              </div>
-            )}
-            {!selectedUser && adResults.length > 0 && (
-              <div style={{
-                position: 'absolute', top: '100%', left: 0, right: 0,
-                background: '#fff', border: '1px solid #e2e8f0', borderRadius: 8,
-                boxShadow: '0 8px 24px rgba(0,0,0,0.12)', zIndex: 100, marginTop: 4,
-                maxHeight: 200, overflow: 'auto'
-              }}>
-                {adResults.map((u: any) => (
-                  <div key={u.username} onClick={() => { setSelectedUser(u); setAdResults([]); setAssigneeQuery(u.displayName); }}
-                    style={{ padding: '10px 14px', cursor: 'pointer', borderBottom: '1px solid #f1f5f9' }}
-                    onMouseEnter={e => e.currentTarget.style.background = '#f8fafc'}
-                    onMouseLeave={e => e.currentTarget.style.background = '#fff'}>
-                    <div style={{ fontWeight: 600, fontSize: 14 }}>{u.displayName}</div>
-                    <div style={{ fontSize: 12, color: '#64748b' }}>{u.email} · {u.username}</div>
-                  </div>
-                ))}
-              </div>
-            )}
+          <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 6 }}>Assigner à *</label>
+          <div style={{ display: 'flex', gap: 8 }}>
+            {(['person', 'group'] as const).map(mode => (
+              <button key={mode} onClick={() => setAssignMode(mode)}
+                style={{
+                  flex: 1, padding: '8px 12px', border: '1px solid',
+                  borderColor: assignMode === mode ? '#6366f1' : '#e2e8f0',
+                  borderRadius: 8, cursor: 'pointer', fontSize: 13, fontWeight: 500,
+                  background: assignMode === mode ? '#eef2ff' : '#fff',
+                  color: assignMode === mode ? '#4f46e5' : '#374151',
+                }}>
+                {mode === 'person' ? '👤 Une personne' : '👥 Un groupe'}
+              </button>
+            ))}
           </div>
         </div>
+
+        {/* Assignation personne */}
+        {assignMode === 'person' && (
+          <div style={{ marginBottom: 16 }}>
+            <div style={{ position: 'relative' }}>
+              <input
+                value={assigneeQuery}
+                onChange={e => { setAssigneeQuery(e.target.value); searchAD(e.target.value); setSelectedUser(null); }}
+                placeholder="Rechercher un utilisateur dans l'annuaire..."
+                style={{
+                  width: '100%', padding: '10px 14px', border: '1px solid #e2e8f0',
+                  borderRadius: 8, fontSize: 14, outline: 'none', boxSizing: 'border-box'
+                }}
+              />
+              {selectedUser && (
+                <div style={{
+                  marginTop: 6, padding: '6px 12px', background: '#eef2ff', borderRadius: 6,
+                  fontSize: 13, display: 'flex', alignItems: 'center', gap: 8
+                }}>
+                  <span style={{ fontWeight: 600 }}>{selectedUser.displayName}</span>
+                  <span style={{ color: '#64748b' }}>{selectedUser.email}</span>
+                  <button onClick={() => { setSelectedUser(null); setAssigneeQuery(''); }}
+                    style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', color: '#ef4444', fontSize: 14 }}>
+                    ✕
+                  </button>
+                </div>
+              )}
+              {!selectedUser && adResults.length > 0 && (
+                <div style={{
+                  position: 'absolute', top: '100%', left: 0, right: 0,
+                  background: '#fff', border: '1px solid #e2e8f0', borderRadius: 8,
+                  boxShadow: '0 8px 24px rgba(0,0,0,0.12)', zIndex: 100, marginTop: 4,
+                  maxHeight: 200, overflow: 'auto'
+                }}>
+                  {adResults.map((u: any) => (
+                    <div key={u.username} onClick={() => { setSelectedUser(u); setAdResults([]); setAssigneeQuery(u.displayName); }}
+                      style={{ padding: '10px 14px', cursor: 'pointer', borderBottom: '1px solid #f1f5f9' }}
+                      onMouseEnter={e => e.currentTarget.style.background = '#f8fafc'}
+                      onMouseLeave={e => e.currentTarget.style.background = '#fff'}>
+                      <div style={{ fontWeight: 600, fontSize: 14 }}>{u.displayName}</div>
+                      <div style={{ fontSize: 12, color: '#64748b' }}>{u.email} · {u.username}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Assignation groupe */}
+        {assignMode === 'group' && (
+          <div style={{ marginBottom: 16 }}>
+            {ticketGroups.length === 0 ? (
+              <div style={{ padding: '10px 14px', background: '#f8fafc', borderRadius: 8, fontSize: 13, color: '#64748b' }}>
+                Aucun groupe de techniciens configuré.
+              </div>
+            ) : (
+              <>
+                <select
+                  value={selectedGroupId}
+                  onChange={e => setSelectedGroupId(e.target.value ? Number(e.target.value) : '')}
+                  style={{
+                    width: '100%', padding: '10px 14px', border: '1px solid #e2e8f0',
+                    borderRadius: 8, fontSize: 14, outline: 'none', boxSizing: 'border-box',
+                    background: '#fff', cursor: 'pointer'
+                  }}>
+                  <option value="">— Sélectionner un groupe —</option>
+                  {ticketGroups.map(g => (
+                    <option key={g.id} value={g.id}>
+                      {g.name} ({g.members.length} membre{g.members.length !== 1 ? 's' : ''})
+                    </option>
+                  ))}
+                </select>
+                {selectedGroup && (
+                  <div style={{
+                    marginTop: 8, padding: '8px 12px', background: '#f0fdf4', border: '1px solid #bbf7d0',
+                    borderRadius: 8, fontSize: 12, color: '#166534'
+                  }}>
+                    <strong>Tâche d'équipe</strong> — le premier membre qui termine la tâche la marque comme terminée pour tout le groupe.
+                    <div style={{ marginTop: 4, color: '#15803d' }}>
+                      Membres : {selectedGroup.members.join(', ')}
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        )}
 
         <div style={{ marginBottom: 16 }}>
           <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 4 }}>Description *</label>

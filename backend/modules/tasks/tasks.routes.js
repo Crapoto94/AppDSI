@@ -65,6 +65,7 @@ router.get('/assign-alert-pref',  authenticateJWT, (req, res) => controller.getA
 router.patch('/assign-alert-pref',authenticateJWT, (req, res) => controller.setAssignAlertPref(req, res));
 router.post('/alert-test',        authenticateJWT, (req, res) => controller.sendTestAlert(req, res));
 router.get('/services',           authenticateJWT, (req, res) => controller.getServices(req, res));
+router.get('/ticket-groups',      authenticateJWT, (req, res) => controller.getTicketGroups(req, res));
 router.get('/by-context',         apiTasks, (req, res) => controller.getTasksByContext(req, res));
 router.get('/assigned-by-me',     authenticateJWT, (req, res) => controller.getAssignedByMe(req, res));
 router.get('/kpi-history',        authenticateJWT, (req, res) => controller.getKpiHistory(req, res));

@@ -488,20 +488,34 @@ module.exports = {
 
     // POST /api/tasks  — unified creation (personal, context, team)
     // Body: { description, echeance?, context_source?, context_id?, context_title?,
-    //         is_team_task?, assignees?: string[], service_code?: string }
+    //         is_team_task?, assignees?: string[], service_code?: string,
+    //         ticket_group_id?: number }
     async createTask(req, res) {
         const creator = req.user.username;
         const {
             description, echeance,
             context_source = 'personal', context_id = null, context_title = null,
             is_team_task = false, assignees = [], service_code = null,
-            priority = 'normale', is_public = false
+            priority = 'normale', is_public = false,
+            ticket_group_id = null
         } = req.body;
         if (!description?.trim()) return res.status(400).json({ error: 'Description requise' });
         try {
             let targets = []; // array of usernames to assign to
+            let effectiveTeamTask = is_team_task;
 
-            if (is_team_task) {
+            if (ticket_group_id) {
+                // Assign to all members of the technician group
+                const { rows: groupMembers } = await pool.query(
+                    `SELECT u.username FROM hub_tickets.technician_group_members tgm
+                     JOIN hub.users u ON u.id = tgm.user_id
+                     WHERE tgm.group_id = $1 AND u.username IS NOT NULL`,
+                    [ticket_group_id]
+                );
+                targets = groupMembers.map(u => u.username);
+                effectiveTeamTask = true;
+                if (targets.length === 0) return res.status(400).json({ error: 'Ce groupe ne contient aucun membre' });
+            } else if (effectiveTeamTask) {
                 if (service_code) {
                     // Assign to all active users in this service
                     const { rows: svcUsers } = await pool.query(
@@ -521,7 +535,7 @@ module.exports = {
                 targets = assignees.length > 0 ? [assignees[0]] : [creator];
             }
 
-            const teamGroupId = is_team_task && targets.length > 1 ? randomUUID() : null;
+            const teamGroupId = effectiveTeamTask && targets.length > 1 ? randomUUID() : null;
 
             const created = [];
             for (const uname of targets) {
@@ -534,10 +548,10 @@ module.exports = {
                          VALUES ($1,$2,$3,'a_faire',$4,$5,$6,$7,$8,$9,$10,$11)
                          RETURNING *`,
                     [uname, description.trim(), echeance || null,
-                     is_team_task, teamGroupId, creator,
+                     effectiveTeamTask, teamGroupId, creator,
                      context_source, context_id, context_title,
                      priority, is_public]
-                    );
+                );
                 created.push(rows[0]);
             }
             // Notification immédiate des destinataires (≠ créateur). Fire-and-forget :
@@ -551,6 +565,28 @@ module.exports = {
 
             // Return single row for personal tasks, array for team
             res.status(201).json(created.length === 1 ? created[0] : created);
+        } catch (error) {
+            res.status(500).json({ error: error.message });
+        }
+    },
+
+    // GET /api/tasks/ticket-groups — active technician groups with member usernames
+    async getTicketGroups(req, res) {
+        try {
+            const { rows } = await pool.query(`
+                SELECT g.id, g.name, g.description,
+                       COALESCE(
+                           json_agg(u.username ORDER BY u.username) FILTER (WHERE u.username IS NOT NULL),
+                           '[]'
+                       ) AS members
+                FROM hub_tickets.technician_groups g
+                LEFT JOIN hub_tickets.technician_group_members tgm ON tgm.group_id = g.id
+                LEFT JOIN hub.users u ON u.id = tgm.user_id
+                WHERE g.is_active IS NOT FALSE
+                GROUP BY g.id, g.name, g.description
+                ORDER BY g.name
+            `);
+            res.json(rows);
         } catch (error) {
             res.status(500).json({ error: error.message });
         }
@@ -730,6 +766,20 @@ module.exports = {
                         break;
                     }
                     return res.status(400).json({ error: 'Source inconnue' });
+            }
+
+            // If it's a team task marked terminé, propagate to all tasks in the same team group
+            if (statut === 'terminé' && taskContext?.is_team_task && taskContext?.team_group_id) {
+                try {
+                    await pool.query(
+                        `UPDATE hub.user_tasks
+                         SET statut = 'terminé', updated_at = CURRENT_TIMESTAMP
+                         WHERE team_group_id = $1 AND statut != 'terminé'`,
+                        [taskContext.team_group_id]
+                    );
+                } catch (e) {
+                    console.error('[tasks] team propagation error:', e.message);
+                }
             }
 
             // If the task is linked to a ticket, log the status change in ticket history

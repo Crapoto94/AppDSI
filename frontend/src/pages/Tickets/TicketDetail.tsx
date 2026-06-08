@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useParams } from 'react-router-dom';
 import axios from 'axios';
 import ReactQuill from 'react-quill-new';
@@ -399,18 +399,44 @@ export default function TicketDetail() {
     finally { setGroupActionLoading(false); }
   }
 
-  async function handleTaskStatusCycle(taskId: number, currentStatut: string) {
+  async function handleTaskStatusCycle(taskId: number, currentStatut: string, teamGroupId?: string) {
     const next = currentStatut === 'a_faire' ? 'en_cours' : currentStatut === 'en_cours' ? 'terminé' : 'a_faire';
     try {
       const token = localStorage.getItem('token');
       await axios.patch(`/api/tasks/personal/${taskId}`, { statut: next }, {
         headers: { Authorization: `Bearer ${token}` }
       });
-      setTicketTasks(prev => prev.map(t => t.id === taskId ? { ...t, statut: next } : t));
+      setTicketTasks(prev => prev.map(t => {
+        if (t.id === taskId) return { ...t, statut: next };
+        if (teamGroupId && next === 'terminé' && t.team_group_id === teamGroupId) return { ...t, statut: next };
+        return t;
+      }));
     } catch (e: any) {
       alert(e.response?.data?.message || 'Erreur lors de la mise à jour de la tâche');
     }
   }
+
+  const displayTasks = useMemo(() => {
+    const seen = new Map<string, any>();
+    const result: any[] = [];
+    for (const task of ticketTasks) {
+      if (task.is_team_task && task.team_group_id) {
+        if (seen.has(task.team_group_id)) {
+          const existing = seen.get(task.team_group_id);
+          if (task.username) existing._members.push(task.username);
+          if (task.statut === 'en_cours' && existing.statut !== 'terminé') existing.statut = 'en_cours';
+          else if (task.statut === 'a_faire') existing.statut = 'a_faire';
+        } else {
+          const entry = { ...task, _isTeam: true, _members: task.username ? [task.username] : [] };
+          seen.set(task.team_group_id, entry);
+          result.push(entry);
+        }
+      } else {
+        result.push(task);
+      }
+    }
+    return result;
+  }, [ticketTasks]);
 
   async function loadTaskNotes(taskId: number) {
     const t = ticketTasks.find(t => t.id === taskId);
@@ -1062,16 +1088,16 @@ export default function TicketDetail() {
             <div style={{ borderBottom: '1px solid #f4f4f5', paddingBottom: 16 }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 0 8px' }}>
                 <span style={{ fontSize: 11, fontWeight: 600, color: '#a1a1aa', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-                  Tâches{ticketTasks.length > 0 ? ` (${ticketTasks.length})` : ''}
+                  Tâches{displayTasks.length > 0 ? ` (${displayTasks.length})` : ''}
                 </span>
                 <button onClick={() => setShowTaskModal(true)}
                   style={{ padding: '3px 10px', border: '1px dashed #c7d2fe', borderRadius: 6, background: 'transparent', color: '#6366f1', cursor: 'pointer', fontSize: 11, fontWeight: 500 }}>
                   + Ajouter
                 </button>
               </div>
-              {ticketTasks.length > 0 ? (
+              {displayTasks.length > 0 ? (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-                  {ticketTasks.map((task: any) => {
+                  {displayTasks.map((task: any) => {
                     const statut = task.statut || 'a_faire';
                     const done = statut === 'terminé';
                     const inprog = statut === 'en_cours';
@@ -1079,14 +1105,14 @@ export default function TicketDetail() {
                     const notes = taskNotes[task.id] || [];
                     const noteCount = task.note_count || 0;
                     return (<>
-                      <div key={task.id} style={{
+                      <div key={task.team_group_id || task.id} style={{
                         display: 'flex', alignItems: 'center', gap: 10,
                         padding: '8px 12px', borderRadius: 7,
                         background: done ? '#f0fdf4' : '#fff',
                         border: `1px solid ${done ? '#bbf7d0' : '#f4f4f5'}`,
                         opacity: done ? 0.75 : 1
                       }}>
-                        <button onClick={() => handleTaskStatusCycle(task.id, statut)}
+                        <button onClick={() => handleTaskStatusCycle(task.id, statut, task._isTeam ? task.team_group_id : undefined)}
                           style={{
                             flexShrink: 0, width: 18, height: 18, borderRadius: '50%',
                             border: `2px solid ${done ? '#22c55e' : inprog ? '#3b82f6' : '#d4d4d8'}`,
@@ -1099,7 +1125,13 @@ export default function TicketDetail() {
                         <span style={{ flex: 1, fontSize: 13, color: done ? '#94a3b8' : '#18181b', textDecoration: done ? 'line-through' : 'none', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                           {task.description}
                         </span>
-                        {task.username && <span style={{ fontSize: 11, color: '#a1a1aa', flexShrink: 0 }}>{task.username}</span>}
+                        {task._isTeam ? (
+                          <span style={{ fontSize: 11, color: '#a1a1aa', flexShrink: 0 }} title={task._members.join(', ')}>
+                            👥 {task._members.length} membres
+                          </span>
+                        ) : (
+                          task.username && <span style={{ fontSize: 11, color: '#a1a1aa', flexShrink: 0 }}>{task.username}</span>
+                        )}
                         {task.echeance && (
                           <span style={{ fontSize: 11, color: new Date(task.echeance) < new Date() && !done ? '#ef4444' : '#a1a1aa', flexShrink: 0 }}>
                             📅 {formatDateParis(task.echeance)}
