@@ -249,7 +249,7 @@ export default function TicketsDashboard() {
         try {
           const ids = liteTickets.map((t: any) => t.id).join(',');
           const dr = await axios.get(`/api/tickets/batch-details?ids=${ids}`, { headers: h });
-          const detailMap = new Map((dr.data || []).map((d: any) => [d.id, d]));
+          const detailMap = new Map<number, any>((dr.data || []).map((d: any) => [d.id, d]));
           return liteTickets.map((t: any) => {
             const d = detailMap.get(t.id);
             if (!d) return t;
