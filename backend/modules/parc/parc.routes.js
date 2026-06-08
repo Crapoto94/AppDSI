@@ -40,12 +40,10 @@ router.patch('/hub/:type/:id/contact', authenticateJWT, hub.updateContact);
 router.get('/hub/:type/:id', authenticateJWT, hub.item);
 router.get('/hub/:type', authenticateJWT, hub.list);
 
-// ── AD : ordinateurs de l'Active Directory (table hub_parc.ad_computers) ───────
-// L'import (énumération LDAP) est réservé au contrôle GLPI/admin.
-router.get('/ad/computers', authenticateJWT, ad.listADComputers);
-router.get('/ad/stats', authenticateJWT, ad.adStats);
+// ── AD Computers (import depuis l'Active Directory) ───────────────────────────
+router.get('/ad/computers', authenticateJWT, ad.getComputers);
+router.post('/ad/import', authenticateJWT, ad.importComputers);
 router.get('/ad/import-progress', authenticateJWT, ad.getImportProgress);
-router.post('/ad/import', authenticateGLPIControl, ad.importADComputers);
 
 // ── Consultation des tables synchronisées (hub_parc) ──────────────────────────
 router.get('/stats', authenticateJWT, ctrl.getStats);

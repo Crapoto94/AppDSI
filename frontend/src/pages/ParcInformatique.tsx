@@ -3,6 +3,7 @@ import { useAuth } from '../contexts/AuthContext';
 import Header from '../components/Header';
 import MobiliteView from './parc/MobiliteView';
 import LignesMobilesView from './parc/LignesMobilesView';
+import AdView from './parc/AdView';
 import axios from 'axios';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -754,7 +755,7 @@ const ParcInformatique: React.FC = () => {
                 }}><I size={14} /> {l}</button>
               ))}
             </div>
-            <button onClick={() => tab === 'dashboard' ? loadKpis(true) : tab === 'stock' ? loadStock() : tab === 'usagers' ? loadUsagers() : tab === 'geo' ? loadGeo() : loadList(true)}
+            <button onClick={() => tab === 'dashboard' ? loadKpis(true) : tab === 'stock' ? loadStock() : tab === 'usagers' ? loadUsagers() : tab === 'geo' ? loadGeo() : tab === 'ad' ? null : loadList(true)}
               style={btn(C.blue)}>
               <RefreshCw size={15} className={loadingKpi || loadingList || loadingUsagers ? 'spin' : ''} /> Actualiser
             </button>
@@ -2496,6 +2497,9 @@ const ParcInformatique: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* ─── AD (ACTIVE DIRECTORY) ─── */}
+      {tab === 'ad' && <AdView />}
 
       {/* ─── VISIONNEUSE DE DOCUMENT ─── */}
       {docViewer && (

@@ -449,7 +449,8 @@ export default function TicketList({
                     </tr>
                   )}
                   <tr style={rowStyle}
-                    onClick={() => window.location.href = isChild ? `/tickets/${data.ticket_id}` : `/tickets/${data.id}`}>
+                    onClick={() => window.location.href = isChild ? `/tickets/${data.ticket_id}` : `/tickets/${data.id}`}
+                    onMouseDown={e => { if (e.button === 1 && !(e.target as HTMLElement).closest('a')) { e.preventDefault(); window.open(isChild ? `/tickets/${data.ticket_id}` : `/tickets/${data.id}`, '_blank'); } }}>
 
                     {/* Checkbox */}
                     <td style={tdStyle} onClick={e => { if (!isChild) { toggleSelect(data.id, e); } }}>
@@ -491,28 +492,34 @@ export default function TicketList({
                     </td>
 
                     {/* Titre + Catégorie */}
-                    <td style={{ ...tdStyle, textAlign: 'left', maxWidth: 300 }}>
-                      <div style={{ fontWeight: isChild ? 400 : 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: 6, fontSize: isChild ? 13 : undefined }}>
-                        {isChild && (
-                          <span style={{ color: '#a5b4fc', fontSize: 11, flexShrink: 0 }}>↳ Lié </span>
-                        )}
-                        {!isChild && data.is_live && (
-                          <span style={{
-                            flexShrink: 0, fontSize: 10, fontWeight: 800,
-                            background: '#22c55e', color: '#fff',
-                            borderRadius: 6, padding: '1px 6px', letterSpacing: '0.05em',
-                            animation: 'livePulseRow 2s infinite',
-                          }}>LIVE</span>
-                        )}
-                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{data.title}</span>
-                      </div>
-                      {!isChild && (data.category_name || data.subcategory_name) && (
-                        <div style={{ fontSize: 12, color: '#64748b', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                          {data.category_name && <span>{data.category_name}</span>}
-                          {data.category_name && data.subcategory_name && <span> / </span>}
-                          {data.subcategory_name && <span>{data.subcategory_name}</span>}
+                    <td style={{ ...tdStyle, textAlign: 'left', maxWidth: 300, padding: 0 }}>
+                      <a
+                        href={isChild ? `/tickets/${data.ticket_id}` : `/tickets/${data.id}`}
+                        onClick={e => e.stopPropagation()}
+                        style={{ display: 'block', padding: '12px 16px', textDecoration: 'none', color: 'inherit' }}
+                      >
+                        <div style={{ fontWeight: isChild ? 400 : 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: 6, fontSize: isChild ? 13 : undefined }}>
+                          {isChild && (
+                            <span style={{ color: '#a5b4fc', fontSize: 11, flexShrink: 0 }}>↳ Lié </span>
+                          )}
+                          {!isChild && data.is_live && (
+                            <span style={{
+                              flexShrink: 0, fontSize: 10, fontWeight: 800,
+                              background: '#22c55e', color: '#fff',
+                              borderRadius: 6, padding: '1px 6px', letterSpacing: '0.05em',
+                              animation: 'livePulseRow 2s infinite',
+                            }}>LIVE</span>
+                          )}
+                          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{data.title}</span>
                         </div>
-                      )}
+                        {!isChild && (data.category_name || data.subcategory_name) && (
+                          <div style={{ fontSize: 12, color: '#64748b', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {data.category_name && <span>{data.category_name}</span>}
+                            {data.category_name && data.subcategory_name && <span> / </span>}
+                            {data.subcategory_name && <span>{data.subcategory_name}</span>}
+                          </div>
+                        )}
+                      </a>
                     </td>
 
                     {/* Statut */}

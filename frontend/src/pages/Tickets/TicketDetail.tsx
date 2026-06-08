@@ -1127,7 +1127,7 @@ export default function TicketDetail() {
                         </span>
                         {task._isTeam ? (
                           <span style={{ fontSize: 11, color: '#a1a1aa', flexShrink: 0 }} title={task._members.join(', ')}>
-                            👥 {task._members.length} membres
+                            👥 {task.team_group_name || `${task._members.length} membres`}
                           </span>
                         ) : (
                           task.username && <span style={{ fontSize: 11, color: '#a1a1aa', flexShrink: 0 }}>{task.username}</span>

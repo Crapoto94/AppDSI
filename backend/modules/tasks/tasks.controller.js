@@ -504,15 +504,19 @@ module.exports = {
             let targets = []; // array of usernames to assign to
             let effectiveTeamTask = is_team_task;
 
+            let teamGroupName = null;
             if (ticket_group_id) {
                 // Assign to all members of the technician group
-                const { rows: groupMembers } = await pool.query(
-                    `SELECT u.username FROM hub_tickets.technician_group_members tgm
+                const { rows: groupRows } = await pool.query(
+                    `SELECT u.username, g.name AS group_name
+                     FROM hub_tickets.technician_group_members tgm
                      JOIN hub.users u ON u.id = tgm.user_id
+                     JOIN hub_tickets.technician_groups g ON g.id = tgm.group_id
                      WHERE tgm.group_id = $1 AND u.username IS NOT NULL`,
                     [ticket_group_id]
                 );
-                targets = groupMembers.map(u => u.username);
+                targets = groupRows.map(u => u.username);
+                teamGroupName = groupRows[0]?.group_name || null;
                 effectiveTeamTask = true;
                 if (targets.length === 0) return res.status(400).json({ error: 'Ce groupe ne contient aucun membre' });
             } else if (effectiveTeamTask) {
@@ -542,13 +546,13 @@ module.exports = {
                     const { rows } = await pool.query(
                         `INSERT INTO hub.user_tasks
                            (username, description, echeance, statut,
-                            is_team_task, team_group_id, created_by,
+                            is_team_task, team_group_id, team_group_name, created_by,
                             context_source, context_id, context_title,
                             priority, is_public)
-                         VALUES ($1,$2,$3,'a_faire',$4,$5,$6,$7,$8,$9,$10,$11)
+                         VALUES ($1,$2,$3,'a_faire',$4,$5,$6,$7,$8,$9,$10,$11,$12)
                          RETURNING *`,
                     [uname, description.trim(), echeance || null,
-                     effectiveTeamTask, teamGroupId, creator,
+                     effectiveTeamTask, teamGroupId, teamGroupName, creator,
                      context_source, context_id, context_title,
                      priority, is_public]
                 );

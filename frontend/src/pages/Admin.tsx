@@ -148,6 +148,9 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
   const [testResult, setTestResult] = useState<{ success: boolean; message: string; data?: any } | null>(null);
   const [azureTestResult, setAzureTestResult] = useState<{ success: boolean; message: string; data?: any } | null>(null);
   const [isTesting, setIsTesting] = useState(false);
+  const [computerQuery, setComputerQuery] = useState('');
+  const [computerResult, setComputerResult] = useState<{ success: boolean; message: string; data?: any } | null>(null);
+  const [isTestingComputer, setIsTestingComputer] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isTestingTranscript, setIsTestingTranscript] = useState(false);
   const [transcriptTestResult, setTranscriptTestResult] = useState<{ success: boolean; message: string } | null>(null);
@@ -1556,6 +1559,26 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
     }
   };
 
+  const handleVerifyComputer = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!computerQuery) return;
+    setIsTestingComputer(true);
+    setComputerResult(null);
+    try {
+      const response = await fetch('/api/auth/ad-computer-lookup', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...adConfig, computerName: computerQuery })
+      });
+      const data = await response.json();
+      setComputerResult({ success: response.ok, message: data.message, data: data.data });
+    } catch (error) {
+      setComputerResult({ success: false, message: 'Erreur de recherche.' });
+    } finally {
+      setIsTestingComputer(false);
+    }
+  };
+
   const handleVerifyAzureUser = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!azureTestUser.username) return;
@@ -2479,6 +2502,55 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                                         <div className="detail-item"><strong>Email :</strong> {testResult.data.mail || 'N/A'}</div>
                                         <div className="detail-item"><strong>Dept :</strong> {testResult.data.department || 'N/A'}</div>
                                         <div className="detail-item"><strong>DN :</strong> <span className="font-mono text-[9px]">{testResult.data.dn}</span></div>
+                                    </div>
+                                )}
+                            </div>
+                        )}
+                    </div>
+
+                    <div className="admin-side-card lookup-card" style={{ marginTop: '16px' }}>
+                        <h3 className="side-card-title"><Search size={18} /> Lookup Ordinateur AD</h3>
+                        <p className="side-card-desc">Vérifiez l'existence d'un ordinateur dans l'AD et sa dernière connexion. Ex : PO25201</p>
+
+                        <form onSubmit={handleVerifyComputer} className="lookup-search-form">
+                            <input
+                                placeholder="Nom machine (ex: PO25201)..."
+                                className="admin-input"
+                                value={computerQuery}
+                                onChange={e => setComputerQuery(e.target.value)}
+                            />
+                            <button type="submit" className="btn-admin-primary" disabled={isTestingComputer || !computerQuery}>
+                                {isTestingComputer ? <Loader2 className="animate-spin" size={18} /> : <Search size={18} />}
+                            </button>
+                        </form>
+
+                        {computerResult && (
+                            <div className={`lookup-result-box ${computerResult.success ? 'is-success' : 'is-error'}`}>
+                                <div className="result-header">
+                                    {computerResult.success ? <Check size={16} /> : <AlertTriangle size={16} />}
+                                    <span>{computerResult.message}</span>
+                                </div>
+                                {computerResult.data && (
+                                    <div className="result-details">
+                                        <div className="detail-item"><strong>Nom :</strong> {computerResult.data.name}</div>
+                                        <div className="detail-item"><strong>DNS :</strong> {computerResult.data.dnsHostName || 'N/A'}</div>
+                                        <div className="detail-item"><strong>OS :</strong> {computerResult.data.os || 'N/A'}{computerResult.data.osVersion ? ` (${computerResult.data.osVersion})` : ''}</div>
+                                        <div className="detail-item">
+                                            <strong>Dernière connexion :</strong>{' '}
+                                            {computerResult.data.lastLogon
+                                                ? new Date(computerResult.data.lastLogon).toLocaleString('fr-FR')
+                                                : 'Inconnue'}
+                                        </div>
+                                        <div className="detail-item">
+                                            <strong>État :</strong>{' '}
+                                            <span style={{ color: computerResult.data.enabled ? '#16a34a' : '#dc2626', fontWeight: 700 }}>
+                                                {computerResult.data.enabled ? 'Actif' : 'Désactivé'}
+                                            </span>
+                                        </div>
+                                        {computerResult.data.description && (
+                                            <div className="detail-item"><strong>Description :</strong> {computerResult.data.description}</div>
+                                        )}
+                                        <div className="detail-item"><strong>DN :</strong> <span className="font-mono text-[9px]">{computerResult.data.dn}</span></div>
                                     </div>
                                 )}
                             </div>

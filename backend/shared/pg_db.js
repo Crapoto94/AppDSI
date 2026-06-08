@@ -3602,6 +3602,7 @@ async function setupPgDb() {
     // ─── Champs unifiés pour tâches d'équipe et contexte multi-modules ──────
     try { await client.query(`ALTER TABLE hub.user_tasks ADD COLUMN IF NOT EXISTS is_team_task BOOLEAN DEFAULT FALSE`); } catch (e) {}
     try { await client.query(`ALTER TABLE hub.user_tasks ADD COLUMN IF NOT EXISTS team_group_id UUID`); } catch (e) {}
+    try { await client.query(`ALTER TABLE hub.user_tasks ADD COLUMN IF NOT EXISTS team_group_name TEXT`); } catch (e) {}
     try { await client.query(`ALTER TABLE hub.user_tasks ADD COLUMN IF NOT EXISTS created_by TEXT`); } catch (e) {}
     try { await client.query(`ALTER TABLE hub.user_tasks ADD COLUMN IF NOT EXISTS context_source TEXT DEFAULT 'personal'`); } catch (e) {}
     try { await client.query(`ALTER TABLE hub.user_tasks ADD COLUMN IF NOT EXISTS context_id INTEGER`); } catch (e) {}

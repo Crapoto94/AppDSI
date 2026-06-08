@@ -2724,6 +2724,114 @@ app.post('/api/auth/ad-test', authenticateAdmin, async (req, res) => {
     });
 });
 
+// Route de lookup ordinateur dans l'Active Directory
+app.post('/api/auth/ad-computer-lookup', authenticateAdmin, async (req, res) => {
+    let { host, port, base_dn, bind_dn, bind_password, computerName } = req.body;
+
+    if (bind_password === '••••••••' || bind_password === '********') {
+        const settings = await db.get('SELECT bind_password FROM ad_settings WHERE id = 1');
+        bind_password = settings?.bind_password || '';
+    }
+
+    const logMsg = `Lookup AD Ordinateur: Recherche de « ${computerName} »`;
+    console.log(logMsg);
+    fs.appendFileSync(path.join(__dirname, 'logs', 'mouchard.log'), `[${new Date().toISOString()}] ${logMsg}\n`);
+
+    const client = ldap.createClient({
+        url: `ldap://${host}:${port}`,
+        connectTimeout: 10000,
+        timeout: 10000
+    });
+
+    client.on('error', (err) => {
+        res.status(500).json({ success: false, message: `Erreur client LDAP : ${err.message}` });
+    });
+
+    client.bind(bind_dn, bind_password, (err) => {
+        if (err) {
+            client.destroy();
+            return res.status(401).json({ success: false, message: `Liaison technique échouée : ${err.message}` });
+        }
+
+        const escaped = computerName.replace(/[*()\\\x00]/g, '\\$&');
+        const searchOptions = {
+            filter: `(&(objectClass=computer)(|(cn=${escaped}*)(name=${escaped}*)(sAMAccountName=${escaped}$)))`,
+            scope: 'sub',
+            attributes: ['dn', 'cn', 'name', 'sAMAccountName', 'dNSHostName', 'operatingSystem',
+                         'operatingSystemVersion', 'lastLogonTimestamp', 'lastLogon',
+                         'userAccountControl', 'description', 'distinguishedName', 'whenCreated'],
+            referrals: false,
+            paged: false,
+            sizeLimit: 10
+        };
+
+        client.search(base_dn, searchOptions, (err, searchRes) => {
+            if (err) {
+                client.destroy();
+                return res.status(500).json({ success: false, message: `Erreur recherche : ${err.message}` });
+            }
+
+            let entries = [];
+            searchRes.on('searchEntry', (entry) => {
+                const obj = flattenLDAPEntry(entry);
+                if (!obj) return;
+
+                // Convertit un Windows FileTime (entier 64-bit en chaîne) en Date JS
+                const parseWinFileTime = (val) => {
+                    if (!val || val === '0' || val === '9223372036854775807') return null;
+                    const ticks = BigInt(val);
+                    const epochDiff = BigInt('116444736000000000'); // différence 1601→1970 en 100ns
+                    const ms = Number((ticks - epochDiff) / BigInt(10000));
+                    if (ms <= 0) return null;
+                    return new Date(ms).toISOString();
+                };
+
+                const lastLogon = parseWinFileTime(obj.lastLogonTimestamp) || parseWinFileTime(obj.lastLogon);
+                const uac = parseInt(obj.userAccountControl || '0', 10);
+                const isEnabled = !(uac & 0x2); // bit 1 = ACCOUNTDISABLE
+
+                entries.push({
+                    dn: obj.dn || obj.distinguishedName,
+                    cn: obj.cn,
+                    name: obj.name || obj.cn,
+                    sAMAccountName: obj.sAMAccountName,
+                    dnsHostName: obj.dNSHostName || null,
+                    os: obj.operatingSystem || null,
+                    osVersion: obj.operatingSystemVersion || null,
+                    lastLogon,
+                    enabled: isEnabled,
+                    description: obj.description || null,
+                    whenCreated: obj.whenCreated || null
+                });
+            });
+
+            searchRes.on('error', (err) => {
+                client.destroy();
+                res.status(500).json({ success: false, message: err.message });
+            });
+
+            searchRes.on('end', () => {
+                client.destroy();
+                if (entries.length === 0) {
+                    fs.appendFileSync(path.join(__dirname, 'logs', 'mouchard.log'), `[${new Date().toISOString()}] Lookup Ordinateur: Non trouvé\n`);
+                    return res.status(404).json({ success: false, message: `Ordinateur « ${computerName} » non trouvé dans l'AD.` });
+                }
+
+                // Préférer l'exact match sur cn/name
+                const exact = entries.find(e => e.cn && e.cn.toLowerCase() === computerName.toLowerCase());
+                const computer = exact || entries[0];
+
+                fs.appendFileSync(path.join(__dirname, 'logs', 'mouchard.log'), `[${new Date().toISOString()}] Lookup Ordinateur: Succès pour ${computerName} (match: ${computer.cn})\n`);
+                res.json({
+                    success: true,
+                    message: `Ordinateur « ${computer.name} » trouvé dans l'AD.`,
+                    data: computer
+                });
+            });
+        });
+    });
+});
+
 // Route pour voir les logs dans le navigateur
 app.get('/mouchard', (req, res) => {
     try {
