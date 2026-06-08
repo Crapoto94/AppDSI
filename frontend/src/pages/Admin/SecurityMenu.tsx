@@ -503,6 +503,11 @@ export default function SecurityMenu() {
                   <div className="sec-lastrun" style={{ color: auto.lastRun.ok ? '#16a34a' : '#dc2626' }}>
                     {auto.lastRun.ok ? <CheckCircle size={15} /> : <AlertTriangle size={15} />}
                     <span>Dernière : {new Date(auto.lastRun.at).toLocaleString('fr-FR')} — {auto.lastRun.message}</span>
+                    {auto.lastRun.location && (
+                      <span style={{ display: 'block', fontSize: 11, color: '#64748b', marginTop: 2, fontFamily: 'monospace', wordBreak: 'break-all' }}>
+                        📁 {auto.lastRun.location}
+                      </span>
+                    )}
                   </div>
                 )}
               </div>

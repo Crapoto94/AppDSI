@@ -41,8 +41,9 @@ router.get('/hub/:type/:id', authenticateJWT, hub.item);
 router.get('/hub/:type', authenticateJWT, hub.list);
 
 // ── AD Computers (import depuis l'Active Directory) ───────────────────────────
-router.get('/ad/computers', authenticateJWT, ad.getComputers);
-router.post('/ad/import', authenticateJWT, ad.importComputers);
+router.get('/ad/computers', authenticateJWT, ad.listADComputers);
+router.get('/ad/stats', authenticateJWT, ad.adStats);
+router.post('/ad/import', authenticateJWT, ad.importADComputers);
 router.get('/ad/import-progress', authenticateJWT, ad.getImportProgress);
 
 // ── Consultation des tables synchronisées (hub_parc) ──────────────────────────
