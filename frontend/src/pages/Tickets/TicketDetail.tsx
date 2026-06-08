@@ -12,7 +12,7 @@ import ProblemModal from './ProblemModal';
 import ResponseSuggestions from './ResponseSuggestions';
 import DocumentSuggestions from './DocumentSuggestions';
 import type { AttachDoc } from './DocumentSuggestions';
-import { Phone, MessageSquare, Upload, X } from 'lucide-react';
+import { Phone, MessageSquare, Upload, X, Edit3 } from 'lucide-react';
 import { formatDateTime, formatDate as formatDateParis } from '../../utils/datetime';
 import UserHoverCard from '../../components/tickets/UserHoverCard';
 
@@ -82,6 +82,8 @@ export default function TicketDetail() {
   const [taskNotes, setTaskNotes] = useState<Record<number, any[]>>({});
   const [taskNoteInput, setTaskNoteInput] = useState('');
   const [taskNoteLoading, setTaskNoteLoading] = useState<Record<number, boolean>>({});
+  const [editingTaskId, setEditingTaskId] = useState<number | null>(null);
+  const [editingTaskDesc, setEditingTaskDesc] = useState('');
   const taskFileInputRef = useRef<HTMLInputElement>(null);
   const [uploadingTaskNote, setUploadingTaskNote] = useState(false);
   const taskNoteTargetId = useRef<number | null>(null);
@@ -413,6 +415,21 @@ export default function TicketDetail() {
       }));
     } catch (e: any) {
       alert(e.response?.data?.message || 'Erreur lors de la mise à jour de la tâche');
+    }
+  }
+
+  async function handleEditTask(taskId: number, newDescription: string) {
+    if (!newDescription.trim()) return;
+    try {
+      const token = localStorage.getItem('token');
+      await axios.patch(`/api/tasks/edit/${taskId}`, { description: newDescription.trim() }, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setTicketTasks(prev => prev.map(t => t.id === taskId ? { ...t, description: newDescription.trim() } : t));
+      setEditingTaskId(null);
+      setEditingTaskDesc('');
+    } catch (e: any) {
+      alert(e.response?.data?.message || 'Erreur lors de la modification de la tâche');
     }
   }
 
@@ -1122,9 +1139,28 @@ export default function TicketDetail() {
                           }}>
                           {done ? '✓' : inprog ? '⟳' : ''}
                         </button>
-                        <span style={{ flex: 1, fontSize: 13, color: done ? '#94a3b8' : '#18181b', textDecoration: done ? 'line-through' : 'none', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                          {task.description}
-                        </span>
+                        {editingTaskId === task.id ? (
+                          <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 4 }}>
+                            <input
+                              type="text"
+                              value={editingTaskDesc}
+                              onChange={e => setEditingTaskDesc(e.target.value)}
+                              onKeyDown={e => { if (e.key === 'Enter') handleEditTask(task.id, editingTaskDesc); if (e.key === 'Escape') { setEditingTaskId(null); setEditingTaskDesc(''); } }}
+                              style={{ flex: 1, padding: '4px 8px', border: '1px solid #cbd5e1', borderRadius: 4, fontSize: 13 }}
+                              autoFocus
+                            />
+                            <button onClick={() => handleEditTask(task.id, editingTaskDesc)} style={{ padding: '3px 8px', background: '#6366f1', color: 'white', border: 'none', borderRadius: 4, cursor: 'pointer', fontWeight: 600, fontSize: 10, whiteSpace: 'nowrap' }}>
+                              OK
+                            </button>
+                            <button onClick={() => { setEditingTaskId(null); setEditingTaskDesc(''); }} style={{ padding: '3px 8px', background: '#f1f5f9', color: '#475569', border: '1px solid #e2e8f0', borderRadius: 4, cursor: 'pointer', fontWeight: 600, fontSize: 10 }}>
+                              Annuler
+                            </button>
+                          </div>
+                        ) : (
+                          <span style={{ flex: 1, fontSize: 13, color: done ? '#94a3b8' : '#18181b', textDecoration: done ? 'line-through' : 'none', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {task.description}
+                          </span>
+                        )}
                         {task._isTeam ? (
                           <span style={{ fontSize: 11, color: '#a1a1aa', flexShrink: 0 }} title={task._members.join(', ')}>
                             👥 {task.team_group_name || `${task._members.length} membres`}
@@ -1137,6 +1173,11 @@ export default function TicketDetail() {
                             📅 {formatDateParis(task.echeance)}
                           </span>
                         )}
+                        <button onClick={() => { setEditingTaskId(task.id); setEditingTaskDesc(task.description); }}
+                          title="Modifier la description"
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', color: editingTaskId === task.id ? '#6366f1' : '#a1a1aa', padding: '2px 4px', lineHeight: 1 }}>
+                          <Edit3 size={12} />
+                        </button>
                         <button onClick={() => toggleTaskNotes(task.id)}
                           title={`${noteCount} note(s)`}
                           style={{
