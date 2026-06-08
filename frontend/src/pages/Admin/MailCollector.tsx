@@ -448,11 +448,24 @@ export default function MailCollector() {
       {/* ── RULES ── */}
       {selectedTab === 'rules' && (
         <>
-          <button style={s.btn(showNewRule ? 'secondary' : 'success')} onClick={() => {
-            if (showNewRule) { resetRuleForm(); } else { setShowNewRule(true); }
-          }}>
-            {showNewRule ? '✕ Annuler' : <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><Plus size={16} /> Nouvelle règle</span>}
-          </button>
+          <div style={{ display: 'flex', gap: '12px', marginBottom: '24px' }}>
+            <button style={s.btn(showNewRule ? 'secondary' : 'success')} onClick={() => {
+              if (showNewRule) { resetRuleForm(); } else { setShowNewRule(true); }
+            }}>
+              {showNewRule ? '✕ Annuler' : <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><Plus size={16} /> Nouvelle règle</span>}
+            </button>
+            <button style={s.btn('warning')} onClick={async () => {
+              if (!confirm('Recréer toutes les règles par défaut ? Les règles existantes seront supprimées.')) return;
+              try {
+                await axios.post('/api/mail-collector/rules/recreate', {}, { headers: getHeaders() });
+                loadRules();
+              } catch (err: any) {
+                alert('Erreur: ' + (err.response?.data?.message || err.message));
+              }
+            }}>
+              🔄 Recréer les règles
+            </button>
+          </div>
 
           {showNewRule && (
             <div style={s.form}>

@@ -2487,20 +2487,8 @@ app.post('/api/magapp/ideas/upload', ideasUpload.array('files', 5), async (req, 
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 app.use('/api/uploads', express.static(path.join(__dirname, 'uploads')));
 
-// Route : Upload de fichiers pour documentation MagApp
-const magappDocsUploadDir = path.join(__dirname, 'uploads', 'magapp_docs');
-if (!fs.existsSync(magappDocsUploadDir)) {
-    fs.mkdirSync(magappDocsUploadDir, { recursive: true });
-}
-
-const magappDocsStorage = multer.diskStorage({
-    destination: (req, file, cb) => cb(null, magappDocsUploadDir),
-    filename: (req, file, cb) => {
-        const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-        cb(null, uniqueSuffix + '-' + file.originalname);
-    }
-});
-const magappDocsUpload = multer({ storage: magappDocsStorage });
+// Route : Upload de fichiers pour documentation MagApp (stockage unifié GED)
+const magappDocsUpload = multer({ storage: multer.memoryStorage() });
 
 app.post('/api/admin/magapp/docs/upload', authenticateMagappControl, magappDocsUpload.single('file'), async (req, res) => {
     try {
@@ -2509,17 +2497,8 @@ app.post('/api/admin/magapp/docs/upload', authenticateMagappControl, magappDocsU
         const appName = (req.query?.app_name || 'default').toString().trim();
         console.log(`[MagApp Upload] appName reçu: "${appName}", fichier: ${req.file.originalname}`);
 
-        const appSubdir = path.join(magappDocsUploadDir, appName);
-
-        if (!fs.existsSync(appSubdir)) {
-            fs.mkdirSync(appSubdir, { recursive: true });
-        }
-
-        const oldPath = req.file.path;
-        const newPath = path.join(appSubdir, req.file.filename);
-        fs.renameSync(oldPath, newPath);
-
-        const fileUrl = `/uploads/magapp_docs/${appName}/${req.file.filename}`;
+        const saved = await documentStorage.saveFile('magapp_docs', appName, req.file);
+        const fileUrl = '/' + saved.dbPath;
         console.log(`[MagApp Upload] Fichier sauvegardé: ${fileUrl}`);
         res.json({ url: fileUrl });
     } catch (error) {
@@ -3237,6 +3216,7 @@ setupDb().then(async database => {
         const MailScheduler = require('./modules/mail_collector/mail_scheduler');
 
         await MailRulesService.createDefaultRules();
+        await MailRulesService.generateAppRules();
         await MailScheduler.initSchedules();
         console.log('[MAIL COLLECTOR] Initialized');
     } catch (e) {

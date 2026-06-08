@@ -1291,6 +1291,62 @@ const MagAppController = {
             console.error('[MAGAPP] Error fetching attachments:', error.message);
             res.status(500).json({ message: 'Erreur lors de la récupération des pièces jointes' });
         }
+    },
+
+    migrateUploads: async (req, res) => {
+        const documentStorage = require('../../shared/storage');
+        try {
+            const oldDocs = await pgDb.all(`
+                SELECT d.*, a.name as app_name
+                FROM magapp.app_docs d
+                JOIN magapp_apps a ON d.app_id = a.id
+                WHERE d.url LIKE '/uploads/magapp_docs/%'
+            `);
+
+            const results = { total: oldDocs.length, migrated: 0, errors: 0, skipped: 0, details: [] };
+
+            for (const doc of oldDocs) {
+                try {
+                    const suffix = doc.url.replace(/^\/uploads\/magapp_docs\//, '');
+                    const slashIdx = suffix.indexOf('/');
+                    if (slashIdx <= 0 || slashIdx >= suffix.length - 1) {
+                        results.skipped++;
+                        results.details.push({ id: doc.id, title: doc.title, status: 'skipped', reason: 'URL mal formée' });
+                        continue;
+                    }
+                    const appNameFromUrl = suffix.slice(0, slashIdx);
+                    const filename = suffix.slice(slashIdx + 1);
+
+                    const oldPath = path.join(__dirname, '..', '..', 'uploads', 'magapp_docs', appNameFromUrl, filename);
+
+                    if (!fs.existsSync(oldPath)) {
+                        results.skipped++;
+                        results.details.push({ id: doc.id, title: doc.title, status: 'skipped', reason: 'Fichier introuvable' });
+                        continue;
+                    }
+
+                    const buffer = fs.readFileSync(oldPath);
+                    const saved = await documentStorage.saveFile('magapp_docs', appNameFromUrl, {
+                        buffer,
+                        originalname: filename.replace(/^\d+-\d+-/, '')
+                    });
+
+                    const newUrl = '/' + saved.dbPath;
+                    await pool.query('UPDATE magapp.app_docs SET url = $1 WHERE id = $2', [newUrl, doc.id]);
+
+                    results.migrated++;
+                    results.details.push({ id: doc.id, title: doc.title, status: 'migrated', newUrl });
+                } catch (err) {
+                    results.errors++;
+                    results.details.push({ id: doc.id, title: doc.title, status: 'error', reason: err.message });
+                }
+            }
+
+            res.json(results);
+        } catch (err) {
+            console.error('[MAGAPP] Error migrating uploads:', err.message);
+            res.status(500).json({ message: err.message });
+        }
     }
 };
 

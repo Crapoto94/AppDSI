@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import Header from '../components/Header';
-import { Plus, Edit2, Trash2, Save, X, Globe, LayoutGrid, BarChart2, Bell, Tag, Code, CheckCircle, Settings, Users, Lightbulb, GraduationCap, Star, FileText, Wrench, Calendar, Paperclip, Download, Search, ChevronRight, Layers, Banknote, ShieldAlert, ExternalLink } from 'lucide-react';
+import { Plus, Edit2, Trash2, Save, X, Globe, LayoutGrid, BarChart2, Bell, Tag, Code, CheckCircle, Settings, Users, Lightbulb, GraduationCap, Star, FileText, Wrench, Calendar, Paperclip, Download, Search, ChevronRight, Layers, Banknote, ShieldAlert, ExternalLink, Upload } from 'lucide-react';
 import { ResponsiveContainer, LineChart, Line, ReferenceLine, CartesianGrid, XAxis, YAxis, Tooltip as RTooltip } from 'recharts';
 import ReactQuill from 'react-quill-new';
 import 'react-quill-new/dist/quill.snow.css';
@@ -193,6 +193,7 @@ const MagappAdmin: React.FC = () => {
   const [showDocModal, setShowDocModal] = useState(false);
   const [docFile, setDocFile] = useState<File | null>(null);
   const [isUploading, setIsUploading] = useState(false);
+  const [isMigrating, setIsMigrating] = useState(false);
   const [ticketCounts, setTicketCounts] = useState<Record<number, { incident_count: number; request_count: number; total: number }>>({});
   const [versions, setVersions] = useState<AppVersion[]>([]);
   const [mercatorApps, setMercatorApps] = useState<{id: number, name: string, description?: string}[]>([]);
@@ -214,6 +215,15 @@ const MagappAdmin: React.FC = () => {
   const [infoModal, setInfoModal] = useState<{ title: string } | null>(null);
   const [infoItems, setInfoItems] = useState<{ primary: string; secondary?: string; right?: string }[]>([]);
   const [infoLoading, setInfoLoading] = useState(false);
+
+  // Modal documents par logiciel
+  const [showDocsModal, setShowDocsModal] = useState(false);
+  const [docsModalData, setDocsModalData] = useState<any[]>([]);
+  const [docsModalAppName, setDocsModalAppName] = useState('');
+
+  // Visionneuse de document
+  const [showDocViewer, setShowDocViewer] = useState(false);
+  const [activeDoc, setActiveDoc] = useState<any>(null);
 
   // Modal tickets par logiciel
   const [ticketModal, setTicketModal] = useState<{ appId: number; appName: string; type: '1' | '2' } | null>(null);
@@ -509,8 +519,32 @@ const MagappAdmin: React.FC = () => {
           method: 'DELETE',
           headers: { 'Authorization': `Bearer ${token}` }
         });
-        if (response.ok) { fetchLibrary(); fetchApps(); }
+        if (response.ok) { fetchLibrary(); fetchApps(); setDocsModalData(prev => prev.filter(d => d.id !== id)); }
       } catch (err) { console.error(err); }
+    }
+  };
+
+  const handleMigrateUploads = async () => {
+    if (!window.confirm('Migrer les documents du dossier uploads/ vers le stockage GED ? Cette action va copier les fichiers et mettre à jour les URLs.')) return;
+    setIsMigrating(true);
+    try {
+      const response = await fetch('/api/admin/magapp/migrate-uploads', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (response.ok) {
+        const result = await response.json();
+        alert(`Migration terminée : ${result.migrated} migrés, ${result.skipped} ignorés, ${result.errors} erreurs sur ${result.total} documents`);
+        fetchLibrary();
+        fetchApps();
+      } else {
+        alert('Erreur lors de la migration');
+      }
+    } catch (err) {
+      console.error(err);
+      alert('Erreur lors de la migration');
+    } finally {
+      setIsMigrating(false);
     }
   };
 
@@ -671,7 +705,12 @@ const MagappAdmin: React.FC = () => {
       } else if (kind === 'docs') {
         const r = await fetch(`/api/magapp/apps/${app.id}/docs`, { headers });
         const d = r.ok ? await r.json() : [];
-        setInfoItems((Array.isArray(d) ? d : []).filter((x: any) => !x.is_obsolete).map((x: any) => ({ primary: x.title, secondary: x.description || '', right: (x.doc_type || '').toUpperCase() })));
+        setInfoLoading(false);
+        setInfoModal(null);
+        setDocsModalData(Array.isArray(d) ? d.filter((x: any) => !x.is_obsolete) : []);
+        setDocsModalAppName(app.name);
+        setShowDocsModal(true);
+        return;
       } else if (kind === 'orders') {
         const r = await fetch(`/api/magapp/apps/${app.id}/orders`, { headers });
         const d = r.ok ? await r.json() : [];
@@ -1599,6 +1638,51 @@ const MagappAdmin: React.FC = () => {
                 </div>
               )}
 
+              {/* Modal documents par logiciel */}
+              {showDocsModal && (
+                <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000 }} onClick={() => setShowDocsModal(false)}>
+                  <div style={{ background: '#fff', borderRadius: 14, width: 'min(620px, 92vw)', maxHeight: '80vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }} onClick={e => e.stopPropagation()}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 18px', borderBottom: '1px solid #eef1f6' }}>
+                      <h3 style={{ margin: 0, fontSize: '1rem', color: '#0f172a' }}>Documents — {docsModalAppName} <span style={{ color: '#94a3b8', fontWeight: 600 }}>({docsModalData.length})</span></h3>
+                      <button className="close-modal-btn" onClick={() => setShowDocsModal(false)}><X size={20} /></button>
+                    </div>
+                    <div style={{ overflowY: 'auto', padding: '8px 0' }}>
+                      {docsModalData.length === 0 ? (
+                        <div style={{ padding: 28, textAlign: 'center', color: '#94a3b8' }}>Aucun document</div>
+                      ) : docsModalData.map((doc: any) => (
+                        <div key={doc.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '9px 18px', borderBottom: '1px solid #f4f6fa' }}>
+                          <div style={{ width: 32, height: 32, borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16, background: doc.doc_type === 'pdf' ? '#fee2e2' : doc.doc_type === 'youtube' ? '#fef3c7' : '#dbeafe', flexShrink: 0 }}>
+                            {doc.doc_type === 'pdf' ? '📕' : doc.doc_type === 'youtube' ? '🎬' : '🔗'}
+                          </div>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontWeight: 600, fontSize: '.86rem', color: '#1e293b', display: 'flex', alignItems: 'center', gap: 6 }}>
+                              {doc.title}
+                              {doc.is_technical && <span style={{ fontSize: '.68rem', background: '#dbeafe', color: '#1e40af', padding: '1px 8px', borderRadius: 10, fontWeight: 600 }}>TECH</span>}
+                              {doc.is_favorite && <Star size={12} fill="#f59e0b" color="#f59e0b" />}
+                            </div>
+                            {doc.description && <div style={{ fontSize: '.74rem', color: '#94a3b8' }}>{doc.description}</div>}
+                          </div>
+                          <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+                            <button style={{ padding: '6px 10px', borderRadius: 6, border: 'none', background: '#e8f5e9', color: '#2e7d32', cursor: 'pointer', fontSize: '.78rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}
+                              onClick={() => { setActiveDoc(doc); setShowDocViewer(true); }}>
+                              <ExternalLink size={14} /> Voir
+                            </button>
+                            <button style={{ padding: '6px 10px', borderRadius: 6, border: 'none', background: '#f1f5f9', color: '#475569', cursor: 'pointer', fontSize: '.78rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}
+                              onClick={() => { setShowDocsModal(false); setEditingDoc(doc); setShowDocModal(true); }}>
+                              <Edit2 size={14} /> Modifier
+                            </button>
+                            <button style={{ padding: '6px 10px', borderRadius: 6, border: 'none', background: '#fef2f2', color: '#dc2626', cursor: 'pointer', fontSize: '.78rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}
+                              onClick={() => handleDeleteDoc(doc.id)}>
+                              <Trash2 size={14} /> Supprimer
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {ticketModal && (
                 <div
                   style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000 }}
@@ -2411,6 +2495,9 @@ const MagappAdmin: React.FC = () => {
                   <button className="primary-btn-v2" onClick={() => { setEditingDoc(null); setNewDoc({ title: '', app_id: apps[0]?.id || 0, doc_type: 'pdf', url: '', is_favorite: false, is_technical: false, is_obsolete: false }); setShowDocModal(true); }}>
                     <Plus size={18} /> Nouveau Document
                   </button>
+                  <button onClick={handleMigrateUploads} disabled={isMigrating} style={{ padding: '10px 16px', borderRadius: '10px', border: 'none', background: '#fef3c7', color: '#92400e', fontWeight: 700, fontSize: '0.8rem', cursor: isMigrating ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: 6, opacity: isMigrating ? 0.7 : 1 }}>
+                    <Upload size={16} /> {isMigrating ? 'Migration...' : 'Migrer uploads → GED'}
+                  </button>
                 </div>
 
                 <div className="table-responsive-v2" style={{ overflowX: 'auto' }}>
@@ -2672,6 +2759,46 @@ const MagappAdmin: React.FC = () => {
               <button className="primary-btn-v2" onClick={editingDoc ? () => handleUpdateDoc(editingDoc) : handleCreateDoc} disabled={isUploading} style={{ padding: '10px 24px' }}>
                 {isUploading ? <><div className="spinner-v2" style={{ width: '16px', height: '16px', border: '2px solid white', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 1s linear infinite' }} /> Upload...</> : <><Save size={18} /> {editingDoc ? 'Mettre à jour' : 'Créer le document'}</>}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Visionneuse de document */}
+      {showDocViewer && activeDoc && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2100 }} onClick={() => setShowDocViewer(false)}>
+          <div style={{ background: '#fff', borderRadius: 16, width: '95vw', maxWidth: 1200, height: '90vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }} onClick={e => e.stopPropagation()}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 24px', borderBottom: '1px solid #e2e8f0' }}>
+              <div>
+                <h2 style={{ margin: 0, fontSize: '1.2rem', color: '#0f172a' }}>{activeDoc.title}</h2>
+                {activeDoc.description && <p style={{ margin: '4px 0 0', fontSize: '0.85rem', color: '#64748b' }}>{activeDoc.description}</p>}
+              </div>
+              <button className="close-modal-btn" onClick={() => setShowDocViewer(false)}><X size={20} /></button>
+            </div>
+            <div style={{ flex: 1, background: '#f1f5f9', position: 'relative' }}>
+              {activeDoc.doc_type === 'pdf' && (
+                <iframe src={activeDoc.url.startsWith('http') || activeDoc.url.startsWith('/uploads') || activeDoc.url.startsWith('/storage') ? activeDoc.url : `/api/magapp/docs/file/${activeDoc.url}`}
+                  style={{ width: '100%', height: '100%', border: 'none' }} title={activeDoc.title} />
+              )}
+              {activeDoc.doc_type === 'youtube' && (
+                <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#000' }}>
+                  <iframe width="100%" height="100%"
+                    src={(() => {
+                      let url = activeDoc.url;
+                      if (!url) return '';
+                      const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=)([^#\&\?]*).*/;
+                      const match = url.match(regExp);
+                      let id = (match && match[2].length === 11) ? match[2] : null;
+                      if (!id && url.length === 11) id = url;
+                      return id ? `https://www.youtube.com/embed/${id}?rel=0&modestbranding=1&autoplay=0` : url;
+                    })()}
+                    title="YouTube video player" frameBorder="0"
+                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowFullScreen />
+                </div>
+              )}
+              {activeDoc.doc_type === 'link' && (
+                <iframe src={activeDoc.url} style={{ width: '100%', height: '100%', border: 'none', background: 'white' }} title={activeDoc.title} />
+              )}
             </div>
           </div>
         </div>

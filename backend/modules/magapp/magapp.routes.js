@@ -64,6 +64,7 @@ magappAdminRouter.post('/maintenances', authenticateMagappControl, MagAppControl
 magappAdminRouter.put('/maintenances/:id', authenticateMagappControl, MagAppController.updateMaintenance);
 magappAdminRouter.delete('/maintenances/:id', authenticateMagappControl, MagAppController.deleteMaintenance);
 magappAdminRouter.get('/maintenances/:maintenanceId/attachments', authenticateMagappControl, MagAppController.getMaintenanceAttachments);
+magappAdminRouter.post('/migrate-uploads', authenticateMagappControl, MagAppController.migrateUploads);
 
 // Exporting both or a main router that handles both
 const mainRouter = express.Router();

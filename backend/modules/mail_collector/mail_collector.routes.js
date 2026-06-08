@@ -11,6 +11,7 @@ router.get('/test-config', authenticateJWT, mailCollectorController.testConfig);
 router.get('/rules', authenticateJWT, mailRulesController.getAll);
 router.post('/rules', authenticateAdmin, mailRulesController.create);
 router.post('/rules/init-defaults', authenticateAdmin, mailRulesController.initializeDefaults);
+router.post('/rules/recreate', authenticateAdmin, mailRulesController.recreateDefaults);
 router.post('/rules/test-classification', authenticateJWT, mailRulesController.testClassification);
 router.get('/rules/:id', authenticateJWT, mailRulesController.getById);
 router.put('/rules/:id', authenticateAdmin, mailRulesController.update);

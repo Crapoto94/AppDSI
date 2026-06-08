@@ -113,5 +113,16 @@ module.exports = {
     } catch (error) {
       res.status(500).json({ message: 'Erreur initialisation', error: error.message });
     }
+  },
+
+  recreateDefaults: async (req, res) => {
+    try {
+      await MailRulesService.createDefaultRules(true);
+      const rules = await MailRulesService.getAllRules();
+      logMouchard('Règles mail RECRÉÉES');
+      res.json({ message: 'Règles recréées', rules });
+    } catch (error) {
+      res.status(500).json({ message: 'Erreur recréation', error: error.message });
+    }
   }
 };
