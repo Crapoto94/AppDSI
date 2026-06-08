@@ -28,6 +28,12 @@ const Dashboard: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [restrictedMessage, setRestrictedMessage] = useState('');
   const [columns, setColumns] = useState(4);
+  const saveColumns = async (c: number) => {
+    setColumns(c);
+    try {
+      await axios.patch('/api/user-prefs/dashboard-columns', { columns: c }, { headers: { 'Authorization': `Bearer ${token}` } });
+    } catch (e) { /* ignore */ }
+  };
   const [draggedTile, setDraggedTile] = useState<number | null>(null);
   const [dragOverTile, setDragOverTile] = useState<number | null>(null);
   const { user, logout, token, refreshUser } = useAuth();
@@ -187,40 +193,12 @@ const Dashboard: React.FC = () => {
 
   return (
     <div className="dashboard">
-      <Header />
+      <Header columns={columns} onColumnsChange={saveColumns} />
       
       <main className={`container main-content ${!isApproved ? 'blurred' : ''}`}>
         <section className="welcome-section">
           <h1>Bienvenue, {user?.username}</h1>
           <p>Choisissez un service pour commencer votre session de travail.</p>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, marginTop: 12 }}>
-            <span style={{ fontSize: 12, color: '#a1a1aa' }}>Colonnes :</span>
-            {[3, 4, 5].map(c => (
-              <button
-                key={c}
-                onClick={async () => {
-                  setColumns(c);
-                  try {
-                    const headers = { 'Authorization': `Bearer ${token}` };
-                    await axios.patch('/api/user-prefs/dashboard-columns', { columns: c }, { headers });
-                  } catch (e) { /* ignore */ }
-                }}
-                style={{
-                  padding: '4px 12px',
-                  border: `1px solid ${columns === c ? '#6366f1' : '#e2e8f0'}`,
-                  borderRadius: 6,
-                  background: columns === c ? '#6366f1' : 'white',
-                  color: columns === c ? 'white' : '#64748b',
-                  cursor: 'pointer',
-                  fontSize: 12,
-                  fontWeight: 600,
-                  transition: 'all 0.15s'
-                }}
-              >
-                {c}
-              </button>
-            ))}
-          </div>
         </section>
 
         {loading ? (

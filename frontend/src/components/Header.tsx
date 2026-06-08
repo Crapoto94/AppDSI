@@ -42,9 +42,11 @@ interface TileData {
 }
 
 interface HeaderProps {
+  columns?: number;
+  onColumnsChange?: (c: number) => void;
 }
 
-const Header: React.FC<HeaderProps> = () => {
+const Header: React.FC<HeaderProps> = ({ columns, onColumnsChange }) => {
   const navigate = useNavigate();
   const location = useLocation();
   const searchParams = new URLSearchParams(location.search);
@@ -438,6 +440,28 @@ const Header: React.FC<HeaderProps> = () => {
                     boxShadow: '0 4px 14px -4px rgba(37,99,235,0.55)' }}>
                   <HelpCircle size={18} /> Aide
                 </button>
+              )}
+              {location.pathname === '/' && columns && onColumnsChange && (
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, marginRight: 4 }}>
+                  {[3, 4, 5].map(c => (
+                    <button key={c}
+                      onClick={() => onColumnsChange(c)}
+                      style={{
+                        padding: '3px 8px',
+                        border: `1px solid ${columns === c ? '#6366f1' : '#e2e8f0'}`,
+                        borderRadius: 4,
+                        background: columns === c ? '#6366f1' : 'transparent',
+                        color: columns === c ? 'white' : '#64748b',
+                        cursor: 'pointer',
+                        fontSize: 11,
+                        fontWeight: 600,
+                        lineHeight: '16px'
+                      }}
+                    >
+                      {c}
+                    </button>
+                  ))}
+                </span>
               )}
               <button onClick={handleLogout} className="btn-logout" title="Déconnexion">
                 <LogOut size={20} />
