@@ -42,6 +42,9 @@ router.put('/vlans/:id',      authenticateAdmin, ctrl.updateVlan);
 router.get('/liaisons-fo',         ctrl.getLiaisonsFO);
 router.post('/liaisons-fo',        authenticateAdmin, ctrl.createLiaisonFO);
 
+// ── Sites avec état des switchs ─────────────────────────────────────
+router.get('/sites-with-switches',   ctrl.getSitesWithSwitches);
+
 // ── Liens switchs (API Infra) ──────────────────────────────────────
 router.get('/switch-links',   ctrl.getSwitchLinks);
 

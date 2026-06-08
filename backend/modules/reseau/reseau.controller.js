@@ -420,6 +420,35 @@ module.exports = {
         } catch (e) { res.status(500).json({ message: e.message }); }
     },
 
+    // ─── Sites avec état des switchs ─────────────────────────────────
+    getSitesWithSwitches: async (req, res) => {
+        try {
+            // Uniquement les sites racines (Sxxx, pas les sous-sites SxxxBxx, SxxxLxx, etc.)
+            // Tous les équipements des sous-sites sont agrégés sous le site parent via LIKE.
+            const { rows } = await pool.query(`
+                SELECT
+                    p.code_bien AS site_code,
+                    p.nom,
+                    p.categorie,
+                    p.lat,
+                    p.lng,
+                    COUNT(e.id)::int AS total_switchs,
+                    COUNT(e.id) FILTER (WHERE e.statut IN ('PROD', 'BACKUP'))::int AS switchs_ok,
+                    COUNT(e.id) FILTER (WHERE e.statut = 'HS')::int AS switchs_ko
+                FROM hub.sites p
+                LEFT JOIN hub_reseau.equipements e
+                  ON e.site_code LIKE p.code_bien || '%'
+                WHERE p.code_bien IS NOT NULL
+                  AND p.code_bien <> ''
+                  AND p.code_bien = regexp_replace(p.code_bien, '(B|L|EXT|ESP).*$', '')
+                GROUP BY p.code_bien, p.nom, p.categorie, p.lat, p.lng
+                HAVING COUNT(e.id) > 0
+                ORDER BY p.code_bien
+            `);
+            res.json(rows);
+        } catch (e) { res.status(500).json({ message: e.message }); }
+    },
+
     // ─── Liens switchs (alimentés par l'API Infra) ─────────────────
     getSwitchLinks: async (req, res) => {
         try {

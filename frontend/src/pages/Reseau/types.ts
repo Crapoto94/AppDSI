@@ -149,6 +149,17 @@ export interface SwitchLink {
   synced_at?: string | null;
 }
 
+export interface SiteWithSwitches {
+  site_code: string;
+  nom: string;
+  categorie?: string | null;
+  lat: number | null;
+  lng: number | null;
+  total_switchs: number;
+  switchs_ok: number;
+  switchs_ko: number;
+}
+
 export interface ReseauStats {
   liens_total: number;
   liens_intra: number;

@@ -30,6 +30,7 @@ const ParcAgesWidget        = lazy(() => import('./ParcAgesWidget'));
 const TicketsRecentWidget   = lazy(() => import('./TicketsRecentWidget'));
 const CalendrierDsiWidget   = lazy(() => import('./CalendrierDsiWidget'));
 const BackupStatusWidget    = lazy(() => import('./BackupStatusWidget'));
+const ReseauSitesWidget     = lazy(() => import('./ReseauSitesWidget'));
 
 const ConsommablesWidget = lazy(() => import('./CounterWidget').then(m => ({ default: m.ConsommablesWidget })));
 const CertificatsWidget  = lazy(() => import('./CounterWidget').then(m => ({ default: m.CertificatsWidget })));
@@ -70,6 +71,7 @@ const WIDGET_MAP: Record<string, React.ComponentType> = {
   tickets_recent:     TicketsRecentWidget,
   calendrier_dsi:     CalendrierDsiWidget,
   backup_status:      BackupStatusWidget,
+  reseau_sites:       ReseauSitesWidget,
 };
 
 const Fallback = () => (

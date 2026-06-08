@@ -374,7 +374,31 @@
       "Bash(node backend/scripts/list_use_date_sans_nom.js)",
       "Bash(python)",
       "Bash(node -e \"const p = require\\('C:/dev/AppDSI/backend/package.json'\\); console.log\\(JSON.stringify\\(Object.keys\\(p.dependencies || {}\\), null, 2\\)\\)\")",
-      "PowerShell(\\(Get-Content \"C:\\\\dev\\\\AppDSI\\\\backend\\\\shared\\\\pg_db.js\" | Measure-Object -Line\\).Lines)"
+      "PowerShell(\\(Get-Content \"C:\\\\dev\\\\AppDSI\\\\backend\\\\shared\\\\pg_db.js\" | Measure-Object -Line\\).Lines)",
+      "Bash(node -c modules/rencontres/outlook.service.js)",
+      "Bash(node -c modules/rencontres/reunions.controller.js)",
+      "Bash(node -c modules/rencontres/rencontres.routes.js)",
+      "Bash(cd /c/dev/AppDSI/backend && grep -rn \"auth/me\\\\|/me'\" server.js modules/ 2>/dev/null | head -20)",
+      "Bash(node -c modules/rh/rh.controller.js)",
+      "Bash(node -c modules/rh/encadrants.controller.js)",
+      "Bash(node -c modules/rh/rh.routes.js)",
+      "Bash(node -c modules/ville/ville.routes.js)",
+      "Bash(node -e \"const f=require\\('@ldapjs/filter'\\); try{f.parseString\\('\\(employeeID=123\\)'\\);console.log\\('employeeID OK'\\);}catch\\(e\\){console.log\\('employeeID FAIL:',e.message\\);} try{f.parseString\\('\\(employeeNumber=123\\)'\\);console.log\\('employeeNumber OK'\\);}catch\\(e\\){console.log\\('employeeNumber FAIL:',e.message\\);} try{f.parseString\\('\\(1.2.840.113556.1.4.35=123\\)'\\);console.log\\('OID OK'\\);}catch\\(e\\){console.log\\('OID FAIL:',e.message\\);}\")",
+      "Bash(xargs -d '\\\\n' rm -f)",
+      "Read(//c/Users/machevalier/Downloads/**)",
+      "Bash(xxd)",
+      "Bash(node -e \"require\\('./modules/finance/finance.controller.js'\\); console.log\\('controller OK'\\);\")",
+      "Bash(node -e \"const r=require\\('./modules/finance/finance.routes'\\); console.log\\('routes OK'\\);\")",
+      "Bash(node -e \"require\\('./modules/telecom/telecom.controller.js'\\); console.log\\('telecom controller OK'\\);\")",
+      "Bash(node _sqlite_audit.js)",
+      "Bash(cd C:/dev/AppDSI/backend && printf '### création table telecom_commitments ###\\\\n'; grep -rn \"CREATE TABLE.*telecom_commitments\\\\|telecom_commitments\" --include=*.js . | grep -iv \"node_modules\" | grep -i \"create\\\\|alter\"; printf '\\\\n### frontend usages /commitments & CRUD ###\\\\n'; grep -rn \"/commitments\\\\|Commitment\\\\|commitments\" ../frontend/src/pages/TelecomManagement.tsx | head -30)",
+      "Bash(node -e \"require\\('./modules/telecom/telecom.controller.js'\\); require\\('./modules/telecom/telecom.routes.js'\\); console.log\\('telecom OK'\\);\")",
+      "Bash(node _migrate_telecom.js)",
+      "Bash(rm -f _migrate_telecom.js)",
+      "Bash(node -e \"const s=require\\('./modules/backup/backup.scheduler'\\); console.log\\('scheduler exports:', Object.keys\\(s\\)\\);\")",
+      "Bash(node -e \"require\\('./modules/backup/backup.controller.js'\\); require\\('./modules/backup/backup.scheduler.js'\\); console.log\\('backup modules load OK'\\);\")",
+      "Bash(git clean *)",
+      "Bash(echo \"exit:$?\")"
     ]
   }
 }

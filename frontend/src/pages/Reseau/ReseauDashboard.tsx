@@ -3,7 +3,7 @@ import axios from 'axios';
 import Header from '../../components/Header';
 import {
   Network, Map as MapIcon, MapPin, Share2, Plus, Trash2,
-  Cpu, GitBranch, Tag, Cable, BarChart2, Wifi, Shield, Server, Router, Link2, File,
+  Cpu, GitBranch, Tag, Cable, BarChart2, Wifi, Shield, Server, Router, Link2, File, Building2,
 } from 'lucide-react';
 import NetworkMap from './NetworkMap';
 import type { MoveResult } from './NetworkMap';
@@ -13,7 +13,7 @@ import { linkStyle } from './utils';
 import type {
   NetworkLink, NetworkAccess, Duct, SiteRef, LinkType, Operator,
   IrfStack, Equipement, Vlan, LiaisonFO, ReseauStats, SwitchLink,
-  DxfCalque, DxfEntite, DxfDocument, DxfLayerStyle,
+  DxfCalque, DxfEntite, DxfDocument, DxfLayerStyle, SiteWithSwitches,
 } from './types';
 
 const LINK_TYPES: LinkType[] = ['FIBRE', 'WAN', 'OPERATEUR', 'LASER'];
@@ -24,7 +24,7 @@ const emptyForm = {
   capacity: '', carries_data: true, carries_voice: false, is_loop: false, is_redundant: false,
 };
 
-type Tab = 'carte' | 'liens-switchs' | 'irf' | 'equipements' | 'vlans' | 'liaisons-fo' | 'stats';
+type Tab = 'carte' | 'liens-switchs' | 'irf' | 'equipements' | 'vlans' | 'liaisons-fo' | 'sites' | 'stats';
 
 export default function ReseauDashboard() {
   const token = localStorage.getItem('token');
@@ -41,6 +41,7 @@ export default function ReseauDashboard() {
   const [vlans, setVlans]           = useState<Vlan[]>([]);
   const [liaisonsFO, setLiaisonsFO] = useState<LiaisonFO[]>([]);
   const [switchLinks, setSwitchLinks] = useState<SwitchLink[]>([]);
+  const [sitesWithSwitches, setSitesWithSwitches] = useState<SiteWithSwitches[]>([]);
   const [stats, setStats]           = useState<ReseauStats | null>(null);
 
   const [tab, setTab]     = useState<Tab>('carte');
@@ -85,19 +86,20 @@ export default function ReseauDashboard() {
   async function loadAll() {
     setLoading(true);
     try {
-      const [s, l, a, d, irf, eq, vl, fo, sl, st, dxfRes, dxfStyles] = await Promise.all([
-        axios.get('/api/network/sites',         { headers }),
-        axios.get('/api/network/links',         { headers }),
-        axios.get('/api/network/access',        { headers }),
-        axios.get('/api/network/ducts',         { headers }),
-        axios.get('/api/network/irf-stacks',    { headers }),
-        axios.get('/api/network/equipements',   { headers }),
-        axios.get('/api/network/vlans',         { headers }),
-        axios.get('/api/network/liaisons-fo',   { headers }),
-        axios.get('/api/network/switch-links',  { headers }),
-        axios.get('/api/network/stats',         { headers }),
-        axios.get('/api/maps/dxf/layers',       { headers }).catch(() => ({ data: [] })),
-        axios.get('/api/maps/dxf/layer-styles', { headers }).catch(() => ({ data: [] })),
+      const [s, l, a, d, irf, eq, vl, fo, sl, sws, st, dxfRes, dxfStyles] = await Promise.all([
+        axios.get('/api/network/sites',              { headers }),
+        axios.get('/api/network/links',              { headers }),
+        axios.get('/api/network/access',             { headers }),
+        axios.get('/api/network/ducts',              { headers }),
+        axios.get('/api/network/irf-stacks',         { headers }),
+        axios.get('/api/network/equipements',        { headers }),
+        axios.get('/api/network/vlans',              { headers }),
+        axios.get('/api/network/liaisons-fo',        { headers }),
+        axios.get('/api/network/switch-links',       { headers }),
+        axios.get('/api/network/sites-with-switches', { headers }),
+        axios.get('/api/network/stats',              { headers }),
+        axios.get('/api/maps/dxf/layers',            { headers }).catch(() => ({ data: [] })),
+        axios.get('/api/maps/dxf/layer-styles',      { headers }).catch(() => ({ data: [] })),
       ]);
       setSitesArr(s.data    || []);
       setLinks(l.data       || []);
@@ -108,6 +110,7 @@ export default function ReseauDashboard() {
       setVlans(vl.data      || []);
       setLiaisonsFO(fo.data || []);
       setSwitchLinks(sl.data || []);
+      setSitesWithSwitches(sws.data || []);
       setStats(st.data);
       setDxfDocuments(dxfRes.data || []);
       const styleMap: Record<string, { visible: boolean; color?: string | null }> = {};
@@ -450,6 +453,7 @@ export default function ReseauDashboard() {
             ['equipements',<><Cpu size={14} /> Équipements</>,               'equipements'],
             ['vlans',      <><Tag size={14} /> VLANs</>,                     'vlans'],
             ['liaisons-fo',<><Cable size={14} /> Liaisons FO</>,             'liaisons-fo'],
+            ['sites',      <><Building2 size={14} /> Sites</>,               'sites'],
             ['stats',      <><BarChart2 size={14} /> Stats</>,               'stats'],
           ] as [Tab, React.ReactNode, string][]).map(([id, label]) => (
             <button key={id} onClick={() => setTab(id)} style={{
@@ -963,6 +967,79 @@ export default function ReseauDashboard() {
                 </div>
               );
             })}
+          </div>
+        )}
+
+        {/* ══════════════════ TAB SITES ══════════════════ */}
+        {tab === 'sites' && (
+          <div>
+            <div style={{ display: 'flex', gap: 10, marginBottom: 14, flexWrap: 'wrap', alignItems: 'center' }}>
+              <input style={{ ...inp, width: 280 }} value={fVlanSearch} onChange={e => setFVlanSearch(e.target.value)} placeholder="Rechercher un site…" />
+              <div style={{ fontSize: 13, color: '#94a3b8' }}>{sitesWithSwitches.length} sites</div>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))', gap: 12 }}>
+              {sitesWithSwitches
+                .filter(s => {
+                  const q = fVlanSearch.toLowerCase();
+                  return !q || s.site_code.toLowerCase().includes(q) || s.nom.toLowerCase().includes(q);
+                })
+                .map(site => {
+                  const hasSwitch = site.total_switchs > 0;
+                  const allOk = site.switchs_ok === site.total_switchs;
+                  const allKo = site.switchs_ko === site.total_switchs;
+                  const siteColor = !hasSwitch ? '#94a3b8' : allOk ? '#22c55e' : allKo ? '#ef4444' : '#f97316';
+                  const siteLabel = !hasSwitch ? 'Aucun switch' : allOk ? 'Tous OK' : allKo ? 'Tous HS' : 'Mixte';
+                  return (
+                    <div key={site.site_code} style={{
+                      ...card, borderLeft: `4px solid ${siteColor}`,
+                      display: 'flex', flexDirection: 'column', gap: 8,
+                    }}>
+                      {/* En-tête site */}
+                      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8 }}>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                            <span style={{ fontWeight: 700, fontFamily: 'monospace', fontSize: 12, color: '#64748b' }}>{site.site_code}</span>
+                            <span style={{ width: 10, height: 10, borderRadius: '50%', background: siteColor, flexShrink: 0 }} />
+                          </div>
+                          <div style={{ fontWeight: 700, fontSize: 14, color: '#0f172a', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{site.nom}</div>
+                        </div>
+                        <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                          <div style={{ fontSize: 24, fontWeight: 800, color: siteColor, lineHeight: 1 }}>{site.total_switchs}</div>
+                          <div style={{ fontSize: 10, color: '#94a3b8' }}>switchs</div>
+                        </div>
+                      </div>
+                      {/* Barre de statut */}
+                      {hasSwitch && (
+                        <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+                          <div style={{ flex: 1, height: 6, borderRadius: 3, background: '#f1f5f9', overflow: 'hidden', display: 'flex' }}>
+                            {site.switchs_ok > 0 && <div style={{ height: '100%', background: '#22c55e', flex: site.switchs_ok }} />}
+                            {site.switchs_ko > 0 && <div style={{ height: '100%', background: '#ef4444', flex: site.switchs_ko }} />}
+                          </div>
+                          <span style={{
+                            fontSize: 10, fontWeight: 700, padding: '1px 8px', borderRadius: 8, color: '#fff', background: siteColor,
+                          }}>{siteLabel}</span>
+                        </div>
+                      )}
+                      {/* Détail switchs */}
+                      {hasSwitch && (
+                        <div style={{ display: 'flex', gap: 12, fontSize: 12 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 4, color: '#16a34a' }}>
+                            <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#22c55e' }} />
+                            {site.switchs_ok} OK
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 4, color: '#dc2626' }}>
+                            <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#ef4444' }} />
+                            {site.switchs_ko} KO
+                          </div>
+                        </div>
+                      )}
+                      {!hasSwitch && (
+                        <div style={{ fontSize: 12, color: '#94a3b8', fontStyle: 'italic' }}>Aucun switch référencé sur ce site</div>
+                      )}
+                    </div>
+                  );
+                })}
+            </div>
           </div>
         )}
 

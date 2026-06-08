@@ -271,6 +271,15 @@ export const WIDGET_REGISTRY: WidgetDef[] = [
     defaultSize: { w: 5, h: 3 },
     minSize: { w: 3, h: 2 },
   },
+  // ── Réseau ─────────────────────────────────────────────────────────────────
+  {
+    key: 'reseau_sites',
+    label: 'État des sites Réseau',
+    description: 'Sites avec état des switchs (OK/KO/Mixte)',
+    module: 'Réseau',
+    defaultSize: { w: 4, h: 4 },
+    minSize: { w: 3, h: 3 },
+  },
   // ── Système ───────────────────────────────────────────────────────────────
   {
     key: 'backup_status',
