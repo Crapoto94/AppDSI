@@ -4594,24 +4594,18 @@ app.get('/api/user-tile-order', authenticateJWT, async (req, res) => {
 
 app.post('/api/user-tile-order', authenticateJWT, async (req, res) => {
     try {
-        await ensureUserTileOrderTable();
-        const { tileOrder } = req.body;
-
+        const { tileOrder } = req.body; // array of tile ids
         if (!Array.isArray(tileOrder)) {
             return res.status(400).json({ message: 'tileOrder doit être un tableau' });
         }
 
-        // Clear existing order
-        await pgDb.run(
-            `DELETE FROM hub.user_tile_order WHERE user_id = $1`,
-            [req.user.id]
-        );
+        // Supprimer l'ancien ordre utilisateur
+        await pgDb.run('DELETE FROM hub.user_tile_order WHERE user_id = $1', [req.user.id]);
 
-        // Insert new order
+        // Insérer le nouvel ordre
         for (let i = 0; i < tileOrder.length; i++) {
             await pgDb.run(
-                `INSERT INTO hub.user_tile_order (user_id, tile_id, position)
-                 VALUES ($1, $2, $3)`,
+                'INSERT INTO hub.user_tile_order (user_id, tile_id, sort_order) VALUES ($1, $2, $3)',
                 [req.user.id, tileOrder[i], i]
             );
         }
@@ -4623,6 +4617,37 @@ app.post('/api/user-tile-order', authenticateJWT, async (req, res) => {
     }
 });
 
+// Dashboard columns preference
+app.get('/api/user-prefs/dashboard-columns', authenticateJWT, async (req, res) => {
+    try {
+        const row = await pgDb.get(
+            'SELECT dashboard_columns FROM hub.user_prefs WHERE username = $1',
+            [req.user.username]
+        );
+        res.json({ columns: row?.dashboard_columns ?? 4 });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.patch('/api/user-prefs/dashboard-columns', authenticateJWT, async (req, res) => {
+    try {
+        const { columns } = req.body;
+        const c = parseInt(columns, 10);
+        if (![3, 4, 5].includes(c)) {
+            return res.status(400).json({ error: 'Le nombre de colonnes doit être 3, 4 ou 5' });
+        }
+        await pgDb.run(
+            `INSERT INTO hub.user_prefs (username, dashboard_columns, updated_at)
+             VALUES ($1, $2, NOW())
+             ON CONFLICT (username) DO UPDATE SET dashboard_columns = EXCLUDED.dashboard_columns, updated_at = NOW()`,
+            [req.user.username, c]
+        );
+        res.json({ columns: c });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
 
 // Import Budget Lines from Excel
 

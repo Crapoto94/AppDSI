@@ -27,6 +27,7 @@ const Dashboard: React.FC = () => {
   const [tileOrder, setTileOrder] = useState<number[]>([]);
   const [loading, setLoading] = useState(true);
   const [restrictedMessage, setRestrictedMessage] = useState('');
+  const [columns, setColumns] = useState(4);
   const [draggedTile, setDraggedTile] = useState<number | null>(null);
   const [dragOverTile, setDragOverTile] = useState<number | null>(null);
   const { user, logout, token, refreshUser } = useAuth();
@@ -119,13 +120,15 @@ const Dashboard: React.FC = () => {
       try {
         setLoading(true);
         const headers = { 'Authorization': `Bearer ${token}` };
-        const [tilesRes, pendingRes, renewalRes, contratsExpiryRes, tasksCountRes] = await Promise.all([
+        const [tilesRes, pendingRes, renewalRes, contratsExpiryRes, tasksCountRes, columnsRes] = await Promise.all([
           fetch('/api/tiles', { headers }),
           axios.get('/api/consumable/pending-count').catch(() => ({ data: { count: 0 } })),
           axios.get('/api/certificates/renewal-count', { headers }).catch(() => ({ data: { count: 0 } })),
           axios.get('/api/contrats/expiry-count', { headers }).catch(() => ({ data: { expired: 0, soon: 0 } })),
-          axios.get('/api/tasks/count', { headers }).catch(() => ({ data: { count: 0, overdue: 0, en_cours: 0, a_faire: 0 } }))
+          axios.get('/api/tasks/count', { headers }).catch(() => ({ data: { count: 0, overdue: 0, en_cours: 0, a_faire: 0 } })),
+          axios.get('/api/user-prefs/dashboard-columns', { headers }).catch(() => ({ data: { columns: 4 } }))
         ]);
+        setColumns(columnsRes.data.columns);
 
         const tilesData = await tilesRes.json();
         const pendingCount = pendingRes.data.count || 0;
@@ -190,12 +193,40 @@ const Dashboard: React.FC = () => {
         <section className="welcome-section">
           <h1>Bienvenue, {user?.username}</h1>
           <p>Choisissez un service pour commencer votre session de travail.</p>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, marginTop: 12 }}>
+            <span style={{ fontSize: 12, color: '#a1a1aa' }}>Colonnes :</span>
+            {[3, 4, 5].map(c => (
+              <button
+                key={c}
+                onClick={async () => {
+                  setColumns(c);
+                  try {
+                    const headers = { 'Authorization': `Bearer ${token}` };
+                    await axios.patch('/api/user-prefs/dashboard-columns', { columns: c }, { headers });
+                  } catch (e) { /* ignore */ }
+                }}
+                style={{
+                  padding: '4px 12px',
+                  border: `1px solid ${columns === c ? '#6366f1' : '#e2e8f0'}`,
+                  borderRadius: 6,
+                  background: columns === c ? '#6366f1' : 'white',
+                  color: columns === c ? 'white' : '#64748b',
+                  cursor: 'pointer',
+                  fontSize: 12,
+                  fontWeight: 600,
+                  transition: 'all 0.15s'
+                }}
+              >
+                {c}
+              </button>
+            ))}
+          </div>
         </section>
 
         {loading ? (
           <div className="loading">Chargement des services...</div>
         ) : (
-          <div className="tiles-grid">
+          <div className={`tiles-grid cols-${columns}`} style={{ gridTemplateColumns: `repeat(${columns}, 1fr)` }}>
             {tiles
               .filter(t => t.status === 'active' || t.status === 'soon')
               .sort((a, b) => {
@@ -308,9 +339,10 @@ const Dashboard: React.FC = () => {
         }
         .tiles-grid {
           display: grid;
-          grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
           gap: 30px;
         }
+        .tiles-grid.cols-4 { gap: 24px; }
+        .tiles-grid.cols-5 { gap: 18px; }
         .tiles-grid > div {
           cursor: move;
         }
@@ -320,6 +352,18 @@ const Dashboard: React.FC = () => {
         .tiles-grid > div[draggable="true"]:active {
           cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='22' height='22' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M18 11V7a2 2 0 0 0-4 0v4'/%3E%3Cpath d='M14 7V5a2 2 0 0 0-4 0v6'/%3E%3Cpath d='M10 5V4a2 2 0 0 0-4 0v10'/%3E%3Cpath d='M18 11a2 2 0 1 1 4 0v3a8 8 0 0 1-8 8h-4a8 8 0 0 1-8-8 2 2 0 1 1 4 0'/%3E%3C/svg%3E") 10 1, grabbing;
         }
+        .cols-4 .tile { padding: 24px; }
+        .cols-4 .tile-icon { padding: 12px; margin-bottom: 14px; }
+        .cols-4 .tile-icon svg { width: 28px; height: 28px; }
+        .cols-4 .tile-title { font-size: 17px; }
+        .cols-4 .tile-description { font-size: 13px; margin-bottom: 18px; }
+        .cols-5 .tile { padding: 18px; }
+        .cols-5 .tile-icon { padding: 10px; margin-bottom: 10px; }
+        .cols-5 .tile-icon svg { width: 22px; height: 22px; }
+        .cols-5 .tile-title { font-size: 15px; margin-bottom: 8px; }
+        .cols-5 .tile-description { font-size: 12px; margin-bottom: 14px; }
+        .cols-5 .tile-btn { padding: 7px; font-size: 12px; }
+        .cols-5 .tile-links { gap: 6px; }
         .loading {
           text-align: center;
           padding: 50px;
