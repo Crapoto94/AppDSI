@@ -119,6 +119,7 @@ interface LinesStats {
   topSites: { site: string; total: number; fixe: number; internet: number }[];
   migrationList: { site_name: string; city: string; access_type: string; offer: string; copper_end_lot: string; ndi: string; mid: string }[];
   resiliationList: { site_name: string; city: string; access_type: string; offer: string; status: string; ndi: string; mid: string }[];
+  trunkList: { site_name: string; city: string; access_type: string; ndi: string; mid: string; billing_account: string; capacity: string }[];
 }
 
 const TelecomManagement: React.FC = () => {
@@ -991,6 +992,41 @@ const TelecomManagement: React.FC = () => {
                     </div>
                   ))}
                 </div>
+              </div>
+            )}
+
+            {/* Groupements / têtes de ligne mutualisées */}
+            {linesStats && linesStats.trunkList.length > 0 && (
+              <div className="admin-card" style={{ padding: 18, marginBottom: 24, borderLeft: '4px solid #2563eb' }}>
+                <h3 style={{ margin: '0 0 4px', fontSize: '1rem', color: '#1e293b', display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <Network size={18} color="#2563eb" /> Liens mutualisés — têtes de ligne ({linesStats.trunkList.length})
+                </h3>
+                <p style={{ fontSize: '0.8rem', color: '#64748b', margin: '0 0 12px' }}>
+                  Chaque entrée est une <strong>tête de ligne</strong> (T2, T0, groupement) regroupant plusieurs numéros/canaux derrière un seul NDI.
+                  Les numéros SDA secondaires ne figurent pas dans l'export opérateur. Cibles privilégiées de consolidation / bascule SIP.
+                </p>
+                <table className="commitments-table">
+                  <thead>
+                    <tr>
+                      <th>Site</th>
+                      <th>Type</th>
+                      <th>NDI (tête de ligne)</th>
+                      <th>Capacité</th>
+                      <th>Compte fact.</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {linesStats.trunkList.map((t, i) => (
+                      <tr key={i}>
+                        <td style={{ fontWeight: 600 }}>{t.site_name}</td>
+                        <td><span className="type-badge interco">{t.access_type}</span></td>
+                        <td style={{ fontFamily: 'monospace', fontWeight: 700, color: '#0078a4' }}>{t.ndi || '—'}</td>
+                        <td style={{ fontSize: '0.8rem', color: '#64748b' }}>{t.capacity}</td>
+                        <td>{t.billing_account}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
             )}
 

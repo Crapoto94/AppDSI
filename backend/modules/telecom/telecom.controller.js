@@ -531,7 +531,18 @@ module.exports = {
                 byCity: {},
                 migrationList: [],
                 resiliationList: [],
+                trunkList: [],   // têtes de ligne mutualisées (T2, T0, groupements)
             };
+
+            // Identifie les liens mutualisés (1 NDI = plusieurs canaux/numéros SDA)
+            const trunkCapacity = (t) => {
+                const s = (t || '').toLowerCase();
+                if (s.includes('t2')) return 'T2 / PRA — jusqu’à 30 communications simultanées (+ SDA)';
+                if (s.includes('t0')) return 'T0 — 2 canaux (numéris)';
+                if (s.includes('groupement')) return 'Groupement — plusieurs lignes derrière une tête de ligne';
+                return '';
+            };
+            const isTrunk = (t) => /groupement|t2|t0/i.test(t || '');
 
             const bump = (obj, k) => { const key = k || '(non renseigné)'; obj[key] = (obj[key] || 0) + 1; };
             const sites = {};
@@ -552,7 +563,13 @@ module.exports = {
                     site_name: l.site_name, city: l.city, access_type: l.access_type,
                     offer: l.offer, status: l.status, ndi: l.ndi, mid: l.mid,
                 });
+                if (isTrunk(l.access_type)) stats.trunkList.push({
+                    site_name: l.site_name, city: l.city, access_type: l.access_type,
+                    ndi: l.ndi, mid: l.mid, billing_account: l.billing_account,
+                    capacity: trunkCapacity(l.access_type),
+                });
             }
+            stats.trunkList.sort((a, b) => (a.site_name || '').localeCompare(b.site_name || ''));
             stats.topSites = Object.values(sites).sort((a, b) => b.total - a.total).slice(0, 10);
 
             res.json(stats);
