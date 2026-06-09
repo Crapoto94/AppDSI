@@ -41,9 +41,15 @@ const ROLE_LABELS: Record<string, { label: string; color: string; bg: string }> 
   user:         { label: 'Utilisateur',   color: '#0284c7', bg: '#e0f2fe' },
 };
 
+const FILTER_SESSION_KEY = 'tickets_dash_filters';
+
 export default function TicketsDashboard() {
   const { user } = useAuth();
-  
+
+  const _initSnap = (() => {
+    try { return JSON.parse(sessionStorage.getItem(FILTER_SESSION_KEY) || 'null'); } catch { return null; }
+  })();
+
   // Real-time notification hook
   useRealtimeNotifications(() => {
     // Reload data when a new ticket is detected
@@ -60,12 +66,12 @@ export default function TicketsDashboard() {
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState<any>(null);
   const [dailyMetrics, setDailyMetrics] = useState<any>(null);
-  const [activeFilter, setActiveFilter] = useState<string | null>(null);
-  const [activeUserFilter, setActiveUserFilter] = useState<string | null>(null);
+  const [activeFilter, setActiveFilter] = useState<string | null>(_initSnap?.activeFilter ?? null);
+  const [activeUserFilter, setActiveUserFilter] = useState<string | null>(_initSnap?.activeUserFilter ?? null);
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [total, setTotal] = useState(0);
-  const [search, setSearch] = useState('');
+  const [search, setSearch] = useState(_initSnap?.search ?? '');
   // ── Réinitialisation GLPI (modale + barre de progression) ──
   const [showResetModal, setShowResetModal] = useState(false);
   const [backupBeforeReset, setBackupBeforeReset] = useState(true);
@@ -75,44 +81,57 @@ export default function TicketsDashboard() {
     error: string | null; result: any;
   } | null>(null);
   const resetPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const [showRejected, setShowRejected] = useState(false);
-  const showRejectedRef = useRef(false);
-  const [showResolved, setShowResolved] = useState(false);
-  const showResolvedRef = useRef(false);
+  const [showRejected, setShowRejected] = useState(_initSnap?.showRejected ?? false);
+  const showRejectedRef = useRef(_initSnap?.showRejected ?? false);
+  const [showResolved, setShowResolved] = useState(_initSnap?.showResolved ?? false);
+  const showResolvedRef = useRef(_initSnap?.showResolved ?? false);
   const [selectedInboxId, setSelectedInboxId] = useState<number | null>(null);
   const viewModeRef = useRef<'table' | 'kanban' | 'inbox' | 'live'>(initialView);
   useEffect(() => { viewModeRef.current = viewMode; }, [viewMode]);
-  const [sortKey, setSortKey] = useState('date_creation');
-  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
-  const [requesterSearch, setRequesterSearch] = useState('');
+  const [sortKey, setSortKey] = useState(_initSnap?.sortKey ?? 'date_creation');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>(_initSnap?.sortDir ?? 'desc');
+  const [requesterSearch, setRequesterSearch] = useState(_initSnap?.requesterSearch ?? '');
   const [requesterResults, setRequesterResults] = useState<any[]>([]);
   const [requesterSearching, setRequesterSearching] = useState(false);
-  const [activeRequesterEmail, setActiveRequesterEmail] = useState<string | null>(null);
+  const [activeRequesterEmail, setActiveRequesterEmail] = useState<string | null>(_initSnap?.activeRequesterEmail ?? null);
   const [kpiHistory, setKpiHistory] = useState<any[]>([]);
   const [kpiDays, setKpiDays] = useState(30);
   const [kpiActionLoading, setKpiActionLoading] = useState<string | null>(null);
   const [categories, setCategories] = useState<any[]>([]);
-  const [activeCategory, setActiveCategory] = useState<number | 'none' | null>(null);
-  const [activeSubcategory, setActiveSubcategory] = useState<number | null>(null);
+  const [activeCategory, setActiveCategory] = useState<number | 'none' | null>(_initSnap?.activeCategory ?? null);
+  const [activeSubcategory, setActiveSubcategory] = useState<number | null>(_initSnap?.activeSubcategory ?? null);
   const [softwares, setSoftwares] = useState<{ id: number; name: string }[]>([]);
-  const [activeSoftware, setActiveSoftware] = useState<number | null>(null);
+  const [activeSoftware, setActiveSoftware] = useState<number | null>(_initSnap?.activeSoftware ?? null);
   const [groups, setGroups] = useState<{ id: number; name: string }[]>([]);
-  const [activeGroup, setActiveGroup] = useState<number | null>(null);
-  const activeGroupRef = useRef<number | null>(null);
+  const [activeGroup, setActiveGroup] = useState<number | null>(_initSnap?.activeGroup ?? null);
+  const activeGroupRef = useRef<number | null>(_initSnap?.activeGroup ?? null);
   const [technicians, setTechnicians] = useState<any[]>([]);
-  const [activeTechnician, setActiveTechnician] = useState<number | null>(null);
-  const activeTechnicianRef = useRef<number | null>(null);
+  const [activeTechnician, setActiveTechnician] = useState<number | null>(_initSnap?.activeTechnician ?? null);
+  const activeTechnicianRef = useRef<number | null>(_initSnap?.activeTechnician ?? null);
   // Filtre Type : '' = tous, '1' = Incidents, '2' = Demandes
-  const [typeFilter, setTypeFilter] = useState<string>('');
-  const typeFilterRef = useRef<string>('');
+  const [typeFilter, setTypeFilter] = useState<string>(_initSnap?.typeFilter ?? '');
+  const typeFilterRef = useRef<string>(_initSnap?.typeFilter ?? '');
   const [liveNotif, setLiveNotif] = useState<{ count: number; lastSession: any } | null>(null);
   const [liveTickerMsg, setLiveTickerMsg] = useState<string | null>(null);
-  const [activeLiveFilter, setActiveLiveFilter] = useState(false);
+  const [activeLiveFilter, setActiveLiveFilter] = useState(_initSnap?.activeLiveFilter ?? false);
   const [liveStats, setLiveStats] = useState<any>(null);
   const ALL_KPI_KEYS = ['new','open','in_progress','waiting','critical','resolved','problems','sla_breached','age','wait_time','resolve_time','live_chat'];
   const [selectedKpis, setSelectedKpis] = useState<string[]>(ALL_KPI_KEYS);
   const [showKpiConfig, setShowKpiConfig] = useState(false);
   const limit = 50;
+
+  // ── Filtres sauvegardés ──────────────────────────────────────────
+  const [savedFilters, setSavedFilters] = useState<{ id: number; name: string; scope: string; filters: any; created_by: string }[]>([]);
+  const [showFilterPanel, setShowFilterPanel] = useState(false);
+  const [showSaveModal, setShowSaveModal] = useState(false);
+  const [saveFilterName, setSaveFilterName] = useState('');
+  const [saveFilterScope, setSaveFilterScope] = useState<'personal' | 'global'>('personal');
+
+  // Persistance session : sauvegarde automatique de l'état des filtres
+  useEffect(() => {
+    const snap = { activeFilter, activeUserFilter, search, activeRequesterEmail, requesterSearch, activeCategory, activeSubcategory, activeSoftware, activeGroup, activeTechnician, typeFilter, activeLiveFilter, showResolved, showRejected, sortKey, sortDir };
+    try { sessionStorage.setItem(FILTER_SESSION_KEY, JSON.stringify(snap)); } catch {}
+  }, [activeFilter, activeUserFilter, search, activeRequesterEmail, requesterSearch, activeCategory, activeSubcategory, activeSoftware, activeGroup, activeTechnician, typeFilter, activeLiveFilter, showResolved, showRejected, sortKey, sortDir]);
 
   const inboxParams = React.useMemo(() => {
     const params: Record<string, string> = {};
@@ -319,6 +338,10 @@ export default function TicketsDashboard() {
 
 
   useEffect(() => { loadData(activeFilter, activeUserFilter, 1, search, activeCategory, activeSubcategory, activeSoftware); }, []);
+
+  useEffect(() => {
+    loadSavedFilters();
+  }, []);
 
   useEffect(() => {
     const token = localStorage.getItem('token');
@@ -581,6 +604,69 @@ export default function TicketsDashboard() {
     setPage(1);
     loadData(null, null, 1, '', activeCategory, activeSubcategory, null);
   }
+
+  const getCurrentFilterSnap = () => ({
+    activeFilter, activeUserFilter, search, activeRequesterEmail, requesterSearch,
+    activeCategory, activeSubcategory, activeSoftware, activeGroup, activeTechnician,
+    typeFilter, activeLiveFilter, showResolved, showRejected, sortKey, sortDir,
+  });
+
+  const loadSavedFilters = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      const res = await axios.get('/api/tickets/saved-filters', { headers: { Authorization: `Bearer ${token}` } });
+      setSavedFilters(res.data || []);
+    } catch {}
+  };
+
+  const saveCurrentFilter = async () => {
+    if (!saveFilterName.trim()) return;
+    try {
+      const token = localStorage.getItem('token');
+      await axios.post('/api/tickets/saved-filters', { name: saveFilterName.trim(), scope: saveFilterScope, filters: getCurrentFilterSnap() }, { headers: { Authorization: `Bearer ${token}` } });
+      setSaveFilterName('');
+      setShowSaveModal(false);
+      loadSavedFilters();
+    } catch (e: any) { alert('Erreur: ' + (e.response?.data?.message || e.message)); }
+  };
+
+  const deleteSavedFilter = async (id: number) => {
+    try {
+      const token = localStorage.getItem('token');
+      await axios.delete(`/api/tickets/saved-filters/${id}`, { headers: { Authorization: `Bearer ${token}` } });
+      loadSavedFilters();
+    } catch (e: any) { alert('Erreur: ' + (e.response?.data?.message || e.message)); }
+  };
+
+  const applyFilterSnap = (snap: any) => {
+    const af = snap.activeFilter ?? null;
+    const auf = snap.activeUserFilter ?? null;
+    const s = snap.search ?? '';
+    const re = snap.activeRequesterEmail ?? null;
+    const cat = snap.activeCategory ?? null;
+    const subcat = snap.activeSubcategory ?? null;
+    const sw = snap.activeSoftware ?? null;
+    const grp = snap.activeGroup ?? null;
+    const tech = snap.activeTechnician ?? null;
+    const tf = snap.typeFilter ?? '';
+    const lf = snap.activeLiveFilter ?? false;
+    const res = snap.showResolved ?? false;
+    const rej = snap.showRejected ?? false;
+    setActiveFilter(af); setActiveUserFilter(auf); setSearch(s);
+    setActiveRequesterEmail(re); setRequesterSearch(snap.requesterSearch ?? '');
+    setActiveCategory(cat); setActiveSubcategory(subcat); setActiveSoftware(sw);
+    setActiveGroup(grp); activeGroupRef.current = grp;
+    setActiveTechnician(tech); activeTechnicianRef.current = tech;
+    setTypeFilter(tf); typeFilterRef.current = tf;
+    setActiveLiveFilter(lf);
+    setShowResolved(res); showResolvedRef.current = res;
+    setShowRejected(rej); showRejectedRef.current = rej;
+    setSortKey(snap.sortKey ?? 'date_creation');
+    setSortDir(snap.sortDir ?? 'desc');
+    setPage(1);
+    setShowFilterPanel(false);
+    loadData(af, auf, 1, s, cat, subcat, sw, re, lf);
+  };
 
   function handleSort(key: string, dir: 'asc' | 'desc') {
     setSortKey(key);
@@ -923,8 +1009,91 @@ export default function TicketsDashboard() {
           <button type="submit" style={{ padding: '8px 14px', border: '1px solid #e2e8f0', borderRadius: 8, background: '#fff', cursor: 'pointer', fontSize: 13, fontWeight: 500, color: '#475569' }}>🔍</button>
         </form>
 
+        {/* ── Filtres sauvegardés ── */}
+        <div style={{ position: 'relative' }}>
+          <button onClick={() => setShowFilterPanel(p => !p)}
+            style={{ padding: '8px 14px', border: '1px solid ' + (showFilterPanel ? '#6366f1' : '#e2e8f0'), borderRadius: 8, background: showFilterPanel ? '#eef2ff' : '#fff', cursor: 'pointer', fontSize: 13, fontWeight: 500, color: showFilterPanel ? '#4f46e5' : '#475569', display: 'flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap' }}>
+            💾 Filtres
+            {savedFilters.length > 0 && <span style={{ fontSize: 11, background: '#6366f1', color: '#fff', borderRadius: 10, padding: '1px 6px', fontWeight: 700 }}>{savedFilters.length}</span>}
+          </button>
+          {showFilterPanel && (
+            <>
+              <div style={{ position: 'fixed', inset: 0, zIndex: 99 }} onClick={() => setShowFilterPanel(false)} />
+              <div style={{ position: 'absolute', right: 0, top: 'calc(100% + 6px)', background: '#fff', border: '1px solid #e2e8f0', borderRadius: 10, boxShadow: '0 8px 24px rgba(0,0,0,0.12)', zIndex: 100, minWidth: 280, maxHeight: 400, overflowY: 'auto' }}>
+                <div style={{ padding: '10px 12px', borderBottom: '1px solid #f1f5f9' }}>
+                  <button onClick={() => { setShowFilterPanel(false); setShowSaveModal(true); }}
+                    style={{ width: '100%', padding: '8px 12px', background: '#6366f1', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontWeight: 600, fontSize: 13 }}>
+                    + Enregistrer le filtre actuel
+                  </button>
+                </div>
+                {savedFilters.length === 0 && (
+                  <div style={{ padding: '16px 12px', color: '#94a3b8', fontSize: 13, textAlign: 'center' }}>Aucun filtre enregistré</div>
+                )}
+                {['global', 'personal'].map(scope => {
+                  const group = savedFilters.filter(f => f.scope === scope);
+                  if (group.length === 0) return null;
+                  const canCreateGlobal = ['superadmin', 'admin'].includes((resolvedRole ?? user?.role ?? '').toLowerCase().trim());
+                  return (
+                    <div key={scope}>
+                      <div style={{ padding: '8px 12px 4px', fontSize: 11, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                        {scope === 'global' ? '🌐 Globaux' : '👤 Personnels'}
+                      </div>
+                      {group.map(f => (
+                        <div key={f.id} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', borderBottom: '1px solid #f8fafc' }}>
+                          <button onClick={() => applyFilterSnap(f.filters)}
+                            style={{ flex: 1, textAlign: 'left', background: 'none', border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 500, color: '#1e293b', padding: '2px 0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {f.name}
+                          </button>
+                          {(f.created_by === user?.username || canCreateGlobal) && (
+                            <button onClick={() => deleteSavedFilter(f.id)}
+                              style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#cbd5e1', fontSize: 15, padding: '0 2px', flexShrink: 0 }}
+                              title="Supprimer">✕</button>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  );
+                })}
+              </div>
+            </>
+          )}
+        </div>
 
       </div>
+
+      {/* ── Modale enregistrement filtre ── */}
+      {showSaveModal && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+          onClick={e => { if (e.target === e.currentTarget) setShowSaveModal(false); }}>
+          <div style={{ background: '#fff', borderRadius: 12, padding: 28, width: 380, boxShadow: '0 20px 60px rgba(0,0,0,0.2)' }}>
+            <h3 style={{ margin: '0 0 16px', fontSize: 17, fontWeight: 700, color: '#1e293b' }}>Enregistrer le filtre</h3>
+            <div style={{ marginBottom: 14 }}>
+              <label style={{ display: 'block', fontWeight: 600, marginBottom: 6, fontSize: 13, color: '#374151' }}>Nom</label>
+              <input autoFocus value={saveFilterName} onChange={e => setSaveFilterName(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') saveCurrentFilter(); if (e.key === 'Escape') setShowSaveModal(false); }}
+                placeholder="Ex : Incidents critiques non assignés"
+                style={{ width: '100%', padding: '9px 12px', border: '1px solid #d1d5db', borderRadius: 7, fontSize: 14, boxSizing: 'border-box' as const, outline: 'none' }} />
+            </div>
+            {['superadmin', 'admin'].includes((resolvedRole ?? user?.role ?? '').toLowerCase().trim()) && (
+              <div style={{ marginBottom: 18 }}>
+                <label style={{ display: 'block', fontWeight: 600, marginBottom: 6, fontSize: 13, color: '#374151' }}>Portée</label>
+                <select value={saveFilterScope} onChange={e => setSaveFilterScope(e.target.value as 'personal' | 'global')}
+                  style={{ width: '100%', padding: '9px 12px', border: '1px solid #d1d5db', borderRadius: 7, fontSize: 14 }}>
+                  <option value="personal">👤 Personnel (moi uniquement)</option>
+                  <option value="global">🌐 Global (tous les utilisateurs)</option>
+                </select>
+              </div>
+            )}
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+              <button onClick={() => setShowSaveModal(false)} style={{ padding: '9px 18px', border: '1px solid #e2e8f0', borderRadius: 7, background: '#fff', cursor: 'pointer', fontSize: 14 }}>Annuler</button>
+              <button onClick={saveCurrentFilter} disabled={!saveFilterName.trim()}
+                style={{ padding: '9px 18px', background: saveFilterName.trim() ? '#6366f1' : '#c7d2fe', color: '#fff', border: 'none', borderRadius: 7, cursor: saveFilterName.trim() ? 'pointer' : 'default', fontSize: 14, fontWeight: 600 }}>
+                Enregistrer
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {activeFilter && (
         <div style={{marginBottom:12,fontSize:13,display:'flex',alignItems:'center',gap:8}}>

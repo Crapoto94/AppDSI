@@ -261,6 +261,49 @@ router.get('/config/public', authenticateJWT, async (req, res) => {
     } catch (e) { res.status(500).json({ message: e.message }); }
 });
 
+// ─── Filtres sauvegardés ─────────────────────────────────────────
+router.get('/saved-filters', authenticateJWT, async (req, res) => {
+    try {
+        const username = req.user.username;
+        const filters = await pgDb.all(
+            `SELECT * FROM hub_tickets.saved_filters WHERE scope = 'global' OR created_by = $1 ORDER BY scope DESC, created_at DESC`,
+            [username]
+        );
+        res.json(filters);
+    } catch (e) { res.status(500).json({ message: e.message }); }
+});
+
+router.post('/saved-filters', authenticateJWT, async (req, res) => {
+    try {
+        const { name, scope, filters } = req.body;
+        if (!name || !filters) return res.status(400).json({ message: 'name et filters requis' });
+        const effectiveScope = scope === 'global' ? 'global' : 'personal';
+        if (effectiveScope === 'global') {
+            const { isAdminLike } = require('../../shared/middleware');
+            if (!isAdminLike(req.user)) return res.status(403).json({ message: 'Admin requis pour les filtres globaux' });
+        }
+        const result = await pgDb.run(
+            `INSERT INTO hub_tickets.saved_filters (name, scope, filters, created_by) VALUES ($1, $2, $3, $4)`,
+            [name, effectiveScope, JSON.stringify(filters), req.user.username]
+        );
+        const saved = await pgDb.get('SELECT * FROM hub_tickets.saved_filters WHERE id = $1', [result.lastID]);
+        res.status(201).json(saved);
+    } catch (e) { res.status(500).json({ message: e.message }); }
+});
+
+router.delete('/saved-filters/:id', authenticateJWT, async (req, res) => {
+    try {
+        const filter = await pgDb.get('SELECT * FROM hub_tickets.saved_filters WHERE id = $1', [parseInt(req.params.id)]);
+        if (!filter) return res.status(404).json({ message: 'Filtre introuvable' });
+        const { isAdminLike } = require('../../shared/middleware');
+        if (filter.created_by !== req.user.username && !isAdminLike(req.user)) {
+            return res.status(403).json({ message: 'Non autorisé' });
+        }
+        await pgDb.run('DELETE FROM hub_tickets.saved_filters WHERE id = $1', [parseInt(req.params.id)]);
+        res.json({ message: 'Supprimé' });
+    } catch (e) { res.status(500).json({ message: e.message }); }
+});
+
 // ─── CRUD Tickets (doit être APRÈS les routes spécifiques) ────────
 router.get('/requester/:email', authenticateJWT, (req, res) => controller.getByRequester(req, res));
 router.get('/my-phone', authenticateJWT, (req, res) => controller.getMyPhone(req, res));

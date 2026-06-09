@@ -3993,6 +3993,18 @@ async function setupPgDb() {
     // Supprimer la contrainte FK sur mail_rule_id si elle existe (migration corrective)
     try { await client.query("ALTER TABLE hub_tickets.ticket_email_mapping DROP CONSTRAINT IF EXISTS ticket_email_mapping_mail_rule_id_fkey"); } catch (e) {}
 
+    // ─── Filtres sauvegardés (liste tickets) ──────────────────────────
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS hub_tickets.saved_filters (
+        id SERIAL PRIMARY KEY,
+        name VARCHAR(255) NOT NULL,
+        scope VARCHAR(20) NOT NULL DEFAULT 'personal',
+        filters JSONB NOT NULL,
+        created_by VARCHAR(255) NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
     // Live chat destinations
     try { await client.query("ALTER TABLE hub_tickets.live_sessions ADD COLUMN IF NOT EXISTS chat_type VARCHAR(20) DEFAULT 'ville'"); } catch (e) {}
 
