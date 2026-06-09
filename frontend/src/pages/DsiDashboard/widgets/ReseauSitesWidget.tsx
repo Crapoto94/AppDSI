@@ -80,8 +80,8 @@ export default function ReseauSitesWidget() {
                   background: `${color}15`, borderRadius: 7, border: `1px solid ${color}30`,
                 }}>
                   <span style={{ width: 16, height: 16, borderRadius: '50%', flexShrink: 0, background: color }} />
-                  <span style={{ fontFamily: 'monospace', fontSize: 22, fontWeight: 600, color: '#1e293b', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{site.site_code}</span>
-                  <span style={{ fontSize: 22, fontWeight: 700, color }}>{site.total_switchs}</span>
+                  <span style={{ fontFamily: 'monospace', fontSize: 20, fontWeight: 600, color: '#1e293b', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{site.site_code}</span>
+                  <span style={{ fontSize: 20, fontWeight: 700, color }}>{site.total_switchs}</span>
                 </div>
               );
             })}
