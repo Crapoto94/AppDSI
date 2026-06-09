@@ -50,7 +50,7 @@ module.exports = {
                 }
             }
         } catch (error) {
-            console.error('[NOTIFICATION] Error triggering event:', event, error.message);
+            console.error('[NOTIFICATION] Error triggering event:', event, error.message, error.stack);
         }
     },
 

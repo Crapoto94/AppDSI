@@ -184,14 +184,19 @@ module.exports = {
     async setSolution(id, solution, user) {
         // Résolu = statut 5 (sémantique GLPI). La clôture (6) se fait séparément.
         await ticketRepo.update(id, { solution, status: 5, date_solved: new Date().toISOString() });
-        await historyRepo.log(id, user.id, 'solved', 'solution', null, solution, 'Solution fournie', user.username);
 
-        const sla = await slaRepo.findByTicket(id);
-        if (sla) {
-            await slaRepo.updateSlaStatus(sla.id, 'ok');
-        }
+        // Historique et SLA ne doivent JAMAIS empêcher la notification de résolution :
+        // on isole chaque étape pour que l'envoi du mail au demandeur survive à leur échec.
+        try { await historyRepo.log(id, user.id, 'solved', 'solution', null, solution, 'Solution fournie', user.username); }
+        catch (e) { console.error('[TICKET] solved history log failed:', e.message); }
 
-        await notificationService.trigger('ticket.resolved', { ticket_id: id, user, solution });
+        try {
+            const sla = await slaRepo.findByTicket(id);
+            if (sla) await slaRepo.updateSlaStatus(sla.id, 'ok');
+        } catch (e) { console.error('[TICKET] SLA update on solve failed:', e.message); }
+
+        try { await notificationService.trigger('ticket.resolved', { ticket_id: id, user, solution }); }
+        catch (e) { console.error('[TICKET] ticket.resolved notification failed:', e.message); }
 
         process.nextTick(async () => {
             try {
