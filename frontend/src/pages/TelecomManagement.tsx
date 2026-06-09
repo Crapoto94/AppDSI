@@ -190,6 +190,27 @@ const TelecomManagement: React.FC = () => {
 
   // Optimisation (rapprochement inventaire ↔ facturation)
   const [reconciliation, setReconciliation] = useState<Reconciliation | null>(null);
+
+  // Fiche historique d'une ligne (12 mois glissants)
+  const [lineHistory, setLineHistory] = useState<any>(null);
+  const [lineHistoryNumber, setLineHistoryNumber] = useState<string | null>(null);
+  const [loadingHistory, setLoadingHistory] = useState(false);
+
+  const openLineHistory = async (number: string) => {
+    if (!number) return;
+    setLineHistoryNumber(number);
+    setLineHistory(null);
+    setLoadingHistory(true);
+    try {
+      const res = await fetch(`/api/telecom/billing/line/${encodeURIComponent(number)}`, { headers: { 'Authorization': `Bearer ${token}` } });
+      if (res.ok) setLineHistory(await res.json());
+      else setLineHistory({ error: true });
+    } catch (e) {
+      setLineHistory({ error: true });
+    } finally {
+      setLoadingHistory(false);
+    }
+  };
   const [operators, setOperators] = useState<Operator[]>([]);
   const [billingAccounts, setBillingAccounts] = useState<Record<number, BillingAccount[]>>({});
   const [commitments, setCommitments] = useState<Commitment[]>([]);
@@ -1447,7 +1468,7 @@ const TelecomManagement: React.FC = () => {
                       <tbody>
                         {reconciliation.resilieesFacturees.map((l, i) => (
                           <tr key={i}>
-                            <td style={{ fontFamily: 'monospace', fontWeight: 700 }}>{l.ndi}</td>
+                            <td><button className="ndi-link" onClick={() => openLineHistory(l.ndi)} title="Voir la facturation sur 12 mois">{l.ndi}</button></td>
                             <td>{l.site_name}</td>
                             <td style={{ fontSize: '0.82rem', color: '#64748b' }}>{l.access_type}</td>
                             <td><span className="status-tag pending">{l.status}</span></td>

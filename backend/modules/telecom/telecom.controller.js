@@ -756,6 +756,56 @@ module.exports = {
         }
     },
 
+    // Historique de facturation d'un numéro sur 12 mois glissants
+    getLineHistory: async (req, res) => {
+        try {
+            const digits = String(req.params.number || '').replace(/\D/g, '');
+            if (!digits) return res.status(400).json({ message: 'Numéro invalide' });
+            const { rows } = await pool.query(`
+                SELECT period, cf_id, cf_label, site_name, list_label, is_mobile, plan, user_name,
+                       resiliation, amt_subscriptions, amt_other, amt_discounts, amt_voix_fixe,
+                       amt_voix_mobile, amt_data_fixe, amt_data_mobile, amt_conso_autre, amt_contenu,
+                       amt_total, conso_voix, conso_data
+                FROM hub_telecom.line_billing
+                WHERE regexp_replace(line_number, '\\D', '', 'g') = $1
+                ORDER BY period DESC
+                LIMIT 12
+            `, [digits]);
+
+            // Numéro affichable + libellé pris sur la ligne la plus récente
+            const latest = rows[0] || {};
+            const n = (v) => parseFloat(v) || 0;
+            const history = rows.slice().reverse().map(r => ({
+                period: r.period,
+                cf_label: r.cf_label,
+                plan: r.plan,
+                amt_subscriptions: n(r.amt_subscriptions),
+                amt_conso: n(r.amt_voix_fixe) + n(r.amt_voix_mobile) + n(r.amt_data_fixe) + n(r.amt_data_mobile) + n(r.amt_conso_autre),
+                amt_discounts: n(r.amt_discounts),
+                amt_other: n(r.amt_other),
+                amt_total: n(r.amt_total),
+                conso_voix: n(r.conso_voix),
+                conso_data: n(r.conso_data),
+            }));
+            res.json({
+                number: digits,
+                is_mobile: latest.is_mobile || false,
+                site_name: latest.site_name || '',
+                user_name: latest.user_name || '',
+                plan: latest.plan || '',
+                cf_label: latest.cf_label || '',
+                resiliation: latest.resiliation || '',
+                months: history.length,
+                total12m: Math.round(history.reduce((s, h) => s + h.amt_total, 0) * 100) / 100,
+                avgMonthly: history.length ? Math.round(history.reduce((s, h) => s + h.amt_total, 0) / history.length * 100) / 100 : 0,
+                history,
+            });
+        } catch (error) {
+            console.error('[Telecom] getLineHistory error:', error);
+            res.status(500).json({ message: 'Erreur historique ligne', error: error.message });
+        }
+    },
+
     // Rapprochement inventaire des lignes ↔ facturation (dernière période)
     // Détecte : lignes résiliées encore facturées, lignes en service non facturées,
     // lignes facturées hors inventaire ; et enrichit l'inventaire de son coût.

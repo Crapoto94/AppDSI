@@ -2,14 +2,29 @@ import React, { useState, useRef, useEffect, useLayoutEffect } from 'react';
 import { Printer, Upload, Edit3, Check, X, Tag } from 'lucide-react';
 import JsBarcode from 'jsbarcode';
 import QRCode from 'qrcode';
+import axios from 'axios';
+import { useAuth } from '../../contexts/AuthContext';
 
 const C = {
   blue: '#2563eb', slate: '#64748b', green: '#059669', red: '#dc2626',
   bg: '#f1f5f9', card: '#fff', border: '#e2e8f0', text: '#0f172a',
 };
 
+// LS_LOGO ne stocke plus l'image elle-même : c'est un simple cache de l'URL du
+// logo servi depuis le dépôt GED (/api/storage/…). La source de vérité est le
+// stockage configuré dans /GED + app_settings (cf. /api/parc/etiquette/logo).
 export const LS_LOGO  = 'dsi_etiq_logo';
 export const LS_TEXTS = 'dsi_etiq_texts';
+
+const LOGO_API = '/api/parc/etiquette/logo';
+
+// Rend une URL de logo absolue (origine incluse) pour qu'elle se charge depuis la
+// fenêtre d'impression (about:blank) ; conserve les data: URL telles quelles.
+function absoluteLogoUrl(src: string | null): string | null {
+  if (!src) return null;
+  if (/^(data:|https?:)/i.test(src)) return src;
+  return `${window.location.origin}${src.startsWith('/') ? '' : '/'}${src}`;
+}
 
 interface Texts {
   orgName: string;
@@ -41,7 +56,7 @@ async function makeQrSvg(value: string): Promise<string> {
 
 // ─── Impression depuis n'importe quel contexte ──────────────────────────────
 export async function printLabelWindow(machineName: string): Promise<void> {
-  const logoSrc = localStorage.getItem(LS_LOGO);
+  const logoSrc = absoluteLogoUrl(localStorage.getItem(LS_LOGO));
   let texts: Texts = { ...DEFAULT_TEXTS };
   try {
     const saved = localStorage.getItem(LS_TEXTS);
@@ -215,8 +230,10 @@ const LabelContent: React.FC<{
 
 // ─── EtiquetteView ───────────────────────────────────────────────────────────
 const EtiquetteView: React.FC = () => {
+  const { token } = useAuth();
   const [machineName, setMachineName] = useState('PO25201');
   const [logoSrc, setLogoSrc]   = useState<string | null>(null);
+  const [logoBusy, setLogoBusy] = useState(false);
   const [texts, setTexts]       = useState<Texts>(DEFAULT_TEXTS);
   const [editingTexts, setEditingTexts] = useState(false);
   const [draft, setDraft]       = useState<Texts>(DEFAULT_TEXTS);
@@ -227,13 +244,26 @@ const EtiquetteView: React.FC = () => {
 
   // Chargement initial
   useEffect(() => {
-    const savedLogo = localStorage.getItem(LS_LOGO);
-    if (savedLogo) setLogoSrc(savedLogo);
+    // Affiche immédiatement le cache local pendant que l'API répond.
+    const cached = localStorage.getItem(LS_LOGO);
+    if (cached) setLogoSrc(cached);
+
     const savedTexts = localStorage.getItem(LS_TEXTS);
     if (savedTexts) {
       try { setTexts({ ...DEFAULT_TEXTS, ...JSON.parse(savedTexts) }); } catch { /* ignore */ }
     }
-  }, []);
+
+    // Source de vérité : le logo stocké dans le dépôt GED.
+    if (!token) return;
+    axios.get(LOGO_API, { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => {
+        const url: string | null = r.data?.url || null;
+        setLogoSrc(url);
+        if (url) localStorage.setItem(LS_LOGO, url);
+        else localStorage.removeItem(LS_LOGO);
+      })
+      .catch(() => { /* on garde le cache local en cas d'erreur réseau */ });
+  }, [token]);
 
   // Barcode
   const renderBarcode = (ref: React.RefObject<SVGSVGElement | null>, value: string) => {
@@ -256,20 +286,41 @@ const EtiquetteView: React.FC = () => {
     makeQrSvg(machineName).then(setQrSvg);
   }, [machineName]);
 
-  const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleLogoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = ev => {
-      const data = ev.target?.result as string;
-      setLogoSrc(data);
-      localStorage.setItem(LS_LOGO, data);
-    };
-    reader.readAsDataURL(file);
     e.target.value = '';
+    if (!file) return;
+    setLogoBusy(true);
+    try {
+      const form = new FormData();
+      form.append('file', file);
+      const r = await axios.post(LOGO_API, form, {
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'multipart/form-data' },
+      });
+      const url: string | null = r.data?.url || null;
+      setLogoSrc(url);
+      if (url) localStorage.setItem(LS_LOGO, url); else localStorage.removeItem(LS_LOGO);
+    } catch (err) {
+      const msg = axios.isAxiosError(err) ? (err.response?.data?.error || err.message) : 'Erreur';
+      alert(`Échec de l'enregistrement du logo : ${msg}`);
+    } finally {
+      setLogoBusy(false);
+    }
   };
 
-  const handleClearLogo = () => { setLogoSrc(null); localStorage.removeItem(LS_LOGO); };
+  const handleClearLogo = async () => {
+    setLogoBusy(true);
+    try {
+      await axios.delete(LOGO_API, { headers: { Authorization: `Bearer ${token}` } });
+      setLogoSrc(null);
+      localStorage.removeItem(LS_LOGO);
+    } catch (err) {
+      const msg = axios.isAxiosError(err) ? (err.response?.data?.error || err.message) : 'Erreur';
+      alert(`Échec de la suppression du logo : ${msg}`);
+    } finally {
+      setLogoBusy(false);
+    }
+  };
 
   const handleValidateTexts = () => {
     setTexts(draft);

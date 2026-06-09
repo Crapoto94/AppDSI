@@ -1,10 +1,14 @@
 const express = require('express');
+const multer = require('multer');
 const router = express.Router();
 const ctrl = require('./parc.controller');
 const live = require('./parc.live.controller');
 const hub = require('./parc.hub.controller');
 const ad = require('./parc.ad.controller');
+const etiquette = require('./parc.etiquette.controller');
 const { authenticateJWT, authenticateGLPIControl } = require('../../shared/middleware');
+
+const uploadLogo = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
 
 // ── Synchronisation depuis GLPI 10 (réservée au contrôle GLPI/admin) ──────────
 router.post('/sync', authenticateGLPIControl, ctrl.syncParc);
@@ -16,6 +20,11 @@ router.get('/usagers', authenticateJWT, ctrl.getUsagers);
 
 // ── Proxy de téléchargement de document (images de modèles + pièces jointes) ──
 router.get('/file/document/:id', authenticateJWT, ctrl.downloadDocument);
+
+// ── Logo des étiquettes (stocké dans le dépôt GED configuré) ──────────────────
+router.get('/etiquette/logo', authenticateJWT, etiquette.getLogo);
+router.post('/etiquette/logo', authenticateJWT, uploadLogo.single('file'), etiquette.uploadLogo);
+router.delete('/etiquette/logo', authenticateJWT, etiquette.deleteLogo);
 
 // ── LIVE (API GLPI 10 directe, sans synchro) ──────────────────────────────────
 // Ordre : routes spécifiques avant les routes paramétrées.

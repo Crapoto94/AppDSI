@@ -71,6 +71,7 @@ import StocksSerialEntry from './pages/Stocks/SerialEntry';
 import StocksSortie from './pages/Stocks/Sortie';
 import StocksPrets from './pages/Stocks/Prets';
 import ParcInformatique from './pages/ParcInformatique';
+import RHPage from './pages/RH';
 
 // Protected Route Component
 const PrivateRoute = ({ children, allowedRoles, allowPmo, path }: { children: React.ReactNode, allowedRoles?: string[], allowPmo?: boolean, path?: string }) => {
@@ -159,6 +160,7 @@ function App() {
         <Route path="/consommables" element={<PrivateRoute path="/consommables"><ConsommablesManagement /></PrivateRoute>} />
         <Route path="/reseau" element={<PrivateRoute path="/reseau"><ReseauDashboard /></PrivateRoute>} />
         <Route path="/parc" element={<PrivateRoute path="/parc"><ParcInformatique /></PrivateRoute>} />
+        <Route path="/rh" element={<PrivateRoute path="/rh"><RHPage /></PrivateRoute>} />
         <Route path="/calendrier-dsi" element={<PrivateRoute path="/calendrier-dsi"><CalendrierDSI /></PrivateRoute>} />
         <Route path="/calendrier-dsi/agents" element={<PrivateRoute path="/calendrier-dsi"><AgentsDSI /></PrivateRoute>} />
 

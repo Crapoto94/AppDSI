@@ -37,6 +37,7 @@ router.get('/billing/stats', authenticateJWT, telecomController.getBillingStats)
 router.get('/billing/trend', authenticateJWT, telecomController.getBillingTrend);
 router.get('/billing/lines', authenticateJWT, telecomController.getBillingLines);
 router.get('/billing/reconciliation', authenticateJWT, telecomController.getReconciliation);
+router.get('/billing/line/:number', authenticateJWT, telecomController.getLineHistory);
 
 // Invoices
 router.get('/invoices', authenticateJWT, telecomController.getInvoices);

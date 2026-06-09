@@ -21,6 +21,8 @@ const { MODULES_REGISTRY } = require('./shared/modules-registry');
 const { authenticateJWT, authenticateAdmin, authenticateAdminUI, authenticateInternalOrAdmin, authenticateAdminOrFinances, authenticateMagappControl, isSuperAdmin, isAdminLike } = require('./shared/middleware');
 const magappRouter = require('./modules/magapp/magapp.routes');
 const rhRouter = require('./modules/rh/rh.routes');
+const contractsRouter = require('./modules/rh/contracts/contracts.routes');
+const contractsCtrl = require('./modules/rh/contracts/contracts.controller');
 const financeRouter = require('./modules/finance/finance.routes');
 const fieldMappingRouter = require('./modules/finance/field-mapping.routes');
 const glpiRouter = require('./modules/glpi/glpi.routes');
@@ -473,6 +475,9 @@ app.get(/^\/api\/contrats\/documents\/(.+)$/, (req, res) => {
 app.use('/api/transcriptmanager', transcriptManagerRouter);
 app.use('/api', magappRouter);
 app.use('/api/admin/rh', rhRouter);
+
+// ─── RH Contract Renewals ──────────────────────────────────────────
+app.use('/api/admin/rh/contracts', contractsRouter);
 
 // Récupérer le profil utilisateur actuel (depuis la DB pour avoir le statut à jour)
 app.get('/api/auth/me', authenticateJWT, async (req, res) => {
@@ -5658,6 +5663,11 @@ console.log('[KPI HISTORY] Cron snapshot quotidien enregistré (23h55)');
 
 
 // ============================================
+// RH CONTRACT RENEWALS - Module
+// ============================================
+contractsCtrl.setSendMail(sendMail);
+
+// ============================================
 // RENCONTRES BUDGÉTAIRES - Module
 // ============================================
 const { rencontresRouter, reunionRouter, directionsRouter, dirEmailsRouter } = require('./modules/rencontres/rencontres.routes');
@@ -6050,6 +6060,12 @@ cron.schedule('*/30 * * * * *', async () => {
     }
 });
 console.log('[TICKETS CRON] Notification queue registered');
+
+// ─── RH Contract Renewals : vérification quotidienne à 7h ──────────────────
+cron.schedule('0 7 * * *', () => {
+    console.log('[CRON] Vérification des relances contrats...');
+    contractsCtrl.checkUpcomingRenewals().catch(e => console.error('[CRON contracts]', e.message));
+}, { timezone: 'Europe/Paris' });
 
 // Helper for flexible column lookup across different naming conventions
 function findVal(obj, keys) {
