@@ -6,6 +6,13 @@ const fs = require('fs');
 let sendMailFn = null;
 const setSendMail = (fn) => { sendMailFn = fn; };
 
+// Détermine la table organigramme à utiliser : v2 en priorité, repli sur v1 si vide.
+// Aligné sur /api/admin/rh/organisation-chart (page Organigramme & Hiérarchie).
+async function getOrgTable() {
+  const v2Count = await pgDb.get('SELECT COUNT(*) c FROM oracle.rh_siim_organigramme_v2').catch(() => ({ c: 0 }));
+  return Number(v2Count.c) > 0 ? 'oracle.rh_siim_organigramme_v2' : 'oracle.rh_siim_organigramme';
+}
+
 async function getUserEmail(username) {
   try {
     const db = getSqlite();
@@ -178,10 +185,14 @@ const controller = {
   // Directions depuis l'organigramme RH (accessible à tous les users)
   async getOrgDirections(req, res) {
     try {
+      const orgTable = await getOrgTable();
       const rows = await pgDb.all(`
         SELECT DISTINCT "DIRECTION" AS code, "DIRECTION_L" AS label
-        FROM oracle.rh_siim_organigramme
-        WHERE "DIRECTION" IS NOT NULL AND "DIRECTION" != ''
+        FROM ${orgTable}
+        WHERE "DIRECTION" IS NOT NULL
+          AND "DIRECTION" != ''
+          AND "DIRECTION" NOT LIKE '$%'
+          AND "DIRECTION" NOT IN ('AA', 'BZ')
         ORDER BY "DIRECTION"
       `);
       res.json(rows.map(r => ({ code: r.code?.trim(), label: r.label?.trim() })));
@@ -206,10 +217,14 @@ const controller = {
   async getOrgServices(req, res) {
     try {
       const { directionCode } = req.params;
+      const orgTable = await getOrgTable();
       const rows = await pgDb.all(`
         SELECT DISTINCT "SERVICE" AS code, "SERVICE_L" AS label
-        FROM oracle.rh_siim_organigramme
-        WHERE "DIRECTION" = $1 AND "SERVICE" IS NOT NULL AND "SERVICE" != ''
+        FROM ${orgTable}
+        WHERE "DIRECTION" = $1
+          AND "SERVICE" IS NOT NULL
+          AND "SERVICE" != ''
+          AND "SERVICE" NOT LIKE '$%'
         ORDER BY "SERVICE"
       `, [directionCode]);
       res.json(rows.map(r => ({ code: r.code?.trim(), label: r.label?.trim() })));
