@@ -277,8 +277,8 @@ export const WIDGET_REGISTRY: WidgetDef[] = [
     label: 'État des sites Réseau',
     description: 'Sites avec état des switchs (OK/KO/Mixte)',
     module: 'Réseau',
-    defaultSize: { w: 4, h: 4 },
-    minSize: { w: 3, h: 3 },
+    defaultSize: { w: 4, h: 8 },
+    minSize: { w: 3, h: 6 },
   },
   // ── Système ───────────────────────────────────────────────────────────────
   {

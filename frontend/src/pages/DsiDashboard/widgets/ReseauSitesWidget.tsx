@@ -42,43 +42,46 @@ export default function ReseauSitesWidget() {
   return (
     <WidgetWrapper title="État des sites Réseau" loading={loading} error={error}>
       {sites.length === 0 ? (
-        <div style={{ textAlign: 'center', color: '#94a3b8', padding: '16px 0', fontSize: 12 }}>
+        <div style={{ textAlign: 'center', color: '#94a3b8', padding: '24px 0', fontSize: 14 }}>
           Aucun site avec switch référencé
         </div>
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, height: '100%' }}>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 4 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12, height: '100%' }}>
+          {/* KPIs */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 6 }}>
             {[
-              { label: 'Sites', value: sites.length, color: '#64748b' },
-              { label: 'Switchs', value: totalSwitchs, color: '#8b5cf6' },
-              { label: 'OK', value: totalOk, color: '#22c55e' },
-              { label: 'KO', value: totalKo, color: '#ef4444' },
+              { label: 'Sites',   value: sites.length, color: '#64748b' },
+              { label: 'Switchs', value: totalSwitchs,  color: '#8b5cf6' },
+              { label: 'OK',      value: totalOk,       color: '#22c55e' },
+              { label: 'KO',      value: totalKo,       color: '#ef4444' },
             ].map(k => (
-              <div key={k.label} style={{ textAlign: 'center', background: '#f8fafc', borderRadius: 6, padding: '4px 2px', borderLeft: `3px solid ${k.color}` }}>
-                <div style={{ fontSize: 16, fontWeight: 700, color: k.color, lineHeight: 1.2 }}>{k.value}</div>
-                <div style={{ fontSize: 9, color: '#64748b', fontWeight: 600 }}>{k.label}</div>
+              <div key={k.label} style={{ textAlign: 'center', background: '#f8fafc', borderRadius: 8, padding: '8px 4px', borderLeft: `4px solid ${k.color}` }}>
+                <div style={{ fontSize: 28, fontWeight: 700, color: k.color, lineHeight: 1.1 }}>{k.value}</div>
+                <div style={{ fontSize: 13, color: '#64748b', fontWeight: 600, marginTop: 2 }}>{k.label}</div>
               </div>
             ))}
           </div>
 
-          <div style={{ display: 'flex', gap: 8, fontSize: 10 }}>
+          {/* Légende */}
+          <div style={{ display: 'flex', gap: 14, fontSize: 14 }}>
             <span style={{ color: '#16a34a' }}>⬤ {allGreen} OK</span>
             <span style={{ color: '#f97316' }}>⬤ {orange} Mixte</span>
             <span style={{ color: '#dc2626' }}>⬤ {allRed} KO</span>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(8, 1fr)', gap: 3, overflow: 'auto', flex: 1, alignContent: 'start' }}>
+          {/* Grille des sites */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 5, overflow: 'auto', flex: 1, alignContent: 'start' }}>
             {[...problemSites, ...koSites, ...sites.filter(s => s.switchs_ok === s.total_switchs)].map(site => {
               const isMixed = site.switchs_ko > 0 && site.switchs_ok > 0;
               const color = isMixed ? '#f97316' : site.switchs_ko === site.total_switchs ? '#ef4444' : '#22c55e';
               return (
                 <div key={site.site_code} style={{
-                  display: 'flex', alignItems: 'center', gap: 3, padding: '2px 5px',
-                  background: `${color}15`, borderRadius: 4, border: `1px solid ${color}30`,
+                  display: 'flex', alignItems: 'center', gap: 5, padding: '4px 8px',
+                  background: `${color}15`, borderRadius: 5, border: `1px solid ${color}30`,
                 }}>
-                  <span style={{ width: 6, height: 6, borderRadius: '50%', flexShrink: 0, background: color }} />
-                  <span style={{ fontFamily: 'monospace', fontSize: 10, fontWeight: 600, color: '#1e293b', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{site.site_code}</span>
-                  <span style={{ fontSize: 10, fontWeight: 700, color }}>{site.total_switchs}</span>
+                  <span style={{ width: 9, height: 9, borderRadius: '50%', flexShrink: 0, background: color }} />
+                  <span style={{ fontFamily: 'monospace', fontSize: 13, fontWeight: 600, color: '#1e293b', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{site.site_code}</span>
+                  <span style={{ fontSize: 13, fontWeight: 700, color }}>{site.total_switchs}</span>
                 </div>
               );
             })}
