@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import axios from 'axios';
 import { io } from 'socket.io-client';
 import Header from '../../components/Header';
@@ -1061,11 +1062,11 @@ export default function TicketsDashboard() {
 
       </div>
 
-      {/* ── Modale enregistrement filtre ── */}
-      {showSaveModal && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+      {/* ── Modale enregistrement filtre (portail → rendu dans document.body) ── */}
+      {showSaveModal && createPortal(
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
           onClick={e => { if (e.target === e.currentTarget) setShowSaveModal(false); }}>
-          <div style={{ background: '#fff', borderRadius: 12, padding: 28, width: 380, boxShadow: '0 20px 60px rgba(0,0,0,0.2)' }}>
+          <div style={{ background: '#fff', borderRadius: 12, padding: 28, width: 400, boxShadow: '0 20px 60px rgba(0,0,0,0.25)' }} onClick={e => e.stopPropagation()}>
             <h3 style={{ margin: '0 0 16px', fontSize: 17, fontWeight: 700, color: '#1e293b' }}>Enregistrer le filtre</h3>
             <div style={{ marginBottom: 14 }}>
               <label style={{ display: 'block', fontWeight: 600, marginBottom: 6, fontSize: 13, color: '#374151' }}>Nom</label>
@@ -1092,7 +1093,8 @@ export default function TicketsDashboard() {
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
       {activeFilter && (
