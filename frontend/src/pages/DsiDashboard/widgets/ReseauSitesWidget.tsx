@@ -70,7 +70,7 @@ export default function ReseauSitesWidget() {
           </div>
 
           {/* Grille des sites */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, overflow: 'auto', flex: 1, alignContent: 'start' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 8, overflow: 'auto', flex: 1, alignContent: 'start' }}>
             {[...problemSites, ...koSites, ...sites.filter(s => s.switchs_ok === s.total_switchs)].map(site => {
               const isMixed = site.switchs_ko > 0 && site.switchs_ok > 0;
               const color = isMixed ? '#f97316' : site.switchs_ko === site.total_switchs ? '#ef4444' : '#22c55e';
