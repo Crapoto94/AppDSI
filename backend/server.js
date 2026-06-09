@@ -3133,7 +3133,7 @@ setupDb().then(async database => {
     db = database;
 
     // Initialize backlog controller with database for AD lookups
-    backlogController.setDb(db);
+    try { backlogController.setDb(db); } catch (e) { console.warn('[BACKLOG] Controller pas encore chargé, injection DB reportée'); }
 
     // Vérification structure table users
     const userCols = await db.all("PRAGMA table_info(users)");
@@ -5816,7 +5816,8 @@ console.log('[EMAIL-AUTO CRON] Cron job registered (every minute)');
 // ============================================
 const backlogController = require('./controllers/backlogController');
 backlogController.setSendMail(sendMail);
-// Note: setDb will be called after db is initialized in setupDb().then() below
+// Réinjecter db si déjà disponible (setupDb().then() a pu essayer avant le chargement)
+try { if (typeof db !== 'undefined' && db) backlogController.setDb(db); } catch (e) {}
 
 app.get('/api/backlog', authenticateJWT, backlogController.getAllBacklogItems);
 app.get('/api/backlog/:id', authenticateJWT, backlogController.getBacklogItem);
