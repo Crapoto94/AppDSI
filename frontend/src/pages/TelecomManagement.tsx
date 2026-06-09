@@ -1233,7 +1233,7 @@ const TelecomManagement: React.FC = () => {
                         </td>
                         <td style={{ color: '#64748b' }}>{l.city}</td>
                         <td>{l.offer}<div style={{ fontSize: '0.72rem', color: '#94a3b8' }}>{l.access_type}</div></td>
-                        <td style={{ fontFamily: 'monospace', fontSize: '0.8rem' }}>{l.ndi || <span style={{ color: '#cbd5e1' }}>—</span>}<div style={{ color: '#94a3b8', fontSize: '0.7rem' }}>{l.mid}</div></td>
+                        <td style={{ fontSize: '0.8rem' }}>{l.ndi ? <button className="ndi-link" onClick={() => openLineHistory(l.ndi)} title="Voir la facturation sur 12 mois">{l.ndi}</button> : <span style={{ color: '#cbd5e1' }}>—</span>}<div style={{ color: '#94a3b8', fontSize: '0.7rem', fontFamily: 'monospace' }}>{l.mid}</div></td>
                         <td>{l.billing_account}</td>
                         <td>
                           <span className={`status-tag ${/en service/i.test(l.status) ? 'imported' : 'pending'}`}>{l.status}</span>
@@ -1318,7 +1318,7 @@ const TelecomManagement: React.FC = () => {
                       <tbody>
                         {billingStats.topLines.map((l, i) => (
                           <tr key={i}>
-                            <td style={{ fontFamily: 'monospace', fontWeight: 700 }}>{l.line_number}</td>
+                            <td><button className="ndi-link" onClick={() => openLineHistory(l.line_number)} title="Voir la facturation sur 12 mois">{l.line_number}</button></td>
                             <td>{l.user_name || l.site_name}</td>
                             <td style={{ fontSize: '0.8rem', color: '#64748b' }}>{l.plan || (l.is_mobile ? 'Mobile' : 'Fixe')}</td>
                             <td style={{ textAlign: 'right', fontWeight: 700 }}>{l.amt_total.toLocaleString('fr-FR')} €</td>
@@ -1387,7 +1387,7 @@ const TelecomManagement: React.FC = () => {
                         .map(l => (
                           <tr key={l.id}>
                             <td><span className={`type-badge ${l.is_mobile ? 'mobile' : 'fixe'}`}>{l.is_mobile ? 'Mobile' : 'Fixe'}</span></td>
-                            <td style={{ fontFamily: 'monospace', fontWeight: 600 }}>{l.line_number}</td>
+                            <td><button className="ndi-link" onClick={() => openLineHistory(l.line_number)} title="Voir la facturation sur 12 mois">{l.line_number}</button></td>
                             <td>{l.user_name || <span style={{ color: '#cbd5e1' }}>—</span>}</td>
                             <td style={{ color: '#64748b' }}>{l.site_name}{l.list_label ? <span style={{ fontSize: '0.72rem', color: '#94a3b8' }}> · {l.list_label}</span> : ''}</td>
                             <td style={{ fontSize: '0.82rem' }}>{l.plan}</td>
@@ -1490,7 +1490,7 @@ const TelecomManagement: React.FC = () => {
                       <tbody>
                         {billingStats.dormantList.slice(0, 30).map((l, i) => (
                           <tr key={i}>
-                            <td style={{ fontFamily: 'monospace', fontWeight: 600 }}>{l.line_number}</td>
+                            <td><button className="ndi-link" onClick={() => openLineHistory(l.line_number)} title="Voir la facturation sur 12 mois">{l.line_number}</button></td>
                             <td>{l.user_name || <span style={{ color: '#cbd5e1' }}>—</span>}</td>
                             <td style={{ fontSize: '0.8rem', color: '#64748b' }}>{l.list_label}</td>
                             <td style={{ fontSize: '0.8rem' }}>{l.plan}</td>
@@ -1510,7 +1510,7 @@ const TelecomManagement: React.FC = () => {
                     {reconciliation.factureesHorsInventaire.length === 0 ? <div style={{ color: '#94a3b8', fontSize: '0.85rem' }}>Aucune — inventaire complet ✔</div> :
                       reconciliation.factureesHorsInventaire.map((l, i) => (
                         <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderTop: i ? '1px solid #f1f5f9' : 'none', fontSize: '0.85rem' }}>
-                          <span><span style={{ fontFamily: 'monospace', fontWeight: 600 }}>{l.line_number}</span> <span style={{ color: '#94a3b8' }}>{l.cf_label}</span></span>
+                          <span><button className="ndi-link" onClick={() => openLineHistory(l.line_number)} title="Voir la facturation sur 12 mois">{l.line_number}</button> <span style={{ color: '#94a3b8' }}>{l.cf_label}</span></span>
                           <span style={{ fontWeight: 700 }}>{l.amt_total.toLocaleString('fr-FR')} €</span>
                         </div>
                       ))}
@@ -1521,7 +1521,7 @@ const TelecomManagement: React.FC = () => {
                     {reconciliation.enServiceNonFacturees.length === 0 ? <div style={{ color: '#94a3b8', fontSize: '0.85rem' }}>Aucune ✔</div> :
                       reconciliation.enServiceNonFacturees.slice(0, 20).map((l, i) => (
                         <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderTop: i ? '1px solid #f1f5f9' : 'none', fontSize: '0.85rem' }}>
-                          <span><span style={{ fontFamily: 'monospace', fontWeight: 600 }}>{l.ndi}</span> {l.site_name}</span>
+                          <span><button className="ndi-link" onClick={() => openLineHistory(l.ndi)} title="Voir la facturation sur 12 mois">{l.ndi}</button> {l.site_name}</span>
                           <span style={{ color: '#94a3b8', fontSize: '0.78rem' }}>{l.access_type}</span>
                         </div>
                       ))}
@@ -1532,6 +1532,91 @@ const TelecomManagement: React.FC = () => {
           </div>
         )}
       </main>
+
+      {/* Fiche historique de facturation d'une ligne (12 mois glissants) */}
+      {lineHistoryNumber && (
+        <div className="line-history-overlay" onClick={e => { if (e.target === e.currentTarget) { setLineHistoryNumber(null); setLineHistory(null); } }}>
+          <div className="line-history-modal">
+            <div className="line-history-header">
+              <div>
+                <h2 style={{ margin: 0, fontSize: '1.1rem', color: '#1e293b', display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <Phone size={20} color="#0078a4" /> {lineHistoryNumber}
+                </h2>
+                {lineHistory && !lineHistory.error && (
+                  <span style={{ fontSize: '0.82rem', color: '#64748b' }}>
+                    {lineHistory.is_mobile ? 'Mobile' : 'Fixe / data'}
+                    {lineHistory.user_name ? ` · ${lineHistory.user_name}` : ''}
+                    {lineHistory.site_name ? ` · ${lineHistory.site_name}` : ''}
+                    {lineHistory.plan ? ` · ${lineHistory.plan}` : ''}
+                  </span>
+                )}
+              </div>
+              <button className="close-btn" onClick={() => { setLineHistoryNumber(null); setLineHistory(null); }}><X size={22} /></button>
+            </div>
+            <div className="line-history-body">
+              {loadingHistory ? (
+                <div style={{ textAlign: 'center', padding: 40, color: '#94a3b8' }}>Chargement…</div>
+              ) : !lineHistory || lineHistory.error ? (
+                <div style={{ textAlign: 'center', padding: 40, color: '#ef4444' }}>Erreur lors du chargement.</div>
+              ) : lineHistory.history.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: 40, color: '#64748b' }}>
+                  Aucune facturation trouvée pour ce numéro.<br />
+                  <span style={{ fontSize: '0.8rem' }}>Importez les exports mensuels pour construire l'historique sur 12 mois.</span>
+                </div>
+              ) : (
+                <>
+                  <div style={{ display: 'flex', gap: 12, marginBottom: 18 }}>
+                    {[
+                      { label: 'Total 12 mois', value: `${lineHistory.total12m.toLocaleString('fr-FR')} €`, color: '#0078a4' },
+                      { label: 'Moyenne / mois', value: `${lineHistory.avgMonthly.toLocaleString('fr-FR')} €`, color: '#1e293b' },
+                      { label: 'Mois facturés', value: lineHistory.months, color: '#059669' },
+                    ].map(k => (
+                      <div key={k.label} style={{ flex: 1, background: '#f8fafc', borderRadius: 8, padding: '10px 12px', borderTop: `3px solid ${k.color}` }}>
+                        <div style={{ fontSize: '1.3rem', fontWeight: 800, color: k.color }}>{k.value}</div>
+                        <div style={{ fontSize: '0.74rem', color: '#64748b' }}>{k.label}</div>
+                      </div>
+                    ))}
+                  </div>
+                  {lineHistory.resiliation && (
+                    <div style={{ background: '#fff7ed', border: '1px solid #ffedd5', color: '#d97706', padding: '8px 12px', borderRadius: 8, fontSize: '0.82rem', marginBottom: 16 }}>
+                      ⚠ Résiliation renseignée : {lineHistory.resiliation}
+                    </div>
+                  )}
+                  <ResponsiveContainer width="100%" height={200}>
+                    <BarChart data={lineHistory.history}>
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                      <XAxis dataKey="period" fontSize={11} tickFormatter={(v) => new Date(v).toLocaleDateString('fr-FR', { month: 'short', year: '2-digit' })} />
+                      <YAxis fontSize={11} />
+                      <Tooltip
+                        labelFormatter={(v) => new Date(v).toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' })}
+                        formatter={(val, name) => [`${Number(val).toLocaleString('fr-FR')} €`, name === 'amt_total' ? 'Total' : name]}
+                      />
+                      <Bar dataKey="amt_total" fill="#0078a4" radius={[4, 4, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                  <table className="commitments-table" style={{ marginTop: 16 }}>
+                    <thead>
+                      <tr><th>Mois</th><th>Forfait</th><th style={{ textAlign: 'right' }}>Abonnement</th><th style={{ textAlign: 'right' }}>Conso</th><th style={{ textAlign: 'right' }}>Remises</th><th style={{ textAlign: 'right' }}>Total HT</th></tr>
+                    </thead>
+                    <tbody>
+                      {lineHistory.history.slice().reverse().map((h: any, i: number) => (
+                        <tr key={i}>
+                          <td style={{ fontWeight: 600 }}>{new Date(h.period).toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' })}</td>
+                          <td style={{ fontSize: '0.8rem', color: '#64748b' }}>{h.plan || h.cf_label}</td>
+                          <td style={{ textAlign: 'right' }}>{h.amt_subscriptions.toLocaleString('fr-FR')} €</td>
+                          <td style={{ textAlign: 'right' }}>{h.amt_conso.toLocaleString('fr-FR')} €</td>
+                          <td style={{ textAlign: 'right', color: '#059669' }}>{h.amt_discounts.toLocaleString('fr-FR')} €</td>
+                          <td style={{ textAlign: 'right', fontWeight: 700 }}>{h.amt_total.toLocaleString('fr-FR')} €</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Validation Modal for Missing Info */}
       {showValidation && pendingInvoice && (
@@ -1603,6 +1688,14 @@ const TelecomManagement: React.FC = () => {
       <style>{`
         .telecom-container { min-height: 100vh; background: #f8fafc; }
         .telecom-main { max-width: 1200px; margin: 0 auto; padding: 40px 20px; }
+
+        .ndi-link { background: none; border: none; padding: 0; font-family: monospace; font-weight: 700; color: #0078a4; cursor: pointer; text-decoration: underline; text-underline-offset: 2px; font-size: inherit; }
+        .ndi-link:hover { color: #005d80; }
+        .line-history-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 1100; display: flex; align-items: center; justify-content: center; padding: 30px; }
+        .line-history-modal { background: white; width: 760px; max-width: 95vw; max-height: 88vh; border-radius: 16px; display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 24px 48px rgba(0,0,0,.25); }
+        .line-history-header { display: flex; justify-content: space-between; align-items: flex-start; padding: 18px 24px; border-bottom: 1px solid #e2e8f0; }
+        .line-history-header .close-btn { background: none; border: none; cursor: pointer; color: #64748b; padding: 4px; border-radius: 6px; }
+        .line-history-body { padding: 20px 24px; overflow-y: auto; }
         .telecom-page-header { display: flex; align-items: flex-start; gap: 20px; margin-bottom: 40px; }
         .back-button { background: white; border: 1px solid #e2e8f0; padding: 10px; border-radius: 12px; cursor: pointer; color: #64748b; }
         .title-group h1 { margin: 0; font-size: 1.875rem; color: #1e293b; }
