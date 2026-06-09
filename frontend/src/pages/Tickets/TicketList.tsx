@@ -164,7 +164,9 @@ const SORT_FIELDS: Record<string, (t: any) => any> = {
   active:     t => t.active_days ?? -1,
   requester:  t => (t.requester_name || '').toLowerCase(),
   technician: t => (t.assignee_group_name || t.technician_name || 'zzz').toLowerCase(),
-  date:       t => t.date_creation || '',
+  date:        t => t.date_creation || '',
+  date_solved: t => t.date_solved || '',
+  date_closed: t => t.date_closed || '',
 };
 
 export default function TicketList({
@@ -346,7 +348,9 @@ export default function TicketList({
                 { key: 'requester',  label: 'Demandeur',  align: 'left'   },
                 { key: 'source',     label: 'Source',     align: 'center' },
                 { key: 'technician', label: 'Technicien', align: 'left'   },
-                { key: 'date',       label: 'Date',       align: 'center' },
+                { key: 'date',       label: 'Créé',      align: 'center' },
+                { key: 'date_solved', label: 'Résolu',     align: 'center' },
+                { key: 'date_closed', label: 'Fermé',      align: 'center' },
               ] as const).map(col => {
                 const active = localSortKey === col.key;
                 const icon = active ? (localSortDir === 'asc' ? ' ↑' : ' ↓') : '';
@@ -711,6 +715,16 @@ export default function TicketList({
                     {/* Date */}
                     <td style={{ ...tdStyle, fontSize: isChild ? 11 : 12, color: '#64748b' }}>
                       {data.date_creation ? formatDateParis(data.date_creation) : ''}
+                    </td>
+
+                    {/* Résolu le */}
+                    <td style={{ ...tdStyle, fontSize: isChild ? 11 : 12, color: data.date_solved ? '#16a34a' : '#d1d5db' }}>
+                      {data.date_solved ? formatDateParis(data.date_solved) : '—'}
+                    </td>
+
+                    {/* Fermé le */}
+                    <td style={{ ...tdStyle, fontSize: isChild ? 11 : 12, color: data.date_closed ? '#6366f1' : '#d1d5db' }}>
+                      {data.date_closed ? formatDateParis(data.date_closed) : '—'}
                     </td>
                   </tr>
                   {/* Espacement après un groupe */}

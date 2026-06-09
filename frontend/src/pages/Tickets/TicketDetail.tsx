@@ -1949,6 +1949,22 @@ export default function TicketDetail() {
               )}
             </div>
 
+            {/* RÉSOLU LE */}
+            {ticket.date_solved && (
+              <div style={SF}>
+                <span style={SL}>Résolu le</span>
+                <span style={SV}>{formatDateTime(ticket.date_solved)}</span>
+              </div>
+            )}
+
+            {/* FERMÉ LE */}
+            {ticket.date_closed && (
+              <div style={SF}>
+                <span style={SL}>Fermé le</span>
+                <span style={SV}>{formatDateTime(ticket.date_closed)}</span>
+              </div>
+            )}
+
             {/* OBSERVATEURS */}
             <div style={{ borderBottom: '1px solid #f4f4f5', padding: '10px 0' }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 5 }}>

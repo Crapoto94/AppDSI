@@ -3743,7 +3743,9 @@ async function setupPgDb() {
                 title = EXCLUDED.title, content = EXCLUDED.content,
                 priority = EXCLUDED.priority, urgency = EXCLUDED.urgency, impact = EXCLUDED.impact,
                 category = EXCLUDED.category, type = EXCLUDED.type,
-                date_mod = EXCLUDED.date_mod, date_closed = EXCLUDED.date_closed, date_solved = EXCLUDED.date_solved,
+                date_mod = EXCLUDED.date_mod,
+                date_closed = CASE WHEN EXCLUDED.status IN (5,6,7) THEN EXCLUDED.date_closed ELSE NULL END,
+                date_solved = CASE WHEN EXCLUDED.status IN (5,6,7) THEN EXCLUDED.date_solved ELSE NULL END,
                 location = EXCLUDED.location, solution = EXCLUDED.solution,
                 entity = EXCLUDED.entity, requester_name = EXCLUDED.requester_name,
                 email_alt = EXCLUDED.email_alt, requester_email_22 = EXCLUDED.requester_email_22
@@ -3795,6 +3797,22 @@ async function setupPgDb() {
         if (textCols.length) console.log('[PG DB] hub_tickets.tickets date columns migrated to TIMESTAMP:', textCols.join(', '));
     } catch (e) {
         console.log('[PG DB] date column migration skip:', e.message);
+    }
+
+    // Nettoyage : date_solved/date_closed doivent être NULL si le statut ne correspond pas
+    try {
+        await client.query(`
+            UPDATE hub_tickets.tickets
+            SET date_closed = NULL
+            WHERE status NOT IN (6, 7) AND date_closed IS NOT NULL
+        `);
+        await client.query(`
+            UPDATE hub_tickets.tickets
+            SET date_solved = NULL
+            WHERE status NOT IN (5, 6, 7) AND date_solved IS NOT NULL
+        `);
+    } catch (e) {
+        console.log('[PG DB] cleanup date_solved/date_closed skip:', e.message);
     }
 
     try {

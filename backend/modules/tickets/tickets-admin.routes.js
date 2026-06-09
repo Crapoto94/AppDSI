@@ -1241,8 +1241,8 @@ async function runGlpiReset({ backup, triggeredBy }) {
                        category, type,
                        CASE WHEN date_creation ~ '^[1-9][0-9]{3}-[0-9]{2}-[0-9]{2}' THEN date_creation::TIMESTAMP ELSE NULL END,
                        CASE WHEN date_mod ~ '^[1-9][0-9]{3}-[0-9]{2}-[0-9]{2}' THEN date_mod::TIMESTAMP ELSE NULL END,
-                       CASE WHEN date_closed ~ '^[1-9][0-9]{3}-[0-9]{2}-[0-9]{2}' THEN date_closed::TIMESTAMP ELSE NULL END,
-                       CASE WHEN date_solved ~ '^[1-9][0-9]{3}-[0-9]{2}-[0-9]{2}' THEN date_solved::TIMESTAMP ELSE NULL END,
+                       CASE WHEN status IN (5,6,7) AND date_closed ~ '^[1-9][0-9]{3}-[0-9]{2}-[0-9]{2}' THEN date_closed::TIMESTAMP ELSE NULL END,
+                       CASE WHEN status IN (5,6,7) AND date_solved ~ '^[1-9][0-9]{3}-[0-9]{2}-[0-9]{2}' THEN date_solved::TIMESTAMP ELSE NULL END,
                        location, solution, source, entity, requester_name, email_alt,
                        requester_email_22
                 FROM glpi.tickets
