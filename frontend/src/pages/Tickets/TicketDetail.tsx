@@ -2223,7 +2223,7 @@ export default function TicketDetail() {
                     return (
                       <>
                         <div style={{ fontSize: 11, color: '#71717a', marginBottom: 10, lineHeight: 1.5 }}>
-                          Escalader vers un groupe, un agent ou un superviseur. Pour un groupe, le ticket sera assigné au technicien le moins occupé.
+                          Escalader vers un groupe, un agent ou un superviseur. Pour un groupe, le ticket est affecté au groupe sans technicien individuel.
                         </div>
                         {/* 1. Groupes d'escalade */}
                         {groups.length > 0 && (
@@ -2237,7 +2237,7 @@ export default function TicketDetail() {
                                   </div>
                                   <div style={{ flex: 1, minWidth: 0 }}>
                                     <div style={{ fontSize: 13, fontWeight: 600, color: '#14532d' }}>{g.name}</div>
-                                    <div style={{ fontSize: 11, color: '#16a34a' }}>{(g.members || []).length} membre{(g.members || []).length !== 1 ? 's' : ''} · Assignation automatique au technicien le moins occupé</div>
+                                    <div style={{ fontSize: 11, color: '#16a34a' }}>{(g.members || []).length} membre{(g.members || []).length !== 1 ? 's' : ''} · Affectation au groupe, sans technicien individuel</div>
                                   </div>
                                   <button onClick={async () => {
                                     try {
