@@ -222,7 +222,10 @@ module.exports = {
 
     async checkVipRequester(ticket) {
         // L'email peut arriver sous différents noms selon le flux (création form, GLPI, etc.)
-        const email = (ticket.requester_email_22 || ticket.requester_email || ticket.email_alt || ticket.email || '').trim();
+        // email_alt en priorité : le champ GLPI 22 (requester_email_22) porte parfois l'email
+        // du technicien (cf. ticket.repository / notification.service). requester_email couvre
+        // le flux de création (donnée fraîche avant persistance).
+        const email = (ticket.email_alt || ticket.requester_email_22 || ticket.requester_email || ticket.email || '').trim();
         const requesterName = (ticket.requester_name || '').trim();
         if (!email && !requesterName) return;
         // Nom normalisé (sans accents, trié par mots) pour matcher "BOUYSSOU Philippe" ↔ "Philippe BOUYSSOU"
