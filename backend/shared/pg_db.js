@@ -3740,7 +3740,7 @@ async function setupPgDb() {
                    CASE WHEN date_solved::text ~ '^[1-9][0-9]{3}-[0-9]{2}-[0-9]{2}' THEN date_solved::text::TIMESTAMP ELSE NULL END,
                    location, solution, 'hub', entity, requester_name, email_alt, requester_email_22 FROM glpi.tickets
             ON CONFLICT (glpi_id) DO UPDATE SET
-                title = EXCLUDED.title, content = EXCLUDED.content, status = EXCLUDED.status,
+                title = EXCLUDED.title, content = EXCLUDED.content,
                 priority = EXCLUDED.priority, urgency = EXCLUDED.urgency, impact = EXCLUDED.impact,
                 category = EXCLUDED.category, type = EXCLUDED.type,
                 date_mod = EXCLUDED.date_mod, date_closed = EXCLUDED.date_closed, date_solved = EXCLUDED.date_solved,
