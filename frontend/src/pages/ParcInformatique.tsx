@@ -4,6 +4,7 @@ import Header from '../components/Header';
 import MobiliteView from './parc/MobiliteView';
 import LignesMobilesView from './parc/LignesMobilesView';
 import AdView from './parc/AdView';
+import EtiquetteView, { printLabelWindow } from './parc/EtiquetteView';
 import axios from 'axios';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -185,7 +186,7 @@ const ParcInformatique: React.FC = () => {
   const [source, setSource] = useState<'live' | 'hub'>('hub');
   const api = axios.create({ baseURL: `/api/parc/${source}`, headers: { Authorization: `Bearer ${token}` } });
 
-  const [tab, setTab] = useState<'dashboard' | 'list' | 'stock' | 'usagers' | 'geo' | 'deploiements' | 'ad' | 'lignes'>('dashboard');
+  const [tab, setTab] = useState<'dashboard' | 'list' | 'stock' | 'usagers' | 'geo' | 'deploiements' | 'ad' | 'lignes' | 'etiquette'>('dashboard');
   const [kpis, setKpis] = useState<Kpis | null>(null);
   const [kpiErr, setKpiErr] = useState<string | null>(null);
   const [loadingKpi, setLoadingKpi] = useState(false);
@@ -764,7 +765,7 @@ const ParcInformatique: React.FC = () => {
 
         {/* Onglets */}
         <div style={{ display: 'flex', gap: 6, marginBottom: 22, borderBottom: `1px solid ${C.border}` }}>
-          {[{ k: 'dashboard', l: 'Tableau de bord', i: BarChart3 }, { k: 'list', l: 'Équipements', i: List }, { k: 'stock', l: 'Stock', i: Boxes }, { k: 'usagers', l: 'Usagers', i: Users }, { k: 'geo', l: 'Géo', i: MapPin }, { k: 'deploiements', l: 'Déploiements', i: Truck }, { k: 'lignes', l: 'Lignes mobiles', i: Signal }, { k: 'ad', l: 'AD', i: Server }].map(t => {
+          {[{ k: 'dashboard', l: 'Tableau de bord', i: BarChart3 }, { k: 'list', l: 'Équipements', i: List }, { k: 'stock', l: 'Stock', i: Boxes }, { k: 'usagers', l: 'Usagers', i: Users }, { k: 'geo', l: 'Géo', i: MapPin }, { k: 'deploiements', l: 'Déploiements', i: Truck }, { k: 'lignes', l: 'Lignes mobiles', i: Signal }, { k: 'ad', l: 'AD', i: Server }, { k: 'etiquette', l: 'Étiquette', i: Tag }].map(t => {
             const I = t.i; const active = tab === t.k;
             return (
               <button key={t.k} onClick={() => setTab(t.k as any)} style={{
@@ -2501,6 +2502,9 @@ const ParcInformatique: React.FC = () => {
       {/* ─── AD (ACTIVE DIRECTORY) ─── */}
       {tab === 'ad' && <AdView />}
 
+      {/* ─── ÉTIQUETTE ─── */}
+      {tab === 'etiquette' && <EtiquetteView />}
+
       {/* ─── VISIONNEUSE DE DOCUMENT ─── */}
       {docViewer && (
         <DocViewer
@@ -2924,7 +2928,17 @@ const DetailModal: React.FC<{ detail: any; token: string | null; onClose: () => 
               {s.age_years != null && <span style={{ fontSize: '.78rem', background: 'rgba(255,255,255,.2)', padding: '2px 8px', borderRadius: 6, display: 'inline-flex', alignItems: 'center', gap: 4 }}><Clock size={12} /> {s.age_years} an{s.age_years >= 2 ? 's' : ''}</span>}
             </div>
           </div>
-          <button onClick={onClose} style={{ background: 'rgba(255,255,255,.2)', border: 'none', color: '#fff', borderRadius: 10, padding: 8, cursor: 'pointer' }}><X size={18} /></button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+            {!detail.loading && !detail.error && s.name && (
+              <button
+                onClick={() => void printLabelWindow(s.name)}
+                style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'rgba(255,255,255,.2)', border: '1px solid rgba(255,255,255,.4)', color: '#fff', borderRadius: 10, padding: '7px 14px', cursor: 'pointer', fontSize: '.82rem', fontWeight: 700, whiteSpace: 'nowrap' }}
+              >
+                <Printer size={14} /> Étiquette
+              </button>
+            )}
+            <button onClick={onClose} style={{ background: 'rgba(255,255,255,.2)', border: 'none', color: '#fff', borderRadius: 10, padding: 8, cursor: 'pointer' }}><X size={18} /></button>
+          </div>
         </div>
 
         <div style={{ padding: 24 }}>
@@ -3030,6 +3044,8 @@ const DetailModal: React.FC<{ detail: any; token: string | null; onClose: () => 
             </>
           )}
         </div>
+
+
       </div>
     </div>
 
