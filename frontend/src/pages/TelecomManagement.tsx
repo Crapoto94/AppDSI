@@ -135,11 +135,25 @@ interface BillingStats {
   totalConso: number;
   totalDiscounts: number;
   dormant: number;
+  dormantCost: number;
+  dormantList: { line_number: string; user_name: string; plan: string; list_label: string; amt_total: number }[];
   annualEstimate: number;
   topLines: { line_number: string; user_name: string; site_name: string; plan: string; is_mobile: boolean; amt_total: number }[];
   byPlan: Record<string, number>;
   bySite: { site: string; amount: number }[];
   byList: { list: string; amount: number }[];
+}
+
+interface Reconciliation {
+  inventoryTotal: number;
+  billingTotal: number;
+  matched: number;
+  matchedCost: number;
+  resilieesFacturees: { ndi: string; site_name: string; access_type: string; status: string; cost: number }[];
+  resilieesFactureesCost: number;
+  enServiceNonFacturees: { ndi: string; site_name: string; access_type: string; category: string }[];
+  factureesHorsInventaire: { line_number: string; site_name: string; cf_label: string; amt_total: number }[];
+  factureesHorsInventaireCost: number;
 }
 
 interface BillingLine {
@@ -157,7 +171,7 @@ interface BillingLine {
 
 const TelecomManagement: React.FC = () => {
   const navigate = useNavigate();
-  const [activeTab, setActiveTab] = useState<'invoices' | 'lines' | 'pdfs' | 'network' | 'billing'>('invoices');
+  const [activeTab, setActiveTab] = useState<'invoices' | 'lines' | 'pdfs' | 'network' | 'billing' | 'optim'>('invoices');
 
   // Lignes fixes & internet
   const [lines, setLines] = useState<TelecomLine[]>([]);
@@ -173,6 +187,9 @@ const TelecomManagement: React.FC = () => {
   const [billingType, setBillingType] = useState<'all' | 'mobile' | 'fixe'>('all');
   const [billingSearch, setBillingSearch] = useState('');
   const [importingBilling, setImportingBilling] = useState(false);
+
+  // Optimisation (rapprochement inventaire ↔ facturation)
+  const [reconciliation, setReconciliation] = useState<Reconciliation | null>(null);
   const [operators, setOperators] = useState<Operator[]>([]);
   const [billingAccounts, setBillingAccounts] = useState<Record<number, BillingAccount[]>>({});
   const [commitments, setCommitments] = useState<Commitment[]>([]);
@@ -297,6 +314,23 @@ const TelecomManagement: React.FC = () => {
 
   useEffect(() => {
     if (activeTab === 'billing') fetchBilling();
+  }, [activeTab, token]);
+
+  const fetchOptim = async () => {
+    try {
+      const [statsRes, recRes] = await Promise.all([
+        fetch('/api/telecom/billing/stats', { headers: { 'Authorization': `Bearer ${token}` } }),
+        fetch('/api/telecom/billing/reconciliation', { headers: { 'Authorization': `Bearer ${token}` } }),
+      ]);
+      if (statsRes.ok) setBillingStats(await statsRes.json());
+      if (recRes.ok) setReconciliation(await recRes.json());
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab === 'optim') fetchOptim();
   }, [activeTab, token]);
 
   const handleImportBilling = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -565,6 +599,9 @@ const TelecomManagement: React.FC = () => {
             </button>
             <button className={activeTab === 'billing' ? 'active' : ''} onClick={() => setActiveTab('billing')}>
               <Phone size={18} /> Coûts & Mobile
+            </button>
+            <button className={activeTab === 'optim' ? 'active' : ''} onClick={() => setActiveTab('optim')}>
+              <AlertTriangle size={18} /> Optimisation
             </button>
           </div>
         </div>
@@ -1343,6 +1380,131 @@ const TelecomManagement: React.FC = () => {
                       Affichage limité aux 300 premières lignes — affinez la recherche.
                     </div>
                   )}
+                </div>
+              </>
+            )}
+          </div>
+        )}
+
+        {activeTab === 'optim' && (
+          <div className="tab-content">
+            <div className="section-header">
+              <div>
+                <h2>Optimisation & économies</h2>
+                <span style={{ fontSize: '0.85rem', color: '#64748b' }}>
+                  Rapprochement inventaire ↔ facturation et détection des dépenses évitables
+                </span>
+              </div>
+            </div>
+
+            {!billingStats || !reconciliation ? (
+              <div className="empty-state">
+                <AlertTriangle size={48} />
+                <p>Importez d'abord l'inventaire des lignes et l'export de facturation pour activer l'analyse.</p>
+              </div>
+            ) : (
+              <>
+                {/* Bandeau économies potentielles */}
+                {(() => {
+                  const savings = (billingStats.dormantCost || 0) + (reconciliation.resilieesFactureesCost || 0);
+                  return (
+                    <div className="admin-card" style={{ padding: 22, marginBottom: 24, background: 'linear-gradient(135deg,#ecfdf5,#f0fdfa)', borderLeft: '5px solid #059669' }}>
+                      <div style={{ fontSize: '0.85rem', color: '#047857', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Économies potentielles identifiées</div>
+                      <div style={{ fontSize: '2.2rem', fontWeight: 800, color: '#059669', margin: '6px 0' }}>
+                        {savings.toLocaleString('fr-FR')} € / mois
+                        <span style={{ fontSize: '1rem', color: '#047857', marginLeft: 12 }}>≈ {Math.round(savings * 12).toLocaleString('fr-FR')} € / an</span>
+                      </div>
+                      <div style={{ fontSize: '0.85rem', color: '#475569' }}>
+                        {billingStats.dormant} ligne(s) mobile(s) dormante(s) ({(billingStats.dormantCost || 0).toLocaleString('fr-FR')} €) + {reconciliation.resilieesFacturees.length} ligne(s) résiliée(s) encore facturée(s) ({(reconciliation.resilieesFactureesCost || 0).toLocaleString('fr-FR')} €)
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {/* KPI rapprochement */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 12, marginBottom: 24 }}>
+                  {[
+                    { label: 'Lignes inventaire', value: reconciliation.inventoryTotal, color: '#0078a4' },
+                    { label: 'Rapprochées (coût connu)', value: reconciliation.matched, color: '#059669' },
+                    { label: 'Mobiles dormantes', value: billingStats.dormant, color: '#ef4444' },
+                    { label: 'Résiliées facturées', value: reconciliation.resilieesFacturees.length, color: '#f59e0b' },
+                    { label: 'Facturées hors inventaire', value: reconciliation.factureesHorsInventaire.length, color: '#7c3aed' },
+                  ].map(k => (
+                    <div key={k.label} className="admin-card" style={{ padding: '14px 16px', borderTop: `3px solid ${k.color}` }}>
+                      <div style={{ fontSize: '1.5rem', fontWeight: 800, color: k.color }}>{k.value}</div>
+                      <div style={{ fontSize: '0.76rem', color: '#64748b', marginTop: 4 }}>{k.label}</div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Résiliées encore facturées */}
+                {reconciliation.resilieesFacturees.length > 0 && (
+                  <div className="admin-card" style={{ padding: 18, marginBottom: 20, borderLeft: '4px solid #f59e0b' }}>
+                    <h3 style={{ margin: '0 0 4px', fontSize: '1rem', color: '#1e293b' }}>🔴 Lignes résiliées encore facturées</h3>
+                    <p style={{ fontSize: '0.8rem', color: '#64748b', margin: '0 0 12px' }}>Marquées « résiliation » dans l'inventaire mais toujours présentes sur la facture. À faire cesser en priorité.</p>
+                    <table className="commitments-table">
+                      <thead><tr><th>NDI</th><th>Site</th><th>Type</th><th>Statut inventaire</th><th style={{ textAlign: 'right' }}>€/mois</th></tr></thead>
+                      <tbody>
+                        {reconciliation.resilieesFacturees.map((l, i) => (
+                          <tr key={i}>
+                            <td style={{ fontFamily: 'monospace', fontWeight: 700 }}>{l.ndi}</td>
+                            <td>{l.site_name}</td>
+                            <td style={{ fontSize: '0.82rem', color: '#64748b' }}>{l.access_type}</td>
+                            <td><span className="status-tag pending">{l.status}</span></td>
+                            <td style={{ textAlign: 'right', fontWeight: 700, color: '#ef4444' }}>{l.cost.toLocaleString('fr-FR')} €</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+
+                {/* Mobiles dormantes */}
+                {billingStats.dormantList && billingStats.dormantList.length > 0 && (
+                  <div className="admin-card" style={{ padding: 18, marginBottom: 20, borderLeft: '4px solid #ef4444' }}>
+                    <h3 style={{ margin: '0 0 4px', fontSize: '1rem', color: '#1e293b' }}>📱 Lignes mobiles dormantes ({billingStats.dormant})</h3>
+                    <p style={{ fontSize: '0.8rem', color: '#64748b', margin: '0 0 12px' }}>Facturées mais <strong>aucune consommation</strong> (ni voix ni data) sur la période. Candidates à résiliation ou mise en veille. Top 30 par coût.</p>
+                    <table className="commitments-table">
+                      <thead><tr><th>Numéro</th><th>Utilisateur</th><th>Service</th><th>Forfait</th><th style={{ textAlign: 'right' }}>€/mois</th></tr></thead>
+                      <tbody>
+                        {billingStats.dormantList.slice(0, 30).map((l, i) => (
+                          <tr key={i}>
+                            <td style={{ fontFamily: 'monospace', fontWeight: 600 }}>{l.line_number}</td>
+                            <td>{l.user_name || <span style={{ color: '#cbd5e1' }}>—</span>}</td>
+                            <td style={{ fontSize: '0.8rem', color: '#64748b' }}>{l.list_label}</td>
+                            <td style={{ fontSize: '0.8rem' }}>{l.plan}</td>
+                            <td style={{ textAlign: 'right', fontWeight: 700 }}>{l.amt_total.toLocaleString('fr-FR')} €</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+
+                {/* Hors inventaire + non facturées */}
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+                  <div className="admin-card" style={{ padding: 18, borderLeft: '4px solid #7c3aed' }}>
+                    <h3 style={{ margin: '0 0 4px', fontSize: '1rem', color: '#1e293b' }}>Lignes fixes facturées hors inventaire</h3>
+                    <p style={{ fontSize: '0.8rem', color: '#64748b', margin: '0 0 12px' }}>Présentes sur la facture mais absentes de l'inventaire — à recenser ({reconciliation.factureesHorsInventaireCost.toLocaleString('fr-FR')} €/mois).</p>
+                    {reconciliation.factureesHorsInventaire.length === 0 ? <div style={{ color: '#94a3b8', fontSize: '0.85rem' }}>Aucune — inventaire complet ✔</div> :
+                      reconciliation.factureesHorsInventaire.map((l, i) => (
+                        <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderTop: i ? '1px solid #f1f5f9' : 'none', fontSize: '0.85rem' }}>
+                          <span><span style={{ fontFamily: 'monospace', fontWeight: 600 }}>{l.line_number}</span> <span style={{ color: '#94a3b8' }}>{l.cf_label}</span></span>
+                          <span style={{ fontWeight: 700 }}>{l.amt_total.toLocaleString('fr-FR')} €</span>
+                        </div>
+                      ))}
+                  </div>
+                  <div className="admin-card" style={{ padding: 18, borderLeft: '4px solid #0078a4' }}>
+                    <h3 style={{ margin: '0 0 4px', fontSize: '1rem', color: '#1e293b' }}>Lignes en service non facturées</h3>
+                    <p style={{ fontSize: '0.8rem', color: '#64748b', margin: '0 0 12px' }}>En service dans l'inventaire mais sans ligne de facturation trouvée — à vérifier (facturé ailleurs ?).</p>
+                    {reconciliation.enServiceNonFacturees.length === 0 ? <div style={{ color: '#94a3b8', fontSize: '0.85rem' }}>Aucune ✔</div> :
+                      reconciliation.enServiceNonFacturees.slice(0, 20).map((l, i) => (
+                        <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderTop: i ? '1px solid #f1f5f9' : 'none', fontSize: '0.85rem' }}>
+                          <span><span style={{ fontFamily: 'monospace', fontWeight: 600 }}>{l.ndi}</span> {l.site_name}</span>
+                          <span style={{ color: '#94a3b8', fontSize: '0.78rem' }}>{l.access_type}</span>
+                        </div>
+                      ))}
+                  </div>
                 </div>
               </>
             )}

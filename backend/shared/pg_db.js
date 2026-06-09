@@ -5134,11 +5134,16 @@ async function setupPgDb() {
           amt_conso_autre   NUMERIC,
           amt_contenu       NUMERIC,
           amt_total         NUMERIC,
+          conso_voix        NUMERIC DEFAULT 0,   -- secondes de communication (mobile)
+          conso_data        NUMERIC DEFAULT 0,   -- volume data consommé (mobile)
           source_file       TEXT,
           imported_at       TIMESTAMPTZ DEFAULT NOW(),
           UNIQUE(period, line_number, cf_id)
         )
       `);
+      // Migration non destructive si la table préexiste sans les colonnes conso
+      await client.query(`ALTER TABLE hub_telecom.line_billing ADD COLUMN IF NOT EXISTS conso_voix NUMERIC DEFAULT 0`);
+      await client.query(`ALTER TABLE hub_telecom.line_billing ADD COLUMN IF NOT EXISTS conso_data NUMERIC DEFAULT 0`);
       await client.query(`CREATE INDEX IF NOT EXISTS idx_telecom_billing_period ON hub_telecom.line_billing(period)`);
       await client.query(`CREATE INDEX IF NOT EXISTS idx_telecom_billing_line ON hub_telecom.line_billing(line_number)`);
       await client.query(`CREATE INDEX IF NOT EXISTS idx_telecom_billing_cf ON hub_telecom.line_billing(cf_id)`);

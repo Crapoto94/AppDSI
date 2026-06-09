@@ -601,21 +601,22 @@ module.exports = {
                        site_id, site_name, list_id, list_label, line_number, mobile_name, user_name, plan,
                        is_mobile, resiliation, amt_subscriptions, amt_other, amt_discounts, amt_third_party,
                        amt_voix_fixe, amt_voix_mobile, amt_data_fixe, amt_data_mobile, amt_conso_autre,
-                       amt_contenu, amt_total, source_file)
-                    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30)
+                       amt_contenu, amt_total, conso_voix, conso_data, source_file)
+                    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32)
                     ON CONFLICT (period, line_number, cf_id) DO UPDATE SET
                       invoice_number=$2, invoice_date=$3, org_id=$4, company=$5, contract_id=$6, cf_label=$8,
                       site_id=$9, site_name=$10, list_id=$11, list_label=$12, mobile_name=$14, user_name=$15,
                       plan=$16, is_mobile=$17, resiliation=$18, amt_subscriptions=$19, amt_other=$20,
                       amt_discounts=$21, amt_third_party=$22, amt_voix_fixe=$23, amt_voix_mobile=$24,
                       amt_data_fixe=$25, amt_data_mobile=$26, amt_conso_autre=$27, amt_contenu=$28,
-                      amt_total=$29, source_file=$30, imported_at=NOW()
+                      amt_total=$29, conso_voix=$30, conso_data=$31, source_file=$32, imported_at=NOW()
                 `, [
                     parsed.period, b.invoice_number, b.invoice_date, b.org_id, b.company, b.contract_id,
                     b.cf_id, b.cf_label, b.site_id, b.site_name, b.list_id, b.list_label, b.line_number,
                     b.mobile_name, b.user_name, b.plan, b.is_mobile, b.resiliation, b.amt_subscriptions,
                     b.amt_other, b.amt_discounts, b.amt_third_party, b.amt_voix_fixe, b.amt_voix_mobile,
-                    b.amt_data_fixe, b.amt_data_mobile, b.amt_conso_autre, b.amt_contenu, b.amt_total, sourceFile,
+                    b.amt_data_fixe, b.amt_data_mobile, b.amt_conso_autre, b.amt_contenu, b.amt_total,
+                    b.conso_voix, b.conso_data, sourceFile,
                 ]);
             }
 
@@ -696,7 +697,9 @@ module.exports = {
                 fixeLines: rows.filter(r => !r.is_mobile).length,
                 totalHT: 0, totalMobile: 0, totalFixe: 0,
                 totalSubscriptions: 0, totalConso: 0, totalDiscounts: 0,
-                dormant: 0,           // lignes mobiles facturées sans conso
+                dormant: 0,           // lignes mobiles facturées sans aucune conso (voix+data)
+                dormantCost: 0,       // coût mensuel des lignes dormantes
+                dormantList: [],
                 topLines: [],         // lignes les plus coûteuses
                 byPlan: {},           // répartition forfaits mobiles
                 bySite: {},           // coût par site
@@ -711,8 +714,12 @@ module.exports = {
                 stats.totalSubscriptions += n(r.amt_subscriptions);
                 stats.totalDiscounts += n(r.amt_discounts);
                 stats.totalConso += n(r.amt_voix_fixe) + n(r.amt_voix_mobile) + n(r.amt_data_fixe) + n(r.amt_data_mobile) + n(r.amt_conso_autre);
-                const conso = n(r.amt_voix_fixe) + n(r.amt_voix_mobile) + n(r.amt_data_fixe) + n(r.amt_data_mobile);
-                if (r.is_mobile && conso === 0 && tot > 0) stats.dormant++;
+                // Dormante = mobile facturé (> 0 €) sans aucune consommation voix ni data
+                if (r.is_mobile && tot > 0 && n(r.conso_voix) === 0 && n(r.conso_data) === 0) {
+                    stats.dormant++;
+                    stats.dormantCost += tot;
+                    stats.dormantList.push({ line_number: r.line_number, user_name: r.user_name, plan: r.plan, list_label: r.list_label, amt_total: tot });
+                }
                 if (r.is_mobile && r.plan) stats.byPlan[r.plan] = (stats.byPlan[r.plan] || 0) + 1;
                 const site = r.site_name || '(inconnu)';
                 stats.bySite[site] = (stats.bySite[site] || 0) + tot;
@@ -725,7 +732,9 @@ module.exports = {
                 .sort((a, b) => b.amt_total - a.amt_total).slice(0, 15);
             stats.bySite = Object.entries(stats.bySite).map(([k, v]) => ({ site: k, amount: Math.round(v * 100) / 100 })).sort((a, b) => b.amount - a.amount).slice(0, 10);
             stats.byList = Object.entries(stats.byList).map(([k, v]) => ({ list: k, amount: Math.round(v * 100) / 100 })).sort((a, b) => b.amount - a.amount).slice(0, 12);
+            stats.dormantList.sort((a, b) => b.amt_total - a.amt_total);
             stats.annualEstimate = Math.round(stats.totalHT * 12 * 100) / 100;
+            stats.dormantCost = Math.round(stats.dormantCost * 100) / 100;
             ['totalHT', 'totalMobile', 'totalFixe', 'totalSubscriptions', 'totalConso', 'totalDiscounts'].forEach(k => stats[k] = Math.round(stats[k] * 100) / 100);
 
             res.json(stats);
@@ -744,6 +753,78 @@ module.exports = {
             res.json(r.rows.map(x => ({ month: x.month, total: Math.round(parseFloat(x.total) * 100) / 100 })));
         } catch (error) {
             res.status(500).json({ message: 'Erreur tendance', error: error.message });
+        }
+    },
+
+    // Rapprochement inventaire des lignes ↔ facturation (dernière période)
+    // Détecte : lignes résiliées encore facturées, lignes en service non facturées,
+    // lignes facturées hors inventaire ; et enrichit l'inventaire de son coût.
+    getReconciliation: async (req, res) => {
+        try {
+            const inv = (await pool.query(`SELECT mid, ndi, site_name, category, access_type, status FROM hub_telecom.lines`)).rows;
+            const billing = (await pool.query(`
+                SELECT line_number, cf_id, cf_label, site_name, is_mobile, plan, amt_total
+                FROM hub_telecom.line_billing
+                WHERE period = (SELECT MAX(period) FROM hub_telecom.line_billing)
+            `)).rows;
+
+            const n = (v) => parseFloat(v) || 0;
+            const norm = (s) => String(s || '').replace(/\D/g, '');   // garde les chiffres (numéros)
+
+            // Index facturation par numéro
+            const billByNum = {};
+            for (const b of billing) {
+                const k = norm(b.line_number);
+                if (!k) continue;
+                (billByNum[k] = billByNum[k] || []).push(b);
+            }
+            const invByNdi = {};
+            for (const l of inv) {
+                const k = norm(l.ndi);
+                if (k) (invByNdi[k] = invByNdi[k] || []).push(l);
+            }
+
+            const resilieesFacturees = [];   // inventaire résilié mais encore facturé
+            const enServiceNonFacturees = []; // inventaire en service, NDI connu, pas de facture
+            const enriched = [];              // inventaire enrichi du coût
+            let matchedCost = 0;
+
+            for (const l of inv) {
+                const k = norm(l.ndi);
+                const bills = k ? billByNum[k] : null;
+                const cost = bills ? bills.reduce((s, b) => s + n(b.amt_total), 0) : 0;
+                const inService = /en service/i.test(l.status || '');
+                if (bills && bills.length) {
+                    matchedCost += cost;
+                    enriched.push({ ndi: l.ndi, mid: l.mid, site_name: l.site_name, category: l.category, access_type: l.access_type, status: l.status, cost });
+                    if (!inService) resilieesFacturees.push({ ndi: l.ndi, site_name: l.site_name, access_type: l.access_type, status: l.status, cost });
+                } else if (inService && k) {
+                    enServiceNonFacturees.push({ ndi: l.ndi, site_name: l.site_name, access_type: l.access_type, category: l.category });
+                }
+            }
+
+            // Lignes FIXES facturées absentes de l'inventaire (les mobiles sont attendus absents)
+            const invNdiSet = new Set(Object.keys(invByNdi));
+            const factureesHorsInventaire = billing
+                .filter(b => !b.is_mobile && !invNdiSet.has(norm(b.line_number)))
+                .map(b => ({ line_number: b.line_number, site_name: b.site_name, cf_label: b.cf_label, amt_total: n(b.amt_total) }))
+                .sort((a, b) => b.amt_total - a.amt_total);
+
+            const r2 = (x) => Math.round(x * 100) / 100;
+            res.json({
+                inventoryTotal: inv.length,
+                billingTotal: billing.length,
+                matched: enriched.length,
+                matchedCost: r2(matchedCost),
+                resilieesFacturees: resilieesFacturees.sort((a, b) => b.cost - a.cost),
+                resilieesFactureesCost: r2(resilieesFacturees.reduce((s, x) => s + x.cost, 0)),
+                enServiceNonFacturees,
+                factureesHorsInventaire,
+                factureesHorsInventaireCost: r2(factureesHorsInventaire.reduce((s, x) => s + x.amt_total, 0)),
+            });
+        } catch (error) {
+            console.error('[Telecom] getReconciliation error:', error);
+            res.status(500).json({ message: 'Erreur rapprochement', error: error.message });
         }
     },
 

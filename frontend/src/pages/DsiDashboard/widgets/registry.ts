@@ -297,6 +297,14 @@ export const WIDGET_REGISTRY: WidgetDef[] = [
     defaultSize: { w: 6, h: 2 },
     minSize: { w: 4, h: 2 },
   },
+  {
+    key: 'telecom_optim_kpi',
+    label: 'Économies télécom potentielles',
+    description: 'Lignes dormantes + résiliées encore facturées, économies €/mois et /an',
+    module: 'Télécom',
+    defaultSize: { w: 4, h: 3 },
+    minSize: { w: 3, h: 2 },
+  },
   // ── Système ───────────────────────────────────────────────────────────────
   {
     key: 'backup_status',

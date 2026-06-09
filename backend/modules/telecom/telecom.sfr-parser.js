@@ -9,6 +9,12 @@ function num(v) {
     return isNaN(n) ? 0 : n;
 }
 
+// "hh:mm:ss" -> secondes
+function hms(v) {
+    const m = String(v || '').match(/(\d+):(\d+):(\d+)/);
+    return m ? (+m[1] * 3600 + +m[2] * 60 + +m[3]) : 0;
+}
+
 // "dd/mm/yy" ou "dd/mm/yyyy" -> 'AAAA-MM-JJ'
 function frDate(v) {
     if (!v) return null;
@@ -83,16 +89,22 @@ function parseSfrZip(buffer) {
     const trendKey = Object.keys(csvs).find(k => k.includes('13mois'));
     const trendRows = trendKey ? parseCsv(csvs[trendKey]) : [];
 
-    // Index des métadonnées mobiles par numéro de ligne
+    // Index des métadonnées + consommation réelle par numéro de ligne (depuis LMDetail)
+    const voixCols = ['Consommation Voix comprise dans le forfait', 'Consommation Voix Au delà du forfait', 'Consommation Voix Hors Forfait'];
+    const dataCols = ['Consommations Données (Volume) comprise dans le forfait', 'Consommations Données (Volume) Au déla du forfait', 'Consommations Données (Volume) Hors Forfait'];
     const mobileByLine = {};
     for (const r of lm) {
         const ln = (r['Ligne'] || '').trim();
         if (!ln) continue;
+        const consoVoix = voixCols.reduce((s, k) => s + hms(r[k]), 0);          // secondes
+        const consoData = dataCols.reduce((s, k) => s + (parseInt(String(r[k]).replace(/\D/g, '')) || 0), 0); // volume brut
         mobileByLine[ln] = {
             user_name: r["Nom de l'utilisateur"] || '',
             plan: r['Abonnement en cours'] || '',
             resiliation: r['Résiliation'] || '',
             list_label: r['Libellé liste'] || '',
+            conso_voix: consoVoix,
+            conso_data: consoData,
         };
     }
 
@@ -123,6 +135,8 @@ function parseSfrZip(buffer) {
             plan: meta.plan || '',
             is_mobile: !!(isMobileName || meta.plan),
             resiliation: meta.resiliation || '',
+            conso_voix: meta.conso_voix || 0,
+            conso_data: meta.conso_data || 0,
             amt_subscriptions: num(r['Vos abonnements, options et services']),
             amt_other: num(r['Vos autres prestations']),
             amt_discounts: num(r['Vos remises spécifiques']),
