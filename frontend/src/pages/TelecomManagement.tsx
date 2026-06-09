@@ -14,7 +14,13 @@ import {
   Save,
   X,
   FileText,
-  AlertCircle
+  AlertCircle,
+  Wifi,
+  Phone,
+  AlertTriangle,
+  MapPin,
+  Network,
+  Check
 } from 'lucide-react';import { useNavigate } from 'react-router-dom';
 import Header from '../components/Header';
 
@@ -76,9 +82,55 @@ interface TelecomInvoice {
   general_status?: string;
 }
 
+interface TelecomLine {
+  id: number;
+  category: 'fixe' | 'internet';
+  site_number: string;
+  site_name: string;
+  address: string;
+  postal_code: string;
+  city: string;
+  contract: string;
+  billing_account: string;
+  mid: string;
+  offer: string;
+  access_type: string;
+  to_migrate: boolean;
+  copper_end_lot: string;
+  commercial_closure: string;
+  technical_closure: string;
+  ndi: string;
+  status: string;
+  service_date: string | null;
+  company_name: string;
+}
+
+interface LinesStats {
+  total: number;
+  fixe: number;
+  internet: number;
+  inService: number;
+  resiliation: number;
+  toMigrate: number;
+  byAccessType: Record<string, number>;
+  byOffer: Record<string, number>;
+  byStatus: Record<string, number>;
+  byCity: Record<string, number>;
+  topSites: { site: string; total: number; fixe: number; internet: number }[];
+  migrationList: { site_name: string; city: string; access_type: string; offer: string; copper_end_lot: string; ndi: string; mid: string }[];
+  resiliationList: { site_name: string; city: string; access_type: string; offer: string; status: string; ndi: string; mid: string }[];
+}
+
 const TelecomManagement: React.FC = () => {
   const navigate = useNavigate();
-  const [activeTab, setActiveTab] = useState<'invoices' | 'lines' | 'pdfs'>('invoices');
+  const [activeTab, setActiveTab] = useState<'invoices' | 'lines' | 'pdfs' | 'network'>('invoices');
+
+  // Lignes fixes & internet
+  const [lines, setLines] = useState<TelecomLine[]>([]);
+  const [linesStats, setLinesStats] = useState<LinesStats | null>(null);
+  const [lineCategory, setLineCategory] = useState<'all' | 'fixe' | 'internet'>('all');
+  const [lineSearch, setLineSearch] = useState('');
+  const [importingLines, setImportingLines] = useState(false);
   const [operators, setOperators] = useState<Operator[]>([]);
   const [billingAccounts, setBillingAccounts] = useState<Record<number, BillingAccount[]>>({});
   const [commitments, setCommitments] = useState<Commitment[]>([]);
@@ -138,6 +190,51 @@ const TelecomManagement: React.FC = () => {
       if (invRes.ok) setTelecomInvoices(await invRes.json());
     } catch (e) {
       console.error(e);
+    }
+  };
+
+  const fetchLines = async () => {
+    try {
+      const [linesRes, statsRes] = await Promise.all([
+        fetch('/api/telecom/lines', { headers: { 'Authorization': `Bearer ${token}` } }),
+        fetch('/api/telecom/lines/stats', { headers: { 'Authorization': `Bearer ${token}` } }),
+      ]);
+      if (linesRes.ok) setLines(await linesRes.json());
+      if (statsRes.ok) setLinesStats(await statsRes.json());
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab === 'network') fetchLines();
+  }, [activeTab, token]);
+
+  const handleImportLines = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+    setImportingLines(true);
+    try {
+      let summary: string[] = [];
+      for (const file of Array.from(files)) {
+        const formData = new FormData();
+        formData.append('file', file);
+        const res = await fetch('/api/telecom/lines/import', {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${token}` },
+          body: formData,
+        });
+        const data = await res.json();
+        if (res.ok) summary.push(`${file.name} : ${data.inserted} ajoutée(s), ${data.updated} mise(s) à jour`);
+        else summary.push(`${file.name} : erreur — ${data.message || 'inconnue'}`);
+      }
+      alert('Import terminé\n\n' + summary.join('\n'));
+      await fetchLines();
+    } catch (err) {
+      alert("Erreur lors de l'import");
+    } finally {
+      setImportingLines(false);
+      e.target.value = '';
     }
   };
 
@@ -374,6 +471,9 @@ const TelecomManagement: React.FC = () => {
             </button>
             <button className={activeTab === 'lines' ? 'active' : ''} onClick={() => setActiveTab('lines')}>
               <List size={18} /> Engagements
+            </button>
+            <button className={activeTab === 'network' ? 'active' : ''} onClick={() => setActiveTab('network')}>
+              <Network size={18} /> Lignes & Internet
             </button>
           </div>
         </div>
@@ -762,6 +862,204 @@ const TelecomManagement: React.FC = () => {
                   })}
                   {commitments.length === 0 && (
                     <tr><td colSpan={8} style={{ textAlign: 'center', padding: '40px', color: '#64748b' }}>Aucun engagement télécom (nature 6262) dans le suivi budgétaire</td></tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'network' && (
+          <div className="tab-content">
+            <div className="section-header">
+              <div>
+                <h2>Lignes fixes & accès internet</h2>
+                <span style={{ fontSize: '0.85rem', color: '#64748b' }}>
+                  Inventaire des lignes téléphoniques et accès data importé depuis les fichiers opérateur
+                </span>
+              </div>
+              <div className="action-group">
+                <input
+                  type="file"
+                  id="import-telecom-lines"
+                  style={{ display: 'none' }}
+                  accept=".xlsx,.xls"
+                  multiple
+                  onChange={handleImportLines}
+                />
+                <button className="add-btn" disabled={importingLines}
+                  onClick={() => document.getElementById('import-telecom-lines')?.click()}>
+                  <Upload size={18} /> {importingLines ? 'Import en cours…' : 'Importer / Réimporter (Excel)'}
+                </button>
+              </div>
+            </div>
+
+            {/* KPI cards */}
+            {linesStats && (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 12, marginBottom: 24 }}>
+                {[
+                  { label: 'Lignes totales', value: linesStats.total, color: '#0078a4', icon: <Network size={18} /> },
+                  { label: 'Téléphonie fixe', value: linesStats.fixe, color: '#059669', icon: <Phone size={18} /> },
+                  { label: 'Accès internet', value: linesStats.internet, color: '#d97706', icon: <Wifi size={18} /> },
+                  { label: 'En service', value: linesStats.inService, color: '#2563eb', icon: <Check size={18} /> },
+                  { label: 'Résiliation en cours', value: linesStats.resiliation, color: '#ef4444', icon: <X size={18} /> },
+                  { label: 'À migrer (cuivre)', value: linesStats.toMigrate, color: '#7c3aed', icon: <AlertTriangle size={18} /> },
+                ].map(k => (
+                  <div key={k.label} className="admin-card" style={{ padding: '14px 16px', borderTop: `3px solid ${k.color}` }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: k.color }}>
+                      {k.icon}
+                      <span style={{ fontSize: '1.6rem', fontWeight: 800 }}>{k.value}</span>
+                    </div>
+                    <div style={{ fontSize: '0.78rem', color: '#64748b', marginTop: 4 }}>{k.label}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Exploitation : alertes prioritaires */}
+            {linesStats && (linesStats.migrationList.length > 0 || linesStats.resiliationList.length > 0) && (
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 24 }}>
+                {linesStats.migrationList.length > 0 && (
+                  <div className="admin-card" style={{ padding: 18, borderLeft: '4px solid #7c3aed' }}>
+                    <h3 style={{ margin: '0 0 4px', fontSize: '1rem', color: '#1e293b', display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <AlertTriangle size={18} color="#7c3aed" /> Migration fin du cuivre (RTC) — {linesStats.migrationList.length} ligne(s)
+                    </h3>
+                    <p style={{ fontSize: '0.8rem', color: '#64748b', margin: '0 0 12px' }}>
+                      Lignes marquées « à migrer » par l'opérateur avant fermeture du réseau cuivre. À planifier en priorité (bascule fibre / ToIP).
+                    </p>
+                    {linesStats.migrationList.map((l, i) => (
+                      <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderTop: i ? '1px solid #f1f5f9' : 'none', fontSize: '0.85rem' }}>
+                        <div>
+                          <div style={{ fontWeight: 600, color: '#1e293b' }}>{l.site_name}</div>
+                          <div style={{ color: '#94a3b8', fontSize: '0.75rem' }}>{l.access_type} · {l.ndi || l.mid}</div>
+                        </div>
+                        <span style={{ background: '#f3e8ff', color: '#7c3aed', padding: '2px 10px', borderRadius: 6, fontWeight: 700, height: 'fit-content' }}>Lot {l.copper_end_lot || '?'}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {linesStats.resiliationList.length > 0 && (
+                  <div className="admin-card" style={{ padding: 18, borderLeft: '4px solid #ef4444' }}>
+                    <h3 style={{ margin: '0 0 4px', fontSize: '1rem', color: '#1e293b', display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <X size={18} color="#ef4444" /> Résiliations en cours — {linesStats.resiliationList.length}
+                    </h3>
+                    <p style={{ fontSize: '0.8rem', color: '#64748b', margin: '0 0 12px' }}>
+                      À surveiller : vérifier l'arrêt effectif de la facturation sur les comptes correspondants.
+                    </p>
+                    {linesStats.resiliationList.map((l, i) => (
+                      <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderTop: i ? '1px solid #f1f5f9' : 'none', fontSize: '0.85rem' }}>
+                        <div>
+                          <div style={{ fontWeight: 600, color: '#1e293b' }}>{l.site_name}</div>
+                          <div style={{ color: '#94a3b8', fontSize: '0.75rem' }}>{l.access_type} · {l.offer}</div>
+                        </div>
+                        <span style={{ color: '#94a3b8', fontSize: '0.75rem', height: 'fit-content' }}>{l.ndi || l.mid}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Répartition par type d'accès + Top sites */}
+            {linesStats && (
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 24 }}>
+                <div className="admin-card" style={{ padding: 18 }}>
+                  <h3 style={{ margin: '0 0 14px', fontSize: '1rem', color: '#1e293b' }}>Répartition par type d'accès</h3>
+                  {Object.entries(linesStats.byAccessType).sort((a, b) => b[1] - a[1]).map(([type, count]) => (
+                    <div key={type} style={{ marginBottom: 10 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.82rem', marginBottom: 3 }}>
+                        <span style={{ color: '#475569' }}>{type}</span>
+                        <span style={{ fontWeight: 700, color: '#1e293b' }}>{count}</span>
+                      </div>
+                      <div style={{ background: '#f1f5f9', borderRadius: 4, height: 7 }}>
+                        <div style={{ background: '#0078a4', height: '100%', borderRadius: 4, width: `${(count / linesStats.total) * 100}%` }} />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <div className="admin-card" style={{ padding: 18 }}>
+                  <h3 style={{ margin: '0 0 14px', fontSize: '1rem', color: '#1e293b', display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <MapPin size={16} color="#0078a4" /> Top 10 sites par nombre de lignes
+                  </h3>
+                  {linesStats.topSites.map((s, i) => (
+                    <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderTop: i ? '1px solid #f1f5f9' : 'none', fontSize: '0.85rem' }}>
+                      <span style={{ color: '#1e293b' }}>{s.site}</span>
+                      <span style={{ display: 'flex', gap: 6 }}>
+                        {s.fixe > 0 && <span style={{ background: '#ecfdf5', color: '#059669', padding: '1px 7px', borderRadius: 5, fontWeight: 600, fontSize: '0.72rem' }}>{s.fixe} fixe</span>}
+                        {s.internet > 0 && <span style={{ background: '#fff7ed', color: '#d97706', padding: '1px 7px', borderRadius: 5, fontWeight: 600, fontSize: '0.72rem' }}>{s.internet} net</span>}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Filtres + tableau */}
+            <div className="invoice-filters admin-card" style={{ marginBottom: 16 }}>
+              <div style={{ display: 'flex', gap: 16, alignItems: 'flex-end', flexWrap: 'wrap' }}>
+                <div className="filter-group">
+                  <label>Catégorie</label>
+                  <select value={lineCategory} onChange={e => setLineCategory(e.target.value as any)}>
+                    <option value="all">Toutes</option>
+                    <option value="fixe">Téléphonie fixe</option>
+                    <option value="internet">Accès internet</option>
+                  </select>
+                </div>
+                <div className="filter-group" style={{ flex: 1, minWidth: 240 }}>
+                  <label>Rechercher</label>
+                  <div className="search-input-wrapper-mini">
+                    <Search size={14} />
+                    <input type="text" placeholder="Site, MID, NDI, compte, adresse…" value={lineSearch} onChange={e => setLineSearch(e.target.value)} />
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="admin-card">
+              <table className="commitments-table">
+                <thead>
+                  <tr>
+                    <th>Catégorie</th>
+                    <th>Site</th>
+                    <th>Ville</th>
+                    <th>Offre / Type</th>
+                    <th>NDI / MID</th>
+                    <th>Compte fact.</th>
+                    <th>Statut</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {lines
+                    .filter(l => lineCategory === 'all' || l.category === lineCategory)
+                    .filter(l => {
+                      if (!lineSearch) return true;
+                      const q = lineSearch.toLowerCase();
+                      return [l.site_name, l.mid, l.ndi, l.billing_account, l.address].some(v => (v || '').toLowerCase().includes(q));
+                    })
+                    .map(l => (
+                      <tr key={l.id}>
+                        <td>
+                          <span className={`type-badge ${l.category === 'fixe' ? 'fixe' : 'internet'}`}>
+                            {l.category === 'fixe' ? 'Fixe' : 'Internet'}
+                          </span>
+                        </td>
+                        <td style={{ fontWeight: 600 }}>
+                          {l.site_name}
+                          {l.to_migrate && <span title="À migrer (fin du cuivre)" style={{ marginLeft: 6, color: '#7c3aed', fontSize: '0.7rem', fontWeight: 700 }}>⚠ MIGRATION</span>}
+                        </td>
+                        <td style={{ color: '#64748b' }}>{l.city}</td>
+                        <td>{l.offer}<div style={{ fontSize: '0.72rem', color: '#94a3b8' }}>{l.access_type}</div></td>
+                        <td style={{ fontFamily: 'monospace', fontSize: '0.8rem' }}>{l.ndi || <span style={{ color: '#cbd5e1' }}>—</span>}<div style={{ color: '#94a3b8', fontSize: '0.7rem' }}>{l.mid}</div></td>
+                        <td>{l.billing_account}</td>
+                        <td>
+                          <span className={`status-tag ${/en service/i.test(l.status) ? 'imported' : 'pending'}`}>{l.status}</span>
+                        </td>
+                      </tr>
+                    ))}
+                  {lines.length === 0 && (
+                    <tr><td colSpan={7} style={{ textAlign: 'center', padding: '40px', color: '#64748b' }}>
+                      Aucune ligne importée. Cliquez sur « Importer » pour charger un fichier Excel opérateur.
+                    </td></tr>
                   )}
                 </tbody>
               </table>

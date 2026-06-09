@@ -24,6 +24,12 @@ router.delete('/billing-accounts/:id', authenticateAdmin, telecomController.dele
 // Engagements télécom (lecture dynamique depuis le suivi budgétaire, nature 6262)
 router.get('/engagements', authenticateJWT, telecomController.getTelecomEngagements);
 
+// Lignes fixes & accès internet (import Excel opérateur, ré-importable)
+router.get('/lines', authenticateJWT, telecomController.getLines);
+router.get('/lines/stats', authenticateJWT, telecomController.getLinesStats);
+router.post('/lines/import', authenticateAdmin, upload.single('file'), telecomController.importLines);
+router.delete('/lines/:id', authenticateAdmin, telecomController.deleteLine);
+
 // Invoices
 router.get('/invoices', authenticateJWT, telecomController.getInvoices);
 router.post('/invoices/upload', authenticateJWT, upload.single('file'), telecomController.uploadInvoice);

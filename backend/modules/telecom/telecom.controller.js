@@ -1,10 +1,23 @@
 const fs = require('fs');
 const path = require('path');
 const pdf = require('pdf-parse');
+const XLSX = require('xlsx');
 const { pgDb, pool } = require('../../shared/database');
 const storage = require('../../shared/storage');
 
 const MODULE = 'telecom';
+
+// Convertit une date opérateur "JJ-MM-AAAA" (ou "JJ/MM/AAAA") en ISO 'AAAA-MM-JJ', sinon null
+function parseFrDate(v) {
+    if (!v) return null;
+    const s = String(v).trim();
+    const m = s.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})$/);
+    if (m) return `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`;
+    // déjà ISO ?
+    const iso = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (iso) return `${iso[1]}-${iso[2]}-${iso[3]}`;
+    return null;
+}
 
 module.exports = {
     // --- Operators ---
@@ -386,6 +399,165 @@ module.exports = {
             res.json({ message: 'Facture mise à jour avec succès' });
         } catch (error) {
             res.status(500).json({ message: 'Error updating invoice', error: error.message });
+        }
+    },
+
+    // ─── Lignes fixes & accès internet ──────────────────────────────────────
+    // Liste filtrable des lignes (téléphonie fixe + accès data/internet)
+    getLines: async (req, res) => {
+        try {
+            const { category, status, to_migrate, search } = req.query;
+            const where = [];
+            const params = [];
+            if (category && category !== 'all') { params.push(category); where.push(`category = $${params.length}`); }
+            if (status) { params.push(status); where.push(`status = $${params.length}`); }
+            if (to_migrate === 'true') where.push(`to_migrate = TRUE`);
+            if (search) {
+                params.push(`%${search.toLowerCase()}%`);
+                const i = params.length;
+                where.push(`(LOWER(site_name) LIKE $${i} OR LOWER(mid) LIKE $${i} OR LOWER(ndi) LIKE $${i} OR LOWER(billing_account) LIKE $${i} OR LOWER(address) LIKE $${i})`);
+            }
+            const sql = `SELECT * FROM hub_telecom.lines
+                ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
+                ORDER BY site_name, access_type`;
+            const r = await pool.query(sql, params);
+            res.json(r.rows);
+        } catch (error) {
+            res.status(500).json({ message: 'Erreur lecture lignes', error: error.message });
+        }
+    },
+
+    // Import d'un fichier Excel opérateur (upsert idempotent par MID).
+    // Le même fichier peut être ré-importé : les lignes existantes sont mises à jour.
+    importLines: async (req, res) => {
+        if (!req.file) return res.status(400).json({ message: 'Aucun fichier fourni' });
+        try {
+            const wb = XLSX.read(req.file.buffer, { type: 'buffer' });
+            const ws = wb.Sheets[wb.SheetNames[0]];
+            const rows = XLSX.utils.sheet_to_json(ws, { defval: '' });
+
+            const sourceFile = storage.fixUploadName(req.file.originalname || 'import.xlsx');
+            let inserted = 0, updated = 0, skipped = 0;
+
+            for (const row of rows) {
+                const mid = String(row['Identifiant (MID)'] || '').trim();
+                if (!mid) { skipped++; continue; }
+
+                const offer = String(row['Offre'] || '').trim();
+                // Téléphonie fixe = offre "Office" (lignes analogiques, T0, T2) ; sinon accès data/internet
+                const category = /office/i.test(offer) ? 'fixe' : 'internet';
+                const toMigrate = /^oui$/i.test(String(row['A migrer'] || '').trim());
+
+                const vals = [
+                    category,
+                    String(row['Numéro de site'] || '').trim(),
+                    String(row['Site'] || '').trim(),
+                    String(row['Adresse'] || '').trim(),
+                    String(row['Code Postal'] || '').trim(),
+                    String(row['Ville'] || '').trim(),
+                    String(row['Contrat'] || '').trim(),
+                    String(row['Compte de facturation'] || '').trim(),
+                    mid,
+                    offer,
+                    String(row["Type d'accès"] || '').trim(),
+                    toMigrate,
+                    String(row['Fin du cuivre lot'] || '').trim(),
+                    String(row['Fermeture commerciale'] || '').trim(),
+                    String(row['Fermeture technique'] || '').trim(),
+                    String(row['NDI'] || '').trim(),
+                    String(row['Statut'] || '').trim(),
+                    parseFrDate(row['Date de Mise en service']),
+                    parseFrDate(row['Date de Création']),
+                    String(row['Raison sociale'] || '').trim(),
+                    String(row['Siren'] || '').trim(),
+                    sourceFile,
+                ];
+
+                const result = await pool.query(`
+                    INSERT INTO hub_telecom.lines
+                      (category, site_number, site_name, address, postal_code, city, contract,
+                       billing_account, mid, offer, access_type, to_migrate, copper_end_lot,
+                       commercial_closure, technical_closure, ndi, status, service_date,
+                       creation_date, company_name, siren, source_file)
+                    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)
+                    ON CONFLICT (mid) DO UPDATE SET
+                      category=$1, site_number=$2, site_name=$3, address=$4, postal_code=$5, city=$6,
+                      contract=$7, billing_account=$8, offer=$10, access_type=$11, to_migrate=$12,
+                      copper_end_lot=$13, commercial_closure=$14, technical_closure=$15, ndi=$16,
+                      status=$17, service_date=$18, creation_date=$19, company_name=$20, siren=$21,
+                      source_file=$22, updated_at=NOW()
+                    RETURNING (xmax = 0) AS inserted
+                `, vals);
+
+                if (result.rows[0] && result.rows[0].inserted) inserted++; else updated++;
+            }
+
+            res.json({
+                message: `Import terminé : ${inserted} ajoutée(s), ${updated} mise(s) à jour, ${skipped} ignorée(s).`,
+                inserted, updated, skipped, total: rows.length,
+            });
+        } catch (error) {
+            console.error('[Telecom] importLines error:', error);
+            res.status(500).json({ message: 'Erreur import Excel', error: error.message });
+        }
+    },
+
+    deleteLine: async (req, res) => {
+        try {
+            await pgDb.run('DELETE FROM hub_telecom.lines WHERE id = ?', [req.params.id]);
+            res.json({ message: 'Ligne supprimée' });
+        } catch (error) {
+            res.status(500).json({ message: 'Erreur suppression ligne', error: error.message });
+        }
+    },
+
+    // Statistiques d'exploitation des lignes (analytics + widget dashboard)
+    getLinesStats: async (req, res) => {
+        try {
+            const { rows } = await pool.query('SELECT * FROM hub_telecom.lines');
+            const inService = (l) => /en service/i.test(l.status || '');
+
+            const stats = {
+                total: rows.length,
+                fixe: rows.filter(l => l.category === 'fixe').length,
+                internet: rows.filter(l => l.category === 'internet').length,
+                inService: rows.filter(inService).length,
+                resiliation: rows.filter(l => !inService(l)).length,
+                toMigrate: rows.filter(l => l.to_migrate).length,
+                byAccessType: {},
+                byOffer: {},
+                byStatus: {},
+                topSites: [],
+                byCity: {},
+                migrationList: [],
+                resiliationList: [],
+            };
+
+            const bump = (obj, k) => { const key = k || '(non renseigné)'; obj[key] = (obj[key] || 0) + 1; };
+            const sites = {};
+            for (const l of rows) {
+                bump(stats.byAccessType, l.access_type);
+                bump(stats.byOffer, l.offer);
+                bump(stats.byStatus, l.status);
+                bump(stats.byCity, l.city);
+                const s = l.site_name || '(inconnu)';
+                if (!sites[s]) sites[s] = { site: s, total: 0, fixe: 0, internet: 0 };
+                sites[s].total++;
+                sites[s][l.category === 'fixe' ? 'fixe' : 'internet']++;
+                if (l.to_migrate) stats.migrationList.push({
+                    site_name: l.site_name, city: l.city, access_type: l.access_type,
+                    offer: l.offer, copper_end_lot: l.copper_end_lot, ndi: l.ndi, mid: l.mid,
+                });
+                if (!inService(l)) stats.resiliationList.push({
+                    site_name: l.site_name, city: l.city, access_type: l.access_type,
+                    offer: l.offer, status: l.status, ndi: l.ndi, mid: l.mid,
+                });
+            }
+            stats.topSites = Object.values(sites).sort((a, b) => b.total - a.total).slice(0, 10);
+
+            res.json(stats);
+        } catch (error) {
+            res.status(500).json({ message: 'Erreur statistiques lignes', error: error.message });
         }
     },
 

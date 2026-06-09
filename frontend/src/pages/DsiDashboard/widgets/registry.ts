@@ -280,6 +280,15 @@ export const WIDGET_REGISTRY: WidgetDef[] = [
     defaultSize: { w: 4, h: 16 },
     minSize: { w: 3, h: 12 },
   },
+  // ── Télécom ──────────────────────────────────────────────────────────────
+  {
+    key: 'telecom_lines_kpi',
+    label: 'KPIs Lignes & Internet',
+    description: 'Lignes fixes, accès internet, à migrer (cuivre), résiliations',
+    module: 'Télécom',
+    defaultSize: { w: 6, h: 2 },
+    minSize: { w: 4, h: 2 },
+  },
   // ── Système ───────────────────────────────────────────────────────────────
   {
     key: 'backup_status',

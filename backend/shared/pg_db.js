@@ -5070,7 +5070,59 @@ async function setupPgDb() {
           uploaded_at        TIMESTAMPTZ DEFAULT NOW()
         )
       `);
+      // Lignes téléphoniques fixes & accès internet (import Excel opérateur)
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS hub_telecom.lines (
+          id                  SERIAL PRIMARY KEY,
+          category            TEXT,            -- 'fixe' (téléphonie) | 'internet' (data)
+          site_number         TEXT,
+          site_name           TEXT,
+          address             TEXT,
+          postal_code         TEXT,
+          city                TEXT,
+          contract            TEXT,
+          billing_account     TEXT,
+          mid                 TEXT UNIQUE,     -- Identifiant (MID), clé d'upsert
+          offer               TEXT,
+          access_type         TEXT,
+          to_migrate          BOOLEAN DEFAULT FALSE,
+          copper_end_lot      TEXT,            -- Fin du cuivre lot
+          commercial_closure  TEXT,            -- Fermeture commerciale
+          technical_closure   TEXT,            -- Fermeture technique
+          ndi                 TEXT,
+          status              TEXT,
+          service_date        DATE,
+          creation_date       DATE,
+          company_name        TEXT,
+          siren               TEXT,
+          source_file         TEXT,
+          imported_at         TIMESTAMPTZ DEFAULT NOW(),
+          updated_at          TIMESTAMPTZ DEFAULT NOW()
+        )
+      `);
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_telecom_lines_category ON hub_telecom.lines(category)`);
     } catch (e) { console.error('[PG DB] hub_telecom:', e.message); }
+
+    // ─── Contract Renewals (RH module) ─────────────────────────────────
+    try {
+      await client.query(`CREATE TABLE IF NOT EXISTS hub.contract_renewals (
+        id SERIAL PRIMARY KEY,
+        direction VARCHAR(100) DEFAULT '',
+        nom_prenom VARCHAR(255) NOT NULL,
+        date_arrivee DATE,
+        date_reconduction DATE,
+        est_cdi BOOLEAN DEFAULT FALSE,
+        date_relance DATE,
+        fait BOOLEAN DEFAULT FALSE,
+        statut VARCHAR(50) DEFAULT 'actif',
+        notes TEXT DEFAULT '',
+        alertes_envoyees INTEGER DEFAULT 0,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )`);
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_contract_renewals_relance ON hub.contract_renewals(date_relance)`);
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_contract_renewals_statut ON hub.contract_renewals(statut)`);
+    } catch (e) { console.error('[PG DB] hub.contract_renewals:', e.message); }
 
     console.log('[PG DB] Schema and tables initialized successfully');
   } catch (error) {
