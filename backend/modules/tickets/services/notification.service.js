@@ -58,11 +58,18 @@ module.exports = {
         const recipients = [];
 
         switch (recipientType) {
-            case 'requester':
-                if (ticket.requester_email_22) {
-                    recipients.push({ email: ticket.requester_email_22, name: ticket.requester_name });
+            case 'requester': {
+                // Email demandeur fiable : le champ GLPI 22 (requester_email_22) contient
+                // parfois l'email du technicien ; email_alt (champ 34) porte alors le vrai
+                // demandeur. On applique la même résolution que partout ailleurs (cf. ticket.repository).
+                const requesterEmail = (ticket.email_alt && ticket.email_alt.trim())
+                    ? ticket.email_alt.trim()
+                    : ticket.requester_email_22;
+                if (requesterEmail) {
+                    recipients.push({ email: requesterEmail, name: ticket.requester_name });
                 }
                 break;
+            }
             case 'technician':
                 if (ticket.technician_id) {
                     const tech = await pgDb.get('SELECT email, displayName FROM hub.users WHERE id = $1', [ticket.technician_id]);

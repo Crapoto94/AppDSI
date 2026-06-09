@@ -415,6 +415,13 @@ export default function TicketDetail() {
       updateData.software_id = editForm.software_id ? parseInt(editForm.software_id.toString()) : null;
       updateData.location = editForm.location || '';
       if (editForm.requester_name !== undefined) updateData.requester_name = editForm.requester_name;
+      // Si un demandeur a été sélectionné dans la recherche, on met aussi à jour son email.
+      // email_alt est le champ prioritaire (COALESCE(NULLIF(email_alt,''), requester_email_22)),
+      // on aligne les deux pour que l'email affiché ET les notifications utilisent la bonne adresse.
+      if (editForm.requester_email) {
+        updateData.email_alt = editForm.requester_email;
+        updateData.requester_email_22 = editForm.requester_email;
+      }
 
       await axios.patch(`/api/tickets/${id}`, updateData, { headers: { Authorization: `Bearer ${token}` } });
       setEditingInfo(false);
@@ -1782,7 +1789,7 @@ export default function TicketDetail() {
                       {requesterResults.map(u => (
                         <div key={u.username || u.email} onClick={() => {
                           setRequesterSearch(u.name);
-                          setEditForm((f: any) => ({ ...f, requester_name: u.username || u.name }));
+                          setEditForm((f: any) => ({ ...f, requester_name: u.username || u.name, requester_email: u.email || '' }));
                           setRequesterResults([]);
                         }}
                           style={{ padding: '5px 8px', cursor: 'pointer', fontSize: 12, borderBottom: '1px solid #f9f9fb' }}
