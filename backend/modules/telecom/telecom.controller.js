@@ -2,6 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const pdf = require('pdf-parse');
 const XLSX = require('xlsx');
+const { parseSfrZip } = require('./telecom.sfr-parser');
 const { pgDb, pool } = require('../../shared/database');
 const storage = require('../../shared/storage');
 
@@ -575,6 +576,174 @@ module.exports = {
             res.json(stats);
         } catch (error) {
             res.status(500).json({ message: 'Erreur statistiques lignes', error: error.message });
+        }
+    },
+
+    // ─── Facturation par ligne (import ZIP SFR) ─────────────────────────────
+    // Importe l'export de facturation SFR (ZIP de ZIPs). Upsert idempotent par
+    // (period, line_number, cf_id) + remplacement de la tendance 13 mois.
+    importBilling: async (req, res) => {
+        if (!req.file) return res.status(400).json({ message: 'Aucun fichier fourni' });
+        const client = await pool.connect();
+        try {
+            const parsed = parseSfrZip(req.file.buffer);
+            if (!parsed.period) return res.status(400).json({ message: "Impossible de déterminer la période de facturation depuis l'export." });
+            const sourceFile = storage.fixUploadName(req.file.originalname || 'export_sfr.zip');
+
+            await client.query('BEGIN');
+
+            // Remplace la facturation de cette période (idempotent)
+            await client.query('DELETE FROM hub_telecom.line_billing WHERE period = $1', [parsed.period]);
+            for (const b of parsed.billing) {
+                await client.query(`
+                    INSERT INTO hub_telecom.line_billing
+                      (period, invoice_number, invoice_date, org_id, company, contract_id, cf_id, cf_label,
+                       site_id, site_name, list_id, list_label, line_number, mobile_name, user_name, plan,
+                       is_mobile, resiliation, amt_subscriptions, amt_other, amt_discounts, amt_third_party,
+                       amt_voix_fixe, amt_voix_mobile, amt_data_fixe, amt_data_mobile, amt_conso_autre,
+                       amt_contenu, amt_total, source_file)
+                    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30)
+                    ON CONFLICT (period, line_number, cf_id) DO UPDATE SET
+                      invoice_number=$2, invoice_date=$3, org_id=$4, company=$5, contract_id=$6, cf_label=$8,
+                      site_id=$9, site_name=$10, list_id=$11, list_label=$12, mobile_name=$14, user_name=$15,
+                      plan=$16, is_mobile=$17, resiliation=$18, amt_subscriptions=$19, amt_other=$20,
+                      amt_discounts=$21, amt_third_party=$22, amt_voix_fixe=$23, amt_voix_mobile=$24,
+                      amt_data_fixe=$25, amt_data_mobile=$26, amt_conso_autre=$27, amt_contenu=$28,
+                      amt_total=$29, source_file=$30, imported_at=NOW()
+                `, [
+                    parsed.period, b.invoice_number, b.invoice_date, b.org_id, b.company, b.contract_id,
+                    b.cf_id, b.cf_label, b.site_id, b.site_name, b.list_id, b.list_label, b.line_number,
+                    b.mobile_name, b.user_name, b.plan, b.is_mobile, b.resiliation, b.amt_subscriptions,
+                    b.amt_other, b.amt_discounts, b.amt_third_party, b.amt_voix_fixe, b.amt_voix_mobile,
+                    b.amt_data_fixe, b.amt_data_mobile, b.amt_conso_autre, b.amt_contenu, b.amt_total, sourceFile,
+                ]);
+            }
+
+            // Tendance 13 mois : upsert par (category, sub_category, offer, month)
+            for (const t of parsed.trend) {
+                await client.query(`
+                    INSERT INTO hub_telecom.billing_trend (category, sub_category, offer, month, amount)
+                    VALUES ($1,$2,$3,$4,$5)
+                    ON CONFLICT (category, sub_category, offer, month) DO UPDATE SET amount=$5, imported_at=NOW()
+                `, [t.category, t.sub_category, t.offer, t.month, t.amount]);
+            }
+
+            await client.query('COMMIT');
+            res.json({
+                message: `Facturation importée pour ${parsed.period} : ${parsed.billing.length} ligne(s), ${parsed.trend.length} point(s) de tendance.`,
+                period: parsed.period,
+                ...parsed.counts,
+                billing: parsed.billing.length,
+                trend: parsed.trend.length,
+            });
+        } catch (error) {
+            await client.query('ROLLBACK').catch(() => {});
+            console.error('[Telecom] importBilling error:', error);
+            res.status(500).json({ message: 'Erreur import facturation', error: error.message });
+        } finally {
+            client.release();
+        }
+    },
+
+    // Périodes de facturation disponibles
+    getBillingPeriods: async (req, res) => {
+        try {
+            const r = await pool.query(`SELECT DISTINCT period FROM hub_telecom.line_billing ORDER BY period DESC`);
+            res.json(r.rows.map(x => x.period));
+        } catch (error) {
+            res.status(500).json({ message: 'Erreur périodes', error: error.message });
+        }
+    },
+
+    // Détail facturation par ligne (filtrable) pour une période
+    getBillingLines: async (req, res) => {
+        try {
+            const { period, type, search } = req.query;
+            const where = [];
+            const params = [];
+            if (period) { params.push(period); where.push(`period = $${params.length}`); }
+            else where.push(`period = (SELECT MAX(period) FROM hub_telecom.line_billing)`);
+            if (type === 'mobile') where.push(`is_mobile = TRUE`);
+            if (type === 'fixe') where.push(`is_mobile = FALSE`);
+            if (search) {
+                params.push(`%${search.toLowerCase()}%`);
+                const i = params.length;
+                where.push(`(LOWER(line_number) LIKE $${i} OR LOWER(user_name) LIKE $${i} OR LOWER(site_name) LIKE $${i} OR LOWER(plan) LIKE $${i} OR LOWER(list_label) LIKE $${i})`);
+            }
+            const r = await pool.query(`
+                SELECT * FROM hub_telecom.line_billing
+                WHERE ${where.join(' AND ')}
+                ORDER BY amt_total DESC`, params);
+            res.json(r.rows);
+        } catch (error) {
+            res.status(500).json({ message: 'Erreur détail facturation', error: error.message });
+        }
+    },
+
+    // Statistiques de coûts (analytics + widget dashboard)
+    getBillingStats: async (req, res) => {
+        try {
+            const { period } = req.query;
+            const periodClause = period ? `period = $1` : `period = (SELECT MAX(period) FROM hub_telecom.line_billing)`;
+            const params = period ? [period] : [];
+            const { rows } = await pool.query(`SELECT * FROM hub_telecom.line_billing WHERE ${periodClause}`, params);
+
+            const n = (v) => parseFloat(v) || 0;
+            const stats = {
+                period: rows[0] ? rows[0].period : null,
+                totalLines: rows.length,
+                mobileLines: rows.filter(r => r.is_mobile).length,
+                fixeLines: rows.filter(r => !r.is_mobile).length,
+                totalHT: 0, totalMobile: 0, totalFixe: 0,
+                totalSubscriptions: 0, totalConso: 0, totalDiscounts: 0,
+                dormant: 0,           // lignes mobiles facturées sans conso
+                topLines: [],         // lignes les plus coûteuses
+                byPlan: {},           // répartition forfaits mobiles
+                bySite: {},           // coût par site
+                byList: {},           // coût par direction/service
+                annualEstimate: 0,
+            };
+
+            for (const r of rows) {
+                const tot = n(r.amt_total);
+                stats.totalHT += tot;
+                if (r.is_mobile) stats.totalMobile += tot; else stats.totalFixe += tot;
+                stats.totalSubscriptions += n(r.amt_subscriptions);
+                stats.totalDiscounts += n(r.amt_discounts);
+                stats.totalConso += n(r.amt_voix_fixe) + n(r.amt_voix_mobile) + n(r.amt_data_fixe) + n(r.amt_data_mobile) + n(r.amt_conso_autre);
+                const conso = n(r.amt_voix_fixe) + n(r.amt_voix_mobile) + n(r.amt_data_fixe) + n(r.amt_data_mobile);
+                if (r.is_mobile && conso === 0 && tot > 0) stats.dormant++;
+                if (r.is_mobile && r.plan) stats.byPlan[r.plan] = (stats.byPlan[r.plan] || 0) + 1;
+                const site = r.site_name || '(inconnu)';
+                stats.bySite[site] = (stats.bySite[site] || 0) + tot;
+                const list = r.list_label || '(non affecté)';
+                stats.byList[list] = (stats.byList[list] || 0) + tot;
+            }
+
+            stats.topLines = rows
+                .map(r => ({ line_number: r.line_number, user_name: r.user_name, site_name: r.site_name, plan: r.plan, is_mobile: r.is_mobile, amt_total: n(r.amt_total) }))
+                .sort((a, b) => b.amt_total - a.amt_total).slice(0, 15);
+            stats.bySite = Object.entries(stats.bySite).map(([k, v]) => ({ site: k, amount: Math.round(v * 100) / 100 })).sort((a, b) => b.amount - a.amount).slice(0, 10);
+            stats.byList = Object.entries(stats.byList).map(([k, v]) => ({ list: k, amount: Math.round(v * 100) / 100 })).sort((a, b) => b.amount - a.amount).slice(0, 12);
+            stats.annualEstimate = Math.round(stats.totalHT * 12 * 100) / 100;
+            ['totalHT', 'totalMobile', 'totalFixe', 'totalSubscriptions', 'totalConso', 'totalDiscounts'].forEach(k => stats[k] = Math.round(stats[k] * 100) / 100);
+
+            res.json(stats);
+        } catch (error) {
+            res.status(500).json({ message: 'Erreur statistiques facturation', error: error.message });
+        }
+    },
+
+    // Tendance 13 mois (totaux par mois, et par catégorie)
+    getBillingTrend: async (req, res) => {
+        try {
+            const r = await pool.query(`
+                SELECT month, SUM(amount) AS total
+                FROM hub_telecom.billing_trend
+                GROUP BY month ORDER BY month`);
+            res.json(r.rows.map(x => ({ month: x.month, total: Math.round(parseFloat(x.total) * 100) / 100 })));
+        } catch (error) {
+            res.status(500).json({ message: 'Erreur tendance', error: error.message });
         }
     },
 

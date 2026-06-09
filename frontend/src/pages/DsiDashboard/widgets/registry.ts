@@ -289,6 +289,14 @@ export const WIDGET_REGISTRY: WidgetDef[] = [
     defaultSize: { w: 6, h: 2 },
     minSize: { w: 4, h: 2 },
   },
+  {
+    key: 'telecom_cost_kpi',
+    label: 'KPIs Coûts & Mobile',
+    description: 'Coût mensuel/annuel télécom, parc mobile, lignes dormantes',
+    module: 'Télécom',
+    defaultSize: { w: 6, h: 2 },
+    minSize: { w: 4, h: 2 },
+  },
   // ── Système ───────────────────────────────────────────────────────────────
   {
     key: 'backup_status',

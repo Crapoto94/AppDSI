@@ -32,6 +32,7 @@ const CalendrierDsiWidget   = lazy(() => import('./CalendrierDsiWidget'));
 const BackupStatusWidget    = lazy(() => import('./BackupStatusWidget'));
 const ReseauSitesWidget     = lazy(() => import('./ReseauSitesWidget'));
 const TelecomLinesWidget    = lazy(() => import('./TelecomLinesWidget'));
+const TelecomCostWidget     = lazy(() => import('./TelecomCostWidget'));
 
 const ConsommablesWidget = lazy(() => import('./CounterWidget').then(m => ({ default: m.ConsommablesWidget })));
 const CertificatsWidget  = lazy(() => import('./CounterWidget').then(m => ({ default: m.CertificatsWidget })));
@@ -74,6 +75,7 @@ const WIDGET_MAP: Record<string, React.ComponentType> = {
   backup_status:      BackupStatusWidget,
   reseau_sites:       ReseauSitesWidget,
   telecom_lines_kpi:  TelecomLinesWidget,
+  telecom_cost_kpi:   TelecomCostWidget,
 };
 
 const Fallback = () => (

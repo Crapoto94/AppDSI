@@ -5101,6 +5101,60 @@ async function setupPgDb() {
         )
       `);
       await client.query(`CREATE INDEX IF NOT EXISTS idx_telecom_lines_category ON hub_telecom.lines(category)`);
+      // Facturation par ligne (import mensuel export opérateur SFR) — 1 ligne = 1 numéro/mois
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS hub_telecom.line_billing (
+          id                SERIAL PRIMARY KEY,
+          period            DATE,            -- 1er jour du mois de consommation
+          invoice_number    TEXT,
+          invoice_date      DATE,
+          org_id            TEXT,
+          company           TEXT,
+          contract_id       TEXT,
+          cf_id             TEXT,            -- compte de facturation
+          cf_label          TEXT,
+          site_id           TEXT,
+          site_name         TEXT,
+          list_id           TEXT,
+          list_label        TEXT,            -- direction/service (DSI, ELUS, CCAS…)
+          line_number       TEXT,            -- N° ligne / numéro de téléphone
+          mobile_name       TEXT,
+          user_name         TEXT,            -- Nom de l'utilisateur (mobile)
+          plan              TEXT,            -- Abonnement en cours
+          is_mobile         BOOLEAN DEFAULT FALSE,
+          resiliation       TEXT,
+          amt_subscriptions NUMERIC,
+          amt_other         NUMERIC,
+          amt_discounts     NUMERIC,
+          amt_third_party   NUMERIC,
+          amt_voix_fixe     NUMERIC,
+          amt_voix_mobile   NUMERIC,
+          amt_data_fixe     NUMERIC,
+          amt_data_mobile   NUMERIC,
+          amt_conso_autre   NUMERIC,
+          amt_contenu       NUMERIC,
+          amt_total         NUMERIC,
+          source_file       TEXT,
+          imported_at       TIMESTAMPTZ DEFAULT NOW(),
+          UNIQUE(period, line_number, cf_id)
+        )
+      `);
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_telecom_billing_period ON hub_telecom.line_billing(period)`);
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_telecom_billing_line ON hub_telecom.line_billing(line_number)`);
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_telecom_billing_cf ON hub_telecom.line_billing(cf_id)`);
+      // Tendance facturation 13 mois (par offre)
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS hub_telecom.billing_trend (
+          id            SERIAL PRIMARY KEY,
+          category      TEXT,
+          sub_category  TEXT,
+          offer         TEXT,
+          month         TEXT,            -- 'AAAA-MM'
+          amount        NUMERIC,
+          imported_at   TIMESTAMPTZ DEFAULT NOW(),
+          UNIQUE(category, sub_category, offer, month)
+        )
+      `);
     } catch (e) { console.error('[PG DB] hub_telecom:', e.message); }
 
     // ─── Contract Renewals (RH module) ─────────────────────────────────

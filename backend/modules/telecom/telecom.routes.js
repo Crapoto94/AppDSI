@@ -30,6 +30,13 @@ router.get('/lines/stats', authenticateJWT, telecomController.getLinesStats);
 router.post('/lines/import', authenticateAdmin, upload.single('file'), telecomController.importLines);
 router.delete('/lines/:id', authenticateAdmin, telecomController.deleteLine);
 
+// Facturation par ligne (import ZIP export opérateur SFR)
+router.post('/billing/import', authenticateAdmin, upload.single('file'), telecomController.importBilling);
+router.get('/billing/periods', authenticateJWT, telecomController.getBillingPeriods);
+router.get('/billing/stats', authenticateJWT, telecomController.getBillingStats);
+router.get('/billing/trend', authenticateJWT, telecomController.getBillingTrend);
+router.get('/billing/lines', authenticateJWT, telecomController.getBillingLines);
+
 // Invoices
 router.get('/invoices', authenticateJWT, telecomController.getInvoices);
 router.post('/invoices/upload', authenticateJWT, upload.single('file'), telecomController.uploadInvoice);

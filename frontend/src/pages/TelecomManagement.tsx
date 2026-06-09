@@ -22,6 +22,7 @@ import {
   Network,
   Check
 } from 'lucide-react';import { useNavigate } from 'react-router-dom';
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
 import Header from '../components/Header';
 
 interface Tier {
@@ -122,9 +123,41 @@ interface LinesStats {
   trunkList: { site_name: string; city: string; access_type: string; ndi: string; mid: string; billing_account: string; capacity: string }[];
 }
 
+interface BillingStats {
+  period: string | null;
+  totalLines: number;
+  mobileLines: number;
+  fixeLines: number;
+  totalHT: number;
+  totalMobile: number;
+  totalFixe: number;
+  totalSubscriptions: number;
+  totalConso: number;
+  totalDiscounts: number;
+  dormant: number;
+  annualEstimate: number;
+  topLines: { line_number: string; user_name: string; site_name: string; plan: string; is_mobile: boolean; amt_total: number }[];
+  byPlan: Record<string, number>;
+  bySite: { site: string; amount: number }[];
+  byList: { list: string; amount: number }[];
+}
+
+interface BillingLine {
+  id: number;
+  line_number: string;
+  user_name: string;
+  site_name: string;
+  list_label: string;
+  plan: string;
+  is_mobile: boolean;
+  amt_subscriptions: number;
+  amt_total: number;
+  resiliation: string;
+}
+
 const TelecomManagement: React.FC = () => {
   const navigate = useNavigate();
-  const [activeTab, setActiveTab] = useState<'invoices' | 'lines' | 'pdfs' | 'network'>('invoices');
+  const [activeTab, setActiveTab] = useState<'invoices' | 'lines' | 'pdfs' | 'network' | 'billing'>('invoices');
 
   // Lignes fixes & internet
   const [lines, setLines] = useState<TelecomLine[]>([]);
@@ -132,6 +165,14 @@ const TelecomManagement: React.FC = () => {
   const [lineCategory, setLineCategory] = useState<'all' | 'fixe' | 'internet'>('all');
   const [lineSearch, setLineSearch] = useState('');
   const [importingLines, setImportingLines] = useState(false);
+
+  // Coûts & mobile (facturation SFR)
+  const [billingStats, setBillingStats] = useState<BillingStats | null>(null);
+  const [billingTrend, setBillingTrend] = useState<{ month: string; total: number }[]>([]);
+  const [billingLines, setBillingLines] = useState<BillingLine[]>([]);
+  const [billingType, setBillingType] = useState<'all' | 'mobile' | 'fixe'>('all');
+  const [billingSearch, setBillingSearch] = useState('');
+  const [importingBilling, setImportingBilling] = useState(false);
   const [operators, setOperators] = useState<Operator[]>([]);
   const [billingAccounts, setBillingAccounts] = useState<Record<number, BillingAccount[]>>({});
   const [commitments, setCommitments] = useState<Commitment[]>([]);
@@ -235,6 +276,52 @@ const TelecomManagement: React.FC = () => {
       alert("Erreur lors de l'import");
     } finally {
       setImportingLines(false);
+      e.target.value = '';
+    }
+  };
+
+  const fetchBilling = async () => {
+    try {
+      const [statsRes, trendRes, linesRes] = await Promise.all([
+        fetch('/api/telecom/billing/stats', { headers: { 'Authorization': `Bearer ${token}` } }),
+        fetch('/api/telecom/billing/trend', { headers: { 'Authorization': `Bearer ${token}` } }),
+        fetch('/api/telecom/billing/lines', { headers: { 'Authorization': `Bearer ${token}` } }),
+      ]);
+      if (statsRes.ok) setBillingStats(await statsRes.json());
+      if (trendRes.ok) setBillingTrend(await trendRes.json());
+      if (linesRes.ok) setBillingLines(await linesRes.json());
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab === 'billing') fetchBilling();
+  }, [activeTab, token]);
+
+  const handleImportBilling = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setImportingBilling(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      const res = await fetch('/api/telecom/billing/import', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` },
+        body: formData,
+      });
+      const data = await res.json();
+      if (res.ok) {
+        alert(`Import réussi\n\nPériode ${data.period}\n${data.billing} ligne(s) de facturation\n${data.trend} point(s) de tendance`);
+        await fetchBilling();
+      } else {
+        alert('Erreur : ' + (data.message || 'inconnue'));
+      }
+    } catch (err) {
+      alert("Erreur lors de l'import");
+    } finally {
+      setImportingBilling(false);
       e.target.value = '';
     }
   };
@@ -475,6 +562,9 @@ const TelecomManagement: React.FC = () => {
             </button>
             <button className={activeTab === 'network' ? 'active' : ''} onClick={() => setActiveTab('network')}>
               <Network size={18} /> Lignes & Internet
+            </button>
+            <button className={activeTab === 'billing' ? 'active' : ''} onClick={() => setActiveTab('billing')}>
+              <Phone size={18} /> Coûts & Mobile
             </button>
           </div>
         </div>
@@ -1100,6 +1190,162 @@ const TelecomManagement: React.FC = () => {
                 </tbody>
               </table>
             </div>
+          </div>
+        )}
+
+        {activeTab === 'billing' && (
+          <div className="tab-content">
+            <div className="section-header">
+              <div>
+                <h2>Coûts de facturation & parc mobile</h2>
+                <span style={{ fontSize: '0.85rem', color: '#64748b' }}>
+                  Import de l'export de facturation opérateur (ZIP SFR){billingStats?.period ? ` — période ${new Date(billingStats.period).toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' })}` : ''}
+                </span>
+              </div>
+              <div className="action-group">
+                <input type="file" id="import-telecom-billing" style={{ display: 'none' }} accept=".zip" onChange={handleImportBilling} />
+                <button className="add-btn" disabled={importingBilling}
+                  onClick={() => document.getElementById('import-telecom-billing')?.click()}>
+                  <Upload size={18} /> {importingBilling ? 'Import en cours…' : 'Importer facturation (ZIP)'}
+                </button>
+              </div>
+            </div>
+
+            {!billingStats || billingStats.totalLines === 0 ? (
+              <div className="empty-state">
+                <Phone size={48} />
+                <p>Aucune facturation importée. Déposez l'export ZIP de votre opérateur (SFR).</p>
+              </div>
+            ) : (
+              <>
+                {/* KPI coûts */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 12, marginBottom: 24 }}>
+                  {[
+                    { label: 'Total / mois', value: `${billingStats.totalHT.toLocaleString('fr-FR')} €`, color: '#0078a4' },
+                    { label: 'Estimation annuelle', value: `${billingStats.annualEstimate.toLocaleString('fr-FR')} €`, color: '#1e293b' },
+                    { label: 'Coût mobile', value: `${billingStats.totalMobile.toLocaleString('fr-FR')} €`, color: '#3b82f6' },
+                    { label: 'Coût fixe / data', value: `${billingStats.totalFixe.toLocaleString('fr-FR')} €`, color: '#059669' },
+                    { label: 'Lignes mobiles', value: billingStats.mobileLines, color: '#7c3aed' },
+                    { label: 'Lignes dormantes', value: billingStats.dormant, color: '#ef4444' },
+                  ].map(k => (
+                    <div key={k.label} className="admin-card" style={{ padding: '14px 16px', borderTop: `3px solid ${k.color}` }}>
+                      <div style={{ fontSize: '1.4rem', fontWeight: 800, color: k.color }}>{k.value}</div>
+                      <div style={{ fontSize: '0.76rem', color: '#64748b', marginTop: 4 }}>{k.label}</div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Tendance 13 mois */}
+                {billingTrend.length > 0 && (
+                  <div className="admin-card" style={{ padding: 18, marginBottom: 24 }}>
+                    <h3 style={{ margin: '0 0 14px', fontSize: '1rem', color: '#1e293b' }}>Évolution des dépenses (mensuel)</h3>
+                    <ResponsiveContainer width="100%" height={220}>
+                      <BarChart data={billingTrend}>
+                        <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                        <XAxis dataKey="month" fontSize={12} />
+                        <YAxis fontSize={12} />
+                        <Tooltip formatter={(v) => `${Number(v).toLocaleString('fr-FR')} € HT`} />
+                        <Bar dataKey="total" fill="#0078a4" radius={[4, 4, 0, 0]} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                )}
+
+                {/* Top lignes + forfaits + directions */}
+                <div style={{ display: 'grid', gridTemplateColumns: '1.3fr 1fr', gap: 16, marginBottom: 24 }}>
+                  <div className="admin-card" style={{ padding: 18 }}>
+                    <h3 style={{ margin: '0 0 12px', fontSize: '1rem', color: '#1e293b' }}>Top 15 lignes les plus coûteuses</h3>
+                    <table className="commitments-table">
+                      <thead><tr><th>Numéro</th><th>Utilisateur / Site</th><th>Forfait</th><th style={{ textAlign: 'right' }}>€/mois</th></tr></thead>
+                      <tbody>
+                        {billingStats.topLines.map((l, i) => (
+                          <tr key={i}>
+                            <td style={{ fontFamily: 'monospace', fontWeight: 700 }}>{l.line_number}</td>
+                            <td>{l.user_name || l.site_name}</td>
+                            <td style={{ fontSize: '0.8rem', color: '#64748b' }}>{l.plan || (l.is_mobile ? 'Mobile' : 'Fixe')}</td>
+                            <td style={{ textAlign: 'right', fontWeight: 700 }}>{l.amt_total.toLocaleString('fr-FR')} €</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                    <div className="admin-card" style={{ padding: 18 }}>
+                      <h3 style={{ margin: '0 0 12px', fontSize: '1rem', color: '#1e293b' }}>Parc mobile par forfait</h3>
+                      {Object.entries(billingStats.byPlan).sort((a, b) => b[1] - a[1]).slice(0, 8).map(([plan, count]) => (
+                        <div key={plan} style={{ display: 'flex', justifyContent: 'space-between', padding: '5px 0', borderTop: '1px solid #f8fafc', fontSize: '0.83rem' }}>
+                          <span style={{ color: '#475569' }}>{plan}</span>
+                          <span style={{ fontWeight: 700, color: '#1e293b' }}>{count}</span>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="admin-card" style={{ padding: 18 }}>
+                      <h3 style={{ margin: '0 0 12px', fontSize: '1rem', color: '#1e293b' }}>Coût par direction / service</h3>
+                      {billingStats.byList.slice(0, 8).map((d, i) => (
+                        <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '5px 0', borderTop: '1px solid #f8fafc', fontSize: '0.83rem' }}>
+                          <span style={{ color: '#475569' }}>{d.list}</span>
+                          <span style={{ fontWeight: 700, color: '#0078a4' }}>{d.amount.toLocaleString('fr-FR')} €</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Détail filtrable */}
+                <div className="invoice-filters admin-card" style={{ marginBottom: 16 }}>
+                  <div style={{ display: 'flex', gap: 16, alignItems: 'flex-end', flexWrap: 'wrap' }}>
+                    <div className="filter-group">
+                      <label>Type</label>
+                      <select value={billingType} onChange={e => setBillingType(e.target.value as any)}>
+                        <option value="all">Toutes</option>
+                        <option value="mobile">Mobile</option>
+                        <option value="fixe">Fixe / data</option>
+                      </select>
+                    </div>
+                    <div className="filter-group" style={{ flex: 1, minWidth: 240 }}>
+                      <label>Rechercher</label>
+                      <div className="search-input-wrapper-mini">
+                        <Search size={14} />
+                        <input type="text" placeholder="Numéro, utilisateur, site, forfait, service…" value={billingSearch} onChange={e => setBillingSearch(e.target.value)} />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="admin-card">
+                  <table className="commitments-table">
+                    <thead>
+                      <tr><th>Type</th><th>Numéro</th><th>Utilisateur</th><th>Site / Service</th><th>Forfait</th><th style={{ textAlign: 'right' }}>€/mois HT</th></tr>
+                    </thead>
+                    <tbody>
+                      {billingLines
+                        .filter(l => billingType === 'all' || (billingType === 'mobile' ? l.is_mobile : !l.is_mobile))
+                        .filter(l => {
+                          if (!billingSearch) return true;
+                          const q = billingSearch.toLowerCase();
+                          return [l.line_number, l.user_name, l.site_name, l.plan, l.list_label].some(v => (v || '').toLowerCase().includes(q));
+                        })
+                        .slice(0, 300)
+                        .map(l => (
+                          <tr key={l.id}>
+                            <td><span className={`type-badge ${l.is_mobile ? 'mobile' : 'fixe'}`}>{l.is_mobile ? 'Mobile' : 'Fixe'}</span></td>
+                            <td style={{ fontFamily: 'monospace', fontWeight: 600 }}>{l.line_number}</td>
+                            <td>{l.user_name || <span style={{ color: '#cbd5e1' }}>—</span>}</td>
+                            <td style={{ color: '#64748b' }}>{l.site_name}{l.list_label ? <span style={{ fontSize: '0.72rem', color: '#94a3b8' }}> · {l.list_label}</span> : ''}</td>
+                            <td style={{ fontSize: '0.82rem' }}>{l.plan}</td>
+                            <td style={{ textAlign: 'right', fontWeight: 700 }}>{(l.amt_total || 0).toLocaleString('fr-FR')} €</td>
+                          </tr>
+                        ))}
+                    </tbody>
+                  </table>
+                  {billingLines.length > 300 && (
+                    <div style={{ padding: 12, textAlign: 'center', color: '#94a3b8', fontSize: '0.8rem' }}>
+                      Affichage limité aux 300 premières lignes — affinez la recherche.
+                    </div>
+                  )}
+                </div>
+              </>
+            )}
           </div>
         )}
       </main>
