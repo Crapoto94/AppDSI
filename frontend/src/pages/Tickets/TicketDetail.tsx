@@ -182,6 +182,9 @@ export default function TicketDetail() {
   const [observerSearch, setObserverSearch] = useState('');
   const [observerResults, setObserverResults] = useState<any[]>([]);
   const [observerSearching, setObserverSearching] = useState(false);
+  const [requesterSearch, setRequesterSearch] = useState('');
+  const [requesterResults, setRequesterResults] = useState<any[]>([]);
+  const [requesterSearching, setRequesterSearching] = useState(false);
   const [escaladeTargets, setEscaladeTargets] = useState<any[]>([]);
   const [assignees, setAssignees] = useState<any[]>([]);
   const [assignTab, setAssignTab] = useState<'tech' | 'escalade'>('tech');
@@ -357,9 +360,11 @@ export default function TicketDetail() {
         category_id: t.category_id?.toString() || '',
         subcategory_id: t.subcategory_id?.toString() || '',
         software_id: t.software_id?.toString() || '',
-        location: t.location || ''
+        location: t.location || '',
+        requester_name: t.requester?.name || t.requester_name || ''
       });
       setLocationSearch(t.location || '');
+      setRequesterSearch(t.requester?.name || t.requester_name || '');
       setComments(commentsRes.data);
       setHistory(historyRes.data);
       setTicketTasks(tasksRes.data || []);
@@ -409,6 +414,7 @@ export default function TicketDetail() {
       updateData.subcategory_id = editForm.subcategory_id ? parseInt(editForm.subcategory_id.toString()) : null;
       updateData.software_id = editForm.software_id ? parseInt(editForm.software_id.toString()) : null;
       updateData.location = editForm.location || '';
+      if (editForm.requester_name !== undefined) updateData.requester_name = editForm.requester_name;
 
       await axios.patch(`/api/tickets/${id}`, updateData, { headers: { Authorization: `Bearer ${token}` } });
       setEditingInfo(false);
@@ -738,6 +744,30 @@ export default function TicketDetail() {
     }, 300);
     return () => clearTimeout(timer);
   }, [observerSearch]);
+
+  useEffect(() => {
+    if (!editingInfo || !requesterSearch || requesterSearch.length < 2) { setRequesterResults([]); return; }
+    const timer = setTimeout(async () => {
+      setRequesterSearching(true);
+      try {
+        const token = localStorage.getItem('token');
+        const [hubRes, adRes] = await Promise.all([
+          axios.get(`/api/tickets/users/search?q=${encodeURIComponent(requesterSearch)}`, {
+            headers: { Authorization: `Bearer ${token}` }
+          }).catch(() => ({ data: [] })),
+          axios.get(`/api/ad/search?q=${encodeURIComponent(requesterSearch)}`, {
+            headers: { Authorization: `Bearer ${token}` }
+          }).catch(() => ({ data: [] })),
+        ]);
+        const hubUsers: any[] = (hubRes.data || []).map((u: any) => ({ name: u.name, email: u.email, username: u.username }));
+        const adUsers: any[] = (adRes.data || []).map((u: any) => ({ name: u.displayName, email: u.email, username: u.username }));
+        const seen = new Set(hubUsers.map(u => u.username?.toLowerCase()));
+        setRequesterResults([...hubUsers, ...adUsers.filter(u => !seen.has(u.username?.toLowerCase()))]);
+      } catch { setRequesterResults([]); }
+      finally { setRequesterSearching(false); }
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [requesterSearch, editingInfo]);
 
   function isCommentEmpty(html: string) {
     return !html || html === '<p><br></p>' || html.replace(/<[^>]*>/g, '').trim() === '';
@@ -1377,9 +1407,9 @@ export default function TicketDetail() {
                   // Commentaire retenu comme solution du ticket (fond distinct)
                   const isSolution = !!ticket?.solution && !!c.content && c.content === ticket.solution;
 
-                  // Solution: vert émeraude marqué; sent-to-user/requester: vert clair; privé: jaune; normal: gris
-                  const bgColor = isSolution ? '#dcfce7' : (isSentToUser || isFromRequester) ? '#f0fdf4' : c.is_private ? '#fffbeb' : '#f9f9fb';
-                  const borderColor = isSolution ? '#16a34a' : (isSentToUser || isFromRequester) ? '#bbf7d0' : c.is_private ? '#fde68a' : '#f4f4f5';
+                  // Solution: vert émeraude marqué; sent-to-user: violet; requester: vert clair; privé: jaune; normal: gris
+                  const bgColor = isSolution ? '#dcfce7' : isSentToUser ? '#f3e8ff' : isFromRequester ? '#f0fdf4' : c.is_private ? '#fffbeb' : '#f9f9fb';
+                  const borderColor = isSolution ? '#16a34a' : isSentToUser ? '#d8b4fe' : isFromRequester ? '#bbf7d0' : c.is_private ? '#fde68a' : '#f4f4f5';
 
                   return (
                     <div key={c.id || i} style={{ display: 'flex', gap: 10, marginLeft: isFromRequester ? 20 : 0 }}>
@@ -1590,15 +1620,17 @@ export default function TicketDetail() {
               {!editingInfo ? (
                 <button onClick={() => { 
                   setEditingInfo(true); 
-                  setEditForm({ 
-                    priority: ticket.priority?.id || ticket.priority, 
-                    impact: ticket.impact?.id || ticket.impact, 
-                    category_id: ticket.category_id?.toString() || '', 
-                    subcategory_id: ticket.subcategory_id?.toString() || '', 
+                  setEditForm({
+                    priority: ticket.priority?.id || ticket.priority,
+                    impact: ticket.impact?.id || ticket.impact,
+                    category_id: ticket.category_id?.toString() || '',
+                    subcategory_id: ticket.subcategory_id?.toString() || '',
                     software_id: ticket.software_id?.toString() || '',
-                    location: ticket.location || ''
-                  }); 
+                    location: ticket.location || '',
+                    requester_name: ticket.requester?.name || ticket.requester_name || ''
+                  });
                   setLocationSearch(ticket.location || '');
+                  setRequesterSearch(ticket.requester?.name || ticket.requester_name || '');
                 }}
                   style={{ padding: '3px 9px', background: 'transparent', border: '1px solid #e4e4e7', borderRadius: 6, color: '#6366f1', cursor: 'pointer', fontSize: 11, fontWeight: 600 }}>
                   ✏️ Éditer
@@ -1736,6 +1768,34 @@ export default function TicketDetail() {
             {/* DEMANDEUR */}
             <div style={SF}>
               <span style={SL}>Demandeur</span>
+              {editingInfo ? (
+                <div style={{ position: 'relative', width: '100%', maxWidth: 200 }}>
+                  <input
+                    value={requesterSearch}
+                    onChange={e => { setRequesterSearch(e.target.value); setEditForm((f: any) => ({ ...f, requester_name: e.target.value })); }}
+                    placeholder="Nom du demandeur…"
+                    style={{ width: '100%', boxSizing: 'border-box', padding: '5px 7px', border: '1px solid #e4e4e7', borderRadius: 6, fontSize: 12, outline: 'none' }}
+                  />
+                  {requesterSearching && <div style={{ fontSize: 11, color: '#a1a1aa', marginTop: 3 }}>Recherche...</div>}
+                  {requesterResults.length > 0 && (
+                    <div style={{ position: 'absolute', top: 'calc(100% + 3px)', left: 0, right: 0, zIndex: 60, background: '#fff', border: '1px solid #e4e4e7', borderRadius: 6, boxShadow: '0 6px 18px rgba(0,0,0,0.1)', overflow: 'hidden' }}>
+                      {requesterResults.map(u => (
+                        <div key={u.username || u.email} onClick={() => {
+                          setRequesterSearch(u.name);
+                          setEditForm((f: any) => ({ ...f, requester_name: u.username || u.name }));
+                          setRequesterResults([]);
+                        }}
+                          style={{ padding: '5px 8px', cursor: 'pointer', fontSize: 12, borderBottom: '1px solid #f9f9fb' }}
+                          onMouseEnter={e => (e.currentTarget.style.background = '#f4f4f5')}
+                          onMouseLeave={e => (e.currentTarget.style.background = '')}>
+                          <div style={{ fontWeight: 500 }}>{u.name}</div>
+                          <div style={{ fontSize: 10, color: '#71717a' }}>{u.email}</div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ) : (
               <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: ticket.requester?.email ? 4 : 0 }}>
                 <div style={{ flexShrink: 0, width: 22, height: 22, borderRadius: '50%', background: avatarColor(ticket.requester?.name || ''), display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 9, fontWeight: 700, color: '#fff' }}>{getInitials(ticket.requester?.name || '')}</div>
                 <div style={{ minWidth: 0 }}>
@@ -1754,6 +1814,7 @@ export default function TicketDetail() {
                   )}
                 </div>
               </div>
+              )}
               {ticket.requester?.email && requesterTickets && (
                 <div>
                   <span onClick={() => setShowRequesterTickets(!showRequesterTickets)}

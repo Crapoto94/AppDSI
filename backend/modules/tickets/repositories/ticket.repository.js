@@ -390,7 +390,7 @@ module.exports = {
         const params = [];
         let idx = 1;
 
-        for (const key of ['title', 'content', 'priority', 'urgency', 'impact', 'type', 'category', 'location', 'solution', 'is_vip', 'resolution_method', 'knowledge_article', 'category_id', 'subcategory_id', 'software_id']) {
+        for (const key of ['title', 'content', 'priority', 'urgency', 'impact', 'type', 'category', 'location', 'solution', 'is_vip', 'resolution_method', 'knowledge_article', 'category_id', 'subcategory_id', 'software_id', 'requester_name', 'requester_email_22', 'requester_phone']) {
             if (data[key] !== undefined) {
                 fields.push(`${key} = $${idx++}`);
                 params.push(data[key]);

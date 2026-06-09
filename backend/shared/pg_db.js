@@ -4008,6 +4008,12 @@ async function setupPgDb() {
     try { await client.query("ALTER TABLE hub_tickets.saved_filters ADD COLUMN IF NOT EXISTS scope VARCHAR(20) NOT NULL DEFAULT 'personal'"); } catch (e) {}
     try { await client.query("ALTER TABLE hub_tickets.saved_filters ADD COLUMN IF NOT EXISTS filters JSONB"); } catch (e) {}
     try { await client.query("ALTER TABLE hub_tickets.saved_filters ADD COLUMN IF NOT EXISTS created_by VARCHAR(255)"); } catch (e) {}
+    // Réparation SERIAL id : anciennes tables perdaient la séquence → id=NULL à l'INSERT
+    try { await client.query("CREATE SEQUENCE IF NOT EXISTS hub_tickets.saved_filters_id_seq"); } catch (e) {}
+    try { await client.query("UPDATE hub_tickets.saved_filters SET id = nextval('hub_tickets.saved_filters_id_seq') WHERE id IS NULL"); } catch (e) {}
+    try { await client.query("SELECT setval('hub_tickets.saved_filters_id_seq', GREATEST((SELECT COALESCE(MAX(id),0) FROM hub_tickets.saved_filters), 1))"); } catch (e) {}
+    try { await client.query("ALTER TABLE hub_tickets.saved_filters ALTER COLUMN id SET DEFAULT nextval('hub_tickets.saved_filters_id_seq')"); } catch (e) {}
+    try { await client.query("ALTER SEQUENCE hub_tickets.saved_filters_id_seq OWNED BY hub_tickets.saved_filters.id"); } catch (e) {}
 
     // Live chat destinations
     try { await client.query("ALTER TABLE hub_tickets.live_sessions ADD COLUMN IF NOT EXISTS chat_type VARCHAR(20) DEFAULT 'ville'"); } catch (e) {}

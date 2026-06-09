@@ -449,6 +449,22 @@ class MailCollectorService {
           }
 
           if (existingTicket) {
+            // ═══════════════════════════════════════════════════════════
+            // RÉPONSE — Réserver le mapping AVANT tout traitement
+            // (atomique grâce à ON CONFLICT DO NOTHING → évite les doublons
+            //  quand deux collectes tournent en même temps)
+            // ═══════════════════════════════════════════════════════════
+            const mappingResult = await pgDb.run(
+              `INSERT INTO hub_tickets.ticket_email_mapping (ticket_id, email_message_id, email_in_reply_to, is_initial_email, email_from, email_received_at)
+               VALUES (?, ?, ?, false, ?, ?)
+               ON CONFLICT (email_message_id) DO NOTHING`,
+              [existingTicket, msgId, null, this.extractFromEmail(email).email, email.receivedDateTime]
+            );
+            if (mappingResult.changes === 0) {
+              log.emails_skipped++;
+              continue;
+            }
+
             // Ajout comme commentaire
             const from = this.extractFromEmail(email);
             const content = this.extractReplyContent(email.body?.content);
@@ -479,50 +495,57 @@ class MailCollectorService {
               if (createdComment) await this.rewriteCommentInlineImages(createdComment.id, existingTicket, createdAtt);
             }
 
-            // Enregistrer le mapping
-            await pgDb.run(
-              'INSERT INTO hub_tickets.ticket_email_mapping (ticket_id, email_message_id, email_in_reply_to, is_initial_email, email_from, email_received_at) VALUES (?, ?, ?, false, ?, ?)',
-              [existingTicket, msgId, null, this.extractFromEmail(email).email, email.receivedDateTime]
-            );
-
             log.emails_imported++;
             if (successFolderId) await this.moveMessage(collector.mailbox, email.id, successFolderId, token, axiosOpts);
           } else {
-            // Nouveau ticket
+            // ═══════════════════════════════════════════════════════════
+            // NOUVEAU TICKET — Créer le ticket puis réserver le mapping
+            // avant d'ajouter les PJ (protection anti-doublon atomique)
+            // ═══════════════════════════════════════════════════════════
             const classif = await MailRulesService.classifyTicket(email.subject, email.body?.content);
             const ticketId = await this.createTicket(email, classif, collector);
+
+            // Réserver le mapping AVANT les attachments (ON CONFLICT = atomique)
+            let mappingInserted = false;
+            try {
+              const mappingResult = await pgDb.run(
+                `INSERT INTO hub_tickets.ticket_email_mapping (ticket_id, email_message_id, email_in_reply_to, is_initial_email, email_from, email_received_at, mail_rule_id)
+                 VALUES (?, ?, ?, true, ?, ?, ?)
+                 ON CONFLICT (email_message_id) DO NOTHING`,
+                [ticketId, msgId, null, this.extractFromEmail(email).email, email.receivedDateTime, classif.ruleId || null]
+              );
+              mappingInserted = mappingResult.changes > 0;
+            } catch (e) {
+              if (e.message && e.message.includes('mail_rule_id')) {
+                // Colonne pas encore migrée : fallback sans mail_rule_id
+                const mappingResult = await pgDb.run(
+                  `INSERT INTO hub_tickets.ticket_email_mapping (ticket_id, email_message_id, email_in_reply_to, is_initial_email, email_from, email_received_at)
+                   VALUES (?, ?, ?, true, ?, ?)
+                   ON CONFLICT (email_message_id) DO NOTHING`,
+                  [ticketId, msgId, null, this.extractFromEmail(email).email, email.receivedDateTime]
+                );
+                mappingInserted = mappingResult.changes > 0;
+              } else { throw e; }
+            }
+            if (!mappingInserted) {
+              // Un autre collecteur a déjà traité cet email → supprimer le ticket orphelin
+              await pgDb.run('DELETE FROM hub_tickets.tickets WHERE glpi_id = ?', [ticketId]);
+              log.emails_skipped++;
+              continue;
+            }
 
             // Observateurs
             const obsCount = await this.addObservers(ticketId, email);
 
             // Attachments
             let attachCount = 0;
-            console.log(`[MAIL-DEBUG] Ticket ${ticketId} created. hasAttachments=${email.hasAttachments}`);
             if (email.hasAttachments) {
               const attachments = await this.downloadAttachments(token, collector.mailbox, email.id, axiosOpts);
-              console.log(`[MAIL-DEBUG] Downloaded ${attachments.length} attachments for ticket ${ticketId}`);
               const createdAtt = await this.addAttachments(ticketId, attachments, 'system');
               attachCount = createdAtt.length;
-              console.log(`[MAIL-DEBUG] Added ${attachCount} attachments to ticket ${ticketId}`);
               log.attachments_processed += attachCount;
               // Affiche les images inline (cid:) dans la description du ticket
               await this.rewriteInlineImages(ticketId, createdAtt);
-            }
-
-            // Mapping (avec la règle qui a déterminé la classification)
-            try {
-              await pgDb.run(
-                'INSERT INTO hub_tickets.ticket_email_mapping (ticket_id, email_message_id, email_in_reply_to, is_initial_email, email_from, email_received_at, mail_rule_id) VALUES (?, ?, ?, true, ?, ?, ?)',
-                [ticketId, msgId, null, this.extractFromEmail(email).email, email.receivedDateTime, classif.ruleId || null]
-              );
-            } catch (e) {
-              if (e.message && e.message.includes('mail_rule_id')) {
-                // Colonne pas encore migrée : fallback sans mail_rule_id
-                await pgDb.run(
-                  'INSERT INTO hub_tickets.ticket_email_mapping (ticket_id, email_message_id, email_in_reply_to, is_initial_email, email_from, email_received_at) VALUES (?, ?, ?, true, ?, ?)',
-                  [ticketId, msgId, null, this.extractFromEmail(email).email, email.receivedDateTime]
-                );
-              } else { throw e; }
             }
 
             log.tickets_created++;

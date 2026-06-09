@@ -409,10 +409,13 @@ export default function TicketKanban({ tickets, loading, total, totalPages, page
     borderRadius: 8, fontSize: 14, fontWeight: 500, cursor: 'pointer'
   };
 
-  if (loading) return <div style={{ textAlign: 'center', padding: 40, color: '#64748b' }}>Chargement...</div>;
+  if (loading && tickets.length === 0) return <div style={{ textAlign: 'center', padding: 40, color: '#64748b' }}>Chargement...</div>;
 
   return (
-    <div>
+    <div style={{ position: 'relative' }}>
+      {loading && tickets.length > 0 && (
+        <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 3, zIndex: 10, background: 'linear-gradient(90deg, #6366f1, #a78bfa, #6366f1)', backgroundSize: '200% 100%', animation: 'loadingShimmer 1.2s ease infinite', borderRadius: '12px 12px 0 0' }} />
+      )}
       <div style={{ display: 'flex', gap: 12, overflow: 'auto', minHeight: 500, paddingBottom: 16 }}>
         {COLUMNS.map(colId => (
           <div

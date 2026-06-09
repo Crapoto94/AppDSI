@@ -309,24 +309,26 @@ export default function TicketsDashboard() {
         return;
       }
 
-      // 1ère passe : lite + stats en parallèle → affichage immédiat
+      // 1ère passe : lite + stats en parallèle
       const [ticketsRes, statsRes] = await Promise.all([
         axios.get(`/api/tickets?lite=1&${qs}`, { headers: h }),
         axios.get(`/api/tickets/dashboard/stats${statsQs ? '?' + statsQs : ''}`, { headers: h }),
       ]);
       const liteTickets = ticketsRes.data.data || [];
       const pag = ticketsRes.data.pagination || {};
-      setTickets(liteTickets);
+
+      // 2ème passe : enrichissement (bundle_members, linked_tickets)
+      const enriched = await enrichWithDetails(liteTickets);
+
+      // Mise à jour UNIQUE (évite le "tremblement" dû aux rendus intermédiaires)
+      setTickets(enriched);
       setTotal(pag.total || 0);
       setTotalPages(pag.totalPages || 1);
       setStats(statsRes.data);
       if (!silent) setLoading(false);
 
-      // 2ème passe : enrichissement en arrière-plan
-      const enriched = await enrichWithDetails(liteTickets);
       const fresh = { tickets: enriched, total: pag.total || 0, totalPages: pag.totalPages || 1, stats: statsRes.data, ts: Date.now() };
       resultCache.current.set(cacheKey, fresh);
-      setTickets(enriched);
     } catch (e: any) {
       console.error('Failed to load tickets:', e);
       if (e.response?.data?.message) alert('Erreur serveur: ' + e.response.data.message);
@@ -631,10 +633,17 @@ export default function TicketsDashboard() {
     } catch (e: any) { alert('Erreur: ' + (e.response?.data?.message || e.message)); }
   };
 
-  const deleteSavedFilter = async (id: number) => {
+  const deleteSavedFilter = async (filter: any) => {
+    const id = filter?.id;
+    if (!id || isNaN(Number(id)) || Number(id) < 1) {
+      const keys = filter ? Object.keys(filter).join(', ') : 'null';
+      console.error('[SAVED-FILTER] Filtre sans ID valide reçu:', JSON.stringify(filter, null, 2));
+      alert('Erreur: ID invalide pour « ' + (filter?.name || '?') + ' » (clés: ' + keys + ', id=' + JSON.stringify(id) + ')');
+      return;
+    }
     try {
       const token = localStorage.getItem('token');
-      await axios.delete(`/api/tickets/saved-filters/${id}`, { headers: { Authorization: `Bearer ${token}` } });
+      await axios.delete(`/api/tickets/saved-filters/${Number(id)}`, { headers: { Authorization: `Bearer ${token}` } });
       loadSavedFilters();
     } catch (e: any) { alert('Erreur: ' + (e.response?.data?.message || e.message)); }
   };
@@ -1046,7 +1055,7 @@ export default function TicketsDashboard() {
                             {f.name}
                           </button>
                           {(f.created_by === user?.username || canCreateGlobal) && (
-                            <button onClick={() => deleteSavedFilter(f.id)}
+                            <button onClick={() => deleteSavedFilter(f)}
                               style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#cbd5e1', fontSize: 15, padding: '0 2px', flexShrink: 0 }}
                               title="Supprimer">✕</button>
                           )}

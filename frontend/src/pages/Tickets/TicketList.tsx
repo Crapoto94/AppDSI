@@ -202,7 +202,8 @@ export default function TicketList({
 
   const isSupervisor = ['superviseur', 'supervisor', 'admin', 'superadmin'].includes(user?.role?.toLowerCase() || '');
 
-  if (loading) return <div style={{ textAlign: 'center', padding: 40, color: '#64748b' }}>Chargement...</div>;
+  // Ne pas remplacer la table par "Chargement..." → overlay subtil pour éviter le "tremblement"
+  const showLoadingOverlay = loading && tickets.length > 0;
 
   function toggleSelect(id: number, e: React.MouseEvent) {
     e.stopPropagation();
@@ -311,8 +312,16 @@ export default function TicketList({
 
   return (
     <>
-      <style>{`@keyframes livePulseRow { 0%,100%{opacity:1;box-shadow:0 0 0 0 rgba(34,197,94,0.4)} 50%{opacity:0.85;box-shadow:0 0 0 3px rgba(34,197,94,0)} }`}</style>
-      <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #e2e8f0', overflowX: 'auto' }}>
+      <style>{`
+        @keyframes livePulseRow { 0%,100%{opacity:1;box-shadow:0 0 0 0 rgba(34,197,94,0.4)} 50%{opacity:0.85;box-shadow:0 0 0 3px rgba(34,197,94,0)} }
+        @keyframes loadingShimmer { 0%{background-position:200% 0} 100%{background-position:-200% 0} }
+      `}</style>
+      <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #e2e8f0', overflowX: 'auto', position: 'relative' }}>
+        {(!loading || tickets.length > 0) ? (
+        <>
+        {showLoadingOverlay && (
+          <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 3, zIndex: 10, background: 'linear-gradient(90deg, #6366f1, #a78bfa, #6366f1)', backgroundSize: '200% 100%', animation: 'loadingShimmer 1.2s ease infinite', borderRadius: '12px 12px 0 0' }} />
+        )}
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14, minWidth: 1200 }}>
           <thead>
             <tr style={{ borderBottom: '2px solid #e2e8f0', background: '#f8fafc' }}>
@@ -716,6 +725,9 @@ export default function TicketList({
           })()}
           </tbody>
         </table>
+        </>) : (
+          <div style={{ textAlign: 'center', padding: 40, color: '#64748b' }}>Chargement...</div>
+        )}
       </div>
 
       {/* ── Barre d'action flottante (sélection) ─────────────────── */}

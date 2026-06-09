@@ -814,7 +814,12 @@ module.exports = {
     // Supprime une tâche personnelle/assignée. Pour une tâche d'équipe (team_group_id),
     // supprime toutes les lignes du groupe afin qu'elle disparaisse en une seule action.
     async deleteTask(req, res) {
-        const { id } = req.params;
+        const rawId = req.params.id;
+        const id = parseInt(rawId, 10);
+        if (isNaN(id) || id < 1) {
+            console.error(`[TASKS] Tentative de suppression avec ID invalide: "${rawId}" (type=${typeof rawId}) de ${req.user?.username}`);
+            return res.status(400).json({ error: 'ID invalide' });
+        }
         try {
             const { rows } = await pool.query('SELECT team_group_id FROM hub.user_tasks WHERE id = $1', [id]);
             if (rows.length === 0) return res.status(404).json({ error: 'Tâche introuvable' });
@@ -824,7 +829,7 @@ module.exports = {
                 const { rows: grp } = await pool.query('SELECT id FROM hub.user_tasks WHERE team_group_id = $1', [rows[0].team_group_id]);
                 ids = grp.map(r => r.id);
             } else {
-                ids = [parseInt(id, 10)];
+                ids = [id];
             }
 
             try { await pool.query("DELETE FROM hub.task_notes WHERE source = 'personal' AND task_id::integer = ANY($1)", [ids]); } catch (e) { /* notes facultatives */ }

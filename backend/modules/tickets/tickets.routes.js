@@ -293,8 +293,12 @@ router.post('/saved-filters', authenticateJWT, async (req, res) => {
 
 router.delete('/saved-filters/:id', authenticateJWT, async (req, res) => {
     try {
-        const id = parseInt(req.params.id, 10);
-        if (isNaN(id)) return res.status(400).json({ message: 'ID invalide' });
+        const rawId = req.params.id;
+        const id = parseInt(rawId, 10);
+        if (isNaN(id)) {
+            console.error(`[SAVED-FILTER] ID invalide reçu: "${rawId}" (type=${typeof rawId}) de ${req.user?.username}`);
+            return res.status(400).json({ message: 'ID invalide' });
+        }
         const filter = await pgDb.get('SELECT id, created_by FROM hub_tickets.saved_filters WHERE id = ?', [id]);
         if (!filter) return res.status(404).json({ message: 'Filtre introuvable' });
         const { isAdminLike } = require('../../shared/middleware');
