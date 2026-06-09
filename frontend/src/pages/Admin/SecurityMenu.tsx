@@ -559,7 +559,10 @@ export default function SecurityMenu() {
                       value={auto.destPath}
                       onChange={(e) => patchAuto({ destPath: e.target.value })}
                     />
-                    <small>Laisser vide pour utiliser le stockage SMB. Sinon, chemin local/UNC (ex. <code>D:\backups</code> ou <code>\\serveur\partage</code>).</small>
+                    <small>
+                      <strong>Laisser vide</strong> pour utiliser le stockage configuré dans <code>/admin/ged</code> (recommandé sur Docker — les chemins UNC Windows ne fonctionnent pas sous Linux).
+                      Sinon, chemin local accessible par le serveur (ex. <code>/backups</code> ou point de montage SMB).
+                    </small>
                   </div>
                   <div className="sec-field">
                     <label>Nombre de sauvegardes à conserver</label>
