@@ -45,6 +45,17 @@ module.exports = {
         return rows.map(r => r.ticket_id);
     },
 
+    // Retourne les IDs des tickets membres du groupe dont ce ticket est le chef (problem_ticket_id)
+    async getLinkedMemberIds(problemTicketId) {
+        const rows = await pgDb.all(`
+            SELECT m.ticket_id
+            FROM hub_tickets.ticket_groups g
+            JOIN hub_tickets.ticket_group_members m ON m.group_id = g.id
+            WHERE g.problem_ticket_id = $1
+        `, [problemTicketId]);
+        return rows.map(r => r.ticket_id);
+    },
+
     async addMember(groupId, ticketId, addedByUsername) {
         await pgDb.run(
             'INSERT INTO hub_tickets.ticket_group_members (group_id, ticket_id, added_by_username) VALUES ($1, $2, $3)',

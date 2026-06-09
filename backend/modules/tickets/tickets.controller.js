@@ -427,7 +427,7 @@ async assign(req, res) {
             const ticketId = parseInt(req.params.id);
             await workflowService.changeStatus(ticketId, parseInt(status), req.user.id, comment, req.user);
 
-            // Propagation du changement de statut à tous les membres du groupe
+            // Propagation aux membres du même groupe (ticket_group_members)
             const siblingIds = await groupRepo.getSiblingIds(ticketId);
             for (const sibId of siblingIds) {
                 try {
@@ -436,9 +436,53 @@ async assign(req, res) {
                 } catch (e) { console.error(`[GROUP] status propagation to #${sibId} failed:`, e.message); }
             }
 
+            // Propagation aux tickets liés si ce ticket est chef de groupe (problem_ticket_id)
+            const linkedIds = await groupRepo.getLinkedMemberIds(ticketId);
+            for (const linkedId of linkedIds) {
+                if (siblingIds.includes(linkedId)) continue;
+                try {
+                    await workflowService.changeStatus(linkedId, parseInt(status), req.user.id,
+                        `Propagé depuis #${ticketId} (chef de groupe)`, req.user);
+                } catch (e) { console.error(`[GROUP] linked status propagation to #${linkedId} failed:`, e.message); }
+            }
+
             res.json({ message: 'Statut mis à jour' });
         } catch (error) {
             res.status(400).json({ message: error.message });
+        }
+    },
+
+    async changeType(req, res) {
+        try {
+            const ticketId = parseInt(req.params.id);
+            const typeNum = parseInt(req.body.type);
+            if (![1, 2].includes(typeNum)) {
+                return res.status(400).json({ message: 'Type invalide : 1=Incident, 2=Demande' });
+            }
+            const ticket = await ticketRepo.findById(ticketId);
+            if (!ticket) return res.status(404).json({ message: 'Ticket non trouvé' });
+            if (String(ticket.type) === '3') {
+                return res.status(400).json({ message: 'Impossible de changer le type d\'un ticket Problème' });
+            }
+
+            let resolvedUserId = req.user?.id;
+            if (resolvedUserId && req.user?.username) {
+                const exists = await pgDb.get('SELECT id FROM hub.users WHERE id = $1', [resolvedUserId]);
+                if (!exists) {
+                    const hubUser = await pgDb.get('SELECT id FROM hub.users WHERE LOWER(username) = LOWER($1)', [req.user.username]);
+                    if (hubUser) resolvedUserId = hubUser.id;
+                }
+            }
+
+            await ticketRepo.update(ticketId, { type: typeNum });
+            try {
+                await historyRepo.log(ticketId, resolvedUserId, 'type_changed', 'type',
+                    String(ticket.type), String(typeNum), null, req.user.username || null);
+            } catch (e) { console.error('[HISTORY] type_changed log failed:', e.message); }
+
+            res.json({ message: 'Type modifié' });
+        } catch (error) {
+            res.status(500).json({ message: error.message });
         }
     },
 

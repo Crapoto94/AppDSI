@@ -314,6 +314,7 @@ router.get('/batch-details', apiTickets, (req, res) => controller.getBatchDetail
 router.get('/', apiTickets, (req, res) => controller.getAll(req, res));
 router.get('/:id', apiTickets, (req, res) => controller.getById(req, res));
 router.post('/', apiTickets, (req, res) => controller.create(req, res));
+router.patch('/:id/type', authenticateJWT, (req, res) => controller.changeType(req, res));
 router.put('/:id', apiTickets, (req, res) => controller.update(req, res));
 router.patch('/:id', apiTickets, (req, res) => controller.update(req, res));
 router.delete('/:id', authenticateJWT, (req, res) => controller.delete(req, res));

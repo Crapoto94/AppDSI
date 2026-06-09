@@ -81,6 +81,12 @@ module.exports = {
             }
 
             await notificationService.trigger('ticket.assigned', { ticket_id: ticketId, user, technician_id: resolvedTechId });
+        } else if (resolvedGroupId && ticket.status === 1) {
+            // Affectation groupe sans technicien : Nouveau → En cours
+            await ticketRepo.update(ticketId, { status: 2 });
+            try {
+                await historyRepo.log(ticketId, resolvedUserId, 'status_changed', 'status', '1', '2', 'Affectation groupe automatique', user?.username || null);
+            } catch (e) { console.error('[HISTORY] auto-status group log failed:', e.message); }
         }
 
         // On ne journalise une (ré)affectation de groupe que si elle est explicite,

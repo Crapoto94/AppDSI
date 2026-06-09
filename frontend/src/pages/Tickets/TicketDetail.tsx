@@ -227,6 +227,9 @@ export default function TicketDetail() {
   // Tickets liés (Problème/Groupe)
   const [linkedTickets, setLinkedTickets] = useState<any[]>([]);
 
+  // Changement de type
+  const [showTypeDropdown, setShowTypeDropdown] = useState(false);
+
   // Arbitrage
   const [showArbitrageModal, setShowArbitrageModal] = useState(false);
   const arbitreAd = useADSearch(token);
@@ -600,6 +603,16 @@ export default function TicketDetail() {
   async function doChangeStatus(newStatus: number, comment?: string) {
     const token = localStorage.getItem('token');
     await axios.post(`/api/tickets/${id}/status`, { status: newStatus, comment }, { headers: { Authorization: `Bearer ${token}` } });
+  }
+
+  async function handleTypeChange(newType: 1 | 2) {
+    if (!ticket || String(ticket.type) === String(newType)) { setShowTypeDropdown(false); return; }
+    try {
+      const token = localStorage.getItem('token');
+      await axios.patch(`/api/tickets/${id}/type`, { type: newType }, { headers: { Authorization: `Bearer ${token}` } });
+      setShowTypeDropdown(false);
+      loadTicket();
+    } catch (e: any) { alert('Erreur: ' + (e.response?.data?.message || e.message)); }
   }
 
   async function handleStatusChange(newStatus: number) {
@@ -1108,14 +1121,43 @@ export default function TicketDetail() {
             }}>
               {ticket.priority?.label || 'Normale'}
             </span>
-            <span style={{
-              display: 'inline-block', flexShrink: 0,
-              padding: '2px 8px', borderRadius: 4, fontSize: 10, fontWeight: 600,
-              background: String(ticket.type) === '3' ? '#ede9fe' : String(ticket.type) === '2' ? '#e0f2fe' : '#fef3c7',
-              color: String(ticket.type) === '3' ? '#7c3aed' : String(ticket.type) === '2' ? '#0369a1' : '#92400e'
-            }}>
-              {ticket.type_label || 'Incident'}
-            </span>
+            {/* Badge type — cliquable pour admin/superadmin si pas Problème */}
+            {(() => {
+              const canChangeType = String(ticket.type) !== '3' &&
+                ['superadmin', 'admin'].includes((user?.role ?? '').toLowerCase().trim());
+              const bg = String(ticket.type) === '3' ? '#ede9fe' : String(ticket.type) === '2' ? '#e0f2fe' : '#fef3c7';
+              const color = String(ticket.type) === '3' ? '#7c3aed' : String(ticket.type) === '2' ? '#0369a1' : '#92400e';
+              return (
+                <span style={{ position: 'relative', display: 'inline-block', flexShrink: 0 }}>
+                  <span onClick={() => canChangeType && setShowTypeDropdown(d => !d)}
+                    style={{ display: 'inline-block', padding: '2px 8px', borderRadius: 4, fontSize: 10, fontWeight: 600, background: bg, color,
+                      cursor: canChangeType ? 'pointer' : 'default',
+                      outline: canChangeType ? `1px dashed ${color}55` : 'none', userSelect: 'none' }}
+                    title={canChangeType ? 'Cliquer pour changer le type' : undefined}>
+                    {ticket.type_label || 'Incident'}
+                    {canChangeType && <span style={{ marginLeft: 3, fontSize: 8 }}>▼</span>}
+                  </span>
+                  {showTypeDropdown && canChangeType && (
+                    <>
+                      <div style={{ position: 'fixed', inset: 0, zIndex: 998 }} onClick={() => setShowTypeDropdown(false)} />
+                      <div style={{ position: 'absolute', top: '110%', left: 0, zIndex: 999, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 8, boxShadow: '0 4px 16px rgba(0,0,0,0.12)', minWidth: 130, overflow: 'hidden' }}>
+                        {([{ v: 1, label: 'Incident', bg: '#fef3c7', color: '#92400e' }, { v: 2, label: 'Demande', bg: '#e0f2fe', color: '#0369a1' }] as const).map(opt => (
+                          <div key={opt.v} onClick={() => handleTypeChange(opt.v)}
+                            style={{ padding: '8px 12px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8,
+                              background: String(ticket.type) === String(opt.v) ? '#f8fafc' : '#fff',
+                              fontWeight: String(ticket.type) === String(opt.v) ? 700 : 400, fontSize: 13 }}
+                            onMouseEnter={e => (e.currentTarget.style.background = '#f1f5f9')}
+                            onMouseLeave={e => (e.currentTarget.style.background = String(ticket.type) === String(opt.v) ? '#f8fafc' : '#fff')}>
+                            <span style={{ padding: '1px 6px', borderRadius: 4, fontSize: 10, fontWeight: 600, background: opt.bg, color: opt.color }}>{opt.label}</span>
+                            {String(ticket.type) === String(opt.v) && <span style={{ color: '#94a3b8', fontSize: 12 }}>✓</span>}
+                          </div>
+                        ))}
+                      </div>
+                    </>
+                  )}
+                </span>
+              );
+            })()}
           </h1>
         </div>
 
