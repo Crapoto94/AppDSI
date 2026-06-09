@@ -84,11 +84,29 @@ module.exports = {
       const rule = await pgDb.get('SELECT * FROM hub_tickets.mail_rules WHERE id = ?', [req.params.id]);
       if (!rule) return res.status(404).json({ message: 'Règle non trouvée' });
 
+      // Nullify references to avoid FK constraint violations (colonne sans ON DELETE SET NULL dans certaines migrations)
+      try {
+        await pgDb.run('UPDATE hub_tickets.ticket_email_mapping SET mail_rule_id = NULL WHERE mail_rule_id = ?', [req.params.id]);
+      } catch (e) { /* colonne peut ne pas exister sur certaines instances */ }
+
       await pgDb.run('DELETE FROM hub_tickets.mail_rules WHERE id = ?', [req.params.id]);
       logMouchard(`Règle mail supprimée: ${rule.name}`);
       res.json({ message: 'Règle supprimée' });
     } catch (error) {
       res.status(500).json({ message: 'Erreur suppression règle', error: error.message });
+    }
+  },
+
+  toggleAll: async (req, res) => {
+    try {
+      const { is_active } = req.body;
+      if (is_active === undefined) return res.status(400).json({ message: 'Champ is_active requis' });
+      await pgDb.run('UPDATE hub_tickets.mail_rules SET is_active = ?', [!!is_active]);
+      const rules = await MailRulesService.getAllRules();
+      logMouchard(`Toutes les règles mail ${is_active ? 'activées' : 'désactivées'}`);
+      res.json({ message: `Règles ${is_active ? 'activées' : 'désactivées'}`, count: rules.length });
+    } catch (error) {
+      res.status(500).json({ message: 'Erreur mise à jour globale', error: error.message });
     }
   },
 

@@ -3990,6 +3990,8 @@ async function setupPgDb() {
     try { await client.query("ALTER TABLE hub_tickets.mail_rules ADD COLUMN IF NOT EXISTS category_id INTEGER DEFAULT NULL REFERENCES hub_tickets.ticket_categories(id) ON DELETE SET NULL"); } catch (e) {}
     try { await client.query("ALTER TABLE hub_tickets.mail_rules ADD COLUMN IF NOT EXISTS software_id INTEGER DEFAULT NULL REFERENCES magapp.apps(id) ON DELETE SET NULL"); } catch (e) {}
     try { await client.query("ALTER TABLE hub_tickets.ticket_email_mapping ADD COLUMN IF NOT EXISTS mail_rule_id INTEGER DEFAULT NULL"); } catch (e) {}
+    // Supprimer la contrainte FK sur mail_rule_id si elle existe (migration corrective)
+    try { await client.query("ALTER TABLE hub_tickets.ticket_email_mapping DROP CONSTRAINT IF EXISTS ticket_email_mapping_mail_rule_id_fkey"); } catch (e) {}
 
     // Live chat destinations
     try { await client.query("ALTER TABLE hub_tickets.live_sessions ADD COLUMN IF NOT EXISTS chat_type VARCHAR(20) DEFAULT 'ville'"); } catch (e) {}

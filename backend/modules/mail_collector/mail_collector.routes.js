@@ -13,6 +13,7 @@ router.post('/rules', authenticateAdmin, mailRulesController.create);
 router.post('/rules/init-defaults', authenticateAdmin, mailRulesController.initializeDefaults);
 router.post('/rules/recreate', authenticateAdmin, mailRulesController.recreateDefaults);
 router.post('/rules/test-classification', authenticateJWT, mailRulesController.testClassification);
+router.put('/rules/toggle-all', authenticateAdmin, mailRulesController.toggleAll);
 router.get('/rules/:id', authenticateJWT, mailRulesController.getById);
 router.put('/rules/:id', authenticateAdmin, mailRulesController.update);
 router.delete('/rules/:id', authenticateAdmin, mailRulesController.delete);

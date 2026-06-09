@@ -222,6 +222,20 @@ export default function MailCollector() {
     } catch (error: any) { alert('Erreur: ' + (error.response?.data?.message || error.message)); }
   };
 
+  const toggleRule = async (id: number, currentActive: boolean) => {
+    try {
+      await axios.put(`/api/mail-collector/rules/${id}`, { is_active: !currentActive }, { headers: getHeaders() });
+      loadRules();
+    } catch (error: any) { alert('Erreur: ' + (error.response?.data?.message || error.message)); }
+  };
+
+  const toggleAllRules = async (active: boolean) => {
+    try {
+      await axios.put('/api/mail-collector/rules/toggle-all', { is_active: active }, { headers: getHeaders() });
+      loadRules();
+    } catch (error: any) { alert('Erreur: ' + (error.response?.data?.message || error.message)); }
+  };
+
   const freqLabel = (v: string) => FREQUENCIES.find(f => f.value === v)?.label || v;
   const modLabel  = (v: string) => v === 'copieurs' ? '📠 Copieurs' : '🎫 Tickets';
 
@@ -448,11 +462,15 @@ export default function MailCollector() {
       {/* ── RULES ── */}
       {selectedTab === 'rules' && (
         <>
-          <div style={{ display: 'flex', gap: '12px', marginBottom: '24px' }}>
-            <button style={s.btn(showNewRule ? 'secondary' : 'success')} onClick={() => {
-              if (showNewRule) { resetRuleForm(); } else { setShowNewRule(true); }
-            }}>
-              {showNewRule ? '✕ Annuler' : <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><Plus size={16} /> Nouvelle règle</span>}
+          <div style={{ display: 'flex', gap: '12px', marginBottom: '24px', flexWrap: 'wrap' }}>
+            <button style={s.btn('success')} onClick={() => setShowNewRule(true)}>
+              <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><Plus size={16} /> Nouvelle règle</span>
+            </button>
+            <button style={s.btn('primary')} onClick={() => toggleAllRules(true)} title="Activer toutes les règles">
+              <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><ToggleRight size={16} /> Tout activer</span>
+            </button>
+            <button style={s.btn('secondary')} onClick={() => toggleAllRules(false)} title="Désactiver toutes les règles">
+              <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><ToggleLeft size={16} /> Tout désactiver</span>
             </button>
             <button style={s.btn('warning')} onClick={async () => {
               if (!confirm('Recréer toutes les règles par défaut ? Les règles existantes seront supprimées.')) return;
@@ -467,46 +485,65 @@ export default function MailCollector() {
             </button>
           </div>
 
+          {/* Modale création / édition de règle */}
           {showNewRule && (
-            <div style={s.form}>
-              <h3 style={{ margin: '0 0 16px', fontSize: '15px', fontWeight: '600', color: '#111827' }}>
-                {editingRuleId ? '✏️ Modifier la règle' : '➕ Nouvelle règle'}
-              </h3>
-              <div style={s.row}>
-                <span style={s.label}>Nom</span>
-                <input style={s.input} value={ruleData.name || ''} onChange={e => setRuleData({...ruleData, name: e.target.value})} placeholder="Règle incidents" />
+            <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}
+              onClick={e => { if (e.target === e.currentTarget) resetRuleForm(); }}>
+              <div style={{ backgroundColor: 'white', borderRadius: '12px', padding: '28px', width: '100%', maxWidth: '600px', maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+                  <h3 style={{ margin: 0, fontSize: '18px', fontWeight: '700', color: '#111827' }}>
+                    {editingRuleId ? '✏️ Modifier la règle' : '➕ Nouvelle règle'}
+                  </h3>
+                  <button onClick={resetRuleForm} style={{ border: 'none', background: 'transparent', cursor: 'pointer', fontSize: '22px', color: '#6b7280', lineHeight: 1 }}>✕</button>
+                </div>
+                <div style={s.row}>
+                  <span style={s.label}>Nom</span>
+                  <input style={s.input} value={ruleData.name || ''} onChange={e => setRuleData({...ruleData, name: e.target.value})} placeholder="Règle incidents" />
+                </div>
+                <div style={s.row}>
+                  <span style={s.label}>Type</span>
+                  <select style={s.input} value={ruleData.type || 'demande'} onChange={e => setRuleData({...ruleData, type: e.target.value as any})}>
+                    <option value="demande">Demande</option>
+                    <option value="incident">Incident</option>
+                  </select>
+                </div>
+                <div style={s.row}>
+                  <span style={s.label}>Mots-clés (séparés par |)</span>
+                  <textarea style={{ ...s.input, minHeight: '80px' }} value={ruleData.keywords || ''} onChange={e => setRuleData({...ruleData, keywords: e.target.value})} placeholder="bug|erreur|panne|crash" />
+                </div>
+                <div style={s.row}>
+                  <span style={s.label}>Priorité</span>
+                  <input type="number" style={s.input} value={ruleData.priority || 100} onChange={e => setRuleData({...ruleData, priority: parseInt(e.target.value)})} />
+                </div>
+                <div style={s.row}>
+                  <span style={s.label}>Actif</span>
+                  <select style={s.input} value={ruleData.is_active === false ? 'false' : 'true'} onChange={e => setRuleData({...ruleData, is_active: e.target.value === 'true'})}>
+                    <option value="true">Oui</option>
+                    <option value="false">Non</option>
+                  </select>
+                </div>
+                <div style={s.row}>
+                  <span style={s.label}>Catégorie auto</span>
+                  <div>
+                    <select style={s.input} value={(ruleData as any).category_id || ''} onChange={e => setRuleData({...ruleData, category_id: e.target.value ? parseInt(e.target.value) : null} as any)}>
+                      <option value="">— Aucune —</option>
+                      {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                    </select>
+                    {catsError && <div style={{ fontSize: 12, color: '#ef4444', marginTop: 4 }}>{catsError}</div>}
+                  </div>
+                </div>
+                <div style={s.row}>
+                  <span style={s.label}>Logiciel auto</span>
+                  <select style={s.input} value={(ruleData as any).software_id || ''} onChange={e => setRuleData({...ruleData, software_id: e.target.value ? parseInt(e.target.value) : null} as any)}>
+                    <option value="">— Aucun —</option>
+                    {apps.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                  </select>
+                </div>
+                <div style={{ display: 'flex', gap: '12px', marginTop: '8px' }}>
+                  <button style={s.btn('primary')} onClick={createRule}>{editingRuleId ? 'Enregistrer' : 'Créer'}</button>
+                  <button style={s.btn('secondary')} onClick={resetRuleForm}>Annuler</button>
+                </div>
               </div>
-              <div style={s.row}>
-                <span style={s.label}>Type</span>
-                <select style={s.input} value={ruleData.type || 'demande'} onChange={e => setRuleData({...ruleData, type: e.target.value as any})}>
-                  <option value="demande">Demande</option>
-                  <option value="incident">Incident</option>
-                </select>
-              </div>
-              <div style={s.row}>
-                <span style={s.label}>Mots-clés (séparés par |)</span>
-                <textarea style={{ ...s.input, minHeight: '80px' }} value={ruleData.keywords || ''} onChange={e => setRuleData({...ruleData, keywords: e.target.value})} placeholder="bug|erreur|panne|crash" />
-              </div>
-              <div style={s.row}>
-                <span style={s.label}>Priorité</span>
-                <input type="number" style={s.input} value={ruleData.priority || 100} onChange={e => setRuleData({...ruleData, priority: parseInt(e.target.value)})} />
-              </div>
-              <div style={s.row}>
-                <span style={s.label}>Catégorie auto</span>
-                <select style={s.input} value={(ruleData as any).category_id || ''} onChange={e => setRuleData({...ruleData, category_id: e.target.value ? parseInt(e.target.value) : null} as any)}>
-                  <option value="">— Aucune —</option>
-                  {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                </select>
-                {catsError && <span style={{ fontSize: 12, color: '#ef4444', marginLeft: 8 }}>{catsError}</span>}
-              </div>
-              <div style={s.row}>
-                <span style={s.label}>Logiciel auto</span>
-                <select style={s.input} value={(ruleData as any).software_id || ''} onChange={e => setRuleData({...ruleData, software_id: e.target.value ? parseInt(e.target.value) : null} as any)}>
-                  <option value="">— Aucun —</option>
-                  {apps.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
-                </select>
-              </div>
-              <button style={s.btn('primary')} onClick={createRule}>{editingRuleId ? 'Enregistrer' : 'Créer'}</button>
             </div>
           )}
 
@@ -520,12 +557,13 @@ export default function MailCollector() {
                 <th style={s.th}>Logiciel auto</th>
                 <th style={{ ...s.th, textAlign: 'center' as const }}>Utilisée</th>
                 <th style={s.th}>Priorité</th>
+                <th style={{ ...s.th, textAlign: 'center' as const }}>État</th>
                 <th style={s.th}>Actions</th>
               </tr>
             </thead>
             <tbody>
               {rules.map(r => (
-                <tr key={r.id}>
+                <tr key={r.id} style={{ background: r.is_active ? 'white' : '#fafafa', opacity: r.is_active ? 1 : 0.7 }}>
                   <td style={s.td}><strong>{r.name}</strong></td>
                   <td style={s.td}>
                     <span style={s.badge(r.type === 'incident' ? '#ef4444' : '#0ea5e9')}>{r.type === 'incident' ? '⚠ Incident' : '📋 Demande'}</span>
@@ -554,19 +592,25 @@ export default function MailCollector() {
                     </span>
                   </td>
                   <td style={s.td}><span style={s.badge('#8b5cf6')}>{r.priority}</span></td>
+                  <td style={{ ...s.td, textAlign: 'center' as const }}>
+                    <button style={{ ...s.btn(r.is_active ? 'primary' : 'secondary'), padding: '5px 10px', fontSize: '12px' }}
+                      title={r.is_active ? 'Désactiver' : 'Activer'}
+                      onClick={() => toggleRule(r.id, r.is_active)}>
+                      {r.is_active ? <ToggleRight size={16} /> : <ToggleLeft size={16} />}
+                    </button>
+                  </td>
                   <td style={{ ...s.td, display: 'flex', gap: '6px' }}>
                     <button style={{ ...s.btn('warning'), padding: '6px 10px', fontSize: '12px' }} title="Modifier" onClick={() => {
                       setRuleData(r);
                       setEditingRuleId(r.id);
                       setShowNewRule(true);
-                      window.scrollTo({ top: 0, behavior: 'smooth' });
                     }}><Edit2 size={16} /></button>
                     <button style={{ ...s.btn('danger'), padding: '6px 10px', fontSize: '12px' }} onClick={() => deleteRule(r.id)}><Trash2 size={16} /></button>
                   </td>
                 </tr>
               ))}
               {rules.length === 0 && (
-                <tr><td colSpan={8} style={{ ...s.td, textAlign: 'center', color: '#9ca3af', padding: '40px' }}>Aucune règle configurée</td></tr>
+                <tr><td colSpan={9} style={{ ...s.td, textAlign: 'center', color: '#9ca3af', padding: '40px' }}>Aucune règle configurée</td></tr>
               )}
             </tbody>
           </table>
