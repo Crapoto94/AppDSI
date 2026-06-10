@@ -2280,16 +2280,58 @@ const TachesTab: React.FC<{ projetId: number; projetTitre?: string; token: strin
     setShowAddModal(false);
   };
 
+  const HUB_CYCLE = ['a_faire', 'en_cours', 'terminé'];
+
+  const cycleHubStatut = async (t: any) => {
+    const idx = HUB_CYCLE.indexOf(t.statut || 'a_faire');
+    const next = HUB_CYCLE[(idx + 1) % HUB_CYCLE.length];
+    try {
+      const r = await fetch(`/api/tasks/personal/${t.id}`, {
+        method: 'PATCH',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ statut: next }),
+      });
+      if (r.ok) loadTasks();
+    } catch {}
+  };
+
+  const deduplicatedHubTasks = (() => {
+    const seenGroups = new Set<string>();
+    return hubTasks.reduce((acc: any[], t: any) => {
+      if (t.is_team_task && t.team_group_id) {
+        const key = String(t.team_group_id);
+        if (seenGroups.has(key)) {
+          const existing = acc.find((h: any) => h._group_key === key);
+          if (existing && t.username) existing._members.push(t.username);
+          return acc;
+        }
+        seenGroups.add(key);
+        return [...acc, { ...t, _group_key: key, _members: t.username ? [t.username] : [] }];
+      }
+      return [...acc, t];
+    }, []);
+  })();
+
   const statusBadge = (statut: string) => {
     const cfg: Record<string, { bg: string; color: string; label: string }> = {
-      a_faire: { bg: '#f1f5f9', color: '#64748b', label: 'À faire' },
-      en_cours: { bg: '#dbeafe', color: '#1d4ed8', label: 'En cours' },
-      terminee: { bg: '#dcfce7', color: '#16a34a', label: 'Terminée' },
-      refuse: { bg: '#fee2e2', color: '#dc2626', label: 'Refusé' },
+      a_faire:   { bg: '#f1f5f9', color: '#64748b', label: 'À faire' },
+      en_cours:  { bg: '#dbeafe', color: '#1d4ed8', label: 'En cours' },
+      terminee:  { bg: '#dcfce7', color: '#16a34a', label: 'Terminée' },
+      'terminé': { bg: '#dcfce7', color: '#16a34a', label: 'Terminée' },
+      refuse:    { bg: '#fee2e2', color: '#dc2626', label: 'Refusé' },
       en_erreur: { bg: '#fef3c7', color: '#92400e', label: 'En erreur' },
     };
     const c = cfg[statut] || cfg.a_faire;
     return <span style={{ padding: '3px 10px', borderRadius: '10px', background: c.bg, color: c.color, fontWeight: '600', fontSize: '11px' }}>{c.label}</span>;
+  };
+
+  const hubActionColor = (statut: string) => {
+    switch (statut) {
+      case 'en_cours': return '#1d4ed8';
+      case 'terminé': case 'terminee': return '#16a34a';
+      case 'refuse': return '#dc2626';
+      default: return '#64748b';
+    }
   };
 
   return (
@@ -2319,31 +2361,53 @@ const TachesTab: React.FC<{ projetId: number; projetTitre?: string; token: strin
             onSort={handleSort}
           />
 
-          {hubTasks.length > 0 && (
+          {deduplicatedHubTasks.length > 0 && (
             <div style={{ marginTop: 16, border: '1px solid #e2e8f0', borderRadius: 10, overflow: 'hidden' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                 <thead>
                   <tr>
                     <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, color: '#475569', fontSize: 12, textTransform: 'uppercase', borderBottom: '2px solid #e2e8f0', background: '#f0f9ff' }}>Tâche hub / équipe</th>
-                    <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, color: '#475569', fontSize: 12, textTransform: 'uppercase', borderBottom: '2px solid #e2e8f0', background: '#f0f9ff', width: 160 }}>Responsable</th>
+                    <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, color: '#475569', fontSize: 12, textTransform: 'uppercase', borderBottom: '2px solid #e2e8f0', background: '#f0f9ff', width: 180 }}>Membres</th>
                     <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, color: '#475569', fontSize: 12, textTransform: 'uppercase', borderBottom: '2px solid #e2e8f0', background: '#f0f9ff', width: 120 }}>Échéance</th>
                     <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, color: '#475569', fontSize: 12, textTransform: 'uppercase', borderBottom: '2px solid #e2e8f0', background: '#f0f9ff', width: 110 }}>Statut</th>
+                    <th style={{ padding: '10px 12px', textAlign: 'center', fontWeight: 700, color: '#475569', fontSize: 12, textTransform: 'uppercase', borderBottom: '2px solid #e2e8f0', background: '#f0f9ff', width: 80 }}>Actions</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {hubTasks.map((t: any) => (
-                    <tr key={`hub_${t.id}`} style={{ borderBottom: '1px solid #f1f5f9', background: '#f0f9ff', borderLeft: '3px solid #3b82f6' }}>
-                      <td style={{ padding: '10px 12px', fontWeight: 600, color: '#1e293b' }}>
-                        <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                          {t.is_team_task && <span title="Tâche d'équipe"><Users size={13} style={{ color: '#2563eb', flexShrink: 0 }} /></span>}
-                          {t.description}
-                        </span>
-                      </td>
-                      <td style={{ padding: '10px 12px', color: '#475569' }}>{t.username || '—'}</td>
-                      <td style={{ padding: '10px 12px', color: '#64748b' }}>{t.echeance ? new Date(t.echeance).toLocaleDateString('fr-FR') : '—'}</td>
-                      <td style={{ padding: '10px 12px' }}>{statusBadge(t.statut || 'a_faire')}</td>
-                    </tr>
-                  ))}
+                  {deduplicatedHubTasks.map((t: any) => {
+                    const members: string[] = t._members || (t.username ? [t.username] : []);
+                    const isDone = ['terminé', 'terminee', 'terminée'].includes(t.statut);
+                    return (
+                      <tr key={`hub_${t.id}`} style={{ borderBottom: '1px solid #f1f5f9', background: isDone ? '#f0fdf4' : '#f0f9ff', borderLeft: `3px solid ${isDone ? '#22c55e' : '#3b82f6'}`, opacity: isDone ? 0.8 : 1 }}>
+                        <td style={{ padding: '10px 12px', fontWeight: 600, color: isDone ? '#94a3b8' : '#1e293b', textDecoration: isDone ? 'line-through' : 'none' }}>
+                          <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                            {t.is_team_task && <span title="Tâche d'équipe"><Users size={13} style={{ color: '#2563eb', flexShrink: 0 }} /></span>}
+                            {t.description}
+                          </span>
+                        </td>
+                        <td style={{ padding: '10px 12px' }}>
+                          {members.length > 1 ? (
+                            <span style={{ display: 'flex', flexWrap: 'wrap', gap: 3 }}>
+                              {members.map((m: string) => (
+                                <span key={m} style={{ fontSize: 10, background: '#eff6ff', color: '#1d4ed8', padding: '1px 7px', borderRadius: 10, fontWeight: 600 }}>{m}</span>
+                              ))}
+                            </span>
+                          ) : <span style={{ color: '#475569' }}>{members[0] || '—'}</span>}
+                        </td>
+                        <td style={{ padding: '10px 12px', color: '#64748b' }}>{t.echeance ? new Date(t.echeance).toLocaleDateString('fr-FR') : '—'}</td>
+                        <td style={{ padding: '10px 12px' }}>{statusBadge(t.statut || 'a_faire')}</td>
+                        <td style={{ padding: '10px 12px', textAlign: 'center' }}>
+                          <button
+                            onClick={() => cycleHubStatut(t)}
+                            title={`Passer à : ${HUB_CYCLE[(HUB_CYCLE.indexOf(t.statut || 'a_faire') + 1) % HUB_CYCLE.length]}`}
+                            style={{ background: 'none', border: 'none', cursor: 'pointer', color: hubActionColor(t.statut), padding: 4, verticalAlign: 'middle' }}
+                          >
+                            <CheckCircle2 size={18} />
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
