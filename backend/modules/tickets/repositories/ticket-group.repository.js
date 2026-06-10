@@ -83,6 +83,18 @@ module.exports = {
         await pgDb.run('DELETE FROM hub_tickets.ticket_groups WHERE id = $1', [groupId]);
     },
 
+    async getChefTicketId(groupId) {
+        const row = await pgDb.get(`
+            SELECT t.glpi_id
+            FROM hub_tickets.ticket_group_members m
+            JOIN hub_tickets.tickets t ON t.glpi_id = m.ticket_id
+            WHERE m.group_id = $1
+            ORDER BY t.date_creation DESC NULLS LAST
+            LIMIT 1
+        `, [groupId]);
+        return row?.glpi_id || null;
+    },
+
     async setProblemTicket(groupId, problemTicketId) {
         await pgDb.run(
             'UPDATE hub_tickets.ticket_groups SET problem_ticket_id = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2',

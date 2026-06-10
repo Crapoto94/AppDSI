@@ -266,7 +266,7 @@ export default function TicketList({
   const childIds = new Set<number>();
   const parentChildren = new Map<number, any[]>();
 
-  // Chaque groupe (bundle) n'affiche ses membres qu'une fois : par le ticket le plus petit id du groupe
+  // Chaque groupe (bundle) : chef = ticket le plus récemment créé (date_creation max)
   const bundleFirstTicket = new Map<number, number>();
 
   filteredTickets.forEach(t => {
@@ -276,21 +276,27 @@ export default function TicketList({
       t.linked_tickets.forEach((c: any) => childIds.add(c.ticket_id));
     }
 
-    // Groupe (bundle) : déterminer le plus petit id
+    // Groupe (bundle) : le chef est le ticket créé le plus récemment
     if (t.bundle?.members?.length > 0) {
-      const minInGroup = Math.min(t.id, ...t.bundle.members.map((m: any) => m.ticket_id));
-      const existing = bundleFirstTicket.get(t.bundle.id);
-      if (!existing || minInGroup < existing) {
-        bundleFirstTicket.set(t.bundle.id, minInGroup);
-      }
+      const allInGroup = [
+        { id: t.id, date_creation: t.date_creation },
+        ...t.bundle.members.map((m: any) => ({ id: m.ticket_id, date_creation: m.date_creation }))
+      ];
+      const chefId = allInGroup.reduce((best, cur) =>
+        new Date(cur.date_creation) > new Date(best.date_creation) ? cur : best
+      ).id;
+      bundleFirstTicket.set(t.bundle.id, chefId);
     }
   });
 
-  // Marquer comme enfant les membres non-premiers de chaque groupe
+  // Marquer comme enfant les membres non-premiers de chaque groupe,
+  // seulement si le ticket "premier" est aussi présent dans les résultats filtrés.
+  // Si le premier est absent (filtré ou sur une autre page), le membre s'affiche en standalone.
+  const filteredIdSet = new Set(filteredTickets.map(t => t.id));
   filteredTickets.forEach(t => {
     if (t.bundle?.members?.length > 0) {
       const firstId = bundleFirstTicket.get(t.bundle.id);
-      if (firstId && t.id !== firstId) {
+      if (firstId && t.id !== firstId && filteredIdSet.has(firstId)) {
         childIds.add(t.id);
       }
     }

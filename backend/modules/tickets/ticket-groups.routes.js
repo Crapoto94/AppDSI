@@ -35,6 +35,24 @@ router.post('/', authenticateJWT, async (req, res) => {
                     `Groupé dans "${groupName}" par ${actor}`, req.user.username);
             } catch (e) {}
         }
+        // Synchroniser tous les membres au statut du chef (ticket le plus récemment créé)
+        try {
+            const { pgDb } = require('../../shared/database');
+            const chefId = await groupRepo.getChefTicketId(groupId);
+            if (chefId) {
+                const chef = await pgDb.get('SELECT status FROM hub_tickets.tickets WHERE glpi_id = $1', [chefId]);
+                if (chef) {
+                    const chefStatus = parseInt(chef.status);
+                    for (const id of ticket_ids) {
+                        if (id === chefId) continue;
+                        try {
+                            await workflowService.changeStatus(id, chefStatus, null,
+                                `Synchronisation statut — chef de groupe #${chefId} ("${groupName}")`, req.user);
+                        } catch (e) { console.error(`[GROUP] status sync to #${id} failed:`, e.message); }
+                    }
+                }
+            }
+        } catch (e) { console.error('[GROUP] chef status sync on creation failed:', e.message); }
         res.status(201).json({ id: groupId, message: 'Groupe créé' });
     } catch (e) { res.status(400).json({ message: e.message }); }
 });
@@ -90,21 +108,34 @@ router.post('/:id/members', authenticateJWT, async (req, res) => {
                 `Ajouté au groupe "${group?.name}" par ${req.user.displayName || req.user.username}`, req.user.username);
         } catch (e) {}
 
-        // Synchroniser le statut du nouveau membre avec le statut dominant du groupe
+        // Synchroniser les statuts : tous vers celui du chef (ticket le plus récemment créé)
         try {
             const { pgDb } = require('../../shared/database');
-            const members = await pgDb.all(
-                'SELECT t.glpi_id, t.status FROM hub_tickets.ticket_group_members m JOIN hub_tickets.tickets t ON t.glpi_id = m.ticket_id WHERE m.group_id = $1 AND m.ticket_id != $2',
-                [groupId, parseInt(ticket_id)]
-            );
-            if (members.length > 0) {
-                const maxStatus = Math.max(...members.map(m => parseInt(m.status) || 1));
-                const newTicket = await pgDb.get('SELECT status FROM hub_tickets.tickets WHERE glpi_id = $1', [parseInt(ticket_id)]);
-                if (newTicket && parseInt(newTicket.status) < maxStatus) {
-                    await workflowService.changeStatus(parseInt(ticket_id), maxStatus, null, `Synchronisation statut groupe "${group?.name}"`, req.user);
+            const chefId = await groupRepo.getChefTicketId(groupId);
+            if (chefId) {
+                const chef = await pgDb.get('SELECT status FROM hub_tickets.tickets WHERE glpi_id = $1', [chefId]);
+                if (chef) {
+                    const chefStatus = parseInt(chef.status);
+                    if (chefId === parseInt(ticket_id)) {
+                        // Le nouveau membre est le chef → propager son statut aux autres
+                        const siblings = await groupRepo.getSiblingIds(parseInt(ticket_id));
+                        for (const sibId of siblings) {
+                            try {
+                                await workflowService.changeStatus(sibId, chefStatus, null,
+                                    `Synchronisation statut — nouveau chef de groupe #${chefId} ("${group?.name}")`, req.user);
+                            } catch (e) { console.error(`[GROUP] status sync to sibling #${sibId} failed:`, e.message); }
+                        }
+                    } else {
+                        // Le nouveau membre n'est pas le chef → l'aligner sur le chef
+                        const newTicket = await pgDb.get('SELECT status FROM hub_tickets.tickets WHERE glpi_id = $1', [parseInt(ticket_id)]);
+                        if (newTicket && parseInt(newTicket.status) !== chefStatus) {
+                            await workflowService.changeStatus(parseInt(ticket_id), chefStatus, null,
+                                `Synchronisation statut — chef de groupe #${chefId} ("${group?.name}")`, req.user);
+                        }
+                    }
                 }
             }
-        } catch (e) { console.error('[GROUP] status sync on add member failed:', e.message); }
+        } catch (e) { console.error('[GROUP] chef status sync on add member failed:', e.message); }
 
         res.json({ message: 'Ticket ajouté au groupe' });
     } catch (e) { res.status(400).json({ message: e.message }); }
