@@ -275,55 +275,6 @@ module.exports = {
                     UNION ALL
 
                     SELECT
-                        'projet'               AS source,
-                        pt.id,
-                        pt.projet_id           AS source_id,
-                        p.titre                AS source_title,
-                        pt.titre               AS description,
-                        pt.date_fin::text      AS echeance,
-                        CASE WHEN pt.statut IN ('terminee','terminée') THEN 'terminé' ELSE pt.statut END AS statut,
-                        pt.responsable_username AS responsable,
-                        pt.date_creation       AS created_at,
-                        NULL::text             AS updated_at,
-                        FALSE                  AS is_team_task,
-                        NULL                   AS team_group_id,
-                        NULL                   AS created_by,
-                        NULL                   AS refus_raison,
-                        NULL                   AS priority,
-                        FALSE                  AS is_public,
-                        (LOWER(COALESCE(pt.responsable_username,'')) = $1
-                         OR EXISTS (
-                           SELECT 1 FROM projets.projets p3
-                           WHERE p3.id = pt.projet_id
-                             AND (LOWER(COALESCE(p3.chef_projet_username,'')) = $1
-                                  OR LOWER(COALESCE(p3.responsable_dsi_username,'')) = $1)
-                         )
-                         OR EXISTS (
-                           SELECT 1 FROM projets.projet_roles pr3
-                           WHERE pr3.projet_id = pt.projet_id
-                             AND LOWER(pr3.username) = $1
-                             AND pr3.role = 'chef_projet'
-                         )) AS can_edit
-                    FROM projets.projet_taches pt
-                    JOIN projets.projets p ON pt.projet_id = p.id
-                    WHERE pt.statut NOT IN ('terminé','terminee','terminée')
-                      AND (LOWER(COALESCE(pt.responsable_username,'')) = $1
-                           OR EXISTS (
-                             SELECT 1 FROM projets.projets p4
-                             WHERE p4.id = pt.projet_id
-                               AND (LOWER(COALESCE(p4.chef_projet_username,'')) = $1
-                                    OR LOWER(COALESCE(p4.responsable_dsi_username,'')) = $1)
-                           )
-                           OR EXISTS (
-                             SELECT 1 FROM projets.projet_roles pr4
-                             WHERE pr4.projet_id = pt.projet_id
-                               AND LOWER(pr4.username) = $1
-                               AND pr4.role = 'chef_projet'
-                           ))
-
-                    UNION ALL
-
-                    SELECT
                         'projet_standalone'     AS source,
                         pts.id,
                         pts.projet_id           AS source_id,

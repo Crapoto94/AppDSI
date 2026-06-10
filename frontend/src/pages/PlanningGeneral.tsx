@@ -155,7 +155,7 @@ export default function PlanningGeneral() {
           </div>
         )}
         <div style={{ display: 'flex', gap: 16, marginTop: 12, fontSize: 12, color: '#64748b', flexWrap: 'wrap' }}>
-          <span><span style={{ display: 'inline-block', width: 12, height: 12, background: '#3b82f6', borderRadius: 3, verticalAlign: 'middle' }} /> Tâche en cours</span>
+          <span><span style={{ display: 'inline-block', width: 12, height: 12, background: '#3b82f6', borderRadius: 3, verticalAlign: 'middle' }} /> Activité en cours</span>
           <span><span style={{ display: 'inline-block', width: 12, height: 12, background: '#22c55e', borderRadius: 3, verticalAlign: 'middle' }} /> Terminée</span>
           <span><span style={{ display: 'inline-block', width: 11, height: 11, background: '#ea580c', transform: 'rotate(45deg)', verticalAlign: 'middle' }} /> Jalon</span>
           <span><span style={{ display: 'inline-block', width: 11, height: 11, background: '#dc2626', transform: 'rotate(45deg)', verticalAlign: 'middle' }} /> Jalon en retard</span>

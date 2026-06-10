@@ -1338,7 +1338,7 @@ const PlanningTab: React.FC<{ projetId: number; token: string | null }> = ({ pro
       )}
       {tachesEnRetard.length > 0 && (
         <div style={{ background: '#fef2f2', borderRadius: '10px', border: '1px solid #fecaca', padding: '12px 16px', marginBottom: '16px' }}>
-          <div style={{ fontSize: '13px', fontWeight: '700', color: '#dc2626' }}>⚠️ {tachesEnRetard.length} tâche(s) en retard</div>
+          <div style={{ fontSize: '13px', fontWeight: '700', color: '#dc2626' }}>⚠️ {tachesEnRetard.length} activité(s) en retard</div>
           {tachesEnRetard.slice(0, 5).map(t => (
             <div key={t.id} style={{ fontSize: '12px', color: '#991b1b' }}>• {t.titre} {t.date_fin ? `(fin: ${new Date(t.date_fin).toLocaleDateString('fr-FR')})` : t.date_debut ? `(début: ${new Date(t.date_debut).toLocaleDateString('fr-FR')})` : ''}</div>
           ))}
@@ -1363,7 +1363,7 @@ const PlanningTab: React.FC<{ projetId: number; token: string | null }> = ({ pro
 
       {/* Boutons */}
       <div style={{ display: 'flex', gap: '10px', marginBottom: '16px', flexWrap: 'wrap' }}>
-        <button onClick={() => setShowAddTache(!showAddTache)} style={{ padding: '8px 16px', background: '#2563eb', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: '700', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px' }}><Plus size={16} /> Tâche</button>
+        <button onClick={() => setShowAddTache(!showAddTache)} style={{ padding: '8px 16px', background: '#2563eb', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: '700', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px' }}><Plus size={16} /> Activité</button>
         <button onClick={() => setShowAddJalon(!showAddJalon)} style={{ padding: '8px 16px', background: '#f1f5f9', border: '1px solid #e2e8f0', borderRadius: '8px', cursor: 'pointer', fontWeight: '700', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px', color: '#475569' }}><Plus size={16} /> Jalon</button>
         <button onClick={() => setShowAddGroupe(!showAddGroupe)} style={{ padding: '8px 16px', background: '#f1f5f9', border: '1px solid #e2e8f0', borderRadius: '8px', cursor: 'pointer', fontWeight: '700', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px', color: '#475569' }}><Plus size={16} /> Groupe</button>
         <button onClick={() => setShowAddDep(!showAddDep)} style={{ padding: '8px 16px', background: '#f1f5f9', border: '1px solid #e2e8f0', borderRadius: '8px', cursor: 'pointer', fontWeight: '700', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px', color: '#475569' }}><Plus size={16} /> Dépendance</button>
@@ -1412,7 +1412,7 @@ const PlanningTab: React.FC<{ projetId: number; token: string | null }> = ({ pro
       {showAddDep && (
         <div style={{ background: 'white', borderRadius: '12px', border: '1px solid #e2e8f0', padding: '16px', marginBottom: '16px', display: 'flex', gap: '10px', alignItems: 'flex-end', flexWrap: 'wrap' }}>
           <select value={newDep.source_type} onChange={e => setNewDep({...newDep, source_type: e.target.value, source_id: ''})} style={{ padding: '7px 12px', borderRadius: '6px', border: '1px solid #e2e8f0', fontSize: '13px', background: 'white' }}>
-            <option value="tache">Tâche</option><option value="jalon">Jalon</option>
+            <option value="tache">Activité</option><option value="jalon">Jalon</option>
           </select>
           <select value={newDep.source_id} onChange={e => setNewDep({...newDep, source_id: e.target.value})} style={{ padding: '7px 12px', borderRadius: '6px', border: '1px solid #e2e8f0', fontSize: '13px', background: 'white', flex: 1 }}>
             <option value="">Qui dépend ?</option>
@@ -1422,7 +1422,7 @@ const PlanningTab: React.FC<{ projetId: number; token: string | null }> = ({ pro
           </select>
           <span style={{ fontSize: '13px', color: '#64748b' }}>dépend de</span>
           <select value={newDep.depend_type} onChange={e => setNewDep({...newDep, depend_type: e.target.value, depend_id: ''})} style={{ padding: '7px 12px', borderRadius: '6px', border: '1px solid #e2e8f0', fontSize: '13px', background: 'white' }}>
-            <option value="tache">Tâche</option><option value="jalon">Jalon</option>
+            <option value="tache">Activité</option><option value="jalon">Jalon</option>
           </select>
           <select value={newDep.depend_id} onChange={e => setNewDep({...newDep, depend_id: e.target.value})} style={{ padding: '7px 12px', borderRadius: '6px', border: '1px solid #e2e8f0', fontSize: '13px', background: 'white', flex: 1 }}>
             <option value="">De quoi ?</option>
@@ -1472,7 +1472,7 @@ const PlanningTab: React.FC<{ projetId: number; token: string | null }> = ({ pro
                       const depDeTache = dependances.filter(d => d.source_type === 'jalon' && d.source_id === j.id);
                       return (
                         <div key={j.id} style={{ position: 'absolute', left: `${toX(j.date_jalon)}px`, top: '3px', transform: 'translateX(-50%)', fontSize: '14px', zIndex: 2, display: 'flex', alignItems: 'center', gap: '2px', cursor: 'pointer' }}
-                          title={`${j.titre} (${new Date(j.date_jalon).toLocaleDateString('fr-FR')})${estEnRetard ? ' - EN RETARD!' : ''}${depVersTache.length ? ' - Lié à: ' + depVersTache.map(t => t!.titre).join(', ') : ''}${depDeTache.length ? ' - Dépend de tâche' : ''}`}>
+                          title={`${j.titre} (${new Date(j.date_jalon).toLocaleDateString('fr-FR')})${estEnRetard ? ' - EN RETARD!' : ''}${depVersTache.length ? ' - Lié à: ' + depVersTache.map(t => t!.titre).join(', ') : ''}${depDeTache.length ? ' - Dépend d'activité' : ''}`}>
                           {j.atteint ? '✅' : estEnRetard ? '🔴' : '📍'}
                           <span style={{ fontSize: '9px', color: estEnRetard ? '#dc2626' : '#6d28d9', fontWeight: '600', whiteSpace: 'nowrap', maxWidth: '80px', overflow: 'hidden', textOverflow: 'ellipsis' }}>{j.titre}</span>
                           {estEnRetard && <span style={{ fontSize: '8px', color: '#dc2626', fontWeight: '800' }}>⚠️</span>}
@@ -1549,7 +1549,7 @@ const PlanningTab: React.FC<{ projetId: number; token: string | null }> = ({ pro
                           if (!j) return null;
                           return (
                             <div key={d.id} style={{ position: 'absolute', left: `${toX(j.date_jalon)}px`, top: '0px', transform: 'translateX(-50%)', fontSize: '16px', zIndex: 3, cursor: 'pointer' }}
-                              title={`📍 ${j.titre} (lié à cette tâche)`}>{j.atteint ? '✅' : '📍'}</div>
+                              title={`📍 ${j.titre} (lié à cette activité)`}>{j.atteint ? '✅' : '📍'}</div>
                           );
                         })}
                         {/* Flèches de dépendance */}
@@ -1582,8 +1582,8 @@ const PlanningTab: React.FC<{ projetId: number; token: string | null }> = ({ pro
 
       {/* Liste tâches avec édition, dépendances et groupes */}
       <div style={{ background: 'white', borderRadius: '12px', border: '1px solid #e2e8f0', overflow: 'hidden', marginBottom: '16px' }}>
-        <div style={{ padding: '14px 18px', borderBottom: '1px solid #e2e8f0', fontWeight: '700', fontSize: '14px', color: '#64748b', textTransform: 'uppercase' }}>📋 Tâches ({taches.length})</div>
-        {taches.length === 0 ? (<p style={{ padding: '20px', color: '#94a3b8', fontSize: '13px', textAlign: 'center', margin: 0 }}>Aucune tâche</p>)
+        <div style={{ padding: '14px 18px', borderBottom: '1px solid #e2e8f0', fontWeight: '700', fontSize: '14px', color: '#64748b', textTransform: 'uppercase' }}>📋 Activités ({taches.length})</div>
+        {taches.length === 0 ? (<p style={{ padding: '20px', color: '#94a3b8', fontSize: '13px', textAlign: 'center', margin: 0 }}>Aucune activité</p>)
         : (() => {
           const sections: { label: string; couleur: string; tasks: typeof taches }[] = [];
           const sansGroupe = taches.filter(t => !t.groupe_id);
