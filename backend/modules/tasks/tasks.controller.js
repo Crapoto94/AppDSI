@@ -291,11 +291,35 @@ module.exports = {
                         NULL                   AS refus_raison,
                         NULL                   AS priority,
                         FALSE                  AS is_public,
-                        FALSE                  AS can_edit
+                        (LOWER(COALESCE(pt.responsable_username,'')) = $1
+                         OR EXISTS (
+                           SELECT 1 FROM projets.projets p3
+                           WHERE p3.id = pt.projet_id
+                             AND (LOWER(COALESCE(p3.chef_projet_username,'')) = $1
+                                  OR LOWER(COALESCE(p3.responsable_dsi_username,'')) = $1)
+                         )
+                         OR EXISTS (
+                           SELECT 1 FROM projets.projet_roles pr3
+                           WHERE pr3.projet_id = pt.projet_id
+                             AND LOWER(pr3.username) = $1
+                             AND pr3.role = 'chef_projet'
+                         )) AS can_edit
                     FROM projets.projet_taches pt
                     JOIN projets.projets p ON pt.projet_id = p.id
                     WHERE pt.statut NOT IN ('terminé','terminee','terminée')
-                      AND LOWER(pt.responsable_username) = $1
+                      AND (LOWER(COALESCE(pt.responsable_username,'')) = $1
+                           OR EXISTS (
+                             SELECT 1 FROM projets.projets p4
+                             WHERE p4.id = pt.projet_id
+                               AND (LOWER(COALESCE(p4.chef_projet_username,'')) = $1
+                                    OR LOWER(COALESCE(p4.responsable_dsi_username,'')) = $1)
+                           )
+                           OR EXISTS (
+                             SELECT 1 FROM projets.projet_roles pr4
+                             WHERE pr4.projet_id = pt.projet_id
+                               AND LOWER(pr4.username) = $1
+                               AND pr4.role = 'chef_projet'
+                           ))
 
                     UNION ALL
 
@@ -317,12 +341,38 @@ module.exports = {
                         NULL                    AS priority,
                         FALSE                   AS is_public,
                         (LOWER(COALESCE(pts.responsable_username, '')) = $1
-                         OR LOWER(COALESCE(pts.created_by_username, '')) = $1) AS can_edit
+                         OR LOWER(COALESCE(pts.created_by_username, '')) = $1
+                         OR LOWER(COALESCE(pts.responsable, '')) = $1
+                         OR EXISTS (
+                           SELECT 1 FROM projets.projets p5
+                           WHERE p5.id = pts.projet_id
+                             AND (LOWER(COALESCE(p5.chef_projet_username,'')) = $1
+                                  OR LOWER(COALESCE(p5.responsable_dsi_username,'')) = $1)
+                         )
+                         OR EXISTS (
+                           SELECT 1 FROM projets.projet_roles pr5
+                           WHERE pr5.projet_id = pts.projet_id
+                             AND LOWER(pr5.username) = $1
+                             AND pr5.role = 'chef_projet'
+                         )) AS can_edit
                     FROM projets.projet_taches_standalone pts
                     JOIN projets.projets p ON pts.projet_id = p.id
                     WHERE pts.statut NOT IN ('terminé','terminee','terminée')
-                      AND (LOWER(pts.responsable) = $1 OR LOWER(pts.responsable) = $2
-                           OR LOWER(COALESCE(pts.responsable_username, '')) = $1)
+                      AND (LOWER(pts.responsable) = $1
+                           OR LOWER(pts.responsable) = $2
+                           OR LOWER(COALESCE(pts.responsable_username, '')) = $1
+                           OR EXISTS (
+                             SELECT 1 FROM projets.projets p6
+                             WHERE p6.id = pts.projet_id
+                               AND (LOWER(COALESCE(p6.chef_projet_username,'')) = $1
+                                    OR LOWER(COALESCE(p6.responsable_dsi_username,'')) = $1)
+                           )
+                           OR EXISTS (
+                             SELECT 1 FROM projets.projet_roles pr6
+                             WHERE pr6.projet_id = pts.projet_id
+                               AND LOWER(pr6.username) = $1
+                               AND pr6.role = 'chef_projet'
+                           ))
 
                     UNION ALL
 

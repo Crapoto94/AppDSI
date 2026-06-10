@@ -2,7 +2,8 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useADSearch } from '../utils/useADSearch';
 import type { ADUser } from '../utils/useADSearch';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, FileText, MessageSquare, Calendar, BarChart3, Settings, Activity, Upload, UserPlus, ArrowRight, Plus, Trash2, CheckCircle2, ListChecks, X, Users, Pencil } from 'lucide-react';
+import { ArrowLeft, FileText, MessageSquare, Calendar, BarChart3, Settings, Activity, Upload, UserPlus, ArrowRight, Plus, Trash2, CheckCircle2, ListChecks, X, Users } from 'lucide-react';
+import { TaskTable } from '../components/TaskTable';
 import Header from '../components/Header';
 import CreateReunionModal from '../components/CreateReunionModal';
 import ReunionDetailModal from '../components/ReunionDetailModal';
@@ -98,7 +99,7 @@ const ProjetDetail: React.FC = () => {
   const usernameLower = (user?.username || '').toLowerCase();
   const isChefProjet = (projet?.chef_projet_username || '').toLowerCase() === usernameLower
     || (projet?.responsable_dsi_username || '').toLowerCase() === usernameLower
-    || (projet?.roles || []).some(r => (r.username || '').toLowerCase() === usernameLower && r.role === 'chef_projet');
+    || (projet?.roles || []).some(r => (r.username || '').toLowerCase() === usernameLower && (r.role || '').toLowerCase() === 'chef_projet');
   const peutVoirAdmin = isAdmin || isPMO || isChefProjet;
   const TABS = ALL_TABS.filter(t => {
     if (t.key === 'admin') return peutVoirAdmin;
@@ -2236,7 +2237,6 @@ const ReunionsTab: React.FC<{ projetId: number; token: string | null; onAjouterR
 };
 
 // ===== ONGLET TÂCHES =====
-const STATUT_CYCLE = ['a_faire', 'en_cours', 'terminee', 'refuse'];
 
 const TachesTab: React.FC<{ projetId: number; projetTitre?: string; token: string | null; onVoirReunion?: (id: number) => void; currentUsername?: string; isChefProjet?: boolean }> = ({ projetId, projetTitre, token, onVoirReunion, currentUsername, isChefProjet }) => {
   const [tasks, setTasks] = useState<any[]>([]);
@@ -2245,22 +2245,6 @@ const TachesTab: React.FC<{ projetId: number; projetTitre?: string; token: strin
   const [sortField, setSortField] = useState('tache');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
   const [showAddModal, setShowAddModal] = useState(false);
-  const taskAd = useADSearch(token);
-  const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
-  const [editForm, setEditForm] = useState({ tache: '', responsable: '', echeance: '', statut: 'a_faire' });
-  const [expandedNotesId, setExpandedNotesId] = useState<string | null>(null);
-  const [noteInput, setNoteInput] = useState('');
-  const [uploadingNote, setUploadingNote] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const [noteTaskRef, setNoteTaskRef] = useState<any>(null);
-
-  const canEdit = (t: any) => {
-    if (isChefProjet) return true;
-    if (t.source === 'standalone') {
-      return t.created_by_username === currentUsername || t.responsable_username === currentUsername;
-    }
-    return false;
-  };
 
   const loadTasks = useCallback(async () => {
     setLoading(true);
@@ -2287,120 +2271,14 @@ const TachesTab: React.FC<{ projetId: number; projetTitre?: string; token: strin
   const sortedTasks = [...tasks].sort((a, b) => {
     const aVal = (a[sortField] || '').toString().toLowerCase();
     const bVal = (b[sortField] || '').toString().toLowerCase();
-    const cmp = aVal.localeCompare(bVal);
-    return sortDir === 'asc' ? cmp : -cmp;
+    return sortDir === 'asc' ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal);
   });
 
-  const acquitter = async (task: any) => {
-    const idx = STATUT_CYCLE.indexOf(task.statut || 'a_faire');
-    const nouveauStatut = STATUT_CYCLE[(idx + 1) % STATUT_CYCLE.length];
-    try {
-      const r = await fetch(`/api/projets/${projetId}/taches-agregees/${task.id}`, {
-        method: 'PUT',
-        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ statut: nouveauStatut })
-      });
-      if (r.ok) loadTasks();
-    } catch {}
-  };
-
-  const supprimerTache = async (task: any) => {
-    if (!window.confirm(`Supprimer la tâche "${task.tache}" ?`)) return;
-    try {
-      const r = await fetch(`/api/projets/${projetId}/taches-agregees/${task.id}`, {
-        method: 'DELETE',
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      if (r.ok) loadTasks();
-      else { const err = await r.json(); alert(`Erreur : ${err.error}`); }
-    } catch {}
-  };
-
-  const ajouterNote = async (task: any) => {
-    if (!noteInput.trim()) return;
-    try {
-      const r = await fetch(`/api/projets/${projetId}/taches-agregees/${task.id}/notes`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content: noteInput, type: 'comment' })
-      });
-      if (r.ok) { setNoteInput(''); loadTasks(); }
-      else { const err = await r.json(); alert(`Erreur : ${err.error}`); }
-    } catch (e) { alert('Erreur réseau'); }
-  };
-
-  const triggerFileUpload = (task: any) => {
-    setNoteTaskRef(task);
-    fileInputRef.current?.click();
-  };
-
-  const uploadNoteFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file || !noteTaskRef) return;
-    setUploadingNote(true);
-    try {
-      const formData = new FormData();
-      formData.append('file', file);
-      const r = await fetch(`/api/projets/${projetId}/taches-agregees/${noteTaskRef.id}/notes/file`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}` },
-        body: formData
-      });
-      if (r.ok) loadTasks();
-      else { const err = await r.json(); alert(`Erreur : ${err.error}`); }
-    } catch (e) { alert('Erreur réseau'); }
-    finally { setUploadingNote(false); if (fileInputRef.current) fileInputRef.current.value = ''; }
-  };
-
-  const supprimerNote = async (task: any, noteIdx: number) => {
-    if (!window.confirm('Supprimer cette note ?')) return;
-    try {
-      const r = await fetch(`/api/projets/${projetId}/taches-agregees/${task.id}/notes/${noteIdx}`, {
-        method: 'DELETE',
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      if (r.ok) loadTasks();
-    } catch {}
-  };
-
-  const startEdit = (task: any) => {
-    setEditingTaskId(task.id);
-    setEditForm({ tache: task.tache || '', responsable: task.responsable || '', echeance: task.echeance || '', statut: task.statut || 'a_faire' });
-  };
-
-  const saveEdit = async () => {
-    if (!editingTaskId) return;
-    const tache = (editForm.tache || '').trim();
-    if (!tache) { alert('Le texte de la tâche est obligatoire'); return; }
-    try {
-      const body: Record<string, any> = { ...editForm, tache, echeance: editForm.echeance || null };
-      const r = await fetch(`/api/projets/${projetId}/taches-agregees/${editingTaskId}`, {
-        method: 'PUT',
-        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify(body)
-      });
-      if (r.ok) { setEditingTaskId(null); loadTasks(); }
-      else { const err = await r.json(); alert(`Erreur : ${err.error}`); }
-    } catch (e) { console.error(e); alert('Erreur réseau'); }
-  };
-
   const handleTaskCreated = (created: any) => {
-    // Hub tasks created via unified API
     const toAdd = Array.isArray(created) ? created : [created];
     setHubTasks(prev => [...prev, ...toAdd]);
     setShowAddModal(false);
   };
-
-  const sortIndicator = (field: string) => {
-    if (sortField !== field) return null;
-    return <span style={{ marginLeft: '4px' }}>{sortDir === 'asc' ? '▲' : '▼'}</span>;
-  };
-
-  const colBtn = (field: string, label: string) => (
-    <th onClick={() => handleSort(field)} style={{ padding: '10px 12px', textAlign: 'left', fontWeight: '700', color: '#475569', fontSize: '12px', textTransform: 'uppercase', cursor: 'pointer', userSelect: 'none', borderBottom: '2px solid #e2e8f0', background: '#f8fafc' }}>
-      {label} {sortIndicator(field)}
-    </th>
-  );
 
   const statusBadge = (statut: string) => {
     const cfg: Record<string, { bg: string; color: string; label: string }> = {
@@ -2414,16 +2292,6 @@ const TachesTab: React.FC<{ projetId: number; projetTitre?: string; token: strin
     return <span style={{ padding: '3px 10px', borderRadius: '10px', background: c.bg, color: c.color, fontWeight: '600', fontSize: '11px' }}>{c.label}</span>;
   };
 
-  const actionColor = (statut: string) => {
-    switch (statut) {
-      case 'a_faire': return '#64748b';
-      case 'en_cours': return '#1d4ed8';
-      case 'terminee': return '#16a34a';
-      case 'refuse': return '#dc2626';
-      default: return '#64748b';
-    }
-  };
-
   return (
     <div>
       <div style={{ marginBottom: '14px', display: 'flex', justifyContent: 'flex-end' }}>
@@ -2432,138 +2300,57 @@ const TachesTab: React.FC<{ projetId: number; projetTitre?: string; token: strin
         </button>
       </div>
 
-      {loading ? <p style={{ color: '#94a3b8', textAlign: 'center', padding: '40px' }}>Chargement...</p> : tasks.length === 0 && hubTasks.length === 0 ? (
+      {loading ? (
+        <p style={{ color: '#94a3b8', textAlign: 'center', padding: '40px' }}>Chargement...</p>
+      ) : tasks.length === 0 && hubTasks.length === 0 ? (
         <p style={{ color: '#94a3b8', textAlign: 'center', padding: '40px' }}>Aucune tâche pour ce projet</p>
       ) : (
-        <div style={{ border: '1px solid #e2e8f0', borderRadius: '10px', overflow: 'hidden' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
-            <thead>
-              <tr>
-                {colBtn('tache', 'Tâche')}
-                {colBtn('responsable', 'Responsable')}
-                {colBtn('echeance', 'Échéance')}
-                {colBtn('statut', 'Statut')}
-                <th style={{ padding: '10px 12px', textAlign: 'center', fontWeight: '700', color: '#475569', fontSize: '12px', textTransform: 'uppercase', borderBottom: '2px solid #e2e8f0', background: '#f8fafc', width: '120px' }}>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {sortedTasks.flatMap(t => {
-                const rows = [];
-                if (editingTaskId === t.id) {
-                  rows.push(
-                    <tr key={t.id} style={{ borderBottom: '1px solid #f1f5f9', background: '#fff7ed' }}>
-                      <td style={{ padding: '6px 8px' }}>
-                        <input type="text" style={{ width: '100%', padding: '6px 8px', border: '1px solid #cbd5e1', borderRadius: '4px', fontSize: '12px' }} value={editForm.tache} onChange={e => setEditForm(v => ({...v, tache: e.target.value}))} onKeyDown={e => { if (e.key === 'Enter') saveEdit(); if (e.key === 'Escape') setEditingTaskId(null); }} />
+        <>
+          <TaskTable
+            tasks={sortedTasks}
+            currentUsername={currentUsername}
+            isChefProjet={isChefProjet}
+            token={token}
+            projetId={projetId}
+            onReload={loadTasks}
+            onVoirReunion={onVoirReunion}
+            sortField={sortField}
+            sortDir={sortDir}
+            onSort={handleSort}
+          />
+
+          {hubTasks.length > 0 && (
+            <div style={{ marginTop: 16, border: '1px solid #e2e8f0', borderRadius: 10, overflow: 'hidden' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                <thead>
+                  <tr>
+                    <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, color: '#475569', fontSize: 12, textTransform: 'uppercase', borderBottom: '2px solid #e2e8f0', background: '#f0f9ff' }}>Tâche hub / équipe</th>
+                    <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, color: '#475569', fontSize: 12, textTransform: 'uppercase', borderBottom: '2px solid #e2e8f0', background: '#f0f9ff', width: 160 }}>Responsable</th>
+                    <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, color: '#475569', fontSize: 12, textTransform: 'uppercase', borderBottom: '2px solid #e2e8f0', background: '#f0f9ff', width: 120 }}>Échéance</th>
+                    <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, color: '#475569', fontSize: 12, textTransform: 'uppercase', borderBottom: '2px solid #e2e8f0', background: '#f0f9ff', width: 110 }}>Statut</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {hubTasks.map((t: any) => (
+                    <tr key={`hub_${t.id}`} style={{ borderBottom: '1px solid #f1f5f9', background: '#f0f9ff', borderLeft: '3px solid #3b82f6' }}>
+                      <td style={{ padding: '10px 12px', fontWeight: 600, color: '#1e293b' }}>
+                        <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          {t.is_team_task && <span title="Tâche d'équipe"><Users size={13} style={{ color: '#2563eb', flexShrink: 0 }} /></span>}
+                          {t.description}
+                        </span>
                       </td>
-                      <td style={{ padding: '6px 8px' }}>
-                        <input type="text" style={{ width: '100%', padding: '6px 8px', border: '1px solid #cbd5e1', borderRadius: '4px', fontSize: '12px' }} value={editForm.responsable} onChange={e => setEditForm(v => ({...v, responsable: e.target.value}))} onKeyDown={e => { if (e.key === 'Escape') setEditingTaskId(null); }} />
-                      </td>
-                      <td style={{ padding: '6px 8px' }}>
-                        <input type="date" style={{ width: '100%', padding: '6px 8px', border: '1px solid #cbd5e1', borderRadius: '4px', fontSize: '12px' }} value={editForm.echeance} onChange={e => setEditForm(v => ({...v, echeance: e.target.value}))} onKeyDown={e => { if (e.key === 'Escape') setEditingTaskId(null); }} />
-                      </td>
-                      <td style={{ padding: '6px 8px' }}>
-                        <select style={{ width: '100%', padding: '6px 8px', border: '1px solid #cbd5e1', borderRadius: '4px', fontSize: '12px' }} value={editForm.statut} onChange={e => setEditForm(v => ({...v, statut: e.target.value}))}>
-                          <option value="a_faire">À faire</option>
-                          <option value="en_cours">En cours</option>
-                          <option value="terminee">Terminée</option>
-                          <option value="refuse">Refusé</option>
-                          <option value="en_erreur">En erreur</option>
-                        </select>
-                      </td>
-                      <td style={{ padding: '6px 8px', textAlign: 'center', whiteSpace: 'nowrap' }}>
-                        <button onClick={saveEdit} style={{ padding: '4px 10px', background: '#2563eb', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: '600', fontSize: '11px', marginRight: '4px' }}>OK</button>
-                        <button onClick={() => setEditingTaskId(null)} style={{ padding: '4px 10px', background: '#f1f5f9', border: '1px solid #e2e8f0', borderRadius: '4px', cursor: 'pointer', fontWeight: '600', fontSize: '11px' }}>Annuler</button>
-                      </td>
-                    </tr>
-                  );
-                } else {
-                  rows.push(
-                    <tr key={t.id} style={{ borderBottom: expandedNotesId !== t.id ? '1px solid #f1f5f9' : 'none', background: t.statut === 'terminee' ? '#f0fdf4' : t.statut === 'refuse' ? '#fef2f2' : 'white' }}>
-                      <td style={{ padding: '10px 12px', fontWeight: '600', color: '#1e293b', textDecoration: t.statut === 'terminee' ? 'line-through' : 'none' }}>
-                        {t.source === 'reunion' && t.reunion_titre ? (
-                          <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                            <span style={{ fontSize: '14px', cursor: 'pointer' }} title={t.reunion_titre} onClick={() => onVoirReunion?.(t.reunion_id)}>📅</span>
-                            <span>{t.tache}</span>
-                          </span>
-                        ) : t.tache}
-                      </td>
-                      <td style={{ padding: '10px 12px', color: '#475569' }}>{t.responsable || '—'}</td>
+                      <td style={{ padding: '10px 12px', color: '#475569' }}>{t.username || '—'}</td>
                       <td style={{ padding: '10px 12px', color: '#64748b' }}>{t.echeance ? new Date(t.echeance).toLocaleDateString('fr-FR') : '—'}</td>
                       <td style={{ padding: '10px 12px' }}>{statusBadge(t.statut || 'a_faire')}</td>
-                      <td style={{ padding: '10px 12px', textAlign: 'center', whiteSpace: 'nowrap' }}>
-                        {canEdit(t) && (
-                          <button onClick={() => startEdit(t)} title="Modifier" style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#6366f1', padding: '4px' }}>
-                            <Pencil size={14} />
-                          </button>
-                        )}
-                        <button onClick={() => acquitter(t)} title={`Passer à ${STATUT_CYCLE[(STATUT_CYCLE.indexOf(t.statut || 'a_faire') + 1) % STATUT_CYCLE.length]}`} style={{ background: 'none', border: 'none', cursor: 'pointer', color: actionColor(t.statut || 'a_faire'), padding: '4px' }}>
-                          <CheckCircle2 size={20} />
-                        </button>
-                        <button onClick={() => setExpandedNotesId(expandedNotesId === t.id ? null : t.id)} title={`${(t.notes || []).length} note(s)`} style={{ background: (t.notes || []).length > 0 ? '#eff6ff' : 'transparent', border: (t.notes || []).length > 0 ? '1px solid #bfdbfe' : 'none', borderRadius: '4px', cursor: 'pointer', color: expandedNotesId === t.id ? '#2563eb' : (t.notes || []).length > 0 ? '#1d4ed8' : '#94a3b8', padding: '2px 6px', marginLeft: '2px', fontWeight: (t.notes || []).length > 0 ? '700' : '400', fontSize: '11px', lineHeight: '18px' }}>
-                          💬 {(t.notes || []).length || '+'}
-                        </button>
-                        {canEdit(t) && (
-                          <button onClick={() => supprimerTache(t)} title="Supprimer" style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ef4444', padding: '4px', marginLeft: '2px' }}>
-                            <Trash2 size={16} />
-                          </button>
-                        )}
-                      </td>
                     </tr>
-                  );
-                  if (expandedNotesId === t.id) {
-                    rows.push(
-                      <tr key={`${t.id}-notes`}>
-                        <td colSpan={5} style={{ padding: '4px 12px', borderBottom: '1px solid #f1f5f9', background: '#fafafa' }}>
-                            <div style={{ display: 'flex', flexDirection: 'column' }}>
-                            {(t.notes || []).map((n: any, ni: number) => (
-                              <div key={n.id || ni} style={{ display: 'flex', alignItems: 'center', gap: '4px', padding: '2px 0', fontSize: '11px', borderBottom: ni < t.notes.length - 1 ? '1px solid #f1f5f9' : 'none' }}>
-                                {n.type === 'file' ? (
-                                  <a href={`/api/projets/${projetId}/taches-agregees/${t.id}/notes/${ni}/file?mode=inline&token=${token}`} target="_blank" rel="noopener noreferrer" style={{ flex: 1, color: '#2563eb', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                                    <Upload size={10} /> {n.filename || n.content}
-                                  </a>
-                                ) : (
-                                  <span style={{ flex: 1, color: '#1e293b' }}>{n.content}</span>
-                                )}
-                                <span style={{ fontSize: '9px', color: '#94a3b8', whiteSpace: 'nowrap' }}>{n.created_at ? new Date(n.created_at).toLocaleDateString('fr-FR') : ''}</span>
-                                <button onClick={() => supprimerNote(t, ni)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ef4444', padding: '1px', lineHeight: 1 }} title="Supprimer">
-                                  <X size={10} />
-                                </button>
-                              </div>
-                            ))}
-                            <div style={{ display: 'flex', gap: '4px' }}>
-                              <input type="text" placeholder="Note..." style={{ flex: 1, padding: '4px 8px', border: '1px solid #cbd5e1', borderRadius: '4px', fontSize: '11px' }} value={noteInput} onChange={e => setNoteInput(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') ajouterNote(t); }} />
-                              <button onClick={() => ajouterNote(t)} style={{ padding: '4px 8px', background: '#2563eb', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: '600', fontSize: '10px', whiteSpace: 'nowrap' }}>Ajouter</button>
-                              <button onClick={() => triggerFileUpload(t)} disabled={uploadingNote} style={{ padding: '4px 8px', background: '#f1f5f9', color: '#475569', border: '1px solid #e2e8f0', borderRadius: '4px', cursor: 'pointer', fontWeight: '600', fontSize: '10px', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: '3px' }}>
-                                <Upload size={11} /> {uploadingNote ? '...' : 'Fichier'}
-                              </button>
-                            </div>
-                          </div>
-                          <input ref={fileInputRef} type="file" style={{ display: 'none' }} onChange={uploadNoteFile} />
-                        </td>
-                      </tr>
-                    );
-                  }
-                }
-                return rows;
-              })}
-              {hubTasks.map((t: any) => (
-                <tr key={`hub_${t.id}`} style={{ borderBottom: '1px solid #f1f5f9', background: '#f0f9ff', borderLeft: '3px solid #3b82f6' }}>
-                  <td style={{ padding: '10px 12px', fontWeight: '600', color: '#1e293b' }}>
-                    <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                      {t.is_team_task && <span title="Tâche d'équipe"><Users size={13} style={{ color: '#2563eb', flexShrink: 0 }} /></span>}
-                      {t.description}
-                    </span>
-                  </td>
-                  <td style={{ padding: '10px 12px', color: '#475569' }}>{t.username || '—'}</td>
-                  <td style={{ padding: '10px 12px', color: '#64748b' }}>{t.echeance ? new Date(t.echeance).toLocaleDateString('fr-FR') : '—'}</td>
-                  <td style={{ padding: '10px 12px' }}>{statusBadge(t.statut || 'a_faire')}</td>
-                  <td style={{ padding: '10px 12px', textAlign: 'center' }}>—</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </>
       )}
+
       <div style={{ marginTop: '8px', fontSize: '12px', color: '#94a3b8' }}>
         {tasks.filter(t => t.source === 'reunion').length > 0 && <span style={{ marginRight: '16px' }}>📅 {tasks.filter(t => t.source === 'reunion').length} tâche(s) issue(s) des réunions</span>}
         {tasks.filter(t => t.source === 'standalone').length > 0 && <span style={{ marginRight: '16px' }}>📝 {tasks.filter(t => t.source === 'standalone').length} tâche(s) ajoutée(s) manuellement</span>}
@@ -2571,7 +2358,6 @@ const TachesTab: React.FC<{ projetId: number; projetTitre?: string; token: strin
         {hubTasks.length > 0 && <span><Users size={11} style={{ verticalAlign: 'middle', marginRight: 3 }} />{hubTasks.length} tâche(s) hub / équipe</span>}
       </div>
 
-      {/* AddTaskModal */}
       {showAddModal && (
         <AddTaskModal
           token={token}
