@@ -22,7 +22,7 @@ import {
   Network,
   Check
 } from 'lucide-react';import { useNavigate } from 'react-router-dom';
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
+import { BarChart, Bar, Cell, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
 import Header from '../components/Header';
 
 interface Tier {
@@ -166,6 +166,7 @@ interface BillingLine {
   list_label: string;
   plan: string;
   is_mobile: boolean;
+  access_type: string | null;
   amt_subscriptions: number;
   amt_total: number;
   resiliation: string;
@@ -190,6 +191,7 @@ const TelecomManagement: React.FC = () => {
   const [billingTrend, setBillingTrend] = useState<{ month: string; total: number }[]>([]);
   const [billingLines, setBillingLines] = useState<BillingLine[]>([]);
   const [billingType, setBillingType] = useState<'all' | 'mobile' | 'fixe'>('all');
+  const [billingTechno, setBillingTechno] = useState('all');
   const [billingSearch, setBillingSearch] = useState('');
   const [importingBilling, setImportingBilling] = useState(false);
 
@@ -1340,7 +1342,8 @@ const TelecomManagement: React.FC = () => {
                 {/* Tendance 13 mois */}
                 {billingTrend.length > 0 && (
                   <div className="admin-card" style={{ padding: 18, marginBottom: 24 }}>
-                    <h3 style={{ margin: '0 0 14px', fontSize: '1rem', color: '#1e293b' }}>Évolution des dépenses (mensuel)</h3>
+                    <h3 style={{ margin: '0 0 4px', fontSize: '1rem', color: '#1e293b' }}>Évolution des dépenses (mensuel)</h3>
+                    <p style={{ margin: '0 0 12px', fontSize: '0.78rem', color: '#94a3b8' }}>Dépenses récurrentes — hors achats ponctuels d'équipement/terminaux</p>
                     <ResponsiveContainer width="100%" height={220}>
                       <BarChart data={billingTrend}>
                         <CartesianGrid strokeDasharray="3 3" vertical={false} />
@@ -1404,7 +1407,17 @@ const TelecomManagement: React.FC = () => {
                         <option value="fixe">Fixe / data</option>
                       </select>
                     </div>
-                    <div className="filter-group" style={{ flex: 1, minWidth: 240 }}>
+                    <div className="filter-group">
+                      <label>Techno</label>
+                      <select value={billingTechno} onChange={e => setBillingTechno(e.target.value)}>
+                        <option value="all">Toutes technos</option>
+                        <option value="Mobile">Mobile</option>
+                        {[...new Set(billingLines.filter(l => !l.is_mobile && l.access_type).map(l => l.access_type as string))].sort().map(t => (
+                          <option key={t} value={t}>{t}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="filter-group" style={{ flex: 1, minWidth: 220 }}>
                       <label>Rechercher</label>
                       <div className="search-input-wrapper-mini">
                         <Search size={14} />
@@ -1420,17 +1433,16 @@ const TelecomManagement: React.FC = () => {
                       <tr><th>Type</th><th>Numéro</th><th>N° Facture</th><th>Utilisateur</th><th>Site / Service</th><th>Forfait</th><th style={{ textAlign: 'right' }}>€/mois HT</th></tr>
                     </thead>
                     <tbody>
-                      {billingLines
-                        .filter(l => billingType === 'all' || (billingType === 'mobile' ? l.is_mobile : !l.is_mobile))
-                        .filter(l => {
-                          if (!billingSearch) return true;
-                          const q = billingSearch.toLowerCase();
-                          return [l.line_number, l.user_name, l.site_name, l.plan, l.list_label, l.invoice_number].some(v => (v || '').toLowerCase().includes(q));
-                        })
-                        .slice(0, 300)
-                        .map(l => (
+                      {(() => {
+                        const q = billingSearch.toLowerCase();
+                        const filtered = billingLines
+                          .filter(l => billingType === 'all' || (billingType === 'mobile' ? l.is_mobile : !l.is_mobile))
+                          .filter(l => billingTechno === 'all' || (billingTechno === 'Mobile' ? l.is_mobile : l.access_type === billingTechno))
+                          .filter(l => !q || [l.line_number, l.user_name, l.site_name, l.plan, l.list_label, l.invoice_number].some(v => (v || '').toLowerCase().includes(q)));
+                        if (filtered.length === 0) return <tr><td colSpan={7} style={{ textAlign: 'center', padding: 30, color: '#94a3b8' }}>Aucune ligne ne correspond aux filtres.</td></tr>;
+                        return filtered.slice(0, 300).map(l => (
                           <tr key={l.id}>
-                            <td><span className={`type-badge ${l.is_mobile ? 'mobile' : 'fixe'}`}>{l.is_mobile ? 'Mobile' : 'Fixe'}</span></td>
+                            <td><span className={`type-badge ${l.is_mobile ? 'mobile' : 'fixe'}`}>{l.is_mobile ? 'Mobile' : (l.access_type || 'Fixe')}</span></td>
                             <td><button className="ndi-link" onClick={() => openLineHistory(l.line_number)} title="Voir la facturation sur 12 mois">{l.line_number}</button></td>
                             <td style={{ fontFamily: 'monospace', fontSize: '0.8rem', color: '#64748b' }}>{l.invoice_number || <span style={{ color: '#cbd5e1' }}>—</span>}</td>
                             <td>{l.user_name || <span style={{ color: '#cbd5e1' }}>—</span>}</td>
@@ -1438,14 +1450,10 @@ const TelecomManagement: React.FC = () => {
                             <td style={{ fontSize: '0.82rem' }}>{l.plan}</td>
                             <td style={{ textAlign: 'right', fontWeight: 700 }}>{(l.amt_total || 0).toLocaleString('fr-FR')} €</td>
                           </tr>
-                        ))}
+                        ));
+                      })()}
                     </tbody>
                   </table>
-                  {billingLines.length > 300 && (
-                    <div style={{ padding: 12, textAlign: 'center', color: '#94a3b8', fontSize: '0.8rem' }}>
-                      Affichage limité aux 300 premières lignes — affinez la recherche.
-                    </div>
-                  )}
                 </div>
               </>
             )}
@@ -1652,7 +1660,19 @@ const TelecomManagement: React.FC = () => {
                   Aucune facturation trouvée pour ce numéro.<br />
                   <span style={{ fontSize: '0.8rem' }}>Importez les exports mensuels pour construire l'historique sur 12 mois.</span>
                 </div>
-              ) : (
+              ) : (() => {
+                const SPIKE = 0.20; // seuil d'alerte de hausse mensuelle (+20%)
+                const hist = lineHistory.history; // ordre chronologique (ancien → récent)
+                const pctByPeriod: Record<string, number> = {};
+                for (let i = 1; i < hist.length; i++) {
+                  const prev = hist[i - 1].amt_total;
+                  if (prev > 0) {
+                    const pct = (hist[i].amt_total - prev) / prev;
+                    if (pct > SPIKE) pctByPeriod[hist[i].period] = pct;
+                  }
+                }
+                const spikes = hist.filter((h: any) => pctByPeriod[h.period] != null);
+                return (
                 <>
                   <div style={{ display: 'flex', gap: 12, marginBottom: 18 }}>
                     {[
@@ -1671,6 +1691,11 @@ const TelecomManagement: React.FC = () => {
                       ⚠ Résiliation renseignée : {lineHistory.resiliation}
                     </div>
                   )}
+                  {spikes.length > 0 && (
+                    <div style={{ background: '#fef2f2', border: '1px solid #fecaca', color: '#b91c1c', padding: '8px 12px', borderRadius: 8, fontSize: '0.82rem', marginBottom: 16 }}>
+                      ⚠ Hausse {'>'} 20 % détectée : {spikes.map((h: any) => `${new Date(h.period).toLocaleDateString('fr-FR', { month: 'short', year: '2-digit' })} (+${Math.round(pctByPeriod[h.period] * 100)} %)`).join(', ')}
+                    </div>
+                  )}
                   <ResponsiveContainer width="100%" height={200}>
                     <BarChart data={lineHistory.history}>
                       <CartesianGrid strokeDasharray="3 3" vertical={false} />
@@ -1680,7 +1705,11 @@ const TelecomManagement: React.FC = () => {
                         labelFormatter={(v) => new Date(v).toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' })}
                         formatter={(val, name) => [`${Number(val).toLocaleString('fr-FR')} €`, name === 'amt_total' ? 'Total' : name]}
                       />
-                      <Bar dataKey="amt_total" fill="#0078a4" radius={[4, 4, 0, 0]} />
+                      <Bar dataKey="amt_total" radius={[4, 4, 0, 0]}>
+                        {lineHistory.history.map((h: any, i: number) => (
+                          <Cell key={i} fill={pctByPeriod[h.period] != null ? '#ef4444' : '#0078a4'} />
+                        ))}
+                      </Bar>
                     </BarChart>
                   </ResponsiveContainer>
                   <table className="commitments-table" style={{ marginTop: 16 }}>
@@ -1696,13 +1725,19 @@ const TelecomManagement: React.FC = () => {
                           <td style={{ textAlign: 'right' }}>{h.amt_subscriptions.toLocaleString('fr-FR')} €</td>
                           <td style={{ textAlign: 'right' }}>{h.amt_conso.toLocaleString('fr-FR')} €</td>
                           <td style={{ textAlign: 'right', color: '#059669' }}>{h.amt_discounts.toLocaleString('fr-FR')} €</td>
-                          <td style={{ textAlign: 'right', fontWeight: 700 }}>{h.amt_total.toLocaleString('fr-FR')} €</td>
+                          <td style={{ textAlign: 'right', fontWeight: 700 }}>
+                            {h.amt_total.toLocaleString('fr-FR')} €
+                            {pctByPeriod[h.period] != null && (
+                              <span title={`+${Math.round(pctByPeriod[h.period] * 100)} % vs mois précédent`} style={{ marginLeft: 6, color: '#ef4444', fontWeight: 700, fontSize: '0.78rem' }}>▲ +{Math.round(pctByPeriod[h.period] * 100)}%</span>
+                            )}
+                          </td>
                         </tr>
                       ))}
                     </tbody>
                   </table>
                 </>
-              )}
+                );
+              })()}
             </div>
           </div>
         </div>

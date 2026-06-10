@@ -672,9 +672,13 @@ module.exports = {
                 where.push(`(LOWER(line_number) LIKE $${i} OR LOWER(user_name) LIKE $${i} OR LOWER(site_name) LIKE $${i} OR LOWER(plan) LIKE $${i} OR LOWER(list_label) LIKE $${i})`);
             }
             const r = await pool.query(`
-                SELECT * FROM hub_telecom.line_billing
+                SELECT lb.*,
+                       (SELECT ln.access_type FROM hub_telecom.lines ln
+                          WHERE regexp_replace(ln.ndi, '\\D', '', 'g') = regexp_replace(lb.line_number, '\\D', '', 'g')
+                          LIMIT 1) AS access_type
+                FROM hub_telecom.line_billing lb
                 WHERE ${where.join(' AND ')}
-                ORDER BY amt_total DESC`, params);
+                ORDER BY lb.amt_total DESC`, params);
             res.json(r.rows);
         } catch (error) {
             res.status(500).json({ message: 'Erreur détail facturation', error: error.message });
@@ -768,9 +772,12 @@ module.exports = {
     // Tendance 13 mois (totaux par mois, et par catégorie)
     getBillingTrend: async (req, res) => {
         try {
+            // Exclut « Vos autres prestations » = achats ponctuels d'équipement/terminaux
+            // (non récurrents, ex. 10 250 € de terminaux mobiles en sept. 2025)
             const r = await pool.query(`
                 SELECT month, SUM(amount) AS total
                 FROM hub_telecom.billing_trend
+                WHERE category <> 'Vos autres prestations'
                 GROUP BY month ORDER BY month`);
             res.json(r.rows.map(x => ({ month: x.month, total: Math.round(parseFloat(x.total) * 100) / 100 })));
         } catch (error) {
@@ -783,13 +790,22 @@ module.exports = {
         try {
             const digits = String(req.params.number || '').replace(/\D/g, '');
             if (!digits) return res.status(400).json({ message: 'Numéro invalide' });
+            // Regroupement par mois : un même numéro peut être facturé sur plusieurs
+            // comptes (CF) le même mois → on agrège pour n'avoir qu'un point par mois.
             const { rows } = await pool.query(`
-                SELECT period, invoice_number, invoice_date, cf_id, cf_label, site_name, list_label,
-                       is_mobile, plan, user_name, resiliation, amt_subscriptions, amt_other,
-                       amt_discounts, amt_voix_fixe, amt_voix_mobile, amt_data_fixe, amt_data_mobile,
-                       amt_conso_autre, amt_contenu, amt_total, conso_voix, conso_data
+                SELECT period,
+                       string_agg(DISTINCT NULLIF(invoice_number, ''), ', ') AS invoice_number,
+                       MAX(invoice_date) AS invoice_date,
+                       MAX(cf_label) AS cf_label, MAX(site_name) AS site_name,
+                       MAX(list_label) AS list_label, bool_or(is_mobile) AS is_mobile,
+                       MAX(plan) AS plan, MAX(user_name) AS user_name, MAX(resiliation) AS resiliation,
+                       SUM(amt_subscriptions) AS amt_subscriptions, SUM(amt_other) AS amt_other,
+                       SUM(amt_discounts) AS amt_discounts,
+                       SUM(amt_voix_fixe + amt_voix_mobile + amt_data_fixe + amt_data_mobile + amt_conso_autre) AS amt_conso,
+                       SUM(amt_total) AS amt_total, SUM(conso_voix) AS conso_voix, SUM(conso_data) AS conso_data
                 FROM hub_telecom.line_billing
                 WHERE regexp_replace(line_number, '\\D', '', 'g') = $1
+                GROUP BY period
                 ORDER BY period DESC
                 LIMIT 12
             `, [digits]);
@@ -804,7 +820,7 @@ module.exports = {
                 cf_label: r.cf_label,
                 plan: r.plan,
                 amt_subscriptions: n(r.amt_subscriptions),
-                amt_conso: n(r.amt_voix_fixe) + n(r.amt_voix_mobile) + n(r.amt_data_fixe) + n(r.amt_data_mobile) + n(r.amt_conso_autre),
+                amt_conso: n(r.amt_conso),
                 amt_discounts: n(r.amt_discounts),
                 amt_other: n(r.amt_other),
                 amt_total: n(r.amt_total),
