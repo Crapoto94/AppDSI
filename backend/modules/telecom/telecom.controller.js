@@ -2,6 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const pdf = require('pdf-parse');
 const XLSX = require('xlsx');
+const AdmZip = require('adm-zip');
 const { parseSfrZip } = require('./telecom.sfr-parser');
 const { pgDb, pool } = require('../../shared/database');
 const storage = require('../../shared/storage');
@@ -843,6 +844,84 @@ module.exports = {
         } catch (error) {
             console.error('[Telecom] getLineHistory error:', error);
             res.status(500).json({ message: 'Erreur historique ligne', error: error.message });
+        }
+    },
+
+    // Import d'un ZIP de PDF de factures (duplicatas opérateur) → stockage GED.
+    // Le n° de facture est déduit du nom de fichier (ex. 9A0039442837_DUPLICATA.pdf).
+    importBillingInvoices: async (req, res) => {
+        if (!req.file) return res.status(400).json({ message: 'Aucun fichier fourni' });
+        try {
+            const walk = (buf, pdfs = []) => {
+                const zip = new AdmZip(buf);
+                for (const entry of zip.getEntries()) {
+                    if (entry.isDirectory) continue;
+                    const name = entry.entryName.split('/').pop();
+                    const data = entry.getData();
+                    if (/\.zip$/i.test(name)) walk(data, pdfs);
+                    else if (/\.pdf$/i.test(name)) pdfs.push({ name, data });
+                }
+                return pdfs;
+            };
+            const pdfs = walk(req.file.buffer);
+            let imported = 0, updated = 0, skipped = 0;
+            const docsService = require('../../shared/documents.service');
+
+            for (const pdf of pdfs) {
+                // N° de facture = nom de fichier sans suffixe _DUPLICATA / extension
+                const invoiceNumber = pdf.name
+                    .replace(/\.pdf$/i, '')
+                    .replace(/[_-]?duplicata.*$/i, '')
+                    .trim();
+                if (!invoiceNumber) { skipped++; continue; }
+
+                const file = { buffer: pdf.data, originalname: storage.fixUploadName(pdf.name), mimetype: 'application/pdf', size: pdf.data.length };
+                const saved = await storage.saveFile(MODULE, invoiceNumber, file);
+
+                // Remplace le fichier précédent éventuel (ré-import idempotent)
+                const existing = await pgDb.get('SELECT file_path FROM hub_telecom.invoice_files WHERE invoice_number = ?', [invoiceNumber]);
+                if (existing && existing.file_path && existing.file_path !== saved.dbPath && storage.isStoragePath(existing.file_path)) {
+                    await storage.deleteFile(existing.file_path).catch(() => {});
+                }
+                const r = await pool.query(`
+                    INSERT INTO hub_telecom.invoice_files (invoice_number, file_path, filename, original_name, size)
+                    VALUES ($1,$2,$3,$4,$5)
+                    ON CONFLICT (invoice_number) DO UPDATE SET
+                      file_path=$2, filename=$3, original_name=$4, size=$5, imported_at=NOW()
+                    RETURNING (xmax = 0) AS inserted
+                `, [invoiceNumber, saved.dbPath, saved.filename, file.originalname, file.size]);
+                if (r.rows[0] && r.rows[0].inserted) imported++; else updated++;
+
+                try {
+                    await docsService.registerExternalUpload({
+                        module: MODULE, entityType: 'invoice_pdf', entityId: invoiceNumber,
+                        title: `Facture ${invoiceNumber}`, filename: saved.filename,
+                        originalName: file.originalname, mimetype: file.mimetype, size: file.size,
+                        storageRef: saved.dbPath, metadata: { invoice_number: invoiceNumber },
+                        uploadedBy: req.user?.username || null,
+                    });
+                } catch (e) { console.warn('[DOCS] register invoice pdf failed:', e.message); }
+            }
+
+            res.json({
+                message: `Factures importées : ${imported} ajoutée(s), ${updated} remplacée(s), ${skipped} ignorée(s).`,
+                imported, updated, skipped, total: pdfs.length,
+            });
+        } catch (error) {
+            console.error('[Telecom] importBillingInvoices error:', error);
+            res.status(500).json({ message: 'Erreur import factures PDF', error: error.message });
+        }
+    },
+
+    // Mapping n° de facture → chemin du PDF (pour rendre les numéros cliquables)
+    getInvoiceFiles: async (req, res) => {
+        try {
+            const { rows } = await pool.query('SELECT invoice_number, file_path FROM hub_telecom.invoice_files');
+            const map = {};
+            for (const r of rows) map[r.invoice_number] = r.file_path;
+            res.json(map);
+        } catch (error) {
+            res.status(500).json({ message: 'Erreur fichiers factures', error: error.message });
         }
     },
 

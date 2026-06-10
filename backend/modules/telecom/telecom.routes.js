@@ -39,6 +39,10 @@ router.get('/billing/lines', authenticateJWT, telecomController.getBillingLines)
 router.get('/billing/reconciliation', authenticateJWT, telecomController.getReconciliation);
 router.get('/billing/line/:number', authenticateJWT, telecomController.getLineHistory);
 
+// PDF des factures (duplicatas) stockés en GED, indexés par n° de facture
+router.post('/billing/invoices/import', authenticateAdmin, upload.single('file'), telecomController.importBillingInvoices);
+router.get('/billing/invoice-files', authenticateJWT, telecomController.getInvoiceFiles);
+
 // Invoices
 router.get('/invoices', authenticateJWT, telecomController.getInvoices);
 router.post('/invoices/upload', authenticateJWT, upload.single('file'), telecomController.uploadInvoice);

@@ -194,6 +194,8 @@ const TelecomManagement: React.FC = () => {
   const [billingTechno, setBillingTechno] = useState('all');
   const [billingSearch, setBillingSearch] = useState('');
   const [importingBilling, setImportingBilling] = useState(false);
+  const [invoiceFiles, setInvoiceFiles] = useState<Record<string, string>>({});
+  const [importingInvoices, setImportingInvoices] = useState(false);
 
   // Optimisation (rapprochement inventaire ↔ facturation)
   const [reconciliation, setReconciliation] = useState<Reconciliation | null>(null);
@@ -278,9 +280,62 @@ const TelecomManagement: React.FC = () => {
 
       const invRes = await fetch('/api/telecom/invoices', { headers: { 'Authorization': `Bearer ${token}` } });
       if (invRes.ok) setTelecomInvoices(await invRes.json());
+
+      const ifRes = await fetch('/api/telecom/billing/invoice-files', { headers: { 'Authorization': `Bearer ${token}` } });
+      if (ifRes.ok) setInvoiceFiles(await ifRes.json());
     } catch (e) {
       console.error(e);
     }
+  };
+
+  const fetchInvoiceFiles = async () => {
+    try {
+      const res = await fetch('/api/telecom/billing/invoice-files', { headers: { 'Authorization': `Bearer ${token}` } });
+      if (res.ok) setInvoiceFiles(await res.json());
+    } catch (e) { console.error(e); }
+  };
+
+  const handleImportInvoices = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setImportingInvoices(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      const res = await fetch('/api/telecom/billing/invoices/import', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` },
+        body: formData,
+      });
+      const data = await res.json();
+      if (res.ok) {
+        alert(`Factures PDF importées\n\n${data.imported} ajoutée(s), ${data.updated} remplacée(s) sur ${data.total} PDF`);
+        await fetchInvoiceFiles();
+      } else {
+        alert('Erreur : ' + (data.message || 'inconnue'));
+      }
+    } catch (err) {
+      alert("Erreur lors de l'import des factures");
+    } finally {
+      setImportingInvoices(false);
+      e.target.value = '';
+    }
+  };
+
+  // Rendu d'un n° de facture : cliquable (ouvre le PDF GED) si disponible
+  const renderInvoiceNumber = (num: string | null | undefined) => {
+    if (!num) return <span style={{ color: '#cbd5e1' }}>—</span>;
+    return <>{String(num).split(/,\s*/).map((nm, i) => {
+      const path = invoiceFiles[nm];
+      return (
+        <React.Fragment key={nm}>
+          {i > 0 && ', '}
+          {path
+            ? <a href={`/api/${path}`} target="_blank" rel="noopener noreferrer" className="ndi-link" title="Voir le PDF de la facture">{nm}</a>
+            : <span>{nm}</span>}
+        </React.Fragment>
+      );
+    })}</>;
   };
 
   const fetchLines = async () => {
@@ -1306,11 +1361,16 @@ const TelecomManagement: React.FC = () => {
                   Import de l'export de facturation opérateur (ZIP SFR){billingStats?.period ? ` — période ${new Date(billingStats.period).toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' })}` : ''}
                 </span>
               </div>
-              <div className="action-group">
+              <div className="action-group" style={{ display: 'flex', gap: 8 }}>
                 <input type="file" id="import-telecom-billing" style={{ display: 'none' }} accept=".zip" onChange={handleImportBilling} />
                 <button className="add-btn" disabled={importingBilling}
                   onClick={() => document.getElementById('import-telecom-billing')?.click()}>
                   <Upload size={18} /> {importingBilling ? 'Import en cours…' : 'Importer facturation (ZIP)'}
+                </button>
+                <input type="file" id="import-telecom-invoices" style={{ display: 'none' }} accept=".zip" onChange={handleImportInvoices} />
+                <button className="add-btn" style={{ background: '#475569' }} disabled={importingInvoices}
+                  onClick={() => document.getElementById('import-telecom-invoices')?.click()}>
+                  <FileText size={18} /> {importingInvoices ? 'Import en cours…' : 'Importer factures PDF (ZIP)'}
                 </button>
               </div>
             </div>
@@ -1444,7 +1504,7 @@ const TelecomManagement: React.FC = () => {
                           <tr key={l.id}>
                             <td><span className={`type-badge ${l.is_mobile ? 'mobile' : 'fixe'}`}>{l.is_mobile ? 'Mobile' : (l.access_type || 'Fixe')}</span></td>
                             <td><button className="ndi-link" onClick={() => openLineHistory(l.line_number)} title="Voir la facturation sur 12 mois">{l.line_number}</button></td>
-                            <td style={{ fontFamily: 'monospace', fontSize: '0.8rem', color: '#64748b' }}>{l.invoice_number || <span style={{ color: '#cbd5e1' }}>—</span>}</td>
+                            <td style={{ fontFamily: 'monospace', fontSize: '0.8rem', color: '#64748b' }}>{renderInvoiceNumber(l.invoice_number)}</td>
                             <td>{l.user_name || <span style={{ color: '#cbd5e1' }}>—</span>}</td>
                             <td style={{ color: '#64748b' }}>{l.site_name}{l.list_label ? <span style={{ fontSize: '0.72rem', color: '#94a3b8' }}> · {l.list_label}</span> : ''}</td>
                             <td style={{ fontSize: '0.82rem' }}>{l.plan}</td>
@@ -1720,7 +1780,7 @@ const TelecomManagement: React.FC = () => {
                       {lineHistory.history.slice().reverse().map((h: any, i: number) => (
                         <tr key={i}>
                           <td style={{ fontWeight: 600 }}>{new Date(h.period).toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' })}</td>
-                          <td style={{ fontFamily: 'monospace', fontSize: '0.78rem', color: '#64748b' }}>{h.invoice_number || <span style={{ color: '#cbd5e1' }}>—</span>}</td>
+                          <td style={{ fontFamily: 'monospace', fontSize: '0.78rem', color: '#64748b' }}>{renderInvoiceNumber(h.invoice_number)}</td>
                           <td style={{ fontSize: '0.8rem', color: '#64748b' }}>{h.plan || h.cf_label}</td>
                           <td style={{ textAlign: 'right' }}>{h.amt_subscriptions.toLocaleString('fr-FR')} €</td>
                           <td style={{ textAlign: 'right' }}>{h.amt_conso.toLocaleString('fr-FR')} €</td>

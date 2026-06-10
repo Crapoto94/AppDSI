@@ -5178,6 +5178,18 @@ async function setupPgDb() {
           UNIQUE(category, sub_category, offer, month)
         )
       `);
+      // PDF des factures (duplicatas opérateur) stockés en GED, indexés par n° de facture
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS hub_telecom.invoice_files (
+          id             SERIAL PRIMARY KEY,
+          invoice_number TEXT UNIQUE,
+          file_path      TEXT,           -- dbPath GED : storage/telecom/<num>/<fichier>
+          filename       TEXT,
+          original_name  TEXT,
+          size           BIGINT,
+          imported_at    TIMESTAMPTZ DEFAULT NOW()
+        )
+      `);
     } catch (e) { console.error('[PG DB] hub_telecom:', e.message); }
 
     // ─── Contract Renewals (RH module) ─────────────────────────────────
