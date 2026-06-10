@@ -136,7 +136,7 @@ interface BillingStats {
   totalDiscounts: number;
   dormant: number;
   dormantCost: number;
-  dormantList: { line_number: string; user_name: string; plan: string; list_label: string; amt_total: number }[];
+  dormantList: { line_number: string; user_name: string; plan: string; list_label: string; amt_total: number; monthsWithoutConso: number }[];
   annualEstimate: number;
   topLines: { line_number: string; user_name: string; site_name: string; plan: string; is_mobile: boolean; amt_total: number }[];
   byPlan: Record<string, number>;
@@ -190,6 +190,8 @@ const TelecomManagement: React.FC = () => {
 
   // Optimisation (rapprochement inventaire ↔ facturation)
   const [reconciliation, setReconciliation] = useState<Reconciliation | null>(null);
+  const [dormantPage, setDormantPage] = useState(0);
+  const DORMANT_PAGE_SIZE = 20;
 
   // Fiche historique d'une ligne (12 mois glissants)
   const [lineHistory, setLineHistory] = useState<any>(null);
@@ -1481,26 +1483,53 @@ const TelecomManagement: React.FC = () => {
                 )}
 
                 {/* Mobiles dormantes */}
-                {billingStats.dormantList && billingStats.dormantList.length > 0 && (
+                {billingStats.dormantList && billingStats.dormantList.length > 0 && (() => {
+                  const totalPages = Math.ceil(billingStats.dormantList.length / DORMANT_PAGE_SIZE);
+                  const page = Math.min(dormantPage, totalPages - 1);
+                  const start = page * DORMANT_PAGE_SIZE;
+                  const slice = billingStats.dormantList.slice(start, start + DORMANT_PAGE_SIZE);
+                  return (
                   <div className="admin-card" style={{ padding: 18, marginBottom: 20, borderLeft: '4px solid #ef4444' }}>
                     <h3 style={{ margin: '0 0 4px', fontSize: '1rem', color: '#1e293b' }}>📱 Lignes mobiles dormantes ({billingStats.dormant})</h3>
-                    <p style={{ fontSize: '0.8rem', color: '#64748b', margin: '0 0 12px' }}>Facturées mais <strong>aucune consommation</strong> (ni voix ni data) sur la période. Candidates à résiliation ou mise en veille. Top 30 par coût.</p>
+                    <p style={{ fontSize: '0.8rem', color: '#64748b', margin: '0 0 12px' }}>Facturées mais <strong>aucune consommation</strong> (ni voix ni data). Candidates à résiliation ou mise en veille — triées par ancienneté de dormance.</p>
                     <table className="commitments-table">
-                      <thead><tr><th>Numéro</th><th>Utilisateur</th><th>Service</th><th>Forfait</th><th style={{ textAlign: 'right' }}>€/mois</th></tr></thead>
+                      <thead><tr><th>Numéro</th><th>Utilisateur</th><th>Service</th><th>Forfait</th><th style={{ textAlign: 'center' }}>Mois sans conso</th><th style={{ textAlign: 'right' }}>€/mois</th></tr></thead>
                       <tbody>
-                        {billingStats.dormantList.slice(0, 30).map((l, i) => (
-                          <tr key={i}>
+                        {slice.map((l, i) => (
+                          <tr key={start + i}>
                             <td><button className="ndi-link" onClick={() => openLineHistory(l.line_number)} title="Voir la facturation sur 12 mois">{l.line_number}</button></td>
                             <td>{l.user_name || <span style={{ color: '#cbd5e1' }}>—</span>}</td>
                             <td style={{ fontSize: '0.8rem', color: '#64748b' }}>{l.list_label}</td>
                             <td style={{ fontSize: '0.8rem' }}>{l.plan}</td>
+                            <td style={{ textAlign: 'center' }}>
+                              <span style={{
+                                display: 'inline-block', minWidth: 24, padding: '2px 8px', borderRadius: 9999, fontWeight: 700, fontSize: '0.78rem',
+                                background: l.monthsWithoutConso >= 3 ? '#fef2f2' : l.monthsWithoutConso === 2 ? '#fff7ed' : '#f1f5f9',
+                                color: l.monthsWithoutConso >= 3 ? '#dc2626' : l.monthsWithoutConso === 2 ? '#d97706' : '#64748b',
+                              }} title={`Dormante depuis ${l.monthsWithoutConso} mois consécutif(s)`}>
+                                {l.monthsWithoutConso}
+                              </span>
+                            </td>
                             <td style={{ textAlign: 'right', fontWeight: 700 }}>{l.amt_total.toLocaleString('fr-FR')} €</td>
                           </tr>
                         ))}
                       </tbody>
                     </table>
+                    {totalPages > 1 && (
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 12 }}>
+                        <span style={{ fontSize: '0.8rem', color: '#64748b' }}>
+                          {start + 1}–{Math.min(start + DORMANT_PAGE_SIZE, billingStats.dormantList.length)} sur {billingStats.dormantList.length}
+                        </span>
+                        <div style={{ display: 'flex', gap: 6 }}>
+                          <button className="page-btn" disabled={page === 0} onClick={() => setDormantPage(page - 1)}>Précédent</button>
+                          <span style={{ fontSize: '0.82rem', color: '#475569', alignSelf: 'center', padding: '0 8px' }}>{page + 1} / {totalPages}</span>
+                          <button className="page-btn" disabled={page >= totalPages - 1} onClick={() => setDormantPage(page + 1)}>Suivant</button>
+                        </div>
+                      </div>
+                    )}
                   </div>
-                )}
+                  );
+                })()}
 
                 {/* Hors inventaire + non facturées */}
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
@@ -1689,6 +1718,9 @@ const TelecomManagement: React.FC = () => {
         .telecom-container { min-height: 100vh; background: #f8fafc; }
         .telecom-main { max-width: 1200px; margin: 0 auto; padding: 40px 20px; }
 
+        .page-btn { background: white; border: 1px solid #e2e8f0; padding: 6px 14px; border-radius: 8px; font-size: 0.82rem; font-weight: 600; color: #475569; cursor: pointer; }
+        .page-btn:hover:not(:disabled) { background: #f1f5f9; }
+        .page-btn:disabled { opacity: 0.5; cursor: not-allowed; }
         .ndi-link { background: none; border: none; padding: 0; font-family: monospace; font-weight: 700; color: #0078a4; cursor: pointer; text-decoration: underline; text-underline-offset: 2px; font-size: inherit; }
         .ndi-link:hover { color: #005d80; }
         .line-history-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 1100; display: flex; align-items: center; justify-content: center; padding: 30px; }

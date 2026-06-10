@@ -690,6 +690,28 @@ module.exports = {
             const { rows } = await pool.query(`SELECT * FROM hub_telecom.line_billing WHERE ${periodClause}`, params);
 
             const n = (v) => parseFloat(v) || 0;
+
+            // Nombre de mois consécutifs sans conso (voix+data) par numéro mobile,
+            // en partant du mois le plus récent (= depuis combien de mois la ligne est dormante)
+            const mobRows = (await pool.query(`
+                SELECT regexp_replace(line_number, '\\D', '', 'g') AS num, period,
+                       SUM(conso_voix) AS v, SUM(conso_data) AS d
+                FROM hub_telecom.line_billing
+                WHERE is_mobile
+                GROUP BY num, period
+                ORDER BY num, period DESC
+            `)).rows;
+            const streakByNum = {};
+            {
+                const byNum = {};
+                for (const r of mobRows) (byNum[r.num] = byNum[r.num] || []).push(n(r.v) + n(r.d));
+                for (const num in byNum) {
+                    let c = 0;
+                    for (const conso of byNum[num]) { if (conso === 0) c++; else break; }
+                    streakByNum[num] = c;
+                }
+            }
+
             const stats = {
                 period: rows[0] ? rows[0].period : null,
                 totalLines: rows.length,
@@ -718,7 +740,7 @@ module.exports = {
                 if (r.is_mobile && tot > 0 && n(r.conso_voix) === 0 && n(r.conso_data) === 0) {
                     stats.dormant++;
                     stats.dormantCost += tot;
-                    stats.dormantList.push({ line_number: r.line_number, user_name: r.user_name, plan: r.plan, list_label: r.list_label, amt_total: tot });
+                    stats.dormantList.push({ line_number: r.line_number, user_name: r.user_name, plan: r.plan, list_label: r.list_label, amt_total: tot, monthsWithoutConso: streakByNum[String(r.line_number).replace(/\D/g, '')] || 1 });
                 }
                 if (r.is_mobile && r.plan) stats.byPlan[r.plan] = (stats.byPlan[r.plan] || 0) + 1;
                 const site = r.site_name || '(inconnu)';
@@ -732,7 +754,7 @@ module.exports = {
                 .sort((a, b) => b.amt_total - a.amt_total).slice(0, 15);
             stats.bySite = Object.entries(stats.bySite).map(([k, v]) => ({ site: k, amount: Math.round(v * 100) / 100 })).sort((a, b) => b.amount - a.amount).slice(0, 10);
             stats.byList = Object.entries(stats.byList).map(([k, v]) => ({ list: k, amount: Math.round(v * 100) / 100 })).sort((a, b) => b.amount - a.amount).slice(0, 12);
-            stats.dormantList.sort((a, b) => b.amt_total - a.amt_total);
+            stats.dormantList.sort((a, b) => (b.monthsWithoutConso - a.monthsWithoutConso) || (b.amt_total - a.amt_total));
             stats.annualEstimate = Math.round(stats.totalHT * 12 * 100) / 100;
             stats.dormantCost = Math.round(stats.dormantCost * 100) / 100;
             ['totalHT', 'totalMobile', 'totalFixe', 'totalSubscriptions', 'totalConso', 'totalDiscounts'].forEach(k => stats[k] = Math.round(stats[k] * 100) / 100);
