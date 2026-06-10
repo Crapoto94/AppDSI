@@ -42,6 +42,7 @@ interface Task {
   is_favorite?: boolean;
   priority?: string;
   is_public?: boolean;
+  can_edit?: boolean;
 }
 
 interface AssignedAssignee {
@@ -1232,7 +1233,7 @@ const MesTaches: React.FC = () => {
                         </button>
 
                         {/* Public/Privé (tâches que j'ai créées) */}
-                        {task.source === 'personal' && task.created_by && task.created_by.toLowerCase() === currentUsername.toLowerCase() && (
+                        {task.source === 'personal' && task.can_edit && (
                           <button
                             onClick={() => togglePublic(task)}
                             title={task.is_public ? 'Rendre privée' : 'Rendre publique'}
@@ -1242,8 +1243,8 @@ const MesTaches: React.FC = () => {
                           </button>
                         )}
 
-                        {/* Modifier (tâches que j'ai créées) */}
-                        {task.created_by && task.created_by.toLowerCase() === currentUsername.toLowerCase() && (
+                        {/* Modifier */}
+                        {task.can_edit && (
                           <button
                             onClick={() => setEditData({ id: task.id, description: task.description, echeance: (task.echeance || '').slice(0, 10), priority: task.priority || 'normale', is_public: !!task.is_public, isTeam: !!task.is_team_task })}
                             title="Modifier"

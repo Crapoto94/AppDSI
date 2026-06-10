@@ -95,7 +95,10 @@ const ProjetDetail: React.FC = () => {
 
   const isAdmin = isSuperAdmin(user);
   const isPMO = user?.est_pmo || isAdminLike(user);
-  const isChefProjet = projet?.chef_projet_username === user?.username || projet?.responsable_dsi_username === user?.username || (projet?.roles || []).some(r => r.username === user?.username && r.role === 'chef_projet');
+  const usernameLower = (user?.username || '').toLowerCase();
+  const isChefProjet = (projet?.chef_projet_username || '').toLowerCase() === usernameLower
+    || (projet?.responsable_dsi_username || '').toLowerCase() === usernameLower
+    || (projet?.roles || []).some(r => (r.username || '').toLowerCase() === usernameLower && r.role === 'chef_projet');
   const peutVoirAdmin = isAdmin || isPMO || isChefProjet;
   const TABS = ALL_TABS.filter(t => {
     if (t.key === 'admin') return peutVoirAdmin;

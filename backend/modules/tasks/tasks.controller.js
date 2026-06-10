@@ -210,7 +210,8 @@ module.exports = {
                         ut.created_by,
                         ut.refus_raison,
                         ut.priority,
-                        ut.is_public
+                        ut.is_public,
+                        (LOWER(COALESCE(ut.created_by, '')) = $1) AS can_edit
                     FROM hub.user_tasks ut
                     WHERE LOWER(ut.username) = $1
 
@@ -232,7 +233,8 @@ module.exports = {
                         ut.created_by,
                         ut.refus_raison,
                         ut.priority,
-                        ut.is_public
+                        ut.is_public,
+                        (LOWER(COALESCE(ut.created_by, '')) = $1) AS can_edit
                     FROM hub.user_tasks ut
                     WHERE ut.is_public = true
                       AND LOWER(ut.username) != $1
@@ -263,7 +265,8 @@ module.exports = {
                         NULL          AS created_by,
                         NULL          AS refus_raison,
                         NULL          AS priority,
-                        FALSE         AS is_public
+                        FALSE         AS is_public,
+                        FALSE         AS can_edit
                     FROM transcript.tasks t
                     JOIN transcript.meetings m ON t.meeting_id = m.id
                     WHERE t.is_completed = 0
@@ -287,7 +290,8 @@ module.exports = {
                         NULL                   AS created_by,
                         NULL                   AS refus_raison,
                         NULL                   AS priority,
-                        FALSE                  AS is_public
+                        FALSE                  AS is_public,
+                        FALSE                  AS can_edit
                     FROM projets.projet_taches pt
                     JOIN projets.projets p ON pt.projet_id = p.id
                     WHERE pt.statut NOT IN ('terminé','terminee','terminée')
@@ -308,10 +312,12 @@ module.exports = {
                         NULL::text              AS updated_at,
                         FALSE                   AS is_team_task,
                         NULL                    AS team_group_id,
-                        NULL                    AS created_by,
+                        COALESCE(pts.created_by_username, '') AS created_by,
                         NULL                    AS refus_raison,
                         NULL                    AS priority,
-                        FALSE                   AS is_public
+                        FALSE                   AS is_public,
+                        (LOWER(COALESCE(pts.responsable_username, '')) = $1
+                         OR LOWER(COALESCE(pts.created_by_username, '')) = $1) AS can_edit
                     FROM projets.projet_taches_standalone pts
                     JOIN projets.projets p ON pts.projet_id = p.id
                     WHERE pts.statut NOT IN ('terminé','terminee','terminée')
@@ -336,7 +342,8 @@ module.exports = {
                         NULL                   AS created_by,
                         NULL                   AS refus_raison,
                         NULL                   AS priority,
-                        FALSE                  AS is_public
+                        FALSE                  AS is_public,
+                        FALSE                  AS can_edit
                     FROM hub_rencontres.rencontres_suivi rs
                     JOIN hub_rencontres.rencontres_budgetaires rb ON rs.rencontre_id = rb.id
                     WHERE rs.statut NOT IN ('terminé', 'done')
@@ -360,7 +367,8 @@ module.exports = {
                         NULL                 AS created_by,
                         NULL                 AS refus_raison,
                         NULL                 AS priority,
-                        FALSE                AS is_public
+                        FALSE                AS is_public,
+                        FALSE                AS can_edit
                     FROM hub_rencontres.revue_taches rt
                     JOIN hub_rencontres.revues rv ON rt.revue_id = rv.id
                     WHERE rt.statut != 'terminé'
@@ -384,7 +392,8 @@ module.exports = {
                         NULL                 AS created_by,
                         NULL                 AS refus_raison,
                         NULL                 AS priority,
-                        FALSE                AS is_public
+                        FALSE                AS is_public,
+                        FALSE                AS can_edit
                     FROM hub_rencontres.rencontres_reunions r
                     CROSS JOIN LATERAL json_array_elements(
                         CASE WHEN r.liste_taches IS NOT NULL AND r.liste_taches NOT IN ('', '[]')
@@ -849,10 +858,46 @@ module.exports = {
         const { description, echeance, priority, is_public } = req.body;
         const username = req.user.username;
         try {
+            // Essai dans hub.user_tasks d'abord
             const { rows } = await pool.query(
                 'SELECT created_by, team_group_id FROM hub.user_tasks WHERE id = $1', [id]
             );
-            if (rows.length === 0) return res.status(404).json({ error: 'Tâche introuvable' });
+
+            // Si non trouvé dans user_tasks, essayer projet_taches_standalone
+            if (rows.length === 0) {
+                const { rows: ptRows } = await pool.query(
+                    'SELECT id, projet_id, created_by_username, responsable_username FROM projets.projet_taches_standalone WHERE id = $1',
+                    [id]
+                );
+                if (ptRows.length === 0) return res.status(404).json({ error: 'Tâche introuvable' });
+                const pt = ptRows[0];
+                const un = username.toLowerCase();
+                const canEdit = (pt.created_by_username || '').toLowerCase() === un
+                    || (pt.responsable_username || '').toLowerCase() === un;
+                // Vérifier aussi si chef de projet
+                if (!canEdit) {
+                    const { rows: chefRows } = await pool.query(
+                        `SELECT 1 FROM projets.projets
+                         WHERE id = $1 AND (LOWER(chef_projet_username) = $2 OR LOWER(responsable_dsi_username) = $2)
+                         UNION ALL
+                         SELECT 1 FROM projets.projet_roles
+                         WHERE projet_id = $1 AND LOWER(username) = $2 AND role = 'chef_projet'
+                         LIMIT 1`,
+                        [pt.projet_id, un]
+                    );
+                    if (chefRows.length === 0) return res.status(403).json({ error: 'Permission refusée' });
+                }
+                const sets = [];
+                const params = [];
+                let i = 1;
+                if (description !== undefined && String(description).trim()) { sets.push(`tache = $${i++}`); params.push(String(description).trim()); }
+                if (echeance !== undefined) { sets.push(`echeance = $${i++}`); params.push(echeance || null); }
+                if (sets.length === 0) return res.json({ success: true, updated: 0 });
+                params.push(parseInt(id, 10));
+                await pool.query(`UPDATE projets.projet_taches_standalone SET ${sets.join(', ')} WHERE id = $${i}`, params);
+                return res.json({ success: true });
+            }
+
             const task = rows[0];
             if ((task.created_by || '').toLowerCase() !== username.toLowerCase()) {
                 return res.status(403).json({ error: 'Seul le créateur peut modifier cette tâche' });
