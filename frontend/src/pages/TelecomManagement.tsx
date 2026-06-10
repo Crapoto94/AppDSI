@@ -180,6 +180,9 @@ const TelecomManagement: React.FC = () => {
   const [linesStats, setLinesStats] = useState<LinesStats | null>(null);
   const [lineCategory, setLineCategory] = useState<'all' | 'fixe' | 'internet'>('all');
   const [lineSearch, setLineSearch] = useState('');
+  const [lineAccessType, setLineAccessType] = useState('all');
+  const [linePage, setLinePage] = useState(0);
+  const LINE_PAGE_SIZE = 25;
   const [importingLines, setImportingLines] = useState(false);
 
   // Coûts & mobile (facturation SFR)
@@ -1188,17 +1191,26 @@ const TelecomManagement: React.FC = () => {
               <div style={{ display: 'flex', gap: 16, alignItems: 'flex-end', flexWrap: 'wrap' }}>
                 <div className="filter-group">
                   <label>Catégorie</label>
-                  <select value={lineCategory} onChange={e => setLineCategory(e.target.value as any)}>
+                  <select value={lineCategory} onChange={e => { setLineCategory(e.target.value as any); setLinePage(0); }}>
                     <option value="all">Toutes</option>
                     <option value="fixe">Téléphonie fixe</option>
                     <option value="internet">Accès internet</option>
                   </select>
                 </div>
-                <div className="filter-group" style={{ flex: 1, minWidth: 240 }}>
+                <div className="filter-group">
+                  <label>Type d'accès</label>
+                  <select value={lineAccessType} onChange={e => { setLineAccessType(e.target.value); setLinePage(0); }}>
+                    <option value="all">Tous les types</option>
+                    {[...new Set(lines.map(l => l.access_type).filter(Boolean))].sort().map(t => (
+                      <option key={t} value={t}>{t}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="filter-group" style={{ flex: 1, minWidth: 220 }}>
                   <label>Rechercher</label>
                   <div className="search-input-wrapper-mini">
                     <Search size={14} />
-                    <input type="text" placeholder="Site, MID, NDI, compte, adresse…" value={lineSearch} onChange={e => setLineSearch(e.target.value)} />
+                    <input type="text" placeholder="Site, MID, NDI, compte, adresse…" value={lineSearch} onChange={e => { setLineSearch(e.target.value); setLinePage(0); }} />
                   </div>
                 </div>
               </div>
@@ -1218,14 +1230,23 @@ const TelecomManagement: React.FC = () => {
                   </tr>
                 </thead>
                 <tbody>
-                  {lines
-                    .filter(l => lineCategory === 'all' || l.category === lineCategory)
-                    .filter(l => {
-                      if (!lineSearch) return true;
-                      const q = lineSearch.toLowerCase();
-                      return [l.site_name, l.mid, l.ndi, l.billing_account, l.address].some(v => (v || '').toLowerCase().includes(q));
-                    })
-                    .map(l => (
+                  {(() => {
+                    const q = lineSearch.toLowerCase();
+                    const filtered = lines
+                      .filter(l => lineCategory === 'all' || l.category === lineCategory)
+                      .filter(l => lineAccessType === 'all' || l.access_type === lineAccessType)
+                      .filter(l => !q || [l.site_name, l.mid, l.ndi, l.billing_account, l.address].some(v => (v || '').toLowerCase().includes(q)));
+                    const totalPages = Math.max(1, Math.ceil(filtered.length / LINE_PAGE_SIZE));
+                    const page = Math.min(linePage, totalPages - 1);
+                    const slice = filtered.slice(page * LINE_PAGE_SIZE, page * LINE_PAGE_SIZE + LINE_PAGE_SIZE);
+                    if (filtered.length === 0) {
+                      return (
+                        <tr><td colSpan={7} style={{ textAlign: 'center', padding: '40px', color: '#64748b' }}>
+                          {lines.length === 0 ? 'Aucune ligne importée. Cliquez sur « Importer » pour charger un fichier Excel opérateur.' : 'Aucune ligne ne correspond aux filtres.'}
+                        </td></tr>
+                      );
+                    }
+                    return slice.map(l => (
                       <tr key={l.id}>
                         <td>
                           <span className={`type-badge ${l.category === 'fixe' ? 'fixe' : 'internet'}`}>
@@ -1244,14 +1265,32 @@ const TelecomManagement: React.FC = () => {
                           <span className={`status-tag ${/en service/i.test(l.status) ? 'imported' : 'pending'}`}>{l.status}</span>
                         </td>
                       </tr>
-                    ))}
-                  {lines.length === 0 && (
-                    <tr><td colSpan={7} style={{ textAlign: 'center', padding: '40px', color: '#64748b' }}>
-                      Aucune ligne importée. Cliquez sur « Importer » pour charger un fichier Excel opérateur.
-                    </td></tr>
-                  )}
+                    ));
+                  })()}
                 </tbody>
               </table>
+              {(() => {
+                const q = lineSearch.toLowerCase();
+                const filtered = lines
+                  .filter(l => lineCategory === 'all' || l.category === lineCategory)
+                  .filter(l => lineAccessType === 'all' || l.access_type === lineAccessType)
+                  .filter(l => !q || [l.site_name, l.mid, l.ndi, l.billing_account, l.address].some(v => (v || '').toLowerCase().includes(q)));
+                const totalPages = Math.max(1, Math.ceil(filtered.length / LINE_PAGE_SIZE));
+                const page = Math.min(linePage, totalPages - 1);
+                if (totalPages <= 1) return null;
+                return (
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', borderTop: '1px solid #f1f5f9' }}>
+                    <span style={{ fontSize: '0.8rem', color: '#64748b' }}>
+                      {page * LINE_PAGE_SIZE + 1}–{Math.min(page * LINE_PAGE_SIZE + LINE_PAGE_SIZE, filtered.length)} sur {filtered.length}
+                    </span>
+                    <div style={{ display: 'flex', gap: 6 }}>
+                      <button className="page-btn" disabled={page === 0} onClick={() => setLinePage(page - 1)}>Précédent</button>
+                      <span style={{ fontSize: '0.82rem', color: '#475569', alignSelf: 'center', padding: '0 8px' }}>{page + 1} / {totalPages}</span>
+                      <button className="page-btn" disabled={page >= totalPages - 1} onClick={() => setLinePage(page + 1)}>Suivant</button>
+                    </div>
+                  </div>
+                );
+              })()}
             </div>
           </div>
         )}
