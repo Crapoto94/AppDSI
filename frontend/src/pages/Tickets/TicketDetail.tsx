@@ -642,10 +642,8 @@ export default function TicketDetail() {
         if (user?.username) {
           await axios.post(`/api/tickets/${id}/assign`, { technician_username: user.username }, { headers: { Authorization: `Bearer ${token}` } });
         }
-        // Ne change le statut que si différent (évite 3→3 refusé par le backend)
-        if (ticket.status?.id !== 3) {
-          await doChangeStatus(3);
-        }
+        // L'assign service gère déjà la transition de statut (<=2 → 3),
+        // pas besoin d'un second appel changeStatus qui provoquerait une transition 3→3 refusée.
         loadTicket();
       } catch (err: any) {
         console.error('[STATUS_CHANGE]', err.response?.status, err.response?.data, err.message);
