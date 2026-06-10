@@ -784,10 +784,10 @@ module.exports = {
             const digits = String(req.params.number || '').replace(/\D/g, '');
             if (!digits) return res.status(400).json({ message: 'Numéro invalide' });
             const { rows } = await pool.query(`
-                SELECT period, cf_id, cf_label, site_name, list_label, is_mobile, plan, user_name,
-                       resiliation, amt_subscriptions, amt_other, amt_discounts, amt_voix_fixe,
-                       amt_voix_mobile, amt_data_fixe, amt_data_mobile, amt_conso_autre, amt_contenu,
-                       amt_total, conso_voix, conso_data
+                SELECT period, invoice_number, invoice_date, cf_id, cf_label, site_name, list_label,
+                       is_mobile, plan, user_name, resiliation, amt_subscriptions, amt_other,
+                       amt_discounts, amt_voix_fixe, amt_voix_mobile, amt_data_fixe, amt_data_mobile,
+                       amt_conso_autre, amt_contenu, amt_total, conso_voix, conso_data
                 FROM hub_telecom.line_billing
                 WHERE regexp_replace(line_number, '\\D', '', 'g') = $1
                 ORDER BY period DESC
@@ -799,6 +799,8 @@ module.exports = {
             const n = (v) => parseFloat(v) || 0;
             const history = rows.slice().reverse().map(r => ({
                 period: r.period,
+                invoice_number: r.invoice_number,
+                invoice_date: r.invoice_date,
                 cf_label: r.cf_label,
                 plan: r.plan,
                 amt_subscriptions: n(r.amt_subscriptions),

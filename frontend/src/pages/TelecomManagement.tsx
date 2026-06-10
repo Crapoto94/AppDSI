@@ -159,6 +159,8 @@ interface Reconciliation {
 interface BillingLine {
   id: number;
   line_number: string;
+  invoice_number: string;
+  invoice_date: string;
   user_name: string;
   site_name: string;
   list_label: string;
@@ -1375,7 +1377,7 @@ const TelecomManagement: React.FC = () => {
                 <div className="admin-card">
                   <table className="commitments-table">
                     <thead>
-                      <tr><th>Type</th><th>Numéro</th><th>Utilisateur</th><th>Site / Service</th><th>Forfait</th><th style={{ textAlign: 'right' }}>€/mois HT</th></tr>
+                      <tr><th>Type</th><th>Numéro</th><th>N° Facture</th><th>Utilisateur</th><th>Site / Service</th><th>Forfait</th><th style={{ textAlign: 'right' }}>€/mois HT</th></tr>
                     </thead>
                     <tbody>
                       {billingLines
@@ -1383,13 +1385,14 @@ const TelecomManagement: React.FC = () => {
                         .filter(l => {
                           if (!billingSearch) return true;
                           const q = billingSearch.toLowerCase();
-                          return [l.line_number, l.user_name, l.site_name, l.plan, l.list_label].some(v => (v || '').toLowerCase().includes(q));
+                          return [l.line_number, l.user_name, l.site_name, l.plan, l.list_label, l.invoice_number].some(v => (v || '').toLowerCase().includes(q));
                         })
                         .slice(0, 300)
                         .map(l => (
                           <tr key={l.id}>
                             <td><span className={`type-badge ${l.is_mobile ? 'mobile' : 'fixe'}`}>{l.is_mobile ? 'Mobile' : 'Fixe'}</span></td>
                             <td><button className="ndi-link" onClick={() => openLineHistory(l.line_number)} title="Voir la facturation sur 12 mois">{l.line_number}</button></td>
+                            <td style={{ fontFamily: 'monospace', fontSize: '0.8rem', color: '#64748b' }}>{l.invoice_number || <span style={{ color: '#cbd5e1' }}>—</span>}</td>
                             <td>{l.user_name || <span style={{ color: '#cbd5e1' }}>—</span>}</td>
                             <td style={{ color: '#64748b' }}>{l.site_name}{l.list_label ? <span style={{ fontSize: '0.72rem', color: '#94a3b8' }}> · {l.list_label}</span> : ''}</td>
                             <td style={{ fontSize: '0.82rem' }}>{l.plan}</td>
@@ -1625,12 +1628,13 @@ const TelecomManagement: React.FC = () => {
                   </ResponsiveContainer>
                   <table className="commitments-table" style={{ marginTop: 16 }}>
                     <thead>
-                      <tr><th>Mois</th><th>Forfait</th><th style={{ textAlign: 'right' }}>Abonnement</th><th style={{ textAlign: 'right' }}>Conso</th><th style={{ textAlign: 'right' }}>Remises</th><th style={{ textAlign: 'right' }}>Total HT</th></tr>
+                      <tr><th>Mois</th><th>N° Facture</th><th>Forfait</th><th style={{ textAlign: 'right' }}>Abonnement</th><th style={{ textAlign: 'right' }}>Conso</th><th style={{ textAlign: 'right' }}>Remises</th><th style={{ textAlign: 'right' }}>Total HT</th></tr>
                     </thead>
                     <tbody>
                       {lineHistory.history.slice().reverse().map((h: any, i: number) => (
                         <tr key={i}>
                           <td style={{ fontWeight: 600 }}>{new Date(h.period).toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' })}</td>
+                          <td style={{ fontFamily: 'monospace', fontSize: '0.78rem', color: '#64748b' }}>{h.invoice_number || <span style={{ color: '#cbd5e1' }}>—</span>}</td>
                           <td style={{ fontSize: '0.8rem', color: '#64748b' }}>{h.plan || h.cf_label}</td>
                           <td style={{ textAlign: 'right' }}>{h.amt_subscriptions.toLocaleString('fr-FR')} €</td>
                           <td style={{ textAlign: 'right' }}>{h.amt_conso.toLocaleString('fr-FR')} €</td>
