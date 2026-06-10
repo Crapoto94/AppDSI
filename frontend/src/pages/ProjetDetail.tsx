@@ -2249,6 +2249,9 @@ const TachesTab: React.FC<{ projetId: number; projetTitre?: string; token: strin
   const [editHubForm, setEditHubForm] = useState({ description: '', echeance: '' });
   const [expandedHubNotesId, setExpandedHubNotesId] = useState<number | null>(null);
   const [hubNoteInputs, setHubNoteInputs] = useState<Record<number, string>>({});
+  const [hubUploadingNote, setHubUploadingNote] = useState(false);
+  const hubNoteTaskRef = useRef<any>(null);
+  const hubFileInputRef = useRef<HTMLInputElement>(null);
 
   const loadTasks = useCallback(async () => {
     setLoading(true);
@@ -2392,6 +2395,24 @@ const TachesTab: React.FC<{ projetId: number; projetTitre?: string; token: strin
     } catch {}
   };
 
+  const uploadHubNoteFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !hubNoteTaskRef.current) return;
+    setHubUploadingNote(true);
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      const r = await fetch(`/api/tasks/projet/${hubNoteTaskRef.current.id}/notes/file`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+        body: fd,
+      });
+      if (r.ok) loadTasks();
+      else { const e = await r.json(); alert(e.error); }
+    } catch { alert('Erreur réseau'); }
+    finally { setHubUploadingNote(false); if (hubFileInputRef.current) hubFileInputRef.current.value = ''; }
+  };
+
   return (
     <div>
       <div style={{ marginBottom: '14px', display: 'flex', justifyContent: 'flex-end' }}>
@@ -2512,11 +2533,19 @@ const TachesTab: React.FC<{ projetId: number; projetTitre?: string; token: strin
                         rows.push(
                           <tr key={`hub_notes_${t.id}`}>
                             <td colSpan={5} style={{ padding: '4px 12px 8px', borderBottom: '1px solid #f1f5f9', background: '#f0f9ff' }}>
+                              <input ref={hubFileInputRef} type="file" style={{ display: 'none' }} onChange={uploadHubNoteFile} />
                               <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                                 {notes.length === 0 && <div style={{ fontSize: 11, color: '#94a3b8', padding: '4px 0' }}>Aucune note pour l'instant.</div>}
                                 {notes.map((n: any) => (
                                   <div key={n.id} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '3px 0', fontSize: 11, borderBottom: '1px solid #e0f2fe' }}>
-                                    <span style={{ flex: 1, color: '#1e293b' }}>{n.content}</span>
+                                    {n.type === 'file' ? (
+                                      <a href={`/api/tasks/projet/${t.id}/notes/${n.id}/file?mode=inline&token=${token}`} target="_blank" rel="noopener noreferrer"
+                                        style={{ flex: 1, color: '#2563eb', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 4 }}>
+                                        <Upload size={10} /> {n.filename || n.content}
+                                      </a>
+                                    ) : (
+                                      <span style={{ flex: 1, color: '#1e293b' }}>{n.content}</span>
+                                    )}
                                     <span style={{ fontSize: 9, color: '#94a3b8', whiteSpace: 'nowrap' }}>{n.created_by && `${n.created_by} · `}{n.created_at ? new Date(n.created_at).toLocaleDateString('fr-FR') : ''}</span>
                                     <button onClick={() => deleteHubNote(t, n.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ef4444', padding: 1 }} title="Supprimer"><X size={10} /></button>
                                   </div>
@@ -2526,6 +2555,10 @@ const TachesTab: React.FC<{ projetId: number; projetTitre?: string; token: strin
                                     onKeyDown={e => { if (e.key === 'Enter') addHubNote(t); }}
                                     style={{ flex: 1, padding: '4px 8px', border: '1px solid #cbd5e1', borderRadius: 4, fontSize: 11 }} />
                                   <button onClick={() => addHubNote(t)} style={{ padding: '4px 8px', background: '#2563eb', color: 'white', border: 'none', borderRadius: 4, cursor: 'pointer', fontWeight: 600, fontSize: 10 }}>Ajouter</button>
+                                  <button onClick={() => { hubNoteTaskRef.current = t; hubFileInputRef.current?.click(); }} disabled={hubUploadingNote}
+                                    style={{ padding: '4px 8px', background: '#f1f5f9', color: '#475569', border: '1px solid #e2e8f0', borderRadius: 4, cursor: 'pointer', fontWeight: 600, fontSize: 10, display: 'flex', alignItems: 'center', gap: 3 }}>
+                                    <Upload size={11} /> {hubUploadingNote ? '...' : 'Fichier'}
+                                  </button>
                                 </div>
                               </div>
                             </td>
