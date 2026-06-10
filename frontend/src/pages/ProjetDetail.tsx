@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useADSearch } from '../utils/useADSearch';
 import type { ADUser } from '../utils/useADSearch';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, FileText, MessageSquare, Calendar, BarChart3, Settings, Activity, Upload, UserPlus, ArrowRight, Plus, Trash2, CheckCircle2, ListChecks, X, Users } from 'lucide-react';
+import { ArrowLeft, FileText, MessageSquare, Calendar, BarChart3, Settings, Activity, Upload, UserPlus, ArrowRight, Plus, Trash2, CheckCircle2, ListChecks, X, Users, Pencil } from 'lucide-react';
 import Header from '../components/Header';
 import CreateReunionModal from '../components/CreateReunionModal';
 import ReunionDetailModal from '../components/ReunionDetailModal';
@@ -560,7 +560,7 @@ const ProjetDetail: React.FC = () => {
   const renderJournal = () => <JournalTab projetId={projet.id} token={token} onOuvrirDocument={(details) => ouvrirDocument(details, projet.id)} />;
   const renderDocuments = () => <DocumentsTab projetId={projet.id} token={token} documents={projet.documents} onVoirDocument={(url, nom) => setViewerDoc({ url, nom })} />;
   const renderReunions = () => <ReunionsTab projetId={projet.id} token={token} onAjouterReunion={() => setShowCreateReunion(true)} onVoirReunion={(id) => setReunionDetailId(id)} />;
-  const renderTaches = () => <TachesTab projetId={projet.id} projetTitre={projet.titre} token={token} />;
+  const renderTaches = () => <TachesTab projetId={projet.id} projetTitre={projet.titre} token={token} currentUsername={user?.username} isChefProjet={isChefProjet || isPMO} />;
   const renderScore = () => <ScoreTab projetId={projet.id} token={token} />;
   const renderIndicateurs = () => <IndicateursTab projetId={projet.id} token={token} />;
   const lierReunionApresCreation = async (reunion: any) => {
@@ -2235,7 +2235,7 @@ const ReunionsTab: React.FC<{ projetId: number; token: string | null; onAjouterR
 // ===== ONGLET TÂCHES =====
 const STATUT_CYCLE = ['a_faire', 'en_cours', 'terminee', 'refuse'];
 
-const TachesTab: React.FC<{ projetId: number; projetTitre?: string; token: string | null; onVoirReunion?: (id: number) => void }> = ({ projetId, projetTitre, token, onVoirReunion }) => {
+const TachesTab: React.FC<{ projetId: number; projetTitre?: string; token: string | null; onVoirReunion?: (id: number) => void; currentUsername?: string; isChefProjet?: boolean }> = ({ projetId, projetTitre, token, onVoirReunion, currentUsername, isChefProjet }) => {
   const [tasks, setTasks] = useState<any[]>([]);
   const [hubTasks, setHubTasks] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -2250,6 +2250,14 @@ const TachesTab: React.FC<{ projetId: number; projetTitre?: string; token: strin
   const [uploadingNote, setUploadingNote] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [noteTaskRef, setNoteTaskRef] = useState<any>(null);
+
+  const canEdit = (t: any) => {
+    if (isChefProjet) return true;
+    if (t.source === 'standalone') {
+      return t.created_by_username === currentUsername || t.responsable_username === currentUsername;
+    }
+    return false;
+  };
 
   const loadTasks = useCallback(async () => {
     setLoading(true);
@@ -2467,7 +2475,7 @@ const TachesTab: React.FC<{ projetId: number; projetTitre?: string; token: strin
                   );
                 } else {
                   rows.push(
-                    <tr key={t.id} onDoubleClick={() => startEdit(t)} style={{ borderBottom: expandedNotesId !== t.id ? '1px solid #f1f5f9' : 'none', background: t.statut === 'terminee' ? '#f0fdf4' : t.statut === 'refuse' ? '#fef2f2' : 'white', cursor: 'pointer' }}>
+                    <tr key={t.id} style={{ borderBottom: expandedNotesId !== t.id ? '1px solid #f1f5f9' : 'none', background: t.statut === 'terminee' ? '#f0fdf4' : t.statut === 'refuse' ? '#fef2f2' : 'white' }}>
                       <td style={{ padding: '10px 12px', fontWeight: '600', color: '#1e293b', textDecoration: t.statut === 'terminee' ? 'line-through' : 'none' }}>
                         {t.source === 'reunion' && t.reunion_titre ? (
                           <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
@@ -2480,15 +2488,22 @@ const TachesTab: React.FC<{ projetId: number; projetTitre?: string; token: strin
                       <td style={{ padding: '10px 12px', color: '#64748b' }}>{t.echeance ? new Date(t.echeance).toLocaleDateString('fr-FR') : '—'}</td>
                       <td style={{ padding: '10px 12px' }}>{statusBadge(t.statut || 'a_faire')}</td>
                       <td style={{ padding: '10px 12px', textAlign: 'center', whiteSpace: 'nowrap' }}>
+                        {canEdit(t) && (
+                          <button onClick={() => startEdit(t)} title="Modifier" style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#6366f1', padding: '4px' }}>
+                            <Pencil size={14} />
+                          </button>
+                        )}
                         <button onClick={() => acquitter(t)} title={`Passer à ${STATUT_CYCLE[(STATUT_CYCLE.indexOf(t.statut || 'a_faire') + 1) % STATUT_CYCLE.length]}`} style={{ background: 'none', border: 'none', cursor: 'pointer', color: actionColor(t.statut || 'a_faire'), padding: '4px' }}>
                           <CheckCircle2 size={20} />
                         </button>
                         <button onClick={() => setExpandedNotesId(expandedNotesId === t.id ? null : t.id)} title={`${(t.notes || []).length} note(s)`} style={{ background: (t.notes || []).length > 0 ? '#eff6ff' : 'transparent', border: (t.notes || []).length > 0 ? '1px solid #bfdbfe' : 'none', borderRadius: '4px', cursor: 'pointer', color: expandedNotesId === t.id ? '#2563eb' : (t.notes || []).length > 0 ? '#1d4ed8' : '#94a3b8', padding: '2px 6px', marginLeft: '2px', fontWeight: (t.notes || []).length > 0 ? '700' : '400', fontSize: '11px', lineHeight: '18px' }}>
                           💬 {(t.notes || []).length || '+'}
                         </button>
-                        <button onClick={() => supprimerTache(t)} title="Supprimer" style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ef4444', padding: '4px', marginLeft: '2px' }}>
-                          <Trash2 size={16} />
-                        </button>
+                        {canEdit(t) && (
+                          <button onClick={() => supprimerTache(t)} title="Supprimer" style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ef4444', padding: '4px', marginLeft: '2px' }}>
+                            <Trash2 size={16} />
+                          </button>
+                        )}
                       </td>
                     </tr>
                   );

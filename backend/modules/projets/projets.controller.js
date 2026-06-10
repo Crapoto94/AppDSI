@@ -1382,7 +1382,7 @@ const getTachesAgregees = async (req, res) => {
         let standaloneTasks = [];
         try {
             standaloneTasks = await pgDb.all(`
-                SELECT id, tache, responsable, echeance, statut, notes, created_at
+                SELECT id, tache, responsable, responsable_username, echeance, statut, notes, created_at, created_by_username
                 FROM projet_taches_standalone
                 WHERE projet_id = $1
                 ORDER BY created_at DESC
@@ -1398,6 +1398,7 @@ const getTachesAgregees = async (req, res) => {
                 id: `s-${t.id}`,
                 tache: t.tache,
                 responsable: t.responsable || '',
+                responsable_username: t.responsable_username || '',
                 echeance: t.echeance || null,
                 statut: t.statut || 'a_faire',
                 notes: notes || [],
@@ -1405,6 +1406,7 @@ const getTachesAgregees = async (req, res) => {
                 reunion_id: null,
                 reunion_titre: null,
                 comite_nom: null,
+                created_by_username: t.created_by_username || '',
                 _db_id: t.id
             };
         });
@@ -1452,11 +1454,12 @@ const ajouterTacheStandalone = async (req, res) => {
     try {
         const { id } = req.params;
         const { tache, responsable, responsable_username, echeance, statut } = req.body;
+        const username = req.user?.username || '';
         if (!tache || !tache.trim()) return res.status(400).json({ error: 'La tâche est obligatoire' });
 
         const inserted = await pgDb.get(
-            'INSERT INTO projet_taches_standalone (projet_id, tache, responsable, responsable_username, echeance, statut) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *',
-            [id, tache.trim(), responsable || '', responsable_username || '', echeance || null, statut || 'a_faire']
+            'INSERT INTO projet_taches_standalone (projet_id, tache, responsable, responsable_username, echeance, statut, created_by_username) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *',
+            [id, tache.trim(), responsable || '', responsable_username || '', echeance || null, statut || 'a_faire', username]
         );
         res.status(201).json(inserted);
     } catch (error) {

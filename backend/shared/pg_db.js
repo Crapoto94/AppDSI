@@ -3647,6 +3647,9 @@ async function setupPgDb() {
     // responsable_username sur les tâches standalone projet (pour matching fiable par username)
     try { await client.query(`ALTER TABLE projets.projet_taches_standalone ADD COLUMN IF NOT EXISTS responsable_username TEXT DEFAULT ''`); } catch (e) {}
 
+    // created_by_username sur les tâches standalone projet (pour droits d'édition)
+    try { await client.query(`ALTER TABLE projets.projet_taches_standalone ADD COLUMN IF NOT EXISTS created_by_username TEXT DEFAULT ''`); } catch (e) {}
+
     // Table de préférences utilisateur (indépendante de hub.users — pas de FK, survit aux DROP CASCADE)
     await client.query(`
       CREATE TABLE IF NOT EXISTS hub.user_prefs (
