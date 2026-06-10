@@ -193,6 +193,7 @@ const TelecomManagement: React.FC = () => {
   // Optimisation (rapprochement inventaire ↔ facturation)
   const [reconciliation, setReconciliation] = useState<Reconciliation | null>(null);
   const [dormantPage, setDormantPage] = useState(0);
+  const [dormantSearch, setDormantSearch] = useState('');
   const DORMANT_PAGE_SIZE = 20;
 
   // Fiche historique d'une ligne (12 mois glissants)
@@ -1487,14 +1488,30 @@ const TelecomManagement: React.FC = () => {
 
                 {/* Mobiles dormantes */}
                 {billingStats.dormantList && billingStats.dormantList.length > 0 && (() => {
-                  const totalPages = Math.ceil(billingStats.dormantList.length / DORMANT_PAGE_SIZE);
+                  const q = dormantSearch.trim().toLowerCase();
+                  const filtered = q
+                    ? billingStats.dormantList.filter(l => [l.line_number, l.user_name, l.list_label, l.plan].some(v => (v || '').toLowerCase().includes(q)))
+                    : billingStats.dormantList;
+                  const totalPages = Math.max(1, Math.ceil(filtered.length / DORMANT_PAGE_SIZE));
                   const page = Math.min(dormantPage, totalPages - 1);
                   const start = page * DORMANT_PAGE_SIZE;
-                  const slice = billingStats.dormantList.slice(start, start + DORMANT_PAGE_SIZE);
+                  const slice = filtered.slice(start, start + DORMANT_PAGE_SIZE);
                   return (
                   <div className="admin-card" style={{ padding: 18, marginBottom: 20, borderLeft: '4px solid #ef4444' }}>
-                    <h3 style={{ margin: '0 0 4px', fontSize: '1rem', color: '#1e293b' }}>📱 Lignes mobiles dormantes ({billingStats.dormant})</h3>
-                    <p style={{ fontSize: '0.8rem', color: '#64748b', margin: '0 0 12px' }}>Facturées mais <strong>aucune consommation</strong> (ni voix ni data). Candidates à résiliation ou mise en veille — triées par ancienneté de dormance.</p>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16, flexWrap: 'wrap' }}>
+                      <div>
+                        <h3 style={{ margin: '0 0 4px', fontSize: '1rem', color: '#1e293b' }}>📱 Lignes mobiles dormantes ({billingStats.dormant})</h3>
+                        <p style={{ fontSize: '0.8rem', color: '#64748b', margin: '0 0 12px' }}>Facturées mais <strong>aucune consommation</strong> (ni voix ni data). Candidates à résiliation ou mise en veille — triées par ancienneté de dormance.</p>
+                      </div>
+                      <div className="search-input-wrapper-mini" style={{ minWidth: 240 }}>
+                        <Search size={14} />
+                        <input type="text" placeholder="Numéro, utilisateur, service, forfait…" value={dormantSearch}
+                          onChange={e => { setDormantSearch(e.target.value); setDormantPage(0); }} />
+                      </div>
+                    </div>
+                    {filtered.length === 0 ? (
+                      <div style={{ textAlign: 'center', padding: 24, color: '#94a3b8', fontSize: '0.85rem' }}>Aucune ligne dormante ne correspond à « {dormantSearch} ».</div>
+                    ) : (<>
                     <table className="commitments-table">
                       <thead><tr><th>Numéro</th><th>Utilisateur</th><th>Service</th><th>Forfait</th><th style={{ textAlign: 'center' }}>Mois sans conso</th><th style={{ textAlign: 'right' }}>€/mois</th></tr></thead>
                       <tbody>
@@ -1521,7 +1538,7 @@ const TelecomManagement: React.FC = () => {
                     {totalPages > 1 && (
                       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 12 }}>
                         <span style={{ fontSize: '0.8rem', color: '#64748b' }}>
-                          {start + 1}–{Math.min(start + DORMANT_PAGE_SIZE, billingStats.dormantList.length)} sur {billingStats.dormantList.length}
+                          {start + 1}–{Math.min(start + DORMANT_PAGE_SIZE, filtered.length)} sur {filtered.length}{q ? ` (filtré sur ${billingStats.dormantList.length})` : ''}
                         </span>
                         <div style={{ display: 'flex', gap: 6 }}>
                           <button className="page-btn" disabled={page === 0} onClick={() => setDormantPage(page - 1)}>Précédent</button>
@@ -1530,6 +1547,7 @@ const TelecomManagement: React.FC = () => {
                         </div>
                       </div>
                     )}
+                    </>)}
                   </div>
                   );
                 })()}
