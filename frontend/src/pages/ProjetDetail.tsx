@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useADSearch } from '../utils/useADSearch';
 import type { ADUser } from '../utils/useADSearch';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, FileText, MessageSquare, Calendar, BarChart3, Settings, Activity, Upload, UserPlus, ArrowRight, Plus, Trash2, CheckCircle2, ListChecks, X, Users } from 'lucide-react';
+import { ArrowLeft, FileText, MessageSquare, Calendar, BarChart3, Settings, Activity, Upload, UserPlus, ArrowRight, Plus, Trash2, CheckCircle2, ListChecks, X, Users, Pencil } from 'lucide-react';
 import { TaskTable } from '../components/TaskTable';
 import Header from '../components/Header';
 import CreateReunionModal from '../components/CreateReunionModal';
@@ -2245,6 +2245,10 @@ const TachesTab: React.FC<{ projetId: number; projetTitre?: string; token: strin
   const [sortField, setSortField] = useState('tache');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
   const [showAddModal, setShowAddModal] = useState(false);
+  const [editingHubId, setEditingHubId] = useState<number | null>(null);
+  const [editHubForm, setEditHubForm] = useState({ description: '', echeance: '' });
+  const [expandedHubNotesId, setExpandedHubNotesId] = useState<number | null>(null);
+  const [hubNoteInputs, setHubNoteInputs] = useState<Record<number, string>>({});
 
   const loadTasks = useCallback(async () => {
     setLoading(true);
@@ -2334,6 +2338,60 @@ const TachesTab: React.FC<{ projetId: number; projetTitre?: string; token: strin
     }
   };
 
+  const canEditHub = (t: any): boolean => {
+    if (isChefProjet) return true;
+    const cu = (currentUsername || '').toLowerCase();
+    return (t.created_by || '').toLowerCase() === cu || (t.username || '').toLowerCase() === cu;
+  };
+
+  const saveEditHub = async (t: any) => {
+    try {
+      const r = await fetch(`/api/tasks/edit/${t.id}`, {
+        method: 'PATCH',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ description: editHubForm.description, echeance: editHubForm.echeance || null }),
+      });
+      if (r.ok) { setEditingHubId(null); loadTasks(); }
+      else { const e = await r.json(); alert(e.error); }
+    } catch { alert('Erreur réseau'); }
+  };
+
+  const deleteHub = async (t: any) => {
+    if (!window.confirm(`Supprimer la tâche "${t.description}" ?`)) return;
+    try {
+      const r = await fetch(`/api/tasks/personal/${t.id}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (r.ok) loadTasks();
+      else { const e = await r.json(); alert(e.error); }
+    } catch { alert('Erreur réseau'); }
+  };
+
+  const addHubNote = async (t: any) => {
+    const content = (hubNoteInputs[t.id] || '').trim();
+    if (!content) return;
+    try {
+      const r = await fetch(`/api/tasks/projet/${t.id}/notes`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content }),
+      });
+      if (r.ok) { setHubNoteInputs(prev => ({ ...prev, [t.id]: '' })); loadTasks(); }
+    } catch { alert('Erreur réseau'); }
+  };
+
+  const deleteHubNote = async (t: any, noteId: any) => {
+    if (!window.confirm('Supprimer cette note ?')) return;
+    try {
+      await fetch(`/api/tasks/projet/${t.id}/notes/${noteId}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      loadTasks();
+    } catch {}
+  };
+
   return (
     <div>
       <div style={{ marginBottom: '14px', display: 'flex', justifyContent: 'flex-end' }}>
@@ -2374,39 +2432,108 @@ const TachesTab: React.FC<{ projetId: number; projetTitre?: string; token: strin
                   </tr>
                 </thead>
                 <tbody>
-                  {deduplicatedHubTasks.map((t: any) => {
+                  {deduplicatedHubTasks.flatMap((t: any) => {
+                    const rows: React.ReactNode[] = [];
                     const members: string[] = t._members || (t.username ? [t.username] : []);
                     const isDone = ['terminé', 'terminee', 'terminée'].includes(t.statut);
-                    return (
-                      <tr key={`hub_${t.id}`} style={{ borderBottom: '1px solid #f1f5f9', background: isDone ? '#f0fdf4' : '#f0f9ff', borderLeft: `3px solid ${isDone ? '#22c55e' : '#3b82f6'}`, opacity: isDone ? 0.8 : 1 }}>
-                        <td style={{ padding: '10px 12px', fontWeight: 600, color: isDone ? '#94a3b8' : '#1e293b', textDecoration: isDone ? 'line-through' : 'none' }}>
-                          <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                            {t.is_team_task && <span title="Tâche d'équipe"><Users size={13} style={{ color: '#2563eb', flexShrink: 0 }} /></span>}
-                            {t.description}
-                          </span>
-                        </td>
-                        <td style={{ padding: '10px 12px' }}>
-                          {members.length > 1 ? (
+                    const isExpanded = expandedHubNotesId === t.id;
+                    const notes: any[] = t.notes || [];
+                    const editable = canEditHub(t);
+
+                    if (editingHubId === t.id) {
+                      rows.push(
+                        <tr key={`hub_edit_${t.id}`} style={{ borderBottom: '1px solid #f1f5f9', background: '#fff7ed' }}>
+                          <td style={{ padding: '6px 8px' }}>
+                            <input autoFocus value={editHubForm.description} onChange={e => setEditHubForm(v => ({ ...v, description: e.target.value }))}
+                              onKeyDown={e => { if (e.key === 'Enter') saveEditHub(t); if (e.key === 'Escape') setEditingHubId(null); }}
+                              style={{ width: '100%', padding: '6px 8px', border: '1px solid #cbd5e1', borderRadius: 4, fontSize: 12 }} />
+                          </td>
+                          <td style={{ padding: '6px 8px' }}>
                             <span style={{ display: 'flex', flexWrap: 'wrap', gap: 3 }}>
-                              {members.map((m: string) => (
-                                <span key={m} style={{ fontSize: 10, background: '#eff6ff', color: '#1d4ed8', padding: '1px 7px', borderRadius: 10, fontWeight: 600 }}>{m}</span>
-                              ))}
+                              {members.map((m: string) => <span key={m} style={{ fontSize: 10, background: '#eff6ff', color: '#1d4ed8', padding: '1px 7px', borderRadius: 10, fontWeight: 600 }}>{m}</span>)}
                             </span>
-                          ) : <span style={{ color: '#475569' }}>{members[0] || '—'}</span>}
-                        </td>
-                        <td style={{ padding: '10px 12px', color: '#64748b' }}>{t.echeance ? new Date(t.echeance).toLocaleDateString('fr-FR') : '—'}</td>
-                        <td style={{ padding: '10px 12px' }}>{statusBadge(t.statut || 'a_faire')}</td>
-                        <td style={{ padding: '10px 12px', textAlign: 'center' }}>
-                          <button
-                            onClick={() => cycleHubStatut(t)}
-                            title={`Passer à : ${HUB_CYCLE[(HUB_CYCLE.indexOf(t.statut || 'a_faire') + 1) % HUB_CYCLE.length]}`}
-                            style={{ background: 'none', border: 'none', cursor: 'pointer', color: hubActionColor(t.statut), padding: 4, verticalAlign: 'middle' }}
-                          >
-                            <CheckCircle2 size={18} />
-                          </button>
-                        </td>
-                      </tr>
-                    );
+                          </td>
+                          <td style={{ padding: '6px 8px' }}>
+                            <input type="date" value={editHubForm.echeance} onChange={e => setEditHubForm(v => ({ ...v, echeance: e.target.value }))}
+                              style={{ padding: '6px 8px', border: '1px solid #cbd5e1', borderRadius: 4, fontSize: 12 }} />
+                          </td>
+                          <td style={{ padding: '6px 8px' }}>{statusBadge(t.statut || 'a_faire')}</td>
+                          <td style={{ padding: '6px 8px', textAlign: 'center', whiteSpace: 'nowrap' }}>
+                            <button onClick={() => saveEditHub(t)} style={{ padding: '4px 10px', background: '#2563eb', color: 'white', border: 'none', borderRadius: 4, cursor: 'pointer', fontWeight: 600, fontSize: 11, marginRight: 4 }}>OK</button>
+                            <button onClick={() => setEditingHubId(null)} style={{ padding: '4px 10px', background: '#f1f5f9', border: '1px solid #e2e8f0', borderRadius: 4, cursor: 'pointer', fontWeight: 600, fontSize: 11 }}>Annuler</button>
+                          </td>
+                        </tr>
+                      );
+                    } else {
+                      rows.push(
+                        <tr key={`hub_${t.id}`} style={{ borderBottom: isExpanded ? 'none' : '1px solid #f1f5f9', background: isDone ? '#f0fdf4' : '#f0f9ff', borderLeft: `3px solid ${isDone ? '#22c55e' : '#3b82f6'}`, opacity: isDone ? 0.8 : 1 }}>
+                          <td style={{ padding: '10px 12px', fontWeight: 600, color: isDone ? '#94a3b8' : '#1e293b', textDecoration: isDone ? 'line-through' : 'none' }}>
+                            <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                              {t.is_team_task && <span title="Tâche d'équipe"><Users size={13} style={{ color: '#2563eb', flexShrink: 0 }} /></span>}
+                              {t.description}
+                            </span>
+                          </td>
+                          <td style={{ padding: '10px 12px' }}>
+                            {members.length > 1 ? (
+                              <span style={{ display: 'flex', flexWrap: 'wrap', gap: 3 }}>
+                                {members.map((m: string) => <span key={m} style={{ fontSize: 10, background: '#eff6ff', color: '#1d4ed8', padding: '1px 7px', borderRadius: 10, fontWeight: 600 }}>{m}</span>)}
+                              </span>
+                            ) : <span style={{ color: '#475569' }}>{members[0] || '—'}</span>}
+                          </td>
+                          <td style={{ padding: '10px 12px', color: '#64748b' }}>{t.echeance ? new Date(t.echeance).toLocaleDateString('fr-FR') : '—'}</td>
+                          <td style={{ padding: '10px 12px' }}>{statusBadge(t.statut || 'a_faire')}</td>
+                          <td style={{ padding: '10px 12px', textAlign: 'center', whiteSpace: 'nowrap' }}>
+                            <button onClick={() => cycleHubStatut(t)} title={`Passer à : ${HUB_CYCLE[(HUB_CYCLE.indexOf(t.statut || 'a_faire') + 1) % HUB_CYCLE.length]}`}
+                              style={{ background: 'none', border: 'none', cursor: 'pointer', color: hubActionColor(t.statut), padding: 4, verticalAlign: 'middle' }}>
+                              <CheckCircle2 size={18} />
+                            </button>
+                            <button onClick={() => setExpandedHubNotesId(isExpanded ? null : t.id)}
+                              title={`${notes.length} note(s)`}
+                              style={{ background: notes.length > 0 ? '#eff6ff' : 'transparent', border: notes.length > 0 ? '1px solid #bfdbfe' : 'none', borderRadius: 4, cursor: 'pointer', color: isExpanded ? '#2563eb' : notes.length > 0 ? '#1d4ed8' : '#94a3b8', padding: '2px 5px', marginLeft: 2, fontWeight: notes.length > 0 ? 700 : 400, fontSize: 11, lineHeight: '18px', verticalAlign: 'middle' }}>
+                              💬 {notes.length || '+'}
+                            </button>
+                            {editable && (
+                              <button onClick={() => { setEditingHubId(t.id); setEditHubForm({ description: t.description || '', echeance: t.echeance ? String(t.echeance).slice(0, 10) : '' }); }}
+                                title="Modifier" style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#6366f1', padding: 4, marginLeft: 2, verticalAlign: 'middle' }}>
+                                <Pencil size={14} />
+                              </button>
+                            )}
+                            {editable && (
+                              <button onClick={() => deleteHub(t)} title="Supprimer"
+                                style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ef4444', padding: 4, marginLeft: 2, verticalAlign: 'middle' }}>
+                                <Trash2 size={14} />
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                      );
+
+                      if (isExpanded) {
+                        rows.push(
+                          <tr key={`hub_notes_${t.id}`}>
+                            <td colSpan={5} style={{ padding: '4px 12px 8px', borderBottom: '1px solid #f1f5f9', background: '#f0f9ff' }}>
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                                {notes.length === 0 && <div style={{ fontSize: 11, color: '#94a3b8', padding: '4px 0' }}>Aucune note pour l'instant.</div>}
+                                {notes.map((n: any) => (
+                                  <div key={n.id} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '3px 0', fontSize: 11, borderBottom: '1px solid #e0f2fe' }}>
+                                    <span style={{ flex: 1, color: '#1e293b' }}>{n.content}</span>
+                                    <span style={{ fontSize: 9, color: '#94a3b8', whiteSpace: 'nowrap' }}>{n.created_by && `${n.created_by} · `}{n.created_at ? new Date(n.created_at).toLocaleDateString('fr-FR') : ''}</span>
+                                    <button onClick={() => deleteHubNote(t, n.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ef4444', padding: 1 }} title="Supprimer"><X size={10} /></button>
+                                  </div>
+                                ))}
+                                <div style={{ display: 'flex', gap: 4, marginTop: 4 }}>
+                                  <input type="text" placeholder="Note..." value={hubNoteInputs[t.id] || ''} onChange={e => setHubNoteInputs(prev => ({ ...prev, [t.id]: e.target.value }))}
+                                    onKeyDown={e => { if (e.key === 'Enter') addHubNote(t); }}
+                                    style={{ flex: 1, padding: '4px 8px', border: '1px solid #cbd5e1', borderRadius: 4, fontSize: 11 }} />
+                                  <button onClick={() => addHubNote(t)} style={{ padding: '4px 8px', background: '#2563eb', color: 'white', border: 'none', borderRadius: 4, cursor: 'pointer', fontWeight: 600, fontSize: 10 }}>Ajouter</button>
+                                </div>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      }
+                    }
+                    return rows;
                   })}
                 </tbody>
               </table>

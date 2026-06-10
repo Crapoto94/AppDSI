@@ -861,7 +861,7 @@ module.exports = {
         try {
             // Essai dans hub.user_tasks d'abord
             const { rows } = await pool.query(
-                'SELECT created_by, team_group_id FROM hub.user_tasks WHERE id = $1', [id]
+                'SELECT created_by, team_group_id, username AS assignee, context_source, context_id FROM hub.user_tasks WHERE id = $1', [id]
             );
 
             // Si non trouvé dans user_tasks, essayer projet_taches_standalone
@@ -900,8 +900,24 @@ module.exports = {
             }
 
             const task = rows[0];
-            if ((task.created_by || '').toLowerCase() !== username.toLowerCase()) {
-                return res.status(403).json({ error: 'Seul le créateur peut modifier cette tâche' });
+            const un = username.toLowerCase();
+            const isCreatorOrAssignee = (task.created_by || '').toLowerCase() === un
+                || (task.assignee || '').toLowerCase() === un;
+            if (!isCreatorOrAssignee) {
+                let isChef = false;
+                if (task.context_source === 'projet' && task.context_id) {
+                    const { rows: chefRows } = await pool.query(
+                        `SELECT 1 FROM projets.projets
+                         WHERE id = $1 AND (LOWER(chef_projet_username) = $2 OR LOWER(responsable_dsi_username) = $2)
+                         UNION ALL
+                         SELECT 1 FROM projets.projet_roles
+                         WHERE projet_id = $1 AND LOWER(username) = $2 AND role = 'chef_projet'
+                         LIMIT 1`,
+                        [task.context_id, un]
+                    );
+                    isChef = chefRows.length > 0;
+                }
+                if (!isChef) return res.status(403).json({ error: 'Permission refusée' });
             }
             if (description !== undefined && !String(description).trim()) {
                 return res.status(400).json({ error: 'Description requise' });
