@@ -332,7 +332,7 @@ const TelecomManagement: React.FC = () => {
           {i > 0 && ', '}
           {path
             ? <a href={`/api/${path}`} target="_blank" rel="noopener noreferrer" className="ndi-link" title="Voir le PDF de la facture">{nm}</a>
-            : <span>{nm}</span>}
+            : <span title="PDF non importé — importez le ZIP de duplicatas contenant cette facture" style={{ borderBottom: '1px dotted #cbd5e1', cursor: 'help' }}>{nm}</span>}
         </React.Fragment>
       );
     })}</>;
@@ -399,7 +399,7 @@ const TelecomManagement: React.FC = () => {
   };
 
   useEffect(() => {
-    if (activeTab === 'billing') fetchBilling();
+    if (activeTab === 'billing') { fetchBilling(); fetchInvoiceFiles(); }
   }, [activeTab, token]);
 
   const fetchOptim = async () => {
