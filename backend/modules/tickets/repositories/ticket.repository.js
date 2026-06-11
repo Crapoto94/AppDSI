@@ -1280,6 +1280,24 @@ module.exports = {
             resolvedAvgPerDay = Math.round(((r?.c || 0) / span) * 10) / 10;
         }
 
+        const byServiceDirection = await pgDb.all(`
+            SELECT
+                COALESCE(NULLIF(hu.service_complement, ''), hu.service_code, 'Non renseigné') AS service,
+                COALESCE(NULLIF(hu.service_code, ''), '—') AS service_code,
+                COUNT(*)::int AS total,
+                COUNT(*) FILTER (WHERE t.type::text = '1')::int AS incidents,
+                COUNT(*) FILTER (WHERE t.type::text = '2')::int AS demandes,
+                COUNT(*) FILTER (WHERE t.status::int IN (1,2,3,4))::int AS en_cours,
+                COUNT(*) FILTER (WHERE t.status::int IN (5,6))::int AS resolus
+            FROM hub_tickets.tickets t
+            LEFT JOIN hub.users hu
+                ON LOWER(hu.email) = LOWER(COALESCE(NULLIF(t.email_alt, ''), t.requester_email_22))
+            WHERE t.status::int <> 8${filtAnd}
+            GROUP BY hu.service_complement, hu.service_code
+            ORDER BY total DESC
+            LIMIT 50
+        `);
+
         return {
             overview,
             resolvedAvgPerDay,
@@ -1310,6 +1328,7 @@ module.exports = {
             incidentVsRequestTrend,
             topObservers,
             categoryPerformance,
+            byServiceDirection,
         };
     },
 };

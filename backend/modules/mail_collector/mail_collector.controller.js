@@ -273,5 +273,97 @@ module.exports = {
     } catch (error) {
       res.status(500).json({ message: 'Erreur vérification config', error: error.message });
     }
+  },
+
+  // POST /api/mail-collector/reprocess-ticket/:ticket_id
+  // Ré-importe les pièces jointes d'un email déjà collecté (images cid: manquantes).
+  reprocessTicket: async (req, res) => {
+    const ticketId = parseInt(req.params.ticket_id, 10);
+    if (!ticketId) return res.status(400).json({ message: 'ticket_id invalide' });
+    try {
+      const https = require('https');
+      const { HttpsProxyAgent } = require('https-proxy-agent');
+      const axios = require('axios');
+
+      // 1. Mapping email ↔ ticket
+      const mapping = await pgDb.get(
+        'SELECT * FROM hub_tickets.ticket_email_mapping WHERE ticket_id = $1 AND is_initial_email = true LIMIT 1',
+        [ticketId]
+      );
+      if (!mapping || !mapping.email_message_id) {
+        return res.status(404).json({ message: 'Aucun mapping email trouvé pour ce ticket' });
+      }
+      const internetMsgId = mapping.email_message_id;
+
+      // 2. Collecteur actif (premier trouvé)
+      const collector = await pgDb.get(
+        "SELECT * FROM hub_tickets.mail_collectors WHERE is_enabled = true AND module != 'copieurs' ORDER BY id LIMIT 1"
+      );
+      if (!collector) return res.status(400).json({ message: 'Aucun collecteur mail actif' });
+
+      // 3. Token O365
+      const sqlite = getSqlite();
+      const o365 = await sqlite.get('SELECT * FROM o365_settings WHERE id = 1');
+      if (!o365 || !o365.client_id) return res.status(400).json({ message: 'O365 non configuré' });
+
+      const proxyUrl = process.env.HTTPS_PROXY || process.env.HTTP_PROXY || null;
+      const axiosOpts = proxyUrl
+        ? { httpsAgent: new HttpsProxyAgent(proxyUrl, { rejectUnauthorized: false }), proxy: false }
+        : { httpsAgent: new https.Agent({ rejectUnauthorized: false }) };
+
+      const token = await MailCollectorService.getGraphToken(o365);
+
+      // 4. Retrouve le message dans Graph par internetMessageId
+      const mailbox = collector.mailbox;
+      const filter = `internetMessageId eq '${internetMsgId.replace(/'/g, "''")}'`;
+      const searchRes = await axios.get(
+        `https://graph.microsoft.com/v1.0/users/${mailbox}/messages`,
+        {
+          ...axiosOpts,
+          headers: { Authorization: `Bearer ${token}` },
+          params: { $filter: filter, $top: 1, $select: 'id,internetMessageId,hasAttachments,subject' }
+        }
+      );
+      const messages = searchRes.data.value || [];
+      if (!messages.length) {
+        // Chercher aussi dans tous les dossiers (incluant success folder)
+        const searchAll = await axios.get(
+          `https://graph.microsoft.com/v1.0/users/${mailbox}/messages`,
+          {
+            ...axiosOpts,
+            headers: { Authorization: `Bearer ${token}` },
+            params: { $search: `"internetMessageId:${internetMsgId}"`, $top: 1, $select: 'id,internetMessageId,hasAttachments,subject' }
+          }
+        ).catch(() => ({ data: { value: [] } }));
+        const found = searchAll.data.value || [];
+        if (!found.length) {
+          return res.status(404).json({ message: `Email introuvable dans la boîte ${mailbox} (peut avoir été supprimé)` });
+        }
+        messages.push(...found);
+      }
+
+      const graphMsgId = messages[0].id;
+      console.log(`[REPROCESS] ticket ${ticketId} — graph message ${graphMsgId}`);
+
+      // 5. Télécharge les pièces jointes (incluant les inline)
+      const attachments = await MailCollectorService.downloadAttachments(token, mailbox, graphMsgId, axiosOpts);
+      if (!attachments.length) {
+        return res.json({ message: 'Aucune pièce jointe trouvée dans cet email', attachments: 0 });
+      }
+
+      // 6. Sauvegarde et réécriture cid:
+      const createdAtt = await MailCollectorService.addAttachments(ticketId, attachments, req.user?.username || 'system');
+      await MailCollectorService.rewriteInlineImages(ticketId, createdAtt);
+
+      console.log(`[REPROCESS] ticket ${ticketId} — ${createdAtt.length} PJ sauvegardées, cid: réécrits`);
+      res.json({
+        message: `Réintégration terminée : ${createdAtt.length} pièce(s) jointe(s) importée(s)`,
+        attachments: createdAtt.length,
+        ticket_id: ticketId
+      });
+    } catch (error) {
+      console.error('[REPROCESS] error:', error.message);
+      res.status(500).json({ message: 'Erreur réintégration', error: error.message });
+    }
   }
 };

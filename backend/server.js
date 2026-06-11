@@ -4610,7 +4610,7 @@ app.post('/api/user-tile-order', authenticateJWT, async (req, res) => {
         // Insérer le nouvel ordre
         for (let i = 0; i < tileOrder.length; i++) {
             await pgDb.run(
-                'INSERT INTO hub.user_tile_order (user_id, tile_id, sort_order) VALUES ($1, $2, $3)',
+                'INSERT INTO hub.user_tile_order (user_id, tile_id, position) VALUES ($1, $2, $3)',
                 [req.user.id, tileOrder[i], i]
             );
         }

@@ -43,6 +43,7 @@ interface Task {
   priority?: string;
   is_public?: boolean;
   can_edit?: boolean;
+  taken_by?: string | null;
 }
 
 interface AssignedAssignee {
@@ -308,6 +309,16 @@ const MesTaches: React.FC = () => {
 
   // ── Confirmation modal ────────────────────────────────────────────────────────
   const [confirmModal, setConfirmModal] = useState<{ title: string; message: string; onConfirm: () => void; isDangerous?: boolean } | null>(null);
+
+  // ── Context menu (clic droit) ─────────────────────────────────────────────────
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; url: string; label: string } | null>(null);
+
+  useEffect(() => {
+    if (!contextMenu) return;
+    const close = () => setContextMenu(null);
+    document.addEventListener('click', close);
+    return () => document.removeEventListener('click', close);
+  }, [contextMenu]);
 
   // ── Alert pref (daily recap) ────────────────────────────────────────────
   const [alertEnabled, setAlertEnabled] = useState(false);
@@ -1129,9 +1140,17 @@ const MesTaches: React.FC = () => {
                     ? task.created_by : null;
                   const canRefuse = !isDone && (task.source === 'personal' || task.source === 'ticket');
 
+                  const taskUrl = SOURCE_META[task.source]?.urlFn(task.source_id);
                   const rows = [
                     <tr
                       key={key}
+                      onContextMenu={(e) => {
+                        if (taskUrl) {
+                          e.preventDefault();
+                          const meta = SOURCE_META[task.source];
+                          setContextMenu({ x: e.clientX, y: e.clientY, url: taskUrl, label: `Ouvrir ${meta.label.toLowerCase()} dans un nouvel onglet` });
+                        }
+                      }}
                       style={{
                         borderBottom: isExpanded ? 'none' : '1px solid #f1f5f9',
                         background: isRefused ? '#fef9f9' : isDone ? '#f0fdf4' : isOverdue ? '#fff8f8' : 'white',
@@ -1162,6 +1181,16 @@ const MesTaches: React.FC = () => {
                           {affectedBy && (
                             <span style={{ fontSize: 10, color: '#6366f1', background: '#eef2ff', borderRadius: 6, padding: '1px 6px', fontWeight: 600, textDecoration: 'none' }}>
                               ↖ Affectée par {affectedBy}
+                            </span>
+                          )}
+                          {task.taken_by && task.statut === 'en_cours' && (
+                            <span style={{ fontSize: 10, color: '#1d4ed8', background: '#dbeafe', borderRadius: 6, padding: '1px 6px', fontWeight: 600, textDecoration: 'none' }}>
+                              ⚙ {task.taken_by.toLowerCase() === currentUsername.toLowerCase() ? 'En cours par moi' : `En cours par ${task.taken_by}`}
+                            </span>
+                          )}
+                          {task.taken_by && task.statut === 'terminé' && (
+                            <span style={{ fontSize: 10, color: '#15803d', background: '#dcfce7', borderRadius: 6, padding: '1px 6px', fontWeight: 600, textDecoration: 'none' }}>
+                              ✓ {task.taken_by.toLowerCase() === currentUsername.toLowerCase() ? 'Réalisé par moi' : `Réalisé par ${task.taken_by}`}
                             </span>
                           )}
                           {isRefused && task.refus_raison && (
@@ -1426,6 +1455,27 @@ const MesTaches: React.FC = () => {
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* ── Menu contextuel (clic droit) ────────────────────────────────────── */}
+      {contextMenu && (
+        <div
+          style={{
+            position: 'fixed', left: contextMenu.x, top: contextMenu.y,
+            background: 'white', border: '1px solid #e2e8f0', borderRadius: 8,
+            boxShadow: '0 4px 20px rgba(0,0,0,0.15)', zIndex: 9999, minWidth: 230,
+            padding: '4px 0',
+          }}
+          onClick={e => e.stopPropagation()}
+        >
+          <button
+            onClick={() => { window.open(contextMenu.url, '_blank', 'noopener'); setContextMenu(null); }}
+            style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '8px 14px', background: 'none', border: 'none', cursor: 'pointer', fontSize: 13, color: '#1e293b', textAlign: 'left', fontWeight: 500 }}
+          >
+            <ExternalLink size={14} style={{ color: '#6366f1', flexShrink: 0 }} />
+            {contextMenu.label}
+          </button>
         </div>
       )}
 

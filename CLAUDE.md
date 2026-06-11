@@ -100,7 +100,29 @@ All new modules should be placed in `backend/modules/` and registered in `server
 
 ### GLPI sync (`backend/modules/glpi/`)
 
-GLPI data is synced into the `glpi.*` schema and then migrated into `hub_tickets.*` on first use. Sync routes live under `/api/glpi/`. The admin UI for this is at `/admin/glpi`.
+GLPI is **no longer connected** — the app is now autonomous. The `glpi.*` schema is a legacy mirror; `hub_tickets.*` is the live system. Routes under `/api/glpi/` remain for historical imports only.
+
+### Mail collector (`backend/modules/mail_collector/`)
+
+Tickets are created from O365 emails via `MailCollectorService`. Key behavior:
+- `downloadAttachments()` fetches email attachments from Microsoft Graph — **including inline images even when `email.hasAttachments === false`** (Graph reports false for purely inline images, but the attachments API still returns them). Always check `email.hasAttachments || bodyContent.includes('cid:')`.
+- `rewriteInlineImages()` rewrites `cid:xxx@yyy` refs in ticket content to `/api/tickets/{id}/attachments/{attId}`.
+- `rewriteCommentInlineImages()` does the same for followup/comment content.
+- To re-import attachments for an existing ticket: `POST /api/mail-collector/reprocess-ticket/:ticket_id` (admin).
+
+### File storage (`backend/shared/storage.js`)
+
+All uploaded files use a unified storage service. Config is stored in SQLite `app_settings` table:
+
+| Key | Description |
+|---|---|
+| `storage.root_path` | UNC or local root — currently `\\10.103.131.136\editions$\DSIHUB` |
+| `storage.backend` | `filesystem` (only supported value) |
+| `storage.login` / `storage.password` | SMB credentials (if Linux server needs to write to UNC) |
+
+Files are stored at `{root}/{module}/{id}/{timestamp-random-name}`. DB paths use prefix `storage/` (e.g. `storage/tickets/44155/xxx.png`) — the frontend route `/storage/*` serves them. `isStoragePath()` distinguishes new storage paths from legacy `uploads/` paths.
+
+On Windows the OS handles UNC paths directly (no SMB credentials needed). On Linux, provide credentials to activate the SMB client (`smb_client.js`).
 
 ### Ticket soft-delete
 
@@ -118,3 +140,4 @@ All PostgreSQL tables are created/migrated in `backend/shared/pg_db.js` inside `
 - All API routes require JWT (`authenticateJWT` middleware). Admin routes additionally require `authenticateAdmin` or `requireTicketPermission(...)`.
 - Route ordering matters in Express: specific paths (e.g. `/bulk`, `/my-role`) must be declared **before** parameterized routes (e.g. `/:id`).
 - The `PATCH /api/tasks/:source/:id` pattern uses `source` = `personal` for `hub.user_tasks`, other values for other task origins.
+- **SQLite is not available in standalone Node scripts** — `getSqlite()` returns null unless the full server has initialized it via `setupDb()`. Use `await setupSqlite()` directly in scripts that need SQLite config (e.g. storage settings).

@@ -3634,6 +3634,7 @@ async function setupPgDb() {
     try { await client.query(`ALTER TABLE hub.user_tasks ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP`); } catch (e) {}
     try { await client.query(`ALTER TABLE hub.user_tasks ADD COLUMN IF NOT EXISTS priority TEXT DEFAULT 'normale'`); } catch (e) {}
     try { await client.query(`ALTER TABLE hub.user_tasks ADD COLUMN IF NOT EXISTS is_public BOOLEAN DEFAULT FALSE`); } catch (e) {}
+    try { await client.query(`ALTER TABLE hub.user_tasks ADD COLUMN IF NOT EXISTS taken_by TEXT`); } catch (e) {}
     try { await client.query(`
         CREATE TABLE IF NOT EXISTS hub.todo_reunion_task_map (
             reunion_id  INTEGER NOT NULL,

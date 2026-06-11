@@ -22,12 +22,27 @@ function decodeHtml(str: string) {
   return txt.value;
 }
 
-// Réécrit les liens d'images GLPI (document.send.php) vers notre proxy authentifié.
-// Gère les formes relatives (/glpi/front/...) et absolues (http(s)://.../glpi/front/...).
-function rewriteGlpiImages(html: string): string {
+// Réécrit les liens d'images GLPI (document.send.php + cid:) vers notre proxy authentifié.
+// cidMap : { "image001.png" → docid } — fourni quand le ticket vient d'un email inline.
+function rewriteGlpiImages(html: string, cidMap?: Record<string, number>): string {
   if (!html) return html;
   const token = localStorage.getItem('token') || '';
-  let out = html.replace(
+  let out = html;
+
+  // Réécriture des cid: (images inline d'email : cid:image001.png@XXXXX)
+  if (cidMap && Object.keys(cidMap).length > 0) {
+    out = out.replace(
+      /(src\s*=\s*["'])cid:([^@"']+)@[^"']*["']/gi,
+      (_m, p1, cidFilename) => {
+        const docid = cidMap[cidFilename.toLowerCase()];
+        if (!docid) return _m;
+        return `${p1}/api/glpi/document/${docid}?token=${encodeURIComponent(token)}"`;
+      }
+    );
+  }
+
+  // Réécriture des document.send.php
+  out = out.replace(
     /(?:https?:\/\/[^"'\s)]*?)?\/glpi\/front\/document\.send\.php\?([^"'\s)]*)/gi,
     (_m, qs) => {
       const params = new URLSearchParams(String(qs).replace(/&amp;/g, '&'));
@@ -36,8 +51,7 @@ function rewriteGlpiImages(html: string): string {
       return `/api/glpi/document/${docid}?token=${encodeURIComponent(token || "")}`;
     }
   );
-  // Images inline collectées par mail (cid: réécrits en /api/tickets/.../attachments/...) :
-  // ajoute le token d'auth aux URLs de PJ qui n'en ont pas encore.
+  // Ajoute le token d'auth aux URLs de PJ qui n'en ont pas encore.
   out = out.replace(
     /(src\s*=\s*["'])(\/api\/tickets\/\d+\/attachments\/\d+)((?:\?[^"']*)?)(["'])/gi,
     (_m, p1, url, qs, p4) => {
@@ -156,6 +170,7 @@ export default function TicketDetail() {
   const [showRequesterEquip, setShowRequesterEquip] = useState(false);
   const [equipDetail, setEquipDetail] = useState<{ item: any; loading: boolean } | null>(null);
   const [glpiTicketUrl, setGlpiTicketUrl] = useState<string | null>(null);
+  const [cidDocs, setCidDocs] = useState<Record<string, number>>({});
   const [showTaskModal, setShowTaskModal] = useState(false);
   const [showAssignModal, setShowAssignModal] = useState(false);
   const [technicians, setTechnicians] = useState<any[]>([]);
@@ -232,6 +247,7 @@ export default function TicketDetail() {
 
   // Changement de type
   const [showTypeDropdown, setShowTypeDropdown] = useState(false);
+  const [ticketModuleRole, setTicketModuleRole] = useState<string>('user');
 
   // Arbitrage
   const [showArbitrageModal, setShowArbitrageModal] = useState(false);
@@ -246,7 +262,17 @@ export default function TicketDetail() {
     axios.get('/api/tickets/config/public', { headers: { Authorization: `Bearer ${token}` } })
       .then(r => setAiReformulationEnabled(r.data.ai_reformulation_enabled !== false))
       .catch(() => {});
+    axios.get('/api/tickets/my-role', { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => setTicketModuleRole(r.data.role || 'user'))
+      .catch(() => {});
   }, [id]);
+
+  useEffect(() => {
+    if (!ticket) return;
+    const prev = document.title;
+    document.title = `#${ticket.id} · ${ticket.title || 'Ticket'}`;
+    return () => { document.title = prev; };
+  }, [ticket?.id, ticket?.title]);
 
   useEffect(() => {
     const id = 'ticket-html-content-styles';
@@ -355,6 +381,7 @@ export default function TicketDetail() {
       const t = ticketRes.data;
       setTicket(t);
       setEditForm({
+        title: t.title || '',
         priority: t.priority?.id || t.priority,
         impact: t.impact?.id || t.impact,
         category_id: t.category_id?.toString() || '',
@@ -370,6 +397,21 @@ export default function TicketDetail() {
       setTicketTasks(tasksRes.data || []);
       setObservers(observersRes.data || []);
       setAttachments(attachmentsRes.data || []);
+      // Si le contenu contient des images cid: (emails inline), récupère les documents GLPI pour les réécrire
+      if ((t.content || '').includes('cid:') && t.glpi_id) {
+        axios.get(`/api/glpi/ticket-docs/${t.glpi_id}`, { headers })
+          .then(r => {
+            const map: Record<string, number> = {};
+            for (const doc of (r.data || [])) {
+              if (doc.filename) {
+                const base = doc.filename.split('/').pop() || doc.filename;
+                map[base.toLowerCase()] = doc.docid;
+              }
+            }
+            setCidDocs(map);
+          })
+          .catch(() => {});
+      }
       if (t.requester?.email) {
         loadRequesterTickets(t.requester.email);
         loadRequesterEquip(t.requester.email);
@@ -408,6 +450,7 @@ export default function TicketDetail() {
     try {
       const token = localStorage.getItem('token');
       const updateData: any = {};
+      if (editForm.title !== undefined && editForm.title.trim()) updateData.title = editForm.title.trim();
       if (editForm.priority !== undefined) updateData.priority = editForm.priority;
       if (editForm.impact !== undefined) updateData.impact = editForm.impact;
       updateData.category_id = editForm.category_id ? parseInt(editForm.category_id.toString()) : null;
@@ -522,6 +565,7 @@ export default function TicketDetail() {
           if (task.username) existing._members.push(task.username);
           if (task.statut === 'en_cours' && existing.statut !== 'terminé') existing.statut = 'en_cours';
           else if (task.statut === 'a_faire') existing.statut = 'a_faire';
+          if (task.taken_by && !existing.taken_by) existing.taken_by = task.taken_by;
         } else {
           const entry = { ...task, _isTeam: true, _members: task.username ? [task.username] : [] };
           seen.set(task.team_group_id, entry);
@@ -1159,7 +1203,8 @@ export default function TicketDetail() {
             {/* Badge type — cliquable pour admin/superadmin si pas Problème */}
             {(() => {
               const canChangeType = String(ticket.type) !== '3' &&
-                ['superadmin', 'admin'].includes((user?.role ?? '').toLowerCase().trim());
+                (['superadmin', 'admin'].includes((user?.role ?? '').toLowerCase().trim()) ||
+                 ['superadmin', 'admin', 'supervisor'].includes(ticketModuleRole));
               const bg = String(ticket.type) === '3' ? '#ede9fe' : String(ticket.type) === '2' ? '#e0f2fe' : '#fef3c7';
               const color = String(ticket.type) === '3' ? '#7c3aed' : String(ticket.type) === '2' ? '#0369a1' : '#92400e';
               return (
@@ -1207,7 +1252,7 @@ export default function TicketDetail() {
             <div style={{ borderBottom: '1px solid #f4f4f5', paddingBottom: 20 }}>
               <span style={{ fontSize: 11, fontWeight: 600, color: '#a1a1aa', textTransform: 'uppercase', letterSpacing: '0.06em', display: 'block', padding: '16px 0 8px' }}>Description</span>
               {ticket.content
-                ? <div className="ticket-html-content" style={{ fontSize: 13, color: '#3f3f46', lineHeight: 1.6 }} dangerouslySetInnerHTML={{ __html: rewriteGlpiImages(decodeHtml(ticket.content)) }} />
+                ? <div className="ticket-html-content" style={{ fontSize: 13, color: '#3f3f46', lineHeight: 1.6 }} dangerouslySetInnerHTML={{ __html: rewriteGlpiImages(decodeHtml(ticket.content), cidDocs) }} />
                 : <p style={{ fontSize: 13, color: '#a1a1aa', margin: 0, fontStyle: 'italic' }}>Aucune description</p>
               }
             </div>
@@ -1237,7 +1282,7 @@ export default function TicketDetail() {
               <div style={{ borderBottom: '1px solid #f4f4f5', paddingBottom: 20 }}>
                 <span style={{ fontSize: 11, fontWeight: 600, color: '#a1a1aa', textTransform: 'uppercase', letterSpacing: '0.06em', display: 'block', padding: '16px 0 8px' }}>Solution</span>
                 <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 8, padding: '12px 14px' }}>
-                  <div style={{ fontSize: 13, color: '#166534', lineHeight: 1.6 }} dangerouslySetInnerHTML={{ __html: rewriteGlpiImages(decodeHtml(ticket.solution)) }} />
+                  <div style={{ fontSize: 13, color: '#166534', lineHeight: 1.6 }} dangerouslySetInnerHTML={{ __html: rewriteGlpiImages(decodeHtml(ticket.solution), cidDocs) }} />
                 </div>
               </div>
             )}
@@ -1309,6 +1354,16 @@ export default function TicketDetail() {
                           </span>
                         ) : (
                           task.username && <span style={{ fontSize: 11, color: '#a1a1aa', flexShrink: 0 }}>{task.username}</span>
+                        )}
+                        {task.taken_by && task.statut === 'en_cours' && (
+                          <span style={{ fontSize: 11, color: '#1d4ed8', background: '#dbeafe', borderRadius: 4, padding: '1px 5px', fontWeight: 600, flexShrink: 0 }}>
+                            ⚙ {task.taken_by}
+                          </span>
+                        )}
+                        {task.taken_by && task.statut === 'terminé' && (
+                          <span style={{ fontSize: 11, color: '#15803d', background: '#dcfce7', borderRadius: 4, padding: '1px 5px', fontWeight: 600, flexShrink: 0 }}>
+                            ✓ {task.taken_by}
+                          </span>
                         )}
                         {task.echeance && (
                           <span style={{ fontSize: 11, color: new Date(task.echeance) < new Date() && !done ? '#ef4444' : '#a1a1aa', flexShrink: 0 }}>
@@ -1441,7 +1496,7 @@ export default function TicketDetail() {
                             background: bgColor,
                             border: `1px solid ${borderColor}`,
                             borderRadius: 8, padding: '8px 12px'
-                          }} dangerouslySetInnerHTML={{ __html: rewriteGlpiImages(decodeHtml(c.content)) }} />
+                          }} dangerouslySetInnerHTML={{ __html: rewriteGlpiImages(decodeHtml(c.content), cidDocs) }} />
                         )}
                         {(() => {
                           const atts = attachments.filter((a: any) => a.followup_id === c.id);
@@ -1626,6 +1681,7 @@ export default function TicketDetail() {
                 <button onClick={() => { 
                   setEditingInfo(true); 
                   setEditForm({
+                    title: ticket.title || '',
                     priority: ticket.priority?.id || ticket.priority,
                     impact: ticket.impact?.id || ticket.impact,
                     category_id: ticket.category_id?.toString() || '',
@@ -1662,6 +1718,19 @@ export default function TicketDetail() {
                 )}
               </div>
             </div>
+
+            {/* TITRE */}
+            {editingInfo && (
+              <div style={SF}>
+                <span style={SL}>Titre</span>
+                <input
+                  value={editForm.title || ''}
+                  onChange={e => setEditForm({...editForm, title: e.target.value})}
+                  style={{ padding: '5px 7px', border: '1px solid #e4e4e7', borderRadius: 6, fontSize: 12, background: '#fff', width: '100%', maxWidth: 220 }}
+                  placeholder="Titre du ticket"
+                />
+              </div>
+            )}
 
             {/* PRIORITÉ + IMPACT */}
             <div style={SF}>
@@ -2018,25 +2087,58 @@ export default function TicketDetail() {
               {/* Groupe */}
               {ticketGroup && (
                 <div style={{ marginBottom: 10 }}>
-                  <div style={{ fontSize: 12, fontWeight: 600, color: '#374151', marginBottom: 4 }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: '#374151', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 6 }}>
                     🔗 Groupe : {ticketGroup.name}
-                    <span style={{ background: '#e4e4e7', borderRadius: 10, fontSize: 10, padding: '0 5px', marginLeft: 5, color: '#52525b' }}>{ticketGroup.members?.length || ''}</span>
+                    <span style={{ background: '#e4e4e7', borderRadius: 10, fontSize: 10, padding: '0 5px', color: '#52525b' }}>{ticketGroup.members?.length || ''}</span>
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-                      {(ticketGroup.members || []).map((m: any) => (
-                        <div key={m.ticket_id} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11 }}>
-                           <a href={`/tickets/${m.ticket_id}`} style={{ color: '#6366f1', textDecoration: 'none' }}>#{m.ticket_id}</a>
-                           <span style={{ color: '#374151' }}>{m.title || 'Sans titre'}</span>
-                           <span style={{ color: '#94a3b8', fontStyle: 'italic' }}>({m.requester_name || 'Anonyme'})</span>
-                        </div>
-                      ))}
+                    {(ticketGroup.members || []).map((m: any) => (
+                      <div key={m.ticket_id} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11 }}>
+                        <a href={`/tickets/${m.ticket_id}`} style={{ color: '#6366f1', textDecoration: 'none' }}>#{m.ticket_id}</a>
+                        <span style={{ color: '#374151', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.title || 'Sans titre'}</span>
+                        <button
+                          onClick={() => removeFromGroup(m.ticket_id)}
+                          disabled={groupActionLoading}
+                          title="Retirer du groupe"
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ef4444', padding: '1px 3px', lineHeight: 1, flexShrink: 0, opacity: groupActionLoading ? 0.5 : 1 }}
+                        >×</button>
+                      </div>
+                    ))}
                   </div>
-                  
+
+                  {/* Ajouter un ticket au groupe */}
+                  {showAddToGroup ? (
+                    <div style={{ display: 'flex', gap: 4, marginTop: 6 }}>
+                      <input
+                        type="number"
+                        placeholder="N° ticket"
+                        value={addTicketId}
+                        onChange={e => setAddTicketId(e.target.value)}
+                        onKeyDown={e => { if (e.key === 'Enter') addToGroup(); if (e.key === 'Escape') { setShowAddToGroup(false); setAddTicketId(''); } }}
+                        autoFocus
+                        style={{ width: 90, padding: '3px 6px', border: '1px solid #6366f1', borderRadius: 5, fontSize: 11, outline: 'none' }}
+                      />
+                      <button onClick={addToGroup} disabled={groupActionLoading || !addTicketId}
+                        style={{ padding: '3px 8px', background: '#6366f1', color: '#fff', border: 'none', borderRadius: 5, cursor: 'pointer', fontSize: 11, fontWeight: 600, opacity: (!addTicketId || groupActionLoading) ? 0.5 : 1 }}>
+                        {groupActionLoading ? '…' : '✓'}
+                      </button>
+                      <button onClick={() => { setShowAddToGroup(false); setAddTicketId(''); }}
+                        style={{ padding: '3px 6px', background: 'none', border: '1px solid #e4e4e7', borderRadius: 5, cursor: 'pointer', fontSize: 11, color: '#71717a' }}>
+                        ✕
+                      </button>
+                    </div>
+                  ) : (
+                    <button onClick={() => setShowAddToGroup(true)}
+                      style={{ marginTop: 5, background: 'none', border: '1px dashed #a5b4fc', borderRadius: 5, padding: '3px 8px', color: '#6366f1', fontSize: 11, cursor: 'pointer', width: '100%' }}>
+                      + Ajouter un ticket
+                    </button>
+                  )}
+
                   {/* Transformer en problème (Si groupe mais pas problème lié) */}
                   {!ticketGroup.problem_ticket_id && String(ticket.type) !== '3' && (
                     <button onClick={() => setShowProblemModal(true)}
-                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#7c3aed', fontSize: 11, fontWeight: 600, padding: '4px 0', textDecoration: 'underline' }}>
-                        ⚠️ Transformer en problème
+                      style={{ marginTop: 4, background: 'none', border: 'none', cursor: 'pointer', color: '#7c3aed', fontSize: 11, fontWeight: 600, padding: '4px 0', textDecoration: 'underline' }}>
+                      ⚠️ Transformer en problème
                     </button>
                   )}
                 </div>

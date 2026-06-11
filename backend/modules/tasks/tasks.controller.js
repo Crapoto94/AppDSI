@@ -211,7 +211,8 @@ module.exports = {
                         ut.refus_raison,
                         ut.priority,
                         ut.is_public,
-                        (LOWER(COALESCE(ut.created_by, '')) = $1) AS can_edit
+                        (LOWER(COALESCE(ut.created_by, '')) = $1) AS can_edit,
+                        ut.taken_by
                     FROM hub.user_tasks ut
                     WHERE LOWER(ut.username) = $1
 
@@ -234,7 +235,8 @@ module.exports = {
                         ut.refus_raison,
                         ut.priority,
                         ut.is_public,
-                        (LOWER(COALESCE(ut.created_by, '')) = $1) AS can_edit
+                        (LOWER(COALESCE(ut.created_by, '')) = $1) AS can_edit,
+                        ut.taken_by
                     FROM hub.user_tasks ut
                     WHERE ut.is_public = true
                       AND LOWER(ut.username) != $1
@@ -266,7 +268,8 @@ module.exports = {
                         NULL          AS refus_raison,
                         NULL          AS priority,
                         FALSE         AS is_public,
-                        FALSE         AS can_edit
+                        FALSE         AS can_edit,
+                        NULL::text    AS taken_by
                     FROM transcript.tasks t
                     JOIN transcript.meetings m ON t.meeting_id = m.id
                     WHERE t.is_completed = 0
@@ -305,7 +308,8 @@ module.exports = {
                            WHERE pr5.projet_id = pts.projet_id
                              AND LOWER(pr5.username) = $1
                              AND pr5.role = 'chef_projet'
-                         )) AS can_edit
+                         )) AS can_edit,
+                        NULL::text              AS taken_by
                     FROM projets.projet_taches_standalone pts
                     JOIN projets.projets p ON pts.projet_id = p.id
                     WHERE pts.statut NOT IN ('terminé','terminee','terminée')
@@ -344,7 +348,8 @@ module.exports = {
                         NULL                   AS refus_raison,
                         NULL                   AS priority,
                         FALSE                  AS is_public,
-                        FALSE                  AS can_edit
+                        FALSE                  AS can_edit,
+                        NULL::text             AS taken_by
                     FROM hub_rencontres.rencontres_suivi rs
                     JOIN hub_rencontres.rencontres_budgetaires rb ON rs.rencontre_id = rb.id
                     WHERE rs.statut NOT IN ('terminé', 'done')
@@ -369,7 +374,8 @@ module.exports = {
                         NULL                 AS refus_raison,
                         NULL                 AS priority,
                         FALSE                AS is_public,
-                        FALSE                AS can_edit
+                        FALSE                AS can_edit,
+                        NULL::text           AS taken_by
                     FROM hub_rencontres.revue_taches rt
                     JOIN hub_rencontres.revues rv ON rt.revue_id = rv.id
                     WHERE rt.statut != 'terminé'
@@ -394,7 +400,8 @@ module.exports = {
                         NULL                 AS refus_raison,
                         NULL                 AS priority,
                         FALSE                AS is_public,
-                        FALSE                AS can_edit
+                        FALSE                AS can_edit,
+                        NULL::text           AS taken_by
                     FROM hub_rencontres.rencontres_reunions r
                     CROSS JOIN LATERAL json_array_elements(
                         CASE WHEN r.liste_taches IS NOT NULL AND r.liste_taches NOT IN ('', '[]')
@@ -692,17 +699,29 @@ module.exports = {
                             });
                         } catch (e) { console.error('[tasks] notify refusal failed:', e.message); }
                     } else {
+                        // a_faire → clear; en_cours → claim; terminé → keep existing or attribute to completer
+                        let takenByExpr, takenByParams;
+                        if (statut === 'a_faire') {
+                            takenByExpr = 'NULL';
+                            takenByParams = [statut, id];
+                        } else if (statut === 'en_cours') {
+                            takenByExpr = '$2';
+                            takenByParams = [statut, req.user.username, id];
+                        } else {
+                            // terminé : preserve taken_by if already set, else attribute to completer
+                            takenByExpr = 'COALESCE(taken_by, $2)';
+                            takenByParams = [statut, req.user.username, id];
+                        }
                         await pool.query(
-                            'UPDATE hub.user_tasks SET statut = $1, refus_raison = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = $2',
-                            [statut, id]
+                            `UPDATE hub.user_tasks SET statut = $1, refus_raison = NULL, taken_by = ${takenByExpr}, updated_at = CURRENT_TIMESTAMP WHERE id = $${takenByParams.length}`,
+                            takenByParams
                         );
-                        // Tâche d'équipe : le statut est partagé. Le premier qui avance/termine
-                        // la tâche la fait avancer/terminer pour tous les membres du groupe.
+                        // Tâche d'équipe : le statut et le taken_by sont partagés.
                         // (Le refus reste individuel — non propagé.)
                         if (taskContext?.team_group_id) {
                             await pool.query(
-                                'UPDATE hub.user_tasks SET statut = $1, refus_raison = NULL, updated_at = CURRENT_TIMESTAMP WHERE team_group_id = $2',
-                                [statut, taskContext.team_group_id]
+                                `UPDATE hub.user_tasks SET statut = $1, refus_raison = NULL, taken_by = ${takenByExpr}, updated_at = CURRENT_TIMESTAMP WHERE team_group_id = $${takenByParams.length}`,
+                                [...takenByParams.slice(0, -1), taskContext.team_group_id]
                             );
                         }
                     }
@@ -741,10 +760,13 @@ module.exports = {
                     // An assigned reunion task lives in hub.user_tasks with a
                     // normal id (context_source='reunion'); update it in place.
                     if (isUserTask) {
-                        await pool.query(
-                            'UPDATE hub.user_tasks SET statut = $1, refus_raison = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = $2',
-                            [statut, id]
-                        );
+                        if (statut === 'a_faire') {
+                            await pool.query('UPDATE hub.user_tasks SET statut = $1, refus_raison = NULL, taken_by = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = $2', [statut, id]);
+                        } else if (statut === 'en_cours') {
+                            await pool.query('UPDATE hub.user_tasks SET statut = $1, refus_raison = NULL, taken_by = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $3', [statut, req.user.username, id]);
+                        } else {
+                            await pool.query('UPDATE hub.user_tasks SET statut = $1, refus_raison = NULL, taken_by = COALESCE(taken_by, $2), updated_at = CURRENT_TIMESTAMP WHERE id = $3', [statut, req.user.username, id]);
+                        }
                         break;
                     }
                     // Otherwise it is a synthetic JSON-derived task:

@@ -22,6 +22,7 @@ router.delete('/rules/:id', authenticateAdmin, mailRulesController.delete);
 router.get('/', authenticateJWT, mailCollectorController.getAll);
 router.get('/stats', authenticateJWT, mailCollectorController.getStats);
 router.post('/purge-invalid-tickets', authenticateAdmin, mailCollectorController.purgeInvalidTickets);
+router.post('/reprocess-ticket/:ticket_id', authenticateAdmin, mailCollectorController.reprocessTicket);
 
 // Mail Collectors - admin only
 router.post('/', authenticateAdmin, mailCollectorController.create);

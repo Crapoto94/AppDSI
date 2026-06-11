@@ -59,6 +59,7 @@ export default function ChatWidget() {
   const [showTicketModal, setShowTicketModal] = useState(false);
   const [showJournalModal, setShowJournalModal] = useState(false);
   const [activeSessionsCount, setActiveSessionsCount] = useState(0);
+  const [bubblesHidden, setBubblesHidden] = useState(false);
 
   const token = localStorage.getItem('token');
   const PC = chatConfig?.primary_color || '#6366f1';
@@ -391,8 +392,22 @@ export default function ChatWidget() {
   // ── Render ─────────────────────────────────────────────────────────
   if (checking) return null;
 
-  const floatingButtons = (
+  const floatingButtons = bubblesHidden ? null : (
     <div style={{ position: 'fixed', bottom: 24, right: 24, zIndex: 9999, display: 'flex', flexDirection: 'column', gap: 12, alignItems: 'flex-end' }}>
+      {/* Bouton masquer */}
+      <button
+        onClick={() => setBubblesHidden(true)}
+        title="Masquer"
+        style={{
+          alignSelf: 'flex-end', width: 18, height: 18, borderRadius: '50%',
+          background: 'rgba(100,116,139,0.15)', border: '1px solid rgba(100,116,139,0.25)',
+          cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+          color: '#94a3b8', fontSize: 11, lineHeight: 1, padding: 0,
+          transition: 'background 0.15s',
+        }}
+        onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(239,68,68,0.15)'; (e.currentTarget as HTMLElement).style.color = '#ef4444'; }}
+        onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(100,116,139,0.15)'; (e.currentTarget as HTMLElement).style.color = '#94a3b8'; }}
+      >×</button>
       
       {/* Create Task Bubble */}
       <button

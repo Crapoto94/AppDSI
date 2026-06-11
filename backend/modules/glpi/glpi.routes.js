@@ -44,6 +44,8 @@ router.post('/sync-groups-cancel', authenticateGLPIControl, glpiController.cance
 
 // Document proxy / cache local (images dans les descriptions de tickets)
 router.get('/document/:docid', authenticateJWT, glpiController.getDocument);
+// Documents GLPI liés à un ticket (images CID d'emails)
+router.get('/ticket-docs/:glpi_id', authenticateJWT, glpiController.getTicketCidDocs);
 
 // Import en masse des images GLPI (mise en cache locale pérenne)
 router.post('/import-images', authenticateAdmin, glpiController.importImages);

@@ -2028,6 +2028,49 @@ const glpiController = {
         }
     },
 
+    // ─── Documents GLPI liés à un ticket (images CID d'emails) ──────────────────────────────
+    // GET /api/glpi/ticket-docs/:glpi_id  → [{docid, filename, mime}]
+    getTicketCidDocs: async (req, res) => {
+        try {
+            const glpiId = parseInt(req.params.glpi_id, 10);
+            if (!glpiId || Number.isNaN(glpiId)) return res.status(400).json({ message: 'glpi_id invalide' });
+
+            const session = await getGlpiApiSession();
+            if (!session) return res.json([]);
+            const { url, sessionToken, appToken } = session;
+            const hdrs = { 'App-Token': appToken, 'Session-Token': sessionToken, 'Accept': 'application/json', 'Content-Type': 'application/json' };
+
+            // Récupère les documents attachés au ticket dans GLPI
+            let docItems = [];
+            try {
+                const r = await axios.get(`${url}/Document_Item?items_id=${glpiId}&itemtype=Ticket`, { headers: hdrs, timeout: 10000 });
+                docItems = Array.isArray(r.data) ? r.data : [];
+            } catch (e) {
+                console.error('[GLPI] Document_Item fetch error:', e.message);
+                return res.json([]);
+            }
+
+            const result = [];
+            for (const item of docItems) {
+                const docid = item.documents_id;
+                if (!docid) continue;
+                // Vérifie le cache local avant de re-télécharger
+                let cached = await pgDb.get('SELECT * FROM hub_tickets.glpi_documents WHERE docid = $1', [docid]);
+                if (!cached || cached.status !== 'ok' || !cached.local_path || !fs.existsSync(cached.local_path)) {
+                    await fetchAndCacheDocument(docid, glpiId);
+                    cached = await pgDb.get('SELECT * FROM hub_tickets.glpi_documents WHERE docid = $1', [docid]);
+                }
+                if (cached && cached.status === 'ok') {
+                    result.push({ docid: Number(cached.docid), filename: cached.filename, mime: cached.mime });
+                }
+            }
+            res.json(result);
+        } catch (error) {
+            console.error('[GLPI] getTicketCidDocs error:', error.message);
+            res.json([]);
+        }
+    },
+
     // ─── Service de document GLPI : cache local d'abord, repli API GLPI (+ mise en cache) ──
     getDocument: async (req, res) => {
         try {

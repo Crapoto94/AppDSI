@@ -150,7 +150,8 @@ export default function TicketsStats() {
     slaOverview, hourlyDistribution, reopened30d,
     avgResolutionHours, avgClosureHours, weeklyComparison,
     topRequestersExtended, technicianPerformance, topSoftwares, vipByPriority,
-    statusTrend, incidentVsRequestTrend, topObservers, categoryPerformance } = stats;
+    statusTrend, incidentVsRequestTrend, topObservers, categoryPerformance,
+    byServiceDirection } = stats;
 
   // Référentiel global (tous tickets) pour comparaison quand un filtre/période est actif
   const globalOverview = globalStats?.overview || null;
@@ -715,7 +716,80 @@ export default function TicketsStats() {
           </div>
         </div>
 
-        {/* Row 10: Category performance */}
+        {/* Row 10: Stats par direction / service */}
+        {(byServiceDirection || []).length > 0 && (
+          <div style={{ marginBottom: 20 }}>
+            <div className="stats-card" style={{ marginBottom: 12 }}>
+              <div style={{ fontSize: 15, fontWeight: 600, color: '#1e293b', marginBottom: 16 }}>
+                Tickets par direction / service (demandeur)
+              </div>
+              <ResponsiveContainer width="100%" height={Math.max(200, Math.min((byServiceDirection || []).length * 28, 420))}>
+                <BarChart
+                  data={(byServiceDirection || []).slice(0, 20)}
+                  layout="vertical"
+                  margin={{ top: 0, right: 20, left: 140, bottom: 0 }}
+                >
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" horizontal={false} />
+                  <XAxis type="number" tick={{ fontSize: 11, fill: COLORS.slate }} allowDecimals={false} />
+                  <YAxis type="category" dataKey="service" tick={{ fontSize: 11, fill: '#374151' }} width={135} />
+                  <Tooltip
+                    formatter={(v: any, name: any) => [v, name === 'incidents' ? 'Incidents' : name === 'demandes' ? 'Demandes' : name]}
+                    labelFormatter={(l: any) => `Service : ${l}`}
+                  />
+                  <Legend wrapperStyle={{ fontSize: 12 }} />
+                  <Bar dataKey="incidents" name="Incidents" stackId="a" fill={COLORS.amber} radius={[0, 0, 0, 0]} maxBarSize={20} />
+                  <Bar dataKey="demandes" name="Demandes" stackId="a" fill={COLORS.indigo} radius={[0, 4, 4, 0]} maxBarSize={20} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+
+            <div className="stats-card">
+              <table className="stats-table">
+                <thead>
+                  <tr>
+                    <th>Direction / Service</th>
+                    <th style={{ textAlign: 'center' }}>Total</th>
+                    <th style={{ textAlign: 'center' }}>Incidents</th>
+                    <th style={{ textAlign: 'center' }}>Demandes</th>
+                    <th style={{ textAlign: 'center' }}>En cours</th>
+                    <th style={{ textAlign: 'center' }}>Résolus</th>
+                    <th style={{ textAlign: 'center' }}>% résolu</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(byServiceDirection || []).map((row: any, i: number) => {
+                    const pct = row.total > 0 ? Math.round((row.resolus / row.total) * 100) : 0;
+                    return (
+                      <tr key={i}>
+                        <td style={{ fontSize: 12, fontWeight: 500 }}>
+                          {row.service}
+                          {row.service_code && row.service_code !== '—' && row.service_code !== row.service && (
+                            <span style={{ marginLeft: 6, fontSize: 10, color: '#94a3b8', fontWeight: 400 }}>{row.service_code}</span>
+                          )}
+                        </td>
+                        <td style={{ textAlign: 'center', fontWeight: 700 }}>{row.total}</td>
+                        <td style={{ textAlign: 'center', color: COLORS.amber, fontWeight: 600 }}>{row.incidents}</td>
+                        <td style={{ textAlign: 'center', color: COLORS.indigo, fontWeight: 600 }}>{row.demandes}</td>
+                        <td style={{ textAlign: 'center', color: COLORS.blue }}>{row.en_cours}</td>
+                        <td style={{ textAlign: 'center', color: COLORS.green }}>{row.resolus}</td>
+                        <td style={{ textAlign: 'center' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6, justifyContent: 'center' }}>
+                            <div style={{ width: 48, height: 6, background: '#f1f5f9', borderRadius: 3, overflow: 'hidden' }}>
+                              <div style={{ width: `${pct}%`, height: '100%', background: pct >= 80 ? COLORS.green : pct >= 50 ? COLORS.amber : COLORS.red, borderRadius: 3 }} />
+                            </div>
+                            <span style={{ fontSize: 11, color: COLORS.slate }}>{pct}%</span>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {/* Row 11: Category performance */}
         <div className="stats-card" style={{ marginBottom: 20 }}>
           <div style={{ fontSize: 15, fontWeight: 600, color: '#1e293b', marginBottom: 16 }}>Temps de résolution ouvré par catégorie (jours)</div>
           <ResponsiveContainer width="100%" height={260}>

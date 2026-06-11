@@ -487,7 +487,9 @@ class MailCollectorService {
             const obsCount = await this.addObservers(existingTicket, email);
 
             // Attachments pour le commentaire
-            if (email.hasAttachments) {
+            // Note: hasAttachments peut être false pour les emails avec uniquement des images inline (cid:)
+            const commentBody = email.body?.content || '';
+            if (email.hasAttachments || commentBody.includes('cid:')) {
               const attachments = await this.downloadAttachments(token, collector.mailbox, email.id, axiosOpts);
               const createdAtt = await this.addAttachments(existingTicket, attachments, 'system');
               log.attachments_processed += createdAtt.length;
@@ -538,8 +540,10 @@ class MailCollectorService {
             const obsCount = await this.addObservers(ticketId, email);
 
             // Attachments
+            // Note: hasAttachments peut être false pour les emails avec uniquement des images inline (cid:)
+            const bodyContent = email.body?.content || '';
             let attachCount = 0;
-            if (email.hasAttachments) {
+            if (email.hasAttachments || bodyContent.includes('cid:')) {
               const attachments = await this.downloadAttachments(token, collector.mailbox, email.id, axiosOpts);
               const createdAtt = await this.addAttachments(ticketId, attachments, 'system');
               attachCount = createdAtt.length;
