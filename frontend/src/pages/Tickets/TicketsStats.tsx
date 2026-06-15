@@ -53,7 +53,7 @@ function fmtHours(h: number | undefined | null): string {
 
 export default function TicketsStats() {
   const navigate = useNavigate();
-  const { token } = useAuth();
+  const { token, user } = useAuth();
   const tok = token || localStorage.getItem('token');
   const headers = { Authorization: `Bearer ${tok}` };
 
@@ -61,6 +61,22 @@ export default function TicketsStats() {
   const [globalStats, setGlobalStats] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [adSyncState, setAdSyncState] = useState<'idle' | 'loading' | 'done' | 'error'>('idle');
+  const [adSyncMsg, setAdSyncMsg] = useState<string>('');
+
+  const handleAdSync = useCallback(async () => {
+    if (adSyncState === 'loading') return;
+    setAdSyncState('loading');
+    setAdSyncMsg('');
+    try {
+      const r = await axios.post('/api/tickets/admin/sync-org-from-ad', {}, { headers });
+      setAdSyncMsg(r.data.message || 'Synchronisation terminée.');
+      setAdSyncState('done');
+    } catch (e: any) {
+      setAdSyncMsg(e.response?.data?.message || e.message || 'Erreur');
+      setAdSyncState('error');
+    }
+  }, [adSyncState, headers]);
 
   // ── Filtre groupe ───────────────────────────────────────────
   const [groups, setGroups] = useState<any[]>([]);
@@ -717,6 +733,25 @@ export default function TicketsStats() {
         </div>
 
         {/* Row 10: Stats par direction et par service */}
+        {['admin', 'superadmin'].includes(user?.role || '') && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
+            <button
+              onClick={handleAdSync}
+              disabled={adSyncState === 'loading'}
+              style={{
+                padding: '7px 16px', borderRadius: 8, border: '1px solid #c7d2fe', fontSize: 13, fontWeight: 600,
+                background: adSyncState === 'loading' ? '#e0e7ff' : '#eef2ff', color: '#4338ca', cursor: adSyncState === 'loading' ? 'not-allowed' : 'pointer',
+              }}
+            >
+              {adSyncState === 'loading' ? 'Synchronisation AD…' : 'Synchro direction/service depuis l\'AD'}
+            </button>
+            {adSyncMsg && (
+              <span style={{ fontSize: 13, color: adSyncState === 'error' ? '#dc2626' : '#16a34a', fontWeight: 500 }}>
+                {adSyncMsg}
+              </span>
+            )}
+          </div>
+        )}
         {((byDirection || []).length > 0 || (byServiceDirection || []).length > 0) && (
           <OrgStatsSection
             byDirection={byDirection || []}

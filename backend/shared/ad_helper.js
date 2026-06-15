@@ -227,8 +227,69 @@ async function searchADComputers(config, { onProgress } = {}) {
     });
 }
 
+/**
+ * Cherche jusqu'à `usernames.length` comptes AD en une seule connexion LDAP
+ * (filtre OR sur sAMAccountName) et retourne une Map<username_lower → {department, company}>.
+ * Traite les lots de 50 pour ne pas dépasser les limites de complexité du filtre.
+ */
+async function lookupADUsersOrg(usernames, config) {
+    const result = new Map();
+    if (!config || !config.is_enabled || !usernames || !usernames.length) return result;
+
+    const BATCH = 50;
+
+    const runBatch = (batch) => new Promise((resolve) => {
+        let settled = false;
+        const client = ldap.createClient({
+            url: `ldap://${config.host}:${config.port}`,
+            connectTimeout: 10000,
+            timeout: 15000
+        });
+        const finish = () => {
+            if (settled) return;
+            settled = true;
+            clearTimeout(guard);
+            try { client.destroy(); } catch (_) {}
+            resolve();
+        };
+        const guard = setTimeout(finish, 20000);
+        client.on('error', (e) => { console.error('[AD lookupOrg]', e.message); finish(); });
+
+        client.bind(config.bind_dn, config.bind_password, (err) => {
+            if (err) { console.error('[AD lookupOrg bind]', err.message); return finish(); }
+
+            const parts = batch.map(u => `(sAMAccountName=${u.replace(/[*()\\\x00]/g, '\\$&')})`);
+            const filter = batch.length === 1 ? `(&(objectClass=user)${parts[0]})` : `(&(objectClass=user)(|${parts.join('')}))`;
+
+            client.search(config.base_dn, {
+                filter, scope: 'sub',
+                attributes: ['sAMAccountName', 'department', 'company']
+            }, (err2, res) => {
+                if (err2) { console.error('[AD lookupOrg search]', err2.message); return finish(); }
+                res.on('searchEntry', (entry) => {
+                    const obj = flattenLDAPEntry(entry);
+                    if (obj && obj.sAMAccountName) {
+                        result.set(obj.sAMAccountName.toLowerCase(), {
+                            department: obj.department || '',
+                            company: obj.company || ''
+                        });
+                    }
+                });
+                res.on('error', finish);
+                res.on('end', finish);
+            });
+        });
+    });
+
+    for (let i = 0; i < usernames.length; i += BATCH) {
+        await runBatch(usernames.slice(i, i + BATCH));
+    }
+    return result;
+}
+
 module.exports = {
     searchADUsersByQuery,
+    lookupADUsersOrg,
     searchADComputers,
     deriveEmailFromUsager,
     parseGeneralizedTime,

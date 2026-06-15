@@ -3,7 +3,7 @@ const router = express.Router();
 const { authenticateJWT } = require('../../shared/middleware');
 const { authenticateTicketAdmin } = require('./middleware/ticket-permissions');
 const { pgDb, getSqlite } = require('../../shared/database');
-const { searchADUsersByQuery } = require('../../shared/ad_helper');
+const { searchADUsersByQuery, lookupADUsersOrg } = require('../../shared/ad_helper');
 const technicianRepo = require('./repositories/technician.repository');
 const storage = require('../../shared/storage');
 const multer = require('multer');
@@ -1017,6 +1017,59 @@ router.put('/config-bulk', authenticateTicketAdmin, async (req, res) => {
         }
         res.json({ message: 'Configuration mise à jour' });
     } catch (e) { res.status(400).json({ message: e.message }); }
+});
+
+// ─── Synchro direction/service depuis l'AD ─────────────────────────────────
+// Interroge l'AD pour tous les utilisateurs de magapp.users dont service_code
+// est NULL, et met à jour service_code (= company AD) + service_complement (= department AD).
+router.post('/sync-org-from-ad', authenticateTicketAdmin, async (req, res) => {
+    try {
+        const db = getSqlite();
+        const adSettings = await db.get('SELECT * FROM ad_settings WHERE id = 1');
+        if (!adSettings || !adSettings.is_enabled) {
+            return res.status(400).json({ message: 'Active Directory non configuré ou désactivé.' });
+        }
+
+        const { pool } = require('../../shared/database');
+
+        // Récupère TOUS les utilisateurs de magapp.users (même ceux avec service_code existant
+        // si force=true est passé, sinon seulement ceux avec service_code NULL)
+        const force = req.body && req.body.force === true;
+        const where = force ? '' : "WHERE service_code IS NULL OR service_code = ''";
+        const users = await pgDb.all(`SELECT username FROM magapp.users ${where}`);
+        if (!users.length) return res.json({ message: 'Aucun utilisateur à synchroniser.', updated: 0, total: 0 });
+
+        const usernames = users.map(u => u.username).filter(Boolean);
+        console.log(`[sync-org-from-ad] ${usernames.length} utilisateur(s) à interroger dans l'AD`);
+
+        const orgMap = await lookupADUsersOrg(usernames, adSettings);
+        console.log(`[sync-org-from-ad] ${orgMap.size} résultat(s) AD`);
+
+        let updated = 0;
+        const unknowns = [];
+        for (const username of usernames) {
+            const org = orgMap.get(username.toLowerCase());
+            if (!org || (!org.department && !org.company)) {
+                unknowns.push(username);
+                continue;
+            }
+            await pool.query(
+                `UPDATE magapp.users SET service_code = $1, service_complement = $2 WHERE LOWER(username) = LOWER($3)`,
+                [org.company || null, org.department || null, username]
+            );
+            updated++;
+        }
+
+        res.json({
+            message: `${updated} utilisateur(s) mis à jour sur ${usernames.length} interrogés.`,
+            updated,
+            total: usernames.length,
+            not_found_in_ad: unknowns.length,
+        });
+    } catch (e) {
+        console.error('[sync-org-from-ad]', e.message);
+        res.status(500).json({ message: e.message });
+    }
 });
 
 // ─── Clôture : log des clôtures (auto + par demandeurs/techniciens) ──────────

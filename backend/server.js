@@ -113,7 +113,7 @@ async function authenticateAD(username, password, config) {
             const searchOptions = {
                 filter: `(sAMAccountName=${username})`,
                 scope: 'sub',
-                attributes: ['dn', 'cn', 'memberOf', 'mail', 'displayName'],
+                attributes: ['dn', 'cn', 'memberOf', 'mail', 'displayName', 'department', 'company'],
                 referrals: false,
                 paged: false
             };
@@ -189,7 +189,9 @@ async function authenticateAD(username, password, config) {
                             username: username,
                             displayName: userEntry.displayName || userEntry.cn,
                             email: userEntry.mail,
-                            dn: userEntry.dn
+                            dn: userEntry.dn,
+                            department: userEntry.department || '',
+                            company: userEntry.company || ''
                         });
                     });
                 });
@@ -226,7 +228,7 @@ async function getADUserInfo(username, config) {
             const searchOptions = {
                 filter: `(|(sAMAccountName=${username})(cn=${username}))`,
                 scope: 'sub',
-                attributes: ['dn', 'cn', 'mail', 'displayName', 'department', 'sAMAccountName']
+                attributes: ['dn', 'cn', 'mail', 'displayName', 'department', 'company', 'sAMAccountName']
             };
 
             client.search(config.base_dn, searchOptions, (err, res) => {
@@ -245,13 +247,17 @@ async function getADUserInfo(username, config) {
                     if (foundSam && foundSam.toLowerCase() === username.toLowerCase()) {
                         userEntry = {
                             displayName: obj.displayName || obj.cn || foundSam,
-                            mail: obj.mail || ''
+                            mail: obj.mail || '',
+                            department: obj.department || '',
+                            company: obj.company || ''
                         };
                     } else if (!userEntry) {
                         // Premier résultat par défaut si pas encore de match exact
                         userEntry = {
                             displayName: obj.displayName || obj.cn || obj.sAMAccountName,
-                            mail: obj.mail || ''
+                            mail: obj.mail || '',
+                            department: obj.department || '',
+                            company: obj.company || ''
                         };
                     }
                 });
@@ -3245,7 +3251,7 @@ setupDb().then(async database => {
         for (const u of sqliteUsers) {
             try {
                 await pool.query(
-                    'INSERT INTO magapp.users (username, role, is_approved, email, service_code, service_complement) VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (username) DO NOTHING',
+                    'INSERT INTO magapp.users (username, role, is_approved, email, service_code, service_complement) VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (username) DO UPDATE SET service_code = EXCLUDED.service_code, service_complement = EXCLUDED.service_complement, role = EXCLUDED.role, is_approved = EXCLUDED.is_approved',
                     [u.username, u.role || 'user', u.is_approved || 0, u.email || null, u.service_code || null, u.service_complement || null]
                 );
                 copied++;
@@ -4222,29 +4228,29 @@ app.post(['/api/login', '/api/auth/magapp-login'], async (req, res) => {
                     // Synchro vers magapp.users si présent dans SQLite
                     try {
                         const r = await pool.query('SELECT username FROM magapp.users WHERE username = $1', [username.toLowerCase()]);
-                        if (!r.rows[0]) {
-                            await pool.query(
-                                'INSERT INTO magapp.users (username, role, is_approved, email, service_code, service_complement) VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (username) DO NOTHING',
-                                [username.toLowerCase(), user.role || 'user', user.is_approved || 0, user.email || null, user.service_code || null, user.service_complement || null]
-                            );
-                        }
+                        await pool.query(
+                            'INSERT INTO magapp.users (username, role, is_approved, email, service_code, service_complement) VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (username) DO UPDATE SET service_code = EXCLUDED.service_code, service_complement = EXCLUDED.service_complement',
+                            [username.toLowerCase(), user.role || 'user', user.is_approved || 0, user.email || null, user.service_code || adUser.company || null, user.service_complement || adUser.department || null]
+                        );
                     } catch (pgErr) { console.error('[AD sync magapp]', pgErr.message); }
                 } else {
                     try {
-                const r = await pool.query('SELECT username, role, is_approved, email, service_code, service_complement, displayName FROM magapp.users WHERE username = $1', [username.toLowerCase()]);
-                        magappUser = r.rows[0] || null;
-                    } catch (pgErr) { console.error('[AD magapp.users]', pgErr.message); }
-                    if (!magappUser) {
-                        try {
-                            await pool.query(
-                                'INSERT INTO magapp.users (username, role, is_approved, displayName, email) VALUES ($1, $2, $3, $4, $5)',
-                                [username.toLowerCase(), 'user', 1, adUser.displayName || null, adUser.email || null]
-                            );
-                            magappUser = { username: username.toLowerCase(), role: 'user', is_approved: 1, email: adUser.email || null, service_code: null, service_complement: null };
-                        } catch (pgErr) {
-                            console.error('[AD magapp.users]', pgErr.message);
-                            return res.status(500).json({ message: "Erreur lors de la création du compte." });
+                        const upsertR = await pool.query(
+                            `INSERT INTO magapp.users (username, role, is_approved, displayName, email, service_code, service_complement)
+                             VALUES ($1, $2, $3, $4, $5, $6, $7)
+                             ON CONFLICT (username) DO UPDATE SET
+                               service_code = COALESCE(EXCLUDED.service_code, magapp.users.service_code),
+                               service_complement = COALESCE(EXCLUDED.service_complement, magapp.users.service_complement)
+                             RETURNING *`,
+                            [username.toLowerCase(), 'user', 1, adUser.displayName || null, adUser.email || null, adUser.company || null, adUser.department || null]
+                        );
+                        magappUser = upsertR.rows[0] || null;
+                        if (!magappUser) {
+                            magappUser = { username: username.toLowerCase(), role: 'user', is_approved: 1, email: adUser.email || null, service_code: adUser.company || null, service_complement: adUser.department || null };
                         }
+                    } catch (pgErr) {
+                        console.error('[AD magapp.users]', pgErr.message);
+                        return res.status(500).json({ message: "Erreur lors de la création du compte." });
                     }
                 }
 
