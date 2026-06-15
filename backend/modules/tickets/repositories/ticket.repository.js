@@ -1282,7 +1282,7 @@ module.exports = {
 
         const byDirection = await pgDb.all(`
             SELECT
-                COALESCE(NULLIF(hu.service_code, ''), 'Non renseigné') AS direction,
+                COALESCE(NULLIF(mu.service_code, ''), 'Non renseigné') AS direction,
                 COUNT(*)::int AS total,
                 COUNT(*) FILTER (WHERE t.type::text = '1')::int AS incidents,
                 COUNT(*) FILTER (WHERE t.type::text = '2')::int AS demandes,
@@ -1290,18 +1290,22 @@ module.exports = {
                 COUNT(*) FILTER (WHERE t.status::int IN (5,6))::int AS resolus,
                 ROUND(AVG(EXTRACT(EPOCH FROM (COALESCE(t.date_solved, NOW()) - t.date_creation)) / 3600)::numeric, 1)::float AS avg_resolution_hours
             FROM hub_tickets.tickets t
-            LEFT JOIN hub.users hu
-                ON LOWER(hu.email) = LOWER(COALESCE(NULLIF(t.email_alt, ''), t.requester_email_22))
+            LEFT JOIN LATERAL (
+                SELECT service_code, service_complement
+                FROM magapp.users
+                WHERE LOWER(email) = LOWER(COALESCE(NULLIF(t.email_alt, ''), t.requester_email_22))
+                LIMIT 1
+            ) mu ON true
             WHERE t.status::int <> 8${filtAnd}
-            GROUP BY hu.service_code
+            GROUP BY mu.service_code
             ORDER BY total DESC
             LIMIT 30
         `);
 
         const byServiceDirection = await pgDb.all(`
             SELECT
-                COALESCE(NULLIF(hu.service_complement, ''), hu.service_code, 'Non renseigné') AS service,
-                COALESCE(NULLIF(hu.service_code, ''), '—') AS service_code,
+                COALESCE(NULLIF(mu.service_complement, ''), mu.service_code, 'Non renseigné') AS service,
+                COALESCE(NULLIF(mu.service_code, ''), '—') AS service_code,
                 COUNT(*)::int AS total,
                 COUNT(*) FILTER (WHERE t.type::text = '1')::int AS incidents,
                 COUNT(*) FILTER (WHERE t.type::text = '2')::int AS demandes,
@@ -1309,10 +1313,14 @@ module.exports = {
                 COUNT(*) FILTER (WHERE t.status::int IN (5,6))::int AS resolus,
                 ROUND(AVG(EXTRACT(EPOCH FROM (COALESCE(t.date_solved, NOW()) - t.date_creation)) / 3600)::numeric, 1)::float AS avg_resolution_hours
             FROM hub_tickets.tickets t
-            LEFT JOIN hub.users hu
-                ON LOWER(hu.email) = LOWER(COALESCE(NULLIF(t.email_alt, ''), t.requester_email_22))
+            LEFT JOIN LATERAL (
+                SELECT service_code, service_complement
+                FROM magapp.users
+                WHERE LOWER(email) = LOWER(COALESCE(NULLIF(t.email_alt, ''), t.requester_email_22))
+                LIMIT 1
+            ) mu ON true
             WHERE t.status::int <> 8${filtAnd}
-            GROUP BY hu.service_complement, hu.service_code
+            GROUP BY mu.service_complement, mu.service_code
             ORDER BY total DESC
             LIMIT 50
         `);
