@@ -42,6 +42,10 @@ router.post('/sync-groups', authenticateInternalOrAdmin, glpiController.fetchGlp
 router.get('/sync-groups-status', authenticateGLPIControl, glpiController.getGroupsStatus);
 router.post('/sync-groups-cancel', authenticateGLPIControl, glpiController.cancelGroupsSync);
 
+router.post('/sync-tasks', authenticateInternalOrAdmin, glpiController.syncTicketTasks);
+router.get('/sync-tasks-status', authenticateGLPIControl, glpiController.getTasksStatus);
+router.post('/sync-tasks-cancel', authenticateGLPIControl, glpiController.cancelTasksSync);
+
 // Document proxy / cache local (images dans les descriptions de tickets)
 router.get('/document/:docid', authenticateJWT, glpiController.getDocument);
 // Documents GLPI liés à un ticket (images CID d'emails)

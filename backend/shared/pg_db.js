@@ -1612,6 +1612,24 @@ async function setupPgDb() {
       );
     `);
 
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS glpi.ticket_tasks (
+        id SERIAL PRIMARY KEY,
+        glpi_task_id INTEGER NOT NULL UNIQUE,
+        ticket_id INTEGER NOT NULL,
+        content TEXT,
+        state SMALLINT DEFAULT 0,
+        tech_name VARCHAR(255),
+        begin_date TIMESTAMP,
+        end_date TIMESTAMP,
+        actiontime INTEGER DEFAULT 0,
+        is_private SMALLINT DEFAULT 0,
+        date_creation TIMESTAMP,
+        date_mod TIMESTAMP,
+        last_sync TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
     try {
       await client.query(`ALTER TABLE glpi.ticket_followups ADD COLUMN IF NOT EXISTS content_hash VARCHAR(32)`);
       await client.query(`UPDATE glpi.ticket_followups SET content_hash = md5(content) WHERE content_hash IS NULL AND content IS NOT NULL`);

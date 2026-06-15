@@ -1280,6 +1280,24 @@ module.exports = {
             resolvedAvgPerDay = Math.round(((r?.c || 0) / span) * 10) / 10;
         }
 
+        const byDirection = await pgDb.all(`
+            SELECT
+                COALESCE(NULLIF(hu.service_code, ''), 'Non renseigné') AS direction,
+                COUNT(*)::int AS total,
+                COUNT(*) FILTER (WHERE t.type::text = '1')::int AS incidents,
+                COUNT(*) FILTER (WHERE t.type::text = '2')::int AS demandes,
+                COUNT(*) FILTER (WHERE t.status::int IN (1,2,3,4))::int AS en_cours,
+                COUNT(*) FILTER (WHERE t.status::int IN (5,6))::int AS resolus,
+                ROUND(AVG(EXTRACT(EPOCH FROM (COALESCE(t.date_solved, NOW()) - t.date_creation)) / 3600)::numeric, 1)::float AS avg_resolution_hours
+            FROM hub_tickets.tickets t
+            LEFT JOIN hub.users hu
+                ON LOWER(hu.email) = LOWER(COALESCE(NULLIF(t.email_alt, ''), t.requester_email_22))
+            WHERE t.status::int <> 8${filtAnd}
+            GROUP BY hu.service_code
+            ORDER BY total DESC
+            LIMIT 30
+        `);
+
         const byServiceDirection = await pgDb.all(`
             SELECT
                 COALESCE(NULLIF(hu.service_complement, ''), hu.service_code, 'Non renseigné') AS service,
@@ -1288,7 +1306,8 @@ module.exports = {
                 COUNT(*) FILTER (WHERE t.type::text = '1')::int AS incidents,
                 COUNT(*) FILTER (WHERE t.type::text = '2')::int AS demandes,
                 COUNT(*) FILTER (WHERE t.status::int IN (1,2,3,4))::int AS en_cours,
-                COUNT(*) FILTER (WHERE t.status::int IN (5,6))::int AS resolus
+                COUNT(*) FILTER (WHERE t.status::int IN (5,6))::int AS resolus,
+                ROUND(AVG(EXTRACT(EPOCH FROM (COALESCE(t.date_solved, NOW()) - t.date_creation)) / 3600)::numeric, 1)::float AS avg_resolution_hours
             FROM hub_tickets.tickets t
             LEFT JOIN hub.users hu
                 ON LOWER(hu.email) = LOWER(COALESCE(NULLIF(t.email_alt, ''), t.requester_email_22))
@@ -1328,6 +1347,7 @@ module.exports = {
             incidentVsRequestTrend,
             topObservers,
             categoryPerformance,
+            byDirection,
             byServiceDirection,
         };
     },

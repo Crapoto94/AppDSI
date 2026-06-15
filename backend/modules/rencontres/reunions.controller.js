@@ -268,10 +268,13 @@ module.exports = {
         try {
             const { id } = req.params;
             const reunion = await pgDb.get(`
-                SELECT r.*, tm.id as transcript_id 
-                FROM rencontres_reunions r 
-                LEFT JOIN transcript_meetings tm ON tm.reunion_id = r.id 
-                WHERE r.id=?
+                SELECT r.*, tm.id as transcript_id,
+                       pr_lien.projet_id as projet_lie_id, pj_lien.code as projet_lie_code, pj_lien.titre as projet_lie_titre
+                FROM rencontres_reunions r
+                LEFT JOIN transcript_meetings tm ON tm.reunion_id = r.id
+                LEFT JOIN projets.projet_reunions pr_lien ON pr_lien.reunion_id = r.id
+                LEFT JOIN projets.projets pj_lien ON pj_lien.id = pr_lien.projet_id
+                WHERE r.id=$1
             `, [id]);
             if (!reunion) return res.status(404).json({ error: 'Réunion non trouvée' });
 

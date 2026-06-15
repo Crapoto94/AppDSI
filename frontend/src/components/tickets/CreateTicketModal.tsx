@@ -338,6 +338,26 @@ export default function CreateTicketModal({ onClose }: Props) {
                 style={inputStyle} />
             </div>
 
+            {/* Demandeur */}
+            <div>
+              <label style={labelStyle}>Demandeur</label>
+              <RequesterSearch
+                value={form.requester_email}
+                onChange={handleRequesterChange}
+              />
+              {requesterVip.vip && (
+                <div style={{
+                  marginTop: 8, padding: '8px 12px', borderRadius: 8, fontSize: 13, fontWeight: 700,
+                  display: 'flex', alignItems: 'center', gap: 8,
+                  background: requesterVip.elu ? '#dcfce7' : '#fef9c3',
+                  border: `1.5px solid ${requesterVip.elu ? '#86efac' : '#fde68a'}`,
+                  color: requesterVip.elu ? '#15803d' : '#92400e',
+                }}>
+                  {requesterVip.elu ? '🏛️ Demandeur ÉLU — traitement prioritaire' : '⭐ Demandeur VIP — traitement prioritaire'}
+                </div>
+              )}
+            </div>
+
             {/* Description */}
             <div>
               <label style={labelStyle}>Description</label>
@@ -453,11 +473,11 @@ export default function CreateTicketModal({ onClose }: Props) {
               </div>
             )}
 
-            {/* VIP & Requester */}
+            {/* VIP */}
             <div style={{ background: '#fff', padding: 16, borderRadius: 12, border: '1px solid #e2e8f0' }}>
-              <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', marginBottom: 16, userSelect: 'none' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', userSelect: 'none' }}>
                 <div style={{ position: 'relative', display: 'flex' }}>
-                  <input type="checkbox" checked={form.is_vip} onChange={e => setForm(f => ({ ...f, is_vip: e.target.checked }))} 
+                  <input type="checkbox" checked={form.is_vip} onChange={e => setForm(f => ({ ...f, is_vip: e.target.checked }))}
                     style={{ width: 20, height: 20, cursor: 'pointer' }} />
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -465,23 +485,6 @@ export default function CreateTicketModal({ onClose }: Props) {
                   <span style={{ fontSize: 12, color: '#64748b' }}>(Priorité critique)</span>
                 </div>
               </label>
-
-              <label style={labelStyle}>Demandeur</label>
-              <RequesterSearch
-                value={form.requester_email}
-                onChange={handleRequesterChange}
-              />
-              {requesterVip.vip && (
-                <div style={{
-                  marginTop: 8, padding: '8px 12px', borderRadius: 8, fontSize: 13, fontWeight: 700,
-                  display: 'flex', alignItems: 'center', gap: 8,
-                  background: requesterVip.elu ? '#dcfce7' : '#fef9c3',
-                  border: `1.5px solid ${requesterVip.elu ? '#86efac' : '#fde68a'}`,
-                  color: requesterVip.elu ? '#15803d' : '#92400e',
-                }}>
-                  {requesterVip.elu ? '🏛️ Demandeur ÉLU — traitement prioritaire' : '⭐ Demandeur VIP — traitement prioritaire'}
-                </div>
-              )}
             </div>
 
             {/* Observers */}

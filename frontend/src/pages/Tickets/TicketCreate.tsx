@@ -319,6 +319,25 @@ export default function TicketCreate() {
           </div>
 
           <div>
+            <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 6 }}>Demandeur</label>
+            <RequesterSearch
+              value={form.requester_email}
+              onChange={handleRequesterChange}
+            />
+            {requesterVip.vip && (
+              <div style={{
+                marginTop: 8, padding: '8px 12px', borderRadius: 8, fontSize: 13, fontWeight: 700,
+                display: 'flex', alignItems: 'center', gap: 8,
+                background: requesterVip.elu ? '#dcfce7' : '#fef9c3',
+                border: `1.5px solid ${requesterVip.elu ? '#86efac' : '#fde68a'}`,
+                color: requesterVip.elu ? '#15803d' : '#92400e',
+              }}>
+                {requesterVip.elu ? '🏛️ Demandeur ÉLU — traitement prioritaire' : '⭐ Demandeur VIP — traitement prioritaire'}
+              </div>
+            )}
+          </div>
+
+          <div>
             <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 6 }}>Description</label>
             <ReactQuill theme="snow" value={form.content} onChange={v => setForm(f => ({ ...f, content: v }))}
               modules={QUILL_MODULES}
@@ -445,25 +464,6 @@ export default function TicketCreate() {
               <span>⭐ Ticket VIP</span>
               <span style={{ fontWeight: 400, color: '#64748b', fontSize: 12 }}>(Priorité élevée, suivi spécial)</span>
             </label>
-          </div>
-
-          <div>
-            <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 6 }}>Demandeur</label>
-            <RequesterSearch
-              value={form.requester_email}
-              onChange={handleRequesterChange}
-            />
-            {requesterVip.vip && (
-              <div style={{
-                marginTop: 8, padding: '8px 12px', borderRadius: 8, fontSize: 13, fontWeight: 700,
-                display: 'flex', alignItems: 'center', gap: 8,
-                background: requesterVip.elu ? '#dcfce7' : '#fef9c3',
-                border: `1.5px solid ${requesterVip.elu ? '#86efac' : '#fde68a'}`,
-                color: requesterVip.elu ? '#15803d' : '#92400e',
-              }}>
-                {requesterVip.elu ? '🏛️ Demandeur ÉLU — traitement prioritaire' : '⭐ Demandeur VIP — traitement prioritaire'}
-              </div>
-            )}
           </div>
 
           <div>

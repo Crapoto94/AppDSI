@@ -256,6 +256,13 @@ export default function TicketDetail() {
   const [arbitreMotif, setArbitreMotif] = useState('');
   const [arbitreSubmitting, setArbitreSubmitting] = useState(false);
 
+  // Scission de ticket
+  const [showSplitModal, setShowSplitModal] = useState(false);
+  const [splitOriginalTitle, setSplitOriginalTitle] = useState('');
+  const [splitNewTitle, setSplitNewTitle] = useState('');
+  const [splitLoading, setSplitLoading] = useState(false);
+  const [splitNewId, setSplitNewId] = useState<number | null>(null);
+
   useEffect(() => {
     loadTicket(); loadGroup(); loadCategoriesAndApps(); loadSites();
     const token = localStorage.getItem('token');
@@ -1034,6 +1041,25 @@ export default function TicketDetail() {
     }
   }
 
+  async function handleSplitTicket() {
+    if (!splitOriginalTitle.trim() || !splitNewTitle.trim()) return;
+    setSplitLoading(true);
+    try {
+      const tok = localStorage.getItem('token');
+      const res = await axios.post(`/api/tickets/${id}/split`, {
+        original_title: splitOriginalTitle.trim(),
+        new_title: splitNewTitle.trim(),
+      }, { headers: { Authorization: `Bearer ${tok}` } });
+      setSplitNewId(res.data.id);
+      setSplitNewTitle('');
+      await loadTicket();
+    } catch (err: any) {
+      alert(err.response?.data?.message || 'Erreur lors de la scission');
+    } finally {
+      setSplitLoading(false);
+    }
+  }
+
   async function handleArbitrage() {
     if (!selectedArbitre || !arbitreMotif.trim()) return;
     setArbitreSubmitting(true);
@@ -1252,7 +1278,7 @@ export default function TicketDetail() {
             <div style={{ borderBottom: '1px solid #f4f4f5', paddingBottom: 20 }}>
               <span style={{ fontSize: 11, fontWeight: 600, color: '#a1a1aa', textTransform: 'uppercase', letterSpacing: '0.06em', display: 'block', padding: '16px 0 8px' }}>Description</span>
               {ticket.content
-                ? <div className="ticket-html-content" style={{ fontSize: 13, color: '#3f3f46', lineHeight: 1.6 }} dangerouslySetInnerHTML={{ __html: rewriteGlpiImages(decodeHtml(ticket.content), cidDocs) }} />
+                ? <div className="ticket-html-content" style={{ fontSize: 13, color: '#3f3f46', lineHeight: 1.6, maxHeight: 320, overflowY: 'auto', paddingRight: 4 }} dangerouslySetInnerHTML={{ __html: rewriteGlpiImages(decodeHtml(ticket.content), cidDocs) }} />
                 : <p style={{ fontSize: 13, color: '#a1a1aa', margin: 0, fontStyle: 'italic' }}>Aucune description</p>
               }
             </div>
@@ -1456,7 +1482,7 @@ export default function TicketDetail() {
                 </span>
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                {comments.map((c: any, i: number) => {
+                {[...comments].reverse().map((c: any, i: number) => {
                   const requesterEmails = [
                     ticket?.requester?.email,
                     ticket?.email_alt,
@@ -1495,7 +1521,8 @@ export default function TicketDetail() {
                             fontSize: 13, color: '#3f3f46', lineHeight: 1.5,
                             background: bgColor,
                             border: `1px solid ${borderColor}`,
-                            borderRadius: 8, padding: '8px 12px'
+                            borderRadius: 8, padding: '8px 12px',
+                            wordBreak: 'break-word', overflowWrap: 'break-word'
                           }} dangerouslySetInnerHTML={{ __html: rewriteGlpiImages(decodeHtml(c.content), cidDocs) }} />
                         )}
                         {(() => {
@@ -1673,6 +1700,12 @@ export default function TicketDetail() {
                 )}
               </button>
               <div style={{ flex: 1 }} />
+              {['technician', 'supervisor', 'admin', 'superadmin'].includes(ticketModuleRole) && (
+                <button onClick={() => { setSplitOriginalTitle(ticket?.title || ''); setSplitNewTitle(''); setSplitNewId(null); setShowSplitModal(true); }}
+                  style={{ padding: '3px 9px', background: 'transparent', border: '1px solid #a78bfa', borderRadius: 6, color: '#7c3aed', cursor: 'pointer', fontSize: 11, fontWeight: 600 }}>
+                  ✂️ Scinder
+                </button>
+              )}
               <button onClick={() => { setShowArbitrageModal(true); setSelectedArbitre(null); arbitreAd.setQuery(''); setArbitreMotif(''); }}
                 style={{ padding: '3px 9px', background: 'transparent', border: '1px solid #fbbf24', borderRadius: 6, color: '#b45309', cursor: 'pointer', fontSize: 11, fontWeight: 600 }}>
                 ⚖️ Arbitrage
@@ -2518,6 +2551,85 @@ export default function TicketDetail() {
                 style={{ padding: '10px 20px', background: '#6366f1', color: '#fff', border: 'none', borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>
                 Résoudre
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Scission Modal ──────────────────────────────────────────────── */}
+      {showSplitModal && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}
+          onClick={() => { if (!splitLoading) setShowSplitModal(false); }}>
+          <div style={{ background: '#fff', borderRadius: 16, padding: 28, width: 500, boxShadow: '0 8px 32px rgba(0,0,0,0.15)' }} onClick={e => e.stopPropagation()}>
+            <h3 style={{ margin: '0 0 6px 0', fontSize: 17, fontWeight: 700, color: '#1e1b4b' }}>✂️ Scinder le ticket</h3>
+            <p style={{ margin: '0 0 20px 0', fontSize: 13, color: '#64748b', lineHeight: 1.5 }}>
+              Un nouveau ticket sera créé en copiant les informations du ticket actuel (demandeur, description, priorité, catégorie…).
+              Modifiez les titres pour distinguer les deux tickets.
+            </p>
+
+            {splitNewId ? (
+              <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 10, padding: '16px 20px', marginBottom: 20 }}>
+                <div style={{ fontSize: 14, fontWeight: 700, color: '#15803d', marginBottom: 8 }}>✅ Ticket scindé avec succès !</div>
+                <div style={{ fontSize: 13, color: '#166534' }}>
+                  Le nouveau ticket{' '}
+                  <a href={`/tickets/${splitNewId}`} target="_blank" rel="noreferrer"
+                    style={{ color: '#6366f1', fontWeight: 700, textDecoration: 'none' }}>
+                    #{splitNewId}
+                  </a>{' '}
+                  a été créé.
+                </div>
+              </div>
+            ) : (
+              <>
+                <div style={{ marginBottom: 16 }}>
+                  <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#374151', marginBottom: 6 }}>
+                    Titre du ticket original #{id}
+                  </label>
+                  <input
+                    value={splitOriginalTitle}
+                    onChange={e => setSplitOriginalTitle(e.target.value)}
+                    placeholder="Titre du ticket original…"
+                    style={{ width: '100%', padding: '9px 12px', border: '1.5px solid #e2e8f0', borderRadius: 8, fontSize: 13, fontFamily: 'inherit', boxSizing: 'border-box', outline: 'none' }}
+                    onFocus={e => e.currentTarget.style.borderColor = '#a78bfa'}
+                    onBlur={e => e.currentTarget.style.borderColor = '#e2e8f0'}
+                    disabled={splitLoading}
+                  />
+                </div>
+                <div style={{ marginBottom: 20 }}>
+                  <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#374151', marginBottom: 6 }}>
+                    Titre du nouveau ticket
+                  </label>
+                  <input
+                    value={splitNewTitle}
+                    onChange={e => setSplitNewTitle(e.target.value)}
+                    placeholder="Titre du nouveau ticket à créer…"
+                    style={{ width: '100%', padding: '9px 12px', border: '1.5px solid #e2e8f0', borderRadius: 8, fontSize: 13, fontFamily: 'inherit', boxSizing: 'border-box', outline: 'none' }}
+                    onFocus={e => e.currentTarget.style.borderColor = '#a78bfa'}
+                    onBlur={e => e.currentTarget.style.borderColor = '#e2e8f0'}
+                    disabled={splitLoading}
+                    autoFocus
+                  />
+                </div>
+              </>
+            )}
+
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+              <button onClick={() => setShowSplitModal(false)} disabled={splitLoading}
+                style={{ padding: '9px 20px', background: '#fff', color: '#475569', border: '1px solid #e2e8f0', borderRadius: 8, fontSize: 14, cursor: 'pointer' }}>
+                {splitNewId ? 'Fermer' : 'Annuler'}
+              </button>
+              {!splitNewId && (
+                <button
+                  onClick={handleSplitTicket}
+                  disabled={splitLoading || !splitOriginalTitle.trim() || !splitNewTitle.trim()}
+                  style={{
+                    padding: '9px 20px', border: 'none', borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: 'pointer',
+                    background: (splitLoading || !splitOriginalTitle.trim() || !splitNewTitle.trim()) ? '#c4b5fd' : '#7c3aed',
+                    color: '#fff',
+                  }}>
+                  {splitLoading ? 'Création…' : '✂️ Créer le ticket'}
+                </button>
+              )}
             </div>
           </div>
         </div>

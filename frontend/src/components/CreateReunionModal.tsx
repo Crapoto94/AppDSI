@@ -266,13 +266,23 @@ const CreateReunionModal: React.FC<CreateReunionModalProps> = ({ isOpen, onClose
           {/* Ordre du jour (WYSIWYG) */}
           <div style={{marginBottom: '20px'}}>
             <label style={{display: 'block', fontSize: '12px', fontWeight: '600', color: '#64748b', marginBottom: '6px'}}>ORDRE DU JOUR</label>
-            <ReactQuill
-              theme="snow"
-              value={ordreDuJour}
-              onChange={setOrdreDuJour}
-              modules={{ toolbar: [['bold', 'italic', 'underline'], [{ list: 'ordered' }, { list: 'bullet' }], ['link'], ['clean']] }}
-              placeholder="Points à aborder lors de la réunion..."
-            />
+            <div className="create-reunion-quill" style={{border: '1px solid #e2e8f0', borderRadius: '8px'}}>
+              <ReactQuill
+                theme="snow"
+                value={ordreDuJour}
+                onChange={setOrdreDuJour}
+                modules={{ toolbar: [
+                  [{ header: [1, 2, 3, false] }],
+                  ['bold', 'italic', 'underline', 'strike'],
+                  [{ align: [] }],
+                  [{ list: 'ordered' }, { list: 'bullet' }],
+                  [{ indent: '-1' }, { indent: '+1' }],
+                  ['link', 'image'],
+                  ['clean'],
+                ]}}
+                placeholder="Points à aborder lors de la réunion..."
+              />
+            </div>
           </div>
 
           {/* Pièces jointes */}

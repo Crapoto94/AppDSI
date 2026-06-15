@@ -322,6 +322,67 @@ module.exports = {
         }
     },
 
+    async splitTicket(req, res) {
+        try {
+            const { resolveTicketRole } = require('./middleware/ticket-permissions');
+            const userRole = await resolveTicketRole(req.user);
+            if (!['technician', 'supervisor', 'admin', 'superadmin'].includes(userRole)) {
+                return res.status(403).json({ message: 'Permission refusée : rôle technicien requis' });
+            }
+
+            const ticketId = parseInt(req.params.id);
+            const { original_title, new_title } = req.body;
+
+            if (!original_title?.trim()) return res.status(400).json({ message: 'Le titre du ticket original est requis' });
+            if (!new_title?.trim()) return res.status(400).json({ message: 'Le titre du nouveau ticket est requis' });
+
+            const original = await ticketRepo.findById(ticketId);
+            if (!original) return res.status(404).json({ message: 'Ticket introuvable' });
+
+            // Renommer l'original si le titre a changé
+            if (original_title.trim() !== (original.title || '').trim()) {
+                await ticketRepo.update(ticketId, { title: original_title.trim() });
+                await historyRepo.log(ticketId, req.user.id, 'updated', 'title', original.title, original_title.trim(), 'Titre modifié lors de la scission', req.user.username);
+            }
+
+            // Créer le nouveau ticket en copiant les champs clés
+            const newId = await ticketService.create({
+                title: new_title.trim(),
+                content: original.content || '',
+                status: 1,
+                priority: original.priority || 3,
+                urgency: original.urgency || 3,
+                impact: original.impact || 2,
+                type: original.type || 1,
+                category: original.category || '',
+                category_id: original.category_id || null,
+                subcategory_id: original.subcategory_id || null,
+                software_id: original.software_id || null,
+                location: original.location || '',
+                requester_name: original.requester_name || '',
+                requester_email: original.requester_email_22 || '',
+                requester_phone: original.requester_phone || null,
+                is_vip: original.is_vip || false,
+                source: 'hub',
+            }, req.user);
+
+            // Commentaires croisés (internes)
+            const authorName = req.user.displayName || req.user.username;
+            await commentRepo.create(ticketId, {
+                content: `<p>✂️ Ce ticket a été scindé par <strong>${authorName}</strong>. Nouveau ticket créé : <strong>#${newId}</strong>.</p>`,
+                is_private: 1
+            }, req.user);
+            await commentRepo.create(newId, {
+                content: `<p>✂️ Ce ticket a été créé par <strong>${authorName}</strong> par scission du ticket <strong>#${ticketId}</strong>.</p>`,
+                is_private: 1
+            }, req.user);
+
+            res.status(201).json({ id: newId, message: 'Ticket scindé avec succès' });
+        } catch (error) {
+            res.status(500).json({ message: error.message });
+        }
+    },
+
     // ─── Actions ────────────────────────────────────────────────
 async assign(req, res) {
         try {
@@ -612,7 +673,11 @@ async assign(req, res) {
             } catch (e) { console.error('[HISTORY] sendComment log failed:', e.message); }
 
             if (_sendMail) {
-                const authorName = req.user.displayName || req.user.username;
+                let authorName = req.user.displayName || req.user.username;
+                try {
+                    const hubUser = await pgDb.get('SELECT "displayName" FROM hub.users WHERE LOWER(username) = LOWER($1)', [req.user.username]);
+                    if (hubUser?.displayName) authorName = hubUser.displayName;
+                } catch (e) { /* non-bloquant */ }
                 const replyToken = makeReplyToken(ticketId, requesterEmail);
                 const replyUrl = `${await getAppBaseUrl()}/repondre/${replyToken}`;
 
@@ -644,21 +709,21 @@ async assign(req, res) {
                         subject = notificationService.fillTemplate(tpl.subject, tplContext);
                         body = notificationService.fillTemplate(tpl.body_html, tplContext);
                     } else {
-                        subject = `[Ticket #${ticketId}] Réponse à votre demande`;
+                        subject = `[Ticket #${ticketId}] Message de la DSI au sujet de votre ticket`;
                         body = `<p>Bonjour ${ticket.requester?.name || ''},</p>
-                            <p>Vous avez reçu une réponse concernant votre ticket <strong>#${ticketId} – ${ticket.title}</strong> :</p>
-                            <blockquote style="border-left:4px solid #6366f1;padding-left:12px;margin:12px 0;color:#374151;">${content}</blockquote>
-                            <p style="margin-top:16px;"><a href="${replyUrl}" style="display:inline-block;padding:10px 20px;background:#6366f1;color:#fff;text-decoration:none;border-radius:6px;font-weight:600;">↩ Répondre à ce message</a></p>
+                            <p>Vous avez reçu un message concernant votre ticket <strong>#${ticketId} – ${ticket.title}</strong> :</p>
+                            <blockquote style="border-left:4px solid #6366f1;padding-left:12px;margin:12px 0;color:#374151;word-break:break-word;overflow-wrap:break-word;white-space:pre-wrap;">${content}</blockquote>
+                            <p style="margin-top:16px;"><a href="${replyUrl}" style="display:inline-block;padding:10px 20px;background:#6366f1;color:#fff;text-decoration:none;border-radius:6px;font-weight:600;">Voir le message</a></p>
                             <p style="font-size:12px;color:#94a3b8;">Ou copiez ce lien : ${replyUrl}</p>
                             <p>Cordialement,<br>${authorName}</p>`;
                     }
                 } catch (tplErr) {
                     console.error('[NOTIFICATION] Template lookup failed, using fallback:', tplErr.message);
-                    subject = `[Ticket #${ticketId}] Réponse à votre demande`;
+                    subject = `[Ticket #${ticketId}] Message de la DSI au sujet de votre ticket`;
                     body = `<p>Bonjour ${ticket.requester?.name || ''},</p>
-                        <p>Vous avez reçu une réponse concernant votre ticket <strong>#${ticketId} – ${ticket.title}</strong> :</p>
-                        <blockquote style="border-left:4px solid #6366f1;padding-left:12px;margin:12px 0;color:#374151;">${content}</blockquote>
-                        <p style="margin-top:16px;"><a href="${replyUrl}" style="display:inline-block;padding:10px 20px;background:#6366f1;color:#fff;text-decoration:none;border-radius:6px;font-weight:600;">↩ Répondre à ce message</a></p>
+                        <p>Vous avez reçu un message concernant votre ticket <strong>#${ticketId} – ${ticket.title}</strong> :</p>
+                        <blockquote style="border-left:4px solid #6366f1;padding-left:12px;margin:12px 0;color:#374151;word-break:break-word;overflow-wrap:break-word;white-space:pre-wrap;">${content}</blockquote>
+                        <p style="margin-top:16px;"><a href="${replyUrl}" style="display:inline-block;padding:10px 20px;background:#6366f1;color:#fff;text-decoration:none;border-radius:6px;font-weight:600;">Voir le message</a></p>
                         <p style="font-size:12px;color:#94a3b8;">Ou copiez ce lien : ${replyUrl}</p>
                         <p>Cordialement,<br>${authorName}</p>`;
                 }

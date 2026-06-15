@@ -1,10 +1,25 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { X, Plus, Send, Upload, Trash2, FileText, Users, Video, CalendarClock } from 'lucide-react';
+import { X, Plus, Send, Upload, Trash2, FileText, Users, Video, CalendarClock, FolderOpen } from 'lucide-react';
+import ReactQuill from 'react-quill-new';
+import 'react-quill-new/dist/quill.snow.css';
 import TranscriptUploadModal from './TranscriptUploadModal';
 import TranscriptViewModal from './TranscriptViewModal';
 import AddTaskModal from './AddTaskModal';
 import { useADSearch } from '../utils/useADSearch';
 import type { ADUser } from '../utils/useADSearch';
+
+const QUILL_MODULES_RICH = {
+  toolbar: [
+    [{ header: [1, 2, 3, false] }],
+    ['bold', 'italic', 'underline', 'strike'],
+    [{ align: [] }],
+    [{ list: 'ordered' }, { list: 'bullet' }],
+    [{ indent: '-1' }, { indent: '+1' }],
+    ['link', 'image'],
+    [{ color: [] }, { background: [] }],
+    ['clean'],
+  ],
+};
 
 interface Reunion {
   id: number; titre: string; date_reunion: string; annee: number; lieu?: string;
@@ -13,6 +28,7 @@ interface Reunion {
   transcript_id?: number | null;
   duree_minutes?: number; ordre_du_jour?: string; outlook_web_link?: string;
   teams_join_url?: string; outlook_event_id?: string;
+  projet_lie_id?: number; projet_lie_code?: string; projet_lie_titre?: string;
 }
 
 interface Attachment {
@@ -52,8 +68,12 @@ const ReunionDetailModal: React.FC<Props> = ({ isOpen, reunionId, token, userRol
   const [showTranscriptUpload, setShowTranscriptUpload] = useState(false);
   const [showTranscriptView, setShowTranscriptView] = useState(false);
   const [newDemande, setNewDemande] = useState({ titre: '', direction: '', service: '', type: '', description: '' });
-  const derouleRef = useRef<HTMLDivElement>(null);
+  const descriptionRef = useRef('');
   const attachmentInputRef = useRef<HTMLInputElement>(null);
+  const [projects, setProjects] = useState<{id: number; code: string; titre: string}[]>([]);
+  const [linkedProjet, setLinkedProjet] = useState<{id: number; code: string; titre: string} | null>(null);
+  const [selectedProjetId, setSelectedProjetId] = useState('');
+  const [isLinkingProjet, setIsLinkingProjet] = useState(false);
   const [editingTaskIndex, setEditingTaskIndex] = useState<number | null>(null);
   const [editTaskData, setEditTaskData] = useState({ tache: '', responsable: '', responsable_username: '', echeance: '', statut: 'a_faire' });
   const taskAd = useADSearch(token);
@@ -65,6 +85,31 @@ const ReunionDetailModal: React.FC<Props> = ({ isOpen, reunionId, token, userRol
 
   const types = ['incident', 'demande', 'projet', 'autre'];
 
+  // Inject sticky-toolbar CSS once
+  useEffect(() => {
+    if (document.querySelector('[data-reunion-quill-css]')) return;
+    const style = document.createElement('style');
+    style.setAttribute('data-reunion-quill-css', '');
+    style.textContent = `
+      .reunion-quill-editor .ql-toolbar.ql-snow { position: sticky; top: 0; z-index: 10; background: #f8fafc; border-radius: 8px 8px 0 0; }
+      .reunion-quill-editor .ql-container.ql-snow { border-radius: 0 0 8px 8px; }
+      .reunion-quill-editor .ql-editor { min-height: 220px; font-size: 14px; line-height: 1.7; }
+      .reunion-quill-editor .ql-editor ul > li::before { content: "•"; }
+      .create-reunion-quill .ql-toolbar.ql-snow { background: #f8fafc; }
+      .create-reunion-quill .ql-editor { min-height: 150px; font-size: 14px; line-height: 1.6; }
+    `;
+    document.head.appendChild(style);
+  }, []);
+
+  // Fetch project list for the selector
+  useEffect(() => {
+    if (!isOpen) return;
+    fetch('/api/projets/', { headers: { 'Authorization': `Bearer ${token}` } })
+      .then(r => r.json())
+      .then((data: any[]) => setProjects(Array.isArray(data) ? data.map(p => ({ id: p.id, code: p.code, titre: p.titre })) : []))
+      .catch(() => {});
+  }, [isOpen, token]);
+
   const fetchReunion = useCallback(async () => {
     if (!reunionId) return;
     try {
@@ -74,7 +119,10 @@ const ReunionDetailModal: React.FC<Props> = ({ isOpen, reunionId, token, userRol
       ]);
       const data = await res.json();
       setSelectedReunion(data);
-      setDetailReunionData({ description: data.description || '', releve_decision: data.releve_decision || '', liste_taches: data.liste_taches || '' });
+      const desc = data.description || '';
+      descriptionRef.current = desc;
+      setDetailReunionData({ description: desc, releve_decision: data.releve_decision || '', liste_taches: data.liste_taches || '' });
+      setLinkedProjet(data.projet_lie_id ? { id: data.projet_lie_id, code: data.projet_lie_code, titre: data.projet_lie_titre } : null);
       fetchAttachments(reunionId);
       if (hubRes.ok) setHubTasks(await hubRes.json());
     } catch (e) { console.error(e); }
@@ -117,7 +165,6 @@ const ReunionDetailModal: React.FC<Props> = ({ isOpen, reunionId, token, userRol
 
   const autoSave = async () => {
     if (!selectedReunion) return;
-    const desc = derouleRef.current ? derouleRef.current.innerHTML : detailReunionData.description;
     try {
       await fetch(`/api/rencontres-reunions/${selectedReunion.id}`, {
         method: 'PUT',
@@ -125,7 +172,7 @@ const ReunionDetailModal: React.FC<Props> = ({ isOpen, reunionId, token, userRol
         body: JSON.stringify({
           titre: selectedReunion.titre, date_reunion: selectedReunion.date_reunion,
           annee: selectedReunion.annee, lieu: selectedReunion.lieu, statut: selectedReunion.statut,
-          description: desc, releve_decision: detailReunionData.releve_decision, liste_taches: detailReunionData.liste_taches
+          description: descriptionRef.current, releve_decision: detailReunionData.releve_decision, liste_taches: detailReunionData.liste_taches
         })
       });
     } catch (e) {}
@@ -135,20 +182,50 @@ const ReunionDetailModal: React.FC<Props> = ({ isOpen, reunionId, token, userRol
     if (!selectedReunion) return;
     try {
       setIsSavingReunion(true);
-      const desc = derouleRef.current ? derouleRef.current.innerHTML : detailReunionData.description;
       const res = await fetch(`/api/rencontres-reunions/${selectedReunion.id}`, {
         method: 'PUT',
         headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({
           titre: selectedReunion.titre, date_reunion: selectedReunion.date_reunion,
           annee: selectedReunion.annee, lieu: selectedReunion.lieu, statut: selectedReunion.statut,
-          description: desc, releve_decision: detailReunionData.releve_decision, liste_taches: detailReunionData.liste_taches
+          description: descriptionRef.current, releve_decision: detailReunionData.releve_decision, liste_taches: detailReunionData.liste_taches
         })
       });
       if (res.ok) { fetchReunion(); onUpdated?.(); }
       else { const err = await res.json(); alert(`Erreur : ${err.error}`); }
     } catch (e) { alert('Erreur lors de la sauvegarde'); }
     finally { setIsSavingReunion(false); }
+  };
+
+  const handleLinkProjet = async () => {
+    if (!selectedProjetId || !selectedReunion) return;
+    setIsLinkingProjet(true);
+    try {
+      const res = await fetch(`/api/projets/${selectedProjetId}/reunions`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reunion_id: selectedReunion.id })
+      });
+      if (res.ok) {
+        const proj = projects.find(p => p.id === parseInt(selectedProjetId, 10));
+        if (proj) setLinkedProjet(proj);
+        setSelectedProjetId('');
+        onUpdated?.();
+      } else { const err = await res.json(); alert(`Erreur : ${err.error}`); }
+    } catch (e) { alert('Erreur liaison projet'); }
+    finally { setIsLinkingProjet(false); }
+  };
+
+  const handleUnlinkProjet = async () => {
+    if (!linkedProjet || !selectedReunion) return;
+    if (!window.confirm('Délier cette réunion du projet ?')) return;
+    try {
+      const res = await fetch(`/api/projets/${linkedProjet.id}/reunions/${selectedReunion.id}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (res.ok) { setLinkedProjet(null); setSelectedProjetId(''); onUpdated?.(); }
+    } catch (e) { alert('Erreur déliaison projet'); }
   };
 
   const handleDeleteReunion = async () => {
@@ -390,6 +467,32 @@ const ReunionDetailModal: React.FC<Props> = ({ isOpen, reunionId, token, userRol
               <div style={{padding: '12px 14px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: '14px', lineHeight: 1.7, color: '#1e293b'}} dangerouslySetInnerHTML={{__html: selectedReunion.ordre_du_jour}} />
             </div>
           )}
+          {/* Projet lié */}
+          <div style={{marginBottom: '20px', padding: '12px 14px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '10px'}}>
+            <div style={{display: 'flex', alignItems: 'center', gap: '8px', marginBottom: linkedProjet || projects.length > 0 ? '10px' : 0}}>
+              <FolderOpen size={15} color="#2563eb" />
+              <h4 style={{margin: 0, fontSize: '13px', fontWeight: '700', color: '#475569', textTransform: 'uppercase', letterSpacing: '0.05em'}}>Projet lié</h4>
+            </div>
+            {linkedProjet ? (
+              <div style={{display: 'flex', alignItems: 'center', gap: '10px'}}>
+                <span style={{padding: '4px 12px', background: '#eff6ff', color: '#1d4ed8', borderRadius: '20px', fontSize: '13px', fontWeight: '600', border: '1px solid #bfdbfe'}}>
+                  📁 {linkedProjet.code} — {linkedProjet.titre}
+                </span>
+                <button onClick={handleUnlinkProjet} style={{padding: '4px 10px', background: 'white', color: '#dc2626', border: '1px solid #fecaca', borderRadius: '6px', cursor: 'pointer', fontWeight: '600', fontSize: '12px'}}>Délier</button>
+              </div>
+            ) : (
+              <div style={{display: 'flex', gap: '8px', alignItems: 'center'}}>
+                <select value={selectedProjetId} onChange={e => setSelectedProjetId(e.target.value)} style={{flex: 1, padding: '7px 10px', border: '1px solid #cbd5e1', borderRadius: '6px', fontSize: '13px', background: 'white', color: selectedProjetId ? '#1e293b' : '#94a3b8'}}>
+                  <option value="">— Aucun projet associé —</option>
+                  {projects.map(p => <option key={p.id} value={p.id}>{p.code} — {p.titre}</option>)}
+                </select>
+                <button onClick={handleLinkProjet} disabled={!selectedProjetId || isLinkingProjet} style={{padding: '7px 14px', background: selectedProjetId ? '#2563eb' : '#e2e8f0', color: selectedProjetId ? 'white' : '#94a3b8', border: 'none', borderRadius: '6px', cursor: selectedProjetId ? 'pointer' : 'default', fontWeight: '600', fontSize: '13px', whiteSpace: 'nowrap'}}>
+                  {isLinkingProjet ? '...' : 'Associer'}
+                </button>
+              </div>
+            )}
+          </div>
+
           {/* Participants */}
           <div style={{marginBottom: '20px'}}>
             <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px'}}>
@@ -462,16 +565,14 @@ const ReunionDetailModal: React.FC<Props> = ({ isOpen, reunionId, token, userRol
           {/* Déroulé */}
           <div style={{marginBottom: '20px'}}>
             <h4 style={{margin: '0 0 8px', fontSize: '13px', fontWeight: '700', color: '#475569', textTransform: 'uppercase', letterSpacing: '0.05em'}}>📋 Déroulé</h4>
-            <div style={{border: '1px solid #cbd5e1', borderRadius: '8px', overflow: 'hidden'}}>
-              <div style={{display: 'flex', gap: '4px', padding: '6px 8px', background: '#f8fafc', borderBottom: '1px solid #e2e8f0'}}>
-                <button type="button" onMouseDown={e => { e.preventDefault(); document.execCommand('bold'); }} style={{padding: '4px 8px', background: '#fff', border: '1px solid #e2e8f0', borderRadius: '4px', cursor: 'pointer', fontWeight: 700, fontSize: '13px', lineHeight: 1}}>B</button>
-                <button type="button" onMouseDown={e => { e.preventDefault(); document.execCommand('italic'); }} style={{padding: '4px 8px', background: '#fff', border: '1px solid #e2e8f0', borderRadius: '4px', cursor: 'pointer', fontStyle: 'italic', fontSize: '13px', lineHeight: 1}}>I</button>
-                <button type="button" onMouseDown={e => { e.preventDefault(); document.execCommand('underline'); }} style={{padding: '4px 8px', background: '#fff', border: '1px solid #e2e8f0', borderRadius: '4px', cursor: 'pointer', textDecoration: 'underline', fontSize: '13px', lineHeight: 1}}>U</button>
-                <span style={{width: '1px', background: '#e2e8f0', margin: '0 4px'}} />
-                <button type="button" onMouseDown={e => { e.preventDefault(); document.execCommand('insertUnorderedList'); }} style={{padding: '4px 8px', background: '#fff', border: '1px solid #e2e8f0', borderRadius: '4px', cursor: 'pointer', fontSize: '13px', lineHeight: 1}}>• Liste</button>
-                <button type="button" onMouseDown={e => { e.preventDefault(); document.execCommand('insertOrderedList'); }} style={{padding: '4px 8px', background: '#fff', border: '1px solid #e2e8f0', borderRadius: '4px', cursor: 'pointer', fontSize: '13px', lineHeight: 1}}>1. Liste</button>
-              </div>
-              <div ref={derouleRef} contentEditable suppressContentEditableWarning dir="ltr" style={{minHeight: '250px', padding: '12px 14px', fontSize: '14px', outline: 'none', lineHeight: 1.7, direction: 'ltr', textAlign: 'left'}} dangerouslySetInnerHTML={{__html: detailReunionData.description}} onBlur={() => { if (derouleRef.current) { setDetailReunionData(v => ({...v, description: derouleRef.current!.innerHTML})); setTimeout(autoSave, 0); } }} />
+            <div className="reunion-quill-editor" style={{border: '1px solid #cbd5e1', borderRadius: '8px'}}>
+              <ReactQuill
+                theme="snow"
+                value={detailReunionData.description}
+                onChange={(val) => { descriptionRef.current = val; setDetailReunionData(v => ({...v, description: val})); }}
+                modules={QUILL_MODULES_RICH}
+                onBlur={() => setTimeout(autoSave, 0)}
+              />
             </div>
           </div>
 

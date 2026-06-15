@@ -70,6 +70,16 @@ let groupsSyncProgress = {
 
 let groupsSyncCancelled = false;
 
+let tasksSyncProgress = {
+    active: false,
+    processed: 0,
+    total: 0,
+    startTime: null,
+    lastUpdate: null
+};
+
+let tasksSyncCancelled = false;
+
 // Scheduled sync state
 let currentRunningSync = null;
 let syncQueue = [];
@@ -81,7 +91,8 @@ function isAnySyncActive() {
            followupsSyncProgress.active ||
            descriptionsSyncProgress.active ||
            namesSyncProgress.active ||
-           groupsSyncProgress.active;
+           groupsSyncProgress.active ||
+           tasksSyncProgress.active;
 }
 
 const SYNC_BUSY_MSG = 'Une synchronisation est déjà en cours. Attendez qu\'elle se termine avant d\'en lancer une autre.';
@@ -2111,6 +2122,122 @@ const glpiController = {
         // Démarre en arrière-plan ; le client suit via /import-images-status
         runImportImages().catch(e => console.error('[GLPI IMG] import fatal:', e.message));
         res.json({ message: 'Import des images GLPI démarré' });
+    },
+
+    getTasksStatus: (req, res) => res.json(tasksSyncProgress),
+
+    cancelTasksSync: (req, res) => {
+        tasksSyncCancelled = true;
+        res.json({ success: true, message: 'Annulation demandée' });
+    },
+
+    syncTicketTasks: async (req, res) => {
+        if (isAnySyncActive()) return res.status(409).json({ message: SYNC_BUSY_MSG });
+        tasksSyncCancelled = false;
+        tasksSyncProgress = { active: true, processed: 0, total: 0, startTime: new Date().toISOString(), lastUpdate: new Date().toISOString() };
+
+        try {
+            const db = getSqlite();
+            const settings = await db.get('SELECT * FROM glpi_settings WHERE id = 1');
+            if (!settings || !settings.url) {
+                tasksSyncProgress.active = false;
+                return res.status(400).json({ message: 'GLPI non configuré' });
+            }
+
+            const url = glpiController.getApiUrl(settings.url);
+            const commonHeaders = { 'App-Token': settings.app_token?.trim() || '', 'Content-Type': 'application/json' };
+            const authHeader = glpiController.getAuthHeader(settings);
+
+            const sessionRes = await axios.get(`${url}/initSession`, { headers: { ...commonHeaders, 'Authorization': authHeader }, timeout: 10000 });
+            const sessionToken = sessionRes.data?.session_token;
+            if (!sessionToken) throw new Error('Session GLPI échouée');
+
+            const tickets = await pgDb.all('SELECT glpi_id FROM glpi.tickets ORDER BY glpi_id DESC');
+            tasksSyncProgress.total = tickets.length;
+
+            const CONCURRENCY = DETAIL_CONCURRENCY;
+            let inserted = 0;
+
+            for (let i = 0; i < tickets.length; i += CONCURRENCY) {
+                if (tasksSyncCancelled) {
+                    await axios.get(`${url}/killSession?session_token=${sessionToken}`, { headers: { ...commonHeaders, 'Session-Token': sessionToken } }).catch(() => {});
+                    tasksSyncProgress.active = false;
+                    tasksSyncCancelled = false;
+                    return res.status(499).json({ message: 'Synchronisation annulée' });
+                }
+
+                const batch = tickets.slice(i, i + CONCURRENCY);
+                const results = await Promise.allSettled(
+                    batch.map(t => axios.get(`${url}/Ticket/${t.glpi_id}/TicketTask?session_token=${sessionToken}`, { headers: commonHeaders, timeout: 8000 }))
+                );
+
+                const tasksToSave = [];
+                results.forEach((r, idx) => {
+                    if (r.status !== 'fulfilled') return;
+                    const rows = Array.isArray(r.value.data) ? r.value.data : [];
+                    rows.forEach(task => {
+                        if (!task.id) return;
+                        const techName = task.users_id_tech?.name || (typeof task.users_id_tech === 'number' ? String(task.users_id_tech) : '');
+                        tasksToSave.push({
+                            glpi_task_id: task.id,
+                            ticket_id: batch[idx].glpi_id,
+                            content: task.content || '',
+                            state: task.state ?? 0,
+                            tech_name: techName,
+                            begin_date: task.begin || null,
+                            end_date: task.end || null,
+                            actiontime: task.actiontime || 0,
+                            is_private: task.is_private || 0,
+                            date_creation: task.date || null,
+                            date_mod: task.date_mod || null,
+                        });
+                    });
+                });
+
+                if (tasksToSave.length > 0) {
+                    await glpiController.saveTasksToPg(tasksToSave);
+                    inserted += tasksToSave.length;
+                }
+
+                tasksSyncProgress.processed = Math.min(i + CONCURRENCY, tickets.length);
+                tasksSyncProgress.lastUpdate = new Date().toISOString();
+            }
+
+            await axios.get(`${url}/killSession?session_token=${sessionToken}`, { headers: { ...commonHeaders, 'Session-Token': sessionToken } }).catch(() => {});
+            tasksSyncProgress.active = false;
+            res.json({ success: true, tickets: tickets.length, tasks: inserted });
+        } catch (error) {
+            console.error('[GLPI] Sync tasks error:', error.message);
+            tasksSyncProgress.active = false;
+            res.status(500).json({ message: error.message });
+        }
+    },
+
+    saveTasksToPg: async (tasks) => {
+        const pgBatchSize = 100;
+        for (let i = 0; i < tasks.length; i += pgBatchSize) {
+            const batch = tasks.slice(i, i + pgBatchSize);
+            const values = batch.map((_, idx) => {
+                const b = idx * 11;
+                return `($${b+1}, $${b+2}, $${b+3}, $${b+4}, $${b+5}, $${b+6}, $${b+7}, $${b+8}, $${b+9}, $${b+10}, $${b+11}, CURRENT_TIMESTAMP)`;
+            }).join(', ');
+            const params = batch.flatMap(t => [
+                t.glpi_task_id, t.ticket_id, t.content, t.state, t.tech_name,
+                t.begin_date, t.end_date, t.actiontime, t.is_private,
+                t.date_creation, t.date_mod
+            ]);
+            await pool.query(
+                `INSERT INTO glpi.ticket_tasks
+                   (glpi_task_id, ticket_id, content, state, tech_name, begin_date, end_date, actiontime, is_private, date_creation, date_mod, last_sync)
+                 VALUES ${values}
+                 ON CONFLICT (glpi_task_id) DO UPDATE SET
+                   content = EXCLUDED.content, state = EXCLUDED.state, tech_name = EXCLUDED.tech_name,
+                   begin_date = EXCLUDED.begin_date, end_date = EXCLUDED.end_date,
+                   actiontime = EXCLUDED.actiontime, is_private = EXCLUDED.is_private,
+                   date_mod = EXCLUDED.date_mod, last_sync = CURRENT_TIMESTAMP`,
+                params
+            );
+        }
     },
 
     getImportImagesStatus: async (req, res) => {

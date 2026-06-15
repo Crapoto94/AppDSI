@@ -97,9 +97,9 @@ export default function PublicTicketReply() {
             {info.lastQuestion && (
               <div style={{ marginBottom: 24, background: '#fefce8', border: '1px solid #fde68a', borderRadius: 10, padding: '14px 16px' }}>
                 <div style={{ fontSize: 11, fontWeight: 700, color: '#92400e', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>
-                  ❓ Question du technicien
+                  💬 Message du technicien
                 </div>
-                <div style={{ fontSize: 13, color: '#78350f', lineHeight: 1.6 }}
+                <div style={{ fontSize: 13, color: '#78350f', lineHeight: 1.6, wordBreak: 'break-word', overflowWrap: 'break-word', whiteSpace: 'pre-wrap' }}
                   dangerouslySetInnerHTML={{ __html: info.lastQuestion.content }} />
                 <div style={{ marginTop: 8, fontSize: 11, color: '#a16207' }}>
                   — {info.lastQuestion.author_name}
@@ -118,7 +118,7 @@ export default function PublicTicketReply() {
               <textarea
                 value={content}
                 onChange={e => setContent(e.target.value)}
-                placeholder="Écrivez votre réponse ici..."
+                placeholder="Vous pouvez répondre au technicien..."
                 rows={7}
                 style={{
                   width: '100%', padding: '12px 14px',

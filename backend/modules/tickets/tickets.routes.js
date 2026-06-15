@@ -229,6 +229,7 @@ router.post('/:id/status', authenticateJWT, (req, res) => controller.changeStatu
 router.post('/:id/solution', authenticateJWT, (req, res) => controller.setSolution(req, res));
 router.post('/:id/reopen', authenticateJWT, (req, res) => controller.reopen(req, res));
 router.post('/:id/vip', authenticateJWT, (req, res) => controller.toggleVip(req, res));
+router.post('/:id/split', authenticateJWT, (req, res) => controller.splitTicket(req, res));
 router.get('/users/search', authenticateJWT, requireTicketPermission("ticket:search"), (req, res) => controller.searchUsers(req, res));
 router.get('/users/ad-search', authenticateJWT, requireTicketPermission("ticket:ad_search"), async (req, res) => {
     try {
