@@ -204,7 +204,7 @@ module.exports = {
             const { email } = req.params;
             const excludeId = req.query.exclude_id ? parseInt(req.query.exclude_id) : null;
             if (!email) return res.status(400).json({ message: 'Email requis' });
-            const filters = { requester_email: email, status_in: '1,2,3,4,5' };
+            const filters = { requester_email: email, status_in: '1,2,3,4' };
             if (excludeId) filters.exclude_id = excludeId;
             const result = await ticketService.findAll(filters, { page: 1, limit: 100, sort: 'date_creation', order: 'desc' }, req.user);
             res.json({ count: result.pagination?.total || 0, tickets: (result.data || []).map(t => ({ id: t.id, title: t.title, status: t.status, status_label: t.status?.label, date_creation: t.date_creation })) });
