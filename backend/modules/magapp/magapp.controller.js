@@ -493,54 +493,16 @@ const MagAppController = {
             const username = emailLower.split('@')[0];
             
             const tickets = await pool.query(`
-                WITH all_tickets AS (
-                    SELECT DISTINCT ON (x.glpi_id) x.glpi_id, x.title, x.content, x.status,
-                           x.type, x.date_creation, x.solution,
-                           x.requester_email_22, x.requester_name, x.source
-                    FROM (
-                        SELECT 0 AS src_prio, glpi_id, title, content, status, type,
-                               date_creation, solution, requester_email_22, requester_name, source
-                        FROM hub_tickets.tickets
-                        UNION ALL
-                        SELECT 1, glpi_id, title, content, status, type,
-                               CASE WHEN date_creation ~ '^\d{4}-\d{2}-\d{2}' THEN date_creation::TIMESTAMP ELSE NULL END AS date_creation,
-                               solution, requester_email_22, requester_name, source
-                        FROM glpi.tickets
-                    ) x
-                    ORDER BY x.glpi_id, x.src_prio
-                ),
-                all_observers AS (
-                    SELECT ticket_id, email, login, name, user_id FROM hub_tickets.observers WHERE COALESCE(is_active, 1) = 1
-                    UNION ALL
-                    SELECT ticket_id, email, login, name, user_id FROM glpi.observers WHERE COALESCE(is_active, 1) = 1
-                ),
-                user_ids AS (
-                    SELECT DISTINCT user_id FROM all_observers WHERE LOWER(COALESCE(email, '')) = $1
-                ),
-                user_glpi_ids AS (
-                    SELECT DISTINCT uid::INTEGER
-                    FROM (
-                        SELECT unnest(
-                            COALESCE(
-                                regexp_split_to_array(regexp_replace(requester_name, '[^0-9,]', '', 'g'), ','),
-                                ARRAY[]::TEXT[]
-                            )
-                        ) AS uid
-                        FROM glpi.tickets
-                        WHERE LOWER(COALESCE(requester_email_22, '')) = $1
-                          AND requester_name IS NOT NULL AND requester_name != ''
-                          AND requester_name ~ '[0-9]'
-                    ) _
-                    WHERE uid ~ '^\d+$'
-                )
-                SELECT t.glpi_id, t.title, t.content, s.label as status_label, t.date_creation, t.type, t.status, t.solution, t.source,
+                SELECT t.glpi_id, t.title, t.content, s.label as status_label,
+                       t.date_creation, t.type, t.status, t.solution, t.source,
                        COALESCE(NULLIF(t.requester_email_22, ''), '') as requester_email,
                        COALESCE(NULLIF(t.requester_name, ''), t.requester_email_22, '') as requester_name
-                FROM all_tickets t
+                FROM hub_tickets.tickets t
                 LEFT JOIN hub_tickets.ticket_status s ON t.status = s.id
                 WHERE EXISTS (
-                    SELECT 1 FROM all_observers o
+                    SELECT 1 FROM hub_tickets.observers o
                     WHERE o.ticket_id = t.glpi_id
+                    AND COALESCE(o.is_active, 1) = 1
                     AND (
                         LOWER(COALESCE(o.email, '')) = $1
                         OR LOWER(COALESCE(REPLACE(o.email, '@ivry94.fr', ''), '')) = $2
@@ -548,11 +510,6 @@ const MagAppController = {
                         OR LOWER(COALESCE(REPLACE(o.login, '@ivry94.fr', ''), '')) = $2
                         OR LOWER(COALESCE(o.name, '')) = $2
                         OR LOWER(COALESCE(REPLACE(o.name, '@ivry94.fr', ''), '')) = $2
-                        OR (
-                            COALESCE(o.login, '') ~ '^\d{1,10}$'
-                            AND CAST(o.login AS INTEGER) IN (SELECT uid FROM user_glpi_ids)
-                        )
-                        OR o.user_id IN (SELECT user_id FROM user_ids)
                     )
                 )
                 ${statusFilter}

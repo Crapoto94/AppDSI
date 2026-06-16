@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
-import { Search, Loader2, Clock, Bell, User, Heart, X, LogOut, LifeBuoy, AlertTriangle, Activity, CheckCircle2, XCircle, Tag, Lightbulb, Paperclip, Eye, BarChart3, Briefcase, FileText, MessageSquare, GraduationCap, Star, ShoppingCart, FlaskConical } from 'lucide-react';
+import { Search, Loader2, Clock, Bell, User, Heart, X, LogOut, LifeBuoy, AlertTriangle, Activity, CheckCircle2, XCircle, Tag, Lightbulb, Paperclip, Eye, BarChart3, Briefcase, FileText, MessageSquare, GraduationCap, Star, ShoppingCart, FlaskConical, Send, MessageCircle } from 'lucide-react';
 import './index.css';
 import logoDsiHub from './assets/DSI.png';
 import Login from './Login';
@@ -145,6 +145,13 @@ function App() {
     message: '',
     onConfirm: () => {}
   });
+
+  const [showTicketDetail, setShowTicketDetail] = useState(false);
+  const [selectedTicketData, setSelectedTicketData] = useState<any>(null);
+  const [ticketComments, setTicketComments] = useState<any[]>([]);
+  const [newComment, setNewComment] = useState('');
+  const [isAddingComment, setIsAddingComment] = useState(false);
+  const [isClosingTicket, setIsClosingTicket] = useState(false);
 
   const apiBase = `/api`; // Utiliser le proxy Vite pour les données
 
@@ -467,7 +474,7 @@ function App() {
       const blocked = isBlocked;
       
       let urgency = ticketType === 'incident' ? 3 : 2;
-      let impact = ticketType === 'incident' ? 2 : 1;
+      let impact = ticketType === 'incident' ? 2 : 2;
       let priority = 3;
       if (blocked) { urgency = 4; priority = 4; }
       if (isGeneral) { impact = 4; priority = Math.max(priority, 4); }
@@ -481,7 +488,8 @@ function App() {
         priority,
         source: 'magapp',
         requester_email: userEmail,
-        requester_name: displayName
+        requester_name: displayName,
+        requester_phone: ticketPhone || ''
       }, {
         headers: { Authorization: `Bearer ${token}` }
       });
@@ -671,27 +679,112 @@ function App() {
     }
   };
 
+  const openTicketDetail = async (ticket: any) => {
+    setSelectedTicketData(ticket);
+    setShowTicketDetail(true);
+    setNewComment('');
+    setTicketComments([]);
+    const ticketId = ticket.id || ticket.glpi_id;
+    if (!ticketId) return;
+    try {
+      const token = localStorage.getItem('token');
+      const res = await axios.get(`/api/tickets/${ticketId}/comments`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {}
+      });
+      setTicketComments(res.data || []);
+    } catch (e) {
+      console.error('Erreur chargement commentaires:', e);
+      setTicketComments([]);
+    }
+  };
+
+  const handleCloseTicketFromDetail = async () => {
+    const ticketId = selectedTicketData?.id || selectedTicketData?.glpi_id;
+    if (!ticketId) return;
+    setIsClosingTicket(true);
+    try {
+      const token = localStorage.getItem('token');
+      await axios.post(`/api/tickets/${ticketId}/status`, { status: 6 }, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setShowTicketDetail(false);
+      setSelectedTicketData(null);
+      setModalConfig({
+        isOpen: true,
+        type: 'success',
+        title: 'Ticket clos',
+        message: `Le ticket #${ticketId} a été clos avec succès.`,
+        onConfirm: () => setModalConfig(prev => ({ ...prev, isOpen: false }))
+      });
+    } catch (error) {
+      setModalConfig({
+        isOpen: true,
+        type: 'error',
+        title: 'Erreur',
+        message: 'Impossible de clore le ticket.',
+        onConfirm: () => setModalConfig(prev => ({ ...prev, isOpen: false }))
+      });
+      setIsClosingTicket(false);
+      return;
+    }
+    try {
+      const ticketsRes = await axios.get(`${apiBase}/tickets/?requester_email=${encodeURIComponent(userEmail)}&limit=200`);
+      const refreshed = ticketsRes.data?.data || [];
+      setUserTickets(refreshed);
+      setTicketCount(refreshed.filter((t: Ticket) => !['6','7','8'].includes(String(t.status.id))).length);
+    } catch (e) {
+      console.error('Erreur rafraîchissement liste tickets:', e);
+    } finally {
+      setIsClosingTicket(false);
+    }
+  };
+
+  const handleAddComment = async () => {
+    if (!newComment.trim()) return;
+    const ticketId = selectedTicketData?.id || selectedTicketData?.glpi_id;
+    if (!ticketId) return;
+    setIsAddingComment(true);
+    try {
+      const token = localStorage.getItem('token');
+      await axios.post(`/api/tickets/${ticketId}/comments`, {
+        content: newComment,
+        is_private: 0
+      }, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setNewComment('');
+      const res = await axios.get(`/api/tickets/${ticketId}/comments`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {}
+      });
+      setTicketComments(res.data || []);
+    } catch (error: any) {
+      setModalConfig({
+        isOpen: true,
+        type: 'error',
+        title: 'Erreur',
+        message: error.response?.data?.message || 'Impossible d\'ajouter le commentaire.',
+        onConfirm: () => setModalConfig(prev => ({ ...prev, isOpen: false }))
+      });
+    } finally {
+      setIsAddingComment(false);
+    }
+  };
+
   const formatDate = (dateStr: string | null) => {
     if (!dateStr) return '';
     return new Date(dateStr).toLocaleDateString('fr-FR');
   };
 
-  const decodeHtmlEntities = (html: string | null | undefined) => {
-    if (!html) return '';
-    const txt = document.createElement('textarea');
-    let prev = '';
-    let current = html;
-    while (prev !== current) {
-      prev = current;
-      txt.innerHTML = current;
-      current = txt.value;
-    }
-    return current;
-  };
-
-  const renderHtmlTooltip = (html: string | null | undefined) => {
-    if (!html) return '';
-    return decodeHtmlEntities(html).replace(/<p>/g, '').replace(/<\/p>/g, '<br/>');
+  const htmlDecode = (str: string | null | undefined): string => {
+    if (!str) return '';
+    return str
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'")
+      .replace(/&#039;/g, "'")
+      .replace(/&nbsp;/g, '\u00A0')
+      .replace(/&amp;/g, '&');
   };
 
   const handleSubscribe = async (e: React.MouseEvent, app: AppItem) => {
@@ -876,68 +969,10 @@ function App() {
       opacity: isClosed ? 0.7 : 1,
       cursor: isClosed ? 'default' : 'pointer'
     }}
-    onMouseEnter={(e) => {
-      const content = isClosed ? (ticket.solution || ticket.content) : (ticket.content || ticket.solution || '');
-      if (!content) return;
-      const removeExisting = () => { const el = document.getElementById('ticket-desc-tooltip'); if (el) el.remove(); };
-      removeExisting();
-      const rect = e.currentTarget.getBoundingClientRect();
-      const tooltip = document.createElement('div');
-      tooltip.id = 'ticket-desc-tooltip';
-      tooltip.style.cssText = 'position:fixed;z-index:9999;background:#fff;color:#1e293b;padding:10px 14px;border-radius:8px;font-size:0.8rem;max-width:480px;max-height:300px;overflow-y:auto;box-shadow:0 8px 24px rgba(0,0,0,0.15);line-height:1.5;text-align:left;border:1px solid #e2e8f0;';
-      tooltip.innerHTML = renderHtmlTooltip(content);
-      document.body.appendChild(tooltip);
-      const tipRect = tooltip.getBoundingClientRect();
-      let top = rect.bottom + 6;
-      let left = rect.left + 10;
-      if (top + tipRect.height > window.innerHeight - 10) top = rect.top - tipRect.height - 6;
-      if (left + tipRect.width > window.innerWidth - 10) left = window.innerWidth - tipRect.width - 10;
-      if (left < 10) left = 10;
-      tooltip.style.top = top + 'px';
-      tooltip.style.left = left + 'px';
-    }}
-    onMouseLeave={() => {
-      const el = document.getElementById('ticket-desc-tooltip'); if (el) el.remove();
-    }}
+
     onClick={() => {
       if (!isClosed && !['6', '7', '8'].includes(String(ticket.status.id))) {
-        setModalConfig({
-          isOpen: true,
-          type: 'confirm',
-          title: 'Clore le ticket',
-          message: `Voulez-vous clore le ticket #${ticket.id} ?`,
-          confirmLabel: 'Clore',
-          cancelLabel: 'Annuler',
-          onConfirm: async () => {
-            setModalConfig(prev => ({ ...prev, isOpen: false }));
-            try {
-              const token = localStorage.getItem('token');
-                  await axios.post(`/api/tickets/${ticket.id}/status`, { status: 6 }, {
-                    headers: { Authorization: `Bearer ${token}` }
-                  });
-              // Rafraîchir les tickets
-              const ticketsRes = await axios.get(`${apiBase}/tickets/?requester_email=${encodeURIComponent(userEmail)}&limit=200`);
-              const refreshed = ticketsRes.data?.data || [];
-              setUserTickets(refreshed);
-              setTicketCount(refreshed.filter((t: Ticket) => !['6','7','8'].includes(String(t.status.id))).length);
-              setModalConfig({
-                isOpen: true,
-                type: 'success',
-                title: 'Ticket clos',
-                message: `Le ticket #${ticket.id} a été clos avec succès.`,
-                onConfirm: () => setModalConfig(prev => ({ ...prev, isOpen: false }))
-              });
-            } catch (error) {
-              setModalConfig({
-                isOpen: true,
-                type: 'error',
-                title: 'Erreur',
-                message: 'Impossible de clore le ticket.',
-                onConfirm: () => setModalConfig(prev => ({ ...prev, isOpen: false }))
-              });
-            }
-          }
-        });
+        openTicketDetail(ticket);
       }
     }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexGrow: 1, minWidth: 0 }}>
@@ -988,30 +1023,8 @@ function App() {
             color: isClosed ? '#94a3b8' : '#475569',
             whiteSpace: 'nowrap',
             cursor: 'pointer'
-          }} 
-          onMouseEnter={(e) => {
-            if (!ticket.solution) return;
-            const el = document.getElementById('ticket-solution-tooltip'); if (el) el.remove();
-            const rect = e.currentTarget.getBoundingClientRect();
-            const tooltip = document.createElement('div');
-            tooltip.id = 'ticket-solution-tooltip';
-            tooltip.style.cssText = 'position:fixed;z-index:9999;background:#fff;color:#1e293b;padding:10px 14px;border-radius:8px;font-size:0.8rem;max-width:480px;max-height:300px;overflow-y:auto;box-shadow:0 8px 24px rgba(0,0,0,0.15);line-height:1.5;text-align:left;border:1px solid #e2e8f0;';
-            tooltip.innerHTML = renderHtmlTooltip(ticket.solution || '');
-            document.body.appendChild(tooltip);
-            const tipRect = tooltip.getBoundingClientRect();
-            let top = rect.bottom + 6;
-            let left = rect.left + rect.width / 2 - tipRect.width / 2;
-            if (top + tipRect.height > window.innerHeight - 10) top = rect.top - tipRect.height - 6;
-            if (left + tipRect.width > window.innerWidth - 10) left = window.innerWidth - tipRect.width - 10;
-            if (left < 10) left = 10;
-            tooltip.style.top = top + 'px';
-            tooltip.style.left = left + 'px';
-          }}
-          onMouseLeave={() => {
-            const el = document.getElementById('ticket-solution-tooltip'); if (el) el.remove();
           }}>
             {ticket.status.label}
-            {ticket.solution && <span style={{ fontSize: '0.6rem', opacity: 0.6 }}>ⓘ</span>}
           </div>
         )}
       </div>
@@ -1711,33 +1724,12 @@ function App() {
                               </div>
                               <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginLeft: '40px' }}>
                                 {groupTickets.map(ticket => (
-                                  <div key={ticket.glpi_id} style={{ background: 'white', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '16px', cursor: 'pointer' }}>
+                                  <div key={ticket.glpi_id} style={{ background: 'white', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '16px', cursor: 'pointer' }}
+                                    onClick={() => openTicketDetail(ticket)}>
                                     <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '12px', marginBottom: '8px' }}>
                                       <div style={{ flex: 1 }}>
                                         <h4
-                                          style={{ margin: 0, fontSize: '1rem', fontWeight: 700, color: '#1e293b', cursor: 'default' }}
-                                          onMouseEnter={(e) => {
-                                            const content = ['6', '7', '8'].includes(String(ticket.status)) ? (ticket.solution || ticket.content) : ticket.content;
-                                            if (!content) return;
-                                            const el = document.getElementById('ticket-desc-tooltip'); if (el) el.remove();
-                                            const rect = e.currentTarget.getBoundingClientRect();
-                                            const tooltip = document.createElement('div');
-                                            tooltip.id = 'ticket-desc-tooltip';
-                                            tooltip.style.cssText = 'position:fixed;z-index:9999;background:#fff;color:#1e293b;padding:10px 14px;border-radius:8px;font-size:0.8rem;max-width:480px;max-height:300px;overflow-y:auto;box-shadow:0 8px 24px rgba(0,0,0,0.15);line-height:1.5;text-align:left;border:1px solid #e2e8f0;';
-                                            tooltip.innerHTML = renderHtmlTooltip(content);
-                                            document.body.appendChild(tooltip);
-                                            const tipRect = tooltip.getBoundingClientRect();
-                                            let top = rect.bottom + 6;
-                                            let left = rect.left;
-                                            if (top + tipRect.height > window.innerHeight - 10) top = rect.top - tipRect.height - 6;
-                                            if (left + tipRect.width > window.innerWidth - 10) left = window.innerWidth - tipRect.width - 10;
-                                            if (left < 10) left = 10;
-                                            tooltip.style.top = top + 'px';
-                                            tooltip.style.left = left + 'px';
-                                          }}
-                                          onMouseLeave={() => {
-                                            const el = document.getElementById('ticket-desc-tooltip'); if (el) el.remove();
-                                          }}
+                                          style={{ margin: 0, fontSize: '1rem', fontWeight: 700, color: '#1e293b' }}
                                         >
                                           {ticket.title}
                                         </h4>
@@ -1940,6 +1932,187 @@ function App() {
           </section>
         );
       })}
+
+      {/* Modale détail ticket */}
+      {showTicketDetail && selectedTicketData && (
+        <div style={{
+          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+          background: 'rgba(15, 23, 42, 0.6)', backdropFilter: 'blur(4px)',
+          zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px'
+        }}>
+          <div style={{
+            background: 'white', maxWidth: '1000px', width: '100%', borderRadius: '24px',
+            boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)', position: 'relative',
+            maxHeight: '90vh', display: 'flex', flexDirection: 'column', overflow: 'hidden'
+          }}>
+            <button
+              onClick={() => { setShowTicketDetail(false); setSelectedTicketData(null); }}
+              style={{ position: 'absolute', top: '20px', right: '20px', background: '#f1f5f9', border: 'none', cursor: 'pointer', color: '#64748b', width: '36px', height: '36px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 10 }}
+            >
+              <X size={20} />
+            </button>
+
+            <div style={{ padding: '30px 35px 20px', borderBottom: '1px solid #e2e8f0' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <div style={{
+                  width: '48px', height: '48px', borderRadius: '14px', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  background: String(selectedTicketData.type) === '1' ? '#fef2f2' : '#e0f2fe',
+                  color: String(selectedTicketData.type) === '1' ? '#dc2626' : '#0369a1'
+                }}>
+                  {String(selectedTicketData.type) === '1' ? <AlertTriangle size={24} /> : <Clock size={24} />}
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <h2 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 800, color: '#1e293b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    {selectedTicketData.title}
+                  </h2>
+                  <p style={{ margin: '4px 0 0 0', fontSize: '0.85rem', color: '#64748b' }}>
+                    #{selectedTicketData.id || selectedTicketData.glpi_id}
+                    {selectedTicketData.date_creation && <> · Créé le {formatDate(selectedTicketData.date_creation)}</>}
+                    {selectedTicketData.source && <> · Source: {selectedTicketData.source}</>}
+                    {selectedTicketData.requester_name && <> · {selectedTicketData.requester_name}</>}
+                  </p>
+                </div>
+                <span style={{
+                  padding: '6px 14px', borderRadius: '8px', fontSize: '0.78rem', fontWeight: 700, whiteSpace: 'nowrap',
+                  background: String(selectedTicketData.type) === '1' ? '#fef2f2' : '#f0f9ff',
+                  color: String(selectedTicketData.type) === '1' ? '#dc2626' : '#0369a1'
+                }}>
+                  {String(selectedTicketData.type) === '1' ? 'Incident' : 'Demande'}
+                </span>
+                <span style={{
+                  padding: '6px 14px', borderRadius: '8px', fontSize: '0.78rem', fontWeight: 700, whiteSpace: 'nowrap',
+                  background: selectedTicketData.status_label ? (
+                    ['6','7','8'].includes(String(selectedTicketData.status?.id ?? selectedTicketData.status))
+                      ? '#f1f5f9' : '#dbeafe'
+                  ) : '#f1f5f9',
+                  color: selectedTicketData.status_label ? (
+                    ['6','7','8'].includes(String(selectedTicketData.status?.id ?? selectedTicketData.status))
+                      ? '#94a3b8' : '#1e40af'
+                  ) : '#94a3b8'
+                }}>
+                  {selectedTicketData.status_label || (selectedTicketData.status?.label) || 'Inconnu'}
+                </span>
+              </div>
+            </div>
+
+            <div style={{ flex: 1, display: 'flex', flexDirection: 'row', overflow: 'hidden' }}>
+              {/* Colonne gauche : Détail du ticket */}
+              <div style={{ flex: '1 1 50%', overflowY: 'auto', padding: '25px 30px', borderRight: '1px solid #e2e8f0' }}>
+                <h3 style={{ margin: '0 0 15px 0', fontSize: '1rem', fontWeight: 700, color: '#1e293b', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <FileText size={18} /> Description
+                </h3>
+                <div style={{
+                  background: '#f8fafc', borderRadius: '12px', padding: '16px',
+                  fontSize: '0.9rem', lineHeight: 1.7, color: '#334155', overflowWrap: 'break-word'
+                }}
+                  dangerouslySetInnerHTML={{ __html: htmlDecode(selectedTicketData.content) || 'Aucune description' }}
+                />
+
+                {selectedTicketData.solution && (
+                  <>
+                    <h3 style={{ margin: '20px 0 15px 0', fontSize: '1rem', fontWeight: 700, color: '#1e293b', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <CheckCircle2 size={18} color="#16a34a" /> Solution
+                    </h3>
+                    <div style={{
+                      background: '#f0fdf4', borderRadius: '12px', padding: '16px', border: '1px solid #bbf7d0',
+                      fontSize: '0.9rem', lineHeight: 1.7, color: '#166534', overflowWrap: 'break-word'
+                    }}
+                      dangerouslySetInnerHTML={{ __html: htmlDecode(selectedTicketData.solution) }}
+                    />
+                  </>
+                )}
+              </div>
+
+              {/* Colonne droite : Commentaires */}
+              <div style={{ flex: '1 1 50%', overflowY: 'auto', padding: '25px 30px', display: 'flex', flexDirection: 'column' }}>
+                <h3 style={{ margin: '0 0 15px 0', fontSize: '1rem', fontWeight: 700, color: '#1e293b', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <MessageCircle size={18} /> Commentaires ({ticketComments.length})
+                </h3>
+                <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '15px' }}>
+                  {ticketComments.length === 0 ? (
+                    <div style={{ textAlign: 'center', padding: '30px 10px', color: '#94a3b8', fontSize: '0.9rem' }}>
+                      <MessageCircle size={36} style={{ opacity: 0.3, marginBottom: '10px' }} />
+                      <p>Aucun commentaire</p>
+                    </div>
+                  ) : (
+                    ticketComments.map((c: any, idx: number) => (
+                      <div key={c.id || idx} style={{
+                        padding: '12px 16px', background: '#f8fafc', borderRadius: '12px',
+                        border: '1px solid #e2e8f0', fontSize: '0.88rem', lineHeight: 1.6, color: '#334155'
+                      }}>
+                        <div style={{ overflowWrap: 'break-word' }} dangerouslySetInnerHTML={{ __html: htmlDecode(c.content) }} />
+                        <div style={{ marginTop: '8px', fontSize: '0.75rem', color: '#94a3b8', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <span>{c.author_name || c.author_email || 'Inconnu'}</span>
+                          <span>{c.date_creation ? formatDate(c.date_creation) : ''}</span>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+
+                {/* Ajouter un commentaire */}
+                <div style={{ borderTop: '1px solid #e2e8f0', paddingTop: '15px' }}>
+                  <div style={{ display: 'flex', gap: '10px', alignItems: 'flex-end' }}>
+                    <textarea
+                      value={newComment}
+                      onChange={(e) => setNewComment(e.target.value)}
+                      placeholder="Ajouter un commentaire..."
+                      rows={2}
+                      style={{
+                        flex: 1, padding: '10px 14px', border: '1px solid #e2e8f0', borderRadius: '10px',
+                        fontSize: '0.9rem', fontFamily: 'inherit', resize: 'none'
+                      }}
+                    />
+                    <button
+                      onClick={handleAddComment}
+                      disabled={!newComment.trim() || isAddingComment}
+                      style={{
+                        padding: '10px 16px', background: newComment.trim() && !isAddingComment ? '#0078a4' : '#e2e8f0',
+                        color: newComment.trim() && !isAddingComment ? 'white' : '#94a3b8',
+                        border: 'none', borderRadius: '10px', cursor: newComment.trim() && !isAddingComment ? 'pointer' : 'default',
+                        display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 600, fontSize: '0.85rem',
+                        whiteSpace: 'nowrap'
+                      }}
+                    >
+                      {isAddingComment ? <Loader2 size={16} className="loading-spinner" /> : <Send size={16} />}
+                      Envoyer
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Boutons d'action */}
+            <div style={{ padding: '15px 30px', borderTop: '1px solid #e2e8f0', display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
+              <button
+                onClick={() => { setShowTicketDetail(false); setSelectedTicketData(null); }}
+                style={{ padding: '10px 20px', background: '#f1f5f9', border: 'none', borderRadius: '10px', fontSize: '0.9rem', fontWeight: 600, color: '#475569', cursor: 'pointer' }}
+              >
+                Fermer
+              </button>
+              {selectedTicketData.id !== undefined && (selectedTicketData.status?.id !== undefined
+                ? !['6','7','8'].includes(String(selectedTicketData.status.id))
+                : !['6','7','8'].includes(String(selectedTicketData.status))
+              ) && (
+                <button
+                  onClick={handleCloseTicketFromDetail}
+                  disabled={isClosingTicket}
+                  style={{
+                    padding: '10px 24px', background: isClosingTicket ? '#fca5a5' : '#dc2626',
+                    color: 'white', border: 'none', borderRadius: '10px', fontSize: '0.9rem',
+                    fontWeight: 700, cursor: isClosingTicket ? 'not-allowed' : 'pointer',
+                    display: 'flex', alignItems: 'center', gap: '8px',
+                    boxShadow: isClosingTicket ? 'none' : '0 4px 6px -1px rgba(220,38,38,0.2)'
+                  }}
+                >
+                  {isClosingTicket ? <Loader2 size={16} className="loading-spinner" /> : <CheckCircle2 size={16} />}
+                  {isClosingTicket ? 'Fermeture...' : 'Clore le ticket'}
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       <ConfirmationModal
         isOpen={modalConfig.isOpen}
