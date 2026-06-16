@@ -691,7 +691,7 @@ function App() {
       const res = await axios.get(`/api/tickets/${ticketId}/comments`, {
         headers: token ? { Authorization: `Bearer ${token}` } : {}
       });
-      setTicketComments(res.data || []);
+      setTicketComments((res.data || []).filter((c: any) => !c.is_private));
     } catch (e) {
       console.error('Erreur chargement commentaires:', e);
       setTicketComments([]);
@@ -756,7 +756,7 @@ function App() {
       const res = await axios.get(`/api/tickets/${ticketId}/comments`, {
         headers: token ? { Authorization: `Bearer ${token}` } : {}
       });
-      setTicketComments(res.data || []);
+      setTicketComments((res.data || []).filter((c: any) => !c.is_private));
     } catch (error: any) {
       setModalConfig({
         isOpen: true,
