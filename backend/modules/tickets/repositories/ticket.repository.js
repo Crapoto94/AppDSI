@@ -265,8 +265,16 @@ module.exports = {
 
         const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
 
-        const sortCol = ['priority', 'date_creation', 'date_mod', 'status', 'type'].includes(pagination.sort)
-            ? pagination.sort : 'date_creation';
+        const allowedSorts = ['priority', 'date_creation', 'date_mod', 'status', 'type', 'importance'];
+        let sortCol = pagination.sort;
+        let sortExpr;
+        if (sortCol === 'importance') {
+            sortExpr = '(COALESCE(t.impact, 0) + COALESCE(t.priority, 0) + CASE WHEN t.is_vip THEN 2 ELSE 0 END)';
+        } else if (allowedSorts.includes(sortCol)) {
+            sortExpr = `t.${sortCol}`;
+        } else {
+            sortExpr = 't.date_creation';
+        }
         const sortDir = pagination.order === 'asc' ? 'ASC' : 'DESC';
 
         // COUNT : requête légère sur hub_tickets.tickets uniquement (indexes seuls).
@@ -281,13 +289,13 @@ module.exports = {
         const cte = `WITH page_ids AS (
           SELECT t.glpi_id FROM hub_tickets.tickets t
           ${where}
-          ORDER BY t.${sortCol} ${sortDir}
+          ORDER BY ${sortExpr} ${sortDir}
           LIMIT $${idx++} OFFSET $${idx++}
         )`;
         params.push(pagination.limit, offset);
         const idWhere = `WHERE t.glpi_id IN (SELECT glpi_id FROM page_ids)`;
         const selectBlock = pagination.lite ? LITE_BASE_SELECT : BASE_SELECT;
-        const sql = `${cte} ${selectBlock} ${idWhere} ORDER BY t.${sortCol} ${sortDir}`;
+        const sql = `${cte} ${selectBlock} ${idWhere} ORDER BY ${sortExpr} ${sortDir}`;
 
         const rows = await pgDb.all(sql, params);
 

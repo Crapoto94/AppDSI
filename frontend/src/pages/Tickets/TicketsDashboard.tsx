@@ -42,6 +42,13 @@ const ROLE_LABELS: Record<string, { label: string; color: string; bg: string }> 
   user:         { label: 'Utilisateur',   color: '#0284c7', bg: '#e0f2fe' },
 };
 
+const SORT_OPTIONS = [
+  { label: 'Plus récents', sortKey: 'date_creation', sortDir: 'desc' as const },
+  { label: 'Plus anciens', sortKey: 'date_creation', sortDir: 'asc' as const },
+  { label: 'Commentaires', sortKey: 'date_mod', sortDir: 'desc' as const },
+  { label: 'Importance', sortKey: 'importance', sortDir: 'desc' as const },
+];
+
 const FILTER_SESSION_KEY = 'tickets_dash_filters';
 
 export default function TicketsDashboard() {
@@ -91,6 +98,10 @@ export default function TicketsDashboard() {
   useEffect(() => { viewModeRef.current = viewMode; }, [viewMode]);
   const [sortKey, setSortKey] = useState(_initSnap?.sortKey ?? 'date_creation');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>(_initSnap?.sortDir ?? 'desc');
+  const sortKeyRef = useRef(sortKey);
+  const sortDirRef = useRef(sortDir);
+  useEffect(() => { sortKeyRef.current = sortKey; }, [sortKey]);
+  useEffect(() => { sortDirRef.current = sortDir; }, [sortDir]);
   const [requesterSearch, setRequesterSearch] = useState(_initSnap?.requesterSearch ?? '');
   const [requesterResults, setRequesterResults] = useState<any[]>([]);
   const [requesterSearching, setRequesterSearching] = useState(false);
@@ -174,8 +185,8 @@ export default function TicketsDashboard() {
       params.is_live = 'true';
       params.status_in = '1,2,3,4,5,6';
     }
-    params.sort = sortKey;
-    params.order = sortDir;
+    params.sort = sortKeyRef.current;
+    params.order = sortDirRef.current;
     return params;
   }, [activeFilter, activeUserFilter, search, activeRequesterEmail, activeCategory, activeSubcategory, activeSoftware, activeGroup, activeTechnician, typeFilter, activeLiveFilter, showRejected, showResolved, sortKey, sortDir]);
 
@@ -250,8 +261,8 @@ export default function TicketsDashboard() {
         params.is_live = 'true';
         params.status_in = '1,2,3,4,5,6';
       }
-      params.sort = sortKey;
-      params.order = sortDir;
+      params.sort = sortKeyRef.current;
+      params.order = sortDirRef.current;
       const qs = new URLSearchParams(params).toString();
       // Filtres passés aux stats (pour afficher KPI filtrés + globaux)
       const statsParams: Record<string, string> = {};
@@ -679,6 +690,8 @@ export default function TicketsDashboard() {
   };
 
   function handleSort(key: string, dir: 'asc' | 'desc') {
+    sortKeyRef.current = key;
+    sortDirRef.current = dir;
     setSortKey(key);
     setSortDir(dir);
     setPage(1);
@@ -1358,6 +1371,31 @@ export default function TicketsDashboard() {
             </button>
           )}
         </div>
+
+        {/* ── Tri ── */}
+        <select value={SORT_OPTIONS.findIndex(o => o.sortKey === sortKey && o.sortDir === sortDir)}
+          onChange={e => {
+            const idx = parseInt(e.target.value);
+            const opt = SORT_OPTIONS[idx];
+            if (!opt) return;
+            sortKeyRef.current = opt.sortKey;
+            sortDirRef.current = opt.sortDir;
+            setSortKey(opt.sortKey);
+            setSortDir(opt.sortDir);
+            setPage(1);
+            loadData(activeFilter, activeUserFilter, 1, search, activeCategory, activeSubcategory, activeSoftware);
+          }}
+          style={{
+            padding: '7px 12px', border: `1px solid ${sortKey !== 'date_creation' || sortDir !== 'desc' ? '#6366f1' : '#e2e8f0'}`,
+            borderRadius: 6, background: sortKey !== 'date_creation' || sortDir !== 'desc' ? '#eef2ff' : '#fff',
+            cursor: 'pointer', fontSize: 12, fontWeight: 600,
+            color: sortKey !== 'date_creation' || sortDir !== 'desc' ? '#4f46e5' : '#64748b',
+            outline: 'none',
+          }}>
+          {SORT_OPTIONS.map((o, i) => (
+            <option key={o.label} value={i}>{o.label}</option>
+          ))}
+        </select>
 
         {/* Live chat compact à droite */}
         {liveStats && (() => {
