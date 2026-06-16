@@ -45,14 +45,25 @@ module.exports = {
     },
 
     async update(id, data, user) {
+        const row = await pgDb.get(
+            'SELECT sent_to_user, author_email FROM hub_tickets.ticket_followups WHERE id = $1',
+            [id]
+        );
+        if (!row) throw new Error('Commentaire introuvable');
+        if (row.sent_to_user === 1 || row.sent_to_user === true)
+            throw new Error('Ce commentaire a déjà été envoyé au demandeur et ne peut plus être modifié');
+        const email = (user.email || '').toLowerCase();
+        if (row.author_email?.toLowerCase() !== email)
+            throw new Error("Non autorisé : vous n'êtes pas l'auteur de ce commentaire");
+
         await pgDb.run(`
             UPDATE hub_tickets.ticket_followups
             SET content = $1, content_hash = $2
-            WHERE id = $3 AND (author_email = $4 OR $5 = true)
+            WHERE id = $3
         `, [
             data.content,
             crypto.createHash('md5').update(data.content || '').digest('hex'),
-            id, user.email || '', false
+            id,
         ]);
     },
 
