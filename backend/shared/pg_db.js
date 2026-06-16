@@ -3060,6 +3060,16 @@ async function setupPgDb() {
     await client.query(`CREATE INDEX IF NOT EXISTS idx_parc_items_typekey ON hub_parc.items(type_key)`);
     await client.query(`CREATE INDEX IF NOT EXISTS idx_parc_items_serial ON hub_parc.items(serial)`);
 
+    // Doublons supprimés localement (survivent aux synchros GLPI)
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS hub_parc.local_suppressed (
+        itemtype TEXT NOT NULL,
+        glpi_id  INTEGER NOT NULL,
+        suppressed_at TIMESTAMP DEFAULT NOW(),
+        PRIMARY KEY (itemtype, glpi_id)
+      )
+    `);
+
     // Usagers du parc enrichis depuis l'AD (e-mail). Alimenté par la synchro usagers.
     await client.query(`
       CREATE TABLE IF NOT EXISTS hub_parc.usagers (

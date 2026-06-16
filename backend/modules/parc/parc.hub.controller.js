@@ -32,7 +32,13 @@ async function loadTypeRows(typeKey, { refresh = false } = {}) {
   if (!t) return null;
   const hit = _hubCache.get(t.itemtype);
   if (!refresh && hit && (Date.now() - hit.ts) < HUB_TTL_MS) return hit.rows;
-  const r = await pool.query(`SELECT raw, infocom, os, documents FROM hub_parc.items WHERE itemtype = $1`, [t.itemtype]);
+  const r = await pool.query(
+    `SELECT i.raw, i.infocom, i.os, i.documents
+     FROM hub_parc.items i
+     LEFT JOIN hub_parc.local_suppressed ls ON ls.itemtype = i.itemtype AND ls.glpi_id = i.glpi_id
+     WHERE i.itemtype = $1 AND ls.glpi_id IS NULL`,
+    [t.itemtype]
+  );
   const rows = rowsToNormalized(t.itemtype, r.rows);
   await core.enrichAdFound(rows);
   await core.enrichAdComputer(rows);
@@ -323,4 +329,88 @@ async function updateContact(req, res) {
   } catch (error) { res.status(500).json({ message: error.message }); }
 }
 
-module.exports = { list, item, kpis, filters, health, usagersEquip, byEmail, clearHubCache, updateContactNum, stockSummary, swapContact, adLookup, updateContact };
+// ── Score de complétude (nombre de champs renseignés, hors "0") ───────────────
+function completenessScore(item) {
+  return [item.contact, item.contact_num, item.location, item.manufacturer, item.model, item.group, item.user, item.serial]
+    .filter(v => v && v !== '0' && String(v).trim() !== '').length;
+}
+
+// ── Doublons : même 9 derniers caractères de numéro de série, même type ────────
+async function doublons(req, res) {
+  try {
+    const allRows = await loadAllTypesHub({ refresh: false });
+    const groups = new Map();
+    for (const row of allRows) {
+      if (!row.serial || row.is_deleted) continue;
+      const s = row.serial.trim();
+      if (s.length < 9) continue;
+      const tail = s.toUpperCase().slice(-9);
+      const key = `${row.itemtype}::${tail}`;
+      if (!groups.has(key)) groups.set(key, { itemtype: row.itemtype, type_key: row.type_key, tail9: tail, items: [] });
+      groups.get(key).items.push(row);
+    }
+    const duplicates = [];
+    for (const group of groups.values()) {
+      if (group.items.length >= 2) {
+        group.items.sort((a, b) => completenessScore(b) - completenessScore(a));
+        duplicates.push(group);
+      }
+    }
+    res.json({ duplicates, total: duplicates.length });
+  } catch (e) { res.status(500).json({ message: e.message }); }
+}
+
+// ── Fusion : copie le contact du doublon vers l'item conservé, supprime le doublon ─
+async function mergeItems(req, res) {
+  try {
+    const { type_key, kept_id, merged_id } = req.body;
+    if (!type_key || !kept_id || !merged_id)
+      return res.status(400).json({ message: 'type_key, kept_id et merged_id requis' });
+    const t = glpi.typeByKey(type_key);
+    if (!t) return res.status(400).json({ message: 'Type invalide' });
+    const itemtype = t.itemtype;
+
+    const r = await pool.query(
+      `SELECT glpi_id, serial, raw FROM hub_parc.items WHERE itemtype = $1 AND glpi_id = ANY(ARRAY[$2::int, $3::int])`,
+      [itemtype, parseInt(kept_id), parseInt(merged_id)]
+    );
+    const kept = r.rows.find(x => x.glpi_id === parseInt(kept_id));
+    const src  = r.rows.find(x => x.glpi_id === parseInt(merged_id));
+    if (!kept || !src) return res.status(404).json({ message: 'Équipement(s) introuvable(s)' });
+
+    const patch = {};
+    if (!kept.raw?.contact && src.raw?.contact)         patch.contact = src.raw.contact;
+    if (!kept.raw?.contact_num && src.raw?.contact_num) patch.contact_num = src.raw.contact_num;
+
+    // Série : garder la plus courte si les deux sont renseignées
+    const ks = (kept.serial || '').trim();
+    const ss = (src.serial || src.raw?.serial || '').trim();
+    if (ss && (!ks || ss.length < ks.length)) patch.serial = ss;
+
+    if (Object.keys(patch).length > 0) {
+      const { serial: newSerial, ...rawPatch } = patch;
+      if (Object.keys(rawPatch).length > 0) {
+        await pool.query(
+          `UPDATE hub_parc.items SET raw = COALESCE(raw, '{}') || $1::jsonb WHERE itemtype = $2 AND glpi_id = $3`,
+          [JSON.stringify(rawPatch), itemtype, parseInt(kept_id)]
+        );
+      }
+      if (newSerial) {
+        await pool.query(
+          `UPDATE hub_parc.items SET serial = $1, raw = COALESCE(raw, '{}') || jsonb_build_object('serial', $1::text) WHERE itemtype = $2 AND glpi_id = $3`,
+          [newSerial, itemtype, parseInt(kept_id)]
+        );
+      }
+    }
+
+    await pool.query(
+      `INSERT INTO hub_parc.local_suppressed (itemtype, glpi_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+      [itemtype, parseInt(merged_id)]
+    );
+
+    clearHubCache();
+    res.json({ success: true, patch });
+  } catch (e) { res.status(500).json({ message: e.message }); }
+}
+
+module.exports = { list, item, kpis, filters, health, usagersEquip, byEmail, clearHubCache, updateContactNum, stockSummary, swapContact, adLookup, updateContact, doublons, mergeItems };

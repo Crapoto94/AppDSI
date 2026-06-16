@@ -307,12 +307,30 @@ const ParcInformatique: React.FC = () => {
   const [typeEdit, setTypeEdit] = useState<{ from: string | null; value: string } | null>(null);
   const [typeSaving, setTypeSaving] = useState(false);
 
+  // Doublons
+  const [doublonOpen, setDoublonOpen] = useState(false);
+  const [doublonList, setDoublonList] = useState<Array<{ itemtype: string; type_key: string; tail9: string; items: Row[] }>>([]);
+  const [doublonLoading, setDoublonLoading] = useState(false);
+  const [doublonMerging, setDoublonMerging] = useState<Set<string>>(new Set());
+  const [doublonErr, setDoublonErr] = useState<string | null>(null);
+  const [doublonMergingAll, setDoublonMergingAll] = useState(false);
+
   // Détail
   const [detail, setDetail] = useState<any | null>(null);
 
   // Inversion / recherche AD
   const [swapping, setSwapping] = useState<Record<string, boolean>>({});
   const [adModal, setAdModal] = useState<AdModal | null>(null);
+
+  // ── Doublons ──
+  const openDoublons = useCallback(async () => {
+    setDoublonOpen(true); setDoublonLoading(true); setDoublonErr(null); setDoublonList([]);
+    try {
+      const r = await axios.get('/api/parc/hub/doublons', { headers: { Authorization: `Bearer ${token}` } });
+      setDoublonList(r.data.duplicates || []);
+    } catch (e: any) { setDoublonErr(e.response?.data?.message || e.message); }
+    finally { setDoublonLoading(false); }
+  }, [token]);
 
   // ── KPIs ──
   const loadKpis = useCallback(async (refresh = false) => {
@@ -366,6 +384,40 @@ const ParcInformatique: React.FC = () => {
       setListErr(e.response?.data?.message || e.message); setRows([]); setTotal(0);
     } finally { setLoadingList(false); }
   }, [type, q, start, limit, affecte, fLocation, fState, fMan, fSupplier, fMise, fType, fAdSeen, fAd, fDocs, fStock, fGroup, sortCol, sortDir, token, source]);
+
+  const handleDoublonMerge = useCallback(async (type_key: string, kept_id: number, merged_id: number, groupIdx: number) => {
+    const key = `${kept_id}-${merged_id}`;
+    setDoublonMerging(prev => new Set([...prev, key]));
+    try {
+      await axios.post('/api/parc/hub/merge', { type_key, kept_id, merged_id }, { headers: { Authorization: `Bearer ${token}` } });
+      setDoublonList(prev => {
+        const next = [...prev];
+        const g = { ...next[groupIdx], items: next[groupIdx].items.filter(it => it.id !== merged_id) };
+        if (g.items.length < 2) next.splice(groupIdx, 1); else next[groupIdx] = g;
+        return next;
+      });
+      loadList();
+    } catch (e: any) { alert('Erreur fusion : ' + (e.response?.data?.message || e.message)); }
+    finally { setDoublonMerging(prev => { const n = new Set(prev); n.delete(key); return n; }); }
+  }, [token, loadList]);
+
+  const handleMergeAll = useCallback(async () => {
+    setDoublonMergingAll(true);
+    const groups = [...doublonList];
+    let errors = 0;
+    for (const group of groups) {
+      const kept = group.items[0];
+      for (const src of group.items.slice(1)) {
+        try {
+          await axios.post('/api/parc/hub/merge', { type_key: group.type_key, kept_id: kept.id, merged_id: src.id }, { headers: { Authorization: `Bearer ${token}` } });
+        } catch { errors++; }
+      }
+    }
+    setDoublonMergingAll(false);
+    setDoublonList([]);
+    loadList();
+    if (errors > 0) alert(`${errors} fusion(s) ont échoué.`);
+  }, [doublonList, token, loadList]);
 
   const loadFilters = useCallback(async () => {
     try {
@@ -991,7 +1043,7 @@ const ParcInformatique: React.FC = () => {
         {tab === 'list' && (
           <>
             {/* Sélecteur de type */}
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 16 }}>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 16, alignItems: 'center' }}>
               {TYPES.map(t => {
                 const I = t.icon; const active = type === t.key;
                 return (
@@ -1002,6 +1054,9 @@ const ParcInformatique: React.FC = () => {
                   }}><I size={15} /> {t.label}</button>
                 );
               })}
+              <button onClick={openDoublons} style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '8px 14px', borderRadius: 10, cursor: 'pointer', border: `1px solid ${C.amber}`, background: '#fffbeb', color: C.amber, fontWeight: 700, fontSize: '.85rem', marginLeft: 'auto' }}>
+                <AlertTriangle size={15} /> Doublons
+              </button>
             </div>
 
             {/* Téléphones & tablettes : vue Mobilité dédiée (table hub_parc.mobilite_*) */}
@@ -2518,6 +2573,104 @@ const ParcInformatique: React.FC = () => {
       {/* ─── MODAL DÉTAIL ─── */}
       {detail && (
         <DetailModal detail={detail} token={token} onClose={() => setDetail(null)} />
+      )}
+
+      {/* ─── MODAL DOUBLONS ─── */}
+      {doublonOpen && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 2000, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', overflowY: 'auto', padding: '40px 16px' }} onClick={() => setDoublonOpen(false)}>
+          <div style={{ background: '#fff', borderRadius: 16, boxShadow: '0 8px 48px rgba(0,0,0,.25)', width: '100%', maxWidth: 960, padding: 28 }} onClick={e => e.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+              <div style={{ fontSize: '1.1rem', fontWeight: 700, color: '#0f172a', display: 'flex', alignItems: 'center', gap: 10 }}>
+                <AlertTriangle size={20} color={C.amber} /> Doublons équipements
+                {!doublonLoading && <span style={{ fontSize: '.82rem', fontWeight: 400, color: C.slate }}>({doublonList.length} groupe{doublonList.length !== 1 ? 's' : ''} détecté{doublonList.length !== 1 ? 's' : ''})</span>}
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                {!doublonLoading && doublonList.length > 0 && (
+                  <button onClick={handleMergeAll} disabled={doublonMergingAll}
+                    style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 14px', borderRadius: 8, border: 'none', background: doublonMergingAll ? C.border : C.blue, color: doublonMergingAll ? C.slate : '#fff', fontWeight: 700, fontSize: '.85rem', cursor: doublonMergingAll ? 'default' : 'pointer' }}>
+                    {doublonMergingAll ? <><RefreshCw size={13} className="spin" /> Fusion en cours…</> : <>Tout fusionner ({doublonList.length})</>}
+                  </button>
+                )}
+                <button onClick={() => setDoublonOpen(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.slate, padding: 4 }}><X size={20} /></button>
+              </div>
+            </div>
+
+            {doublonLoading && <div style={{ textAlign: 'center', padding: 48, color: C.slate }}><RefreshCw size={28} className="spin" /> Recherche en cours…</div>}
+            {doublonErr && <div style={{ padding: 16, background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 8, color: '#dc2626', fontSize: '.85rem' }}>Erreur : {doublonErr}</div>}
+
+            {!doublonLoading && !doublonErr && doublonList.length === 0 && (
+              <div style={{ textAlign: 'center', padding: 48, color: C.slate }}>
+                <CheckCircle2 size={40} color="#22c55e" style={{ marginBottom: 12, display: 'block', margin: '0 auto 12px' }} />
+                <div style={{ fontWeight: 600 }}>Aucun doublon détecté</div>
+                <div style={{ fontSize: '.8rem', marginTop: 4 }}>Aucun équipement ne partage les 9 derniers caractères de numéro de série</div>
+              </div>
+            )}
+
+            {!doublonLoading && !doublonErr && doublonList.map((group, gi) => {
+              const kept = group.items[0];
+              return (
+                <div key={gi} style={{ marginBottom: 16, border: '1px solid #fde68a', borderRadius: 12, overflow: 'hidden' }}>
+                  <div style={{ padding: '10px 16px', background: '#fef3c7', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ fontWeight: 700, color: '#92400e', display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <AlertTriangle size={14} />
+                      Série <code style={{ fontFamily: 'monospace', background: '#fde68a', padding: '1px 6px', borderRadius: 4 }}>…{group.tail9}</code>
+                      <span style={{ fontWeight: 400, fontSize: '.8rem', color: '#a16207' }}>— {group.items.length} entrées</span>
+                    </span>
+                    <span style={{ fontSize: '.75rem', background: '#fde68a', padding: '2px 8px', borderRadius: 4, color: '#92400e', fontWeight: 600 }}>{group.type_key}</span>
+                  </div>
+
+                  {group.items.slice(1).map((src) => {
+                    const mergeKey = `${kept.id}-${src.id}`;
+                    const isMerging = doublonMerging.has(mergeKey);
+                    const ks = (kept.serial || '').trim();
+                    const ss = (src.serial || '').trim();
+                    const willContact = !kept.contact && !!src.contact;
+                    const willContactNum = !kept.contact_num && !!src.contact_num;
+                    const willSerial = !!(ss && (!ks || ss.length < ks.length));
+
+                    return (
+                      <div key={src.id} style={{ padding: '16px 16px 12px' }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: '110px 1fr 1fr', gap: '6px 12px', marginBottom: 14, alignItems: 'center' }}>
+                          <div />
+                          <div style={{ fontSize: '.75rem', fontWeight: 700, color: '#16a34a', textAlign: 'center', padding: '4px 8px', background: '#f0fdf4', borderRadius: 6, border: '1px solid #bbf7d0' }}>✓ À CONSERVER · ID {kept.id}</div>
+                          <div style={{ fontSize: '.75rem', fontWeight: 700, color: '#dc2626', textAlign: 'center', padding: '4px 8px', background: '#fef2f2', borderRadius: 6, border: '1px solid #fecaca' }}>✗ À SUPPRIMER · ID {src.id}</div>
+                          {([
+                            { label: 'Usager',    kv: kept.contact,     sv: src.contact,     hl: willContact },
+                            { label: 'N° usager', kv: kept.contact_num, sv: src.contact_num, hl: willContactNum },
+                            { label: 'Groupe',    kv: kept.group,       sv: src.group,       hl: false },
+                            { label: 'Lieu',      kv: kept.location,    sv: src.location,    hl: false },
+                            { label: 'N° série',  kv: willSerial ? ss : ks, sv: ss || null,  hl: willSerial },
+                            { label: 'Statut',    kv: kept.state,       sv: src.state,       hl: false },
+                          ] as { label: string; kv: string | null; sv: string | null; hl: boolean }[]).map(({ label, kv, sv, hl }) => (
+                            <React.Fragment key={label}>
+                              <div style={{ padding: '3px 0', fontSize: '.74rem', color: '#64748b', fontWeight: 600, textTransform: 'uppercase' }}>{label}</div>
+                              <div style={{ padding: '3px 8px', fontSize: '.82rem', color: hl ? '#16a34a' : (kv ? '#1e293b' : '#94a3b8'), fontStyle: kv ? 'normal' : 'italic', fontWeight: hl ? 700 : 400, background: hl ? '#dcfce7' : 'transparent', borderRadius: 4 }}>{hl ? `← ${sv}` : (kv || '—')}</div>
+                              <div style={{ padding: '3px 8px', fontSize: '.82rem', color: sv ? '#dc2626' : '#94a3b8', fontStyle: sv ? 'normal' : 'italic', textDecoration: 'line-through', opacity: 0.7 }}>{sv || '—'}</div>
+                            </React.Fragment>
+                          ))}
+                        </div>
+
+                        <div style={{ fontSize: '.78rem', color: '#475569', background: '#f8fafc', padding: '8px 12px', borderRadius: 6, marginBottom: 10 }}>
+                          <b>Actions :</b>{' '}
+                          {willContact && <span style={{ color: '#16a34a' }}>Copie usager « {src.contact} » · </span>}
+                          {willContactNum && <span style={{ color: '#16a34a' }}>Copie N° usager « {src.contact_num} » · </span>}
+                          {willSerial && <span style={{ color: '#16a34a' }}>Série raccourcie « {ss} » · </span>}
+                          Suppression locale de l'entrée dupliquée (ID {src.id})
+                        </div>
+
+                        <button onClick={() => handleDoublonMerge(group.type_key, kept.id, src.id, gi)}
+                          disabled={isMerging}
+                          style={{ width: '100%', padding: '9px 0', borderRadius: 8, border: 'none', background: isMerging ? C.border : C.blue, color: isMerging ? C.slate : '#fff', fontWeight: 700, fontSize: '.88rem', cursor: isMerging ? 'default' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+                          {isMerging ? <><RefreshCw size={14} className="spin" /> Fusion en cours…</> : 'Fusionner — conserver le 1er, supprimer le 2e'}
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })}
+          </div>
+        </div>
       )}
 
       <style>{`@keyframes spin{to{transform:rotate(360deg)}}.spin{animation:spin 1s linear infinite}`}</style>

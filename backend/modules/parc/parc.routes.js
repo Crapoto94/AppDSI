@@ -41,6 +41,8 @@ router.get('/hub/kpis', authenticateJWT, hub.kpis);
 router.get('/hub/stock-summary', authenticateJWT, hub.stockSummary);
 router.get('/hub/usagers-equip', authenticateJWT, hub.usagersEquip);
 router.get('/hub/by-email',      authenticateJWT, hub.byEmail);
+router.get('/hub/doublons',      authenticateJWT, hub.doublons);
+router.post('/hub/merge',        authenticateJWT, hub.mergeItems);
 router.get('/hub/:type/filters', authenticateJWT, hub.filters);
 router.patch('/hub/:type/:id', authenticateJWT, hub.updateContactNum);
 router.post('/hub/:type/:id/swap-contact', authenticateJWT, hub.swapContact);
