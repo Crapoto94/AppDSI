@@ -1,0 +1,202 @@
+Nouvelles tâches DSIHUB issues de la migration GLPI (state=1)
+Total: 67 tâches DSIHUB créées par la migration GLPI
+Tâche #671 | Ticket #36054 | Ouverture d'une boite mail générique | Groupe: Support et Déploiement | TeamGroupID: e37ccbf1-2264-4384-a441-f9e08bbff0b0 | Échéance: N/A | Statut: a_faire | is_team_task: true
+  Description: [GLPI #11479] <p>Bonjour Marc,</p><p>Valides tu cette demande ?</p>
+
+Tâche #672 | Ticket #37536 | Demande création mails gardiens d'école | Groupe: Support et Déploiement | TeamGroupID: 9a9cc707-6c06-43a2-9060-a03b7fb87621 | Échéance: N/A | Statut: a_faire | is_team_task: true
+  Description: [GLPI #9378] <p>On en a échangé en REDI</p><p>ça se croise entre projet AStech et DSALE</p><p>Que fait on pour ces deman
+
+Tâche #673 | Ticket #38450 | Système de transmission de document via lien sécurisée | Groupe: Bureau des Projets | TeamGroupID: a2b1b316-be43-4f84-bf1d-d3c8f0bf4729 | Échéance: N/A | Statut: a_faire | is_team_task: true
+  Description: [GLPI #8042] <p>Salut Nadir, </p><p>On peut fermer ce ticket ?</p>
+
+Tâche #674 | Ticket #38450 | Système de transmission de document via lien sécurisée | Groupe: Bureau des Projets | TeamGroupID: 115ee229-9d94-4a54-b9fe-75861adcf088 | Échéance: N/A | Statut: a_faire | is_team_task: true
+  Description: [GLPI #8043] <p>Non on ne ferme pas le ticket <br />meme si la demande est un projet </p>
+
+Tâche #675 | Ticket #38926 | RE: Demande création mails gardiens d'école | Groupe: Support et Déploiement | TeamGroupID: 6fa35155-b630-48cb-bc76-4f3c9278a6de | Échéance: N/A | Statut: a_faire | is_team_task: true
+  Description: [GLPI #7321] <p>Il me semble qu'il y avait un arbitrage sur ce point non ???</p>
+
+Tâche #676 | Ticket #38926 | RE: Demande création mails gardiens d'école | Groupe: Support et Déploiement | TeamGroupID: 264cf88a-22ae-455f-b834-db8c6214a617 | Échéance: N/A | Statut: a_faire | is_team_task: true
+  Description: [GLPI #7322] 
+
+Tâche #677 | Ticket #38979 | Demande/DAC 2025 : TPE | Groupe: Support et Déploiement | TeamGroupID: 04614a0f-19c3-49c0-8858-7ee99e50ccfe | Échéance: N/A | Statut: a_faire | is_team_task: true
+  Description: [GLPI #7216] <p>Suite réu des demandes de 2024 - Pour suivi svp</p>
+
+Tâche #678 | Ticket #38982 | Demande/DSF 2025 : BO (Business Object) | Groupe: Bureau des Projets | TeamGroupID: 3e3dad74-c912-46f6-a507-753d37e75639 | Échéance: N/A | Statut: a_faire | is_team_task: true
+  Description: [GLPI #7210] <p>Suite réu des demandes de 2024 - Pour suivi svp</p>
+
+Tâche #679 | Ticket #39041 | Demande/DAJCP 2025 : BO | Groupe: Bureau des Projets | TeamGroupID: 22520385-cf41-4cfb-82e4-8566250fe432 | Échéance: N/A | Statut: a_faire | is_team_task: true
+  Description: [GLPI #7119] <p>Suite réu des demandes de 2024 - Pour suivi svp</p>
+
+Tâche #680 | Ticket #39323 | Double paiement PAYZEN | Groupe: Bureau des Projets | TeamGroupID: ffa8d7ac-c7bb-4ea7-981a-07bfb02bbbab | Échéance: N/A | Statut: a_faire | is_team_task: true
+  Description: [GLPI #6747] <p>Chers collègues, </p><p>Je vous fais suivre ce ticket en rapport avec le télépaiement via Concerto.</p><
+
+Tâche #681 | Ticket #39336 | SUITE / Demande création mails gardiens d'école | Groupe: Support et Déploiement | TeamGroupID: 151a2443-4457-41d3-ad1f-6974ee06c16e | Échéance: N/A | Statut: a_faire | is_team_task: true
+  Description: [GLPI #6729] <p>Attente de l'arbitrage de la direction d'attribuer des adresses génériques mails.</p><p>Car pas valider 
+
+Tâche #682 | Ticket #40411 | mercator | Groupe: Bureau des Projets | TeamGroupID: e9508c27-d1a2-412b-9dd2-7e798119b4c4 | Échéance: N/A | Statut: a_faire | is_team_task: true
+  Description: [GLPI #5287] 
+
+Tâche #683 | Ticket #41314 | Problème d'accès à Symphonie (Astech) Production en TELETRAVAIL | Groupe: Support et Déploiement | TeamGroupID: 70174b7d-b803-4916-a920-69883015dddc | Échéance: N/A | Statut: a_faire | is_team_task: true
+  Description: [GLPI #4004] <p>Salut Nadir, </p><p>Tu peux voir ce qu'il en est ?</p>
+
+Tâche #684 | Ticket #41424 | PROTYS = Outils Compte-rendu Chantier | Groupe: Bureau des Projets | TeamGroupID: 8235c3f7-ddd9-4c84-aeac-d8fa4d2e71f5 | Échéance: N/A | Statut: a_faire | is_team_task: true
+  Description: [GLPI #3826] <p>Bonjour Nadir,</p><p> </p><p>Il faudrait revoir le ticket GLPI 41424 aussi bien sur le fond que sur la f
+
+Tâche #685 | Ticket #41526 | Connexion filaire Photocopieurs avec Monnayeur | Groupe: SIRS | TeamGroupID: 50e69e5c-ae3f-45ae-b812-bd1b9e850b1c | Échéance: N/A | Statut: a_faire | is_team_task: true
+  Description: [GLPI #3673] <p>prévoir une intervention</p>
+
+Tâche #686 | Ticket #41551 | Service Petite enfance/ Multi accueil Maria Merian | Groupe: Téléphonie | TeamGroupID: 4eb371ba-a324-4699-a9dd-ebee696c7b72 | Échéance: N/A | Statut: a_faire | is_team_task: true
+  Description: [GLPI #3624] <p>Hello , peux tu traiter la demande stp.</p>
+
+Tâche #687 | Ticket #41976 | Demande installation telephonie  | Groupe: SIRS | TeamGroupID: 1bc0f839-ecf9-4676-8f6b-3b0b41a480c8 | Échéance: N/A | Statut: a_faire | is_team_task: true
+  Description: [GLPI #2942] <p>Salut Youssef, </p><p>Dis moi tu peux gérer ce ticket ou c'est a quelqu'un d'autre qu'on doit envoyer ça
+
+Tâche #688 | Ticket #42102 | RE: SUITE / Demande création mails gardiens d'école | Groupe: Support et Déploiement | TeamGroupID: 16e91e3e-1aae-47c4-9b44-bcdfa53b6bd3 | Échéance: N/A | Statut: a_faire | is_team_task: true
+  Description: [GLPI #2738] <p>@Nadir</p><p>Plusieurs tickets sur ce sujet</p><p>Peut on avoir un arbitrage stp</p>
+
+Tâche #689 | Ticket #42119 | Demande de tablette hybride | Groupe: Bureau des Projets | TeamGroupID: 80664e40-de27-4608-80e6-0f0c92cbdb06 | Échéance: N/A | Statut: a_faire | is_team_task: true
+  Description: [GLPI #2711] <p>Une id sur l'appli en question ?</p>
+
+Tâche #690 | Ticket #42123 | Problème D'ENVOI MAIL A LA MDPH. °) UC 22100 | Groupe: Support et Déploiement | TeamGroupID: a849b085-683c-4589-b92d-9c524336b1d4 | Échéance: N/A | Statut: a_faire | is_team_task: true
+  Description: [GLPI #2704] <p>Pour diagnostic au niveau du smtp </p>
+
+Tâche #691 | Ticket #42219 | RE: Canva pro médiathèques | Groupe: Support et Déploiement | TeamGroupID: caa4e2d5-7def-4b01-9730-e5807d993c45 | Échéance: N/A | Statut: a_faire | is_team_task: true
+  Description: [GLPI #2557] <p>Pouvez vous voir pour une licence Canva Pro svp</p>
+
+Tâche #692 | Ticket #42264 | Création de prise ethernet  | Groupe: SIRS | TeamGroupID: b023a2f7-4811-4001-866e-b5325ab29e17 | Échéance: N/A | Statut: a_faire | is_team_task: true
+  Description: [GLPI #2481] <p>Elle est au deuxième étage dans une grande pièce</p>
+
+Tâche #693 | Ticket #42526 | wifi mobilité ivry | Groupe: Support et Déploiement | TeamGroupID: d529b607-5057-453c-85c3-e073fddb5216 | Échéance: N/A | Statut: a_faire | is_team_task: true
+  Description: [GLPI #2063] <p>pouvez vous vérifier  svp </p><p>contacte 2490</p>
+
+Tâche #694 | Ticket #42534 | FONCTIONNEMENT CHELOU | Groupe: Support et Déploiement | TeamGroupID: 4418c7d1-820b-49bb-8c4f-1137a994a2bf | Échéance: N/A | Statut: a_faire | is_team_task: true
+  Description: [GLPI #2054] <p>??? </p><p>Une id de ton coté  ???</p>
+
+Tâche #695 | Ticket #42576 | Problème affichage  revue de presse test | Groupe: Support et Déploiement | TeamGroupID: 0fe2d913-0d89-4bf9-916a-1006250ef605 | Échéance: N/A | Statut: a_faire | is_team_task: true
+  Description: [GLPI #1995] <p>Votre avis/arbitrage svp</p>
+
+Tâche #696 | Ticket #42670 | Demande création adresse mail | Groupe: Support et Déploiement | TeamGroupID: 181cb455-3165-4453-8475-8c0de270050f | Échéance: N/A | Statut: a_faire | is_team_task: true
+  Description: [GLPI #1865] <p>Christophe,</p><p>Regarder le besoin et voir avec Avanti comment Agora peut répondre à cette demande.</p
+
+Tâche #697 | Ticket #42704 | RE: Demande création adresse mail | Groupe: Support et Déploiement | TeamGroupID: 22277498-5aae-4397-af96-9be93f860875 | Échéance: N/A | Statut: a_faire | is_team_task: true
+  Description: [GLPI #1806] <p>Bonjour,</p><p>Pouvez-vous répondre a la demande suivante svp.</p>
+
+Tâche #698 | Ticket #42775 | Demandes non traitées / Imprimerie | Groupe: Support et Déploiement | TeamGroupID: b0c77a93-77eb-4652-95e8-4f68e567ea31 | Échéance: N/A | Statut: a_faire | is_team_task: true
+  Description: [GLPI #1704] <p>Merci de faire un point sur les autres sujets avec Mme Vilao svp</p>
+
+Tâche #699 | Ticket #42838 | Photos perso dans l'espaces familles KO | Groupe: Bureau des Projets | TeamGroupID: 44381b26-f237-4b95-8e86-6e8f790b50e3 | Échéance: N/A | Statut: a_faire | is_team_task: true
+  Description: [GLPI #1612] <p>Demande de Marc pour ouverture ticket chez Arpège</p>
+
+Tâche #700 | Ticket #43027 | Option de sauvegarde logiciel de caisse Pi Electronique - Restobadge | Groupe: Bureau des Projets | TeamGroupID: 4d9b3b02-713e-4a3a-8c78-1cf61700e0ac | Échéance: N/A | Statut: a_faire | is_team_task: true
+  Description: [GLPI #1348] <p>Merci de voir et de tenir informé Bdp, j'ai trouvé Restobadge dans Mercator mais aucune info.....</p>
+
+Tâche #701 | Ticket #43081 | Demandes DIR 2025 : DCOM- Demande de 2 licences Canva Pro | Groupe: Support et Déploiement | TeamGroupID: 0d8812d7-068b-4f42-a4b4-8e379bbd992c | Échéance: N/A | Statut: a_faire | is_team_task: true
+  Description: [GLPI #1269] <p>Pouvez vous voir pour commande svp</p><p>Arbitrage OK</p>
+
+Tâche #702 | Ticket #43157 | Ouverture de droits assistantes habitat | Groupe: Support et Déploiement | TeamGroupID: 7a8494c5-ac57-407d-a618-b9f230fd2406 | Échéance: N/A | Statut: a_faire | is_team_task: true
+  Description: [GLPI #1166] <p>Création de compte pour   Alexandra BAULART ; Mickaëla ANRIAMADY</p><p>bien cordialement</p>
+
+Tâche #703 | Ticket #43261 | problème d'impression | Groupe: Support et Déploiement | TeamGroupID: 722766d1-78c6-4cb4-9423-2981f974d6e1 | Échéance: N/A | Statut: a_faire | is_team_task: true
+  Description: [GLPI #1028] <p>il faut passer car l'imp n'est pas en réseau</p>
+
+Tâche #704 | Ticket #43331 | Programme d’installation de l’application Speech | Groupe: Support et Déploiement | TeamGroupID: bcc75e50-bd07-4656-a3f4-d0919d8c3a90 | Échéance: N/A | Statut: a_faire | is_team_task: true
+  Description: [GLPI #932] <p>Salut Daniel, suite à notre échange, est ce que tu as eu le temps de contacter l'éditeur concernant les c
+
+Tâche #705 | Ticket #43331 | Programme d’installation de l’application Speech | Groupe: Support et Déploiement | TeamGroupID: a57bfe7e-7305-4e33-b8c7-8fc12f656bfb | Échéance: N/A | Statut: a_faire | is_team_task: true
+  Description: [GLPI #933] <p>Salut Daniel, est ce que tu as pu contacter l'éditeur pour notre sujet d'installation de Speech? merci de
+
+Tâche #706 | Ticket #43356 | TR: Installation logiciel de gestion télésurveillance | Groupe: Support et Déploiement | TeamGroupID: 95d841ac-cde8-4c63-aa1d-594a018c434b | Échéance: N/A | Statut: a_faire | is_team_task: true
+  Description: [GLPI #895] <p>Pouvez vous etudier cette config VPN svp</p>
+
+Tâche #707 | Ticket #43418 | RE: Panne Informatique résolue - controle acces Solomon IP ne fonctionne plus | Groupe: Support et Déploiement | TeamGroupID: fc870d2b-8ec2-4350-a6fd-1f68fee574cc | Échéance: N/A | Statut: a_faire | is_team_task: true
+  Description: [GLPI #831] <p>A ton avis ?</p>
+
+Tâche #708 | Ticket #43432 | Dde urgente à la DSI accès aux boites mails  | Groupe: Support et Déploiement | TeamGroupID: 537ebade-ac79-4cd0-a413-bd5ea47a4764 | Échéance: N/A | Statut: a_faire | is_team_task: true
+  Description: [GLPI #814] 
+
+Tâche #709 | Ticket #43454 | RE: Mercator - procédure de mise à jour | Groupe: Support et Déploiement | TeamGroupID: 786ddac7-69e0-4a48-8984-b906d67ab55b | Échéance: N/A | Statut: a_faire | is_team_task: true
+  Description: [GLPI #785] <p>Bonjour,</p><p>Pouvez-vous répondre a la demande suivante svp.</p>
+
+Tâche #710 | Ticket #43551 | Edutice NEOS | Groupe: Bureau des Projets | TeamGroupID: 5bdf6472-365e-42c9-b198-e68f4f22261c | Échéance: N/A | Statut: a_faire | is_team_task: true
+  Description: [GLPI #684] <p>Chers collègues, <br /><br />Pouvez vous répondre à cette question svp ?<br /><br />Cordialement,</p>
+
+Tâche #711 | Ticket #43570 | Service Petite enfance / Raccordement pour connection internet sur un nouveau poste de travail au Service Petite enfance (Open Space) | Groupe: Support et Déploiement | TeamGroupID: a38a0321-dff4-44dc-b0fc-d6932f73938a | Échéance: N/A | Statut: a_faire | is_team_task: true
+  Description: [GLPI #660] <p>Youssef, </p><p> </p><p>Pourrais tu paramétrer un poste téléphonique en convergé qu'on pourra installer d
+
+Tâche #712 | Ticket #43586 | TR: Demande de matériel pour cours municipaux de français | Groupe: Bureau des Projets | TeamGroupID: 1308208d-8567-45a9-8109-73ec3c297e63 | Échéance: N/A | Statut: a_faire | is_team_task: true
+  Description: [GLPI #638] <p>Mourad je pense que ce ticket est pour toi</p>
+
+Tâche #713 | Ticket #43637 | Problème de remontées de données sur le backoffice | Groupe: SIRS | TeamGroupID: 122dd84a-2db6-4a4c-a5d9-647a47b2d08f | Échéance: N/A | Statut: a_faire | is_team_task: true
+  Description: [GLPI #569] <p>Il s'agit du pare-feu Sophos.</p><p>transfert à l'équipe IRS</p>
+
+Tâche #714 | Ticket #43686 | RE: Pb d'affichage Outlook avec DigitaleBox | Groupe: Support et Déploiement | TeamGroupID: afc780e6-4bd3-44f9-b471-5971081b50cf | Échéance: N/A | Statut: a_faire | is_team_task: true
+  Description: [GLPI #502] <p>Merci de voir SVP</p>
+
+Tâche #715 | Ticket #43686 | RE: Pb d'affichage Outlook avec DigitaleBox | Groupe: Support et Déploiement | TeamGroupID: 55d774cb-7ba1-4a6d-9efa-a7837387305c | Échéance: N/A | Statut: a_faire | is_team_task: true
+  Description: [GLPI #503] <p>Chers collègues,<br /><br />Pouvez vous investiguer cette situation svp ?</p><p>Infos dans le commentaire
+
+Tâche #716 | Ticket #43711 | Export CSV logiciel Cindoc | Groupe: Support et Déploiement | TeamGroupID: 592e8b4f-adeb-4375-b3c8-81409c738635 | Échéance: N/A | Statut: a_faire | is_team_task: true
+  Description: [GLPI #472] <p>Bonjour Christophe, </p><p>on peut faire quelque chose pour cette demande ?</p>
+
+Tâche #717 | Ticket #43781 | besoin de logiciel | Groupe: Bureau des Projets | TeamGroupID: 122851d4-af87-46fc-958a-eff43e151a10 | Échéance: N/A | Statut: a_faire | is_team_task: true
+  Description: [GLPI #378] 
+
+Tâche #718 | Ticket #43838 | Pb de remontées de films | Groupe: Support et Déploiement | TeamGroupID: 03cb3e3a-0bac-4972-8127-ffde7e8cfe6c | Échéance: N/A | Statut: a_faire | is_team_task: true
+  Description: [GLPI #299] <p>Hello les gars,</p><p>Pourriez-vous s'il vous plait voir les actions d'après le retour de Monnaie_Service
+
+Tâche #719 | Ticket #43854 | RE: [GLPI #0043641] Root entity &gt; Support | Nouveau ticket : Gestion Petit Robespierre | Groupe: Support et Déploiement | TeamGroupID: 2b6156c4-cd23-4fbe-bd6c-ffe0e87252b3 | Échéance: N/A | Statut: a_faire | is_team_task: true
+  Description: [GLPI #280] <p>Pouvez vous etudier cette demande svp</p>
+
+Tâche #720 | Ticket #43919 | Demande d'ordinateur portable  | Groupe: Support et Déploiement | TeamGroupID: f571112a-2910-474a-bcac-23f6a48cba27 | Échéance: N/A | Statut: a_faire | is_team_task: true
+  Description: [GLPI #197] <p>LA METTRE EN DOTATION UNIQUE</p>
+
+Tâche #721 | Ticket #43923 | Logiciel ScanLine pour scanner archives | Groupe: Support et Déploiement | TeamGroupID: 5dba0a0e-6e24-486a-a41a-876ef77bf3b8 | Échéance: N/A | Statut: a_faire | is_team_task: true
+  Description: [GLPI #191] <p>Pousser l'analyse un peu plus loin.</p>
+
+Tâche #722 | Ticket #43939 | TR: accès logiciel GIR | Groupe: Support et Déploiement | TeamGroupID: f2364014-36f3-4fea-ab0b-08f5040c88b4 | Échéance: N/A | Statut: a_faire | is_team_task: true
+  Description: [GLPI #167] <p>Nadir, merci de voir cette demande.</p>
+
+Tâche #723 | Ticket #43947 | configuration - Stagiaires | Groupe: Support et Déploiement | TeamGroupID: 9f13b334-38b6-42d1-821a-46f61eeb7d23 | Échéance: N/A | Statut: a_faire | is_team_task: true
+  Description: [GLPI #156] <p>paramétrer le compte du stagiaire sur le MAC</p>
+
+Tâche #724 | Ticket #43956 | passage vers un système mac | Groupe: Support et Déploiement | TeamGroupID: 9d463591-996b-43c2-b0e6-adac4c600ce2 | Échéance: N/A | Statut: a_faire | is_team_task: true
+  Description: [GLPI #142] <p>Pouvez vous etudier cette demande svp</p>
+
+Tâche #725 | Ticket #43957 | RE: [GLPI #0043672] Ticket résolu Calendrier outlook | Groupe: Support et Déploiement | TeamGroupID: b2d9e9be-726e-40bb-a174-6a7084ed948c | Échéance: N/A | Statut: a_faire | is_team_task: true
+  Description: [GLPI #141] <p>Bonjour,</p><p>Pouvez-vous répondre a la demande suivante svp.</p>
+
+Tâche #726 | Ticket #43977 | RE: Vol Ipad | Groupe: Support et Déploiement | TeamGroupID: f1d6eb13-fd3d-4238-ba7f-19084e7e2940 | Échéance: N/A | Statut: a_faire | is_team_task: true
+  Description: [GLPI #123] <p>Besoin de trouver une nouvelle tablette pour B. BADIA</p>
+
+Tâche #727 | Ticket #43990 | Virus dans un mail | Groupe: RSSI | TeamGroupID: 3b3cccea-fdeb-494a-8da2-f070ced8a821 | Échéance: N/A | Statut: a_faire | is_team_task: true
+  Description: [GLPI #107] <p>Transféré vers le service de sécurité des systèmes d'informations</p>
+
+Tâche #728 | Ticket #43990 | Virus dans un mail | Groupe: RSSI | TeamGroupID: e525ec21-cb37-4ebc-9042-dc39085f4e80 | Échéance: N/A | Statut: a_faire | is_team_task: true
+  Description: [GLPI #108] <p>Pouvez vous scanner le PO22100 svp</p>
+
+Tâche #729 | Ticket #43996 | Re: Tablette ACCEO | Groupe: Bureau des Projets | TeamGroupID: b7575b3d-3a9e-457a-8c0a-e37ae810d4cf | Échéance: N/A | Statut: a_faire | is_team_task: true
+  Description: [GLPI #96] <p>Pour avis et arbitrage svp</p><p>Acceo est deployé actuellement au service GRU sur des tablettes (Mairie e
+
+Tâche #730 | Ticket #44000 | Lien Wetransfer | Groupe: Support et Déploiement | TeamGroupID: d7c9f8ee-3722-49ff-abbe-b86161a93e66 | Échéance: N/A | Statut: a_faire | is_team_task: true
+  Description: [GLPI #91] <p>Chers collègues, <br /><br />Pouvez vous répondre à cette demande svp ?<br /><br />Cordialement,</p>
+
+Tâche #731 | Ticket #44003 | Problématique réception mail boite commune | Groupe: Support et Déploiement | TeamGroupID: 3ec55d97-8ead-44c7-b298-306f3148b634 | Échéance: N/A | Statut: a_faire | is_team_task: true
+  Description: [GLPI #84] <p>Chers collègues, <br /><br />Pouvez vous répondre à cette demande svp ?<br /><br />Cordialement,</p>
+
+Tâche #732 | Ticket #44024 | CORIOLIS KO | Groupe: Support et Déploiement | TeamGroupID: b37a7f6a-4d54-4c34-bf62-248c0781681c | Échéance: N/A | Statut: a_faire | is_team_task: true
+  Description: [GLPI #53] <p>Bonjour les collègues, </p><p> </p><p>Je vous escalade ce ticket pour analyse et traitement par vos soins.
+
+Tâche #733 | Ticket #44085 | Site bloqué " http://atlas.patrimoines.culture.fr/ " | Groupe: Support et Déploiement | TeamGroupID: 37e35aee-5a96-49ab-a884-53063e135a82 | Échéance: N/A | Statut: a_faire | is_team_task: true
+  Description: [GLPI #28] <p>Pouvez vous voir svp</p>
+
+Tâche #734 | Ticket #44088 | Mauvaise impression  | Groupe: Support et Déploiement | TeamGroupID: 66798135-22d4-49dc-97bf-6914200820c2 | Échéance: N/A | Statut: a_faire | is_team_task: true
+  Description: [GLPI #23] <p>nettoyage du kit transfert, sinon on commande la pièce</p>
+
+Tâche #735 | Ticket #44089 | Très important : pb envoi mails extérieurs - pb/protection enfance | Groupe: Support et Déploiement | TeamGroupID: b497ff9e-90b6-4f91-a3ea-e542f175b839 | Échéance: N/A | Statut: a_faire | is_team_task: true
+  Description: [GLPI #20] <p>Vincent, Thibault, </p><p> </p><p>Je vous fais suivre ce ticket, on dirait qu'on est toujours bloqué par l
+
+Tâche #736 | Ticket #43322 | TR: Demande deuxième écran | Groupe: Support et Déploiement | TeamGroupID: 85514c7a-8db2-4d41-835a-7a400b764a34 | Échéance: Wed Apr 01 2026 00:00:00 GMT+0200 (heure d’été d’Europe centrale) | Statut: a_faire | is_team_task: true
+  Description: [GLPI #946] <p>peux tu gérer ça pour demain matin elles seront au bureau</p>
+
+Tâche #737 | Ticket #43550 | Migration serveur | Groupe: Support et Déploiement | TeamGroupID: 97b24d11-6eba-45e7-ac3d-b8ca4c3f5221 | Échéance: Wed Apr 29 2026 00:00:00 GMT+0200 (heure d’été d’Europe centrale) | Statut: a_faire | is_team_task: true
+  Description: [GLPI #687] 
