@@ -331,9 +331,11 @@ async function getEventsForDate(date) {
 
   const finalKeys = new Set();
   const deduped = sorted.filter(e => {
-    // For teletravail events, deduplicate by agent only (ignore periode) to eliminate timezone-offset duplicates
+    // Include periode in teletravail key so matin+apres-midi events are kept separately;
+    // timezone-offset duplicates (same periode, different date) are still collapsed because
+    // sort is DESC so the requested-date version always comes first.
     const k = e.categorie === 'teletravail'
-      ? `${e.agent_username || ''}|${e.categorie}`
+      ? `${e.agent_username || ''}|${e.categorie}|${e.periode || ''}`
       : `${e.agent_username || ''}|${e.titre || ''}|${e.categorie}|${e.periode || ''}`;
     if (finalKeys.has(k)) return false;
     finalKeys.add(k);
@@ -349,7 +351,7 @@ async function getEventsForDate(date) {
     }
   });
 
-  return deduped.filter(e => {
+  const filtered = deduped.filter(e => {
     const eventDate = e.date.split('T')[0];
     // Keep if event is from requested date, OR if it's a teletravail and has a version on requested date
     if (eventDate === date) return true;
@@ -358,6 +360,30 @@ async function getEventsForDate(date) {
     }
     return false; // Skip events from previous day that don't have a requested date version
   });
+
+  // Merge teletravail matin+apres-midi pairs into a single journée-entière event
+  const ttByAgent = {};
+  const nonTt = [];
+  for (const e of filtered) {
+    if (e.categorie === 'teletravail') {
+      const key = e.agent_username || e.titre || '';
+      if (!ttByAgent[key]) ttByAgent[key] = [];
+      ttByAgent[key].push(e);
+    } else {
+      nonTt.push(e);
+    }
+  }
+  const mergedTt = [];
+  for (const evts of Object.values(ttByAgent)) {
+    const hasMatin = evts.some(e => e.periode === 'matin');
+    const hasApressMidi = evts.some(e => e.periode === 'apres-midi');
+    if (hasMatin && hasApressMidi) {
+      mergedTt.push({ ...evts[0], periode: '' });
+    } else {
+      mergedTt.push(...evts);
+    }
+  }
+  return [...nonTt, ...mergedTt];
 }
 
 function getWeekNumber(d) {
