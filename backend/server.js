@@ -5947,9 +5947,11 @@ const notificationService = require('./modules/tickets/services/notification.ser
 const slaService = require('./modules/tickets/services/sla.service');
 
 const ticketGroupsRouter = require('./modules/tickets/ticket-groups.routes');
+const ticketsAutoActionsRouter = require('./modules/tickets/auto-actions.routes');
 ticketsCtrl.setSendMail(sendMail);
 app.use('/api/tickets/groups', ticketGroupsRouter);
 app.use('/api/tickets/admin', ticketsAdminRouter);
+app.use('/api/tickets/auto-actions', ticketsAutoActionsRouter);
 app.use('/api/tickets', ticketsRouter);
 
 // ── Auto Resolution ──────────────────────────────────────────────────
