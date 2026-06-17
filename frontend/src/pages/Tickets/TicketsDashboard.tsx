@@ -170,6 +170,7 @@ export default function TicketsDashboard() {
   const [aaSending, setAaSending] = useState(false);
   const [aaError, setAaError] = useState('');
   const [aaSuccess, setAaSuccess] = useState('');
+  const [aaAdWarning, setAaAdWarning] = useState('');
   const [aaCopied, setAaCopied] = useState(false);
 
   const limit = 50;
@@ -869,7 +870,7 @@ export default function TicketsDashboard() {
             </button>
           )}
           {['superadmin', 'superadmins', 'admin', 'supervisor', 'superviseur'].includes((resolvedRole ?? user?.role ?? '').toLowerCase().trim()) && (
-            <button onClick={() => { setShowAutoActions(true); setAaStep(0); setAaSelected(null); setAaSearch(''); setAaError(''); setAaSuccess(''); const tk = localStorage.getItem('token'); axios.get('/api/tickets/auto-actions/settings', { headers: { Authorization: `Bearer ${tk}` } }).then(r => { setAaSettings(r.data); setAaSettingsDraft(r.data); }).catch(() => {}); }}
+            <button onClick={() => { setShowAutoActions(true); setAaStep(0); setAaSelected(null); setAaSearch(''); setAaError(''); setAaSuccess(''); setAaAdWarning(''); const tk = localStorage.getItem('token'); axios.get('/api/tickets/auto-actions/settings', { headers: { Authorization: `Bearer ${tk}` } }).then(r => { setAaSettings(r.data); setAaSettingsDraft(r.data); }).catch(() => {}); }}
               style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '10px 18px', border: '1px solid #fbbf24', borderRadius: 8, background: '#fffbeb', color: '#92400e', fontWeight: 700, fontSize: 14, cursor: 'pointer' }}>
               ⚡ Actions auto
             </button>
@@ -1689,14 +1690,14 @@ export default function TicketsDashboard() {
     )}
     {/* ── Modal Actions automatiques ─────────────────────────────── */}
     {showAutoActions && createPortal(
-      <div onClick={e => { if (e.target === e.currentTarget) { setShowAutoActions(false); setAaStep(0); setAaShowSettings(false); } }}
+      <div onClick={e => { if (e.target === e.currentTarget) { setShowAutoActions(false); setAaStep(0); setAaShowSettings(false); setAaAdWarning(''); } }}
         style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 2100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
         <div style={{ background: '#fff', borderRadius: 16, width: 540, maxWidth: '100%', maxHeight: '85vh', display: 'flex', flexDirection: 'column', boxShadow: '0 12px 40px rgba(0,0,0,0.18)' }}>
 
           {/* Header */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '20px 24px 16px', borderBottom: '1px solid #f1f5f9' }}>
             {aaStep > 0 && (
-              <button onClick={() => { setAaStep(aaStep - 1); setAaError(''); setAaSuccess(''); setAaShowSettings(false); }}
+              <button onClick={() => { setAaStep(aaStep - 1); setAaError(''); setAaSuccess(''); setAaAdWarning(''); setAaShowSettings(false); }}
                 style={{ background: 'none', border: '1px solid #e2e8f0', borderRadius: 6, padding: '4px 10px', cursor: 'pointer', fontSize: 14, color: '#475569' }}>
                 ← Retour
               </button>
@@ -1708,7 +1709,7 @@ export default function TicketsDashboard() {
               {aaStep === 1 && <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>Sélectionnez le bénéficiaire</div>}
               {aaStep === 2 && aaSelected && <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>{aaSelected.prenom || ''} {aaSelected.nom} · 📱 {aaSelected.phone}</div>}
             </div>
-            <button onClick={() => { setShowAutoActions(false); setAaStep(0); setAaShowSettings(false); }}
+            <button onClick={() => { setShowAutoActions(false); setAaStep(0); setAaShowSettings(false); setAaAdWarning(''); }}
               style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 20, color: '#94a3b8', lineHeight: 1 }}>✕</button>
           </div>
 
@@ -1822,7 +1823,7 @@ export default function TicketsDashboard() {
                       .replace('{PRENOM}', aaSelected?.prenom || aaSelected?.nom || '')
                       .replace('{MOT_DE_PASSE}', pwd)
                       .replace('{LIEN}', aaSettings?.sms_tuto_link || '');
-                    setAaSmsMsg(msg); setAaStep(2); setAaError(''); setAaSuccess('');
+                    setAaSmsMsg(msg); setAaStep(2); setAaError(''); setAaSuccess(''); setAaAdWarning('');
                   }} style={{ padding: '10px 22px', borderRadius: 8, border: 'none', background: aaSelected ? '#f59e0b' : '#e2e8f0', color: aaSelected ? '#fff' : '#94a3b8', fontWeight: 700, fontSize: 14, cursor: aaSelected ? 'pointer' : 'default' }}>
                     Continuer →
                   </button>
@@ -1862,26 +1863,34 @@ export default function TicketsDashboard() {
 
                 {aaError && <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 8, padding: '10px 14px', color: '#dc2626', fontSize: 13 }}>{aaError}</div>}
                 {aaSuccess && <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 8, padding: '10px 14px', color: '#166534', fontSize: 13 }}>✅ {aaSuccess}</div>}
+                {aaAdWarning && <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 8, padding: '10px 14px', color: '#92400e', fontSize: 13 }}>⚠️ AD : {aaAdWarning}</div>}
 
                 <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 4 }}>
                   {aaSuccess ? (
-                    <button onClick={() => { setShowAutoActions(false); setAaStep(0); setAaShowSettings(false); }}
+                    <button onClick={() => { setShowAutoActions(false); setAaStep(0); setAaShowSettings(false); setAaAdWarning(''); }}
                       style={{ padding: '10px 22px', borderRadius: 8, border: 'none', background: '#0f172a', color: '#fff', fontWeight: 700, fontSize: 14, cursor: 'pointer' }}>Fermer</button>
                   ) : (
                     <button disabled={aaSending || !aaSmsMsg.trim()} onClick={async () => {
-                      setAaSending(true); setAaError('');
+                      setAaSending(true); setAaError(''); setAaAdWarning('');
                       try {
                         const tk = localStorage.getItem('token');
-                        await axios.post('/api/tickets/auto-actions/password-sms', {
+                        const r = await axios.post('/api/tickets/auto-actions/password-sms', {
                           phone: aaSelected.phone, prenom: aaSelected.prenom || '', nom: aaSelected.nom || '',
                           password: aaPassword, message: aaSmsMsg,
+                          ad_username: (aaSelected as any).ad_username || '',
                         }, { headers: { Authorization: `Bearer ${tk}` } });
-                        setAaSuccess(`SMS envoyé à ${aaSelected.prenom ? aaSelected.prenom + ' ' : ''}${aaSelected.nom} (${aaSelected.phone})`);
+                        const adLabel = r.data.ad_changed
+                          ? ' · Mot de passe changé dans l\'AD ✓'
+                          : r.data.ad_error
+                            ? ''
+                            : '';
+                        setAaSuccess(`SMS envoyé à ${aaSelected.prenom ? aaSelected.prenom + ' ' : ''}${aaSelected.nom} (${aaSelected.phone})${adLabel}`);
+                        if (r.data.ad_error) setAaAdWarning(r.data.ad_error);
                       } catch (e: any) {
                         setAaError(e.response?.data?.message || e.message || 'Erreur lors de l\'envoi du SMS.');
                       } finally { setAaSending(false); }
                     }} style={{ padding: '10px 22px', borderRadius: 8, border: 'none', background: aaSending ? '#e2e8f0' : '#f59e0b', color: aaSending ? '#94a3b8' : '#fff', fontWeight: 700, fontSize: 14, cursor: aaSending ? 'default' : 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
-                      {aaSending ? '⏳ Envoi…' : '📱 Envoyer le SMS'}
+                      {aaSending ? '⏳ Envoi…' : '📱 Envoyer le SMS + changer MDP AD'}
                     </button>
                   )}
                 </div>
