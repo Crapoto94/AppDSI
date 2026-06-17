@@ -52,13 +52,18 @@ async function changeAdPassword(adSettings, adUsernameRaw, newPassword) {
         searchRes.on('end', () => {
           if (!userDN) return finish(new Error(`Utilisateur "${sam}" introuvable dans l'AD`));
 
-          const change = new ldap.Change({
-            operation: 'replace',
-            modification: {
-              type: 'unicodePwd',
-              vals: [encodeAdPassword(newPassword)],
-            },
-          });
+          let change;
+          try {
+            change = new ldap.Change({
+              operation: 'replace',
+              modification: new ldap.Attribute({
+                type: 'unicodePwd',
+                values: [encodeAdPassword(newPassword)],
+              }),
+            });
+          } catch (buildErr) {
+            return finish(new Error(`Erreur construction Change AD : ${buildErr.message}`));
+          }
 
           client.modify(userDN, [change], (err3) => {
             if (err3) return finish(new Error(`Changement mot de passe refusé : ${err3.message}`));
