@@ -51,6 +51,30 @@ const SORT_OPTIONS = [
 
 const FILTER_SESSION_KEY = 'tickets_dash_filters';
 
+function generatePassword(): string {
+  const upper = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
+  const lower = 'abcdefghjkmnpqrstuvwxyz';
+  const digits = '23456789';
+  const special = '@#$!%';
+  const all = upper + lower + digits + special;
+  const chars: string[] = [
+    upper[Math.floor(Math.random() * upper.length)],
+    upper[Math.floor(Math.random() * upper.length)],
+    lower[Math.floor(Math.random() * lower.length)],
+    lower[Math.floor(Math.random() * lower.length)],
+    digits[Math.floor(Math.random() * digits.length)],
+    digits[Math.floor(Math.random() * digits.length)],
+    digits[Math.floor(Math.random() * digits.length)],
+    special[Math.floor(Math.random() * special.length)],
+  ];
+  while (chars.length < 12) chars.push(all[Math.floor(Math.random() * all.length)]);
+  for (let i = chars.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [chars[i], chars[j]] = [chars[j], chars[i]];
+  }
+  return chars.join('');
+}
+
 export default function TicketsDashboard() {
   const { user } = useAuth();
 
@@ -130,6 +154,24 @@ export default function TicketsDashboard() {
   const ALL_KPI_KEYS = ['new','open','in_progress','waiting','critical','resolved','problems','sla_breached','age','wait_time','resolve_time','live_chat'];
   const [selectedKpis, setSelectedKpis] = useState<string[]>(ALL_KPI_KEYS);
   const [showKpiConfig, setShowKpiConfig] = useState(false);
+
+  // ── Actions automatiques ─────────────────────────────────────────
+  const [showAutoActions, setShowAutoActions] = useState(false);
+  const [aaStep, setAaStep] = useState(0);
+  const [aaBeneficiaires, setAaBeneficiaires] = useState<any[]>([]);
+  const [aaBenefLoading, setAaBenefLoading] = useState(false);
+  const [aaSearch, setAaSearch] = useState('');
+  const [aaSelected, setAaSelected] = useState<any>(null);
+  const [aaPassword, setAaPassword] = useState('');
+  const [aaSmsMsg, setAaSmsMsg] = useState('');
+  const [aaSettings, setAaSettings] = useState<{ sms_message: string; sms_tuto_link: string } | null>(null);
+  const [aaShowSettings, setAaShowSettings] = useState(false);
+  const [aaSettingsDraft, setAaSettingsDraft] = useState({ sms_message: '', sms_tuto_link: '' });
+  const [aaSending, setAaSending] = useState(false);
+  const [aaError, setAaError] = useState('');
+  const [aaSuccess, setAaSuccess] = useState('');
+  const [aaCopied, setAaCopied] = useState(false);
+
   const limit = 50;
 
   // ── Filtres sauvegardés ──────────────────────────────────────────
@@ -824,6 +866,12 @@ export default function TicketsDashboard() {
                 display: 'inline-flex', alignItems: 'center', gap: 6, opacity: resetRunning ? 0.7 : 1
               }}>
               {resetRunning ? '⏳' : '🔄'} Récupérer GLPI
+            </button>
+          )}
+          {['superadmin', 'superadmins', 'admin', 'supervisor', 'superviseur'].includes((resolvedRole ?? user?.role ?? '').toLowerCase().trim()) && (
+            <button onClick={() => { setShowAutoActions(true); setAaStep(0); setAaSelected(null); setAaSearch(''); setAaError(''); setAaSuccess(''); const tk = localStorage.getItem('token'); axios.get('/api/tickets/auto-actions/settings', { headers: { Authorization: `Bearer ${tk}` } }).then(r => { setAaSettings(r.data); setAaSettingsDraft(r.data); }).catch(() => {}); }}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '10px 18px', border: '1px solid #fbbf24', borderRadius: 8, background: '#fffbeb', color: '#92400e', fontWeight: 700, fontSize: 14, cursor: 'pointer' }}>
+              ⚡ Actions auto
             </button>
           )}
           {['superadmin', 'superadmins', 'admin', 'supervisor', 'superviseur'].includes((resolvedRole ?? user?.role ?? '').toLowerCase().trim()) && (
@@ -1639,6 +1687,215 @@ export default function TicketsDashboard() {
         </div>
       </div>
     )}
+    {/* ── Modal Actions automatiques ─────────────────────────────── */}
+    {showAutoActions && createPortal(
+      <div onClick={e => { if (e.target === e.currentTarget) { setShowAutoActions(false); setAaStep(0); setAaShowSettings(false); } }}
+        style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 2100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+        <div style={{ background: '#fff', borderRadius: 16, width: 540, maxWidth: '100%', maxHeight: '85vh', display: 'flex', flexDirection: 'column', boxShadow: '0 12px 40px rgba(0,0,0,0.18)' }}>
+
+          {/* Header */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '20px 24px 16px', borderBottom: '1px solid #f1f5f9' }}>
+            {aaStep > 0 && (
+              <button onClick={() => { setAaStep(aaStep - 1); setAaError(''); setAaSuccess(''); setAaShowSettings(false); }}
+                style={{ background: 'none', border: '1px solid #e2e8f0', borderRadius: 6, padding: '4px 10px', cursor: 'pointer', fontSize: 14, color: '#475569' }}>
+                ← Retour
+              </button>
+            )}
+            <div style={{ flex: 1 }}>
+              <div style={{ fontWeight: 700, fontSize: 16, color: '#0f172a' }}>
+                {aaStep === 0 ? '⚡ Actions automatiques' : aaStep === 1 ? '🔑 Renouveler mot de passe par SMS' : '📱 Confirmation et envoi'}
+              </div>
+              {aaStep === 1 && <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>Sélectionnez le bénéficiaire</div>}
+              {aaStep === 2 && aaSelected && <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>{aaSelected.prenom || ''} {aaSelected.nom} · 📱 {aaSelected.phone}</div>}
+            </div>
+            <button onClick={() => { setShowAutoActions(false); setAaStep(0); setAaShowSettings(false); }}
+              style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 20, color: '#94a3b8', lineHeight: 1 }}>✕</button>
+          </div>
+
+          <div style={{ overflowY: 'auto', padding: '20px 24px', flex: 1 }}>
+
+            {/* ── Étape 0 : liste des actions ── */}
+            {aaStep === 0 && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                <p style={{ margin: '0 0 16px', fontSize: 13, color: '#64748b' }}>Sélectionnez une action à exécuter.</p>
+                <button onClick={async () => {
+                  setAaStep(1); setAaBenefLoading(true); setAaError('');
+                  try {
+                    const tk = localStorage.getItem('token');
+                    const r = await axios.get('/api/tickets/auto-actions/beneficiaires', { headers: { Authorization: `Bearer ${tk}` } });
+                    setAaBeneficiaires(r.data || []);
+                  } catch { setAaError('Impossible de charger la liste des bénéficiaires.'); }
+                  finally { setAaBenefLoading(false); }
+                }} style={{ display: 'flex', alignItems: 'flex-start', gap: 14, padding: '16px 18px', border: '1px solid #e2e8f0', borderRadius: 10, background: '#f8fafc', cursor: 'pointer', textAlign: 'left', transition: 'border-color 0.15s' }}
+                  onMouseEnter={e => (e.currentTarget.style.borderColor = '#fbbf24')}
+                  onMouseLeave={e => (e.currentTarget.style.borderColor = '#e2e8f0')}>
+                  <span style={{ fontSize: 28, lineHeight: 1 }}>🔑</span>
+                  <div>
+                    <div style={{ fontWeight: 700, fontSize: 14, color: '#0f172a' }}>Renouveler mot de passe par SMS</div>
+                    <div style={{ fontSize: 12, color: '#64748b', marginTop: 4 }}>Génère un mot de passe sécurisé et l'envoie par SMS (Frizbi) à un élu ou un encadrant.</div>
+                  </div>
+                </button>
+              </div>
+            )}
+
+            {/* ── Étape 1 : sélection bénéficiaire ── */}
+            {aaStep === 1 && (
+              <div>
+                <input value={aaSearch} onChange={e => setAaSearch(e.target.value)} placeholder="🔍 Rechercher (nom, prénom, téléphone…)"
+                  style={{ width: '100%', boxSizing: 'border-box', padding: '9px 12px', border: '1px solid #e2e8f0', borderRadius: 8, fontSize: 13, marginBottom: 14, outline: 'none' }} />
+                {aaBenefLoading && <div style={{ textAlign: 'center', padding: 24, color: '#94a3b8' }}>Chargement…</div>}
+                {!aaBenefLoading && (() => {
+                  const q = aaSearch.toLowerCase();
+                  const filtered = aaBeneficiaires.filter(b =>
+                    !q || `${b.prenom || ''} ${b.nom || ''} ${b.phone || ''} ${b.service || ''} ${b.fonction || ''}`.toLowerCase().includes(q)
+                  );
+                  const elus = filtered.filter(b => b.type === 'elu');
+                  const encadrants = filtered.filter(b => b.type === 'encadrant');
+                  const renderGroup = (label: string, items: any[]) => items.length === 0 ? null : (
+                    <div key={label} style={{ marginBottom: 14 }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 6 }}>{label}</div>
+                      {items.map(b => (
+                        <div key={b.id} onClick={() => setAaSelected(aaSelected?.id === b.id ? null : b)}
+                          style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 12px', borderRadius: 8, cursor: 'pointer', marginBottom: 4, border: `1px solid ${aaSelected?.id === b.id ? '#fbbf24' : '#e2e8f0'}`, background: aaSelected?.id === b.id ? '#fffbeb' : '#fff' }}>
+                          <div>
+                            <span style={{ fontWeight: 600, fontSize: 13, color: '#0f172a' }}>{b.prenom || ''} {b.nom}</span>
+                            {b.fonction && <span style={{ fontSize: 11, color: '#94a3b8', marginLeft: 8 }}>{b.fonction}{b.service ? ` · ${b.service}` : ''}</span>}
+                          </div>
+                          <span style={{ fontSize: 12, color: '#475569', fontFamily: 'monospace' }}>📱 {b.phone}</span>
+                        </div>
+                      ))}
+                    </div>
+                  );
+                  return (
+                    <div style={{ maxHeight: 340, overflowY: 'auto' }}>
+                      {filtered.length === 0 && <div style={{ textAlign: 'center', padding: 24, color: '#94a3b8', fontSize: 13 }}>Aucun résultat.</div>}
+                      {renderGroup('Élus', elus)}
+                      {renderGroup('Encadrants', encadrants)}
+                    </div>
+                  );
+                })()}
+                {aaError && <div style={{ color: '#dc2626', fontSize: 12, marginTop: 8 }}>{aaError}</div>}
+                <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 16 }}>
+                  <button disabled={!aaSelected} onClick={() => {
+                    const pwd = generatePassword();
+                    setAaPassword(pwd);
+                    const msg = (aaSettings?.sms_message || 'Mot de passe : {MOT_DE_PASSE}')
+                      .replace('{PRENOM}', aaSelected?.prenom || aaSelected?.nom || '')
+                      .replace('{MOT_DE_PASSE}', pwd)
+                      .replace('{LIEN}', aaSettings?.sms_tuto_link || '');
+                    setAaSmsMsg(msg); setAaStep(2); setAaError(''); setAaSuccess('');
+                  }} style={{ padding: '10px 22px', borderRadius: 8, border: 'none', background: aaSelected ? '#f59e0b' : '#e2e8f0', color: aaSelected ? '#fff' : '#94a3b8', fontWeight: 700, fontSize: 14, cursor: aaSelected ? 'pointer' : 'default' }}>
+                    Continuer →
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* ── Étape 2 : confirmation + envoi ── */}
+            {aaStep === 2 && aaSelected && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+
+                {/* Mot de passe généré */}
+                <div>
+                  <label style={{ fontSize: 12, fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: 0.5, display: 'block', marginBottom: 8 }}>Mot de passe généré</label>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <code style={{ flex: 1, padding: '10px 14px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, fontSize: 16, fontFamily: 'monospace', fontWeight: 700, letterSpacing: 2, color: '#0f172a' }}>{aaPassword}</code>
+                    <button title="Régénérer" onClick={() => {
+                      const pwd = generatePassword(); setAaPassword(pwd);
+                      const msg = (aaSettings?.sms_message || 'Mot de passe : {MOT_DE_PASSE}')
+                        .replace('{PRENOM}', aaSelected?.prenom || aaSelected?.nom || '')
+                        .replace('{MOT_DE_PASSE}', pwd)
+                        .replace('{LIEN}', aaSettings?.sms_tuto_link || '');
+                      setAaSmsMsg(msg);
+                    }} style={{ padding: '9px 11px', borderRadius: 8, border: '1px solid #e2e8f0', background: '#fff', cursor: 'pointer', fontSize: 16 }}>🔄</button>
+                    <button title="Copier" onClick={() => { navigator.clipboard.writeText(aaPassword); setAaCopied(true); setTimeout(() => setAaCopied(false), 2000); }}
+                      style={{ padding: '9px 11px', borderRadius: 8, border: '1px solid #e2e8f0', background: aaCopied ? '#f0fdf4' : '#fff', cursor: 'pointer', fontSize: 16 }}>{aaCopied ? '✓' : '📋'}</button>
+                  </div>
+                </div>
+
+                {/* Message SMS */}
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                    <label style={{ fontSize: 12, fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: 0.5 }}>Message SMS</label>
+                    <button onClick={() => { setAaShowSettings(!aaShowSettings); setAaSettingsDraft(aaSettings || { sms_message: '', sms_tuto_link: '' }); }}
+                      style={{ background: 'none', border: '1px solid #e2e8f0', borderRadius: 6, padding: '3px 10px', cursor: 'pointer', fontSize: 12, color: '#64748b' }}>
+                      ⚙️ Paramètres
+                    </button>
+                  </div>
+                  <textarea value={aaSmsMsg} onChange={e => setAaSmsMsg(e.target.value)} rows={5}
+                    style={{ width: '100%', boxSizing: 'border-box', padding: '10px 12px', border: '1px solid #e2e8f0', borderRadius: 8, fontSize: 13, fontFamily: 'inherit', resize: 'vertical', outline: 'none', lineHeight: 1.6 }} />
+                  <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 4 }}>{aaSmsMsg.length} caractères</div>
+                </div>
+
+                {/* Panneau paramètres (collapsible) */}
+                {aaShowSettings && (
+                  <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 10, padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: 12 }}>
+                    <div style={{ fontWeight: 700, fontSize: 13, color: '#475569', marginBottom: 4 }}>⚙️ Paramètres SMS</div>
+                    <div>
+                      <label style={{ fontSize: 12, color: '#64748b', display: 'block', marginBottom: 4 }}>
+                        Template (variables : <code style={{ background: '#e2e8f0', padding: '1px 4px', borderRadius: 3 }}>{'{PRENOM}'}</code> <code style={{ background: '#e2e8f0', padding: '1px 4px', borderRadius: 3 }}>{'{MOT_DE_PASSE}'}</code> <code style={{ background: '#e2e8f0', padding: '1px 4px', borderRadius: 3 }}>{'{LIEN}'}</code>)
+                      </label>
+                      <textarea value={aaSettingsDraft.sms_message} onChange={e => setAaSettingsDraft(d => ({ ...d, sms_message: e.target.value }))} rows={4}
+                        style={{ width: '100%', boxSizing: 'border-box', padding: '8px 10px', border: '1px solid #e2e8f0', borderRadius: 6, fontSize: 12, fontFamily: 'inherit', resize: 'vertical', outline: 'none' }} />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: 12, color: '#64748b', display: 'block', marginBottom: 4 }}>Lien tutoriel ({'{LIEN}'})</label>
+                      <input value={aaSettingsDraft.sms_tuto_link} onChange={e => setAaSettingsDraft(d => ({ ...d, sms_tuto_link: e.target.value }))} placeholder="https://…"
+                        style={{ width: '100%', boxSizing: 'border-box', padding: '8px 10px', border: '1px solid #e2e8f0', borderRadius: 6, fontSize: 12, outline: 'none' }} />
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+                      <button onClick={() => setAaShowSettings(false)} style={{ padding: '7px 14px', borderRadius: 6, border: '1px solid #e2e8f0', background: '#fff', cursor: 'pointer', fontSize: 13, color: '#64748b' }}>Annuler</button>
+                      <button onClick={async () => {
+                        try {
+                          const tk = localStorage.getItem('token');
+                          await axios.post('/api/tickets/auto-actions/settings', aaSettingsDraft, { headers: { Authorization: `Bearer ${tk}` } });
+                          setAaSettings(aaSettingsDraft);
+                          const msg = (aaSettingsDraft.sms_message || '')
+                            .replace('{PRENOM}', aaSelected?.prenom || aaSelected?.nom || '')
+                            .replace('{MOT_DE_PASSE}', aaPassword)
+                            .replace('{LIEN}', aaSettingsDraft.sms_tuto_link || '');
+                          setAaSmsMsg(msg);
+                          setAaShowSettings(false);
+                        } catch { setAaError('Erreur lors de la sauvegarde des paramètres.'); }
+                      }} style={{ padding: '7px 14px', borderRadius: 6, border: 'none', background: '#0f172a', color: '#fff', cursor: 'pointer', fontSize: 13, fontWeight: 700 }}>Sauvegarder</button>
+                    </div>
+                  </div>
+                )}
+
+                {aaError && <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 8, padding: '10px 14px', color: '#dc2626', fontSize: 13 }}>{aaError}</div>}
+                {aaSuccess && <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 8, padding: '10px 14px', color: '#166534', fontSize: 13 }}>✅ {aaSuccess}</div>}
+
+                <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 4 }}>
+                  {aaSuccess ? (
+                    <button onClick={() => { setShowAutoActions(false); setAaStep(0); setAaShowSettings(false); }}
+                      style={{ padding: '10px 22px', borderRadius: 8, border: 'none', background: '#0f172a', color: '#fff', fontWeight: 700, fontSize: 14, cursor: 'pointer' }}>Fermer</button>
+                  ) : (
+                    <button disabled={aaSending || !aaSmsMsg.trim()} onClick={async () => {
+                      setAaSending(true); setAaError('');
+                      try {
+                        const tk = localStorage.getItem('token');
+                        await axios.post('/api/tickets/auto-actions/password-sms', {
+                          phone: aaSelected.phone, prenom: aaSelected.prenom || '', nom: aaSelected.nom || '',
+                          password: aaPassword, message: aaSmsMsg,
+                        }, { headers: { Authorization: `Bearer ${tk}` } });
+                        setAaSuccess(`SMS envoyé à ${aaSelected.prenom ? aaSelected.prenom + ' ' : ''}${aaSelected.nom} (${aaSelected.phone})`);
+                      } catch (e: any) {
+                        setAaError(e.response?.data?.message || e.message || 'Erreur lors de l\'envoi du SMS.');
+                      } finally { setAaSending(false); }
+                    }} style={{ padding: '10px 22px', borderRadius: 8, border: 'none', background: aaSending ? '#e2e8f0' : '#f59e0b', color: aaSending ? '#94a3b8' : '#fff', fontWeight: 700, fontSize: 14, cursor: aaSending ? 'default' : 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
+                      {aaSending ? '⏳ Envoi…' : '📱 Envoyer le SMS'}
+                    </button>
+                  )}
+                </div>
+
+              </div>
+            )}
+          </div>
+        </div>
+      </div>,
+      document.body
+    )}
+
     </>
   );
 }
