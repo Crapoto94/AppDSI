@@ -200,7 +200,7 @@ const ParcInformatique: React.FC = () => {
   const [rows, setRows] = useState<Row[]>([]);
   const [total, setTotal] = useState(0);
   const [start, setStart] = useState(0);
-  const [limit] = useState(50);
+  const [limit, setLimit] = useState(25);
   const [q, setQ] = useState('');
   const [loadingList, setLoadingList] = useState(false);
   const [listErr, setListErr] = useState<string | null>(null);
@@ -1237,8 +1237,18 @@ const ParcInformatique: React.FC = () => {
                 })()}
               </div>
               {/* Pagination */}
-              {total > limit && (
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 14, padding: 14, borderTop: `1px solid ${C.border}` }}>
+              {total > 0 && (
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 14, padding: 14, borderTop: `1px solid ${C.border}`, flexWrap: 'wrap' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '.84rem', color: C.slate }}>
+                    Afficher
+                    <select value={limit} onChange={e => { setLimit(parseInt(e.target.value, 10)); setStart(0); }} style={{ fontSize: '.84rem', padding: '2px 6px', borderRadius: 4, border: `1px solid ${C.border}` }}>
+                      <option value={25}>25</option>
+                      <option value={100}>100</option>
+                      <option value={200}>200</option>
+                      <option value={99999}>Tous</option>
+                    </select>
+                    par page
+                  </label>
                   <button disabled={start === 0} onClick={() => setStart(Math.max(0, start - limit))} style={btnPage(start === 0)}>‹ Précédent</button>
                   <span style={{ fontSize: '.84rem', color: C.slate }}>{start + 1}–{Math.min(start + limit, total)} sur {total}</span>
                   <button disabled={start + limit >= total} onClick={() => setStart(start + limit)} style={btnPage(start + limit >= total)}>Suivant ›</button>
