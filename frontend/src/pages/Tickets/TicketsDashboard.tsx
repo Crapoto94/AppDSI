@@ -1717,16 +1717,16 @@ export default function TicketsDashboard() {
             {/* ── Étape 0 : liste des actions ── */}
             {aaStep === 0 && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                <p style={{ margin: '0 0 16px', fontSize: 13, color: '#64748b' }}>Sélectionnez une action à exécuter.</p>
+                <p style={{ margin: '0 0 4px', fontSize: 13, color: '#64748b' }}>Sélectionnez une action à exécuter.</p>
                 <button onClick={async () => {
-                  setAaStep(1); setAaBenefLoading(true); setAaError('');
+                  setAaStep(1); setAaBenefLoading(true); setAaError(''); setAaShowSettings(false);
                   try {
                     const tk = localStorage.getItem('token');
                     const r = await axios.get('/api/tickets/auto-actions/beneficiaires', { headers: { Authorization: `Bearer ${tk}` } });
                     setAaBeneficiaires(r.data || []);
                   } catch { setAaError('Impossible de charger la liste des bénéficiaires.'); }
                   finally { setAaBenefLoading(false); }
-                }} style={{ display: 'flex', alignItems: 'flex-start', gap: 14, padding: '16px 18px', border: '1px solid #e2e8f0', borderRadius: 10, background: '#f8fafc', cursor: 'pointer', textAlign: 'left', transition: 'border-color 0.15s' }}
+                }} style={{ display: 'flex', alignItems: 'flex-start', gap: 14, padding: '16px 18px', border: '1px solid #e2e8f0', borderRadius: 10, background: '#f8fafc', cursor: 'pointer', textAlign: 'left' }}
                   onMouseEnter={e => (e.currentTarget.style.borderColor = '#fbbf24')}
                   onMouseLeave={e => (e.currentTarget.style.borderColor = '#e2e8f0')}>
                   <span style={{ fontSize: 28, lineHeight: 1 }}>🔑</span>
@@ -1735,6 +1735,44 @@ export default function TicketsDashboard() {
                     <div style={{ fontSize: 12, color: '#64748b', marginTop: 4 }}>Génère un mot de passe sécurisé et l'envoie par SMS (Frizbi) à un élu ou un encadrant.</div>
                   </div>
                 </button>
+
+                {/* Paramétrage global */}
+                <div style={{ borderTop: '1px solid #f1f5f9', paddingTop: 14, marginTop: 6 }}>
+                  <button onClick={() => { setAaShowSettings(!aaShowSettings); setAaSettingsDraft(aaSettings || { sms_message: '', sms_tuto_link: '' }); }}
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 13, color: '#64748b', display: 'flex', alignItems: 'center', gap: 6, padding: 0, fontWeight: 600 }}>
+                    ⚙️ Paramétrage SMS {aaShowSettings ? '▲' : '▼'}
+                  </button>
+                  {aaShowSettings && (
+                    <div style={{ marginTop: 12, background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 10, padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: 12 }}>
+                      <div style={{ fontSize: 12, color: '#94a3b8' }}>Ces paramètres s'appliquent à tous les envois de renouvellement de mot de passe.</div>
+                      <div>
+                        <label style={{ fontSize: 12, color: '#475569', display: 'block', marginBottom: 4, fontWeight: 600 }}>
+                          Template du message <span style={{ fontWeight: 400 }}>(variables : <code style={{ background: '#e2e8f0', padding: '1px 4px', borderRadius: 3 }}>{'{PRENOM}'}</code> <code style={{ background: '#e2e8f0', padding: '1px 4px', borderRadius: 3 }}>{'{MOT_DE_PASSE}'}</code> <code style={{ background: '#e2e8f0', padding: '1px 4px', borderRadius: 3 }}>{'{LIEN}'}</code>)</span>
+                        </label>
+                        <textarea value={aaSettingsDraft.sms_message} onChange={e => setAaSettingsDraft(d => ({ ...d, sms_message: e.target.value }))} rows={4}
+                          style={{ width: '100%', boxSizing: 'border-box', padding: '8px 10px', border: '1px solid #e2e8f0', borderRadius: 6, fontSize: 13, fontFamily: 'inherit', resize: 'vertical', outline: 'none' }} />
+                      </div>
+                      <div>
+                        <label style={{ fontSize: 12, color: '#475569', display: 'block', marginBottom: 4, fontWeight: 600 }}>Lien vers le tutoriel <span style={{ fontWeight: 400 }}>({'{LIEN}'})</span></label>
+                        <input value={aaSettingsDraft.sms_tuto_link} onChange={e => setAaSettingsDraft(d => ({ ...d, sms_tuto_link: e.target.value }))} placeholder="https://…"
+                          style={{ width: '100%', boxSizing: 'border-box', padding: '8px 10px', border: '1px solid #e2e8f0', borderRadius: 6, fontSize: 13, outline: 'none' }} />
+                      </div>
+                      {aaError && <div style={{ color: '#dc2626', fontSize: 12 }}>{aaError}</div>}
+                      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+                        <button onClick={() => { setAaShowSettings(false); setAaError(''); }} style={{ padding: '7px 14px', borderRadius: 6, border: '1px solid #e2e8f0', background: '#fff', cursor: 'pointer', fontSize: 13, color: '#64748b' }}>Annuler</button>
+                        <button onClick={async () => {
+                          try {
+                            const tk = localStorage.getItem('token');
+                            await axios.post('/api/tickets/auto-actions/settings', aaSettingsDraft, { headers: { Authorization: `Bearer ${tk}` } });
+                            setAaSettings(aaSettingsDraft);
+                            setAaShowSettings(false);
+                            setAaError('');
+                          } catch { setAaError('Erreur lors de la sauvegarde.'); }
+                        }} style={{ padding: '7px 14px', borderRadius: 6, border: 'none', background: '#0f172a', color: '#fff', cursor: 'pointer', fontSize: 13, fontWeight: 700 }}>Sauvegarder</button>
+                      </div>
+                    </div>
+                  )}
+                </div>
               </div>
             )}
 
@@ -1751,17 +1789,18 @@ export default function TicketsDashboard() {
                   );
                   const elus = filtered.filter(b => b.type === 'elu');
                   const encadrants = filtered.filter(b => b.type === 'encadrant');
-                  const renderGroup = (label: string, items: any[]) => items.length === 0 ? null : (
+                  const renderGroup = (label: string, items: any[], badgeColor: string) => items.length === 0 ? null : (
                     <div key={label} style={{ marginBottom: 14 }}>
                       <div style={{ fontSize: 11, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 6 }}>{label}</div>
                       {items.map(b => (
                         <div key={b.id} onClick={() => setAaSelected(aaSelected?.id === b.id ? null : b)}
                           style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 12px', borderRadius: 8, cursor: 'pointer', marginBottom: 4, border: `1px solid ${aaSelected?.id === b.id ? '#fbbf24' : '#e2e8f0'}`, background: aaSelected?.id === b.id ? '#fffbeb' : '#fff' }}>
-                          <div>
-                            <span style={{ fontWeight: 600, fontSize: 13, color: '#0f172a' }}>{b.prenom || ''} {b.nom}</span>
-                            {b.fonction && <span style={{ fontSize: 11, color: '#94a3b8', marginLeft: 8 }}>{b.fonction}{b.service ? ` · ${b.service}` : ''}</span>}
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                            <span style={{ fontWeight: 600, fontSize: 13, color: '#0f172a' }}>{[b.prenom, b.nom].filter(Boolean).join(' ') || '—'}</span>
+                            <span style={{ fontSize: 11, fontWeight: 600, padding: '1px 7px', borderRadius: 10, background: badgeColor + '20', color: badgeColor }}>{label.slice(0, -1)}</span>
+                            {(b.fonction || b.service) && <span style={{ fontSize: 11, color: '#94a3b8' }}>{b.fonction}{b.service ? ` · ${b.service}` : ''}</span>}
                           </div>
-                          <span style={{ fontSize: 12, color: '#475569', fontFamily: 'monospace' }}>📱 {b.phone}</span>
+                          <span style={{ fontSize: 12, color: '#475569', fontFamily: 'monospace', whiteSpace: 'nowrap', marginLeft: 8 }}>📱 {b.phone}</span>
                         </div>
                       ))}
                     </div>
@@ -1769,8 +1808,8 @@ export default function TicketsDashboard() {
                   return (
                     <div style={{ maxHeight: 340, overflowY: 'auto' }}>
                       {filtered.length === 0 && <div style={{ textAlign: 'center', padding: 24, color: '#94a3b8', fontSize: 13 }}>Aucun résultat.</div>}
-                      {renderGroup('Élus', elus)}
-                      {renderGroup('Encadrants', encadrants)}
+                      {renderGroup('Élus', elus, '#0284c7')}
+                      {renderGroup('Encadrants', encadrants, '#7c3aed')}
                     </div>
                   );
                 })()}
@@ -1815,52 +1854,11 @@ export default function TicketsDashboard() {
 
                 {/* Message SMS */}
                 <div>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-                    <label style={{ fontSize: 12, fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: 0.5 }}>Message SMS</label>
-                    <button onClick={() => { setAaShowSettings(!aaShowSettings); setAaSettingsDraft(aaSettings || { sms_message: '', sms_tuto_link: '' }); }}
-                      style={{ background: 'none', border: '1px solid #e2e8f0', borderRadius: 6, padding: '3px 10px', cursor: 'pointer', fontSize: 12, color: '#64748b' }}>
-                      ⚙️ Paramètres
-                    </button>
-                  </div>
+                  <label style={{ fontSize: 12, fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: 0.5, display: 'block', marginBottom: 8 }}>Message SMS</label>
                   <textarea value={aaSmsMsg} onChange={e => setAaSmsMsg(e.target.value)} rows={5}
                     style={{ width: '100%', boxSizing: 'border-box', padding: '10px 12px', border: '1px solid #e2e8f0', borderRadius: 8, fontSize: 13, fontFamily: 'inherit', resize: 'vertical', outline: 'none', lineHeight: 1.6 }} />
-                  <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 4 }}>{aaSmsMsg.length} caractères</div>
+                  <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 4 }}>{aaSmsMsg.length} caractères · généré depuis le template global</div>
                 </div>
-
-                {/* Panneau paramètres (collapsible) */}
-                {aaShowSettings && (
-                  <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 10, padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: 12 }}>
-                    <div style={{ fontWeight: 700, fontSize: 13, color: '#475569', marginBottom: 4 }}>⚙️ Paramètres SMS</div>
-                    <div>
-                      <label style={{ fontSize: 12, color: '#64748b', display: 'block', marginBottom: 4 }}>
-                        Template (variables : <code style={{ background: '#e2e8f0', padding: '1px 4px', borderRadius: 3 }}>{'{PRENOM}'}</code> <code style={{ background: '#e2e8f0', padding: '1px 4px', borderRadius: 3 }}>{'{MOT_DE_PASSE}'}</code> <code style={{ background: '#e2e8f0', padding: '1px 4px', borderRadius: 3 }}>{'{LIEN}'}</code>)
-                      </label>
-                      <textarea value={aaSettingsDraft.sms_message} onChange={e => setAaSettingsDraft(d => ({ ...d, sms_message: e.target.value }))} rows={4}
-                        style={{ width: '100%', boxSizing: 'border-box', padding: '8px 10px', border: '1px solid #e2e8f0', borderRadius: 6, fontSize: 12, fontFamily: 'inherit', resize: 'vertical', outline: 'none' }} />
-                    </div>
-                    <div>
-                      <label style={{ fontSize: 12, color: '#64748b', display: 'block', marginBottom: 4 }}>Lien tutoriel ({'{LIEN}'})</label>
-                      <input value={aaSettingsDraft.sms_tuto_link} onChange={e => setAaSettingsDraft(d => ({ ...d, sms_tuto_link: e.target.value }))} placeholder="https://…"
-                        style={{ width: '100%', boxSizing: 'border-box', padding: '8px 10px', border: '1px solid #e2e8f0', borderRadius: 6, fontSize: 12, outline: 'none' }} />
-                    </div>
-                    <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-                      <button onClick={() => setAaShowSettings(false)} style={{ padding: '7px 14px', borderRadius: 6, border: '1px solid #e2e8f0', background: '#fff', cursor: 'pointer', fontSize: 13, color: '#64748b' }}>Annuler</button>
-                      <button onClick={async () => {
-                        try {
-                          const tk = localStorage.getItem('token');
-                          await axios.post('/api/tickets/auto-actions/settings', aaSettingsDraft, { headers: { Authorization: `Bearer ${tk}` } });
-                          setAaSettings(aaSettingsDraft);
-                          const msg = (aaSettingsDraft.sms_message || '')
-                            .replace('{PRENOM}', aaSelected?.prenom || aaSelected?.nom || '')
-                            .replace('{MOT_DE_PASSE}', aaPassword)
-                            .replace('{LIEN}', aaSettingsDraft.sms_tuto_link || '');
-                          setAaSmsMsg(msg);
-                          setAaShowSettings(false);
-                        } catch { setAaError('Erreur lors de la sauvegarde des paramètres.'); }
-                      }} style={{ padding: '7px 14px', borderRadius: 6, border: 'none', background: '#0f172a', color: '#fff', cursor: 'pointer', fontSize: 13, fontWeight: 700 }}>Sauvegarder</button>
-                    </div>
-                  </div>
-                )}
 
                 {aaError && <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 8, padding: '10px 14px', color: '#dc2626', fontSize: 13 }}>{aaError}</div>}
                 {aaSuccess && <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 8, padding: '10px 14px', color: '#166534', fontSize: 13 }}>✅ {aaSuccess}</div>}
