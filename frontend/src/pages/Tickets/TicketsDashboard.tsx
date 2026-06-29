@@ -168,6 +168,7 @@ export default function TicketsDashboard() {
   const [aaShowSettings, setAaShowSettings] = useState(false);
   const [aaSettingsDraft, setAaSettingsDraft] = useState({ sms_message: '', sms_tuto_link: '', ad_sync_url: '' });
   const [aaSending, setAaSending] = useState(false);
+  const [aaStepStatus, setAaStepStatus] = useState(0); // 0=idle, 1=AD, 2=SMS, 3=Sync, 4=done
   const [aaError, setAaError] = useState('');
   const [aaSuccess, setAaSuccess] = useState('');
   const [aaAdWarning, setAaAdWarning] = useState('');
@@ -1868,9 +1869,9 @@ export default function TicketsDashboard() {
 
                 {aaError && <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 8, padding: '10px 14px', color: '#dc2626', fontSize: 13 }}>{aaError}</div>}
                 {aaSending && <div style={{ background: '#f0f9ff', border: '1px solid #bae6fd', borderRadius: 8, padding: '10px 14px', color: '#0369a1', fontSize: 13, display: 'flex', flexDirection: 'column', gap: 6 }}>
-                  <div>⏳ 1. Changement mot de passe AD…</div>
-                  <div>⏳ 2. Envoi SMS…</div>
-                  <div>⏳ 3. Synchro Azure AD Connect…</div>
+                  <div>{aaStepStatus >= 1 ? '✅' : '⏳'} 1. Changement mot de passe AD{aaStepStatus > 1 ? ' ✓' : aaStepStatus === 1 ? '…' : ''}</div>
+                  <div>{aaStepStatus >= 2 ? '✅' : '⏳'} 2. Envoi SMS{aaStepStatus > 2 ? ' ✓' : aaStepStatus === 2 ? '…' : ''}</div>
+                  <div>{aaStepStatus >= 3 ? '✅' : '⏳'} 3. Synchro Azure AD Connect{aaStepStatus > 3 ? ' ✓' : aaStepStatus === 3 ? '…' : ''}</div>
                 </div>}
                 {aaSuccess && <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 8, padding: '10px 14px', color: '#166534', fontSize: 13 }}>✅ {aaSuccess}</div>}
                 {aaAdWarning && <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 8, padding: '10px 14px', color: '#92400e', fontSize: 13 }}>⚠️ AD : {aaAdWarning}</div>}
@@ -1881,7 +1882,9 @@ export default function TicketsDashboard() {
                       style={{ padding: '10px 22px', borderRadius: 8, border: 'none', background: '#0f172a', color: '#fff', fontWeight: 700, fontSize: 14, cursor: 'pointer' }}>Fermer</button>
                   ) : (
                     <button disabled={aaSending || !aaSmsMsg.trim()} onClick={async () => {
-                      setAaSending(true); setAaError(''); setAaAdWarning('');
+                      setAaSending(true); setAaStepStatus(1); setAaError(''); setAaAdWarning('');
+                      const t1 = setTimeout(() => setAaStepStatus(2), 2000);
+                      const t2 = setTimeout(() => setAaStepStatus(3), 4000);
                       try {
                         const tk = localStorage.getItem('token');
                         const r = await axios.post('/api/tickets/auto-actions/password-sms', {
@@ -1902,8 +1905,10 @@ export default function TicketsDashboard() {
                         setAaSuccess(`SMS envoyé à ${aaSelected.prenom ? aaSelected.prenom + ' ' : ''}${aaSelected.nom} (${aaSelected.phone})${adLabel}${o365Label}`);
                         if (r.data.ad_error) setAaAdWarning(r.data.ad_error);
                       } catch (e: any) {
+                        setAaStepStatus(4);
+                        clearTimeout(t1); clearTimeout(t2);
                         setAaError(e.response?.data?.message || e.message || 'Erreur lors de l\'envoi du SMS.');
-                      } finally { setAaSending(false); }
+                      } finally { clearTimeout(t1); clearTimeout(t2); setAaStepStatus(4); setAaSending(false); }
                     }} style={{ padding: '10px 22px', borderRadius: 8, border: 'none', background: aaSending ? '#e2e8f0' : '#f59e0b', color: aaSending ? '#94a3b8' : '#fff', fontWeight: 700, fontSize: 14, cursor: aaSending ? 'default' : 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
                       {aaSending ? '⏳ Envoi…' : '📱 Envoyer le SMS + changer MDP AD'}
                     </button>
