@@ -1987,10 +1987,11 @@ export default function TicketsDashboard() {
                     <div style={{ fontSize: 12, color: '#64748b', marginTop: 4 }}>{aaAdSelectedUser.sam}{aaAdSelectedUser.mail ? ` · ${aaAdSelectedUser.mail}` : ''}</div>
                     {aaAdSelectedUser.title && <div style={{ fontSize: 12, color: '#64748b' }}>{aaAdSelectedUser.title}</div>}
                     {aaAdSelectedUser.department && <div style={{ fontSize: 12, color: '#64748b' }}>{aaAdSelectedUser.department}</div>}
-                    <div style={{ marginTop: 8, fontSize: 12, fontWeight: 600 }}>
-                      Statut : <span style={{ padding: '2px 8px', borderRadius: 10, background: aaAdSelectedUser.enabled ? '#dcfce7' : '#fee2e2', color: aaAdSelectedUser.enabled ? '#166534' : '#991b1b' }}>
+                    <div style={{ marginTop: 8, display: 'flex', gap: 10, alignItems: 'center', fontSize: 12, fontWeight: 600 }}>
+                      <span>Statut : <span style={{ padding: '2px 8px', borderRadius: 10, background: aaAdSelectedUser.enabled ? '#dcfce7' : '#fee2e2', color: aaAdSelectedUser.enabled ? '#166534' : '#991b1b' }}>
                         {aaAdSelectedUser.enabled ? 'ACTIF' : 'DÉSACTIVÉ'}
-                      </span>
+                      </span></span>
+                      {aaAdSelectedUser.locked && <span>🔒 <span style={{ padding: '2px 8px', borderRadius: 10, background: '#fef3c7', color: '#92400e' }}>VERROUILLÉ</span></span>}
                     </div>
                   </div>
                 )}
@@ -2023,6 +2024,22 @@ export default function TicketsDashboard() {
                       }} style={{ padding: '10px 22px', borderRadius: 8, border: 'none', background: aaAdToggling ? '#e2e8f0' : (aaAdSelectedUser.enabled ? '#ef4444' : '#22c55e'), color: aaAdToggling ? '#94a3b8' : '#fff', fontWeight: 700, fontSize: 14, cursor: aaAdToggling ? 'default' : 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
                         {aaAdToggling ? '⏳ Patientez…' : `${aaAdSelectedUser.enabled ? '🔒 Désactiver' : '🔓 Activer'} le compte`}
                       </button>
+                      {aaAdSelectedUser.locked && <button onClick={async () => {
+                        setAaAdToggling(true); setAaError(''); setAaSuccess('');
+                        try {
+                          const tk = localStorage.getItem('token');
+                          const r = await axios.post('/api/tickets/auto-actions/ad-user-unlock',
+                            { sam: aaAdSelectedUser.sam },
+                            { headers: { Authorization: `Bearer ${tk}` } }
+                          );
+                          setAaAdSelectedUser({ ...aaAdSelectedUser, locked: false });
+                          const syncMsg = r.data.sync_triggered ? ' · Synchro Azure déclenchée ✓' : '';
+                          setAaSuccess(`Compte ${aaAdSelectedUser.sam} déverrouillé avec succès${syncMsg}`);
+                        } catch (e: any) { setAaError(e.response?.data?.message || 'Erreur lors du déverrouillage.'); }
+                        finally { setAaAdToggling(false); }
+                      }} style={{ padding: '10px 22px', borderRadius: 8, border: 'none', background: '#f59e0b', color: '#fff', fontWeight: 700, fontSize: 14, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
+                        🔓 Déverrouiller
+                      </button>}
                     </>
                   ) : null}
                 </div>

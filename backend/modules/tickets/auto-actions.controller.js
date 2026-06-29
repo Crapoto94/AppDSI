@@ -462,17 +462,19 @@ module.exports = {
         client.bind(adSettings.bind_dn, adSettings.bind_password, (err) => {
           if (err) return finish(new Error('Bind échoué'));
           const filter = `(&(objectClass=user)(objectCategory=person)(|(sAMAccountName=*${q.replace(/[*()\\\x00]/g, '\\$&')}*)(displayName=*${q.replace(/[*()\\\x00]/g, '\\$&')}*)(mail=*${q.replace(/[*()\\\x00]/g, '\\$&')}*)))`;
-          client.search(adSettings.base_dn, { filter, scope: 'sub', attributes: ['sAMAccountName', 'displayName', 'mail', 'userAccountControl', 'department', 'title'], paged: { pageSize: 50 } }, (err2, searchRes) => {
+          client.search(adSettings.base_dn, { filter, scope: 'sub', attributes: ['sAMAccountName', 'displayName', 'mail', 'userAccountControl', 'lockoutTime', 'department', 'title'], paged: { pageSize: 50 } }, (err2, searchRes) => {
             if (err2) return finish(new Error('Recherche échouée'));
             const results = [];
             searchRes.on('searchEntry', (entry) => {
               const attrs = {};
               (entry.attributes || []).forEach(a => { attrs[a.type] = a.values || a.vals || []; });
+              const lt = attrs.lockoutTime?.[0];
               results.push({
                 sam: (attrs.sAMAccountName?.[0] || ''),
                 displayName: (attrs.displayName?.[0] || ''),
                 mail: (attrs.mail?.[0] || ''),
                 enabled: !((attrs.userAccountControl?.[0] || 0) & 2),
+                locked: lt !== undefined && lt !== null && String(lt) !== '0',
                 department: (attrs.department?.[0] || ''),
                 title: (attrs.title?.[0] || ''),
               });
@@ -513,17 +515,19 @@ module.exports = {
         client.bind(adSettings.bind_dn, adSettings.bind_password, (err) => {
           if (err) return finish(new Error('Bind échoué'));
           const esc = sam.replace(/[*()\\\x00]/g, '\\$&');
-          client.search(adSettings.base_dn, { filter: `(sAMAccountName=${esc})`, scope: 'sub', attributes: ['sAMAccountName', 'displayName', 'mail', 'userAccountControl', 'department', 'title', 'distinguishedName'] }, (err2, searchRes) => {
+          client.search(adSettings.base_dn, { filter: `(sAMAccountName=${esc})`, scope: 'sub', attributes: ['sAMAccountName', 'displayName', 'mail', 'userAccountControl', 'lockoutTime', 'department', 'title', 'distinguishedName'] }, (err2, searchRes) => {
             if (err2) return finish(new Error('Recherche échouée'));
             let user = null;
             searchRes.on('searchEntry', (entry) => {
               const attrs = {};
               (entry.attributes || []).forEach(a => { attrs[a.type] = a.values || a.vals || []; });
+              const lt = attrs.lockoutTime?.[0];
               user = {
                 sam: (attrs.sAMAccountName?.[0] || ''),
                 displayName: (attrs.displayName?.[0] || ''),
                 mail: (attrs.mail?.[0] || ''),
                 enabled: !((attrs.userAccountControl?.[0] || 0) & 2),
+                locked: lt !== undefined && lt !== null && String(lt) !== '0',
                 dn: (attrs.distinguishedName?.[0] || ''),
                 department: (attrs.department?.[0] || ''),
                 title: (attrs.title?.[0] || ''),
@@ -596,6 +600,71 @@ module.exports = {
               client.modify(userDN, [change], (err3) => {
                 if (err3) return finish(new Error(`Modification refusée : ${err3.message}`));
                 finish(null, { sam, enabled: enable, previous_uac: uac, new_uac: newUac });
+              });
+            });
+          });
+        });
+      });
+
+      // Déclencher synchro AD Connect si configurée
+      const syncResult = await triggerAdSync();
+
+      res.json({
+        ok: true,
+        ...result,
+        sync_triggered: syncResult?.triggered || false,
+        sync_error: syncResult && !syncResult.triggered ? syncResult.error : null,
+      });
+    } catch (err) {
+      res.status(500).json({ message: err.message });
+    }
+  },
+
+  unlockAdUser: async (req, res) => {
+    try {
+      const { sam } = req.body;
+      if (!sam) return res.status(400).json({ message: 'Paramètre sam manquant' });
+
+      const db = getSqlite();
+      const adSettings = await db.get('SELECT * FROM ad_settings WHERE id = 1');
+      if (!adSettings || !adSettings.is_enabled) {
+        return res.status(503).json({ message: 'AD non configuré ou désactivé' });
+      }
+
+      const result = await new Promise((resolve, reject) => {
+        const client = ldap.createClient({
+          url: `ldaps://${adSettings.host}:636`,
+          tlsOptions: { rejectUnauthorized: false },
+          connectTimeout: 8000, timeout: 8000,
+        });
+        let settled = false;
+        const finish = (err, val) => { if (!settled) { settled = true; try { client.destroy(); } catch {} if (err) reject(err); else resolve(val); } };
+        const guard = setTimeout(() => finish(new Error('Timeout LDAP')), 15000);
+        client.on('error', (e) => finish(e));
+        client.bind(adSettings.bind_dn, adSettings.bind_password, (err) => {
+          if (err) return finish(new Error('Bind échoué'));
+          const esc = sam.replace(/[*()\\\x00]/g, '\\$&');
+          client.search(adSettings.base_dn, { filter: `(sAMAccountName=${esc})`, scope: 'sub', attributes: ['dn', 'lockoutTime'] }, (err2, searchRes) => {
+            if (err2) return finish(new Error('Recherche échouée'));
+            let userDN = null;
+            searchRes.on('searchEntry', (entry) => {
+              userDN = entry.objectName;
+            });
+            searchRes.on('error', () => finish(new Error('Erreur recherche')));
+            searchRes.on('end', () => {
+              if (!userDN) return finish(new Error(`Utilisateur "${sam}" introuvable`));
+
+              const change = new ldap.Change({
+                operation: 'replace',
+                modification: new ldap.Attribute({
+                  type: 'lockoutTime',
+                  values: ['0'],
+                }),
+              });
+
+              client.modify(userDN, [change], (err3) => {
+                if (err3) return finish(new Error(`Déverrouillage refusé : ${err3.message}`));
+                finish(null, { sam, unlocked: true });
               });
             });
           });
