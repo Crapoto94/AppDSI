@@ -3004,70 +3004,12 @@ const getOrgUnits = async (req, res) => {
 
 const getUserServices = async (req, res) => {
     try {
-        const username = req.user.username;
-        const isAdmin = isSuperAdmin(req.user) || req.user.role === 'admin';
-
-        if (isAdmin) {
-            const rows = await pgDb.all(`
-                SELECT DISTINCT "SERVICE" as code, "SERVICE_L" as label
-                FROM oracle.rh_siim_organigramme WHERE "SERVICE" IS NOT NULL AND "SERVICE" != ''
-                ORDER BY "SERVICE_L"
-            `);
-            return res.json(rows);
-        }
-
-        const servicesSet = new Map();
-
-        // Check CP assignments
-        const cpRows = await pgDb.all(
-            `SELECT service_code FROM projets.chef_projet_services WHERE LOWER(chef_projet_username) = LOWER($1) AND service_code IS NOT NULL`,
-            [username]
-        );
-        for (const r of cpRows) {
-            if (r.service_code) servicesSet.set(r.service_code.toLowerCase(), r.service_code);
-        }
-
-        // Check PMO assignments
-        const db = getSqlite();
-        const userTile = db ? await db.get('SELECT id FROM user_tiles ut JOIN users u ON u.id = ut.user_id WHERE ut.tile_id = 24 AND LOWER(u.username) = LOWER(?)', [username]) : null;
-        if (userTile) {
-            const pmoRows = await pgDb.all(
-                `SELECT service_code, secteur_code, direction_code FROM projets.pmo_assignments WHERE LOWER(pmo_username) = LOWER($1)`,
-                [username]
-            );
-            for (const a of pmoRows) {
-                if (a.service_code) {
-                    servicesSet.set(a.service_code.toLowerCase(), a.service_code);
-                } else if (a.secteur_code && db) {
-                    const svcs = await pgDb.all(
-                        `SELECT DISTINCT "SERVICE" as code FROM oracle.rh_siim_organigramme WHERE "SECTEUR" = $1`,
-                        [a.secteur_code]
-                    );
-                    for (const s of svcs) servicesSet.set(s.code.toLowerCase(), s.code);
-                } else if (a.direction_code && db) {
-                    const svcs = await pgDb.all(
-                        `SELECT DISTINCT "SERVICE" as code FROM oracle.rh_siim_organigramme WHERE "DIRECTION" = $1 AND "SERVICE" IS DISTINCT FROM "DIRECTION"`,
-                        [a.direction_code]
-                    );
-                    for (const s of svcs) servicesSet.set(s.code.toLowerCase(), s.code);
-                }
-            }
-        }
-
-        // Fallback : service de l'utilisateur issu du profil (JWT)
-        const userServiceCode = req.user.service_code;
-        if (userServiceCode) servicesSet.set(userServiceCode.toLowerCase(), userServiceCode);
-
-        // Fetch labels — utilise pool (vrais paramètres) car pgDb inline les arrays incorrectement
-        const codes = Array.from(servicesSet.values());
-        if (codes.length === 0) return res.json([]);
-        const codesLower = codes.map(c => c.toLowerCase());
-        const placeholders = codesLower.map((_, i) => `$${i + 1}`).join(', ');
-        const labelsRes = await pool.query(
-            `SELECT DISTINCT "SERVICE" as code, "SERVICE_L" as label FROM oracle.rh_siim_organigramme WHERE LOWER("SERVICE") IN (${placeholders}) ORDER BY "SERVICE_L"`,
-            codesLower
-        );
-        res.json(labelsRes.rows);
+        const rows = await pgDb.all(`
+            SELECT DISTINCT "SERVICE" as code, "SERVICE_L" as label
+            FROM oracle.rh_siim_organigramme WHERE "SERVICE" IS NOT NULL AND "SERVICE" != ''
+            ORDER BY "SERVICE_L"
+        `);
+        res.json(rows);
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
