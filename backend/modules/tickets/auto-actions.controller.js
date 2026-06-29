@@ -2,8 +2,9 @@ const { pool, getSqlite } = require('../../shared/database');
 const axios = require('axios');
 const ldap = require('ldapjs');
 
-const KEY_MSG  = 'auto_actions.sms_message';
-const KEY_LINK = 'auto_actions.sms_tuto_link';
+const KEY_MSG     = 'auto_actions.sms_message';
+const KEY_LINK    = 'auto_actions.sms_tuto_link';
+const KEY_SYNC_URL = 'auto_actions.ad_sync_url';
 
 const DEFAULT_MSG  = 'Bonjour {PRENOM}, votre nouveau mot de passe Windows est : {MOT_DE_PASSE}\nPour le personnaliser, consultez : {LIEN}';
 const DEFAULT_LINK = '';
@@ -42,12 +43,20 @@ async function changeAdPassword(adSettings, adUsernameRaw, newPassword) {
       client.search(adSettings.base_dn, {
         filter: `(sAMAccountName=${escapedSam})`,
         scope: 'sub',
-        attributes: ['dn'],
+        attributes: ['dn', 'userPrincipalName', 'mail'],
       }, (err2, searchRes) => {
         if (err2) return finish(new Error(`Recherche AD échouée : ${err2.message}`));
 
         let userDN = null;
-        searchRes.on('searchEntry', (entry) => { userDN = entry.objectName; });
+        let userPrincipalName = null;
+        let mail = null;
+        searchRes.on('searchEntry', (entry) => {
+          userDN = entry.objectName;
+          const upnAttr = entry.attributes && entry.attributes.find(a => a.type === 'userPrincipalName');
+          if (upnAttr && upnAttr.vals && upnAttr.vals.length) userPrincipalName = upnAttr.vals[0];
+          const mailAttr = entry.attributes && entry.attributes.find(a => a.type === 'mail');
+          if (mailAttr && mailAttr.vals && mailAttr.vals.length) mail = mailAttr.vals[0];
+        });
         searchRes.on('error', (e) => finish(new Error(`Erreur recherche : ${e.message}`)));
         searchRes.on('end', () => {
           if (!userDN) return finish(new Error(`Utilisateur "${sam}" introuvable dans l'AD`));
@@ -67,12 +76,105 @@ async function changeAdPassword(adSettings, adUsernameRaw, newPassword) {
 
           client.modify(userDN, [change], (err3) => {
             if (err3) return finish(new Error(`Changement mot de passe refusé : ${err3.message}`));
-            finish(null, true);
+            finish(null, { success: true, userPrincipalName, mail });
           });
         });
       });
     });
   });
+}
+
+async function getGraphToken() {
+  const db = getSqlite();
+  const settings = await db.get('SELECT * FROM azure_ad_settings WHERE id = 1');
+  if (!settings || !settings.is_enabled || !settings.tenant_id || !settings.client_id || !settings.client_secret) {
+    throw new Error('Azure AD settings non configurés ou désactivés');
+  }
+
+  const tokenRes = await axios.post(
+    `https://login.microsoftonline.com/${settings.tenant_id}/oauth2/v2.0/token`,
+    new URLSearchParams({
+      client_id: settings.client_id,
+      client_secret: settings.client_secret,
+      grant_type: 'client_credentials',
+      scope: 'https://graph.microsoft.com/.default',
+    }).toString(),
+    { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }
+  );
+  return tokenRes.data.access_token;
+}
+
+async function resolveO365User(token, identifier) {
+  const escaped = identifier.replace(/'/g, "''").toLowerCase();
+  const res = await axios.get(
+    'https://graph.microsoft.com/v1.0/users',
+    {
+      headers: { Authorization: `Bearer ${token}` },
+      params: {
+        $filter: `mail eq '${escaped}' or userPrincipalName eq '${escaped}'`,
+        $select: 'id,userPrincipalName,mail',
+        $top: 1,
+      },
+    }
+  );
+  if (res.data.value && res.data.value.length) {
+    return res.data.value[0].userPrincipalName;
+  }
+  return null;
+}
+
+async function changeO365Password(identifier, newPassword) {
+  const token = await getGraphToken();
+
+  // Résoudre l'identifiant vers le vrai UPN Azure AD
+  const resolvedUpn = await resolveO365User(token, identifier);
+  const targetUpn = resolvedUpn || identifier;
+
+  // Vérifier si l'utilisateur est synchronisé depuis l'AD local
+  try {
+    const checkRes = await axios.get(
+      `https://graph.microsoft.com/v1.0/users/${encodeURIComponent(targetUpn)}?$select=id,userPrincipalName,onPremisesSyncEnabled,mail`,
+      { headers: { Authorization: `Bearer ${token}` } }
+    );
+    if (checkRes.data?.onPremisesSyncEnabled) {
+      const syncErr = new Error('Utilisateur synchronisé depuis l\'AD local — le mot de passe sera synchronisé vers O365 au prochain cycle Azure AD Connect (généralement < 30 min).');
+      syncErr.code = 'SYNCED_USER';
+      throw syncErr;
+    }
+  } catch (e) {
+    if (e.code === 'SYNCED_USER') throw e;
+    // Ignorer les erreurs de vérification, tenter le PATCH directement
+  }
+
+  await axios.patch(
+    `https://graph.microsoft.com/v1.0/users/${encodeURIComponent(targetUpn)}`,
+    {
+      passwordProfile: {
+        forceChangePasswordNextSignIn: false,
+        password: newPassword,
+      },
+    },
+    {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+    }
+  );
+}
+
+async function triggerAdSync() {
+  const db = getSqlite();
+  const row = await db.get('SELECT setting_value FROM app_settings WHERE setting_key = ?', [KEY_SYNC_URL]);
+  const syncUrl = row?.setting_value;
+  if (!syncUrl) return null; // non configuré
+
+  try {
+    await axios.post(syncUrl, {}, { timeout: 60000 });
+    return { triggered: true };
+  } catch (err) {
+    return { triggered: false, error: err.message };
+  }
 }
 
 module.exports = {
@@ -81,13 +183,14 @@ module.exports = {
     try {
       const db = getSqlite();
       const rows = await db.all(
-        'SELECT setting_key, setting_value FROM app_settings WHERE setting_key IN (?, ?)',
-        [KEY_MSG, KEY_LINK]
+        'SELECT setting_key, setting_value FROM app_settings WHERE setting_key IN (?, ?, ?)',
+        [KEY_MSG, KEY_LINK, KEY_SYNC_URL]
       );
       const map = Object.fromEntries(rows.map(r => [r.setting_key, r.setting_value]));
       res.json({
         sms_message:   map[KEY_MSG]  ?? DEFAULT_MSG,
         sms_tuto_link: map[KEY_LINK] ?? DEFAULT_LINK,
+        ad_sync_url:   map[KEY_SYNC_URL] ?? '',
       });
     } catch (err) {
       res.status(500).json({ message: err.message });
@@ -96,7 +199,7 @@ module.exports = {
 
   saveSettings: async (req, res) => {
     try {
-      const { sms_message, sms_tuto_link } = req.body;
+      const { sms_message, sms_tuto_link, ad_sync_url } = req.body;
       const db = getSqlite();
       await db.run(
         'INSERT OR REPLACE INTO app_settings (setting_key, setting_value) VALUES (?, ?)',
@@ -105,6 +208,10 @@ module.exports = {
       await db.run(
         'INSERT OR REPLACE INTO app_settings (setting_key, setting_value) VALUES (?, ?)',
         [KEY_LINK, sms_tuto_link ?? '']
+      );
+      await db.run(
+        'INSERT OR REPLACE INTO app_settings (setting_key, setting_value) VALUES (?, ?)',
+        [KEY_SYNC_URL, ad_sync_url ?? '']
       );
       res.json({ ok: true });
     } catch (err) {
@@ -222,6 +329,8 @@ module.exports = {
       // Changement de mot de passe AD si un username est fourni
       let adChanged = false;
       let adError = null;
+      let o365Changed = false;
+      let o365Error = null;
 
       if (ad_username && ad_username.trim()) {
         try {
@@ -229,9 +338,56 @@ module.exports = {
           if (!adSettings || !adSettings.is_enabled) {
             adError = 'AD non configuré ou désactivé';
           } else {
-            await changeAdPassword(adSettings, ad_username.trim(), password);
+            const adResult = await changeAdPassword(adSettings, ad_username.trim(), password);
             adChanged = true;
             console.log(`[AUTO-ACTIONS] Mot de passe changé dans l'AD pour : ${ad_username}`);
+
+            // Sync immédiat vers O365 via Graph API
+            const upn = adResult.userPrincipalName;
+            const mail = adResult.mail;
+
+            if (!upn && !mail) {
+              o365Error = 'UPN et mail non trouvés dans l\'AD, sync O365 impossible';
+            } else {
+              // Identifiants à essayer par ordre de priorité : UPN routable, mail, UPN local
+              const candidates = [];
+              if (upn && !upn.includes('.local')) candidates.push(upn);
+              if (mail && (!upn || mail !== upn)) candidates.push(mail);
+              if (upn && upn.includes('.local')) candidates.push(upn);
+
+              let syncedUser = false;
+              for (const identifier of candidates) {
+                try {
+                  await changeO365Password(identifier, password);
+                  o365Changed = true;
+                  console.log(`[AUTO-ACTIONS] Mot de passe synchronisé vers O365 pour : ${identifier}`);
+                  break;
+                } catch (o365Err) {
+                  if (o365Err.code === 'SYNCED_USER') {
+                    syncedUser = true;
+                    o365Error = o365Err.message;
+                    console.log(`[AUTO-ACTIONS] ${o365Err.message}`);
+                    break;
+                  }
+                  o365Error = o365Err.message;
+                  console.error(`[AUTO-ACTIONS] Erreur sync O365 (${identifier}):`, o365Err.message);
+                }
+              }
+
+              // Tentative de déclenchement de la synchro AD Connect (utilisateur synchronisé ou échec)
+              if (syncedUser) {
+                const syncResult = await triggerAdSync();
+                if (syncResult?.triggered) {
+                  o365Changed = true;
+                  o365Error = 'Synchro Azure AD Connect déclenchée avec succès';
+                  console.log(`[AUTO-ACTIONS] Synchro AD Connect déclenchée pour : ${ad_username}`);
+                } else if (syncResult === null) {
+                  // non configuré, message par défaut déjà dans o365Error
+                } else {
+                  o365Error += ` | Webhook sync: ${syncResult.error}`;
+                }
+              }
+            }
           }
         } catch (adErr) {
           adError = adErr.message;
@@ -244,6 +400,8 @@ module.exports = {
         message: `SMS envoyé au ${mobile}`,
         ad_changed: adChanged,
         ad_error: adError,
+        o365_changed: o365Changed,
+        o365_error: o365Error,
       });
     } catch (err) {
       const detail = err.response?.data ? JSON.stringify(err.response.data) : err.message;

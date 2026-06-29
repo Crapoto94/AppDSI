@@ -164,7 +164,7 @@ export default function TicketsDashboard() {
   const [aaSelected, setAaSelected] = useState<any>(null);
   const [aaPassword, setAaPassword] = useState('');
   const [aaSmsMsg, setAaSmsMsg] = useState('');
-  const [aaSettings, setAaSettings] = useState<{ sms_message: string; sms_tuto_link: string } | null>(null);
+  const [aaSettings, setAaSettings] = useState<{ sms_message: string; sms_tuto_link: string; ad_sync_url: string } | null>(null);
   const [aaShowSettings, setAaShowSettings] = useState(false);
   const [aaSettingsDraft, setAaSettingsDraft] = useState({ sms_message: '', sms_tuto_link: '' });
   const [aaSending, setAaSending] = useState(false);
@@ -1739,7 +1739,7 @@ export default function TicketsDashboard() {
 
                 {/* Paramétrage global */}
                 <div style={{ borderTop: '1px solid #f1f5f9', paddingTop: 14, marginTop: 6 }}>
-                  <button onClick={() => { setAaShowSettings(!aaShowSettings); setAaSettingsDraft(aaSettings || { sms_message: '', sms_tuto_link: '' }); }}
+                  <button onClick={() => { setAaShowSettings(!aaShowSettings); setAaSettingsDraft(aaSettings || { sms_message: '', sms_tuto_link: '', ad_sync_url: '' }); }}
                     style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 13, color: '#64748b', display: 'flex', alignItems: 'center', gap: 6, padding: 0, fontWeight: 600 }}>
                     ⚙️ Paramétrage SMS {aaShowSettings ? '▲' : '▼'}
                   </button>
@@ -1756,6 +1756,11 @@ export default function TicketsDashboard() {
                       <div>
                         <label style={{ fontSize: 12, color: '#475569', display: 'block', marginBottom: 4, fontWeight: 600 }}>Lien vers le tutoriel <span style={{ fontWeight: 400 }}>({'{LIEN}'})</span></label>
                         <input value={aaSettingsDraft.sms_tuto_link} onChange={e => setAaSettingsDraft(d => ({ ...d, sms_tuto_link: e.target.value }))} placeholder="https://…"
+                          style={{ width: '100%', boxSizing: 'border-box', padding: '8px 10px', border: '1px solid #e2e8f0', borderRadius: 6, fontSize: 13, outline: 'none' }} />
+                      </div>
+                      <div>
+                        <label style={{ fontSize: 12, color: '#475569', display: 'block', marginBottom: 4, fontWeight: 600 }}>URL de synchro AD Connect <span style={{ fontWeight: 400 }}>(serveur listener)</span></label>
+                        <input value={aaSettingsDraft.ad_sync_url || ''} onChange={e => setAaSettingsDraft(d => ({ ...d, ad_sync_url: e.target.value }))} placeholder="http://O365:8088/trigger-sync"
                           style={{ width: '100%', boxSizing: 'border-box', padding: '8px 10px', border: '1px solid #e2e8f0', borderRadius: 6, fontSize: 13, outline: 'none' }} />
                       </div>
                       {aaError && <div style={{ color: '#dc2626', fontSize: 12 }}>{aaError}</div>}
