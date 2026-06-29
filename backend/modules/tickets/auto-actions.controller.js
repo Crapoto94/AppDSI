@@ -167,14 +167,16 @@ async function triggerAdSync() {
   const db = getSqlite();
   const row = await db.get('SELECT setting_value FROM app_settings WHERE setting_key = ?', [KEY_SYNC_URL]);
   const syncUrl = row?.setting_value;
-  if (!syncUrl) return null; // non configuré
+  if (!syncUrl) return null;
 
-  try {
-    await axios.post(syncUrl, {}, { timeout: 60000 });
-    return { triggered: true };
-  } catch (err) {
-    return { triggered: false, error: err.message };
-  }
+  // Fire-and-forget : réponse immédiate, la synchro continue en arrière-plan
+  axios.post(syncUrl, {}, { timeout: 10000 }).then(() => {
+    console.log('[AUTO-ACTIONS] Synchro AD Connect terminée');
+  }).catch(err => {
+    console.error('[AUTO-ACTIONS] Synchro AD Connect :', err.message);
+  });
+
+  return { triggered: true };
 }
 
 module.exports = {

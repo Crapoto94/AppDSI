@@ -1867,6 +1867,11 @@ export default function TicketsDashboard() {
                 </div>
 
                 {aaError && <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 8, padding: '10px 14px', color: '#dc2626', fontSize: 13 }}>{aaError}</div>}
+                {aaSending && <div style={{ background: '#f0f9ff', border: '1px solid #bae6fd', borderRadius: 8, padding: '10px 14px', color: '#0369a1', fontSize: 13, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  <div>⏳ 1. Changement mot de passe AD…</div>
+                  <div>⏳ 2. Envoi SMS…</div>
+                  <div>⏳ 3. Synchro Azure AD Connect…</div>
+                </div>}
                 {aaSuccess && <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 8, padding: '10px 14px', color: '#166534', fontSize: 13 }}>✅ {aaSuccess}</div>}
                 {aaAdWarning && <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 8, padding: '10px 14px', color: '#92400e', fontSize: 13 }}>⚠️ AD : {aaAdWarning}</div>}
 
@@ -1889,7 +1894,12 @@ export default function TicketsDashboard() {
                           : r.data.ad_error
                             ? ''
                             : '';
-                        setAaSuccess(`SMS envoyé à ${aaSelected.prenom ? aaSelected.prenom + ' ' : ''}${aaSelected.nom} (${aaSelected.phone})${adLabel}`);
+                        const o365Label = r.data.o365_changed
+                          ? r.data.o365_error
+                            ? ` · ${r.data.o365_error}`
+                            : ' · Mot de passe synchronisé O365 ✓'
+                          : '';
+                        setAaSuccess(`SMS envoyé à ${aaSelected.prenom ? aaSelected.prenom + ' ' : ''}${aaSelected.nom} (${aaSelected.phone})${adLabel}${o365Label}`);
                         if (r.data.ad_error) setAaAdWarning(r.data.ad_error);
                       } catch (e: any) {
                         setAaError(e.response?.data?.message || e.message || 'Erreur lors de l\'envoi du SMS.');
