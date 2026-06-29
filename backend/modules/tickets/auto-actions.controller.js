@@ -247,7 +247,8 @@ module.exports = {
                       AND LOWER(a.username) = LOWER(e.ad_username) LIMIT 1),
                    (SELECT a.nom FROM hub_calendrier.agents_dsi a
                     WHERE TRIM(a.matricule) = TRIM(e.matricule) LIMIT 1),
-                   e.ad_username
+                   e.ad_username,
+                   'Mat. ' || e.matricule
                  ) AS nom,
                  '' AS prenom,
                  COALESCE(NULLIF(TRIM(e.telephone),''), NULLIF(TRIM(e.telephone_perso),'')) AS phone,
@@ -257,17 +258,8 @@ module.exports = {
                  e.ad_username
           FROM hub.encadrants e
           LEFT JOIN hub.users u ON LOWER(u.username) = LOWER(e.ad_username)
-          WHERE (NULLIF(TRIM(e.telephone),'') IS NOT NULL
-             OR NULLIF(TRIM(e.telephone_perso),'') IS NOT NULL)
-            AND COALESCE(
-                   u.displayname,
-                   (SELECT a.nom FROM hub_calendrier.agents_dsi a
-                    WHERE e.ad_username IS NOT NULL AND TRIM(e.ad_username) != ''
-                      AND LOWER(a.username) = LOWER(e.ad_username) LIMIT 1),
-                   (SELECT a.nom FROM hub_calendrier.agents_dsi a
-                    WHERE TRIM(a.matricule) = TRIM(e.matricule) LIMIT 1),
-                   e.ad_username
-                ) IS NOT NULL
+          WHERE NULLIF(TRIM(e.telephone),'') IS NOT NULL
+             OR NULLIF(TRIM(e.telephone_perso),'') IS NOT NULL
           ORDER BY nom
         `),
       ]);
