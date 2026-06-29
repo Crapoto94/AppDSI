@@ -1520,7 +1520,8 @@ const PlanningTab: React.FC<{ projetId: number; token: string | null }> = ({ pro
                             display: 'flex', alignItems: 'center', padding: '0 6px',
                             boxShadow: t.statut === 'en_cours' ? '0 0 0 2px #93c5fd' : 'none'
                           }}>
-                            <span style={{ fontSize: '9px', color: 'white', fontWeight: '600', overflow: 'hidden', whiteSpace: 'nowrap' }}>{t.titre}</span>
+                            <span style={{ fontSize: '9px', color: 'white', fontWeight: '600', overflow: 'hidden', whiteSpace: 'nowrap' }}
+                              title={t.statut === 'terminee' ? `${t.titre}${t.description ? `\n${t.description}` : ''}\n📅 ${t.date_debut ? new Date(t.date_debut).toLocaleDateString('fr-FR') : '?'} → ${t.date_fin ? new Date(t.date_fin).toLocaleDateString('fr-FR') : '?'}${t.responsable_username ? `\n👤 ${t.responsable_username}` : ''}` : undefined}>{t.titre}</span>
                           </div>
                         )}
                         {t.date_debut && !t.date_fin && (
@@ -1635,6 +1636,7 @@ const PlanningTab: React.FC<{ projetId: number; token: string | null }> = ({ pro
                   ) : (
                     <>
                       <span style={{ flex: 1, fontSize: '13px', fontWeight: '600', color: t.statut === 'terminee' ? '#94a3b8' : '#1e293b', textDecoration: t.statut === 'terminee' ? 'line-through' : 'none', cursor: 'pointer' }}
+                        title={t.statut === 'terminee' ? `${t.titre}${t.description ? `\n${t.description}` : ''}\n📅 ${t.date_debut ? new Date(t.date_debut).toLocaleDateString('fr-FR') : '?'} → ${t.date_fin ? new Date(t.date_fin).toLocaleDateString('fr-FR') : '?'}${t.responsable_username ? `\n👤 ${t.responsable_username}` : ''}` : undefined}
                         onClick={() => {
                           const duree = t.date_debut && t.date_fin ? Math.round((new Date(t.date_fin).getTime() - new Date(t.date_debut).getTime()) / 86400000) : 0;
                           setEditTache({ id: t.id, titre: t.titre, date_debut: t.date_debut || '', date_fin: t.date_fin || '', duree: Math.max(duree, 0), statut: t.statut, groupe_id: t.groupe_id ?? null });
@@ -2489,7 +2491,8 @@ const TachesTab: React.FC<{ projetId: number; projetTitre?: string; token: strin
                       rows.push(
                         <tr key={`hub_${t.id}`} style={{ borderBottom: isExpanded ? 'none' : '1px solid #f1f5f9', background: isDone ? '#f0fdf4' : '#f0f9ff', borderLeft: `3px solid ${isDone ? '#22c55e' : '#3b82f6'}`, opacity: isDone ? 0.8 : 1 }}>
                           <td style={{ padding: '10px 12px', fontWeight: 600, color: isDone ? '#94a3b8' : '#1e293b', textDecoration: isDone ? 'line-through' : 'none' }}>
-                            <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                            <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}
+                              title={isDone ? `${t.description || t.titre || ''}${t.responsable ? `\n👤 ${t.responsable}` : ''}${t.echeance ? `\n📅 ${new Date(t.echeance).toLocaleDateString('fr-FR')}` : ''}` : undefined}>
                               {t.is_team_task && <span title="Tâche d'équipe"><Users size={13} style={{ color: '#2563eb', flexShrink: 0 }} /></span>}
                               {t.description}
                             </span>
