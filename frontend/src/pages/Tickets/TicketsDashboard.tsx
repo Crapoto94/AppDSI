@@ -1981,20 +1981,49 @@ export default function TicketsDashboard() {
                   </div>
                 )}
 
-                {aaAdSelectedUser?.dn && (
-                  <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 10, padding: '14px 16px', marginBottom: 12 }}>
-                    <div style={{ fontWeight: 700, fontSize: 14, color: '#0f172a' }}>{aaAdSelectedUser.displayName || aaAdSelectedUser.sam}</div>
-                    <div style={{ fontSize: 12, color: '#64748b', marginTop: 4 }}>{aaAdSelectedUser.sam}{aaAdSelectedUser.mail ? ` · ${aaAdSelectedUser.mail}` : ''}</div>
-                    {aaAdSelectedUser.title && <div style={{ fontSize: 12, color: '#64748b' }}>{aaAdSelectedUser.title}</div>}
-                    {aaAdSelectedUser.department && <div style={{ fontSize: 12, color: '#64748b' }}>{aaAdSelectedUser.department}</div>}
-                    <div style={{ marginTop: 8, display: 'flex', gap: 10, alignItems: 'center', fontSize: 12, fontWeight: 600 }}>
-                      <span>Statut : <span style={{ padding: '2px 8px', borderRadius: 10, background: aaAdSelectedUser.enabled ? '#dcfce7' : '#fee2e2', color: aaAdSelectedUser.enabled ? '#166534' : '#991b1b' }}>
-                        {aaAdSelectedUser.enabled ? 'ACTIF' : 'DÉSACTIVÉ'}
-                      </span></span>
-                      {aaAdSelectedUser.locked && <span>🔒 <span style={{ padding: '2px 8px', borderRadius: 10, background: '#fef3c7', color: '#92400e' }}>VERROUILLÉ</span></span>}
+                {(() => {
+                  function adDate(val: any) {
+                    if (!val || val === '0') return null;
+                    const n = Number(val);
+                    if (isNaN(n) || n === 0) return val;
+                    return new Date((n / 10000) - 11644473600000).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' });
+                  }
+                  function pwdAge(val: any) {
+                    if (!val || val === '0') return '—';
+                    const n = Number(val);
+                    if (isNaN(n) || n === 0) return '—';
+                    const d = new Date((n / 10000) - 11644473600000);
+                    const days = Math.floor((Date.now() - d.getTime()) / 86400000);
+                    if (days < 0) return '0 jour';
+                    return `${days} jour${days > 1 ? 's' : ''}`;
+                  }
+                  function whenCreated(val: any) {
+                    if (!val) return '—';
+                    const s = String(val);
+                    const m = s.match(/^(\d{4})(\d{2})(\d{2})/);
+                    return m ? `${m[3]}/${m[2]}/${m[1]}` : s;
+                  }
+                  return aaAdSelectedUser?.dn ? (
+                    <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 10, padding: '14px 16px', marginBottom: 12 }}>
+                      <div style={{ fontWeight: 700, fontSize: 14, color: '#0f172a' }}>{aaAdSelectedUser.displayName || aaAdSelectedUser.sam}</div>
+                      <div style={{ fontSize: 12, color: '#64748b', marginTop: 4 }}>{aaAdSelectedUser.sam}{aaAdSelectedUser.mail ? ` · ${aaAdSelectedUser.mail}` : ''}</div>
+                      {aaAdSelectedUser.title && <div style={{ fontSize: 12, color: '#64748b' }}>{aaAdSelectedUser.title}</div>}
+                      {aaAdSelectedUser.department && <div style={{ fontSize: 12, color: '#64748b' }}>{aaAdSelectedUser.department}</div>}
+                      <div style={{ marginTop: 8, display: 'flex', gap: 10, alignItems: 'center', fontSize: 12, fontWeight: 600, flexWrap: 'wrap' }}>
+                        <span>Statut : <span style={{ padding: '2px 8px', borderRadius: 10, background: aaAdSelectedUser.enabled ? '#dcfce7' : '#fee2e2', color: aaAdSelectedUser.enabled ? '#166534' : '#991b1b' }}>
+                          {aaAdSelectedUser.enabled ? 'ACTIF' : 'DÉSACTIVÉ'}
+                        </span></span>
+                        {aaAdSelectedUser.locked && <span>🔒 <span style={{ padding: '2px 8px', borderRadius: 10, background: '#fef3c7', color: '#92400e' }}>VERROUILLÉ</span></span>}
+                      </div>
+                      <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 3, fontSize: 12, color: '#475569' }}>
+                        <div>🕐 Dernière connexion : {adDate(aaAdSelectedUser.lastLogon) || '—'}</div>
+                        <div>🔑 Âge du mot de passe : {pwdAge(aaAdSelectedUser.pwdLastSet)}</div>
+                        <div>📅 Création : {whenCreated(aaAdSelectedUser.whenCreated)}</div>
+                        <div>⏳ Expiration : {adDate(aaAdSelectedUser.accountExpires) || 'Jamais'}</div>
+                      </div>
                     </div>
-                  </div>
-                )}
+                  ) : null;
+                })()}
 
                 {aaError && <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 8, padding: '10px 14px', color: '#991b1b', fontSize: 13, marginBottom: 12 }}>❌ {aaError}</div>}
                 {aaSuccess && <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 8, padding: '10px 14px', color: '#166534', fontSize: 13, marginBottom: 12 }}>✅ {aaSuccess}</div>}
@@ -2040,6 +2069,22 @@ export default function TicketsDashboard() {
                       }} style={{ padding: '10px 22px', borderRadius: 8, border: 'none', background: '#f59e0b', color: '#fff', fontWeight: 700, fontSize: 14, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
                         🔓 Déverrouiller
                       </button>}
+                      <button onClick={async () => {
+                        setAaAdToggling(true); setAaError(''); setAaSuccess('');
+                        try {
+                          const tk = localStorage.getItem('token');
+                          const r = await axios.post('/api/tickets/auto-actions/ad-user-force-pwd-change',
+                            { sam: aaAdSelectedUser.sam },
+                            { headers: { Authorization: `Bearer ${tk}` } }
+                          );
+                          setAaAdSelectedUser({ ...aaAdSelectedUser, pwdLastSet: '0' });
+                          const syncMsg = r.data.sync_triggered ? ' · Synchro Azure déclenchée ✓' : '';
+                          setAaSuccess(`Changement de mot de passe forcé pour ${aaAdSelectedUser.sam}${syncMsg}`);
+                        } catch (e: any) { setAaError(e.response?.data?.message || 'Erreur.'); }
+                        finally { setAaAdToggling(false); }
+                      }} style={{ padding: '10px 22px', borderRadius: 8, border: '1px solid #94a3b8', background: '#fff', color: '#475569', fontWeight: 700, fontSize: 14, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
+                        🔑 Forcer changement mdp
+                      </button>
                     </>
                   ) : null}
                 </div>
