@@ -173,6 +173,11 @@ export default function TicketsDashboard() {
   const [aaSuccess, setAaSuccess] = useState('');
   const [aaAdWarning, setAaAdWarning] = useState('');
   const [aaCopied, setAaCopied] = useState(false);
+  const [aaAdSearchQuery, setAaAdSearchQuery] = useState('');
+  const [aaAdSearchResults, setAaAdSearchResults] = useState<any[]>([]);
+  const [aaAdSearching, setAaAdSearching] = useState(false);
+  const [aaAdSelectedUser, setAaAdSelectedUser] = useState<any>(null);
+  const [aaAdToggling, setAaAdToggling] = useState(false);
 
   const limit = 50;
 
@@ -1705,7 +1710,7 @@ export default function TicketsDashboard() {
             )}
             <div style={{ flex: 1 }}>
               <div style={{ fontWeight: 700, fontSize: 16, color: '#0f172a' }}>
-                {aaStep === 0 ? '⚡ Actions automatiques' : aaStep === 1 ? '🔑 Renouveler mot de passe par SMS' : '📱 Confirmation et envoi'}
+                {aaStep === 0 ? '⚡ Actions automatiques' : aaStep === 1 ? '🔑 Renouveler mot de passe par SMS' : aaStep === 2 ? '📱 Confirmation et envoi' : '🔁 Activer / Désactiver un compte AD'}
               </div>
               {aaStep === 1 && <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>Sélectionnez le bénéficiaire</div>}
               {aaStep === 2 && aaSelected && <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>{aaSelected.prenom || ''} {aaSelected.nom} · 📱 {aaSelected.phone}</div>}
@@ -1735,6 +1740,17 @@ export default function TicketsDashboard() {
                   <div>
                     <div style={{ fontWeight: 700, fontSize: 14, color: '#0f172a' }}>Renouveler mot de passe par SMS</div>
                     <div style={{ fontSize: 12, color: '#64748b', marginTop: 4 }}>Génère un mot de passe sécurisé et l'envoie par SMS (Frizbi) à un élu ou un encadrant.</div>
+                  </div>
+                </button>
+
+                <button onClick={() => { setAaStep(3); setAaAdSearchQuery(''); setAaAdSearchResults([]); setAaAdSelectedUser(null); setAaError(''); setAaSuccess(''); }}
+                  style={{ display: 'flex', alignItems: 'flex-start', gap: 14, padding: '16px 18px', border: '1px solid #e2e8f0', borderRadius: 10, background: '#f8fafc', cursor: 'pointer', textAlign: 'left' }}
+                  onMouseEnter={e => (e.currentTarget.style.borderColor = '#fbbf24')}
+                  onMouseLeave={e => (e.currentTarget.style.borderColor = '#e2e8f0')}>
+                  <span style={{ fontSize: 28, lineHeight: 1 }}>🔁</span>
+                  <div>
+                    <div style={{ fontWeight: 700, fontSize: 14, color: '#0f172a' }}>Activer / Désactiver un compte AD</div>
+                    <div style={{ fontSize: 12, color: '#64748b', marginTop: 4 }}>Recherche un utilisateur dans l'AD et change son état (actif/désactivé) avec synchro Azure.</div>
                   </div>
                 </button>
 
@@ -1917,6 +1933,99 @@ export default function TicketsDashboard() {
                   )}
                 </div>
 
+              </div>
+            )}
+
+            {/* ── Étape 3 : Activer/Désactiver un compte AD ── */}
+            {aaStep === 3 && (
+              <div>
+                <input value={aaAdSearchQuery} onChange={e => setAaAdSearchQuery(e.target.value)}
+                  placeholder="🔍 Rechercher un utilisateur AD (nom, login, email…)"
+                  onKeyDown={async (e) => {
+                    if (e.key === 'Enter' && aaAdSearchQuery.trim().length >= 2) {
+                      setAaAdSearching(true); setAaError(''); setAaAdSelectedUser(null);
+                      try {
+                        const tk = localStorage.getItem('token');
+                        const r = await axios.get(`/api/tickets/auto-actions/ad-search?q=${encodeURIComponent(aaAdSearchQuery.trim())}`, { headers: { Authorization: `Bearer ${tk}` } });
+                        setAaAdSearchResults(r.data || []);
+                        if (!r.data?.length) setAaError('Aucun utilisateur trouvé.');
+                      } catch (e: any) { setAaError(e.response?.data?.message || 'Erreur de recherche.'); }
+                      finally { setAaAdSearching(false); }
+                    }
+                  }}
+                  style={{ width: '100%', boxSizing: 'border-box', padding: '9px 12px', border: '1px solid #e2e8f0', borderRadius: 8, fontSize: 13, marginBottom: 14, outline: 'none' }} />
+                {aaAdSearching && <div style={{ textAlign: 'center', padding: 24, color: '#94a3b8' }}>Recherche…</div>}
+
+                {!aaAdSearching && aaAdSearchResults.length > 0 && (
+                  <div style={{ marginBottom: 14 }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 6 }}>Résultats ({aaAdSearchResults.length})</div>
+                    {aaAdSearchResults.map(u => (
+                      <div key={u.sam} onClick={async () => {
+                        setAaAdSelectedUser(u); setAaError('');
+                        try {
+                          const tk = localStorage.getItem('token');
+                          const r = await axios.get(`/api/tickets/auto-actions/ad-user-status?sam=${encodeURIComponent(u.sam)}`, { headers: { Authorization: `Bearer ${tk}` } });
+                          setAaAdSelectedUser(r.data);
+                        } catch (e: any) { setAaError(e.response?.data?.message || 'Erreur de récupération du statut.'); }
+                      }}
+                        style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 12px', borderRadius: 8, cursor: 'pointer', marginBottom: 4, border: `1px solid ${aaAdSelectedUser?.sam === u.sam ? '#fbbf24' : '#e2e8f0'}`, background: aaAdSelectedUser?.sam === u.sam ? '#fffbeb' : '#fff' }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                          <div style={{ fontWeight: 600, fontSize: 13, color: '#0f172a' }}>{u.displayName || u.sam}</div>
+                          <span style={{ fontSize: 11, color: '#64748b' }}>{u.sam}{u.mail ? ` · ${u.mail}` : ''}{u.department ? ` · ${u.department}` : ''}</span>
+                        </div>
+                        <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 10, background: u.enabled ? '#dcfce7' : '#fee2e2', color: u.enabled ? '#166534' : '#991b1b', fontWeight: 600 }}>
+                          {u.enabled ? 'ACTIF' : 'DÉSACTIVÉ'}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {aaAdSelectedUser?.dn && (
+                  <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 10, padding: '14px 16px', marginBottom: 12 }}>
+                    <div style={{ fontWeight: 700, fontSize: 14, color: '#0f172a' }}>{aaAdSelectedUser.displayName || aaAdSelectedUser.sam}</div>
+                    <div style={{ fontSize: 12, color: '#64748b', marginTop: 4 }}>{aaAdSelectedUser.sam}{aaAdSelectedUser.mail ? ` · ${aaAdSelectedUser.mail}` : ''}</div>
+                    {aaAdSelectedUser.title && <div style={{ fontSize: 12, color: '#64748b' }}>{aaAdSelectedUser.title}</div>}
+                    {aaAdSelectedUser.department && <div style={{ fontSize: 12, color: '#64748b' }}>{aaAdSelectedUser.department}</div>}
+                    <div style={{ marginTop: 8, fontSize: 12, fontWeight: 600 }}>
+                      Statut : <span style={{ padding: '2px 8px', borderRadius: 10, background: aaAdSelectedUser.enabled ? '#dcfce7' : '#fee2e2', color: aaAdSelectedUser.enabled ? '#166534' : '#991b1b' }}>
+                        {aaAdSelectedUser.enabled ? 'ACTIF' : 'DÉSACTIVÉ'}
+                      </span>
+                    </div>
+                  </div>
+                )}
+
+                {aaError && <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 8, padding: '10px 14px', color: '#991b1b', fontSize: 13, marginBottom: 12 }}>❌ {aaError}</div>}
+                {aaSuccess && <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 8, padding: '10px 14px', color: '#166534', fontSize: 13, marginBottom: 12 }}>✅ {aaSuccess}</div>}
+
+                <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 4 }}>
+                  {aaSuccess ? (
+                    <button onClick={() => { setAaStep(0); setAaAdSearchQuery(''); setAaAdSearchResults([]); setAaAdSelectedUser(null); setAaError(''); setAaSuccess(''); }}
+                      style={{ padding: '10px 22px', borderRadius: 8, border: 'none', background: '#0f172a', color: '#fff', fontWeight: 700, fontSize: 14, cursor: 'pointer' }}>Fermer</button>
+                  ) : aaAdSelectedUser?.dn ? (
+                    <>
+                      <button onClick={() => { setAaAdSelectedUser(null); setAaAdSearchResults([]); setAaError(''); }}
+                        style={{ padding: '10px 22px', borderRadius: 8, border: '1px solid #e2e8f0', background: '#fff', cursor: 'pointer', fontSize: 13, color: '#64748b' }}>Retour</button>
+                      <button disabled={aaAdToggling} onClick={async () => {
+                        setAaAdToggling(true); setAaError(''); setAaSuccess('');
+                        try {
+                          const tk = localStorage.getItem('token');
+                          const newState = !aaAdSelectedUser.enabled;
+                          const r = await axios.post('/api/tickets/auto-actions/ad-user-toggle',
+                            { sam: aaAdSelectedUser.sam, enable: newState },
+                            { headers: { Authorization: `Bearer ${tk}` } }
+                          );
+                          setAaAdSelectedUser({ ...aaAdSelectedUser, enabled: newState });
+                          const syncMsg = r.data.sync_triggered ? ' · Synchro Azure déclenchée ✓' : '';
+                          setAaSuccess(`Compte ${aaAdSelectedUser.sam} ${newState ? 'activé' : 'désactivé'} avec succès${syncMsg}`);
+                        } catch (e: any) { setAaError(e.response?.data?.message || 'Erreur lors du changement de statut.'); }
+                        finally { setAaAdToggling(false); }
+                      }} style={{ padding: '10px 22px', borderRadius: 8, border: 'none', background: aaAdToggling ? '#e2e8f0' : (aaAdSelectedUser.enabled ? '#ef4444' : '#22c55e'), color: aaAdToggling ? '#94a3b8' : '#fff', fontWeight: 700, fontSize: 14, cursor: aaAdToggling ? 'default' : 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
+                        {aaAdToggling ? '⏳ Patientez…' : `${aaAdSelectedUser.enabled ? '🔒 Désactiver' : '🔓 Activer'} le compte`}
+                      </button>
+                    </>
+                  ) : null}
+                </div>
               </div>
             )}
           </div>

@@ -437,4 +437,182 @@ module.exports = {
       res.status(500).json({ message: detail });
     }
   },
+
+  searchAdUsers: async (req, res) => {
+    try {
+      const { q } = req.query;
+      if (!q || q.trim().length < 2) return res.json([]);
+
+      const db = getSqlite();
+      const adSettings = await db.get('SELECT * FROM ad_settings WHERE id = 1');
+      if (!adSettings || !adSettings.is_enabled) {
+        return res.status(503).json({ message: 'AD non configuré ou désactivé' });
+      }
+
+      const users = await new Promise((resolve, reject) => {
+        const client = ldap.createClient({
+          url: `ldaps://${adSettings.host}:636`,
+          tlsOptions: { rejectUnauthorized: false },
+          connectTimeout: 8000, timeout: 10000,
+        });
+        let settled = false;
+        const finish = (err, val) => { if (!settled) { settled = true; try { client.destroy(); } catch {} if (err) reject(err); else resolve(val); } };
+        const guard = setTimeout(() => finish(new Error('Timeout LDAP')), 15000);
+        client.on('error', (e) => finish(e));
+        client.bind(adSettings.bind_dn, adSettings.bind_password, (err) => {
+          if (err) return finish(new Error('Bind échoué'));
+          const filter = `(&(objectClass=user)(objectCategory=person)(|(sAMAccountName=*${q.replace(/[*()\\\x00]/g, '\\$&')}*)(displayName=*${q.replace(/[*()\\\x00]/g, '\\$&')}*)(mail=*${q.replace(/[*()\\\x00]/g, '\\$&')}*)))`;
+          client.search(adSettings.base_dn, { filter, scope: 'sub', attributes: ['sAMAccountName', 'displayName', 'mail', 'userAccountControl', 'department', 'title'], paged: { pageSize: 50 } }, (err2, searchRes) => {
+            if (err2) return finish(new Error('Recherche échouée'));
+            const results = [];
+            searchRes.on('searchEntry', (entry) => {
+              const attrs = {};
+              (entry.attributes || []).forEach(a => { attrs[a.type] = a.values || a.vals || []; });
+              results.push({
+                sam: (attrs.sAMAccountName?.[0] || ''),
+                displayName: (attrs.displayName?.[0] || ''),
+                mail: (attrs.mail?.[0] || ''),
+                enabled: !((attrs.userAccountControl?.[0] || 0) & 2),
+                department: (attrs.department?.[0] || ''),
+                title: (attrs.title?.[0] || ''),
+              });
+            });
+            searchRes.on('error', (e) => finish(new Error('Erreur recherche')));
+            searchRes.on('end', () => finish(null, results));
+          });
+        });
+      });
+
+      res.json(users.slice(0, 30));
+    } catch (err) {
+      res.status(500).json({ message: err.message });
+    }
+  },
+
+  getAdUserStatus: async (req, res) => {
+    try {
+      const { sam } = req.query;
+      if (!sam) return res.status(400).json({ message: 'Paramètre sam manquant' });
+
+      const db = getSqlite();
+      const adSettings = await db.get('SELECT * FROM ad_settings WHERE id = 1');
+      if (!adSettings || !adSettings.is_enabled) {
+        return res.status(503).json({ message: 'AD non configuré ou désactivé' });
+      }
+
+      const status = await new Promise((resolve, reject) => {
+        const client = ldap.createClient({
+          url: `ldaps://${adSettings.host}:636`,
+          tlsOptions: { rejectUnauthorized: false },
+          connectTimeout: 8000, timeout: 8000,
+        });
+        let settled = false;
+        const finish = (err, val) => { if (!settled) { settled = true; try { client.destroy(); } catch {} if (err) reject(err); else resolve(val); } };
+        const guard = setTimeout(() => finish(new Error('Timeout LDAP')), 12000);
+        client.on('error', (e) => finish(e));
+        client.bind(adSettings.bind_dn, adSettings.bind_password, (err) => {
+          if (err) return finish(new Error('Bind échoué'));
+          const esc = sam.replace(/[*()\\\x00]/g, '\\$&');
+          client.search(adSettings.base_dn, { filter: `(sAMAccountName=${esc})`, scope: 'sub', attributes: ['sAMAccountName', 'displayName', 'mail', 'userAccountControl', 'department', 'title', 'distinguishedName'] }, (err2, searchRes) => {
+            if (err2) return finish(new Error('Recherche échouée'));
+            let user = null;
+            searchRes.on('searchEntry', (entry) => {
+              const attrs = {};
+              (entry.attributes || []).forEach(a => { attrs[a.type] = a.values || a.vals || []; });
+              user = {
+                sam: (attrs.sAMAccountName?.[0] || ''),
+                displayName: (attrs.displayName?.[0] || ''),
+                mail: (attrs.mail?.[0] || ''),
+                enabled: !((attrs.userAccountControl?.[0] || 0) & 2),
+                dn: (attrs.distinguishedName?.[0] || ''),
+                department: (attrs.department?.[0] || ''),
+                title: (attrs.title?.[0] || ''),
+              };
+            });
+            searchRes.on('error', () => finish(new Error('Erreur recherche')));
+            searchRes.on('end', () => finish(null, user));
+          });
+        });
+      });
+
+      if (!status) return res.status(404).json({ message: `Utilisateur "${sam}" introuvable` });
+      res.json(status);
+    } catch (err) {
+      res.status(500).json({ message: err.message });
+    }
+  },
+
+  toggleAdUser: async (req, res) => {
+    try {
+      const { sam, enable } = req.body;
+      if (!sam) return res.status(400).json({ message: 'Paramètre sam manquant' });
+      if (enable === undefined) return res.status(400).json({ message: 'Paramètre enable manquant' });
+
+      const db = getSqlite();
+      const adSettings = await db.get('SELECT * FROM ad_settings WHERE id = 1');
+      if (!adSettings || !adSettings.is_enabled) {
+        return res.status(503).json({ message: 'AD non configuré ou désactivé' });
+      }
+
+      const result = await new Promise((resolve, reject) => {
+        const client = ldap.createClient({
+          url: `ldaps://${adSettings.host}:636`,
+          tlsOptions: { rejectUnauthorized: false },
+          connectTimeout: 8000, timeout: 8000,
+        });
+        let settled = false;
+        const finish = (err, val) => { if (!settled) { settled = true; try { client.destroy(); } catch {} if (err) reject(err); else resolve(val); } };
+        const guard = setTimeout(() => finish(new Error('Timeout LDAP')), 15000);
+        client.on('error', (e) => finish(e));
+        client.bind(adSettings.bind_dn, adSettings.bind_password, (err) => {
+          if (err) return finish(new Error('Bind échoué'));
+          const esc = sam.replace(/[*()\\\x00]/g, '\\$&');
+          client.search(adSettings.base_dn, { filter: `(sAMAccountName=${esc})`, scope: 'sub', attributes: ['dn', 'userAccountControl'] }, (err2, searchRes) => {
+            if (err2) return finish(new Error('Recherche échouée'));
+            let userDN = null;
+            let uac = 512;
+            searchRes.on('searchEntry', (entry) => {
+              userDN = entry.objectName;
+              const attrs = {};
+              (entry.attributes || []).forEach(a => { attrs[a.type] = a.values || a.vals || []; });
+              uac = attrs.userAccountControl?.[0] || 512;
+            });
+            searchRes.on('error', () => finish(new Error('Erreur recherche')));
+            searchRes.on('end', () => {
+              if (!userDN) return finish(new Error(`Utilisateur "${sam}" introuvable`));
+
+              let newUac;
+              if (enable) newUac = uac & ~2;  // clear bit 2
+              else newUac = uac | 2;           // set bit 2
+
+              const change = new ldap.Change({
+                operation: 'replace',
+                modification: new ldap.Attribute({
+                  type: 'userAccountControl',
+                  values: [newUac],
+                }),
+              });
+
+              client.modify(userDN, [change], (err3) => {
+                if (err3) return finish(new Error(`Modification refusée : ${err3.message}`));
+                finish(null, { sam, enabled: enable, previous_uac: uac, new_uac: newUac });
+              });
+            });
+          });
+        });
+      });
+
+      // Déclencher synchro AD Connect si configurée
+      const syncResult = await triggerAdSync();
+
+      res.json({
+        ok: true,
+        ...result,
+        sync_triggered: syncResult?.triggered || false,
+        sync_error: syncResult && !syncResult.triggered ? syncResult.error : null,
+      });
+    } catch (err) {
+      res.status(500).json({ message: err.message });
+    }
+  },
 };
