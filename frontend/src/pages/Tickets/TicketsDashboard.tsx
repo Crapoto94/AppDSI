@@ -1802,10 +1802,12 @@ export default function TicketsDashboard() {
                       {items.map(b => (
                         <div key={b.id} onClick={() => setAaSelected(aaSelected?.id === b.id ? null : b)}
                           style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 12px', borderRadius: 8, cursor: 'pointer', marginBottom: 4, border: `1px solid ${aaSelected?.id === b.id ? '#fbbf24' : '#e2e8f0'}`, background: aaSelected?.id === b.id ? '#fffbeb' : '#fff' }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                            <span style={{ fontWeight: 600, fontSize: 13, color: '#0f172a' }}>{[b.prenom, b.nom].filter(Boolean).join(' ') || '—'}</span>
-                            <span style={{ fontSize: 11, fontWeight: 600, padding: '1px 7px', borderRadius: 10, background: badgeColor + '20', color: badgeColor }}>{label.slice(0, -1)}</span>
-                            {(b.fonction || b.service) && <span style={{ fontSize: 11, color: '#94a3b8' }}>{b.fonction}{b.service ? ` · ${b.service}` : ''}</span>}
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                              <span style={{ fontWeight: 600, fontSize: 13, color: '#0f172a' }}>{[b.prenom, b.nom].filter(Boolean).join(' ') || '—'}</span>
+                              <span style={{ fontSize: 11, fontWeight: 600, padding: '1px 7px', borderRadius: 10, background: badgeColor + '20', color: badgeColor }}>{label.slice(0, -1)}</span>
+                            </div>
+                            {(b.fonction || b.service) && <span style={{ fontSize: 11, color: '#94a3b8', lineHeight: 1.3 }}>{b.fonction}{b.service ? ` · ${b.service}` : ''}</span>}
                           </div>
                           <span style={{ fontSize: 12, color: '#475569', fontFamily: 'monospace', whiteSpace: 'nowrap', marginLeft: 8 }}>📱 {b.phone}</span>
                         </div>
