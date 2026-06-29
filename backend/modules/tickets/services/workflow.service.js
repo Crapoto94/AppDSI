@@ -83,8 +83,8 @@ module.exports = {
         const ticket = await ticketRepo.findById(ticketId);
         if (!ticket) throw new Error('Ticket non trouvé');
 
-        if (ticket.status !== 5 && ticket.status !== 6) {
-            throw new Error('Seuls les tickets Résolus ou Clos peuvent être réouverts');
+        if (ticket.status !== 5 && ticket.status !== 6 && ticket.status !== 8) {
+            throw new Error('Seuls les tickets Résolus, Clos ou Rejetés peuvent être réouverts');
         }
 
         const role = await resolveTicketRole(user);
@@ -101,7 +101,7 @@ module.exports = {
             }
         }
 
-        await this.changeStatus(ticketId, 3, resolvedUserId, 'Réouverture du ticket', user);
+        await this.changeStatus(ticketId, 2, resolvedUserId, 'Réouverture du ticket', user);
 
         await notificationService.trigger('ticket.reopened', {
             ticket_id: ticketId, user

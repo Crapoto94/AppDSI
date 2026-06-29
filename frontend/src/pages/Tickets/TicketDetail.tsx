@@ -91,8 +91,9 @@ const VALID_TRANSITIONS: Record<number, { to: number; label: string; color: stri
   2: [{ to: 3, label: 'Prendre en charge', color: '#f59e0b' }, { to: 1, label: 'Réinitialiser', color: '#64748b' }],
   3: [{ to: 3, label: 'Prendre en charge', color: '#f59e0b' }, { to: 4, label: 'Mettre en pause', color: '#f97316' }, { to: 5, label: 'Résoudre', color: '#22c55e' }],
   4: [{ to: 3, label: 'Reprendre', color: '#f59e0b' }, { to: 5, label: 'Résoudre', color: '#22c55e' }],
-  5: [{ to: 6, label: 'Fermer', color: '#64748b' }, { to: 3, label: 'Réouvrir', color: '#f59e0b' }],
-  6: [{ to: 3, label: 'Réouvrir', color: '#f59e0b' }],
+  5: [{ to: 6, label: 'Fermer', color: '#64748b' }, { to: 2, label: 'Réouvrir', color: '#f59e0b' }],
+  6: [{ to: 2, label: 'Réouvrir', color: '#f59e0b' }],
+  8: [{ to: 2, label: 'Réouvrir', color: '#f59e0b' }],
 };
 
 // Sélecteur de logiciel : trié alphabétiquement + zone de recherche filtrante.
@@ -697,12 +698,23 @@ export default function TicketDetail() {
         if (user?.username) {
           await axios.post(`/api/tickets/${id}/assign`, { technician_username: user.username }, { headers: { Authorization: `Bearer ${token}` } });
         }
-        // L'assign service gère déjà la transition de statut (<=2 → 3),
-        // pas besoin d'un second appel changeStatus qui provoquerait une transition 3→3 refusée.
         loadTicket();
       } catch (err: any) {
         console.error('[STATUS_CHANGE]', err.response?.status, err.response?.data, err.message);
         alert('Erreur: ' + (err.response?.data?.message || err.message || 'Erreur'));
+      }
+      return;
+    }
+    if (newStatus === 2) {
+      try {
+        const token = localStorage.getItem('token');
+        await axios.post(`/api/tickets/${id}/reopen`, {}, { headers: { Authorization: `Bearer ${token}` } });
+        if (user?.username) {
+          await axios.post(`/api/tickets/${id}/assign`, { technician_username: user.username }, { headers: { Authorization: `Bearer ${token}` } });
+        }
+        loadTicket();
+      } catch (err: any) {
+        alert(err.response?.data?.message || err.message || 'Erreur');
       }
       return;
     }
