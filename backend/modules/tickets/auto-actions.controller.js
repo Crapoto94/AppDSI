@@ -247,10 +247,16 @@ module.exports = {
                       AND LOWER(a.username) = LOWER(e.ad_username) LIMIT 1),
                    (SELECT a.nom FROM hub_calendrier.agents_dsi a
                     WHERE TRIM(a.matricule) = TRIM(e.matricule) LIMIT 1),
+                   (SELECT TRIM(\"NOM\") FROM oracle.rh_v_extract_dsi o
+                    WHERE TRIM(o.\"MATRICULE\") = TRIM(e.matricule) LIMIT 1),
                    e.ad_username,
                    'Mat. ' || e.matricule
                  ) AS nom,
-                 '' AS prenom,
+                 COALESCE(
+                   (SELECT TRIM(\"PRENOM\") FROM oracle.rh_v_extract_dsi o
+                    WHERE TRIM(o.\"MATRICULE\") = TRIM(e.matricule) LIMIT 1),
+                   ''
+                 ) AS prenom,
                  COALESCE(NULLIF(TRIM(e.telephone),''), NULLIF(TRIM(e.telephone_perso),'')) AS phone,
                  'Encadrant' AS fonction,
                  '' AS service,
