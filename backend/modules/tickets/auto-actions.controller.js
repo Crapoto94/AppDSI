@@ -257,19 +257,34 @@ module.exports = {
                     WHERE TRIM(o.\"MATRICULE\") = TRIM(e.matricule) LIMIT 1),
                    ''
                  ) AS prenom,
-                 COALESCE(NULLIF(TRIM(e.telephone),''), NULLIF(TRIM(e.telephone_perso),'')) AS phone,
-                 'Encadrant' AS fonction,
-                 '' AS service,
-                 'encadrant' AS type,
-                 e.ad_username
-          FROM hub.encadrants e
-          LEFT JOIN hub.users u ON LOWER(u.username) = LOWER(e.ad_username)
-          WHERE NULLIF(TRIM(e.telephone),'') IS NOT NULL
-             OR NULLIF(TRIM(e.telephone_perso),'') IS NOT NULL
-          ORDER BY nom
-        `),
-      ]);
-      res.json([...elusRes.rows, ...encadRes.rows]);
+                  COALESCE(NULLIF(TRIM(e.telephone),''), NULLIF(TRIM(e.telephone_perso),'')) AS phone,
+                  COALESCE(
+                    (SELECT TRIM(\"POSTE_L\") FROM oracle.rh_v_extract_dsi o
+                     WHERE TRIM(o.\"MATRICULE\") = TRIM(e.matricule) LIMIT 1),
+                    (SELECT TRIM(\"FONCTION_L\") FROM oracle.rh_v_extract_dsi o
+                     WHERE TRIM(o.\"MATRICULE\") = TRIM(e.matricule) LIMIT 1),
+                    'Encadrant'
+                  ) AS fonction,
+                  COALESCE(
+                    (SELECT TRIM(\"SERVICE_L\") FROM oracle.rh_v_extract_dsi o
+                     WHERE TRIM(o.\"MATRICULE\") = TRIM(e.matricule) LIMIT 1),
+                    ''
+                  ) AS service,
+                  'encadrant' AS type,
+                  e.ad_username
+           FROM hub.encadrants e
+           LEFT JOIN hub.users u ON LOWER(u.username) = LOWER(e.ad_username)
+           WHERE NULLIF(TRIM(e.telephone),'') IS NOT NULL
+              OR NULLIF(TRIM(e.telephone_perso),'') IS NOT NULL
+           ORDER BY nom
+         `),
+       ]);
+       const encadrantsMap = new Map();
+       for (const row of encadRes.rows) {
+         const key = row.phone + '|' + row.nom + '|' + row.prenom;
+         if (!encadrantsMap.has(key)) encadrantsMap.set(key, row);
+       }
+       res.json([...elusRes.rows, ...encadrantsMap.values()]);
     } catch (err) {
       res.status(500).json({ message: err.message });
     }
