@@ -166,7 +166,7 @@ export default function TicketsDashboard() {
   const [aaSmsMsg, setAaSmsMsg] = useState('');
   const [aaSettings, setAaSettings] = useState<{ sms_message: string; sms_tuto_link: string; ad_sync_url: string } | null>(null);
   const [aaShowSettings, setAaShowSettings] = useState(false);
-  const [aaSettingsDraft, setAaSettingsDraft] = useState({ sms_message: '', sms_tuto_link: '' });
+  const [aaSettingsDraft, setAaSettingsDraft] = useState({ sms_message: '', sms_tuto_link: '', ad_sync_url: '' });
   const [aaSending, setAaSending] = useState(false);
   const [aaError, setAaError] = useState('');
   const [aaSuccess, setAaSuccess] = useState('');
