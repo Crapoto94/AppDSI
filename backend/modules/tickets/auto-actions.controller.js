@@ -744,4 +744,16 @@ module.exports = {
       res.status(500).json({ message: err.message });
     }
   },
+
+  triggerSync: async (req, res) => {
+    try {
+      const result = await triggerAdSync();
+      if (result === null) {
+        return res.status(400).json({ message: 'URL de synchro O365 non configurée (paramétrage SMS).' });
+      }
+      res.json({ ok: true, sync_triggered: true, message: 'Synchro O365 déclenchée avec succès.' });
+    } catch (err) {
+      res.status(500).json({ message: err.message });
+    }
+  },
 };

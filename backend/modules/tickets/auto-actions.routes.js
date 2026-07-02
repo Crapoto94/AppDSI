@@ -12,5 +12,6 @@ router.get('/ad-user-status',     authenticateJWT, ctrl.getAdUserStatus);
 router.post('/ad-user-toggle',           authenticateJWT, ctrl.toggleAdUser);
 router.post('/ad-user-unlock',           authenticateJWT, ctrl.unlockAdUser);
 router.post('/ad-user-force-pwd-change', authenticateJWT, ctrl.forceAdPwdChange);
+router.post('/trigger-sync',             authenticateJWT, ctrl.triggerSync);
 
 module.exports = router;

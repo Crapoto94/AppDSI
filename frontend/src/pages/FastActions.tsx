@@ -64,6 +64,7 @@ export default function FastActions() {
   const [aaShowSettings, setAaShowSettings] = useState(false);
   const [aaSettingsDraft, setAaSettingsDraft] = useState({ sms_message: '', sms_tuto_link: '', ad_sync_url: '' });
   const [aaSending, setAaSending] = useState(false);
+  const [aaSyncing, setAaSyncing] = useState(false);
   const [aaStepStatus, setAaStepStatus] = useState(0);
   const [aaError, setAaError] = useState('');
   const [aaSuccess, setAaSuccess] = useState('');
@@ -482,6 +483,27 @@ export default function FastActions() {
                     <div style={{ fontSize: 12, color: '#64748b', marginTop: 4 }}>Recherche un utilisateur dans l'AD et change son état avec synchro Azure.</div>
                   </div>
                 </button>
+
+                <button className="fast-aa-action" style={{ cursor: 'pointer' }} onClick={async () => {
+                  setAaError(''); setAaSuccess(''); setAaSyncing(true);
+                  try {
+                    const tk = localStorage.getItem('token');
+                    const r = await axios.post('/api/tickets/auto-actions/trigger-sync', {}, { headers: { Authorization: `Bearer ${tk}` } });
+                    setAaSuccess(r.data?.message || 'Synchro O365 déclenchée.');
+                  } catch (e: any) {
+                    setAaError(e.response?.data?.message || e.message || 'Erreur de synchro O365.');
+                  } finally { setAaSyncing(false); }
+                }}>
+                  <span style={{ fontSize: 28, lineHeight: 1 }}>🔄</span>
+                  <div>
+                    <div style={{ fontWeight: 700, fontSize: 15, color: '#0f172a' }}>Déclencher synchro O365</div>
+                    <div style={{ fontSize: 12, color: '#64748b', marginTop: 4 }}>Lance une synchro Azure AD Connect pour propager les changements AD vers O365.</div>
+                  </div>
+                </button>
+
+                {aaSyncing && <div style={{ textAlign: 'center', padding: 12, color: '#0369a1', fontSize: 13 }}>⏳ Synchro O365 en cours…</div>}
+                {!aaSyncing && aaSuccess && <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 10, padding: '10px 14px', color: '#166534', fontSize: 13 }}>✅ {aaSuccess}</div>}
+                {!aaSyncing && aaError && <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 10, padding: '10px 14px', color: '#dc2626', fontSize: 13 }}>{aaError}</div>}
 
                 {/* Settings */}
                 <div style={{ borderTop: '1px solid #f1f5f9', paddingTop: 14, marginTop: 6 }}>

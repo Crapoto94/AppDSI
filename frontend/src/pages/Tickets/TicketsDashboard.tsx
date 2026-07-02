@@ -167,6 +167,7 @@ export default function TicketsDashboard() {
   const [aaShowSettings, setAaShowSettings] = useState(false);
   const [aaSettingsDraft, setAaSettingsDraft] = useState({ sms_message: '', sms_tuto_link: '', ad_sync_url: '' });
   const [aaSending, setAaSending] = useState(false);
+  const [aaSyncing, setAaSyncing] = useState(false);
   const [aaStepStatus, setAaStepStatus] = useState(0); // 0=idle, 1=AD, 2=SMS, 3=Sync, 4=done
   const [aaError, setAaError] = useState('');
   const [aaSuccess, setAaSuccess] = useState('');
@@ -1751,6 +1752,29 @@ export default function TicketsDashboard() {
                     <div style={{ fontSize: 12, color: '#64748b', marginTop: 4 }}>Recherche un utilisateur dans l'AD et change son état (actif/désactivé) avec synchro Azure.</div>
                   </div>
                 </button>
+
+                <button onClick={async () => {
+                  setAaError(''); setAaSuccess(''); setAaSyncing(true);
+                  try {
+                    const tk = localStorage.getItem('token');
+                    const r = await axios.post('/api/tickets/auto-actions/trigger-sync', {}, { headers: { Authorization: `Bearer ${tk}` } });
+                    setAaSuccess(r.data?.message || 'Synchro O365 déclenchée.');
+                  } catch (e: any) {
+                    setAaError(e.response?.data?.message || e.message || 'Erreur de synchro O365.');
+                  } finally { setAaSyncing(false); }
+                }} style={{ display: 'flex', alignItems: 'flex-start', gap: 14, padding: '16px 18px', border: '1px solid #e2e8f0', borderRadius: 10, background: '#f8fafc', cursor: 'pointer', textAlign: 'left' }}
+                  onMouseEnter={e => (e.currentTarget.style.borderColor = '#fbbf24')}
+                  onMouseLeave={e => (e.currentTarget.style.borderColor = '#e2e8f0')}>
+                  <span style={{ fontSize: 28, lineHeight: 1 }}>🔄</span>
+                  <div>
+                    <div style={{ fontWeight: 700, fontSize: 14, color: '#0f172a' }}>Déclencher synchro O365</div>
+                    <div style={{ fontSize: 12, color: '#64748b', marginTop: 4 }}>Lance une synchro Azure AD Connect pour propager les changements AD vers O365.</div>
+                  </div>
+                </button>
+
+                {aaSyncing && <div style={{ textAlign: 'center', padding: 12, color: '#0369a1', fontSize: 13 }}>⏳ Synchro O365 en cours…</div>}
+                {!aaSyncing && aaSuccess && <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 10, padding: '10px 14px', color: '#166534', fontSize: 13 }}>✅ {aaSuccess}</div>}
+                {!aaSyncing && aaError && <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 10, padding: '10px 14px', color: '#dc2626', fontSize: 13 }}>{aaError}</div>}
 
                 {/* Paramétrage global */}
                 <div style={{ borderTop: '1px solid #f1f5f9', paddingTop: 14, marginTop: 6 }}>
