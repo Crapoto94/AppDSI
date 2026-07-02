@@ -149,6 +149,14 @@ export default function TicketDetail() {
   const { id } = useParams();
   const { user, token } = useAuth();
   const isEmbedded = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('embedded') === '1';
+  const [isMobile, setIsMobile] = useState(() => typeof window !== 'undefined' && window.innerWidth < 768);
+  const [mobileTab, setMobileTab] = useState<'discussion' | 'infos'>('discussion');
+
+  useEffect(() => {
+    const onResize = () => setIsMobile(window.innerWidth < 768);
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
   const [ticket, setTicket] = useState<any>(null);
   const [comments, setComments] = useState<any[]>([]);
   const [history, setHistory] = useState<any[]>([]);
@@ -1156,20 +1164,21 @@ export default function TicketDetail() {
 
   return (
     <>
-      {!isEmbedded && <Header />}
+      {!isEmbedded && !isMobile && <Header />}
       <div style={{
         display: 'flex', flexDirection: 'column',
-        height: isEmbedded ? '100vh' : 'calc(100vh - 80px)',
+        height: (isEmbedded || isMobile) ? '100vh' : 'calc(100vh - 80px)',
         background: '#fafaf9',
         fontFamily: 'Geist, ui-sans-serif, system-ui, sans-serif',
-        overflow: 'hidden', fontSize: 13, color: '#18181b'
+        overflow: isMobile ? 'auto' : 'hidden', fontSize: 13, color: '#18181b'
       }}>
 
         {/* ── TOPBAR ── */}
         <div style={{
           height: 46, flexShrink: 0,
           borderBottom: '1px solid #f4f4f5', background: '#fff',
-          display: 'flex', alignItems: 'center', padding: '0 20px', gap: 8
+          display: 'flex', alignItems: 'center', padding: '0 20px', gap: 8,
+          overflowX: isMobile ? 'auto' : 'visible', WebkitOverflowScrolling: 'touch'
         }}>
           {!isEmbedded && (<a href="/tickets" title="Retour aux tickets" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, color: '#dc2626', textDecoration: 'none', fontSize: 13, fontWeight: 600, padding: '2px 8px', borderRadius: 5, border: '1px solid #fca5a5', background: '#fef2f2' }}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
@@ -1215,8 +1224,8 @@ export default function TicketDetail() {
         </div>
 
         {/* ── TITLE AREA ── */}
-        <div style={{ flexShrink: 0, padding: '11px 20px 10px', borderBottom: '1px solid #f4f4f5', background: '#fff' }}>
-          <h1 style={{ fontSize: 17, fontWeight: 700, color: '#18181b', margin: 0, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', lineHeight: 1.4 }}>
+        <div style={{ flexShrink: 0, padding: isMobile ? '10px 12px' : '11px 20px 10px', borderBottom: '1px solid #f4f4f5', background: '#fff' }}>
+          <h1 style={{ fontSize: isMobile ? 15 : 17, fontWeight: 700, color: '#18181b', margin: 0, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', lineHeight: 1.4 }}>
             {ticket.is_vip && (
               <span style={{ fontSize: 10, fontWeight: 700, color: '#92400e', background: '#fef3c7', border: '1px solid #fde68a', padding: '2px 7px', borderRadius: 10, flexShrink: 0 }}>⭐ VIP</span>
             )}
@@ -1296,11 +1305,29 @@ export default function TicketDetail() {
           </h1>
         </div>
 
+        {/* ── Mobile tab bar ── */}
+        {isMobile && (
+          <div style={{ display: 'flex', flexShrink: 0, borderBottom: '1px solid #f4f4f5', background: '#fff' }}>
+            {([['discussion', '💬 Discussion'], ['infos', 'ℹ️ Informations']] as const).map(([key, label]) => (
+              <button key={key} onClick={() => setMobileTab(key)}
+                style={{
+                  flex: 1, padding: '10px 0', border: 'none', cursor: 'pointer',
+                  fontSize: 13, fontWeight: 700,
+                  color: mobileTab === key ? '#6366f1' : '#94a3b8',
+                  borderBottom: mobileTab === key ? '2px solid #6366f1' : '2px solid transparent',
+                  background: 'transparent',
+                }}>
+                {label}
+              </button>
+            ))}
+          </div>
+        )}
+
         {/* ── BODY ── */}
-        <div ref={bodyRef} style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
+        <div ref={bodyRef} style={{ flex: 1, display: 'flex', overflow: 'hidden', flexDirection: isMobile ? 'column' : 'row' }}>
 
           {/* ── LEFT PANE ── */}
-          <div style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', width: `${paneRatio * 100}%`, flexShrink: 0, background: '#fff' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', width: isMobile ? '100%' : `${paneRatio * 100}%`, flexShrink: 0, background: '#fff', display: isMobile && mobileTab !== 'discussion' ? 'none' : 'flex' }}>
           <div style={{ flex: 1, overflowY: 'auto', padding: '0 20px 20px' }}>
 
             {/* DESCRIPTION */}
@@ -1718,6 +1745,7 @@ export default function TicketDetail() {
           {/* end left pane */}
 
           {/* ── DRAG HANDLE ── */}
+          {!isMobile && (
           <div onMouseDown={startDrag} style={{
             width: 5, flexShrink: 0, cursor: 'col-resize', background: 'transparent',
             borderLeft: '1px solid #f4f4f5', borderRight: '1px solid #f4f4f5',
@@ -1726,9 +1754,10 @@ export default function TicketDetail() {
             onMouseEnter={e => (e.currentTarget.style.background = '#e0e7ff')}
             onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
           />
+          )}
 
           {/* ── RIGHT SIDEBAR ── */}
-          <div style={{ flex: 1, overflowY: 'auto', padding: '0 14px 20px', minWidth: 0, background: '#fff' }}>
+          <div style={{ flex: 1, overflowY: 'auto', padding: '0 14px 20px', minWidth: 0, background: '#fff', display: isMobile && mobileTab !== 'infos' ? 'none' : 'block' }}>
 
             {/* Sidebar top bar: Edit + Journal */}
             <div style={{ padding: '10px 0 8px', borderBottom: '1px solid #f4f4f5', display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap' }}>
@@ -2256,7 +2285,7 @@ export default function TicketDetail() {
         {/* end body grid */}
         {/* ── PANEL : JOURNAL ── */}
         {showJournalPanel && (
-          <div style={{ position: 'fixed', top: 80, right: 0, width: 340, height: 'calc(100vh - 80px)', background: '#fff', borderLeft: '1px solid #e4e4e7', boxShadow: '-4px 0 16px rgba(0,0,0,0.06)', zIndex: 200, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+          <div style={{ position: 'fixed', top: isMobile ? 0 : 80, right: 0, width: isMobile ? '100%' : 340, height: isMobile ? '100vh' : 'calc(100vh - 80px)', background: '#fff', borderLeft: isMobile ? 'none' : '1px solid #e4e4e7', boxShadow: '-4px 0 16px rgba(0,0,0,0.06)', zIndex: 200, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 16px 12px', borderBottom: '1px solid #f4f4f5', flexShrink: 0 }}>
               <span style={{ fontSize: 13, fontWeight: 700, color: '#18181b' }}>📋 Journal des événements</span>
               <button onClick={() => setShowJournalPanel(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#a1a1aa', fontSize: 18, lineHeight: 1, padding: 0 }}>×</button>

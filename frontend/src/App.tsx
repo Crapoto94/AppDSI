@@ -1,5 +1,5 @@
 import React from 'react';
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import Dashboard from './pages/Dashboard';
 import Login from './pages/Login';
 import Admin from './pages/Admin';
@@ -74,6 +74,12 @@ import ParcInformatique from './pages/ParcInformatique';
 import RHPage from './pages/RH';
 import FastActions from './pages/FastActions';
 
+const ChatWidgetWrapper = () => {
+  const location = useLocation();
+  if (location.pathname === '/fast') return null;
+  return <ChatWidget />;
+};
+
 // Protected Route Component
 const PrivateRoute = ({ children, allowedRoles, allowPmo, path }: { children: React.ReactNode, allowedRoles?: string[], allowPmo?: boolean, path?: string }) => {
   const token = localStorage.getItem('token');
@@ -125,7 +131,7 @@ function App() {
   return (
     <BrowserRouter>
       <AccessRequestOverlay />
-      <ChatWidget />
+      <ChatWidgetWrapper />
       <Routes>
         <Route path="/login" element={<Login />} />
         <Route path="/request-access" element={<AccessRequestPage />} />

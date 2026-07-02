@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import axios from 'axios';
 import { useAuth } from '../contexts/AuthContext';
+import AddTaskModal from '../components/AddTaskModal';
 
 function generatePassword(): string {
   const upper = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
@@ -74,6 +75,9 @@ export default function FastActions() {
   const [aaAdSelectedUser, setAaAdSelectedUser] = useState<any>(null);
   const [aaAdToggling, setAaAdToggling] = useState(false);
 
+  // ── Task modal ──
+  const [showTaskModal, setShowTaskModal] = useState(false);
+
   useEffect(() => {
     const token = localStorage.getItem('token');
     if (!token) return;
@@ -88,19 +92,22 @@ export default function FastActions() {
   const canAutoActions = ['superadmin', 'superadmins', 'admin', 'supervisor', 'superviseur'].includes((resolvedRole ?? user?.role ?? '').toLowerCase().trim());
 
   // ── Search handler ──
+  async function performSearch(q: string) {
+    if (!q.trim() || q.trim().length < 2) { setSearchResults([]); return; }
+    setSearching(true);
+    try {
+      const token = localStorage.getItem('token');
+      const r = await axios.get(`/api/tickets?lite=1&search=${encodeURIComponent(q.trim())}&limit=10`, { headers: { Authorization: `Bearer ${token}` } });
+      setSearchResults(r.data.data || []);
+    } catch { setSearchResults([]); }
+    finally { setSearching(false); }
+  }
+
   function handleSearchInput(q: string) {
     setSearchQuery(q);
     if (searchTimer.current) clearTimeout(searchTimer.current);
     if (!q.trim() || q.trim().length < 2) { setSearchResults([]); return; }
-    searchTimer.current = setTimeout(async () => {
-      setSearching(true);
-      try {
-        const token = localStorage.getItem('token');
-        const r = await axios.get(`/api/tickets?lite=1&search=${encodeURIComponent(q.trim())}&limit=10`, { headers: { Authorization: `Bearer ${token}` } });
-        setSearchResults(r.data.data || []);
-      } catch { setSearchResults([]); }
-      finally { setSearching(false); }
-    }, 350);
+    searchTimer.current = setTimeout(() => performSearch(q), 350);
   }
 
   // ── Auto actions: open ──
@@ -319,7 +326,7 @@ export default function FastActions() {
     .fast-search-result { display: flex; align-items: center; gap: 12px; padding: 14px 16px; border-bottom: 1px solid #f1f5f9; cursor: pointer; transition: background 0.1s; }
     .fast-search-result:active { background: #f8fafc; }
     .fast-search-result:last-child { border-bottom: none; }
-    .fast-aa-overlay { position: fixed; inset: 0; background: #fff; z-index: 3000; display: flex; flex-direction: column; }
+    .fast-aa-overlay { position: fixed; inset: 0; background: #fff; z-index: 10001; display: flex; flex-direction: column; }
     .fast-aa-header { display: flex; align-items: center; gap: 10px; padding: 14px 16px; border-bottom: 1px solid #f1f5f9; padding-top: max(14px, env(safe-area-inset-top)); flex-shrink: 0; }
     .fast-aa-body { flex: 1; overflow-y: auto; padding: 16px; padding-bottom: max(16px, env(safe-area-inset-bottom)); }
     .fast-aa-footer { padding: 12px 16px; border-top: 1px solid #f1f5f9; padding-bottom: max(12px, env(safe-area-inset-bottom)); flex-shrink: 0; }
@@ -367,11 +374,11 @@ export default function FastActions() {
               style={{ flex: 1 }}
               value={searchQuery}
               onChange={e => handleSearchInput(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter' && searchQuery.trim()) { try { const snap = JSON.parse(sessionStorage.getItem('tickets_dash_filters') || '{}'); snap.search = searchQuery.trim(); sessionStorage.setItem('tickets_dash_filters', JSON.stringify(snap)); } catch {} window.location.href = '/tickets'; } }}
+              onKeyDown={e => { if (e.key === 'Enter' && searchQuery.trim()) { if (searchTimer.current) clearTimeout(searchTimer.current); performSearch(searchQuery); } }}
               placeholder="N° ticket, titre, mot-clé…"
             />
             <button className="fast-btn-primary" style={{ width: 'auto', padding: '14px 18px' }}
-              onClick={() => { if (!searchQuery.trim()) return; try { const snap = JSON.parse(sessionStorage.getItem('tickets_dash_filters') || '{}'); snap.search = searchQuery.trim(); sessionStorage.setItem('tickets_dash_filters', JSON.stringify(snap)); } catch {} window.location.href = '/tickets'; }}>
+              onClick={() => { if (!searchQuery.trim()) return; if (searchTimer.current) clearTimeout(searchTimer.current); performSearch(searchQuery); }}>
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
             </button>
           </div>
@@ -412,6 +419,19 @@ export default function FastActions() {
           {!searching && searchQuery.trim().length >= 2 && searchResults.length === 0 && (
             <div style={{ textAlign: 'center', padding: 20, color: '#94a3b8', fontSize: 14 }}>Aucun ticket trouvé</div>
           )}
+        </div>
+
+        {/* ── Créer une tâche ── */}
+        <div className="fast-card">
+          <button className="fast-action-btn" onClick={() => setShowTaskModal(true)}>
+            <div className="fast-action-icon" style={{ background: '#f0fdf4', color: '#22c55e' }}>
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+            </div>
+            <div>
+              <div className="fast-action-title">Créer une tâche</div>
+              <div className="fast-action-desc">Nouvelle tâche personnelle ou d'équipe</div>
+            </div>
+          </button>
         </div>
 
         {/* ── Actions auto ── */}
@@ -708,6 +728,16 @@ export default function FastActions() {
           )}
         </div>,
         document.body
+      )}
+
+      {/* ── Task modal ── */}
+      {showTaskModal && (
+        <AddTaskModal
+          token={localStorage.getItem('token')}
+          contextSource="personal"
+          onCreated={() => setShowTaskModal(false)}
+          onClose={() => setShowTaskModal(false)}
+        />
       )}
     </div>
   );
