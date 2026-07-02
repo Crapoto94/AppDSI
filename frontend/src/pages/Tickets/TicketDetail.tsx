@@ -1327,7 +1327,7 @@ export default function TicketDetail() {
         <div ref={bodyRef} style={{ flex: 1, display: 'flex', overflow: 'hidden', flexDirection: isMobile ? 'column' : 'row' }}>
 
           {/* ── LEFT PANE ── */}
-          <div style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', width: isMobile ? '100%' : `${paneRatio * 100}%`, flexShrink: 0, background: '#fff', display: isMobile && mobileTab !== 'discussion' ? 'none' : 'flex' }}>
+          <div style={{ flexDirection: 'column', overflow: 'hidden', width: isMobile ? '100%' : `${paneRatio * 100}%`, flexShrink: 0, background: '#fff', display: isMobile && mobileTab !== 'discussion' ? 'none' : 'flex' }}>
           <div style={{ flex: 1, overflowY: 'auto', padding: '0 20px 20px' }}>
 
             {/* DESCRIPTION */}
