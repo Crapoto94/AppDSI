@@ -162,8 +162,7 @@ export default function TicketsDashboard() {
   const [aaBenefLoading, setAaBenefLoading] = useState(false);
   const [aaSearch, setAaSearch] = useState('');
   const [aaSelected, setAaSelected] = useState<any>(null);
-  const [aaPassword, setAaPassword] = useState('');
-  const [aaSmsMsg, setAaSmsMsg] = useState('');
+  
   const [aaSettings, setAaSettings] = useState<{ sms_message: string; sms_tuto_link: string; ad_sync_url: string } | null>(null);
   const [aaShowSettings, setAaShowSettings] = useState(false);
   const [aaSettingsDraft, setAaSettingsDraft] = useState({ sms_message: '', sms_tuto_link: '', ad_sync_url: '' });
@@ -172,7 +171,6 @@ export default function TicketsDashboard() {
   const [aaError, setAaError] = useState('');
   const [aaSuccess, setAaSuccess] = useState('');
   const [aaAdWarning, setAaAdWarning] = useState('');
-  const [aaCopied, setAaCopied] = useState(false);
   const [aaAdSearchQuery, setAaAdSearchQuery] = useState('');
   const [aaAdSearchResults, setAaAdSearchResults] = useState<any[]>([]);
   const [aaAdSearching, setAaAdSearching] = useState(false);
@@ -1713,7 +1711,7 @@ export default function TicketsDashboard() {
                 {aaStep === 0 ? '⚡ Actions automatiques' : aaStep === 1 ? '🔑 Renouveler mot de passe par SMS' : aaStep === 2 ? '📱 Confirmation et envoi' : '🔁 Activer / Désactiver un compte AD'}
               </div>
               {aaStep === 1 && <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>Sélectionnez le bénéficiaire</div>}
-              {aaStep === 2 && aaSelected && <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>{aaSelected.prenom || ''} {aaSelected.nom} · 📱 {aaSelected.phone}</div>}
+              {aaStep === 2 && aaSelected && <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>{aaSelected.prenom || ''} {aaSelected.nom}</div>}
             </div>
             <button onClick={() => { setShowAutoActions(false); setAaStep(0); setAaShowSettings(false); setAaAdWarning(''); }}
               style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 20, color: '#94a3b8', lineHeight: 1 }}>✕</button>
@@ -1825,7 +1823,6 @@ export default function TicketsDashboard() {
                             </div>
                             {(b.fonction || b.service) && <span style={{ fontSize: 11, color: '#94a3b8', lineHeight: 1.3 }}>{b.fonction}{b.service ? ` · ${b.service}` : ''}</span>}
                           </div>
-                          <span style={{ fontSize: 12, color: '#475569', fontFamily: 'monospace', whiteSpace: 'nowrap', marginLeft: 8 }}>📱 {b.phone}</span>
                         </div>
                       ))}
                     </div>
@@ -1840,51 +1837,42 @@ export default function TicketsDashboard() {
                 })()}
                 {aaError && <div style={{ color: '#dc2626', fontSize: 12, marginTop: 8 }}>{aaError}</div>}
                 <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 16 }}>
-                  <button disabled={!aaSelected} onClick={() => {
+                  <button disabled={!aaSelected} onClick={async () => {
+                    setAaStep(2); setAaError(''); setAaSuccess(''); setAaAdWarning('');
+                    setAaSending(true); setAaStepStatus(1);
                     const pwd = generatePassword();
-                    setAaPassword(pwd);
                     const msg = (aaSettings?.sms_message || 'Mot de passe : {MOT_DE_PASSE}')
                       .replace('{PRENOM}', aaSelected?.prenom || aaSelected?.nom || '')
                       .replace('{MOT_DE_PASSE}', pwd)
                       .replace('{LIEN}', aaSettings?.sms_tuto_link || '');
-                    setAaSmsMsg(msg); setAaStep(2); setAaError(''); setAaSuccess(''); setAaAdWarning('');
+                    const t1 = setTimeout(() => setAaStepStatus(2), 2000);
+                    const t2 = setTimeout(() => setAaStepStatus(3), 4000);
+                    try {
+                      const tk = localStorage.getItem('token');
+                      const r = await axios.post('/api/tickets/auto-actions/password-sms', {
+                        phone: aaSelected.phone, prenom: aaSelected.prenom || '', nom: aaSelected.nom || '',
+                        password: pwd, message: msg,
+                        ad_username: (aaSelected as any).ad_username || '',
+                      }, { headers: { Authorization: `Bearer ${tk}` } });
+                      const adLabel = r.data.ad_changed ? ' · Mot de passe changé dans l\'AD ✓' : r.data.ad_error ? '' : '';
+                      const o365Label = r.data.o365_changed ? r.data.o365_error ? ` · ${r.data.o365_error}` : ' · Mot de passe synchronisé O365 ✓' : '';
+                      setAaSuccess(`SMS envoyé${adLabel}${o365Label}`);
+                      if (r.data.ad_error) setAaAdWarning(r.data.ad_error);
+                    } catch (e: any) {
+                      setAaStepStatus(4);
+                      clearTimeout(t1); clearTimeout(t2);
+                      setAaError(e.response?.data?.message || e.message || 'Erreur lors de l\'envoi du SMS.');
+                    } finally { clearTimeout(t1); clearTimeout(t2); setAaStepStatus(4); setAaSending(false); }
                   }} style={{ padding: '10px 22px', borderRadius: 8, border: 'none', background: aaSelected ? '#f59e0b' : '#e2e8f0', color: aaSelected ? '#fff' : '#94a3b8', fontWeight: 700, fontSize: 14, cursor: aaSelected ? 'pointer' : 'default' }}>
-                    Continuer →
+                    📱 Envoyer SMS + changer MDP AD
                   </button>
                 </div>
               </div>
             )}
 
-            {/* ── Étape 2 : confirmation + envoi ── */}
+            {/* ── Étape 2 : envoi en cours / résultat (pas de mot de passe affiché) ── */}
             {aaStep === 2 && aaSelected && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
-
-                {/* Mot de passe généré */}
-                <div>
-                  <label style={{ fontSize: 12, fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: 0.5, display: 'block', marginBottom: 8 }}>Mot de passe généré</label>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <code style={{ flex: 1, padding: '10px 14px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, fontSize: 16, fontFamily: 'monospace', fontWeight: 700, letterSpacing: 2, color: '#0f172a' }}>{aaPassword}</code>
-                    <button title="Régénérer" onClick={() => {
-                      const pwd = generatePassword(); setAaPassword(pwd);
-                      const msg = (aaSettings?.sms_message || 'Mot de passe : {MOT_DE_PASSE}')
-                        .replace('{PRENOM}', aaSelected?.prenom || aaSelected?.nom || '')
-                        .replace('{MOT_DE_PASSE}', pwd)
-                        .replace('{LIEN}', aaSettings?.sms_tuto_link || '');
-                      setAaSmsMsg(msg);
-                    }} style={{ padding: '9px 11px', borderRadius: 8, border: '1px solid #e2e8f0', background: '#fff', cursor: 'pointer', fontSize: 16 }}>🔄</button>
-                    <button title="Copier" onClick={() => { navigator.clipboard.writeText(aaPassword); setAaCopied(true); setTimeout(() => setAaCopied(false), 2000); }}
-                      style={{ padding: '9px 11px', borderRadius: 8, border: '1px solid #e2e8f0', background: aaCopied ? '#f0fdf4' : '#fff', cursor: 'pointer', fontSize: 16 }}>{aaCopied ? '✓' : '📋'}</button>
-                  </div>
-                </div>
-
-                {/* Message SMS */}
-                <div>
-                  <label style={{ fontSize: 12, fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: 0.5, display: 'block', marginBottom: 8 }}>Message SMS</label>
-                  <textarea value={aaSmsMsg} onChange={e => setAaSmsMsg(e.target.value)} rows={5}
-                    style={{ width: '100%', boxSizing: 'border-box', padding: '10px 12px', border: '1px solid #e2e8f0', borderRadius: 8, fontSize: 13, fontFamily: 'inherit', resize: 'vertical', outline: 'none', lineHeight: 1.6 }} />
-                  <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 4 }}>{aaSmsMsg.length} caractères · généré depuis le template global</div>
-                </div>
-
                 {aaError && <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 8, padding: '10px 14px', color: '#dc2626', fontSize: 13 }}>{aaError}</div>}
                 {aaSending && <div style={{ background: '#f0f9ff', border: '1px solid #bae6fd', borderRadius: 8, padding: '10px 14px', color: '#0369a1', fontSize: 13, display: 'flex', flexDirection: 'column', gap: 6 }}>
                   <div>{aaStepStatus >= 1 ? '✅' : '⏳'} 1. Changement mot de passe AD{aaStepStatus > 1 ? ' ✓' : aaStepStatus === 1 ? '…' : ''}</div>
@@ -1895,44 +1883,11 @@ export default function TicketsDashboard() {
                 {aaAdWarning && <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 8, padding: '10px 14px', color: '#92400e', fontSize: 13 }}>⚠️ AD : {aaAdWarning}</div>}
 
                 <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 4 }}>
-                  {aaSuccess ? (
+                  {(aaSuccess || aaError) && (
                     <button onClick={() => { setShowAutoActions(false); setAaStep(0); setAaShowSettings(false); setAaAdWarning(''); }}
                       style={{ padding: '10px 22px', borderRadius: 8, border: 'none', background: '#0f172a', color: '#fff', fontWeight: 700, fontSize: 14, cursor: 'pointer' }}>Fermer</button>
-                  ) : (
-                    <button disabled={aaSending || !aaSmsMsg.trim()} onClick={async () => {
-                      setAaSending(true); setAaStepStatus(1); setAaError(''); setAaAdWarning('');
-                      const t1 = setTimeout(() => setAaStepStatus(2), 2000);
-                      const t2 = setTimeout(() => setAaStepStatus(3), 4000);
-                      try {
-                        const tk = localStorage.getItem('token');
-                        const r = await axios.post('/api/tickets/auto-actions/password-sms', {
-                          phone: aaSelected.phone, prenom: aaSelected.prenom || '', nom: aaSelected.nom || '',
-                          password: aaPassword, message: aaSmsMsg,
-                          ad_username: (aaSelected as any).ad_username || '',
-                        }, { headers: { Authorization: `Bearer ${tk}` } });
-                        const adLabel = r.data.ad_changed
-                          ? ' · Mot de passe changé dans l\'AD ✓'
-                          : r.data.ad_error
-                            ? ''
-                            : '';
-                        const o365Label = r.data.o365_changed
-                          ? r.data.o365_error
-                            ? ` · ${r.data.o365_error}`
-                            : ' · Mot de passe synchronisé O365 ✓'
-                          : '';
-                        setAaSuccess(`SMS envoyé à ${aaSelected.prenom ? aaSelected.prenom + ' ' : ''}${aaSelected.nom} (${aaSelected.phone})${adLabel}${o365Label}`);
-                        if (r.data.ad_error) setAaAdWarning(r.data.ad_error);
-                      } catch (e: any) {
-                        setAaStepStatus(4);
-                        clearTimeout(t1); clearTimeout(t2);
-                        setAaError(e.response?.data?.message || e.message || 'Erreur lors de l\'envoi du SMS.');
-                      } finally { clearTimeout(t1); clearTimeout(t2); setAaStepStatus(4); setAaSending(false); }
-                    }} style={{ padding: '10px 22px', borderRadius: 8, border: 'none', background: aaSending ? '#e2e8f0' : '#f59e0b', color: aaSending ? '#94a3b8' : '#fff', fontWeight: 700, fontSize: 14, cursor: aaSending ? 'default' : 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
-                      {aaSending ? '⏳ Envoi…' : '📱 Envoyer le SMS + changer MDP AD'}
-                    </button>
                   )}
                 </div>
-
               </div>
             )}
 

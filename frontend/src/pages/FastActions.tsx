@@ -68,7 +68,6 @@ export default function FastActions() {
   const [aaError, setAaError] = useState('');
   const [aaSuccess, setAaSuccess] = useState('');
   const [aaAdWarning, setAaAdWarning] = useState('');
-  const [aaCopied, setAaCopied] = useState(false);
   const [aaAdSearchQuery, setAaAdSearchQuery] = useState('');
   const [aaAdSearchResults, setAaAdSearchResults] = useState<any[]>([]);
   const [aaAdSearching, setAaAdSearching] = useState(false);
@@ -142,53 +141,33 @@ export default function FastActions() {
     finally { setAaBenefLoading(false); }
   }
 
-  // ── Auto actions: step 2 — generate password & message ──
-  function goToSmsConfirm() {
+  // ── Auto actions: generate password & send directly (no confirmation) ──
+  async function sendSmsDirect() {
     const pwd = generatePassword();
-    setAaPassword(pwd);
     const msg = (aaSettings?.sms_message || 'Mot de passe : {MOT_DE_PASSE}')
       .replace('{PRENOM}', aaSelected?.prenom || aaSelected?.nom || '')
       .replace('{MOT_DE_PASSE}', pwd)
       .replace('{LIEN}', aaSettings?.sms_tuto_link || '');
+    setAaPassword(pwd);
     setAaSmsMsg(msg);
     setAaStep(2);
     setAaError('');
     setAaSuccess('');
     setAaAdWarning('');
-  }
-
-  function regeneratePassword() {
-    const pwd = generatePassword();
-    setAaPassword(pwd);
-    const msg = (aaSettings?.sms_message || 'Mot de passe : {MOT_DE_PASSE}')
-      .replace('{PRENOM}', aaSelected?.prenom || aaSelected?.nom || '')
-      .replace('{MOT_DE_PASSE}', pwd)
-      .replace('{LIEN}', aaSettings?.sms_tuto_link || '');
-    setAaSmsMsg(msg);
-  }
-
-  // ── Auto actions: step 2 — send SMS ──
-  async function sendPasswordSms() {
     setAaSending(true);
     setAaStepStatus(1);
-    setAaError('');
-    setAaAdWarning('');
     const t1 = setTimeout(() => setAaStepStatus(2), 2000);
     const t2 = setTimeout(() => setAaStepStatus(3), 4000);
     try {
       const tk = localStorage.getItem('token');
       const r = await axios.post('/api/tickets/auto-actions/password-sms', {
         phone: aaSelected.phone, prenom: aaSelected.prenom || '', nom: aaSelected.nom || '',
-        password: aaPassword, message: aaSmsMsg,
+        password: pwd, message: msg,
         ad_username: (aaSelected as any).ad_username || '',
       }, { headers: { Authorization: `Bearer ${tk}` } });
-      const adLabel = r.data.ad_changed
-        ? ' · Mot de passe changé dans l\'AD ✓'
-        : r.data.ad_error ? '' : '';
-      const o365Label = r.data.o365_changed
-        ? r.data.o365_error ? ` · ${r.data.o365_error}` : ' · Mot de passe synchronisé O365 ✓'
-        : '';
-      setAaSuccess(`SMS envoyé à ${aaSelected.prenom ? aaSelected.prenom + ' ' : ''}${aaSelected.nom} (${aaSelected.phone})${adLabel}${o365Label}`);
+      const adLabel = r.data.ad_changed ? ' ✓' : '';
+      const o365Label = r.data.o365_changed ? (r.data.o365_error ? ` · ${r.data.o365_error}` : ' · O365 ✓') : '';
+      setAaSuccess(`SMS envoyé${adLabel}${o365Label}`);
       if (r.data.ad_error) setAaAdWarning(r.data.ad_error);
     } catch (e: any) {
       setAaStepStatus(4);
@@ -474,7 +453,7 @@ export default function FastActions() {
                 {aaStep === 0 ? '⚡ Actions automatiques' : aaStep === 1 ? '🔑 Mot de passe par SMS' : aaStep === 2 ? '📱 Envoi SMS' : '🔁 Compte AD'}
               </div>
               {aaStep === 1 && <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>Sélectionnez le bénéficiaire</div>}
-              {aaStep === 2 && aaSelected && <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>{aaSelected.prenom || ''} {aaSelected.nom} · 📱 {aaSelected.phone}</div>}
+              {aaStep === 2 && aaSelected && <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>{aaSelected.prenom || ''} {aaSelected.nom}</div>}
             </div>
             <button onClick={closeAutoActions}
               style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 22, color: '#94a3b8', lineHeight: 1 }}>✕</button>
@@ -566,7 +545,7 @@ export default function FastActions() {
                             </div>
                             {(b.fonction || b.service) && <span style={{ fontSize: 11, color: '#94a3b8', lineHeight: 1.3 }}>{b.fonction}{b.service ? ` · ${b.service}` : ''}</span>}
                           </div>
-                          <span style={{ fontSize: 12, color: '#475569', fontFamily: 'monospace', whiteSpace: 'nowrap', marginLeft: 8 }}>📱 {b.phone}</span>
+
                         </div>
                       ))}
                     </div>
@@ -583,27 +562,9 @@ export default function FastActions() {
               </div>
             )}
 
-            {/* ── Step 2: SMS confirm ── */}
+            {/* ── Step 2: SMS en cours / résultat (pas de mot de passe affiché) ── */}
             {aaStep === 2 && aaSelected && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
-                <div>
-                  <label style={{ fontSize: 12, fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: 0.5, display: 'block', marginBottom: 8 }}>Mot de passe généré</label>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <code style={{ flex: 1, padding: '12px 14px', background: '#f8fafc', border: '1.5px solid #e2e8f0', borderRadius: 10, fontSize: 16, fontFamily: 'monospace', fontWeight: 700, letterSpacing: 2, color: '#0f172a' }}>{aaPassword}</code>
-                    <button title="Régénérer" onClick={regeneratePassword}
-                      style={{ padding: '12px', borderRadius: 10, border: '1px solid #e2e8f0', background: '#fff', cursor: 'pointer', fontSize: 18 }}>🔄</button>
-                    <button title="Copier" onClick={() => { navigator.clipboard.writeText(aaPassword); setAaCopied(true); setTimeout(() => setAaCopied(false), 2000); }}
-                      style={{ padding: '12px', borderRadius: 10, border: '1px solid #e2e8f0', background: aaCopied ? '#f0fdf4' : '#fff', cursor: 'pointer', fontSize: 18 }}>{aaCopied ? '✓' : '📋'}</button>
-                  </div>
-                </div>
-
-                <div>
-                  <label style={{ fontSize: 12, fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: 0.5, display: 'block', marginBottom: 8 }}>Message SMS</label>
-                  <textarea value={aaSmsMsg} onChange={e => setAaSmsMsg(e.target.value)} rows={5}
-                    style={{ width: '100%', boxSizing: 'border-box', padding: '12px', border: '1.5px solid #e2e8f0', borderRadius: 10, fontSize: 14, fontFamily: 'inherit', resize: 'vertical', outline: 'none', lineHeight: 1.6 }} />
-                  <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 4 }}>{aaSmsMsg.length} caractères</div>
-                </div>
-
                 {aaError && <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 10, padding: '12px 14px', color: '#dc2626', fontSize: 13 }}>{aaError}</div>}
                 {aaSending && <div style={{ background: '#f0f9ff', border: '1px solid #bae6fd', borderRadius: 10, padding: '12px 14px', color: '#0369a1', fontSize: 13, display: 'flex', flexDirection: 'column', gap: 6 }}>
                   <div>{aaStepStatus >= 1 ? '✅' : '⏳'} 1. Changement mot de passe AD{aaStepStatus > 1 ? ' ✓' : aaStepStatus === 1 ? '…' : ''}</div>
@@ -676,23 +637,18 @@ export default function FastActions() {
           {/* Footer */}
           {aaStep === 1 && (
             <div className="fast-aa-footer">
-              <button disabled={!aaSelected} onClick={goToSmsConfirm}
+              <button disabled={!aaSelected} onClick={sendSmsDirect}
                 style={{ width: '100%', padding: '14px', borderRadius: 12, border: 'none', background: aaSelected ? '#f59e0b' : '#e2e8f0', color: aaSelected ? '#fff' : '#94a3b8', fontWeight: 700, fontSize: 15, cursor: aaSelected ? 'pointer' : 'default' }}>
-                Continuer →
+                📱 Envoyer SMS + changer MDP AD
               </button>
             </div>
           )}
           {aaStep === 2 && aaSelected && (
             <div className="fast-aa-footer">
-              {aaSuccess ? (
+              {(aaSuccess || aaError) && (
                 <button onClick={closeAutoActions}
                   style={{ width: '100%', padding: '14px', borderRadius: 12, border: 'none', background: '#0f172a', color: '#fff', fontWeight: 700, fontSize: 15, cursor: 'pointer' }}>
                   Fermer
-                </button>
-              ) : (
-                <button disabled={aaSending || !aaSmsMsg.trim()} onClick={sendPasswordSms}
-                  style={{ width: '100%', padding: '14px', borderRadius: 12, border: 'none', background: aaSending ? '#e2e8f0' : '#f59e0b', color: aaSending ? '#94a3b8' : '#fff', fontWeight: 700, fontSize: 15, cursor: aaSending ? 'default' : 'pointer' }}>
-                  {aaSending ? '⏳ Envoi…' : '📱 Envoyer SMS + changer MDP AD'}
                 </button>
               )}
             </div>
