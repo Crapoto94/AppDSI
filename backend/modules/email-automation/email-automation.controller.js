@@ -175,10 +175,15 @@ const EmailAutomationController = {
         try {
             const { email, name, source } = req.body;
             const result = await pgDb.run(
-                'INSERT INTO email_automation_recipients (automation_id, email, name, source) VALUES (?, ?, ?, ?)',
+                `INSERT INTO email_automation_recipients (automation_id, email, name, source)
+                 VALUES (?, ?, ?, ?)
+                 ON CONFLICT (automation_id, email) DO UPDATE SET name = EXCLUDED.name, source = EXCLUDED.source`,
                 [req.params.id, email, name || '', source || 'manual']
             );
-            const recipient = await pgDb.get('SELECT * FROM email_automation_recipients WHERE id = ?', [result.lastID]);
+            const recipient = await pgDb.get(
+                'SELECT * FROM email_automation_recipients WHERE automation_id = ? AND email = ?',
+                [req.params.id, email]
+            );
             res.json(recipient);
         } catch (err) {
             console.error('[EMAIL-AUTO] Error adding recipient:', err.message);
@@ -264,6 +269,11 @@ const EmailAutomationController = {
 
         if (recipients.length === 0) return { message: 'Aucun destinataire', sent: 0, failed: 0 };
 
+        // Dédoublonnage par email (au cas où un même email serait enregistré plusieurs fois)
+        const seen = new Map();
+        for (const r of recipients) { if (!seen.has(r.email)) seen.set(r.email, r); }
+        const uniqueRecipients = [...seen.values()];
+
         if (!sendMailFn) return { message: 'Service email non configuré', sent: 0, failed: 0 };
 
         let html = '';
@@ -288,13 +298,13 @@ const EmailAutomationController = {
                 subject = subject.replace('{{date}}', formatDateStr(new Date()));
             } catch (err) {
                 console.error(`[EMAIL-AUTO] Error fetching URL ${automation.content_url}:`, err.message);
-                for (const r of recipients) {
+                for (const r of uniqueRecipients) {
                     await pgDb.run(
                         'INSERT INTO email_automation_logs (automation_id, recipient_email, subject, status, error_message) VALUES (?, ?, ?, ?, ?)',
                         [automation.id, r.email, subject, 'failed', `Erreur fetch URL: ${err.message}`]
                     );
                 }
-                return { message: `Erreur fetch URL: ${err.message}`, sent: 0, failed: recipients.length };
+                return { message: `Erreur fetch URL: ${err.message}`, sent: 0, failed: uniqueRecipients.length };
             }
         } else {
             html = automation.content_url || 'Aucun contenu';
@@ -306,7 +316,7 @@ const EmailAutomationController = {
 
         let sent = 0;
         let failed = 0;
-        for (const r of recipients) {
+        for (const r of uniqueRecipients) {
             try {
                 await sendMailFn(r.email, subject, html);
                 await pgDb.run(

@@ -70,6 +70,7 @@ function normalize(itemtype, it) {
     is_deleted: it.is_deleted == 1 || it.is_deleted === true,
     date_creation: str(it.date_creation),
     date_mod: str(it.date_mod),
+    last_inventory_update: str(it.last_inventory_update), // dernier contact GLPI (FusionInventory)
     // Champs financiers / dates — remplis par mergeInfocom()
     buy_date: null, use_date: null, delivery_date: null, warranty_date: null, reception_date: null, service_date: null,
     supplier: null, value: null, order_number: null, immo_number: null,
@@ -80,6 +81,7 @@ function normalize(itemtype, it) {
     ad_found: false,          // enrichi par enrichAdFound()
     ad_last_seen: null,       // dernière connexion AD du PC — enrichi par enrichAdComputer()
     ad_last_user: null,       // dernier utilisateur connu côté AD
+    last_contact: null,       // date de dernier contact combinée (GLPI ∨ AD) — enrichi par computeLastContact()
     itemtype_label: null,     // rempli par loadAllTypes() pour la vue "TOUS"
   };
 }
@@ -197,7 +199,37 @@ function applyListQuery(rows, query) {
       }
     });
   }
+  // Filtre « vue GLPI » : ancienneté du dernier inventaire GLPI (last_inventory_update).
+  if (query.glpi_seen) {
+    const daysSince = (r) => {
+      if (!r.last_inventory_update) return null;
+      const d = new Date(r.last_inventory_update);
+      if (isNaN(d.getTime())) return null;
+      return Math.floor((Date.now() - d.getTime()) / 86400000);
+    };
+    rows = rows.filter((r) => {
+      const n = daysSince(r);
+      switch (query.glpi_seen) {
+        case 'fresh':    return n != null && n <= 30;
+        case 'warn':     return n != null && n > 30 && n <= 90;
+        case 'stale':    return n != null && n > 90;
+        case 'notfound': return n == null;
+        default:         return true;
+      }
+    });
+  }
   if (query.docs === '1') rows = rows.filter((r) => r.doc_count > 0);
+  // Filtre par n° d'inventaire (otherserial) — recherche partielle
+  like('otherserial', query.otherserial);
+  // Filtre par date de dernier contact (before_date / after_date)
+  if (query.last_contact_before) {
+    const before = new Date(query.last_contact_before);
+    if (!isNaN(before.getTime())) rows = rows.filter((r) => r.last_contact && new Date(r.last_contact) <= before);
+  }
+  if (query.last_contact_after) {
+    const after = new Date(query.last_contact_after);
+    if (!isNaN(after.getTime())) rows = rows.filter((r) => r.last_contact && new Date(r.last_contact) >= after);
+  }
   // stock=0 (défaut) : exclut les machines en stock ; stock=1 : affiche tout (ajout).
   // Exception : si un filtre état est explicitement choisi, on ne l'écrase pas.
   const stateFilterIsStock = query.state && query.state.toLowerCase().includes('stock');
@@ -487,6 +519,17 @@ async function enrichAdComputer(rows) {
   } catch (e) { /* table absente ou non synchronisée */ }
 }
 
+// Calcule last_contact = date la plus récente entre AD (ad_last_seen) et GLPI (last_inventory_update).
+// Si les deux sont absentes, last_contact reste null → croix rouge.
+function computeLastContact(rows) {
+  for (const r of rows) {
+    const dates = [];
+    if (r.ad_last_seen) { const d = new Date(r.ad_last_seen); if (!isNaN(d.getTime())) dates.push(d); }
+    if (r.last_inventory_update) { const d = new Date(r.last_inventory_update); if (!isNaN(d.getTime())) dates.push(d); }
+    r.last_contact = dates.length ? dates.reduce((a, b) => a > b ? a : b).toISOString() : null;
+  }
+}
+
 // skipAdEnrich : en mode HUB la résolution AD n'est pas nécessaire (évite 10 s de latence
 // si l'AD ne répond pas). En mode LIVE on garde l'enrichissement complet.
 async function attachUsagerEmails(summary, { skipAdEnrich = false } = {}) {
@@ -581,6 +624,7 @@ async function loadType(itemtype, { refresh = false, ic = null, os = null, dc = 
   });
   await enrichAdFound(result);
   await enrichAdComputer(result);
+  computeLastContact(result);
   return result;
 }
 
@@ -771,6 +815,6 @@ module.exports = {
   core: {
     normalize, mergeInfocom, mapPort, mapOs, mapDoc,
     applyListQuery, buildFilters, computeKpis, buildItemResponse, attachUsagerEmails,
-    enrichAdFound, enrichAdComputer, computeUsagersEquip, computeStockSummary, loadMobiliteCounts, loadDeploiementsParAnnee, loadDeploiementsParMois,
+    enrichAdFound, enrichAdComputer, computeLastContact, computeUsagersEquip, computeStockSummary, loadMobiliteCounts, loadDeploiementsParAnnee, loadDeploiementsParMois,
   },
 };

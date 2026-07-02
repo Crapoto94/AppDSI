@@ -42,6 +42,7 @@ async function loadTypeRows(typeKey, { refresh = false } = {}) {
   const rows = rowsToNormalized(t.itemtype, r.rows);
   await core.enrichAdFound(rows);
   await core.enrichAdComputer(rows);
+  core.computeLastContact(rows);
   _hubCache.set(t.itemtype, { rows, ts: Date.now() });
   return rows;
 }

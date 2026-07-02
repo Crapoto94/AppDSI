@@ -3372,6 +3372,8 @@ async function setupPgDb() {
         name TEXT DEFAULT '',
         source TEXT DEFAULT 'manual'
     )`);
+    try { await client.query(`ALTER TABLE hub.email_automation_recipients ADD CONSTRAINT uq_automation_recipient UNIQUE (automation_id, email)`);
+    } catch (_) { /* déjà existante */ }
     await client.query(`CREATE TABLE IF NOT EXISTS hub.email_automation_logs (
         id SERIAL PRIMARY KEY,
         automation_id INTEGER NOT NULL REFERENCES hub.email_automations(id) ON DELETE CASCADE,

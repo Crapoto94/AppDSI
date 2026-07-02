@@ -14,6 +14,9 @@ function deriveEmailFromUsager(value) {
     const s = String(value).trim();
     const at = s.indexOf('@');
     if (at <= 0) return null;                       // pas de « @ » ou « @ » en tête
+    const domain = s.slice(at + 1).trim().toUpperCase();
+    // Domaines connus qui ne correspondent pas à EMAIL_DOMAIN — p. ex. écoles
+    if (domain === 'ECOLES') return null;
     const local = s.slice(0, at).trim().toLowerCase().replace(/\s+/g, '');
     if (!local || /[()\\,;:"<>]/.test(local)) return null; // partie locale invalide
     return `${local}@${EMAIL_DOMAIN}`;

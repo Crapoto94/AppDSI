@@ -119,6 +119,7 @@ interface Row {
   age_years: number | null;
   os: string | null; os_version: string | null;
   ad_last_seen: string | null; ad_last_user: string | null;
+  last_inventory_update: string | null; last_contact: string | null;
 }
 interface AdUser { username: string; displayName: string; email: string; service: string }
 interface AdModal { row: Row; query: string; results: AdUser[] | null; loading: boolean; selected: AdUser | null; applying: boolean }
@@ -160,22 +161,21 @@ const fmtDate = (s: string | null | undefined): string | null => {
 // ─── Helpers ────────────────────────────────────────────────────────────────
 const v = (x: any) => (x === null || x === undefined || x === '') ? <span style={{ color: '#cbd5e1' }}>—</span> : x;
 
-// Pastille « vu dans l'AD » : couleur selon l'ancienneté de la dernière connexion
-//  • < 30 j → vert   • 30–90 j → orange   • > 90 j → rouge
-const AdSeenDot: React.FC<{ lastSeen: string | null; lastUser: string | null }> = ({ lastSeen, lastUser }) => {
+// Pastille « dernier contact » : couleur selon l'ancienneté du dernier contact (AD ∨ GLPI)
+//  • < 30 j → vert   • 30–90 j → orange   • > 90 j → rouge   • inconnu → croix rouge
+const AdSeenDot: React.FC<{ lastContact: string | null; lastUser: string | null }> = ({ lastContact, lastUser }) => {
   const notFound = (
-    <span title="Introuvable dans l'AD" style={{ display: 'inline-flex', flexShrink: 0 }}>
+    <span title="Aucun contact connu" style={{ display: 'inline-flex', flexShrink: 0 }}>
       <X size={13} color="#dc2626" strokeWidth={3} />
     </span>
   );
-  // Non trouvé dans l'AD → croix rouge.
-  if (!lastSeen) return notFound;
-  const d = new Date(lastSeen);
+  if (!lastContact) return notFound;
+  const d = new Date(lastContact);
   if (isNaN(d.getTime())) return notFound;
   const days = Math.floor((Date.now() - d.getTime()) / 86400000);
   const color = days <= 30 ? '#16a34a' : days <= 90 ? '#d97706' : '#dc2626';
   const dateStr = d.toLocaleDateString('fr-FR');
-  const tip = `Vu dans l'AD le ${dateStr} (il y a ${days} j)` + (lastUser ? `\nDernier utilisateur : ${lastUser}` : '');
+  const tip = `Dernier contact le ${dateStr} (il y a ${days} j)` + (lastUser ? `\nDernier utilisateur AD : ${lastUser}` : '');
   return (
     <span title={tip} style={{ display: 'inline-block', width: 9, height: 9, borderRadius: '50%', background: color, flexShrink: 0, boxShadow: '0 0 0 2px #fff' }} />
   );
@@ -214,9 +214,13 @@ const ParcInformatique: React.FC = () => {
   const [fGroup, setFGroup] = useState('');
   const [fType, setFType] = useState('');
   const [fAdSeen, setFAdSeen] = useState(''); // '' | 'fresh' | 'warn' | 'stale' | 'notfound'
+  const [fGlpiSeen, setFGlpiSeen] = useState(''); // '' | 'fresh' | 'warn' | 'stale' | 'notfound'
   const [fAd, setFAd] = useState<'' | '1' | '0'>();
   const [fDocs, setFDocs] = useState(false);
   const [fStock, setFStock] = useState(false);
+  const [fOtherserial, setFOtherserial] = useState('');     // N° inventaire
+  const [fLastContactBefore, setFLastContactBefore] = useState(''); // date (YYYY-MM-DD)
+  const [fLastContactAfter, setFLastContactAfter] = useState('');   // date (YYYY-MM-DD)
   // Tri des colonnes
   const [sortCol, setSortCol] = useState('name');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
@@ -375,7 +379,11 @@ const ParcInformatique: React.FC = () => {
         supplier: fSupplier || undefined, mise: fMise || undefined, group: fGroup || undefined,
         type_filter: fType || undefined,
         ad_seen: fAdSeen || undefined,
+        glpi_seen: fGlpiSeen || undefined,
         ad: fAd || undefined, docs: fDocs ? '1' : undefined, stock: fStock ? '1' : '0',
+        otherserial: fOtherserial || undefined,
+        last_contact_before: fLastContactBefore || undefined,
+        last_contact_after: fLastContactAfter || undefined,
         sort: sortCol, dir: sortDir,
         refresh: refresh ? 1 : undefined,
       } });
@@ -383,7 +391,7 @@ const ParcInformatique: React.FC = () => {
     } catch (e: any) {
       setListErr(e.response?.data?.message || e.message); setRows([]); setTotal(0);
     } finally { setLoadingList(false); }
-  }, [type, q, start, limit, affecte, fLocation, fState, fMan, fSupplier, fMise, fType, fAdSeen, fAd, fDocs, fStock, fGroup, sortCol, sortDir, token, source]);
+  }, [type, q, start, limit, affecte, fLocation, fState, fMan, fSupplier, fMise, fType, fAdSeen, fGlpiSeen, fAd, fDocs, fStock, fGroup, fOtherserial, fLastContactBefore, fLastContactAfter, sortCol, sortDir, token, source]);
 
   const handleDoublonMerge = useCallback(async (type_key: string, kept_id: number, merged_id: number, groupIdx: number) => {
     const key = `${kept_id}-${merged_id}`;
@@ -429,8 +437,8 @@ const ParcInformatique: React.FC = () => {
   // Efface les erreurs résiduelles quand on bascule de source (live ↔ hub)
   useEffect(() => { setKpiErr(null); setListErr(null); setUsagerErr(null); }, [source]);
   useEffect(() => { loadKpis(); }, [loadKpis]);
-  useEffect(() => { if (tab === 'list') { loadList(); } }, [tab, type, start, affecte, fLocation, fState, fMan, fSupplier, fMise, fType, fAdSeen, fAd, fDocs, fStock, fGroup, sortCol, sortDir, source]);
-  useEffect(() => { if (tab === 'list') { setStart(0); setFLocation(''); setFState(''); setFMan(''); setFSupplier(''); setFMise(''); setFGroup(''); setFType(''); setFAdSeen(''); setFAd(undefined); setFDocs(false); setFStock(false); setSortCol('name'); setSortDir('asc'); loadFilters(); } }, [type, tab, source]);
+  useEffect(() => { if (tab === 'list') { loadList(); } }, [tab, type, start, limit, affecte, fLocation, fState, fMan, fSupplier, fMise, fType, fAdSeen, fGlpiSeen, fAd, fDocs, fStock, fGroup, fOtherserial, fLastContactBefore, fLastContactAfter, sortCol, sortDir, source]);
+  useEffect(() => { if (tab === 'list') { setStart(0); setFLocation(''); setFState(''); setFMan(''); setFSupplier(''); setFMise(''); setFGroup(''); setFType(''); setFAdSeen(''); setFGlpiSeen(''); setFAd(undefined); setFDocs(false); setFStock(false); setFOtherserial(''); setFLastContactBefore(''); setFLastContactAfter(''); setSortCol('name'); setSortDir('asc'); loadFilters(); } }, [type, tab, source]);
 
   const loadGeo = useCallback(async () => {
     setLoadingGeo(true); setGeoErr(null);
@@ -1080,10 +1088,21 @@ const ParcInformatique: React.FC = () => {
                   <option value="stale">🔴 Vu &gt; 90 j</option>
                   <option value="notfound">✕ Introuvable dans l'AD</option>
                 </select>}
+              {(type === 'ordinateurs' || type === 'tous') &&
+                <select value={fGlpiSeen} onChange={e => { setStart(0); setFGlpiSeen(e.target.value); }} style={selStyle}>
+                  <option value="">GLPI : tous</option>
+                  <option value="fresh">🟢 Vu &lt; 30 j</option>
+                  <option value="warn">🟠 Vu 30–90 j</option>
+                  <option value="stale">🔴 Vu &gt; 90 j</option>
+                  <option value="notfound">✕ Introuvable dans GLPI</option>
+                </select>}
               <Select value={fLocation} onChange={setFLocation} placeholder="Tous les lieux" options={filters.locations} />
               <Select value={fState} onChange={setFState} placeholder="Tous les statuts" options={filters.states} />
               <Select value={fMan} onChange={setFMan} placeholder="Tous les fabricants" options={filters.manufacturers} />
               <Select value={fSupplier} onChange={setFSupplier} placeholder="Tous les fournisseurs" options={filters.suppliers} />
+              <input value={fOtherserial} onChange={e => { setStart(0); setFOtherserial(e.target.value); }}
+                placeholder="N° inventaire…"
+                style={{ padding: '9px 12px', borderRadius: 10, border: `1px solid ${C.border}`, fontSize: '.9rem', width: 140, boxSizing: 'border-box' }} />
               <Select value={fGroup} onChange={setFGroup} placeholder="Tous les groupes" options={filters.groups} />
               <select value={fMise} onChange={e => { setStart(0); setFMise(e.target.value); }} style={selStyle}>
                 <option value="">Mise en service : toutes</option>
@@ -1108,6 +1127,15 @@ const ParcInformatique: React.FC = () => {
                 <input type="checkbox" checked={fStock} onChange={e => { setStart(0); setFStock(e.target.checked); }} style={{ accentColor: '#d97706', width: 14, height: 14 }} />
                 <Boxes size={14} /> Inclure stock
               </label>
+              {/* Filtre date dernier contact */}
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: '.82rem', color: C.slate }}>
+                Contact du
+                <input type="date" value={fLastContactAfter} onChange={e => { setStart(0); setFLastContactAfter(e.target.value); }}
+                  style={{ padding: '6px 8px', borderRadius: 8, border: `1px solid ${C.border}`, fontSize: '.82rem', width: 140 }} />
+                au
+                <input type="date" value={fLastContactBefore} onChange={e => { setStart(0); setFLastContactBefore(e.target.value); }}
+                  style={{ padding: '6px 8px', borderRadius: 8, border: `1px solid ${C.border}`, fontSize: '.82rem', width: 140 }} />
+              </span>
               <button onClick={() => { setStart(0); loadList(); }} style={btn(C.blue)}>Rechercher</button>
             </div>
 
@@ -1129,10 +1157,10 @@ const ParcInformatique: React.FC = () => {
                   const extraCol: HdrDef | null =
                     type === 'peripheriques' ? ['Type', 'type'] :
                     (type === 'ordinateurs' || type === 'moniteurs') ? ['Marque', 'manufacturer'] : null;
-                  const colSpan = (isTous ? 15 : 14) + (extraCol ? 1 : 0);
+                  const colSpan = (isTous ? 17 : 16) + (extraCol ? 1 : 0);
                   const hdrs: HdrDef[] = isTous
-                    ? [['Nom','name'],['Type',null],['Usager','contact'],['N° usager','contact_num'],['Groupe','group'],['Lieu','location'],['Modèle','model'],['N° série','serial'],['Statut','state'],['Réception','reception_date'],['Mise en service','service_date'],['Âge','age_years'],['Docs','doc_count'],[''  ,null]]
-                    : [['Nom','name'],['Usager','contact'],['N° usager','contact_num'],['Groupe','group'],['Lieu','location'],...(extraCol ? [extraCol] : []),['Modèle','model'],['N° série','serial'],['Statut','state'],['Réception','reception_date'],['Mise en service','service_date'],['Âge','age_years'],['Docs','doc_count'],['' ,null]];
+                    ? [['Nom','name'],['Type',null],['Usager','contact'],['N° usager','contact_num'],['Groupe','group'],['Lieu','location'],['Modèle','model'],['N° série','serial'],['N° inventaire','otherserial'],['Statut','state'],['Réception','reception_date'],['Mise en service','service_date'],['Âge','age_years'],['Dernier contact','last_contact'],['Docs','doc_count'],[''  ,null]]
+                    : [['Nom','name'],['Usager','contact'],['N° usager','contact_num'],['Groupe','group'],['Lieu','location'],...(extraCol ? [extraCol] : []),['Modèle','model'],['N° série','serial'],['N° inventaire','otherserial'],['Statut','state'],['Réception','reception_date'],['Mise en service','service_date'],['Âge','age_years'],['Dernier contact','last_contact'],['Docs','doc_count'],['' ,null]];
                   const thSort = (key: string | null) => {
                     if (!key) return;
                     if (sortCol === key) { setSortDir(d => d === 'asc' ? 'desc' : 'asc'); }
@@ -1159,7 +1187,7 @@ const ParcInformatique: React.FC = () => {
                         <td style={{ padding: '10px 14px', fontWeight: 600, color: C.text }}>
                           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
                             {(type === 'ordinateurs' || (isTous && r.type_key === 'ordinateurs')) &&
-                              <AdSeenDot lastSeen={r.ad_last_seen} lastUser={r.ad_last_user} />}
+                              <AdSeenDot lastContact={r.last_contact} lastUser={r.ad_last_user} />}
                             {v(r.name)}
                           </span>
                         </td>
@@ -1201,6 +1229,7 @@ const ParcInformatique: React.FC = () => {
                         )}
                         <td style={{ padding: '10px 14px', color: C.slate }}>{v(r.model)}</td>
                         <td style={{ padding: '10px 14px', fontFamily: 'monospace', fontSize: '.8rem' }}>{v(r.serial)}</td>
+                        <td style={{ padding: '10px 14px', fontFamily: 'monospace', fontSize: '.8rem', color: C.slate }}>{v(r.otherserial)}</td>
                         <td style={{ padding: '10px 14px' }}>{r.state ? <span style={{ background: '#eff6ff', color: C.blue, padding: '2px 8px', borderRadius: 6, fontSize: '.78rem', fontWeight: 600 }}>{r.state}</span> : v(null)}</td>
                         <td style={{ padding: '10px 14px', fontFamily: 'monospace', fontSize: '.8rem', color: C.slate }}>{v(fmtDate(r.reception_date))}</td>
                         <td style={{ padding: '10px 14px' }}>
@@ -1219,6 +1248,9 @@ const ParcInformatique: React.FC = () => {
                                 {r.age_years} an{r.age_years >= 2 ? 's' : ''}
                               </span>
                             : v(null)}
+                        </td>
+                        <td style={{ padding: '10px 14px', fontFamily: 'monospace', fontSize: '.8rem', color: C.slate }}>
+                          {r.last_contact ? <span title={`GLPI: ${fmtDate(r.last_inventory_update) || '—'}\nAD: ${fmtDate(r.ad_last_seen) || '—'}`}>{fmtDate(r.last_contact)}</span> : v(null)}
                         </td>
                         <td style={{ padding: '10px 14px' }}>
                           {r.doc_count > 0
