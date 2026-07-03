@@ -874,7 +874,7 @@ export default function TicketsDashboard() {
               {resetRunning ? '⏳' : '🔄'} Récupérer GLPI
             </button>
           )}
-          {['superadmin', 'superadmins', 'admin', 'supervisor', 'superviseur'].includes((resolvedRole ?? user?.role ?? '').toLowerCase().trim()) && (
+          {['superadmin', 'superadmins', 'admin', 'supervisor', 'superviseur', 'technician', 'tech'].includes((resolvedRole ?? user?.role ?? '').toLowerCase().trim()) && (
             <button onClick={() => { setShowAutoActions(true); setAaStep(0); setAaSelected(null); setAaSearch(''); setAaError(''); setAaSuccess(''); setAaAdWarning(''); const tk = localStorage.getItem('token'); axios.get('/api/tickets/auto-actions/settings', { headers: { Authorization: `Bearer ${tk}` } }).then(r => { setAaSettings(r.data); setAaSettingsDraft(r.data); }).catch(() => {}); }}
               style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '10px 18px', border: '1px solid #fbbf24', borderRadius: 8, background: '#fffbeb', color: '#92400e', fontWeight: 700, fontSize: 14, cursor: 'pointer' }}>
               ⚡ Actions auto

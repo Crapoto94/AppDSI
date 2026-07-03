@@ -89,7 +89,7 @@ export default function FastActions() {
       .catch(() => {});
   }, []);
 
-  const canAutoActions = ['superadmin', 'superadmins', 'admin', 'supervisor', 'superviseur'].includes((resolvedRole ?? user?.role ?? '').toLowerCase().trim());
+  const canAutoActions = ['superadmin', 'superadmins', 'admin', 'supervisor', 'superviseur', 'technician', 'tech'].includes((resolvedRole ?? user?.role ?? '').toLowerCase().trim());
 
   // ── Search handler ──
   async function performSearch(q: string) {
@@ -421,7 +421,7 @@ export default function FastActions() {
               <div className="fast-action-icon" style={{ background: '#fffbeb', color: '#f59e0b' }}>⚡</div>
               <div>
                 <div className="fast-action-title">Actions auto</div>
-                <div className="fast-action-desc">Mdp par SMS, activer/désactiver un compte AD</div>
+                <div className="fast-action-desc">Mdp par SMS, synchro O365, activer/désactiver un compte AD</div>
               </div>
             </button>
           </div>
@@ -431,7 +431,7 @@ export default function FastActions() {
               <div className="fast-action-icon" style={{ background: '#f1f5f9', color: '#94a3b8' }}>⚡</div>
               <div>
                 <div className="fast-action-title" style={{ color: '#94a3b8' }}>Actions auto</div>
-                <div className="fast-action-desc">Réservé aux superviseurs et administrateurs</div>
+                <div className="fast-action-desc">Réservé aux utilisateurs tickets</div>
               </div>
             </div>
           </div>
