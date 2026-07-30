@@ -5,7 +5,9 @@
  * Aucune logique de stockage ici : le service est agnostique du backend.
  */
 const path = require('path');
+const fs = require('fs');
 const docs = require('../../shared/documents.service');
+const { parseMsgBuffer, extractMsgAttachment } = require('../../shared/msg_parser');
 
 /** Sécurise un nom de fichier pour l'entête Content-Disposition. */
 function dispositionFilename(name) {
@@ -20,6 +22,13 @@ function sendContent(res, fileDesc, { inline }) {
     else res.type(path.extname(fileDesc.originalName || fileDesc.filename || '') || 'application/octet-stream');
     if (fileDesc.absolutePath) return res.sendFile(fileDesc.absolutePath);
     return res.send(fileDesc.buffer);
+}
+
+/** Récupère le contenu binaire d'un descripteur readVersion() (buffer direct ou fichier local). */
+function bufferOf(fileDesc) {
+    if (fileDesc.buffer) return fileDesc.buffer;
+    if (fileDesc.absolutePath) return fs.readFileSync(fileDesc.absolutePath);
+    return null;
 }
 
 module.exports = {
@@ -97,6 +106,37 @@ module.exports = {
             const f = await docs.readVersion(req.params.id, parseInt(req.params.v, 10));
             if (!f) return res.status(404).json({ error: 'Fichier introuvable' });
             sendContent(res, f, { inline: req.query.mode === 'inline' });
+        } catch (error) {
+            res.status(500).json({ error: error.message });
+        }
+    },
+
+    // GET /api/documents/:id/versions/:v/msg — prévisualisation structurée d'un fichier .msg (Outlook)
+    async getMsgPreview(req, res) {
+        try {
+            const f = await docs.readVersion(req.params.id, parseInt(req.params.v, 10));
+            if (!f) return res.status(404).json({ error: 'Fichier introuvable' });
+            const buffer = bufferOf(f);
+            if (!buffer) return res.status(404).json({ error: 'Contenu introuvable' });
+            const parsed = parseMsgBuffer(buffer);
+            res.json(parsed);
+        } catch (error) {
+            res.status(500).json({ error: error.message });
+        }
+    },
+
+    // GET /api/documents/:id/versions/:v/msg/attachments/:idx — pièce jointe embarquée dans un .msg
+    async getMsgAttachment(req, res) {
+        try {
+            const f = await docs.readVersion(req.params.id, parseInt(req.params.v, 10));
+            if (!f) return res.status(404).json({ error: 'Fichier introuvable' });
+            const buffer = bufferOf(f);
+            if (!buffer) return res.status(404).json({ error: 'Contenu introuvable' });
+            const att = extractMsgAttachment(buffer, parseInt(req.params.idx, 10));
+            if (!att) return res.status(404).json({ error: 'Pièce jointe introuvable' });
+            res.setHeader('Content-Disposition', 'attachment; ' + dispositionFilename(att.fileName));
+            res.type(path.extname(att.fileName) || 'application/octet-stream');
+            res.send(Buffer.from(att.content));
         } catch (error) {
             res.status(500).json({ error: error.message });
         }

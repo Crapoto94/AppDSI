@@ -1,7 +1,7 @@
 import { useEffect, useState, useMemo } from 'react';
 import axios from 'axios';
 import { useAuth } from '../contexts/AuthContext';
-import { X, Download, FileText, Image as ImageIcon, File, Clock, User, Upload } from 'lucide-react';
+import { X, Download, FileText, Image as ImageIcon, File, Clock, User, Upload, Paperclip, Mail } from 'lucide-react';
 
 /**
  * DocumentViewer — modal de visualisation des documents du module centralisé.
@@ -47,7 +47,20 @@ interface Props {
     onChanged?: () => void; // appelé après upload/suppression
 }
 
-function isPreviewableMime(m: string | null | undefined): { kind: 'pdf' | 'image' | 'none' } {
+interface MsgPreview {
+    subject: string;
+    from: string;
+    to: string[];
+    cc: string[];
+    date: string | null;
+    bodyText: string;
+    bodyHtml: string;
+    attachments: { index: number; fileName: string; contentLength: number }[];
+}
+
+function isPreviewableMime(m: string | null | undefined, filename?: string | null): { kind: 'pdf' | 'image' | 'msg' | 'none' } {
+    const name = (filename || '').toLowerCase();
+    if (name.endsWith('.msg') || (m || '').toLowerCase() === 'application/vnd.ms-outlook') return { kind: 'msg' };
     if (!m) return { kind: 'none' };
     const mm = m.toLowerCase();
     if (mm === 'application/pdf') return { kind: 'pdf' };
@@ -77,6 +90,9 @@ export default function DocumentViewer({ documentId, onClose, canEdit = false, o
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [uploading, setUploading] = useState(false);
+    const [msgData, setMsgData] = useState<MsgPreview | null>(null);
+    const [msgLoading, setMsgLoading] = useState(false);
+    const [msgError, setMsgError] = useState<string | null>(null);
 
     const load = async () => {
         setLoading(true); setError(null);
@@ -102,7 +118,23 @@ export default function DocumentViewer({ documentId, onClose, canEdit = false, o
         ? `/api/documents/${documentId}/versions/${current.version}/content?token=${encodeURIComponent(token || '')}`
         : '';
 
-    const preview = current ? isPreviewableMime(current.mimetype) : { kind: 'none' as const };
+    const preview = current ? isPreviewableMime(current.mimetype, current.original_name) : { kind: 'none' as const };
+
+    const msgUrl = current
+        ? `/api/documents/${documentId}/versions/${current.version}/msg?token=${encodeURIComponent(token || '')}`
+        : '';
+
+    useEffect(() => {
+        if (!current || preview.kind !== 'msg') { setMsgData(null); return; }
+        setMsgLoading(true); setMsgError(null); setMsgData(null);
+        axios.get(`/api/documents/${documentId}/versions/${current.version}/msg`, {
+            headers: { Authorization: `Bearer ${token}` },
+        })
+            .then(({ data }) => setMsgData(data))
+            .catch((e) => setMsgError(e?.response?.data?.error || 'Impossible de lire ce message'))
+            .finally(() => setMsgLoading(false));
+        // eslint-disable-next-line
+    }, [documentId, current?.version, preview.kind]);
 
     const handleAddVersion = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
@@ -232,6 +264,45 @@ export default function DocumentViewer({ documentId, onClose, canEdit = false, o
                                         <img src={contentUrl} alt={current.original_name} style={styles.img} />
                                     </div>
                                 )}
+                                {current && preview.kind === 'msg' && (
+                                    <div style={styles.msgWrap}>
+                                        {msgLoading && <div style={styles.center}>Lecture du message…</div>}
+                                        {msgError && <div style={{ ...styles.center, color: '#c53030' }}>{msgError}</div>}
+                                        {!msgLoading && !msgError && msgData && (
+                                            <>
+                                                <div style={styles.msgHeader}>
+                                                    <div style={styles.msgSubject}>
+                                                        <Mail size={16} color="#4a6cf7" /> {msgData.subject}
+                                                    </div>
+                                                    <div style={styles.msgMetaRow}><strong>De :</strong> {msgData.from || '—'}</div>
+                                                    {msgData.to.length > 0 && (
+                                                        <div style={styles.msgMetaRow}><strong>À :</strong> {msgData.to.join(', ')}</div>
+                                                    )}
+                                                    {msgData.cc.length > 0 && (
+                                                        <div style={styles.msgMetaRow}><strong>Cc :</strong> {msgData.cc.join(', ')}</div>
+                                                    )}
+                                                    <div style={styles.msgMetaRow}><strong>Date :</strong> {msgData.date ? formatDate(msgData.date) : '—'}</div>
+                                                </div>
+                                                {msgData.attachments.length > 0 && (
+                                                    <div style={styles.msgAttachments}>
+                                                        {msgData.attachments.map(a => (
+                                                            <a key={a.index}
+                                                                href={`/api/documents/${documentId}/versions/${current.version}/msg/attachments/${a.index}?token=${encodeURIComponent(token || '')}`}
+                                                                style={styles.msgAttachmentChip}>
+                                                                <Paperclip size={12} /> {a.fileName} <span style={{ color: '#9ca3af' }}>({formatSize(a.contentLength)})</span>
+                                                            </a>
+                                                        ))}
+                                                    </div>
+                                                )}
+                                                <div style={styles.msgBody}>
+                                                    {msgData.bodyHtml
+                                                        ? <iframe srcDoc={msgData.bodyHtml} style={styles.iframe} sandbox="" title={msgData.subject} />
+                                                        : <div style={styles.msgBodyText}>{msgData.bodyText}</div>}
+                                                </div>
+                                            </>
+                                        )}
+                                    </div>
+                                )}
                                 {current && preview.kind === 'none' && (
                                     <div style={styles.noPreview}>
                                         <File size={64} color="#9ca3af" />
@@ -323,4 +394,15 @@ const styles: Record<string, React.CSSProperties> = {
         alignItems: 'center', justifyContent: 'center', textAlign: 'center', padding: 40,
     },
     center: { padding: 40, textAlign: 'center', color: '#6b7280' },
+    msgWrap: { flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: '#fff' },
+    msgHeader: { padding: '14px 18px', borderBottom: '1px solid #e5e7eb' },
+    msgSubject: { fontSize: 16, fontWeight: 700, color: '#1f2937', display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 },
+    msgMetaRow: { fontSize: 13, color: '#4b5563', marginTop: 2 },
+    msgAttachments: { padding: '10px 18px', borderBottom: '1px solid #e5e7eb', display: 'flex', flexWrap: 'wrap', gap: 8, background: '#f9fafb' },
+    msgAttachmentChip: {
+        display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#374151',
+        background: '#fff', border: '1px solid #e5e7eb', borderRadius: 6, padding: '4px 10px', textDecoration: 'none',
+    },
+    msgBody: { flex: 1, minHeight: 0, display: 'flex' },
+    msgBodyText: { padding: 18, whiteSpace: 'pre-wrap', fontSize: 13, color: '#1f2937', overflowY: 'auto', flex: 1 },
 };

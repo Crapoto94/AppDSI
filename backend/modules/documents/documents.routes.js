@@ -28,6 +28,8 @@ router.get('/:id', authenticateJWT, ctrl.getDocument);
 // ─── Lecture contenu (auth header OU query token) ────────────────────────────
 router.get('/:id/content', authJwtOrQuery, ctrl.getCurrentContent);
 router.get('/:id/versions/:v/content', authJwtOrQuery, ctrl.getVersionContent);
+router.get('/:id/versions/:v/msg', authJwtOrQuery, ctrl.getMsgPreview);
+router.get('/:id/versions/:v/msg/attachments/:idx', authJwtOrQuery, ctrl.getMsgAttachment);
 
 // ─── Écriture ────────────────────────────────────────────────────────────────
 router.post('/', authenticateJWT, upload.single('file'), ctrl.upload);

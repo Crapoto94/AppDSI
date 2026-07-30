@@ -430,7 +430,7 @@ const Vols: React.FC = () => {
   return (
     <div style={{ minHeight: '100vh', background: 'var(--bg-color, #f8fafc)' }}>
       <Header />
-      <main style={{ maxWidth: 1200, margin: '0 auto', padding: '32px 20px' }}>
+      <main style={{ width: '90%', margin: '0 auto', padding: '32px 0' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24, flexWrap: 'wrap', gap: 12 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
             <div style={{ background: '#fef2f2', color: '#dc2626', borderRadius: 12, padding: 10, display: 'flex' }}>

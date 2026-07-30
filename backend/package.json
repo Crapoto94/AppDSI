@@ -12,6 +12,7 @@
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
+    "@kenjiuno/msgreader": "^1.28.0",
     "adm-zip": "^0.5.17",
     "archiver": "^6.0.1",
     "axios": "^1.13.6",
