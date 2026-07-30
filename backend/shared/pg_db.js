@@ -2673,6 +2673,7 @@ async function setupPgDb() {
         lieu VARCHAR(255) DEFAULT '',
         circonstances TEXT DEFAULT '',
         numero_ticket VARCHAR(255) DEFAULT '',
+        dpd_informe BOOLEAN DEFAULT FALSE,
         statut VARCHAR(50) DEFAULT 'declare',
         created_by VARCHAR(255) DEFAULT '',
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -2685,6 +2686,7 @@ async function setupPgDb() {
       await client.query(`ALTER TABLE hub_vols.thefts ADD COLUMN IF NOT EXISTS agent_nom VARCHAR(255) DEFAULT ''`);
       await client.query(`ALTER TABLE hub_vols.thefts ADD COLUMN IF NOT EXISTS agent_service VARCHAR(255) DEFAULT ''`);
       await client.query(`ALTER TABLE hub_vols.thefts ADD COLUMN IF NOT EXISTS numero_ticket VARCHAR(255) DEFAULT ''`);
+      await client.query(`ALTER TABLE hub_vols.thefts ADD COLUMN IF NOT EXISTS dpd_informe BOOLEAN DEFAULT FALSE`);
     } catch (e) {
       console.log('[PG DB] Migration hub_vols.thefts columns:', e.message);
     }

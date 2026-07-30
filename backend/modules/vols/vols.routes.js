@@ -10,6 +10,7 @@ router.get('/', authenticateJWT, ctrl.list);
 router.get('/:id', authenticateJWT, ctrl.getOne);
 router.post('/', authenticateJWT, ctrl.create);
 router.put('/:id', authenticateJWT, ctrl.update);
+router.patch('/:id/dpd', authenticateJWT, ctrl.toggleDpd);
 router.delete('/:id', authenticateJWT, ctrl.remove);
 router.get('/:id/documents', authenticateJWT, ctrl.getDocuments);
 router.post('/:id/documents', authenticateJWT, upload.single('file'), ctrl.uploadDoc);

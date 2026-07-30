@@ -5,7 +5,7 @@ import Header from '../components/Header';
 import DocumentViewer from '../components/DocumentViewer';
 import {
   ShieldAlert, Plus, X, Search, Trash2, Edit3, Paperclip, Upload, Download,
-  MessageSquare, Send, Loader2, ArrowLeft, ArrowUp, ArrowDown, ChevronsUpDown, Eye
+  MessageSquare, Send, Loader2, ArrowLeft, ArrowUp, ArrowDown, ChevronsUpDown, Eye, ShieldCheck
 } from 'lucide-react';
 
 interface Theft {
@@ -26,6 +26,7 @@ interface Theft {
   lieu: string;
   circonstances: string;
   numero_ticket: string;
+  dpd_informe: boolean;
   statut: string;
   doc_count?: number;
   created_by: string;
@@ -91,7 +92,7 @@ const emptyForm = {
   type_incident: 'vol',
   designation: '', numero_inventaire: '', parc_type_key: '', parc_glpi_id: null as number | null,
   agent_nom: '', agent_service: '', beneficiaire_nom: '', beneficiaire_service: '', valeur_achat: '', date_achat: '',
-  age_annees: '', date_vol: '', lieu: '', circonstances: '', numero_ticket: '', statut: 'declare'
+  age_annees: '', date_vol: '', lieu: '', circonstances: '', numero_ticket: '', dpd_informe: false, statut: 'declare'
 };
 
 function typeIncidentInfo(v: string) {
@@ -129,6 +130,7 @@ const COLUMNS: { key: string; label: string; sortable: boolean }[] = [
   { key: 'numero_ticket', label: 'Ticket', sortable: false },
   { key: 'statut', label: 'Statut', sortable: true },
   { key: 'doc_count', label: 'Docs', sortable: true },
+  { key: 'dpd_informe', label: 'DPD informé', sortable: true },
   { key: '_actions', label: '', sortable: false },
 ];
 
@@ -140,6 +142,10 @@ function sortThefts(list: Theft[], sortKey: string, sortDir: SortDir): Theft[] {
     if (NUMERIC_KEYS.has(sortKey)) {
       av = av == null ? null : Number(av);
       bv = bv == null ? null : Number(bv);
+    }
+    if (sortKey === 'dpd_informe') {
+      av = av ? 1 : 0;
+      bv = bv ? 1 : 0;
     }
     if (sortKey === 'date_vol') {
       // Les dossiers sans date restent en tête, quel que soit le sens du tri.
@@ -252,6 +258,7 @@ const Vols: React.FC = () => {
       lieu: t.lieu || '',
       circonstances: t.circonstances || '',
       numero_ticket: t.numero_ticket || '',
+      dpd_informe: !!t.dpd_informe,
       statut: t.statut || 'declare'
     });
     setEditingId(t.id);
@@ -332,6 +339,21 @@ const Vols: React.FC = () => {
       fetchThefts();
     } catch (e) {
       alert('Erreur lors de la suppression');
+    }
+  };
+
+  const toggleDpd = async (t: Theft, e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    const next = !t.dpd_informe;
+    setThefts(list => list.map(x => x.id === t.id ? { ...x, dpd_informe: next } : x));
+    if (detail?.id === t.id) setDetail(d => d ? { ...d, dpd_informe: next } : d);
+    try {
+      await axios.patch(`/api/vols/${t.id}/dpd`, { dpd_informe: next }, { headers });
+    } catch (e) {
+      // Rollback en cas d'échec
+      setThefts(list => list.map(x => x.id === t.id ? { ...x, dpd_informe: !next } : x));
+      if (detail?.id === t.id) setDetail(d => d ? { ...d, dpd_informe: !next } : d);
+      alert('Erreur lors de la mise à jour du statut DPD');
     }
   };
 
@@ -531,6 +553,12 @@ const Vols: React.FC = () => {
                           <Eye size={15} /> {Number(t.doc_count) || 0}
                         </button>
                       </td>
+                      <td style={{ padding: '10px 14px' }} onClick={e => e.stopPropagation()}>
+                        <button onClick={(e) => toggleDpd(t, e)} title={t.dpd_informe ? 'DPD informé — cliquer pour annuler' : 'DPD non informé — cliquer pour marquer comme informé'}
+                          style={{ display: 'inline-flex', alignItems: 'center', gap: 6, border: 'none', cursor: 'pointer', padding: '4px 10px', borderRadius: 999, fontSize: 12, fontWeight: 700, background: t.dpd_informe ? '#dcfce7' : '#f1f5f9', color: t.dpd_informe ? '#16a34a' : '#94a3b8' }}>
+                          <ShieldCheck size={14} /> {t.dpd_informe ? 'Oui' : 'Non'}
+                        </button>
+                      </td>
                       <td style={{ padding: '10px 14px', textAlign: 'right', whiteSpace: 'nowrap' }} onClick={e => e.stopPropagation()}>
                         <button onClick={() => openEdit(t)} style={iconBtn} title="Modifier"><Edit3 size={15} /></button>
                         {isAdmin && <button onClick={() => deleteTheft(t.id)} style={{ ...iconBtn, color: '#dc2626' }} title="Supprimer"><Trash2 size={15} /></button>}
@@ -644,6 +672,10 @@ const Vols: React.FC = () => {
                   {STATUTS.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
                 </select>
               </Field>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 14, fontWeight: 600, color: '#334155' }}>
+                <input type="checkbox" checked={form.dpd_informe} onChange={e => setForm({ ...form, dpd_informe: e.target.checked })} style={{ width: 16, height: 16 }} />
+                DPD informé
+              </label>
             </div>
 
             <div style={{ padding: '14px 20px', borderTop: '1px solid #e2e8f0', display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
@@ -666,6 +698,11 @@ const Vols: React.FC = () => {
               <span style={{ background: `${statutInfo(detail.statut).color}1a`, color: statutInfo(detail.statut).color, padding: '4px 12px', borderRadius: 999, fontSize: 12, fontWeight: 700 }}>
                 {statutInfo(detail.statut).label}
               </span>
+              <button onClick={(e) => toggleDpd(detail, e)}
+                title={detail.dpd_informe ? 'DPD informé — cliquer pour annuler' : 'DPD non informé — cliquer pour marquer comme informé'}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 6, border: 'none', cursor: 'pointer', padding: '4px 12px', borderRadius: 999, fontSize: 12, fontWeight: 700, background: detail.dpd_informe ? '#dcfce7' : '#f1f5f9', color: detail.dpd_informe ? '#16a34a' : '#94a3b8' }}>
+                <ShieldCheck size={14} /> DPD {detail.dpd_informe ? 'informé' : 'non informé'}
+              </button>
               <button onClick={() => openEdit(detail)} style={iconBtn}><Edit3 size={16} /></button>
               <button onClick={() => setDetailId(null)} style={iconBtn}><X size={18} /></button>
             </div>

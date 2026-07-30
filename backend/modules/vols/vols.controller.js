@@ -43,16 +43,16 @@ module.exports = {
     try {
       const { type_incident, designation, numero_inventaire, parc_type_key, parc_glpi_id,
         agent_nom, agent_service, beneficiaire_nom, beneficiaire_service,
-        valeur_achat, date_achat, age_annees, date_vol, lieu, circonstances, numero_ticket, statut } = req.body;
+        valeur_achat, date_achat, age_annees, date_vol, lieu, circonstances, numero_ticket, dpd_informe, statut } = req.body;
       const result = await pgDb.run(
         `INSERT INTO hub_vols.thefts
           (type_incident, designation, numero_inventaire, parc_type_key, parc_glpi_id,
            agent_nom, agent_service, beneficiaire_nom, beneficiaire_service,
-           valeur_achat, date_achat, age_annees, date_vol, lieu, circonstances, numero_ticket, statut, created_by, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
+           valeur_achat, date_achat, age_annees, date_vol, lieu, circonstances, numero_ticket, dpd_informe, statut, created_by, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
         [type_incident || 'vol', designation, numero_inventaire || '', parc_type_key || '', parc_glpi_id || null,
          agent_nom || '', agent_service || '', beneficiaire_nom || '', beneficiaire_service || '',
-         valeur_achat || null, date_achat || null, age_annees || null, date_vol || null, lieu || '', circonstances || '', numero_ticket || '', statut || 'declare', req.user?.username || '']
+         valeur_achat || null, date_achat || null, age_annees || null, date_vol || null, lieu || '', circonstances || '', numero_ticket || '', !!dpd_informe, statut || 'declare', req.user?.username || '']
       );
       res.status(201).json({ id: result.lastID || result.id, message: 'Dossier créé' });
     } catch (e) {
@@ -64,22 +64,32 @@ module.exports = {
     try {
       const { type_incident, designation, numero_inventaire, parc_type_key, parc_glpi_id,
         agent_nom, agent_service, beneficiaire_nom, beneficiaire_service,
-        valeur_achat, date_achat, age_annees, date_vol, lieu, circonstances, numero_ticket, statut } = req.body;
+        valeur_achat, date_achat, age_annees, date_vol, lieu, circonstances, numero_ticket, dpd_informe, statut } = req.body;
       await pgDb.run(
         `UPDATE hub_vols.thefts SET
           type_incident = ?, designation = ?, numero_inventaire = ?, parc_type_key = ?, parc_glpi_id = ?,
           agent_nom = ?, agent_service = ?, beneficiaire_nom = ?, beneficiaire_service = ?,
-          valeur_achat = ?, date_achat = ?, age_annees = ?, date_vol = ?, lieu = ?, circonstances = ?, numero_ticket = ?,
+          valeur_achat = ?, date_achat = ?, age_annees = ?, date_vol = ?, lieu = ?, circonstances = ?, numero_ticket = ?, dpd_informe = ?,
           statut = ?, updated_at = NOW()
          WHERE id = ?`,
         [type_incident || 'vol', designation, numero_inventaire || '', parc_type_key || '', parc_glpi_id || null,
          agent_nom || '', agent_service || '', beneficiaire_nom || '', beneficiaire_service || '',
-         valeur_achat || null, date_achat || null, age_annees || null, date_vol || null, lieu || '', circonstances || '', numero_ticket || '',
+         valeur_achat || null, date_achat || null, age_annees || null, date_vol || null, lieu || '', circonstances || '', numero_ticket || '', !!dpd_informe,
          statut || 'declare', req.params.id]
       );
       res.json({ message: 'Dossier mis à jour' });
     } catch (e) {
       res.status(500).json({ message: 'Erreur mise à jour', error: e.message });
+    }
+  },
+
+  toggleDpd: async (req, res) => {
+    try {
+      const { dpd_informe } = req.body;
+      await pgDb.run('UPDATE hub_vols.thefts SET dpd_informe = ?, updated_at = NOW() WHERE id = ?', [!!dpd_informe, req.params.id]);
+      res.json({ message: 'Mis à jour', dpd_informe: !!dpd_informe });
+    } catch (e) {
+      res.status(500).json({ message: 'Erreur mise à jour DPD', error: e.message });
     }
   },
 
