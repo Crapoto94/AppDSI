@@ -24,6 +24,7 @@ interface Theft {
   date_vol: string | null;
   lieu: string;
   circonstances: string;
+  numero_ticket: string;
   statut: string;
   created_by: string;
   created_at: string;
@@ -69,9 +70,10 @@ const STATUTS: { value: string; label: string; color: string }[] = [
 
 const NATURES = ['Déclaration de vol', 'Déclaration de perte', 'Récépissé de plainte', 'Autre'];
 
-const TYPES_INCIDENT = [
-  { value: 'vol', label: 'Vol' },
-  { value: 'perte', label: 'Perte' },
+const TYPES_INCIDENT: { value: string; label: string; color: string }[] = [
+  { value: 'vol', label: 'Vol', color: '#dc2626' },
+  { value: 'perte', label: 'Perte', color: '#d97706' },
+  { value: 'casse', label: 'Casse', color: '#7c3aed' },
 ];
 
 const PARC_TYPES = [
@@ -86,7 +88,7 @@ const emptyForm = {
   type_incident: 'vol',
   designation: '', numero_inventaire: '', parc_type_key: '', parc_glpi_id: null as number | null,
   agent_nom: '', agent_service: '', beneficiaire_nom: '', beneficiaire_service: '', valeur_achat: '', date_achat: '',
-  age_annees: '', date_vol: '', lieu: '', circonstances: '', statut: 'declare'
+  age_annees: '', date_vol: '', lieu: '', circonstances: '', numero_ticket: '', statut: 'declare'
 };
 
 function typeIncidentInfo(v: string) {
@@ -95,6 +97,11 @@ function typeIncidentInfo(v: string) {
 
 function statutInfo(v: string) {
   return STATUTS.find(s => s.value === v) || STATUTS[0];
+}
+
+function ticketIds(v: string | null | undefined): string[] {
+  if (!v) return [];
+  return String(v).split(/[^0-9]+/).map(s => s.trim()).filter(Boolean);
 }
 
 function fmtMoney(v: number | null) {
@@ -185,6 +192,7 @@ const Vols: React.FC = () => {
       date_vol: t.date_vol ? t.date_vol.slice(0, 10) : '',
       lieu: t.lieu || '',
       circonstances: t.circonstances || '',
+      numero_ticket: t.numero_ticket || '',
       statut: t.statut || 'declare'
     });
     setEditingId(t.id);
@@ -375,7 +383,7 @@ const Vols: React.FC = () => {
                   return (
                     <tr key={t.id} style={{ borderBottom: '1px solid #f1f5f9', cursor: 'pointer' }} onClick={() => setDetailId(t.id)}>
                       <td style={{ padding: '10px 14px' }}>
-                        <span style={{ background: ti.value === 'vol' ? '#fef2f2' : '#f1f5f9', color: ti.value === 'vol' ? '#dc2626' : '#475569', padding: '3px 10px', borderRadius: 999, fontSize: 12, fontWeight: 700 }}>{ti.label}</span>
+                        <span style={{ background: `${ti.color}1a`, color: ti.color, padding: '3px 10px', borderRadius: 999, fontSize: 12, fontWeight: 700 }}>{ti.label}</span>
                       </td>
                       <td style={{ padding: '10px 14px', fontWeight: 600, color: '#0f172a' }}>{t.designation}</td>
                       <td style={{ padding: '10px 14px', fontFamily: 'monospace', color: '#475569' }}>{t.numero_inventaire || '—'}</td>
@@ -492,6 +500,9 @@ const Vols: React.FC = () => {
               <Field label="Circonstances">
                 <textarea value={form.circonstances} onChange={e => setForm({ ...form, circonstances: e.target.value })} rows={3} style={{ ...inputStyle, resize: 'vertical' }} />
               </Field>
+              <Field label="N° de ticket (GLPI)">
+                <input value={form.numero_ticket} onChange={e => setForm({ ...form, numero_ticket: e.target.value })} placeholder="ex: 40654" style={inputStyle} />
+              </Field>
               <Field label="Statut">
                 <select value={form.statut} onChange={e => setForm({ ...form, statut: e.target.value })} style={inputStyle}>
                   {STATUTS.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
@@ -513,7 +524,7 @@ const Vols: React.FC = () => {
             <div style={modalHeaderStyle}>
               <button onClick={() => setDetailId(null)} style={iconBtn}><ArrowLeft size={18} /></button>
               <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700, flex: 1 }}>{detail.designation}</h2>
-              <span style={{ background: typeIncidentInfo(detail.type_incident).value === 'vol' ? '#fef2f2' : '#f1f5f9', color: typeIncidentInfo(detail.type_incident).value === 'vol' ? '#dc2626' : '#475569', padding: '4px 12px', borderRadius: 999, fontSize: 12, fontWeight: 700 }}>
+              <span style={{ background: `${typeIncidentInfo(detail.type_incident).color}1a`, color: typeIncidentInfo(detail.type_incident).color, padding: '4px 12px', borderRadius: 999, fontSize: 12, fontWeight: 700 }}>
                 {typeIncidentInfo(detail.type_incident).label}
               </span>
               <span style={{ background: `${statutInfo(detail.statut).color}1a`, color: statutInfo(detail.statut).color, padding: '4px 12px', borderRadius: 999, fontSize: 12, fontWeight: 700 }}>
@@ -536,6 +547,19 @@ const Vols: React.FC = () => {
                 <InfoItem label={`Date du ${typeIncidentInfo(detail.type_incident).label.toLowerCase()}`} value={detail.date_vol ? new Date(detail.date_vol).toLocaleDateString('fr-FR') : '—'} />
                 <InfoItem label="Lieu" value={detail.lieu || '—'} />
               </div>
+              {ticketIds(detail.numero_ticket).length > 0 && (
+                <div>
+                  <div style={sectionLabel}>Ticket(s) associé(s)</div>
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                    {ticketIds(detail.numero_ticket).map(tid => (
+                      <a key={tid} href={`/tickets/${tid}`} target="_blank" rel="noreferrer"
+                        style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: '#eff6ff', color: '#2563eb', padding: '4px 12px', borderRadius: 999, fontSize: 13, fontWeight: 600, textDecoration: 'none' }}>
+                        #{tid}
+                      </a>
+                    ))}
+                  </div>
+                </div>
+              )}
               {detail.circonstances && (
                 <div>
                   <div style={sectionLabel}>Circonstances</div>

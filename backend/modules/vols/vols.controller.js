@@ -1,6 +1,5 @@
 const { pgDb } = require('../../shared/database');
 const storage = require('../../shared/storage');
-const path = require('path');
 
 const MODULE = 'vols';
 
@@ -41,16 +40,16 @@ module.exports = {
     try {
       const { type_incident, designation, numero_inventaire, parc_type_key, parc_glpi_id,
         agent_nom, agent_service, beneficiaire_nom, beneficiaire_service,
-        valeur_achat, date_achat, age_annees, date_vol, lieu, circonstances, statut } = req.body;
+        valeur_achat, date_achat, age_annees, date_vol, lieu, circonstances, numero_ticket, statut } = req.body;
       const result = await pgDb.run(
         `INSERT INTO hub_vols.thefts
           (type_incident, designation, numero_inventaire, parc_type_key, parc_glpi_id,
            agent_nom, agent_service, beneficiaire_nom, beneficiaire_service,
-           valeur_achat, date_achat, age_annees, date_vol, lieu, circonstances, statut, created_by, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
+           valeur_achat, date_achat, age_annees, date_vol, lieu, circonstances, numero_ticket, statut, created_by, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
         [type_incident || 'vol', designation, numero_inventaire || '', parc_type_key || '', parc_glpi_id || null,
          agent_nom || '', agent_service || '', beneficiaire_nom || '', beneficiaire_service || '',
-         valeur_achat || null, date_achat || null, age_annees || null, date_vol || null, lieu || '', circonstances || '', statut || 'declare', req.user?.username || '']
+         valeur_achat || null, date_achat || null, age_annees || null, date_vol || null, lieu || '', circonstances || '', numero_ticket || '', statut || 'declare', req.user?.username || '']
       );
       res.status(201).json({ id: result.lastID || result.id, message: 'Dossier créé' });
     } catch (e) {
@@ -62,17 +61,17 @@ module.exports = {
     try {
       const { type_incident, designation, numero_inventaire, parc_type_key, parc_glpi_id,
         agent_nom, agent_service, beneficiaire_nom, beneficiaire_service,
-        valeur_achat, date_achat, age_annees, date_vol, lieu, circonstances, statut } = req.body;
+        valeur_achat, date_achat, age_annees, date_vol, lieu, circonstances, numero_ticket, statut } = req.body;
       await pgDb.run(
         `UPDATE hub_vols.thefts SET
           type_incident = ?, designation = ?, numero_inventaire = ?, parc_type_key = ?, parc_glpi_id = ?,
           agent_nom = ?, agent_service = ?, beneficiaire_nom = ?, beneficiaire_service = ?,
-          valeur_achat = ?, date_achat = ?, age_annees = ?, date_vol = ?, lieu = ?, circonstances = ?,
+          valeur_achat = ?, date_achat = ?, age_annees = ?, date_vol = ?, lieu = ?, circonstances = ?, numero_ticket = ?,
           statut = ?, updated_at = NOW()
          WHERE id = ?`,
         [type_incident || 'vol', designation, numero_inventaire || '', parc_type_key || '', parc_glpi_id || null,
          agent_nom || '', agent_service || '', beneficiaire_nom || '', beneficiaire_service || '',
-         valeur_achat || null, date_achat || null, age_annees || null, date_vol || null, lieu || '', circonstances || '',
+         valeur_achat || null, date_achat || null, age_annees || null, date_vol || null, lieu || '', circonstances || '', numero_ticket || '',
          statut || 'declare', req.params.id]
       );
       res.json({ message: 'Dossier mis à jour' });
@@ -102,12 +101,29 @@ module.exports = {
       const file = req.file;
       if (!file) return res.status(400).json({ message: 'Fichier requis' });
       const nature = req.body.nature || 'Autre';
+      if (file.originalname) file.originalname = storage.fixUploadName(file.originalname);
       const saved = await storage.saveFile(MODULE, String(theftId), file);
-      await pgDb.run(
+      const result = await pgDb.run(
         'INSERT INTO hub_vols.theft_documents (theft_id, file_path, file_name, nature, uploaded_by) VALUES (?, ?, ?, ?, ?)',
-        [theftId, saved.filePath, saved.fileName || file.originalname || path.basename(file.path), nature, req.user?.username || '']
+        [theftId, saved.dbPath, file.originalname || saved.filename, nature, req.user?.username || '']
       );
-      res.status(201).json({ message: 'Document ajouté' });
+      try {
+        const docsService = require('../../shared/documents.service');
+        await docsService.registerExternalUpload({
+          module: MODULE,
+          entityType: 'attachment',
+          entityId: theftId,
+          title: nature || file.originalname,
+          filename: saved.filename,
+          originalName: file.originalname,
+          mimetype: file.mimetype,
+          size: file.size,
+          storageRef: saved.dbPath,
+          metadata: { nature },
+          uploadedBy: req.user?.username || null,
+        });
+      } catch (e) { console.warn('[DOCS] register failed:', e.message); }
+      res.status(201).json({ message: 'Document ajouté', id: result.lastID || result.id });
     } catch (e) {
       res.status(500).json({ message: 'Erreur upload', error: e.message });
     }
