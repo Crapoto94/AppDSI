@@ -49,7 +49,7 @@ module.exports = {
           (type_incident, designation, numero_inventaire, parc_type_key, parc_glpi_id,
            agent_nom, agent_service, beneficiaire_nom, beneficiaire_service,
            valeur_achat, date_achat, age_annees, date_vol, lieu, circonstances, numero_ticket, dpd_informe, statut, created_by, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
         [type_incident || 'vol', designation, numero_inventaire || '', parc_type_key || '', parc_glpi_id || null,
          agent_nom || '', agent_service || '', beneficiaire_nom || '', beneficiaire_service || '',
          valeur_achat || null, date_achat || null, age_annees || null, date_vol || null, lieu || '', circonstances || '', numero_ticket || '', !!dpd_informe, statut || 'declare', req.user?.username || '']
