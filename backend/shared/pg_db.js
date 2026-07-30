@@ -2696,10 +2696,17 @@ async function setupPgDb() {
         file_path VARCHAR(1024),
         file_name VARCHAR(255),
         nature VARCHAR(255) DEFAULT '',
+        hub_doc_id INTEGER,
         uploaded_by VARCHAR(255) DEFAULT '',
         uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
     `);
+
+    try {
+      await client.query(`ALTER TABLE hub_vols.theft_documents ADD COLUMN IF NOT EXISTS hub_doc_id INTEGER`);
+    } catch (e) {
+      console.log('[PG DB] Migration hub_vols.theft_documents.hub_doc_id:', e.message);
+    }
 
     await client.query(`
       CREATE TABLE IF NOT EXISTS hub_vols.theft_comments (

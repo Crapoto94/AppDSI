@@ -16,7 +16,10 @@ module.exports = {
   list: async (req, res) => {
     try {
       const rows = await pgDb.all(
-        'SELECT * FROM hub_vols.thefts ORDER BY created_at DESC'
+        `SELECT t.*,
+                (SELECT COUNT(*) FROM hub_vols.theft_documents d WHERE d.theft_id = t.id) AS doc_count
+         FROM hub_vols.thefts t
+         ORDER BY t.created_at DESC`
       );
       res.json(rows);
     } catch (e) {
@@ -85,6 +88,10 @@ module.exports = {
       const docs = await pgDb.all('SELECT * FROM hub_vols.theft_documents WHERE theft_id = ?', [req.params.id]);
       for (const d of docs) {
         if (d.file_path) await storage.deleteFile(d.file_path).catch(() => {});
+        if (d.hub_doc_id) {
+          await pgDb.run('DELETE FROM hub_docs.document_versions WHERE document_id = ?', [d.hub_doc_id]).catch(() => {});
+          await pgDb.run('DELETE FROM hub_docs.documents WHERE id = ?', [d.hub_doc_id]).catch(() => {});
+        }
       }
       await pgDb.run('DELETE FROM hub_vols.theft_comments WHERE theft_id = ?', [req.params.id]);
       await pgDb.run('DELETE FROM hub_vols.theft_documents WHERE theft_id = ?', [req.params.id]);
@@ -92,6 +99,15 @@ module.exports = {
       res.json({ message: 'Dossier supprimé' });
     } catch (e) {
       res.status(500).json({ message: 'Erreur suppression', error: e.message });
+    }
+  },
+
+  getDocuments: async (req, res) => {
+    try {
+      const docs = await pgDb.all('SELECT * FROM hub_vols.theft_documents WHERE theft_id = ? ORDER BY uploaded_at DESC', [req.params.id]);
+      res.json(docs);
+    } catch (e) {
+      res.status(500).json({ message: 'Erreur chargement documents', error: e.message });
     }
   },
 
@@ -103,17 +119,15 @@ module.exports = {
       const nature = req.body.nature || 'Autre';
       if (file.originalname) file.originalname = storage.fixUploadName(file.originalname);
       const saved = await storage.saveFile(MODULE, String(theftId), file);
-      const result = await pgDb.run(
-        'INSERT INTO hub_vols.theft_documents (theft_id, file_path, file_name, nature, uploaded_by) VALUES (?, ?, ?, ?, ?)',
-        [theftId, saved.dbPath, file.originalname || saved.filename, nature, req.user?.username || '']
-      );
+
+      let hubDocId = null;
       try {
         const docsService = require('../../shared/documents.service');
-        await docsService.registerExternalUpload({
+        const registered = await docsService.registerExternalUpload({
           module: MODULE,
           entityType: 'attachment',
           entityId: theftId,
-          title: nature || file.originalname,
+          title: file.originalname || nature,
           filename: saved.filename,
           originalName: file.originalname,
           mimetype: file.mimetype,
@@ -122,8 +136,14 @@ module.exports = {
           metadata: { nature },
           uploadedBy: req.user?.username || null,
         });
+        hubDocId = registered?.document?.id || null;
       } catch (e) { console.warn('[DOCS] register failed:', e.message); }
-      res.status(201).json({ message: 'Document ajouté', id: result.lastID || result.id });
+
+      const result = await pgDb.run(
+        'INSERT INTO hub_vols.theft_documents (theft_id, file_path, file_name, nature, hub_doc_id, uploaded_by) VALUES (?, ?, ?, ?, ?, ?)',
+        [theftId, saved.dbPath, file.originalname || saved.filename, nature, hubDocId, req.user?.username || '']
+      );
+      res.status(201).json({ message: 'Document ajouté', id: result.lastID || result.id, hub_doc_id: hubDocId });
     } catch (e) {
       res.status(500).json({ message: 'Erreur upload', error: e.message });
     }
@@ -134,6 +154,10 @@ module.exports = {
       const doc = await pgDb.get('SELECT * FROM hub_vols.theft_documents WHERE id = ? AND theft_id = ?', [req.params.docId, req.params.id]);
       if (doc) {
         if (doc.file_path) await storage.deleteFile(doc.file_path).catch(() => {});
+        if (doc.hub_doc_id) {
+          await pgDb.run('DELETE FROM hub_docs.document_versions WHERE document_id = ?', [doc.hub_doc_id]).catch(() => {});
+          await pgDb.run('DELETE FROM hub_docs.documents WHERE id = ?', [doc.hub_doc_id]).catch(() => {});
+        }
         await pgDb.run('DELETE FROM hub_vols.theft_documents WHERE id = ?', [req.params.docId]);
       }
       res.json({ message: 'Document supprimé' });

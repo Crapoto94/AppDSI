@@ -1,10 +1,11 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import axios from 'axios';
 import { useAuth } from '../contexts/AuthContext';
 import Header from '../components/Header';
+import DocumentViewer from '../components/DocumentViewer';
 import {
   ShieldAlert, Plus, X, Search, Trash2, Edit3, Paperclip, Upload, Download,
-  MessageSquare, Send, Loader2, ArrowLeft
+  MessageSquare, Send, Loader2, ArrowLeft, ArrowUp, ArrowDown, ChevronsUpDown, Eye
 } from 'lucide-react';
 
 interface Theft {
@@ -26,6 +27,7 @@ interface Theft {
   circonstances: string;
   numero_ticket: string;
   statut: string;
+  doc_count?: number;
   created_by: string;
   created_at: string;
 }
@@ -36,6 +38,7 @@ interface TheftDoc {
   file_path: string;
   file_name: string;
   nature: string;
+  hub_doc_id: number | null;
   uploaded_by: string;
   uploaded_at: string;
 }
@@ -109,6 +112,54 @@ function fmtMoney(v: number | null) {
   return v.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' });
 }
 
+type SortDir = 'asc' | 'desc';
+
+const NUMERIC_KEYS = new Set(['valeur_achat', 'age_annees', 'doc_count']);
+
+const COLUMNS: { key: string; label: string; sortable: boolean }[] = [
+  { key: 'type_incident', label: 'Type', sortable: true },
+  { key: 'designation', label: 'Désignation', sortable: true },
+  { key: 'numero_inventaire', label: "N° inventaire", sortable: true },
+  { key: 'agent_nom', label: 'Agent concerné', sortable: true },
+  { key: 'beneficiaire_nom', label: 'Bénéficiaire', sortable: true },
+  { key: 'beneficiaire_service', label: 'Service', sortable: true },
+  { key: 'valeur_achat', label: 'Valeur', sortable: true },
+  { key: 'age_annees', label: 'Âge', sortable: true },
+  { key: 'date_vol', label: 'Date', sortable: true },
+  { key: 'numero_ticket', label: 'Ticket', sortable: false },
+  { key: 'statut', label: 'Statut', sortable: true },
+  { key: 'doc_count', label: 'Docs', sortable: true },
+  { key: '_actions', label: '', sortable: false },
+];
+
+function sortThefts(list: Theft[], sortKey: string, sortDir: SortDir): Theft[] {
+  const arr = [...list];
+  arr.sort((a, b) => {
+    let av: any = (a as any)[sortKey];
+    let bv: any = (b as any)[sortKey];
+    if (NUMERIC_KEYS.has(sortKey)) {
+      av = av == null ? null : Number(av);
+      bv = bv == null ? null : Number(bv);
+    }
+    if (sortKey === 'date_vol') {
+      // Les dossiers sans date restent en tête, quel que soit le sens du tri.
+      if (av == null && bv == null) return 0;
+      if (av == null) return -1;
+      if (bv == null) return 1;
+      const cmp = new Date(av).getTime() - new Date(bv).getTime();
+      return sortDir === 'asc' ? cmp : -cmp;
+    }
+    if (av == null && bv == null) return 0;
+    if (av == null) return sortDir === 'asc' ? -1 : 1;
+    if (bv == null) return sortDir === 'asc' ? 1 : -1;
+    const cmp = (typeof av === 'number' && typeof bv === 'number')
+      ? av - bv
+      : String(av).localeCompare(String(bv), 'fr', { sensitivity: 'base' });
+    return sortDir === 'asc' ? cmp : -cmp;
+  });
+  return arr;
+}
+
 const Vols: React.FC = () => {
   const { token, user } = useAuth();
   const headers = { Authorization: `Bearer ${token}` };
@@ -116,7 +167,15 @@ const Vols: React.FC = () => {
   const [thefts, setThefts] = useState<Theft[]>([]);
   const [loading, setLoading] = useState(true);
   const [statutFilter, setStatutFilter] = useState('');
+  const [typeFilter, setTypeFilter] = useState('');
   const [search, setSearch] = useState('');
+  const [sortKey, setSortKey] = useState('date_vol');
+  const [sortDir, setSortDir] = useState<SortDir>('desc');
+
+  const [docsPickerTheft, setDocsPickerTheft] = useState<Theft | null>(null);
+  const [docsPickerList, setDocsPickerList] = useState<TheftDoc[]>([]);
+  const [docsPickerLoading, setDocsPickerLoading] = useState(false);
+  const [viewerDocId, setViewerDocId] = useState<number | null>(null);
 
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
@@ -316,6 +375,7 @@ const Vols: React.FC = () => {
 
   const filtered = thefts.filter(t => {
     if (statutFilter && t.statut !== statutFilter) return false;
+    if (typeFilter && t.type_incident !== typeFilter) return false;
     if (search.trim()) {
       const s = search.trim().toLowerCase();
       return (t.designation || '').toLowerCase().includes(s)
@@ -326,6 +386,46 @@ const Vols: React.FC = () => {
     }
     return true;
   });
+
+  const sorted = useMemo(() => sortThefts(filtered, sortKey, sortDir), [filtered, sortKey, sortDir]);
+
+  const handleSort = (key: string) => {
+    if (sortKey === key) {
+      setSortDir(d => d === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortKey(key);
+      setSortDir('asc');
+    }
+  };
+
+  const openViewerFor = (d: TheftDoc) => {
+    if (d.hub_doc_id) {
+      setViewerDocId(d.hub_doc_id);
+    } else {
+      window.open(`/api/vols/${d.theft_id}/documents/${d.id}?token=${token || ''}`, '_blank');
+    }
+  };
+
+  const openDocsFor = async (theft: Theft, e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    if (!Number(theft.doc_count)) return;
+    setDocsPickerLoading(true);
+    try {
+      const res = await axios.get(`/api/vols/${theft.id}/documents`, { headers });
+      const list: TheftDoc[] = res.data || [];
+      if (list.length === 0) return;
+      if (list.length === 1) {
+        openViewerFor(list[0]);
+      } else {
+        setDocsPickerTheft(theft);
+        setDocsPickerList(list);
+      }
+    } catch (e) {
+      console.error('Erreur chargement documents', e);
+    } finally {
+      setDocsPickerLoading(false);
+    }
+  };
 
   return (
     <div style={{ minHeight: '100vh', background: 'var(--bg-color, #f8fafc)' }}>
@@ -356,6 +456,10 @@ const Vols: React.FC = () => {
               style={{ ...inputStyle, paddingLeft: 34, width: '100%' }}
             />
           </div>
+          <select value={typeFilter} onChange={e => setTypeFilter(e.target.value)} style={{ ...inputStyle, width: 160 }}>
+            <option value="">Vol / Perte / Casse</option>
+            {TYPES_INCIDENT.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+          </select>
           <select value={statutFilter} onChange={e => setStatutFilter(e.target.value)} style={{ ...inputStyle, width: 220 }}>
             <option value="">Tous les statuts</option>
             {STATUTS.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
@@ -365,21 +469,33 @@ const Vols: React.FC = () => {
         <div style={{ background: 'white', borderRadius: 12, border: '1px solid #e2e8f0', overflow: 'hidden' }}>
           {loading ? (
             <div style={{ padding: 40, textAlign: 'center', color: '#64748b' }}><Loader2 className="spin" size={20} /> Chargement...</div>
-          ) : filtered.length === 0 ? (
+          ) : sorted.length === 0 ? (
             <div style={{ padding: 40, textAlign: 'center', color: '#94a3b8' }}>Aucun dossier de vol ou de perte enregistré.</div>
           ) : (
+            <div style={{ overflowX: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
               <thead>
                 <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
-                  {['Type', 'Désignation', 'N° inventaire', 'Agent concerné', 'Bénéficiaire', 'Service', 'Valeur', 'Âge', 'Date', 'Statut', ''].map(h => (
-                    <th key={h} style={{ padding: '10px 14px', textAlign: 'left', color: '#475569', fontWeight: 600, fontSize: 12, textTransform: 'uppercase' }}>{h}</th>
+                  {COLUMNS.map(col => (
+                    <th key={col.key} onClick={() => col.sortable && handleSort(col.key)}
+                      style={{ padding: '10px 14px', textAlign: 'left', color: '#475569', fontWeight: 600, fontSize: 12, textTransform: 'uppercase', whiteSpace: 'nowrap', cursor: col.sortable ? 'pointer' : 'default', userSelect: 'none' }}>
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                        {col.label}
+                        {col.sortable && (
+                          sortKey === col.key
+                            ? (sortDir === 'asc' ? <ArrowUp size={12} /> : <ArrowDown size={12} />)
+                            : <ChevronsUpDown size={12} color="#cbd5e1" />
+                        )}
+                      </span>
+                    </th>
                   ))}
                 </tr>
               </thead>
               <tbody>
-                {filtered.map(t => {
+                {sorted.map(t => {
                   const st = statutInfo(t.statut);
                   const ti = typeIncidentInfo(t.type_incident);
+                  const tickets = ticketIds(t.numero_ticket);
                   return (
                     <tr key={t.id} style={{ borderBottom: '1px solid #f1f5f9', cursor: 'pointer' }} onClick={() => setDetailId(t.id)}>
                       <td style={{ padding: '10px 14px' }}>
@@ -393,8 +509,27 @@ const Vols: React.FC = () => {
                       <td style={{ padding: '10px 14px' }}>{fmtMoney(t.valeur_achat)}</td>
                       <td style={{ padding: '10px 14px' }}>{t.age_annees != null ? `${t.age_annees} an(s)` : '—'}</td>
                       <td style={{ padding: '10px 14px' }}>{t.date_vol ? new Date(t.date_vol).toLocaleDateString('fr-FR') : '—'}</td>
+                      <td style={{ padding: '10px 14px' }} onClick={e => e.stopPropagation()}>
+                        {tickets.length === 0 ? '—' : (
+                          <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                            {tickets.map(tid => (
+                              <a key={tid} href={`/tickets/${tid}`} target="_blank" rel="noreferrer"
+                                style={{ background: '#eff6ff', color: '#2563eb', padding: '2px 8px', borderRadius: 999, fontSize: 12, fontWeight: 600, textDecoration: 'none' }}>
+                                #{tid}
+                              </a>
+                            ))}
+                          </div>
+                        )}
+                      </td>
                       <td style={{ padding: '10px 14px' }}>
                         <span style={{ background: `${st.color}1a`, color: st.color, padding: '3px 10px', borderRadius: 999, fontSize: 12, fontWeight: 700 }}>{st.label}</span>
+                      </td>
+                      <td style={{ padding: '10px 14px' }} onClick={e => e.stopPropagation()}>
+                        <button onClick={(e) => openDocsFor(t, e)} disabled={!Number(t.doc_count) || docsPickerLoading}
+                          style={{ ...iconBtn, color: Number(t.doc_count) ? '#2563eb' : '#cbd5e1', cursor: Number(t.doc_count) ? 'pointer' : 'default', display: 'inline-flex', alignItems: 'center', gap: 4 }}
+                          title={Number(t.doc_count) ? 'Voir les documents' : 'Aucun document'}>
+                          <Eye size={15} /> {Number(t.doc_count) || 0}
+                        </button>
                       </td>
                       <td style={{ padding: '10px 14px', textAlign: 'right', whiteSpace: 'nowrap' }} onClick={e => e.stopPropagation()}>
                         <button onClick={() => openEdit(t)} style={iconBtn} title="Modifier"><Edit3 size={15} /></button>
@@ -405,6 +540,7 @@ const Vols: React.FC = () => {
                 })}
               </tbody>
             </table>
+            </div>
           )}
         </div>
       </main>
@@ -589,7 +725,8 @@ const Vols: React.FC = () => {
                           <div style={{ fontSize: 13, fontWeight: 600 }}>{d.file_name}</div>
                           <div style={{ fontSize: 11, color: '#94a3b8' }}>{d.nature}{d.uploaded_by ? ` · ${d.uploaded_by}` : ''} · {new Date(d.uploaded_at).toLocaleDateString('fr-FR')}</div>
                         </div>
-                        <a href={`/api/vols/${detailId}/documents/${d.id}?token=${token || ''}`} target="_blank" rel="noreferrer" style={iconBtn}><Download size={15} /></a>
+                        <button onClick={() => openViewerFor(d)} style={iconBtn} title="Voir"><Eye size={15} /></button>
+                        <a href={`/api/vols/${detailId}/documents/${d.id}?token=${token || ''}`} target="_blank" rel="noreferrer" style={iconBtn} title="Télécharger"><Download size={15} /></a>
                         <button onClick={() => deleteDoc(d.id)} style={{ ...iconBtn, color: '#dc2626' }}><Trash2 size={15} /></button>
                       </div>
                     ))}
@@ -620,6 +757,42 @@ const Vols: React.FC = () => {
             </div>
           </div>
         </div>
+      )}
+
+      {docsPickerTheft && (
+        <div style={overlayStyle} onClick={() => setDocsPickerTheft(null)}>
+          <div style={{ ...modalStyle, maxWidth: 520, maxHeight: '80vh' }} onClick={e => e.stopPropagation()}>
+            <div style={modalHeaderStyle}>
+              <h2 style={{ margin: 0, fontSize: 16, fontWeight: 700, flex: 1 }}>
+                Documents — {docsPickerTheft.designation} <span style={{ color: '#94a3b8', fontWeight: 600 }}>({docsPickerList.length})</span>
+              </h2>
+              <button onClick={() => setDocsPickerTheft(null)} style={iconBtn}><X size={18} /></button>
+            </div>
+            <div style={{ overflowY: 'auto', padding: '8px 0' }}>
+              {docsPickerList.map(d => (
+                <div key={d.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 18px', borderBottom: '1px solid #f1f5f9' }}>
+                  <Paperclip size={16} color="#64748b" style={{ flexShrink: 0 }} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontWeight: 600, fontSize: 13, color: '#0f172a', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.file_name}</div>
+                    <div style={{ fontSize: 11, color: '#94a3b8' }}>{d.nature}{d.uploaded_by ? ` · ${d.uploaded_by}` : ''} · {new Date(d.uploaded_at).toLocaleDateString('fr-FR')}</div>
+                  </div>
+                  <button onClick={() => { openViewerFor(d); }}
+                    style={{ padding: '6px 10px', borderRadius: 6, border: 'none', background: '#eff6ff', color: '#2563eb', cursor: 'pointer', fontSize: 12, fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
+                    <Eye size={14} /> Voir
+                  </button>
+                  <a href={`/api/vols/${d.theft_id}/documents/${d.id}?token=${token || ''}`} target="_blank" rel="noreferrer"
+                    style={{ ...iconBtn, flexShrink: 0 }} title="Télécharger">
+                    <Download size={15} />
+                  </a>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {viewerDocId != null && (
+        <DocumentViewer documentId={viewerDocId} onClose={() => setViewerDocId(null)} />
       )}
 
       <style>{`

@@ -109,17 +109,15 @@ async function uploadDocFor(theftId, relPath, nature) {
   const originalname = storage.fixUploadName(path.basename(relPath));
   const file = { buffer, originalname, mimetype: mimeFor(originalname), size: buffer.length };
   const saved = await storage.saveFile(MODULE, String(theftId), file);
-  await pgDb.run(
-    'INSERT INTO hub_vols.theft_documents (theft_id, file_path, file_name, nature, uploaded_by) VALUES (?, ?, ?, ?, ?)',
-    [theftId, saved.dbPath, originalname, nature, 'import_excel']
-  );
+
+  let hubDocId = null;
   try {
     const docsService = require('../shared/documents.service');
-    await docsService.registerExternalUpload({
+    const registered = await docsService.registerExternalUpload({
       module: MODULE,
       entityType: 'attachment',
       entityId: theftId,
-      title: nature || originalname,
+      title: originalname || nature,
       filename: saved.filename,
       originalName: originalname,
       mimetype: file.mimetype,
@@ -128,9 +126,15 @@ async function uploadDocFor(theftId, relPath, nature) {
       metadata: { nature, source: 'import_excel' },
       uploadedBy: 'import_excel',
     });
+    hubDocId = registered?.document?.id || null;
   } catch (e) {
     console.warn(`  [!] Enregistrement hub_docs échoué pour ${relPath}:`, e.message);
   }
+
+  await pgDb.run(
+    'INSERT INTO hub_vols.theft_documents (theft_id, file_path, file_name, nature, hub_doc_id, uploaded_by) VALUES (?, ?, ?, ?, ?, ?)',
+    [theftId, saved.dbPath, originalname, nature, hubDocId, 'import_excel']
+  );
   console.log(`  [+] Document ajouté: ${relPath} -> ${saved.dbPath}`);
 }
 
@@ -152,6 +156,7 @@ async function main() {
   await pool.query(`ALTER TABLE hub_vols.thefts ADD COLUMN IF NOT EXISTS agent_nom VARCHAR(255) DEFAULT ''`);
   await pool.query(`ALTER TABLE hub_vols.thefts ADD COLUMN IF NOT EXISTS agent_service VARCHAR(255) DEFAULT ''`);
   await pool.query(`ALTER TABLE hub_vols.thefts ADD COLUMN IF NOT EXISTS numero_ticket VARCHAR(255) DEFAULT ''`);
+  await pool.query(`ALTER TABLE hub_vols.theft_documents ADD COLUMN IF NOT EXISTS hub_doc_id INTEGER`);
 
   // cellDates:false + conversion manuelle du sérial Excel : évite un décalage de
   // fuseau horaire d'un jour que XLSX.SSF/cellDates introduit sur les dates sans heure.
