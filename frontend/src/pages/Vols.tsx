@@ -249,7 +249,7 @@ const Vols: React.FC = () => {
       }
       setShowForm(false);
       fetchThefts();
-      if (detailId === editingId) fetchDetail(editingId);
+      if (detailId != null && detailId === editingId && editingId != null) fetchDetail(editingId);
     } catch (e: any) {
       alert(e.response?.data?.message || 'Erreur lors de l\'enregistrement');
     } finally {
