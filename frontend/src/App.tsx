@@ -34,6 +34,7 @@ import ProjetDetail from './pages/ProjetDetail';
 import TranscriptManager from './pages/TranscriptManager';
 import TranscriptMeetingDetail from './pages/TranscriptManager/MeetingDetail';
 import Contrats from './pages/Contrats';
+import Vols from './pages/Vols';
 import Copieurs from './pages/Copieurs';
 import CopieursKPI from './pages/CopieursKPI';
 import CalendrierDSI from './pages/CalendrierDSI';
@@ -162,6 +163,7 @@ function App() {
         <Route path="/transcriptmanager" element={<PrivateRoute path="/transcriptmanager"><TranscriptManager /></PrivateRoute>} />
         <Route path="/transcriptmanager/meeting/:id" element={<PrivateRoute path="/transcriptmanager"><TranscriptMeetingDetail /></PrivateRoute>} />
         <Route path="/contrats" element={<PrivateRoute path="/contrats"><Contrats /></PrivateRoute>} />
+        <Route path="/vols" element={<PrivateRoute path="/vols"><Vols /></PrivateRoute>} />
         <Route path="/copieurs/kpi" element={<PrivateRoute path="/copieurs"><CopieursKPI /></PrivateRoute>} />
         <Route path="/copieurs" element={<PrivateRoute path="/copieurs"><Copieurs /></PrivateRoute>} />
         <Route path="/consommables" element={<PrivateRoute path="/consommables"><ConsommablesManagement /></PrivateRoute>} />

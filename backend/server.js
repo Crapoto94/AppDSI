@@ -2335,6 +2335,9 @@ app.use('/api/deploiements', require('./modules/deploiements/deploiements.routes
 // Contrats Module
 app.use('/api/contrats', contratsRouter);
 
+// Vols et Pertes de Matériel Module
+app.use('/api/vols', require('./modules/vols/vols.routes'));
+
 // Tasks Module (tâches agrégées)
 app.use('/api/tasks', tasksRouter);
 

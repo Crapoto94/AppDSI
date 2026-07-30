@@ -398,7 +398,11 @@
       "Bash(node -e \"const s=require\\('./modules/backup/backup.scheduler'\\); console.log\\('scheduler exports:', Object.keys\\(s\\)\\);\")",
       "Bash(node -e \"require\\('./modules/backup/backup.controller.js'\\); require\\('./modules/backup/backup.scheduler.js'\\); console.log\\('backup modules load OK'\\);\")",
       "Bash(git clean *)",
-      "Bash(echo \"exit:$?\")"
+      "Bash(echo \"exit:$?\")",
+      "Bash(node -c modules/vols/vols.controller.js)",
+      "Bash(node -c modules/vols/vols.routes.js)",
+      "Bash(node -c db.js)",
+      "Bash(npx tsc *)"
     ]
   }
 }

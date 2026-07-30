@@ -124,13 +124,14 @@ const Dashboard: React.FC = () => {
       try {
         setLoading(true);
         const headers = { 'Authorization': `Bearer ${token}` };
-        const [tilesRes, pendingRes, renewalRes, contratsExpiryRes, tasksCountRes, columnsRes] = await Promise.all([
+        const [tilesRes, pendingRes, renewalRes, contratsExpiryRes, tasksCountRes, columnsRes, volsCountRes] = await Promise.all([
           fetch('/api/tiles', { headers }),
           axios.get('/api/consumable/pending-count').catch(() => ({ data: { count: 0 } })),
           axios.get('/api/certificates/renewal-count', { headers }).catch(() => ({ data: { count: 0 } })),
           axios.get('/api/contrats/expiry-count', { headers }).catch(() => ({ data: { expired: 0, soon: 0 } })),
           axios.get('/api/tasks/count', { headers }).catch(() => ({ data: { count: 0, overdue: 0, en_cours: 0, a_faire: 0 } })),
-          axios.get('/api/user-prefs/dashboard-columns', { headers }).catch(() => ({ data: { columns: 3 } }))
+          axios.get('/api/user-prefs/dashboard-columns', { headers }).catch(() => ({ data: { columns: 3 } })),
+          axios.get('/api/vols/count', { headers }).catch(() => ({ data: { count: 0 } }))
         ]);
         setColumns(columnsRes.data.columns);
 
@@ -142,6 +143,7 @@ const Dashboard: React.FC = () => {
         const tasksOverdue = tasksCountRes.data.overdue ?? tasksCountRes.data.count ?? 0;
         const tasksEnCours = tasksCountRes.data.en_cours ?? 0;
         const tasksAFaire  = tasksCountRes.data.a_faire ?? 0;
+        const volsCount = volsCountRes.data.count || 0;
 
         if (Array.isArray(tilesData)) {
           const updatedTiles = tilesData.map((t: TileData) => {
@@ -150,10 +152,12 @@ const Dashboard: React.FC = () => {
             const isCertif = urls.some(u => u.includes('/certif')) || t.title === 'Suivi des Certificats';
             const isContrats = urls.some(u => u.includes('/contrats')) || t.title === 'Gestion des Contrats';
             const isTaches = urls.some(u => u.includes('/mes-taches')) || t.title === 'Mes Tâches';
+            const isVols = urls.some(u => u.includes('/vols')) || t.title === 'Vols et Pertes de Matériel';
             if (isConsommables) return { ...t, pending_requests: pendingCount };
             if (isCertif) return { ...t, pending_requests: renewalCount };
             if (isContrats) return { ...t, pending_requests: contratsExpired, warning_count: contratsSoon };
             if (isTaches) return { ...t, pending_requests: tasksOverdue, warning_count: tasksEnCours, info_count: tasksAFaire };
+            if (isVols) return { ...t, pending_requests: volsCount };
             return t;
           });
           setTiles(updatedTiles);

@@ -36,6 +36,7 @@ const MODULES_REGISTRY = [
     { key: 'taches',       title: 'Mes Tâches',            icon: 'CheckSquare',  description: 'Gestion des tâches et suivis.', url: '/mes-taches' },
     { key: 'parc',         title: 'Parc informatique',     icon: 'Monitor',      description: 'Inventaire et suivi du parc informatique (équipements, déploiements, mobilité).', url: '/parc' },
     { key: 'rh',           title: 'Ressources Humaines',   icon: 'Users',        description: 'Gestion des agents DSI, contractuels et organigramme.', url: '/rh' },
+    { key: 'vols',         title: 'Vols et Pertes de Matériel', icon: 'ShieldAlert', description: 'Suivi des matériels volés ou perdus.', url: '/vols' },
 ];
 
 module.exports = { MODULES_REGISTRY };

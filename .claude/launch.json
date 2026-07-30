@@ -8,6 +8,14 @@
       "port": 5173,
       "autoPort": false,
       "cwd": "frontend"
+    },
+    {
+      "name": "backend",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["start"],
+      "port": 3001,
+      "autoPort": false,
+      "cwd": "backend"
     }
   ]
 }

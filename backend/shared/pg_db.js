@@ -2651,6 +2651,71 @@ async function setupPgDb() {
       await client.query('CREATE INDEX IF NOT EXISTS idx_gf_oracle_tiers_code ON gf_oracle_tiers(code)');
     } catch (e) {}
 
+    // ─── hub_vols : gestion des vols et pertes de matériel ───────────────
+    await client.query('CREATE SCHEMA IF NOT EXISTS hub_vols;');
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS hub_vols.thefts (
+        id SERIAL PRIMARY KEY,
+        type_incident VARCHAR(20) DEFAULT 'vol',
+        designation VARCHAR(255) NOT NULL,
+        numero_inventaire VARCHAR(255) DEFAULT '',
+        parc_type_key VARCHAR(100) DEFAULT '',
+        parc_glpi_id INTEGER,
+        agent_nom VARCHAR(255) DEFAULT '',
+        agent_service VARCHAR(255) DEFAULT '',
+        beneficiaire_nom VARCHAR(255) DEFAULT '',
+        beneficiaire_service VARCHAR(255) DEFAULT '',
+        valeur_achat NUMERIC,
+        date_achat DATE,
+        age_annees NUMERIC,
+        date_vol DATE,
+        lieu VARCHAR(255) DEFAULT '',
+        circonstances TEXT DEFAULT '',
+        statut VARCHAR(50) DEFAULT 'declare',
+        created_by VARCHAR(255) DEFAULT '',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
+    try {
+      await client.query(`ALTER TABLE hub_vols.thefts ADD COLUMN IF NOT EXISTS type_incident VARCHAR(20) DEFAULT 'vol'`);
+      await client.query(`ALTER TABLE hub_vols.thefts ADD COLUMN IF NOT EXISTS agent_nom VARCHAR(255) DEFAULT ''`);
+      await client.query(`ALTER TABLE hub_vols.thefts ADD COLUMN IF NOT EXISTS agent_service VARCHAR(255) DEFAULT ''`);
+    } catch (e) {
+      console.log('[PG DB] Migration hub_vols.thefts columns:', e.message);
+    }
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS hub_vols.theft_documents (
+        id SERIAL PRIMARY KEY,
+        theft_id INTEGER NOT NULL REFERENCES hub_vols.thefts(id) ON DELETE CASCADE,
+        file_path VARCHAR(1024),
+        file_name VARCHAR(255),
+        nature VARCHAR(255) DEFAULT '',
+        uploaded_by VARCHAR(255) DEFAULT '',
+        uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS hub_vols.theft_comments (
+        id SERIAL PRIMARY KEY,
+        theft_id INTEGER NOT NULL REFERENCES hub_vols.thefts(id) ON DELETE CASCADE,
+        comment TEXT NOT NULL,
+        author VARCHAR(255) DEFAULT '',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
+    try {
+      await client.query('CREATE INDEX IF NOT EXISTS idx_hub_vols_thefts_statut ON hub_vols.thefts(statut)');
+      await client.query('CREATE INDEX IF NOT EXISTS idx_hub_vols_thefts_date_vol ON hub_vols.thefts(date_vol)');
+      await client.query('CREATE INDEX IF NOT EXISTS idx_hub_vols_theft_documents_theft_id ON hub_vols.theft_documents(theft_id)');
+      await client.query('CREATE INDEX IF NOT EXISTS idx_hub_vols_theft_comments_theft_id ON hub_vols.theft_comments(theft_id)');
+    } catch (e) {}
+
     await client.query('CREATE SCHEMA IF NOT EXISTS finance;');
 
     await client.query(`
