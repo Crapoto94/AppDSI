@@ -145,13 +145,19 @@ const BudgetPrepTab: React.FC = () => {
 
     // Rupture par service, puis regroupement par nature (article) : les fonctions sont dépliables au sein de chaque nature
     const [expandedArticles, setExpandedArticles] = useState<Set<string>>(new Set());
+    const [mergeServices, setMergeServices] = useState(false);
 
     const groupedByService = useMemo(() => {
         const serviceMap = new Map<string, { service_code: string; service_label: string; values: Record<string, number>; articleMap: Map<string, ArticleGroup> }>();
         for (const row of rows) {
-            const skey = row.service_code || '(sans service)';
+            const skey = mergeServices ? '__all__' : (row.service_code || '(sans service)');
             if (!serviceMap.has(skey)) {
-                serviceMap.set(skey, { service_code: row.service_code, service_label: row.service_label, values: {}, articleMap: new Map() });
+                serviceMap.set(skey, {
+                    service_code: mergeServices ? '' : row.service_code,
+                    service_label: mergeServices ? 'Tous les services' : row.service_label,
+                    values: {},
+                    articleMap: new Map()
+                });
             }
             const sg = serviceMap.get(skey)!;
             for (const [k, v] of Object.entries(row.values)) {
@@ -176,7 +182,7 @@ const BudgetPrepTab: React.FC = () => {
                 articles: Array.from(sg.articleMap.values()).sort((a, b) => a.article_code.localeCompare(b.article_code))
             } as ServiceGroup))
             .sort((a, b) => a.service_code.localeCompare(b.service_code));
-    }, [rows]);
+    }, [rows, mergeServices]);
 
     const toggleArticle = (serviceCode: string, articleCode: string) => {
         const key = `${serviceCode}::${articleCode}`;
@@ -343,6 +349,12 @@ const BudgetPrepTab: React.FC = () => {
                     <input type="checkbox" checked={showRealise} onChange={e => setShowRealise(e.target.checked)} />
                     Afficher le réalisé
                 </label>
+                <button
+                    className={`toolbar-btn ${mergeServices ? 'active' : ''}`}
+                    onClick={() => setMergeServices(v => !v)}
+                >
+                    {mergeServices ? 'Rétablir la rupture par service' : 'Fusionner les services'}
+                </button>
                 <button className="toolbar-btn" onClick={resetFilters}>Réinitialiser</button>
             </div>
 
@@ -365,15 +377,17 @@ const BudgetPrepTab: React.FC = () => {
                                 <tr><td colSpan={2 + visibleColumns.length} className="empty-state">Aucune imputation ne correspond à vos critères.</td></tr>
                             )}
                             {groupedByService.map(service => (
-                                <React.Fragment key={service.service_code}>
-                                    <tr className="service-row">
-                                        <td colSpan={2}>
-                                            <strong>{service.service_code} — {service.service_label}</strong>
-                                        </td>
-                                        {visibleColumns.map(c => (
-                                            <td key={c.key} className={`col-${c.type} num`}><strong>{fmt(service.values[c.key])}</strong></td>
-                                        ))}
-                                    </tr>
+                                <React.Fragment key={service.service_code || 'merged'}>
+                                    {!mergeServices && (
+                                        <tr className="service-row">
+                                            <td colSpan={2}>
+                                                <strong>{service.service_code} — {service.service_label}</strong>
+                                            </td>
+                                            {visibleColumns.map(c => (
+                                                <td key={c.key} className={`col-${c.type} num`}><strong>{fmt(service.values[c.key])}</strong></td>
+                                            ))}
+                                        </tr>
+                                    )}
                                     {service.articles.map(group => {
                                         const expanded = expandedArticles.has(`${service.service_code}::${group.article_code}`);
                                         return (
@@ -455,6 +469,7 @@ const BudgetPrepTab: React.FC = () => {
                 .prep-filters .filter-select { border: 1px solid var(--color-slate-200); border-radius: 0.5rem; padding: 0.4rem 0.5rem; background: white; }
                 .prep-search { border: 1px solid var(--color-slate-200); border-radius: 0.5rem; padding: 0.4rem 0.6rem; font-size: 0.85rem; min-width: 180px; }
                 .realise-toggle { display: flex; align-items: center; gap: 0.4rem; font-size: 0.85rem; color: #475569; white-space: nowrap; }
+                .prep-filters .toolbar-btn.active { background: #003366; color: white; border-color: #003366; }
 
                 .prep-table th.col-vote, .prep-table td.col-vote { background: #eef2ff; }
                 .prep-table th.col-demande, .prep-table td.col-demande { background: #fff7ed; }
