@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ReferenceLine } from 'recharts';
 import BudgetManagementTab from '../components/BudgetManagementTab';
+import BudgetPrepTab from '../components/BudgetPrepTab';
 import MappedDataTable from '../components/MappedDataTable';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -37,7 +38,7 @@ const Budget: React.FC = () => {
     </svg>
   );
 
-  const [view, setView] = useState<'summary' | 'lines' | 'engagements' | 'invoices' | 'orders' | 'tiers' | 'operations' | 'gestion'>('summary');
+  const [view, setView] = useState<'summary' | 'lines' | 'engagements' | 'invoices' | 'orders' | 'tiers' | 'operations' | 'gestion' | 'prep'>('summary');
   const [isRaw, setIsRaw] = useState(false);
   const [rawData, setRawData] = useState<any[]>([]);
   const [budgetLines, setBudgetLines] = useState<any[]>([]);
@@ -1408,7 +1409,7 @@ const Budget: React.FC = () => {
             </div>
           </div>
           <div className="view-tabs">
-            {['summary', 'lines', 'engagements', 'invoices', 'orders', 'tiers', 'operations', 'gestion'].map(tab => {
+            {['summary', 'lines', 'engagements', 'invoices', 'orders', 'tiers', 'operations', 'gestion', 'prep'].map(tab => {
               // Only admin/finances/compta can see 'gestion'
               if (tab === 'gestion' && !['admin', 'finances', 'compta'].includes(currentUser.role)) return null;
               return (
@@ -1449,6 +1450,7 @@ const Budget: React.FC = () => {
                   {tab === 'tiers' && 'Tiers'}
                   {tab === 'operations' && 'Opérations'}
                   {tab === 'gestion' && 'Gestion'}
+                  {tab === 'prep' && 'Préparation budgétaire'}
                 </button>
               );
             })}
@@ -2774,6 +2776,11 @@ const Budget: React.FC = () => {
                 </div>
 </div>
                     )}
+            {view === 'prep' && (
+              <div className="animate-fade-in">
+                <BudgetPrepTab />
+              </div>
+            )}
             {view === 'tiers' && (
               <div className="animate-fade-in">
                 <MappedDataTable rubriqueName="Tiers" title="Tiers" fiscalYear={currentFiscalYear}
