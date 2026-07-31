@@ -70,6 +70,16 @@ function findColIndex(headers, prefixes) {
     return -1;
 }
 
+// Normalise les libellés de budget, qui varient selon les fichiers/années
+// (ex: "Principal" / "PRINCIPAL", "Restauration" / "RESTAURATION MUNICIPALE").
+function normalizeBudget(budget) {
+    const b = norm(budget);
+    const up = b.toUpperCase();
+    if (up === 'PRINCIPAL') return 'PRINCIPAL';
+    if (up === 'RESTAURATION' || up === 'RESTAURATION MUNICIPALE') return 'RESTAURATION MUNICIPALE';
+    return b;
+}
+
 function extractYearFromHeader(headerText) {
     const m = norm(headerText).match(/(20\d{2})/);
     return m ? parseInt(m[1], 10) : null;
@@ -127,7 +137,6 @@ function parseWorkbook(buffer, filename) {
     }
 
     const idxDirection = findColIndex(headers, ['Direction']);
-    const idxService = findColIndex(headers, ['Service']);
     const idxBudget = findColIndex(headers, ['Budget']);
     const idxDepRec = findColIndex(headers, ['Depenses/recettes', 'Dépenses/recettes']);
     const idxChapCode = findColIndex(headers, ['Chapitre code']);
@@ -155,7 +164,7 @@ function parseWorkbook(buffer, filename) {
         const row = sheetRows[i];
         if (!row) continue;
 
-        const budget = idxBudget >= 0 ? norm(row[idxBudget]) : '';
+        const budget = idxBudget >= 0 ? normalizeBudget(row[idxBudget]) : '';
         const fonctionCode = norm(row[idxFonctionCode]);
         const articleCode = norm(row[idxArticleCode]);
         const chapitreCode = idxChapCode >= 0 ? norm(row[idxChapCode]) : '';
@@ -164,7 +173,10 @@ function parseWorkbook(buffer, filename) {
         if (!budget && !fonctionCode && !articleCode && !chapitreCode) continue;
 
         const base = {
-            service_label: idxService >= 0 ? norm(row[idxService]) : serviceLabel,
+            // Le libellé du service vient de l'en-tête du fichier ("Service :"), pas de la colonne
+            // "Service" ligne par ligne : celle-ci peut contenir des valeurs incohérentes/erronées
+            // selon les fichiers (ex: "UTILISATEURS" au lieu de "DIRECTION DSI" pour BF1 en 2027).
+            service_label: serviceLabel,
             budget,
             depenses_recettes: idxDepRec >= 0 ? norm(row[idxDepRec]) : '',
             chapitre_code: chapitreCode,
@@ -338,14 +350,14 @@ module.exports = {
 
             const whereClause = where.length ? `WHERE ${where.join(' AND ')}` : '';
 
-            // Détail par imputation (fonction/article), agrégé sur les autres dimensions
+            // Détail par imputation (service/fonction/article), agrégé sur les autres dimensions
             const rowsResult = await pool.query(
-                `SELECT fonction_code, fonction_libelle, article_code, article_libelle,
+                `SELECT service_code, service_label, fonction_code, fonction_libelle, article_code, article_libelle,
                         year, type, SUM(montant) AS montant
                  FROM hub_budget_prep.facts
                  ${whereClause}
-                 GROUP BY fonction_code, fonction_libelle, article_code, article_libelle, year, type
-                 ORDER BY fonction_code, article_code, year`,
+                 GROUP BY service_code, service_label, fonction_code, fonction_libelle, article_code, article_libelle, year, type
+                 ORDER BY service_code, fonction_code, article_code, year`,
                 params
             );
 
@@ -361,9 +373,11 @@ module.exports = {
 
             const rowsMap = new Map();
             for (const r of rowsResult.rows) {
-                const key = `${r.fonction_code}||${r.article_code}`;
+                const key = `${r.service_code}||${r.fonction_code}||${r.article_code}`;
                 if (!rowsMap.has(key)) {
                     rowsMap.set(key, {
+                        service_code: r.service_code,
+                        service_label: r.service_label,
                         fonction_code: r.fonction_code,
                         fonction_libelle: r.fonction_libelle,
                         article_code: r.article_code,
@@ -375,6 +389,7 @@ module.exports = {
             }
 
             const rows = Array.from(rowsMap.values()).sort((a, b) => {
+                if (a.service_code !== b.service_code) return a.service_code.localeCompare(b.service_code);
                 if (a.fonction_code !== b.fonction_code) return a.fonction_code.localeCompare(b.fonction_code);
                 return a.article_code.localeCompare(b.article_code);
             });

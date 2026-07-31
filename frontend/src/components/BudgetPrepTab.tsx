@@ -19,6 +19,8 @@ interface Column {
 }
 
 interface Row {
+    service_code: string;
+    service_label: string;
     fonction_code: string;
     fonction_libelle: string;
     article_code: string;
@@ -31,6 +33,13 @@ interface ArticleGroup {
     article_libelle: string;
     values: Record<string, number>;
     children: Row[];
+}
+
+interface ServiceGroup {
+    service_code: string;
+    service_label: string;
+    values: Record<string, number>;
+    articles: ArticleGroup[];
 }
 
 interface ImportRow {
@@ -134,29 +143,46 @@ const BudgetPrepTab: React.FC = () => {
         }));
     }, [visibleColumns, totals]);
 
-    // Regroupement par nature (article) : les fonctions sont dépliables au sein de chaque nature
+    // Rupture par service, puis regroupement par nature (article) : les fonctions sont dépliables au sein de chaque nature
     const [expandedArticles, setExpandedArticles] = useState<Set<string>>(new Set());
 
-    const groupedByArticle = useMemo(() => {
-        const map = new Map<string, ArticleGroup>();
+    const groupedByService = useMemo(() => {
+        const serviceMap = new Map<string, { service_code: string; service_label: string; values: Record<string, number>; articleMap: Map<string, ArticleGroup> }>();
         for (const row of rows) {
-            const key = row.article_code || '(sans nature)';
-            if (!map.has(key)) {
-                map.set(key, { article_code: row.article_code, article_libelle: row.article_libelle, values: {}, children: [] });
+            const skey = row.service_code || '(sans service)';
+            if (!serviceMap.has(skey)) {
+                serviceMap.set(skey, { service_code: row.service_code, service_label: row.service_label, values: {}, articleMap: new Map() });
             }
-            const g = map.get(key)!;
-            g.children.push(row);
+            const sg = serviceMap.get(skey)!;
             for (const [k, v] of Object.entries(row.values)) {
-                g.values[k] = (g.values[k] || 0) + (v || 0);
+                sg.values[k] = (sg.values[k] || 0) + (v || 0);
+            }
+
+            const akey = row.article_code || '(sans nature)';
+            if (!sg.articleMap.has(akey)) {
+                sg.articleMap.set(akey, { article_code: row.article_code, article_libelle: row.article_libelle, values: {}, children: [] });
+            }
+            const ag = sg.articleMap.get(akey)!;
+            ag.children.push(row);
+            for (const [k, v] of Object.entries(row.values)) {
+                ag.values[k] = (ag.values[k] || 0) + (v || 0);
             }
         }
-        return Array.from(map.values()).sort((a, b) => a.article_code.localeCompare(b.article_code));
+        return Array.from(serviceMap.values())
+            .map(sg => ({
+                service_code: sg.service_code,
+                service_label: sg.service_label,
+                values: sg.values,
+                articles: Array.from(sg.articleMap.values()).sort((a, b) => a.article_code.localeCompare(b.article_code))
+            } as ServiceGroup))
+            .sort((a, b) => a.service_code.localeCompare(b.service_code));
     }, [rows]);
 
-    const toggleArticle = (code: string) => {
+    const toggleArticle = (serviceCode: string, articleCode: string) => {
+        const key = `${serviceCode}::${articleCode}`;
         setExpandedArticles(prev => {
             const next = new Set(prev);
-            if (next.has(code)) next.delete(code); else next.add(code);
+            if (next.has(key)) next.delete(key); else next.add(key);
             return next;
         });
     };
@@ -335,36 +361,48 @@ const BudgetPrepTab: React.FC = () => {
                             </tr>
                         </thead>
                         <tbody>
-                            {groupedByArticle.length === 0 && !loading && (
+                            {groupedByService.length === 0 && !loading && (
                                 <tr><td colSpan={2 + visibleColumns.length} className="empty-state">Aucune imputation ne correspond à vos critères.</td></tr>
                             )}
-                            {groupedByArticle.map(group => {
-                                const expanded = expandedArticles.has(group.article_code);
-                                return (
-                                    <React.Fragment key={group.article_code}>
-                                        <tr className="article-row" onClick={() => toggleArticle(group.article_code)}>
-                                            <td className="article-cell">
-                                                {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-                                                <strong>{group.article_code}</strong>
-                                                {group.article_libelle && <span className="lib">— {group.article_libelle}</span>}
-                                            </td>
-                                            <td className="muted">{group.children.length} fonction{group.children.length > 1 ? 's' : ''}</td>
-                                            {visibleColumns.map(c => (
-                                                <td key={c.key} className={`col-${c.type} num`}><strong>{fmt(group.values[c.key])}</strong></td>
-                                            ))}
-                                        </tr>
-                                        {expanded && group.children.map(child => (
-                                            <tr key={`${group.article_code}-${child.fonction_code}`} className="fonction-row">
-                                                <td></td>
-                                                <td>{child.fonction_code} {child.fonction_libelle && <span className="lib">— {child.fonction_libelle}</span>}</td>
-                                                {visibleColumns.map(c => (
-                                                    <td key={c.key} className={`col-${c.type} num`}>{fmt(child.values[c.key])}</td>
-                                                ))}
-                                            </tr>
+                            {groupedByService.map(service => (
+                                <React.Fragment key={service.service_code}>
+                                    <tr className="service-row">
+                                        <td colSpan={2}>
+                                            <strong>{service.service_code} — {service.service_label}</strong>
+                                        </td>
+                                        {visibleColumns.map(c => (
+                                            <td key={c.key} className={`col-${c.type} num`}><strong>{fmt(service.values[c.key])}</strong></td>
                                         ))}
-                                    </React.Fragment>
-                                );
-                            })}
+                                    </tr>
+                                    {service.articles.map(group => {
+                                        const expanded = expandedArticles.has(`${service.service_code}::${group.article_code}`);
+                                        return (
+                                            <React.Fragment key={`${service.service_code}-${group.article_code}`}>
+                                                <tr className="article-row" onClick={() => toggleArticle(service.service_code, group.article_code)}>
+                                                    <td className="article-cell">
+                                                        {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                                                        <strong>{group.article_code}</strong>
+                                                        {group.article_libelle && <span className="lib">— {group.article_libelle}</span>}
+                                                    </td>
+                                                    <td className="muted">{group.children.length} fonction{group.children.length > 1 ? 's' : ''}</td>
+                                                    {visibleColumns.map(c => (
+                                                        <td key={c.key} className={`col-${c.type} num`}><strong>{fmt(group.values[c.key])}</strong></td>
+                                                    ))}
+                                                </tr>
+                                                {expanded && group.children.map(child => (
+                                                    <tr key={`${service.service_code}-${group.article_code}-${child.fonction_code}`} className="fonction-row">
+                                                        <td></td>
+                                                        <td>{child.fonction_code} {child.fonction_libelle && <span className="lib">— {child.fonction_libelle}</span>}</td>
+                                                        {visibleColumns.map(c => (
+                                                            <td key={c.key} className={`col-${c.type} num`}>{fmt(child.values[c.key])}</td>
+                                                        ))}
+                                                    </tr>
+                                                ))}
+                                            </React.Fragment>
+                                        );
+                                    })}
+                                </React.Fragment>
+                            ))}
                         </tbody>
                         <tfoot>
                             <tr>
@@ -423,6 +461,8 @@ const BudgetPrepTab: React.FC = () => {
                 .prep-table th.col-realise, .prep-table td.col-realise { background: #f0fdf4; }
                 .prep-table td.num { text-align: right; font-variant-numeric: tabular-nums; }
                 .prep-table .lib { color: #94a3b8; font-weight: 400; margin-left: 0.35rem; }
+                .prep-table .service-row td { background: #003366; color: white; padding-top: 0.6rem; padding-bottom: 0.6rem; }
+                .prep-table .service-row strong { color: white; }
                 .prep-table .article-row { cursor: pointer; background: #f8fafc; }
                 .prep-table .article-row:hover { background: #f1f5f9; }
                 .prep-table .article-cell { display: flex; align-items: center; gap: 0.35rem; }
