@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState, useRef } from 'react';
 import { useAuth } from '../contexts/AuthContext';
-import { Upload, Trash2, RefreshCw, TrendingUp, FileSpreadsheet, X } from 'lucide-react';
+import { Upload, Trash2, RefreshCw, TrendingUp, FileSpreadsheet, X, ChevronRight, ChevronDown } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 
 interface Facet {
@@ -24,6 +24,13 @@ interface Row {
     article_code: string;
     article_libelle: string;
     values: Record<string, number>;
+}
+
+interface ArticleGroup {
+    article_code: string;
+    article_libelle: string;
+    values: Record<string, number>;
+    children: Row[];
 }
 
 interface ImportRow {
@@ -126,6 +133,33 @@ const BudgetPrepTab: React.FC = () => {
             montant: totals[c.key] || 0
         }));
     }, [visibleColumns, totals]);
+
+    // Regroupement par nature (article) : les fonctions sont dépliables au sein de chaque nature
+    const [expandedArticles, setExpandedArticles] = useState<Set<string>>(new Set());
+
+    const groupedByArticle = useMemo(() => {
+        const map = new Map<string, ArticleGroup>();
+        for (const row of rows) {
+            const key = row.article_code || '(sans nature)';
+            if (!map.has(key)) {
+                map.set(key, { article_code: row.article_code, article_libelle: row.article_libelle, values: {}, children: [] });
+            }
+            const g = map.get(key)!;
+            g.children.push(row);
+            for (const [k, v] of Object.entries(row.values)) {
+                g.values[k] = (g.values[k] || 0) + (v || 0);
+            }
+        }
+        return Array.from(map.values()).sort((a, b) => a.article_code.localeCompare(b.article_code));
+    }, [rows]);
+
+    const toggleArticle = (code: string) => {
+        setExpandedArticles(prev => {
+            const next = new Set(prev);
+            if (next.has(code)) next.delete(code); else next.add(code);
+            return next;
+        });
+    };
 
     const resetFilters = () => {
         setServiceFilter(''); setBudgetFilter(''); setChapitreFilter('');
@@ -293,37 +327,53 @@ const BudgetPrepTab: React.FC = () => {
                     <table className="modern-table prep-table">
                         <thead>
                             <tr>
+                                <th>Nature (article)</th>
                                 <th>Fonction</th>
-                                <th>Article</th>
                                 {visibleColumns.map(c => (
                                     <th key={c.key} className={`col-${c.type}`}>{typeLabel(c.type)} {c.year}</th>
                                 ))}
                             </tr>
                         </thead>
                         <tbody>
-                            {rows.length === 0 && !loading && (
+                            {groupedByArticle.length === 0 && !loading && (
                                 <tr><td colSpan={2 + visibleColumns.length} className="empty-state">Aucune imputation ne correspond à vos critères.</td></tr>
                             )}
-                            {rows.map(row => (
-                                <tr key={`${row.fonction_code}-${row.article_code}`}>
-                                    <td>{row.fonction_code} {row.fonction_libelle && <span className="lib">— {row.fonction_libelle}</span>}</td>
-                                    <td>{row.article_code} {row.article_libelle && <span className="lib">— {row.article_libelle}</span>}</td>
-                                    {visibleColumns.map(c => (
-                                        <td key={c.key} className={`col-${c.type} num`}>{fmt(row.values[c.key])}</td>
-                                    ))}
-                                </tr>
-                            ))}
+                            {groupedByArticle.map(group => {
+                                const expanded = expandedArticles.has(group.article_code);
+                                return (
+                                    <React.Fragment key={group.article_code}>
+                                        <tr className="article-row" onClick={() => toggleArticle(group.article_code)}>
+                                            <td className="article-cell">
+                                                {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                                                <strong>{group.article_code}</strong>
+                                                {group.article_libelle && <span className="lib">— {group.article_libelle}</span>}
+                                            </td>
+                                            <td className="muted">{group.children.length} fonction{group.children.length > 1 ? 's' : ''}</td>
+                                            {visibleColumns.map(c => (
+                                                <td key={c.key} className={`col-${c.type} num`}><strong>{fmt(group.values[c.key])}</strong></td>
+                                            ))}
+                                        </tr>
+                                        {expanded && group.children.map(child => (
+                                            <tr key={`${group.article_code}-${child.fonction_code}`} className="fonction-row">
+                                                <td></td>
+                                                <td>{child.fonction_code} {child.fonction_libelle && <span className="lib">— {child.fonction_libelle}</span>}</td>
+                                                {visibleColumns.map(c => (
+                                                    <td key={c.key} className={`col-${c.type} num`}>{fmt(child.values[c.key])}</td>
+                                                ))}
+                                            </tr>
+                                        ))}
+                                    </React.Fragment>
+                                );
+                            })}
                         </tbody>
-                        {rows.length > 0 && (
-                            <tfoot>
-                                <tr>
-                                    <td colSpan={2}><strong>Total</strong></td>
-                                    {visibleColumns.map(c => (
-                                        <td key={c.key} className={`col-${c.type} num`}><strong>{fmt(totals[c.key])}</strong></td>
-                                    ))}
-                                </tr>
-                            </tfoot>
-                        )}
+                        <tfoot>
+                            <tr>
+                                <td colSpan={2}><strong>Total</strong></td>
+                                {visibleColumns.map(c => (
+                                    <td key={c.key} className={`col-${c.type} num`}><strong>{fmt(totals[c.key])}</strong></td>
+                                ))}
+                            </tr>
+                        </tfoot>
                     </table>
                 </div>
             </div>
@@ -372,7 +422,13 @@ const BudgetPrepTab: React.FC = () => {
                 .prep-table th.col-demande, .prep-table td.col-demande { background: #fff7ed; }
                 .prep-table th.col-realise, .prep-table td.col-realise { background: #f0fdf4; }
                 .prep-table td.num { text-align: right; font-variant-numeric: tabular-nums; }
-                .prep-table .lib { color: #94a3b8; font-weight: 400; }
+                .prep-table .lib { color: #94a3b8; font-weight: 400; margin-left: 0.35rem; }
+                .prep-table .article-row { cursor: pointer; background: #f8fafc; }
+                .prep-table .article-row:hover { background: #f1f5f9; }
+                .prep-table .article-cell { display: flex; align-items: center; gap: 0.35rem; }
+                .prep-table .muted { color: #94a3b8; font-size: 0.8rem; }
+                .prep-table .fonction-row td:nth-child(2) { padding-left: 1.75rem; }
+                .prep-table tfoot td { position: sticky; bottom: 0; background: #f8fafc; box-shadow: 0 -1px 0 var(--color-slate-200); z-index: 2; }
 
                 .prep-chart-card { background: white; border: 1px solid var(--color-slate-200); border-radius: 1rem; padding: 1.25rem; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05); }
                 .chart-title { margin: 0 0 1rem 0; font-size: 1rem; color: #1e293b; }
