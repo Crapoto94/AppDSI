@@ -5,6 +5,7 @@ const agentsController = require('./agents-dsi.controller');
 const { authenticateJWT } = require('../../shared/middleware');
 
 router.get('/evenements', authenticateJWT, controller.getEvenements);
+router.get('/cumul-teletravail', authenticateJWT, controller.getCumulTeletravail);
 router.post('/evenements', authenticateJWT, controller.createEvenement);
 router.put('/evenements/:id', authenticateJWT, controller.updateEvenement);
 router.delete('/evenements/:id', authenticateJWT, controller.deleteEvenement);

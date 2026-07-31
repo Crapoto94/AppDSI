@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import Header from '../components/Header';
 import { useAuth } from '../contexts/AuthContext';
 import axios from 'axios';
-import { ChevronLeft, ChevronRight, Plus, Calendar, Settings, Mail, Cloud, Shield } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Plus, Calendar, Settings, Mail, Cloud, Shield, BarChart3 } from 'lucide-react';
 import { useADSearch } from '../utils/useADSearch';
 
 const CATEGORIES = ['absence', 'teletravail', 'deplacement', 'deploiement', 'reunion', 'hotline', 'maintenance'] as const;
@@ -45,6 +45,11 @@ interface Evenement {
   generated?: boolean;
   pending?: boolean;
 }
+
+interface CumulMois { mois: string; effectif: number; declarer: number; }
+interface CumulAgent { username: string; nom: string; email: string; service: string; totalEffectif: number; totalDeclarer: number; mois: CumulMois[]; }
+interface CumulService { service: string; agents: CumulAgent[]; }
+interface CumulData { mois: string[]; services: CumulService[]; }
 
 function getWeekRange(date: Date): { start: Date; end: Date } {
   const d = new Date(date);
@@ -232,6 +237,46 @@ export default function CalendrierDSI() {
   const [vDateFin, setVDateFin] = useState('');
   const [vLabel, setVLabel] = useState('');
   const [vType, setVType] = useState('ferie');
+
+  // Cumul télétravail
+  const [showCumulModal, setShowCumulModal] = useState(false);
+  const [cumulDebut, setCumulDebut] = useState('');
+  const [cumulFin, setCumulFin] = useState('');
+  const [cumulData, setCumulData] = useState<CumulData | null>(null);
+  const [cumulLoading, setCumulLoading] = useState(false);
+  const [cumulError, setCumulError] = useState<string | null>(null);
+
+  const monthOf = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+
+  const openCumulModal = () => {
+    const now = new Date();
+    setCumulDebut(`${now.getFullYear()}-01`);
+    setCumulFin(monthOf(now));
+    setCumulData(null);
+    setCumulError(null);
+    setShowCumulModal(true);
+  };
+
+  const fetchCumul = async () => {
+    if (!cumulDebut || !cumulFin) return;
+    setCumulLoading(true);
+    setCumulError(null);
+    try {
+      const [y, m] = cumulFin.split('-').map(Number);
+      const lastDay = String(new Date(y, m, 0).getDate()).padStart(2, '0');
+      const res = await fetch(`/api/calendrier-dsi/cumul-teletravail?debut=${cumulDebut}-01&fin=${cumulFin}-${lastDay}`, { headers });
+      if (!res.ok) {
+        const errBody = await res.json().catch(() => ({}));
+        throw new Error(errBody.message || `Erreur HTTP ${res.status}`);
+      }
+      setCumulData(await res.json());
+    } catch (e) {
+      console.error('[Calendrier] Erreur cumul télétravail', e);
+      setCumulError(e instanceof Error ? e.message : 'Erreur lors du calcul du cumul');
+    } finally {
+      setCumulLoading(false);
+    }
+  };
 
   const fetchVacances = useCallback(async () => {
     try {
@@ -1641,6 +1686,7 @@ export default function CalendrierDSI() {
               <a href="/calendrier-dsi/agents" style={{ background: '#0f172a', color: '#fff', border: 'none', borderRadius: '8px', padding: '6px 12px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '0.8rem', fontWeight: '600', textDecoration: 'none', transition: 'all 0.2s', boxShadow: '0 2px 8px rgba(15, 23, 42, 0.15)' }} onMouseEnter={(e) => (e.currentTarget.style.transform = 'translateY(-2px)', e.currentTarget.style.boxShadow = '0 4px 12px rgba(15, 23, 42, 0.2)')} onMouseLeave={(e) => (e.currentTarget.style.transform = 'translateY(0)', e.currentTarget.style.boxShadow = '0 2px 8px rgba(15, 23, 42, 0.15)')}><Settings size={14} /> Agents</a>
               <button style={{ background: '#f59e0b', color: '#fff', border: 'none', borderRadius: '8px', padding: '6px 12px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '0.8rem', fontWeight: '600', transition: 'all 0.2s', boxShadow: '0 2px 8px rgba(245, 158, 11, 0.2)' }} onClick={() => { setShowManagerModal(true); fetchManagerList(); }} onMouseEnter={(e) => (e.currentTarget.style.transform = 'translateY(-2px)', e.currentTarget.style.boxShadow = '0 4px 12px rgba(245, 158, 11, 0.3)')} onMouseLeave={(e) => (e.currentTarget.style.transform = 'translateY(0)', e.currentTarget.style.boxShadow = '0 2px 8px rgba(245, 158, 11, 0.2)')}><Shield size={14} /> Manager</button>
               <button style={{ background: '#ef4444', color: '#fff', border: 'none', borderRadius: '8px', padding: '6px 12px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '0.8rem', fontWeight: '600', transition: 'all 0.2s', boxShadow: '0 2px 8px rgba(239, 68, 68, 0.2)' }} onClick={() => { setShowVacancesModal(true); }} onMouseEnter={(e) => (e.currentTarget.style.transform = 'translateY(-2px)', e.currentTarget.style.boxShadow = '0 4px 12px rgba(239, 68, 68, 0.3)')} onMouseLeave={(e) => (e.currentTarget.style.transform = 'translateY(0)', e.currentTarget.style.boxShadow = '0 2px 8px rgba(239, 68, 68, 0.2)')}><span style={{ fontSize: '0.9rem' }}>🎉</span> Vacances</button>
+              <button style={{ background: '#003366', color: '#fff', border: 'none', borderRadius: '8px', padding: '6px 12px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '0.8rem', fontWeight: '600', transition: 'all 0.2s', boxShadow: '0 2px 8px rgba(0, 51, 102, 0.2)' }} onClick={openCumulModal} onMouseEnter={(e) => (e.currentTarget.style.transform = 'translateY(-2px)', e.currentTarget.style.boxShadow = '0 4px 12px rgba(0, 51, 102, 0.3)')} onMouseLeave={(e) => (e.currentTarget.style.transform = 'translateY(0)', e.currentTarget.style.boxShadow = '0 2px 8px rgba(0, 51, 102, 0.2)')}><BarChart3 size={14} /> Cumul</button>
             </>)}
           </div>
         </div>
@@ -2594,6 +2640,119 @@ const renderDot = (evt: Evenement) => {
                 </div>
               ))}
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Cumul télétravail Modal */}
+      {showCumulModal && (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1050, backdropFilter: 'blur(2px)' }} onClick={() => setShowCumulModal(false)}>
+          <div style={{ background: 'white', borderRadius: 20, padding: 28, width: '95%', maxWidth: 1100, maxHeight: '88vh', overflow: 'auto', boxShadow: '0 25px 50px rgba(0,0,0,0.25)' }} onClick={e => e.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20, flexWrap: 'wrap', gap: 12 }}>
+              <div>
+                <h2 style={{ margin: 0, fontSize: '1.3rem', fontWeight: 800, color: '#0f172a' }}><BarChart3 size={20} style={{ marginRight: 8, verticalAlign: 'middle', color: '#003366' }} />Cumul télétravail</h2>
+                <p style={{ color: '#64748b', marginTop: 4, fontSize: '0.85rem', marginBottom: 0 }}>
+                  <span style={{ fontWeight: 600 }}>Effectif</span> = cumul des demi-journées / 2 · <span style={{ fontWeight: 600 }}>Déclaré</span> = nb de jours avec au moins une demi-journée de TT (plafonné à 8 / mois)
+                </p>
+              </div>
+              <button onClick={() => setShowCumulModal(false)} style={{ background: 'none', border: 'none', fontSize: '1.5rem', cursor: 'pointer', color: '#94a3b8' }}>✕</button>
+            </div>
+
+            <div style={{ display: 'flex', gap: 12, alignItems: 'flex-end', flexWrap: 'wrap', marginBottom: 20, padding: 16, background: '#f8fafc', borderRadius: 12, border: '1px solid #e2e8f0' }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: '#475569', marginBottom: 6 }}>Mois de début</label>
+                <input type="month" value={cumulDebut} min="2020-01" onChange={e => setCumulDebut(e.target.value)} style={{ padding: '8px 12px', borderRadius: 8, border: '1px solid #e2e8f0', fontSize: '0.9rem', background: '#fff' }} />
+              </div>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: '#475569', marginBottom: 6 }}>Mois de fin</label>
+                <input type="month" value={cumulFin} min={cumulDebut || '2020-01'} onChange={e => setCumulFin(e.target.value)} style={{ padding: '8px 12px', borderRadius: 8, border: '1px solid #e2e8f0', fontSize: '0.9rem', background: '#fff' }} />
+              </div>
+              <button onClick={fetchCumul} disabled={!cumulDebut || !cumulFin || cumulLoading} style={{ padding: '9px 22px', borderRadius: 8, background: cumulDebut && cumulFin && !cumulLoading ? '#003366' : '#cbd5e1', color: '#fff', border: 'none', cursor: cumulDebut && cumulFin && !cumulLoading ? 'pointer' : 'not-allowed', fontWeight: 700, fontSize: '0.9rem' }}>
+                {cumulLoading ? '⏳ Calcul...' : 'Calculer'}
+              </button>
+            </div>
+
+            {cumulError && (
+              <div style={{ background: '#fee2e2', border: '1.5px solid #dc2626', borderRadius: 10, padding: '12px 16px', marginBottom: 16, color: '#991b1b', fontSize: '0.9rem', fontWeight: 500 }}>
+                ⚠️ {cumulError}
+              </div>
+            )}
+
+            {cumulLoading ? (
+              <p style={{ color: '#94a3b8', textAlign: 'center', padding: 40 }}>Calcul en cours...</p>
+            ) : cumulData ? (() => {
+              const { mois, services } = cumulData;
+              const fmt = (n: number) => (n % 1 === 0 ? String(n) : n.toFixed(1).replace('.', ','));
+              const moisLabel = (m: string) => {
+                const [y, mm] = m.split('-');
+                const abbr = ['Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Juin', 'Juil', 'Août', 'Sep', 'Oct', 'Nov', 'Déc'][Number(mm) - 1];
+                return `${abbr} ${y}`;
+              };
+              const hasData = services.some((s: CumulService) => s.agents.length > 0);
+              const thStyle: React.CSSProperties = { padding: '8px 6px', background: '#0f172a', color: '#fff', fontSize: '0.72rem', fontWeight: 700, textAlign: 'center', border: '1px solid #1e293b', whiteSpace: 'nowrap', position: 'sticky', top: 0, zIndex: 2 };
+              const thSubStyle: React.CSSProperties = { padding: '5px 4px', background: '#f1f5f9', color: '#475569', fontSize: '0.65rem', fontWeight: 700, textAlign: 'center', border: '1px solid #e2e8f0' };
+              const tdStyle: React.CSSProperties = { padding: '6px 5px', textAlign: 'center', fontSize: '0.78rem', border: '1px solid #e2e8f0' };
+              return (
+                <>
+                  {hasData ? (
+                    <div style={{ overflowX: 'auto', border: '1px solid #e2e8f0', borderRadius: 12 }}>
+                      <table style={{ borderCollapse: 'collapse', width: '100%', minWidth: 640 }}>
+                        <thead>
+                          <tr>
+                            <th rowSpan={2} style={{ ...thStyle, textAlign: 'left', minWidth: 180 }}>Agent</th>
+                            {mois.map((m: string) => (
+                              <th key={m} colSpan={2} style={{ ...thStyle, background: '#003366' }}>{moisLabel(m)}</th>
+                            ))}
+                            <th colSpan={2} style={{ ...thStyle, background: '#6366f1' }}>Total</th>
+                          </tr>
+                          <tr>
+                            {mois.map((m: string) => (
+                              <React.Fragment key={m}>
+                                <th style={thSubStyle}>Eff.</th>
+                                <th style={thSubStyle}>Décl.</th>
+                              </React.Fragment>
+                            ))}
+                            <th style={thSubStyle}>Eff.</th>
+                            <th style={thSubStyle}>Décl.</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {services.map((g: CumulService) => (
+                            <React.Fragment key={g.service || '__sans__'}>
+                              <tr>
+                                <td colSpan={2 + mois.length * 2} style={{ padding: '8px 12px', background: getServiceColor(g.service) + '22', border: '1px solid #e2e8f0', fontWeight: 800, fontSize: '0.8rem', color: '#0f172a' }}>
+                                  {g.service ? `${g.service}` : 'Sans service'} ({g.agents.length})
+                                </td>
+                              </tr>
+                              {g.agents.map((a: CumulAgent) => (
+                                <tr key={a.username}>
+                                  <td style={{ ...tdStyle, textAlign: 'left', fontWeight: 600, color: '#0f172a', whiteSpace: 'nowrap' }}>
+                                    <span style={{ display: 'inline-block', width: 10, height: 10, borderRadius: '50%', background: getServiceColor(g.service), marginRight: 8 }} />
+                                    {a.nom}
+                                  </td>
+                                  {a.mois.map((m: any) => (
+                                    <React.Fragment key={m.mois}>
+                                      <td style={{ ...tdStyle, color: '#003366', fontWeight: 600, background: m.effectif > 0 ? '#f0f7ff' : '#fff' }}>{m.effectif > 0 ? fmt(m.effectif) : '·'}</td>
+                                      <td style={{ ...tdStyle, fontWeight: 600, color: m.declarer > 0 ? '#0f172a' : '#cbd5e1' }}>{m.declarer > 0 ? m.declarer : '·'}</td>
+                                    </React.Fragment>
+                                  ))}
+                                  <td style={{ ...tdStyle, fontWeight: 800, color: '#003366', background: '#f0f7ff' }}>{fmt(a.totalEffectif)}</td>
+                                  <td style={{ ...tdStyle, fontWeight: 800, color: '#0f172a', background: '#f8fafc' }}>{a.totalDeclarer}</td>
+                                </tr>
+                              ))}
+                            </React.Fragment>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  ) : (
+                    <p style={{ color: '#94a3b8', textAlign: 'center', padding: 30 }}>Aucun agent sur la période sélectionnée.</p>
+                  )}
+                </>
+              );
+            })() : (
+              <p style={{ color: '#94a3b8', textAlign: 'center', padding: 30 }}>Sélectionnez une période puis cliquez sur « Calculer ».</p>
+            )}
           </div>
         </div>
       )}

@@ -483,9 +483,125 @@ async function getHotlineEventsForDate(date) {
   return events;
 }
 
+async function getCumulTeletravail(req, res) {
+    try {
+      const { debut, fin } = req.query;
+      if (!debut || !fin) {
+        return res.status(400).json({ message: 'Paramètres debut et fin requis' });
+      }
+
+      const [agentsResult, eventsResult] = await Promise.all([
+        pool.query(`
+          SELECT a.username, TRIM(a.nom) as nom, a.email,
+                 COALESCE(a.service, '') as service,
+                 COALESCE((SELECT json_agg(t.jour_semaine ORDER BY t.jour_semaine) FROM hub_calendrier.agents_tt_days t WHERE t.agent_username = a.username), '[]') as tt_fixed_days
+          FROM hub_calendrier.agents_dsi a
+        `),
+        pool.query(`
+          SELECT date::text as date, periode, agent_username
+          FROM hub_calendrier.evenements
+          WHERE categorie = 'teletravail'
+            AND agent_username IS NOT NULL AND agent_username != ''
+            AND date >= $1 AND date <= $2
+        `, [debut, fin])
+      ]);
+
+      // Manual event keys (same logic as getEvenements : a full-day event also blocks AM/PM)
+      const manualKeys = new Set();
+      for (const row of eventsResult.rows) {
+        manualKeys.add(`${row.agent_username}|${row.date}|teletravail|${row.periode || ''}`);
+        if (row.periode === '') {
+          manualKeys.add(`${row.agent_username}|${row.date}|teletravail|matin`);
+          manualKeys.add(`${row.agent_username}|${row.date}|teletravail|apres-midi`);
+        }
+      }
+
+      // List of months between debut and fin
+      const moisList = [];
+      const startDate = new Date(debut + 'T00:00:00');
+      const endDate = new Date(fin + 'T00:00:00');
+      const cursor = new Date(startDate.getFullYear(), startDate.getMonth(), 1);
+      while (cursor <= endDate) {
+        moisList.push(`${cursor.getFullYear()}-${pad2(cursor.getMonth() + 1)}`);
+        cursor.setMonth(cursor.getMonth() + 1);
+      }
+
+      const agents = agentsResult.rows.map(agent => {
+        const days = {}; // date -> Set(periode)
+        const byMois = {};
+        for (const m of moisList) byMois[m] = { effectif: 0, declarer: 0 };
+
+        // Date-specific events
+        for (const e of eventsResult.rows) {
+          if (e.agent_username !== agent.username) continue;
+          if (!days[e.date]) days[e.date] = new Set();
+          days[e.date].add(e.periode || '');
+        }
+
+        // Fixed TT days (full day) - skipped when a manual teletravail event exists that day
+        for (const day of agent.tt_fixed_days || []) {
+          const dates = getDatesForDayOfWeek(debut, fin, day);
+          for (const date of dates) {
+            if (manualKeys.has(`${agent.username}|${date}|teletravail|`)) continue;
+            if (!days[date]) days[date] = new Set();
+            days[date].add('');
+          }
+        }
+
+        for (const [date, periodes] of Object.entries(days)) {
+          const mois = date.slice(0, 7);
+          if (!byMois[mois]) continue;
+          let jourEffectif = 0;
+          if (periodes.has('')) jourEffectif = 1;
+          else {
+            if (periodes.has('matin')) jourEffectif += 0.5;
+            if (periodes.has('apres-midi')) jourEffectif += 0.5;
+          }
+          byMois[mois].effectif += jourEffectif;
+          byMois[mois].declarer += 1;
+        }
+
+        // Cap : maximum 8 jours déclarés par mois
+        for (const m of moisList) {
+          byMois[m].declarer = Math.min(byMois[m].declarer, 8);
+        }
+
+        return {
+          username: agent.username,
+          nom: agent.nom,
+          email: agent.email || '',
+          service: agent.service,
+          totalEffectif: moisList.reduce((s, m) => s + byMois[m].effectif, 0),
+          totalDeclarer: moisList.reduce((s, m) => s + byMois[m].declarer, 0),
+          mois: moisList.map(m => ({ mois: m, effectif: byMois[m].effectif, declarer: byMois[m].declarer }))
+        };
+      });
+
+      const groups = {};
+      for (const a of agents) {
+        const s = a.service || '';
+        if (!groups[s]) groups[s] = [];
+        groups[s].push(a);
+      }
+
+      const services = Object.entries(groups)
+        .sort(([a], [b]) => a.localeCompare(b, 'fr'))
+        .map(([service, ags]) => ({
+          service,
+          agents: ags.sort((x, y) => x.nom.localeCompare(y.nom, 'fr'))
+        }));
+
+      res.json({ mois: moisList, services });
+    } catch (error) {
+      console.error('[Calendrier DSI] getCumulTeletravail error:', error);
+      res.status(500).json({ message: 'Erreur lors du calcul du cumul', error: error.message });
+    }
+}
+
 module.exports = {
   setSendMail: (fn) => { sendMailFn = fn; },
   getEventsForDate,
+  getCumulTeletravail,
 
   getEvenements: async (req, res) => {
     try {
