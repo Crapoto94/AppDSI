@@ -335,7 +335,7 @@ const BudgetPrepTab: React.FC = () => {
                         <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
                         <XAxis dataKey="name" tick={{ fontSize: 12 }} />
                         <YAxis tickFormatter={(v) => fmt(v)} width={90} />
-                        <Tooltip formatter={(v: number) => fmt(v) + ' €'} />
+                        <Tooltip formatter={(v: any) => fmt(Number(v)) + ' €'} />
                         <Legend />
                         <Bar dataKey="montant" name="Montant (€)" fill="#003366" radius={[4, 4, 0, 0]} />
                     </BarChart>
