@@ -47,7 +47,7 @@ const fmt = (n: number | undefined) => {
 
 const BudgetPrepTab: React.FC = () => {
     const { token, user } = useAuth();
-    const canManage = ['admin', 'finances', 'compta'].includes((user as any)?.role);
+    const canManage = ['superadmin', 'admin', 'finances', 'compta'].includes((user as any)?.role);
 
     const [facets, setFacets] = useState<Facet | null>(null);
     const [columns, setColumns] = useState<Column[]>([]);
