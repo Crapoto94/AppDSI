@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import Header from '../components/Header';
 import { useAuth } from '../contexts/AuthContext';
 import axios from 'axios';
-import { ChevronLeft, ChevronRight, Plus, Calendar, Settings, Mail, Cloud, Shield, BarChart3 } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Plus, Calendar, Settings, Mail, Cloud, Shield, BarChart3, Printer } from 'lucide-react';
 import { useADSearch } from '../utils/useADSearch';
 
 const CATEGORIES = ['absence', 'teletravail', 'deplacement', 'deploiement', 'reunion', 'hotline', 'maintenance'] as const;
@@ -276,6 +276,69 @@ export default function CalendrierDSI() {
     } finally {
       setCumulLoading(false);
     }
+  };
+
+  const handlePrintCumul = () => {
+    if (!cumulData) return;
+    const { mois, services } = cumulData;
+    const moisLabel = (m: string) => {
+      const [y, mm] = m.split('-');
+      const abbr = ['Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Juin', 'Juil', 'Août', 'Sep', 'Oct', 'Nov', 'Déc'][Number(mm) - 1];
+      return `${abbr} ${y}`;
+    };
+    const win = window.open('', '_blank', 'width=1200,height=800');
+    if (!win) return;
+    const rows = services.map((g: CumulService) => `
+      <tr class="service-row">
+        <td colspan="${mois.length + 2}">${g.service ? g.service : 'Sans service'} (${g.agents.length})</td>
+      </tr>
+      ${g.agents.map((a: CumulAgent) => `
+        <tr>
+          <td class="agent">${a.nom}</td>
+          ${a.mois.map(m => `<td class="${m.declarer > 0 ? 'val' : 'zero'}">${m.declarer > 0 ? m.declarer : ''}</td>`).join('')}
+          <td class="total">${a.totalDeclarer}</td>
+        </tr>
+      `).join('')}
+    `).join('');
+    win.document.write(`<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8" />
+<title>Cumul télétravail — Jours à déclarer</title>
+<style>
+  @page { size: A4 landscape; margin: 12mm; }
+  body { font-family: Arial, Helvetica, sans-serif; margin: 0; padding: 20px; color: #0f172a; }
+  h1 { font-size: 18px; margin: 0 0 4px; }
+  .period { color: #64748b; font-size: 12px; margin-bottom: 16px; }
+  table { border-collapse: collapse; width: 100%; }
+  th, td { border: 1px solid #cbd5e1; padding: 5px 8px; font-size: 11px; text-align: center; }
+  th { background: #0f172a; color: #fff; }
+  td.agent { text-align: left; font-weight: 600; white-space: nowrap; }
+  td.total { font-weight: 800; background: #f1f5f9; }
+  tr.service-row td { background: #e2e8f0; font-weight: 800; text-align: left; }
+  td.zero { color: #cbd5e1; }
+  .foot { margin-top: 8px; font-size: 10px; color: #94a3b8; }
+</style>
+</head>
+<body>
+  <h1>Cumul télétravail — Jours à déclarer</h1>
+  <div class="period">Période : ${moisLabel(cumulDebut)} → ${moisLabel(cumulFin)}</div>
+  <table>
+    <thead>
+      <tr>
+        <th>Agent</th>
+        ${mois.map(m => `<th>${moisLabel(m)}</th>`).join('')}
+        <th>Total</th>
+      </tr>
+    </thead>
+    <tbody>${rows}</tbody>
+  </table>
+  <div class="foot">Jours à déclarer = nombre de jours avec au moins une demi-journée de télétravail, plafonné à 8 par mois.</div>
+</body>
+</html>`);
+    win.document.close();
+    win.focus();
+    setTimeout(() => { win.focus(); win.print(); }, 250);
   };
 
   const fetchVacances = useCallback(async () => {
@@ -2670,6 +2733,9 @@ const renderDot = (evt: Evenement) => {
               <button onClick={fetchCumul} disabled={!cumulDebut || !cumulFin || cumulLoading} style={{ padding: '9px 22px', borderRadius: 8, background: cumulDebut && cumulFin && !cumulLoading ? '#003366' : '#cbd5e1', color: '#fff', border: 'none', cursor: cumulDebut && cumulFin && !cumulLoading ? 'pointer' : 'not-allowed', fontWeight: 700, fontSize: '0.9rem' }}>
                 {cumulLoading ? '⏳ Calcul...' : 'Calculer'}
               </button>
+              <button onClick={handlePrintCumul} disabled={!cumulData || cumulLoading} style={{ padding: '9px 22px', borderRadius: 8, background: cumulData && !cumulLoading ? '#16a34a' : '#cbd5e1', color: '#fff', border: 'none', cursor: cumulData && !cumulLoading ? 'pointer' : 'not-allowed', fontWeight: 700, fontSize: '0.9rem', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                <Printer size={15} /> Imprimer PDF
+              </button>
             </div>
 
             {cumulError && (
@@ -2732,7 +2798,7 @@ const renderDot = (evt: Evenement) => {
                                   </td>
                                   {a.mois.map((m: any) => (
                                     <React.Fragment key={m.mois}>
-                                      <td style={{ ...tdStyle, color: '#003366', fontWeight: 600, background: m.effectif > 0 ? '#f0f7ff' : '#fff' }}>{m.effectif > 0 ? fmt(m.effectif) : '·'}</td>
+                                      <td style={{ ...tdStyle, color: '#003366', fontWeight: 600, background: m.effectif > 8 ? '#fee2e2' : (m.effectif > 0 ? '#f0f7ff' : '#fff') }}>{m.effectif > 0 ? fmt(m.effectif) : '·'}</td>
                                       <td style={{ ...tdStyle, fontWeight: 600, color: m.declarer > 0 ? '#0f172a' : '#cbd5e1' }}>{m.declarer > 0 ? m.declarer : '·'}</td>
                                     </React.Fragment>
                                   ))}
