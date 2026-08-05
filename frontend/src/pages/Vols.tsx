@@ -609,7 +609,7 @@ const Vols: React.FC = () => {
                 tickFormatter={trendMetric === 'montant' ? (v: number) => `${(v / 1000).toLocaleString('fr-FR')} k€` : undefined}
                 {...(trendMetric === 'montant' ? { ticks: montantTicks, domain: [0, montantTicks[montantTicks.length - 1]] } : {})}
               />
-              <Tooltip contentStyle={{ fontSize: 12 }} formatter={(v: number) => trendMetric === 'montant' ? fmtMoney(v) : v} />
+              <Tooltip contentStyle={{ fontSize: 12 }} formatter={(v: number | undefined) => trendMetric === 'montant' ? fmtMoney(v ?? 0) : v} />
               <Legend wrapperStyle={{ fontSize: 12 }} />
               {TYPES_INCIDENT.map(t => (
                 <Line key={t.value} type="monotone" dataKey={trendMetric === 'montant' ? `${t.value}_montant` : t.value} name={t.label} stroke={t.color} strokeWidth={2} dot={{ r: 3 }} />
