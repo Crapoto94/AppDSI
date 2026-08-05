@@ -5,8 +5,9 @@ import Header from '../components/Header';
 import DocumentViewer from '../components/DocumentViewer';
 import {
   ShieldAlert, Plus, X, Search, Trash2, Edit3, Paperclip, Upload, Download,
-  MessageSquare, Send, Loader2, ArrowLeft, ArrowUp, ArrowDown, ChevronsUpDown, Eye, ShieldCheck
+  MessageSquare, Send, Loader2, ArrowLeft, ArrowUp, ArrowDown, ChevronsUpDown, Eye, ShieldCheck, TrendingUp
 } from 'lucide-react';
+import { LineChart, Line, XAxis, YAxis, Tooltip, Legend, ResponsiveContainer, CartesianGrid } from 'recharts';
 
 interface Theft {
   id: number;
@@ -134,6 +135,17 @@ const COLUMNS: { key: string; label: string; sortable: boolean }[] = [
   { key: '_actions', label: '', sortable: false },
 ];
 
+const MONTH_LABELS = ['Janv.', 'Févr.', 'Mars', 'Avr.', 'Mai', 'Juin', 'Juil.', 'Août', 'Sept.', 'Oct.', 'Nov.', 'Déc.'];
+
+function matchesSearch(t: Theft, q: string): boolean {
+  if (!q) return true;
+  return (t.designation || '').toLowerCase().includes(q)
+    || (t.numero_inventaire || '').toLowerCase().includes(q)
+    || (t.agent_nom || '').toLowerCase().includes(q)
+    || (t.beneficiaire_nom || '').toLowerCase().includes(q)
+    || (t.beneficiaire_service || '').toLowerCase().includes(q);
+}
+
 function sortThefts(list: Theft[], sortKey: string, sortDir: SortDir): Theft[] {
   const arr = [...list];
   arr.sort((a, b) => {
@@ -174,6 +186,8 @@ const Vols: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [statutFilter, setStatutFilter] = useState('');
   const [typeFilter, setTypeFilter] = useState('');
+  const [yearFilter, setYearFilter] = useState('');
+  const [trendMetric, setTrendMetric] = useState<'count' | 'montant'>('count');
   const [search, setSearch] = useState('');
   const [sortKey, setSortKey] = useState('date_vol');
   const [sortDir, setSortDir] = useState<SortDir>('desc');
@@ -395,21 +409,78 @@ const Vols: React.FC = () => {
     }
   };
 
+  const availableYears = useMemo(() => {
+    const years = new Set<string>();
+    thefts.forEach(t => { if (t.date_vol) years.add(String(new Date(t.date_vol).getFullYear())); });
+    return Array.from(years).sort((a, b) => Number(b) - Number(a));
+  }, [thefts]);
+
   const filtered = thefts.filter(t => {
     if (statutFilter && t.statut !== statutFilter) return false;
     if (typeFilter && t.type_incident !== typeFilter) return false;
-    if (search.trim()) {
-      const s = search.trim().toLowerCase();
-      return (t.designation || '').toLowerCase().includes(s)
-        || (t.numero_inventaire || '').toLowerCase().includes(s)
-        || (t.agent_nom || '').toLowerCase().includes(s)
-        || (t.beneficiaire_nom || '').toLowerCase().includes(s)
-        || (t.beneficiaire_service || '').toLowerCase().includes(s);
-    }
-    return true;
+    if (yearFilter && (!t.date_vol || String(new Date(t.date_vol).getFullYear()) !== yearFilter)) return false;
+    return matchesSearch(t, search.trim().toLowerCase());
   });
 
   const sorted = useMemo(() => sortThefts(filtered, sortKey, sortDir), [filtered, sortKey, sortDir]);
+
+  const kpis = useMemo(() => {
+    const byType: Record<string, { count: number; montant: number }> = {
+      vol: { count: 0, montant: 0 }, perte: { count: 0, montant: 0 }, casse: { count: 0, montant: 0 },
+    };
+    filtered.forEach(t => {
+      const bucket = byType[t.type_incident];
+      if (!bucket) return;
+      bucket.count += 1;
+      bucket.montant += Number(t.valeur_achat) || 0;
+    });
+    return byType;
+  }, [filtered]);
+
+  const trendData = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    const scope = thefts.filter(t => {
+      if (statutFilter && t.statut !== statutFilter) return false;
+      if (yearFilter && (!t.date_vol || String(new Date(t.date_vol).getFullYear()) !== yearFilter)) return false;
+      return matchesSearch(t, q);
+    });
+
+    const emptyBucket = () => ({ vol: 0, perte: 0, casse: 0, vol_montant: 0, perte_montant: 0, casse_montant: 0 });
+
+    if (yearFilter) {
+      const buckets = MONTH_LABELS.map(label => ({ label, ...emptyBucket() }));
+      scope.forEach(t => {
+        if (!t.date_vol || !(t.type_incident in buckets[0])) return;
+        const idx = new Date(t.date_vol).getMonth();
+        (buckets[idx] as any)[t.type_incident] += 1;
+        (buckets[idx] as any)[`${t.type_incident}_montant`] += Number(t.valeur_achat) || 0;
+      });
+      return buckets;
+    }
+
+    const years = [...availableYears].reverse();
+    const buckets = years.map(y => ({ label: y, ...emptyBucket() }));
+    scope.forEach(t => {
+      if (!t.date_vol) return;
+      const y = String(new Date(t.date_vol).getFullYear());
+      const b = buckets.find(bb => bb.label === y);
+      if (b && t.type_incident in b) {
+        (b as any)[t.type_incident] += 1;
+        (b as any)[`${t.type_incident}_montant`] += Number(t.valeur_achat) || 0;
+      }
+    });
+    return buckets;
+  }, [thefts, statutFilter, yearFilter, search, availableYears]);
+
+  const montantTicks = useMemo(() => {
+    const STEP = 1000;
+    const max = trendData.reduce((acc, b: any) =>
+      Math.max(acc, b.vol_montant, b.perte_montant, b.casse_montant), 0);
+    const top = Math.max(STEP, Math.ceil(max / STEP) * STEP);
+    const ticks: number[] = [];
+    for (let v = 0; v <= top; v += STEP) ticks.push(v);
+    return ticks;
+  }, [trendData]);
 
   const handleSort = (key: string) => {
     if (sortKey === key) {
@@ -486,6 +557,65 @@ const Vols: React.FC = () => {
             <option value="">Tous les statuts</option>
             {STATUTS.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
           </select>
+          <select value={yearFilter} onChange={e => setYearFilter(e.target.value)} style={{ ...inputStyle, width: 140 }}>
+            <option value="">Toutes les années</option>
+            {availableYears.map(y => <option key={y} value={y}>{y}</option>)}
+          </select>
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12, marginBottom: 16 }}>
+          {TYPES_INCIDENT.map(t => (
+            <div key={t.value} style={{ background: 'white', borderRadius: 12, border: '1px solid #e2e8f0', padding: 14, display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ width: 8, height: 8, borderRadius: '50%', background: t.color }} />
+                <span style={{ fontSize: 12, fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>{t.label}</span>
+              </div>
+              <div style={{ fontSize: 22, fontWeight: 800, color: '#0f172a' }}>
+                {kpis[t.value].count} <span style={{ fontSize: 13, fontWeight: 600, color: '#94a3b8' }}>dossier{kpis[t.value].count > 1 ? 's' : ''}</span>
+              </div>
+              <div style={{ fontSize: 14, fontWeight: 700, color: t.color }}>{fmtMoney(kpis[t.value].montant)}</div>
+            </div>
+          ))}
+        </div>
+
+        <div style={{ background: 'white', borderRadius: 12, border: '1px solid #e2e8f0', padding: 16, marginBottom: 16, height: 260 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8, flexWrap: 'wrap' }}>
+            <TrendingUp size={15} color="#64748b" />
+            <span style={{ fontSize: 12, fontWeight: 700, color: '#475569', textTransform: 'uppercase' }}>
+              Évolution {yearFilter ? `— ${yearFilter}` : '(par année)'}
+            </span>
+            <div style={{ display: 'flex', gap: 4, marginLeft: 'auto', background: '#f1f5f9', borderRadius: 8, padding: 3 }}>
+              {(['count', 'montant'] as const).map(m => (
+                <button key={m} onClick={() => setTrendMetric(m)}
+                  style={{
+                    border: 'none', borderRadius: 6, padding: '4px 12px', fontSize: 12, fontWeight: 700, cursor: 'pointer',
+                    background: trendMetric === m ? 'white' : 'transparent',
+                    color: trendMetric === m ? '#0f172a' : '#64748b',
+                    boxShadow: trendMetric === m ? '0 1px 2px rgba(0,0,0,0.08)' : 'none',
+                  }}>
+                  {m === 'count' ? 'Nombre' : 'Montant'}
+                </button>
+              ))}
+            </div>
+          </div>
+          <ResponsiveContainer width="100%" height="90%">
+            <LineChart data={trendData} margin={{ top: 4, right: 12, bottom: 0, left: trendMetric === 'montant' ? 12 : -10 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+              <XAxis dataKey="label" tick={{ fontSize: 11 }} />
+              <YAxis
+                width={trendMetric === 'montant' ? 70 : 30}
+                tick={{ fontSize: 11 }}
+                allowDecimals={trendMetric !== 'montant'}
+                tickFormatter={trendMetric === 'montant' ? (v: number) => `${(v / 1000).toLocaleString('fr-FR')} k€` : undefined}
+                {...(trendMetric === 'montant' ? { ticks: montantTicks, domain: [0, montantTicks[montantTicks.length - 1]] } : {})}
+              />
+              <Tooltip contentStyle={{ fontSize: 12 }} formatter={(v: number) => trendMetric === 'montant' ? fmtMoney(v) : v} />
+              <Legend wrapperStyle={{ fontSize: 12 }} />
+              {TYPES_INCIDENT.map(t => (
+                <Line key={t.value} type="monotone" dataKey={trendMetric === 'montant' ? `${t.value}_montant` : t.value} name={t.label} stroke={t.color} strokeWidth={2} dot={{ r: 3 }} />
+              ))}
+            </LineChart>
+          </ResponsiveContainer>
         </div>
 
         <div style={{ background: 'white', borderRadius: 12, border: '1px solid #e2e8f0', overflow: 'hidden' }}>

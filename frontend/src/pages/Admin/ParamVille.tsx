@@ -298,6 +298,22 @@ const CATEGORY_COLORS: Record<string, string> = {
   'STATIONNEMENT': '#475569', 'SANS AFFECTATION': '#9ca3af',
 };
 
+// ─── Export CSV ───────────────────────────────────────────────────────────────
+function exportToCSV(filename: string, headers: string[], rows: (string | number)[][]) {
+  const escape = (v: string | number) => {
+    const s = String(v ?? '');
+    return /[",\n;]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+  const csvContent = '﻿' + [headers, ...rows].map(row => row.map(escape).join(';')).join('\n');
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.setAttribute('href', url);
+  link.setAttribute('download', filename);
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
 const parseAddress = (adresse: string): string =>
   adresse.replace(/^(\d+)(?:-\d+)+\s+/, '$1 ').trim();
 
@@ -644,6 +660,19 @@ function EncadrantsTab({ token }: { token: string | null }) {
   const dirCount = encadrants.filter(e => e.role === 'directeur').length;
   const respCount = encadrants.filter(e => e.role === 'responsable_service').length;
 
+  const exportEncadrantsCSV = () => {
+    exportToCSV(
+      `encadrants_${new Date().toISOString().slice(0, 10)}.csv`,
+      ['Prénom', 'Nom', 'Rôle', 'Poste', 'Direction', 'Code direction', 'Service', 'Code service', 'Email', 'Téléphone', 'Téléphone perso'],
+      filtered.map(e => [
+        e.prenom, e.nom, roleLabel(e.role), e.poste,
+        e.direction_label, e.direction_code,
+        e.is_direction_service ? '' : e.service_label, e.is_direction_service ? '' : e.service_code,
+        e.email, e.telephone, e.telephone_perso,
+      ])
+    );
+  };
+
   if (loading) return <div style={{ textAlign: 'center', padding: 60, color: '#64748b' }}>Chargement des encadrants…</div>;
 
   return (
@@ -667,6 +696,10 @@ function EncadrantsTab({ token }: { token: string | null }) {
         <button onClick={() => { setShowADCompare(v => !v); if (!showADCompare && !adGroupsList.length) loadADGroupsList(); }}
           style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px', background: showADCompare ? '#eff6ff' : '#f8fafc', border: `1px solid ${showADCompare ? '#bfdbfe' : '#e2e8f0'}`, borderRadius: 8, cursor: 'pointer', fontWeight: 600, fontSize: 13, color: showADCompare ? '#1d4ed8' : '#475569' }}>
           Comparer avec liste AD
+        </button>
+        <button onClick={exportEncadrantsCSV} disabled={filtered.length === 0}
+          style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px', background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 8, cursor: 'pointer', fontWeight: 600, fontSize: 13, color: '#1d4ed8', opacity: filtered.length === 0 ? 0.5 : 1 }}>
+          <Upload size={14} style={{ transform: 'rotate(180deg)' }} /> Export CSV
         </button>
       </div>
 
@@ -1067,6 +1100,14 @@ export default function ParamVille() {
     catch (error: any) { alert('Erreur: ' + (error.response?.data?.message || error.message)); }
   };
 
+  const exportElusCSV = () => {
+    exportToCSV(
+      `elus_${new Date().toISOString().slice(0, 10)}.csv`,
+      ['Prénom', 'Nom', 'Rôle', 'Email', 'Téléphone', 'Délégation'],
+      elus.map(e => [e.prenom, e.nom, e.role, e.email || '', e.telephone || '', e.delegation || ''])
+    );
+  };
+
   const importElus = async () => {
     if (!eluUploadFile) { alert('Sélectionner un fichier'); return; }
     setEluImporting(true); setEluImportResult(null);
@@ -1397,6 +1438,9 @@ export default function ParamVille() {
                 ✓ {eluImportResult.imported} élu(s) importé(s)
               </span>
             )}
+            <button style={s.btn('primary')} onClick={exportElusCSV} disabled={elus.length === 0}>
+              <Upload size={15} style={{ transform: 'rotate(180deg)' }} /> Export CSV
+            </button>
           </div>
 
           <button style={s.btn(editingElu ? 'success' : 'primary')} onClick={() => {
