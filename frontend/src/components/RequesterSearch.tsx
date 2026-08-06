@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
+import AgentPresenceBadge from './AgentPresenceBadge';
 
 interface Props {
   value: string;
@@ -116,6 +117,7 @@ export default function RequesterSearch({ value, onChange, initialEmail, initial
             </div>
           )}
         </div>
+        {selected && <AgentPresenceBadge email={selected.email} name={selected.name} />}
         {selected && (
           <button onClick={clearUser} title="Effacer"
             style={{ padding: '6px 10px', border: '1px solid #e2e8f0', borderRadius: 6, background: '#fff', cursor: 'pointer', fontSize: 12, color: '#ef4444', whiteSpace: 'nowrap' }}>

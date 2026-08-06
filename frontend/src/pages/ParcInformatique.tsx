@@ -5,6 +5,7 @@ import MobiliteView from './parc/MobiliteView';
 import LignesMobilesView from './parc/LignesMobilesView';
 import AdView from './parc/AdView';
 import EtiquetteView, { printLabelWindow } from './parc/EtiquetteView';
+import AgentPresenceBadge from '../components/AgentPresenceBadge';
 import axios from 'axios';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -1206,6 +1207,7 @@ const ParcInformatique: React.FC = () => {
                                   {r.ad_found && <span title="Trouvé dans l'AD"><ShieldCheck size={13} color="#7c3aed" /></span>}
                                   <User size={13} color={C.green} />
                                   {r.contact}
+                                  {r.ad_found && r.contact_email && <AgentPresenceBadge email={r.contact_email} size={11} />}
                                 </span>
                               : <span style={{ color: '#cbd5e1' }}>—</span>}
                             {source === 'hub' && (

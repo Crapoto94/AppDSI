@@ -5,6 +5,7 @@ import {
     CheckCircle2, Circle, RefreshCw,
     MessageSquare, ListTodo, FileText, Search, Users, Share2, Building2, CheckCircle
 } from 'lucide-react';
+import AgentPresenceBadge from '../../components/AgentPresenceBadge';
 import axios from 'axios';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
@@ -422,7 +423,10 @@ const MeetingDetail: React.FC = () => {
                                             <div key={idx} className="speaker-stat">
                                                 <div className="speaker-labels">
                                                     <div style={{ display: 'flex', flexDirection: 'column' }}>
-                                                        <span className="s-name">{speaker.name}</span>
+                                                        <span className="s-name" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                                                            {speaker.name}
+                                                            <AgentPresenceBadge email={speaker.email} name={speaker.name} size={11} />
+                                                        </span>
                                                         {speaker.email && (
                                                             <span style={{ fontSize: '10px', color: '#94a3b8' }}>{speaker.email}</span>
                                                         )}

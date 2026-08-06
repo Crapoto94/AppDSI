@@ -120,7 +120,7 @@ export interface BlTemplate {
 }
 export interface Loan {
   id: number; store_id: number; parc_itemtype?: string; parc_glpi_id?: number; item_id?: number; serial_item_id?: number | null; borrower_name?: string;
-  borrower_username?: string; quantity: number; loaned_at: string; due_date?: string; returned_at?: string;
+  borrower_username?: string; borrower_email?: string; quantity: number; loaned_at: string; due_date?: string; returned_at?: string;
   status: 'active' | 'returned'; overdue?: boolean; item_label?: string; serial_number?: string;
 }
 export interface ForecastRow {

@@ -4,6 +4,7 @@ import { useAuth } from '../contexts/AuthContext';
 import axios from 'axios';
 import { ChevronLeft, ChevronRight, Plus, Calendar, Settings, Mail, Cloud, Shield, BarChart3, Printer } from 'lucide-react';
 import { useADSearch } from '../utils/useADSearch';
+import AgentPresenceBadge from '../components/AgentPresenceBadge';
 
 const CATEGORIES = ['absence', 'teletravail', 'deplacement', 'deploiement', 'reunion', 'hotline', 'maintenance'] as const;
 type Categorie = typeof CATEGORIES[number];
@@ -1968,8 +1969,9 @@ const renderPastille = (evt: Evenement) => {
             return (
               <React.Fragment key={agent.username}>
                 <div className="cat-cell" style={{ background: agent.username?.toLowerCase() === user?.username?.toLowerCase() ? '#dbeafe' : '#f8fafc', padding: '4px 8px', minHeight: 'auto' }}>
-                  <div className="cat-label" style={{ fontWeight: 600, fontSize: '0.75rem', color: agent.username?.toLowerCase() === user?.username?.toLowerCase() ? '#1e40af' : '#0f172a', lineHeight: 1.2 }}>
+                  <div className="cat-label" style={{ fontWeight: 600, fontSize: '0.75rem', color: agent.username?.toLowerCase() === user?.username?.toLowerCase() ? '#1e40af' : '#0f172a', lineHeight: 1.2, display: 'flex', alignItems: 'center', gap: 4 }}>
                     {agent.nom}
+                    <AgentPresenceBadge email={agent.email} name={agent.nom} size={11} />
                   </div>
                 </div>
                 {weekDays.map(d => {

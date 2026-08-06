@@ -3,6 +3,7 @@ import Header from '../components/Header';
 import { useAuth } from '../contexts/AuthContext';
 import { useADSearch } from '../utils/useADSearch';
 import { ArrowLeft, Plus, X, Trash2, Users, Check, RefreshCw, Link2, Unlink, Database } from 'lucide-react';
+import AgentPresenceBadge from '../components/AgentPresenceBadge';
 
 const JOURS = ['Dimanche', 'Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi'];
 const JOURS_COURT = ['Dim', 'Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam'];
@@ -543,7 +544,10 @@ export default function AgentsDSI() {
                           {getInitials(agent.nom)}
                         </div>
                         <div className="agent-info">
-                          <div className="agent-name">{agent.nom}</div>
+                          <div className="agent-name" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                            {agent.nom}
+                            <AgentPresenceBadge email={agent.email} name={agent.nom} />
+                          </div>
                           <div className="agent-detail">
                             <span>{agent.username}</span>
                             {agent.email && <><span>·</span><span>{agent.email}</span></>}

@@ -6,6 +6,7 @@ import CreerProjetModal from '../components/projets/CreerProjetModal';
 import { useADSearch } from '../utils/useADSearch';
 import { useAuth } from '../contexts/AuthContext';
 import { isSuperAdmin, isAdminLike } from '../utils/roles';
+import AgentPresenceBadge from '../components/AgentPresenceBadge';
 
 interface Projet {
   id: number; code: string; titre: string; statut: string;
@@ -530,7 +531,10 @@ const ProjetTable: React.FC<ProjetTableProps> = ({ items, favoris, navigate, tog
               </div>
             )}
           </td>
-          <td style={{ padding: '12px 16px', color: '#475569', fontSize: '13px' }}>{p.chef_projet_display_name || p.chef_projet_username || '—'}</td>
+          <td style={{ padding: '12px 16px', color: '#475569', fontSize: '13px', display: 'flex', alignItems: 'center', gap: 6 }}>
+            {p.chef_projet_display_name || p.chef_projet_username || '—'}
+            {(p.chef_projet_display_name || p.chef_projet_username) && <AgentPresenceBadge name={p.chef_projet_display_name || p.chef_projet_username} size={11} />}
+          </td>
           <td style={{ padding: '12px 16px', textAlign: 'center', fontSize: '18px' }}>
             {p.meteo === 'soleil' ? '☀️' : p.meteo === 'nuageux' ? '⛅' : p.meteo === 'orage' ? '⛈️' : '➖'}
           </td>

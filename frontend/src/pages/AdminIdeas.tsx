@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import axios from 'axios';
 import { useAuth } from '../contexts/AuthContext';
 import { Lightbulb, CheckCircle, XCircle, Clock, MessageSquare, Trash2, Send, Loader2, Paperclip } from 'lucide-react';
+import AgentPresenceBadge from '../components/AgentPresenceBadge';
 
 interface IdeaAttachment {
     id: number;
@@ -177,6 +178,7 @@ const AdminIdeas: React.FC = () => {
                                         </div>
                                         <div className="idea-meta">
                                             <span className="meta-author">{idea.author_name || idea.author_email || 'Anonyme'}</span>
+                                            <AgentPresenceBadge email={idea.author_email} name={idea.author_name} size={11} />
                                             {idea.author_email && idea.author_name && (
                                                 <span className="meta-email">{idea.author_email}</span>
                                             )}

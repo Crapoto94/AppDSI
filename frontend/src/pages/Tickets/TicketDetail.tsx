@@ -15,6 +15,7 @@ import type { AttachDoc } from './DocumentSuggestions';
 import { Phone, MessageSquare, Upload, X, Edit3 } from 'lucide-react';
 import { formatDateTime, formatDate as formatDateParis } from '../../utils/datetime';
 import UserHoverCard from '../../components/tickets/UserHoverCard';
+import AgentPresenceBadge from '../../components/AgentPresenceBadge';
 
 function decodeHtml(str: string) {
   const txt = document.createElement('textarea');
@@ -1988,6 +1989,8 @@ export default function TicketDetail() {
                     <UserHoverCard email={ticket.requester?.email || ticket.email_alt || ticket.requester_email_22}>
                       {ticket.requester?.name || 'Anonyme'}
                     </UserHoverCard>
+                    {' '}
+                    <AgentPresenceBadge email={ticket.requester?.email || ticket.email_alt || ticket.requester_email_22} name={ticket.requester?.name} />
                   </div>
                   {ticket.requester?.email && (
                     <a href={`mailto:${ticket.requester.email}`} style={{ fontSize: 11, color: '#6366f1', textDecoration: 'none', display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ticket.requester.email}</a>
@@ -2433,7 +2436,10 @@ export default function TicketDetail() {
                               {getInitials(best.displayname || best.displayName || '')}
                             </div>
                             <div style={{ flex: 1, minWidth: 0 }}>
-                              <div style={{ fontSize: 14, fontWeight: 700, color: '#18181b' }}>{best.displayname || best.displayName}</div>
+                              <div style={{ fontSize: 14, fontWeight: 700, color: '#18181b', display: 'flex', alignItems: 'center', gap: 6 }}>
+                                {best.displayname || best.displayName}
+                                <AgentPresenceBadge email={best.email} name={best.displayname || best.displayName} />
+                              </div>
                               <div style={{ fontSize: 11, color: '#71717a', marginTop: 1 }}>{best.module_role || 'technicien'} · {load} ticket{load !== 1 ? 's' : ''} actif{load !== 1 ? 's' : ''}</div>
                             </div>
                             <button onClick={() => assignTechnician(best.user_id)}
@@ -2465,7 +2471,10 @@ export default function TicketDetail() {
                                   {getInitials(t.displayname || t.displayName || '')}
                                 </div>
                                 <div style={{ flex: 1, minWidth: 0 }}>
-                                  <div style={{ fontSize: 13, fontWeight: 600, color: '#18181b' }}>{t.displayname || t.displayName}</div>
+                                  <div style={{ fontSize: 13, fontWeight: 600, color: '#18181b', display: 'flex', alignItems: 'center', gap: 6 }}>
+                                    {t.displayname || t.displayName}
+                                    <AgentPresenceBadge email={t.email} name={t.displayname || t.displayName} />
+                                  </div>
                                   <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginTop: 2 }}>
                                     <span style={{ fontSize: 10, color: '#a1a1aa' }}>{t.module_role || 'technicien'}</span>
                                     <div style={{ width: 50, height: 3, background: '#f4f4f5', borderRadius: 2 }}>
@@ -2503,7 +2512,10 @@ export default function TicketDetail() {
                                 {(t.display_name || t.username || '?')[0].toUpperCase()}
                               </div>
                               <div style={{ flex: 1, minWidth: 0 }}>
-                                <div style={{ fontSize: 13, fontWeight: 600, color: nameColor }}>{t.display_name || t.username}</div>
+                                <div style={{ fontSize: 13, fontWeight: 600, color: nameColor, display: 'flex', alignItems: 'center', gap: 6 }}>
+                                  {t.display_name || t.username}
+                                  <AgentPresenceBadge email={t.email} name={t.display_name || t.username} />
+                                </div>
                                 <div style={{ fontSize: 11, color: subColor }}>{t.email || t.username}</div>
                               </div>
                               <button onClick={() => { assignTechnician(t.user_id); }}

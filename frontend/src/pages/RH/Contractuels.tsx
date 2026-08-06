@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Plus, Search, CheckCircle, XCircle, Send, Upload, Edit2, Trash2, Users, UserCheck, Clock, Calendar, AlertOctagon, FileSpreadsheet } from 'lucide-react';
+import AgentPresenceBadge from '../../components/AgentPresenceBadge';
 
 const API = '/api/admin/rh/contracts';
 const token = () => localStorage.getItem('token');
@@ -357,7 +358,7 @@ export default function Contractuels() {
                   return (
                     <tr key={c.id}>
                       <td><strong>{c.direction || '-'}</strong></td>
-                      <td>{c.nom_prenom}</td>
+                      <td style={{ display: 'flex', alignItems: 'center', gap: 6 }}>{c.nom_prenom}<AgentPresenceBadge name={c.nom_prenom} /></td>
                       <td>{formatDate(c.date_arrivee)}</td>
                       <td>
                         {c.est_cdi ? (

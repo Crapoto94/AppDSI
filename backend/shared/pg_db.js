@@ -4806,6 +4806,12 @@ async function setupPgDb() {
                 'nhk_f525f12dc265cdd1b834e7cb26616831e781d403932358392166967b42556ff6', 'x-api-key')
         ON CONFLICT (key) DO NOTHING
       `);
+      await client.query(`
+        INSERT INTO hub.infra_apis (key, label, base_url, endpoint, api_key, header_name)
+        VALUES ('rh_studio_presence', 'API RH Studio (présence agents)', 'https://studiorh.ivry.local/api', '/agents/presence',
+                'rh_75f6b6559d6fab7b820687b1dea7b1bfe3d526609af23117', 'x-api-key')
+        ON CONFLICT (key) DO NOTHING
+      `);
 
       // ── Seed v2 (version-gated) ────────────────────────────────────
       // DÉSACTIVÉ : le réseau est désormais alimenté par l'API Infra (switchs + liens),

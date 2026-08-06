@@ -49,7 +49,7 @@ const AdminLayout: React.FC = () => {
     { title: "Messagerie & Emails", icon: Mail, path: "/admin/mail" },
     { title: "AD et Entra", icon: Users, path: "/admin/ad" },
     { title: "Inventaire", icon: Server, path: "/admin/inventaire" },
-    { title: "Infra", icon: Network, path: "/admin/infra" },
+    { title: "API externes", icon: Network, path: "/admin/infra" },
     { title: "SMS Frizbi", icon: MessageSquare, path: "/admin/frizbi" },
     { title: "Intelligence Artificielle", icon: MessageSquare, path: "/admin/transcript" },
     { title: "Tickets", icon: Inbox, path: "/admin/tickets" },

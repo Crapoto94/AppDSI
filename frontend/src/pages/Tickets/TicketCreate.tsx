@@ -6,6 +6,7 @@ import Header from '../../components/Header';
 import RequesterSearch from '../../components/RequesterSearch';
 import { Phone, Paperclip, X } from 'lucide-react';
 import { uploadInlineImages, QUILL_MODULES, isQuillEmpty } from './ticketEditor';
+import AgentPresenceBadge from '../../components/AgentPresenceBadge';
 
 const TYPES = [
   { value: 1, label: 'Incident', icon: '!' },
@@ -476,6 +477,7 @@ export default function TicketCreate() {
                     background: '#ede9fe', color: '#7c3aed', borderRadius: 12, fontSize: 12, fontWeight: 500
                   }}>
                     {o.name || o.email}
+                    <AgentPresenceBadge email={o.email} name={o.name} size={11} />
                     <span onClick={() => removeObserver(o.username)} style={{ cursor: 'pointer', fontWeight: 700, marginLeft: 2 }}>×</span>
                   </span>
                 ))}

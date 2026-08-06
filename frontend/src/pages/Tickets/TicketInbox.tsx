@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import axios from 'axios';
 import { useAuth } from '../../contexts/AuthContext';
+import AgentPresenceBadge from '../../components/AgentPresenceBadge';
 
 const STATUS_NAMES: Record<number, string> = {
   1: 'Nouveau', 2: 'En cours', 3: 'Planifié',
@@ -192,7 +193,10 @@ export default function TicketInbox({ baseParams, onTicketClick, selectedId }: I
                   {t.title}
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11, color: '#64748b' }}>
-                  <span>{t.requester_name || 'Anonyme'}</span>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                    {t.requester_name || 'Anonyme'}
+                    <AgentPresenceBadge email={t.requester_email} name={t.requester_name} size={11} />
+                  </span>
                   {t.category_name && <span>· {t.category_name}</span>}
                   <span style={{ marginLeft: 'auto' }}>{t.date_creation ? formatTimeAgo(t.date_creation) : ''}</span>
                 </div>

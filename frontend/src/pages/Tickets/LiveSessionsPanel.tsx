@@ -3,6 +3,7 @@ import { io, Socket } from 'socket.io-client';
 import axios from 'axios';
 import AddTaskModal from '../../components/AddTaskModal';
 import EmojiPicker from '../../components/LiveChat/EmojiPicker';
+import AgentPresenceBadge from '../../components/AgentPresenceBadge';
 
 interface LiveSession {
   id: number;
@@ -893,8 +894,9 @@ export default function LiveSessionsPanel() {
                           background: isWaiting ? '#f59e0b' : '#22c55e',
                           boxShadow: isWaiting ? '0 0 0 3px rgba(245,158,11,0.25)' : '0 0 0 3px rgba(34,197,94,0.25)',
                         }} />
-                        <span style={{ fontWeight: 700, fontSize: 13, color: '#1e293b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        <span style={{ fontWeight: 700, fontSize: 13, color: '#1e293b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
                           {s.user_display_name || s.user_username}
+                          <AgentPresenceBadge email={s.user_email} name={s.user_display_name} size={11} />
                         </span>
                       </div>
                       <div style={{ fontSize: 11, color: '#64748b' }}>
@@ -1054,6 +1056,7 @@ export default function LiveSessionsPanel() {
                     <span style={{ fontWeight: 700, fontSize: 14, color: '#1e293b' }}>
                       {activeSession.user_display_name || activeSession.user_username}
                     </span>
+                    <AgentPresenceBadge email={activeSession.user_email} name={activeSession.user_display_name} />
                     {activeSession.auth_method && renderAuthBadge(activeSession.auth_method, 'normal')}
                   </div>
                   <div style={{ fontSize: 11, color: '#64748b', display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>

@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import BarcodeScanner from '../Stocks/BarcodeScanner';
 import SignaturePad from '../Stocks/SignaturePad';
+import AgentPresenceBadge from '../../components/AgentPresenceBadge';
 import { mobiliteApi, type SerialItem, type MobModel, type AdUser, type OrgDirection } from './mobiliteApi';
 
 const C = { blue: '#2563eb', slate: '#64748b', green: '#059669', amber: '#d97706', red: '#dc2626', border: '#e2e8f0', text: '#0f172a', bg: '#f8fafc' };
@@ -55,7 +56,7 @@ export function AgentPicker({ token, value, onChange }: { token: string; value: 
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 11px', border: `1px solid ${C.green}`, background: '#ecfdf5', borderRadius: 8 }}>
         <UserCheck size={16} color={C.green} />
         <div style={{ flex: 1 }}>
-          <div style={{ fontWeight: 700, color: C.text }}>{value.displayName}</div>
+          <div style={{ fontWeight: 700, color: C.text, display: 'flex', alignItems: 'center', gap: 6 }}>{value.displayName}<AgentPresenceBadge email={value.email} name={value.displayName} /></div>
           <div style={{ fontSize: '.76rem', color: C.slate }}>{value.direction || '—'} · {value.service || '—'} {value.email ? `· ${value.email}` : ''}</div>
         </div>
         <button onClick={() => { onChange(null); setQ(''); }} style={{ ...btnG, padding: '5px 10px' }}>Changer</button>

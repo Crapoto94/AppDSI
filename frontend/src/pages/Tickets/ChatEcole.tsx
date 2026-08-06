@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { io, Socket } from 'socket.io-client';
 import axios from 'axios';
 import EmojiPicker from '../../components/LiveChat/EmojiPicker';
+import AgentPresenceBadge from '../../components/AgentPresenceBadge';
 
 interface LiveSession {
   id: number;
@@ -491,8 +492,9 @@ export default function ChatEcole() {
                         >
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 }}>
                             <div>
-                              <div style={{ fontWeight: 700, fontSize: 15, color: '#1e293b' }}>
+                              <div style={{ fontWeight: 700, fontSize: 15, color: '#1e293b', display: 'flex', alignItems: 'center', gap: 6 }}>
                                 {s.user_display_name || s.user_username}
+                                <AgentPresenceBadge email={s.user_email} name={s.user_display_name} />
                               </div>
                               <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>
                                 {s.user_email}

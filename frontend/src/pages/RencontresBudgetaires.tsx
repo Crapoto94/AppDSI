@@ -8,6 +8,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useSearchParams } from 'react-router-dom';
 import CreateReunionModal from '../components/CreateReunionModal';
 import ReunionDetailModal from '../components/ReunionDetailModal';
+import AgentPresenceBadge from '../components/AgentPresenceBadge';
 
 interface Rencontre {
   id: number;
@@ -1328,6 +1329,7 @@ const RencontresBudgetaires: React.FC = () => {
                                 <div style={{display: 'flex', alignItems: 'center', gap: '8px'}}>
                                   <Mail size={13} color="#6b7280" />
                                   <span style={{fontSize: '13px', color: '#374151'}}>{de.email}</span>
+                                  <AgentPresenceBadge email={de.email} size={11} />
                                   {de.service && (
                                     <span style={{background: '#ecfdf5', color: '#059669', fontSize: '11px', fontWeight: '600', padding: '1px 6px', borderRadius: '4px'}}>{de.service}</span>
                                   )}

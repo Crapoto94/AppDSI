@@ -5,6 +5,7 @@ import { useAuth } from '../contexts/AuthContext';
 import AddTaskModal from '../components/AddTaskModal';
 import { useADSearch } from '../utils/useADSearch';
 import { isAdminLike } from '../utils/roles';
+import AgentPresenceBadge from '../components/AgentPresenceBadge';
 
 interface Projet {
   id: number; code: string; titre: string; statut: string;
@@ -389,6 +390,7 @@ export default function RevueDeProjets() {
                     {participants.map(p => (
                       <span key={p.username} style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: '6px', padding: '4px 10px', fontSize: '12px', fontWeight: '600', color: '#1e293b' }}>
                         {p.displayName}
+                        <AgentPresenceBadge name={p.displayName} size={11} />
                         <span onClick={() => removeParticipant(p.username)} style={{ cursor: 'pointer', color: '#94a3b8', marginLeft: '2px' }}>✕</span>
                       </span>
                     ))}
@@ -556,7 +558,7 @@ export default function RevueDeProjets() {
                 {selectedRevue.participants && selectedRevue.participants.length > 0 && (
                   <div style={{ marginTop: '12px', display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
                     {selectedRevue.participants.map(p => (
-                      <span key={p.username} style={{ background: '#f1f5f9', borderRadius: '6px', padding: '4px 10px', fontSize: '12px', fontWeight: '500', color: '#475569' }}>{p.displayName}</span>
+                      <span key={p.username} style={{ background: '#f1f5f9', borderRadius: '6px', padding: '4px 10px', fontSize: '12px', fontWeight: '500', color: '#475569', display: 'inline-flex', alignItems: 'center', gap: 4 }}>{p.displayName}<AgentPresenceBadge name={p.displayName} size={11} /></span>
                     ))}
                   </div>
                 )}

@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import axios from 'axios';
 import { useAuth } from '../../../contexts/AuthContext';
 import WidgetWrapper from './WidgetWrapper';
+import AgentPresenceBadge from '../../../components/AgentPresenceBadge';
 import { useDashboardFilter, filterToQueryString } from '../DashboardFilterContext';
 
 const PRIO_COLOR: Record<string, string> = {
@@ -202,8 +203,10 @@ export default function TicketsRecentWidget() {
                   <span style={{
                     fontSize: 16, color: '#1e293b', fontWeight: 500,
                     overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                    display: 'inline-flex', alignItems: 'center', gap: 6,
                   }}>
                     {requester}
+                    <AgentPresenceBadge email={t.requester_email} name={t.requester_name} />
                   </span>
                 </div>
 

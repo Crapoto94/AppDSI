@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import axios from 'axios';
 import DesignationImagesManager from './DesignationImagesManager';
+import AgentPresenceBadge from '../components/AgentPresenceBadge';
 
 interface ConsumableType {
   id: number;
@@ -1457,8 +1458,9 @@ const [selectedDesignation, setSelectedDesignation] = useState<string>(() => {
                             <p style={{ margin: 0, fontWeight: 700, fontSize: 15, color: '#1e293b' }}>
                               Demande n°{request.id} — {request.type_consommable}
                             </p>
-                            <p style={{ margin: '2px 0 0', fontSize: 13, color: '#64748b' }}>
+                            <p style={{ margin: '2px 0 0', fontSize: 13, color: '#64748b', display: 'flex', alignItems: 'center', gap: 6 }}>
                               {request.direction} / {request.service} — {request.nom_referent}
+                              <AgentPresenceBadge email={request.email} name={request.nom_referent} size={11} />
                             </p>
                             {request.email && <p style={{ margin: '2px 0 0', fontSize: 11, color: '#94a3b8' }}>{request.email}</p>}
                           </div>
@@ -1988,8 +1990,9 @@ const ConsommablesACommander: React.FC<{ token: string }> = ({ token }) => {
               <p style={{ margin: 0, fontWeight: 700, fontSize: 15, color: '#1e293b' }}>
                 Demande n°{item.request_id} — {item.type_consommable}
               </p>
-              <p style={{ margin: '2px 0 0', fontSize: 13, color: '#64748b' }}>
+              <p style={{ margin: '2px 0 0', fontSize: 13, color: '#64748b', display: 'flex', alignItems: 'center', gap: 6 }}>
                 {item.direction} / {item.service} — {item.nom_referent}
+                <AgentPresenceBadge email={item.email} name={item.nom_referent} size={11} />
               </p>
               {item.email && <p style={{ margin: '2px 0 0', fontSize: 11, color: '#94a3b8' }}>{item.email}</p>}
             </div>

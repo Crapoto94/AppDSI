@@ -13,4 +13,7 @@ router.post('/apis/:key/test',     authenticateAdmin, ctrl.testApi);
 // ── Synchronisations ───────────────────────────────────────────────
 router.post('/sync/reseau',        authenticateAdmin, ctrl.syncReseau);
 
+// ── Présence agents (RH Studio) ────────────────────────────────────
+router.get('/agents/presence',     ctrl.agentPresence);
+
 module.exports = router;

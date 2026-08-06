@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import Header from '../components/Header';
 import { Upload, FileText, CheckCircle, AlertCircle, Loader2, Eye, Trash2, Calendar, Edit2, Check, X as CloseIcon, Hourglass, Search, RefreshCw, ChevronDown } from 'lucide-react';
+import AgentPresenceBadge from '../components/AgentPresenceBadge';
 
 interface Certificate {
   id: number;
@@ -751,7 +752,10 @@ const Certif: React.FC = () => {
                           </>
                         ) : (
                           <div className="beneficiary">
-                            <span className="name">{cert.beneficiary_name}</span>
+                            <span className="name">
+                              {cert.beneficiary_name}
+                              <AgentPresenceBadge email={cert.beneficiary_email} name={cert.beneficiary_name} />
+                            </span>
                             <span className="email">{cert.beneficiary_email}</span>
                           </div>
                         )}
@@ -1329,6 +1333,9 @@ const Certif: React.FC = () => {
         .beneficiary .name {
           font-weight: 600;
           color: #1e293b;
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
         }
         .beneficiary .email {
           font-size: 13px;

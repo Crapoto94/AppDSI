@@ -5,6 +5,7 @@ import 'react-quill-new/dist/quill.snow.css';
 import axios from 'axios';
 import { useAuth } from '../contexts/AuthContext';
 import { useADSearch } from '../utils/useADSearch';
+import AgentPresenceBadge from '../components/AgentPresenceBadge';
 
 interface BacklogItem {
   id: number;
@@ -559,8 +560,9 @@ const [versionMdFile, setVersionMdFile] = useState<File | null>(null);
                             {item.category}
                           </span>
 
-                          <span style={{ fontSize: '0.85rem', color: '#64748b' }}>
+                          <span style={{ fontSize: '0.85rem', color: '#64748b', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
                             par {item.created_by}
+                            <AgentPresenceBadge name={item.created_by} size={11} />
                           </span>
 
                           <span style={{ fontSize: '0.85rem', color: '#94a3b8' }}>

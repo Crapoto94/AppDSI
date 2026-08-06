@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
-import { Server, RefreshCw, PlugZap, Save, CheckCircle2, XCircle, Network } from 'lucide-react';
+import { Server, RefreshCw, PlugZap, Save, CheckCircle2, XCircle, Network, Globe } from 'lucide-react';
 
 interface InfraApi {
   key: string;
@@ -16,32 +16,16 @@ interface InfraApi {
   last_sync_count?: number | null;
 }
 
-export default function AdminInfra() {
-  const token = localStorage.getItem('token');
+function ApiCard({ api, token, onSaved }: { api: InfraApi; token: string | null; onSaved: (a: InfraApi) => void }) {
   const headers = useMemo(() => ({ Authorization: `Bearer ${token}` }), [token]);
+  const [form, setForm] = useState<InfraApi>({ ...api });
+  const [keyInput, setKeyInput] = useState('');
+  const [busy, setBusy] = useState<'' | 'save' | 'test' | 'sync'>('');
+  const [msg, setMsg] = useState<{ type: 'ok' | 'err'; text: string } | null>(null);
 
-  const [api, setApi]   = useState<InfraApi | null>(null);
-  const [form, setForm] = useState<InfraApi | null>(null);
-  const [keyInput, setKeyInput] = useState('');   // vide = ne pas changer la clé
-  const [loading, setLoading]   = useState(true);
-  const [busy, setBusy]         = useState<'' | 'save' | 'test' | 'sync'>('');
-  const [msg, setMsg]   = useState<{ type: 'ok' | 'err'; text: string } | null>(null);
-
-  async function load() {
-    setLoading(true);
-    try {
-      const res = await axios.get('/api/infra/apis', { headers });
-      const reseau = (res.data || []).find((a: InfraApi) => a.key === 'reseau_links') || null;
-      setApi(reseau);
-      setForm(reseau ? { ...reseau } : null);
-    } catch {
-      setMsg({ type: 'err', text: "Impossible de charger les définitions d'API." });
-    } finally { setLoading(false); }
-  }
-  useEffect(() => { load(); }, []); // eslint-disable-line
+  useEffect(() => { setForm({ ...api }); setKeyInput(''); }, [api]);
 
   async function save() {
-    if (!form) return;
     setBusy('save'); setMsg(null);
     try {
       const payload: Record<string, unknown> = {
@@ -50,7 +34,8 @@ export default function AdminInfra() {
       };
       if (keyInput.trim()) payload.api_key = keyInput.trim();
       const res = await axios.put(`/api/infra/apis/${form.key}`, payload, { headers });
-      setApi(res.data); setForm({ ...res.data }); setKeyInput('');
+      setForm({ ...res.data }); setKeyInput('');
+      onSaved(res.data);
       setMsg({ type: 'ok', text: 'Configuration enregistrée.' });
     } catch (e: unknown) {
       setMsg({ type: 'err', text: (e as any)?.response?.data?.message || "Erreur d'enregistrement." });
@@ -58,11 +43,10 @@ export default function AdminInfra() {
   }
 
   async function test() {
-    if (!form) return;
     setBusy('test'); setMsg(null);
     try {
       const res = await axios.post(`/api/infra/apis/${form.key}/test`, {}, { headers });
-      setMsg({ type: 'ok', text: `Connexion OK — ${res.data.count} liens reçus de l'API.` });
+      setMsg({ type: 'ok', text: `Connexion OK — ${res.data.count} résultat(s) reçu(s) de l'API.` });
     } catch (e: unknown) {
       setMsg({ type: 'err', text: (e as any)?.response?.data?.message || 'Échec du test de connexion.' });
     } finally { setBusy(''); }
@@ -74,28 +58,25 @@ export default function AdminInfra() {
     try {
       const res = await axios.post('/api/infra/sync/reseau', {}, { headers });
       setMsg({ type: 'ok', text: `Synchronisation réussie — ${res.data.switches} switchs, ${res.data.links} liens importés.` });
-      load();
     } catch (e: unknown) {
       setMsg({ type: 'err', text: (e as any)?.response?.data?.message || 'Échec de la synchronisation.' });
     } finally { setBusy(''); }
   }
 
-  if (loading) return <div style={{ color: '#94a3b8', padding: 20 }}>Chargement…</div>;
-  if (!form) return <div style={{ color: '#94a3b8', padding: 20 }}>Aucune définition d'API « reseau_links » trouvée.</div>;
+  const Icon = form.key === 'reseau_links' ? Network : Globe;
 
   return (
-    <div style={{ maxWidth: 820 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
-        <Server size={24} color="#3b82f6" />
-        <h1 style={{ margin: 0, fontSize: 22, fontWeight: 800, color: '#0f172a' }}>Infra</h1>
+    <div style={card}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+        <h3 style={{ ...cardTitle, margin: 0 }}><Icon size={16} /> {form.label || form.key}</h3>
+        <label style={chk}>
+          <input type="checkbox" checked={!!form.enabled} onChange={e => setForm({ ...form, enabled: e.target.checked })} /> Activée
+        </label>
       </div>
-      <p style={{ margin: '0 0 20px', color: '#64748b', fontSize: 14 }}>
-        Définitions des API externes et synchronisations d'infrastructure.
-      </p>
 
       {msg && (
         <div style={{
-          display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px', borderRadius: 10, marginBottom: 16,
+          display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px', borderRadius: 10, marginBottom: 14,
           background: msg.type === 'ok' ? '#f0fdf4' : '#fef2f2',
           color: msg.type === 'ok' ? '#15803d' : '#991b1b',
           border: `1px solid ${msg.type === 'ok' ? '#bbf7d0' : '#fecaca'}`,
@@ -104,57 +85,106 @@ export default function AdminInfra() {
         </div>
       )}
 
-      {/* Carte API Liens réseau */}
-      <div style={card}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
-          <h3 style={{ ...cardTitle, margin: 0 }}><Network size={16} /> API Liens réseau (switchs)</h3>
-          <label style={chk}>
-            <input type="checkbox" checked={!!form.enabled} onChange={e => setForm({ ...form, enabled: e.target.checked })} /> Activée
-          </label>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+        <div>
+          <label style={lbl}>URL de base</label>
+          <input style={inp} value={form.base_url || ''} onChange={e => setForm({ ...form, base_url: e.target.value })} placeholder="https://exemple.ivry.local/api" />
         </div>
-
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
-          <div>
-            <label style={lbl}>URL de base</label>
-            <input style={inp} value={form.base_url || ''} onChange={e => setForm({ ...form, base_url: e.target.value })} placeholder="http://10.103.130.36:8080" />
-          </div>
-          <div>
-            <label style={lbl}>Endpoint</label>
-            <input style={inp} value={form.endpoint || ''} onChange={e => setForm({ ...form, endpoint: e.target.value })} placeholder="/api/links" />
-          </div>
-          <div>
-            <label style={lbl}>Nom du header</label>
-            <input style={inp} value={form.header_name || ''} onChange={e => setForm({ ...form, header_name: e.target.value })} placeholder="x-api-key" />
-          </div>
-          <div>
-            <label style={lbl}>Clé API {form.api_key_set && <span style={{ color: '#94a3b8', fontWeight: 400 }}>(définie : {form.api_key})</span>}</label>
-            <input style={inp} type="password" value={keyInput} onChange={e => setKeyInput(e.target.value)} placeholder={form.api_key_set ? 'Laisser vide pour conserver' : 'Saisir la clé'} />
-          </div>
+        <div>
+          <label style={lbl}>Endpoint</label>
+          <input style={inp} value={form.endpoint || ''} onChange={e => setForm({ ...form, endpoint: e.target.value })} placeholder="/agents/presence" />
         </div>
+        <div>
+          <label style={lbl}>Nom du header</label>
+          <input style={inp} value={form.header_name || ''} onChange={e => setForm({ ...form, header_name: e.target.value })} placeholder="x-api-key" />
+        </div>
+        <div>
+          <label style={lbl}>Clé API {form.api_key_set && <span style={{ color: '#94a3b8', fontWeight: 400 }}>(définie : {form.api_key})</span>}</label>
+          <input style={inp} type="password" value={keyInput} onChange={e => setKeyInput(e.target.value)} placeholder={form.api_key_set ? 'Laisser vide pour conserver' : 'Saisir la clé'} />
+        </div>
+      </div>
 
-        <div style={{ display: 'flex', gap: 10, marginTop: 18, flexWrap: 'wrap' }}>
-          <button onClick={save} disabled={!!busy} style={btnPrimary}>
-            <Save size={15} /> {busy === 'save' ? 'Enregistrement…' : 'Enregistrer'}
-          </button>
-          <button onClick={test} disabled={!!busy} style={btnSecondary}>
-            <PlugZap size={15} /> {busy === 'test' ? 'Test…' : 'Tester'}
-          </button>
+      <div style={{ display: 'flex', gap: 10, marginTop: 18, flexWrap: 'wrap' }}>
+        <button onClick={save} disabled={!!busy} style={btnPrimary}>
+          <Save size={15} /> {busy === 'save' ? 'Enregistrement…' : 'Enregistrer'}
+        </button>
+        <button onClick={test} disabled={!!busy} style={btnSecondary}>
+          <PlugZap size={15} /> {busy === 'test' ? 'Test…' : 'Tester'}
+        </button>
+        {form.key === 'reseau_links' && (
           <button onClick={sync} disabled={!!busy} style={btnDanger}>
             <RefreshCw size={15} className={busy === 'sync' ? 'spin' : ''} /> {busy === 'sync' ? 'Synchronisation…' : 'Synchroniser maintenant'}
           </button>
-        </div>
-
-        {(form.last_sync_at || form.last_sync_status) && (
-          <div style={{ marginTop: 16, paddingTop: 14, borderTop: '1px solid #f1f5f9', fontSize: 13, color: '#64748b' }}>
-            Dernière synchro : <strong>{form.last_sync_at ? new Date(form.last_sync_at).toLocaleString('fr-FR') : '—'}</strong>
-            {form.last_sync_count != null && <> · {form.last_sync_count} liens</>}
-            {form.last_sync_status && <> · <span style={{ color: /ERREUR/i.test(form.last_sync_status) ? '#dc2626' : '#16a34a' }}>{form.last_sync_status}</span></>}
-          </div>
         )}
       </div>
 
+      {(form.last_sync_at || form.last_sync_status) && (
+        <div style={{ marginTop: 16, paddingTop: 14, borderTop: '1px solid #f1f5f9', fontSize: 13, color: '#64748b' }}>
+          Dernière synchro : <strong>{form.last_sync_at ? new Date(form.last_sync_at).toLocaleString('fr-FR') : '—'}</strong>
+          {form.last_sync_count != null && <> · {form.last_sync_count} liens</>}
+          {form.last_sync_status && <> · <span style={{ color: /ERREUR/i.test(form.last_sync_status) ? '#dc2626' : '#16a34a' }}>{form.last_sync_status}</span></>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+export default function AdminInfra() {
+  const token = localStorage.getItem('token');
+  const headers = useMemo(() => ({ Authorization: `Bearer ${token}` }), [token]);
+
+  const [apis, setApis] = useState<InfraApi[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadErr, setLoadErr] = useState('');
+
+  async function load() {
+    setLoading(true);
+    try {
+      const res = await axios.get('/api/infra/apis', { headers });
+      setApis(res.data || []);
+    } catch {
+      setLoadErr("Impossible de charger les définitions d'API.");
+    } finally { setLoading(false); }
+  }
+  useEffect(() => { load(); }, []); // eslint-disable-line
+
+  function handleSaved(updated: InfraApi) {
+    setApis(prev => prev.map(a => a.key === updated.key ? updated : a));
+  }
+
+  if (loading) return <div style={{ color: '#94a3b8', padding: 20 }}>Chargement…</div>;
+
+  return (
+    <div style={{ maxWidth: 820 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
+        <Server size={24} color="#3b82f6" />
+        <h1 style={{ margin: 0, fontSize: 22, fontWeight: 800, color: '#0f172a' }}>API externes</h1>
+      </div>
+      <p style={{ margin: '0 0 20px', color: '#64748b', fontSize: 14 }}>
+        Définitions des API externes (URL, clé, header) et synchronisations d'infrastructure.
+      </p>
+
+      {loadErr && (
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px', borderRadius: 10, marginBottom: 16,
+          background: '#fef2f2', color: '#991b1b', border: '1px solid #fecaca',
+        }}>
+          <XCircle size={16} /> {loadErr}
+        </div>
+      )}
+
+      {apis.length === 0 && !loadErr && (
+        <div style={{ color: '#94a3b8' }}>Aucune définition d'API trouvée.</div>
+      )}
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+        {apis.map(api => (
+          <ApiCard key={api.key} api={api} token={token} onSaved={handleSaved} />
+        ))}
+      </div>
+
       <p style={{ marginTop: 14, fontSize: 12, color: '#94a3b8' }}>
-        Une synchronisation automatique est aussi exécutée chaque jour à 04h30.
+        Une synchronisation automatique du réseau est aussi exécutée chaque jour à 04h30.
       </p>
 
       <style>{`@keyframes spin { from { transform: rotate(0deg);} to { transform: rotate(360deg);} } .spin { animation: spin 1s linear infinite; }`}</style>

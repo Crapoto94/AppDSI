@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import axios from 'axios';
 import { useAuth } from '../../contexts/AuthContext';
+import AgentPresenceBadge from '../../components/AgentPresenceBadge';
 
 const STATUS_NAMES: Record<number, string> = {
   1: 'Nouveau', 2: 'En cours (Attribué)', 3: 'En cours (Planifié)',
@@ -279,8 +280,9 @@ export default function TicketKanban({ tickets, loading, total, totalPages, page
                 return <div key={i} style={{ width: 6, height: 6, borderRadius: '50%', background: i <= activeDots ? color : '#e2e8f0' }} />;
               })}
             </div>
-            <span style={{ fontSize: 11, color: '#94a3b8' }}>
+            <span style={{ fontSize: 11, color: '#94a3b8', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
               {t.requester_name || 'Anonyme'}
+              <AgentPresenceBadge email={t.requester_email} name={t.requester_name} size={11} />
             </span>
           </div>
 
@@ -502,7 +504,10 @@ export default function TicketKanban({ tickets, loading, total, totalPages, page
                   onMouseLeave={e => e.currentTarget.style.background = '#fff'}>
                   <div style={{ width: 8, height: 8, borderRadius: '50%', background: t.status === 'active' ? '#22c55e' : t.status === 'paused' ? '#f59e0b' : '#ef4444', flexShrink: 0 }} />
                   <div style={{ flex: 1 }}>
-                    <div style={{ fontWeight: 600, fontSize: 14 }}>{t.displayname || t.displayName}</div>
+                    <div style={{ fontWeight: 600, fontSize: 14, display: 'flex', alignItems: 'center', gap: 6 }}>
+                      {t.displayname || t.displayName}
+                      <AgentPresenceBadge email={t.email} name={t.displayname || t.displayName} />
+                    </div>
                     <div style={{ fontSize: 12, color: '#64748b' }}>{t.email}</div>
                   </div>
                   <span style={{ fontSize: 12, color: '#94a3b8', whiteSpace: 'nowrap' }}>{t.active_tickets || 0} ticket(s)</span>

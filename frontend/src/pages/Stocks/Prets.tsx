@@ -5,6 +5,7 @@ import Header from '../../components/Header';
 import { Repeat, ArrowLeft, Plus, Search, RotateCcw, AlertTriangle } from 'lucide-react';
 import SignaturePad from './SignaturePad';
 import { stocksApi, type Store, type ParcItem, type Loan } from './api';
+import AgentPresenceBadge from '../../components/AgentPresenceBadge';
 
 const C = { indigo: '#6366f1', red: '#ef4444', green: '#22c55e', amber: '#f59e0b', slate: '#64748b', border: '#e2e8f0', text: '#1e293b', bg: '#f8fafc' };
 
@@ -73,9 +74,11 @@ export default function Prets() {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
               <div>
                 <div style={{ fontWeight: 600, color: C.text }}>{l.item_label} {l.serial_number ? <span style={{ color: C.slate, fontWeight: 400 }}>· {l.serial_number}</span> : null}</div>
-                <div style={{ fontSize: 13, color: C.slate, marginTop: 2 }}>
-                  {l.quantity}× · {l.borrower_name || '—'} · prêté le {new Date(l.loaned_at).toLocaleDateString('fr-FR')}
-                  {l.due_date ? ` · retour prévu ${new Date(l.due_date).toLocaleDateString('fr-FR')}` : ''}
+                <div style={{ fontSize: 13, color: C.slate, marginTop: 2, display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 4 }}>
+                  <span>{l.quantity}× · {l.borrower_name || '—'}</span>
+                  <AgentPresenceBadge email={l.borrower_email} name={l.borrower_name} size={11} />
+                  <span>· prêté le {new Date(l.loaned_at).toLocaleDateString('fr-FR')}
+                  {l.due_date ? ` · retour prévu ${new Date(l.due_date).toLocaleDateString('fr-FR')}` : ''}</span>
                 </div>
                 {l.overdue && <div style={{ display: 'flex', alignItems: 'center', gap: 4, color: C.red, fontSize: 12, fontWeight: 600, marginTop: 4 }}><AlertTriangle size={14} /> En retard</div>}
               </div>
@@ -153,7 +156,7 @@ function LoanModal({ storeId, items, onClose, onDone }: { storeId: number; items
         <label style={label}>Emprunteur *</label>
         {borrower ? (
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-            <strong>{borrower.name}</strong>
+            <strong style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>{borrower.name}<AgentPresenceBadge email={borrower.email} name={borrower.name} /></strong>
             <button onClick={() => setBorrower(null)} style={{ background: 'none', border: '1px solid #e2e8f0', borderRadius: 8, padding: '6px 10px', cursor: 'pointer', color: '#64748b' }}>Changer</button>
           </div>
         ) : (

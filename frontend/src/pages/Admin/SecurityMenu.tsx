@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useADSearch } from '../../utils/useADSearch';
+import AgentPresenceBadge from '../../components/AgentPresenceBadge';
 
 type ExportType = 'sqlite' | 'postgres' | 'files' | 'global';
 type ImportType = 'sqlite' | 'postgres' | 'files';
@@ -618,6 +619,7 @@ export default function SecurityMenu() {
                         <span key={r.email} className="sec-chip">
                           <Mail size={13} />
                           <span title={r.email}>{r.displayName}</span>
+                          <AgentPresenceBadge email={r.email} name={r.displayName} size={11} />
                           <button onClick={() => removeRecipient(r.email)}><X size={13} /></button>
                         </span>
                       ))}

@@ -4,6 +4,43 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import axios from 'axios';
 import { Search, X, RefreshCw, Upload, Signal, Filter, GitCompare, AlertTriangle, Smartphone, ArrowRight } from 'lucide-react';
+import AgentPresenceBadge from '../../components/AgentPresenceBadge';
+
+// Le champ titulaire est saisi librement côté opérateur et contient souvent du bruit :
+// codes de site/salle ("ADOM 5 PAUL PARTIN" → "PAUL PARTIN"), nom de matériel accolé
+// ("CANTARINI Veronique Douchette M3" → "CANTARINI Veronique"), marqueurs "Ex" en double
+// ("Ex MARAIS Ex Marie" → "MARAIS Marie"), service après une initiale suivie d'un point
+// ("Bourdelet H. DG" → "Bourdelet H"), ou pas de personne du tout ("33 Bureau" → aucune
+// pastille). On ne garde que les deux premiers tokens utiles (trois si le premier est une
+// particule de nom composé) et on exige au moins 2 tokens pour tenter une recherche —
+// un seul mot restant est trop souvent un lieu/local, pas un nom de famille.
+const NON_PERSON_WORDS = new Set([
+  'bureau', 'salle', 'local', 'stock', 'standard', 'accueil', 'reserve', 'réserve',
+  'reception', 'réception', 'service', 'direction', 'atelier', 'entrepot', 'entrepôt',
+  'garage', 'parking', 'commun', 'communs', 'divers', 'inconnu', 'vacant', 'libre',
+]);
+
+function cleanTitulaireName(raw?: string | null): string {
+  if (!raw) return '';
+  const tokens = raw.trim().split(/\s+/).filter(t => t && t.toLowerCase() !== 'ex');
+  const cleaned: string[] = [];
+  let i = 0;
+  while (i < tokens.length) {
+    const t = tokens[i];
+    const next = tokens[i + 1];
+    if (/^[A-Za-zÀ-ÿ]+$/.test(t) && next && /^\d+$/.test(next)) { i += 2; continue; }
+    if (/^\d+$/.test(t)) { i += 1; continue; }
+    cleaned.push(t);
+    i += 1;
+  }
+  const PARTICLES = new Set(['de', 'du', 'la', 'le', 'del', 'van', 'von', 'da', 'di']);
+  const nameTokens = cleaned.length >= 3 && PARTICLES.has(cleaned[0].toLowerCase())
+    ? cleaned.slice(0, 3)
+    : cleaned.slice(0, 2);
+  if (nameTokens.length < 2) return '';
+  if (nameTokens.every(t => NON_PERSON_WORDS.has(t.toLowerCase()))) return '';
+  return nameTokens.map(t => t.replace(/\.$/, '')).join(' ').trim();
+}
 
 const C = { blue: '#2563eb', slate: '#64748b', green: '#059669', amber: '#d97706', red: '#dc2626', card: '#fff', border: '#e2e8f0', text: '#0f172a', bg: '#f8fafc' };
 
@@ -216,7 +253,10 @@ export default function LignesMobilesView({ token }: { token: string }) {
                   <tr key={l.id}>
                     <td style={{ ...td, fontWeight: 700 }}>{l.numero_ligne || '—'}</td>
                     <td style={td}><span style={{ background: '#e0e7ff', color: '#4338ca', padding: '2px 8px', borderRadius: 10, fontSize: 11, fontWeight: 700 }}>{l.operateur || 'SFR'}</span></td>
-                    <td style={td}>{[l.nom, l.prenom].filter(Boolean).join(' ') || l.raison_sociale || '—'}</td>
+                    <td style={{ ...td, display: 'flex', alignItems: 'center', gap: 6 }}>
+                      {[l.nom, l.prenom].filter(Boolean).join(' ') || l.raison_sociale || '—'}
+                      {(l.nom || l.prenom) && <AgentPresenceBadge name={cleanTitulaireName([l.nom, l.prenom].filter(Boolean).join(' '))} size={11} />}
+                    </td>
                     <td style={td}>{l.statut_ligne ? <span style={{ background: sc.bg, color: sc.c, padding: '2px 8px', borderRadius: 10, fontSize: 11, fontWeight: 700 }}>{l.statut_ligne}</span> : '—'}</td>
                     <td style={{ ...td, whiteSpace: 'normal', maxWidth: 220 }}>{l.forfait || '—'}</td>
                     <td style={td}>{l.terminal || '—'}</td>
@@ -317,7 +357,10 @@ export default function LignesMobilesView({ token }: { token: string }) {
                         {it.sfr ? (
                           <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
                             <span style={{ fontWeight: 700 }}>{it.sfr.numero_ligne || '—'}</span>
-                            <span style={{ color: C.slate }}>{it.sfr.titulaire || '—'}</span>
+                            <span style={{ color: C.slate, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                              {it.sfr.titulaire || '—'}
+                              {it.sfr.titulaire && <AgentPresenceBadge name={cleanTitulaireName(it.sfr.titulaire)} size={11} />}
+                            </span>
                             {it.sfr.forfait && <span style={{ color: '#94a3b8', fontSize: 11 }}>{it.sfr.forfait}</span>}
                             {it.sfr.statut_ligne && <span style={{ fontSize: 11 }}>Statut : {it.sfr.statut_ligne}</span>}
                             {it.sfr.imei && <span style={{ fontFamily: 'monospace', fontSize: 11, color: '#94a3b8' }}>IMEI {it.sfr.imei}</span>}

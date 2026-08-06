@@ -4,6 +4,7 @@
  */
 const { pgDb, pool } = require('../../shared/database');
 const { syncReseauLinks, fetchLinks } = require('./reseau-sync');
+const { fetchAgentPresence } = require('./agent-presence');
 
 function maskKey(k) {
     if (!k) return null;
@@ -54,6 +55,12 @@ module.exports = {
             const { key } = req.params;
             const cfg = await pgDb.get('SELECT * FROM hub.infra_apis WHERE key = ?', [key]);
             if (!cfg) return res.status(404).json({ message: 'API inconnue' });
+
+            if (key === 'rh_studio_presence') {
+                const result = await fetchAgentPresence(cfg, { q: 'test' });
+                return res.json({ ok: true, count: result.found ? 1 : 0, sample: [result] });
+            }
+
             const data = await fetchLinks(cfg);
             res.json({ ok: true, count: data.length, sample: data.slice(0, 3) });
         } catch (e) {
@@ -68,6 +75,24 @@ module.exports = {
             res.json({ ok: true, ...result });
         } catch (e) {
             res.status(502).json({ ok: false, message: e.message });
+        }
+    },
+
+    // GET /api/infra/agents/presence
+    agentPresence: async (req, res) => {
+        try {
+            const { email, q, nom, prenom } = req.query;
+            if (!email && !q && !nom && !prenom) {
+                return res.status(400).json({ message: 'Fournir email, q, ou nom/prenom' });
+            }
+            const cfg = await pgDb.get('SELECT * FROM hub.infra_apis WHERE key = ?', ['rh_studio_presence']);
+            if (!cfg) return res.status(404).json({ message: "Configuration 'rh_studio_presence' introuvable" });
+            if (cfg.enabled === false) return res.status(503).json({ message: "L'API RH Studio est désactivée" });
+
+            const result = await fetchAgentPresence(cfg, { email, q, nom, prenom });
+            res.json(result);
+        } catch (e) {
+            res.status(502).json({ message: e.message });
         }
     },
 };

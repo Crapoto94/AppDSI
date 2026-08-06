@@ -10,6 +10,7 @@ import ReunionDetailModal from '../components/ReunionDetailModal';
 import AddTaskModal from '../components/AddTaskModal';
 import { useAuth } from '../contexts/AuthContext';
 import { isSuperAdmin, isAdminLike } from '../utils/roles';
+import AgentPresenceBadge from '../components/AgentPresenceBadge';
 
 interface Projet {
   id: number; code: string; titre: string; description: string;
@@ -431,9 +432,9 @@ const ProjetDetail: React.FC = () => {
             </div>
           ) : (
             <>
-              <InfoRow label="Commanditaire" value={projet.commanditaire_display_name || projet.commanditaire_username || '—'} />
-              <InfoRow label="Chef de projet" value={projet.chef_projet_display_name || projet.chef_projet_username || '—'} />
-              <InfoRow label="Chef de projet métier" value={projet.chef_projet_metier_display_name || projet.chef_projet_metier_username || '—'} />
+              <InfoRow label="Commanditaire" value={<span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>{projet.commanditaire_display_name || projet.commanditaire_username || '—'}<AgentPresenceBadge name={projet.commanditaire_display_name || projet.commanditaire_username} /></span>} />
+              <InfoRow label="Chef de projet" value={<span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>{projet.chef_projet_display_name || projet.chef_projet_username || '—'}<AgentPresenceBadge name={projet.chef_projet_display_name || projet.chef_projet_username} /></span>} />
+              <InfoRow label="Chef de projet métier" value={<span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>{projet.chef_projet_metier_display_name || projet.chef_projet_metier_username || '—'}<AgentPresenceBadge name={projet.chef_projet_metier_display_name || projet.chef_projet_metier_username} /></span>} />
               <InfoRow label="DPD requis" value={projet.dpd_requis ? '✅ Oui' : '❌ Non'} />
               <InfoRow label="RSSI requis" value={projet.rssi_requis ? '✅ Oui' : '❌ Non'} />
               <InfoRow label="Créé par" value={projet.created_by_username} />
@@ -454,7 +455,10 @@ const ProjetDetail: React.FC = () => {
           )}
           {(projet.roles || []).filter(r => r.role === 'equipe_projet').map(r => (
             <div key={r.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0', borderBottom: '1px solid #f1f5f9', fontSize: '13px' }}>
-              <span style={{ color: '#1e293b', fontWeight: '600' }}>{r.display_name || r.username}</span>
+              <span style={{ color: '#1e293b', fontWeight: '600', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                {r.display_name || r.username}
+                <AgentPresenceBadge email={r.email} name={r.display_name || r.username} size={11} />
+              </span>
               <button onClick={() => removeEquipeMember(r.id)}
                 style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ef4444', padding: '2px 8px', borderRadius: '4px', fontSize: '13px' }}
                 onMouseEnter={e => (e.currentTarget.style.background = '#fef2f2')}
@@ -1011,6 +1015,7 @@ const ComitesSection: React.FC<{ projetId: number; token: string | null }> = ({ 
               <div key={m.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '4px 8px', background: '#f8fafc', borderRadius: '4px', fontSize: '12px' }}>
                 <span style={{ color: '#1e293b', fontWeight: '500' }}>{m.prenom ? `${m.prenom} ${m.nom}` : m.nom}{m.role ? ` (${m.role})` : m.fonction ? ` (${m.fonction})` : ''}{m.societe ? ` - ${m.societe}` : ''}</span>
                 <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                  <AgentPresenceBadge email={m.email} name={m.prenom ? `${m.prenom} ${m.nom}` : m.nom} size={11} />
                   {m.email && <span style={{ color: '#2563eb', fontSize: '11px' }}>{m.email}</span>}
                   {m.telephone && <span style={{ color: '#64748b', fontSize: '11px' }}>{m.telephone}</span>}
                   <button onClick={() => supprimerMembre(c.id, m.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#cbd5e1', padding: '0', fontSize: '12px' }}
@@ -1090,8 +1095,9 @@ const PartiesPrenantesSection: React.FC<StakeholderProps> = ({ roles, comites })
             📋 Comité initial — Équipe projet ({equipeProjet.length})
           </div>
           {equipeProjet.map(r => (
-            <div key={r.id} style={{ padding: '3px 8px', fontSize: '12px', color: '#1e293b' }}>
+            <div key={r.id} style={{ padding: '3px 8px', fontSize: '12px', color: '#1e293b', display: 'flex', alignItems: 'center', gap: 6 }}>
               {r.display_name || r.username}
+              <AgentPresenceBadge email={r.email} name={r.display_name || r.username} size={11} />
             </div>
           ))}
         </div>
@@ -1102,8 +1108,10 @@ const PartiesPrenantesSection: React.FC<StakeholderProps> = ({ roles, comites })
             📋 Autres rôles ({autresRoles.length})
           </div>
           {autresRoles.map(r => (
-            <div key={r.id} style={{ padding: '3px 8px', fontSize: '12px', color: '#1e293b' }}>
-              {r.display_name || r.username} <span style={{ color: '#94a3b8' }}>({r.role === 'partie_prenante' ? 'Partie prenante' : 'Pour info'})</span>
+            <div key={r.id} style={{ padding: '3px 8px', fontSize: '12px', color: '#1e293b', display: 'flex', alignItems: 'center', gap: 6 }}>
+              {r.display_name || r.username}
+              <AgentPresenceBadge email={r.email} name={r.display_name || r.username} size={11} />
+              <span style={{ color: '#94a3b8' }}>({r.role === 'partie_prenante' ? 'Partie prenante' : 'Pour info'})</span>
             </div>
           ))}
         </div>
@@ -2855,6 +2863,7 @@ const AdminTab: React.FC<{ projetId: number; token: string | null; projet: Proje
           <div key={r.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '7px 0', borderBottom: '1px solid #f1f5f9', fontSize: '13px' }}>
             <div>
               <span style={{ color: '#1e293b', fontWeight: '600' }}>{r.display_name || r.username}</span>
+              <AgentPresenceBadge email={r.email} name={r.display_name || r.username} size={11} style={{ marginLeft: 6 }} />
               <span style={{ color: '#64748b', marginLeft: '8px', textTransform: 'capitalize' }}>({r.role === 'equipe_projet' ? 'Équipe' : r.role === 'partie_prenante' ? 'Partie prenante' : 'Pour info'})</span>
             </div>
             <button onClick={() => removeRole(r.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ef4444', fontSize: '13px', padding: '2px 6px', borderRadius: '4px' }}

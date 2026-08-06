@@ -5,6 +5,7 @@ import Header from '../../components/Header';
 import { Send, ArrowLeft, Plus, Trash2, Search, CheckCircle, UserCheck, FileText, PenLine, X } from 'lucide-react';
 import SignaturePad from './SignaturePad';
 import { stocksApi, type Store, type ParcItem, type StorageLocation, type BlTemplate, type Delivery } from './api';
+import AgentPresenceBadge from '../../components/AgentPresenceBadge';
 
 const C = { indigo: '#6366f1', red: '#ef4444', green: '#22c55e', amber: '#f59e0b', slate: '#64748b', border: '#e2e8f0', text: '#1e293b', bg: '#f8fafc' };
 
@@ -190,7 +191,7 @@ export default function Sortie() {
           <div style={{ fontWeight: 600, marginBottom: 10 }}>Bénéficiaire</div>
           {beneficiary ? (
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'space-between' }}>
-              <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}><UserCheck size={18} color={C.green} /> <strong>{beneficiary.name}</strong> {beneficiary.username ? <span style={{ color: C.slate }}>({beneficiary.username})</span> : null}</span>
+              <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}><UserCheck size={18} color={C.green} /> <strong>{beneficiary.name}</strong><AgentPresenceBadge email={beneficiary.email} name={beneficiary.name} /> {beneficiary.username ? <span style={{ color: C.slate }}>({beneficiary.username})</span> : null}</span>
               <button className="so-btn-ghost" style={{ padding: '6px 12px', borderRadius: 8, cursor: 'pointer' }} onClick={() => setBeneficiary(null)}>Changer</button>
             </div>
           ) : (
@@ -259,7 +260,10 @@ export default function Sortie() {
             {prepared.map(d => (
               <div key={d.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderBottom: '1px solid #f1f5f9', gap: 8 }}>
                 <div style={{ fontSize: 13 }}>
-                  <strong>#{d.id}</strong> · {d.beneficiary_name || '—'} · {d.line_count ?? 0} ligne(s)
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                    <strong>#{d.id}</strong> · {d.beneficiary_name || '—'} · {d.line_count ?? 0} ligne(s)
+                    <AgentPresenceBadge email={d.beneficiary_email} name={d.beneficiary_name} size={11} />
+                  </span>
                   <div style={{ fontSize: 11, color: C.slate }}>{new Date(d.created_at).toLocaleString('fr-FR')}</div>
                 </div>
                 <div style={{ display: 'flex', gap: 6 }}>
@@ -280,7 +284,7 @@ export default function Sortie() {
               <strong>Remise — Sortie #{deliverFor.id}</strong>
               <button onClick={() => setDeliverFor(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.slate }}><X size={20} /></button>
             </div>
-            <div style={{ fontSize: 13, color: C.slate, marginBottom: 10 }}>{deliverFor.beneficiary_name} · faites signer le bénéficiaire :</div>
+            <div style={{ fontSize: 13, color: C.slate, marginBottom: 10, display: 'flex', alignItems: 'center', gap: 6 }}>{deliverFor.beneficiary_name} · faites signer le bénéficiaire :<AgentPresenceBadge email={deliverFor.beneficiary_email} name={deliverFor.beneficiary_name} size={11} /></div>
             <SignaturePad onChange={setDeliverSig} />
             <button className="so-btn" style={{ background: C.green, marginTop: 12 }} onClick={confirmDeliver} disabled={submitting}>
               <CheckCircle size={18} /> {submitting ? 'Enregistrement…' : 'Confirmer la remise'}
