@@ -160,8 +160,8 @@ const MagappAdmin: React.FC = () => {
     display_order: 0,
     is_maintenance: 0,
     app_type: 'web',
-    present_magapp: '1',
-    present_onboard: '0',
+    present_magapp: 'non',
+    present_onboard: 'non',
     dsi_only: 0
   });
 
@@ -742,8 +742,8 @@ const MagappAdmin: React.FC = () => {
             maintenance_start: '',
             maintenance_end: '',
             app_type: 'Web',
-            present_magapp: 'oui',
-            present_onboard: 'oui',
+            present_magapp: 'non',
+            present_onboard: 'non',
             email_createur: '',
             lien_mercator: '',
             mercator_id: null,

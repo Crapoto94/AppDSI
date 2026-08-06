@@ -1282,6 +1282,27 @@ const delierReunion = async (req, res) => {
     }
 };
 
+// GET /api/projets/:id/revues — revues de projets (comités PMO) ayant traité ce projet.
+const getRevuesLiees = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const revues = await pgDb.all(`
+            SELECT r.id, r.titre, r.date_revue, r.lieu, r.statut, rp.commentaire,
+                   COUNT(DISTINCT part.id) as participant_count
+            FROM hub_rencontres.revue_projets rp
+            JOIN hub_rencontres.revues r ON r.id = rp.revue_id
+            LEFT JOIN hub_rencontres.revue_participants part ON part.revue_id = r.id
+            WHERE rp.projet_id = $1
+            GROUP BY r.id, rp.commentaire
+            ORDER BY r.date_revue DESC
+        `, [id]);
+        res.json(revues);
+    } catch (error) {
+        console.error('Erreur GET projet revues:', error);
+        res.status(500).json({ error: error.message });
+    }
+};
+
 const getReunionsLiees = async (req, res) => {
     try {
         const { id } = req.params;
@@ -3129,7 +3150,7 @@ module.exports = {
     ajouterVisibilite, supprimerVisibilite,
     creerDocument, updateDocumentType, supprimerDocument, uploadVersion, uploadVersionsVrac, getDocuments, getDocumentDetail, telechargerVersion, getControlesDocuments,
     enregistrerScore, getScores, getScoreCalcule,
-    lierReunion, delierReunion, getReunionsLiees,
+    lierReunion, delierReunion, getReunionsLiees, getRevuesLiees,
     getJournal, getJournalGlobal, getPlanningGlobal, ajouterEntreeJournal, supprimerEntreeJournal,
     getIndicateurs, ajouterIndicateur,
     getStats,

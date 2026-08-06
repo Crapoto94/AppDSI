@@ -5690,6 +5690,8 @@ app.use('/api/rencontres-budgetaires', rencontresRouter);
 app.use('/api/rencontres-reunions', reunionRouter);
 app.use('/api/directions-services', directionsRouter);
 app.use('/api/direction-emails', dirEmailsRouter);
+const revuesCtrl = require('./modules/projets/revues.controller');
+revuesCtrl.setSendMail(sendMail);
 app.use('/api/revues', require('./modules/projets/revues.routes'));
 
 // Backward-compatible flat routes (frontend uses these paths)

@@ -1,11 +1,24 @@
-import { useState, useEffect, useCallback } from 'react';
-import { Users } from 'lucide-react';
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { useSearchParams } from 'react-router-dom';
+import { Users, Plus, Pencil } from 'lucide-react';
+import ReactQuill from 'react-quill-new';
+import 'react-quill-new/dist/quill.snow.css';
 import Header from '../components/Header';
 import { useAuth } from '../contexts/AuthContext';
 import AddTaskModal from '../components/AddTaskModal';
 import { useADSearch } from '../utils/useADSearch';
 import { isAdminLike } from '../utils/roles';
 import AgentPresenceBadge from '../components/AgentPresenceBadge';
+
+const QUILL_MODULES = {
+  toolbar: [
+    [{ header: [false, 3] }],
+    ['bold', 'italic', 'underline'],
+    [{ list: 'ordered' }, { list: 'bullet' }],
+    ['link'],
+    ['clean'],
+  ],
+};
 
 interface Projet {
   id: number; code: string; titre: string; statut: string;
@@ -15,7 +28,8 @@ interface Projet {
 
 interface Revue {
   id: number; titre: string; date_revue: string; lieu: string;
-  participants: { username: string; displayName: string }[];
+  participants: { username: string; displayName?: string; display_name?: string }[];
+  observers?: { username?: string; displayName?: string; display_name?: string; email: string }[];
   projets: RevueProjet[];
   created_at: string; created_by?: string; created_by_displayname?: string;
   projet_codes?: string; projet_count?: number; chefs_projet?: string;
@@ -42,6 +56,7 @@ const PRIORITE_STARS = (n: number) => '⭐'.repeat(Math.max(1, Math.min(5, n)));
 export default function RevueDeProjets() {
   const { token, user } = useAuth();
   const isPMO = user?.est_pmo || isAdminLike(user);
+  const [searchParams] = useSearchParams();
 
   const [revues, setRevues] = useState<Revue[]>([]);
   const [selectedRevue, setSelectedRevue] = useState<Revue | null>(null);
@@ -54,21 +69,39 @@ export default function RevueDeProjets() {
   const [selectedProjets, setSelectedProjets] = useState<Set<number>>(new Set());
   const [participants, setParticipants] = useState<{ username: string; displayName: string }[]>([]);
   const [commentaires, setCommentaires] = useState<Record<number, string>>({});
-  const [tacheInput, setTacheInput] = useState<Record<number, { titre: string; responsable: string; echeance: string }>>({});
   const [showAddProjets, setShowAddProjets] = useState(false);
   const [addProjetSelection, setAddProjetSelection] = useState<Set<number>>(new Set());
   const [projetSearch, setProjetSearch] = useState('');
   const [filtreChefCreation, setFiltreChefCreation] = useState('');
   const [addProjetSearch, setAddProjetSearch] = useState('');
   const [step2Commentaires, setStep2Commentaires] = useState<Record<number, string>>({});
-  const [step2Taches, setStep2Taches] = useState<Record<number, { titre: string; responsable: string; echeance: string }[]>>({});
-  const [step2TacheInput, setStep2TacheInput] = useState<Record<number, { titre: string; responsable: string; echeance: string }>>({});
   const [step2PrevCommentaires, setStep2PrevCommentaires] = useState<Record<number, { commentaire: string; date_revue: string }>>({});
   const [loading, setLoading] = useState(true);
   const [error] = useState('');
-  // Team task modal for revue
-  const [teamTaskContext, setTeamTaskContext] = useState<{ revueId: number; revueTitre: string; projetTitre?: string } | null>(null);
-  const [hubTasks, setHubTasks] = useState<any[]>([]);
+  // Tâche par projet-en-revue : ouvre AddTaskModal scopé sur rp.id (individu ou groupe)
+  const [taskModalContext, setTaskModalContext] = useState<{ rpId: number; revueTitre: string; projetTitre: string } | null>(null);
+  const [tasksByRp, setTasksByRp] = useState<Record<number, any[]>>({});
+  // Édition des méta (date/lieu/participants/observateurs) d'une revue existante
+  const [editingMeta, setEditingMeta] = useState(false);
+  const [editDateRevue, setEditDateRevue] = useState('');
+  const [editLieu, setEditLieu] = useState('');
+  const [editParticipants, setEditParticipants] = useState<{ username: string; displayName: string }[]>([]);
+  const [editObservers, setEditObservers] = useState<{ username?: string; displayName: string; email: string }[]>([]);
+  const editAd = useADSearch(token);
+  const observerAd = useADSearch(token);
+  const [savingMeta, setSavingMeta] = useState(false);
+
+  useEffect(() => {
+    if (document.querySelector('[data-revue-quill-css]')) return;
+    const style = document.createElement('style');
+    style.setAttribute('data-revue-quill-css', '');
+    style.textContent = `
+      .revue-quill-editor .ql-toolbar.ql-snow { background: #f8fafc; border-radius: 8px 8px 0 0; }
+      .revue-quill-editor .ql-container.ql-snow { border-radius: 0 0 8px 8px; }
+      .revue-quill-editor .ql-editor { min-height: 90px; font-size: 13px; line-height: 1.6; }
+    `;
+    document.head.appendChild(style);
+  }, []);
 
   const fetchRevues = useCallback(async () => {
     try {
@@ -90,26 +123,42 @@ export default function RevueDeProjets() {
     } catch { /* ignore */ }
   }, [token]);
 
-  const fetchRevueDetail = useCallback(async (id: number) => {
+  const fetchRevueDetail = useCallback(async (id: number): Promise<Revue | null> => {
     try {
       const res = await fetch(`/api/revues/${id}`, { headers: { Authorization: `Bearer ${token}` } });
       if (res.ok) {
         const data = await res.json();
         setSelectedRevue(data);
+        return data;
       }
     } catch { /* ignore */ }
+    return null;
   }, [token]);
 
-  const fetchHubTasks = useCallback(async (revueId: number) => {
-    try {
-      const res = await fetch(`/api/tasks/by-context?source=revue&id=${revueId}`, { headers: { Authorization: `Bearer ${token}` } });
-      if (res.ok) setHubTasks(await res.json());
-    } catch { /* ignore */ }
+  const fetchTasksForRevue = useCallback(async (revue: Revue) => {
+    const entries = await Promise.all((revue.projets || []).map(async (rp) => {
+      try {
+        const res = await fetch(`/api/tasks/by-context?source=revue_projet&id=${rp.id}`, { headers: { Authorization: `Bearer ${token}` } });
+        if (res.ok) return [rp.id, await res.json()] as const;
+      } catch { /* ignore */ }
+      return [rp.id, []] as const;
+    }));
+    setTasksByRp(Object.fromEntries(entries));
   }, [token]);
 
   useEffect(() => {
     Promise.all([fetchRevues(), fetchProjets()]).finally(() => setLoading(false));
   }, [fetchRevues, fetchProjets]);
+
+  // Ouverture directe d'une revue via /revue-de-projets?revue=<id> (lien depuis la fiche projet)
+  useEffect(() => {
+    const revueParam = searchParams.get('revue');
+    if (!revueParam) return;
+    const revueId = Number(revueParam);
+    if (!revueId) return;
+    fetchRevueDetail(revueId).then((data) => { if (data) fetchTasksForRevue(data); });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
 
   const addParticipant = (u: { username: string; displayName: string }) => {
     if (participants.some(p => p.username === u.username)) return;
@@ -155,22 +204,9 @@ export default function RevueDeProjets() {
     setSelectedProjets(new Set());
     setParticipants([]);
     setStep2Commentaires({});
-    setStep2Taches({});
-    setStep2TacheInput({});
     setStep2PrevCommentaires({});
     setProjetSearch('');
     setFiltreChefCreation('');
-  };
-
-  const addStep2Tache = (projetId: number) => {
-    const input = step2TacheInput[projetId];
-    if (!input?.titre?.trim()) return;
-    setStep2Taches(prev => ({ ...prev, [projetId]: [...(prev[projetId] || []), { titre: input.titre.trim(), responsable: input.responsable || '', echeance: input.echeance || '' }] }));
-    setStep2TacheInput(prev => ({ ...prev, [projetId]: { titre: '', responsable: '', echeance: '' } }));
-  };
-
-  const removeStep2Tache = (projetId: number, index: number) => {
-    setStep2Taches(prev => ({ ...prev, [projetId]: prev[projetId].filter((_, i) => i !== index) }));
   };
 
   const handleCreate = async () => {
@@ -183,7 +219,6 @@ export default function RevueDeProjets() {
         participants,
         projet_ids: Array.from(selectedProjets),
         commentaires: step2Commentaires,
-        taches: step2Taches
       };
       const res = await fetch('/api/revues', {
         method: 'POST',
@@ -202,33 +237,43 @@ export default function RevueDeProjets() {
   };
 
   const handleSelectRevue = async (revue: Revue) => {
-    await fetchRevueDetail(revue.id);
-    fetchHubTasks(revue.id);
+    const data = await fetchRevueDetail(revue.id);
+    if (data) fetchTasksForRevue(data);
   };
 
-  const handleAddTache = async (projetId: number) => {
+  const startEditMeta = () => {
     if (!selectedRevue) return;
-    const input = tacheInput[projetId];
-    if (!input?.titre?.trim()) return;
+    setEditDateRevue(selectedRevue.date_revue ? selectedRevue.date_revue.slice(0, 16) : '');
+    setEditLieu(selectedRevue.lieu || '');
+    setEditParticipants((selectedRevue.participants || []).map(p => ({ username: p.username, displayName: p.displayName || p.display_name || p.username })));
+    setEditObservers((selectedRevue.observers || []).map(o => ({ username: o.username, displayName: o.displayName || o.display_name || o.email, email: o.email })));
+    setEditingMeta(true);
+  };
+
+  const handleSaveMeta = async () => {
+    if (!selectedRevue || !editDateRevue) { alert('La date est obligatoire'); return; }
+    setSavingMeta(true);
     try {
-      const res = await fetch(`/api/revues/${selectedRevue.id}/taches`, {
-        method: 'POST',
+      const res = await fetch(`/api/revues/${selectedRevue.id}`, {
+        method: 'PUT',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ revue_projet_id: projetId, titre: input.titre.trim(), responsable: input.responsable || '', echeance: input.echeance || null })
+        body: JSON.stringify({
+          date_revue: editDateRevue,
+          lieu: editLieu,
+          participants: editParticipants,
+          observers: editObservers,
+        })
       });
       if (res.ok) {
-        const created = await res.json();
-        if (selectedRevue) {
-          setSelectedRevue({
-            ...selectedRevue,
-            projets: selectedRevue.projets.map(rp =>
-              rp.id === projetId ? { ...rp, taches: [...(rp.taches || []), created] } : rp
-            )
-          });
-        }
-        setTacheInput(prev => ({ ...prev, [projetId]: { titre: '', responsable: '', echeance: '' } }));
+        await fetchRevueDetail(selectedRevue.id);
+        await fetchRevues();
+        setEditingMeta(false);
+      } else {
+        const err = await res.json();
+        alert(`Erreur : ${err.error}`);
       }
-    } catch { alert('Erreur ajout tâche'); }
+    } catch { alert('Erreur enregistrement'); }
+    finally { setSavingMeta(false); }
   };
 
   const handleDeleteTache = async (tacheId: number, revueProjetId: number) => {
@@ -288,7 +333,7 @@ export default function RevueDeProjets() {
   };
 
   const handleSaveCommentaireAuto = async (projetId: number, texte: string) => {
-    if (!selectedRevue || !texte?.trim()) return;
+    if (!selectedRevue) return;
     try {
       await fetch(`/api/revues/${selectedRevue.id}/projets/${projetId}/commentaire`, {
         method: 'PUT',
@@ -296,6 +341,13 @@ export default function RevueDeProjets() {
         body: JSON.stringify({ commentaire: texte })
       });
     } catch { /* ignore */ }
+  };
+
+  const commentaireTimers = useRef<Record<number, ReturnType<typeof setTimeout>>>({});
+  const scheduleSaveCommentaire = (projetId: number, html: string) => {
+    setCommentaires(prev => ({ ...prev, [projetId]: html }));
+    if (commentaireTimers.current[projetId]) clearTimeout(commentaireTimers.current[projetId]);
+    commentaireTimers.current[projetId] = setTimeout(() => handleSaveCommentaireAuto(projetId, html), 900);
   };
 
   const projetsActifs = projets.filter(p => p.statut !== 'suspendu' && p.statut !== 'refuse');
@@ -332,7 +384,7 @@ export default function RevueDeProjets() {
             <div>
               <h1 style={{ margin: 0, fontSize: '22px', fontWeight: '800', color: '#1e293b' }}>📋 Revues de projets</h1>
               {selectedRevue && (
-                <button onClick={() => { setSelectedRevue(null); setCommentaires({}); setHubTasks([]); }} style={{ marginTop: '8px', background: 'none', border: 'none', color: '#2563eb', cursor: 'pointer', fontSize: '13px', fontWeight: '600', padding: 0 }}>
+                <button onClick={() => { setSelectedRevue(null); setCommentaires({}); setTasksByRp({}); setEditingMeta(false); }} style={{ marginTop: '8px', background: 'none', border: 'none', color: '#2563eb', cursor: 'pointer', fontSize: '13px', fontWeight: '600', padding: 0 }}>
                   ← Retour à la liste
                 </button>
               )}
@@ -488,39 +540,24 @@ export default function RevueDeProjets() {
                       <p style={{ margin: '0 0 4px', fontSize: '10px', fontWeight: '700', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
                         Commentaire précédent{step2PrevCommentaires[projet.id].date_revue ? ' du ' + new Date(step2PrevCommentaires[projet.id].date_revue).toLocaleDateString('fr-FR') : ''}
                       </p>
-                      <p style={{ margin: 0, fontSize: '12px', color: '#475569', fontStyle: 'italic' }}>{step2PrevCommentaires[projet.id].commentaire}</p>
+                      <div className="quill-html" style={{ margin: 0, fontSize: '12px', color: '#475569', fontStyle: 'italic' }} dangerouslySetInnerHTML={{ __html: step2PrevCommentaires[projet.id].commentaire }} />
                     </div>
                   )}
 
-                  <div style={{ marginBottom: '12px' }}>
+                  <div>
                     <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: '#475569', marginBottom: '4px' }}>Note / Commentaire</label>
-                    <textarea rows={2} placeholder="Commentaire pour ce projet..." value={step2Commentaires[projet.id] ?? ''} onChange={e => setStep2Commentaires(prev => ({ ...prev, [projet.id]: e.target.value }))} style={{ width: '100%', padding: '8px 10px', border: '1px solid #cbd5e1', borderRadius: '8px', fontSize: '13px', resize: 'vertical', fontFamily: 'inherit' }} />
+                    <ReactQuill
+                      theme="snow"
+                      value={step2Commentaires[projet.id] ?? ''}
+                      onChange={html => setStep2Commentaires(prev => ({ ...prev, [projet.id]: html }))}
+                      modules={QUILL_MODULES}
+                      className="revue-quill-editor"
+                    />
                   </div>
 
-                  <div>
-                    <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: '#475569', marginBottom: '4px' }}>Tâches à ajouter</label>
-                    <div style={{ display: 'flex', gap: '8px', marginBottom: '8px', flexWrap: 'wrap' }}>
-                      <input type="text" placeholder="Tâche *" value={step2TacheInput[projet.id]?.titre ?? ''} onChange={e => setStep2TacheInput(prev => ({ ...prev, [projet.id]: { ...(prev[projet.id] || { titre: '', responsable: '', echeance: '' }), titre: e.target.value } }))} onKeyDown={e => { if (e.key === 'Enter') addStep2Tache(projet.id); }} style={{ flex: '2', minWidth: '140px', padding: '8px 10px', border: '1px solid #cbd5e1', borderRadius: '8px', fontSize: '13px' }} />
-                      <input type="text" placeholder="Responsable" value={step2TacheInput[projet.id]?.responsable ?? ''} onChange={e => setStep2TacheInput(prev => ({ ...prev, [projet.id]: { ...(prev[projet.id] || { titre: '', responsable: '', echeance: '' }), responsable: e.target.value } }))} style={{ flex: '1', minWidth: '100px', padding: '8px 10px', border: '1px solid #cbd5e1', borderRadius: '8px', fontSize: '13px' }} />
-                      <input type="date" value={step2TacheInput[projet.id]?.echeance ?? ''} onChange={e => setStep2TacheInput(prev => ({ ...prev, [projet.id]: { ...(prev[projet.id] || { titre: '', responsable: '', echeance: '' }), echeance: e.target.value } }))} style={{ flex: '1', minWidth: '120px', padding: '8px 10px', border: '1px solid #cbd5e1', borderRadius: '8px', fontSize: '13px' }} />
-                      <button onClick={() => addStep2Tache(projet.id)} style={{ padding: '8px 14px', background: '#16a34a', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: '600', fontSize: '12px', whiteSpace: 'nowrap' }}>+ Ajouter</button>
-                    </div>
-                    {step2Taches[projet.id] && step2Taches[projet.id].length > 0 && (
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                        {step2Taches[projet.id].map((t, i) => (
-                          <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 10px', background: 'white', borderRadius: '6px', border: '1px solid #e2e8f0', fontSize: '12px' }}>
-                            <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#94a3b8', flexShrink: 0 }} />
-                            <span style={{ color: '#1e293b', fontWeight: '500' }}>{t.titre}</span>
-                            <span style={{ color: '#64748b', marginLeft: '4px' }}>
-                              {t.responsable && <span style={{ marginRight: '8px' }}>👤 {t.responsable}</span>}
-                              {t.echeance && <span>📅 {new Date(t.echeance + 'T00:00:00').toLocaleDateString('fr-FR')}</span>}
-                            </span>
-                            <span onClick={() => removeStep2Tache(projet.id, i)} style={{ marginLeft: 'auto', cursor: 'pointer', color: '#94a3b8', fontSize: '11px' }}>✕</span>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
+                  <p style={{ margin: '10px 0 0', fontSize: '11px', color: '#94a3b8', fontStyle: 'italic' }}>
+                    Les tâches se créent après enregistrement, depuis la fiche de chaque projet dans la revue (individu ou groupe).
+                  </p>
                 </div>
               ))}
 
@@ -545,22 +582,111 @@ export default function RevueDeProjets() {
               <div style={{ background: 'white', borderRadius: '12px', border: '1px solid #e2e8f0', padding: '24px', marginBottom: '20px' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
                   <h2 style={{ margin: 0, fontSize: '16px', fontWeight: '800', color: '#1e293b' }}>{selectedRevue.titre || 'Revue du ' + new Date(selectedRevue.date_revue).toLocaleDateString('fr-FR')}</h2>
-                  <button onClick={() => handleDeleteRevue(selectedRevue.id)} style={{ padding: '8px 14px', background: '#fef2f2', color: '#dc2626', border: '1px solid #fecaca', borderRadius: '8px', cursor: 'pointer', fontWeight: '600', fontSize: '12px' }}>
-                    🗑️ Supprimer
-                  </button>
-                </div>
-                <div style={{ display: 'flex', gap: '24px', fontSize: '13px', color: '#475569' }}>
-                  <span>📅 {new Date(selectedRevue.date_revue).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
-                  {selectedRevue.lieu && <span>📍 {selectedRevue.lieu}</span>}
-                  <span>👥 {selectedRevue.participants?.length || 0} participant(s)</span>
-                  <span>📊 {selectedRevue.projets?.length || 0} projet(s)</span>
-                </div>
-                {selectedRevue.participants && selectedRevue.participants.length > 0 && (
-                  <div style={{ marginTop: '12px', display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
-                    {selectedRevue.participants.map(p => (
-                      <span key={p.username} style={{ background: '#f1f5f9', borderRadius: '6px', padding: '4px 10px', fontSize: '12px', fontWeight: '500', color: '#475569', display: 'inline-flex', alignItems: 'center', gap: 4 }}>{p.displayName}<AgentPresenceBadge name={p.displayName} size={11} /></span>
-                    ))}
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    {!editingMeta && (
+                      <button onClick={startEditMeta} style={{ padding: '8px 14px', background: '#eff6ff', color: '#2563eb', border: '1px solid #bfdbfe', borderRadius: '8px', cursor: 'pointer', fontWeight: '600', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                        <Pencil size={13} /> Éditer
+                      </button>
+                    )}
+                    <button onClick={() => handleDeleteRevue(selectedRevue.id)} style={{ padding: '8px 14px', background: '#fef2f2', color: '#dc2626', border: '1px solid #fecaca', borderRadius: '8px', cursor: 'pointer', fontWeight: '600', fontSize: '12px' }}>
+                      🗑️ Supprimer
+                    </button>
                   </div>
+                </div>
+
+                {editingMeta ? (
+                  <div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '16px' }}>
+                      <div>
+                        <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: '#64748b', marginBottom: '6px' }}>DATE & HEURE *</label>
+                        <input type="datetime-local" value={editDateRevue} onChange={e => setEditDateRevue(e.target.value)} style={{ width: '100%', padding: '10px 12px', border: '1px solid #cbd5e1', borderRadius: '8px', fontSize: '14px', boxSizing: 'border-box' }} />
+                      </div>
+                      <div>
+                        <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: '#64748b', marginBottom: '6px' }}>LIEU</label>
+                        <input type="text" value={editLieu} onChange={e => setEditLieu(e.target.value)} style={{ width: '100%', padding: '10px 12px', border: '1px solid #cbd5e1', borderRadius: '8px', fontSize: '14px', boxSizing: 'border-box' }} />
+                      </div>
+                    </div>
+
+                    <div style={{ marginBottom: '16px' }}>
+                      <h3 style={{ margin: '0 0 8px', fontSize: '13px', fontWeight: '700', color: '#1e293b' }}>Participants ({editParticipants.length})</h3>
+                      <input type="text" placeholder="Rechercher par nom (AD)..." value={editAd.query} onChange={e => editAd.setQuery(e.target.value)} style={{ width: '100%', padding: '9px 12px', border: '1px solid #bfdbfe', borderRadius: '8px', fontSize: '13px', boxSizing: 'border-box', marginBottom: '6px' }} />
+                      {editAd.results.length > 0 && (
+                        <div style={{ marginBottom: '8px', border: '1px solid #bfdbfe', borderRadius: '8px', background: 'white', maxHeight: '140px', overflowY: 'auto' }}>
+                          {editAd.results.map(u => (
+                            <div key={u.username} onClick={() => { if (!editParticipants.some(p => p.username === u.username)) setEditParticipants(prev => [...prev, { username: u.username, displayName: u.displayName }]); editAd.setQuery(''); editAd.clearResults(); }}
+                              style={{ padding: '7px 12px', cursor: 'pointer', fontSize: '12px', borderBottom: '1px solid #f1f5f9' }}
+                              onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = '#eff6ff'}
+                              onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = 'white'}>
+                              <strong>{u.displayName}</strong> {u.email ? `— ${u.email}` : ''}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                        {editParticipants.map(p => (
+                          <span key={p.username} style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: '6px', padding: '4px 10px', fontSize: '12px', fontWeight: '600', color: '#1e293b' }}>
+                            {p.displayName} <span onClick={() => setEditParticipants(prev => prev.filter(x => x.username !== p.username))} style={{ cursor: 'pointer', color: '#94a3b8', marginLeft: '4px' }}>✕</span>
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div style={{ marginBottom: '16px' }}>
+                      <h3 style={{ margin: '0 0 8px', fontSize: '13px', fontWeight: '700', color: '#1e293b' }}>Observateurs ({editObservers.length})</h3>
+                      <p style={{ margin: '0 0 6px', fontSize: '11px', color: '#94a3b8' }}>Reçoivent l'email de confirmation de la revue sans être forcément participants.</p>
+                      <input type="text" placeholder="Rechercher par nom (AD)..." value={observerAd.query} onChange={e => observerAd.setQuery(e.target.value)} style={{ width: '100%', padding: '9px 12px', border: '1px solid #fde68a', borderRadius: '8px', fontSize: '13px', boxSizing: 'border-box', marginBottom: '6px' }} />
+                      {observerAd.results.length > 0 && (
+                        <div style={{ marginBottom: '8px', border: '1px solid #fde68a', borderRadius: '8px', background: 'white', maxHeight: '140px', overflowY: 'auto' }}>
+                          {observerAd.results.filter(u => u.email).map(u => (
+                            <div key={u.username} onClick={() => { if (!editObservers.some(o => o.email === u.email)) setEditObservers(prev => [...prev, { username: u.username, displayName: u.displayName, email: u.email }]); observerAd.setQuery(''); observerAd.clearResults(); }}
+                              style={{ padding: '7px 12px', cursor: 'pointer', fontSize: '12px', borderBottom: '1px solid #f1f5f9' }}
+                              onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = '#fffbeb'}
+                              onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = 'white'}>
+                              <strong>{u.displayName}</strong> — {u.email}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                        {editObservers.map(o => (
+                          <span key={o.email} style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: '6px', padding: '4px 10px', fontSize: '12px', fontWeight: '600', color: '#92400e' }}>
+                            {o.displayName || o.email} <span onClick={() => setEditObservers(prev => prev.filter(x => x.email !== o.email))} style={{ cursor: 'pointer', color: '#b45309', marginLeft: '4px' }}>✕</span>
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+                      <button onClick={() => setEditingMeta(false)} style={{ padding: '9px 18px', background: '#f1f5f9', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: '600', color: '#475569' }}>Annuler</button>
+                      <button onClick={handleSaveMeta} disabled={savingMeta} style={{ padding: '9px 22px', background: '#2563eb', color: 'white', border: 'none', borderRadius: '8px', cursor: savingMeta ? 'not-allowed' : 'pointer', fontWeight: '700', opacity: savingMeta ? 0.6 : 1 }}>
+                        {savingMeta ? 'Enregistrement...' : 'Enregistrer'}
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    <div style={{ display: 'flex', gap: '24px', fontSize: '13px', color: '#475569', flexWrap: 'wrap' }}>
+                      <span>📅 {new Date(selectedRevue.date_revue).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
+                      {selectedRevue.lieu && <span>📍 {selectedRevue.lieu}</span>}
+                      <span>👥 {selectedRevue.participants?.length || 0} participant(s)</span>
+                      <span>📊 {selectedRevue.projets?.length || 0} projet(s)</span>
+                    </div>
+                    {selectedRevue.participants && selectedRevue.participants.length > 0 && (
+                      <div style={{ marginTop: '12px', display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                        {selectedRevue.participants.map(p => (
+                          <span key={p.username} style={{ background: '#f1f5f9', borderRadius: '6px', padding: '4px 10px', fontSize: '12px', fontWeight: '500', color: '#475569', display: 'inline-flex', alignItems: 'center', gap: 4 }}>{p.displayName || p.display_name}<AgentPresenceBadge name={p.displayName || p.display_name} size={11} /></span>
+                        ))}
+                      </div>
+                    )}
+                    {selectedRevue.observers && selectedRevue.observers.length > 0 && (
+                      <div style={{ marginTop: '8px', display: 'flex', flexWrap: 'wrap', gap: '6px', alignItems: 'center' }}>
+                        <span style={{ fontSize: '11px', color: '#94a3b8', fontWeight: '600' }}>👁️ Observateurs :</span>
+                        {selectedRevue.observers.map(o => (
+                          <span key={o.email} style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: '6px', padding: '3px 8px', fontSize: '11px', fontWeight: '500', color: '#92400e' }}>{o.displayName || o.display_name || o.email}</span>
+                        ))}
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
 
@@ -613,74 +739,74 @@ export default function RevueDeProjets() {
                   {rp.commentaire_precedent && (
                     <div style={{ marginBottom: '12px', padding: '10px', background: '#f1f5f9', borderRadius: '6px', border: '1px solid #e2e8f0' }}>
                       <p style={{ margin: '0 0 4px', fontSize: '10px', fontWeight: '700', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Commentaire précédent</p>
-                      <p style={{ margin: 0, fontSize: '12px', color: '#475569', fontStyle: 'italic' }}>{rp.commentaire_precedent}</p>
+                      <div className="quill-html" style={{ margin: 0, fontSize: '12px', color: '#475569', fontStyle: 'italic' }} dangerouslySetInnerHTML={{ __html: rp.commentaire_precedent }} />
                     </div>
                   )}
 
                   <div style={{ marginBottom: '12px' }}>
                     <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: '#475569', marginBottom: '4px' }}>Note / Commentaire</label>
-                    <textarea rows={2} placeholder="Commentaire pour ce projet..." value={commentaires[rp.projet_id] ?? rp.commentaire ?? ''}
-                      onChange={e => { setCommentaires(prev => ({ ...prev, [rp.projet_id]: e.target.value })); }}
-                      onBlur={e => handleSaveCommentaireAuto(rp.projet_id, e.target.value)}
-                      style={{ width: '100%', padding: '8px 10px', border: '1px solid #cbd5e1', borderRadius: '8px', fontSize: '13px', resize: 'vertical', fontFamily: 'inherit' }} />
+                    <ReactQuill
+                      theme="snow"
+                      value={commentaires[rp.projet_id] ?? rp.commentaire ?? ''}
+                      onChange={html => scheduleSaveCommentaire(rp.projet_id, html)}
+                      modules={QUILL_MODULES}
+                      className="revue-quill-editor"
+                    />
                   </div>
 
                   <div>
-                    <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: '#475569', marginBottom: '4px' }}>Tâches</label>
-                    <div style={{ display: 'flex', gap: '8px', marginBottom: '8px', flexWrap: 'wrap' }}>
-                      <input type="text" placeholder="Tâche *" value={tacheInput[rp.id]?.titre ?? ''} onChange={e => setTacheInput(prev => ({ ...prev, [rp.id]: { ...(prev[rp.id] || { titre: '', responsable: '', echeance: '' }), titre: e.target.value } }))} onKeyDown={e => { if (e.key === 'Enter') handleAddTache(rp.id); }} style={{ flex: '2', minWidth: '140px', padding: '8px 10px', border: '1px solid #cbd5e1', borderRadius: '8px', fontSize: '13px' }} />
-                      <input type="text" placeholder="Responsable" value={tacheInput[rp.id]?.responsable ?? ''} onChange={e => setTacheInput(prev => ({ ...prev, [rp.id]: { ...(prev[rp.id] || { titre: '', responsable: '', echeance: '' }), responsable: e.target.value } }))} style={{ flex: '1', minWidth: '100px', padding: '8px 10px', border: '1px solid #cbd5e1', borderRadius: '8px', fontSize: '13px' }} />
-                      <input type="date" value={tacheInput[rp.id]?.echeance ?? ''} onChange={e => setTacheInput(prev => ({ ...prev, [rp.id]: { ...(prev[rp.id] || { titre: '', responsable: '', echeance: '' }), echeance: e.target.value } }))} style={{ flex: '1', minWidth: '120px', padding: '8px 10px', border: '1px solid #cbd5e1', borderRadius: '8px', fontSize: '13px' }} />
-                      <button onClick={() => handleAddTache(rp.id)} style={{ padding: '8px 14px', background: '#16a34a', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: '600', fontSize: '12px', whiteSpace: 'nowrap' }}>+ Ajouter</button>
-                      <button onClick={() => setTeamTaskContext({ revueId: selectedRevue.id, revueTitre: selectedRevue.titre || '', projetTitre: rp.projet_titre })} style={{ padding: '8px 14px', background: '#eff6ff', color: '#2563eb', border: '1px solid #bfdbfe', borderRadius: '8px', cursor: 'pointer', fontWeight: '600', fontSize: '12px', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: '4px' }}><Users size={13} /> Équipe</button>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                      <label style={{ fontSize: '12px', fontWeight: '600', color: '#475569' }}>Tâches</label>
+                      <button onClick={() => setTaskModalContext({ rpId: rp.id, revueTitre: selectedRevue.titre || '', projetTitre: rp.projet_titre })} style={{ padding: '6px 12px', background: '#eff6ff', color: '#2563eb', border: '1px solid #bfdbfe', borderRadius: '8px', cursor: 'pointer', fontWeight: '600', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                        <Plus size={13} /> Tâche
+                      </button>
                     </div>
+
                     {rp.taches && rp.taches.length > 0 && (
+                      <div style={{ marginBottom: '8px' }}>
+                        <p style={{ margin: '0 0 4px', fontSize: '10px', fontWeight: '700', color: '#94a3b8', textTransform: 'uppercase' }}>Anciennes tâches</p>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                          {rp.taches.map(t => (
+                            <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 10px', background: 'white', borderRadius: '6px', border: '1px solid #e2e8f0', fontSize: '12px' }}>
+                              <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: t.statut === 'faite' ? '#22c55e' : '#94a3b8', flexShrink: 0 }} />
+                              <span style={{ color: '#1e293b', fontWeight: t.statut === 'faite' ? '400' : '500', textDecoration: t.statut === 'faite' ? 'line-through' : 'none' }}>{t.titre}</span>
+                              <span style={{ color: '#64748b', marginLeft: '8px', fontSize: '11px' }}>
+                                {t.responsable && <span style={{ marginRight: '8px' }}>👤 {t.responsable}</span>}
+                                {t.echeance && <span>📅 {new Date(t.echeance + 'T00:00:00').toLocaleDateString('fr-FR')}</span>}
+                              </span>
+                              <span style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <span style={{ fontSize: '10px', color: '#94a3b8' }}>{t.statut === 'faite' ? 'Faite' : 'À faire'}</span>
+                                <span onClick={() => handleDeleteTache(t.id, rp.id)} style={{ cursor: 'pointer', color: '#94a3b8', fontSize: '12px' }} title="Supprimer">✕</span>
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {(tasksByRp[rp.id] || []).length > 0 && (
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                        {rp.taches.map(t => (
-                          <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 10px', background: 'white', borderRadius: '6px', border: '1px solid #e2e8f0', fontSize: '12px' }}>
-                            <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: t.statut === 'faite' ? '#22c55e' : '#94a3b8', flexShrink: 0 }} />
-                            <span style={{ color: '#1e293b', fontWeight: t.statut === 'faite' ? '400' : '500', textDecoration: t.statut === 'faite' ? 'line-through' : 'none' }}>{t.titre}</span>
-                            <span style={{ color: '#64748b', marginLeft: '8px', fontSize: '11px' }}>
-                              {t.responsable && <span style={{ marginRight: '8px' }}>👤 {t.responsable}</span>}
-                              {t.echeance && <span>📅 {new Date(t.echeance + 'T00:00:00').toLocaleDateString('fr-FR')}</span>}
-                            </span>
-                            <span style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                              <span style={{ fontSize: '10px', color: '#94a3b8' }}>{t.statut === 'faite' ? 'Faite' : 'À faire'}</span>
-                              <span onClick={() => handleDeleteTache(t.id, rp.id)} style={{ cursor: 'pointer', color: '#94a3b8', fontSize: '12px' }} title="Supprimer">✕</span>
+                        {(tasksByRp[rp.id] || []).map(t => (
+                          <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 10px', background: 'white', borderRadius: '6px', border: '1px solid #e2e8f0', fontSize: '12px' }}>
+                            {t.is_team_task && <Users size={12} style={{ color: '#2563eb', flexShrink: 0 }} />}
+                            <span style={{ color: '#1e293b', fontWeight: '500' }}>{t.description}</span>
+                            <span style={{ marginLeft: 'auto', display: 'flex', gap: '8px', alignItems: 'center' }}>
+                              {t.echeance && <span style={{ color: '#94a3b8', fontSize: '11px' }}>📅 {new Date(t.echeance + 'T00:00:00').toLocaleDateString('fr-FR')}</span>}
+                              <span style={{ color: '#64748b', fontSize: '11px' }}>👤 {t.username}</span>
+                              <span style={{ fontSize: '10px', padding: '2px 6px', borderRadius: '4px', background: t.statut === 'terminee' || t.statut === 'terminé' ? '#dcfce7' : '#f1f5f9', color: t.statut === 'terminee' || t.statut === 'terminé' ? '#16a34a' : '#64748b' }}>
+                                {t.statut === 'terminee' || t.statut === 'terminé' ? 'Terminée' : t.statut === 'en_cours' ? 'En cours' : 'À faire'}
+                              </span>
                             </span>
                           </div>
                         ))}
                       </div>
                     )}
+                    {(!rp.taches || rp.taches.length === 0) && (tasksByRp[rp.id] || []).length === 0 && (
+                      <p style={{ margin: 0, fontSize: '12px', color: '#94a3b8', fontStyle: 'italic' }}>Aucune tâche pour ce projet.</p>
+                    )}
                   </div>
                 </div>
               ))}
-
-              {hubTasks.length > 0 && (
-                <div style={{ marginTop: '20px', padding: '16px', background: 'white', borderRadius: '10px', border: '1px solid #e2e8f0' }}>
-                  <h3 style={{ margin: '0 0 12px', fontSize: '14px', fontWeight: '700', color: '#1e293b', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <Users size={16} style={{ color: '#2563eb' }} /> Tâches d'équipe
-                  </h3>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                    {hubTasks.map(t => (
-                      <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 12px', background: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '12px' }}>
-                        <Users size={13} style={{ color: '#2563eb', flexShrink: 0 }} />
-                        <span style={{ color: '#1e293b', fontWeight: '500' }}>{t.description}</span>
-                        {t.context_title && t.context_title.includes('/') && (
-                          <span style={{ color: '#64748b', fontSize: '11px' }}>— {t.context_title.split('/').slice(1).join('/').trim()}</span>
-                        )}
-                        <span style={{ marginLeft: 'auto', display: 'flex', gap: '10px', alignItems: 'center' }}>
-                          {t.echeance && <span style={{ color: '#94a3b8', fontSize: '11px' }}>📅 {new Date(t.echeance + 'T00:00:00').toLocaleDateString('fr-FR')}</span>}
-                          <span style={{ color: '#64748b', fontSize: '11px' }}>👤 {t.username}</span>
-                          <span style={{ fontSize: '10px', padding: '2px 6px', borderRadius: '4px', background: t.statut === 'terminee' || t.statut === 'terminé' ? '#dcfce7' : '#f1f5f9', color: t.statut === 'terminee' || t.statut === 'terminé' ? '#16a34a' : '#64748b' }}>
-                            {t.statut === 'terminee' || t.statut === 'terminé' ? 'Terminée' : t.statut === 'en_cours' ? 'En cours' : 'À faire'}
-                          </span>
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
             </div>
           ) : revues.length === 0 ? (
             <div style={{ textAlign: 'center', padding: '80px 20px', background: 'white', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
@@ -732,19 +858,19 @@ export default function RevueDeProjets() {
         </div>
       )}
 
-      {teamTaskContext && (
+      {taskModalContext && (
         <AddTaskModal
           token={token || ''}
-          contextSource="revue"
-          contextId={teamTaskContext.revueId}
-          contextTitle={(teamTaskContext.revueTitre || '') + (teamTaskContext.projetTitre ? ' / ' + teamTaskContext.projetTitre : '')}
+          contextSource="revue_projet"
+          contextId={taskModalContext.rpId}
+          contextTitle={(taskModalContext.revueTitre || '') + ' / ' + taskModalContext.projetTitre}
           onCreated={(created) => {
             const arr = Array.isArray(created) ? created : [created];
-            setHubTasks(prev => [...prev, ...arr]);
-            setTeamTaskContext(null);
+            setTasksByRp(prev => ({ ...prev, [taskModalContext.rpId]: [...(prev[taskModalContext.rpId] || []), ...arr] }));
+            setTaskModalContext(null);
           }}
-          onClose={() => setTeamTaskContext(null)}
-          title="Ajouter une tâche d'équipe"
+          onClose={() => setTaskModalContext(null)}
+          title="Ajouter une tâche (individu ou groupe)"
         />
       )}
     </div>

@@ -1818,6 +1818,19 @@ async function setupPgDb() {
       );
     `);
 
+    // Observateurs : reçoivent l'email de confirmation d'une revue sans être
+    // nécessairement des participants (ex: hiérarchie tenue informée).
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS hub_rencontres.revue_observers (
+        id SERIAL PRIMARY KEY,
+        revue_id INTEGER NOT NULL REFERENCES hub_rencontres.revues(id) ON DELETE CASCADE,
+        username TEXT,
+        display_name TEXT,
+        email TEXT NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
     await client.query(`
       CREATE TABLE IF NOT EXISTS hub_rencontres.revue_taches (
         id SERIAL PRIMARY KEY,

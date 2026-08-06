@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useADSearch } from '../utils/useADSearch';
 import type { ADUser } from '../utils/useADSearch';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, FileText, MessageSquare, Calendar, BarChart3, Settings, Activity, Upload, UserPlus, ArrowRight, Plus, Trash2, CheckCircle2, ListChecks, X, Users, Pencil } from 'lucide-react';
+import { ArrowLeft, FileText, MessageSquare, Calendar, BarChart3, Settings, Activity, Upload, UserPlus, ArrowRight, Plus, Trash2, CheckCircle2, ListChecks, X, Users, Pencil, ClipboardList } from 'lucide-react';
 import { TaskTable } from '../components/TaskTable';
 import Header from '../components/Header';
 import CreateReunionModal from '../components/CreateReunionModal';
@@ -69,6 +69,7 @@ const ALL_TABS = [
   { key: 'journal', label: 'Journal', icon: MessageSquare },
   { key: 'documents', label: 'Documents', icon: FileText },
   { key: 'reunions', label: 'Réunions', icon: Calendar },
+  { key: 'revues', label: 'Revues', icon: ClipboardList },
   { key: 'taches', label: 'Tâches', icon: ListChecks },
   { key: 'score', label: 'Score', icon: BarChart3 },
   { key: 'indicateurs', label: 'Indicateurs', icon: Activity },
@@ -568,6 +569,7 @@ const ProjetDetail: React.FC = () => {
   const renderJournal = () => <JournalTab projetId={projet.id} token={token} onOuvrirDocument={(details) => ouvrirDocument(details, projet.id)} />;
   const renderDocuments = () => <DocumentsTab projetId={projet.id} token={token} documents={projet.documents} onVoirDocument={(url, nom) => setViewerDoc({ url, nom })} />;
   const renderReunions = () => <ReunionsTab projetId={projet.id} token={token} onAjouterReunion={() => setShowCreateReunion(true)} onVoirReunion={(id) => setReunionDetailId(id)} />;
+  const renderRevues = () => <RevuesTab projetId={projet.id} token={token} />;
   const renderTaches = () => <TachesTab projetId={projet.id} projetTitre={projet.titre} token={token} currentUsername={user?.username} isChefProjet={isChefProjet || isPMO} />;
   const renderScore = () => <ScoreTab projetId={projet.id} token={token} />;
   const renderIndicateurs = () => <IndicateursTab projetId={projet.id} token={token} />;
@@ -798,6 +800,7 @@ const ouvrirDocument = async (detailsJson: string, projetId: number) => {
         {ongletActif === 'journal' && renderJournal()}
         {ongletActif === 'documents' && renderDocuments()}
         {ongletActif === 'reunions' && renderReunions()}
+        {ongletActif === 'revues' && renderRevues()}
         {ongletActif === 'taches' && renderTaches()}
         {ongletActif === 'score' && renderScore()}
         {ongletActif === 'indicateurs' && renderIndicateurs()}
@@ -2162,6 +2165,56 @@ const DocumentsTab: React.FC<{ projetId: number; token: string | null; documents
 };
 
 // ===== ONGLET RÉUNIONS =====
+const RevuesTab: React.FC<{ projetId: number; token: string | null }> = ({ projetId, token }) => {
+  const [revues, setRevues] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`/api/projets/${projetId}/revues`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.json())
+      .then(d => { if (!cancelled && Array.isArray(d)) setRevues(d); })
+      .catch(() => {})
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [projetId, token]);
+
+  if (loading) return <p style={{ color: '#94a3b8', textAlign: 'center', padding: '40px' }}>Chargement...</p>;
+  if (revues.length === 0) return <p style={{ color: '#94a3b8', textAlign: 'center', padding: '40px' }}>Ce projet n'a été traité dans aucune revue de projets.</p>;
+
+  const commentaireVide = (html?: string) => !html || html.replace(/<(.|\n)*?>/g, '').trim().length === 0;
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+      {revues.map(r => (
+        <div key={r.id} style={{ background: 'white', borderRadius: '10px', border: '1px solid #e2e8f0', padding: '14px 18px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '10px' }}>
+            <div>
+              <div style={{ fontWeight: '700', color: '#1e293b', fontSize: '14px' }}>{r.titre}</div>
+              <div style={{ display: 'flex', gap: '12px', fontSize: '12px', color: '#64748b', marginTop: '4px', flexWrap: 'wrap' }}>
+                <span>📅 {r.date_revue ? new Date(r.date_revue).toLocaleDateString('fr-FR') : '—'}</span>
+                {r.lieu && <span>📍 {r.lieu}</span>}
+                <span>👥 {r.participant_count} participant(s)</span>
+              </div>
+            </div>
+            <a href={`/revue-de-projets?revue=${r.id}`} target="_blank" rel="noopener noreferrer"
+              style={{ flexShrink: 0, fontSize: '11px', color: '#2563eb', textDecoration: 'none', fontWeight: '600', whiteSpace: 'nowrap' }}>
+              Ouvrir la revue →
+            </a>
+          </div>
+          <div style={{ marginTop: '10px', paddingTop: '10px', borderTop: '1px solid #f1f5f9' }}>
+            {commentaireVide(r.commentaire) ? (
+              <p style={{ margin: 0, fontSize: '12px', color: '#94a3b8', fontStyle: 'italic' }}>Aucun commentaire saisi pour ce projet lors de cette revue.</p>
+            ) : (
+              <div className="quill-html" style={{ fontSize: '13px', color: '#334155', lineHeight: 1.5 }} dangerouslySetInnerHTML={{ __html: r.commentaire }} />
+            )}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+};
+
 const ReunionsTab: React.FC<{ projetId: number; token: string | null; onAjouterReunion: () => void; onVoirReunion: (id: number) => void }> = ({ projetId, token, onAjouterReunion, onVoirReunion }) => {
   const { user } = useAuth();
   const [reunions, setReunions] = useState<any[]>([]);

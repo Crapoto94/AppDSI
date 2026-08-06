@@ -6,6 +6,7 @@ const { authenticateJWT } = require('../../shared/middleware');
 router.get('/', authenticateJWT, ctrl.getAll);
 router.post('/', authenticateJWT, ctrl.create);
 router.get('/:id', authenticateJWT, ctrl.getById);
+router.put('/:id', authenticateJWT, ctrl.updateMeta);
 router.post('/previous-commentaires', authenticateJWT, ctrl.getPreviousCommentaires);
 router.post('/:id/projets', authenticateJWT, ctrl.addProjets);
 router.put('/:id/projets/:projetId/commentaire', authenticateJWT, ctrl.updateProjetCommentaire);

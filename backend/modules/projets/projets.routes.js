@@ -91,6 +91,11 @@ router.post('/:id/reunions', authenticateJWT, ctrl.lierReunion);
 router.delete('/:id/reunions/:rid', authenticateAdminOrPMO, ctrl.delierReunion);
 
 // ============================================
+// REVUES DE PROJETS LIÉES
+// ============================================
+router.get('/:id/revues', authenticateJWT, ctrl.getRevuesLiees);
+
+// ============================================
 // JOURNAL
 // ============================================
 router.get('/:id/journal', authenticateJWT, ctrl.getJournal);

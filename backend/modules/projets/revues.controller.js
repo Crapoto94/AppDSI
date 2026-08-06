@@ -2,6 +2,9 @@ const { pgDb, getSqlite } = require('../../shared/database');
 const { logMouchard } = require('../../shared/utils');
 const { isSuperAdmin } = require('../../shared/middleware');
 
+// sendMail injecté depuis server.js (comme reunions.controller.js)
+let sendMailFn = null;
+
 async function estPMO(username) {
     try {
         const db = getSqlite();
@@ -11,7 +14,63 @@ async function estPMO(username) {
     } catch { return false; }
 }
 
+function fmtDateHeure(d) {
+    return new Date(d).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+}
+
+// Construit l'email HTML de confirmation/mise à jour d'une revue de projets
+// (même style inline que reunions.controller.js).
+function buildRevueEmail(revue, projets, participants, isUpdate) {
+    const projetRows = (projets || []).map(p =>
+        `<li style="margin:2px 0"><strong>${p.projet_code || ''}</strong> — ${p.projet_titre || ''}</li>`
+    ).join('');
+    const participantsStr = (participants || []).map(p => p.display_name || p.username).join(', ') || '—';
+    const subject = `${isUpdate ? '✏️ Revue de projets modifiée' : '📋 Revue de projets planifiée'} — ${fmtDateHeure(revue.date_revue)}`;
+    const content = `
+<h1 style="color:#1e293b;margin:0 0 8px;font-size:22px;font-weight:900">${isUpdate ? '✏️ Revue de projets modifiée' : '📋 Revue de projets planifiée'}</h1>
+<h2 style="color:#0f172a;margin:0 0 16px;font-size:18px">${revue.titre}</h2>
+<div style="margin-bottom:16px;padding:12px 16px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;font-size:14px;color:#1e3a8a">
+  📅 <strong>${fmtDateHeure(revue.date_revue)}</strong>${revue.lieu ? ` — 📍 ${revue.lieu}` : ''}
+</div>
+<p style="margin:0 0 6px;font-size:13px;color:#475569;font-weight:700">Participants</p>
+<p style="margin:0 0 16px;font-size:13px;color:#1e293b">${participantsStr}</p>
+<p style="margin:0 0 6px;font-size:13px;color:#475569;font-weight:700">Projets à l'ordre du jour</p>
+<ul style="margin:0;padding-left:18px;font-size:13px;color:#1e293b">${projetRows || '<li>—</li>'}</ul>`;
+    return { subject, content };
+}
+
+// Envoie la confirmation/mise à jour aux participants (résolus via hub.users) + observateurs.
+// Fire-and-forget par destinataire : ne bloque jamais la réponse HTTP.
+async function notifyRevue(revueId, isUpdate) {
+    if (!sendMailFn) return;
+    try {
+        const revue = await pgDb.get('SELECT * FROM hub_rencontres.revues WHERE id = $1', [revueId]);
+        if (!revue) return;
+        const projets = await pgDb.all(`
+            SELECT p.code as projet_code, p.titre as projet_titre
+            FROM hub_rencontres.revue_projets rp JOIN projets.projets p ON p.id = rp.projet_id
+            WHERE rp.revue_id = $1 ORDER BY p.titre
+        `, [revueId]);
+        const participants = await pgDb.all('SELECT * FROM hub_rencontres.revue_participants WHERE revue_id = $1', [revueId]);
+        const observers = await pgDb.all('SELECT * FROM hub_rencontres.revue_observers WHERE revue_id = $1', [revueId]);
+
+        const participantEmails = [];
+        for (const p of participants) {
+            const u = await pgDb.get('SELECT email FROM hub.users WHERE username = $1', [p.username]);
+            if (u?.email) participantEmails.push(u.email);
+        }
+        const emails = [...new Set([...participantEmails, ...observers.map(o => o.email).filter(Boolean)])];
+        if (emails.length === 0) return;
+
+        const { subject, content } = buildRevueEmail(revue, projets, participants, isUpdate);
+        for (const email of emails) {
+            try { await sendMailFn(email, subject, content, []); } catch (e) { console.error(`[REVUE] notif à ${email}:`, e.message); }
+        }
+    } catch (e) { console.error('[REVUE] notifyRevue error:', e.message); }
+}
+
 module.exports = {
+    setSendMail: (fn) => { sendMailFn = fn; },
     getAll: async (req, res) => {
         try {
             const username = req.user.username;
@@ -109,6 +168,7 @@ module.exports = {
             }
 
             logMouchard(`Revue de projets créée: ${titre} par ${req.user.username}`);
+            notifyRevue(revueId, false).catch(() => {});
 
             const created = await pgDb.get(`
                 SELECT r.*, COUNT(DISTINCT rp.id) as projet_count, COUNT(DISTINCT part.id) as participant_count
@@ -121,6 +181,66 @@ module.exports = {
             res.status(201).json(created);
         } catch (error) {
             console.error('Erreur POST revue:', error);
+            res.status(500).json({ error: error.message });
+        }
+    },
+
+    // PUT /api/revues/:id — correction des méta après création (date, lieu,
+    // participants, observateurs). Remplace intégralement participants/observers
+    // (listes courtes, pas besoin de diff fin) et renvoie une notification.
+    updateMeta: async (req, res) => {
+        try {
+            const { id } = req.params;
+            const { date_revue, lieu, participants, observers } = req.body;
+            if (!date_revue) return res.status(400).json({ error: 'La date est obligatoire' });
+
+            const existing = await pgDb.get('SELECT id FROM hub_rencontres.revues WHERE id = $1', [id]);
+            if (!existing) return res.status(404).json({ error: 'Revue non trouvée' });
+
+            const dateObj = new Date(date_revue + (date_revue.includes('T') ? '' : 'T00:00:00'));
+            const dateStr = dateObj.toLocaleDateString('fr-FR', { year: 'numeric', month: 'long', day: 'numeric' });
+            const titre = `Revue de projets du ${dateStr}`;
+
+            await pgDb.run(
+                'UPDATE hub_rencontres.revues SET date_revue = $1, lieu = $2, titre = $3, updated_at = NOW() WHERE id = $4',
+                [date_revue, lieu || null, titre, id]
+            );
+
+            if (Array.isArray(participants)) {
+                await pgDb.run('DELETE FROM hub_rencontres.revue_participants WHERE revue_id = $1', [id]);
+                for (const p of participants) {
+                    const username = typeof p === 'string' ? p : p.username;
+                    if (!username) continue;
+                    const user = await pgDb.get('SELECT displayname FROM hub.users WHERE username = $1', [username]);
+                    const display_name = (typeof p === 'object' && (p.displayName || p.display_name)) || user?.displayname || username;
+                    await pgDb.run(
+                        'INSERT INTO hub_rencontres.revue_participants (revue_id, username, display_name) VALUES ($1, $2, $3)',
+                        [id, username, display_name]
+                    );
+                }
+            }
+
+            if (Array.isArray(observers)) {
+                await pgDb.run('DELETE FROM hub_rencontres.revue_observers WHERE revue_id = $1', [id]);
+                for (const o of observers) {
+                    const email = typeof o === 'string' ? o : o.email;
+                    if (!email) continue;
+                    await pgDb.run(
+                        'INSERT INTO hub_rencontres.revue_observers (revue_id, username, display_name, email) VALUES ($1, $2, $3, $4)',
+                        [id, (typeof o === 'object' && o.username) || null, (typeof o === 'object' && (o.displayName || o.display_name)) || null, email]
+                    );
+                }
+            }
+
+            logMouchard(`Revue de projets modifiée (méta) : #${id} par ${req.user.username}`);
+            notifyRevue(id, true).catch(() => {});
+
+            const updated = await pgDb.get('SELECT r.* FROM hub_rencontres.revues r WHERE r.id = $1', [id]);
+            const updatedParticipants = await pgDb.all('SELECT * FROM hub_rencontres.revue_participants WHERE revue_id = $1', [id]);
+            const updatedObservers = await pgDb.all('SELECT * FROM hub_rencontres.revue_observers WHERE revue_id = $1', [id]);
+            res.json({ ...updated, participants: updatedParticipants, observers: updatedObservers });
+        } catch (error) {
+            console.error('Erreur PUT revue meta:', error);
             res.status(500).json({ error: error.message });
         }
     },
@@ -160,8 +280,11 @@ module.exports = {
             const participants = await pgDb.all(
                 'SELECT * FROM hub_rencontres.revue_participants WHERE revue_id = $1', [id]
             );
+            const observers = await pgDb.all(
+                'SELECT * FROM hub_rencontres.revue_observers WHERE revue_id = $1', [id]
+            );
 
-            res.json({ ...revue, projets, participants });
+            res.json({ ...revue, projets, participants, observers });
         } catch (error) {
             console.error('Erreur GET revue by id:', error);
             res.status(500).json({ error: error.message });

@@ -56,6 +56,17 @@ button {
   left: 14px !important;
 }
 
+/* Affichage en lecture seule d'un contenu HTML produit par ReactQuill (hors
+   éditeur, donc hors .ql-editor) : le reset global "* { margin/padding: 0 }"
+   supprime l'indentation native des listes, on la restaure ici. */
+.quill-html ul, .quill-html ol {
+  margin: 4px 0;
+  padding-left: 1.8em;
+}
+.quill-html li {
+  margin: 2px 0;
+}
+
 .container {
   max-width: 1200px;
   margin: 0 auto;
