@@ -5456,16 +5456,17 @@ async function sendMail(to, subject, content, extraAttachments = [], source = 's
     const attachments = [];
 
     // Embed magapp images as CID attachments
-    const imageMap = {
-        'logo_dsi.png': 'http://localhost:3001/img/logo_dsi.png',
-        'Ivry.png': 'Ivry.png'
-    };
-    for (const [filename, ref] of Object.entries(imageMap)) {
-        if (html.includes(ref)) {
+    // Le template peut référencer l'image en chemin relatif ("logo_dsi.png") ou en URL absolue
+    // (ex: "http://localhost:3001/img/logo_dsi.png") — on remplace toutes les formes rencontrées.
+    const imageFiles = ['logo_dsi.png', 'Ivry.png'];
+    for (const filename of imageFiles) {
+        const refs = [filename, `http://localhost:3001/img/${filename}`, `/img/${filename}`];
+        const matchedRef = refs.find(r => html.includes(r));
+        if (matchedRef) {
             const imgPath = path.join(__dirname, 'magapp_img', filename);
             if (fs.existsSync(imgPath)) {
                 const cid = path.parse(filename).name;
-                html = html.split(ref).join(`cid:${cid}`);
+                refs.forEach(r => { html = html.split(r).join(`cid:${cid}`); });
                 attachments.push({
                     filename: filename,
                     content: fs.readFileSync(imgPath).toString('base64'),
