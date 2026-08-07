@@ -8,6 +8,12 @@ const xlsx = require('xlsx');
 
 const MODULE = 'certificats';
 
+/** Corrige les emails où le "." a été mal extrait/saisi en "," (ex: "jean,dupont@ivry94,fr"). */
+function normalizeEmail(email) {
+    if (!email || typeof email !== 'string' || !email.includes(',')) return email;
+    return email.replace(/,/g, '.');
+}
+
 /** Supprime le fichier d'un certificat, qu'il soit dans le nouveau stockage ou en legacy. */
 async function deleteCertFile(filePath) {
     if (!filePath) return;
@@ -158,6 +164,7 @@ const upsertCertificate = async (data) => {
     if (!data.order_number || data.order_number.trim() === '' || data.order_number === 'Inconnu') {
         data.order_number = 'FO';
     }
+    data.beneficiary_email = normalizeEmail(data.beneficiary_email);
 
     const existing = await db.get('SELECT id, file_path, is_provisional, sedit_number, expiry_date, observations FROM hub.certificates WHERE order_number = ?', [data.order_number]);
 
@@ -197,9 +204,9 @@ const parseCertificateFile = async (file) => {
 
     const orderMatch = content.match(/BD\d+-\d+/);
     const dateMatch = content.match(/\d{2}\/\d{2}\/\d{4}/);
-    let emailMatch = content.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/);
+    let emailMatch = content.match(/[a-zA-Z0-9.,_%+-]+@[a-zA-Z0-9.,-]+[.,][a-zA-Z]{2,}/);
     if (emailMatch) {
-        emailMatch[0] = emailMatch[0].replace(/^[A-Z]{2,}(?=[a-z])/, '');
+        emailMatch[0] = normalizeEmail(emailMatch[0].replace(/^[A-Z]{2,}(?=[a-z])/, ''));
     }
     const productCodeMatch = content.match(/(OE2|OP2)-[A-Z]+-[A-Z]+-\d+A/);
 
@@ -333,7 +340,7 @@ module.exports = {
             const finalProvisional = expiry_date ? 0 : (is_provisional ?? 1);
             const result = await db.run(
                 `INSERT INTO hub.certificates (order_number, request_date, beneficiary_name, beneficiary_email, product_code, product_label, file_path, expiry_date, sedit_number, is_provisional, observations) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-                [order_number, request_date, beneficiary_name, beneficiary_email, product_code, product_label, '', expiry_date, sedit_number, finalProvisional, observations]
+                [order_number, request_date, beneficiary_name, normalizeEmail(beneficiary_email), product_code, product_label, '', expiry_date, sedit_number, finalProvisional, observations]
             );
             const newCertificate = await db.get('SELECT * FROM hub.certificates WHERE id = ?', [result.lastID]);
             const formatted = { ...newCertificate, request_date: formatDateFrench(newCertificate.request_date), expiry_date: formatDateFrench(newCertificate.expiry_date) };
@@ -405,7 +412,7 @@ module.exports = {
             allowedFields.forEach((field) => {
                 if (req.body[field] !== undefined) {
                     updates.push(`${field} = ?`);
-                    values.push(req.body[field]);
+                    values.push(field === 'beneficiary_email' ? normalizeEmail(req.body[field]) : req.body[field]);
                 }
             });
             if (updates.length === 0) return res.status(400).json({ message: 'Aucun champ modifiable fourni' });
