@@ -75,6 +75,17 @@ const MailSettings: React.FC = () => {
         }
     };
 
+    const getPreviewHtml = () => {
+        let html = settings.template_html || '';
+        // Les images du template référencent des fichiers relatifs (Ivry.png, logo_dsi.png)
+        // servis par le backend sous /img — corriger le chemin pour l'aperçu dans le navigateur.
+        html = html.split('src="Ivry.png"').join('src="/img/Ivry.png"');
+        html = html.split("src='Ivry.png'").join("src='/img/Ivry.png'");
+        html = html.split('src="logo_dsi.png"').join('src="/img/logo_dsi.png"');
+        html = html.split("src='logo_dsi.png'").join("src='/img/logo_dsi.png'");
+        return html;
+    };
+
     if (loading) return <div className="flex justify-center p-20"><Loader2 className="animate-spin text-blue-600" size={40} /></div>;
 
     return (
@@ -268,7 +279,7 @@ const MailSettings: React.FC = () => {
                                     </button>
                                 </div>
                                 {showPreview ? (
-                                    <div className="preview-container" dangerouslySetInnerHTML={{ __html: settings.template_html }} />
+                                    <div className="preview-container" dangerouslySetInnerHTML={{ __html: getPreviewHtml() }} />
                                 ) : (
                                     <textarea
                                         value={settings.template_html}
