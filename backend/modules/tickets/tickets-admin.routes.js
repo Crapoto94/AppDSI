@@ -6,6 +6,7 @@ const { pgDb, getSqlite } = require('../../shared/database');
 const { searchADUsersByQuery, lookupADUsersOrg } = require('../../shared/ad_helper');
 const technicianRepo = require('./repositories/technician.repository');
 const storage = require('../../shared/storage');
+const docsService = require('../../shared/documents.service');
 const multer = require('multer');
 const path = require('path');
 
@@ -1674,7 +1675,7 @@ router.get('/knowledge-documents', authenticateJWT, async (req, res) => {
         const { category_id, app_id } = req.query;
         let sql = `
             SELECT d.id, d.name, d.description, d.category_id, d.app_id, d.original_name,
-                   d.mimetype, d.size_bytes, d.uploaded_by, d.created_at,
+                   d.mimetype, d.size_bytes, d.uploaded_by, d.created_at, d.doc_id,
                    c.name as category_name, c.full_path as category_path,
                    a.name as app_name
             FROM hub_tickets.knowledge_documents d
@@ -1717,6 +1718,20 @@ router.post('/knowledge-documents', authenticateJWT, authenticateTicketAdmin, kb
                 req.user.username,
             ]
         );
+
+        // Dual-write hub_docs : permet d'ouvrir le tuto dans la visionneuse centrale
+        // (DocumentViewer) au lieu d'un téléchargement direct. Ne doit jamais faire
+        // échouer l'upload si l'enregistrement échoue.
+        try {
+            const { document } = await docsService.registerExternalUpload({
+                module: 'tickets-kb', entityType: 'knowledge_document', entityId: row.id,
+                title: name.trim(), filename: req.file.originalname, originalName: req.file.originalname,
+                mimetype: req.file.mimetype, size: req.file.size, storageRef: saved.dbPath,
+                uploadedBy: req.user.username,
+            });
+            if (document) await pgDb.run(`UPDATE hub_tickets.knowledge_documents SET doc_id=$1 WHERE id=$2`, [document.id, row.id]);
+        } catch (e) { console.error('[KB DOCS] enregistrement hub_docs échoué:', e.message); }
+
         res.status(201).json({ id: row.id });
     } catch (e) { res.status(500).json({ message: e.message }); }
 });

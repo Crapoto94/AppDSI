@@ -3236,6 +3236,14 @@ setupDb().then(async database => {
         console.error('[MOBILITE BOOTSTRAP] échec:', e.message);
     }
 
+    // Amorçage base documentaire tickets : rattache les tutos existants à hub_docs (idempotent)
+    try {
+        const { bootstrapKnowledgeDocs } = require('./modules/tickets/knowledge.bootstrap');
+        await bootstrapKnowledgeDocs();
+    } catch (e) {
+        console.error('[KB BOOTSTRAP] échec:', e.message);
+    }
+
     // Deduplicate operations (keep the one with linked commands)
     await deduplicateOperations();
 

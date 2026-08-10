@@ -4,6 +4,7 @@ import {
   Plus, Trash2, Edit2, X, Check, Upload, FileText, Download,
   ChevronDown, ChevronRight, File, FileImage, FileSpreadsheet,
 } from 'lucide-react';
+import DocumentViewer from '../../components/DocumentViewer';
 
 interface Doc {
   id: number;
@@ -18,6 +19,7 @@ interface Doc {
   size_bytes: number | null;
   uploaded_by: string | null;
   created_at: string;
+  doc_id: number | null;
 }
 interface Category { id: number; name: string; full_path: string; parent_id: number | null; }
 interface App { id: number; name: string; }
@@ -61,6 +63,7 @@ export default function KnowledgeBaseAdmin() {
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<Doc | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(new Set(['none']));
+  const [viewerDocId, setViewerDocId] = useState<number | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const [form, setForm] = useState({ name: '', description: '', category_id: '', app_id: '' });
@@ -137,19 +140,22 @@ export default function KnowledgeBaseAdmin() {
   }
 
   function download(d: Doc, mode: 'inline' | 'attachment') {
-    // Le download utilise le header Authorization → on passe par fetch + blob
-    fetch(`/api/tickets/admin/knowledge-documents/${d.id}/download?mode=${mode}`, { headers })
-      .then(r => r.blob())
-      .then(blob => {
-        const u = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = u;
-        if (mode === 'attachment') a.download = d.original_name;
-        else window.open(u, '_blank');
-        if (mode === 'attachment') { a.click(); }
-        setTimeout(() => URL.revokeObjectURL(u), 10000);
-      })
-      .catch(() => alert('Erreur de téléchargement'));
+    // Aperçu : passe par la visionneuse centrale (hub_docs) plutôt qu'un lien direct.
+    if (mode === 'inline' && d.doc_id) { setViewerDocId(d.doc_id); return; }
+    // Téléchargement disque (ou tuto pas encore rattaché à hub_docs) : navigation
+    // directe avec le token en query param (authenticateJWT l'accepte en repli).
+    // Ça évite le blob qui masque les vraies erreurs serveur (404/403).
+    const url = `/api/tickets/admin/knowledge-documents/${d.id}/download?mode=${mode}&token=${encodeURIComponent(token || '')}`;
+    if (mode === 'attachment') {
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = d.original_name;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    } else {
+      window.open(url, '_blank');
+    }
   }
 
   function onFilePick(f: File | null) {
@@ -298,6 +304,9 @@ export default function KnowledgeBaseAdmin() {
               onEdit={openEdit} onDelete={del} onDownload={download} />
           ))}
         </div>
+      )}
+      {viewerDocId != null && (
+        <DocumentViewer documentId={viewerDocId} onClose={() => setViewerDocId(null)} canEdit={false} />
       )}
     </div>
   );

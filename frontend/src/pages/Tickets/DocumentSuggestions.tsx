@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
 import { FileText, ChevronDown, ChevronUp, BookOpen, Download, ExternalLink, Search, Library } from 'lucide-react';
+import DocumentViewer from '../../components/DocumentViewer';
 
 interface KbDoc {
   id: number;
@@ -9,6 +10,7 @@ interface KbDoc {
   original_name: string;
   category_name: string | null;
   app_name: string | null;
+  doc_id: number | null;
 }
 
 interface MagappDoc {
@@ -46,6 +48,7 @@ export default function DocumentSuggestions({ categoryId, softwareId, softwareNa
   // 2) Docs base de connaissance filtrés (logiciel ou catégorie)
   const [kbDocs, setKbDocs] = useState<KbDoc[]>([]);
   const [openKb, setOpenKb] = useState(false);
+  const [viewerDocId, setViewerDocId] = useState<number | null>(null);
   const bySoftware = !!softwareId;
 
   // 3) Parcourir toute la base de connaissance
@@ -112,7 +115,10 @@ export default function DocumentSuggestions({ categoryId, softwareId, softwareNa
           {[d.app_name, d.category_name, d.description].filter(Boolean).join(' · ') || d.original_name}
         </div>
       </div>
-      <button onClick={() => { fetch(`/api/tickets/admin/knowledge-documents/${d.id}/download?mode=inline`, { headers }).then(r => r.blob()).then(b => window.open(URL.createObjectURL(b), '_blank')).catch(() => {}); }}
+      <button onClick={() => {
+          if (d.doc_id) setViewerDocId(d.doc_id);
+          else window.open(`/api/tickets/admin/knowledge-documents/${d.id}/download?mode=inline&token=${encodeURIComponent(token || '')}`, '_blank');
+        }}
         title="Prévisualiser" style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#0ea5e9', padding: 4, display: 'flex' }}>
         <Download size={14} />
       </button>
@@ -187,6 +193,9 @@ export default function DocumentSuggestions({ categoryId, softwareId, softwareNa
                 : allFiltered.map(kbRow)}
           </div>
         </div>
+      )}
+      {viewerDocId != null && (
+        <DocumentViewer documentId={viewerDocId} onClose={() => setViewerDocId(null)} canEdit={false} />
       )}
     </div>
   );

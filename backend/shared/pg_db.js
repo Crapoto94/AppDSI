@@ -5087,6 +5087,8 @@ async function setupPgDb() {
     `);
     // Association optionnelle à un logiciel métier (magapp.apps)
     await client.query(`ALTER TABLE hub_tickets.knowledge_documents ADD COLUMN IF NOT EXISTS app_id INT`);
+    // Pointeur vers le document centralisé hub_docs (visionneuse commune, historique de versions)
+    await client.query(`ALTER TABLE hub_tickets.knowledge_documents ADD COLUMN IF NOT EXISTS doc_id INT REFERENCES hub_docs.documents(id)`);
 
     // ── Réponses auto aux tickets ──────────────────────────────────────────
     await client.query(`
