@@ -136,6 +136,11 @@ async function readFileRel(config, rel) {
             const data = await p.readFile(target);
             return Buffer.isBuffer(data) ? data : Buffer.from(data);
         } catch (e) {
+            // Ne pas avaler l'erreur silencieusement : ACCESS_DENIED et "introuvable"
+            // renvoient tous les deux null côté appelant, mais la cause est très
+            // différente (permissions vs fichier absent). On la journalise ici pour
+            // pouvoir diagnostiquer depuis les logs serveur.
+            console.error(`[SMB] lecture échouée pour "${target}" (utilisateur SMB: ${config.login}):`, e && (e.code || e.message) || e);
             return null;
         }
     });

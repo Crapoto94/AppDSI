@@ -267,7 +267,15 @@ async function getFileForServe(storageRelative) {
     }
     const root = resolveRoot(config);
     const abs = resolveAbsolute(root, storageRelative);
-    if (!abs || !fs.existsSync(abs)) return null;
+    if (!abs) { console.error(`[STORAGE] chemin invalide pour "${storageRelative}" (racine: ${root})`); return null; }
+    try {
+        fs.accessSync(abs, fs.constants.R_OK);
+    } catch (e) {
+        // existsSync avalerait aussi bien un ENOENT qu'un EACCES/EPERM : on distingue
+        // ici pour le diagnostic (permissions NTFS/partage vs fichier réellement absent).
+        console.error(`[STORAGE] accès impossible à "${abs}":`, e && (e.code || e.message) || e);
+        return null;
+    }
     return { absolutePath: abs, filename: path.basename(abs) };
 }
 
