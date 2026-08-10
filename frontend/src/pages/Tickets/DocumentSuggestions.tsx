@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
-import { FileText, ChevronDown, ChevronUp, BookOpen, Download, ExternalLink, Search, Library } from 'lucide-react';
+import { FileText, ChevronDown, ChevronUp, BookOpen, Eye, ExternalLink, Search, Library } from 'lucide-react';
 import DocumentViewer from '../../components/DocumentViewer';
 
 interface KbDoc {
@@ -119,8 +119,8 @@ export default function DocumentSuggestions({ categoryId, softwareId, softwareNa
           if (d.doc_id) setViewerDocId(d.doc_id);
           else window.open(`/api/tickets/admin/knowledge-documents/${d.id}/download?mode=inline&token=${encodeURIComponent(token || '')}`, '_blank');
         }}
-        title="Prévisualiser" style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#0ea5e9', padding: 4, display: 'flex' }}>
-        <Download size={14} />
+        title="Voir" style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#0ea5e9', padding: '4px 8px', display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, fontWeight: 500 }}>
+        <Eye size={14} /> Voir
       </button>
       <button onClick={() => attachKb(d)}
         style={{ padding: '4px 10px', border: 'none', borderRadius: 6, background: '#059669', color: 'white', fontSize: 12, fontWeight: 600, cursor: 'pointer', flexShrink: 0 }}>
