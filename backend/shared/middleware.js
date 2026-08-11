@@ -13,6 +13,35 @@ const isAdminLike = (user) =>
     isSuperAdmin(user) || (user && user.role === 'admin');
 
 /**
+ * Jetons kiosque DSI Dashboard : JWT longue durée, révocable en base, limité au
+ * strict accès en lecture (GET). Utilisés pour l'affichage automatisé sans
+ * ré-authentification (postes en mode kiosque).
+ */
+const isKioskToken = (user) => !!(user && user.type === 'dsi_kiosk');
+
+async function enforceKioskToken(user, req, res) {
+    if (req.method !== 'GET') {
+        res.status(403).json({ message: 'Jeton kiosque : accès en lecture seule' });
+        return false;
+    }
+    try {
+        const r = await pool.query(
+            'SELECT revoked_at FROM hub.dsi_dashboard_kiosk_tokens WHERE token_jti = $1',
+            [user.jti]
+        );
+        if (r.rows.length === 0 || r.rows[0].revoked_at) {
+            res.status(401).json({ message: 'Jeton kiosque révoqué ou inconnu' });
+            return false;
+        }
+    } catch (e) {
+        console.error('[KIOSK] Erreur de vérification du jeton:', e.message);
+        res.status(500).json({ message: 'Erreur de vérification du jeton' });
+        return false;
+    }
+    return true;
+}
+
+/**
  * Middleware to verify JWT token
  */
 const authenticateJWT = (req, res, next) => {
@@ -20,10 +49,11 @@ const authenticateJWT = (req, res, next) => {
     // Repli sur ?token= pour les ressources chargées sans header (ex: <img src>)
     const queryToken = req.query && req.query.token;
     if (!authHeader && queryToken) {
-        return jwt.verify(queryToken, SECRET_KEY, (err, user) => {
+        return jwt.verify(queryToken, SECRET_KEY, async (err, user) => {
             if (err) return res.status(403).json({ message: 'Session expirée ou invalide' });
             if (isAdminLike(user)) user.is_approved = 1;
             req.user = user;
+            if (isKioskToken(user) && !(await enforceKioskToken(user, req, res))) return;
             next();
         });
     }
@@ -34,7 +64,7 @@ const authenticateJWT = (req, res, next) => {
             return res.status(401).json({ message: 'Token manquant dans le header' });
         }
 
-        jwt.verify(token, SECRET_KEY, (err, user) => {
+        jwt.verify(token, SECRET_KEY, async (err, user) => {
             if (err) {
                 console.error(`[JWT ERROR] Verification failed for ${req.path}: ${err.message}`);
                 return res.status(403).json({ message: 'Session expirée ou invalide' });
@@ -44,6 +74,7 @@ const authenticateJWT = (req, res, next) => {
                 user.is_approved = 1;
             }
             req.user = user;
+            if (isKioskToken(user) && !(await enforceKioskToken(user, req, res))) return;
             console.log(`[JWT] User ${user.username} verified for ${req.path}`);
             next();
         });
@@ -202,6 +233,10 @@ const authenticateGLPIControl = (req, res, next) => {
  */
 const authenticateAdminOrPMO = (req, res, next) => {
     authenticateJWT(req, res, async () => {
+        // Un jeton kiosque valide et non révoqué a déjà été vérifié (lecture seule) dans authenticateJWT.
+        if (isKioskToken(req.user)) {
+            return next();
+        }
         if (isAdminLike(req.user)) {
             return next();
         }

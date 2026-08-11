@@ -488,9 +488,21 @@ app.use('/api/admin/rh/contracts', contractsRouter);
 // Récupérer le profil utilisateur actuel (depuis la DB pour avoir le statut à jour)
 app.get('/api/auth/me', authenticateJWT, async (req, res) => {
     try {
+        // Jeton kiosque DSI Dashboard : profil synthétique en lecture seule,
+        // sans jamais exposer le rôle réel du créateur du jeton.
+        if (req.user.type === 'dsi_kiosk') {
+            return res.json({
+                id: req.user.id || 0,
+                username: req.user.username,
+                displayName: req.user.displayName || 'Kiosque DSI Dashboard',
+                role: 'dsi_kiosk',
+                is_approved: 1,
+            });
+        }
+
         let user = null;
         let source = '';
-        
+
         // Priorité selon la source du JWT
         if (req.user.source === 'magapp') {
             user = await pool.query('SELECT username, role, is_approved, email, service_code, service_complement, displayname AS "displayName" FROM magapp.users WHERE username = $1', [req.user.username]);

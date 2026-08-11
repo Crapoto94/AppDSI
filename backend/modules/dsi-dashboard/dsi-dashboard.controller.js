@@ -1,4 +1,7 @@
+const crypto = require('crypto');
+const jwt = require('jsonwebtoken');
 const { pgDb, pool } = require('../../shared/pg_db');
+const { SECRET_KEY } = require('../../shared/config');
 
 let sendMailFn = null;
 
@@ -236,6 +239,69 @@ const ctrl = {
     );
 
     return { sent, failed, message: `Envoyé à ${sent} destinataire(s)` };
+  },
+
+  // ── Jetons kiosque (accès lecture seule pour affichage automatisé) ──────────
+
+  async listKioskTokens(req, res) {
+    if (req.user.type === 'dsi_kiosk') return res.status(403).json({ message: 'Accès refusé' });
+    try {
+      const rows = await pgDb.all(
+        `SELECT id, label, created_by, created_at, last_used_at, revoked_at
+         FROM hub.dsi_dashboard_kiosk_tokens WHERE created_by = ? ORDER BY created_at DESC`,
+        [req.user.username]
+      );
+      res.json(rows);
+    } catch (e) {
+      res.status(500).json({ message: e.message });
+    }
+  },
+
+  async createKioskToken(req, res) {
+    if (req.user.type === 'dsi_kiosk') return res.status(403).json({ message: 'Accès refusé' });
+    try {
+      const label = (req.body?.label || '').trim();
+      if (!label) return res.status(400).json({ message: 'Le libellé est requis' });
+
+      const jti = crypto.randomUUID();
+      const row = await pgDb.get(
+        `INSERT INTO hub.dsi_dashboard_kiosk_tokens (label, token_jti, created_by)
+         VALUES (?, ?, ?) RETURNING id, label, created_by, created_at`,
+        [label, jti, req.user.username]
+      );
+
+      const token = jwt.sign({
+        type: 'dsi_kiosk',
+        jti,
+        id: req.user.id,
+        username: req.user.username,
+        displayName: `Kiosque : ${label}`,
+        role: 'dsi_kiosk',
+        is_approved: 1,
+      }, SECRET_KEY);
+
+      res.json({ ...row, token });
+    } catch (e) {
+      res.status(500).json({ message: e.message });
+    }
+  },
+
+  async revokeKioskToken(req, res) {
+    if (req.user.type === 'dsi_kiosk') return res.status(403).json({ message: 'Accès refusé' });
+    try {
+      const { id } = req.params;
+      const row = await pgDb.get(
+        'SELECT id FROM hub.dsi_dashboard_kiosk_tokens WHERE id = ? AND created_by = ?',
+        [id, req.user.username]
+      );
+      if (!row) return res.status(404).json({ message: 'Non trouvé' });
+      await pool.query(
+        'UPDATE hub.dsi_dashboard_kiosk_tokens SET revoked_at = NOW() WHERE id = $1', [id]
+      );
+      res.json({ ok: true });
+    } catch (e) {
+      res.status(500).json({ message: e.message });
+    }
   },
 
   // ── Cron runner ────────────────────────────────────────────────────────────

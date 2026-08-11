@@ -5069,6 +5069,17 @@ async function setupPgDb() {
         UNIQUE(dashboard_id)
       )
     `);
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS hub.dsi_dashboard_kiosk_tokens (
+        id SERIAL PRIMARY KEY,
+        label TEXT NOT NULL,
+        token_jti TEXT NOT NULL UNIQUE,
+        created_by TEXT NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        last_used_at TIMESTAMPTZ,
+        revoked_at TIMESTAMPTZ
+      )
+    `);
 
     // ── Base documentaire tickets ──────────────────────────────────────────
     await client.query(`

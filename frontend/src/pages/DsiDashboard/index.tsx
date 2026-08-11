@@ -7,11 +7,12 @@ import type { CanvasItem } from './CanvasGrid';
 import type { WidgetDef } from './widgets/registry';
 import {
   Plus, Trash2, LayoutDashboard, Mail,
-  MoreVertical, Star, Edit2, Check, X, Loader2, Play, Square, Pause, Settings,
+  MoreVertical, Star, Edit2, Check, X, Loader2, Play, Square, Pause, Settings, KeyRound,
 } from 'lucide-react';
 import WidgetCatalog from './WidgetCatalog';
 import SubscriptionModal from './SubscriptionModal';
 import SlideshowSettingsModal from './SlideshowSettingsModal';
+import KioskTokensModal from './KioskTokensModal';
 import { renderWidget } from './widgets/index';
 import { WIDGET_REGISTRY } from './widgets/registry';
 import { DashboardFilterContext } from './DashboardFilterContext';
@@ -99,6 +100,7 @@ export default function DsiDashboard() {
   const [showCatalog, setShowCatalog] = useState(false);
   const [showSubscription, setShowSubscription] = useState(false);
   const [showSlideshowSettings, setShowSlideshowSettings] = useState(false);
+  const [showKioskTokens, setShowKioskTokens] = useState(false);
   const [renamingId, setRenamingId] = useState<number | null>(null);
   const [renameValue, setRenameValue] = useState('');
   const [showDashMenu, setShowDashMenu] = useState(false);
@@ -526,6 +528,7 @@ export default function DsiDashboard() {
                           { icon: <Edit2 size={14} />, label: 'Renommer', action: () => { setRenamingId(activeDashId); setRenameValue(activeDash?.name || ''); setShowDashMenu(false); } },
                           { icon: <Star size={14} />, label: 'Définir par défaut', action: () => { setDefault(); setShowDashMenu(false); } },
                           { icon: <Settings size={14} />, label: 'Paramètres diaporama', action: () => { setShowSlideshowSettings(true); setShowDashMenu(false); } },
+                          { icon: <KeyRound size={14} />, label: 'Jetons kiosque', action: () => { setShowKioskTokens(true); setShowDashMenu(false); } },
                         ].map(item => (
                           <button key={item.label} onClick={item.action} style={{ width: '100%', textAlign: 'left', padding: '10px 16px', border: 'none', background: 'none', cursor: 'pointer', fontSize: 13, display: 'flex', gap: 8, alignItems: 'center', color: '#374151' }}>
                             {item.icon} {item.label}
@@ -687,6 +690,12 @@ export default function DsiDashboard() {
           dashboardId={activeDashId}
           dashboardName={activeDash?.name || ''}
           onClose={() => setShowSubscription(false)}
+        />
+      )}
+      {showKioskTokens && (
+        <KioskTokensModal
+          slideshowName={activeDash?.slideshow_name || (slideshowGroups[0]?.name ?? '')}
+          onClose={() => setShowKioskTokens(false)}
         />
       )}
       {showSlideshowSettings && activeDash && (

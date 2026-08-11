@@ -44,7 +44,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
             });
             if (res.ok) {
                 let updatedUser = await res.json();
-                
+
                 // Sécurité : Forcer l'approbation si admin
                 if (['admin', 'superadmin'].includes(updatedUser.role) || updatedUser.username?.toLowerCase() === 'admin') {
                     updatedUser.is_approved = 1;
@@ -53,41 +53,59 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
                 setUser(updatedUser);
                 localStorage.setItem('user', JSON.stringify(updatedUser));
                 setToken(storedToken);
-            } else {
-                console.error('Failed to fetch refreshed user profile, logging out.');
+            } else if (res.status === 401 || res.status === 403) {
+                // Le serveur a explicitement rejeté le token : vraie déconnexion.
+                console.error('Token rejeté par le serveur, déconnexion.');
                 logout();
+            } else {
+                // Erreur serveur (5xx, etc.) : ne pas effacer la session locale.
+                console.error('Échec du rafraîchissement du profil (erreur serveur), session locale conservée.');
             }
         } catch (error) {
-            console.error('Error refreshing user profile:', error);
-            logout();
+            // Erreur réseau (serveur/DNS pas encore joignable au démarrage, etc.) :
+            // ne pas effacer le token, la session locale reste valide en attendant.
+            console.error('Erreur réseau lors du rafraîchissement du profil, session locale conservée :', error);
         }
     };
 
     useEffect(() => {
         const checkAuthStatus = async () => {
+            // Jeton kiosque DSI Dashboard : ?device_token=... permet un affichage
+            // automatisé sans passer par l'écran de connexion (poste en mode kiosque).
+            const urlParams = new URLSearchParams(window.location.search);
+            const deviceToken = urlParams.get('device_token');
+            if (deviceToken) {
+                localStorage.setItem('token', deviceToken);
+                localStorage.removeItem('user');
+                urlParams.delete('device_token');
+                const cleanQuery = urlParams.toString();
+                window.history.replaceState(null, '', window.location.pathname + (cleanQuery ? `?${cleanQuery}` : '') + window.location.hash);
+            }
+
             const storedToken = localStorage.getItem('token');
             const storedUser = localStorage.getItem('user');
 
-            if (storedToken && storedUser) {
+            if (!storedToken) {
+                logout();
+                return;
+            }
+
+            if (storedUser) {
                 try {
                     let parsedUser = JSON.parse(storedUser);
-                    
+
                     // Sécurité : Forcer l'approbation si admin au chargement
                     if (['admin', 'superadmin'].includes(parsedUser.role) || parsedUser.username?.toLowerCase() === 'admin') {
                         parsedUser.is_approved = 1;
                     }
 
                     setUser(parsedUser);
-                    setToken(storedToken);
                 } catch (error) {
-                    console.error('Failed to parse stored user data, logging out:', error);
-                    logout();
-                    return;
+                    console.error('Failed to parse stored user data:', error);
                 }
-                await refreshUser();
-            } else {
-                logout();
             }
+            setToken(storedToken);
+            await refreshUser();
         };
         checkAuthStatus();
     }, []);

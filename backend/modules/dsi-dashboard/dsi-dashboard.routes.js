@@ -6,6 +6,11 @@ const ctrl = require('./dsi-dashboard.controller');
 // Accès aux admins (admin/superadmin) ET aux PMO de projets (tuile PMO).
 router.use(authenticateJWT, authenticateAdminOrPMO);
 
+// Jetons kiosque (avant les routes /:id pour éviter toute collision de préfixe)
+router.get('/kiosk-tokens',      (req, res) => ctrl.listKioskTokens(req, res));
+router.post('/kiosk-tokens',     (req, res) => ctrl.createKioskToken(req, res));
+router.delete('/kiosk-tokens/:id', (req, res) => ctrl.revokeKioskToken(req, res));
+
 router.get('/',              (req, res) => ctrl.listDashboards(req, res));
 router.post('/',             (req, res) => ctrl.createDashboard(req, res));
 router.put('/:id',           (req, res) => ctrl.updateDashboard(req, res));

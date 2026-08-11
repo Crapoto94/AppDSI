@@ -231,7 +231,7 @@ function App() {
 
         <Route path="/admin/magapp" element={<PrivateRoute path="/admin/magapp"><MagappAdmin /></PrivateRoute>} />
         <Route path="/admin/param-ville" element={<PrivateRoute path="/admin/param-ville"><ParamVille /></PrivateRoute>} />
-        <Route path="/dsi-dashboard" element={<PrivateRoute allowedRoles={['admin', 'superadmin']} allowPmo><DsiDashboard /></PrivateRoute>} />
+        <Route path="/dsi-dashboard" element={<PrivateRoute allowedRoles={['admin', 'superadmin', 'dsi_kiosk']} allowPmo><DsiDashboard /></PrivateRoute>} />
       </Routes>
     </BrowserRouter>
   );
