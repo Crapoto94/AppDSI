@@ -113,10 +113,12 @@ export default function TicketsDashboard() {
     error: string | null; result: any;
   } | null>(null);
   const resetPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const [showRejected, setShowRejected] = useState(_initSnap?.showRejected ?? false);
-  const showRejectedRef = useRef(_initSnap?.showRejected ?? false);
-  const [showResolved, setShowResolved] = useState(_initSnap?.showResolved ?? false);
-  const showResolvedRef = useRef(_initSnap?.showResolved ?? false);
+  // Volontairement non restaurés depuis la session : clos/résolus/rejetés
+  // doivent toujours repartir masqués par défaut, à afficher à la demande.
+  const [showRejected, setShowRejected] = useState(false);
+  const showRejectedRef = useRef(false);
+  const [showResolved, setShowResolved] = useState(false);
+  const showResolvedRef = useRef(false);
   const [selectedInboxId, setSelectedInboxId] = useState<number | null>(null);
   const viewModeRef = useRef<'table' | 'kanban' | 'inbox' | 'live'>(initialView);
   useEffect(() => { viewModeRef.current = viewMode; }, [viewMode]);
