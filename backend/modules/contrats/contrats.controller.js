@@ -202,7 +202,18 @@ module.exports = {
             }
 
             const sheet = workbook.Sheets[sheetName];
-            const rows = xlsx.utils.sheet_to_json(sheet, { defval: null });
+
+            // La ligne d'en-tête n'est pas toujours la ligne 1 : certains exports
+            // ajoutent des lignes de synthèse (taux de reconduction, etc.) au-dessus
+            // du tableau. On repère la vraie ligne d'en-tête en cherchant la cellule
+            // "SVC", qui n'apparaît jamais ailleurs que dans l'en-tête.
+            const rawRows = xlsx.utils.sheet_to_json(sheet, { header: 1, defval: null });
+            let headerRowIndex = rawRows.findIndex(r =>
+                Array.isArray(r) && r.some(cell => typeof cell === 'string' && cell.trim().toUpperCase() === 'SVC')
+            );
+            if (headerRowIndex === -1) headerRowIndex = 0;
+
+            const rows = xlsx.utils.sheet_to_json(sheet, { defval: null, range: headerRowIndex });
 
             const results = [];
             let inserted = 0, updated = 0, skipped = 0, errors = 0;
@@ -237,7 +248,7 @@ module.exports = {
                     duree_annees: toFloat(row['Durée (années)']),
                     nb_reconductions: toInt(row['Nb Reconduc.']),
                     date_fin: excelDateToISO(row['Date de fin de contrat']),
-                    marche_contrat: toStr(row['Marché / Contrat']),
+                    marche_contrat: toStr(row['Marché / Contrat'] ?? row['Marché / Contrat / D']),
                     piece: toStr(row['Pièce']),
                     date_reconduction: toStr(row['Date de reconduction']),
                     reconduction: toStr(row['Reconduction']),
