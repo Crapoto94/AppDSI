@@ -13,32 +13,43 @@ const isAdminLike = (user) =>
     isSuperAdmin(user) || (user && user.role === 'admin');
 
 /**
- * Jetons kiosque DSI Dashboard : JWT longue durée, révocable en base, limité au
- * strict accès en lecture (GET). Utilisés pour l'affichage automatisé sans
- * ré-authentification (postes en mode kiosque).
+ * Jetons kiosque DSI Dashboard : code opaque court (16 car.), révocable en base,
+ * limité au strict accès en lecture (GET). Utilisés pour l'affichage automatisé
+ * sans ré-authentification (postes en mode kiosque). Contrairement aux JWT
+ * habituels ils ne contiennent aucun point ('.') — c'est ce qui permet de les
+ * distinguer avant même de tenter un jwt.verify().
  */
 const isKioskToken = (user) => !!(user && user.type === 'dsi_kiosk');
+const looksLikeKioskShortCode = (token) => typeof token === 'string' && !token.includes('.');
 
-async function enforceKioskToken(user, req, res) {
+async function resolveKioskShortCode(code, req, res, next) {
     if (req.method !== 'GET') {
-        res.status(403).json({ message: 'Jeton kiosque : accès en lecture seule' });
-        return false;
+        return res.status(403).json({ message: 'Jeton kiosque : accès en lecture seule' });
     }
     try {
         const r = await pool.query(
-            'SELECT revoked_at FROM hub.dsi_dashboard_kiosk_tokens WHERE token_jti = $1',
-            [user.jti]
+            'SELECT label, created_by, revoked_at FROM hub.dsi_dashboard_kiosk_tokens WHERE short_code = $1',
+            [code]
         );
-        if (r.rows.length === 0 || r.rows[0].revoked_at) {
-            res.status(401).json({ message: 'Jeton kiosque révoqué ou inconnu' });
-            return false;
+        const row = r.rows[0];
+        if (!row || row.revoked_at) {
+            return res.status(401).json({ message: 'Jeton kiosque révoqué ou inconnu' });
         }
+        req.user = {
+            type: 'dsi_kiosk',
+            id: 0,
+            username: row.created_by,
+            displayName: `Kiosque : ${row.label}`,
+            role: 'dsi_kiosk',
+            is_approved: 1,
+        };
+        // Horodatage best-effort, sans bloquer la requête sur son résultat.
+        pool.query('UPDATE hub.dsi_dashboard_kiosk_tokens SET last_used_at = NOW() WHERE short_code = $1', [code]).catch(() => {});
+        next();
     } catch (e) {
         console.error('[KIOSK] Erreur de vérification du jeton:', e.message);
         res.status(500).json({ message: 'Erreur de vérification du jeton' });
-        return false;
     }
-    return true;
 }
 
 /**
@@ -49,11 +60,11 @@ const authenticateJWT = (req, res, next) => {
     // Repli sur ?token= pour les ressources chargées sans header (ex: <img src>)
     const queryToken = req.query && req.query.token;
     if (!authHeader && queryToken) {
-        return jwt.verify(queryToken, SECRET_KEY, async (err, user) => {
+        if (looksLikeKioskShortCode(queryToken)) return resolveKioskShortCode(queryToken, req, res, next);
+        return jwt.verify(queryToken, SECRET_KEY, (err, user) => {
             if (err) return res.status(403).json({ message: 'Session expirée ou invalide' });
             if (isAdminLike(user)) user.is_approved = 1;
             req.user = user;
-            if (isKioskToken(user) && !(await enforceKioskToken(user, req, res))) return;
             next();
         });
     }
@@ -63,8 +74,9 @@ const authenticateJWT = (req, res, next) => {
             console.log(`[JWT] Token missing for ${req.path}`);
             return res.status(401).json({ message: 'Token manquant dans le header' });
         }
+        if (looksLikeKioskShortCode(token)) return resolveKioskShortCode(token, req, res, next);
 
-        jwt.verify(token, SECRET_KEY, async (err, user) => {
+        jwt.verify(token, SECRET_KEY, (err, user) => {
             if (err) {
                 console.error(`[JWT ERROR] Verification failed for ${req.path}: ${err.message}`);
                 return res.status(403).json({ message: 'Session expirée ou invalide' });
@@ -74,7 +86,6 @@ const authenticateJWT = (req, res, next) => {
                 user.is_approved = 1;
             }
             req.user = user;
-            if (isKioskToken(user) && !(await enforceKioskToken(user, req, res))) return;
             console.log(`[JWT] User ${user.username} verified for ${req.path}`);
             next();
         });

@@ -1,7 +1,5 @@
 const crypto = require('crypto');
-const jwt = require('jsonwebtoken');
 const { pgDb, pool } = require('../../shared/pg_db');
-const { SECRET_KEY } = require('../../shared/config');
 
 let sendMailFn = null;
 
@@ -263,24 +261,18 @@ const ctrl = {
       const label = (req.body?.label || '').trim();
       if (!label) return res.status(400).json({ message: 'Le libellé est requis' });
 
-      const jti = crypto.randomUUID();
+      // Code court (16 car., alphabet URL-safe) pour tenir facilement dans un
+      // raccourci de lancement en argument de ligne de commande.
+      const shortCode = crypto.randomBytes(12).toString('base64url');
+      const jti = crypto.randomUUID(); // conservé pour satisfaire la contrainte NOT NULL UNIQUE de la colonne héritée
+
       const row = await pgDb.get(
-        `INSERT INTO hub.dsi_dashboard_kiosk_tokens (label, token_jti, created_by)
-         VALUES (?, ?, ?) RETURNING id, label, created_by, created_at`,
-        [label, jti, req.user.username]
+        `INSERT INTO hub.dsi_dashboard_kiosk_tokens (label, token_jti, short_code, created_by)
+         VALUES (?, ?, ?, ?) RETURNING id, label, created_by, created_at`,
+        [label, jti, shortCode, req.user.username]
       );
 
-      const token = jwt.sign({
-        type: 'dsi_kiosk',
-        jti,
-        id: req.user.id,
-        username: req.user.username,
-        displayName: `Kiosque : ${label}`,
-        role: 'dsi_kiosk',
-        is_approved: 1,
-      }, SECRET_KEY);
-
-      res.json({ ...row, token });
+      res.json({ ...row, token: shortCode });
     } catch (e) {
       res.status(500).json({ message: e.message });
     }

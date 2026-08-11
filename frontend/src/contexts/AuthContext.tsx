@@ -1,5 +1,23 @@
 import { createContext, useContext, useState, useEffect, type ReactNode } from 'react';
 
+// Jeton kiosque DSI Dashboard : ?device_token=... permet un affichage automatisé
+// sans passer par l'écran de connexion (poste en mode kiosque). Exécuté à
+// l'évaluation du module — donc AVANT le tout premier rendu React — car
+// `PrivateRoute` (App.tsx) lit le localStorage de façon synchrone : si on
+// n'écrivait le token que dans un useEffect, ce premier rendu le verrait vide
+// et redirigerait vers /login (reproductible en fenêtre de navigation privée).
+(function bootstrapKioskDeviceToken() {
+    if (typeof window === 'undefined') return;
+    const urlParams = new URLSearchParams(window.location.search);
+    const deviceToken = urlParams.get('device_token');
+    if (!deviceToken) return;
+    localStorage.setItem('token', deviceToken);
+    localStorage.removeItem('user');
+    urlParams.delete('device_token');
+    const cleanQuery = urlParams.toString();
+    window.history.replaceState(null, '', window.location.pathname + (cleanQuery ? `?${cleanQuery}` : '') + window.location.hash);
+})();
+
 interface User {
     id: number;
     username: string;
@@ -70,18 +88,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
     useEffect(() => {
         const checkAuthStatus = async () => {
-            // Jeton kiosque DSI Dashboard : ?device_token=... permet un affichage
-            // automatisé sans passer par l'écran de connexion (poste en mode kiosque).
-            const urlParams = new URLSearchParams(window.location.search);
-            const deviceToken = urlParams.get('device_token');
-            if (deviceToken) {
-                localStorage.setItem('token', deviceToken);
-                localStorage.removeItem('user');
-                urlParams.delete('device_token');
-                const cleanQuery = urlParams.toString();
-                window.history.replaceState(null, '', window.location.pathname + (cleanQuery ? `?${cleanQuery}` : '') + window.location.hash);
-            }
-
             const storedToken = localStorage.getItem('token');
             const storedUser = localStorage.getItem('user');
 

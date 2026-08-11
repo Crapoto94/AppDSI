@@ -5080,6 +5080,8 @@ async function setupPgDb() {
         revoked_at TIMESTAMPTZ
       )
     `);
+    await client.query(`ALTER TABLE hub.dsi_dashboard_kiosk_tokens ADD COLUMN IF NOT EXISTS short_code TEXT`);
+    await client.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_dsi_dashboard_kiosk_tokens_short_code ON hub.dsi_dashboard_kiosk_tokens(short_code)`);
 
     // ── Base documentaire tickets ──────────────────────────────────────────
     await client.query(`
