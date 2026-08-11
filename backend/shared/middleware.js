@@ -52,6 +52,31 @@ async function resolveKioskShortCode(code, req, res, next) {
     }
 }
 
+// Filet de sécurité pour les jetons kiosque signés en JWT émis par une version
+// antérieure (avant le passage au code court) : ils sont encore valides pour
+// jwt.verify(), donc on doit continuer à leur appliquer lecture-seule + révocation.
+async function enforceLegacyKioskJwt(user, req, res) {
+    if (req.method !== 'GET') {
+        res.status(403).json({ message: 'Jeton kiosque : accès en lecture seule' });
+        return false;
+    }
+    try {
+        const r = await pool.query(
+            'SELECT revoked_at FROM hub.dsi_dashboard_kiosk_tokens WHERE token_jti = $1',
+            [user.jti]
+        );
+        if (r.rows.length === 0 || r.rows[0].revoked_at) {
+            res.status(401).json({ message: 'Jeton kiosque révoqué ou inconnu' });
+            return false;
+        }
+    } catch (e) {
+        console.error('[KIOSK] Erreur de vérification du jeton (JWT legacy):', e.message);
+        res.status(500).json({ message: 'Erreur de vérification du jeton' });
+        return false;
+    }
+    return true;
+}
+
 /**
  * Middleware to verify JWT token
  */
@@ -61,10 +86,11 @@ const authenticateJWT = (req, res, next) => {
     const queryToken = req.query && req.query.token;
     if (!authHeader && queryToken) {
         if (looksLikeKioskShortCode(queryToken)) return resolveKioskShortCode(queryToken, req, res, next);
-        return jwt.verify(queryToken, SECRET_KEY, (err, user) => {
+        return jwt.verify(queryToken, SECRET_KEY, async (err, user) => {
             if (err) return res.status(403).json({ message: 'Session expirée ou invalide' });
             if (isAdminLike(user)) user.is_approved = 1;
             req.user = user;
+            if (isKioskToken(user) && !(await enforceLegacyKioskJwt(user, req, res))) return;
             next();
         });
     }
@@ -76,7 +102,7 @@ const authenticateJWT = (req, res, next) => {
         }
         if (looksLikeKioskShortCode(token)) return resolveKioskShortCode(token, req, res, next);
 
-        jwt.verify(token, SECRET_KEY, (err, user) => {
+        jwt.verify(token, SECRET_KEY, async (err, user) => {
             if (err) {
                 console.error(`[JWT ERROR] Verification failed for ${req.path}: ${err.message}`);
                 return res.status(403).json({ message: 'Session expirée ou invalide' });
@@ -86,6 +112,7 @@ const authenticateJWT = (req, res, next) => {
                 user.is_approved = 1;
             }
             req.user = user;
+            if (isKioskToken(user) && !(await enforceLegacyKioskJwt(user, req, res))) return;
             console.log(`[JWT] User ${user.username} verified for ${req.path}`);
             next();
         });
