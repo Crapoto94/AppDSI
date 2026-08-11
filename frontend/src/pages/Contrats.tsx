@@ -3,7 +3,8 @@ import Header from '../components/Header';
 import {
   Upload, AlertCircle, Loader2, Trash2, Edit2, Check,
   X as CloseIcon, Search, RefreshCw, ChevronUp, ChevronDown, Plus, FileSpreadsheet,
-  Paperclip, Eye, RefreshCcw, Archive, ArchiveRestore, FileText, Columns, Filter
+  Paperclip, Eye, RefreshCcw, Archive, ArchiveRestore, FileText, Columns, Filter,
+  TrendingUp, TrendingDown, ArrowRight
 } from 'lucide-react';
 
 interface Contrat {
@@ -113,6 +114,22 @@ const COLS: ColDef[] = [
 const fmt = (n: number | null) =>
   n == null ? '—' : Math.round(n).toLocaleString('fr-FR', { maximumFractionDigits: 0 }) + ' €';
 
+// Tendance du montant 2026 par rapport à 2025 : hausse >15%, baisse <-15%, sinon stable.
+const trend2026 = (c: Contrat): { Icon: typeof TrendingUp; color: string; title: string } | null => {
+  if (c.montant_2026 == null) return null;
+  const prev = c.montant_2025;
+  if (prev == null) return { Icon: ArrowRight, color: '#9ca3af', title: 'Pas de comparaison possible (2025 non renseigné)' };
+  if (prev === 0) {
+    return c.montant_2026 > 0
+      ? { Icon: TrendingUp, color: '#16a34a', title: 'En hausse par rapport à 2025 (nul en 2025)' }
+      : { Icon: ArrowRight, color: '#9ca3af', title: 'Stable par rapport à 2025' };
+  }
+  const pct = ((c.montant_2026 - prev) / prev) * 100;
+  if (pct > 15) return { Icon: TrendingUp, color: '#16a34a', title: `En hausse de ${pct.toFixed(0)}% par rapport à 2025` };
+  if (pct < -15) return { Icon: TrendingDown, color: '#dc2626', title: `En baisse de ${Math.abs(pct).toFixed(0)}% par rapport à 2025` };
+  return { Icon: ArrowRight, color: '#9ca3af', title: `Stable par rapport à 2025 (${pct >= 0 ? '+' : ''}${pct.toFixed(0)}%)` };
+};
+
 const fmtDate = (d: string | null) => {
   if (!d) return '—';
   const dt = new Date(d);
@@ -168,6 +185,8 @@ const Contrats: React.FC = () => {
   const [filterDirection, setFilterDirection] = useState('');
   const [filterType, setFilterType] = useState('');
   const [alertFilter, setAlertFilter] = useState<'expired' | 'soon' | null>(null);
+  // Engagement 2026 : null = tout · 'engaged' = montant 2026 renseigné (0 inclus) · 'not_engaged' = non renseigné
+  const [engagedFilter, setEngagedFilter] = useState<'engaged' | 'not_engaged' | null>(null);
   const [sortKey, setSortKey] = useState<ColKey>('date_fin');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
   const [colFilters, setColFilters] = useState<Partial<Record<ColKey, string>>>({});
@@ -329,6 +348,8 @@ const Contrats: React.FC = () => {
     if (filterType && c.type_contrat !== filterType) return false;
     if (alertFilter === 'expired') { if (c.statut === 'archivé' || !isExpired(c.date_fin)) return false; }
     else if (alertFilter === 'soon') { if (c.statut === 'archivé' || !isExpiringSoon(c.date_fin)) return false; }
+    if (engagedFilter === 'engaged' && c.montant_2026 == null) return false;
+    if (engagedFilter === 'not_engaged' && c.montant_2026 != null) return false;
     // Filtres par colonne
     for (const [key, fv] of Object.entries(colFilters)) {
       if (!fv) continue;
@@ -713,7 +734,15 @@ const Contrats: React.FC = () => {
       case 'montant_2023': return <span style={{ color: '#6b7280' }}>{fmt(c.montant_2023)}</span>;
       case 'montant_2024': return <span style={{ color: '#6b7280' }}>{fmt(c.montant_2024)}</span>;
       case 'montant_2025': return <span style={{ color: '#6b7280' }}>{fmt(c.montant_2025)}</span>;
-      case 'montant_2026': return <span style={{ fontWeight: 600, color: '#1e3a5f' }}>{fmt(c.montant_2026)}</span>;
+      case 'montant_2026': {
+        const trend = trend2026(c);
+        return (
+          <span style={{ fontWeight: 600, color: '#1e3a5f', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+            {fmt(c.montant_2026)}
+            {trend && <span title={trend.title} style={{ display: 'inline-flex' }}><trend.Icon size={13} color={trend.color} /></span>}
+          </span>
+        );
+      }
       case 'prevision_2026': return fmt(c.prevision_2026);
       case 'prevision_2027': return fmt(c.prevision_2027);
       case 'prevision_2028': return fmt(c.prevision_2028);
@@ -804,6 +833,17 @@ const Contrats: React.FC = () => {
         </button>
         <button onClick={() => setAlertFilter(alertFilter === 'soon' ? null : 'soon')} style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '4px 8px', borderRadius: 6, border: 'none', cursor: 'pointer', fontWeight: 600, fontSize: 11, background: alertFilter === 'soon' ? '#fef3c7' : '#f3f4f6', color: alertFilter === 'soon' ? '#b45309' : '#374151' }}>
           <AlertCircle size={12} /> ≤90j {soonCount > 0 && <span style={{ background: '#d97706', color: '#fff', borderRadius: 9999, padding: '0 5px', fontSize: 10 }}>{soonCount}</span>}
+        </button>
+        <button
+          onClick={() => setEngagedFilter(engagedFilter === null ? 'engaged' : engagedFilter === 'engaged' ? 'not_engaged' : null)}
+          title="Filtre sur l'engagement 2026 (montant 2026 renseigné, y compris à 0)"
+          style={{
+            display: 'flex', alignItems: 'center', gap: 4, padding: '4px 8px', borderRadius: 6, border: 'none', cursor: 'pointer', fontWeight: 600, fontSize: 11,
+            background: engagedFilter === 'engaged' ? '#dcfce7' : engagedFilter === 'not_engaged' ? '#fee2e2' : '#f3f4f6',
+            color: engagedFilter === 'engaged' ? '#16a34a' : engagedFilter === 'not_engaged' ? '#dc2626' : '#374151',
+          }}>
+          <Check size={12} />
+          {engagedFilter === 'engaged' ? 'Engagés 2026' : engagedFilter === 'not_engaged' ? 'Non engagés 2026' : 'Engagement 2026'}
         </button>
 
         <div style={{ position: 'relative', flexGrow: 1, minWidth: 140 }}>
