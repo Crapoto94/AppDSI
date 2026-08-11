@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import axios from 'axios';
 import { useAuth } from '../../contexts/AuthContext';
 import CanvasGrid from './CanvasGrid';
@@ -85,6 +86,9 @@ function btnStyle(variant: 'primary' | 'ghost' | 'danger' | 'slideshow' = 'ghost
 export default function DsiDashboard() {
   const { token } = useAuth();
   const headers = { Authorization: `Bearer ${token}` };
+  const [searchParams] = useSearchParams();
+  const kioskMode = searchParams.get('kiosk') === '1';
+  const autoStartTriedRef = useRef(false);
 
   const [dashboards, setDashboards] = useState<Dashboard[]>([]);
   const [activeDashId, setActiveDashId] = useState<number | null>(null);
@@ -130,6 +134,26 @@ export default function DsiDashboard() {
   const [slideshowDashes, setSlideshowDashes] = useState<Dashboard[]>([]);
   const [slideshowName, setSlideshowName] = useState<string>('');
   const [showSlideshowMenu, setShowSlideshowMenu] = useState(false);
+
+  // ── Démarrage automatique (URL ?slideshow=Nom&kiosk=1) ───────────────────
+  useEffect(() => {
+    if (autoStartTriedRef.current) return;
+    if (loadingDash) return;
+    if (slideshowGroups.length === 0) return;
+    autoStartTriedRef.current = true;
+
+    const wanted = searchParams.get('slideshow');
+    const group = wanted
+      ? slideshowGroups.find(g => g.name.toLowerCase() === wanted.toLowerCase()) || slideshowGroups[0]
+      : slideshowGroups[0];
+    if (group) startSlideshow(group.dashes, group.name);
+
+    if (kioskMode) {
+      const el = document.documentElement as HTMLElement & { requestFullscreen?: () => Promise<void> };
+      el.requestFullscreen?.().catch(() => { /* ignoré : nécessite un geste utilisateur dans certains navigateurs */ });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loadingDash, slideshowGroups.length]);
 
   // ── Load dashboards ──────────────────────────────────────────────────────
   useEffect(() => {
@@ -369,7 +393,8 @@ export default function DsiDashboard() {
         @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
       `}</style>
 
-      {/* ── Header ── */}
+      {/* ── Header (masqué en mode kiosque) ── */}
+      {!kioskMode && (
       <div style={{
         background: 'linear-gradient(135deg, #0f172a 0%, #1e3a5f 100%)',
         padding: '0 24px', display: 'flex', alignItems: 'center',
@@ -519,10 +544,11 @@ export default function DsiDashboard() {
           )}
         </div>
       </div>
+      )}
 
       {/* ── Slideshow progress bar ── */}
       {slideshowActive && !slideshowPaused && (
-        <div style={{ height: 3, background: '#1e293b', position: 'sticky', top: 56, zIndex: 99 }}>
+        <div style={{ height: 3, background: '#1e293b', position: 'sticky', top: kioskMode ? 0 : 56, zIndex: 99 }}>
           <div style={{
             height: '100%', background: '#fbbf24',
             width: `${slideshowProgress}%`,
