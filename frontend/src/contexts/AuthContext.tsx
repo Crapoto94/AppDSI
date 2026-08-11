@@ -12,7 +12,12 @@ import { createContext, useContext, useState, useEffect, type ReactNode } from '
     const deviceToken = urlParams.get('device_token');
     if (!deviceToken) return;
     localStorage.setItem('token', deviceToken);
-    localStorage.removeItem('user');
+    // Profil minimal écrit de façon synchrone : PrivateRoute lit `user` au premier
+    // rendu, avant que refreshUser() (async) n'ait pu récupérer le vrai profil.
+    // Sans ça le rôle est vide à cet instant précis et l'accès à /dsi-dashboard
+    // est refusé (redirection vers l'accueil). refreshUser() écrasera ensuite
+    // cette valeur par le profil authoritative renvoyé par /api/auth/me.
+    localStorage.setItem('user', JSON.stringify({ id: 0, username: 'kiosk', role: 'dsi_kiosk', is_approved: 1 }));
     urlParams.delete('device_token');
     const cleanQuery = urlParams.toString();
     window.history.replaceState(null, '', window.location.pathname + (cleanQuery ? `?${cleanQuery}` : '') + window.location.hash);
