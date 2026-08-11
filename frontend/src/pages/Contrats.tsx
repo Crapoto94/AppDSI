@@ -111,7 +111,7 @@ const COLS: ColDef[] = [
 ];
 
 const fmt = (n: number | null) =>
-  n == null ? '—' : n.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €';
+  n == null ? '—' : Math.round(n).toLocaleString('fr-FR', { maximumFractionDigits: 0 }) + ' €';
 
 const fmtDate = (d: string | null) => {
   if (!d) return '—';
