@@ -198,7 +198,7 @@ export default function TicketsDashboard() {
     if (activeFilter && KPI_FILTERS[activeFilter]?.params) {
       Object.assign(params, KPI_FILTERS[activeFilter].params);
     } else if (!showRejected && !showResolved) {
-      params.status_in = '1,2,3,4,5';
+      params.status_in = '1,2,3,4';
     } else if (!showRejected && showResolved) {
       params.status_in = '1,2,3,4,5,6';
     }
@@ -263,7 +263,7 @@ export default function TicketsDashboard() {
       if (filter && KPI_FILTERS[filter]?.params) {
         Object.assign(params, KPI_FILTERS[filter].params);
       } else if (!showRejectedRef.current && !showResolvedRef.current) {
-        params.status_in = '1,2,3,4,5';
+        params.status_in = '1,2,3,4';
       } else if (!showRejectedRef.current && showResolvedRef.current) {
         params.status_in = '1,2,3,4,5,6';
       } else if (viewModeRef.current === 'kanban' || viewModeRef.current === 'inbox') {
@@ -955,7 +955,7 @@ export default function TicketsDashboard() {
             background: showResolved ? '#f0fdf4' : '#f1f5f9',
             color: showResolved ? '#15803d' : '#475569'
           }}>
-          {showResolved ? '🙈 Masquer clos' : '👁️ Voir clos'}
+          {showResolved ? '🙈 Masquer clos & résolus' : '👁️ Voir clos & résolus'}
         </button>
         {['superadmin', 'admin', 'supervisor', 'superviseur'].includes((resolvedRole ?? user?.role ?? '').toLowerCase().trim()) && (
           <button onClick={() => { const newVal = !showRejected; showRejectedRef.current = newVal; setShowRejected(newVal); setActiveFilter(null); setActiveUserFilter(null); setPage(1); loadData(null, null, 1, search, activeCategory, activeSubcategory, activeSoftware); }}
