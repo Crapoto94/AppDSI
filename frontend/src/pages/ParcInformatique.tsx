@@ -2953,7 +2953,7 @@ const DetailModal: React.FC<{ detail: any; token: string | null; onClose: () => 
     return String(val);
   };
   return (
-    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.55)', backdropFilter: 'blur(3px)', zIndex: 1000, display: 'flex', justifyContent: 'center', alignItems: 'flex-start', padding: '40px 16px', overflowY: 'auto' }}>
+    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.55)', backdropFilter: 'blur(3px)', zIndex: 1600, display: 'flex', justifyContent: 'center', alignItems: 'flex-start', padding: 'calc(var(--header-height, 80px) + 24px) 16px 40px', overflowY: 'auto' }}>
       <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: 18, width: '100%', maxWidth: 760, boxShadow: '0 25px 60px rgba(0,0,0,.3)' }}>
         {/* En-tête */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', padding: '20px 24px', borderBottom: `1px solid ${C.border}`, background: 'linear-gradient(135deg,#2563eb,#7c3aed)', borderRadius: '18px 18px 0 0', color: '#fff' }}>

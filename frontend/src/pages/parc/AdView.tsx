@@ -49,7 +49,7 @@ const AdOsMachinesModal: React.FC<{ target: { family: string; version?: string }
   };
 
   return (
-    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.5)', zIndex: 900, display: 'flex', justifyContent: 'center', alignItems: 'flex-start', padding: '40px 16px', overflowY: 'auto' }}>
+    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.5)', zIndex: 1500, display: 'flex', justifyContent: 'center', alignItems: 'flex-start', padding: 'calc(var(--header-height, 80px) + 24px) 16px 40px', overflowY: 'auto' }}>
       <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: 14, width: '100%', maxWidth: 820, boxShadow: '0 25px 60px rgba(0,0,0,.3)' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '16px 20px', borderBottom: `1px solid ${C.border}` }}>
           <Laptop size={18} color={C.blue} />

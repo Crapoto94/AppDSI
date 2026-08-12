@@ -55,8 +55,20 @@ function classifyOs(operatingsystem, osversion) {
     return { family: 'Windows 10', versionLabel, sortKey: build || 0, isServer: false };
   }
 
-  // Autres OS (Windows 7/8, Linux, macOS…) : famille = libellé brut tel quel, comptés
-  // comme "poste de travail" (aucun ne correspond à un OS serveur connu ici).
+  // macOS : la synchro AD colle le nom et la version bout à bout, sans séparateur
+  // fiable, et sous deux formes ("macOS14.6" ou "Mac OS X10.15 (2026)") — la version
+  // n'est donc jamais dans osversion mais toujours à l'intérieur de operatingsystem.
+  // Sans ce cas dédié, chaque machine formait sa propre "famille" à elle seule
+  // (une par version exacte), ce qui faisait largement sous-compter le total macOS.
+  if (lower.startsWith('macos') || lower.startsWith('mac os')) {
+    const versionLabel = os.replace(/^mac\s*os\s*x?\s*/i, '').trim() || 'Inconnu';
+    const vm = versionLabel.match(/(\d+)(?:\.(\d+))?(?:\.(\d+))?/);
+    const sortKey = vm ? (parseInt(vm[1], 10) * 10000 + parseInt(vm[2] || '0', 10) * 100 + parseInt(vm[3] || '0', 10)) : 0;
+    return { family: 'macOS', versionLabel, sortKey, isServer: false };
+  }
+
+  // Autres OS (Windows 7/8, Linux…) : famille = libellé brut tel quel, comptés comme
+  // "poste de travail" (aucun ne correspond à un OS serveur connu ici).
   return { family: os, versionLabel: osversion || 'Inconnu', sortKey: build || 0, isServer: false };
 }
 
