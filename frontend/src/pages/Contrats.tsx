@@ -117,20 +117,39 @@ const COLS: ColDef[] = [
 const fmt = (n: number | null) =>
   n == null ? '—' : Math.round(n).toLocaleString('fr-FR', { maximumFractionDigits: 0 }) + ' €';
 
+// Convention couleur des tendances (dépense en hausse = alerte, en baisse = positif) :
+// rouge = ça monte, vert = ça descend, gris = stable.
+const TREND_UP_COLOR = '#dc2626';
+const TREND_DOWN_COLOR = '#16a34a';
+const TREND_STABLE_COLOR = '#9ca3af';
+
 // Tendance du montant 2026 par rapport à 2025 : hausse >15%, baisse <-15%, sinon stable.
 const trend2026 = (c: Contrat): { Icon: typeof TrendingUp; color: string; title: string } | null => {
   if (c.montant_2026 == null) return null;
   const prev = c.prevision_2026;
-  if (prev == null) return { Icon: ArrowRight, color: '#9ca3af', title: 'Pas de comparaison possible (prévision 2026 non renseignée)' };
+  if (prev == null) return { Icon: ArrowRight, color: TREND_STABLE_COLOR, title: 'Pas de comparaison possible (prévision 2026 non renseignée)' };
   if (prev === 0) {
     return c.montant_2026 > 0
-      ? { Icon: TrendingUp, color: '#16a34a', title: 'En hausse par rapport à la prévision 2026 (prévision nulle)' }
-      : { Icon: ArrowRight, color: '#9ca3af', title: 'Stable par rapport à la prévision 2026' };
+      ? { Icon: TrendingUp, color: TREND_UP_COLOR, title: 'En hausse par rapport à la prévision 2026 (prévision nulle)' }
+      : { Icon: ArrowRight, color: TREND_STABLE_COLOR, title: 'Stable par rapport à la prévision 2026' };
   }
   const pct = ((c.montant_2026 - prev) / prev) * 100;
-  if (pct > 15) return { Icon: TrendingUp, color: '#16a34a', title: `En hausse de ${pct.toFixed(0)}% par rapport à la prévision 2026` };
-  if (pct < -15) return { Icon: TrendingDown, color: '#dc2626', title: `En baisse de ${Math.abs(pct).toFixed(0)}% par rapport à la prévision 2026` };
-  return { Icon: ArrowRight, color: '#9ca3af', title: `Stable par rapport à la prévision 2026 (${pct >= 0 ? '+' : ''}${pct.toFixed(0)}%)` };
+  if (pct > 15) return { Icon: TrendingUp, color: TREND_UP_COLOR, title: `En hausse de ${pct.toFixed(0)}% par rapport à la prévision 2026` };
+  if (pct < -15) return { Icon: TrendingDown, color: TREND_DOWN_COLOR, title: `En baisse de ${Math.abs(pct).toFixed(0)}% par rapport à la prévision 2026` };
+  return { Icon: ArrowRight, color: TREND_STABLE_COLOR, title: `Stable par rapport à la prévision 2026 (${pct >= 0 ? '+' : ''}${pct.toFixed(0)}%)` };
+};
+
+// Même code flèche/couleur, appliqué à une paire de valeurs consécutives (ex: année vs année précédente).
+const trendBetween = (curr: number, prev: number): { Icon: typeof TrendingUp; color: string; title: string } => {
+  if (prev === 0) {
+    return curr > 0
+      ? { Icon: TrendingUp, color: TREND_UP_COLOR, title: 'En hausse par rapport à l\'année précédente (base nulle)' }
+      : { Icon: ArrowRight, color: TREND_STABLE_COLOR, title: 'Stable par rapport à l\'année précédente' };
+  }
+  const pct = ((curr - prev) / Math.abs(prev)) * 100;
+  if (pct > 1) return { Icon: TrendingUp, color: TREND_UP_COLOR, title: `En hausse de ${pct.toFixed(0)}% par rapport à l'année précédente` };
+  if (pct < -1) return { Icon: TrendingDown, color: TREND_DOWN_COLOR, title: `En baisse de ${Math.abs(pct).toFixed(0)}% par rapport à l'année précédente` };
+  return { Icon: ArrowRight, color: TREND_STABLE_COLOR, title: `Stable par rapport à l'année précédente (${pct >= 0 ? '+' : ''}${pct.toFixed(0)}%)` };
 };
 
 const fmtDate = (d: string | null) => {
@@ -281,6 +300,21 @@ const PrevisionModal: React.FC<{ contrats: Contrat[]; onClose: () => void }> = (
   const th: React.CSSProperties = { padding: '8px 10px', textAlign: 'right', fontSize: 12, fontWeight: 700, color: '#475569', whiteSpace: 'nowrap' };
   const td: React.CSSProperties = { padding: '7px 10px', textAlign: 'right', fontSize: 13 };
 
+  // Chiffres des prévisions : même code flèche/couleur que la colonne 2026(n) du tableau
+  // (rouge = ça monte, vert = ça descend), comparé à l'année précédente de la même ligne.
+  const renderAmtCells = (totals: number[], style: React.CSSProperties) => totals.map((v, i) => {
+    if (i === 0) return <td key={i} style={style}>{fmt(v)}</td>;
+    const t = trendBetween(v, totals[i - 1]);
+    return (
+      <td key={i} style={style}>
+        <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'flex-end', gap: 3 }} title={t.title}>
+          <t.Icon size={11} color={t.color} />
+          {fmt(v)}
+        </span>
+      </td>
+    );
+  });
+
   const SectionBadge: React.FC<{ kind: 'I' | 'F' }> = ({ kind }) => {
     const c = SECTION_COLORS[kind];
     return (
@@ -301,7 +335,7 @@ const PrevisionModal: React.FC<{ contrats: Contrat[]; onClose: () => void }> = (
           <td style={{ padding: '6px 10px 6px 34px', fontSize: 12, fontWeight: 700, color: color.text, display: 'flex', alignItems: 'center', gap: 6 }}>
             <SectionBadge kind={kind} /> {label}
           </td>
-          {section.totals.map((v, i) => <td key={i} style={{ ...td, fontSize: 12, fontWeight: 700, color: color.text }}>{fmt(v)}</td>)}
+          {renderAmtCells(section.totals, { ...td, fontSize: 12, fontWeight: 700, color: color.text })}
         </tr>
         {section.natures.map(n => {
           const natKey = `${svc}|${kind}|${n.label}`;
@@ -318,12 +352,12 @@ const PrevisionModal: React.FC<{ contrats: Contrat[]; onClose: () => void }> = (
                   {hasLogiciels ? (natOpen ? <ChevronDown size={12} color="#9ca3af" /> : <ChevronRight size={12} color="#9ca3af" />) : <span style={{ width: 12 }} />}
                   {n.label}
                 </td>
-                {n.totals.map((v, i) => <td key={i} style={{ ...td, fontSize: 12 }}>{fmt(v)}</td>)}
+                {renderAmtCells(n.totals, { ...td, fontSize: 12 })}
               </tr>
               {natOpen && hasLogiciels && n.logiciels.map(l => (
                 <tr key={`${natKey}|${l.label}`} style={{ background: '#fff', color: '#6b7280' }}>
                   <td style={{ padding: '4px 10px 4px 78px', fontSize: 11.5, fontStyle: 'italic' }}>{l.label}</td>
-                  {l.totals.map((v, i) => <td key={i} style={{ ...td, fontSize: 11.5, fontStyle: 'italic' }}>{fmt(v)}</td>)}
+                  {renderAmtCells(l.totals, { ...td, fontSize: 11.5, fontStyle: 'italic' })}
                 </tr>
               ))}
             </React.Fragment>
@@ -360,7 +394,7 @@ const PrevisionModal: React.FC<{ contrats: Contrat[]; onClose: () => void }> = (
                         {isOpen ? <ChevronDown size={14} color="#6b7280" /> : <ChevronRight size={14} color="#6b7280" />}
                         {g.svc}
                       </td>
-                      {g.totals.map((v, i) => <td key={i} style={td}>{fmt(v)}</td>)}
+                      {renderAmtCells(g.totals, td)}
                     </tr>
                     {isOpen && renderSectionRows(g.svc, 'I', 'Investissement', g.investissement)}
                     {isOpen && renderSectionRows(g.svc, 'F', 'Fonctionnement', g.fonctionnement)}
@@ -373,17 +407,17 @@ const PrevisionModal: React.FC<{ contrats: Contrat[]; onClose: () => void }> = (
                 <td style={{ padding: '7px 10px', fontWeight: 700, color: SECTION_COLORS.I.text, display: 'flex', alignItems: 'center', gap: 6 }}>
                   <SectionBadge kind="I" /> Total Investissement
                 </td>
-                {grandInvest.map((v, i) => <td key={i} style={{ ...td, fontWeight: 700, color: SECTION_COLORS.I.text }}>{fmt(v)}</td>)}
+                {renderAmtCells(grandInvest, { ...td, fontWeight: 700, color: SECTION_COLORS.I.text })}
               </tr>
               <tr>
                 <td style={{ padding: '7px 10px', fontWeight: 700, color: SECTION_COLORS.F.text, display: 'flex', alignItems: 'center', gap: 6 }}>
                   <SectionBadge kind="F" /> Total Fonctionnement
                 </td>
-                {grandFonct.map((v, i) => <td key={i} style={{ ...td, fontWeight: 700, color: SECTION_COLORS.F.text }}>{fmt(v)}</td>)}
+                {renderAmtCells(grandFonct, { ...td, fontWeight: 700, color: SECTION_COLORS.F.text })}
               </tr>
               <tr style={{ borderTop: '2px solid #1e3a5f' }}>
                 <td style={{ padding: '9px 10px', fontWeight: 800, color: '#1e3a5f' }}>Total général</td>
-                {grandTotal.map((v, i) => <td key={i} style={{ ...td, fontWeight: 800, color: '#1e3a5f' }}>{fmt(v)}</td>)}
+                {renderAmtCells(grandTotal, { ...td, fontWeight: 800, color: '#1e3a5f' })}
               </tr>
             </tfoot>
           </table>
@@ -392,6 +426,13 @@ const PrevisionModal: React.FC<{ contrats: Contrat[]; onClose: () => void }> = (
       <div style={{ marginTop: 12, fontSize: 11, color: '#9ca3af' }}>
         Basé sur les contrats actifs (hors archivés). 2025/2026 = montants réalisés, 2027-2029 = prévisions.
         Nature 2051 = investissement, le reste = fonctionnement.
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, marginLeft: 8 }}>
+          <TrendingUp size={11} color={TREND_UP_COLOR} /> hausse
+        </span>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, marginLeft: 8 }}>
+          <TrendingDown size={11} color={TREND_DOWN_COLOR} /> baisse
+        </span>
+        {' '}vs. année précédente.
       </div>
     </Overlay>
   );
