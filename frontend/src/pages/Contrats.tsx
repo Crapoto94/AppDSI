@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
+import * as XLSX from 'xlsx';
 import Header from '../components/Header';
 import {
-  Upload, AlertCircle, Loader2, Trash2, Edit2, Check,
+  Upload, Download, AlertCircle, Loader2, Trash2, Edit2, Check,
   X as CloseIcon, Search, RefreshCw, ChevronUp, ChevronDown, Plus, FileSpreadsheet,
   Paperclip, Eye, RefreshCcw, Archive, ArchiveRestore, FileText, Columns, Filter,
   TrendingUp, TrendingDown, ArrowRight
@@ -396,6 +397,26 @@ const Contrats: React.FC = () => {
       await fetchContrats();
     } catch (err: unknown) { showMsg('error', err instanceof Error ? err.message : 'Erreur import'); }
     finally { setImporting(false); if (excelInputRef.current) excelInputRef.current.value = ''; }
+  };
+
+  // ─── Export Excel ────────────────────────────────────────────────────────────
+
+  const handleExportExcel = () => {
+    const rows = sorted.map(c => {
+      const row: Record<string, string | number> = {};
+      COLS.forEach(col => {
+        const v = c[col.key];
+        if (col.type === 'date') row[col.label] = fmtDate(v as string | null);
+        else if (col.type === 'number') row[col.label] = v == null ? '' : Number(v);
+        else row[col.label] = v == null ? '' : String(v);
+      });
+      return row;
+    });
+    const ws = XLSX.utils.json_to_sheet(rows);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Contrats');
+    const date = new Date().toISOString().split('T')[0];
+    XLSX.writeFile(wb, `contrats_${date}.xlsx`);
   };
 
   // ─── CRUD ────────────────────────────────────────────────────────────────────
@@ -901,6 +922,9 @@ const Contrats: React.FC = () => {
           {importing ? <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} /> : <Upload size={12} />} Importer Excel
         </button>
         <input ref={excelInputRef} type="file" accept=".xlsx,.xls" style={{ display: 'none' }} onChange={handleExcelImport} />
+        <button onClick={handleExportExcel} style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '4px 10px', borderRadius: 6, border: 'none', background: '#0d9488', color: '#fff', cursor: 'pointer', fontSize: 11, fontWeight: 600 }}>
+          <Download size={12} /> Export Excel
+        </button>
       </div>
 
       {/* Résultat import */}

@@ -23,7 +23,7 @@ const KPI_FILTERS: Record<string, { label: string; params?: Record<string, strin
 };
 
 const USER_FILTERS: Record<string, { label: string; icon?: string; getParams: () => Record<string, string> }> = {
-  my:       { label: 'Mes tickets assignés', getParams: () => { const u = JSON.parse(localStorage.getItem('user') || '{}'); return { my_username: u.username, status_in: '1,2,3,4,5' }; } },
+  my:       { label: 'Mes tickets assignés', getParams: () => { const u = JSON.parse(localStorage.getItem('user') || '{}'); return { my_username: u.username }; } },
   my_req:   { label: 'Mes tickets',          getParams: () => { const u = JSON.parse(localStorage.getItem('user') || '{}'); return { requester_email: u.email }; } },
   vip:      { label: 'VIP', icon: '⭐',      getParams: () => ({ vip: '1' }) },
 };
