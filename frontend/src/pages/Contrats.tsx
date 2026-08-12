@@ -188,6 +188,17 @@ interface PrevisionGroup { svc: string; totals: number[]; natures: PrevisionRow[
 // Tri alphanumérique naturel : BF1, BF2, ..., BF10 (pas BF1, BF10, BF2 en lexicographique).
 const naturalCompare = (a: string, b: string) => a.localeCompare(b, 'fr', { numeric: true, sensitivity: 'base' });
 
+// Année en cours (n) : on prend le montant réalisé 2026 s'il est renseigné (même à 0),
+// sinon on retombe sur la prévision 2026 (cas non renseigné ou "-").
+function amountForYear(c: Contrat, key: keyof Contrat): number {
+  if (key === 'montant_2026') {
+    const m = c.montant_2026 as unknown;
+    if (m !== null && m !== undefined && m !== '') return Number(m) || 0;
+    return Number(c.prevision_2026) || 0;
+  }
+  return Number(c[key]) || 0;
+}
+
 function buildPrevisionData(contrats: Contrat[]): PrevisionGroup[] {
   const bySvc = new Map<string, Map<string, number[]>>();
   for (const c of contrats) {
@@ -197,7 +208,7 @@ function buildPrevisionData(contrats: Contrat[]): PrevisionGroup[] {
     const byNat = bySvc.get(svc)!;
     if (!byNat.has(nat)) byNat.set(nat, PREVISION_YEARS.map(() => 0));
     const totals = byNat.get(nat)!;
-    PREVISION_YEARS.forEach((y, i) => { totals[i] += Number(c[y.key]) || 0; });
+    PREVISION_YEARS.forEach((y, i) => { totals[i] += amountForYear(c, y.key); });
   }
   const groups: PrevisionGroup[] = [];
   for (const [svc, byNat] of bySvc.entries()) {
