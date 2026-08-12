@@ -172,7 +172,7 @@ const ModalHeader: React.FC<{ title: string; onClose: () => void }> = ({ title, 
   </div>
 );
 
-// ── Prévision budgétaire : total par service, déroulable par nature ───────────
+// ── Prévision budgétaire : total par SVC, déroulable par nature ───────────────
 // n-1 = montant réalisé N-1, n = montant réalisé de l'année en cours, n+1..n+3 = prévisions.
 const PREVISION_YEARS: { key: keyof Contrat; label: string }[] = [
   { key: 'montant_2025', label: '2025 (n-1)' },
@@ -183,12 +183,15 @@ const PREVISION_YEARS: { key: keyof Contrat; label: string }[] = [
 ];
 
 interface PrevisionRow { label: string; totals: number[] }
-interface PrevisionGroup { service: string; totals: number[]; natures: PrevisionRow[] }
+interface PrevisionGroup { svc: string; totals: number[]; natures: PrevisionRow[] }
+
+// Tri alphanumérique naturel : BF1, BF2, ..., BF10 (pas BF1, BF10, BF2 en lexicographique).
+const naturalCompare = (a: string, b: string) => a.localeCompare(b, 'fr', { numeric: true, sensitivity: 'base' });
 
 function buildPrevisionData(contrats: Contrat[]): PrevisionGroup[] {
   const bySvc = new Map<string, Map<string, number[]>>();
   for (const c of contrats) {
-    const svc = c.service?.trim() || 'Service non renseigné';
+    const svc = c.svc?.trim() || 'SVC non renseigné';
     const nat = c.nature?.trim() || 'Nature non renseignée';
     if (!bySvc.has(svc)) bySvc.set(svc, new Map());
     const byNat = bySvc.get(svc)!;
@@ -197,17 +200,17 @@ function buildPrevisionData(contrats: Contrat[]): PrevisionGroup[] {
     PREVISION_YEARS.forEach((y, i) => { totals[i] += Number(c[y.key]) || 0; });
   }
   const groups: PrevisionGroup[] = [];
-  for (const [service, byNat] of bySvc.entries()) {
+  for (const [svc, byNat] of bySvc.entries()) {
     const svcTotals = PREVISION_YEARS.map(() => 0);
     const natures = [...byNat.entries()]
       .map(([label, totals]) => {
         totals.forEach((v, i) => { svcTotals[i] += v; });
         return { label, totals };
       })
-      .sort((a, b) => a.label.localeCompare(b.label));
-    groups.push({ service, totals: svcTotals, natures });
+      .sort((a, b) => naturalCompare(a.label, b.label));
+    groups.push({ svc, totals: svcTotals, natures });
   }
-  return groups.sort((a, b) => a.service.localeCompare(b.service));
+  return groups.sort((a, b) => naturalCompare(a.svc, b.svc));
 }
 
 const PrevisionModal: React.FC<{ contrats: Contrat[]; onClose: () => void }> = ({ contrats, onClose }) => {
@@ -217,9 +220,9 @@ const PrevisionModal: React.FC<{ contrats: Contrat[]; onClose: () => void }> = (
   const grandTotal = PREVISION_YEARS.map(() => 0);
   groups.forEach(g => g.totals.forEach((v, i) => { grandTotal[i] += v; }));
 
-  const toggle = (service: string) => setExpanded(prev => {
+  const toggle = (svc: string) => setExpanded(prev => {
     const next = new Set(prev);
-    if (next.has(service)) next.delete(service); else next.add(service);
+    if (next.has(svc)) next.delete(svc); else next.add(svc);
     return next;
   });
 
@@ -228,7 +231,7 @@ const PrevisionModal: React.FC<{ contrats: Contrat[]; onClose: () => void }> = (
 
   return (
     <Overlay onClose={onClose} maxWidth={900}>
-      <ModalHeader title="Prévision budgétaire par service" onClose={onClose} />
+      <ModalHeader title="Prévision budgétaire par SVC" onClose={onClose} />
       {groups.length === 0 ? (
         <div style={{ textAlign: 'center', padding: 24, color: '#6b7280', fontSize: 13 }}>Aucun contrat actif.</div>
       ) : (
@@ -236,27 +239,27 @@ const PrevisionModal: React.FC<{ contrats: Contrat[]; onClose: () => void }> = (
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
               <tr style={{ background: '#f8fafc', borderBottom: '2px solid #e5e7eb' }}>
-                <th style={{ padding: '8px 10px', textAlign: 'left', fontSize: 12, fontWeight: 700, color: '#475569' }}>Service</th>
+                <th style={{ padding: '8px 10px', textAlign: 'left', fontSize: 12, fontWeight: 700, color: '#475569' }}>SVC</th>
                 {PREVISION_YEARS.map(y => <th key={y.key} style={th}>{y.label}</th>)}
               </tr>
             </thead>
             <tbody>
               {groups.map(g => {
-                const isOpen = expanded.has(g.service);
+                const isOpen = expanded.has(g.svc);
                 return (
-                  <React.Fragment key={g.service}>
-                    <tr onClick={() => toggle(g.service)}
+                  <React.Fragment key={g.svc}>
+                    <tr onClick={() => toggle(g.svc)}
                       style={{ cursor: 'pointer', borderTop: '1px solid #e5e7eb', fontWeight: 700 }}
                       onMouseEnter={e => (e.currentTarget.style.background = '#f8fafc')}
                       onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>
                       <td style={{ padding: '8px 10px', display: 'flex', alignItems: 'center', gap: 6, color: '#1e3a5f' }}>
                         {isOpen ? <ChevronDown size={14} color="#6b7280" /> : <ChevronRight size={14} color="#6b7280" />}
-                        {g.service}
+                        {g.svc}
                       </td>
                       {g.totals.map((v, i) => <td key={i} style={td}>{fmt(v)}</td>)}
                     </tr>
                     {isOpen && g.natures.map(n => (
-                      <tr key={`${g.service}|${n.label}`} style={{ background: '#f9fafb', color: '#475569' }}>
+                      <tr key={`${g.svc}|${n.label}`} style={{ background: '#f9fafb', color: '#475569' }}>
                         <td style={{ padding: '6px 10px 6px 34px', fontSize: 12 }}>{n.label}</td>
                         {n.totals.map((v, i) => <td key={i} style={{ ...td, fontSize: 12 }}>{fmt(v)}</td>)}
                       </tr>
