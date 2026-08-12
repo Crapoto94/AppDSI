@@ -15,10 +15,25 @@ const FAMILY_COLORS: Record<string, string> = {
 const FAMILY_PALETTE = ['#2563eb', '#0891b2', '#7c3aed', '#d97706', '#059669', '#dc2626', '#64748b'];
 const familyColor = (family: string, i: number) => FAMILY_COLORS[family] || FAMILY_PALETTE[i % FAMILY_PALETTE.length];
 
-interface OsVersion { label: string; count: number; sortKey: number }
+interface OsSupport { supported: boolean | null; label: string }
+interface OsVersion { label: string; count: number; sortKey: number; support?: OsSupport | null }
 interface OsFamily { family: string; total: number; isServer: boolean; versions: OsVersion[] }
 interface HistoryPoint { date: string; family: string; total: number }
 type ViewTarget = { family: string; version?: string } | null;
+
+// Puce de statut de support (Windows : date de fin de support Microsoft ; macOS :
+// politique Apple des 3 dernières versions). null = statut non déterminé (pas affiché).
+const SupportBadge: React.FC<{ support?: OsSupport | null }> = ({ support }) => {
+  if (!support || support.supported == null) return null;
+  const color = support.supported ? '#059669' : '#dc2626';
+  const bg = support.supported ? '#ecfdf5' : '#fef2f2';
+  return (
+    <span title={support.label} style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: '.68rem', fontWeight: 700, color, background: bg, borderRadius: 4, padding: '1px 5px', whiteSpace: 'nowrap' }}>
+      <span style={{ width: 6, height: 6, borderRadius: '50%', background: color, flexShrink: 0 }} />
+      {support.supported ? 'Supporté' : 'Non supporté'}
+    </span>
+  );
+};
 
 // ── Sous-tableau "Voir" : postes appartenant à une famille (ou version) d'OS ──
 type MachineSortKey = 'name' | 'os_version_label' | 'ipaddress' | 'usager' | 'lastlogonuser' | 'lastlogon' | 'enabled';
@@ -98,6 +113,7 @@ const AdOsMachinesModal: React.FC<{ target: { family: string; version?: string }
                 <tr style={{ textAlign: 'left', color: C.slate }}>
                   <th style={sortTh} onClick={() => toggleSort('name')}>Nom{sortArrow('name')}</th>
                   <th style={sortTh} onClick={() => toggleSort('os_version_label')}>Version{sortArrow('os_version_label')}</th>
+                  <th style={{ ...sortTh, cursor: 'default' }}>Support</th>
                   <th style={sortTh} onClick={() => toggleSort('ipaddress')}>IP{sortArrow('ipaddress')}</th>
                   <th style={sortTh} onClick={() => toggleSort('usager')}>Usager (parc){sortArrow('usager')}</th>
                   <th style={sortTh} onClick={() => toggleSort('lastlogonuser')}>Dernier utilisateur AD{sortArrow('lastlogonuser')}</th>
@@ -113,6 +129,7 @@ const AdOsMachinesModal: React.FC<{ target: { family: string; version?: string }
                     onMouseLeave={e => (e.currentTarget.style.background = i % 2 === 0 ? '#fff' : '#fafbfc')}>
                     <td style={{ padding: '7px 8px', fontWeight: 600, color: C.blue }}>{r.name || '—'}</td>
                     <td style={{ padding: '7px 8px', color: C.slate }}>{r.os_version_label || '—'}</td>
+                    <td style={{ padding: '7px 8px' }}><SupportBadge support={r.os_support} /></td>
                     <td style={{ padding: '7px 8px', fontFamily: 'monospace', fontSize: '.78rem' }}>{r.ipaddress || '—'}</td>
                     <td style={{ padding: '7px 8px' }}>{r.usager || '—'}</td>
                     <td style={{ padding: '7px 8px' }}>{r.lastlogonuser || '—'}</td>
@@ -181,6 +198,7 @@ const OsFamilyPanel: React.FC<{ title: string; families: OsFamily[]; onView: (t:
                       return (
                         <div key={v.label} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '.76rem', color: C.slate }}>
                           <span style={{ minWidth: 90, fontWeight: 600, color: C.text }}>{v.label}</span>
+                          <SupportBadge support={v.support} />
                           <div style={{ flex: 1, height: 4, background: '#f1f5f9', borderRadius: 2, overflow: 'hidden' }}>
                             <div style={{ width: `${vpct}%`, height: '100%', background: color, opacity: 0.55, borderRadius: 2 }} />
                           </div>
@@ -549,13 +567,14 @@ const AdView: React.FC<AdViewProps> = ({ onOpenDevice }) => {
                     <td style={{ padding: '8px 10px', fontFamily: 'monospace', fontSize: '.79rem' }}>{row.ipaddress || '—'}</td>
                     <td style={{ padding: '8px 10px', fontSize: '.79rem' }}>
                       {row.operatingsystem ? (
-                        <span title={`${row.operatingsystem} — ${row.osversion || ''}`}>
+                        <span title={`${row.operatingsystem} — ${row.osversion || ''}`} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, flexWrap: 'wrap' as const }}>
                           {row.operatingsystem}
                           {row.os_version_label && row.os_version_label !== 'Inconnu' ? (
-                            <span style={{ marginLeft: 5, fontSize: '.72rem', fontWeight: 700, color: C.blue, background: '#eff6ff', borderRadius: 4, padding: '1px 5px' }}>
+                            <span style={{ fontSize: '.72rem', fontWeight: 700, color: C.blue, background: '#eff6ff', borderRadius: 4, padding: '1px 5px' }}>
                               {row.os_version_label}
                             </span>
                           ) : null}
+                          <SupportBadge support={row.os_support} />
                         </span>
                       ) : '—'}
                     </td>

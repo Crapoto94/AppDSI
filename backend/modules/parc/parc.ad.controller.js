@@ -99,9 +99,9 @@ async function listADComputers(req, res) {
       const needle = fUsager.toLowerCase();
       const enriched = allRes.rows
         .map(row => {
-          const { family, versionLabel } = classifyOs(row.operatingsystem, row.osversion);
+          const { family, versionLabel, support } = classifyOs(row.operatingsystem, row.osversion);
           const usager = usagerMap.get((row.name || '').trim().toLowerCase()) || null;
-          return { ...row, os_family: family, os_version_label: versionLabel, usager };
+          return { ...row, os_family: family, os_version_label: versionLabel, os_support: support, usager };
         })
         .filter(row => (row.usager || '').toLowerCase().includes(needle));
       return res.json({ total: enriched.length, rows: enriched.slice(offset, offset + limit) });
@@ -121,9 +121,9 @@ async function listADComputers(req, res) {
     );
     const usagerMap = await buildUsagerMap();
     const rows = rowsRes.rows.map(row => {
-      const { family, versionLabel } = classifyOs(row.operatingsystem, row.osversion);
+      const { family, versionLabel, support } = classifyOs(row.operatingsystem, row.osversion);
       const usager = usagerMap.get((row.name || '').trim().toLowerCase()) || null;
-      return { ...row, os_family: family, os_version_label: versionLabel, usager };
+      return { ...row, os_family: family, os_version_label: versionLabel, os_support: support, usager };
     });
     res.json({ total: totalRes.rows[0].n, rows });
   } catch (error) {
@@ -141,12 +141,12 @@ async function computeOsFamilyBreakdown() {
   `);
   const families = new Map();
   for (const row of r.rows) {
-    const { family, versionLabel, sortKey, isServer } = classifyOs(row.operatingsystem, row.osversion);
+    const { family, versionLabel, sortKey, isServer, support } = classifyOs(row.operatingsystem, row.osversion);
     if (!families.has(family)) families.set(family, { family, total: 0, isServer, versions: new Map() });
     const f = families.get(family);
     f.total += row.n;
     const key = versionLabel;
-    if (!f.versions.has(key)) f.versions.set(key, { label: versionLabel, count: 0, sortKey });
+    if (!f.versions.has(key)) f.versions.set(key, { label: versionLabel, count: 0, sortKey, support });
     f.versions.get(key).count += row.n;
   }
   return [...families.values()]
@@ -177,7 +177,7 @@ async function listComputersByOs(req, res) {
       .map(row => ({ row, cls: classifyOs(row.operatingsystem, row.osversion) }))
       .filter(({ cls }) => cls.family === family && (!version || cls.versionLabel === version))
       .map(({ row, cls }) => ({
-        ...row, os_family: cls.family, os_version_label: cls.versionLabel,
+        ...row, os_family: cls.family, os_version_label: cls.versionLabel, os_support: cls.support,
         usager: usagerMap.get((row.name || '').trim().toLowerCase()) || null,
       }))
       .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
