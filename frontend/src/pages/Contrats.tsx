@@ -183,10 +183,18 @@ const PREVISION_YEARS: { key: keyof Contrat; label: string }[] = [
 ];
 
 interface PrevisionRow { label: string; totals: number[] }
-interface PrevisionGroup { svc: string; totals: number[]; natures: PrevisionRow[] }
+interface PrevisionSection { totals: number[]; natures: PrevisionRow[] }
+interface PrevisionGroup { svc: string; totals: number[]; investissement: PrevisionSection; fonctionnement: PrevisionSection }
 
 // Tri alphanumérique naturel : BF1, BF2, ..., BF10 (pas BF1, BF10, BF2 en lexicographique).
 const naturalCompare = (a: string, b: string) => a.localeCompare(b, 'fr', { numeric: true, sensitivity: 'base' });
+
+// Nature 2051 = investissement, tout le reste = fonctionnement (mêmes codes couleur que /budget).
+const isInvestissement = (c: Contrat) => c.nature?.trim() === '2051';
+const SECTION_COLORS = {
+  I: { text: '#3b82f6', bg: '#eff6ff', border: '#bfdbfe' },
+  F: { text: '#22c55e', bg: '#f0fdf4', border: '#bbf7d0' },
+};
 
 // Année en cours (n) : on prend le montant réalisé 2026 s'il est renseigné (même à 0),
 // sinon on retombe sur la prévision 2026 (cas non renseigné ou "-").
@@ -199,27 +207,37 @@ function amountForYear(c: Contrat, key: keyof Contrat): number {
   return Number(c[key]) || 0;
 }
 
-function buildPrevisionData(contrats: Contrat[]): PrevisionGroup[] {
-  const bySvc = new Map<string, Map<string, number[]>>();
+function buildSection(contrats: Contrat[]): PrevisionSection {
+  const byNat = new Map<string, number[]>();
   for (const c of contrats) {
-    const svc = c.svc?.trim() || 'SVC non renseigné';
     const nat = c.nature?.trim() || 'Nature non renseignée';
-    if (!bySvc.has(svc)) bySvc.set(svc, new Map());
-    const byNat = bySvc.get(svc)!;
     if (!byNat.has(nat)) byNat.set(nat, PREVISION_YEARS.map(() => 0));
     const totals = byNat.get(nat)!;
     PREVISION_YEARS.forEach((y, i) => { totals[i] += amountForYear(c, y.key); });
   }
+  const totals = PREVISION_YEARS.map(() => 0);
+  const natures = [...byNat.entries()]
+    .map(([label, t]) => {
+      t.forEach((v, i) => { totals[i] += v; });
+      return { label, totals: t };
+    })
+    .sort((a, b) => naturalCompare(a.label, b.label));
+  return { totals, natures };
+}
+
+function buildPrevisionData(contrats: Contrat[]): PrevisionGroup[] {
+  const bySvc = new Map<string, Contrat[]>();
+  for (const c of contrats) {
+    const svc = c.svc?.trim() || 'SVC non renseigné';
+    if (!bySvc.has(svc)) bySvc.set(svc, []);
+    bySvc.get(svc)!.push(c);
+  }
   const groups: PrevisionGroup[] = [];
-  for (const [svc, byNat] of bySvc.entries()) {
-    const svcTotals = PREVISION_YEARS.map(() => 0);
-    const natures = [...byNat.entries()]
-      .map(([label, totals]) => {
-        totals.forEach((v, i) => { svcTotals[i] += v; });
-        return { label, totals };
-      })
-      .sort((a, b) => naturalCompare(a.label, b.label));
-    groups.push({ svc, totals: svcTotals, natures });
+  for (const [svc, list] of bySvc.entries()) {
+    const investissement = buildSection(list.filter(isInvestissement));
+    const fonctionnement = buildSection(list.filter(c => !isInvestissement(c)));
+    const totals = PREVISION_YEARS.map((_, i) => investissement.totals[i] + fonctionnement.totals[i]);
+    groups.push({ svc, totals, investissement, fonctionnement });
   }
   return groups.sort((a, b) => naturalCompare(a.svc, b.svc));
 }
@@ -229,7 +247,13 @@ const PrevisionModal: React.FC<{ contrats: Contrat[]; onClose: () => void }> = (
   const active = contrats.filter(c => c.statut !== 'archivé');
   const groups = buildPrevisionData(active);
   const grandTotal = PREVISION_YEARS.map(() => 0);
-  groups.forEach(g => g.totals.forEach((v, i) => { grandTotal[i] += v; }));
+  const grandInvest = PREVISION_YEARS.map(() => 0);
+  const grandFonct = PREVISION_YEARS.map(() => 0);
+  groups.forEach(g => {
+    g.totals.forEach((v, i) => { grandTotal[i] += v; });
+    g.investissement.totals.forEach((v, i) => { grandInvest[i] += v; });
+    g.fonctionnement.totals.forEach((v, i) => { grandFonct[i] += v; });
+  });
 
   const toggle = (svc: string) => setExpanded(prev => {
     const next = new Set(prev);
@@ -239,6 +263,38 @@ const PrevisionModal: React.FC<{ contrats: Contrat[]; onClose: () => void }> = (
 
   const th: React.CSSProperties = { padding: '8px 10px', textAlign: 'right', fontSize: 12, fontWeight: 700, color: '#475569', whiteSpace: 'nowrap' };
   const td: React.CSSProperties = { padding: '7px 10px', textAlign: 'right', fontSize: 13 };
+
+  const SectionBadge: React.FC<{ kind: 'I' | 'F' }> = ({ kind }) => {
+    const c = SECTION_COLORS[kind];
+    return (
+      <span style={{
+        display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+        width: 18, height: 18, borderRadius: 5, fontWeight: 800, fontSize: 10,
+        background: c.bg, color: c.text, border: `1px solid ${c.border}`,
+      }}>{kind}</span>
+    );
+  };
+
+  const renderSectionRows = (svc: string, kind: 'I' | 'F', label: string, section: PrevisionSection) => {
+    if (section.natures.length === 0) return null;
+    const color = SECTION_COLORS[kind];
+    return (
+      <React.Fragment key={`${svc}|${kind}`}>
+        <tr style={{ background: color.bg }}>
+          <td style={{ padding: '6px 10px 6px 34px', fontSize: 12, fontWeight: 700, color: color.text, display: 'flex', alignItems: 'center', gap: 6 }}>
+            <SectionBadge kind={kind} /> {label}
+          </td>
+          {section.totals.map((v, i) => <td key={i} style={{ ...td, fontSize: 12, fontWeight: 700, color: color.text }}>{fmt(v)}</td>)}
+        </tr>
+        {section.natures.map(n => (
+          <tr key={`${svc}|${kind}|${n.label}`} style={{ background: '#f9fafb', color: '#475569' }}>
+            <td style={{ padding: '5px 10px 5px 56px', fontSize: 12 }}>{n.label}</td>
+            {n.totals.map((v, i) => <td key={i} style={{ ...td, fontSize: 12 }}>{fmt(v)}</td>)}
+          </tr>
+        ))}
+      </React.Fragment>
+    );
+  };
 
   return (
     <Overlay onClose={onClose} maxWidth={900}>
@@ -269,19 +325,27 @@ const PrevisionModal: React.FC<{ contrats: Contrat[]; onClose: () => void }> = (
                       </td>
                       {g.totals.map((v, i) => <td key={i} style={td}>{fmt(v)}</td>)}
                     </tr>
-                    {isOpen && g.natures.map(n => (
-                      <tr key={`${g.svc}|${n.label}`} style={{ background: '#f9fafb', color: '#475569' }}>
-                        <td style={{ padding: '6px 10px 6px 34px', fontSize: 12 }}>{n.label}</td>
-                        {n.totals.map((v, i) => <td key={i} style={{ ...td, fontSize: 12 }}>{fmt(v)}</td>)}
-                      </tr>
-                    ))}
+                    {isOpen && renderSectionRows(g.svc, 'I', 'Investissement', g.investissement)}
+                    {isOpen && renderSectionRows(g.svc, 'F', 'Fonctionnement', g.fonctionnement)}
                   </React.Fragment>
                 );
               })}
             </tbody>
             <tfoot>
+              <tr style={{ borderTop: '2px solid #bfdbfe' }}>
+                <td style={{ padding: '7px 10px', fontWeight: 700, color: SECTION_COLORS.I.text, display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <SectionBadge kind="I" /> Total Investissement
+                </td>
+                {grandInvest.map((v, i) => <td key={i} style={{ ...td, fontWeight: 700, color: SECTION_COLORS.I.text }}>{fmt(v)}</td>)}
+              </tr>
+              <tr>
+                <td style={{ padding: '7px 10px', fontWeight: 700, color: SECTION_COLORS.F.text, display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <SectionBadge kind="F" /> Total Fonctionnement
+                </td>
+                {grandFonct.map((v, i) => <td key={i} style={{ ...td, fontWeight: 700, color: SECTION_COLORS.F.text }}>{fmt(v)}</td>)}
+              </tr>
               <tr style={{ borderTop: '2px solid #1e3a5f' }}>
-                <td style={{ padding: '9px 10px', fontWeight: 800, color: '#1e3a5f' }}>Total</td>
+                <td style={{ padding: '9px 10px', fontWeight: 800, color: '#1e3a5f' }}>Total général</td>
                 {grandTotal.map((v, i) => <td key={i} style={{ ...td, fontWeight: 800, color: '#1e3a5f' }}>{fmt(v)}</td>)}
               </tr>
             </tfoot>
@@ -290,6 +354,7 @@ const PrevisionModal: React.FC<{ contrats: Contrat[]; onClose: () => void }> = (
       )}
       <div style={{ marginTop: 12, fontSize: 11, color: '#9ca3af' }}>
         Basé sur les contrats actifs (hors archivés). 2025/2026 = montants réalisés, 2027-2029 = prévisions.
+        Nature 2051 = investissement, le reste = fonctionnement.
       </div>
     </Overlay>
   );
