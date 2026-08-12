@@ -182,7 +182,8 @@ const PREVISION_YEARS: { key: keyof Contrat; label: string }[] = [
   { key: 'prevision_2029', label: '2029 (n+3)' },
 ];
 
-interface PrevisionRow { label: string; totals: number[] }
+interface PrevisionLogicielRow { label: string; totals: number[] }
+interface PrevisionRow { label: string; totals: number[]; logiciels: PrevisionLogicielRow[] }
 interface PrevisionSection { totals: number[]; natures: PrevisionRow[] }
 interface PrevisionGroup { svc: string; totals: number[]; investissement: PrevisionSection; fonctionnement: PrevisionSection }
 
@@ -208,18 +209,28 @@ function amountForYear(c: Contrat, key: keyof Contrat): number {
 }
 
 function buildSection(contrats: Contrat[]): PrevisionSection {
-  const byNat = new Map<string, number[]>();
+  const byNat = new Map<string, Contrat[]>();
   for (const c of contrats) {
     const nat = c.nature?.trim() || 'Nature non renseignée';
-    if (!byNat.has(nat)) byNat.set(nat, PREVISION_YEARS.map(() => 0));
-    const totals = byNat.get(nat)!;
-    PREVISION_YEARS.forEach((y, i) => { totals[i] += amountForYear(c, y.key); });
+    if (!byNat.has(nat)) byNat.set(nat, []);
+    byNat.get(nat)!.push(c);
   }
   const totals = PREVISION_YEARS.map(() => 0);
   const natures = [...byNat.entries()]
-    .map(([label, t]) => {
-      t.forEach((v, i) => { totals[i] += v; });
-      return { label, totals: t };
+    .map(([label, list]) => {
+      const natTotals = PREVISION_YEARS.map(() => 0);
+      const byLog = new Map<string, number[]>();
+      for (const c of list) {
+        const log = c.objet?.trim() || 'Logiciel non renseigné';
+        if (!byLog.has(log)) byLog.set(log, PREVISION_YEARS.map(() => 0));
+        const logTotals = byLog.get(log)!;
+        PREVISION_YEARS.forEach((y, i) => { const v = amountForYear(c, y.key); logTotals[i] += v; natTotals[i] += v; });
+      }
+      const logiciels = [...byLog.entries()]
+        .map(([label, t]) => ({ label, totals: t }))
+        .sort((a, b) => naturalCompare(a.label, b.label));
+      totals.forEach((_, i) => { totals[i] += natTotals[i]; });
+      return { label, totals: natTotals, logiciels };
     })
     .sort((a, b) => naturalCompare(a.label, b.label));
   return { totals, natures };
@@ -244,6 +255,7 @@ function buildPrevisionData(contrats: Contrat[]): PrevisionGroup[] {
 
 const PrevisionModal: React.FC<{ contrats: Contrat[]; onClose: () => void }> = ({ contrats, onClose }) => {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [expandedNat, setExpandedNat] = useState<Set<string>>(new Set());
   const active = contrats.filter(c => c.statut !== 'archivé');
   const groups = buildPrevisionData(active);
   const grandTotal = PREVISION_YEARS.map(() => 0);
@@ -258,6 +270,11 @@ const PrevisionModal: React.FC<{ contrats: Contrat[]; onClose: () => void }> = (
   const toggle = (svc: string) => setExpanded(prev => {
     const next = new Set(prev);
     if (next.has(svc)) next.delete(svc); else next.add(svc);
+    return next;
+  });
+  const toggleNat = (key: string) => setExpandedNat(prev => {
+    const next = new Set(prev);
+    if (next.has(key)) next.delete(key); else next.add(key);
     return next;
   });
 
@@ -286,12 +303,32 @@ const PrevisionModal: React.FC<{ contrats: Contrat[]; onClose: () => void }> = (
           </td>
           {section.totals.map((v, i) => <td key={i} style={{ ...td, fontSize: 12, fontWeight: 700, color: color.text }}>{fmt(v)}</td>)}
         </tr>
-        {section.natures.map(n => (
-          <tr key={`${svc}|${kind}|${n.label}`} style={{ background: '#f9fafb', color: '#475569' }}>
-            <td style={{ padding: '5px 10px 5px 56px', fontSize: 12 }}>{n.label}</td>
-            {n.totals.map((v, i) => <td key={i} style={{ ...td, fontSize: 12 }}>{fmt(v)}</td>)}
-          </tr>
-        ))}
+        {section.natures.map(n => {
+          const natKey = `${svc}|${kind}|${n.label}`;
+          const natOpen = expandedNat.has(natKey);
+          const hasLogiciels = n.logiciels.length > 1 || (n.logiciels.length === 1 && n.logiciels[0].label !== 'Logiciel non renseigné');
+          return (
+            <React.Fragment key={natKey}>
+              <tr
+                onClick={() => hasLogiciels && toggleNat(natKey)}
+                style={{ background: '#f9fafb', color: '#475569', cursor: hasLogiciels ? 'pointer' : 'default' }}
+                onMouseEnter={e => { if (hasLogiciels) e.currentTarget.style.background = '#f1f5f9'; }}
+                onMouseLeave={e => { if (hasLogiciels) e.currentTarget.style.background = '#f9fafb'; }}>
+                <td style={{ padding: '5px 10px 5px 56px', fontSize: 12, display: 'flex', alignItems: 'center', gap: 4 }}>
+                  {hasLogiciels ? (natOpen ? <ChevronDown size={12} color="#9ca3af" /> : <ChevronRight size={12} color="#9ca3af" />) : <span style={{ width: 12 }} />}
+                  {n.label}
+                </td>
+                {n.totals.map((v, i) => <td key={i} style={{ ...td, fontSize: 12 }}>{fmt(v)}</td>)}
+              </tr>
+              {natOpen && hasLogiciels && n.logiciels.map(l => (
+                <tr key={`${natKey}|${l.label}`} style={{ background: '#fff', color: '#6b7280' }}>
+                  <td style={{ padding: '4px 10px 4px 78px', fontSize: 11.5, fontStyle: 'italic' }}>{l.label}</td>
+                  {l.totals.map((v, i) => <td key={i} style={{ ...td, fontSize: 11.5, fontStyle: 'italic' }}>{fmt(v)}</td>)}
+                </tr>
+              ))}
+            </React.Fragment>
+          );
+        })}
       </React.Fragment>
     );
   };
