@@ -9,8 +9,13 @@ const WIN10_BUILDS = {
   19041: '2004', 19042: '20H2', 19043: '21H1', 19044: '21H2', 19045: '22H2',
 };
 const WIN11_BUILDS = {
-  22000: '21H2', 22621: '22H2', 22631: '23H2', 26100: '24H2',
+  21390: 'Insider (Dev)', 22000: '21H2', 22621: '22H2', 22631: '23H2',
+  26100: '24H2', 26200: '25H2', 29585: 'Insider (Canary)',
 };
+// Plus haut build officiellement sorti (hors Insider) : sert de repère pour le
+// fallback ci-dessous — au-delà, un build inconnu est presque sûrement un canal
+// Insider/Canary (numérotation qui avance vite, sans nom marketing fixe).
+const WIN11_LATEST_STABLE_BUILD = 26200;
 const SERVER_BUILDS = {
   9600: '2012 R2', 14393: '2016', 17763: '2019', 20348: '2022', 26100: '2025',
 };
@@ -38,7 +43,10 @@ function classifyOs(operatingsystem, osversion) {
   }
 
   if (lower.includes('windows 11')) {
-    const versionLabel = (build && WIN11_BUILDS[build]) ? WIN11_BUILDS[build] : (build ? `Build ${build}` : 'Inconnu');
+    let versionLabel = 'Inconnu';
+    if (build && WIN11_BUILDS[build]) versionLabel = WIN11_BUILDS[build];
+    else if (build && build > WIN11_LATEST_STABLE_BUILD) versionLabel = `Insider (${build})`;
+    else if (build) versionLabel = `Build ${build}`;
     return { family: 'Windows 11', versionLabel, sortKey: build || 0 };
   }
 

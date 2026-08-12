@@ -27,6 +27,13 @@ async function listADComputers(req, res) {
     const offset = parseInt(req.query.offset, 10) || 0;
     const q      = (req.query.q || '').trim();
     const enabled = req.query.enabled; // 'true' | 'false' | undefined
+    // Filtres par colonne (en-tête du tableau AD) : chacun est un LIKE insensible à la casse.
+    const fName = (req.query.f_name || '').trim();
+    const fSam  = (req.query.f_sam || '').trim();
+    const fIp   = (req.query.f_ip || '').trim();
+    const fOs   = (req.query.f_os || '').trim();
+    const fUser = (req.query.f_user || '').trim();
+    const fOu   = (req.query.f_ou || '').trim();
 
     const where = [];
     const params = [];
@@ -37,6 +44,20 @@ async function listADComputers(req, res) {
     }
     if (enabled === 'true')  where.push('enabled = TRUE');
     if (enabled === 'false') where.push('enabled = FALSE');
+    const addLike = (col, val) => {
+      params.push(`%${val.toLowerCase()}%`);
+      where.push(`LOWER(${col}) LIKE $${params.length}`);
+    };
+    if (fName) addLike('name', fName);
+    if (fSam)  addLike('samaccountname', fSam);
+    if (fIp)   addLike('ipaddress', fIp);
+    if (fUser) addLike('lastlogonuser', fUser);
+    if (fOu)   addLike('ou', fOu);
+    if (fOs) {
+      params.push(`%${fOs.toLowerCase()}%`);
+      const p = `$${params.length}`;
+      where.push(`(LOWER(operatingsystem) LIKE ${p} OR LOWER(osversion) LIKE ${p})`);
+    }
     const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
 
     const totalRes = await pool.query(`SELECT COUNT(*)::int AS n FROM hub_parc.ad_computers ${whereSql}`, params);

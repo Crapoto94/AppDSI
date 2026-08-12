@@ -280,18 +280,6 @@ const ParcInformatique: React.FC = () => {
   // Rapprochement AD des bénéficiaires
   const [adMap, setAdMap] = useState<Record<string, { found: boolean; display_name: string | null; email: string | null; service: string | null }>>({});
 
-  // Onglet AD : ordinateurs de l'Active Directory (hub_parc.ad_computers)
-  const [adRows, setAdRows] = useState<any[]>([]);
-  const [adTotal, setAdTotal] = useState(0);
-  const [adStart, setAdStart] = useState(0);
-  const [adLimit] = useState(100);
-  const [adQ, setAdQ] = useState('');
-  const [adEnabled, setAdEnabled] = useState<'' | 'true' | 'false'>('');
-  const [adLoading, setAdLoading] = useState(false);
-  const [adErr, setAdErr] = useState<string | null>(null);
-  const [adStatsData, setAdStatsData] = useState<any | null>(null);
-  const [adImport, setAdImport] = useState<any | null>(null);
-  const adPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [adStatus, setAdStatus] = useState<{ total: number; cached: number; remaining: number; matched: number } | null>(null);
   const [adRunning, setAdRunning] = useState(false);
   const [adProgress, setAdProgress] = useState<{ done: number; total: number } | null>(null);
@@ -721,58 +709,6 @@ const ParcInformatique: React.FC = () => {
   useEffect(() => {
     if (tab === 'deploiements') { loadDeployFacets(); loadAdMatch(); }
   }, [tab]);
-
-  // ─── Onglet AD (ordinateurs Active Directory) ────────────────────────────────
-  const loadAdComputers = useCallback(async () => {
-    setAdLoading(true); setAdErr(null);
-    try {
-      const params: any = { limit: adLimit, offset: adStart };
-      if (adQ) params.q = adQ;
-      if (adEnabled) params.enabled = adEnabled;
-      const r = await axios.get('/api/parc/ad/computers', { params, headers: { Authorization: `Bearer ${token}` } });
-      setAdRows(r.data.rows || []);
-      setAdTotal(r.data.total || 0);
-    } catch (e: any) {
-      setAdErr(e?.response?.data?.message || 'Erreur de chargement');
-      setAdRows([]); setAdTotal(0);
-    } finally { setAdLoading(false); }
-  }, [token, adLimit, adStart, adQ, adEnabled]);
-
-  const loadAdStats = useCallback(async () => {
-    try {
-      const r = await axios.get('/api/parc/ad/stats', { headers: { Authorization: `Bearer ${token}` } });
-      setAdStatsData(r.data);
-      setAdImport(r.data?.import || null);
-    } catch { /* silencieux */ }
-  }, [token]);
-
-  const startAdImport = useCallback(async () => {
-    setAdErr(null);
-    try {
-      await axios.post('/api/parc/ad/import', {}, { headers: { Authorization: `Bearer ${token}` } });
-      setAdImport({ running: true, count: 0 });
-      // Démarre le suivi de progression.
-      if (adPollRef.current) clearInterval(adPollRef.current);
-      adPollRef.current = setInterval(async () => {
-        try {
-          const r = await axios.get('/api/parc/ad/import-progress', { headers: { Authorization: `Bearer ${token}` } });
-          setAdImport(r.data);
-          if (!r.data.running) {
-            if (adPollRef.current) { clearInterval(adPollRef.current); adPollRef.current = null; }
-            loadAdStats();
-            loadAdComputers();
-          }
-        } catch { /* on continue */ }
-      }, 1500);
-    } catch (e: any) {
-      setAdErr(e?.response?.data?.message || 'Impossible de démarrer l\'import');
-    }
-  }, [token, loadAdStats, loadAdComputers]);
-
-  useEffect(() => { if (tab === 'ad') loadAdComputers(); }, [tab, adStart, adQ, adEnabled, loadAdComputers]);
-  useEffect(() => { if (tab === 'ad') { setAdStart(0); loadAdStats(); } }, [tab]);
-  // Nettoyage du timer de progression au démontage.
-  useEffect(() => () => { if (adPollRef.current) clearInterval(adPollRef.current); }, []);
 
   // ─── Rendu ──────────────────────────────────────────────────────────────────
   return (
@@ -2754,121 +2690,6 @@ const ParcInformatique: React.FC = () => {
         {/* ─── Lignes mobiles (forfaits / SIM importés depuis lignes.xlsx) ─── */}
         {tab === 'lignes' && <LignesMobilesView token={token || ''} />}
 
-        {/* ─── AD (ordinateurs Active Directory) ─── */}
-        {tab === 'ad' && (
-          <div>
-            <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
-            {/* Bandeau actions + statistiques */}
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center', marginBottom: 16 }}>
-              <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', flex: 1 }}>
-                {[
-                  { label: 'Ordinateurs', val: adStatsData?.total ?? '—', color: C.blue },
-                  { label: 'Actifs', val: adStatsData?.enabled ?? '—', color: C.green },
-                  { label: 'Désactivés', val: adStatsData?.disabled ?? '—', color: C.red },
-                ].map(s => (
-                  <div key={s.label} style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 10, padding: '10px 16px', minWidth: 120 }}>
-                    <div style={{ fontSize: '1.4rem', fontWeight: 800, color: s.color }}>{s.val}</div>
-                    <div style={{ fontSize: '.72rem', fontWeight: 700, color: C.slate, textTransform: 'uppercase', letterSpacing: '.04em' }}>{s.label}</div>
-                  </div>
-                ))}
-                <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 10, padding: '10px 16px', minWidth: 180 }}>
-                  <div style={{ fontSize: '.9rem', fontWeight: 700, color: C.text }}>
-                    {adStatsData?.last_sync ? new Date(adStatsData.last_sync).toLocaleString('fr-FR') : 'Jamais'}
-                  </div>
-                  <div style={{ fontSize: '.72rem', fontWeight: 700, color: C.slate, textTransform: 'uppercase', letterSpacing: '.04em' }}>Dernière synchro</div>
-                </div>
-              </div>
-              <button onClick={startAdImport} disabled={adImport?.running}
-                style={{ ...btn(C.blue), opacity: adImport?.running ? .6 : 1, display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-                <RefreshCw size={15} style={adImport?.running ? { animation: 'spin 1s linear infinite' } : undefined} />
-                {adImport?.running ? `Import en cours… (${adImport?.count ?? 0})` : 'Importer depuis l\'AD'}
-              </button>
-            </div>
-
-            {adImport?.running && (
-              <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', color: '#1e40af', borderRadius: 10, padding: '10px 14px', marginBottom: 14, fontSize: '.85rem' }}>
-                Énumération de l'Active Directory en cours… {adImport.count ?? 0} ordinateur(s) traité(s){adImport.total ? ` / ${adImport.total}` : ''}.
-              </div>
-            )}
-            {adImport && !adImport.running && adImport.error && (
-              <div style={{ background: '#fef2f2', border: '1px solid #fecaca', color: '#b91c1c', borderRadius: 10, padding: '10px 14px', marginBottom: 14, fontSize: '.85rem' }}>
-                Échec de l'import : {adImport.error}
-              </div>
-            )}
-
-            {/* Filtres */}
-            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 14 }}>
-              <div style={{ position: 'relative', flex: 1, minWidth: 220 }}>
-                <Search size={15} style={{ position: 'absolute', left: 11, top: 10, color: C.slate }} />
-                <input type="text" value={adQ} placeholder="Nom, login, DNS, OS, description…"
-                  onChange={e => { setAdStart(0); setAdQ(e.target.value); }}
-                  style={{ width: '100%', padding: '9px 12px 9px 34px', border: `1px solid ${C.border}`, borderRadius: 9, fontSize: '.88rem', outline: 'none', boxSizing: 'border-box' }} />
-              </div>
-              <select value={adEnabled} onChange={e => { setAdStart(0); setAdEnabled(e.target.value as any); }}
-                style={{ padding: '9px 12px', border: `1px solid ${C.border}`, borderRadius: 9, fontSize: '.88rem', outline: 'none' }}>
-                <option value="">Tous les états</option>
-                <option value="true">Actifs uniquement</option>
-                <option value="false">Désactivés uniquement</option>
-              </select>
-            </div>
-
-            {adErr && <div style={{ color: C.red, marginBottom: 12, fontSize: '.85rem' }}>{adErr}</div>}
-
-            {/* Tableau */}
-            <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, overflow: 'hidden' }}>
-              <div style={{ overflowX: 'auto' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '.84rem' }}>
-                  <thead>
-                    <tr style={{ background: '#f8fafc', textAlign: 'left', color: C.slate }}>
-                      {['Nom', 'DNS', 'Système', 'Version', 'Dernière connexion', 'OU', 'État', 'Description'].map(h => (
-                        <th key={h} style={{ padding: '10px 12px', fontWeight: 700, whiteSpace: 'nowrap', borderBottom: `1px solid ${C.border}` }}>{h}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {adLoading ? (
-                      <tr><td colSpan={8} style={{ padding: 24, textAlign: 'center', color: C.slate }}>Chargement…</td></tr>
-                    ) : adRows.length === 0 ? (
-                      <tr><td colSpan={8} style={{ padding: 24, textAlign: 'center', color: C.slate }}>
-                        Aucun ordinateur. Lancez un import depuis l'AD.
-                      </td></tr>
-                    ) : adRows.map(r => (
-                      <tr key={r.id} style={{ borderBottom: `1px solid ${C.border}` }}>
-                        <td style={{ padding: '8px 12px', fontWeight: 600, whiteSpace: 'nowrap' }}>{v(r.name)}</td>
-                        <td style={{ padding: '8px 12px', color: C.slate }}>{v(r.dnshostname)}</td>
-                        <td style={{ padding: '8px 12px' }}>{v(r.operatingsystem)}</td>
-                        <td style={{ padding: '8px 12px', color: C.slate }}>{v(r.osversion)}</td>
-                        <td style={{ padding: '8px 12px', whiteSpace: 'nowrap' }}>{r.lastlogon ? new Date(r.lastlogon).toLocaleDateString('fr-FR') : v(null)}</td>
-                        <td style={{ padding: '8px 12px', color: C.slate }}>{v(r.ou)}</td>
-                        <td style={{ padding: '8px 12px' }}>
-                          <span style={{ fontSize: '.72rem', fontWeight: 700, padding: '2px 8px', borderRadius: 20,
-                            background: r.enabled ? '#dcfce7' : '#fee2e2', color: r.enabled ? '#166534' : '#b91c1c' }}>
-                            {r.enabled ? 'Actif' : 'Désactivé'}
-                          </span>
-                        </td>
-                        <td style={{ padding: '8px 12px', color: C.slate, maxWidth: 280, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={r.description || ''}>{v(r.description)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-              {/* Pagination */}
-              {adTotal > adLimit && (
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', borderTop: `1px solid ${C.border}` }}>
-                  <span style={{ fontSize: '.8rem', color: C.slate }}>
-                    {adStart + 1}–{Math.min(adStart + adLimit, adTotal)} sur {adTotal}
-                  </span>
-                  <div style={{ display: 'flex', gap: 8 }}>
-                    <button disabled={adStart === 0} onClick={() => setAdStart(Math.max(0, adStart - adLimit))}
-                      style={{ ...btn(C.slate), opacity: adStart === 0 ? .5 : 1 }}>Précédent</button>
-                    <button disabled={adStart + adLimit >= adTotal} onClick={() => setAdStart(adStart + adLimit)}
-                      style={{ ...btn(C.slate), opacity: adStart + adLimit >= adTotal ? .5 : 1 }}>Suivant</button>
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-        )}
 
       {/* ── Modal Recherche AD ──────────────────────────────────────────────── */}
     {adModal && (

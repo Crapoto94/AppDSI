@@ -2,7 +2,7 @@ import React, { useEffect, useState, useCallback, useRef, useMemo } from 'react'
 import { useAuth } from '../../contexts/AuthContext';
 import axios from 'axios';
 import {
-  Server, Search, X, RefreshCw, CheckCircle2, ChevronDown, ChevronRight, TrendingUp,
+  Server, X, RefreshCw, ChevronDown, ChevronRight, TrendingUp,
 } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 
@@ -17,31 +17,11 @@ const familyColor = (family: string, i: number) => FAMILY_COLORS[family] || FAMI
 
 interface OsVersion { label: string; count: number; sortKey: number }
 interface OsFamily { family: string; total: number; versions: OsVersion[] }
+interface HistoryPoint { date: string; family: string; total: number }
 
 // ── Bloc "Statistiques OS" : répartition par famille (drill-down par version) + évolution ──
-const AdOsStats: React.FC<{ token: string | null }> = ({ token }) => {
-  const [families, setFamilies] = useState<OsFamily[]>([]);
-  const [history, setHistory] = useState<{ date: string; family: string; total: number }[]>([]);
-  const [loading, setLoading] = useState(true);
+const AdOsStats: React.FC<{ families: OsFamily[]; history: HistoryPoint[] }> = ({ families, history }) => {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
-
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      setLoading(true);
-      try {
-        const [statsRes, histRes] = await Promise.all([
-          axios.get('/api/parc/ad/stats', { headers: { Authorization: `Bearer ${token}` } }),
-          axios.get('/api/parc/ad/stats/history', { headers: { Authorization: `Bearer ${token}` } }),
-        ]);
-        if (cancelled) return;
-        setFamilies(statsRes.data.by_os_family || []);
-        setHistory(histRes.data || []);
-      } catch (e) { console.error('Erreur chargement stats OS:', e); }
-      finally { if (!cancelled) setLoading(false); }
-    })();
-    return () => { cancelled = true; };
-  }, [token]);
 
   const total = families.reduce((s, f) => s + f.total, 0);
 
@@ -70,9 +50,6 @@ const AdOsStats: React.FC<{ token: string | null }> = ({ token }) => {
     catch { return d; }
   };
 
-  if (loading) {
-    return <div style={{ padding: 24, textAlign: 'center', color: C.slate }}><RefreshCw size={20} className="spin" /></div>;
-  }
   if (families.length === 0) return null;
 
   return (
@@ -148,27 +125,68 @@ const AdOsStats: React.FC<{ token: string | null }> = ({ token }) => {
   );
 };
 
+interface ColFilters {
+  name: string; sam: string; ip: string; os: string; user: string; ou: string;
+  enabled: '' | 'true' | 'false';
+}
+const EMPTY_FILTERS: ColFilters = { name: '', sam: '', ip: '', os: '', user: '', ou: '', enabled: '' };
+
 const AdView: React.FC = () => {
   const { token } = useAuth();
   const [rows, setRows] = useState<any[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
   const [page, setPage] = useState(1);
-  const [q, setQ] = useState('');
+  const [filters, setFilters] = useState<ColFilters>(EMPTY_FILTERS);
   const [sortCol, setSortCol] = useState('name');
   const [sortDir, setSortDir] = useState('asc');
   const [importing, setImporting] = useState(false);
   const [progress, setProgress] = useState<{ running: boolean; total: number; current: number; step: string; error: string | null } | null>(null);
   const progressInterval = useRef<ReturnType<typeof setInterval> | null>(null);
   const [statsRefreshKey, setStatsRefreshKey] = useState(0);
+
+  // Stats globales (cartes + répartition/évolution OS) — chargées une fois, rafraîchies après import.
+  const [globalStats, setGlobalStats] = useState<{ total: number; enabled: number; disabled: number; last_sync: string | null } | null>(null);
+  const [osFamilies, setOsFamilies] = useState<OsFamily[]>([]);
+  const [osHistory, setOsHistory] = useState<HistoryPoint[]>([]);
+  const [statsLoading, setStatsLoading] = useState(true);
+
   const limit = 50;
 
-  const loadData = useCallback(async (p?: number, qry?: string, col?: string, dir?: string) => {
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setStatsLoading(true);
+      try {
+        const [statsRes, histRes] = await Promise.all([
+          axios.get('/api/parc/ad/stats', { headers: { Authorization: `Bearer ${token}` } }),
+          axios.get('/api/parc/ad/stats/history', { headers: { Authorization: `Bearer ${token}` } }),
+        ]);
+        if (cancelled) return;
+        setGlobalStats({ total: statsRes.data.total, enabled: statsRes.data.enabled, disabled: statsRes.data.disabled, last_sync: statsRes.data.last_sync });
+        setOsFamilies(statsRes.data.by_os_family || []);
+        setOsHistory(histRes.data || []);
+      } catch (e) { console.error('Erreur chargement stats AD:', e); }
+      finally { if (!cancelled) setStatsLoading(false); }
+    })();
+    return () => { cancelled = true; };
+  }, [token, statsRefreshKey]);
+
+  const loadData = useCallback(async (p?: number, f?: ColFilters, col?: string, dir?: string) => {
     setLoading(true);
     try {
       const pg = p ?? page;
+      const flt = f ?? filters;
+      const params: Record<string, string | number> = { page: pg, limit, sort: col ?? sortCol, order: dir ?? sortDir };
+      if (flt.name) params.f_name = flt.name;
+      if (flt.sam) params.f_sam = flt.sam;
+      if (flt.ip) params.f_ip = flt.ip;
+      if (flt.os) params.f_os = flt.os;
+      if (flt.user) params.f_user = flt.user;
+      if (flt.ou) params.f_ou = flt.ou;
+      if (flt.enabled) params.enabled = flt.enabled;
       const r = await axios.get('/api/parc/ad/computers', {
-        params: { q: qry ?? q, page: pg, limit, sort: col ?? sortCol, order: dir ?? sortDir },
+        params,
         headers: { Authorization: `Bearer ${token}` }
       });
       setRows(r.data.rows);
@@ -176,9 +194,22 @@ const AdView: React.FC = () => {
     } catch (e: any) {
       console.error('Erreur chargement AD computers:', e);
     } finally { setLoading(false); }
-  }, [q, page, sortCol, sortDir, token]);
+  }, [filters, page, sortCol, sortDir, token]);
 
   useEffect(() => { loadData(1); }, []);
+
+  // Filtres par colonne : rechargement débouncé (400ms) à chaque frappe.
+  const isFirstFilterRun = useRef(true);
+  useEffect(() => {
+    if (isFirstFilterRun.current) { isFirstFilterRun.current = false; return; }
+    const t = setTimeout(() => { setPage(1); loadData(1, filters); }, 400);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filters]);
+
+  const setFilter = (key: keyof ColFilters, value: string) => setFilters(prev => ({ ...prev, [key]: value }));
+  const hasActiveFilters = Object.values(filters).some(v => v !== '');
+  const clearFilters = () => setFilters(EMPTY_FILTERS);
 
   const startImport = async () => {
     setImporting(true);
@@ -211,9 +242,9 @@ const AdView: React.FC = () => {
   const toggleSort = (col: string) => {
     if (sortCol === col) {
       const d = sortDir === 'asc' ? 'desc' : 'asc';
-      setSortDir(d); loadData(page, q, col, d);
+      setSortDir(d); loadData(page, filters, col, d);
     } else {
-      setSortCol(col); setSortDir('asc'); loadData(page, q, col, 'asc');
+      setSortCol(col); setSortDir('asc'); loadData(page, filters, col, 'asc');
     }
   };
 
@@ -227,7 +258,9 @@ const AdView: React.FC = () => {
     catch { return d; }
   };
 
-  const th: React.CSSProperties = { padding: '8px 10px', textAlign: 'left', fontSize: '.78rem', fontWeight: 700, color: C.slate, borderBottom: `2px solid ${C.border}`, cursor: 'pointer', whiteSpace: 'nowrap', userSelect: 'none' as const };
+  const th: React.CSSProperties = { padding: '8px 10px', textAlign: 'left', fontSize: '.78rem', fontWeight: 700, color: C.slate, borderBottom: `1px solid ${C.border}`, cursor: 'pointer', whiteSpace: 'nowrap', userSelect: 'none' as const };
+  const filterInput: React.CSSProperties = { width: '100%', boxSizing: 'border-box' as const, padding: '4px 6px', border: `1px solid ${C.border}`, borderRadius: 5, fontSize: '.75rem', outline: 'none' };
+  const filterTh: React.CSSProperties = { padding: '4px 10px 8px', borderBottom: `2px solid ${C.border}`, background: '#f8fafc' };
 
   return (
     <div>
@@ -242,22 +275,33 @@ const AdView: React.FC = () => {
           <RefreshCw size={16} className={importing ? 'spin' : ''} />
           {importing ? 'Import en cours…' : 'Importer AD'}
         </button>
-        {total > 0 && (
-          <span style={{ fontSize: '.82rem', color: C.slate }}>
-            {total} ordinateur{total > 1 ? 's' : ''}
-          </span>
-        )}
         <div style={{ flex: 1 }} />
-        <input type="text" value={q} onChange={e => setQ(e.target.value)}
-          onKeyDown={e => { if (e.key === 'Enter') { setPage(1); loadData(1, e.currentTarget.value); } }}
-          placeholder="Rechercher…" style={{
-            padding: '7px 12px', border: `1px solid ${C.border}`, borderRadius: 8,
-            fontSize: '.85rem', outline: 'none', width: 220
-          }} />
-        <button onClick={() => { setPage(1); loadData(1); }}
-          style={{ background: C.slate, border: 'none', borderRadius: 8, padding: '7px 12px', cursor: 'pointer', color: '#fff' }}>
-          <Search size={15} />
-        </button>
+        {hasActiveFilters && (
+          <button onClick={clearFilters}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '7px 12px', border: `1px solid ${C.border}`, borderRadius: 8, background: '#fff', cursor: 'pointer', fontSize: '.8rem', color: C.slate }}>
+            <X size={13} /> Effacer les filtres
+          </button>
+        )}
+      </div>
+
+      {/* Cartes de synthèse */}
+      <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' as const, marginBottom: 16 }}>
+        {[
+          { label: 'Ordinateurs', val: globalStats?.total ?? '—', color: C.blue },
+          { label: 'Actifs', val: globalStats?.enabled ?? '—', color: C.green },
+          { label: 'Désactivés', val: globalStats?.disabled ?? '—', color: C.red },
+        ].map(s => (
+          <div key={s.label} style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 10, padding: '10px 16px', minWidth: 120 }}>
+            <div style={{ fontSize: '1.4rem', fontWeight: 800, color: s.color }}>{s.val}</div>
+            <div style={{ fontSize: '.72rem', fontWeight: 700, color: C.slate, textTransform: 'uppercase', letterSpacing: '.04em' }}>{s.label}</div>
+          </div>
+        ))}
+        <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 10, padding: '10px 16px', minWidth: 180 }}>
+          <div style={{ fontSize: '.9rem', fontWeight: 700, color: C.text }}>
+            {globalStats?.last_sync ? new Date(globalStats.last_sync).toLocaleString('fr-FR') : 'Jamais'}
+          </div>
+          <div style={{ fontSize: '.72rem', fontWeight: 700, color: C.slate, textTransform: 'uppercase', letterSpacing: '.04em' }}>Dernière synchro</div>
+        </div>
       </div>
 
       {/* Barre de progression */}
@@ -290,21 +334,28 @@ const AdView: React.FC = () => {
       )}
 
       {/* Statistiques OS : répartition par famille/version + évolution */}
-      <AdOsStats key={statsRefreshKey} token={token} />
+      {statsLoading ? (
+        <div style={{ padding: 24, textAlign: 'center', color: C.slate }}><RefreshCw size={20} className="spin" /></div>
+      ) : (
+        <AdOsStats families={osFamilies} history={osHistory} />
+      )}
 
       {/* Tableau */}
-      {loading ? (
+      {loading && rows.length === 0 ? (
         <div style={{ textAlign: 'center', padding: 40, color: C.slate }}>
           <RefreshCw size={28} className="spin" style={{ marginBottom: 12 }} />
           <div>Chargement…</div>
         </div>
-      ) : rows.length === 0 ? (
+      ) : total === 0 && !hasActiveFilters ? (
         <div style={{ textAlign: 'center', padding: 40, color: C.slate, fontSize: '.9rem' }}>
           <Server size={40} style={{ marginBottom: 12, opacity: .3 }} />
           <div>Aucun ordinateur importé. Cliquez sur <b>Importer AD</b> pour synchroniser l'Active Directory.</div>
         </div>
       ) : (
         <>
+          <div style={{ marginBottom: 8, fontSize: '.82rem', color: C.slate }}>
+            {total} ordinateur{total > 1 ? 's' : ''}{hasActiveFilters ? ' (filtré)' : ''}
+          </div>
           <div style={{ overflowX: 'auto' as const, borderRadius: 10, border: `1px solid ${C.border}` }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '.83rem' }}>
               <thead>
@@ -318,9 +369,27 @@ const AdView: React.FC = () => {
                   <th style={{ ...th, cursor: 'default' }}>OU</th>
                   <th style={th} onClick={() => toggleSort('enabled')}>État{sortArrow('enabled')}</th>
                 </tr>
+                <tr>
+                  <th style={filterTh}><input style={filterInput} value={filters.name} onChange={e => setFilter('name', e.target.value)} placeholder="Filtrer…" /></th>
+                  <th style={filterTh}><input style={filterInput} value={filters.sam} onChange={e => setFilter('sam', e.target.value)} placeholder="Filtrer…" /></th>
+                  <th style={filterTh}><input style={filterInput} value={filters.ip} onChange={e => setFilter('ip', e.target.value)} placeholder="Filtrer…" /></th>
+                  <th style={filterTh}><input style={filterInput} value={filters.os} onChange={e => setFilter('os', e.target.value)} placeholder="Filtrer…" /></th>
+                  <th style={filterTh} />
+                  <th style={filterTh}><input style={filterInput} value={filters.user} onChange={e => setFilter('user', e.target.value)} placeholder="Filtrer…" /></th>
+                  <th style={filterTh}><input style={filterInput} value={filters.ou} onChange={e => setFilter('ou', e.target.value)} placeholder="Filtrer…" /></th>
+                  <th style={filterTh}>
+                    <select style={filterInput} value={filters.enabled} onChange={e => setFilter('enabled', e.target.value as ColFilters['enabled'])}>
+                      <option value="">Tous</option>
+                      <option value="true">Actif</option>
+                      <option value="false">Désactivé</option>
+                    </select>
+                  </th>
+                </tr>
               </thead>
               <tbody>
-                {rows.map((row, i) => (
+                {rows.length === 0 ? (
+                  <tr><td colSpan={8} style={{ padding: 24, textAlign: 'center', color: C.slate }}>Aucun résultat pour ces filtres.</td></tr>
+                ) : rows.map((row, i) => (
                   <tr key={row.id} style={{ borderTop: `1px solid ${C.border}`, background: i % 2 === 0 ? '#fff' : '#fafbfc' }}>
                     <td style={{ padding: '8px 10px', fontWeight: 600 }}>{row.name || row.cn || '—'}</td>
                     <td style={{ padding: '8px 10px', fontFamily: 'monospace', fontSize: '.79rem' }}>{row.samaccountname || '—'}</td>
