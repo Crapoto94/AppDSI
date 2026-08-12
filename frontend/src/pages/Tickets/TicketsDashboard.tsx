@@ -319,6 +319,8 @@ export default function TicketsDashboard() {
       ['category_id', 'subcategory_id', 'software_id', 'group_id', 'technician_id', 'requester_email', 'search'].forEach(k => {
         if (params[k]) statsParams[k] = params[k];
       });
+      statsParams.show_resolved = showResolvedRef.current ? '1' : '0';
+      statsParams.show_rejected = showRejectedRef.current ? '1' : '0';
       const statsQs = new URLSearchParams(statsParams).toString();
       const cacheKey = qs + '|' + statsQs;
 

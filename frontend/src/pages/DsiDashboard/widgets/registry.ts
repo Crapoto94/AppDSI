@@ -230,6 +230,14 @@ export const WIDGET_REGISTRY: WidgetDef[] = [
     defaultSize: { w: 6, h: 4 },
     minSize: { w: 4, h: 3 },
   },
+  {
+    key: 'parc_os_family',
+    label: 'Répartition par OS',
+    description: 'Nombre de postes par famille d\'OS (Windows 10, 11, Server…), depuis la synchro AD',
+    module: 'Parc',
+    defaultSize: { w: 6, h: 4 },
+    minSize: { w: 4, h: 3 },
+  },
   // ── Divers compteurs ──────────────────────────────────────────────────────
   {
     key: 'consommables',

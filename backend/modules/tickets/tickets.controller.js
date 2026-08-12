@@ -934,6 +934,8 @@ async assign(req, res) {
                 technician_id: req.query.technician_id,
                 requester_email: req.query.requester_email,
                 search: req.query.search,
+                show_resolved: req.query.show_resolved === '1',
+                show_rejected: req.query.show_rejected === '1',
             };
             const stats = await ticketService.getDashboardStats(req.user, filters);
             res.json(stats);

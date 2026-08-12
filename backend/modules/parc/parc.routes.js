@@ -54,6 +54,7 @@ router.get('/hub/:type', authenticateJWT, hub.list);
 // ── AD Computers (import depuis l'Active Directory) ───────────────────────────
 router.get('/ad/computers', authenticateJWT, ad.listADComputers);
 router.get('/ad/stats', authenticateJWT, ad.adStats);
+router.get('/ad/stats/history', authenticateJWT, ad.getOsHistory);
 router.post('/ad/import', authenticateJWT, ad.importADComputers);
 router.get('/ad/import-progress', authenticateJWT, ad.getImportProgress);
 

@@ -5,6 +5,7 @@
 // d'usagers AD.
 const { pool, getSqlite } = require('../../shared/database');
 const { searchADComputers } = require('../../shared/ad_helper');
+const { classifyOs } = require('../../shared/os_version_map');
 
 // État de l'import en cours (un seul à la fois, suivi par le frontend).
 let _importState = { running: false, count: 0, total: null, batch: null, startedAt: null, finishedAt: null, error: null };
@@ -50,10 +51,41 @@ async function listADComputers(req, res) {
        LIMIT ${limitP} OFFSET ${offsetP}`,
       params
     );
-    res.json({ total: totalRes.rows[0].n, rows: rowsRes.rows });
+    const rows = rowsRes.rows.map(row => {
+      const { family, versionLabel } = classifyOs(row.operatingsystem, row.osversion);
+      return { ...row, os_family: family, os_version_label: versionLabel };
+    });
+    res.json({ total: totalRes.rows[0].n, rows });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
+}
+
+// ── Répartition par famille d'OS (Windows 10/11/Server…) avec détail des versions ──
+// (build → version marketing, ex: 19045 → "22H2"). Voir shared/os_version_map.js.
+async function computeOsFamilyBreakdown() {
+  const r = await pool.query(`
+    SELECT operatingsystem, osversion, COUNT(*)::int AS n
+    FROM hub_parc.ad_computers
+    GROUP BY operatingsystem, osversion
+  `);
+  const families = new Map();
+  for (const row of r.rows) {
+    const { family, versionLabel, sortKey } = classifyOs(row.operatingsystem, row.osversion);
+    if (!families.has(family)) families.set(family, { family, total: 0, versions: new Map() });
+    const f = families.get(family);
+    f.total += row.n;
+    const key = versionLabel;
+    if (!f.versions.has(key)) f.versions.set(key, { label: versionLabel, count: 0, sortKey });
+    f.versions.get(key).count += row.n;
+  }
+  return [...families.values()]
+    .map(f => ({
+      family: f.family,
+      total: f.total,
+      versions: [...f.versions.values()].sort((a, b) => b.sortKey - a.sortKey),
+    }))
+    .sort((a, b) => b.total - a.total);
 }
 
 // ── Statistiques rapides (compteurs, dernière synchro) ────────────────────────
@@ -74,9 +106,50 @@ async function adStats(req, res) {
       ORDER BY n DESC
       LIMIT 15
     `);
-    res.json({ ...r.rows[0], by_os: os.rows, import: _importState });
+    const byOsFamily = await computeOsFamilyBreakdown();
+    // Rafraîchit le snapshot du jour à chaque consultation (pas seulement à l'import),
+    // pour que l'historique démarre dès la première visite de la page.
+    if (r.rows[0].total > 0) snapshotOsBreakdown().catch(() => {});
+    res.json({ ...r.rows[0], by_os: os.rows, by_os_family: byOsFamily, import: _importState });
   } catch (error) {
     res.status(500).json({ message: error.message });
+  }
+}
+
+// ── Historique de la répartition des OS (évolution dans le temps) ─────────────
+async function getOsHistory(req, res) {
+  try {
+    const r = await pool.query(`
+      SELECT snapshot_date::text AS date, family, SUM(count)::int AS total
+      FROM hub_parc.ad_os_snapshots
+      WHERE snapshot_date >= CURRENT_DATE - INTERVAL '365 days'
+      GROUP BY snapshot_date, family
+      ORDER BY snapshot_date ASC
+    `);
+    res.json(r.rows);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+}
+
+// Snapshot du jour : capture la répartition actuelle par famille/version d'OS,
+// appelé après chaque import AD réussi pour construire l'historique d'évolution.
+async function snapshotOsBreakdown() {
+  try {
+    const breakdown = await computeOsFamilyBreakdown();
+    const today = new Date().toISOString().split('T')[0];
+    for (const f of breakdown) {
+      for (const v of f.versions) {
+        await pool.query(
+          `INSERT INTO hub_parc.ad_os_snapshots (snapshot_date, family, version_label, count)
+           VALUES ($1, $2, $3, $4)
+           ON CONFLICT (snapshot_date, family, version_label) DO UPDATE SET count = EXCLUDED.count`,
+          [today, f.family, v.label, v.count]
+        );
+      }
+    }
+  } catch (error) {
+    console.error('[AD] Erreur snapshot répartition OS:', error.message);
   }
 }
 
@@ -140,6 +213,7 @@ async function importADComputers(req, res) {
     _importState.finishedAt = new Date().toISOString();
     _importState.count = written;
     console.log(`[AD] Import terminé : ${written} ordinateur(s) (batch ${batch}).`);
+    await snapshotOsBreakdown();
   } catch (error) {
     _importState.running = false;
     _importState.error = error.message;
@@ -148,4 +222,4 @@ async function importADComputers(req, res) {
   }
 }
 
-module.exports = { listADComputers, adStats, importADComputers, getImportProgress };
+module.exports = { listADComputers, adStats, getOsHistory, importADComputers, getImportProgress };

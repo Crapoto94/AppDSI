@@ -250,12 +250,18 @@ module.exports = {
     async getDashboardStats(user, filters = {}) {
         const stats = await ticketRepo.getDashboardStats();
         const myStats = await ticketRepo.getMyStats(user.username);
-        const userCounts = await ticketRepo.getDashboardUserCounts(user);
+        const userCounts = await ticketRepo.getDashboardUserCounts(user, {
+            showResolved: filters.show_resolved,
+            showRejected: filters.show_rejected,
+        });
         const timeStats = await ticketRepo.getTimeStats();
         const weekStats = await ticketRepo.getResolvedWeekTimeStats();
         // Stats filtrées (selon les filtres actifs de la liste) — affichées à côté du global.
-        const hasFilters = filters && Object.values(filters).some(v => v !== undefined && v !== null && v !== '');
-        const filtered = hasFilters ? await ticketRepo.getDashboardStats(filters) : null;
+        // show_resolved/show_rejected ne comptent pas comme un "filtre actif" ici : ils ne
+        // servent qu'à ajuster les compteurs des boutons ci-dessus.
+        const { show_resolved, show_rejected, ...listFilters } = filters || {};
+        const hasFilters = Object.values(listFilters).some(v => v !== undefined && v !== null && v !== '');
+        const filtered = hasFilters ? await ticketRepo.getDashboardStats(listFilters) : null;
         return {
             ...stats,
             filtered: filtered || null,

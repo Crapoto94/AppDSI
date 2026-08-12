@@ -3338,6 +3338,21 @@ async function setupPgDb() {
     await client.query(`CREATE UNIQUE INDEX IF NOT EXISTS uq_ad_computers_sam ON hub_parc.ad_computers(samaccountname)`);
     await client.query(`CREATE INDEX IF NOT EXISTS idx_ad_computers_batch ON hub_parc.ad_computers(import_batch)`);
 
+    // ─── hub_parc : historique de la répartition des OS (1 snapshot par jour de sync AD) ──
+    // Alimenté à chaque import AD réussi, pour tracer l'évolution des versions d'OS.
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS hub_parc.ad_os_snapshots (
+        id             SERIAL PRIMARY KEY,
+        snapshot_date  DATE NOT NULL,
+        family         TEXT NOT NULL,
+        version_label  TEXT NOT NULL,
+        count          INT NOT NULL,
+        created_at     TIMESTAMP DEFAULT NOW(),
+        UNIQUE(snapshot_date, family, version_label)
+      )
+    `);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_ad_os_snapshots_date ON hub_parc.ad_os_snapshots(snapshot_date)`);
+
     await client.query(`
       CREATE TABLE IF NOT EXISTS hub_calendrier.evenements (
         id SERIAL PRIMARY KEY,

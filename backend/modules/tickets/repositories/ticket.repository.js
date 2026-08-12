@@ -507,9 +507,15 @@ module.exports = {
         `, [username]);
     },
 
-    async getDashboardUserCounts(user) {
+    async getDashboardUserCounts(user, options = {}) {
         const requesterEmail = user?.email || '';
         const username = user?.username || '';
+        // Statuts inclus dans les compteurs : alignés sur les toggles "clos & résolus" /
+        // "rejetés" de la liste, pour que les badges des boutons de filtre correspondent
+        // à ce que la liste affiche réellement une fois le filtre cliqué.
+        const statusIn = [1, 2, 3, 4];
+        if (options.showResolved) statusIn.push(5, 6);
+        if (options.showRejected) statusIn.push(8);
         // COUNT(DISTINCT t.glpi_id) : le LEFT JOIN sur ticket_assignments duplique les
         // lignes (un ticket peut avoir plusieurs assignations) ; sans DISTINCT, les
         // compteurs sont gonflés et incohérents avec la liste filtrée.
@@ -520,7 +526,7 @@ module.exports = {
                 COUNT(DISTINCT t.glpi_id) FILTER (WHERE t.is_vip = true) as vip
             FROM hub_tickets.tickets t
             LEFT JOIN hub_tickets.ticket_assignments ta ON t.glpi_id = ta.ticket_id
-            WHERE t.status IN (1,2,3,4,5)
+            WHERE t.status IN (${statusIn.join(',')})
         `, [username, requesterEmail]);
     },
 
