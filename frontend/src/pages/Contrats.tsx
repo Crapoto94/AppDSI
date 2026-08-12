@@ -475,12 +475,20 @@ const Contrats: React.FC = () => {
     return true;
   });
 
+  const sortColType = COLS.find(c => c.key === sortKey)?.type;
   const sorted = [...filtered].sort((a, b) => {
     let av: string | number = (a[sortKey] ?? '') as string | number;
     let bv: string | number = (b[sortKey] ?? '') as string | number;
     if (['date_debut', 'date_fin', 'imported_at'].includes(sortKey as string)) {
       av = av ? new Date(av as string).getTime() : 0;
       bv = bv ? new Date(bv as string).getTime() : 0;
+    } else if (sortColType === 'number') {
+      // Les montants viennent de Postgres NUMERIC, sérialisés en chaîne ("1200.5") :
+      // sans conversion explicite, un tri par défaut les comparerait alphabétiquement.
+      av = av === '' || av == null ? -Infinity : parseFloat(String(av).replace(',', '.'));
+      bv = bv === '' || bv == null ? -Infinity : parseFloat(String(bv).replace(',', '.'));
+      if (isNaN(av as number)) av = -Infinity;
+      if (isNaN(bv as number)) bv = -Infinity;
     } else if (typeof av === 'string') { av = av.toLowerCase(); bv = (bv as string).toLowerCase(); }
     if (av < bv) return sortDir === 'asc' ? -1 : 1;
     if (av > bv) return sortDir === 'asc' ? 1 : -1;
