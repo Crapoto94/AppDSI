@@ -50,6 +50,7 @@ const SORT_OPTIONS = [
 ];
 
 const FILTER_SESSION_KEY = 'tickets_dash_filters';
+const VIEW_MODE_KEY = 'tickets_dash_view_mode';
 
 function generatePassword(): string {
   const upper = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
@@ -90,9 +91,15 @@ export default function TicketsDashboard() {
 
   const [resolvedRole, setResolvedRole] = useState<string | null>(null);
   const [canViewKpi, setCanViewKpi] = useState(true);
-  // Vue initiale : « live » si on arrive via la bulle de chat (/tickets?view=live).
-  const initialView = (typeof window !== 'undefined' &&
-    new URLSearchParams(window.location.search).get('view') === 'live') ? 'live' : 'table';
+  // Vue initiale : « live » si on arrive via la bulle de chat (/tickets?view=live),
+  // sinon la dernière vue choisie par l'utilisateur (persistée en localStorage).
+  const initialView = ((): 'table' | 'kanban' | 'inbox' | 'live' => {
+    if (typeof window === 'undefined') return 'table';
+    if (new URLSearchParams(window.location.search).get('view') === 'live') return 'live';
+    const saved = localStorage.getItem(VIEW_MODE_KEY);
+    if (saved === 'table' || saved === 'kanban' || saved === 'inbox' || saved === 'live') return saved;
+    return 'table';
+  })();
   const [viewMode, setViewMode] = useState<'table' | 'kanban' | 'inbox' | 'live'>(initialView);
   const [tickets, setTickets] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -122,6 +129,9 @@ export default function TicketsDashboard() {
   const [selectedInboxId, setSelectedInboxId] = useState<number | null>(null);
   const viewModeRef = useRef<'table' | 'kanban' | 'inbox' | 'live'>(initialView);
   useEffect(() => { viewModeRef.current = viewMode; }, [viewMode]);
+  useEffect(() => {
+    try { localStorage.setItem(VIEW_MODE_KEY, viewMode); } catch {}
+  }, [viewMode]);
   const [sortKey, setSortKey] = useState(_initSnap?.sortKey ?? 'date_creation');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>(_initSnap?.sortDir ?? 'desc');
   const sortKeyRef = useRef(sortKey);
