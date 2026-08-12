@@ -5931,6 +5931,20 @@ cron.schedule('30 4 * * *', async () => {
     }
 }, { timezone: 'Europe/Paris' });
 
+// ─── Parc : synchronisation quotidienne de l'Active Directory (postes/serveurs) à 06h00 ──
+cron.schedule('0 6 * * *', async () => {
+    console.log('[CRON] Synchronisation AD Parc (06h00)...');
+    try {
+        const r = await require('./modules/parc/parc.ad.controller').runADImport();
+        if (r.alreadyRunning) { console.log('[CRON ad-sync] Import déjà en cours, ignoré.'); return; }
+        if (r.error) { console.error('[CRON ad-sync]', r.error); logMouchard(`Sync AD Parc échouée: ${r.error}`); return; }
+        console.log(`[CRON ad-sync] Import démarré (batch ${r.batch}).`);
+    } catch (e) {
+        console.error('[CRON ad-sync]', e.message);
+        logMouchard(`Sync AD Parc échouée: ${e.message}`);
+    }
+}, { timezone: 'Europe/Paris' });
+
 app.use('/api/projets', projetsRouter);
 
 // ============================================

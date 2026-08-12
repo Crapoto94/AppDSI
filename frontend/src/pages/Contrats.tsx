@@ -3,7 +3,7 @@ import * as XLSX from 'xlsx';
 import Header from '../components/Header';
 import {
   Upload, Download, AlertCircle, Loader2, Trash2, Edit2, Check,
-  X as CloseIcon, Search, RefreshCw, ChevronUp, ChevronDown, Plus, FileSpreadsheet,
+  X as CloseIcon, Search, RefreshCw, ChevronUp, ChevronDown, ChevronRight, Plus, FileSpreadsheet,
   Paperclip, Eye, RefreshCcw, Archive, ArchiveRestore, FileText, Columns, Filter,
   TrendingUp, TrendingDown, ArrowRight
 } from 'lucide-react';
@@ -41,6 +41,7 @@ interface Contrat {
   prevision_2026: number | null;
   prevision_2027: number | null;
   prevision_2028: number | null;
+  prevision_2029: number | null;
   commentaires: string;
   statut: string;
   renouvellement_statut: string | null;
@@ -107,6 +108,7 @@ const COLS: ColDef[] = [
   { key: 'prevision_2026', label: 'Prév.2026', w: 88, type: 'number', defaultVisible: false },
   { key: 'prevision_2027', label: 'Prév.2027', w: 88, type: 'number' },
   { key: 'prevision_2028', label: 'Prév.2028', w: 88, type: 'number', defaultVisible: false },
+  { key: 'prevision_2029', label: 'Prév.2029', w: 88, type: 'number', defaultVisible: false },
   { key: 'renouvellement_statut', label: 'Renouvell.', w: 90 },
   { key: 'numero_facture', label: 'N° Facture', w: 110 },
   { key: 'commentaires', label: 'Commentaires', w: 170 },
@@ -118,17 +120,17 @@ const fmt = (n: number | null) =>
 // Tendance du montant 2026 par rapport à 2025 : hausse >15%, baisse <-15%, sinon stable.
 const trend2026 = (c: Contrat): { Icon: typeof TrendingUp; color: string; title: string } | null => {
   if (c.montant_2026 == null) return null;
-  const prev = c.montant_2025;
-  if (prev == null) return { Icon: ArrowRight, color: '#9ca3af', title: 'Pas de comparaison possible (2025 non renseigné)' };
+  const prev = c.prevision_2026;
+  if (prev == null) return { Icon: ArrowRight, color: '#9ca3af', title: 'Pas de comparaison possible (prévision 2026 non renseignée)' };
   if (prev === 0) {
     return c.montant_2026 > 0
-      ? { Icon: TrendingUp, color: '#16a34a', title: 'En hausse par rapport à 2025 (nul en 2025)' }
-      : { Icon: ArrowRight, color: '#9ca3af', title: 'Stable par rapport à 2025' };
+      ? { Icon: TrendingUp, color: '#16a34a', title: 'En hausse par rapport à la prévision 2026 (prévision nulle)' }
+      : { Icon: ArrowRight, color: '#9ca3af', title: 'Stable par rapport à la prévision 2026' };
   }
   const pct = ((c.montant_2026 - prev) / prev) * 100;
-  if (pct > 15) return { Icon: TrendingUp, color: '#16a34a', title: `En hausse de ${pct.toFixed(0)}% par rapport à 2025` };
-  if (pct < -15) return { Icon: TrendingDown, color: '#dc2626', title: `En baisse de ${Math.abs(pct).toFixed(0)}% par rapport à 2025` };
-  return { Icon: ArrowRight, color: '#9ca3af', title: `Stable par rapport à 2025 (${pct >= 0 ? '+' : ''}${pct.toFixed(0)}%)` };
+  if (pct > 15) return { Icon: TrendingUp, color: '#16a34a', title: `En hausse de ${pct.toFixed(0)}% par rapport à la prévision 2026` };
+  if (pct < -15) return { Icon: TrendingDown, color: '#dc2626', title: `En baisse de ${Math.abs(pct).toFixed(0)}% par rapport à la prévision 2026` };
+  return { Icon: ArrowRight, color: '#9ca3af', title: `Stable par rapport à la prévision 2026 (${pct >= 0 ? '+' : ''}${pct.toFixed(0)}%)` };
 };
 
 const fmtDate = (d: string | null) => {
@@ -170,6 +172,115 @@ const ModalHeader: React.FC<{ title: string; onClose: () => void }> = ({ title, 
   </div>
 );
 
+// ── Prévision budgétaire : total par service, déroulable par nature ───────────
+// n-1 = montant réalisé N-1, n = montant réalisé de l'année en cours, n+1..n+3 = prévisions.
+const PREVISION_YEARS: { key: keyof Contrat; label: string }[] = [
+  { key: 'montant_2025', label: '2025 (n-1)' },
+  { key: 'montant_2026', label: '2026 (n)' },
+  { key: 'prevision_2027', label: '2027 (n+1)' },
+  { key: 'prevision_2028', label: '2028 (n+2)' },
+  { key: 'prevision_2029', label: '2029 (n+3)' },
+];
+
+interface PrevisionRow { label: string; totals: number[] }
+interface PrevisionGroup { service: string; totals: number[]; natures: PrevisionRow[] }
+
+function buildPrevisionData(contrats: Contrat[]): PrevisionGroup[] {
+  const bySvc = new Map<string, Map<string, number[]>>();
+  for (const c of contrats) {
+    const svc = c.service?.trim() || 'Service non renseigné';
+    const nat = c.nature?.trim() || 'Nature non renseignée';
+    if (!bySvc.has(svc)) bySvc.set(svc, new Map());
+    const byNat = bySvc.get(svc)!;
+    if (!byNat.has(nat)) byNat.set(nat, PREVISION_YEARS.map(() => 0));
+    const totals = byNat.get(nat)!;
+    PREVISION_YEARS.forEach((y, i) => { totals[i] += Number(c[y.key]) || 0; });
+  }
+  const groups: PrevisionGroup[] = [];
+  for (const [service, byNat] of bySvc.entries()) {
+    const svcTotals = PREVISION_YEARS.map(() => 0);
+    const natures = [...byNat.entries()]
+      .map(([label, totals]) => {
+        totals.forEach((v, i) => { svcTotals[i] += v; });
+        return { label, totals };
+      })
+      .sort((a, b) => a.label.localeCompare(b.label));
+    groups.push({ service, totals: svcTotals, natures });
+  }
+  return groups.sort((a, b) => a.service.localeCompare(b.service));
+}
+
+const PrevisionModal: React.FC<{ contrats: Contrat[]; onClose: () => void }> = ({ contrats, onClose }) => {
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const active = contrats.filter(c => c.statut !== 'archivé');
+  const groups = buildPrevisionData(active);
+  const grandTotal = PREVISION_YEARS.map(() => 0);
+  groups.forEach(g => g.totals.forEach((v, i) => { grandTotal[i] += v; }));
+
+  const toggle = (service: string) => setExpanded(prev => {
+    const next = new Set(prev);
+    if (next.has(service)) next.delete(service); else next.add(service);
+    return next;
+  });
+
+  const th: React.CSSProperties = { padding: '8px 10px', textAlign: 'right', fontSize: 12, fontWeight: 700, color: '#475569', whiteSpace: 'nowrap' };
+  const td: React.CSSProperties = { padding: '7px 10px', textAlign: 'right', fontSize: 13 };
+
+  return (
+    <Overlay onClose={onClose} maxWidth={900}>
+      <ModalHeader title="Prévision budgétaire par service" onClose={onClose} />
+      {groups.length === 0 ? (
+        <div style={{ textAlign: 'center', padding: 24, color: '#6b7280', fontSize: 13 }}>Aucun contrat actif.</div>
+      ) : (
+        <div style={{ overflowX: 'auto' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <thead>
+              <tr style={{ background: '#f8fafc', borderBottom: '2px solid #e5e7eb' }}>
+                <th style={{ padding: '8px 10px', textAlign: 'left', fontSize: 12, fontWeight: 700, color: '#475569' }}>Service</th>
+                {PREVISION_YEARS.map(y => <th key={y.key} style={th}>{y.label}</th>)}
+              </tr>
+            </thead>
+            <tbody>
+              {groups.map(g => {
+                const isOpen = expanded.has(g.service);
+                return (
+                  <React.Fragment key={g.service}>
+                    <tr onClick={() => toggle(g.service)}
+                      style={{ cursor: 'pointer', borderTop: '1px solid #e5e7eb', fontWeight: 700 }}
+                      onMouseEnter={e => (e.currentTarget.style.background = '#f8fafc')}
+                      onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>
+                      <td style={{ padding: '8px 10px', display: 'flex', alignItems: 'center', gap: 6, color: '#1e3a5f' }}>
+                        {isOpen ? <ChevronDown size={14} color="#6b7280" /> : <ChevronRight size={14} color="#6b7280" />}
+                        {g.service}
+                      </td>
+                      {g.totals.map((v, i) => <td key={i} style={td}>{fmt(v)}</td>)}
+                    </tr>
+                    {isOpen && g.natures.map(n => (
+                      <tr key={`${g.service}|${n.label}`} style={{ background: '#f9fafb', color: '#475569' }}>
+                        <td style={{ padding: '6px 10px 6px 34px', fontSize: 12 }}>{n.label}</td>
+                        {n.totals.map((v, i) => <td key={i} style={{ ...td, fontSize: 12 }}>{fmt(v)}</td>)}
+                      </tr>
+                    ))}
+                  </React.Fragment>
+                );
+              })}
+            </tbody>
+            <tfoot>
+              <tr style={{ borderTop: '2px solid #1e3a5f' }}>
+                <td style={{ padding: '9px 10px', fontWeight: 800, color: '#1e3a5f' }}>Total</td>
+                {grandTotal.map((v, i) => <td key={i} style={{ ...td, fontWeight: 800, color: '#1e3a5f' }}>{fmt(v)}</td>)}
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      )}
+      <div style={{ marginTop: 12, fontSize: 11, color: '#9ca3af' }}>
+        Basé sur les contrats actifs (hors archivés). 2025/2026 = montants réalisés, 2027-2029 = prévisions.
+      </div>
+    </Overlay>
+  );
+};
+
 const authHeaders = () => ({
   'Authorization': `Bearer ${localStorage.getItem('token')}`
 });
@@ -201,6 +312,7 @@ const Contrats: React.FC = () => {
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<number | null>(null);
   const [importResult, setImportResult] = useState<{ inserted: number; updated: number; skipped: number; errors: number } | null>(null);
+  const [showPrevisionModal, setShowPrevisionModal] = useState(false);
 
   const [docModal, setDocModal] = useState<{ contrat: Contrat; docs: Document[] } | null>(null);
   const [docUploading, setDocUploading] = useState(false);
@@ -510,7 +622,7 @@ const Contrats: React.FC = () => {
       date_debut: null, duree_annees: null, nb_reconductions: null, date_fin: null,
       marche_contrat: '', piece: '', date_reconduction: '', reconduction: '',
       montant_2022: null, montant_2023: null, montant_2024: null, montant_2025: null, montant_2026: null,
-      prevision_2026: null, prevision_2027: null, prevision_2028: null, commentaires: '',
+      prevision_2026: null, prevision_2027: null, prevision_2028: null, prevision_2029: null, commentaires: '',
       gti: '', gtr: '', penalite: '', indice_revision: '', numero_facture: ''
     };
     setEditModal(null);
@@ -656,6 +768,7 @@ const Contrats: React.FC = () => {
           prevision_2026: null,
           prevision_2027: null,
           prevision_2028: null,
+          prevision_2029: null,
           commentaires: '',
           gti: renewModal.gti,
           gtr: renewModal.gtr,
@@ -767,6 +880,7 @@ const Contrats: React.FC = () => {
       case 'prevision_2026': return fmt(c.prevision_2026);
       case 'prevision_2027': return fmt(c.prevision_2027);
       case 'prevision_2028': return fmt(c.prevision_2028);
+      case 'prevision_2029': return fmt(c.prevision_2029);
       case 'duree_annees': return v != null ? `${v}a` : '—';
       case 'renouvellement_statut': return renewBadge(c);
       case 'tiers':
@@ -925,7 +1039,14 @@ const Contrats: React.FC = () => {
         <button onClick={handleExportExcel} style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '4px 10px', borderRadius: 6, border: 'none', background: '#0d9488', color: '#fff', cursor: 'pointer', fontSize: 11, fontWeight: 600 }}>
           <Download size={12} /> Export Excel
         </button>
+        <button onClick={() => setShowPrevisionModal(true)} style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '4px 10px', borderRadius: 6, border: 'none', background: '#7c3aed', color: '#fff', cursor: 'pointer', fontSize: 11, fontWeight: 600 }}>
+          <TrendingUp size={12} /> Prévision
+        </button>
       </div>
+
+      {showPrevisionModal && (
+        <PrevisionModal contrats={contrats} onClose={() => setShowPrevisionModal(false)} />
+      )}
 
       {/* Résultat import */}
       {importResult && (
@@ -1308,6 +1429,7 @@ const Contrats: React.FC = () => {
               {mf('Prév. 2026', 'prevision_2026', 'number')}
               {mf('Prév. 2027', 'prevision_2027', 'number')}
               {mf('Prév. 2028', 'prevision_2028', 'number')}
+              {mf('Prév. 2029', 'prevision_2029', 'number')}
             </div>
 
             {/* Zone spéciale Niveaux de service */}

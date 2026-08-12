@@ -107,9 +107,9 @@ module.exports = {
                     date_debut, duree_annees, nb_reconductions, date_fin,
                     marche_contrat, piece, date_reconduction, reconduction,
                     montant_2022, montant_2023, montant_2024, montant_2025, montant_2026,
-                    prevision_2026, prevision_2027, prevision_2028, commentaires,
+                    prevision_2026, prevision_2027, prevision_2028, prevision_2029, commentaires,
                     gti, gtr, penalite, indice_revision, numero_facture, contrat_renouvellement_id
-                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
                 [
                     toStr(b.svc), toStr(b.objet), toStr(b.budget), toStr(b.raison_sociale), toStr(b.tiers), toInt(b.app_id), toStr(b.type_contrat),
                     toInt(b.annee_initiale), toStr(b.direction), toStr(b.service), toStr(b.perimetre),
@@ -118,7 +118,7 @@ module.exports = {
                     toStr(b.date_reconduction), toStr(b.reconduction),
                     toFloat(b.montant_2022), toFloat(b.montant_2023), toFloat(b.montant_2024),
                     toFloat(b.montant_2025), toFloat(b.montant_2026),
-                    toFloat(b.prevision_2026), toFloat(b.prevision_2027), toFloat(b.prevision_2028),
+                    toFloat(b.prevision_2026), toFloat(b.prevision_2027), toFloat(b.prevision_2028), toFloat(b.prevision_2029),
                     toStr(b.commentaires),
                     toStr(b.gti), toStr(b.gtr), toStr(b.penalite), toStr(b.indice_revision), toStr(b.numero_facture),
                     toInt(b.contrat_renouvellement_id)
@@ -141,7 +141,7 @@ module.exports = {
                 'date_debut', 'duree_annees', 'nb_reconductions', 'date_fin',
                 'marche_contrat', 'piece', 'date_reconduction', 'reconduction',
                 'montant_2022', 'montant_2023', 'montant_2024', 'montant_2025', 'montant_2026',
-                'prevision_2026', 'prevision_2027', 'prevision_2028', 'commentaires',
+                'prevision_2026', 'prevision_2027', 'prevision_2028', 'prevision_2029', 'commentaires',
                 'gti', 'gtr', 'penalite', 'indice_revision', 'numero_facture'
             ];
             const updates = [];
@@ -260,6 +260,7 @@ module.exports = {
                     prevision_2026: toFloat(row['Prévision 2026']),
                     prevision_2027: toFloat(row['Prévision 2027']),
                     prevision_2028: toFloat(row['Prévision 2028']),
+                    prevision_2029: toFloat(row['Prévision 2029']),
                     commentaires: toStr(row['Commentaires'])
                 };
 
@@ -275,7 +276,7 @@ module.exports = {
                             'date_debut', 'duree_annees', 'nb_reconductions', 'date_fin',
                             'marche_contrat', 'piece', 'date_reconduction', 'reconduction',
                             'montant_2022', 'montant_2023', 'montant_2024', 'montant_2025', 'montant_2026',
-                            'prevision_2026', 'prevision_2027', 'prevision_2028', 'commentaires'
+                            'prevision_2026', 'prevision_2027', 'prevision_2028', 'prevision_2029', 'commentaires'
                         ];
                         const updateClauses = updateFields.map(f => `${f} = ?`);
                         const updateValues = updateFields.map(f => data[f]);
@@ -292,15 +293,15 @@ module.exports = {
                                 date_debut, duree_annees, nb_reconductions, date_fin,
                                 marche_contrat, piece, date_reconduction, reconduction,
                                 montant_2022, montant_2023, montant_2024, montant_2025, montant_2026,
-                                prevision_2026, prevision_2027, prevision_2028, commentaires
-                            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`;
+                                prevision_2026, prevision_2027, prevision_2028, prevision_2029, commentaires
+                            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`;
                         const values = [
                                 data.svc, data.objet, data.budget, data.raison_sociale, data.type_contrat,
                                 data.annee_initiale, data.direction, data.service, data.perimetre, data.nature, data.fonction,
                                 data.date_debut, data.duree_annees, data.nb_reconductions, data.date_fin,
                                 data.marche_contrat, data.piece, data.date_reconduction, data.reconduction,
                                 data.montant_2022, data.montant_2023, data.montant_2024, data.montant_2025, data.montant_2026,
-                                data.prevision_2026, data.prevision_2027, data.prevision_2028, data.commentaires
+                                data.prevision_2026, data.prevision_2027, data.prevision_2028, data.prevision_2029, data.commentaires
                             ];
                         await db.run(query, values);
                         inserted++;

@@ -2579,6 +2579,7 @@ async function setupPgDb() {
         prevision_2026 NUMERIC,
         prevision_2027 NUMERIC,
         prevision_2028 NUMERIC,
+        prevision_2029 NUMERIC,
         commentaires TEXT DEFAULT '',
         gti VARCHAR(255) DEFAULT '',
         gtr VARCHAR(255) DEFAULT '',
@@ -2631,6 +2632,12 @@ async function setupPgDb() {
       `);
     } catch (e) {
       console.log('[PG DB] Migration app_id column:', e.message);
+    }
+
+    try {
+      await client.query(`ALTER TABLE hub_contrats.contrats ADD COLUMN IF NOT EXISTS prevision_2029 NUMERIC`);
+    } catch (e) {
+      console.log('[PG DB] Migration prevision_2029 column:', e.message);
     }
 
     // Create gf_oracle_tiers table for tier lookups

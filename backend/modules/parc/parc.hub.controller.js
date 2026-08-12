@@ -414,4 +414,4 @@ async function mergeItems(req, res) {
   } catch (e) { res.status(500).json({ message: e.message }); }
 }
 
-module.exports = { list, item, kpis, filters, health, usagersEquip, byEmail, clearHubCache, updateContactNum, stockSummary, swapContact, adLookup, updateContact, doublons, mergeItems };
+module.exports = { list, item, kpis, filters, health, usagersEquip, byEmail, clearHubCache, updateContactNum, stockSummary, swapContact, adLookup, updateContact, doublons, mergeItems, loadTypeRows };

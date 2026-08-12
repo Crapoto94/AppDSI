@@ -21,10 +21,14 @@ interface HistoryPoint { date: string; family: string; total: number }
 type ViewTarget = { family: string; version?: string } | null;
 
 // ── Sous-tableau "Voir" : postes appartenant à une famille (ou version) d'OS ──
+type MachineSortKey = 'name' | 'os_version_label' | 'ipaddress' | 'usager' | 'lastlogonuser' | 'lastlogon' | 'enabled';
+
 const AdOsMachinesModal: React.FC<{ target: { family: string; version?: string }; token: string | null; onClose: () => void; onOpenDevice: (name: string) => void }> = ({ target, token, onClose, onOpenDevice }) => {
   const [rows, setRows] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [sortKey, setSortKey] = useState<MachineSortKey>('name');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
 
   useEffect(() => {
     let cancelled = false;
@@ -48,6 +52,28 @@ const AdOsMachinesModal: React.FC<{ target: { family: string; version?: string }
     catch { return d; }
   };
 
+  const toggleSort = (key: MachineSortKey) => {
+    if (sortKey === key) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
+    else { setSortKey(key); setSortDir('asc'); }
+  };
+  const sortArrow = (key: MachineSortKey) => sortKey !== key ? null : (sortDir === 'asc' ? ' ▲' : ' ▼');
+
+  const sortedRows = [...rows].sort((a, b) => {
+    let av: any = a[sortKey]; let bv: any = b[sortKey];
+    if (sortKey === 'lastlogon') { av = av ? new Date(av).getTime() : 0; bv = bv ? new Date(bv).getTime() : 0; }
+    else if (sortKey === 'enabled') { av = av ? 1 : 0; bv = bv ? 1 : 0; }
+    else {
+      if (av == null || av === '') return bv == null || bv === '' ? 0 : 1;
+      if (bv == null || bv === '') return -1;
+      av = String(av).toLowerCase(); bv = String(bv).toLowerCase();
+    }
+    if (av < bv) return sortDir === 'asc' ? -1 : 1;
+    if (av > bv) return sortDir === 'asc' ? 1 : -1;
+    return 0;
+  });
+
+  const sortTh: React.CSSProperties = { padding: '6px 8px', borderBottom: `1px solid ${C.border}`, cursor: 'pointer', userSelect: 'none' as const, whiteSpace: 'nowrap' };
+
   return (
     <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.5)', zIndex: 1500, display: 'flex', justifyContent: 'center', alignItems: 'flex-start', padding: 'calc(var(--header-height, 80px) + 24px) 16px 40px', overflowY: 'auto' }}>
       <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: 14, width: '100%', maxWidth: 820, boxShadow: '0 25px 60px rgba(0,0,0,.3)' }}>
@@ -70,16 +96,17 @@ const AdOsMachinesModal: React.FC<{ target: { family: string; version?: string }
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '.82rem' }}>
               <thead>
                 <tr style={{ textAlign: 'left', color: C.slate }}>
-                  <th style={{ padding: '6px 8px', borderBottom: `1px solid ${C.border}` }}>Nom</th>
-                  <th style={{ padding: '6px 8px', borderBottom: `1px solid ${C.border}` }}>Version</th>
-                  <th style={{ padding: '6px 8px', borderBottom: `1px solid ${C.border}` }}>IP</th>
-                  <th style={{ padding: '6px 8px', borderBottom: `1px solid ${C.border}` }}>Dernier utilisateur</th>
-                  <th style={{ padding: '6px 8px', borderBottom: `1px solid ${C.border}` }}>Dernière connexion</th>
-                  <th style={{ padding: '6px 8px', borderBottom: `1px solid ${C.border}` }}>État</th>
+                  <th style={sortTh} onClick={() => toggleSort('name')}>Nom{sortArrow('name')}</th>
+                  <th style={sortTh} onClick={() => toggleSort('os_version_label')}>Version{sortArrow('os_version_label')}</th>
+                  <th style={sortTh} onClick={() => toggleSort('ipaddress')}>IP{sortArrow('ipaddress')}</th>
+                  <th style={sortTh} onClick={() => toggleSort('usager')}>Usager (parc){sortArrow('usager')}</th>
+                  <th style={sortTh} onClick={() => toggleSort('lastlogonuser')}>Dernier utilisateur AD{sortArrow('lastlogonuser')}</th>
+                  <th style={sortTh} onClick={() => toggleSort('lastlogon')}>Dernière connexion{sortArrow('lastlogon')}</th>
+                  <th style={sortTh} onClick={() => toggleSort('enabled')}>État{sortArrow('enabled')}</th>
                 </tr>
               </thead>
               <tbody>
-                {rows.map((r, i) => (
+                {sortedRows.map((r, i) => (
                   <tr key={r.id} onClick={() => onOpenDevice(r.name)}
                     style={{ borderTop: `1px solid ${C.border}`, background: i % 2 === 0 ? '#fff' : '#fafbfc', cursor: 'pointer' }}
                     onMouseEnter={e => (e.currentTarget.style.background = '#eff6ff')}
@@ -87,6 +114,7 @@ const AdOsMachinesModal: React.FC<{ target: { family: string; version?: string }
                     <td style={{ padding: '7px 8px', fontWeight: 600, color: C.blue }}>{r.name || '—'}</td>
                     <td style={{ padding: '7px 8px', color: C.slate }}>{r.os_version_label || '—'}</td>
                     <td style={{ padding: '7px 8px', fontFamily: 'monospace', fontSize: '.78rem' }}>{r.ipaddress || '—'}</td>
+                    <td style={{ padding: '7px 8px' }}>{r.usager || '—'}</td>
                     <td style={{ padding: '7px 8px' }}>{r.lastlogonuser || '—'}</td>
                     <td style={{ padding: '7px 8px', color: C.slate }}>{fmtDate(r.lastlogon)}</td>
                     <td style={{ padding: '7px 8px' }}>
@@ -239,10 +267,10 @@ const AdOsStats: React.FC<{ families: OsFamily[]; history: HistoryPoint[]; token
 };
 
 interface ColFilters {
-  name: string; sam: string; ip: string; os: string; user: string; ou: string;
+  name: string; sam: string; ip: string; os: string; usager: string; user: string; ou: string;
   enabled: '' | 'true' | 'false';
 }
-const EMPTY_FILTERS: ColFilters = { name: '', sam: '', ip: '', os: '', user: '', ou: '', enabled: '' };
+const EMPTY_FILTERS: ColFilters = { name: '', sam: '', ip: '', os: '', usager: '', user: '', ou: '', enabled: '' };
 
 interface AdViewProps {
   // Ouvre la fiche détail complète (parc/hub) d'un poste à partir de son nom AD (ex: "PO22038").
@@ -301,6 +329,7 @@ const AdView: React.FC<AdViewProps> = ({ onOpenDevice }) => {
       if (flt.sam) params.f_sam = flt.sam;
       if (flt.ip) params.f_ip = flt.ip;
       if (flt.os) params.f_os = flt.os;
+      if (flt.usager) params.f_usager = flt.usager;
       if (flt.user) params.f_user = flt.user;
       if (flt.ou) params.f_ou = flt.ou;
       if (flt.enabled) params.enabled = flt.enabled;
@@ -484,7 +513,8 @@ const AdView: React.FC<AdViewProps> = ({ onOpenDevice }) => {
                   <th style={{ ...th, cursor: 'default' }}>IP</th>
                   <th style={{ ...th, cursor: 'default' }}>OS</th>
                   <th style={th} onClick={() => toggleSort('lastlogon')}>Dernière connexion{sortArrow('lastlogon')}</th>
-                  <th style={{ ...th, cursor: 'default' }}>Dernier utilisateur</th>
+                  <th style={{ ...th, cursor: 'default' }}>Usager (parc)</th>
+                  <th style={{ ...th, cursor: 'default' }}>Dernier utilisateur AD</th>
                   <th style={{ ...th, cursor: 'default' }}>OU</th>
                   <th style={th} onClick={() => toggleSort('enabled')}>État{sortArrow('enabled')}</th>
                 </tr>
@@ -494,6 +524,7 @@ const AdView: React.FC<AdViewProps> = ({ onOpenDevice }) => {
                   <th style={filterTh}><input style={filterInput} value={filters.ip} onChange={e => setFilter('ip', e.target.value)} placeholder="Filtrer…" /></th>
                   <th style={filterTh}><input style={filterInput} value={filters.os} onChange={e => setFilter('os', e.target.value)} placeholder="Filtrer…" /></th>
                   <th style={filterTh} />
+                  <th style={filterTh}><input style={filterInput} value={filters.usager} onChange={e => setFilter('usager', e.target.value)} placeholder="Filtrer…" /></th>
                   <th style={filterTh}><input style={filterInput} value={filters.user} onChange={e => setFilter('user', e.target.value)} placeholder="Filtrer…" /></th>
                   <th style={filterTh}><input style={filterInput} value={filters.ou} onChange={e => setFilter('ou', e.target.value)} placeholder="Filtrer…" /></th>
                   <th style={filterTh}>
@@ -507,7 +538,7 @@ const AdView: React.FC<AdViewProps> = ({ onOpenDevice }) => {
               </thead>
               <tbody>
                 {rows.length === 0 ? (
-                  <tr><td colSpan={8} style={{ padding: 24, textAlign: 'center', color: C.slate }}>Aucun résultat pour ces filtres.</td></tr>
+                  <tr><td colSpan={9} style={{ padding: 24, textAlign: 'center', color: C.slate }}>Aucun résultat pour ces filtres.</td></tr>
                 ) : rows.map((row, i) => (
                   <tr key={row.id} onClick={() => handleOpenDevice(row.name)}
                     style={{ borderTop: `1px solid ${C.border}`, background: i % 2 === 0 ? '#fff' : '#fafbfc', cursor: onOpenDevice ? 'pointer' : 'default' }}
@@ -529,6 +560,7 @@ const AdView: React.FC<AdViewProps> = ({ onOpenDevice }) => {
                       ) : '—'}
                     </td>
                     <td style={{ padding: '8px 10px', fontSize: '.79rem', color: C.slate }}>{fmtDate(row.lastlogon)}</td>
+                    <td style={{ padding: '8px 10px', fontSize: '.79rem' }}>{row.usager || '—'}</td>
                     <td style={{ padding: '8px 10px', fontSize: '.79rem' }}>{row.lastlogonuser || '—'}</td>
                     <td style={{ padding: '8px 10px', fontSize: '.75rem', color: C.slate, maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={row.ou || ''}>{row.ou || '—'}</td>
                     <td style={{ padding: '8px 10px' }}>

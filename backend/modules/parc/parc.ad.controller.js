@@ -6,6 +6,26 @@
 const { pool, getSqlite } = require('../../shared/database');
 const { searchADComputers } = require('../../shared/ad_helper');
 const { classifyOs } = require('../../shared/os_version_map');
+const hubCtrl = require('./parc.hub.controller');
+
+// ── Usager (gestion de parc) par nom de poste ──────────────────────────────────
+// Les postes AD n'ont pas d'usager : on le récupère depuis hub_parc.items
+// (mêmes données que /parc → onglet "Ordinateurs"), en recoupant par nom de poste.
+async function buildUsagerMap() {
+  const map = new Map();
+  try {
+    const rows = await hubCtrl.loadTypeRows('ordinateurs');
+    for (const r of rows || []) {
+      const key = (r.name || '').trim().toLowerCase();
+      if (!key) continue;
+      const usager = r.contact || r.user || '';
+      if (usager) map.set(key, usager);
+    }
+  } catch (e) {
+    console.error('[AD] Erreur chargement usagers parc:', e.message);
+  }
+  return map;
+}
 
 // État de l'import en cours (un seul à la fois, suivi par le frontend).
 let _importState = { running: false, count: 0, total: null, batch: null, startedAt: null, finishedAt: null, error: null };
@@ -24,7 +44,9 @@ async function getADConfig() {
 async function listADComputers(req, res) {
   try {
     const limit  = Math.min(parseInt(req.query.limit, 10) || 100, 1000);
-    const offset = parseInt(req.query.offset, 10) || 0;
+    // Le frontend pagine par "page" ; "offset" reste accepté pour compat/appels directs.
+    const page   = Math.max(1, parseInt(req.query.page, 10) || 1);
+    const offset = req.query.offset !== undefined ? (parseInt(req.query.offset, 10) || 0) : (page - 1) * limit;
     const q      = (req.query.q || '').trim();
     const enabled = req.query.enabled; // 'true' | 'false' | undefined
     // Filtres par colonne (en-tête du tableau AD) : chacun est un LIKE insensible à la casse.
@@ -32,6 +54,7 @@ async function listADComputers(req, res) {
     const fSam  = (req.query.f_sam || '').trim();
     const fIp   = (req.query.f_ip || '').trim();
     const fOs   = (req.query.f_os || '').trim();
+    const fUsager = (req.query.f_usager || '').trim();
     const fUser = (req.query.f_user || '').trim();
     const fOu   = (req.query.f_ou || '').trim();
 
@@ -60,6 +83,30 @@ async function listADComputers(req, res) {
     }
     const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
 
+    // L'usager (gestion de parc) n'est pas une colonne SQL de ad_computers : filtrer
+    // dessus demande de recouper avec hub_parc.items d'abord, donc on charge tout ce
+    // qui correspond aux autres filtres puis on filtre/pagine en mémoire.
+    if (fUsager) {
+      const allRes = await pool.query(
+        `SELECT id, cn, name, samaccountname, dnshostname, ipaddress, operatingsystem, osversion,
+                lastlogon, lastlogonuser, description, whencreated, enabled, distinguishedname, ou,
+                import_batch, first_seen, updated_at
+         FROM hub_parc.ad_computers ${whereSql}
+         ORDER BY name ASC`,
+        params
+      );
+      const usagerMap = await buildUsagerMap();
+      const needle = fUsager.toLowerCase();
+      const enriched = allRes.rows
+        .map(row => {
+          const { family, versionLabel } = classifyOs(row.operatingsystem, row.osversion);
+          const usager = usagerMap.get((row.name || '').trim().toLowerCase()) || null;
+          return { ...row, os_family: family, os_version_label: versionLabel, usager };
+        })
+        .filter(row => (row.usager || '').toLowerCase().includes(needle));
+      return res.json({ total: enriched.length, rows: enriched.slice(offset, offset + limit) });
+    }
+
     const totalRes = await pool.query(`SELECT COUNT(*)::int AS n FROM hub_parc.ad_computers ${whereSql}`, params);
     params.push(limit); const limitP = `$${params.length}`;
     params.push(offset); const offsetP = `$${params.length}`;
@@ -72,9 +119,11 @@ async function listADComputers(req, res) {
        LIMIT ${limitP} OFFSET ${offsetP}`,
       params
     );
+    const usagerMap = await buildUsagerMap();
     const rows = rowsRes.rows.map(row => {
       const { family, versionLabel } = classifyOs(row.operatingsystem, row.osversion);
-      return { ...row, os_family: family, os_version_label: versionLabel };
+      const usager = usagerMap.get((row.name || '').trim().toLowerCase()) || null;
+      return { ...row, os_family: family, os_version_label: versionLabel, usager };
     });
     res.json({ total: totalRes.rows[0].n, rows });
   } catch (error) {
@@ -123,10 +172,14 @@ async function listComputersByOs(req, res) {
              lastlogon, lastlogonuser, ou, enabled
       FROM hub_parc.ad_computers
     `);
+    const usagerMap = await buildUsagerMap();
     const rows = r.rows
       .map(row => ({ row, cls: classifyOs(row.operatingsystem, row.osversion) }))
       .filter(({ cls }) => cls.family === family && (!version || cls.versionLabel === version))
-      .map(({ row, cls }) => ({ ...row, os_family: cls.family, os_version_label: cls.versionLabel }))
+      .map(({ row, cls }) => ({
+        ...row, os_family: cls.family, os_version_label: cls.versionLabel,
+        usager: usagerMap.get((row.name || '').trim().toLowerCase()) || null,
+      }))
       .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
 
     res.json({ total: rows.length, rows });
@@ -201,72 +254,82 @@ async function snapshotOsBreakdown() {
 }
 
 // ── Import : énumère l'AD et upsert dans hub_parc.ad_computers ─────────────────
-async function importADComputers(req, res) {
+// Logique pure (sans req/res) pour pouvoir être appelée aussi bien depuis la
+// route HTTP que depuis le cron de synchro quotidienne (voir server.js).
+async function runADImport() {
   if (_importState.running) {
-    return res.status(409).json({ message: 'Un import est déjà en cours.', state: _importState });
+    return { alreadyRunning: true };
   }
 
   const cfg = await getADConfig();
   if (!cfg || !cfg.host) {
-    return res.status(503).json({ message: 'Active Directory non configuré (ad_settings).' });
+    return { error: 'Active Directory non configuré (ad_settings).' };
   }
 
   const batch = `ad-${new Date().toISOString().replace(/[:.]/g, '-')}`;
   _importState = { running: true, count: 0, total: null, batch, startedAt: new Date().toISOString(), finishedAt: null, error: null };
 
-  // On répond immédiatement : l'import tourne en arrière-plan, le frontend
-  // suit l'avancement via GET /api/parc/ad/import-progress.
-  res.status(202).json({ message: 'Import démarré', batch });
+  // Tourne en tâche de fond : l'appelant (route HTTP ou cron) n'attend pas la fin.
+  (async () => {
+    try {
+      const computers = await searchADComputers(cfg, {
+        onProgress: (n) => { _importState.count = n; }
+      });
+      _importState.total = computers.length;
 
-  try {
-    const computers = await searchADComputers(cfg, {
-      onProgress: (n) => { _importState.count = n; }
-    });
-    _importState.total = computers.length;
+      let written = 0;
+      for (const c of computers) {
+        // samAccountName est la clé d'unicité (upsert) : on ignore les rares
+        // entrées sans sAMAccountName.
+        if (!c.samaccountname) continue;
+        await pool.query(
+          `INSERT INTO hub_parc.ad_computers
+             (cn, name, samaccountname, dnshostname, operatingsystem, osversion,
+              lastlogon, description, whencreated, enabled, distinguishedname, ou,
+              import_batch, updated_at)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13, NOW())
+           ON CONFLICT (samaccountname) DO UPDATE SET
+              cn = EXCLUDED.cn,
+              name = EXCLUDED.name,
+              dnshostname = EXCLUDED.dnshostname,
+              operatingsystem = EXCLUDED.operatingsystem,
+              osversion = EXCLUDED.osversion,
+              lastlogon = EXCLUDED.lastlogon,
+              description = EXCLUDED.description,
+              whencreated = EXCLUDED.whencreated,
+              enabled = EXCLUDED.enabled,
+              distinguishedname = EXCLUDED.distinguishedname,
+              ou = EXCLUDED.ou,
+              import_batch = EXCLUDED.import_batch,
+              updated_at = NOW()`,
+          [c.cn, c.name, c.samaccountname, c.dnshostname, c.operatingsystem, c.osversion,
+           c.lastlogon, c.description, c.whencreated, c.enabled, c.distinguishedname, c.ou, batch]
+        );
+        written++;
+        _importState.count = written;
+      }
 
-    let written = 0;
-    for (const c of computers) {
-      // samAccountName est la clé d'unicité (upsert) : on ignore les rares
-      // entrées sans sAMAccountName.
-      if (!c.samaccountname) continue;
-      await pool.query(
-        `INSERT INTO hub_parc.ad_computers
-           (cn, name, samaccountname, dnshostname, operatingsystem, osversion,
-            lastlogon, description, whencreated, enabled, distinguishedname, ou,
-            import_batch, updated_at)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13, NOW())
-         ON CONFLICT (samaccountname) DO UPDATE SET
-            cn = EXCLUDED.cn,
-            name = EXCLUDED.name,
-            dnshostname = EXCLUDED.dnshostname,
-            operatingsystem = EXCLUDED.operatingsystem,
-            osversion = EXCLUDED.osversion,
-            lastlogon = EXCLUDED.lastlogon,
-            description = EXCLUDED.description,
-            whencreated = EXCLUDED.whencreated,
-            enabled = EXCLUDED.enabled,
-            distinguishedname = EXCLUDED.distinguishedname,
-            ou = EXCLUDED.ou,
-            import_batch = EXCLUDED.import_batch,
-            updated_at = NOW()`,
-        [c.cn, c.name, c.samaccountname, c.dnshostname, c.operatingsystem, c.osversion,
-         c.lastlogon, c.description, c.whencreated, c.enabled, c.distinguishedname, c.ou, batch]
-      );
-      written++;
+      _importState.running = false;
+      _importState.finishedAt = new Date().toISOString();
       _importState.count = written;
+      console.log(`[AD] Import terminé : ${written} ordinateur(s) (batch ${batch}).`);
+      await snapshotOsBreakdown();
+    } catch (error) {
+      _importState.running = false;
+      _importState.error = error.message;
+      _importState.finishedAt = new Date().toISOString();
+      console.error('[AD] Erreur import ordinateurs:', error.message);
     }
+  })();
 
-    _importState.running = false;
-    _importState.finishedAt = new Date().toISOString();
-    _importState.count = written;
-    console.log(`[AD] Import terminé : ${written} ordinateur(s) (batch ${batch}).`);
-    await snapshotOsBreakdown();
-  } catch (error) {
-    _importState.running = false;
-    _importState.error = error.message;
-    _importState.finishedAt = new Date().toISOString();
-    console.error('[AD] Erreur import ordinateurs:', error.message);
-  }
+  return { started: true, batch };
 }
 
-module.exports = { listADComputers, adStats, getOsHistory, listComputersByOs, importADComputers, getImportProgress };
+async function importADComputers(req, res) {
+  const result = await runADImport();
+  if (result.alreadyRunning) return res.status(409).json({ message: 'Un import est déjà en cours.', state: _importState });
+  if (result.error) return res.status(503).json({ message: result.error });
+  res.status(202).json({ message: 'Import démarré', batch: result.batch });
+}
+
+module.exports = { listADComputers, adStats, getOsHistory, listComputersByOs, importADComputers, runADImport, getImportProgress };
