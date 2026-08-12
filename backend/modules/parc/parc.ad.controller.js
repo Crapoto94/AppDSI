@@ -92,8 +92,8 @@ async function computeOsFamilyBreakdown() {
   `);
   const families = new Map();
   for (const row of r.rows) {
-    const { family, versionLabel, sortKey } = classifyOs(row.operatingsystem, row.osversion);
-    if (!families.has(family)) families.set(family, { family, total: 0, versions: new Map() });
+    const { family, versionLabel, sortKey, isServer } = classifyOs(row.operatingsystem, row.osversion);
+    if (!families.has(family)) families.set(family, { family, total: 0, isServer, versions: new Map() });
     const f = families.get(family);
     f.total += row.n;
     const key = versionLabel;
@@ -104,9 +104,35 @@ async function computeOsFamilyBreakdown() {
     .map(f => ({
       family: f.family,
       total: f.total,
+      isServer: f.isServer,
       versions: [...f.versions.values()].sort((a, b) => b.sortKey - a.sortKey),
     }))
     .sort((a, b) => b.total - a.total);
+}
+
+// ── Liste des postes appartenant à une famille d'OS (et éventuellement une version) ──
+// Utilisé par le bouton "Voir" du tableau de répartition par OS.
+async function listComputersByOs(req, res) {
+  try {
+    const family = (req.query.family || '').trim();
+    const version = (req.query.version || '').trim();
+    if (!family) return res.status(400).json({ message: 'Paramètre family requis' });
+
+    const r = await pool.query(`
+      SELECT id, name, samaccountname, dnshostname, ipaddress, operatingsystem, osversion,
+             lastlogon, lastlogonuser, ou, enabled
+      FROM hub_parc.ad_computers
+    `);
+    const rows = r.rows
+      .map(row => ({ row, cls: classifyOs(row.operatingsystem, row.osversion) }))
+      .filter(({ cls }) => cls.family === family && (!version || cls.versionLabel === version))
+      .map(({ row, cls }) => ({ ...row, os_family: cls.family, os_version_label: cls.versionLabel }))
+      .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+
+    res.json({ total: rows.length, rows });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
 }
 
 // ── Statistiques rapides (compteurs, dernière synchro) ────────────────────────
@@ -243,4 +269,4 @@ async function importADComputers(req, res) {
   }
 }
 
-module.exports = { listADComputers, adStats, getOsHistory, importADComputers, getImportProgress };
+module.exports = { listADComputers, adStats, getOsHistory, listComputersByOs, importADComputers, getImportProgress };

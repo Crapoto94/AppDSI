@@ -33,13 +33,13 @@ function classifyOs(operatingsystem, osversion) {
   const build = extractBuild(osversion);
   const lower = os.toLowerCase();
 
-  if (!os) return { family: 'Inconnu', versionLabel: 'Inconnu', sortKey: -1 };
+  if (!os) return { family: 'Inconnu', versionLabel: 'Inconnu', sortKey: -1, isServer: false };
 
   if (lower.includes('server')) {
     const yearMatch = os.match(/20\d{2}(\s*r2)?/i);
     const family = yearMatch ? `Windows Server ${yearMatch[0].toUpperCase().replace('R2', 'R2')}` : os;
     const versionLabel = (build && SERVER_BUILDS[build]) ? SERVER_BUILDS[build] : (build ? `Build ${build}` : 'Inconnu');
-    return { family, versionLabel, sortKey: build || 0 };
+    return { family, versionLabel, sortKey: build || 0, isServer: true };
   }
 
   if (lower.includes('windows 11')) {
@@ -47,16 +47,17 @@ function classifyOs(operatingsystem, osversion) {
     if (build && WIN11_BUILDS[build]) versionLabel = WIN11_BUILDS[build];
     else if (build && build > WIN11_LATEST_STABLE_BUILD) versionLabel = `Insider (${build})`;
     else if (build) versionLabel = `Build ${build}`;
-    return { family: 'Windows 11', versionLabel, sortKey: build || 0 };
+    return { family: 'Windows 11', versionLabel, sortKey: build || 0, isServer: false };
   }
 
   if (lower.includes('windows 10')) {
     const versionLabel = (build && WIN10_BUILDS[build]) ? WIN10_BUILDS[build] : (build ? `Build ${build}` : 'Inconnu');
-    return { family: 'Windows 10', versionLabel, sortKey: build || 0 };
+    return { family: 'Windows 10', versionLabel, sortKey: build || 0, isServer: false };
   }
 
-  // Autres OS (Windows 7/8, Linux, macOS…) : famille = libellé brut tel quel.
-  return { family: os, versionLabel: osversion || 'Inconnu', sortKey: build || 0 };
+  // Autres OS (Windows 7/8, Linux, macOS…) : famille = libellé brut tel quel, comptés
+  // comme "poste de travail" (aucun ne correspond à un OS serveur connu ici).
+  return { family: os, versionLabel: osversion || 'Inconnu', sortKey: build || 0, isServer: false };
 }
 
 module.exports = { classifyOs, extractBuild };

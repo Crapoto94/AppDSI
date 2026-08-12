@@ -500,6 +500,26 @@ const ParcInformatique: React.FC = () => {
     }
   };
 
+  // Ouvre la modale de détail équipement à partir d'un nom de poste AD (ex: "PO22038") :
+  // résout d'abord l'id hub_parc.items correspondant (toujours en source 'hub', quel que
+  // soit le toggle live/hub courant, car les postes AD sont synchronisés côté hub).
+  const openDeviceByName = async (name: string) => {
+    setDetail({ loading: true });
+    try {
+      const search = await axios.get('/api/parc/hub/ordinateurs', {
+        params: { q: name, limit: 5 },
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const candidates = search.data?.rows || [];
+      const match = candidates.find((c: any) => (c.name || '').toLowerCase() === name.toLowerCase()) || candidates[0];
+      if (!match) { setDetail({ error: `Équipement « ${name} » introuvable dans le parc synchronisé.` }); return; }
+      const r = await axios.get(`/api/parc/hub/ordinateurs/${match.id}`, { headers: { Authorization: `Bearer ${token}` } });
+      setDetail(r.data);
+    } catch (e: any) {
+      setDetail({ error: e.response?.data?.message || e.message });
+    }
+  };
+
   // ── Usagers ──
   const loadUsagers = useCallback(async () => {
     setLoadingUsagers(true); setUsagerErr(null);
@@ -2535,7 +2555,7 @@ const ParcInformatique: React.FC = () => {
       )}
 
       {/* ─── AD (ACTIVE DIRECTORY) ─── */}
-      {tab === 'ad' && <AdView />}
+      {tab === 'ad' && <AdView onOpenDevice={openDeviceByName} />}
 
       {/* ─── ÉTIQUETTE ─── */}
       {tab === 'etiquette' && <EtiquetteView />}

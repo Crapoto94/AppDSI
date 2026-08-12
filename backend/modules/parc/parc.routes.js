@@ -55,6 +55,7 @@ router.get('/hub/:type', authenticateJWT, hub.list);
 router.get('/ad/computers', authenticateJWT, ad.listADComputers);
 router.get('/ad/stats', authenticateJWT, ad.adStats);
 router.get('/ad/stats/history', authenticateJWT, ad.getOsHistory);
+router.get('/ad/computers-by-os', authenticateJWT, ad.listComputersByOs);
 router.post('/ad/import', authenticateJWT, ad.importADComputers);
 router.get('/ad/import-progress', authenticateJWT, ad.getImportProgress);
 

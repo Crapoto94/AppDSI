@@ -2,7 +2,7 @@ import React, { useEffect, useState, useCallback, useRef, useMemo } from 'react'
 import { useAuth } from '../../contexts/AuthContext';
 import axios from 'axios';
 import {
-  Server, X, RefreshCw, ChevronDown, ChevronRight, TrendingUp,
+  Server, X, RefreshCw, ChevronDown, ChevronRight, TrendingUp, Eye, Laptop,
 } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 
@@ -16,13 +16,97 @@ const FAMILY_PALETTE = ['#2563eb', '#0891b2', '#7c3aed', '#d97706', '#059669', '
 const familyColor = (family: string, i: number) => FAMILY_COLORS[family] || FAMILY_PALETTE[i % FAMILY_PALETTE.length];
 
 interface OsVersion { label: string; count: number; sortKey: number }
-interface OsFamily { family: string; total: number; versions: OsVersion[] }
+interface OsFamily { family: string; total: number; isServer: boolean; versions: OsVersion[] }
 interface HistoryPoint { date: string; family: string; total: number }
+type ViewTarget = { family: string; version?: string } | null;
 
-// ── Bloc "Statistiques OS" : répartition par famille (drill-down par version) + évolution ──
-const AdOsStats: React.FC<{ families: OsFamily[]; history: HistoryPoint[] }> = ({ families, history }) => {
+// ── Sous-tableau "Voir" : postes appartenant à une famille (ou version) d'OS ──
+const AdOsMachinesModal: React.FC<{ target: { family: string; version?: string }; token: string | null; onClose: () => void; onOpenDevice: (name: string) => void }> = ({ target, token, onClose, onOpenDevice }) => {
+  const [rows, setRows] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setLoading(true); setError(null);
+      try {
+        const r = await axios.get('/api/parc/ad/computers-by-os', {
+          params: { family: target.family, ...(target.version ? { version: target.version } : {}) },
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        if (!cancelled) setRows(r.data.rows || []);
+      } catch (e: any) { if (!cancelled) setError(e.response?.data?.message || e.message); }
+      finally { if (!cancelled) setLoading(false); }
+    })();
+    return () => { cancelled = true; };
+  }, [target.family, target.version, token]);
+
+  const fmtDate = (d: string | null) => {
+    if (!d) return '—';
+    try { return new Date(d).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' }); }
+    catch { return d; }
+  };
+
+  return (
+    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.5)', zIndex: 900, display: 'flex', justifyContent: 'center', alignItems: 'flex-start', padding: '40px 16px', overflowY: 'auto' }}>
+      <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: 14, width: '100%', maxWidth: 820, boxShadow: '0 25px 60px rgba(0,0,0,.3)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '16px 20px', borderBottom: `1px solid ${C.border}` }}>
+          <Laptop size={18} color={C.blue} />
+          <div style={{ flex: 1 }}>
+            <div style={{ fontWeight: 700, fontSize: '.95rem', color: C.text }}>{target.family}{target.version ? ` — ${target.version}` : ''}</div>
+            <div style={{ fontSize: '.78rem', color: C.slate }}>{loading ? 'Chargement…' : `${rows.length} poste${rows.length > 1 ? 's' : ''}`}</div>
+          </div>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.slate }}><X size={18} /></button>
+        </div>
+        <div style={{ padding: '12px 20px 20px', maxHeight: '65vh', overflowY: 'auto' }}>
+          {loading ? (
+            <div style={{ textAlign: 'center', padding: 30, color: C.slate }}><RefreshCw size={20} className="spin" /></div>
+          ) : error ? (
+            <div style={{ color: C.red, fontSize: '.85rem' }}>{error}</div>
+          ) : rows.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: 30, color: C.slate, fontSize: '.85rem' }}>Aucun poste.</div>
+          ) : (
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '.82rem' }}>
+              <thead>
+                <tr style={{ textAlign: 'left', color: C.slate }}>
+                  <th style={{ padding: '6px 8px', borderBottom: `1px solid ${C.border}` }}>Nom</th>
+                  <th style={{ padding: '6px 8px', borderBottom: `1px solid ${C.border}` }}>Version</th>
+                  <th style={{ padding: '6px 8px', borderBottom: `1px solid ${C.border}` }}>IP</th>
+                  <th style={{ padding: '6px 8px', borderBottom: `1px solid ${C.border}` }}>Dernier utilisateur</th>
+                  <th style={{ padding: '6px 8px', borderBottom: `1px solid ${C.border}` }}>Dernière connexion</th>
+                  <th style={{ padding: '6px 8px', borderBottom: `1px solid ${C.border}` }}>État</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((r, i) => (
+                  <tr key={r.id} onClick={() => onOpenDevice(r.name)}
+                    style={{ borderTop: `1px solid ${C.border}`, background: i % 2 === 0 ? '#fff' : '#fafbfc', cursor: 'pointer' }}
+                    onMouseEnter={e => (e.currentTarget.style.background = '#eff6ff')}
+                    onMouseLeave={e => (e.currentTarget.style.background = i % 2 === 0 ? '#fff' : '#fafbfc')}>
+                    <td style={{ padding: '7px 8px', fontWeight: 600, color: C.blue }}>{r.name || '—'}</td>
+                    <td style={{ padding: '7px 8px', color: C.slate }}>{r.os_version_label || '—'}</td>
+                    <td style={{ padding: '7px 8px', fontFamily: 'monospace', fontSize: '.78rem' }}>{r.ipaddress || '—'}</td>
+                    <td style={{ padding: '7px 8px' }}>{r.lastlogonuser || '—'}</td>
+                    <td style={{ padding: '7px 8px', color: C.slate }}>{fmtDate(r.lastlogon)}</td>
+                    <td style={{ padding: '7px 8px' }}>
+                      {r.enabled ? <span style={{ color: '#059669', fontWeight: 700, fontSize: '.75rem' }}>Actif</span> : <span style={{ color: '#dc2626', fontWeight: 700, fontSize: '.75rem' }}>Désactivé</span>}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+          <div style={{ marginTop: 10, fontSize: '.72rem', color: C.slate }}>Cliquez sur un poste pour afficher sa fiche complète.</div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ── Panneau de répartition pour un groupe d'OS (postes de travail ou serveurs) ──
+const OsFamilyPanel: React.FC<{ title: string; families: OsFamily[]; onView: (t: ViewTarget) => void }> = ({ title, families, onView }) => {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
-
   const total = families.reduce((s, f) => s + f.total, 0);
 
   const toggle = (family: string) => {
@@ -32,6 +116,71 @@ const AdOsStats: React.FC<{ families: OsFamily[]; history: HistoryPoint[] }> = (
       return next;
     });
   };
+
+  return (
+    <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 10, padding: '14px 16px' }}>
+      <div style={{ fontWeight: 700, fontSize: '.9rem', color: C.text, marginBottom: 10 }}>{title}</div>
+      {families.length === 0 ? (
+        <div style={{ fontSize: '.82rem', color: C.slate, padding: '8px 0' }}>Aucun poste.</div>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          {families.map((f, i) => {
+            const pct = total ? Math.round((f.total / total) * 100) : 0;
+            const color = familyColor(f.family, i);
+            const isOpen = expanded.has(f.family);
+            return (
+              <div key={f.family}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 4px', borderRadius: 6 }}>
+                  <span onClick={() => toggle(f.family)} style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', flex: 1, minWidth: 0 }}>
+                    {isOpen ? <ChevronDown size={14} color={C.slate} /> : <ChevronRight size={14} color={C.slate} />}
+                    <span style={{ width: 10, height: 10, borderRadius: 3, background: color, flexShrink: 0 }} />
+                    <span style={{ fontSize: '.82rem', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.family}</span>
+                  </span>
+                  <span style={{ fontSize: '.78rem', color: C.slate }}>{pct}%</span>
+                  <span style={{ fontSize: '.82rem', fontWeight: 700, minWidth: 30, textAlign: 'right' }}>{f.total}</span>
+                  <button onClick={() => onView({ family: f.family })} title="Voir les postes"
+                    style={{ display: 'flex', alignItems: 'center', gap: 3, background: '#eff6ff', border: 'none', borderRadius: 6, padding: '3px 7px', cursor: 'pointer', color: C.blue, fontSize: '.72rem', fontWeight: 600 }}>
+                    <Eye size={12} /> Voir
+                  </button>
+                </div>
+                <div style={{ height: 6, background: '#f1f5f9', borderRadius: 3, marginLeft: 32, marginRight: 4, overflow: 'hidden' }}>
+                  <div style={{ width: `${pct}%`, height: '100%', background: color, borderRadius: 3 }} />
+                </div>
+                {isOpen && (
+                  <div style={{ marginLeft: 32, marginTop: 6, marginBottom: 8, display: 'flex', flexDirection: 'column', gap: 3 }}>
+                    {f.versions.map(v => {
+                      const vpct = f.total ? Math.round((v.count / f.total) * 100) : 0;
+                      return (
+                        <div key={v.label} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '.76rem', color: C.slate }}>
+                          <span style={{ minWidth: 90, fontWeight: 600, color: C.text }}>{v.label}</span>
+                          <div style={{ flex: 1, height: 4, background: '#f1f5f9', borderRadius: 2, overflow: 'hidden' }}>
+                            <div style={{ width: `${vpct}%`, height: '100%', background: color, opacity: 0.55, borderRadius: 2 }} />
+                          </div>
+                          <span style={{ minWidth: 26, textAlign: 'right' }}>{v.count}</span>
+                          <button onClick={() => onView({ family: f.family, version: v.label })} title="Voir les postes"
+                            style={{ display: 'flex', alignItems: 'center', background: 'none', border: 'none', cursor: 'pointer', color: C.blue, padding: 2 }}>
+                            <Eye size={12} />
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ── Bloc "Statistiques OS" : répartition postes/serveurs (drill-down par version) + évolution ──
+const AdOsStats: React.FC<{ families: OsFamily[]; history: HistoryPoint[]; token: string | null; onOpenDevice: (name: string) => void }> = ({ families, history, token, onOpenDevice }) => {
+  const [viewTarget, setViewTarget] = useState<ViewTarget>(null);
+
+  const workstations = useMemo(() => families.filter(f => !f.isServer), [families]);
+  const servers = useMemo(() => families.filter(f => f.isServer), [families]);
 
   // Pivot de l'historique : une ligne par date, une colonne par famille (pour le LineChart multi-séries).
   const topFamilies = useMemo(() => families.slice(0, 5).map(f => f.family), [families]);
@@ -53,50 +202,10 @@ const AdOsStats: React.FC<{ families: OsFamily[]; history: HistoryPoint[] }> = (
   if (families.length === 0) return null;
 
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: evolutionSeries.length > 1 ? '1fr 1fr' : '1fr', gap: 16, marginBottom: 20 }}>
-      {/* Répartition par famille d'OS, avec drill-down par version */}
-      <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 10, padding: '14px 16px' }}>
-        <div style={{ fontWeight: 700, fontSize: '.9rem', color: C.text, marginBottom: 10 }}>Répartition par OS</div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-          {families.map((f, i) => {
-            const pct = total ? Math.round((f.total / total) * 100) : 0;
-            const color = familyColor(f.family, i);
-            const isOpen = expanded.has(f.family);
-            return (
-              <div key={f.family}>
-                <div onClick={() => toggle(f.family)}
-                  style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', padding: '6px 4px', borderRadius: 6 }}
-                  onMouseEnter={e => (e.currentTarget.style.background = '#f8fafc')}
-                  onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>
-                  {isOpen ? <ChevronDown size={14} color={C.slate} /> : <ChevronRight size={14} color={C.slate} />}
-                  <span style={{ width: 10, height: 10, borderRadius: 3, background: color, flexShrink: 0 }} />
-                  <span style={{ fontSize: '.82rem', fontWeight: 600, flex: 1 }}>{f.family}</span>
-                  <span style={{ fontSize: '.78rem', color: C.slate }}>{pct}%</span>
-                  <span style={{ fontSize: '.82rem', fontWeight: 700, minWidth: 34, textAlign: 'right' }}>{f.total}</span>
-                </div>
-                <div style={{ height: 6, background: '#f1f5f9', borderRadius: 3, marginLeft: 32, marginRight: 4, overflow: 'hidden' }}>
-                  <div style={{ width: `${pct}%`, height: '100%', background: color, borderRadius: 3 }} />
-                </div>
-                {isOpen && (
-                  <div style={{ marginLeft: 32, marginTop: 6, marginBottom: 8, display: 'flex', flexDirection: 'column', gap: 3 }}>
-                    {f.versions.map(v => {
-                      const vpct = f.total ? Math.round((v.count / f.total) * 100) : 0;
-                      return (
-                        <div key={v.label} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '.76rem', color: C.slate }}>
-                          <span style={{ minWidth: 70, fontWeight: 600, color: C.text }}>{v.label}</span>
-                          <div style={{ flex: 1, height: 4, background: '#f1f5f9', borderRadius: 2, overflow: 'hidden' }}>
-                            <div style={{ width: `${vpct}%`, height: '100%', background: color, opacity: 0.55, borderRadius: 2 }} />
-                          </div>
-                          <span style={{ minWidth: 30, textAlign: 'right' }}>{v.count}</span>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
+    <div style={{ marginBottom: 20 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 16 }}>
+        <OsFamilyPanel title="Postes de travail" families={workstations} onView={setViewTarget} />
+        <OsFamilyPanel title="Serveurs" families={servers} onView={setViewTarget} />
       </div>
 
       {/* Évolution des OS (une valeur par jour de synchronisation AD) */}
@@ -105,7 +214,7 @@ const AdOsStats: React.FC<{ families: OsFamily[]; history: HistoryPoint[] }> = (
           <div style={{ fontWeight: 700, fontSize: '.9rem', color: C.text, marginBottom: 10, display: 'flex', alignItems: 'center', gap: 6 }}>
             <TrendingUp size={15} /> Évolution des OS
           </div>
-          <div style={{ height: 240 }}>
+          <div style={{ height: 220 }}>
             <ResponsiveContainer width="100%" height="100%">
               <LineChart data={evolutionSeries} margin={{ left: -12, right: 8, top: 4, bottom: 4 }}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
@@ -121,6 +230,10 @@ const AdOsStats: React.FC<{ families: OsFamily[]; history: HistoryPoint[] }> = (
           </div>
         </div>
       )}
+
+      {viewTarget && (
+        <AdOsMachinesModal target={viewTarget} token={token} onClose={() => setViewTarget(null)} onOpenDevice={onOpenDevice} />
+      )}
     </div>
   );
 };
@@ -131,7 +244,12 @@ interface ColFilters {
 }
 const EMPTY_FILTERS: ColFilters = { name: '', sam: '', ip: '', os: '', user: '', ou: '', enabled: '' };
 
-const AdView: React.FC = () => {
+interface AdViewProps {
+  // Ouvre la fiche détail complète (parc/hub) d'un poste à partir de son nom AD (ex: "PO22038").
+  onOpenDevice?: (name: string) => void;
+}
+
+const AdView: React.FC<AdViewProps> = ({ onOpenDevice }) => {
   const { token } = useAuth();
   const [rows, setRows] = useState<any[]>([]);
   const [total, setTotal] = useState(0);
@@ -152,6 +270,7 @@ const AdView: React.FC = () => {
   const [statsLoading, setStatsLoading] = useState(true);
 
   const limit = 50;
+  const handleOpenDevice = onOpenDevice || (() => {});
 
   useEffect(() => {
     let cancelled = false;
@@ -333,11 +452,11 @@ const AdView: React.FC = () => {
         </div>
       )}
 
-      {/* Statistiques OS : répartition par famille/version + évolution */}
+      {/* Statistiques OS : postes de travail / serveurs (drill-down par version) + évolution */}
       {statsLoading ? (
         <div style={{ padding: 24, textAlign: 'center', color: C.slate }}><RefreshCw size={20} className="spin" /></div>
       ) : (
-        <AdOsStats families={osFamilies} history={osHistory} />
+        <AdOsStats families={osFamilies} history={osHistory} token={token} onOpenDevice={handleOpenDevice} />
       )}
 
       {/* Tableau */}
@@ -390,8 +509,11 @@ const AdView: React.FC = () => {
                 {rows.length === 0 ? (
                   <tr><td colSpan={8} style={{ padding: 24, textAlign: 'center', color: C.slate }}>Aucun résultat pour ces filtres.</td></tr>
                 ) : rows.map((row, i) => (
-                  <tr key={row.id} style={{ borderTop: `1px solid ${C.border}`, background: i % 2 === 0 ? '#fff' : '#fafbfc' }}>
-                    <td style={{ padding: '8px 10px', fontWeight: 600 }}>{row.name || row.cn || '—'}</td>
+                  <tr key={row.id} onClick={() => handleOpenDevice(row.name)}
+                    style={{ borderTop: `1px solid ${C.border}`, background: i % 2 === 0 ? '#fff' : '#fafbfc', cursor: onOpenDevice ? 'pointer' : 'default' }}
+                    onMouseEnter={e => onOpenDevice && (e.currentTarget.style.background = '#eff6ff')}
+                    onMouseLeave={e => onOpenDevice && (e.currentTarget.style.background = i % 2 === 0 ? '#fff' : '#fafbfc')}>
+                    <td style={{ padding: '8px 10px', fontWeight: 600, color: onOpenDevice ? C.blue : C.text }}>{row.name || row.cn || '—'}</td>
                     <td style={{ padding: '8px 10px', fontFamily: 'monospace', fontSize: '.79rem' }}>{row.samaccountname || '—'}</td>
                     <td style={{ padding: '8px 10px', fontFamily: 'monospace', fontSize: '.79rem' }}>{row.ipaddress || '—'}</td>
                     <td style={{ padding: '8px 10px', fontSize: '.79rem' }}>
