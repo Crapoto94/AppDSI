@@ -296,6 +296,18 @@ const Budget: React.FC = () => {
           clearTimeout(timeoutId);
 
           if (res.ok) data = await res.json();
+        } else if (view === 'engagements') {
+          // Les engagements sont stockés par exercice (colonne « Exercice ») : on liste les années présentes.
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 5000);
+
+          const res = await fetch('/api/budget/engagements/years', {
+            headers: { 'Authorization': `Bearer ${token}` },
+            signal: controller.signal
+          });
+          clearTimeout(timeoutId);
+
+          if (res.ok) data = await res.json();
         } else if (view === 'summary') {
           // For summary, get years from all rubriques
           const rubriques = ['Commandes', 'Factures', 'Tiers'];
@@ -895,7 +907,7 @@ const Budget: React.FC = () => {
   const handleReimportEngagements = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    if (!window.confirm("Réimporter ce fichier remplacera l'intégralité des engagements existants. Continuer ?")) {
+    if (!window.confirm("Réimporter ce fichier remplacera les engagements de l'exercice (année) du fichier, les autres années restent en place. Continuer ?")) {
       e.target.value = '';
       return;
     }
@@ -1734,7 +1746,7 @@ const Budget: React.FC = () => {
                           className="toolbar-btn"
                           onClick={() => engagementsFileInputRef.current?.click()}
                           disabled={isImportingEngagements}
-                          title="Réimporter le fichier Excel des engagements (remplace les engagements existants)"
+                          title="Réimporter le fichier Excel des engagements (remplace uniquement les engagements de l'exercice du fichier)"
                         >
                           <Upload size={16} /> {isImportingEngagements ? 'Import en cours…' : 'Réimporter le fichier Excel'}
                         </button>

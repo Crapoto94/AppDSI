@@ -402,7 +402,9 @@
       "Bash(node -c modules/vols/vols.controller.js)",
       "Bash(node -c modules/vols/vols.routes.js)",
       "Bash(node -c db.js)",
-      "Bash(npx tsc *)"
+      "Bash(npx tsc *)",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)"
     ]
   }
 }

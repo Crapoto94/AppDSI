@@ -322,7 +322,7 @@ module.exports = {
             await ensureTables();
             const { service_code, budget, chapitre_code, fonction_code, article_code, depenses_recettes, search } = req.query;
 
-            const where = [];
+            const where = ["type != 'demande'"]; // Les "Demandé" (proposition non votée) ne sont pas affichés dans cette vue.
             const params = [];
             let p = 1;
 
@@ -388,27 +388,130 @@ module.exports = {
                 rowsMap.get(key).values[`${r.type}_${r.year}`] = parseFloat(r.montant);
             }
 
-            const rows = Array.from(rowsMap.values()).sort((a, b) => {
-                if (a.service_code !== b.service_code) return a.service_code.localeCompare(b.service_code);
-                if (a.fonction_code !== b.fonction_code) return a.fonction_code.localeCompare(b.fonction_code);
-                return a.article_code.localeCompare(b.article_code);
-            });
+            const rows = Array.from(rowsMap.values());
 
             const totals = {};
             for (const t of totalsResult.rows) {
                 totals[`${t.type}_${t.year}`] = parseFloat(t.montant);
             }
 
-            // Construction de la liste ordonnée des colonnes (voté N, demandé N+1, voté N+1, ...)
+            // ── Réalisé N-1 (engagements) et Prévision N (engagements + contrats) ──
+            // Le réalisé des engagements est attaché par (service gestionnaire, article par nature) :
+            // chaque ligne du suivi budgétaire porte son « Service Gestionnaire » (BF1/BF6/BF8/BF9)
+            // et sa propre « Article par nature ». On ne somme donc pas toutes les natures ni tous
+            // les services d'une même fonction (ex. BF1, nature 60632 = 536,24 € = 2 engagements,
+            // et non le total de la fonction). La prévision (engagements N + contrats) reste par
+            // fonction car les contrats n'ont pas de dimension article/service.
+            const now = new Date();
+            const yearN = now.getFullYear();
+            const yearN1 = yearN - 1;
+            const round2 = (n) => Math.round(n * 100) / 100;
+
+            const engagementsAgg = async (exercice) => {
+                const bySA = new Map();       // clé "service||article" → réalisé (montant − reste)
+                const byFonction = new Map(); // fonction → { montant, reste }
+                try {
+                    const r = await pool.query(
+                        `SELECT TRIM("Service Gestionnaire") AS service, TRIM("Article par nature") AS article,
+                                TRIM("Référence Fonctionnelle") AS fonction,
+                                SUM("Montant TTC") AS montant, SUM("Reste engagé") AS reste
+                         FROM oracle.budget_engagements
+                         WHERE "Exercice" = $1 AND "Référence Fonctionnelle" IS NOT NULL AND TRIM("Référence Fonctionnelle") != ''
+                         GROUP BY TRIM("Service Gestionnaire"), TRIM("Article par nature"), TRIM("Référence Fonctionnelle")`,
+                        [String(exercice)]
+                    );
+                    for (const row of r.rows) {
+                        const montant = parseFloat(row.montant) || 0;
+                        const reste = parseFloat(row.reste) || 0;
+                        const saKey = `${row.service}||${row.article}`;
+                        bySA.set(saKey, (bySA.get(saKey) || 0) + (montant - reste));
+                        const f = byFonction.get(row.fonction) || { montant: 0, reste: 0 };
+                        f.montant += montant;
+                        f.reste += reste;
+                        byFonction.set(row.fonction, f);
+                    }
+                } catch (e) {
+                    console.error('[BudgetPrep] engagementsAgg error:', e.message);
+                }
+                return { bySA, byFonction };
+            };
+
+            const contratsPrevisionByFonction = async (year) => {
+                const map = new Map();
+                const col = `prevision_${year}`;
+                try {
+                    const colCheck = await pool.query(
+                        `SELECT 1 FROM information_schema.columns WHERE table_schema = 'hub_contrats' AND table_name = 'contrats' AND column_name = $1`,
+                        [col]
+                    );
+                    if (colCheck.rowCount === 0) return map;
+                    const r = await pool.query(
+                        `SELECT TRIM(fonction) AS fonction, SUM(${col}) AS montant
+                         FROM hub_contrats.contrats
+                         WHERE fonction IS NOT NULL AND TRIM(fonction) != '' AND (statut IS NULL OR statut != 'archivé') AND ${col} IS NOT NULL
+                         GROUP BY TRIM(fonction)`
+                    );
+                    for (const row of r.rows) {
+                        map.set(row.fonction, parseFloat(row.montant) || 0);
+                    }
+                } catch (e) {
+                    console.error('[BudgetPrep] contratsPrevisionByFonction error:', e.message);
+                }
+                return map;
+            };
+
+            const [engagementsN1, engagementsN, contratsN] = await Promise.all([
+                engagementsAgg(yearN1),
+                engagementsAgg(yearN),
+                contratsPrevisionByFonction(yearN)
+            ]);
+
+            const realiseN1Key = `realise_engage_${yearN1}`;
+            const previsionNKey = `prevision_${yearN}`;
+
+            const realiseN1BySA = engagementsN1.bySA;
+
+            const previsionNByFonction = new Map();
+            const allFonctionsN = new Set([...engagementsN.byFonction.keys(), ...contratsN.keys()]);
+            for (const fonction of allFonctionsN) {
+                const engage = engagementsN.byFonction.get(fonction)?.montant || 0;
+                const contrat = contratsN.get(fonction) || 0;
+                previsionNByFonction.set(fonction, round2(engage + contrat));
+            }
+
+            // Attache les valeurs (par service/article) sur chaque ligne détail correspondante
+            for (const row of rows) {
+                const service = (row.service_code || '').trim();
+                const article = (row.article_code || '').trim();
+                const saKey = `${service}||${article}`;
+                if (realiseN1BySA.has(saKey)) row.values[realiseN1Key] = realiseN1BySA.get(saKey);
+                if (previsionNByFonction.has(fonction)) row.values[previsionNKey] = previsionNByFonction.get(fonction);
+            }
+
+            rows.sort((a, b) => {
+                if (a.service_code !== b.service_code) return a.service_code.localeCompare(b.service_code);
+                if (a.fonction_code !== b.fonction_code) return a.fonction_code.localeCompare(b.fonction_code);
+                return a.article_code.localeCompare(b.article_code);
+            });
+
+            // Totaux : calculés directement sur l'ensemble des fonctions (indépendamment des lignes de détail,
+            // qui ne couvrent que les fonctions déjà présentes dans un import Excel).
+            totals[realiseN1Key] = round2([...realiseN1BySA.values()].reduce((s, v) => s + v, 0));
+            totals[previsionNKey] = round2([...previsionNByFonction.values()].reduce((s, v) => s + v, 0));
+
+            // Construction de la liste ordonnée des colonnes (réalisé N-1, voté N, prévision N, ...)
             const periodSet = new Set();
             for (const key of Object.keys(totals)) periodSet.add(key);
             for (const row of rows) for (const key of Object.keys(row.values)) periodSet.add(key);
 
-            const typeRank = { vote: 1, demande: 0, realise: -1 };
+            const typeRank = { realise: -1, vote: 1, realise_engage: 2, prevision: 3 };
             const columns = Array.from(periodSet).map(key => {
-                const [type, yearStr] = key.split('_');
+                let type, yearStr;
+                if (key === realiseN1Key) { type = 'realise_engage'; yearStr = String(yearN1); }
+                else if (key === previsionNKey) { type = 'prevision'; yearStr = String(yearN); }
+                else { [type, yearStr] = key.split('_'); }
                 const year = parseInt(yearStr, 10);
-                return { key, type, year, sortKey: year * 10 + typeRank[type] };
+                return { key, type, year, sortKey: year * 10 + (typeRank[type] ?? 0) };
             }).sort((a, b) => a.sortKey - b.sortKey);
 
             res.json({ columns, rows, totals });

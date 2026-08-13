@@ -14,7 +14,7 @@ interface Facet {
 
 interface Column {
     key: string;
-    type: 'vote' | 'demande' | 'realise';
+    type: 'vote' | 'realise' | 'realise_engage' | 'prevision';
     year: number;
 }
 
@@ -54,7 +54,31 @@ interface ImportRow {
     imported_at: string;
 }
 
-const typeLabel = (type: string) => type === 'vote' ? 'Voté' : type === 'demande' ? 'Demandé' : 'Réalisé';
+const typeLabel = (type: string) => {
+    switch (type) {
+        case 'vote': return 'Voté';
+        case 'realise_engage': return 'Réal.';
+        case 'prevision': return 'Prévision';
+        default: return 'Réalisé';
+    }
+};
+
+// Colonnes calculées une seule fois par article (service) : le réalisé des engagements est attaché
+// par (service gestionnaire, article) — toutes les lignes d'un même article portent la même valeur,
+// il ne faut donc l'additionner qu'une seule fois par article (sinon double comptage si la même
+// imputation apparaît sur plusieurs fonctions, chapitres ou budgets).
+const PER_ARTICLE_TYPES = new Set(['realise_engage']);
+
+// Colonnes calculées une seule fois par fonction : la prévision (engagements + contrats) porte la
+// même valeur sur toutes les natures d'une fonction donnée. À ne compter qu'une fois par fonction.
+const PER_FONCTION_TYPES = new Set(['prevision']);
+
+// Clé de déduplication d'une colonne calculée pour une ligne donnée (null = colonne additive).
+const dedupKeyOf = (type: string, row: Row): string | null => {
+    if (PER_ARTICLE_TYPES.has(type)) return row.article_code;
+    if (PER_FONCTION_TYPES.has(type)) return row.fonction_code;
+    return null;
+};
 
 const fmt = (n: number | undefined) => {
     if (n === undefined || n === null) return '';
@@ -147,8 +171,29 @@ const BudgetPrepTab: React.FC = () => {
     const [expandedArticles, setExpandedArticles] = useState<Set<string>>(new Set());
     const [mergeServices, setMergeServices] = useState(false);
 
+    const columnTypeByKey = useMemo(() => {
+        const m = new Map<string, string>();
+        for (const c of columns) m.set(c.key, c.type);
+        return m;
+    }, [columns]);
+
     const groupedByService = useMemo(() => {
-        const serviceMap = new Map<string, { service_code: string; service_label: string; values: Record<string, number>; articleMap: Map<string, ArticleGroup> }>();
+        interface AggTarget {
+            values: Record<string, number>;
+            counted: Map<string, Set<string>>;
+        }
+        const addTo = (target: AggTarget, k: string, v: number, type: string, row: Row) => {
+            const dk = dedupKeyOf(type, row);
+            if (dk !== null) {
+                let s = target.counted.get(type);
+                if (!s) { s = new Set(); target.counted.set(type, s); }
+                if (s.has(dk)) return;
+                s.add(dk);
+            }
+            target.values[k] = (target.values[k] || 0) + (v || 0);
+        };
+
+        const serviceMap = new Map<string, { service_code: string; service_label: string; values: Record<string, number>; articleMap: Map<string, ArticleGroup & AggTarget>; counted: Map<string, Set<string>> }>();
         for (const row of rows) {
             const skey = mergeServices ? '__all__' : (row.service_code || '(sans service)');
             if (!serviceMap.has(skey)) {
@@ -156,22 +201,23 @@ const BudgetPrepTab: React.FC = () => {
                     service_code: mergeServices ? '' : row.service_code,
                     service_label: mergeServices ? 'Tous les services' : row.service_label,
                     values: {},
-                    articleMap: new Map()
+                    articleMap: new Map(),
+                    counted: new Map()
                 });
             }
             const sg = serviceMap.get(skey)!;
             for (const [k, v] of Object.entries(row.values)) {
-                sg.values[k] = (sg.values[k] || 0) + (v || 0);
+                addTo(sg, k, v, columnTypeByKey.get(k) || '', row);
             }
 
             const akey = row.article_code || '(sans nature)';
             if (!sg.articleMap.has(akey)) {
-                sg.articleMap.set(akey, { article_code: row.article_code, article_libelle: row.article_libelle, values: {}, children: [] });
+                sg.articleMap.set(akey, { article_code: row.article_code, article_libelle: row.article_libelle, values: {}, children: [], counted: new Map() } as any);
             }
             const ag = sg.articleMap.get(akey)!;
             ag.children.push(row);
             for (const [k, v] of Object.entries(row.values)) {
-                ag.values[k] = (ag.values[k] || 0) + (v || 0);
+                addTo(ag, k, v, columnTypeByKey.get(k) || '', row);
             }
         }
         return Array.from(serviceMap.values())
@@ -246,7 +292,7 @@ const BudgetPrepTab: React.FC = () => {
                         Préparation budgétaire
                     </h2>
                     <p className="section-desc">
-                        Évolution des imputations (fonction / article) entre les montants votés et les propositions, tous services (BF1, BF6, BF8, BF9).
+                        Évolution des imputations (fonction / article) : montants votés, réalisé (engagements) et prévision, tous services (BF1, BF6, BF8, BF9).
                     </p>
                 </div>
                 {canManage && (
@@ -368,7 +414,10 @@ const BudgetPrepTab: React.FC = () => {
                                 <th>Nature (article)</th>
                                 <th>Fonction</th>
                                 {visibleColumns.map(c => (
-                                    <th key={c.key} className={`col-${c.type}`}>{typeLabel(c.type)} {c.year}</th>
+                                    <th key={c.key} className={`col-${c.type}`}
+                                        title={PER_FONCTION_TYPES.has(c.type) ? 'Calculé par fonction uniquement (même montant sur toutes les natures d\'une fonction)' : PER_ARTICLE_TYPES.has(c.type) ? 'Calculé par article uniquement (même montant pour toutes les fonctions d\'un article)' : undefined}>
+                                        {typeLabel(c.type)} {c.year}
+                                    </th>
                                 ))}
                             </tr>
                         </thead>
@@ -472,8 +521,9 @@ const BudgetPrepTab: React.FC = () => {
                 .prep-filters .toolbar-btn.active { background: #003366; color: white; border-color: #003366; }
 
                 .prep-table th.col-vote, .prep-table td.col-vote { background: #eef2ff; }
-                .prep-table th.col-demande, .prep-table td.col-demande { background: #fff7ed; }
                 .prep-table th.col-realise, .prep-table td.col-realise { background: #f0fdf4; }
+                .prep-table th.col-realise_engage, .prep-table td.col-realise_engage { background: #ecfeff; }
+                .prep-table th.col-prevision, .prep-table td.col-prevision { background: #fff7ed; }
                 .prep-table td.num { text-align: right; font-variant-numeric: tabular-nums; }
                 .prep-table .lib { color: #94a3b8; font-weight: 400; margin-left: 0.35rem; }
                 .prep-table .service-row td { background: #003366; color: white; padding-top: 0.6rem; padding-bottom: 0.6rem; }

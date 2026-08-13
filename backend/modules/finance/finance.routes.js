@@ -43,6 +43,7 @@ router.delete('/operations/:id', authenticateAdminOrFinances, financeController.
 // Invoices & Lines
 router.get('/invoices', authenticateJWT, financeController.getInvoices);
 router.get('/lines', authenticateJWT, financeController.getLines);
+router.get('/engagements/years', authenticateJWT, financeController.getEngagementYears);
 router.get('/engagements', authenticateJWT, financeController.getEngagements);
 
 // Orders

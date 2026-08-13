@@ -455,6 +455,12 @@ const TelecomManagement: React.FC = () => {
     }
   };
 
+  // Postgres renvoie les colonnes NUMERIC sous forme de chaînes (ex. "42683.72") : on force le type.
+  const asNum = (v: unknown): number => {
+    const n = Number(v);
+    return Number.isFinite(n) ? n : 0;
+  };
+
   // Montant engagé d'un engagement (issu du suivi budgétaire, nature 6262)
   const engagementAmountOf = (commNum: string): number => {
     const c = commitments.find(x => x.commitment_number === commNum);
@@ -469,7 +475,7 @@ const TelecomManagement: React.FC = () => {
   const invoicedForCommitment = (commNum: string): number =>
     allAccounts
       .filter(a => (a.commitment_number || 'Sans engagement') === commNum)
-      .reduce((sum, a) => sum + (a.total_invoiced || 0), 0);
+      .reduce((sum, a) => sum + asNum(a.total_invoiced), 0);
 
   // Comptes rattachés à un engagement, pour le détail affiché lors d'un écart
   const accountsForCommitment = (commNum: string) =>
@@ -479,7 +485,7 @@ const TelecomManagement: React.FC = () => {
         account_number: a.account_number,
         designation: a.designation,
         operator_name: a.operator_name || '',
-        total_invoiced: a.total_invoiced || 0,
+        total_invoiced: asNum(a.total_invoiced),
       }));
 
   const fetchInvoiceFiles = async () => {
@@ -1392,7 +1398,7 @@ const TelecomManagement: React.FC = () => {
                                           )}
                                         </td>
                                         <td className="amount-col">
-                                          {(acc.total_invoiced || 0).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}
+                                          {asNum(acc.total_invoiced).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}
                                         </td>
                                         <td>
                                           <div className="action-btns" style={{ justifyContent: 'center' }}>
@@ -1835,6 +1841,38 @@ const TelecomManagement: React.FC = () => {
                     <tr><td colSpan={10} style={{ textAlign: 'center', padding: '40px', color: '#64748b' }}>Aucun engagement télécom (nature 6262) dans le suivi budgétaire</td></tr>
                   )}
                 </tbody>
+                {commitments.length > 0 && (
+                  <tfoot>
+                    <tr style={{ background: '#f8fafc', borderTop: '2px solid #e2e8f0' }}>
+                      <td colSpan={4} style={{ textAlign: 'right', fontWeight: 700, padding: '10px 12px', fontSize: 13 }}>Totaux ({commitments.length} engagements)</td>
+                      <td className="amount-cell" style={{ fontWeight: 800 }}>
+                        {commitments.reduce((s, c) => s + (c.engaged_amount ?? c.amount ?? 0), 0).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}
+                      </td>
+                      <td className="amount-cell" style={{ fontWeight: 800, color: '#2563eb' }}>
+                        {commitments.reduce((s, c) => s + (c.remaining_amount ?? 0), 0).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}
+                      </td>
+                      <td className="amount-cell" style={{ fontWeight: 800 }}>
+                        {commitments.reduce((s, c) => s + (c.invoiced_amount ?? ((c.engaged_amount ?? c.amount ?? 0) - (c.remaining_amount ?? 0))), 0).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}
+                      </td>
+                      <td className="amount-cell" style={{ fontWeight: 800 }}>
+                        {commitments.reduce((s, c) => s + invoicedForCommitment(c.commitment_number), 0).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}
+                      </td>
+                      <td className="amount-cell" style={{ fontWeight: 800 }}>
+                        {commitments.reduce((s, c) => s + ((c.engaged_amount ?? c.amount ?? 0) - (c.invoiced_amount ?? ((c.engaged_amount ?? c.amount ?? 0) - (c.remaining_amount ?? 0)))), 0).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}
+                      </td>
+                      <td>
+                        {(() => {
+                          const n = commitments.filter(c => Math.abs((c.invoiced_amount ?? ((c.engaged_amount ?? c.amount ?? 0) - (c.remaining_amount ?? 0))) - invoicedForCommitment(c.commitment_number)) > 0.005).length;
+                          return n > 0 ? (
+                            <span style={{ color: '#f59e0b', fontWeight: 700, fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                              <AlertTriangle size={14} /> {n} écart{n > 1 ? 's' : ''}
+                            </span>
+                          ) : null;
+                        })()}
+                      </td>
+                    </tr>
+                  </tfoot>
+                )}
               </table>
             </div>
           </div>

@@ -565,6 +565,17 @@ module.exports = {
 
             if (rows.length === 0) return res.json({ message: '0 engagement importé' });
 
+            // Chaque fichier Excel est lié à une année d'engagement : l'exercice est déduit de la
+            // colonne « Exercice » du fichier (ex. "2026"). On ne remplace que les engagements de
+            // cet exercice, les autres années restent en place.
+            const exerciceOf = (v) => {
+                if (v === undefined || v === null) return '';
+                const s = String(v).trim();
+                const m = s.match(/\b(\d{4})\b/);
+                return m ? m[1] : s;
+            };
+            const years = [...new Set(rows.map(r => exerciceOf(r['Exercice'])).filter(Boolean))];
+
             const allCols = [...ENGAGEMENT_TEXT_COLS, ...ENGAGEMENT_NUM_COLS];
             const quotedKeys = allCols.map(c => `"${c}"`).join(',');
             const placeholders = allCols.map((_, i) => `$${i + 1}`).join(',');
@@ -574,14 +585,17 @@ module.exports = {
             try {
                 await ensureEngagementsTable(client);
                 await client.query('BEGIN');
-                // Réimport = remplacement complet des engagements de l'exercice.
-                await client.query('TRUNCATE oracle.budget_engagements RESTART IDENTITY');
+                // Réimport = remplacement complet des engagements de l'exercice présent dans le fichier.
+                if (years.length > 0) {
+                    await client.query(`DELETE FROM oracle.budget_engagements WHERE "Exercice" = ANY($1)`, [years]);
+                }
                 for (const row of rows) {
                     const code = (row['Code mouvement'] || '').toString().trim();
                     if (!code) continue;
 
                     const values = allCols.map(col => {
                         if (ENGAGEMENT_NUM_COLS.includes(col)) return parseNum(row[col]);
+                        if (col === 'Exercice') return exerciceOf(row[col]) || null;
                         const v = row[col];
                         return v === undefined || v === null ? null : String(v).trim();
                     });
@@ -595,7 +609,10 @@ module.exports = {
             } finally {
                 client.release();
             }
-            res.json({ message: `${imported} engagements importés.` });
+            const msg = years.length > 0
+                ? `${imported} engagements importés (exercice ${years.join(', ')} — remplace les engagements de cet exercice uniquement).`
+                : `${imported} engagements importés.`;
+            res.json({ message: msg });
         } catch (error) {
             console.error('[Finance] Import Engagements error:', error);
             res.status(500).json({ message: 'Erreur import engagements', error: error.message });
@@ -604,13 +621,36 @@ module.exports = {
         }
     },
 
+    // Années (exercices) disponibles dans oracle.budget_engagements — alimente le sélecteur
+    // d'année fiscale de l'onglet Engagements dans /budget.
+    getEngagementYears: async (req, res) => {
+        try {
+            await ensureEngagementsTable();
+            const r = await pool.query(
+                `SELECT DISTINCT TRIM("Exercice") AS ex FROM oracle.budget_engagements WHERE "Exercice" IS NOT NULL AND TRIM("Exercice") != ''`
+            );
+            const years = r.rows
+                .map(x => parseInt(x.ex, 10))
+                .filter(y => !isNaN(y) && y > 2000)
+                .sort((a, b) => b - a);
+            res.json(years);
+        } catch (error) {
+            console.error('[Finance] getEngagementYears error:', error);
+            res.status(500).json({ message: 'Erreur lecture années engagements', error: error.message });
+        }
+    },
+
     getEngagements: async (req, res) => {
         try {
             await ensureEngagementsTable();
             const allCols = [...ENGAGEMENT_TEXT_COLS, ...ENGAGEMENT_NUM_COLS];
             const select = allCols.map(c => `"${c}"`).join(', ');
+            const year = req.query.fiscalYear ? String(req.query.fiscalYear).trim() : '';
+            const where = year ? ` WHERE "Exercice" = $1` : '';
+            const params = year ? [year] : [];
             const result = await pool.query(
-                `SELECT ${select} FROM oracle.budget_engagements ORDER BY "Code mouvement"`
+                `SELECT ${select} FROM oracle.budget_engagements${where} ORDER BY "Code mouvement"`,
+                params
             );
 
             // Un engagement (Code mouvement) est éclaté en plusieurs lignes : par code
