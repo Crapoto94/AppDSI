@@ -2,6 +2,8 @@ import React, { useState } from 'react';
 import axios from 'axios';
 import { useAuth } from '../../contexts/AuthContext';
 import AgentPresenceBadge from '../../components/AgentPresenceBadge';
+import DsiPresenceBadge, { loadDsiAgentsStatus, findDsiAgentStatus, buildDsiTooltip } from '../../components/DsiPresenceBadge';
+import type { DsiAgentStatus } from '../../components/DsiPresenceBadge';
 
 const STATUS_NAMES: Record<number, string> = {
   1: 'Nouveau', 2: 'En cours (Attribué)', 3: 'En cours (Planifié)',
@@ -53,6 +55,7 @@ export default function TicketKanban({ tickets, loading, total, totalPages, page
   const [showAssignModal, setShowAssignModal] = useState(false);
   const [pendingAssignTicket, setPendingAssignTicket] = useState<number | null>(null);
   const [technicians, setTechnicians] = useState<any[]>([]);
+  const [pendingAbsentAssign, setPendingAbsentAssign] = useState<{ userId: number; agent: DsiAgentStatus } | null>(null);
 
   // Waiting reason modal
   const [showWaitingModal, setShowWaitingModal] = useState(false);
@@ -151,10 +154,28 @@ export default function TicketKanban({ tickets, loading, total, totalPages, page
     }
   }
 
-  async function handleAssignTechnician(userId: number) {
+  async function handleAssignTechnician(userId: number, techInfo?: { email?: string | null; name?: string | null; username?: string | null }) {
+    if (techInfo && (techInfo.email || techInfo.name || techInfo.username)) {
+      try {
+        const list = await loadDsiAgentsStatus();
+        const agent = findDsiAgentStatus(list, techInfo.email, techInfo.name, techInfo.username);
+        if (agent && agent.status === 'absent') {
+          setShowAssignModal(false);
+          setPendingAbsentAssign({ userId, agent });
+          return;
+        }
+      } catch {
+        // en cas d'échec de la vérification, on n'empêche pas l'affectation
+      }
+    }
+    doHandleAssignTechnician(userId);
+  }
+
+  async function doHandleAssignTechnician(userId: number) {
     if (!pendingAssignTicket) return;
     setMoving(true);
     setShowAssignModal(false);
+    setPendingAbsentAssign(null);
     try {
       const token = localStorage.getItem('token');
       await axios.post(`/api/tickets/${pendingAssignTicket}/assign`, { technician_id: userId }, {
@@ -283,6 +304,7 @@ export default function TicketKanban({ tickets, loading, total, totalPages, page
             <span style={{ fontSize: 11, color: '#94a3b8', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
               {t.requester_name || 'Anonyme'}
               <AgentPresenceBadge email={t.requester_email} name={t.requester_name} size={11} />
+              <DsiPresenceBadge email={t.requester_email} name={t.requester_name} size={11} />
             </span>
           </div>
 
@@ -299,6 +321,7 @@ export default function TicketKanban({ tickets, loading, total, totalPages, page
                   {t.technician_name && (
                     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, fontWeight: 500, background: '#e0f2fe', color: '#0284c7', padding: '2px 8px', borderRadius: 4 }}>
                       🔧 {t.technician_name}
+                      <DsiPresenceBadge email={t.technician_email} name={t.technician_name} username={t.technician_username} size={11} />
                     </span>
                   )}
                 </>
@@ -495,7 +518,7 @@ export default function TicketKanban({ tickets, loading, total, totalPages, page
             <h3 style={{ margin: '0 0 16px 0', fontSize: 18, fontWeight: 600 }}>Assigner un technicien</h3>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
               {technicians.map((t: any) => (
-                <div key={t.user_id} onClick={() => handleAssignTechnician(t.user_id)}
+                <div key={t.user_id} onClick={() => handleAssignTechnician(t.user_id, { email: t.email, name: t.displayname || t.displayName, username: t.username })}
                   style={{
                     padding: '10px 14px', border: '1px solid #e2e8f0', borderRadius: 8, cursor: 'pointer',
                     background: '#fff', transition: 'background 0.1s', display: 'flex', alignItems: 'center', gap: 12
@@ -507,6 +530,7 @@ export default function TicketKanban({ tickets, loading, total, totalPages, page
                     <div style={{ fontWeight: 600, fontSize: 14, display: 'flex', alignItems: 'center', gap: 6 }}>
                       {t.displayname || t.displayName}
                       <AgentPresenceBadge email={t.email} name={t.displayname || t.displayName} />
+                      <DsiPresenceBadge email={t.email} name={t.displayname || t.displayName} username={t.username} showCaption />
                     </div>
                     <div style={{ fontSize: 12, color: '#64748b' }}>{t.email}</div>
                   </div>
@@ -516,6 +540,31 @@ export default function TicketKanban({ tickets, loading, total, totalPages, page
               {technicians.length === 0 && (
                 <div style={{ textAlign: 'center', padding: 30, color: '#94a3b8' }}>Aucun technicien disponible</div>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Confirmation affectation à un agent absent ──────────────────── */}
+      {pendingAbsentAssign && (
+        <div style={modalOverlay} onClick={() => setPendingAbsentAssign(null)}>
+          <div style={{ background: '#fff', borderRadius: 16, padding: 24, width: 420 }} onClick={e => e.stopPropagation()}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+              <span style={{ fontSize: 22 }}>⚠️</span>
+              <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: '#18181b' }}>Agent absent</h3>
+            </div>
+            <p style={{ margin: '0 0 20px 0', fontSize: 13.5, color: '#3f3f46', lineHeight: 1.5 }}>
+              Attention, <strong>{pendingAbsentAssign.agent.nom}</strong> {buildDsiTooltip(pendingAbsentAssign.agent).toLowerCase()}. Souhaitez-vous tout de même lui affecter ce ticket&nbsp;?
+            </p>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+              <button onClick={() => setPendingAbsentAssign(null)}
+                style={{ padding: '8px 16px', background: '#f4f4f5', color: '#3f3f46', border: 'none', borderRadius: 8, fontWeight: 600, fontSize: 12.5, cursor: 'pointer' }}>
+                Annuler
+              </button>
+              <button onClick={() => doHandleAssignTechnician(pendingAbsentAssign.userId)}
+                style={{ padding: '8px 16px', background: '#ef4444', color: '#fff', border: 'none', borderRadius: 8, fontWeight: 700, fontSize: 12.5, cursor: 'pointer' }}>
+                Affecter quand même
+              </button>
             </div>
           </div>
         </div>

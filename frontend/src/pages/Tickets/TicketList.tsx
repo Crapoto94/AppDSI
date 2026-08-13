@@ -4,6 +4,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { formatDate as formatDateParis } from '../../utils/datetime';
 import UserHoverCard from '../../components/tickets/UserHoverCard';
 import AgentPresenceBadge from '../../components/AgentPresenceBadge';
+import DsiPresenceBadge from '../../components/DsiPresenceBadge';
 
 const STATUS_NAMES: Record<number, string> = {
   1: 'Nouveau', 2: 'En cours (Attribué)', 3: 'En cours (Planifié)',
@@ -672,6 +673,7 @@ export default function TicketList({
                             </UserHoverCard>
                             {' '}
                             <AgentPresenceBadge email={data.email_alt || data.requester_email || data.requester_email_22} name={data.requester_name} />
+                            <DsiPresenceBadge email={data.email_alt || data.requester_email || data.requester_email_22} name={data.requester_name} />
                           </>
                         )}
                       </div>
@@ -714,6 +716,7 @@ export default function TicketList({
                               <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 13, color: '#0284c7', fontWeight: 500 }}>
                                 <span style={{ fontSize: 12 }}>🔧</span>
                                 <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 140 }}>{data.technician_name}</span>
+                                <DsiPresenceBadge email={data.technician_email} name={data.technician_name} username={data.technician_username} size={11} />
                               </span>
                             )}
                           </span>

@@ -598,17 +598,7 @@ async function getCumulTeletravail(req, res) {
     }
 }
 
-module.exports = {
-  setSendMail: (fn) => { sendMailFn = fn; },
-  getEventsForDate,
-  getCumulTeletravail,
-
-  getEvenements: async (req, res) => {
-    try {
-      const { debut, fin } = req.query;
-      if (!debut || !fin) {
-        return res.status(400).json({ message: 'Paramètres debut et fin requis' });
-      }
+async function buildRangeEvents(debut, fin) {
       const [dbResult, agentsResult, appsResult, maintTableResult] = await Promise.all([
         pool.query(
           `SELECT id, date::text as date, categorie, periode, titre, description, agent_username, agent_nom, agent_email, couleur, created_by, created_at FROM hub_calendrier.evenements WHERE date >= $1 AND date <= $2 ORDER BY date, categorie`,
@@ -970,12 +960,138 @@ module.exports = {
 
       events.sort((a, b) => a.date.localeCompare(b.date) || a.categorie.localeCompare(b.categorie));
 
+      return events;
+}
+
+const STATUS_PRIORITY = { absence: 3, deplacement: 2, teletravail: 1 };
+const STATUS_LABELS = { absent: 'Absent', deplacement: 'En déplacement', teletravail: 'En télétravail', present: 'Présent' };
+const SOON_ABSENT_MIN_DAYS = 3;
+
+function nextBusinessDayStr(dateStr) {
+  const d = new Date(dateStr + 'T00:00:00');
+  d.setDate(d.getDate() + 1);
+  while (d.getDay() === 0 || d.getDay() === 6) d.setDate(d.getDate() + 1);
+  return formatDateStr(d);
+}
+
+async function getAgentsStatus(req, res) {
+  try {
+    const today = req.query.date || formatDateStr(new Date());
+    const rangeEnd = formatDateStr(new Date(new Date(today + 'T00:00:00').getTime() + 90 * 86400000));
+
+    const [agentsRes, events] = await Promise.all([
+      pool.query(`SELECT username, TRIM(nom) as nom, email FROM hub_calendrier.agents_dsi`),
+      buildRangeEvents(today, rangeEnd)
+    ]);
+
+    const byAgent = {};
+    for (const e of events) {
+      if (!e.agent_username) continue;
+      if (!byAgent[e.agent_username]) byAgent[e.agent_username] = [];
+      byAgent[e.agent_username].push(e);
+    }
+
+    const results = agentsRes.rows.map(agent => {
+      const agentEvents = byAgent[agent.username] || [];
+      const todayEvents = agentEvents.filter(e => e.date === today);
+
+      let chosenCat = null;
+      for (const e of todayEvents) {
+        if (STATUS_PRIORITY[e.categorie] && (!chosenCat || STATUS_PRIORITY[e.categorie] > STATUS_PRIORITY[chosenCat])) {
+          chosenCat = e.categorie;
+        }
+      }
+      const status = chosenCat === 'absence' ? 'absent' : chosenCat === 'deplacement' ? 'deplacement' : chosenCat === 'teletravail' ? 'teletravail' : 'present';
+
+      let absentUntil = null;
+      if (status === 'absent') {
+        const absenceDates = new Set(agentEvents.filter(e => e.categorie === 'absence').map(e => e.date));
+        let cursor = new Date(today + 'T00:00:00');
+        let last = today;
+        for (let i = 0; i < 90; i++) {
+          const next = new Date(cursor);
+          next.setDate(next.getDate() + 1);
+          const nextStr = formatDateStr(next);
+          if (absenceDates.has(nextStr)) {
+            last = nextStr;
+            cursor = next;
+          } else {
+            break;
+          }
+        }
+        absentUntil = last;
+      }
+
+      let soonAbsent = false;
+      let soonAbsentFrom = null;
+      let soonAbsentUntil = null;
+      if (status !== 'absent') {
+        const absenceDates = new Set(agentEvents.filter(e => e.categorie === 'absence').map(e => e.date));
+        const startCandidate = nextBusinessDayStr(today);
+        if (absenceDates.has(startCandidate)) {
+          let cursor = new Date(startCandidate + 'T00:00:00');
+          let last = startCandidate;
+          let count = 1;
+          for (let i = 0; i < 90; i++) {
+            const next = new Date(cursor);
+            next.setDate(next.getDate() + 1);
+            const nextStr = formatDateStr(next);
+            if (absenceDates.has(nextStr)) {
+              last = nextStr;
+              cursor = next;
+              count++;
+            } else {
+              break;
+            }
+          }
+          if (count >= SOON_ABSENT_MIN_DAYS) {
+            soonAbsent = true;
+            soonAbsentFrom = startCandidate;
+            soonAbsentUntil = last;
+          }
+        }
+      }
+
+      return {
+        username: agent.username,
+        nom: agent.nom,
+        email: agent.email || '',
+        status,
+        label: STATUS_LABELS[status],
+        absent_until: absentUntil,
+        soon_absent: soonAbsent,
+        soon_absent_from: soonAbsentFrom,
+        soon_absent_until: soonAbsentUntil
+      };
+    });
+
+    res.json(results);
+  } catch (error) {
+    console.error('[Calendrier DSI] getAgentsStatus error:', error);
+    res.status(500).json({ message: 'Erreur lors de la récupération du statut des agents', error: error.message });
+  }
+}
+
+module.exports = {
+  setSendMail: (fn) => { sendMailFn = fn; },
+  getEventsForDate,
+  getCumulTeletravail,
+
+  getEvenements: async (req, res) => {
+    try {
+      const { debut, fin } = req.query;
+      if (!debut || !fin) {
+        return res.status(400).json({ message: 'Paramètres debut et fin requis' });
+      }
+      const events = await buildRangeEvents(debut, fin);
       res.json(events);
     } catch (error) {
       console.error('[Calendrier DSI] getEvenements error:', error);
       res.status(500).json({ message: 'Erreur lors de la récupération', error: error.message });
     }
   },
+
+  getAgentsStatus,
 
   createEvenement: async (req, res) => {
     try {

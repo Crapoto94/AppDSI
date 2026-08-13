@@ -16,6 +16,8 @@ import { Phone, MessageSquare, Upload, X, Edit3 } from 'lucide-react';
 import { formatDateTime, formatDate as formatDateParis } from '../../utils/datetime';
 import UserHoverCard from '../../components/tickets/UserHoverCard';
 import AgentPresenceBadge from '../../components/AgentPresenceBadge';
+import DsiPresenceBadge, { loadDsiAgentsStatus, findDsiAgentStatus, buildDsiTooltip } from '../../components/DsiPresenceBadge';
+import type { DsiAgentStatus } from '../../components/DsiPresenceBadge';
 
 function decodeHtml(str: string) {
   const txt = document.createElement('textarea');
@@ -159,6 +161,7 @@ export default function TicketDetail() {
     return () => window.removeEventListener('resize', onResize);
   }, []);
   const [ticket, setTicket] = useState<any>(null);
+  const [pendingAssign, setPendingAssign] = useState<{ userId: number; agent: DsiAgentStatus } | null>(null);
   const [comments, setComments] = useState<any[]>([]);
   const [history, setHistory] = useState<any[]>([]);
   const [ticketTasks, setTicketTasks] = useState<any[]>([]);
@@ -997,11 +1000,12 @@ export default function TicketDetail() {
     }
   }
 
-  async function assignTechnician(userId: number) {
+  async function doAssignTechnician(userId: number) {
     try {
       const token = localStorage.getItem('token');
       await axios.post(`/api/tickets/${id}/assign`, { technician_id: userId }, { headers: { Authorization: `Bearer ${token}` } });
       setShowAssignModal(false);
+      setPendingAssign(null);
       loadTicket();
     } catch (err: any) {
       const msg = err.response?.data?.message || err.message || 'Erreur inconnue';
@@ -1009,6 +1013,22 @@ export default function TicketDetail() {
       console.error('[ASSIGN] Error:', status, msg, err);
       alert(`Erreur assignation (${status || '?'}): ${msg}`);
     }
+  }
+
+  async function assignTechnician(userId: number, techInfo?: { email?: string | null; name?: string | null; username?: string | null }) {
+    if (techInfo && (techInfo.email || techInfo.name || techInfo.username)) {
+      try {
+        const list = await loadDsiAgentsStatus();
+        const agent = findDsiAgentStatus(list, techInfo.email, techInfo.name, techInfo.username);
+        if (agent && agent.status === 'absent') {
+          setPendingAssign({ userId, agent });
+          return;
+        }
+      } catch {
+        // en cas d'échec de la vérification de présence, on n'empêche pas l'affectation
+      }
+    }
+    doAssignTechnician(userId);
   }
 
   function startDrag(e: React.MouseEvent) {
@@ -1882,6 +1902,8 @@ export default function TicketDetail() {
                 const groupMembers = hasAssigneeGroup ? (Number(groupRow.group_member_count) || null) : null;
                 const techRow = assignees.find((a: any) => a.technician_name);
                 const techName = techRow ? techRow.technician_name : ticket.technician_name;
+                const techEmail = techRow ? techRow.email : ticket.technician_email;
+                const techUsername = techRow ? techRow.username : ticket.technician_username;
                 if (!groupName && !techName) {
                   return <span style={{ fontSize: 12, color: '#a1a1aa', fontStyle: 'italic' }}>Non assigné</span>;
                 }
@@ -1900,6 +1922,7 @@ export default function TicketDetail() {
                       <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
                         <div style={{ flexShrink: 0, width: 22, height: 22, borderRadius: '50%', background: avatarColor(techName), display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 9, fontWeight: 700, color: '#fff' }}>{getInitials(techName)}</div>
                         <span style={SV}>{techName}</span>
+                        <DsiPresenceBadge email={techEmail} name={techName} username={techUsername} />
                       </div>
                     )}
                   </div>
@@ -1991,6 +2014,7 @@ export default function TicketDetail() {
                     </UserHoverCard>
                     {' '}
                     <AgentPresenceBadge email={ticket.requester?.email || ticket.email_alt || ticket.requester_email_22} name={ticket.requester?.name} />
+                    <DsiPresenceBadge email={ticket.requester?.email || ticket.email_alt || ticket.requester_email_22} name={ticket.requester?.name} />
                   </div>
                   {ticket.requester?.email && (
                     <a href={`mailto:${ticket.requester.email}`} style={{ fontSize: 11, color: '#6366f1', textDecoration: 'none', display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ticket.requester.email}</a>
@@ -2439,10 +2463,11 @@ export default function TicketDetail() {
                               <div style={{ fontSize: 14, fontWeight: 700, color: '#18181b', display: 'flex', alignItems: 'center', gap: 6 }}>
                                 {best.displayname || best.displayName}
                                 <AgentPresenceBadge email={best.email} name={best.displayname || best.displayName} />
+                                <DsiPresenceBadge email={best.email} name={best.displayname || best.displayName} username={best.username} showCaption />
                               </div>
                               <div style={{ fontSize: 11, color: '#71717a', marginTop: 1 }}>{best.module_role || 'technicien'} · {load} ticket{load !== 1 ? 's' : ''} actif{load !== 1 ? 's' : ''}</div>
                             </div>
-                            <button onClick={() => assignTechnician(best.user_id)}
+                            <button onClick={() => assignTechnician(best.user_id, { email: best.email, name: best.displayname || best.displayName, username: best.username })}
                               style={{ padding: '7px 16px', background: '#ef4444', color: '#fff', border: 'none', borderRadius: 8, fontWeight: 700, fontSize: 12, cursor: 'pointer', flexShrink: 0 }}>
                               Assigner
                             </button>
@@ -2474,6 +2499,7 @@ export default function TicketDetail() {
                                   <div style={{ fontSize: 13, fontWeight: 600, color: '#18181b', display: 'flex', alignItems: 'center', gap: 6 }}>
                                     {t.displayname || t.displayName}
                                     <AgentPresenceBadge email={t.email} name={t.displayname || t.displayName} />
+                                    <DsiPresenceBadge email={t.email} name={t.displayname || t.displayName} username={t.username} showCaption />
                                   </div>
                                   <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginTop: 2 }}>
                                     <span style={{ fontSize: 10, color: '#a1a1aa' }}>{t.module_role || 'technicien'}</span>
@@ -2483,7 +2509,7 @@ export default function TicketDetail() {
                                     <span style={{ fontSize: 10, color: '#71717a' }}>{load}</span>
                                   </div>
                                 </div>
-                                <button className="assign-hover-btn" onClick={() => assignTechnician(t.user_id)}
+                                <button className="assign-hover-btn" onClick={() => assignTechnician(t.user_id, { email: t.email, name: t.displayname || t.displayName, username: t.username })}
                                   style={{ padding: '5px 12px', background: '#6366f1', color: '#fff', border: 'none', borderRadius: 6, fontWeight: 600, fontSize: 11, cursor: 'pointer', flexShrink: 0, opacity: 0, transition: 'opacity 0.15s' }}>
                                   Assigner
                                 </button>
@@ -2515,10 +2541,11 @@ export default function TicketDetail() {
                                 <div style={{ fontSize: 13, fontWeight: 600, color: nameColor, display: 'flex', alignItems: 'center', gap: 6 }}>
                                   {t.display_name || t.username}
                                   <AgentPresenceBadge email={t.email} name={t.display_name || t.username} />
+                                  <DsiPresenceBadge email={t.email} name={t.display_name || t.username} username={t.username} showCaption />
                                 </div>
                                 <div style={{ fontSize: 11, color: subColor }}>{t.email || t.username}</div>
                               </div>
-                              <button onClick={() => { assignTechnician(t.user_id); }}
+                              <button onClick={() => { assignTechnician(t.user_id, { email: t.email, name: t.display_name || t.username, username: t.username }); }}
                                 style={{ padding: '5px 12px', background: color, color: '#fff', border: 'none', borderRadius: 6, fontWeight: 600, fontSize: 11, cursor: 'pointer', flexShrink: 0 }}>
                                 Escalader
                               </button>
@@ -2583,6 +2610,32 @@ export default function TicketDetail() {
                 {ticket.category_name ? `Auto-assign : ${ticket.category_name}` : ''}
               </span>
               <span style={{ fontSize: 11, color: '#a1a1aa', fontFamily: 'monospace' }}>esc: annuler</span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Confirmation affectation à un agent absent ──────────────────── */}
+      {pendingAssign && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1100 }}
+          onClick={() => setPendingAssign(null)}>
+          <div style={{ background: '#fff', borderRadius: 16, padding: 24, width: 420 }} onClick={e => e.stopPropagation()}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+              <span style={{ fontSize: 22 }}>⚠️</span>
+              <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: '#18181b' }}>Agent absent</h3>
+            </div>
+            <p style={{ margin: '0 0 20px 0', fontSize: 13.5, color: '#3f3f46', lineHeight: 1.5 }}>
+              Attention, <strong>{pendingAssign.agent.nom}</strong> {buildDsiTooltip(pendingAssign.agent).toLowerCase()}. Souhaitez-vous tout de même lui affecter ce ticket&nbsp;?
+            </p>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+              <button onClick={() => setPendingAssign(null)}
+                style={{ padding: '8px 16px', background: '#f4f4f5', color: '#3f3f46', border: 'none', borderRadius: 8, fontWeight: 600, fontSize: 12.5, cursor: 'pointer' }}>
+                Annuler
+              </button>
+              <button onClick={() => doAssignTechnician(pendingAssign.userId)}
+                style={{ padding: '8px 16px', background: '#ef4444', color: '#fff', border: 'none', borderRadius: 8, fontWeight: 700, fontSize: 12.5, cursor: 'pointer' }}>
+                Affecter quand même
+              </button>
             </div>
           </div>
         </div>

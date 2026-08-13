@@ -14,6 +14,7 @@ router.post('/send-daily', authenticateJWT, controller.sendDailyCalendar);
 
 router.get('/agents', authenticateJWT, agentsController.getAgents);
 router.post('/agents', authenticateJWT, agentsController.createAgent);
+router.get('/agents/status', authenticateJWT, controller.getAgentsStatus);
 router.get('/agents/search-matricule', authenticateJWT, agentsController.searchMatricule);
 router.post('/sync-demabs', authenticateJWT, agentsController.syncDemabs);
 router.get('/demabs-sync-info', authenticateJWT, agentsController.getDemabsSyncInfo);

@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import axios from 'axios';
 import { useAuth } from '../../contexts/AuthContext';
 import AgentPresenceBadge from '../../components/AgentPresenceBadge';
+import DsiPresenceBadge from '../../components/DsiPresenceBadge';
 
 const STATUS_NAMES: Record<number, string> = {
   1: 'Nouveau', 2: 'En cours', 3: 'Planifié',
@@ -186,7 +187,10 @@ export default function TicketInbox({ baseParams, onTicketClick, selectedId }: I
                     <span style={{ fontSize: 11, color: '#7c3aed', fontWeight: 500 }}>👥 {t.assignee_group_name}</span>
                   )}
                   {t.technician_name && (
-                    <span style={{ fontSize: 11, color: '#0284c7', fontWeight: 500 }}>🔧 {t.technician_name}</span>
+                    <span style={{ fontSize: 11, color: '#0284c7', fontWeight: 500, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                      🔧 {t.technician_name}
+                      <DsiPresenceBadge email={t.technician_email} name={t.technician_name} username={t.technician_username} size={11} />
+                    </span>
                   )}
                 </div>
                 <div style={{ fontSize: 13, fontWeight: 600, color: '#1e293b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginBottom: 3 }}>
@@ -196,6 +200,7 @@ export default function TicketInbox({ baseParams, onTicketClick, selectedId }: I
                   <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
                     {t.requester_name || 'Anonyme'}
                     <AgentPresenceBadge email={t.requester_email} name={t.requester_name} size={11} />
+                    <DsiPresenceBadge email={t.requester_email} name={t.requester_name} size={11} />
                   </span>
                   {t.category_name && <span>· {t.category_name}</span>}
                   <span style={{ marginLeft: 'auto' }}>{t.date_creation ? formatTimeAgo(t.date_creation) : ''}</span>

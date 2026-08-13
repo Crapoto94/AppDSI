@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
+import DsiPresenceBadge, { loadDsiAgentsStatus, findDsiAgentStatus, buildDsiTooltip } from './DsiPresenceBadge';
+import type { DsiAgentStatus } from './DsiPresenceBadge';
 
 interface TicketGroup {
   id: number;
@@ -26,6 +28,7 @@ export default function CreateTaskModal({ ticketId, ticketTitle, onClose, onCrea
   const [echeance, setEcheance] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
+  const [pendingAbsentAgent, setPendingAbsentAgent] = useState<DsiAgentStatus | null>(null);
 
   const token = localStorage.getItem('token');
 
@@ -54,6 +57,23 @@ export default function CreateTaskModal({ ticketId, ticketTitle, onClose, onCrea
     if (!description.trim()) { setError('Description requise'); return; }
     if (assignMode === 'person' && !selectedUser) { setError('Veuillez sélectionner un assigné'); return; }
     if (assignMode === 'group' && !selectedGroupId) { setError('Veuillez sélectionner un groupe'); return; }
+    if (assignMode === 'person' && selectedUser) {
+      try {
+        const list = await loadDsiAgentsStatus();
+        const agent = findDsiAgentStatus(list, selectedUser.email, selectedUser.displayName, selectedUser.username);
+        if (agent && agent.status === 'absent') {
+          setPendingAbsentAgent(agent);
+          return;
+        }
+      } catch {
+        // en cas d'échec de la vérification, on n'empêche pas la création
+      }
+    }
+    doSubmit();
+  }
+
+  async function doSubmit() {
+    setPendingAbsentAgent(null);
     setSubmitting(true);
     setError('');
     try {
@@ -138,6 +158,7 @@ export default function CreateTaskModal({ ticketId, ticketTitle, onClose, onCrea
                   fontSize: 13, display: 'flex', alignItems: 'center', gap: 8
                 }}>
                   <span style={{ fontWeight: 600 }}>{selectedUser.displayName}</span>
+                  <DsiPresenceBadge email={selectedUser.email} name={selectedUser.displayName} username={selectedUser.username} showCaption />
                   <span style={{ color: '#64748b' }}>{selectedUser.email}</span>
                   <button onClick={() => { setSelectedUser(null); setAssigneeQuery(''); }}
                     style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', color: '#ef4444', fontSize: 14 }}>
@@ -254,6 +275,31 @@ export default function CreateTaskModal({ ticketId, ticketTitle, onClose, onCrea
           </button>
         </div>
       </div>
+
+      {pendingAbsentAgent && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1100 }}
+          onClick={e => { e.stopPropagation(); setPendingAbsentAgent(null); }}>
+          <div style={{ background: '#fff', borderRadius: 16, padding: 24, width: 420 }} onClick={e => e.stopPropagation()}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+              <span style={{ fontSize: 22 }}>⚠️</span>
+              <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: '#18181b' }}>Agent absent</h3>
+            </div>
+            <p style={{ margin: '0 0 20px 0', fontSize: 13.5, color: '#3f3f46', lineHeight: 1.5 }}>
+              Attention, <strong>{pendingAbsentAgent.nom}</strong> {buildDsiTooltip(pendingAbsentAgent).toLowerCase()}. Souhaitez-vous tout de même lui affecter cette tâche&nbsp;?
+            </p>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+              <button onClick={() => setPendingAbsentAgent(null)}
+                style={{ padding: '8px 16px', background: '#f4f4f5', color: '#3f3f46', border: 'none', borderRadius: 8, fontWeight: 600, fontSize: 12.5, cursor: 'pointer' }}>
+                Annuler
+              </button>
+              <button onClick={doSubmit}
+                style={{ padding: '8px 16px', background: '#ef4444', color: '#fff', border: 'none', borderRadius: 8, fontWeight: 700, fontSize: 12.5, cursor: 'pointer' }}>
+                Affecter quand même
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

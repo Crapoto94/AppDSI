@@ -7,6 +7,8 @@ import React, { useState, useEffect } from 'react';
 import { X, Plus, Users, UserPlus, Trash2, ChevronDown, Globe, Lock } from 'lucide-react';
 import { useADSearch } from '../utils/useADSearch';
 import type { ADUser } from '../utils/useADSearch';
+import DsiPresenceBadge, { loadDsiAgentsStatus, findDsiAgentStatus, buildDsiTooltip } from './DsiPresenceBadge';
+import type { DsiAgentStatus } from './DsiPresenceBadge';
 
 interface Service {
   service_code: string;
@@ -44,6 +46,7 @@ const AddTaskModal: React.FC<AddTaskModalProps> = ({
   const [isPublic, setIsPublic]       = useState(false);
   const [saving, setSaving]           = useState(false);
   const [error, setError]             = useState<string | null>(null);
+  const [pendingAbsentAgent, setPendingAbsentAgent] = useState<DsiAgentStatus | null>(null);
 
   // Responsable (single, for non-team non-personal)
   const [responsable, setResponsable]         = useState(defaultResponsable);
@@ -96,6 +99,23 @@ const AddTaskModal: React.FC<AddTaskModalProps> = ({
     if (isTeam && teamMode === 'service' && !selectedService) {
       setError('Sélectionnez un service'); return;
     }
+    if (!isTeam && responsableUsername) {
+      try {
+        const list = await loadDsiAgentsStatus();
+        const agent = findDsiAgentStatus(list, undefined, responsable, responsableUsername);
+        if (agent && agent.status === 'absent') {
+          setPendingAbsentAgent(agent);
+          return;
+        }
+      } catch {
+        // en cas d'échec de la vérification, on n'empêche pas la création
+      }
+    }
+    doSubmit();
+  };
+
+  const doSubmit = async () => {
+    setPendingAbsentAgent(null);
     setSaving(true);
     setError(null);
     try {
@@ -222,13 +242,16 @@ const AddTaskModal: React.FC<AddTaskModalProps> = ({
               <label style={{ fontSize: 12, fontWeight: 700, color: '#374151', display: 'block', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
                 {contextSource === 'personal' ? 'Affecter à' : 'Responsable'} <span style={{ fontWeight: 400, color: '#9ca3af', textTransform: 'none' }}>(optionnel — moi par défaut)</span>
               </label>
-              <input
-                type="text"
-                placeholder="Rechercher dans l'AD..."
-                value={responsable}
-                onChange={e => { setResponsable(e.target.value); setResponsableUsername(''); ad.setQuery(e.target.value); }}
-                style={{ width: '100%', borderRadius: 8, border: `1px solid ${responsableUsername ? '#16a34a' : '#e2e8f0'}`, padding: '9px 12px', fontSize: 14, boxSizing: 'border-box', outline: 'none', fontFamily: 'inherit' }}
-              />
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <input
+                  type="text"
+                  placeholder="Rechercher dans l'AD..."
+                  value={responsable}
+                  onChange={e => { setResponsable(e.target.value); setResponsableUsername(''); ad.setQuery(e.target.value); }}
+                  style={{ flex: 1, borderRadius: 8, border: `1px solid ${responsableUsername ? '#16a34a' : '#e2e8f0'}`, padding: '9px 12px', fontSize: 14, boxSizing: 'border-box', outline: 'none', fontFamily: 'inherit' }}
+                />
+                {responsableUsername && <DsiPresenceBadge username={responsableUsername} name={responsable} showCaption />}
+              </div>
               {ad.searching && <span style={{ position: 'absolute', right: 12, top: '50%', fontSize: 11, color: '#64748b' }}>...</span>}
               {ad.results.length > 0 && (
                 <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 10, background: 'white', border: '1px solid #bfdbfe', borderRadius: 6, boxShadow: '0 4px 12px rgba(0,0,0,0.1)', maxHeight: 160, overflowY: 'auto' }}>
@@ -402,6 +425,31 @@ const AddTaskModal: React.FC<AddTaskModalProps> = ({
           </div>
         </div>
       </div>
+
+      {pendingAbsentAgent && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9300 }}
+          onClick={e => { e.stopPropagation(); setPendingAbsentAgent(null); }}>
+          <div style={{ background: '#fff', borderRadius: 16, padding: 24, width: 420 }} onClick={e => e.stopPropagation()}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+              <span style={{ fontSize: 22 }}>⚠️</span>
+              <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: '#18181b' }}>Agent absent</h3>
+            </div>
+            <p style={{ margin: '0 0 20px 0', fontSize: 13.5, color: '#3f3f46', lineHeight: 1.5 }}>
+              Attention, <strong>{pendingAbsentAgent.nom}</strong> {buildDsiTooltip(pendingAbsentAgent).toLowerCase()}. Souhaitez-vous tout de même lui affecter cette tâche&nbsp;?
+            </p>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+              <button onClick={() => setPendingAbsentAgent(null)}
+                style={{ padding: '8px 16px', background: '#f4f4f5', color: '#3f3f46', border: 'none', borderRadius: 8, fontWeight: 600, fontSize: 12.5, cursor: 'pointer' }}>
+                Annuler
+              </button>
+              <button onClick={doSubmit}
+                style={{ padding: '8px 16px', background: '#ef4444', color: '#fff', border: 'none', borderRadius: 8, fontWeight: 700, fontSize: 12.5, cursor: 'pointer' }}>
+                Affecter quand même
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
