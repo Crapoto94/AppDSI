@@ -5285,6 +5285,8 @@ async function setupPgDb() {
         if (orphan.rows.length > 0) {
           const opsRes = await client.query(`SELECT id, name, tier_code FROM hub_telecom.operators`);
           const fournisseurToOp = new Map();
+          const accountsRes = await client.query(`SELECT operator_id, COUNT(*) as nb FROM hub_telecom.billing_accounts GROUP BY operator_id HAVING COUNT(*) = 1`);
+          const singleAccountOf = new Map(accountsRes.rows.map(r => [r.operator_id, r.operator_id]));
           for (const o of opsRes.rows) {
             const keys = new Set();
             if (o.name) {
@@ -5306,6 +5308,11 @@ async function setupPgDb() {
             }
             for (const k of keys) if (k && !fournisseurToOp.has(k)) fournisseurToOp.set(k, o.id);
           }
+          const accByOp = await client.query(`SELECT operator_id, id FROM hub_telecom.billing_accounts`);
+          const accountIdsByOp = new Map();
+          for (const a of accByOp.rows) {
+            if (!accountIdsByOp.has(a.operator_id)) accountIdsByOp.set(a.operator_id, a.id);
+          }
           for (const r of orphan.rows) {
             const f = await client.query(
               `SELECT "FACTURE_LIBELLE2" as libelle FROM oracle.gf_oracle_facture
@@ -5316,7 +5323,15 @@ async function setupPgDb() {
             );
             const lib = f.rows.length ? String(f.rows[0].libelle || '').trim().toUpperCase() : null;
             const opId = lib && fournisseurToOp.get(lib);
-            if (opId) await client.query(`UPDATE hub_telecom.rejected_invoices SET operator_id = $1 WHERE id = $2`, [opId, r.id]);
+            if (opId) {
+              // Si l'opérateur n'a qu'un seul compte, on peut aussi rattacher le rejet à ce compte.
+              const accId = accountIdsByOp.has(opId) && !singleAccountOf.has(opId) ? null : accountIdsByOp.get(opId) || null;
+              if (accId) {
+                await client.query(`UPDATE hub_telecom.rejected_invoices SET operator_id = $1, billing_account_id = $2 WHERE id = $3`, [opId, accId, r.id]);
+              } else {
+                await client.query(`UPDATE hub_telecom.rejected_invoices SET operator_id = $1 WHERE id = $2`, [opId, r.id]);
+              }
+            }
           }
         }
       } catch (e) { console.error('[PG DB] Backfill rejets télécom:', e.message); }

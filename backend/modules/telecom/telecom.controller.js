@@ -146,7 +146,8 @@ module.exports = {
             const accounts = await pgDb.all(`
                 SELECT a.*, o.name as operator_name,
                        (SELECT COUNT(*) FROM hub_telecom.invoices WHERE billing_account_id = a.id) as invoice_count,
-                       (SELECT COALESCE(SUM(ri.amount_ttc), 0) FROM (${RESOLVED_INVOICES_SQL}) ri WHERE ri.billing_account_id = a.id) as total_invoiced
+                       (SELECT COALESCE(SUM(ri.amount_ttc), 0) FROM (${RESOLVED_INVOICES_SQL}) ri WHERE ri.billing_account_id = a.id) as total_invoiced,
+                       (SELECT COUNT(*) FROM hub_telecom.rejected_invoices r WHERE r.billing_account_id = a.id) as rejected_count
                 FROM hub_telecom.billing_accounts a
                 JOIN hub_telecom.operators o ON a.operator_id = o.id
                 WHERE a.operator_id = ?
