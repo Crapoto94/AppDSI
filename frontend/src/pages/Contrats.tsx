@@ -742,23 +742,20 @@ const Contrats: React.FC = () => {
     getLinkedContracts(c);
   };
   const saveModal = async () => {
-    console.log('[DEBUG] saveModal appelée, editModalData:', editModalData);
-    if (!editModalData) {
-      console.log('[DEBUG] editModalData vide, retour');
-      return;
-    }
+    if (!editModalData) return;
     try {
       const isNew = !editModal;
       const method = isNew ? 'POST' : 'PUT';
       const url = isNew ? '/api/contrats' : `/api/contrats/${editModal!.id}`;
-      console.log('[DEBUG] Sauvegarde:', { url, method, tiers: editModalData.tiers, app_id: editModalData.app_id });
       const response = await fetch(url, { method, headers: { ...authHeaders(), "Content-Type": "application/json" }, body: JSON.stringify(editModalData) });
-      console.log('[DEBUG] Réponse:', response.status, response.statusText);
+      if (!response.ok) {
+        const data = await response.json().catch(() => null);
+        throw new Error(data?.message || `Erreur ${response.status}`);
+      }
       setEditModal(null); setEditModalData(null); setTiersSearch(''); setAppsSearch(''); await fetchContrats();
       showMsg('success', isNew ? 'Contrat créé' : 'Contrat mis à jour');
-    } catch (error) {
-      console.log('[DEBUG] Erreur:', error);
-      showMsg('error', 'Impossible de sauvegarder');
+    } catch (error: any) {
+      showMsg('error', error?.message || 'Impossible de sauvegarder');
     }
   };
 

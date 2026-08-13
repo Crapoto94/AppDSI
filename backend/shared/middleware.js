@@ -267,6 +267,33 @@ const authenticateGLPIControl = (req, res, next) => {
 };
 
 /**
+ * Middleware for Admin or users with access to the /contrats tile (Hub).
+ * Écriture (création/édition/renouvellement) ouverte à quiconque a la tuile "Contrats" en prod,
+ * pas seulement aux superadmins — les suppressions et l'import Excel restent plus restreints.
+ */
+const authenticateAdminOrContrats = (req, res, next) => {
+    authenticateJWT(req, res, async () => {
+        if (isAdminLike(req.user)) {
+            return next();
+        }
+        try {
+            const db = getSqlite();
+            if (req.user && req.user.id && db) {
+                const authorized = await db.get(`
+                    SELECT 1 FROM user_tiles ut
+                    JOIN tile_links tl ON tl.tile_id = ut.tile_id
+                    WHERE ut.user_id = ? AND tl.url = '/contrats'
+                `, [req.user.id]);
+                if (authorized) return next();
+            }
+        } catch (error) {
+            console.error('[AUTH CONTRATS] Error checking contrats tile access:', error);
+        }
+        res.status(403).json({ message: 'Accès refusé : accès au module Contrats requis' });
+    });
+};
+
+/**
  * Middleware for Admin or PMO users
  */
 const authenticateAdminOrPMO = (req, res, next) => {
@@ -511,6 +538,7 @@ module.exports = {
     authenticateInternalOrAdmin: bypassIfApiKey(authenticateInternalOrAdmin),
     authenticateAdminOrFinances: bypassIfApiKey(authenticateAdminOrFinances),
     authenticateAdminOrPMO: bypassIfApiKey(authenticateAdminOrPMO),
+    authenticateAdminOrContrats: bypassIfApiKey(authenticateAdminOrContrats),
     authenticateMagappControl: bypassIfApiKey(authenticateMagappControl),
     authenticateGLPIControl: bypassIfApiKey(authenticateGLPIControl),
     authenticateConsommablesAdmin: bypassIfApiKey(authenticateConsommablesAdmin),

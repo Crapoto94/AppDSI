@@ -2,7 +2,7 @@ const express = require('express');
 const multer = require('multer');
 const path = require('path');
 const { pgDb } = require('../../shared/database');
-const { authenticateJWT, authenticateAdmin } = require('../../shared/middleware');
+const { authenticateJWT, authenticateAdmin, authenticateAdminOrContrats } = require('../../shared/middleware');
 const controller = require('./contrats.controller');
 
 const router = express.Router();
@@ -27,7 +27,7 @@ router.get('/:id/documents', authenticateJWT, async (req, res) => {
     await controller.getDocuments(req, res, pgDb);
 });
 
-router.post('/:id/documents', uploadDoc.single('file'), authenticateAdmin, async (req, res) => {
+router.post('/:id/documents', uploadDoc.single('file'), authenticateAdminOrContrats, async (req, res) => {
     await controller.addDocument(req, res, pgDb);
 });
 
@@ -35,11 +35,11 @@ router.delete('/:id/documents/:docId', authenticateAdmin, async (req, res) => {
     await controller.deleteDocument(req, res, pgDb);
 });
 
-router.put('/:id/renouvellement', authenticateAdmin, async (req, res) => {
+router.put('/:id/renouvellement', authenticateAdminOrContrats, async (req, res) => {
     await controller.updateRenewal(req, res, pgDb);
 });
 
-router.put('/:id/statut', authenticateAdmin, async (req, res) => {
+router.put('/:id/statut', authenticateAdminOrContrats, async (req, res) => {
     await controller.updateStatus(req, res, pgDb);
 });
 
@@ -48,11 +48,11 @@ router.get('/', authenticateJWT, async (req, res) => {
     await controller.getAll(req, res, pgDb);
 });
 
-router.post('/', authenticateAdmin, async (req, res) => {
+router.post('/', authenticateAdminOrContrats, async (req, res) => {
     await controller.create(req, res, pgDb);
 });
 
-router.put('/:id', authenticateAdmin, async (req, res) => {
+router.put('/:id', authenticateAdminOrContrats, async (req, res) => {
     await controller.update(req, res, pgDb);
 });
 

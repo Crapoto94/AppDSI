@@ -134,7 +134,6 @@ module.exports = {
     // Mettre à jour un contrat
     async update(req, res, db) {
         try {
-            console.log('[DEBUG UPDATE] Body reçu:', { tiers: req.body.tiers, app_id: req.body.app_id, body: JSON.stringify(req.body).substring(0, 200) });
             const allowed = [
                 'svc', 'objet', 'budget', 'raison_sociale', 'tiers', 'app_id', 'type_contrat', 'annee_initiale',
                 'direction', 'service', 'perimetre', 'nature', 'fonction',
@@ -161,15 +160,11 @@ module.exports = {
             if (updates.length === 0) return res.status(400).json({ message: 'Aucun champ modifiable' });
             values.push(req.params.id);
             const updateSQL = `UPDATE contrats SET ${updates.join(', ')} WHERE id = ?`;
-            console.log('[DEBUG UPDATE] SQL:', updateSQL);
-            console.log('[DEBUG UPDATE] Values:', values);
-            console.log('[DEBUG UPDATE] About to execute query...');
             await db.run(updateSQL, values);
-            console.log('[DEBUG UPDATE] Query executed successfully');
             const updated = await db.get('SELECT * FROM contrats WHERE id = ?', [req.params.id]);
             res.json({ message: 'Mis à jour', contrat: updated });
         } catch (error) {
-            console.error('[DEBUG UPDATE] ERROR:', error.message, error.stack);
+            console.error('[Contrats] update error:', error.message);
             res.status(500).json({ message: 'Erreur mise à jour', error: error.message });
         }
     },
