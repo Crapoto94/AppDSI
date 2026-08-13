@@ -14,13 +14,18 @@ import {
   Save,
   X,
   FileText,
-  AlertCircle,
   Wifi,
   Phone,
   AlertTriangle,
   MapPin,
   Network,
-  Check
+  Check,
+  ExternalLink,
+  FileSpreadsheet,
+  TrendingUp,
+  TrendingDown,
+  ArrowRight,
+  MessageSquare
 } from 'lucide-react';import { useNavigate } from 'react-router-dom';
 import { BarChart, Bar, Cell, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
 import Header from '../components/Header';
@@ -81,6 +86,19 @@ interface TelecomInvoice {
   operator_name?: string;
   account_number?: string;
   general_status?: string;
+  sedit_ref?: string;
+  billing_month?: string | null;
+  description?: string | null;
+  effective_month?: string | null;
+}
+
+interface AvailableBudgetInvoice {
+  invoice_number: string;
+  libelle: string;
+  fournisseur: string;
+  amount_ttc: number | null;
+  invoice_date: string | null;
+  etat: string | null;
 }
 
 interface TelecomLine {
@@ -172,9 +190,94 @@ interface BillingLine {
   resiliation: string;
 }
 
+interface MonthCellInvoice {
+  id: number;
+  invoice_number: string;
+  amount_ttc: number;
+  description: string | null;
+  general_status: string | null;
+  sedit_ref: string | null;
+}
+
+interface MonthCell {
+  total: number | null;
+  invoices: MonthCellInvoice[];
+  comment: string | null;
+  isPast: boolean;
+}
+
+interface MonthlySummaryRow {
+  account_id: number;
+  operator_id: number;
+  operator_name: string;
+  account_number: string;
+  designation: string;
+  type: string;
+  monthly: Record<string, MonthCell>;
+  total: number;
+  landing: number | null;
+}
+
+interface MonthlySummaryOperator {
+  operator_id: number;
+  operator_name: string;
+  monthly: Record<string, number>;
+  total: number;
+  landing: number | null;
+}
+
+interface MonthlySummaryData {
+  year: number;
+  months: string[];
+  currentMonth: string;
+  rows: MonthlySummaryRow[];
+  operators: MonthlySummaryOperator[];
+  global: { monthly: Record<string, number>; total: number; landing: number | null };
+}
+
+// Sparkline minimaliste (SVG inline) pour l'évolution mensuelle d'un tiers.
+const Sparkline: React.FC<{ values: number[]; width?: number; height?: number; color?: string }> = ({ values, width = 90, height = 22, color = '#6366f1' }) => {
+  if (values.length < 2) return null;
+  const max = Math.max(...values, 0.0001);
+  const min = Math.min(...values, 0);
+  const range = max - min || 1;
+  const step = width / (values.length - 1);
+  const points = values.map((v, i) => `${(i * step).toFixed(1)},${(height - ((v - min) / range) * height).toFixed(1)}`).join(' ');
+  return (
+    <svg width={width} height={height} style={{ display: 'block', opacity: 0.55 }}>
+      <polyline points={points} fill="none" stroke={color} strokeWidth={1.5} />
+    </svg>
+  );
+};
+
+// Tendance d'un mois par rapport au précédent — même code couleur que /contrats :
+// rouge = hausse (alerte dépense), vert = baisse, gris = stable. Seuil ±15%.
+const TREND_UP_COLOR = '#dc2626';
+const TREND_DOWN_COLOR = '#16a34a';
+const TREND_STABLE_COLOR = '#9ca3af';
+const monthTrend = (curr: number, prev: number): { Icon: typeof TrendingUp; color: string; title: string } => {
+  if (prev === 0) {
+    return curr > 0
+      ? { Icon: TrendingUp, color: TREND_UP_COLOR, title: 'En hausse par rapport au mois précédent (base nulle)' }
+      : { Icon: ArrowRight, color: TREND_STABLE_COLOR, title: 'Stable par rapport au mois précédent' };
+  }
+  const pct = ((curr - prev) / Math.abs(prev)) * 100;
+  if (pct > 15) return { Icon: TrendingUp, color: TREND_UP_COLOR, title: `En hausse de ${pct.toFixed(0)}% par rapport au mois précédent` };
+  if (pct < -15) return { Icon: TrendingDown, color: TREND_DOWN_COLOR, title: `En baisse de ${Math.abs(pct).toFixed(0)}% par rapport au mois précédent` };
+  return { Icon: ArrowRight, color: TREND_STABLE_COLOR, title: `Stable par rapport au mois précédent (${pct >= 0 ? '+' : ''}${pct.toFixed(0)}%)` };
+};
+
 const TelecomManagement: React.FC = () => {
   const navigate = useNavigate();
-  const [activeTab, setActiveTab] = useState<'invoices' | 'lines' | 'pdfs' | 'network' | 'billing' | 'optim'>('invoices');
+  const [activeTab, setActiveTab] = useState<'invoices' | 'lines' | 'pdfs' | 'network' | 'billing' | 'optim' | 'summary'>('invoices');
+
+  // Synthèse mensuelle par compte (façon onglet "Suivi" de l'Excel)
+  const [monthlySummary, setMonthlySummary] = useState<MonthlySummaryData | null>(null);
+  const [loadingSummary, setLoadingSummary] = useState(false);
+  const [summaryYear, setSummaryYear] = useState(new Date().getFullYear());
+  const [viewingCell, setViewingCell] = useState<{ label: string; invoices: MonthCellInvoice[] } | null>(null);
+  const [commentEditor, setCommentEditor] = useState<{ accountId: number; month: string; value: string } | null>(null);
+  const [savingComment, setSavingComment] = useState(false);
 
   // Lignes fixes & internet
   const [lines, setLines] = useState<TelecomLine[]>([]);
@@ -196,6 +299,8 @@ const TelecomManagement: React.FC = () => {
   const [importingBilling, setImportingBilling] = useState(false);
   const [invoiceFiles, setInvoiceFiles] = useState<Record<string, string>>({});
   const [importingInvoices, setImportingInvoices] = useState(false);
+  const [importingSuivi, setImportingSuivi] = useState(false);
+  const [urlSedit, setUrlSedit] = useState<string>('https://seditgfprod.ivry.local/SeditGfSMProd');
 
   // Optimisation (rapprochement inventaire ↔ facturation)
   const [reconciliation, setReconciliation] = useState<Reconciliation | null>(null);
@@ -239,9 +344,18 @@ const TelecomManagement: React.FC = () => {
   const [invoiceAccountFilter, setInvoiceAccountFilter] = useState<number | null>(null);
   const [invoiceOperatorFilter, setInvoiceOperatorFilter] = useState<number | null>(null);
   
-  // Validation Modal State
-  const [pendingInvoice, setPendingInvoice] = useState<any>(null);
-  const [showValidation, setShowValidation] = useState(false);
+  // Ajout d'une facture depuis le budget (remplace l'upload PDF) : liste des factures du
+  // fournisseur de ce compte pas encore intégrées à /telecom. Ouvrable soit depuis un compte
+  // précis (onglet Comptes), soit depuis la liste des factures (avec choix opérateur/compte).
+  const [showAddInvoiceModal, setShowAddInvoiceModal] = useState(false);
+  const [addInvoiceOperatorId, setAddInvoiceOperatorId] = useState<number | null>(null);
+  const [addInvoiceAccountId, setAddInvoiceAccountId] = useState<number | null>(null);
+  const [availableInvoices, setAvailableInvoices] = useState<AvailableBudgetInvoice[]>([]);
+  const [loadingAvailable, setLoadingAvailable] = useState(false);
+  const [availableSearch, setAvailableSearch] = useState('');
+  const [addingInvoiceNumber, setAddingInvoiceNumber] = useState<string | null>(null);
+  // Édition inline du mois de rattachement / de la description d'une facture déjà intégrée
+  const [editingMeta, setEditingMeta] = useState<{ id: number; billing_month: string; description: string } | null>(null);
 
   const [newAccount, setNewAccount] = useState<Partial<BillingAccount>>({
     type: 'Fixe',
@@ -257,6 +371,16 @@ const TelecomManagement: React.FC = () => {
 
   useEffect(() => {
     fetchData();
+  }, [token]);
+
+  useEffect(() => {
+    fetch('/api/settings', { headers: { 'Authorization': `Bearer ${token}` } })
+      .then(res => res.ok ? res.json() : [])
+      .then((settings: any[]) => {
+        const s = (settings || []).find((s: any) => s.setting_key === 'url_sedit_fi');
+        if (s) setUrlSedit(s.setting_value);
+      })
+      .catch(() => {});
   }, [token]);
 
   const fetchData = async () => {
@@ -293,6 +417,42 @@ const TelecomManagement: React.FC = () => {
       const res = await fetch('/api/telecom/billing/invoice-files', { headers: { 'Authorization': `Bearer ${token}` } });
       if (res.ok) setInvoiceFiles(await res.json());
     } catch (e) { console.error(e); }
+  };
+
+  const handleImportSuivi = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setImportingSuivi(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      const res = await fetch('/api/telecom/invoices/import-suivi', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` },
+        body: formData,
+      });
+      const data = await res.json();
+      if (res.ok) {
+        const skipped = (data.skipped_rows || []).length;
+        alert(
+          `Import du fichier Suivi terminé\n\n` +
+          `${data.operators_created} opérateur(s) créé(s)\n` +
+          `${data.accounts_created} compte(s) créé(s)\n` +
+          `${data.invoices_created} facture(s) affectée(s)\n` +
+          `${data.invoices_reassigned} facture(s) réaffectée(s)\n` +
+          `${data.invoices_unchanged} facture(s) déjà à jour` +
+          (skipped ? `\n${skipped} ligne(s) ignorée(s) (compte manquant)` : '')
+        );
+        await fetchData();
+      } else {
+        alert('Erreur : ' + (data.message || 'inconnue'));
+      }
+    } catch (err) {
+      alert("Erreur lors de l'import du fichier Suivi");
+    } finally {
+      setImportingSuivi(false);
+      e.target.value = '';
+    }
   };
 
   const handleImportInvoices = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -419,6 +579,44 @@ const TelecomManagement: React.FC = () => {
     if (activeTab === 'optim') fetchOptim();
   }, [activeTab, token]);
 
+  const fetchMonthlySummary = async () => {
+    setLoadingSummary(true);
+    try {
+      const res = await fetch(`/api/telecom/invoices/monthly-summary?year=${summaryYear}`, { headers: { 'Authorization': `Bearer ${token}` } });
+      if (res.ok) setMonthlySummary(await res.json());
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setLoadingSummary(false);
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab === 'summary') fetchMonthlySummary();
+  }, [activeTab, token, summaryYear]);
+
+  const handleSaveComment = async () => {
+    if (!commentEditor) return;
+    setSavingComment(true);
+    try {
+      const res = await fetch(`/api/telecom/billing-accounts/${commentEditor.accountId}/monthly-comment`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ month: commentEditor.month, comment: commentEditor.value }),
+      });
+      if (res.ok) {
+        setCommentEditor(null);
+        await fetchMonthlySummary();
+      } else {
+        alert("Erreur lors de l'enregistrement du commentaire");
+      }
+    } catch (e) {
+      alert('Erreur de connexion');
+    } finally {
+      setSavingComment(false);
+    }
+  };
+
   const handleImportBilling = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -538,71 +736,6 @@ const TelecomManagement: React.FC = () => {
     setShowAddAccount(acc.operator_id);
   };
 
-  const handleUploadInvoice = async (e: React.ChangeEvent<HTMLInputElement> | null, overwrite = false, existingFile?: File) => {
-    const file = e ? e.target.files?.[0] : existingFile;
-    if (!file) return;
-
-    const formData = new FormData();
-    formData.append('target_type', 'telecom_invoice');
-    formData.append('file', file);
-    if (overwrite) formData.append('overwrite', 'true');
-
-    try {
-      const res = await fetch('/api/telecom/invoices/upload', {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${token}` },
-        body: formData
-      });
-
-      if (res.status === 409) {
-        const data = await res.json();
-        if (window.confirm(data.message)) {
-          handleUploadInvoice(null, true, file);
-        }
-        return;
-      }
-
-      if (res.ok) {
-        const data = await res.json();
-        // data now contains { id, file_path, ... } directly from the backend
-        if (!data.operator_id || !data.billing_account_id || data.invoice_number === 'Inconnu' || !data.invoice_date || data.amount_ttc === 0) {
-          setPendingInvoice(data);
-          setShowValidation(true);
-        } else {
-          alert(`Facture ${data.invoice_number} uploadée et analysée avec succès.`);
-          fetchData();
-        }
-      } else {
-        alert("Erreur lors de l'upload");
-      }
-    } catch (e) {
-      alert("Erreur de connexion");
-    }
-  };
-
-  const handleSaveValidation = async () => {
-    if (!pendingInvoice) return;
-    try {
-      const res = await fetch(`/api/telecom/invoices/${pendingInvoice.id}`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify(pendingInvoice)
-      });
-      if (res.ok) {
-        setShowValidation(false);
-        setPendingInvoice(null);
-        fetchData();
-      } else {
-        alert("Erreur lors de la mise à jour");
-      }
-    } catch (e) {
-      alert("Erreur de connexion");
-    }
-  };
-
   const handleDeleteTelecomInvoice = async (id: number) => {
     if (!window.confirm("Supprimer cette facture ?")) return;
     try {
@@ -616,8 +749,97 @@ const TelecomManagement: React.FC = () => {
     }
   };
 
+  const loadAvailableInvoices = async (accountId: number) => {
+    setAvailableInvoices([]);
+    setLoadingAvailable(true);
+    try {
+      const res = await fetch(`/api/telecom/billing-accounts/${accountId}/available-invoices`, { headers: { 'Authorization': `Bearer ${token}` } });
+      if (res.ok) setAvailableInvoices(await res.json());
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setLoadingAvailable(false);
+    }
+  };
+
+  const openAddInvoice = (acc: BillingAccount) => {
+    setShowAddInvoiceModal(true);
+    setAddInvoiceOperatorId(acc.operator_id);
+    setAddInvoiceAccountId(acc.id);
+    setAvailableSearch('');
+    loadAvailableInvoices(acc.id);
+  };
+
+  const openAddInvoicePicker = () => {
+    setShowAddInvoiceModal(true);
+    setAddInvoiceOperatorId(invoiceOperatorFilter);
+    setAddInvoiceAccountId(invoiceAccountFilter);
+    setAvailableInvoices([]);
+    setAvailableSearch('');
+    if (invoiceAccountFilter) loadAvailableInvoices(invoiceAccountFilter);
+  };
+
+  const addInvoiceAccount = addInvoiceOperatorId && addInvoiceAccountId
+    ? billingAccounts[addInvoiceOperatorId]?.find(a => a.id === addInvoiceAccountId) || null
+    : null;
+
+  const handleAddInvoiceFromBudget = async (candidate: AvailableBudgetInvoice) => {
+    if (!addInvoiceAccount) return;
+    setAddingInvoiceNumber(candidate.invoice_number);
+    try {
+      const res = await fetch('/api/telecom/invoices/from-budget', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({
+          operator_id: addInvoiceAccount.operator_id,
+          billing_account_id: addInvoiceAccount.id,
+          invoice_number: candidate.invoice_number,
+        }),
+      });
+      if (res.ok) {
+        setAvailableInvoices(prev => prev.filter(c => c.invoice_number !== candidate.invoice_number));
+        await fetchAccounts(addInvoiceAccount.operator_id);
+        await fetchData();
+      } else {
+        const data = await res.json();
+        alert('Erreur : ' + (data.message || 'inconnue'));
+      }
+    } catch (e) {
+      alert("Erreur lors de l'ajout de la facture");
+    } finally {
+      setAddingInvoiceNumber(null);
+    }
+  };
+
+  const startEditMeta = (inv: TelecomInvoice) => {
+    setEditingMeta({
+      id: inv.id,
+      billing_month: inv.billing_month || inv.effective_month || '',
+      description: inv.description || '',
+    });
+  };
+
+  const handleSaveMeta = async () => {
+    if (!editingMeta) return;
+    try {
+      const res = await fetch(`/api/telecom/invoices/${editingMeta.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ billing_month: editingMeta.billing_month, description: editingMeta.description }),
+      });
+      if (res.ok) {
+        setEditingMeta(null);
+        await fetchData();
+      } else {
+        alert('Erreur lors de la mise à jour');
+      }
+    } catch (e) {
+      alert('Erreur de connexion');
+    }
+  };
+
   const toggleOperator = (id: number) => {
-    setExpandedOperators(prev => 
+    setExpandedOperators(prev =>
       prev.includes(id) ? prev.filter(oid => oid !== id) : [...prev, id]
     );
   };
@@ -642,11 +864,10 @@ const TelecomManagement: React.FC = () => {
     return matchesSearch && matchesOperator && matchesAccount;
   }).sort((a, b) => new Date(b.invoice_date).getTime() - new Date(a.invoice_date).getTime());
 
-  // Group by month
+  // Group by month — le mois "effectif" tient compte de l'éventuelle correction manuelle (billing_month)
   const groupedInvoices: Record<string, TelecomInvoice[]> = {};
   filteredInvoices.forEach(inv => {
-    const date = inv.invoice_date ? new Date(inv.invoice_date) : null;
-    const monthKey = date ? `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}` : 'Inconnue';
+    const monthKey = inv.effective_month || inv.billing_month || 'Inconnue';
     if (!groupedInvoices[monthKey]) groupedInvoices[monthKey] = [];
     groupedInvoices[monthKey].push(inv);
   });
@@ -676,6 +897,9 @@ const TelecomManagement: React.FC = () => {
             </button>
             <button className={activeTab === 'pdfs' ? 'active' : ''} onClick={() => setActiveTab('pdfs')}>
               <CreditCard size={18} /> Factures PDF
+            </button>
+            <button className={activeTab === 'summary' ? 'active' : ''} onClick={() => setActiveTab('summary')}>
+              <FileSpreadsheet size={18} /> Synthèse mensuelle
             </button>
             <button className={activeTab === 'lines' ? 'active' : ''} onClick={() => setActiveTab('lines')}>
               <List size={18} /> Engagements
@@ -867,6 +1091,9 @@ const TelecomManagement: React.FC = () => {
                                         </td>
                                         <td>
                                           <div className="action-btns" style={{ justifyContent: 'center' }}>
+                                            <button className="edit-icon-btn" title="Ajouter une facture depuis le budget" onClick={() => openAddInvoice(acc)}>
+                                              <Plus size={16} />
+                                            </button>
                                             <button className="edit-icon-btn" onClick={() => startEditAccount(acc)}>
                                               <Edit2 size={16} />
                                             </button>
@@ -904,17 +1131,21 @@ const TelecomManagement: React.FC = () => {
         {activeTab === 'pdfs' && (
           <div className="tab-content">
             <div className="section-header">
-              <h2>Historique des factures PDF</h2>
+              <h2>Historique des factures</h2>
               <div className="action-group">
-                <input 
-                  type="file" 
-                  id="upload-telecom-invoice" 
-                  style={{ display: 'none' }} 
-                  accept=".pdf"
-                  onChange={handleUploadInvoice}
+                <button className="add-btn" onClick={openAddInvoicePicker}>
+                  <Plus size={18} /> Ajouter une facture
+                </button>
+                <input
+                  type="file"
+                  id="import-telecom-suivi"
+                  style={{ display: 'none' }}
+                  accept=".xlsx,.xls"
+                  onChange={handleImportSuivi}
                 />
-                <button className="add-btn" onClick={() => document.getElementById('upload-telecom-invoice')?.click()}>
-                  <Plus size={18} /> Ajouter une facture (PDF)
+                <button className="add-btn" disabled={importingSuivi} onClick={() => document.getElementById('import-telecom-suivi')?.click()}
+                  title="Importe l'onglet Suivi du fichier SUIVI TELECOM (n° de facture affectés automatiquement, opérateur/compte créés si besoin)">
+                  <FileSpreadsheet size={18} /> {importingSuivi ? 'Import en cours...' : 'Importer le fichier Suivi'}
                 </button>
               </div>
             </div>
@@ -978,6 +1209,8 @@ const TelecomManagement: React.FC = () => {
                     <th>N° Facture</th>
                     <th>Opérateur</th>
                     <th>N° Compte</th>
+                    <th>Mois</th>
+                    <th>Description</th>
                     <th>Montant TTC</th>
                     <th>État</th>
                     <th>Actions</th>
@@ -987,44 +1220,232 @@ const TelecomManagement: React.FC = () => {
                   {Object.entries(groupedInvoices).sort((a, b) => b[0].localeCompare(a[0])).map(([monthKey, invoices]) => (
                     <React.Fragment key={monthKey}>
                       <tr className="month-break-row">
-                        <td colSpan={7}>{formatMonthKey(monthKey)}</td>
+                        <td colSpan={9}>{formatMonthKey(monthKey)}</td>
                       </tr>
-                      {invoices.map(inv => (
+                      {invoices.map(inv => {
+                        const isEditing = editingMeta?.id === inv.id;
+                        return (
                         <tr key={inv.id}>
                           <td>{inv.invoice_date ? new Date(inv.invoice_date).toLocaleDateString('fr-FR') : 'Inconnue'}</td>
                           <td style={{ fontWeight: 700 }}>{inv.invoice_number}</td>
                           <td>{inv.operator_name || <span style={{ color: '#ef4444' }}>Inconnu</span>}</td>
                           <td>{inv.account_number || <span style={{ color: '#ef4444' }}>Inconnu</span>}</td>
-                          <td style={{ fontWeight: 700 }}>{inv.amount_ttc.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}</td>
+                          <td>
+                            {isEditing ? (
+                              <input type="month" value={editingMeta!.billing_month} style={{ width: 130 }}
+                                onChange={e => setEditingMeta(m => m ? { ...m, billing_month: e.target.value } : m)} />
+                            ) : (inv.effective_month ? formatMonthKey(inv.effective_month) : '—')}
+                          </td>
+                          <td>
+                            {isEditing ? (
+                              <input type="text" value={editingMeta!.description} placeholder="Description..." style={{ width: 160 }}
+                                onChange={e => setEditingMeta(m => m ? { ...m, description: e.target.value } : m)} />
+                            ) : (inv.description || <span style={{ color: '#cbd5e1' }}>—</span>)}
+                          </td>
+                          <td style={{ fontWeight: 700 }}>{inv.amount_ttc != null ? inv.amount_ttc.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' }) : <span style={{ color: '#94a3b8' }}>—</span>}</td>
                           <td>
                             {inv.general_status ? (
-                              <span className="status-tag imported" title={`Statut : ${inv.general_status}`}>
-                                Importée ({inv.general_status})
+                              <span className="status-tag imported" title={`Statut budget : ${inv.general_status}`}>
+                                {inv.general_status}
                               </span>
                             ) : (
-                              <span className="status-tag pending">Non importée</span>
+                              <span className="status-tag pending">Statut inconnu</span>
                             )}
                           </td>
                           <td>
                             <div className="action-btns">
-                              <a href={`/api/${inv.file_path}`} target="_blank" rel="noopener noreferrer" className="edit-icon-btn" title="Voir le PDF">
-                                <FileText size={18} />
-                              </a>
-                              <button className="delete-icon-btn" onClick={() => handleDeleteTelecomInvoice(inv.id)}>
-                                <Trash2 size={18} />
-                              </button>
+                              {isEditing ? (
+                                <>
+                                  <button className="edit-icon-btn" title="Enregistrer" onClick={handleSaveMeta}><Check size={18} /></button>
+                                  <button className="delete-icon-btn" title="Annuler" onClick={() => setEditingMeta(null)}><X size={18} /></button>
+                                </>
+                              ) : (
+                                <>
+                                  <button className="edit-icon-btn" title="Modifier le mois / la description" onClick={() => startEditMeta(inv)}>
+                                    <Edit2 size={18} />
+                                  </button>
+                                  {inv.file_path ? (
+                                    <a href={`/api/${inv.file_path}`} target="_blank" rel="noopener noreferrer" className="edit-icon-btn" title="Voir le PDF">
+                                      <FileText size={18} />
+                                    </a>
+                                  ) : inv.sedit_ref ? (
+                                    <a href={`${urlSedit}/FicheFacture.html?factureId=${encodeURIComponent(inv.sedit_ref)}`} target="_blank" rel="noopener noreferrer" className="edit-icon-btn" title="Ouvrir dans Sedit">
+                                      <ExternalLink size={18} />
+                                    </a>
+                                  ) : null}
+                                  <button className="delete-icon-btn" onClick={() => handleDeleteTelecomInvoice(inv.id)}>
+                                    <Trash2 size={18} />
+                                  </button>
+                                </>
+                              )}
                             </div>
                           </td>
                         </tr>
-                      ))}
+                        );
+                      })}
                     </React.Fragment>
                   ))}
                   {filteredInvoices.length === 0 && (
-                    <tr><td colSpan={7} style={{ textAlign: 'center', padding: '40px', color: '#64748b' }}>Aucune facture trouvée</td></tr>
+                    <tr><td colSpan={9} style={{ textAlign: 'center', padding: '40px', color: '#64748b' }}>Aucune facture trouvée</td></tr>
                   )}
                 </tbody>
               </table>
             </div>
+          </div>
+        )}
+
+        {activeTab === 'summary' && (
+          <div className="tab-content">
+            <div className="section-header">
+              <h2>Synthèse mensuelle par compte</h2>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <span style={{ fontSize: '0.85rem', color: '#64748b' }}>Montant facturé par mois — cliquez sur un montant pour voir la ou les factures</span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <button className="page-btn" onClick={() => setSummaryYear(y => y - 1)}>◀</button>
+                  <span style={{ fontWeight: 700, fontSize: 14, minWidth: 44, textAlign: 'center' }}>{summaryYear}</span>
+                  <button className="page-btn" onClick={() => setSummaryYear(y => y + 1)}>▶</button>
+                </div>
+              </div>
+            </div>
+
+            {loadingSummary ? (
+              <div style={{ textAlign: 'center', padding: '40px', color: '#64748b' }}>Chargement...</div>
+            ) : !monthlySummary || monthlySummary.rows.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: '40px', color: '#64748b' }}>Aucune donnée</div>
+            ) : (
+              <div className="accounts-table-wrapper admin-card" style={{ overflowX: 'auto' }}>
+                <table className="commitments-table summary-table" style={{ minWidth: `${640 + monthlySummary.months.length * 110}px` }}>
+                  <thead>
+                    <tr>
+                      <th style={{ minWidth: 150 }}>Opérateur</th>
+                      <th style={{ minWidth: 120 }}>N° Compte</th>
+                      <th style={{ minWidth: 190 }}>Désignation</th>
+                      {monthlySummary.months.map(m => (
+                        <th key={m} style={{ textAlign: 'right', minWidth: 108 }}>
+                          {monthNames[parseInt(m.split('-')[1], 10) - 1].slice(0, 3)} {m.split('-')[0].slice(2)}
+                        </th>
+                      ))}
+                      <th style={{ textAlign: 'right', minWidth: 110, fontWeight: 800 }}>Total</th>
+                      <th style={{ textAlign: 'right', minWidth: 120, fontWeight: 800 }}>Atterrissage</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(() => {
+                      let currentOperatorId: number | null = null;
+                      const nodes: React.ReactNode[] = [];
+                      monthlySummary.rows.forEach(row => {
+                        if (row.operator_id !== currentOperatorId) {
+                          currentOperatorId = row.operator_id;
+                          const op = monthlySummary!.operators.find(o => o.operator_id === row.operator_id);
+                          const sparkValues = op ? monthlySummary!.months.map(m => op.monthly[m] || 0) : [];
+                          nodes.push(
+                            <tr key={`op-${currentOperatorId}`} className="month-break-row">
+                              <td colSpan={3} style={{ fontWeight: 700 }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                                  <span>{row.operator_name}</span>
+                                  <Sparkline values={sparkValues} />
+                                </div>
+                              </td>
+                              {monthlySummary!.months.map((m, i) => {
+                                const val = op?.monthly[m] || 0;
+                                const prevVal = i > 0 ? (op?.monthly[monthlySummary!.months[i - 1]] || 0) : null;
+                                const trend = prevVal != null ? monthTrend(val, prevVal) : null;
+                                return (
+                                  <td key={m} style={{ textAlign: 'right', fontWeight: 700 }}>
+                                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+                                      {trend && val > 0 && <span title={trend.title} style={{ display: 'inline-flex' }}><trend.Icon size={11} color={trend.color} /></span>}
+                                      {val > 0 ? val.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' }) : <span style={{ color: '#cbd5e1' }}>—</span>}
+                                    </span>
+                                  </td>
+                                );
+                              })}
+                              <td style={{ textAlign: 'right', fontWeight: 800 }}>
+                                {op ? op.total.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' }) : '—'}
+                              </td>
+                              <td style={{ textAlign: 'right', fontWeight: 800, color: '#6366f1' }}>
+                                {op?.landing != null ? op.landing.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' }) : '—'}
+                              </td>
+                            </tr>
+                          );
+                        }
+                        nodes.push(
+                          <tr key={row.account_id}>
+                            <td></td>
+                            <td style={{ fontWeight: 600 }}>{row.account_number}</td>
+                            <td>{row.designation || <span style={{ color: '#94a3b8' }}>—</span>}</td>
+                            {monthlySummary!.months.map((m, i) => {
+                              const cell = row.monthly[m];
+                              const prevCell = i > 0 ? row.monthly[monthlySummary!.months[i - 1]] : null;
+                              const trend = cell.total != null && prevCell?.total != null ? monthTrend(cell.total, prevCell.total) : null;
+                              const isMissing = cell.isPast && cell.total == null && !cell.comment;
+                              return (
+                                <td key={m} className="summary-cell" style={{ textAlign: 'right', background: isMissing ? '#fef2f2' : undefined }}>
+                                  {cell.total != null ? (
+                                    <button className="summary-cell-btn"
+                                      onClick={() => setViewingCell({ label: `${row.account_number} — ${formatMonthKey(m)}`, invoices: cell.invoices })}>
+                                      {trend && <span title={trend.title} style={{ display: 'inline-flex' }}><trend.Icon size={10} color={trend.color} /></span>}
+                                      {cell.total.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}
+                                    </button>
+                                  ) : isMissing ? (
+                                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                                      <span style={{ color: '#dc2626', fontSize: 10.5, fontWeight: 600 }}>Manquant</span>
+                                      <button className="summary-comment-btn missing"
+                                        title="Ajouter un commentaire"
+                                        onClick={() => setCommentEditor({ accountId: row.account_id, month: m, value: cell.comment || '' })}>+</button>
+                                    </span>
+                                  ) : cell.comment ? (
+                                    <button className="summary-comment-btn" title={cell.comment}
+                                      onClick={() => setCommentEditor({ accountId: row.account_id, month: m, value: cell.comment || '' })}>
+                                      <MessageSquare size={12} />
+                                    </button>
+                                  ) : (
+                                    <span style={{ color: '#cbd5e1' }}>—</span>
+                                  )}
+                                </td>
+                              );
+                            })}
+                            <td style={{ textAlign: 'right', fontWeight: 700 }}>
+                              {row.total.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}
+                            </td>
+                            <td style={{ textAlign: 'right', color: '#6366f1', fontWeight: 600 }}>
+                              {row.landing != null ? row.landing.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' }) : '—'}
+                            </td>
+                          </tr>
+                        );
+                      });
+
+                      // Ligne de total général
+                      nodes.push(
+                        <tr key="global-total" className="month-break-row" style={{ borderTop: '2px solid #cbd5e1' }}>
+                          <td colSpan={3} style={{ fontWeight: 800 }}>TOTAL GÉNÉRAL</td>
+                          {monthlySummary!.months.map((m, i) => {
+                            const val = monthlySummary!.global.monthly[m] || 0;
+                            const prevVal = i > 0 ? (monthlySummary!.global.monthly[monthlySummary!.months[i - 1]] || 0) : null;
+                            const trend = prevVal != null ? monthTrend(val, prevVal) : null;
+                            return (
+                              <td key={m} style={{ textAlign: 'right', fontWeight: 800 }}>
+                                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+                                  {trend && val > 0 && <span title={trend.title} style={{ display: 'inline-flex' }}><trend.Icon size={11} color={trend.color} /></span>}
+                                  {val > 0 ? val.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' }) : <span style={{ color: '#cbd5e1' }}>—</span>}
+                                </span>
+                              </td>
+                            );
+                          })}
+                          <td style={{ textAlign: 'right', fontWeight: 800 }}>
+                            {monthlySummary!.global.total.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}
+                          </td>
+                          <td style={{ textAlign: 'right', fontWeight: 800, color: '#6366f1' }}>
+                            {monthlySummary!.global.landing != null ? monthlySummary!.global.landing.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' }) : '—'}
+                          </td>
+                        </tr>
+                      );
+
+                      return nodes;
+                    })()}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
         )}
 
@@ -1803,68 +2224,145 @@ const TelecomManagement: React.FC = () => {
         </div>
       )}
 
-      {/* Validation Modal for Missing Info */}
-      {showValidation && pendingInvoice && (
-        <div className="validation-modal-overlay">
-          <div className="validation-modal-content">
-            <div className="validation-header">
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                <AlertCircle color="#f59e0b" size={24} />
-                <h2>Validation de la facture</h2>
+      {/* Ajout d'une facture depuis le budget (remplace l'ancien upload PDF) */}
+      {showAddInvoiceModal && (
+        <div className="validation-modal-overlay" onClick={() => setShowAddInvoiceModal(false)}>
+          <div style={{ background: '#fff', borderRadius: 12, width: '90%', maxWidth: 780, maxHeight: '85vh', display: 'flex', flexDirection: 'column' }} onClick={e => e.stopPropagation()}>
+            <div style={{ padding: '16px 20px', borderBottom: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div>
+                <h2 style={{ margin: 0, fontSize: 16 }}>Ajouter une facture{addInvoiceAccount ? ` — ${addInvoiceAccount.account_number}` : ''}</h2>
+                {addInvoiceAccount && <p style={{ margin: '2px 0 0', fontSize: 12, color: '#64748b' }}>{addInvoiceAccount.designation}</p>}
               </div>
-              <button className="close-btn" onClick={() => setShowValidation(false)}><X size={24} /></button>
+              <button className="close-btn" onClick={() => setShowAddInvoiceModal(false)}><X size={22} /></button>
             </div>
-            <div className="validation-body">
-              <div className="pdf-viewer-side">
-                <iframe src={`/api/${pendingInvoice.file_path}`} title="PDF Viewer" width="100%" height="100%" />
+            <div style={{ padding: '12px 20px', display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', borderBottom: '1px solid #f1f5f9' }}>
+              <select value={addInvoiceOperatorId || ''} style={{ padding: '6px 10px', borderRadius: 6, border: '1px solid #e2e8f0' }}
+                onChange={e => {
+                  const opId = e.target.value ? parseInt(e.target.value) : null;
+                  setAddInvoiceOperatorId(opId);
+                  setAddInvoiceAccountId(null);
+                  setAvailableInvoices([]);
+                }}>
+                <option value="">-- Opérateur --</option>
+                {operators.map(op => <option key={op.id} value={op.id}>{op.name}</option>)}
+              </select>
+              <select value={addInvoiceAccountId || ''} disabled={!addInvoiceOperatorId} style={{ padding: '6px 10px', borderRadius: 6, border: '1px solid #e2e8f0' }}
+                onChange={e => {
+                  const accId = e.target.value ? parseInt(e.target.value) : null;
+                  setAddInvoiceAccountId(accId);
+                  if (accId) loadAvailableInvoices(accId); else setAvailableInvoices([]);
+                }}>
+                <option value="">-- Compte --</option>
+                {addInvoiceOperatorId && billingAccounts[addInvoiceOperatorId]?.map(acc => (
+                  <option key={acc.id} value={acc.id}>{acc.account_number} ({acc.designation})</option>
+                ))}
+              </select>
+              <div className="search-input-wrapper-mini" style={{ flex: 1, minWidth: 180 }}>
+                <Search size={14} />
+                <input type="text" placeholder="Rechercher un numéro, un libellé..." value={availableSearch} onChange={e => setAvailableSearch(e.target.value)} />
               </div>
-              <div className="form-side">
-                <p className="validation-hint">Veuillez désigner ou saisir les informations manquantes en consultant le document à gauche.</p>
-                <div className="validation-form">
-                  <div className="form-group">
-                    <label>Numéro de facture</label>
-                    <input type="text" value={pendingInvoice.invoice_number} onChange={e => setPendingInvoice({...pendingInvoice, invoice_number: e.target.value})} />
-                  </div>
-                  <div className="form-group">
-                    <label>Opérateur</label>
-                    <select 
-                      value={pendingInvoice.operator_id || ''} 
-                      onChange={e => {
-                        const opId = parseInt(e.target.value);
-                        setPendingInvoice({...pendingInvoice, operator_id: opId, billing_account_id: null});
-                        if (opId) fetchAccounts(opId);
-                      }}
-                    >
-                      <option value="">-- Sélectionner l'opérateur --</option>
-                      {operators.map(op => <option key={op.id} value={op.id}>{op.name}</option>)}
-                    </select>
-                  </div>
-                  <div className="form-group">
-                    <label>Compte de facturation</label>
-                    <select 
-                      value={pendingInvoice.billing_account_id || ''} 
-                      onChange={e => setPendingInvoice({...pendingInvoice, billing_account_id: parseInt(e.target.value)})}
-                      disabled={!pendingInvoice.operator_id}
-                    >
-                      <option value="">-- Sélectionner le compte --</option>
-                      {billingAccounts[pendingInvoice.operator_id]?.map(acc => (
-                        <option key={acc.id} value={acc.id}>{acc.account_number} ({acc.designation})</option>
+            </div>
+            <div style={{ overflowY: 'auto', padding: '0 20px 16px' }}>
+              {loadingAvailable ? (
+                <div style={{ textAlign: 'center', padding: 30, color: '#64748b' }}>Recherche des factures dans le budget...</div>
+              ) : (
+                <table className="commitments-table">
+                  <thead>
+                    <tr>
+                      <th>N° Facture</th>
+                      <th>Date</th>
+                      <th>Montant</th>
+                      <th>État</th>
+                      <th></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {availableInvoices
+                      .filter(c => !availableSearch ||
+                        c.invoice_number.toLowerCase().includes(availableSearch.toLowerCase()) ||
+                        (c.libelle || '').toLowerCase().includes(availableSearch.toLowerCase()))
+                      .slice(0, 100)
+                      .map(c => (
+                        <tr key={c.invoice_number}>
+                          <td style={{ fontWeight: 700 }} title={c.libelle}>{c.invoice_number}</td>
+                          <td>{c.invoice_date ? new Date(c.invoice_date).toLocaleDateString('fr-FR') : '—'}</td>
+                          <td>{c.amount_ttc != null ? Number(c.amount_ttc).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' }) : '—'}</td>
+                          <td>{c.etat || '—'}</td>
+                          <td>
+                            <button className="add-btn" style={{ padding: '4px 10px', fontSize: 12 }}
+                              disabled={addingInvoiceNumber === c.invoice_number}
+                              onClick={() => handleAddInvoiceFromBudget(c)}>
+                              {addingInvoiceNumber === c.invoice_number ? '...' : 'Ajouter'}
+                            </button>
+                          </td>
+                        </tr>
                       ))}
-                    </select>
+                    {availableInvoices.length === 0 && (
+                      <tr><td colSpan={5} style={{ textAlign: 'center', padding: 30, color: '#94a3b8' }}>
+                        {addInvoiceAccountId ? 'Aucune facture disponible pour ce fournisseur dans le budget' : 'Sélectionnez un opérateur puis un compte'}
+                      </td></tr>
+                    )}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Détail des factures d'une case de la synthèse mensuelle */}
+      {viewingCell && (
+        <div className="validation-modal-overlay" onClick={() => setViewingCell(null)}>
+          <div style={{ background: '#fff', borderRadius: 12, width: '90%', maxWidth: 560, maxHeight: '80vh', display: 'flex', flexDirection: 'column' }} onClick={e => e.stopPropagation()}>
+            <div style={{ padding: '16px 20px', borderBottom: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <h2 style={{ margin: 0, fontSize: 16 }}>{viewingCell.label}</h2>
+              <button className="close-btn" onClick={() => setViewingCell(null)}><X size={22} /></button>
+            </div>
+            <div style={{ overflowY: 'auto', padding: '12px 20px 20px' }}>
+              {viewingCell.invoices.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: 20, color: '#94a3b8' }}>Aucune facture</div>
+              ) : viewingCell.invoices.map(inv => (
+                <div key={inv.id} style={{ padding: '10px 0', borderBottom: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
+                  <div>
+                    <div style={{ fontWeight: 700 }}>{inv.invoice_number}</div>
+                    {inv.description && <div style={{ fontSize: 12, color: '#64748b' }}>{inv.description}</div>}
+                    {inv.general_status && <div style={{ fontSize: 11, color: '#94a3b8' }}>Statut : {inv.general_status}</div>}
                   </div>
-                  <div className="form-group">
-                    <label>Montant TTC (€)</label>
-                    <input type="number" step="0.01" value={pendingInvoice.amount_ttc} onChange={e => setPendingInvoice({...pendingInvoice, amount_ttc: parseFloat(e.target.value)})} />
+                  <div style={{ textAlign: 'right', display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
+                    <span style={{ fontWeight: 700 }}>{inv.amount_ttc.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}</span>
+                    {inv.sedit_ref && (
+                      <a href={`${urlSedit}/FicheFacture.html?factureId=${encodeURIComponent(inv.sedit_ref)}`} target="_blank" rel="noopener noreferrer"
+                        style={{ fontSize: 11, color: '#3b82f6', display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+                        <ExternalLink size={11} /> Sedit
+                      </a>
+                    )}
                   </div>
-                  <div className="form-group">
-                    <label>Date de facture</label>
-                    <input type="date" value={pendingInvoice.invoice_date || ''} onChange={e => setPendingInvoice({...pendingInvoice, invoice_date: e.target.value})} />
-                  </div>
-                  <button className="confirm-btn" onClick={handleSaveValidation}>
-                    <Save size={18} /> Valider les informations
-                  </button>
                 </div>
-              </div>
+              ))}
+              {viewingCell.invoices.length > 1 && (
+                <div style={{ marginTop: 10, textAlign: 'right', fontWeight: 700 }}>
+                  Total : {viewingCell.invoices.reduce((s, i) => s + i.amount_ttc, 0).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Commentaire sur un mois (justifier une absence de facture, par ex.) */}
+      {commentEditor && (
+        <div className="validation-modal-overlay" onClick={() => setCommentEditor(null)}>
+          <div style={{ background: '#fff', borderRadius: 12, width: '90%', maxWidth: 420, padding: 20 }} onClick={e => e.stopPropagation()}>
+            <h2 style={{ margin: '0 0 12px', fontSize: 16 }}>Commentaire — {formatMonthKey(commentEditor.month)}</h2>
+            <textarea value={commentEditor.value} rows={4} autoFocus
+              placeholder="Ex : facture pas encore reçue, compte résilié, ..."
+              style={{ width: '100%', boxSizing: 'border-box', padding: 8, borderRadius: 6, border: '1px solid #e2e8f0', fontFamily: 'inherit', fontSize: 13 }}
+              onChange={e => setCommentEditor(c => c ? { ...c, value: e.target.value } : c)} />
+            <div style={{ marginTop: 12, display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+              <button className="cancel-btn" onClick={() => setCommentEditor(null)}>Annuler</button>
+              <button className="save-btn" disabled={savingComment} onClick={handleSaveComment}>
+                <Save size={16} /> {savingComment ? 'Enregistrement...' : 'Enregistrer'}
+              </button>
             </div>
           </div>
         </div>
@@ -1877,6 +2375,12 @@ const TelecomManagement: React.FC = () => {
         .page-btn { background: white; border: 1px solid #e2e8f0; padding: 6px 14px; border-radius: 8px; font-size: 0.82rem; font-weight: 600; color: #475569; cursor: pointer; }
         .page-btn:hover:not(:disabled) { background: #f1f5f9; }
         .page-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        .summary-table td.summary-cell { padding: 4px 8px; }
+        .summary-cell-btn { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 3px 8px; font-size: 12.5px; font-weight: 700; color: #18181b; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; }
+        .summary-cell-btn:hover { background: #eef2ff; border-color: #c7d2fe; }
+        .summary-comment-btn { background: none; border: 1px dashed #94a3b8; border-radius: 4px; color: #64748b; width: 20px; height: 20px; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; padding: 0; }
+        .summary-comment-btn.missing { border-color: #dc2626; color: #dc2626; font-size: 13px; font-weight: 700; }
+        .summary-comment-btn:hover { background: #f1f5f9; }
         .ndi-link { background: none; border: none; padding: 0; font-family: monospace; font-weight: 700; color: #0078a4; cursor: pointer; text-decoration: underline; text-underline-offset: 2px; font-size: inherit; }
         .ndi-link:hover { color: #005d80; }
         .line-history-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 1100; display: flex; align-items: center; justify-content: center; padding: 30px; }

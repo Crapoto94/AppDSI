@@ -5254,6 +5254,10 @@ async function setupPgDb() {
           uploaded_at        TIMESTAMPTZ DEFAULT NOW()
         )
       `);
+      // Mois de rattachement (override manuel, ex. 'YYYY-MM') et description libre, affichée dans
+      // la liste des factures — indépendants de la date/montant résolus en direct depuis le budget.
+      await client.query(`ALTER TABLE hub_telecom.invoices ADD COLUMN IF NOT EXISTS billing_month TEXT`);
+      await client.query(`ALTER TABLE hub_telecom.invoices ADD COLUMN IF NOT EXISTS description TEXT`);
       // Lignes téléphoniques fixes & accès internet (import Excel opérateur)
       await client.query(`
         CREATE TABLE IF NOT EXISTS hub_telecom.lines (
@@ -5354,6 +5358,18 @@ async function setupPgDb() {
           original_name  TEXT,
           size           BIGINT,
           imported_at    TIMESTAMPTZ DEFAULT NOW()
+        )
+      `);
+      // Commentaire libre par compte/mois dans la synthèse mensuelle (ex. justifier un mois sans facture)
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS hub_telecom.monthly_comments (
+          id                 SERIAL PRIMARY KEY,
+          billing_account_id INTEGER REFERENCES hub_telecom.billing_accounts(id) ON DELETE CASCADE,
+          month              TEXT NOT NULL,   -- 'YYYY-MM'
+          comment            TEXT,
+          created_by         TEXT,
+          updated_at         TIMESTAMPTZ DEFAULT NOW(),
+          UNIQUE(billing_account_id, month)
         )
       `);
     } catch (e) { console.error('[PG DB] hub_telecom:', e.message); }

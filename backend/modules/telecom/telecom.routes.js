@@ -20,6 +20,8 @@ router.get('/operators/:operatorId/accounts', authenticateJWT, telecomController
 router.post('/billing-accounts', authenticateAdmin, telecomController.createBillingAccount);
 router.put('/billing-accounts/:id', authenticateAdmin, telecomController.updateBillingAccount);
 router.delete('/billing-accounts/:id', authenticateAdmin, telecomController.deleteBillingAccount);
+router.get('/billing-accounts/:id/available-invoices', authenticateJWT, telecomController.getAvailableInvoicesForAccount);
+router.put('/billing-accounts/:id/monthly-comment', authenticateJWT, telecomController.upsertMonthlyComment);
 
 // Engagements télécom (lecture dynamique depuis le suivi budgétaire, nature 6262)
 router.get('/engagements', authenticateJWT, telecomController.getTelecomEngagements);
@@ -45,8 +47,12 @@ router.get('/billing/invoice-files', authenticateJWT, telecomController.getInvoi
 
 // Invoices
 router.get('/invoices', authenticateJWT, telecomController.getInvoices);
+router.get('/invoices/monthly-summary', authenticateJWT, telecomController.getMonthlySummary);
+router.post('/invoices/import-suivi', authenticateAdmin, upload.single('file'), telecomController.importSuivi);
+router.post('/invoices/from-budget', authenticateJWT, telecomController.addInvoiceFromBudget);
 router.post('/invoices/upload', authenticateJWT, upload.single('file'), telecomController.uploadInvoice);
 router.put('/invoices/:id', authenticateJWT, telecomController.updateInvoice);
+router.patch('/invoices/:id', authenticateJWT, telecomController.updateInvoiceMeta);
 router.delete('/invoices/:id', authenticateJWT, telecomController.deleteInvoice);
 
 module.exports = router;

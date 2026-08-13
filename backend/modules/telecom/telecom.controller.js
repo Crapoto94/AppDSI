@@ -9,6 +9,34 @@ const storage = require('../../shared/storage');
 
 const MODULE = 'telecom';
 
+// Sous-requête réutilisée partout où on a besoin d'une facture télécom "résolue" : montant, date
+// et état sont recalés en direct sur le budget (oracle.gf_oracle_facture) quand une correspondance
+// est trouvée (le n° de facture fournisseur est rarement renseigné dans FACTURE_REFERENCE, on
+// retombe donc sur une recherche du numéro dans FACTURE_LIBELLE1, ex. "Fact. N°9A0038770556 ...").
+// La date retenue est la date d'émission (celle imprimée par le fournisseur, extraite du texte
+// FACTURE_LIBELLE1) et non FACTURE_DATENTREE (date de réception du document) — c'est la date
+// d'émission qui intéresse /budget, donc /telecom doit s'aligner dessus.
+// Les valeurs stockées localement (ex. issues d'un upload PDF) ne servent que de repli.
+const RESOLVED_INVOICES_SQL = `
+    SELECT i.id, i.invoice_number, i.operator_id, i.billing_account_id, i.file_path, i.uploaded_at,
+        i.billing_month, i.description,
+        COALESCE(bf."FACTURE_MONTANTTC_E"::numeric, i.amount_ttc) as amount_ttc,
+        COALESCE(bf.emission_date, i.invoice_date) as invoice_date,
+        COALESCE(i.billing_month, to_char(COALESCE(bf.emission_date, i.invoice_date), 'YYYY-MM')) as effective_month,
+        bf."FACETAT_LIBELLE" as general_status,
+        NULLIF(TRIM(bf."FACTURE_ROO_IMA_REF"), '') as sedit_ref
+    FROM hub_telecom.invoices i
+    LEFT JOIN LATERAL (
+        SELECT f."FACETAT_LIBELLE", f."FACTURE_MONTANTTC_E", f."FACTURE_ROO_IMA_REF",
+            to_date(substring(f."FACTURE_LIBELLE1" from '(\\d{2}/\\d{2}/\\d{4})'), 'DD/MM/YYYY') as emission_date
+        FROM oracle.gf_oracle_facture f
+        WHERE LOWER(TRIM(f."FACTURE_REFERENCE")) = LOWER(TRIM(i.invoice_number))
+           OR f."FACTURE_LIBELLE1" ILIKE '%' || TRIM(i.invoice_number) || '%'
+        ORDER BY (LOWER(TRIM(f."FACTURE_REFERENCE")) = LOWER(TRIM(i.invoice_number))) DESC
+        LIMIT 1
+    ) bf ON i.invoice_number IS NOT NULL AND TRIM(i.invoice_number) != ''
+`;
+
 // Convertit une date opérateur "JJ-MM-AAAA" (ou "JJ/MM/AAAA") en ISO 'AAAA-MM-JJ', sinon null
 function parseFrDate(v) {
     if (!v) return null;
@@ -68,7 +96,7 @@ module.exports = {
             let query = `
                 SELECT a.*, o.name as operator_name,
                        (SELECT COUNT(*) FROM hub_telecom.invoices WHERE billing_account_id = a.id) as invoice_count,
-                       (SELECT COALESCE(SUM(amount_ttc), 0) FROM hub_telecom.invoices WHERE billing_account_id = a.id) as total_invoiced
+                       (SELECT COALESCE(SUM(ri.amount_ttc), 0) FROM (${RESOLVED_INVOICES_SQL}) ri WHERE ri.billing_account_id = a.id) as total_invoiced
                 FROM hub_telecom.billing_accounts a
                 JOIN hub_telecom.operators o ON a.operator_id = o.id
             `;
@@ -93,7 +121,7 @@ module.exports = {
             const accounts = await pgDb.all(`
                 SELECT a.*, o.name as operator_name,
                        (SELECT COUNT(*) FROM hub_telecom.invoices WHERE billing_account_id = a.id) as invoice_count,
-                       (SELECT COALESCE(SUM(amount_ttc), 0) FROM hub_telecom.invoices WHERE billing_account_id = a.id) as total_invoiced
+                       (SELECT COALESCE(SUM(ri.amount_ttc), 0) FROM (${RESOLVED_INVOICES_SQL}) ri WHERE ri.billing_account_id = a.id) as total_invoiced
                 FROM hub_telecom.billing_accounts a
                 JOIN hub_telecom.operators o ON a.operator_id = o.id
                 WHERE a.operator_id = ?
@@ -211,20 +239,386 @@ module.exports = {
     },
 
     // --- Invoices ---
+    // Montant, état et date sont recalés en direct sur le budget (oracle.gf_oracle_facture) quand une
+    // correspondance est trouvée — le n° de facture fournisseur y est rarement renseigné dans
+    // FACTURE_REFERENCE, on retombe donc sur une recherche du numéro dans FACTURE_LIBELLE1
+    // ("Fact. N°9A0038770556 01/01/2026 ..."). Les valeurs stockées localement (ex. issues d'un
+    // upload PDF) ne servent que de repli si aucune correspondance budget n'est trouvée.
     getInvoices: async (req, res) => {
         try {
             const invoices = await pgDb.all(`
-                SELECT i.*, o.name as operator_name, a.account_number,
-                (SELECT f."FACETAT_LIBELLE" FROM oracle.gf_oracle_facture f
-                   WHERE LOWER(TRIM(f."FACTURE_REFERENCE")) = LOWER(TRIM(i.invoice_number)) LIMIT 1) as general_status
-                FROM hub_telecom.invoices i
-                JOIN hub_telecom.operators o ON i.operator_id = o.id
-                LEFT JOIN hub_telecom.billing_accounts a ON i.billing_account_id = a.id
-                ORDER BY i.invoice_date DESC
+                SELECT ri.*, o.name as operator_name, a.account_number
+                FROM (${RESOLVED_INVOICES_SQL}) ri
+                JOIN hub_telecom.operators o ON ri.operator_id = o.id
+                LEFT JOIN hub_telecom.billing_accounts a ON ri.billing_account_id = a.id
+                ORDER BY ri.invoice_date DESC NULLS LAST
             `);
             res.json(invoices);
         } catch (error) {
             res.status(500).json({ message: 'Error fetching invoices', error: error.message });
+        }
+    },
+
+    // Synthèse mensuelle par compte (façon onglet "Suivi" de l'Excel) : pour chaque compte de
+    // facturation et chaque mois de l'année, le détail des factures (recalé en direct sur le
+    // budget), un éventuel commentaire, et une projection d'atterrissage (montant connu +
+    // moyenne mensuelle × mois restants) — par compte, par opérateur et globalement.
+    getMonthlySummary: async (req, res) => {
+        try {
+            const year = parseInt(req.query.year, 10) || new Date().getFullYear();
+
+            const [invoiceRows, accounts, commentRows] = await Promise.all([
+                pgDb.all(`
+                    SELECT ri.id, ri.invoice_number, ri.operator_id, ri.billing_account_id, ri.amount_ttc,
+                        ri.effective_month as month, ri.general_status, ri.sedit_ref, ri.description
+                    FROM (${RESOLVED_INVOICES_SQL}) ri
+                    WHERE ri.effective_month LIKE ? AND ri.billing_account_id IS NOT NULL
+                `, [`${year}-%`]),
+                pgDb.all(`
+                    SELECT a.id, a.account_number, a.designation, a.type, a.operator_id, o.name as operator_name
+                    FROM hub_telecom.billing_accounts a
+                    JOIN hub_telecom.operators o ON a.operator_id = o.id
+                    ORDER BY o.name, a.account_number
+                `),
+                pgDb.all(`SELECT billing_account_id, month, comment FROM hub_telecom.monthly_comments WHERE month LIKE ?`, [`${year}-%`]),
+            ]);
+
+            const months = Array.from({ length: 12 }, (_, i) => `${year}-${String(i + 1).padStart(2, '0')}`);
+            const now = new Date();
+            const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+
+            const byAccountMonth = {};
+            for (const inv of invoiceRows) {
+                if (!byAccountMonth[inv.billing_account_id]) byAccountMonth[inv.billing_account_id] = {};
+                if (!byAccountMonth[inv.billing_account_id][inv.month]) byAccountMonth[inv.billing_account_id][inv.month] = [];
+                byAccountMonth[inv.billing_account_id][inv.month].push(inv);
+            }
+            const commentsByAccountMonth = {};
+            for (const c of commentRows) {
+                if (!commentsByAccountMonth[c.billing_account_id]) commentsByAccountMonth[c.billing_account_id] = {};
+                commentsByAccountMonth[c.billing_account_id][c.month] = c.comment;
+            }
+
+            // Atterrissage : somme des mois écoulés connus + moyenne des mois avec facture × mois restants.
+            const landingFor = (monthlyTotals) => {
+                const elapsed = months.filter(m => m <= currentMonth).map(m => monthlyTotals[m] || 0);
+                const withData = elapsed.filter(v => v > 0);
+                if (withData.length === 0) return null;
+                const avg = withData.reduce((s, v) => s + v, 0) / withData.length;
+                const sumElapsed = elapsed.reduce((s, v) => s + v, 0);
+                const remaining = months.length - elapsed.length;
+                return Math.round((sumElapsed + avg * remaining) * 100) / 100;
+            };
+
+            const rows = accounts.map(a => {
+                const monthly = {};
+                months.forEach(m => {
+                    const invs = (byAccountMonth[a.id] && byAccountMonth[a.id][m]) || [];
+                    const total = invs.reduce((s, i) => s + (Number(i.amount_ttc) || 0), 0);
+                    monthly[m] = {
+                        total: invs.length ? total : null,
+                        invoices: invs.map(i => ({
+                            id: i.id, invoice_number: i.invoice_number,
+                            amount_ttc: Number(i.amount_ttc) || 0,
+                            description: i.description, general_status: i.general_status, sedit_ref: i.sedit_ref,
+                        })),
+                        comment: (commentsByAccountMonth[a.id] && commentsByAccountMonth[a.id][m]) || null,
+                        isPast: m <= currentMonth,
+                    };
+                });
+                const totalsByMonth = {};
+                months.forEach(m => { totalsByMonth[m] = monthly[m].total || 0; });
+                const total = months.reduce((s, m) => s + (monthly[m].total || 0), 0);
+                return {
+                    account_id: a.id, operator_id: a.operator_id, operator_name: a.operator_name,
+                    account_number: a.account_number, designation: a.designation, type: a.type,
+                    monthly, total, landing: landingFor(totalsByMonth),
+                };
+            });
+
+            const operatorMap = {};
+            for (const r of rows) {
+                if (!operatorMap[r.operator_id]) {
+                    operatorMap[r.operator_id] = { operator_id: r.operator_id, operator_name: r.operator_name, monthly: {}, total: 0 };
+                    months.forEach(m => { operatorMap[r.operator_id].monthly[m] = 0; });
+                }
+                const op = operatorMap[r.operator_id];
+                months.forEach(m => { op.monthly[m] += (r.monthly[m].total || 0); });
+                op.total += r.total;
+            }
+            const operators = Object.values(operatorMap).map(op => ({ ...op, landing: landingFor(op.monthly) }));
+
+            const globalMonthly = {};
+            months.forEach(m => { globalMonthly[m] = operators.reduce((s, op) => s + (op.monthly[m] || 0), 0); });
+            const globalTotal = months.reduce((s, m) => s + globalMonthly[m], 0);
+
+            res.json({
+                year, months, currentMonth, rows, operators,
+                global: { monthly: globalMonthly, total: globalTotal, landing: landingFor(globalMonthly) },
+            });
+        } catch (error) {
+            console.error('[Telecom] getMonthlySummary error:', error);
+            res.status(500).json({ message: 'Erreur lors du calcul de la synthèse mensuelle', error: error.message });
+        }
+    },
+
+    // Commentaire libre sur un couple compte/mois (pour justifier un mois sans facture, par exemple).
+    upsertMonthlyComment: async (req, res) => {
+        const { month, comment } = req.body;
+        if (!month) return res.status(400).json({ message: 'month requis' });
+        try {
+            await pool.query(`
+                INSERT INTO hub_telecom.monthly_comments (billing_account_id, month, comment, created_by, updated_at)
+                VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP)
+                ON CONFLICT (billing_account_id, month) DO UPDATE SET comment = EXCLUDED.comment, created_by = EXCLUDED.created_by, updated_at = CURRENT_TIMESTAMP
+            `, [req.params.id, month, comment || null, req.user?.username || null]);
+            res.json({ message: 'Commentaire enregistré' });
+        } catch (error) {
+            res.status(500).json({ message: 'Erreur enregistrement commentaire', error: error.message });
+        }
+    },
+
+    // Factures présentes dans le budget (oracle.gf_oracle_facture) pour le fournisseur de ce
+    // compte, pas encore intégrées à hub_telecom.invoices. Le fournisseur est déduit des factures
+    // déjà rattachées à l'opérateur (FACTURE_LIBELLE2) ; à défaut (opérateur tout neuf), on retombe
+    // sur une recherche par le premier mot du nom de l'opérateur.
+    getAvailableInvoicesForAccount: async (req, res) => {
+        try {
+            const accountId = parseInt(req.params.id, 10);
+            const accRes = await pool.query('SELECT operator_id FROM hub_telecom.billing_accounts WHERE id = $1', [accountId]);
+            if (accRes.rowCount === 0) return res.status(404).json({ message: 'Compte introuvable' });
+            const operatorId = accRes.rows[0].operator_id;
+            const opRes = await pool.query('SELECT name FROM hub_telecom.operators WHERE id = $1', [operatorId]);
+            const operatorName = opRes.rows[0]?.name || '';
+
+            const libRes = await pool.query(`
+                SELECT DISTINCT f."FACTURE_LIBELLE2" as libelle
+                FROM hub_telecom.invoices i
+                JOIN oracle.gf_oracle_facture f ON (
+                    LOWER(TRIM(f."FACTURE_REFERENCE")) = LOWER(TRIM(i.invoice_number))
+                    OR f."FACTURE_LIBELLE1" ILIKE '%' || TRIM(i.invoice_number) || '%'
+                )
+                WHERE i.operator_id = $1 AND f."FACTURE_LIBELLE2" IS NOT NULL
+            `, [operatorId]);
+            const libelles = libRes.rows.map(r => r.libelle).filter(Boolean);
+
+            // Date = émission (extraite de FACTURE_LIBELLE1), pas réception ; on ne propose que
+            // les factures de l'année en cours (pas les années N-1 et antérieures).
+            const candidateSql = `
+                SELECT * FROM (
+                    SELECT substring(f."FACTURE_LIBELLE1" from 'N°([^ ]+)') as invoice_number,
+                           f."FACTURE_LIBELLE1" as libelle, f."FACTURE_LIBELLE2" as fournisseur,
+                           f."FACTURE_MONTANTTC_E"::numeric as amount_ttc,
+                           to_date(substring(f."FACTURE_LIBELLE1" from '(\\d{2}/\\d{2}/\\d{4})'), 'DD/MM/YYYY') as invoice_date,
+                           f."FACETAT_LIBELLE" as etat
+                    FROM oracle.gf_oracle_facture f
+                    WHERE %CONDITION%
+                ) c
+                WHERE c.invoice_date IS NOT NULL
+                  AND EXTRACT(YEAR FROM c.invoice_date) = EXTRACT(YEAR FROM CURRENT_DATE)
+                ORDER BY c.invoice_date DESC NULLS LAST
+                LIMIT 300
+            `;
+
+            let candidatesRes;
+            if (libelles.length > 0) {
+                candidatesRes = await pool.query(candidateSql.replace('%CONDITION%', `f."FACTURE_LIBELLE2" = ANY($1)`), [libelles]);
+            } else {
+                const token = (operatorName.split(' ')[0] || '').trim();
+                candidatesRes = token
+                    ? await pool.query(candidateSql.replace('%CONDITION%', `f."FACTURE_LIBELLE2" ILIKE '%' || $1 || '%'`), [token])
+                    : { rows: [] };
+            }
+
+            const existingRes = await pool.query(`SELECT LOWER(TRIM(invoice_number)) as k FROM hub_telecom.invoices WHERE invoice_number IS NOT NULL`);
+            const existingKeys = new Set(existingRes.rows.map(r => r.k));
+
+            const seen = new Set();
+            const candidates = candidatesRes.rows.filter(r => {
+                if (!r.invoice_number) return false;
+                const key = String(r.invoice_number).trim().toLowerCase();
+                if (existingKeys.has(key) || seen.has(key)) return false;
+                seen.add(key);
+                return true;
+            });
+
+            res.json(candidates);
+        } catch (error) {
+            console.error('[Telecom] getAvailableInvoicesForAccount error:', error);
+            res.status(500).json({ message: 'Erreur lors de la recherche des factures disponibles', error: error.message });
+        }
+    },
+
+    // Rattache une facture du budget (choisie parmi les résultats ci-dessus) à un compte, sans PDF.
+    addInvoiceFromBudget: async (req, res) => {
+        const { operator_id, billing_account_id, invoice_number, description } = req.body;
+        if (!operator_id || !billing_account_id || !invoice_number) {
+            return res.status(400).json({ message: 'operator_id, billing_account_id et invoice_number sont requis' });
+        }
+        try {
+            const existing = await pgDb.get('SELECT id FROM hub_telecom.invoices WHERE LOWER(TRIM(invoice_number)) = LOWER(TRIM(?))', [invoice_number]);
+            if (existing) return res.status(409).json({ message: 'Cette facture est déjà intégrée' });
+            const result = await pgDb.run(
+                'INSERT INTO hub_telecom.invoices (invoice_number, operator_id, billing_account_id, description) VALUES (?, ?, ?, ?)',
+                [invoice_number, operator_id, billing_account_id, description || null]
+            );
+            res.json({ id: result.lastID, message: 'Facture ajoutée' });
+        } catch (error) {
+            res.status(500).json({ message: 'Erreur ajout facture', error: error.message });
+        }
+    },
+
+    // Mois de rattachement (override manuel) et description libre — affichés dans la liste.
+    // Mise à jour partielle : un champ omis du corps de la requête conserve sa valeur actuelle.
+    updateInvoiceMeta: async (req, res) => {
+        try {
+            const current = await pgDb.get('SELECT billing_month, description FROM hub_telecom.invoices WHERE id = ?', [req.params.id]);
+            if (!current) return res.status(404).json({ message: 'Facture introuvable' });
+            const billing_month = req.body.billing_month !== undefined ? (req.body.billing_month || null) : current.billing_month;
+            const description = req.body.description !== undefined ? (req.body.description || null) : current.description;
+            await pgDb.run(
+                'UPDATE hub_telecom.invoices SET billing_month = ?, description = ? WHERE id = ?',
+                [billing_month, description, req.params.id]
+            );
+            res.json({ message: 'Mis à jour' });
+        } catch (error) {
+            res.status(500).json({ message: 'Erreur mise à jour', error: error.message });
+        }
+    },
+
+    // Import du fichier "SUIVI TELECOM" (onglet "Suivi") : opérateur (TIERS) et compte (COMPTE)
+    // sont créés s'ils n'existent pas encore ; seuls les n° de facture (Num Facture, un par mois)
+    // sont récupérés pour être affectés automatiquement au bon compte. Montant/état/date sont
+    // ensuite résolus en direct depuis le budget par getInvoices — on ne les importe pas ici.
+    importSuivi: async (req, res) => {
+        if (!req.file) return res.status(400).json({ message: 'Aucun fichier fourni' });
+        try {
+            const wb = XLSX.read(req.file.buffer, { type: 'buffer' });
+            const sheetName = wb.SheetNames.find(n => n.trim().toLowerCase() === 'suivi');
+            if (!sheetName) {
+                return res.status(400).json({ message: 'Onglet "Suivi" introuvable dans le fichier' });
+            }
+            const grid = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { header: 1, raw: true, defval: null });
+
+            const normalizeAccount = (v) => (v === null || v === undefined ? '' : String(v).replace(/\s+/g, '').trim());
+            const normalizeInvoiceKey = (v) => String(v).trim().toLowerCase();
+            const isHeaderRow = (compteStr, objet) => !objet && /^[A-ZÀ-Ý ]+$/.test(compteStr) && compteStr.length > 0;
+            const guessAccountType = (objet) => {
+                const o = (objet || '').toUpperCase();
+                if (o.includes('MOBILE')) return 'Mobile';
+                if (o.includes('INTERCO')) return 'Interco';
+                if (o.includes('ADSL') || o.includes('INTERNET') || o.includes('EPI') || o.includes('FTTH')) return 'Internet';
+                return 'Fixe';
+            };
+
+            const MONTH_COL_START = 13; // Num Facture Janvier
+            const MONTH_COL_END = 60;   // Montant Décembre (blocs de 4 colonnes)
+
+            const operatorRows = await pgDb.all('SELECT id, name FROM hub_telecom.operators');
+            const opByName = new Map(operatorRows.map(o => [String(o.name || '').trim().toUpperCase(), o]));
+            // Correspondance approchante : "SFR" doit retrouver l'opérateur existant "SFR ADSL FIXE"
+            // plutôt que d'en créer un doublon (idem BOUYGUES → BOUYGUES TELECOM, J2S → J2S TELECOM).
+            const findOperatorFuzzy = (nameUpper) => {
+                for (const o of operatorRows) {
+                    const on = String(o.name || '').trim().toUpperCase();
+                    if (on.includes(nameUpper) || nameUpper.includes(on)) return o;
+                }
+                return null;
+            };
+            const accountRows = await pgDb.all('SELECT id, operator_id, account_number FROM hub_telecom.billing_accounts');
+            // Un n° de compte est réputé unique tous opérateurs confondus : s'il existe déjà quelque
+            // part (même sous un opérateur nommé différemment dans l'Excel), on le réutilise tel quel
+            // plutôt que d'en recréer un sous un opérateur dupliqué.
+            const accByNumber = new Map(accountRows.map(a => [normalizeAccount(a.account_number), a]));
+            const invoiceRows = await pgDb.all('SELECT id, invoice_number, billing_account_id FROM hub_telecom.invoices');
+            const invByKey = new Map(invoiceRows.filter(i => i.invoice_number).map(i => [normalizeInvoiceKey(i.invoice_number), i]));
+
+            let operatorsCreated = 0, accountsCreated = 0, invoicesCreated = 0, invoicesReassigned = 0, invoicesUnchanged = 0;
+            const skippedRows = [];
+            let lastTiers = null;
+
+            for (let r = 2; r < grid.length; r++) {
+                const row = grid[r] || [];
+                const tiersRaw = row[0] ? String(row[0]).trim() : '';
+                const compteRaw = row[1] != null ? String(row[1]).trim() : '';
+                const objet = row[2] ? String(row[2]).trim() : '';
+                if (tiersRaw) lastTiers = tiersRaw;
+                if (!compteRaw && !objet) continue;
+                if (isHeaderRow(compteRaw, objet)) continue; // ligne de sous-total (ex. "TELEPHONIE FIXE")
+                if (!lastTiers) continue;
+
+                const accountNumber = normalizeAccount(compteRaw);
+                if (!accountNumber) {
+                    skippedRows.push({ operateur: lastTiers, objet, raison: 'compte manquant' });
+                    continue;
+                }
+
+                // 1. Le compte existe déjà (sous n'importe quel opérateur) : on le réutilise tel quel.
+                let account = accByNumber.get(accountNumber);
+                let operator = account ? operatorRows.find(o => o.id === account.operator_id) : null;
+
+                // 2. Sinon on résout/crée l'opérateur (par nom exact puis approchant), puis le compte.
+                if (!account) {
+                    const operatorName = lastTiers;
+                    operator = opByName.get(operatorName.toUpperCase()) || findOperatorFuzzy(operatorName.toUpperCase());
+                    if (!operator) {
+                        const result = await pgDb.run('INSERT INTO hub_telecom.operators (name) VALUES (?)', [operatorName]);
+                        operator = { id: result.lastID, name: operatorName };
+                        opByName.set(operatorName.toUpperCase(), operator);
+                        operatorRows.push(operator);
+                        operatorsCreated++;
+                    }
+
+                    const result = await pgDb.run(
+                        'INSERT INTO hub_telecom.billing_accounts (operator_id, account_number, type, designation) VALUES (?, ?, ?, ?)',
+                        [operator.id, accountNumber, guessAccountType(objet), objet || null]
+                    );
+                    account = { id: result.lastID, operator_id: operator.id, account_number: accountNumber };
+                    accByNumber.set(accountNumber, account);
+                    accountsCreated++;
+                }
+
+                for (let c = MONTH_COL_START; c <= MONTH_COL_END; c += 4) {
+                    const rawNum = row[c];
+                    if (rawNum === null || rawNum === undefined) continue;
+                    const num = String(rawNum).trim();
+                    if (!num || num === '#N/A') continue;
+                    const key = normalizeInvoiceKey(num);
+                    const existing = invByKey.get(key);
+                    if (existing) {
+                        if (existing.billing_account_id !== account.id) {
+                            await pgDb.run(
+                                'UPDATE hub_telecom.invoices SET operator_id = ?, billing_account_id = ? WHERE id = ?',
+                                [operator.id, account.id, existing.id]
+                            );
+                            existing.billing_account_id = account.id;
+                            invoicesReassigned++;
+                        } else {
+                            invoicesUnchanged++;
+                        }
+                    } else {
+                        const result = await pgDb.run(
+                            'INSERT INTO hub_telecom.invoices (invoice_number, operator_id, billing_account_id) VALUES (?, ?, ?)',
+                            [num, operator.id, account.id]
+                        );
+                        invByKey.set(key, { id: result.lastID, invoice_number: num, billing_account_id: account.id });
+                        invoicesCreated++;
+                    }
+                }
+            }
+
+            res.json({
+                message: 'Import terminé',
+                operators_created: operatorsCreated,
+                accounts_created: accountsCreated,
+                invoices_created: invoicesCreated,
+                invoices_reassigned: invoicesReassigned,
+                invoices_unchanged: invoicesUnchanged,
+                skipped_rows: skippedRows,
+            });
+        } catch (error) {
+            console.error('[Telecom] importSuivi error:', error);
+            res.status(500).json({ message: "Erreur lors de l'import du fichier Suivi", error: error.message });
         }
     },
 
