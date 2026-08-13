@@ -39,6 +39,7 @@ interface Tier {
 interface Operator {
   id: number;
   tier_id: number;
+  tier_code?: string;
   name: string;
   rejected_count?: number;
 }
@@ -350,6 +351,8 @@ const TelecomManagement: React.FC = () => {
   const [telecomInvoices, setTelecomInvoices] = useState<TelecomInvoice[]>([]);
   const [allTiers, setAllTiers] = useState<Tier[]>([]);
   const [showAddOperator, setShowAddOperator] = useState(false);
+  const [selectedTier, setSelectedTier] = useState<Tier | null>(null);
+  const [newOperatorName, setNewOperatorName] = useState('');
   const [editingOperator, setEditingOperator] = useState<Operator | null>(null);
   const [tierSearch, setTierSearch] = useState('');
   const [expandedOperators, setExpandedOperators] = useState<number[]>([]);
@@ -681,7 +684,15 @@ const TelecomManagement: React.FC = () => {
     }
   };
 
-  const handleAddOperator = async (tier: Tier) => {
+  // Création d'un opérateur : le tiers (issu du budget) est obligatoire, on stocke son code
+  // (source fiable pour retrouver ses factures) et on laisse saisir un nom distinct du tiers.
+  const handleAddOperator = async () => {
+    if (!selectedTier) return;
+    const name = newOperatorName.trim();
+    if (!name) {
+      alert("Veuillez saisir un nom pour l'opérateur");
+      return;
+    }
     try {
       const res = await fetch('/api/telecom/operators', {
         method: 'POST',
@@ -689,10 +700,11 @@ const TelecomManagement: React.FC = () => {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         },
-        body: JSON.stringify({ tier_id: tier.id, name: tier.nom })
+        body: JSON.stringify({ tier_code: selectedTier.code, name })
       });
       if (res.ok) {
         setShowAddOperator(false);
+        setSelectedTier(null);
         setTierSearch('');
         fetchData();
       } else {
@@ -955,8 +967,8 @@ const TelecomManagement: React.FC = () => {
   };
 
   const filteredTiers = allTiers.filter(t => 
-    t.nom.toLowerCase().includes(tierSearch.toLowerCase()) && 
-    !operators.some(op => op.tier_id === t.id)
+    (t.nom.toLowerCase().includes(tierSearch.toLowerCase()) || t.code.toLowerCase().includes(tierSearch.toLowerCase())) && 
+    !operators.some(op => op.tier_code === t.code)
   ).slice(0, 5);
 
   const filteredInvoices = telecomInvoices.filter(inv => {
@@ -1035,23 +1047,47 @@ const TelecomManagement: React.FC = () => {
                   <Search size={18} className="search-icon" />
                   <input 
                     type="text" 
-                    placeholder="Rechercher un tiers par nom..." 
+                    placeholder="Rechercher un tiers par nom ou code..." 
                     value={tierSearch}
-                    onChange={e => setTierSearch(e.target.value)}
+                    onChange={e => { setTierSearch(e.target.value); setSelectedTier(null); }}
                     autoFocus
                   />
-                  <button className="close-search" onClick={() => setShowAddOperator(false)}>Annuler</button>
+                  <button className="close-search" onClick={() => { setShowAddOperator(false); setSelectedTier(null); }}>Annuler</button>
                 </div>
-                {tierSearch && (
+                {selectedTier ? (
+                  <div className="tier-create-box">
+                    <div className="tier-selected-info">
+                      Tiers choisi : <strong>{selectedTier.nom}</strong> <span className="tier-code">{selectedTier.code}</span>
+                    </div>
+                    <div className="form-grid" style={{ gridTemplateColumns: '1fr', marginBottom: 15 }}>
+                      <div className="form-group">
+                        <label>Nom de l'opérateur (tel qu'il apparaît sur les factures)</label>
+                        <input
+                          type="text"
+                          value={newOperatorName}
+                          onChange={e => setNewOperatorName(e.target.value)}
+                          onKeyDown={e => { if (e.key === 'Enter') handleAddOperator(); }}
+                          autoFocus
+                        />
+                      </div>
+                    </div>
+                    <div className="form-actions">
+                      <button className="cancel-btn" onClick={() => setSelectedTier(null)}>Changer de tiers</button>
+                      <button className="save-btn" onClick={handleAddOperator}><Plus size={16} /> Créer l'opérateur</button>
+                    </div>
+                  </div>
+                ) : tierSearch ? (
                   <div className="tier-results">
                     {filteredTiers.map(t => (
-                      <div key={t.id} className="tier-result-item" onClick={() => handleAddOperator(t)}>
+                      <div key={t.code} className="tier-result-item" onClick={() => { setSelectedTier(t); setNewOperatorName(t.nom); }}>
                         <span className="tier-name">{t.nom}</span>
                         <span className="tier-code">{t.code}</span>
                       </div>
                     ))}
                     {filteredTiers.length === 0 && <div className="no-result">Aucun tiers trouvé</div>}
                   </div>
+                ) : (
+                  <div className="no-result" style={{ padding: '12px 4px 4px', textAlign: 'left' }}>Saisissez un nom de tiers pour démarrer la recherche.</div>
                 )}
               </div>
             )}
@@ -1082,8 +1118,8 @@ const TelecomManagement: React.FC = () => {
                     <div className="operator-edit-form">
                       <div className="form-header-small">Modifier l'opérateur</div>
                       <div style={{ fontSize: '0.82rem', color: '#64748b', marginBottom: 12 }}>
-                        {op.tier_id != null
-                          ? <>Tiers d'origine : <strong style={{ color: '#1e293b' }}>{allTiers.find(t => t.id === op.tier_id)?.nom || op.tier_id}</strong> — le nom de l'opérateur peut en différer (ex. « moji » facturé par « CFI »).</>
+                        {op.tier_code != null
+                          ? <>Tiers d'origine : <strong style={{ color: '#1e293b' }}>{allTiers.find(t => t.code === op.tier_code)?.nom || op.tier_code}</strong> — le nom de l'opérateur peut en différer (ex. « moji » facturé par « CFI »).</>
                           : 'Aucun tiers lié.'}
                       </div>
                       <div className="form-grid" style={{ gridTemplateColumns: '1fr', marginBottom: 15 }}>
@@ -2657,6 +2693,10 @@ const TelecomManagement: React.FC = () => {
         .tier-result-item:hover { background: #f8fafc; }
         .tier-name { font-weight: 600; color: #1e293b; }
         .tier-code { color: #64748b; font-size: 0.875rem; }
+        .tier-create-box { border-top: 1px solid #e2e8f0; padding: 16px 4px 4px; }
+        .tier-selected-info { font-size: 0.85rem; color: #64748b; margin-bottom: 14px; display: flex; align-items: center; gap: 8px; }
+        .tier-selected-info strong { color: #1e293b; font-size: 0.95rem; }
+        .tier-selected-info .tier-code { background: #f1f5f9; padding: 2px 8px; border-radius: 6px; font-size: 0.75rem; }
 
         .operators-list { display: flex; flex-direction: column; gap: 16px; }
         .operator-card { background: white; border: 1px solid #e2e8f0; border-radius: 16px; overflow: hidden; }

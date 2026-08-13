@@ -66,11 +66,11 @@ module.exports = {
     },
 
     createOperator: async (req, res) => {
-        const { name, logo_url, tier_id } = req.body;
+        const { name, logo_url, tier_id, tier_code } = req.body;
         try {
             const result = await pgDb.run(
-                'INSERT INTO hub_telecom.operators (name, logo_url, tier_id) VALUES (?, ?, ?)',
-                [name, logo_url, tier_id || null]
+                'INSERT INTO hub_telecom.operators (name, logo_url, tier_id, tier_code) VALUES (?, ?, ?, ?)',
+                [name, logo_url, tier_id || null, tier_code || null]
             );
             res.json({ id: result.lastID, message: 'Opérateur créé' });
         } catch (error) {
@@ -83,13 +83,14 @@ module.exports = {
     },
 
     updateOperator: async (req, res) => {
-        const { name, logo_url, tier_id } = req.body;
+        const { name, logo_url, tier_id, tier_code } = req.body;
         try {
             const sets = [];
             const params = [];
             if (name !== undefined) { sets.push('name = ?'); params.push(name); }
             if (logo_url !== undefined) { sets.push('logo_url = ?'); params.push(logo_url); }
             if (tier_id !== undefined) { sets.push('tier_id = ?'); params.push(tier_id || null); }
+            if (tier_code !== undefined) { sets.push('tier_code = ?'); params.push(tier_code || null); }
             if (sets.length === 0) return res.status(400).json({ message: 'Aucun champ à mettre à jour' });
             params.push(req.params.id);
             await pgDb.run(`UPDATE hub_telecom.operators SET ${sets.join(', ')} WHERE id = ?`, params);
@@ -403,18 +404,32 @@ module.exports = {
     },
 
     // Factures présentes dans le budget (oracle.gf_oracle_facture) pour le fournisseur de ce
-    // compte, pas encore intégrées à hub_telecom.invoices. Le fournisseur est déduit des factures
-    // déjà rattachées à l'opérateur (FACTURE_LIBELLE2) ; à défaut (opérateur tout neuf), on retombe
-    // sur une recherche par le premier mot du nom de l'opérateur.
+    // compte, pas encore intégrées à hub_telecom.invoices. Le fournisseur est déduit du code du
+    // tiers lié à l'opérateur (nom officiel dans gf_oracle_tiers, source fiable) puis des factures
+    // déjà rattachées à l'opérateur (FACTURE_LIBELLE2) ; à défaut (opérateur tout neuf), on
+    // retombe sur une recherche par le premier mot du nom de l'opérateur.
     getAvailableInvoicesForAccount: async (req, res) => {
         try {
             const accountId = parseInt(req.params.id, 10);
             const accRes = await pool.query('SELECT operator_id FROM hub_telecom.billing_accounts WHERE id = $1', [accountId]);
             if (accRes.rowCount === 0) return res.status(404).json({ message: 'Compte introuvable' });
             const operatorId = accRes.rows[0].operator_id;
-            const opRes = await pool.query('SELECT name FROM hub_telecom.operators WHERE id = $1', [operatorId]);
+            const opRes = await pool.query('SELECT name, tier_code FROM hub_telecom.operators WHERE id = $1', [operatorId]);
             const operatorName = opRes.rows[0]?.name || '';
+            const tierCode = opRes.rows[0]?.tier_code || null;
 
+            // Fournisseur(s) de l'opérateur (FACTURE_LIBELLE2). Source fiable : le code du tiers
+            // stocké sur l'opérateur → nom officiel du tiers dans le budget (gf_oracle_tiers).
+            // Complément : les fournisseurs des factures déjà rattachées à l'opérateur.
+            const libelles = [];
+            if (tierCode) {
+                const tierRes = await pool.query(
+                    'SELECT "TIERS_POBJ_EXTRACT_2" as nom FROM oracle.gf_oracle_tiers WHERE TRIM("TIERS_TIERS") = TRIM($1)',
+                    [tierCode]
+                );
+                const tierNom = tierRes.rows[0]?.nom ? String(tierRes.rows[0].nom).trim() : '';
+                if (tierNom && !libelles.includes(tierNom)) libelles.push(tierNom);
+            }
             const libRes = await pool.query(`
                 SELECT DISTINCT f."FACTURE_LIBELLE2" as libelle
                 FROM hub_telecom.invoices i
@@ -424,7 +439,9 @@ module.exports = {
                 )
                 WHERE i.operator_id = $1 AND f."FACTURE_LIBELLE2" IS NOT NULL
             `, [operatorId]);
-            const libelles = libRes.rows.map(r => r.libelle).filter(Boolean);
+            for (const l of libRes.rows.map(r => r.libelle)) {
+                if (l && !libelles.includes(l)) libelles.push(l);
+            }
 
             // Date = émission (extraite de FACTURE_LIBELLE1), pas réception ; on ne propose que
             // les factures de l'année en cours, plus celles de décembre N-1 (arrivées tardivement

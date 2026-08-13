@@ -5229,6 +5229,10 @@ async function setupPgDb() {
           logo_url  TEXT
         )
       `);
+      // Code du tiers budgétaire (TIERS_TIERS de gf_oracle_tiers) lié à l'opérateur : source fiable
+      // pour retrouver les factures du tiers (nom officiel → FACTURE_LIBELLE2). Un opérateur par tiers.
+      await client.query(`ALTER TABLE hub_telecom.operators ADD COLUMN IF NOT EXISTS tier_code TEXT`);
+      await client.query(`CREATE UNIQUE INDEX IF NOT EXISTS uq_operators_tier_code ON hub_telecom.operators (tier_code) WHERE tier_code IS NOT NULL`);
       await client.query(`
         CREATE TABLE IF NOT EXISTS hub_telecom.billing_accounts (
           id                SERIAL PRIMARY KEY,
