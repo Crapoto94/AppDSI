@@ -99,11 +99,19 @@ async function findBudgetInvoicesForOperator(operatorId, tierCode) {
                    f."FACTURE_LIBELLE1" as libelle, f."FACTURE_LIBELLE2" as fournisseur,
                    f."FACTURE_MONTANTTC_E"::numeric as amount_ttc,
                    to_date(substring(f."FACTURE_LIBELLE1" from '(\\d{2}/\\d{2}/\\d{4})'), 'DD/MM/YYYY') as invoice_date,
+                   NULLIF(TRIM(f."FACTURE_ROO_IMA_REF"), '') as sedit_ref,
                    f."FACETAT_LIBELLE" as etat
             FROM oracle.gf_oracle_facture f
             WHERE ${conditions.join(' OR ')}
         ) c
         WHERE c.invoice_date IS NOT NULL
+          AND (
+               EXTRACT(YEAR FROM c.invoice_date) = EXTRACT(YEAR FROM CURRENT_DATE)
+               OR (
+                   EXTRACT(YEAR FROM c.invoice_date) = EXTRACT(YEAR FROM CURRENT_DATE) - 1
+                   AND EXTRACT(MONTH FROM c.invoice_date) = 12
+               )
+          )
           AND NOT EXISTS (
               SELECT 1 FROM hub_telecom.rejected_invoices r
               WHERE LOWER(TRIM(r.invoice_number)) = LOWER(TRIM(c.invoice_number))

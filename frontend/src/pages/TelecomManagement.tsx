@@ -103,6 +103,7 @@ interface AvailableBudgetInvoice {
   fournisseur: string;
   amount_ttc: number | null;
   invoice_date: string | null;
+  sedit_ref: string | null;
   etat: string | null;
 }
 
@@ -2497,6 +2498,7 @@ const TelecomManagement: React.FC = () => {
                   <thead>
                     <tr>
                       <th>N° Facture</th>
+                      <th>Libellé</th>
                       <th>Date</th>
                       <th>Montant</th>
                       <th>État</th>
@@ -2512,11 +2514,17 @@ const TelecomManagement: React.FC = () => {
                       .map(c => (
                         <tr key={c.invoice_number}>
                           <td style={{ fontWeight: 700 }} title={c.libelle}>{c.invoice_number}</td>
+                          <td style={{ maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={c.libelle}>{c.libelle || '—'}</td>
                           <td>{c.invoice_date ? new Date(c.invoice_date).toLocaleDateString('fr-FR') : '—'}</td>
                           <td>{c.amount_ttc != null ? Number(c.amount_ttc).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' }) : '—'}</td>
                           <td>{c.etat || '—'}</td>
                           <td>
-                            <div style={{ display: 'flex', gap: 6 }}>
+                            <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                              {c.sedit_ref && (
+                                <a href={`${urlSedit}/FicheFacture.html?factureId=${encodeURIComponent(c.sedit_ref)}`} target="_blank" rel="noopener noreferrer" className="edit-icon-btn" title="Ouvrir dans Sedit">
+                                  <ExternalLink size={18} />
+                                </a>
+                              )}
                               <button className="add-btn" style={{ padding: '4px 10px', fontSize: 12 }}
                                 disabled={addingInvoiceNumber === c.invoice_number}
                                 onClick={() => handleAddInvoiceFromBudget(c)}>
@@ -2531,7 +2539,7 @@ const TelecomManagement: React.FC = () => {
                         </tr>
                       ))}
                     {availableInvoices.length === 0 && (
-                      <tr><td colSpan={5} style={{ textAlign: 'center', padding: 30, color: '#94a3b8' }}>
+                      <tr><td colSpan={6} style={{ textAlign: 'center', padding: 30, color: '#94a3b8' }}>
                         {addInvoiceOperatorId ? 'Aucune facture disponible pour ce fournisseur dans le budget' : 'Sélectionnez un opérateur pour voir ses factures en attente'}
                       </td></tr>
                     )}
