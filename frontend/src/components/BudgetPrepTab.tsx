@@ -63,15 +63,14 @@ const typeLabel = (type: string) => {
     }
 };
 
-// Colonnes calculées une seule fois par article (service) : le réalisé des engagements est attaché
-// par (service gestionnaire, article) — toutes les lignes d'un même article portent la même valeur,
-// il ne faut donc l'additionner qu'une seule fois par article (sinon double comptage si la même
-// imputation apparaît sur plusieurs fonctions, chapitres ou budgets).
-const PER_ARTICLE_TYPES = new Set(['realise_engage']);
+// Colonnes calculées une seule fois par article (service) : le réalisé des engagements et la
+// prévision sont attachés par (service gestionnaire, article) — toutes les lignes d'un même article
+// portent la même valeur, il ne faut donc les additionner qu'une seule fois par article (sinon
+// double comptage si la même imputation apparaît sur plusieurs fonctions, chapitres ou budgets).
+const PER_ARTICLE_TYPES = new Set(['realise_engage', 'prevision']);
 
-// Colonnes calculées une seule fois par fonction : la prévision (engagements + contrats) porte la
-// même valeur sur toutes les natures d'une fonction donnée. À ne compter qu'une fois par fonction.
-const PER_FONCTION_TYPES = new Set(['prevision']);
+// Colonnes calculées une seule fois par fonction (aucune actuellement).
+const PER_FONCTION_TYPES = new Set<string>();
 
 // Clé de déduplication d'une colonne calculée pour une ligne donnée (null = colonne additive).
 const dedupKeyOf = (type: string, row: Row): string | null => {
@@ -160,15 +159,10 @@ const BudgetPrepTab: React.FC = () => {
 
     const visibleColumns = useMemo(() => showRealise ? columns : columns.filter(c => c.type !== 'realise'), [columns, showRealise]);
 
-    const chartData = useMemo(() => {
-        return visibleColumns.map(c => ({
-            name: `${typeLabel(c.type)} ${c.year}`,
-            montant: totals[c.key] || 0
-        }));
-    }, [visibleColumns, totals]);
-
-    // Rupture par service, puis regroupement par nature (article) : les fonctions sont dépliables au sein de chaque nature
+    // Rupture par service, puis regroupement par nature (article) : les fonctions sont dépliables au sein de chaque nature.
+    // Les services sont repliés par défaut : on déplie à la demande.
     const [expandedArticles, setExpandedArticles] = useState<Set<string>>(new Set());
+    const [expandedServices, setExpandedServices] = useState<Set<string>>(new Set());
     const [mergeServices, setMergeServices] = useState(false);
 
     const columnTypeByKey = useMemo(() => {
@@ -230,11 +224,37 @@ const BudgetPrepTab: React.FC = () => {
             .sort((a, b) => a.service_code.localeCompare(b.service_code));
     }, [rows, mergeServices]);
 
+    // Totaux affichés recalculés sur les services présents dans le tableau (après filtres) afin de
+    // rester cohérents avec ce qui est affiché (le total global du backend inclut des services non
+    // importés dans la préparation, ex. BF7/BF8).
+    const displayTotals = useMemo(() => {
+        const t: Record<string, number> = {};
+        for (const sg of groupedByService) {
+            for (const [k, v] of Object.entries(sg.values)) t[k] = (t[k] || 0) + (v || 0);
+        }
+        return t;
+    }, [groupedByService]);
+
+    const chartData = useMemo(() => {
+        return visibleColumns.map(c => ({
+            name: `${typeLabel(c.type)} ${c.year}`,
+            montant: displayTotals[c.key] || 0
+        }));
+    }, [visibleColumns, displayTotals]);
+
     const toggleArticle = (serviceCode: string, articleCode: string) => {
         const key = `${serviceCode}::${articleCode}`;
         setExpandedArticles(prev => {
             const next = new Set(prev);
             if (next.has(key)) next.delete(key); else next.add(key);
+            return next;
+        });
+    };
+
+    const toggleService = (serviceCode: string) => {
+        setExpandedServices(prev => {
+            const next = new Set(prev);
+            if (next.has(serviceCode)) next.delete(serviceCode); else next.add(serviceCode);
             return next;
         });
     };
@@ -428,8 +448,9 @@ const BudgetPrepTab: React.FC = () => {
                             {groupedByService.map(service => (
                                 <React.Fragment key={service.service_code || 'merged'}>
                                     {!mergeServices && (
-                                        <tr className="service-row">
+                                        <tr className="service-row" onClick={() => toggleService(service.service_code)}>
                                             <td colSpan={2}>
+                                                {expandedServices.has(service.service_code) ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
                                                 <strong>{service.service_code} — {service.service_label}</strong>
                                             </td>
                                             {visibleColumns.map(c => (
@@ -437,7 +458,7 @@ const BudgetPrepTab: React.FC = () => {
                                             ))}
                                         </tr>
                                     )}
-                                    {service.articles.map(group => {
+                                    {(mergeServices || expandedServices.has(service.service_code)) && service.articles.map(group => {
                                         const expanded = expandedArticles.has(`${service.service_code}::${group.article_code}`);
                                         return (
                                             <React.Fragment key={`${service.service_code}-${group.article_code}`}>
@@ -471,7 +492,7 @@ const BudgetPrepTab: React.FC = () => {
                             <tr>
                                 <td colSpan={2}><strong>Total</strong></td>
                                 {visibleColumns.map(c => (
-                                    <td key={c.key} className={`col-${c.type} num`}><strong>{fmt(totals[c.key])}</strong></td>
+                                    <td key={c.key} className={`col-${c.type} num`}><strong>{fmt(displayTotals[c.key])}</strong></td>
                                 ))}
                             </tr>
                         </tfoot>
@@ -527,6 +548,8 @@ const BudgetPrepTab: React.FC = () => {
                 .prep-table td.num { text-align: right; font-variant-numeric: tabular-nums; }
                 .prep-table .lib { color: #94a3b8; font-weight: 400; margin-left: 0.35rem; }
                 .prep-table .service-row td { background: #003366; color: white; padding-top: 0.6rem; padding-bottom: 0.6rem; }
+                .prep-table .service-row { cursor: pointer; }
+                .prep-table .service-row:hover td { background: #004080; }
                 .prep-table .service-row strong { color: white; }
                 .prep-table .article-row { cursor: pointer; background: #f8fafc; }
                 .prep-table .article-row:hover { background: #f1f5f9; }
