@@ -483,6 +483,7 @@ module.exports = {
             for (const row of rows) {
                 const service = (row.service_code || '').trim();
                 const article = (row.article_code || '').trim();
+                const fonction = (row.fonction_code || '').trim();
                 const saKey = `${service}||${article}`;
                 if (realiseN1BySA.has(saKey)) row.values[realiseN1Key] = realiseN1BySA.get(saKey);
                 if (previsionNByFonction.has(fonction)) row.values[previsionNKey] = previsionNByFonction.get(fonction);
