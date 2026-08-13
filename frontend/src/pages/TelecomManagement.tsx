@@ -58,6 +58,7 @@ interface BillingAccount {
   commitment_number: string;
   commitment_amount?: number;
   commitment_label?: string;
+  operator_name?: string;
   invoice_count?: number;
   total_invoiced?: number;
   account_balance?: number;
@@ -383,9 +384,16 @@ const TelecomManagement: React.FC = () => {
   const [rejectCategory, setRejectCategory] = useState<'rejetee' | 'hors_telecom'>('rejetee');
   const [rejectReason, setRejectReason] = useState('');
   const [rejecting, setRejecting] = useState(false);
-  const [rejectedDetail, setRejectedDetail] = useState<{ title: string; operator_id: number; billing_account_id: number } | null>(null);
+  const [rejectedDetail, setRejectedDetail] = useState<{ title: string; operator_id: number; billing_account_id: number | null } | null>(null);
   const [rejectedInvoices, setRejectedInvoices] = useState<RejectedInvoice[]>([]);
   const [loadingRejected, setLoadingRejected] = useState(false);
+  // Comparaison import engagements vs total facturé dynamique (factures des comptes liés)
+  const [commitmentDiff, setCommitmentDiff] = useState<{
+    commitment_number: string;
+    importInvoiced: number;
+    dynamicInvoiced: number;
+    accounts: { account_number: string; designation: string; operator_name: string; total_invoiced: number }[];
+  } | null>(null);
   // Édition inline du mois de rattachement / de la description d'une facture déjà intégrée
   const [editingMeta, setEditingMeta] = useState<{ id: number; billing_month: string; description: string } | null>(null);
 
@@ -398,6 +406,9 @@ const TelecomManagement: React.FC = () => {
     function_code: '',
     commitment_number: ''
   });
+
+  // Filtre par catégorie de compte (par opérateur) sur la liste des comptes
+  const [accountTypeFilter, setAccountTypeFilter] = useState<Record<number, string>>({});
 
   const token = localStorage.getItem('token');
 
@@ -443,6 +454,33 @@ const TelecomManagement: React.FC = () => {
       console.error(e);
     }
   };
+
+  // Montant engagé d'un engagement (issu du suivi budgétaire, nature 6262)
+  const engagementAmountOf = (commNum: string): number => {
+    const c = commitments.find(x => x.commitment_number === commNum);
+    return c ? (c.engaged_amount ?? c.amount ?? 0) : 0;
+  };
+
+  // Tous les comptes de facturation (tous opérateurs)
+  const allAccounts = Object.values(billingAccounts).flat();
+
+  // Total facturé dynamique d'un engagement : somme des montants facturés de TOUS les comptes
+  // rattachés à cet engagement (qu'ils soient visibles ou filtrés par catégorie).
+  const invoicedForCommitment = (commNum: string): number =>
+    allAccounts
+      .filter(a => (a.commitment_number || 'Sans engagement') === commNum)
+      .reduce((sum, a) => sum + (a.total_invoiced || 0), 0);
+
+  // Comptes rattachés à un engagement, pour le détail affiché lors d'un écart
+  const accountsForCommitment = (commNum: string) =>
+    allAccounts
+      .filter(a => a.commitment_number === commNum)
+      .map(a => ({
+        account_number: a.account_number,
+        designation: a.designation,
+        operator_name: a.operator_name || '',
+        total_invoiced: a.total_invoiced || 0,
+      }));
 
   const fetchInvoiceFiles = async () => {
     try {
@@ -972,6 +1010,22 @@ const TelecomManagement: React.FC = () => {
     }
   };
 
+  const openOperatorRejectedInvoices = async (op: Operator) => {
+    setRejectedDetail({ title: op.name, operator_id: op.id, billing_account_id: null });
+    setRejectedInvoices([]);
+    setLoadingRejected(true);
+    try {
+      const res = await fetch(`/api/telecom/invoices/rejected?operator_id=${op.id}`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (res.ok) setRejectedInvoices(await res.json());
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setLoadingRejected(false);
+    }
+  };
+
   const tierDisplayName = (t?: Tier) =>
     t ? (t.complement_nom ? `${t.nom} ${t.complement_nom}` : t.nom) : '';
 
@@ -1115,6 +1169,17 @@ const TelecomManagement: React.FC = () => {
                       <div>
                         <h3>{op.name}</h3>
                         <span className="account-count">{billingAccounts[op.id]?.length || 0} compte(s)</span>
+                        {(op.rejected_count ?? 0) > 0 && (
+                          <button
+                            className="invoice-count-btn rejected"
+                            style={{ marginLeft: 8 }}
+                            onClick={(e) => { e.stopPropagation(); openOperatorRejectedInvoices(op); }}
+                            title="Voir les factures rejetées de l'opérateur"
+                          >
+                            <X size={14} />
+                            <span>{op.rejected_count}</span>
+                          </button>
+                        )}
                       </div>
                     </div>
                     <div className="op-actions">
@@ -1189,9 +1254,22 @@ const TelecomManagement: React.FC = () => {
                     <div className="operator-card-body">
                       <div className="accounts-header">
                         <h4>Comptes de facturation</h4>
-                        <button className="add-account-btn" onClick={() => { setEditingAccount(null); setShowAddAccount(op.id); }}>
-                          <Plus size={14} /> Nouveau compte
-                        </button>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                          <select
+                            value={accountTypeFilter[op.id] || ''}
+                            onChange={e => setAccountTypeFilter({ ...accountTypeFilter, [op.id]: e.target.value })}
+                            style={{ padding: '6px 10px', borderRadius: 6, border: '1px solid #e2e8f0', fontSize: 13, background: '#fff' }}
+                          >
+                            <option value="">Toutes catégories</option>
+                            <option value="Fixe">Téléphonie fixe</option>
+                            <option value="Mobile">Téléphonie mobile</option>
+                            <option value="Interco">Liens interco</option>
+                            <option value="Internet">Accès internet</option>
+                          </select>
+                          <button className="add-account-btn" onClick={() => { setEditingAccount(null); setShowAddAccount(op.id); }}>
+                            <Plus size={14} /> Nouveau compte
+                          </button>
+                        </div>
                       </div>
 
                       {showAddAccount === op.id && (
@@ -1243,16 +1321,19 @@ const TelecomManagement: React.FC = () => {
 
                       <div className="accounts-table-wrapper">
                         {(() => {
+                          const typeFilter = accountTypeFilter[op.id];
                           const accountsByCommitment: Record<string, BillingAccount[]> = {};
-                          (billingAccounts[op.id] || []).forEach(acc => {
-                            const key = acc.commitment_number || 'Sans engagement';
-                            if (!accountsByCommitment[key]) accountsByCommitment[key] = [];
-                            accountsByCommitment[key].push(acc);
-                          });
+                          (billingAccounts[op.id] || [])
+                            .filter(acc => !typeFilter || acc.type === typeFilter)
+                            .forEach(acc => {
+                              const key = acc.commitment_number || 'Sans engagement';
+                              if (!accountsByCommitment[key]) accountsByCommitment[key] = [];
+                              accountsByCommitment[key].push(acc);
+                            });
 
                           return Object.entries(accountsByCommitment).map(([commNum, accounts]) => {
-                            const totalInvoicedForComm = accounts.reduce((sum, a) => sum + (a.total_invoiced || 0), 0);
-                            const commAmount = accounts[0]?.commitment_amount || 0;
+                            const commAmount = commNum === 'Sans engagement' ? 0 : engagementAmountOf(commNum);
+                            const totalInvoicedForComm = invoicedForCommitment(commNum);
                             const commBalance = commAmount - totalInvoicedForComm;
 
                             return (
@@ -1694,8 +1775,10 @@ const TelecomManagement: React.FC = () => {
                     <th>Opérateur</th>
                     <th>Montant Engagé</th>
                     <th>Reste Engagé</th>
-                    <th>Montant Facturé</th>
+                    <th>Montant Facturé (import)</th>
+                    <th>Total Facturé (comptes liés)</th>
                     <th>Solde</th>
+                    <th>Écart</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1703,6 +1786,9 @@ const TelecomManagement: React.FC = () => {
                     const engaged = c.engaged_amount ?? c.amount ?? 0;
                     const remaining = c.remaining_amount;
                     const dynamic = c.engaged_amount != null;
+                    const importInvoiced = c.invoiced_amount ?? (engaged - (remaining ?? 0));
+                    const dynamicInvoiced = invoicedForCommitment(c.commitment_number);
+                    const diff = Math.abs(importInvoiced - dynamicInvoiced) > 0.005;
                     return (
                     <tr key={c.id ?? c.commitment_number}>
                       <td className="year-cell">{c.year}</td>
@@ -1716,15 +1802,37 @@ const TelecomManagement: React.FC = () => {
                       <td className="amount-cell" style={{ color: remaining == null ? '#cbd5e1' : (remaining > 0 ? '#2563eb' : '#059669'), fontWeight: 600 }}>
                         {remaining == null ? '—' : remaining.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}
                       </td>
-                      <td className="amount-cell" style={{ color: '#64748b' }}>{(c.invoiced_amount || 0).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}</td>
-                      <td className="amount-cell" style={{ color: ((engaged || 0) - (c.invoiced_amount || 0)) < 0 ? '#ef4444' : '#059669', fontWeight: 700 }}>
-                        {((engaged || 0) - (c.invoiced_amount || 0)).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}
+                      <td className="amount-cell" style={{ color: '#64748b' }}>
+                        {importInvoiced.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}
+                        {diff && <span style={{ marginLeft: 4, color: '#f59e0b', fontSize: 11 }} title="Écart avec le total facturé des comptes liés">*</span>}
+                      </td>
+                      <td className="amount-cell" style={{ color: '#64748b' }}>
+                        {dynamicInvoiced.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}
+                      </td>
+                      <td className="amount-cell" style={{ color: (engaged - importInvoiced) < 0 ? '#ef4444' : '#059669', fontWeight: 700 }}>
+                        {(engaged - importInvoiced).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}
+                      </td>
+                      <td>
+                        {diff && (
+                          <button
+                            className="edit-icon-btn"
+                            title="Voir le détail de l'écart (import engagements vs factures des comptes liés)"
+                            onClick={() => setCommitmentDiff({
+                              commitment_number: c.commitment_number,
+                              importInvoiced,
+                              dynamicInvoiced,
+                              accounts: accountsForCommitment(c.commitment_number),
+                            })}
+                          >
+                            <AlertTriangle size={16} style={{ color: '#f59e0b' }} />
+                          </button>
+                        )}
                       </td>
                     </tr>
                     );
                   })}
                   {commitments.length === 0 && (
-                    <tr><td colSpan={8} style={{ textAlign: 'center', padding: '40px', color: '#64748b' }}>Aucun engagement télécom (nature 6262) dans le suivi budgétaire</td></tr>
+                    <tr><td colSpan={10} style={{ textAlign: 'center', padding: '40px', color: '#64748b' }}>Aucun engagement télécom (nature 6262) dans le suivi budgétaire</td></tr>
                   )}
                 </tbody>
               </table>
@@ -2605,7 +2713,7 @@ const TelecomManagement: React.FC = () => {
               {loadingRejected ? (
                 <div style={{ textAlign: 'center', padding: 20, color: '#64748b' }}>Chargement...</div>
               ) : rejectedInvoices.length === 0 ? (
-                <div style={{ textAlign: 'center', padding: 20, color: '#94a3b8' }}>Aucune facture rejetée pour ce compte</div>
+                <div style={{ textAlign: 'center', padding: 20, color: '#94a3b8' }}>{rejectedDetail.billing_account_id ? 'Aucune facture rejetée pour ce compte' : 'Aucune facture rejetée pour cet opérateur'}</div>
               ) : rejectedInvoices.map(r => (
                 <div key={r.id} style={{ padding: '12px 0', borderBottom: '1px solid #f1f5f9' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
@@ -2638,6 +2746,65 @@ const TelecomManagement: React.FC = () => {
                   </div>
                 </div>
               ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Détail de l'écart import engagements vs total facturé des comptes liés */}
+      {commitmentDiff && (
+        <div className="validation-modal-overlay" onClick={() => setCommitmentDiff(null)}>
+          <div style={{ background: '#fff', borderRadius: 12, width: '90%', maxWidth: 640, maxHeight: '80vh', display: 'flex', flexDirection: 'column' }} onClick={e => e.stopPropagation()}>
+            <div style={{ padding: '16px 20px', borderBottom: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <h2 style={{ margin: 0, fontSize: 16 }}>Écart engagement {commitmentDiff.commitment_number}</h2>
+              <button className="close-btn" onClick={() => setCommitmentDiff(null)}><X size={22} /></button>
+            </div>
+            <div style={{ overflowY: 'auto', padding: '12px 20px 20px' }}>
+              <div style={{ display: 'flex', gap: 16, marginBottom: 16 }}>
+                <div style={{ flex: 1, background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, padding: '10px 12px' }}>
+                  <div style={{ fontSize: 12, color: '#64748b' }}>Facturé (import engagements)</div>
+                  <div style={{ fontWeight: 800, fontSize: 16 }}>{commitmentDiff.importInvoiced.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}</div>
+                </div>
+                <div style={{ flex: 1, background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 8, padding: '10px 12px' }}>
+                  <div style={{ fontSize: 12, color: '#92400e' }}>Total facturé (comptes liés)</div>
+                  <div style={{ fontWeight: 800, fontSize: 16 }}>{commitmentDiff.dynamicInvoiced.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}</div>
+                </div>
+                <div style={{ flex: 1, background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 8, padding: '10px 12px' }}>
+                  <div style={{ fontSize: 12, color: '#991b1b' }}>Écart</div>
+                  <div style={{ fontWeight: 800, fontSize: 16 }}>{(commitmentDiff.dynamicInvoiced - commitmentDiff.importInvoiced).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}</div>
+                </div>
+              </div>
+              <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8 }}>Comptes rattachés à l'engagement :</div>
+              {commitmentDiff.accounts.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: 16, color: '#94a3b8' }}>Aucun compte de facturation rattaché à cet engagement</div>
+              ) : (
+                <table className="commitments-table">
+                  <thead>
+                    <tr>
+                      <th>Opérateur</th>
+                      <th>N° Compte</th>
+                      <th>Désignation</th>
+                      <th style={{ textAlign: 'right' }}>Facturé</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {commitmentDiff.accounts.map(a => (
+                      <tr key={`${a.operator_name}-${a.account_number}`}>
+                        <td>{a.operator_name || '—'}</td>
+                        <td style={{ fontWeight: 600 }}>{a.account_number}</td>
+                        <td>{a.designation}</td>
+                        <td style={{ textAlign: 'right', fontWeight: 700 }}>{a.total_invoiced.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}</td>
+                      </tr>
+                    ))}
+                    <tr>
+                      <td colSpan={3} style={{ textAlign: 'right', fontWeight: 700 }}>Total</td>
+                      <td style={{ textAlign: 'right', fontWeight: 800 }}>
+                        {commitmentDiff.accounts.reduce((s, a) => s + a.total_invoiced, 0).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              )}
             </div>
           </div>
         </div>

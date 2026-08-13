@@ -154,7 +154,7 @@ module.exports = {
         try {
             const operators = await pgDb.all(`
                 SELECT o.*,
-                       (SELECT COUNT(*) FROM hub_telecom.rejected_invoices r WHERE r.operator_id = o.id) as rejected_count
+                       (SELECT COUNT(*) FROM hub_telecom.rejected_invoices r WHERE r.operator_id = o.id AND r.category = 'rejetee') as rejected_count
                 FROM hub_telecom.operators o
                 ORDER BY o.name
             `);
@@ -220,7 +220,7 @@ module.exports = {
                 SELECT a.*, o.name as operator_name,
                        (SELECT COUNT(*) FROM hub_telecom.invoices WHERE billing_account_id = a.id) as invoice_count,
                        (SELECT COALESCE(SUM(ri.amount_ttc), 0) FROM (${RESOLVED_INVOICES_SQL}) ri WHERE ri.billing_account_id = a.id) as total_invoiced,
-                       (SELECT COUNT(*) FROM hub_telecom.rejected_invoices r WHERE r.billing_account_id = a.id) as rejected_count
+                       (SELECT COUNT(*) FROM hub_telecom.rejected_invoices r WHERE r.billing_account_id = a.id AND r.category = 'rejetee') as rejected_count
                 FROM hub_telecom.billing_accounts a
                 JOIN hub_telecom.operators o ON a.operator_id = o.id
             `;
@@ -246,7 +246,7 @@ module.exports = {
                 SELECT a.*, o.name as operator_name,
                        (SELECT COUNT(*) FROM hub_telecom.invoices WHERE billing_account_id = a.id) as invoice_count,
                        (SELECT COALESCE(SUM(ri.amount_ttc), 0) FROM (${RESOLVED_INVOICES_SQL}) ri WHERE ri.billing_account_id = a.id) as total_invoiced,
-                       (SELECT COUNT(*) FROM hub_telecom.rejected_invoices r WHERE r.billing_account_id = a.id) as rejected_count
+                       (SELECT COUNT(*) FROM hub_telecom.rejected_invoices r WHERE r.billing_account_id = a.id AND r.category = 'rejetee') as rejected_count
                 FROM hub_telecom.billing_accounts a
                 JOIN hub_telecom.operators o ON a.operator_id = o.id
                 WHERE a.operator_id = ?
@@ -603,10 +603,16 @@ module.exports = {
                        bf."FACETAT_LIBELLE" as etat,
                        to_date(substring(bf."FACTURE_LIBELLE1" from '(\\d{2}/\\d{2}/\\d{4})'), 'DD/MM/YYYY') as invoice_date
                 FROM hub_telecom.rejected_invoices r
-                LEFT JOIN oracle.gf_oracle_facture bf ON (
-                    LOWER(TRIM(bf."FACTURE_REFERENCE")) = LOWER(TRIM(r.invoice_number))
-                    OR bf."FACTURE_LIBELLE1" ILIKE '%' || TRIM(r.invoice_number) || '%'
-                )
+                LEFT JOIN LATERAL (
+                    SELECT f."FACTURE_LIBELLE2", f."FACTURE_MONTANTTC_E", f."FACTURE_ROO_IMA_REF",
+                           f."FACETAT_LIBELLE", f."FACTURE_LIBELLE1"
+                    FROM oracle.gf_oracle_facture f
+                    WHERE LOWER(TRIM(f."FACTURE_REFERENCE")) = LOWER(TRIM(r.invoice_number))
+                       OR f."FACTURE_LIBELLE1" ILIKE '%' || TRIM(r.invoice_number) || '%'
+                       OR LOWER(TRIM(f."FACTURE_FACTIERS")) = LOWER(TRIM(r.invoice_number))
+                    ORDER BY (LOWER(TRIM(f."FACTURE_REFERENCE")) = LOWER(TRIM(r.invoice_number))) DESC
+                    LIMIT 1
+                ) bf ON r.invoice_number IS NOT NULL AND TRIM(r.invoice_number) != ''
                 ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
                 ORDER BY r.rejected_at DESC, r.id DESC
                 LIMIT 500
