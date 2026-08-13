@@ -51,6 +51,7 @@ router.get('/invoices/monthly-summary', authenticateJWT, telecomController.getMo
 router.post('/invoices/import-suivi', authenticateAdmin, upload.single('file'), telecomController.importSuivi);
 router.post('/invoices/from-budget', authenticateJWT, telecomController.addInvoiceFromBudget);
 router.post('/invoices/reject', authenticateJWT, telecomController.rejectBudgetInvoice);
+router.get('/invoices/rejected', authenticateJWT, telecomController.getRejectedInvoices);
 router.post('/invoices/upload', authenticateJWT, upload.single('file'), telecomController.uploadInvoice);
 router.put('/invoices/:id', authenticateJWT, telecomController.updateInvoice);
 router.patch('/invoices/:id', authenticateJWT, telecomController.updateInvoiceMeta);

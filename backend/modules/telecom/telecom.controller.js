@@ -53,7 +53,12 @@ module.exports = {
     // --- Operators ---
     getOperators: async (req, res) => {
         try {
-            const operators = await pgDb.all('SELECT * FROM hub_telecom.operators ORDER BY name');
+            const operators = await pgDb.all(`
+                SELECT o.*,
+                       (SELECT COUNT(*) FROM hub_telecom.rejected_invoices r WHERE r.operator_id = o.id) as rejected_count
+                FROM hub_telecom.operators o
+                ORDER BY o.name
+            `);
             res.json(operators);
         } catch (error) {
             res.status(500).json({ message: 'Error fetching operators', error: error.message });
@@ -114,7 +119,8 @@ module.exports = {
             let query = `
                 SELECT a.*, o.name as operator_name,
                        (SELECT COUNT(*) FROM hub_telecom.invoices WHERE billing_account_id = a.id) as invoice_count,
-                       (SELECT COALESCE(SUM(ri.amount_ttc), 0) FROM (${RESOLVED_INVOICES_SQL}) ri WHERE ri.billing_account_id = a.id) as total_invoiced
+                       (SELECT COALESCE(SUM(ri.amount_ttc), 0) FROM (${RESOLVED_INVOICES_SQL}) ri WHERE ri.billing_account_id = a.id) as total_invoiced,
+                       (SELECT COUNT(*) FROM hub_telecom.rejected_invoices r WHERE r.billing_account_id = a.id) as rejected_count
                 FROM hub_telecom.billing_accounts a
                 JOIN hub_telecom.operators o ON a.operator_id = o.id
             `;
@@ -421,7 +427,8 @@ module.exports = {
             const libelles = libRes.rows.map(r => r.libelle).filter(Boolean);
 
             // Date = émission (extraite de FACTURE_LIBELLE1), pas réception ; on ne propose que
-            // les factures de l'année en cours (pas les années N-1 et antérieures).
+            // les factures de l'année en cours, plus celles de décembre N-1 (arrivées tardivement
+            // et rattachées au budget de l'exercice, elles restent proposables au début de l'année).
             const candidateSql = `
                 SELECT * FROM (
                     SELECT substring(f."FACTURE_LIBELLE1" from 'N°([^ ]+)') as invoice_number,
@@ -433,7 +440,13 @@ module.exports = {
                     WHERE %CONDITION%
                 ) c
                 WHERE c.invoice_date IS NOT NULL
-                  AND EXTRACT(YEAR FROM c.invoice_date) = EXTRACT(YEAR FROM CURRENT_DATE)
+                  AND (
+                       EXTRACT(YEAR FROM c.invoice_date) = EXTRACT(YEAR FROM CURRENT_DATE)
+                       OR (
+                           EXTRACT(YEAR FROM c.invoice_date) = EXTRACT(YEAR FROM CURRENT_DATE) - 1
+                           AND EXTRACT(MONTH FROM c.invoice_date) = 12
+                       )
+                  )
                   AND NOT EXISTS (
                       SELECT 1 FROM hub_telecom.rejected_invoices r
                       WHERE LOWER(TRIM(r.invoice_number)) = LOWER(TRIM(c.invoice_number))
@@ -493,7 +506,7 @@ module.exports = {
     // Écarte définitivement une facture du budget de la liste des factures disponibles d'un tiers :
     // soit rejetée (avec une description de rejet), soit hors périmètre télécom (plus jamais reproposée).
     rejectBudgetInvoice: async (req, res) => {
-        const { invoice_number, reason, category } = req.body;
+        const { invoice_number, reason, category, operator_id, billing_account_id } = req.body;
         if (!invoice_number) return res.status(400).json({ message: 'invoice_number est requis' });
         const cat = category === 'hors_telecom' ? 'hors_telecom' : 'rejetee';
         try {
@@ -503,12 +516,44 @@ module.exports = {
             );
             if (existing) return res.status(409).json({ message: 'Cette facture est déjà rejetée / écartée' });
             await pgDb.run(
-                'INSERT INTO hub_telecom.rejected_invoices (invoice_number, reason, category, rejected_by) VALUES (?, ?, ?, ?)',
-                [String(invoice_number).trim(), reason || null, cat, req.user?.username || null]
+                'INSERT INTO hub_telecom.rejected_invoices (invoice_number, reason, category, rejected_by, operator_id, billing_account_id) VALUES (?, ?, ?, ?, ?, ?)',
+                [String(invoice_number).trim(), reason || null, cat, req.user?.username || null, operator_id || null, billing_account_id || null]
             );
             res.json({ message: 'Facture rejetée' });
         } catch (error) {
             res.status(500).json({ message: 'Erreur lors du rejet', error: error.message });
+        }
+    },
+
+    // Factures écartées (rejetées ou hors périmètre télécom) d'un opérateur et/ou d'un compte,
+    // avec le motif du rejet et les informations du budget (montant, date, état, référence SEDIT).
+    getRejectedInvoices: async (req, res) => {
+        try {
+            const { operator_id, billing_account_id } = req.query;
+            const where = [];
+            const params = [];
+            if (operator_id) { params.push(parseInt(operator_id, 10)); where.push(`r.operator_id = $${params.length}`); }
+            if (billing_account_id) { params.push(parseInt(billing_account_id, 10)); where.push(`r.billing_account_id = $${params.length}`); }
+
+            const result = await pool.query(`
+                SELECT r.id, r.invoice_number, r.reason, r.category, r.rejected_by, r.rejected_at,
+                       bf."FACTURE_LIBELLE2" as fournisseur,
+                       bf."FACTURE_MONTANTTC_E"::numeric as amount_ttc,
+                       bf."FACTURE_ROO_IMA_REF" as sedit_ref,
+                       bf."FACETAT_LIBELLE" as etat,
+                       to_date(substring(bf."FACTURE_LIBELLE1" from '(\\d{2}/\\d{2}/\\d{4})'), 'DD/MM/YYYY') as invoice_date
+                FROM hub_telecom.rejected_invoices r
+                LEFT JOIN oracle.gf_oracle_facture bf ON (
+                    LOWER(TRIM(bf."FACTURE_REFERENCE")) = LOWER(TRIM(r.invoice_number))
+                    OR bf."FACTURE_LIBELLE1" ILIKE '%' || TRIM(r.invoice_number) || '%'
+                )
+                ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
+                ORDER BY r.rejected_at DESC, r.id DESC
+                LIMIT 500
+            `, params);
+            res.json(result.rows);
+        } catch (error) {
+            res.status(500).json({ message: 'Erreur récupération des factures rejetées', error: error.message });
         }
     },
 

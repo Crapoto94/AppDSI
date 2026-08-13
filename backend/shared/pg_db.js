@@ -5270,6 +5270,53 @@ async function setupPgDb() {
           rejected_at    TIMESTAMPTZ DEFAULT NOW()
         )
       `);
+      // Lien des rejets avec l'opérateur et le compte depuis lesquels la facture a été écartée.
+      await client.query(`ALTER TABLE hub_telecom.rejected_invoices ADD COLUMN IF NOT EXISTS operator_id INTEGER`);
+      await client.query(`ALTER TABLE hub_telecom.rejected_invoices ADD COLUMN IF NOT EXISTS billing_account_id INTEGER`);
+      // Rejets existants sans opérateur : rattachement a posteriori — on retrouve le fournisseur
+      // de la facture dans le budget (FACTURE_LIBELLE2) puis l'opérateur correspondant (nom du
+      // tiers lié, nom de l'opérateur, ou premier mot de son nom).
+      try {
+        const orphan = await client.query(`SELECT id, invoice_number FROM hub_telecom.rejected_invoices WHERE operator_id IS NULL`);
+        if (orphan.rows.length > 0) {
+          const opsRes = await client.query(`SELECT id, name, tier_code FROM hub_telecom.operators`);
+          const fournisseurToOp = new Map();
+          for (const o of opsRes.rows) {
+            const keys = new Set();
+            if (o.name) {
+              keys.add(String(o.name).trim().toUpperCase());
+              keys.add(String(o.name).trim().toUpperCase().split(' ')[0]);
+            }
+            if (o.tier_code) {
+              const t = await client.query(
+                `SELECT "TIERS_POBJ_EXTRACT_2" as nom FROM oracle.gf_oracle_tiers WHERE TRIM("TIERS_TIERS") = TRIM($1)`,
+                [o.tier_code]
+              );
+              if (t.rows.length && t.rows[0].nom) {
+                const nom = String(t.rows[0].nom).trim().toUpperCase();
+                if (nom) {
+                  keys.add(nom);
+                  keys.add(nom.split(' ')[0]);
+                }
+              }
+            }
+            for (const k of keys) if (k && !fournisseurToOp.has(k)) fournisseurToOp.set(k, o.id);
+          }
+          for (const r of orphan.rows) {
+            const f = await client.query(
+              `SELECT "FACTURE_LIBELLE2" as libelle FROM oracle.gf_oracle_facture
+               WHERE LOWER(TRIM("FACTURE_REFERENCE")) = LOWER(TRIM($1))
+                  OR "FACTURE_LIBELLE1" ILIKE '%' || TRIM($1) || '%'
+               LIMIT 1`,
+              [r.invoice_number]
+            );
+            const lib = f.rows.length ? String(f.rows[0].libelle || '').trim().toUpperCase() : null;
+            const opId = lib && fournisseurToOp.get(lib);
+            if (opId) await client.query(`UPDATE hub_telecom.rejected_invoices SET operator_id = $1 WHERE id = $2`, [opId, r.id]);
+          }
+        }
+      } catch (e) { console.error('[PG DB] Backfill rejets télécom:', e.message); }
+
       // Lignes téléphoniques fixes & accès internet (import Excel opérateur)
       await client.query(`
         CREATE TABLE IF NOT EXISTS hub_telecom.lines (

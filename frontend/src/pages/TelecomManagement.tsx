@@ -40,6 +40,7 @@ interface Operator {
   id: number;
   tier_id: number;
   name: string;
+  rejected_count?: number;
 }
 
 interface BillingAccount {
@@ -57,6 +58,7 @@ interface BillingAccount {
   invoice_count?: number;
   total_invoiced?: number;
   account_balance?: number;
+  rejected_count?: number;
 }
 
 interface Commitment {
@@ -99,6 +101,20 @@ interface AvailableBudgetInvoice {
   amount_ttc: number | null;
   invoice_date: string | null;
   etat: string | null;
+}
+
+interface RejectedInvoice {
+  id: number;
+  invoice_number: string;
+  reason: string | null;
+  category: 'rejetee' | 'hors_telecom';
+  rejected_by: string | null;
+  rejected_at: string;
+  fournisseur: string | null;
+  amount_ttc: number | null;
+  sedit_ref: string | null;
+  etat: string | null;
+  invoice_date: string | null;
 }
 
 interface TelecomLine {
@@ -360,6 +376,9 @@ const TelecomManagement: React.FC = () => {
   const [rejectCategory, setRejectCategory] = useState<'rejetee' | 'hors_telecom'>('rejetee');
   const [rejectReason, setRejectReason] = useState('');
   const [rejecting, setRejecting] = useState(false);
+  const [rejectedDetail, setRejectedDetail] = useState<{ title: string; operator_id: number; billing_account_id: number } | null>(null);
+  const [rejectedInvoices, setRejectedInvoices] = useState<RejectedInvoice[]>([]);
+  const [loadingRejected, setLoadingRejected] = useState(false);
   // Édition inline du mois de rattachement / de la description d'une facture déjà intégrée
   const [editingMeta, setEditingMeta] = useState<{ id: number; billing_month: string; description: string } | null>(null);
 
@@ -740,6 +759,8 @@ const TelecomManagement: React.FC = () => {
           invoice_number: rejectCandidate.invoice_number,
           reason: rejectReason.trim() || null,
           category: rejectCategory,
+          operator_id: addInvoiceOperatorId,
+          billing_account_id: addInvoiceAccountId,
         }),
       });
       if (res.ok) {
@@ -747,6 +768,7 @@ const TelecomManagement: React.FC = () => {
         setRejectCandidate(null);
         setRejectReason('');
         setRejectCategory('rejetee');
+        await fetchData();
       } else {
         const data = await res.json();
         alert('Erreur : ' + (data.message || 'inconnue'));
@@ -914,6 +936,22 @@ const TelecomManagement: React.FC = () => {
     setInvoiceAccountFilter(accountId);
     setInvoiceOperatorFilter(operatorId);
     setActiveTab('pdfs');
+  };
+
+  const openRejectedInvoices = async (acc: BillingAccount, op: Operator) => {
+    setRejectedDetail({ title: `${op.name} — ${acc.account_number}`, operator_id: op.id, billing_account_id: acc.id });
+    setRejectedInvoices([]);
+    setLoadingRejected(true);
+    try {
+      const res = await fetch(`/api/telecom/invoices/rejected?operator_id=${op.id}&billing_account_id=${acc.id}`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (res.ok) setRejectedInvoices(await res.json());
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setLoadingRejected(false);
+    }
   };
 
   const filteredTiers = allTiers.filter(t => 
@@ -1181,6 +1219,16 @@ const TelecomManagement: React.FC = () => {
                                             <FileText size={14} />
                                             <span>{acc.invoice_count || 0}</span>
                                           </button>
+                                          {(acc.rejected_count ?? 0) > 0 && (
+                                            <button
+                                              className="invoice-count-btn rejected"
+                                              onClick={() => openRejectedInvoices(acc, op)}
+                                              title="Voir les factures rejetées / écartées"
+                                            >
+                                              <X size={14} />
+                                              <span>{acc.rejected_count}</span>
+                                            </button>
+                                          )}
                                         </td>
                                         <td className="amount-col">
                                           {(acc.total_invoiced || 0).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}
@@ -2458,6 +2506,56 @@ const TelecomManagement: React.FC = () => {
         </div>
       )}
 
+      {/* Factures rejetées / écartées d'un compte */}
+      {rejectedDetail && (
+        <div className="validation-modal-overlay" onClick={() => setRejectedDetail(null)}>
+          <div style={{ background: '#fff', borderRadius: 12, width: '90%', maxWidth: 640, maxHeight: '80vh', display: 'flex', flexDirection: 'column' }} onClick={e => e.stopPropagation()}>
+            <div style={{ padding: '16px 20px', borderBottom: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <h2 style={{ margin: 0, fontSize: 16 }}>Factures rejetées — {rejectedDetail.title}</h2>
+              <button className="close-btn" onClick={() => setRejectedDetail(null)}><X size={22} /></button>
+            </div>
+            <div style={{ overflowY: 'auto', padding: '12px 20px 20px' }}>
+              {loadingRejected ? (
+                <div style={{ textAlign: 'center', padding: 20, color: '#64748b' }}>Chargement...</div>
+              ) : rejectedInvoices.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: 20, color: '#94a3b8' }}>Aucune facture rejetée pour ce compte</div>
+              ) : rejectedInvoices.map(r => (
+                <div key={r.id} style={{ padding: '12px 0', borderBottom: '1px solid #f1f5f9' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <strong>{r.invoice_number}</strong>
+                      <span className={`reject-category-tag ${r.category}`}>
+                        {r.category === 'hors_telecom' ? 'Hors télécom' : 'Rejetée'}
+                      </span>
+                    </div>
+                    {r.sedit_ref && (
+                      <a href={`${urlSedit}/FicheFacture.html?factureId=${encodeURIComponent(r.sedit_ref)}`} target="_blank" rel="noopener noreferrer" className="edit-icon-btn" title="Ouvrir dans Sedit">
+                        <ExternalLink size={16} />
+                      </a>
+                    )}
+                  </div>
+                  <div style={{ fontSize: 12, color: '#64748b', marginTop: 4 }}>
+                    {r.invoice_date ? new Date(r.invoice_date).toLocaleDateString('fr-FR') : '—'}
+                    {r.amount_ttc != null ? ` · ${Number(r.amount_ttc).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}` : ''}
+                    {r.etat ? ` · ${r.etat}` : ''}
+                    {r.fournisseur ? ` · ${r.fournisseur}` : ''}
+                  </div>
+                  {r.reason && (
+                    <div style={{ fontSize: 12.5, marginTop: 6, background: '#fef2f2', border: '1px solid #fecaca', color: '#b91c1c', padding: '6px 10px', borderRadius: 6 }}>
+                      {r.reason}
+                    </div>
+                  )}
+                  <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 4 }}>
+                    {r.rejected_by ? `Rejetée par ${r.rejected_by}` : 'Rejetée'}
+                    {r.rejected_at ? ` · ${new Date(r.rejected_at).toLocaleString('fr-FR')}` : ''}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Détail des factures d'une case de la synthèse mensuelle */}
       {viewingCell && (
         <div className="validation-modal-overlay" onClick={() => setViewingCell(null)}>
@@ -2639,6 +2737,20 @@ const TelecomManagement: React.FC = () => {
           transform: translateY(-1px);
           box-shadow: 0 4px 6px -1px rgba(37, 99, 235, 0.2);
         }
+        .invoice-count-btn.rejected {
+          background: #fef2f2;
+          color: #dc2626;
+          border-color: #fecaca;
+          margin-left: 6px;
+        }
+        .invoice-count-btn.rejected:hover {
+          background: #dc2626;
+          color: white;
+          box-shadow: 0 4px 6px -1px rgba(220, 38, 38, 0.2);
+        }
+        .reject-category-tag { font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 999px; text-transform: uppercase; letter-spacing: 0.03em; }
+        .reject-category-tag.rejetee { background: #fef2f2; color: #dc2626; border: 1px solid #fecaca; }
+        .reject-category-tag.hors_telecom { background: #f1f5f9; color: #64748b; border: 1px solid #e2e8f0; }
 
         .invoice-count-badge.clickable { cursor: pointer; transition: all 0.2s; }
         .invoice-count-badge.clickable:hover { background: #0078a4; color: white; transform: scale(1.1); }
