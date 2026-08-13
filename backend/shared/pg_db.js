@@ -5258,6 +5258,18 @@ async function setupPgDb() {
       // la liste des factures — indépendants de la date/montant résolus en direct depuis le budget.
       await client.query(`ALTER TABLE hub_telecom.invoices ADD COLUMN IF NOT EXISTS billing_month TEXT`);
       await client.query(`ALTER TABLE hub_telecom.invoices ADD COLUMN IF NOT EXISTS description TEXT`);
+      // Factures du budget écartées de la liste des "factures disponibles" d'un tiers : soit
+      // explicitement rejetées (motif renseigné), soit hors périmètre télécom (jamais reproposées).
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS hub_telecom.rejected_invoices (
+          id             SERIAL PRIMARY KEY,
+          invoice_number TEXT NOT NULL UNIQUE,
+          reason         TEXT,
+          category       TEXT NOT NULL DEFAULT 'rejetee',  -- 'rejetee' | 'hors_telecom'
+          rejected_by    TEXT,
+          rejected_at    TIMESTAMPTZ DEFAULT NOW()
+        )
+      `);
       // Lignes téléphoniques fixes & accès internet (import Excel opérateur)
       await client.query(`
         CREATE TABLE IF NOT EXISTS hub_telecom.lines (

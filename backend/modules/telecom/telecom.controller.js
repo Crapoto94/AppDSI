@@ -61,21 +61,39 @@ module.exports = {
     },
 
     createOperator: async (req, res) => {
-        const { name, logo_url } = req.body;
+        const { name, logo_url, tier_id } = req.body;
         try {
-            const result = await pgDb.run('INSERT INTO hub_telecom.operators (name, logo_url) VALUES (?, ?)', [name, logo_url]);
+            const result = await pgDb.run(
+                'INSERT INTO hub_telecom.operators (name, logo_url, tier_id) VALUES (?, ?, ?)',
+                [name, logo_url, tier_id || null]
+            );
             res.json({ id: result.lastID, message: 'Opérateur créé' });
         } catch (error) {
+            const msg = String(error.message || '');
+            if (/unique|duplicate/i.test(msg)) {
+                return res.status(409).json({ message: 'Ce tiers est déjà lié à un opérateur' });
+            }
             res.status(500).json({ message: 'Error creating operator', error: error.message });
         }
     },
 
     updateOperator: async (req, res) => {
-        const { name, logo_url } = req.body;
+        const { name, logo_url, tier_id } = req.body;
         try {
-            await pgDb.run('UPDATE hub_telecom.operators SET name = ?, logo_url = ? WHERE id = ?', [name, logo_url, req.params.id]);
+            const sets = [];
+            const params = [];
+            if (name !== undefined) { sets.push('name = ?'); params.push(name); }
+            if (logo_url !== undefined) { sets.push('logo_url = ?'); params.push(logo_url); }
+            if (tier_id !== undefined) { sets.push('tier_id = ?'); params.push(tier_id || null); }
+            if (sets.length === 0) return res.status(400).json({ message: 'Aucun champ à mettre à jour' });
+            params.push(req.params.id);
+            await pgDb.run(`UPDATE hub_telecom.operators SET ${sets.join(', ')} WHERE id = ?`, params);
             res.json({ message: 'Opérateur mis à jour' });
         } catch (error) {
+            const msg = String(error.message || '');
+            if (/unique|duplicate/i.test(msg)) {
+                return res.status(409).json({ message: 'Ce tiers est déjà lié à un opérateur' });
+            }
             res.status(500).json({ message: 'Error updating operator', error: error.message });
         }
     },
@@ -416,6 +434,10 @@ module.exports = {
                 ) c
                 WHERE c.invoice_date IS NOT NULL
                   AND EXTRACT(YEAR FROM c.invoice_date) = EXTRACT(YEAR FROM CURRENT_DATE)
+                  AND NOT EXISTS (
+                      SELECT 1 FROM hub_telecom.rejected_invoices r
+                      WHERE LOWER(TRIM(r.invoice_number)) = LOWER(TRIM(c.invoice_number))
+                  )
                 ORDER BY c.invoice_date DESC NULLS LAST
                 LIMIT 300
             `;
@@ -465,6 +487,28 @@ module.exports = {
             res.json({ id: result.lastID, message: 'Facture ajoutée' });
         } catch (error) {
             res.status(500).json({ message: 'Erreur ajout facture', error: error.message });
+        }
+    },
+
+    // Écarte définitivement une facture du budget de la liste des factures disponibles d'un tiers :
+    // soit rejetée (avec une description de rejet), soit hors périmètre télécom (plus jamais reproposée).
+    rejectBudgetInvoice: async (req, res) => {
+        const { invoice_number, reason, category } = req.body;
+        if (!invoice_number) return res.status(400).json({ message: 'invoice_number est requis' });
+        const cat = category === 'hors_telecom' ? 'hors_telecom' : 'rejetee';
+        try {
+            const existing = await pgDb.get(
+                'SELECT id FROM hub_telecom.rejected_invoices WHERE LOWER(TRIM(invoice_number)) = LOWER(TRIM(?))',
+                [invoice_number]
+            );
+            if (existing) return res.status(409).json({ message: 'Cette facture est déjà rejetée / écartée' });
+            await pgDb.run(
+                'INSERT INTO hub_telecom.rejected_invoices (invoice_number, reason, category, rejected_by) VALUES (?, ?, ?, ?)',
+                [String(invoice_number).trim(), reason || null, cat, req.user?.username || null]
+            );
+            res.json({ message: 'Facture rejetée' });
+        } catch (error) {
+            res.status(500).json({ message: 'Erreur lors du rejet', error: error.message });
         }
     },
 
@@ -532,6 +576,9 @@ module.exports = {
             const accByNumber = new Map(accountRows.map(a => [normalizeAccount(a.account_number), a]));
             const invoiceRows = await pgDb.all('SELECT id, invoice_number, billing_account_id FROM hub_telecom.invoices');
             const invByKey = new Map(invoiceRows.filter(i => i.invoice_number).map(i => [normalizeInvoiceKey(i.invoice_number), i]));
+            // Factures écartées (rejetées ou hors périmètre télécom) : jamais réintégrées à l'import.
+            const rejectedRows = await pgDb.all('SELECT invoice_number FROM hub_telecom.rejected_invoices');
+            const rejectedKeys = new Set(rejectedRows.map(r => normalizeInvoiceKey(r.invoice_number)));
 
             let operatorsCreated = 0, accountsCreated = 0, invoicesCreated = 0, invoicesReassigned = 0, invoicesUnchanged = 0;
             const skippedRows = [];
@@ -584,6 +631,10 @@ module.exports = {
                     const num = String(rawNum).trim();
                     if (!num || num === '#N/A') continue;
                     const key = normalizeInvoiceKey(num);
+                    if (rejectedKeys.has(key)) {
+                        invoicesUnchanged++;
+                        continue;
+                    }
                     const existing = invByKey.get(key);
                     if (existing) {
                         if (existing.billing_account_id !== account.id) {

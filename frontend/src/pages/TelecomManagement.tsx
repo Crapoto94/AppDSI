@@ -334,6 +334,7 @@ const TelecomManagement: React.FC = () => {
   const [telecomInvoices, setTelecomInvoices] = useState<TelecomInvoice[]>([]);
   const [allTiers, setAllTiers] = useState<Tier[]>([]);
   const [showAddOperator, setShowAddOperator] = useState(false);
+  const [editingOperator, setEditingOperator] = useState<Operator | null>(null);
   const [tierSearch, setTierSearch] = useState('');
   const [expandedOperators, setExpandedOperators] = useState<number[]>([]);
   const [showAddAccount, setShowAddAccount] = useState<number | null>(null);
@@ -354,6 +355,11 @@ const TelecomManagement: React.FC = () => {
   const [loadingAvailable, setLoadingAvailable] = useState(false);
   const [availableSearch, setAvailableSearch] = useState('');
   const [addingInvoiceNumber, setAddingInvoiceNumber] = useState<string | null>(null);
+  // Rejet d'une facture du budget proposée dans la liste "Ajouter une facture"
+  const [rejectCandidate, setRejectCandidate] = useState<AvailableBudgetInvoice | null>(null);
+  const [rejectCategory, setRejectCategory] = useState<'rejetee' | 'hors_telecom'>('rejetee');
+  const [rejectReason, setRejectReason] = useState('');
+  const [rejecting, setRejecting] = useState(false);
   // Édition inline du mois de rattachement / de la description d'une facture déjà intégrée
   const [editingMeta, setEditingMeta] = useState<{ id: number; billing_month: string; description: string } | null>(null);
 
@@ -692,6 +698,66 @@ const TelecomManagement: React.FC = () => {
     }
   };
 
+  // Renommage d'un opérateur a posteriori : son nom peut différer du nom de son tiers
+  // (ex. opérateur "CFI" facturant le tiers "moji"). Le lien tiers reste inchangé.
+  const handleUpdateOperator = async () => {
+    if (!editingOperator) return;
+    const name = editingOperator.name.trim();
+    if (!name) {
+      alert("Le nom de l'opérateur ne peut pas être vide");
+      return;
+    }
+    try {
+      const res = await fetch(`/api/telecom/operators/${editingOperator.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ name }),
+      });
+      if (res.ok) {
+        setEditingOperator(null);
+        await fetchData();
+      } else {
+        const err = await res.json();
+        alert(err.message || "Erreur lors de la mise à jour");
+      }
+    } catch (e) {
+      alert("Erreur de connexion");
+    }
+  };
+
+  const handleRejectInvoice = async () => {
+    if (!rejectCandidate) return;
+    if (rejectCategory === 'rejetee' && !rejectReason.trim()) {
+      alert("Veuillez saisir une description du rejet");
+      return;
+    }
+    setRejecting(true);
+    try {
+      const res = await fetch('/api/telecom/invoices/reject', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({
+          invoice_number: rejectCandidate.invoice_number,
+          reason: rejectReason.trim() || null,
+          category: rejectCategory,
+        }),
+      });
+      if (res.ok) {
+        setAvailableInvoices(prev => prev.filter(c => c.invoice_number !== rejectCandidate.invoice_number));
+        setRejectCandidate(null);
+        setRejectReason('');
+        setRejectCategory('rejetee');
+      } else {
+        const data = await res.json();
+        alert('Erreur : ' + (data.message || 'inconnue'));
+      }
+    } catch (e) {
+      alert("Erreur lors du rejet de la facture");
+    } finally {
+      setRejecting(false);
+    }
+  };
+
   const handleSaveAccount = async (operatorId: number) => {
     const isEditing = !!editingAccount;
     const url = isEditing ? `/api/telecom/billing-accounts/${editingAccount.id}` : '/api/telecom/billing-accounts';
@@ -882,7 +948,7 @@ const TelecomManagement: React.FC = () => {
   return (
     <div className="telecom-container">
       <Header />
-      <main className="telecom-main">
+      <main className={`telecom-main${activeTab === 'summary' ? ' summary-wide' : ''}`}>
         <div className="telecom-page-header">
           <button className="back-button" onClick={() => navigate('/')}>
             <ArrowLeft size={20} />
@@ -964,12 +1030,42 @@ const TelecomManagement: React.FC = () => {
                       </div>
                     </div>
                     <div className="op-actions">
+                      <button className="edit-op-btn" title="Modifier le nom de l'opérateur" onClick={(e) => { e.stopPropagation(); setEditingOperator({ ...op }); }}>
+                        <Edit2 size={18} />
+                      </button>
                       <button className="delete-op-btn" onClick={(e) => { e.stopPropagation(); handleDeleteOperator(op.id); }}>
                         <Trash2 size={18} />
                       </button>
                       {expandedOperators.includes(op.id) ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
                     </div>
                   </div>
+
+                  {editingOperator && editingOperator.id === op.id && (
+                    <div className="operator-edit-form">
+                      <div className="form-header-small">Modifier l'opérateur</div>
+                      <div style={{ fontSize: '0.82rem', color: '#64748b', marginBottom: 12 }}>
+                        {op.tier_id != null
+                          ? <>Tiers d'origine : <strong style={{ color: '#1e293b' }}>{allTiers.find(t => t.id === op.tier_id)?.nom || op.tier_id}</strong> — le nom de l'opérateur peut en différer (ex. « moji » facturé par « CFI »).</>
+                          : 'Aucun tiers lié.'}
+                      </div>
+                      <div className="form-grid" style={{ gridTemplateColumns: '1fr', marginBottom: 15 }}>
+                        <div className="form-group">
+                          <label>Nom de l'opérateur (tel qu'il apparaît sur les factures)</label>
+                          <input
+                            type="text"
+                            value={editingOperator.name}
+                            autoFocus
+                            onChange={e => setEditingOperator({ ...editingOperator, name: e.target.value })}
+                            onKeyDown={e => { if (e.key === 'Enter') handleUpdateOperator(); if (e.key === 'Escape') setEditingOperator(null); }}
+                          />
+                        </div>
+                      </div>
+                      <div className="form-actions">
+                        <button className="cancel-btn" onClick={() => setEditingOperator(null)}>Annuler</button>
+                        <button className="save-btn" onClick={handleUpdateOperator}><Save size={16} /> Enregistrer</button>
+                      </div>
+                    </div>
+                  )}
 
                   {expandedOperators.includes(op.id) && (
                     <div className="operator-card-body">
@@ -1317,8 +1413,8 @@ const TelecomManagement: React.FC = () => {
                 <table className="commitments-table summary-table" style={{ minWidth: `${640 + monthlySummary.months.length * 110}px` }}>
                   <thead>
                     <tr>
-                      <th style={{ minWidth: 150 }}>Opérateur</th>
-                      <th style={{ minWidth: 120 }}>N° Compte</th>
+                      <th style={{ width: 160, minWidth: 160, maxWidth: 160 }}>Opérateur</th>
+                      <th style={{ width: 130, minWidth: 130, maxWidth: 130 }}>N° Compte</th>
                       <th style={{ minWidth: 190 }}>Désignation</th>
                       {monthlySummary.months.map(m => (
                         <th key={m} style={{ textAlign: 'right', minWidth: 108 }}>
@@ -1340,12 +1436,14 @@ const TelecomManagement: React.FC = () => {
                           const sparkValues = op ? monthlySummary!.months.map(m => op.monthly[m] || 0) : [];
                           nodes.push(
                             <tr key={`op-${currentOperatorId}`} className="month-break-row">
-                              <td colSpan={3} style={{ fontWeight: 700 }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                                  <span>{row.operator_name}</span>
-                                  <Sparkline values={sparkValues} />
+                              <td style={{ fontWeight: 700 }} title={row.operator_name}>
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 2, overflow: 'hidden' }}>
+                                  <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{row.operator_name}</span>
+                                  <Sparkline values={sparkValues} width={130} height={16} />
                                 </div>
                               </td>
+                              <td></td>
+                              <td></td>
                               {monthlySummary!.months.map((m, i) => {
                                 const val = op?.monthly[m] || 0;
                                 const prevVal = i > 0 ? (op?.monthly[monthlySummary!.months[i - 1]] || 0) : null;
@@ -1417,7 +1515,9 @@ const TelecomManagement: React.FC = () => {
                       // Ligne de total général
                       nodes.push(
                         <tr key="global-total" className="month-break-row" style={{ borderTop: '2px solid #cbd5e1' }}>
-                          <td colSpan={3} style={{ fontWeight: 800 }}>TOTAL GÉNÉRAL</td>
+                          <td style={{ fontWeight: 800 }}>TOTAL GÉNÉRAL</td>
+                          <td></td>
+                          <td></td>
                           {monthlySummary!.months.map((m, i) => {
                             const val = monthlySummary!.global.monthly[m] || 0;
                             const prevVal = i > 0 ? (monthlySummary!.global.monthly[monthlySummary!.months[i - 1]] || 0) : null;
@@ -2289,11 +2389,17 @@ const TelecomManagement: React.FC = () => {
                           <td>{c.amount_ttc != null ? Number(c.amount_ttc).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' }) : '—'}</td>
                           <td>{c.etat || '—'}</td>
                           <td>
-                            <button className="add-btn" style={{ padding: '4px 10px', fontSize: 12 }}
-                              disabled={addingInvoiceNumber === c.invoice_number}
-                              onClick={() => handleAddInvoiceFromBudget(c)}>
-                              {addingInvoiceNumber === c.invoice_number ? '...' : 'Ajouter'}
-                            </button>
+                            <div style={{ display: 'flex', gap: 6 }}>
+                              <button className="add-btn" style={{ padding: '4px 10px', fontSize: 12 }}
+                                disabled={addingInvoiceNumber === c.invoice_number}
+                                onClick={() => handleAddInvoiceFromBudget(c)}>
+                                {addingInvoiceNumber === c.invoice_number ? '...' : 'Ajouter'}
+                              </button>
+                              <button className="reject-btn" title="Rejeter ou écarter cette facture (ne sera plus proposée)"
+                                onClick={() => { setRejectCandidate(c); setRejectCategory('rejetee'); setRejectReason(''); }}>
+                                Rejeter
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       ))}
@@ -2305,6 +2411,48 @@ const TelecomManagement: React.FC = () => {
                   </tbody>
                 </table>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Rejet / écartement d'une facture du budget */}
+      {rejectCandidate && (
+        <div className="validation-modal-overlay" onClick={() => setRejectCandidate(null)}>
+          <div style={{ background: '#fff', borderRadius: 12, width: '90%', maxWidth: 480, padding: 20 }} onClick={e => e.stopPropagation()}>
+            <h2 style={{ margin: '0 0 4px', fontSize: 16 }}>Rejeter la facture {rejectCandidate.invoice_number}</h2>
+            <p style={{ margin: '0 0 14px', fontSize: 12.5, color: '#64748b' }}>
+              {rejectCandidate.libelle || `Montant : ${rejectCandidate.amount_ttc != null ? Number(rejectCandidate.amount_ttc).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' }) : '—'}`}
+            </p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 14 }}>
+              <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: 13, cursor: 'pointer' }}>
+                <input type="radio" checked={rejectCategory === 'rejetee'} onChange={() => setRejectCategory('rejetee')} style={{ marginTop: 3 }} />
+                <span>
+                  <strong>Rejeter la facture</strong> — décrire le motif du rejet (facture en double, annulée, ...).
+                  Elle ne sera plus proposée.
+                </span>
+              </label>
+              <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: 13, cursor: 'pointer' }}>
+                <input type="radio" checked={rejectCategory === 'hors_telecom'} onChange={() => setRejectCategory('hors_telecom')} style={{ marginTop: 3 }} />
+                <span>
+                  <strong>Ne concerne pas les télécoms</strong> — ce tiers facture aussi d'autres services ;
+                  cette facture ne doit plus jamais être reproposée.
+                </span>
+              </label>
+            </div>
+            <textarea
+              value={rejectReason}
+              rows={3}
+              autoFocus={rejectCategory === 'rejetee'}
+              placeholder={rejectCategory === 'rejetee' ? "Motif du rejet (obligatoire)..." : "Commentaire éventuel..."}
+              style={{ width: '100%', boxSizing: 'border-box', padding: 8, borderRadius: 6, border: '1px solid #e2e8f0', fontFamily: 'inherit', fontSize: 13 }}
+              onChange={e => setRejectReason(e.target.value)}
+            />
+            <div style={{ marginTop: 12, display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+              <button className="cancel-btn" onClick={() => setRejectCandidate(null)}>Annuler</button>
+              <button className="save-btn reject-confirm" disabled={rejecting} onClick={handleRejectInvoice}>
+                {rejecting ? 'Rejet en cours...' : rejectCategory === 'hors_telecom' ? 'Écarter définitivement' : 'Confirmer le rejet'}
+              </button>
             </div>
           </div>
         </div>
@@ -2424,6 +2572,13 @@ const TelecomManagement: React.FC = () => {
         .delete-op-btn { background: none; border: none; color: #ef4444; padding: 8px; border-radius: 8px; cursor: pointer; opacity: 0; transition: opacity 0.2s; }
         .operator-card:hover .delete-op-btn { opacity: 1; }
         .delete-op-btn:hover { background: #fef2f2; }
+        .edit-op-btn { background: none; border: none; color: #94a3b8; padding: 8px; border-radius: 8px; cursor: pointer; opacity: 0; transition: opacity 0.2s; }
+        .operator-card:hover .edit-op-btn { opacity: 1; }
+        .edit-op-btn:hover { color: #0078a4; }
+        .operator-edit-form { padding: 18px 20px; border-bottom: 1px solid #f1f5f9; background: #f8fafc; }
+        .reject-btn { background: white; border: 1px solid #ef4444; color: #ef4444; padding: 4px 10px; border-radius: 6px; font-size: 12px; font-weight: 600; cursor: pointer; transition: all 0.2s; }
+        .reject-btn:hover { background: #fef2f2; }
+        .reject-confirm { background: #ef4444; }
 
         .operator-card-body { padding: 0 20px 20px; border-top: 1px solid #f1f5f9; }
         .accounts-header { display: flex; justify-content: space-between; align-items: center; margin-top: 20px; margin-bottom: 15px; }
@@ -2498,6 +2653,30 @@ const TelecomManagement: React.FC = () => {
         .clear-filters:hover { background: #e2e8f0; color: #1e293b; }
 
         .month-break-row td { background: #f8fafc; font-weight: 700; color: #0078a4; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.05em; padding: 10px 15px; border-bottom: 2px solid #e2e8f0; }
+
+        /* Synthèse mensuelle : tableau étendu (~90% de la fenêtre) + colonnes opérateur/compte figées au scroll */
+        .telecom-main.summary-wide { max-width: none; width: 90vw; }
+        .summary-table th:nth-child(1), .summary-table td:nth-child(1),
+        .summary-table th:nth-child(2), .summary-table td:nth-child(2) {
+          position: sticky;
+          z-index: 3;
+          background: #fff;
+          padding-left: 12px;
+          padding-right: 12px;
+        }
+        .summary-table th:nth-child(1), .summary-table td:nth-child(1) {
+          left: 0;
+          width: 160px; min-width: 160px; max-width: 160px;
+          overflow: hidden;
+        }
+        .summary-table th:nth-child(2), .summary-table td:nth-child(2) {
+          left: 160px;
+          width: 130px; min-width: 130px; max-width: 130px;
+          overflow: hidden;
+        }
+        .summary-table th:nth-child(1), .summary-table th:nth-child(2) { z-index: 4; }
+        .summary-table .month-break-row td:nth-child(1),
+        .summary-table .month-break-row td:nth-child(2) { background: #f8fafc; z-index: 4; }
 
         .status-tag { padding: 4px 10px; border-radius: 6px; font-size: 0.75rem; font-weight: 700; display: inline-block; }
         .status-tag.imported { background: #ecfdf5; color: #059669; border: 1px solid #d1fae5; }
