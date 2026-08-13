@@ -11,11 +11,11 @@ const MODULE = 'telecom';
 
 // Sous-requête réutilisée partout où on a besoin d'une facture télécom "résolue" : montant, date
 // et état sont recalés en direct sur le budget (oracle.gf_oracle_facture) quand une correspondance
-// est trouvée (le n° de facture fournisseur est rarement renseigné dans FACTURE_REFERENCE, on
-// retombe donc sur une recherche du numéro dans FACTURE_LIBELLE1, ex. "Fact. N°9A0038770556 ...").
-// La date retenue est la date d'émission (celle imprimée par le fournisseur, extraite du texte
-// FACTURE_LIBELLE1) et non FACTURE_DATENTREE (date de réception du document) — c'est la date
-// d'émission qui intéresse /budget, donc /telecom doit s'aligner dessus.
+// est trouvée. Le n° de facture fournisseur peut vivre dans plusieurs colonnes selon les fichiers
+// Oracle (FACTURE_REFERENCE, FACTURE_FACTIERS, ou FACTURE_LIBELLE1 ex. "Fact. N°A2606VTF01118 ..."),
+// on cherche dans toutes. La date retenue est la date d'émission (celle imprimée par le fournisseur,
+// extraite de FACTURE_LIBELLE1) sinon la date de réception FACTURE_DATENTREE — c'est la date qui
+// intéresse /budget, donc /telecom doit s'aligner dessus.
 // Les valeurs stockées localement (ex. issues d'un upload PDF) ne servent que de repli.
 const RESOLVED_INVOICES_SQL = `
     SELECT i.id, i.invoice_number, i.operator_id, i.billing_account_id, i.file_path, i.uploaded_at,
@@ -28,10 +28,14 @@ const RESOLVED_INVOICES_SQL = `
     FROM hub_telecom.invoices i
     LEFT JOIN LATERAL (
         SELECT f."FACETAT_LIBELLE", f."FACTURE_MONTANTTC_E", f."FACTURE_ROO_IMA_REF",
-            to_date(substring(f."FACTURE_LIBELLE1" from '(\\d{2}/\\d{2}/\\d{4})'), 'DD/MM/YYYY') as emission_date
+            COALESCE(
+                to_date(substring(f."FACTURE_LIBELLE1" from '(\\d{2}/\\d{2}/\\d{4})'), 'DD/MM/YYYY'),
+                f."FACTURE_DATENTREE"::date
+            ) as emission_date
         FROM oracle.gf_oracle_facture f
         WHERE LOWER(TRIM(f."FACTURE_REFERENCE")) = LOWER(TRIM(i.invoice_number))
            OR f."FACTURE_LIBELLE1" ILIKE '%' || TRIM(i.invoice_number) || '%'
+           OR LOWER(TRIM(f."FACTURE_FACTIERS")) = LOWER(TRIM(i.invoice_number))
         ORDER BY (LOWER(TRIM(f."FACTURE_REFERENCE")) = LOWER(TRIM(i.invoice_number))) DESC
         LIMIT 1
     ) bf ON i.invoice_number IS NOT NULL AND TRIM(i.invoice_number) != ''
