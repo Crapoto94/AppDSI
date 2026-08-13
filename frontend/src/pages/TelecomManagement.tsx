@@ -34,6 +34,8 @@ interface Tier {
   id: number;
   nom: string;
   code: string;
+  complement_nom?: string;
+  siret?: string;
 }
 
 interface Operator {
@@ -355,6 +357,7 @@ const TelecomManagement: React.FC = () => {
   const [newOperatorName, setNewOperatorName] = useState('');
   const [editingOperator, setEditingOperator] = useState<Operator | null>(null);
   const [tierSearch, setTierSearch] = useState('');
+  const [editTierSearch, setEditTierSearch] = useState('');
   const [expandedOperators, setExpandedOperators] = useState<number[]>([]);
   const [showAddAccount, setShowAddAccount] = useState<number | null>(null);
   const [editingAccount, setEditingAccount] = useState<BillingAccount | null>(null);
@@ -730,7 +733,8 @@ const TelecomManagement: React.FC = () => {
   };
 
   // Renommage d'un opérateur a posteriori : son nom peut différer du nom de son tiers
-  // (ex. opérateur "CFI" facturant le tiers "moji"). Le lien tiers reste inchangé.
+  // (ex. opérateur "CFI" facturant le tiers "moji"). Le lien tiers est mis à jour si un
+  // nouveau tiers a été choisi dans le formulaire (association possible a posteriori).
   const handleUpdateOperator = async () => {
     if (!editingOperator) return;
     const name = editingOperator.name.trim();
@@ -738,14 +742,19 @@ const TelecomManagement: React.FC = () => {
       alert("Le nom de l'opérateur ne peut pas être vide");
       return;
     }
+    const payload: Record<string, unknown> = { name };
+    if ('tier_code' in editingOperator) {
+      payload.tier_code = editingOperator.tier_code ?? null;
+    }
     try {
       const res = await fetch(`/api/telecom/operators/${editingOperator.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-        body: JSON.stringify({ name }),
+        body: JSON.stringify(payload),
       });
       if (res.ok) {
         setEditingOperator(null);
+        setEditTierSearch('');
         await fetchData();
       } else {
         const err = await res.json();
@@ -849,11 +858,11 @@ const TelecomManagement: React.FC = () => {
     }
   };
 
-  const loadAvailableInvoices = async (accountId: number) => {
+  const loadAvailableInvoices = async (operatorId: number) => {
     setAvailableInvoices([]);
     setLoadingAvailable(true);
     try {
-      const res = await fetch(`/api/telecom/billing-accounts/${accountId}/available-invoices`, { headers: { 'Authorization': `Bearer ${token}` } });
+      const res = await fetch(`/api/telecom/operators/${operatorId}/available-invoices`, { headers: { 'Authorization': `Bearer ${token}` } });
       if (res.ok) setAvailableInvoices(await res.json());
     } catch (e) {
       console.error(e);
@@ -867,7 +876,7 @@ const TelecomManagement: React.FC = () => {
     setAddInvoiceOperatorId(acc.operator_id);
     setAddInvoiceAccountId(acc.id);
     setAvailableSearch('');
-    loadAvailableInvoices(acc.id);
+    loadAvailableInvoices(acc.operator_id);
   };
 
   const openAddInvoicePicker = () => {
@@ -876,29 +885,25 @@ const TelecomManagement: React.FC = () => {
     setAddInvoiceAccountId(invoiceAccountFilter);
     setAvailableInvoices([]);
     setAvailableSearch('');
-    if (invoiceAccountFilter) loadAvailableInvoices(invoiceAccountFilter);
+    if (invoiceOperatorFilter) loadAvailableInvoices(invoiceOperatorFilter);
   };
 
-  const addInvoiceAccount = addInvoiceOperatorId && addInvoiceAccountId
-    ? billingAccounts[addInvoiceOperatorId]?.find(a => a.id === addInvoiceAccountId) || null
-    : null;
-
   const handleAddInvoiceFromBudget = async (candidate: AvailableBudgetInvoice) => {
-    if (!addInvoiceAccount) return;
+    if (!addInvoiceOperatorId) return;
     setAddingInvoiceNumber(candidate.invoice_number);
     try {
       const res = await fetch('/api/telecom/invoices/from-budget', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
         body: JSON.stringify({
-          operator_id: addInvoiceAccount.operator_id,
-          billing_account_id: addInvoiceAccount.id,
+          operator_id: addInvoiceOperatorId,
+          billing_account_id: addInvoiceAccountId,
           invoice_number: candidate.invoice_number,
         }),
       });
       if (res.ok) {
         setAvailableInvoices(prev => prev.filter(c => c.invoice_number !== candidate.invoice_number));
-        await fetchAccounts(addInvoiceAccount.operator_id);
+        await fetchAccounts(addInvoiceOperatorId);
         await fetchData();
       } else {
         const data = await res.json();
@@ -966,9 +971,17 @@ const TelecomManagement: React.FC = () => {
     }
   };
 
+  const tierDisplayName = (t?: Tier) =>
+    t ? (t.complement_nom ? `${t.nom} ${t.complement_nom}` : t.nom) : '';
+
   const filteredTiers = allTiers.filter(t => 
-    (t.nom.toLowerCase().includes(tierSearch.toLowerCase()) || t.code.toLowerCase().includes(tierSearch.toLowerCase())) && 
+    ((t.nom + ' ' + (t.complement_nom || '') + ' ' + t.code).toLowerCase().includes(tierSearch.toLowerCase())) && 
     !operators.some(op => op.tier_code === t.code)
+  ).slice(0, 5);
+
+  const editFilteredTiers = allTiers.filter(t =>
+    ((t.nom + ' ' + (t.complement_nom || '') + ' ' + t.code).toLowerCase().includes(editTierSearch.toLowerCase())) &&
+    !operators.some(op => op.tier_code === t.code && op.id !== editingOperator?.id)
   ).slice(0, 5);
 
   const filteredInvoices = telecomInvoices.filter(inv => {
@@ -1057,7 +1070,7 @@ const TelecomManagement: React.FC = () => {
                 {selectedTier ? (
                   <div className="tier-create-box">
                     <div className="tier-selected-info">
-                      Tiers choisi : <strong>{selectedTier.nom}</strong> <span className="tier-code">{selectedTier.code}</span>
+                      Tiers choisi : <strong>{tierDisplayName(selectedTier)}</strong> <span className="tier-code">{selectedTier.code}</span>
                     </div>
                     <div className="form-grid" style={{ gridTemplateColumns: '1fr', marginBottom: 15 }}>
                       <div className="form-group">
@@ -1080,7 +1093,7 @@ const TelecomManagement: React.FC = () => {
                   <div className="tier-results">
                     {filteredTiers.map(t => (
                       <div key={t.code} className="tier-result-item" onClick={() => { setSelectedTier(t); setNewOperatorName(t.nom); }}>
-                        <span className="tier-name">{t.nom}</span>
+                        <span className="tier-name">{tierDisplayName(t)}</span>
                         <span className="tier-code">{t.code}</span>
                       </div>
                     ))}
@@ -1104,7 +1117,7 @@ const TelecomManagement: React.FC = () => {
                       </div>
                     </div>
                     <div className="op-actions">
-                      <button className="edit-op-btn" title="Modifier le nom de l'opérateur" onClick={(e) => { e.stopPropagation(); setEditingOperator({ ...op }); }}>
+                      <button className="edit-op-btn" title="Modifier l'opérateur (nom ou tiers)" onClick={(e) => { e.stopPropagation(); setEditTierSearch(''); setEditingOperator({ ...op }); }}>
                         <Edit2 size={18} />
                       </button>
                       <button className="delete-op-btn" onClick={(e) => { e.stopPropagation(); handleDeleteOperator(op.id); }}>
@@ -1119,7 +1132,7 @@ const TelecomManagement: React.FC = () => {
                       <div className="form-header-small">Modifier l'opérateur</div>
                       <div style={{ fontSize: '0.82rem', color: '#64748b', marginBottom: 12 }}>
                         {op.tier_code != null
-                          ? <>Tiers d'origine : <strong style={{ color: '#1e293b' }}>{allTiers.find(t => t.code === op.tier_code)?.nom || op.tier_code}</strong> — le nom de l'opérateur peut en différer (ex. « moji » facturé par « CFI »).</>
+                          ? <>Tiers d'origine : <strong style={{ color: '#1e293b' }}>{tierDisplayName(allTiers.find(t => t.code === op.tier_code)) || op.tier_code}</strong> — le nom de l'opérateur peut en différer (ex. « moji » facturé par « CFI »).</>
                           : 'Aucun tiers lié.'}
                       </div>
                       <div className="form-grid" style={{ gridTemplateColumns: '1fr', marginBottom: 15 }}>
@@ -1133,9 +1146,39 @@ const TelecomManagement: React.FC = () => {
                             onKeyDown={e => { if (e.key === 'Enter') handleUpdateOperator(); if (e.key === 'Escape') setEditingOperator(null); }}
                           />
                         </div>
+                        <div className="form-group">
+                          <label>Associer un tiers (facultatif, permet de proposer ses factures du budget)</label>
+                          <div className="search-input-wrapper">
+                            <Search size={14} />
+                            <input
+                              type="text"
+                              placeholder="Rechercher un tiers par nom ou code..."
+                              value={editTierSearch}
+                              onChange={e => { setEditTierSearch(e.target.value); }}
+                            />
+                          </div>
+                          {editTierSearch && (
+                            <div className="tier-results">
+                              {editFilteredTiers.map(t => (
+                                <div key={t.code} className="tier-result-item" onClick={() => { setEditingOperator({ ...editingOperator, tier_code: t.code }); setEditTierSearch(''); }}>
+                                  <span className="tier-name">{tierDisplayName(t)}</span>
+                                  <span className="tier-code">{t.code}</span>
+                                </div>
+                              ))}
+                              {editFilteredTiers.length === 0 && <div className="no-result">Aucun tiers trouvé</div>}
+                            </div>
+                          )}
+                          {editingOperator.tier_code && (
+                            <div style={{ marginTop: 6 }}>
+                              <button className="cancel-btn" onClick={() => setEditingOperator({ ...editingOperator, tier_code: undefined })}>
+                                Retirer le tiers
+                              </button>
+                            </div>
+                          )}
+                        </div>
                       </div>
                       <div className="form-actions">
-                        <button className="cancel-btn" onClick={() => setEditingOperator(null)}>Annuler</button>
+                        <button className="cancel-btn" onClick={() => { setEditingOperator(null); setEditTierSearch(''); }}>Annuler</button>
                         <button className="save-btn" onClick={handleUpdateOperator}><Save size={16} /> Enregistrer</button>
                       </div>
                     </div>
@@ -2414,8 +2457,8 @@ const TelecomManagement: React.FC = () => {
           <div style={{ background: '#fff', borderRadius: 12, width: '90%', maxWidth: 780, maxHeight: '85vh', display: 'flex', flexDirection: 'column' }} onClick={e => e.stopPropagation()}>
             <div style={{ padding: '16px 20px', borderBottom: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
               <div>
-                <h2 style={{ margin: 0, fontSize: 16 }}>Ajouter une facture{addInvoiceAccount ? ` — ${addInvoiceAccount.account_number}` : ''}</h2>
-                {addInvoiceAccount && <p style={{ margin: '2px 0 0', fontSize: 12, color: '#64748b' }}>{addInvoiceAccount.designation}</p>}
+                <h2 style={{ margin: 0, fontSize: 16 }}>Ajouter une facture{addInvoiceOperatorId ? ` — ${operators.find(o => o.id === addInvoiceOperatorId)?.name || ''}` : ''}</h2>
+                <p style={{ margin: '2px 0 0', fontSize: 12, color: '#64748b' }}>Les factures en attente sur le tiers de l'opérateur sont listées ci-dessous.</p>
               </div>
               <button className="close-btn" onClick={() => setShowAddInvoiceModal(false)}><X size={22} /></button>
             </div>
@@ -2426,6 +2469,7 @@ const TelecomManagement: React.FC = () => {
                   setAddInvoiceOperatorId(opId);
                   setAddInvoiceAccountId(null);
                   setAvailableInvoices([]);
+                  if (opId) loadAvailableInvoices(opId);
                 }}>
                 <option value="">-- Opérateur --</option>
                 {operators.map(op => <option key={op.id} value={op.id}>{op.name}</option>)}
@@ -2434,9 +2478,8 @@ const TelecomManagement: React.FC = () => {
                 onChange={e => {
                   const accId = e.target.value ? parseInt(e.target.value) : null;
                   setAddInvoiceAccountId(accId);
-                  if (accId) loadAvailableInvoices(accId); else setAvailableInvoices([]);
                 }}>
-                <option value="">-- Compte --</option>
+                <option value="">-- Compte (facultatif) --</option>
                 {addInvoiceOperatorId && billingAccounts[addInvoiceOperatorId]?.map(acc => (
                   <option key={acc.id} value={acc.id}>{acc.account_number} ({acc.designation})</option>
                 ))}
@@ -2489,7 +2532,7 @@ const TelecomManagement: React.FC = () => {
                       ))}
                     {availableInvoices.length === 0 && (
                       <tr><td colSpan={5} style={{ textAlign: 'center', padding: 30, color: '#94a3b8' }}>
-                        {addInvoiceAccountId ? 'Aucune facture disponible pour ce fournisseur dans le budget' : 'Sélectionnez un opérateur puis un compte'}
+                        {addInvoiceOperatorId ? 'Aucune facture disponible pour ce fournisseur dans le budget' : 'Sélectionnez un opérateur pour voir ses factures en attente'}
                       </td></tr>
                     )}
                   </tbody>

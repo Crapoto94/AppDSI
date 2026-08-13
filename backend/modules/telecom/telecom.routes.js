@@ -17,6 +17,7 @@ router.delete('/operators/:id', authenticateAdmin, telecomController.deleteOpera
 // Billing Accounts
 router.get('/billing-accounts', authenticateJWT, telecomController.getBillingAccounts);
 router.get('/operators/:operatorId/accounts', authenticateJWT, telecomController.getOperatorAccounts);
+router.get('/operators/:operatorId/available-invoices', authenticateJWT, telecomController.getAvailableInvoicesForOperator);
 router.post('/billing-accounts', authenticateAdmin, telecomController.createBillingAccount);
 router.put('/billing-accounts/:id', authenticateAdmin, telecomController.updateBillingAccount);
 router.delete('/billing-accounts/:id', authenticateAdmin, telecomController.deleteBillingAccount);
