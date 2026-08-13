@@ -152,6 +152,9 @@ module.exports = {
                         values.push(toInt(req.body[f]));
                     } else if (f === 'duree_annees' || f.startsWith('montant_') || f.startsWith('prevision_')) {
                         values.push(toFloat(req.body[f]));
+                    } else if (f === 'date_debut' || f === 'date_fin') {
+                        // Colonnes DATE : une chaîne vide fait échouer l'UPDATE côté Postgres ("invalid input syntax for type date").
+                        values.push(req.body[f] || null);
                     } else {
                         values.push(toStr(req.body[f]));
                     }

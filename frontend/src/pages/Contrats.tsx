@@ -750,7 +750,7 @@ const Contrats: React.FC = () => {
       const response = await fetch(url, { method, headers: { ...authHeaders(), "Content-Type": "application/json" }, body: JSON.stringify(editModalData) });
       if (!response.ok) {
         const data = await response.json().catch(() => null);
-        throw new Error(data?.message || `Erreur ${response.status}`);
+        throw new Error(data?.error || data?.message || `Erreur ${response.status}`);
       }
       setEditModal(null); setEditModalData(null); setTiersSearch(''); setAppsSearch(''); await fetchContrats();
       showMsg('success', isNew ? 'Contrat créé' : 'Contrat mis à jour');
