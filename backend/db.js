@@ -355,10 +355,10 @@ async function setupDb() {
                 </tr>
                 <!-- Content Area -->
                 <tr>
-                    <td bgcolor="#ffffff" style="background-color: #ffffff; padding: 40px; border: 1px solid #e1e7ed; border-radius: 12px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);">
-                        <table width="100%" border="0" cellspacing="0" cellpadding="0">
+                    <td bgcolor="#ffffff" style="background-color: #ffffff; padding: 40px; border: 1px solid #e1e7ed; border-radius: 12px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05); word-wrap: break-word; overflow-wrap: break-word;">
+                        <table width="100%" border="0" cellspacing="0" cellpadding="0" style="width: 100%; max-width: 100%; table-layout: fixed;">
                             <tr>
-                                <td style="font-size: 16px; line-height: 1.6; color: #2d3748;">
+                                <td style="font-size: 16px; line-height: 1.6; color: #2d3748; width: 100%; max-width: 100%; word-wrap: break-word; word-break: break-word; overflow-wrap: break-word;">
                                     {{content}}
                                 </td>
                             </tr>

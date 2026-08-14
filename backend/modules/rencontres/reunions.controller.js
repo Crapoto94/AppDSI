@@ -333,8 +333,8 @@ module.exports = {
                         for (const d of items) {
                             const check = d.statut === 'effectuée' ? '✅ ' : '';
                             demandesHtml += `<tr style="border-bottom:1px solid #f1f5f9;background:${d.statut === 'effectuée' ? '#f0fdf4' : 'white'}">
-                                <td style="padding:8px 12px;color:#1e293b;font-weight:600">${check}${d.titre || '—'}</td>
-                                <td style="padding:8px 12px;color:#475569;font-size:12px">${d.type || '—'}</td>
+                                <td style="padding:8px 12px;color:#1e293b;font-weight:600;word-wrap:break-word;word-break:break-word">${check}${d.titre || '—'}</td>
+                                <td style="padding:8px 12px;color:#475569;font-size:12px;word-wrap:break-word;word-break:break-word">${d.type || '—'}</td>
                             </tr>`;
                         }
                     }
@@ -346,31 +346,31 @@ module.exports = {
             // Participants groupés par statut
             const presents = participants.filter(p => p.statut_presence === 'present');
             const excuses = participants.filter(p => p.statut_presence === 'excuse');
-            const participantsHtml = `<table style="width:100%;border-collapse:collapse;font-size:13px;margin-bottom:20px;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden">
-  <tr><td style="padding:10px 14px;background:#f8fafc;font-weight:700;color:#475569;width:30%;border-bottom:1px solid #e2e8f0">🗓️ Date</td>
-      <td style="padding:10px 14px;color:#1e293b;border-bottom:1px solid #e2e8f0">${dateStr}${reunion.lieu ? ' — ' + reunion.lieu : ''}</td></tr>
-  <tr><td style="padding:10px 14px;background:#f8fafc;font-weight:700;color:#475569;border-bottom:1px solid #e2e8f0">👥 Présents (${presents.length})</td>
-      <td style="padding:10px 14px;color:#1e293b;border-bottom:1px solid #e2e8f0">${presents.length > 0 ? presents.map(p => `<span style="display:inline-block;padding:2px 8px;background:#dcfce7;color:#16a34a;border-radius:4px;font-weight:600;margin:1px 2px">${p.prenom ? p.prenom + ' ' : ''}${p.nom}${p.service ? ' (' + p.service + ')' : ''}</span>`).join(' ') : '<em style="color:#94a3b8">Aucun</em>'}</td></tr>
-  <tr><td style="padding:10px 14px;background:#f8fafc;font-weight:700;color:#475569;border-bottom:1px solid #e2e8f0">❌ Excusés (${excuses.length})</td>
-      <td style="padding:10px 14px;color:#1e293b;border-bottom:1px solid #e2e8f0">${excuses.length > 0 ? excuses.map(p => `<span style="display:inline-block;padding:2px 8px;background:#fee2e2;color:#dc2626;border-radius:4px;font-weight:600;margin:1px 2px">${p.prenom ? p.prenom + ' ' : ''}${p.nom}${p.service ? ' (' + p.service + ')' : ''}</span>`).join(' ') : '<em style="color:#94a3b8">Aucun</em>'}</td></tr>
+            const participantsHtml = `<table style="width:100%;max-width:100%;table-layout:fixed;border-collapse:collapse;font-size:13px;margin-bottom:20px;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden">
+  <tr><td style="padding:10px 14px;background:#f8fafc;font-weight:700;color:#475569;width:30%;border-bottom:1px solid #e2e8f0;word-wrap:break-word;word-break:break-word">🗓️ Date</td>
+      <td style="padding:10px 14px;color:#1e293b;border-bottom:1px solid #e2e8f0;word-wrap:break-word;word-break:break-word">${dateStr}${reunion.lieu ? ' — ' + reunion.lieu : ''}</td></tr>
+  <tr><td style="padding:10px 14px;background:#f8fafc;font-weight:700;color:#475569;border-bottom:1px solid #e2e8f0;word-wrap:break-word;word-break:break-word">👥 Présents (${presents.length})</td>
+      <td style="padding:10px 14px;color:#1e293b;border-bottom:1px solid #e2e8f0;word-wrap:break-word;word-break:break-word">${presents.length > 0 ? presents.map(p => `<span style="display:inline-block;padding:2px 8px;background:#dcfce7;color:#16a34a;border-radius:4px;font-weight:600;margin:1px 2px">${p.prenom ? p.prenom + ' ' : ''}${p.nom}${p.service ? ' (' + p.service + ')' : ''}</span>`).join(' ') : '<em style="color:#94a3b8">Aucun</em>'}</td></tr>
+  <tr><td style="padding:10px 14px;background:#f8fafc;font-weight:700;color:#475569;border-bottom:1px solid #e2e8f0;word-wrap:break-word;word-break:break-word">❌ Excusés (${excuses.length})</td>
+      <td style="padding:10px 14px;color:#1e293b;border-bottom:1px solid #e2e8f0;word-wrap:break-word;word-break:break-word">${excuses.length > 0 ? excuses.map(p => `<span style="display:inline-block;padding:2px 8px;background:#fee2e2;color:#dc2626;border-radius:4px;font-weight:600;margin:1px 2px">${p.prenom ? p.prenom + ' ' : ''}${p.nom}${p.service ? ' (' + p.service + ')' : ''}</span>`).join(' ') : '<em style="color:#94a3b8">Aucun</em>'}</td></tr>
 </table>`;
 
             // Déroulé
             const derouleHtml = reunion.description ? `
 <h3 style="color:#1e293b;font-size:15px;margin:24px 0 12px;border-bottom:2px solid #e2e8f0;padding-bottom:8px">📋 Déroulé</h3>
-<div style="padding:14px 16px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;font-size:14px;line-height:1.7;color:#1e293b">${reunion.description}</div>` : '';
+<div style="padding:14px 16px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;font-size:14px;line-height:1.7;color:#1e293b;width:100%;max-width:100%;box-sizing:border-box;word-wrap:break-word;word-break:break-word;overflow-wrap:break-word">${reunion.description}</div>` : '';
 
             // Relevé de décision
             let decisions = [];
             try { decisions = JSON.parse(reunion.releve_decision || '[]'); } catch (e) {}
             const decisionsHtml = decisions.length > 0 ? `
 <h3 style="color:#1e293b;font-size:15px;margin:24px 0 12px;border-bottom:2px solid #e2e8f0;padding-bottom:8px">📝 Relevé de décision</h3>
-<table style="width:100%;border-collapse:collapse;font-size:13px">
+<table style="width:100%;max-width:100%;table-layout:fixed;border-collapse:collapse;font-size:13px">
   <thead><tr style="background:#f8fafc;border-bottom:2px solid #e2e8f0">
     <th style="padding:8px 12px;text-align:left;color:#475569;font-weight:700;width:40px">#</th>
     <th style="padding:8px 12px;text-align:left;color:#475569;font-weight:700">Décision</th>
   </tr></thead>
-  <tbody>${decisions.map((d, i) => `<tr style="border-bottom:1px solid #f1f5f9"><td style="padding:8px 12px;color:#64748b;font-weight:600">${i + 1}</td><td style="padding:8px 12px;color:#1e293b">${d.texte || ''}</td></tr>`).join('')}</tbody>
+  <tbody>${decisions.map((d, i) => `<tr style="border-bottom:1px solid #f1f5f9"><td style="padding:8px 12px;color:#64748b;font-weight:600">${i + 1}</td><td style="padding:8px 12px;color:#1e293b;word-wrap:break-word;word-break:break-word">${d.texte || ''}</td></tr>`).join('')}</tbody>
 </table>` : '';
 
             // Liste de tâches
@@ -378,7 +378,7 @@ module.exports = {
             try { tasks = JSON.parse(reunion.liste_taches || '[]'); } catch (e) {}
             const tasksHtml = tasks.length > 0 ? `
 <h3 style="color:#1e293b;font-size:15px;margin:24px 0 12px;border-bottom:2px solid #e2e8f0;padding-bottom:8px">✅ Liste de tâches</h3>
-<table style="width:100%;border-collapse:collapse;font-size:13px">
+<table style="width:100%;max-width:100%;table-layout:fixed;border-collapse:collapse;font-size:13px">
   <thead><tr style="background:#f8fafc;border-bottom:2px solid #e2e8f0">
     <th style="padding:8px 12px;text-align:left;color:#475569;font-weight:700;width:40px">#</th>
     <th style="padding:8px 12px;text-align:left;color:#475569;font-weight:700">Tâche</th>
@@ -387,8 +387,8 @@ module.exports = {
   </tr></thead>
   <tbody>${tasks.map((t, i) => `<tr style="border-bottom:1px solid #f1f5f9">
     <td style="padding:8px 12px;color:#64748b;font-weight:600">${i + 1}</td>
-    <td style="padding:8px 12px;color:#1e293b;font-weight:600">${t.tache || ''}</td>
-    <td style="padding:8px 12px;color:#475569">${t.responsable || '—'}</td>
+    <td style="padding:8px 12px;color:#1e293b;font-weight:600;word-wrap:break-word;word-break:break-word">${t.tache || ''}</td>
+    <td style="padding:8px 12px;color:#475569;word-wrap:break-word;word-break:break-word">${t.responsable || '—'}</td>
     <td style="padding:8px 12px;color:#475569">${t.echeance ? new Date(t.echeance).toLocaleDateString('fr-FR') : '—'}</td>
   </tr>`).join('')}</tbody>
 </table>` : '';
@@ -408,10 +408,10 @@ ${derouleHtml}
 ${decisionsHtml}
 ${tasksHtml}
 <h3 style="color:#1e293b;font-size:15px;margin:24px 0 12px;border-bottom:2px solid #e2e8f0;padding-bottom:8px">Demandes (${demandes.length})</h3>
-<table style="width:100%;border-collapse:collapse;font-size:13px">
+<table style="width:100%;max-width:100%;table-layout:fixed;border-collapse:collapse;font-size:13px">
   <thead><tr style="background:#f8fafc;border-bottom:2px solid #e2e8f0">
     <th style="padding:8px 12px;text-align:left;color:#475569;font-weight:700">Demande</th>
-    <th style="padding:8px 12px;text-align:left;color:#475569;font-weight:700">Type</th>
+    <th style="padding:8px 12px;text-align:left;color:#475569;font-weight:700;width:120px">Type</th>
   </tr></thead>
   <tbody>${demandesHtml}</tbody>
 </table>
