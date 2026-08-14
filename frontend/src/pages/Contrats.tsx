@@ -200,6 +200,27 @@ const fmtDate = (d: string | null) => {
   return isNaN(dt.getTime()) ? d : dt.toLocaleDateString('fr-FR');
 };
 
+const toLocalDateStr = (d: string): string => {
+  const dt = new Date(d);
+  if (isNaN(dt.getTime())) return d.split('T')[0] || d;
+  return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
+};
+
+const DateField = ({ value, onChange, disabled, style }: { value: string | null; onChange: (iso: string | null) => void; disabled?: boolean; style?: React.CSSProperties }) => {
+  const iso = value ? toLocalDateStr(value) : '';
+  return (
+    <input
+      type="date"
+      key={iso}
+      defaultValue={iso}
+      disabled={disabled}
+      style={style}
+      onChange={e => { const v = e.target.value; if (v !== '') onChange(v); }}
+      onBlur={e => { if (e.target.value === '' && iso !== '') onChange(null); }}
+    />
+  );
+};
+
 const daysUntil = (d: string | null) => {
   if (!d) return null;
   const dt = new Date(d);
@@ -498,7 +519,7 @@ const Contrats: React.FC = () => {
   const [alertFilter, setAlertFilter] = useState<'expired' | 'soon' | null>(null);
   // Engagement 2026 : null = tout · 'engaged' = montant 2026 renseigné (0 inclus) · 'not_engaged' = non renseigné
   const [engagedFilter, setEngagedFilter] = useState<'engaged' | 'not_engaged' | null>(null);
-  const [sortKey, setSortKey] = useState<ColKey>('date_fin');
+  const [sortKey, setSortKey] = useState<ColKey | 'ech'>('ech');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
   const [colFilters, setColFilters] = useState<Partial<Record<ColKey, string>>>({});
   const [showFilterRow, setShowFilterRow] = useState(false);
@@ -679,10 +700,20 @@ const Contrats: React.FC = () => {
     setMessage({ type, text }); setTimeout(() => setMessage(null), 4000);
   };
 
-  const expiredCount = contrats.filter(c => c.statut !== 'archivé' && isExpired(c.date_fin)).length;
-  const soonCount = contrats.filter(c => c.statut !== 'archivé' && isExpiringSoon(c.date_fin)).length;
-  const directions = [...new Set(contrats.map(c => c.direction).filter(Boolean))].sort();
-  const types = [...new Set(contrats.map(c => c.type_contrat).filter(Boolean))].sort();
+  const contractEndDate = (c: Contrat) => c.date_fin_cours || c.date_fin;
+
+  const expiredCount = contrats.filter(c => c.statut !== 'archivé' && isExpired(contractEndDate(c))).length;
+  const soonCount = contrats.filter(c => c.statut !== 'archivé' && isExpiringSoon(contractEndDate(c))).length;
+  // Champs texte libre importés d'Excel : on déduplique/compare en normalisant la casse et les
+  // espaces (ex: "DSI" / "Dsi " / " DSI") pour éviter que des variantes ne soient traitées comme
+  // des valeurs distinctes (filtre qui semble ne chercher que dans une partie des contrats).
+  const normText = (s: string | null | undefined) => (s || '').trim().toLowerCase();
+  const directions = Array.from(
+    new Map(contrats.map(c => c.direction).filter(Boolean).map(d => [normText(d), (d as string).trim()])).values()
+  ).sort((a, b) => a.localeCompare(b, 'fr'));
+  const types = Array.from(
+    new Map(contrats.map(c => c.type_contrat).filter(Boolean).map(t => [normText(t), (t as string).trim()])).values()
+  ).sort((a, b) => a.localeCompare(b, 'fr'));
   const activeCols = COLS.filter(c => visibleCols.has(c.key));
 
   // ─── Filtres & tri ───────────────────────────────────────────────────────────
@@ -692,10 +723,10 @@ const Contrats: React.FC = () => {
     if (!showArchives && c.statut === 'archivé') return false;
     const q = searchQuery.trim().toLowerCase();
     if (q && ![c.objet, c.raison_sociale, c.direction, c.svc, c.marche_contrat, c.perimetre, c.commentaires].some(f => f?.toLowerCase().includes(q))) return false;
-    if (filterDirection && c.direction !== filterDirection) return false;
-    if (filterType && c.type_contrat !== filterType) return false;
-    if (alertFilter === 'expired') { if (c.statut === 'archivé' || !isExpired(c.date_fin)) return false; }
-    else if (alertFilter === 'soon') { if (c.statut === 'archivé' || !isExpiringSoon(c.date_fin)) return false; }
+    if (filterDirection && normText(c.direction) !== normText(filterDirection)) return false;
+    if (filterType && normText(c.type_contrat) !== normText(filterType)) return false;
+    if (alertFilter === 'expired') { if (c.statut === 'archivé' || !isExpired(contractEndDate(c))) return false; }
+    else if (alertFilter === 'soon') { if (c.statut === 'archivé' || !isExpiringSoon(contractEndDate(c))) return false; }
     if (engagedFilter === 'engaged' && c.montant_2026 == null) return false;
     if (engagedFilter === 'not_engaged' && c.montant_2026 != null) return false;
     // Filtres par colonne
@@ -709,6 +740,13 @@ const Contrats: React.FC = () => {
 
   const sortColType = COLS.find(c => c.key === sortKey)?.type;
   const sorted = [...filtered].sort((a, b) => {
+    if (sortKey === 'ech') {
+      const ad = daysUntil(contractEndDate(a));
+      const bd = daysUntil(contractEndDate(b));
+      const av = ad == null ? Number.MAX_SAFE_INTEGER : ad;
+      const bv = bd == null ? Number.MAX_SAFE_INTEGER : bd;
+      return sortDir === 'asc' ? av - bv : bv - av;
+    }
     let av: string | number = (a[sortKey] ?? '') as string | number;
     let bv: string | number = (b[sortKey] ?? '') as string | number;
     if (['date_debut', 'date_fin', 'imported_at'].includes(sortKey as string)) {
@@ -727,12 +765,12 @@ const Contrats: React.FC = () => {
     return 0;
   });
 
-  const handleSort = (key: ColKey) => {
+  const handleSort = (key: ColKey | 'ech') => {
     if (sortKey === key) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
     else { setSortKey(key); setSortDir('asc'); }
   };
 
-  const SI = ({ k }: { k: ColKey }) =>
+  const SI = ({ k }: { k: ColKey | 'ech' }) =>
     sortKey !== k ? null : sortDir === 'asc'
       ? <ChevronUp size={10} style={{ display: 'inline', marginLeft: 2 }} />
       : <ChevronDown size={10} style={{ display: 'inline', marginLeft: 2 }} />;
@@ -786,12 +824,6 @@ const Contrats: React.FC = () => {
   };
 
   // ─── CRUD ────────────────────────────────────────────────────────────────────
-
-  const toLocalDateStr = (d: string): string => {
-    const dt = new Date(d);
-    if (isNaN(dt.getTime())) return d.split('T')[0] || d;
-    return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
-  };
 
   const addDuree = (dateStr: string, duree: number, count: number): string | null => {
     if (!dateStr || duree == null || count == null || duree <= 0) return null;
@@ -1340,14 +1372,14 @@ const Contrats: React.FC = () => {
     if (c.liaisons && c.liaisons.length > 0) return i % 2 === 0 ? '#f0fdf4' : '#dcfce7';
     if (c.montant_2026 != null && Number(c.montant_2026) === 0) return i % 2 === 0 ? '#f0fdf4' : '#dcfce7';
     if (c.statut === 'archivé') return i % 2 === 0 ? '#f3f4f6' : '#e5e7eb';
-    if (isExpired(c.date_fin)) return i % 2 === 0 ? '#fff0f0' : '#fde8e8';
-    if (isExpiringSoon(c.date_fin)) return i % 2 === 0 ? '#fffbeb' : '#fef3c7';
+    if (isExpired(contractEndDate(c))) return i % 2 === 0 ? '#fff0f0' : '#fde8e8';
+    if (isExpiringSoon(contractEndDate(c))) return i % 2 === 0 ? '#fffbeb' : '#fef3c7';
     return i % 2 === 0 ? '#ffffff' : '#f9fafb';
   };
 
   const daysBadge = (c: Contrat) => {
     if (isNew(c.created_at)) return <span style={{ background: '#dbeafe', color: '#1d4ed8', padding: '2px 8px', borderRadius: 9999, fontSize: 11, fontWeight: 700 }}>🆕 NEW</span>;
-    const d = daysUntil(c.date_fin_cours || c.date_fin);
+    const d = daysUntil(contractEndDate(c));
     if (d === null) return <span style={{ color: '#999' }}>—</span>;
     if (d < 0) return <span style={{ background: '#fee2e2', color: '#dc2626', padding: '1px 6px', borderRadius: 9999, fontSize: 11, fontWeight: 700 }}>{d} j</span>;
     if (d <= 90) return <span style={{ background: '#fef3c7', color: '#b45309', padding: '1px 6px', borderRadius: 9999, fontSize: 11, fontWeight: 700 }}>{d} j</span>;
@@ -1708,9 +1740,13 @@ const Contrats: React.FC = () => {
               return (
                 <div key={key}>
                   <label style={{ fontSize: 10, color: '#6b7280', display: 'block', marginBottom: 2 }}>{col?.label ?? key}</label>
-                  <input type={col?.type === 'date' ? 'date' : 'text'} value={(newContrat[key] ?? '') as string}
-                    onChange={e => setNewContrat({ ...newContrat, [key]: e.target.value })}
-                    style={{ width: '100%', padding: '4px 6px', border: '1px solid #d1d5db', borderRadius: 4, fontSize: 11, boxSizing: 'border-box' }} />
+                  {col?.type === 'date' ? (
+                    <DateField value={(newContrat[key] ?? '') as string | null} onChange={v => setNewContrat({ ...newContrat, [key]: v ?? '' })} style={{ width: '100%', padding: '4px 6px', border: '1px solid #d1d5db', borderRadius: 4, fontSize: 11, boxSizing: 'border-box' }} />
+                  ) : (
+                    <input type="text" value={(newContrat[key] ?? '') as string}
+                      onChange={e => setNewContrat({ ...newContrat, [key]: e.target.value })}
+                      style={{ width: '100%', padding: '4px 6px', border: '1px solid #d1d5db', borderRadius: 4, fontSize: 11, boxSizing: 'border-box' }} />
+                  )}
                 </div>
               );
             })}
@@ -1745,7 +1781,7 @@ const Contrats: React.FC = () => {
                     </th>
                   ))}
                   {/* Échéance calculée */}
-                  <th style={{ padding: '7px 8px', background: '#1e3a5f', color: '#fff', fontWeight: 600, fontSize: 11, whiteSpace: 'nowrap', width: 60 }}>Éch.</th>
+                  <th onClick={() => handleSort('ech')} style={{ padding: '7px 8px', background: '#1e3a5f', color: '#fff', fontWeight: 600, fontSize: 11, whiteSpace: 'nowrap', width: 60, cursor: 'pointer', userSelect: 'none' }}>Éch.<SI k="ech" /></th>
                   <th style={{ padding: '7px 8px', background: '#1e3a5f', color: '#fff', fontSize: 11, whiteSpace: 'nowrap', width: 145 }}>Actions</th>
                 </tr>
                 {/* Ligne filtres */}
@@ -1825,15 +1861,20 @@ const Contrats: React.FC = () => {
           return (
             <div key={field}>
               <label style={{ fontSize: 10, color: '#6b7280', display: 'block', marginBottom: 2 }}>{label}</label>
-              <input
-                type={type}
-                value={val}
-                onChange={e => {
-                  if (type === 'date' && e.target.value === '') return;
-                  setEditModalData(p => p ? { ...p, [field]: e.target.value } : p);
-                }}
-                style={{ width: '100%', padding: '5px 7px', border: '1px solid #d1d5db', borderRadius: 5, fontSize: 12, boxSizing: 'border-box' }}
-              />
+              {type === 'date' ? (
+                <DateField
+                  value={typeof raw === 'string' ? (raw || null) : null}
+                  onChange={v => setEditModalData(p => p ? { ...p, [field]: v } : p)}
+                  style={{ width: '100%', padding: '5px 7px', border: '1px solid #d1d5db', borderRadius: 5, fontSize: 12, boxSizing: 'border-box' }}
+                />
+              ) : (
+                <input
+                  type={type}
+                  value={val}
+                  onChange={e => setEditModalData(p => p ? { ...p, [field]: e.target.value } : p)}
+                  style={{ width: '100%', padding: '5px 7px', border: '1px solid #d1d5db', borderRadius: 5, fontSize: 12, boxSizing: 'border-box' }}
+                />
+              )}
             </div>
           );
         };
@@ -2026,13 +2067,9 @@ const Contrats: React.FC = () => {
               {mf('Date de début', 'date_debut', 'date')}
               <div key="date_fin">
                 <label style={labelStyle}>Date de fin initiale {calculatedDateFin && <span style={{ fontSize: 9, fontStyle: 'italic', color: '#10b981' }}>(calculée)</span>}</label>
-                <input
-                  type="date"
-                  value={editModalData.date_fin ? toLocalDateStr(editModalData.date_fin) : ''}
-                  onChange={e => {
-                    if (e.target.value === '') return;
-                    setEditModalData(p => p ? { ...p, date_fin: e.target.value } : p);
-                  }}
+                <DateField
+                  value={editModalData.date_fin ?? null}
+                  onChange={v => setEditModalData(p => p ? { ...p, date_fin: v } : p)}
                   style={{ ...inputStyle, fontStyle: calculatedDateFin ? 'italic' : 'normal', fontWeight: calculatedDateFin ? 600 : 400, color: calculatedDateFin ? '#10b981' : '#1f2937' }}
                 />
               </div>
@@ -2425,7 +2462,7 @@ const Contrats: React.FC = () => {
             </div>
             <div>
               <label style={{ fontSize: 12, color: '#6b7280', display: 'block', marginBottom: 4 }}>Nouvelle date de fin</label>
-              <input type="date" value={renewDate} onChange={e => { if (e.target.value === '') return; setRenewDate(e.target.value); }} style={{ width: '100%', padding: '8px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, boxSizing: 'border-box' }} />
+              <DateField value={renewDate || null} onChange={v => setRenewDate(v || '')} style={{ width: '100%', padding: '8px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, boxSizing: 'border-box' }} />
             </div>
             <div>
               <label style={{ fontSize: 12, color: '#6b7280', display: 'block', marginBottom: 4 }}>Commentaire</label>
@@ -2810,7 +2847,7 @@ const Contrats: React.FC = () => {
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 10, fontSize: 11 }}>
                   <div>
                     <label style={{ color: '#6b7280', fontWeight: 500, display: 'block', marginBottom: 4 }}>Date début</label>
-                    <input type="date" value={docViewEditData?.date_debut ? toLocalDateStr(docViewEditData.date_debut) : ''} onChange={(e) => { if (!e.target.value) return; setDocViewEditData(d => d ? { ...d, date_debut: e.target.value } : null); }} style={{ width: '100%', padding: '4px 6px', borderRadius: 4, border: '1px solid #d1d5db', fontSize: 11 }} />
+                    <DateField value={docViewEditData?.date_debut ?? null} onChange={(v) => setDocViewEditData(d => d ? { ...d, date_debut: v } : null)} style={{ width: '100%', padding: '4px 6px', borderRadius: 4, border: '1px solid #d1d5db', fontSize: 11 }} />
                   </div>
                   <div>
                     <label style={{ color: '#6b7280', fontWeight: 500, display: 'block', marginBottom: 4 }}>Durée (années)</label>
@@ -2831,7 +2868,7 @@ const Contrats: React.FC = () => {
                   </div>
                   <div>
                     <label style={{ color: '#6b7280', fontWeight: 500, display: 'block', marginBottom: 4 }}>Date fin</label>
-                    <input type="date" value={docViewEditData?.date_fin ? toLocalDateStr(docViewEditData.date_fin) : ''} onChange={(e) => { if (!e.target.value) return; setDocViewEditData(d => d ? { ...d, date_fin: e.target.value } : null); }} style={{ width: '100%', padding: '4px 6px', borderRadius: 4, border: '1px solid #d1d5db', fontSize: 11 }} />
+                    <DateField value={docViewEditData?.date_fin ?? null} onChange={(v) => setDocViewEditData(d => d ? { ...d, date_fin: v } : null)} style={{ width: '100%', padding: '4px 6px', borderRadius: 4, border: '1px solid #d1d5db', fontSize: 11 }} />
                   </div>
                   <div>
                     <label style={{ color: '#6b7280', fontWeight: 500, display: 'block', marginBottom: 4 }}>Renouvellement en cours</label>

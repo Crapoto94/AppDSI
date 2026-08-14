@@ -99,3 +99,6 @@ printer_attributes.csv
 # Sauvegardes / donnees volumineuses ou sensibles (ajout)
 backend/file_certif_old/
 backend/file_reunions/*.vtt
+
+# Documents sensibles (plaintes, PV de police, données personnelles) — hors dépôt
+vol/
