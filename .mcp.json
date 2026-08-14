@@ -19,6 +19,10 @@
         "CLAUDE_FLOW_MEMORY_BACKEND": "hybrid"
       },
       "autoStart": false
+    },
+    "koesio-idf": {
+      "type": "http",
+      "url": "https://koesio-idf.kpax.cloud/mcp"
     }
   }
 }

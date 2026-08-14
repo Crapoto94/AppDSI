@@ -2472,6 +2472,10 @@ async function setupPgDb() {
         montant_prevu NUMERIC DEFAULT 0
       )
     `);
+    // "prev" : si actif, le reste à engager de cette opération (Montant prévu - used_amount) est
+    // ajouté à la prévision budgétaire de l'année en cours dans /budget-prep, sur la ligne
+    // correspondant à son service et sa nature (C. Nature).
+    try { await client.query(`ALTER TABLE oracle.operations ADD COLUMN IF NOT EXISTS "prev" BOOLEAN DEFAULT false`); } catch (e) {}
 
     // Migrate data from SQLite
     try {
@@ -2638,6 +2642,55 @@ async function setupPgDb() {
       await client.query(`ALTER TABLE hub_contrats.contrats ADD COLUMN IF NOT EXISTS prevision_2029 NUMERIC`);
     } catch (e) {
       console.log('[PG DB] Migration prevision_2029 column:', e.message);
+    }
+
+    // Migration: lien bon de commande Sedit / engagement sur un contrat
+    try {
+      await client.query(`
+        ALTER TABLE hub_contrats.contrats
+          ADD COLUMN IF NOT EXISTS commande_sedit VARCHAR(255) DEFAULT '',
+          ADD COLUMN IF NOT EXISTS commande_numero VARCHAR(255) DEFAULT '',
+          ADD COLUMN IF NOT EXISTS commande_type VARCHAR(20) DEFAULT '',
+          ADD COLUMN IF NOT EXISTS commande_libelle VARCHAR(512) DEFAULT '',
+          ADD COLUMN IF NOT EXISTS commande_montant NUMERIC,
+          ADD COLUMN IF NOT EXISTS engagement_code VARCHAR(255) DEFAULT '',
+          ADD COLUMN IF NOT EXISTS engagement_libelle VARCHAR(512) DEFAULT '',
+          ADD COLUMN IF NOT EXISTS lien_annee INTEGER
+      `);
+    } catch (e) {
+      console.log('[PG DB] Migration lien commande columns:', e.message);
+    }
+
+    // Table des liaisons commande / engagement (plusieurs par contrat)
+    try {
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS hub_contrats.contrats_liaisons (
+          id SERIAL PRIMARY KEY,
+          contrat_id INTEGER NOT NULL REFERENCES hub_contrats.contrats(id) ON DELETE CASCADE,
+          commande_type VARCHAR(20) DEFAULT '',
+          commande_sedit VARCHAR(255) DEFAULT '',
+          commande_numero VARCHAR(255) DEFAULT '',
+          commande_libelle VARCHAR(512) DEFAULT '',
+          commande_montant NUMERIC,
+          date_commande VARCHAR(20) DEFAULT '',
+          engagement_code VARCHAR(255) DEFAULT '',
+          engagement_libelle VARCHAR(512) DEFAULT '',
+          lien_annee INTEGER,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+      `);
+      await client.query('CREATE INDEX IF NOT EXISTS idx_hub_contrats_liaisons_contrat_id ON hub_contrats.contrats_liaisons(contrat_id)');
+      await client.query(`ALTER TABLE hub_contrats.contrats_liaisons ADD COLUMN IF NOT EXISTS date_commande VARCHAR(20) DEFAULT ''`);
+      // Rétro-migration : reporter un éventuel lien mono existant dans la table des liaisons
+      await client.query(`
+        INSERT INTO hub_contrats.contrats_liaisons (contrat_id, commande_type, commande_sedit, commande_numero, commande_libelle, commande_montant, engagement_code, engagement_libelle, lien_annee)
+        SELECT c.id, c.commande_type, c.commande_sedit, c.commande_numero, c.commande_libelle, c.commande_montant, c.engagement_code, c.engagement_libelle, c.lien_annee
+        FROM hub_contrats.contrats c
+        WHERE COALESCE(c.commande_type, '') <> ''
+          AND NOT EXISTS (SELECT 1 FROM hub_contrats.contrats_liaisons l WHERE l.contrat_id = c.id)
+      `);
+    } catch (e) {
+      console.log('[PG DB] Migration contrats_liaisons table:', e.message);
     }
 
     // Create gf_oracle_tiers table for tier lookups

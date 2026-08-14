@@ -43,6 +43,28 @@ router.put('/:id/statut', authenticateAdminOrContrats, async (req, res) => {
     await controller.updateStatus(req, res, pgDb);
 });
 
+// Recherche bons de commande Sedit / engagements pour lier à un contrat (avant les routes /:id)
+router.get('/commandes/search', authenticateJWT, async (req, res) => {
+    await controller.searchCommandes(req, res);
+});
+
+router.get('/engagements/search', authenticateJWT, async (req, res) => {
+    await controller.searchEngagements(req, res);
+});
+
+router.get('/factures/search', authenticateJWT, async (req, res) => {
+    await controller.searchFactures(req, res);
+});
+
+// Lier / détacher un bon de commande Sedit ou un engagement
+router.post('/:id/link-commande', authenticateAdminOrContrats, async (req, res) => {
+    await controller.linkCommande(req, res, pgDb);
+});
+
+router.delete('/liaisons/:liaisonId', authenticateAdminOrContrats, async (req, res) => {
+    await controller.unlinkLiaison(req, res, pgDb);
+});
+
 // Generic CRUD routes (after specific routes)
 router.get('/', authenticateJWT, async (req, res) => {
     await controller.getAll(req, res, pgDb);

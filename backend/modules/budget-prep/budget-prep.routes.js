@@ -7,6 +7,7 @@ const { authenticateJWT, authenticateAdminOrFinances } = require('../../shared/m
 
 router.get('/facets', authenticateJWT, controller.getFacets);
 router.get('/data', authenticateJWT, controller.getData);
+router.get('/line-detail', authenticateJWT, controller.getLineDetail);
 router.get('/imports', authenticateJWT, controller.listImports);
 router.post('/import', authenticateAdminOrFinances, upload.single('file'), controller.importFile);
 router.delete('/imports/:id', authenticateAdminOrFinances, controller.deleteImport);

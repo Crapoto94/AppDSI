@@ -175,9 +175,40 @@ const deduplicateOperations = async () => {
     }
 };
 
+// Opérations basculées en "prev" (toggle) pour l'exercice donné : leur reste à engager
+// (Montant prévu - used_amount, plancher 0) doit être ajouté à la prévision de /budget-prep sur
+// la ligne (service, nature) correspondante. Exposé pour /budget-prep.
+const getPrevOperationsExtra = async (year) => {
+    try {
+        const operations = await pgDb.all(
+            `SELECT id, "Service" AS service, "C. Nature" AS nature, "LIBELLE" AS libelle, "Montant prévu" AS montant_prevu
+             FROM oracle.operations WHERE "prev" = true AND exercice = ?`,
+            [String(year)]
+        );
+        if (operations.length === 0) return [];
+        const usedMap = await computeUsedMap();
+        return operations.map(op => {
+            const montantPrevu = parseNum(op.montant_prevu);
+            const used = usedMap[String(op.id)] || 0;
+            return {
+                service: (op.service || '').trim(),
+                nature: (op.nature || '').trim(),
+                libelle: op.libelle || '',
+                montant_prevu: montantPrevu,
+                used_amount: used,
+                reste_a_engager: Math.max(0, Math.round((montantPrevu - used) * 100) / 100)
+            };
+        });
+    } catch (e) {
+        console.error('[Finance] getPrevOperationsExtra error:', e.message);
+        return [];
+    }
+};
+
 module.exports = {
     recalculateAllOperations,
     deduplicateOperations,
+    getPrevOperationsExtra,
 
     getOperations: async (req, res) => {
         const { fiscalYear } = req.query;
@@ -270,7 +301,7 @@ module.exports = {
     OPERATION_COLUMNS: [
         'budget_id', 'Service', 'Service Complément', 'LIBELLE', 'MCO', 'C. Fonc.',
         'C. Nature', 'Montant prévu', 'Terminé', 'Commentaire', 'Section',
-        'exercice', 'CODE_FONCTION', 'montant_prevu',
+        'exercice', 'CODE_FONCTION', 'montant_prevu', 'prev',
     ],
 
     createOperation: async (req, res) => {

@@ -148,6 +148,104 @@ async function findBudgetInvoicesForOperator(operatorId, tierCode) {
     });
 }
 
+// Synthèse mensuelle par compte (façon onglet "Suivi" de l'Excel) : pour chaque compte de
+// facturation et chaque mois de l'année, le détail des factures (recalé en direct sur le
+// budget), un éventuel commentaire, et une projection d'atterrissage (montant connu +
+// moyenne mensuelle × mois restants) — par compte, par opérateur et globalement.
+// Extrait en fonction top-level (plutôt que directement dans getMonthlySummary) pour être
+// réutilisable par /budget-prep, qui a besoin de l'atterrissage annuel global (nature 6262).
+async function computeMonthlySummary(year) {
+    const [invoiceRows, accounts, commentRows] = await Promise.all([
+        pgDb.all(`
+            SELECT ri.id, ri.invoice_number, ri.operator_id, ri.billing_account_id, ri.amount_ttc,
+                ri.effective_month as month, ri.general_status, ri.sedit_ref, ri.description
+            FROM (${RESOLVED_INVOICES_SQL}) ri
+            WHERE ri.effective_month LIKE ? AND ri.billing_account_id IS NOT NULL
+        `, [`${year}-%`]),
+        pgDb.all(`
+            SELECT a.id, a.account_number, a.designation, a.type, a.operator_id, o.name as operator_name
+            FROM hub_telecom.billing_accounts a
+            JOIN hub_telecom.operators o ON a.operator_id = o.id
+            ORDER BY o.name, a.account_number
+        `),
+        pgDb.all(`SELECT billing_account_id, month, comment FROM hub_telecom.monthly_comments WHERE month LIKE ?`, [`${year}-%`]),
+    ]);
+
+    const months = Array.from({ length: 12 }, (_, i) => `${year}-${String(i + 1).padStart(2, '0')}`);
+    const now = new Date();
+    const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+
+    const byAccountMonth = {};
+    for (const inv of invoiceRows) {
+        if (!byAccountMonth[inv.billing_account_id]) byAccountMonth[inv.billing_account_id] = {};
+        if (!byAccountMonth[inv.billing_account_id][inv.month]) byAccountMonth[inv.billing_account_id][inv.month] = [];
+        byAccountMonth[inv.billing_account_id][inv.month].push(inv);
+    }
+    const commentsByAccountMonth = {};
+    for (const c of commentRows) {
+        if (!commentsByAccountMonth[c.billing_account_id]) commentsByAccountMonth[c.billing_account_id] = {};
+        commentsByAccountMonth[c.billing_account_id][c.month] = c.comment;
+    }
+
+    // Atterrissage : somme des mois écoulés connus + moyenne des mois avec facture × mois restants.
+    const landingFor = (monthlyTotals) => {
+        const elapsed = months.filter(m => m <= currentMonth).map(m => monthlyTotals[m] || 0);
+        const withData = elapsed.filter(v => v > 0);
+        if (withData.length === 0) return null;
+        const avg = withData.reduce((s, v) => s + v, 0) / withData.length;
+        const sumElapsed = elapsed.reduce((s, v) => s + v, 0);
+        const remaining = months.length - elapsed.length;
+        return Math.round((sumElapsed + avg * remaining) * 100) / 100;
+    };
+
+    const rows = accounts.map(a => {
+        const monthly = {};
+        months.forEach(m => {
+            const invs = (byAccountMonth[a.id] && byAccountMonth[a.id][m]) || [];
+            const total = invs.reduce((s, i) => s + (Number(i.amount_ttc) || 0), 0);
+            monthly[m] = {
+                total: invs.length ? total : null,
+                invoices: invs.map(i => ({
+                    id: i.id, invoice_number: i.invoice_number,
+                    amount_ttc: Number(i.amount_ttc) || 0,
+                    description: i.description, general_status: i.general_status, sedit_ref: i.sedit_ref,
+                })),
+                comment: (commentsByAccountMonth[a.id] && commentsByAccountMonth[a.id][m]) || null,
+                isPast: m <= currentMonth,
+            };
+        });
+        const totalsByMonth = {};
+        months.forEach(m => { totalsByMonth[m] = monthly[m].total || 0; });
+        const total = months.reduce((s, m) => s + (monthly[m].total || 0), 0);
+        return {
+            account_id: a.id, operator_id: a.operator_id, operator_name: a.operator_name,
+            account_number: a.account_number, designation: a.designation, type: a.type,
+            monthly, total, landing: landingFor(totalsByMonth),
+        };
+    });
+
+    const operatorMap = {};
+    for (const r of rows) {
+        if (!operatorMap[r.operator_id]) {
+            operatorMap[r.operator_id] = { operator_id: r.operator_id, operator_name: r.operator_name, monthly: {}, total: 0 };
+            months.forEach(m => { operatorMap[r.operator_id].monthly[m] = 0; });
+        }
+        const op = operatorMap[r.operator_id];
+        months.forEach(m => { op.monthly[m] += (r.monthly[m].total || 0); });
+        op.total += r.total;
+    }
+    const operators = Object.values(operatorMap).map(op => ({ ...op, landing: landingFor(op.monthly) }));
+
+    const globalMonthly = {};
+    months.forEach(m => { globalMonthly[m] = operators.reduce((s, op) => s + (op.monthly[m] || 0), 0); });
+    const globalTotal = months.reduce((s, m) => s + globalMonthly[m], 0);
+
+    return {
+        year, months, currentMonth, rows, operators,
+        global: { monthly: globalMonthly, total: globalTotal, landing: landingFor(globalMonthly) },
+    };
+}
+
 module.exports = {
     // --- Operators ---
     getOperators: async (req, res) => {
@@ -391,101 +489,21 @@ module.exports = {
     getMonthlySummary: async (req, res) => {
         try {
             const year = parseInt(req.query.year, 10) || new Date().getFullYear();
-
-            const [invoiceRows, accounts, commentRows] = await Promise.all([
-                pgDb.all(`
-                    SELECT ri.id, ri.invoice_number, ri.operator_id, ri.billing_account_id, ri.amount_ttc,
-                        ri.effective_month as month, ri.general_status, ri.sedit_ref, ri.description
-                    FROM (${RESOLVED_INVOICES_SQL}) ri
-                    WHERE ri.effective_month LIKE ? AND ri.billing_account_id IS NOT NULL
-                `, [`${year}-%`]),
-                pgDb.all(`
-                    SELECT a.id, a.account_number, a.designation, a.type, a.operator_id, o.name as operator_name
-                    FROM hub_telecom.billing_accounts a
-                    JOIN hub_telecom.operators o ON a.operator_id = o.id
-                    ORDER BY o.name, a.account_number
-                `),
-                pgDb.all(`SELECT billing_account_id, month, comment FROM hub_telecom.monthly_comments WHERE month LIKE ?`, [`${year}-%`]),
-            ]);
-
-            const months = Array.from({ length: 12 }, (_, i) => `${year}-${String(i + 1).padStart(2, '0')}`);
-            const now = new Date();
-            const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-
-            const byAccountMonth = {};
-            for (const inv of invoiceRows) {
-                if (!byAccountMonth[inv.billing_account_id]) byAccountMonth[inv.billing_account_id] = {};
-                if (!byAccountMonth[inv.billing_account_id][inv.month]) byAccountMonth[inv.billing_account_id][inv.month] = [];
-                byAccountMonth[inv.billing_account_id][inv.month].push(inv);
-            }
-            const commentsByAccountMonth = {};
-            for (const c of commentRows) {
-                if (!commentsByAccountMonth[c.billing_account_id]) commentsByAccountMonth[c.billing_account_id] = {};
-                commentsByAccountMonth[c.billing_account_id][c.month] = c.comment;
-            }
-
-            // Atterrissage : somme des mois écoulés connus + moyenne des mois avec facture × mois restants.
-            const landingFor = (monthlyTotals) => {
-                const elapsed = months.filter(m => m <= currentMonth).map(m => monthlyTotals[m] || 0);
-                const withData = elapsed.filter(v => v > 0);
-                if (withData.length === 0) return null;
-                const avg = withData.reduce((s, v) => s + v, 0) / withData.length;
-                const sumElapsed = elapsed.reduce((s, v) => s + v, 0);
-                const remaining = months.length - elapsed.length;
-                return Math.round((sumElapsed + avg * remaining) * 100) / 100;
-            };
-
-            const rows = accounts.map(a => {
-                const monthly = {};
-                months.forEach(m => {
-                    const invs = (byAccountMonth[a.id] && byAccountMonth[a.id][m]) || [];
-                    const total = invs.reduce((s, i) => s + (Number(i.amount_ttc) || 0), 0);
-                    monthly[m] = {
-                        total: invs.length ? total : null,
-                        invoices: invs.map(i => ({
-                            id: i.id, invoice_number: i.invoice_number,
-                            amount_ttc: Number(i.amount_ttc) || 0,
-                            description: i.description, general_status: i.general_status, sedit_ref: i.sedit_ref,
-                        })),
-                        comment: (commentsByAccountMonth[a.id] && commentsByAccountMonth[a.id][m]) || null,
-                        isPast: m <= currentMonth,
-                    };
-                });
-                const totalsByMonth = {};
-                months.forEach(m => { totalsByMonth[m] = monthly[m].total || 0; });
-                const total = months.reduce((s, m) => s + (monthly[m].total || 0), 0);
-                return {
-                    account_id: a.id, operator_id: a.operator_id, operator_name: a.operator_name,
-                    account_number: a.account_number, designation: a.designation, type: a.type,
-                    monthly, total, landing: landingFor(totalsByMonth),
-                };
-            });
-
-            const operatorMap = {};
-            for (const r of rows) {
-                if (!operatorMap[r.operator_id]) {
-                    operatorMap[r.operator_id] = { operator_id: r.operator_id, operator_name: r.operator_name, monthly: {}, total: 0 };
-                    months.forEach(m => { operatorMap[r.operator_id].monthly[m] = 0; });
-                }
-                const op = operatorMap[r.operator_id];
-                months.forEach(m => { op.monthly[m] += (r.monthly[m].total || 0); });
-                op.total += r.total;
-            }
-            const operators = Object.values(operatorMap).map(op => ({ ...op, landing: landingFor(op.monthly) }));
-
-            const globalMonthly = {};
-            months.forEach(m => { globalMonthly[m] = operators.reduce((s, op) => s + (op.monthly[m] || 0), 0); });
-            const globalTotal = months.reduce((s, m) => s + globalMonthly[m], 0);
-
-            res.json({
-                year, months, currentMonth, rows, operators,
-                global: { monthly: globalMonthly, total: globalTotal, landing: landingFor(globalMonthly) },
-            });
+            res.json(await computeMonthlySummary(year));
         } catch (error) {
             console.error('[Telecom] getMonthlySummary error:', error);
             res.status(500).json({ message: 'Erreur lors du calcul de la synthèse mensuelle', error: error.message });
         }
     },
+
+    // Exposé pour /budget-prep : la prévision N des frais de télécommunication (nature 6262)
+    // se base sur l'atterrissage annuel (réel des mois écoulés + moyenne × mois restants) plutôt
+    // que sur hub_contrats.contrats, qui ne recense pas les contrats télécom de façon fiable.
+    getAnnualLanding: async (year) => {
+        const summary = await computeMonthlySummary(year);
+        return summary.global.landing;
+    },
+    computeMonthlySummary,
 
     // Commentaire libre sur un couple compte/mois (pour justifier un mois sans facture, par exemple).
     upsertMonthlyComment: async (req, res) => {

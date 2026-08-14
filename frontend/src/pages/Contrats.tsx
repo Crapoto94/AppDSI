@@ -4,7 +4,7 @@ import Header from '../components/Header';
 import {
   Upload, Download, AlertCircle, Loader2, Trash2, Edit2, Check,
   X as CloseIcon, Search, RefreshCw, ChevronUp, ChevronDown, ChevronRight, Plus, FileSpreadsheet,
-  Paperclip, Eye, RefreshCcw, Archive, ArchiveRestore, FileText, Columns, Filter,
+  RefreshCcw, Archive, FileText, Columns, Filter, Link2, ExternalLink, FileCheck2, Receipt,
   TrendingUp, TrendingDown, ArrowRight
 } from 'lucide-react';
 
@@ -56,6 +56,29 @@ interface Contrat {
   numero_facture: string;
   contrat_renouvellement_id: number | null;
   created_at: string;
+  commande_sedit: string;
+  commande_numero: string;
+  commande_type: string;
+  commande_libelle: string;
+  commande_montant: number | null;
+  engagement_code: string;
+  engagement_libelle: string;
+  lien_annee: number | null;
+  liaisons?: ContratLiaison[];
+}
+
+interface ContratLiaison {
+  id: number;
+  contrat_id: number;
+  commande_type: string;
+  commande_sedit: string;
+  commande_numero: string;
+  commande_libelle: string;
+  commande_montant: number | null;
+  date_commande: string;
+  engagement_code: string;
+  engagement_libelle: string;
+  lien_annee: number | null;
 }
 
 interface Document {
@@ -111,6 +134,7 @@ const COLS: ColDef[] = [
   { key: 'prevision_2029', label: 'Prév.2029', w: 88, type: 'number', defaultVisible: false },
   { key: 'renouvellement_statut', label: 'Renouvell.', w: 90 },
   { key: 'numero_facture', label: 'N° Facture', w: 110 },
+  { key: 'commande_numero', label: 'Commande liée', w: 170 },
   { key: 'commentaires', label: 'Commentaires', w: 170 },
 ];
 
@@ -483,7 +507,6 @@ const Contrats: React.FC = () => {
   const [docViewModal, setDocViewModal] = useState<{ contrat: Contrat; docs: Document[]; currentIndex: number } | null>(null);
   const [docViewEditData, setDocViewEditData] = useState<Partial<Contrat> | null>(null);
   const [linkedContracts, setLinkedContracts] = useState<{ previous: Contrat | null; renewals: Contrat[] } | null>(null);
-  const [archiveConfirm, setArchiveConfirm] = useState<Contrat | null>(null);
   const [tiersSuggestions, setTiersSuggestions] = useState<Array<{ code: string; name: string }>>([]);
   const [tiersSearch, setTiersSearch] = useState('');
   const [showTiersSuggestions, setShowTiersSuggestions] = useState(false);
@@ -494,16 +517,34 @@ const Contrats: React.FC = () => {
   const [appDetailModal, setAppDetailModal] = useState<any | null>(null);
   const [appDetailLoading, setAppDetailLoading] = useState(false);
 
+  // ── Lien bon de commande Sedit / engagement ─────────────────────────────────
+  const [linkModal, setLinkModal] = useState<{ contrat: Contrat } | null>(null);
+  const [linkTab, setLinkTab] = useState<'bc' | 'engagement' | 'facture'>('bc');
+  const [linkQ, setLinkQ] = useState('');
+  const [linkTiers, setLinkTiers] = useState('');
+  const [linkMin, setLinkMin] = useState('');
+  const [linkMax, setLinkMax] = useState('');
+  const [linkYear, setLinkYear] = useState('');
+  const [linkResults, setLinkResults] = useState<any[]>([]);
+  const [linkLoading, setLinkLoading] = useState(false);
+  const [linkEngagementYears, setLinkEngagementYears] = useState<string[]>([]);
+  const [linkSelections, setLinkSelections] = useState<any[]>([]);
+  const [linkAmount, setLinkAmount] = useState('');
+  const [linkSeditUrl, setLinkSeditUrl] = useState('');
+  const [linkListModal, setLinkListModal] = useState<{ contrat: Contrat } | null>(null);
+
   const excelInputRef = useRef<HTMLInputElement>(null);
   const docFileRef = useRef<HTMLInputElement>(null);
   const colPanelRef = useRef<HTMLDivElement>(null);
 
-  const fetchContrats = async () => {
+  const fetchContrats = async (): Promise<Contrat[] | null> => {
     try {
       const res = await fetch('/api/contrats', { headers: authHeaders() });
       if (res.ok) {
         const data = await res.json();
-        setContrats(Array.isArray(data) ? data : []);
+        const list = Array.isArray(data) ? data : [];
+        setContrats(list);
+        return list;
       } else if (res.status === 403) {
         showMsg('error', 'Session expirée. Veuillez vous reconnecter.');
         setContrats([]);
@@ -513,6 +554,7 @@ const Contrats: React.FC = () => {
       }
     } catch { showMsg('error', 'Impossible de charger les contrats'); setContrats([]); }
     finally { setLoading(false); }
+    return null;
   };
 
   const searchTiers = async (query: string) => {
@@ -587,6 +629,22 @@ const Contrats: React.FC = () => {
         setVisibleCols(new Set(cols));
       } catch { }
     }
+    (async () => {
+      try {
+        const res = await fetch('/api/settings/public', { headers: authHeaders() });
+        if (res.ok) {
+          const s = await res.json();
+          setLinkSeditUrl(s.url_sedit_fi || 'https://seditgfprod.ivry.local/SeditGfSMProd');
+        }
+      } catch { }
+      try {
+        const res = await fetch('/api/finance/engagements/years', { headers: authHeaders() });
+        if (res.ok) {
+          const years = await res.json();
+          setLinkEngagementYears(Array.isArray(years) ? years.map(String) : []);
+        }
+      } catch { }
+    })();
   }, []);
 
   useEffect(() => {
@@ -961,13 +1019,160 @@ const Contrats: React.FC = () => {
     } catch { showMsg('error', 'Erreur renouvellement'); }
   };
 
-  // ─── Archivage ───────────────────────────────────────────────────────────────
+  // ─── Lien bon de commande Sedit / engagement ────────────────────────────────
 
-  const handleArchive = async (c: Contrat) => {
-    const s = c.statut === 'archivé' ? 'actif' : 'archivé';
-    try { await fetch(`/api/contrats/${c.id}/statut`, { method: 'PUT', headers: { ...authHeaders(), 'Content-Type': 'application/json' }, body: JSON.stringify({ statut: s }) }); setArchiveConfirm(null); await fetchContrats(); showMsg('success', s === 'archivé' ? 'Archivé' : 'Restauré'); }
-    catch { showMsg('error', 'Erreur archivage'); }
+  const openLinkModal = (c: Contrat) => {
+    setLinkModal({ contrat: c });
+    setLinkTab((c.liaisons && c.liaisons[c.liaisons.length - 1]?.commande_type === 'engagement') ? 'engagement' : 'bc');
+    setLinkQ('');
+    setLinkTiers('');
+    setLinkMin('');
+    setLinkMax('');
+    setLinkYear(String(new Date().getFullYear()));
+    setLinkResults([]);
+    setLinkSelections([]);
+    setLinkAmount('');
   };
+
+  const searchLink = async () => {
+    if (!linkModal) return;
+    setLinkLoading(true);
+    setLinkResults([]);
+    try {
+      const path = linkTab === 'bc' ? '/api/contrats/commandes/search' : linkTab === 'engagement' ? '/api/contrats/engagements/search' : '/api/contrats/factures/search';
+      const params = new URLSearchParams();
+      if (linkQ.trim()) params.set('q', linkQ.trim());
+      if (linkTiers.trim()) params.set('tiers', linkTiers.trim());
+      if (linkMin.trim()) params.set('montantMin', linkMin.trim());
+      if (linkMax.trim()) params.set('montantMax', linkMax.trim());
+      if (linkYear) params.set('year', linkYear);
+      params.set('limit', '100');
+      const res = await fetch(`${path}?${params}`, { headers: authHeaders() });
+      if (!res.ok) {
+        const d = await res.json().catch(() => null);
+        throw new Error(d?.message || `Erreur ${res.status}`);
+      }
+      const data = await res.json();
+      setLinkResults(Array.isArray(data) ? data : []);
+    } catch (e: any) { showMsg('error', e?.message || 'Erreur recherche'); }
+    finally { setLinkLoading(false); }
+  };
+
+  const linkItemKey = (item: any) => {
+    const k = linkTab === 'bc'
+      ? (item.numero || item.sedit_id || '')
+      : linkTab === 'engagement'
+        ? (item.code || '')
+        : (item.numero || item.sedit_id || '');
+    return `${linkTab}:${k}`;
+  };
+
+  const linkItemAmount = (item: any) => {
+    const a = linkTab === 'bc'
+      ? (item.montant_ttc != null ? item.montant_ttc : item.montant_ht)
+      : linkTab === 'engagement'
+        ? (item.montant != null ? item.montant : item.solde)
+        : (item.montant_ttc != null ? item.montant_ttc : null);
+    return a != null && a !== '' ? a : null;
+  };
+
+  const toggleLink = (item: any) => {
+    setLinkSelections(prev => {
+      const key = linkItemKey(item);
+      const exists = prev.some(s => linkItemKey(s) === key);
+      const next = exists ? prev.filter(s => linkItemKey(s) !== key) : [...prev, { ...item, type: linkTab }];
+      const sum = next.reduce((acc, s) => acc + (linkItemAmount(s) || 0), 0);
+      setLinkAmount(sum > 0 ? String(Math.round(sum * 100) / 100) : '');
+      return next;
+    });
+  };
+
+  const confirmLink = async () => {
+    if (!linkModal || linkSelections.length === 0) return;
+    const errors: string[] = [];
+    const okKeys = new Set<string>();
+    for (const sel of linkSelections) {
+      try {
+        const payload: Record<string, any> = {
+          commande_type: linkTab,
+          montant_2026: linkAmount === '' ? null : parseFloat(String(linkAmount).replace(',', '.')),
+          tiers_code: sel.tiers_code || sel.code || '',
+          tiers_nom: sel.tiers_nom || ''
+        };
+        if (linkTab === 'bc') {
+          payload.commande_sedit = sel.sedit_id || '';
+          payload.commande_numero = sel.numero || '';
+          payload.commande_libelle = sel.libelle || '';
+          payload.commande_montant = sel.montant_ttc != null ? sel.montant_ttc : null;
+          payload.date_commande = sel.date_commande || '';
+        } else if (linkTab === 'facture') {
+          payload.commande_sedit = sel.sedit_id || '';
+          payload.commande_numero = sel.numero || '';
+          payload.commande_libelle = sel.libelle || '';
+          payload.commande_montant = sel.montant_ttc != null ? sel.montant_ttc : null;
+          payload.date_commande = sel.date_commande || '';
+          payload.tiers_code = sel.tiers_code || '';
+          payload.tiers_nom = sel.tiers_nom || '';
+        } else {
+          payload.engagement_code = sel.code || '';
+          payload.commande_libelle = sel.libelle || '';
+          payload.commande_montant = sel.montant != null ? sel.montant : null;
+          payload.date_commande = sel.exercice || sel.annee || sel.year || '';
+        }
+        const res = await fetch(`/api/contrats/${linkModal.contrat.id}/link-commande`, {
+          method: 'POST', headers: { ...authHeaders(), 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
+        });
+        const d = await res.json().catch(() => null);
+        if (res.ok) {
+          okKeys.add(linkItemKey(sel));
+        } else {
+          errors.push(`${linkTab === 'bc' ? (sel.numero || sel.sedit_id) : linkTab === 'engagement' ? sel.code : (sel.numero || sel.sedit_id)} : ${d?.message || `Erreur ${res.status}`}`);
+        }
+      } catch (e: any) {
+        errors.push(`${linkTab === 'bc' ? (sel.numero || sel.sedit_id) : linkTab === 'engagement' ? sel.code : (sel.numero || sel.sedit_id)} : ${e?.message || 'Erreur'}`);
+      }
+    }
+
+    const fresh = await fetchContrats();
+    if (fresh) {
+      const updated = fresh.find(x => x.id === linkModal.contrat.id);
+      if (updated) setLinkModal(prev => prev ? { contrat: updated } : prev);
+    }
+
+    if (errors.length === 0) {
+      setLinkModal(null);
+      showMsg('success', linkSelections.length > 1 ? `${linkSelections.length} commandes liées` : (linkTab === 'bc' ? 'Bon de commande lié' : linkTab === 'facture' ? 'Facture liée' : 'Engagement lié'));
+    } else {
+      setLinkSelections(prev => prev.filter(s => !okKeys.has(linkItemKey(s))));
+      showMsg('error', `Lien partiel — ${errors.length} échec(s) : ${errors.join(' ; ')}`);
+    }
+  };
+
+  const unlinkLiaison = async (liaisonId: number) => {
+    if (!linkModal) return;
+    try {
+      const res = await fetch(`/api/contrats/liaisons/${liaisonId}`, { method: 'DELETE', headers: authHeaders() });
+      if (!res.ok) throw new Error();
+      await fetchContrats();
+      showMsg('success', 'Lien commande retiré');
+    } catch { showMsg('error', 'Erreur retrait du lien'); }
+  };
+
+  // Clés des commandes déjà liées au contrat (grisées dans les résultats)
+  const alreadyLinkedKeys = new Set<string>();
+  if (linkModal) {
+    (linkModal.contrat.liaisons || []).forEach(l => {
+      if (l.commande_type === 'bc') {
+        if (l.commande_numero) alreadyLinkedKeys.add(`bc:${l.commande_numero}`);
+        if (l.commande_sedit) alreadyLinkedKeys.add(`bc:${l.commande_sedit}`);
+      } else if (l.commande_type === 'engagement') {
+        if (l.engagement_code) alreadyLinkedKeys.add(`engagement:${l.engagement_code}`);
+      } else if (l.commande_type === 'facture') {
+        if (l.commande_numero) alreadyLinkedKeys.add(`facture:${l.commande_numero}`);
+        if (l.commande_sedit) alreadyLinkedKeys.add(`facture:${l.commande_sedit}`);
+      }
+    });
+  }
 
   // ─── Colonnes ────────────────────────────────────────────────────────────────
 
@@ -984,6 +1189,8 @@ const Contrats: React.FC = () => {
   // ─── Helpers UI ──────────────────────────────────────────────────────────────
 
   const rowBg = (c: Contrat, i: number) => {
+    if (c.liaisons && c.liaisons.length > 0) return i % 2 === 0 ? '#f0fdf4' : '#dcfce7';
+    if (c.montant_2026 != null && Number(c.montant_2026) === 0) return i % 2 === 0 ? '#f0fdf4' : '#dcfce7';
     if (c.statut === 'archivé') return i % 2 === 0 ? '#f3f4f6' : '#e5e7eb';
     if (isExpired(c.date_fin)) return i % 2 === 0 ? '#fff0f0' : '#fde8e8';
     if (isExpiringSoon(c.date_fin)) return i % 2 === 0 ? '#fffbeb' : '#fef3c7';
@@ -1097,6 +1304,43 @@ const Contrats: React.FC = () => {
         );
       case 'perimetre': case 'commentaires':
         return <span title={String(v ?? '')} style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: col.w - 16 }}>{String(v ?? '') || <span style={{ color: '#9ca3af' }}>—</span>}</span>;
+      case 'commande_numero': {
+        const liaisons = c.liaisons || [];
+        if (liaisons.length === 0) return <span style={{ color: '#9ca3af' }}>—</span>;
+        if (liaisons.length === 1) {
+          const l = liaisons[0];
+          const isBc = l.commande_type === 'bc';
+          const isFacture = l.commande_type === 'facture';
+          const numero = isBc ? (l.commande_numero || 'BC') : isFacture ? (l.commande_numero || 'Facture') : (l.engagement_code || 'Engt');
+          const libelle = isBc ? (l.commande_libelle || '') : isFacture ? (l.commande_libelle || '') : (l.engagement_libelle || '');
+          const seditOk = (isBc || isFacture) && l.commande_sedit && linkSeditUrl;
+          const chipBg = isBc ? '#dbeafe' : isFacture ? '#fffbeb' : '#f5f3ff';
+          const chipFg = isBc ? '#1d4ed8' : isFacture ? '#b45309' : '#6d28d9';
+          const chipBd = isBc ? '#93c5fd' : isFacture ? '#fcd34d' : '#ddd6fe';
+          return (
+            <span
+              title={libelle || (isBc ? 'Bon de commande Sedit lié' : isFacture ? 'Facture Sedit liée' : 'Engagement budgétaire lié')}
+              onClick={() => seditOk
+                ? window.open(`${linkSeditUrl}/${isBc ? 'FicheCommande.html?commandeId' : 'FicheFacture.html?factureId'}=${l.commande_sedit}`, '_blank')
+                : setLinkListModal({ contrat: c })}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: chipBg, color: chipFg, border: `1px solid ${chipBd}`, borderRadius: 9999, padding: '3px 8px', fontSize: 11, fontWeight: 600, whiteSpace: 'nowrap', cursor: 'pointer', maxWidth: col.w - 16 }}
+            >
+              {isBc ? <FileCheck2 size={12} /> : isFacture ? <Receipt size={12} /> : <Link2 size={12} />}
+              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{numero}</span>
+              {seditOk && <ExternalLink size={10} style={{ flexShrink: 0 }} />}
+            </span>
+          );
+        }
+        return (
+          <button
+            onClick={() => setLinkListModal({ contrat: c })}
+            title={`Lister les ${liaisons.length} commande${liaisons.length > 1 ? 's' : ''} liée${liaisons.length > 1 ? 's' : ''}`}
+            style={{ background: '#dcfce7', color: '#15803d', border: '1px solid #86efac', borderRadius: 6, padding: '4px 9px', cursor: 'pointer', fontSize: 11, fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap' }}
+          >
+            <Link2 size={11} /> {liaisons.length} commande{liaisons.length > 1 ? 's' : ''}
+          </button>
+        );
+      }
       default: return v != null && v !== '' ? String(v) : <span style={{ color: '#9ca3af' }}>—</span>;
     }
   };
@@ -1305,13 +1549,8 @@ const Contrats: React.FC = () => {
                       <td style={{ padding: '4px 6px', borderBottom: '1px solid #e5e7eb', whiteSpace: 'nowrap' }}>
                         <div style={{ display: 'flex', gap: 3 }}>
                           {btnAction('Éditer', '#eff6ff', '#1d4ed8', <Edit2 size={12} />, () => openEditModal(c))}
-                          {btnAction('Joindre un document', '#faf5ff', '#7c3aed', <Paperclip size={12} />, () => openDocModal(c))}
-                          {btnAction('Voir les documents', c.doc_principal_path ? '#f0fdf4' : '#f3f4f6', c.doc_principal_path ? '#15803d' : '#9ca3af', <Eye size={12} />, () => openDocViewModal(c), false)}
+                          {btnAction(c.liaisons && c.liaisons.length ? 'Gérer les liens commande / engagement' : 'Lier un bon de commande / engagement', '#dcfce7', '#15803d', <Link2 size={12} />, () => openLinkModal(c))}
                           {btnAction('Renouveler', '#fff7ed', '#c2410c', <RefreshCcw size={12} />, () => openRenewModal(c))}
-                          {archived
-                            ? btnAction('Restaurer', '#f0fdf4', '#15803d', <ArchiveRestore size={12} />, () => handleArchive(c))
-                            : btnAction('Archiver', '#f3f4f6', '#6b7280', <Archive size={12} />, () => setArchiveConfirm(c))
-                          }
                           {deleteConfirm === c.id
                             ? <><button onClick={() => handleDelete(c.id)} style={{ background: '#dc2626', color: '#fff', border: 'none', borderRadius: 4, padding: '4px 6px', cursor: 'pointer', fontSize: 10 }}>Oui</button><button onClick={() => setDeleteConfirm(null)} style={{ background: '#f3f4f6', color: '#374151', border: 'none', borderRadius: 4, padding: '4px 6px', cursor: 'pointer', fontSize: 10 }}>Non</button></>
                             : btnAction('Supprimer', '#fee2e2', '#dc2626', <Trash2 size={12} />, () => setDeleteConfirm(c.id))
@@ -1762,20 +2001,6 @@ const Contrats: React.FC = () => {
         </Overlay>
       )}
 
-      {/* ── Modale : Archivage ────────────────────────────────────────────────── */}
-      {archiveConfirm && (
-        <Overlay onClose={() => setArchiveConfirm(null)}>
-          <ModalHeader title="Archiver le contrat" onClose={() => setArchiveConfirm(null)} />
-          <p style={{ fontSize: 14, color: '#374151', margin: '0 0 20px' }}>Archiver <b>{archiveConfirm.objet}</b> ({archiveConfirm.raison_sociale}) ? Il sera masqué de la liste principale.</p>
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-            <button onClick={() => setArchiveConfirm(null)} style={{ padding: '8px 16px', borderRadius: 6, border: '1px solid #d1d5db', background: '#fff', cursor: 'pointer', fontSize: 13 }}>Annuler</button>
-            <button onClick={() => handleArchive(archiveConfirm)} style={{ padding: '8px 16px', borderRadius: 6, border: 'none', background: '#374151', color: '#fff', cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>
-              <Archive size={13} style={{ display: 'inline', marginRight: 5 }} />Archiver
-            </button>
-          </div>
-        </Overlay>
-      )}
-
       {/* ── Modale : Visualisation PDF ────────────────────────────────────────── */}
       {pdfModal && (
         <Overlay onClose={() => setPdfModal(null)} maxWidth={900}>
@@ -1787,6 +2012,296 @@ const Contrats: React.FC = () => {
           />
         </Overlay>
       )}
+
+      {/* ── Modale : Lien commande / engagement ───────────────────────────────── */}
+      {linkModal && (
+        <Overlay onClose={() => setLinkModal(null)} maxWidth={860}>
+          <ModalHeader title={`Lier commande / engagement — ${linkModal.contrat.objet}`} onClose={() => setLinkModal(null)} />
+          <div style={{ display: 'flex', gap: 6, marginBottom: 12 }}>
+            <button
+              onClick={() => { setLinkTab('bc'); setLinkResults([]); setLinkSelections([]); setLinkAmount(''); }}
+              style={{ padding: '6px 12px', borderRadius: 6, border: linkTab === 'bc' ? '1px solid #1d4ed8' : '1px solid #d1d5db', background: linkTab === 'bc' ? '#eff6ff' : '#fff', color: linkTab === 'bc' ? '#1d4ed8' : '#374151', cursor: 'pointer', fontSize: 12, fontWeight: 600 }}
+            >
+              Bon de commande Sedit
+            </button>
+            <button
+              onClick={() => { setLinkTab('engagement'); setLinkResults([]); setLinkSelections([]); setLinkAmount(''); }}
+              style={{ padding: '6px 12px', borderRadius: 6, border: linkTab === 'engagement' ? '1px solid #6d28d9' : '1px solid #d1d5db', background: linkTab === 'engagement' ? '#f5f3ff' : '#fff', color: linkTab === 'engagement' ? '#6d28d9' : '#374151', cursor: 'pointer', fontSize: 12, fontWeight: 600 }}
+            >
+              Engagement budgétaire
+            </button>
+            <button
+              onClick={() => { setLinkTab('facture'); setLinkResults([]); setLinkSelections([]); setLinkAmount(''); }}
+              style={{ padding: '6px 12px', borderRadius: 6, border: linkTab === 'facture' ? '1px solid #d97706' : '1px solid #d1d5db', background: linkTab === 'facture' ? '#fffbeb' : '#fff', color: linkTab === 'facture' ? '#b45309' : '#374151', cursor: 'pointer', fontSize: 12, fontWeight: 600 }}
+            >
+              Facture
+            </button>
+          </div>
+
+          {/* Liens actuels (plusieurs possibles) */}
+          {(() => {
+            const current = linkModal.contrat.liaisons || [];
+            if (current.length === 0) return null;
+            return (
+              <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 8, padding: 10, marginBottom: 12 }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: '#166534', marginBottom: 6 }}>
+                  {current.length} lien{current.length > 1 ? 's' : ''} actuel{current.length > 1 ? 's' : ''} :
+                </div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                  {current.map(l => {
+                    const isBc = l.commande_type === 'bc';
+                    const isFacture = l.commande_type === 'facture';
+                    const chipBg = isBc ? '#dbeafe' : isFacture ? '#fffbeb' : '#f5f3ff';
+                    const chipFg = isBc ? '#1d4ed8' : isFacture ? '#b45309' : '#6d28d9';
+                    const chipBd = isBc ? '#93c5fd' : isFacture ? '#fcd34d' : '#ddd6fe';
+                    const chipTitle = isBc ? (l.commande_libelle || '') : isFacture ? (l.commande_libelle || '') : (l.engagement_libelle || '');
+                    const seditHref = (isBc || isFacture) && l.commande_sedit && linkSeditUrl
+                      ? `${linkSeditUrl}/${isBc ? 'FicheCommande.html?commandeId' : 'FicheFacture.html?factureId'}=${l.commande_sedit}`
+                      : null;
+                    return (
+                      <span key={l.id} title={chipTitle} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: chipBg, color: chipFg, border: `1px solid ${chipBd}`, borderRadius: 9999, padding: '3px 8px', fontSize: 11, fontWeight: 600, whiteSpace: 'nowrap' }}>
+                        {isBc ? <FileCheck2 size={12} /> : isFacture ? <Receipt size={12} /> : <Link2 size={12} />}
+                        {seditHref
+                          ? <a href={seditHref} target="_blank" rel="noopener noreferrer" title="Ouvrir dans Sedit" style={{ color: chipFg, textDecoration: 'underline', display: 'inline-flex', alignItems: 'center', gap: 3 }}>{isBc ? (l.commande_numero || 'BC') : isFacture ? (l.commande_numero || 'Facture') : (l.engagement_code || 'Engt')} <ExternalLink size={10} /></a>
+                          : (isBc ? (l.commande_numero || 'BC') : isFacture ? (l.commande_numero || 'Facture') : (l.engagement_code || 'Engt'))}
+                        <button title="Retirer ce lien" onClick={() => unlinkLiaison(l.id)} style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: '#b91c1c', display: 'inline-flex', padding: 0, marginLeft: 2 }}>
+                          <CloseIcon size={11} />
+                        </button>
+                      </span>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })()}
+
+          {/* Filtres de recherche */}
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 10 }}>
+            <input placeholder="Recherche (n°, libellé)" value={linkQ} onChange={e => setLinkQ(e.target.value)} onKeyDown={e => e.key === 'Enter' && searchLink()} style={{ padding: '6px 8px', borderRadius: 6, border: '1px solid #d1d5db', fontSize: 12, flex: '1 1 180px' }} />
+            <input placeholder="Tiers" value={linkTiers} onChange={e => setLinkTiers(e.target.value)} onKeyDown={e => e.key === 'Enter' && searchLink()} style={{ padding: '6px 8px', borderRadius: 6, border: '1px solid #d1d5db', fontSize: 12, flex: '1 1 140px' }} />
+            <input placeholder="Montant min" value={linkMin} onChange={e => setLinkMin(e.target.value)} style={{ padding: '6px 8px', borderRadius: 6, border: '1px solid #d1d5db', fontSize: 12, width: 100 }} />
+            <input placeholder="Montant max" value={linkMax} onChange={e => setLinkMax(e.target.value)} style={{ padding: '6px 8px', borderRadius: 6, border: '1px solid #d1d5db', fontSize: 12, width: 100 }} />
+            <select value={linkYear} onChange={e => setLinkYear(e.target.value)} style={{ padding: '6px 8px', borderRadius: 6, border: '1px solid #d1d5db', fontSize: 12 }}>
+              <option value="">Année</option>
+              {(linkEngagementYears.length ? linkEngagementYears : [String(new Date().getFullYear())]).map(y => <option key={y} value={y}>{y}</option>)}
+            </select>
+            <button onClick={searchLink} style={{ padding: '6px 14px', borderRadius: 6, border: 'none', background: '#1d4ed8', color: '#fff', cursor: 'pointer', fontSize: 12, fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+              <Search size={13} /> Rechercher
+            </button>
+          </div>
+
+          {/* Résultats */}
+          <div style={{ maxHeight: 240, overflowY: 'auto', border: '1px solid #e5e7eb', borderRadius: 8, marginBottom: 12 }}>
+            {linkLoading
+              ? <div style={{ padding: 20, textAlign: 'center', color: '#6b7280', fontSize: 13 }}><Loader2 size={18} className="spin" /> Recherche…</div>
+              : linkResults.length === 0
+                ? <div style={{ padding: 20, textAlign: 'center', color: '#9ca3af', fontSize: 13 }}>Aucun résultat — lancez une recherche</div>
+                : <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                    <thead>
+                      <tr style={{ background: '#f9fafb' }}>
+                        <th style={{ padding: '6px 8px', textAlign: 'center', borderBottom: '1px solid #e5e7eb', width: 26 }}>
+                          <input
+                            type="checkbox"
+                            title="Tout sélectionner"
+                            checked={(() => {
+                              const selectable = linkResults.filter(r => !alreadyLinkedKeys.has(linkItemKey(r)));
+                              return selectable.length > 0 && selectable.every(r => linkSelections.some(s => linkItemKey(s) === linkItemKey(r)));
+                            })()}
+                            onChange={e => {
+                              const selectable = linkResults.filter(r => !alreadyLinkedKeys.has(linkItemKey(r)));
+                              setLinkSelections(prev => {
+                                const next = e.target.checked
+                                  ? Array.from(new Map(selectable.map(r => [linkItemKey(r), { ...r, type: linkTab }])).values())
+                                  : prev.filter(s => !selectable.some(r => linkItemKey(r) === linkItemKey(s)));
+                                const sum = next.reduce((acc, s) => acc + (linkItemAmount(s) || 0), 0);
+                                setLinkAmount(sum > 0 ? String(Math.round(sum * 100) / 100) : '');
+                                return next;
+                              });
+                            }}
+                          />
+                        </th>
+                        <th style={{ padding: '6px 8px', textAlign: 'left', borderBottom: '1px solid #e5e7eb' }}>N°</th>
+                        <th style={{ padding: '6px 8px', textAlign: 'left', borderBottom: '1px solid #e5e7eb' }}>Libellé</th>
+                        <th style={{ padding: '6px 8px', textAlign: 'left', borderBottom: '1px solid #e5e7eb' }}>Tiers</th>
+                        {linkTab === 'engagement' && <th style={{ padding: '6px 8px', textAlign: 'left', borderBottom: '1px solid #e5e7eb' }}>Année</th>}
+                        <th style={{ padding: '6px 8px', textAlign: 'right', borderBottom: '1px solid #e5e7eb' }}>Montant</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {linkResults.map((r, i) => {
+                        const num = linkTab === 'bc' ? (r.numero || r.sedit_id || '') : linkTab === 'engagement' ? (r.code || '') : (r.numero || r.sedit_id || '');
+                        const lib = r.libelle || r.objet || '';
+                        const montant = linkTab === 'bc' ? (r.montant_ttc != null ? r.montant_ttc : r.montant_ht) : linkTab === 'engagement' ? (r.montant != null ? r.montant : r.solde) : r.montant_ttc;
+                        const key = linkItemKey(r);
+                        const selected = linkSelections.some(s => linkItemKey(s) === key);
+                        const isLinked = alreadyLinkedKeys.has(key);
+                        return (
+                          <tr key={i} style={{ background: selected ? '#eff6ff' : i % 2 ? '#f9fafb' : '#fff', opacity: isLinked ? 0.5 : 1 }}>
+                            <td style={{ padding: '6px 8px', borderBottom: '1px solid #f3f4f6', textAlign: 'center' }}>
+                              <input
+                                type="checkbox"
+                                checked={selected || isLinked}
+                                disabled={isLinked}
+                                title={isLinked ? 'Déjà lié à ce contrat' : 'Sélectionner'}
+                                onChange={() => !isLinked && toggleLink(r)}
+                              />
+                            </td>
+                            <td style={{ padding: '6px 8px', borderBottom: '1px solid #f3f4f6', fontWeight: 600, whiteSpace: 'nowrap' }}>
+                              {linkTab === 'bc' && r.sedit_id && linkSeditUrl
+                                ? (
+                                  <a
+                                    href={`${linkSeditUrl}/FicheCommande.html?commandeId=${r.sedit_id}`}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    title={`Ouvrir le bon de commande ${num} dans Sedit`}
+                                    style={{ color: '#1d4ed8', textDecoration: 'underline', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 3 }}
+                                  >
+                                    {num} <ExternalLink size={11} />
+                                  </a>
+                                )
+                                : linkTab === 'facture' && r.sedit_id && linkSeditUrl
+                                  ? (
+                                    <a
+                                      href={`${linkSeditUrl}/FicheFacture.html?factureId=${r.sedit_id}`}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      title={`Ouvrir la facture ${num} dans Sedit`}
+                                      style={{ color: '#b45309', textDecoration: 'underline', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 3 }}
+                                    >
+                                      {num} <ExternalLink size={11} />
+                                    </a>
+                                  )
+                                  : num}
+                              {isLinked && <span style={{ marginLeft: 5, color: '#15803d', fontSize: 10, fontWeight: 600 }}>✓ lié</span>}
+                            </td>
+                            <td style={{ padding: '6px 8px', borderBottom: '1px solid #f3f4f6' }}>{lib}</td>
+                            <td style={{ padding: '6px 8px', borderBottom: '1px solid #f3f4f6', whiteSpace: 'nowrap' }}>{r.tiers_nom || r.fournisseur || r.tiers || ''}</td>
+                            {linkTab === 'engagement' && <td style={{ padding: '6px 8px', borderBottom: '1px solid #f3f4f6', whiteSpace: 'nowrap' }}>{r.annee || r.year || ''}</td>}
+                            <td style={{ padding: '6px 8px', borderBottom: '1px solid #f3f4f6', textAlign: 'right', whiteSpace: 'nowrap' }}>{montant != null ? Number(montant).toLocaleString('fr-FR') : ''} €</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+            }
+          </div>
+
+          {/* Sélection multiple + montant 2026 */}
+          {linkSelections.length > 0 && (
+            <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, padding: 12, marginBottom: 12 }}>
+              <div style={{ fontSize: 12, fontWeight: 600, color: '#1e293b', marginBottom: 8 }}>
+                {linkSelections.length} commande{linkSelections.length > 1 ? 's' : ''} à lier :
+              </div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 10 }}>
+                {linkSelections.map(s => {
+                  const chipBg = linkTab === 'bc' ? '#dbeafe' : linkTab === 'facture' ? '#fffbeb' : '#f5f3ff';
+                  const chipFg = linkTab === 'bc' ? '#1d4ed8' : linkTab === 'facture' ? '#b45309' : '#6d28d9';
+                  const chipBd = linkTab === 'bc' ? '#93c5fd' : linkTab === 'facture' ? '#fcd34d' : '#ddd6fe';
+                  const seditHref = linkTab !== 'engagement' && s.sedit_id && linkSeditUrl
+                    ? `${linkSeditUrl}/${linkTab === 'bc' ? 'FicheCommande.html?commandeId' : 'FicheFacture.html?factureId'}=${s.sedit_id}`
+                    : null;
+                  return (
+                    <span key={linkItemKey(s)} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: chipBg, color: chipFg, border: `1px solid ${chipBd}`, borderRadius: 9999, padding: '3px 8px', fontSize: 11, fontWeight: 600, whiteSpace: 'nowrap' }}>
+                      {linkTab === 'bc' ? <FileCheck2 size={12} /> : linkTab === 'facture' ? <Receipt size={12} /> : <Link2 size={12} />}
+                      {seditHref
+                        ? <a href={seditHref} target="_blank" rel="noopener noreferrer" title="Ouvrir dans Sedit" style={{ color: chipFg, textDecoration: 'underline', display: 'inline-flex', alignItems: 'center', gap: 3 }}>{linkTab === 'engagement' ? s.code : (s.numero || s.sedit_id)} <ExternalLink size={10} /></a>
+                        : (linkTab === 'engagement' ? s.code : (s.numero || s.sedit_id))}
+                      <button title="Retirer de la sélection" onClick={() => toggleLink(s)} style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: '#b91c1c', display: 'inline-flex', padding: 0, marginLeft: 2 }}>
+                        <CloseIcon size={11} />
+                      </button>
+                    </span>
+                  );
+                })}
+              </div>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: '#374151' }}>
+                Montant engagé (année {linkYear || new Date().getFullYear()}) :
+                <input value={linkAmount} onChange={e => setLinkAmount(e.target.value)} type="number" step="0.01" min="0" style={{ padding: '6px 8px', borderRadius: 6, border: '1px solid #d1d5db', fontSize: 12, width: 140 }} />
+                €
+                <span style={{ color: '#6b7280', fontWeight: 400 }}>(somme des commandes sélectionnées, modifiable)</span>
+              </label>
+            </div>
+          )}
+
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+            <button onClick={() => setLinkModal(null)} style={{ padding: '8px 16px', borderRadius: 6, border: '1px solid #d1d5db', background: '#fff', cursor: 'pointer', fontSize: 13 }}>Annuler</button>
+            <button
+              onClick={confirmLink}
+              disabled={linkSelections.length === 0}
+              style={{ padding: '8px 16px', borderRadius: 6, border: 'none', background: linkSelections.length === 0 ? '#9ca3af' : '#15803d', color: '#fff', cursor: linkSelections.length === 0 ? 'default' : 'pointer', fontSize: 13, fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 5 }}
+            >
+              <Link2 size={13} /> Valider les liens ({linkSelections.length})
+            </button>
+          </div>
+        </Overlay>
+      )}
+
+      {/* ── Modale : Liste des commandes liées ──────────────────────────────────── */}
+      {linkListModal && (() => {
+        const cur = linkListModal.contrat.liaisons || [];
+        const fmtDate = (d: string) => {
+          if (!d) return '—';
+          const m = String(d).match(/^(\d{4})-(\d{2})-(\d{2})/);
+          if (m) return `${m[3]}/${m[2]}/${m[1]}`;
+          return String(d);
+        };
+        return (
+          <Overlay onClose={() => setLinkListModal(null)} maxWidth={760}>
+            <ModalHeader title={`Commandes liées — ${linkListModal.contrat.objet}`} onClose={() => setLinkListModal(null)} />
+            {cur.length === 0 ? (
+              <div style={{ padding: 24, textAlign: 'center', color: '#9ca3af', fontSize: 13 }}>Aucune commande liée</div>
+            ) : (
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                <thead>
+                  <tr style={{ background: '#f9fafb' }}>
+                    <th style={{ padding: '6px 8px', textAlign: 'left', borderBottom: '1px solid #e5e7eb' }}>Type</th>
+                    <th style={{ padding: '6px 8px', textAlign: 'left', borderBottom: '1px solid #e5e7eb' }}>Date</th>
+                    <th style={{ padding: '6px 8px', textAlign: 'left', borderBottom: '1px solid #e5e7eb' }}>N°</th>
+                    <th style={{ padding: '6px 8px', textAlign: 'left', borderBottom: '1px solid #e5e7eb' }}>Nom</th>
+                    <th style={{ padding: '6px 8px', textAlign: 'left', borderBottom: '1px solid #e5e7eb' }}>Lien Sedit</th>
+                    <th style={{ padding: '6px 8px', textAlign: 'right', borderBottom: '1px solid #e5e7eb' }}>Montant</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {cur.map((l, i) => {
+                    const isBc = l.commande_type === 'bc';
+                    const isFacture = l.commande_type === 'facture';
+                    const badgeBg = isBc ? '#dbeafe' : isFacture ? '#fffbeb' : '#f5f3ff';
+                    const badgeFg = isBc ? '#1d4ed8' : isFacture ? '#b45309' : '#6d28d9';
+                    const badgeBd = isBc ? '#93c5fd' : isFacture ? '#fcd34d' : '#ddd6fe';
+                    const seditHref = (isBc || isFacture) && l.commande_sedit && linkSeditUrl
+                      ? `${linkSeditUrl}/${isBc ? 'FicheCommande.html?commandeId' : 'FicheFacture.html?factureId'}=${l.commande_sedit}`
+                      : null;
+                    return (
+                      <tr key={l.id} style={{ background: i % 2 ? '#f9fafb' : '#fff' }}>
+                        <td style={{ padding: '6px 8px', borderBottom: '1px solid #f3f4f6', whiteSpace: 'nowrap' }}>
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: badgeBg, color: badgeFg, border: `1px solid ${badgeBd}`, borderRadius: 9999, padding: '2px 8px', fontSize: 11, fontWeight: 600, whiteSpace: 'nowrap' }}>
+                            {isBc ? <FileCheck2 size={11} /> : isFacture ? <Receipt size={11} /> : <Link2 size={11} />}
+                            {isBc ? 'BC Sedit' : isFacture ? 'Facture' : 'Engagement'}
+                          </span>
+                        </td>
+                        <td style={{ padding: '6px 8px', borderBottom: '1px solid #f3f4f6', whiteSpace: 'nowrap' }}>{fmtDate(l.date_commande)}</td>
+                        <td style={{ padding: '6px 8px', borderBottom: '1px solid #f3f4f6', whiteSpace: 'nowrap', fontWeight: 600 }}>{isBc ? (l.commande_numero || 'BC') : isFacture ? (l.commande_numero || 'Facture') : (l.engagement_code || 'Engt')}</td>
+                        <td style={{ padding: '6px 8px', borderBottom: '1px solid #f3f4f6', maxWidth: 260 }}>{isBc ? (l.commande_libelle || '') : isFacture ? (l.commande_libelle || '') : (l.engagement_libelle || '')}</td>
+                        <td style={{ padding: '6px 8px', borderBottom: '1px solid #f3f4f6', whiteSpace: 'nowrap' }}>
+                          {seditHref ? (
+                            <a href={seditHref} target="_blank" rel="noopener noreferrer" title="Ouvrir dans Sedit" style={{ color: badgeFg, textDecoration: 'underline', display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+                              Ouvrir <ExternalLink size={11} />
+                            </a>
+                          ) : <span style={{ color: '#9ca3af' }}>—</span>}
+                        </td>
+                        <td style={{ padding: '6px 8px', borderBottom: '1px solid #f3f4f6', textAlign: 'right', whiteSpace: 'nowrap' }}>{l.commande_montant != null ? Number(l.commande_montant).toLocaleString('fr-FR') : ''} €</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            )}
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 14 }}>
+              <button onClick={() => setLinkListModal(null)} style={{ padding: '8px 16px', borderRadius: 6, border: '1px solid #d1d5db', background: '#fff', cursor: 'pointer', fontSize: 13 }}>Fermer</button>
+            </div>
+          </Overlay>
+        );
+      })()}
 
       {/* ── Modale : Visualisation des Documents avec Navigation ────────────────── */}
       {docViewModal && (
@@ -2007,6 +2522,7 @@ const Contrats: React.FC = () => {
 
       <style>{`
         @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+        .spin { animation: spin 1s linear infinite; }
         ::-webkit-scrollbar { height: 8px; width: 8px; }
         ::-webkit-scrollbar-track { background: #f1f5f9; }
         ::-webkit-scrollbar-thumb { background: #94a3b8; border-radius: 4px; }

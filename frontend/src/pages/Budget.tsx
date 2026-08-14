@@ -110,7 +110,7 @@ const Budget: React.FC = () => {
   const [showColumnSelector, setShowColumnSelector] = useState(false);
   const DEFAULT_ORDER_COLUMNS = ['N° Commande', 'Libellé', 'Date de la commande', 'Budget', 'Service émetteur', 'Section', 'Montant HT', 'Montant TTC', 'Nb lignes'];
   const DEFAULT_INVOICE_COLUMNS = ['N° Facture interne', 'N° Facture fournisseur', 'Libellé', 'Fournisseur', 'Arrivée', 'Échéance', 'Montant TTC', 'Budget', 'Etat'];
-  const DEFAULT_OP_COLUMNS = ['LIBELLE', 'Service', 'Section', 'C. Nature', 'Montant prévu', 'used_amount', 'Terminé'];
+  const DEFAULT_OP_COLUMNS = ['LIBELLE', 'Service', 'Section', 'C. Nature', 'Montant prévu', 'used_amount', 'Terminé', 'prev'];
 
   const getStoredColumns = (viewKey: string, defaults: string[]) => {
     try {
@@ -718,7 +718,7 @@ const Budget: React.FC = () => {
   };
 
   const handleCreateOp = async () => {
-    const emptyRow = { 'Service': '', 'Service Complément': '', 'LIBELLE': 'Nouvelle Opération', 'MCO': '', 'C. Fonc.': '', 'C. Nature': '', 'Montant prévu': 0, 'Terminé': 'NON', 'Commentaire': '', 'exercice': String(currentFiscalYear) };
+    const emptyRow = { 'Service': '', 'Service Complément': '', 'LIBELLE': 'Nouvelle Opération', 'MCO': '', 'C. Fonc.': '', 'C. Nature': '', 'Montant prévu': 0, 'Terminé': 'NON', 'prev': false, 'Commentaire': '', 'exercice': String(currentFiscalYear) };
     try {
       const response = await fetch('/api/budget/operations', {
         method: 'POST',
@@ -2426,6 +2426,18 @@ const Budget: React.FC = () => {
                                       const val = row[col];
                                       const isDone = val === 'Payée' || val === 'OUI' || val === 1;
                                       content = <span className={`badge ${isDone ? 'success' : 'status'}`}>{val}</span>;
+                                    } else if (col === 'prev' && view === 'operations') {
+                                      const isPrev = row[col] === true || row[col] === 't' || row[col] === 1;
+                                      content = (
+                                        <input
+                                          type="checkbox"
+                                          checked={isPrev}
+                                          disabled={!isAuthorizedToEdit}
+                                          title="Inclure le reste à engager de cette opération dans la prévision de /budget-prep"
+                                          onClick={(e) => e.stopPropagation()}
+                                          onChange={(e) => handleCellUpdate(row, col, e.target.checked)}
+                                        />
+                                      );
                                     } else if (
                                       col === 'Montant HT' || col === 'amount_ht' || 
                                       col === 'montant_prevu' || col === 'allocated_amount' ||
@@ -2581,7 +2593,7 @@ const Budget: React.FC = () => {
                                       style={{ ...cellStyle, ...(isCellEditing ? { padding: '4px' } : {}) }} 
                                       title={!isCellEditing ? (tooltip || row[col] || '') : undefined}
                                       onDoubleClick={() => {
-                                        if (view === 'operations' && isAuthorizedToEdit && col !== 'used_amount' && col !== 'Montant utilisé') {
+                                        if (view === 'operations' && isAuthorizedToEdit && col !== 'used_amount' && col !== 'Montant utilisé' && col !== 'prev') {
                                           setEditingCell({ id: row.id, key: col });
                                           setCellValue(row[col] || '');
                                         }

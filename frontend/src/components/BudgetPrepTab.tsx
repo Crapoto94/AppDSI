@@ -14,7 +14,7 @@ interface Facet {
 
 interface Column {
     key: string;
-    type: 'vote' | 'realise' | 'realise_engage' | 'prevision';
+    type: 'vote' | 'realise' | 'realise_engage' | 'prevision_engage' | 'prevision_a_engager' | 'prevision';
     year: number;
 }
 
@@ -58,16 +58,19 @@ const typeLabel = (type: string) => {
     switch (type) {
         case 'vote': return 'Voté';
         case 'realise_engage': return 'Réal.';
-        case 'prevision': return 'Prévision';
+        case 'prevision_engage': return 'Engagé';
+        case 'prevision_a_engager': return 'Reste à engager';
+        case 'prevision': return 'Prévision totale';
         default: return 'Réalisé';
     }
 };
 
 // Colonnes calculées une seule fois par article (service) : le réalisé des engagements et la
-// prévision sont attachés par (service gestionnaire, article) — toutes les lignes d'un même article
-// portent la même valeur, il ne faut donc les additionner qu'une seule fois par article (sinon
-// double comptage si la même imputation apparaît sur plusieurs fonctions, chapitres ou budgets).
-const PER_ARTICLE_TYPES = new Set(['realise_engage', 'prevision']);
+// prévision (engagé / reste à engager / total) sont attachées par (service gestionnaire, article) —
+// toutes les lignes d'un même article portent la même valeur, il ne faut donc les additionner
+// qu'une seule fois par article (sinon double comptage si la même imputation apparaît sur
+// plusieurs fonctions, chapitres ou budgets).
+const PER_ARTICLE_TYPES = new Set(['realise_engage', 'prevision_engage', 'prevision_a_engager', 'prevision']);
 
 // Colonnes calculées une seule fois par fonction (aucune actuellement).
 const PER_FONCTION_TYPES = new Set<string>();
@@ -83,6 +86,41 @@ const fmt = (n: number | undefined) => {
     if (n === undefined || n === null) return '';
     return new Intl.NumberFormat('fr-FR', { maximumFractionDigits: 0 }).format(n);
 };
+
+const fmt2 = (n: number | undefined) => {
+    if (n === undefined || n === null) return '';
+    return new Intl.NumberFormat('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n);
+};
+
+// Sous-détail affiché en petit sous le total "Prévision" : "engagé € + reste à engager €".
+const previsionBreakdown = (c: Column, values: Record<string, number>): string | null => {
+    if (c.type !== 'prevision') return null;
+    const engage = values[`prevision_engage_${c.year}`];
+    const aEngager = values[`prevision_a_engager_${c.year}`];
+    if (engage === undefined && aEngager === undefined) return null;
+    return `${fmt(engage || 0)} € + ${fmt(aEngager || 0)} €`;
+};
+
+// Types de colonnes calculées (réalisé engagements N-1, prévision N décomposée) pour lesquelles
+// on peut afficher le détail du calcul dans une modale au clic.
+const DETAIL_TYPES = new Set(['realise_engage', 'prevision_engage', 'prevision_a_engager', 'prevision']);
+
+interface EngagementDetail { numero: string; libelle: string; montant: number; }
+interface ContratDetail { logiciel: string; montant: number; }
+interface TelecomOperatorDetail { operator_name: string; total: number; landing: number | null; }
+interface TelecomDetail { landing_global: number | null; operators: TelecomOperatorDetail[]; }
+interface OperationDetail { libelle: string; montant_prevu: number; used_amount: number; reste_a_engager: number; }
+
+const TELECOM_NATURE = '6262';
+
+interface DetailTarget {
+    service_code: string;
+    service_label: string;
+    article_code: string;
+    article_libelle: string;
+    type: string;
+    year: number;
+}
 
 const BudgetPrepTab: React.FC = () => {
     const { token, user } = useAuth();
@@ -103,6 +141,48 @@ const BudgetPrepTab: React.FC = () => {
     const [depRecFilter, setDepRecFilter] = useState('');
     const [search, setSearch] = useState('');
     const [showRealise, setShowRealise] = useState(false);
+
+    const [detailTarget, setDetailTarget] = useState<DetailTarget | null>(null);
+    const [detailLoading, setDetailLoading] = useState(false);
+    const [detailError, setDetailError] = useState('');
+    const [detailEngagements, setDetailEngagements] = useState<EngagementDetail[]>([]);
+    const [detailContrats, setDetailContrats] = useState<ContratDetail[]>([]);
+    const [detailTelecom, setDetailTelecom] = useState<TelecomDetail | null>(null);
+    const [detailOperations, setDetailOperations] = useState<OperationDetail[]>([]);
+
+    const openDetail = async (target: DetailTarget) => {
+        setDetailTarget(target);
+        setDetailLoading(true);
+        setDetailError('');
+        setDetailEngagements([]);
+        setDetailContrats([]);
+        setDetailTelecom(null);
+        setDetailOperations([]);
+        try {
+            const params = new URLSearchParams({
+                service_code: target.service_code,
+                article_code: target.article_code,
+                type: target.type,
+                year: String(target.year)
+            });
+            const res = await fetch(`/api/budget-prep/line-detail?${params.toString()}`, { headers: { Authorization: `Bearer ${token}` } });
+            if (!res.ok) {
+                const errBody = await res.json().catch(() => ({}));
+                throw new Error(errBody.error || 'Erreur de chargement du détail');
+            }
+            const json = await res.json();
+            setDetailEngagements(json.engagements || []);
+            setDetailContrats(json.contrats || []);
+            setDetailTelecom(json.telecom || null);
+            setDetailOperations(json.operations || []);
+        } catch (e: any) {
+            setDetailError(e.message || 'Erreur de chargement du détail');
+        } finally {
+            setDetailLoading(false);
+        }
+    };
+
+    const closeDetail = () => setDetailTarget(null);
 
     const [showImportPanel, setShowImportPanel] = useState(false);
     const [imports, setImports] = useState<ImportRow[]>([]);
@@ -157,7 +237,12 @@ const BudgetPrepTab: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     useEffect(() => { fetchData(); }, [token, serviceFilter, budgetFilter, chapitreFilter, fonctionFilter, articleFilter, depRecFilter, search]);
 
-    const visibleColumns = useMemo(() => showRealise ? columns : columns.filter(c => c.type !== 'realise'), [columns, showRealise]);
+    // "prevision_engage" et "prevision_a_engager" ne sont pas affichées comme colonnes à part :
+    // elles alimentent le sous-détail (engagé + reste à engager) affiché sous le total "Prévision".
+    const visibleColumns = useMemo(() => {
+        const base = showRealise ? columns : columns.filter(c => c.type !== 'realise');
+        return base.filter(c => c.type !== 'prevision_engage' && c.type !== 'prevision_a_engager');
+    }, [columns, showRealise]);
 
     // Rupture par service, puis regroupement par nature (article) : les fonctions sont dépliables au sein de chaque nature.
     // Les services sont repliés par défaut : on déplie à la demande.
@@ -235,11 +320,24 @@ const BudgetPrepTab: React.FC = () => {
         return t;
     }, [groupedByService]);
 
+    // Regroupé par année : le voté est une barre pleine, le réalisé des engagements (N-1) et la
+    // prévision (N) — les montants "calculés" — sont superposés sur la barre de leur année, en
+    // hachuré, pour les distinguer visuellement du voté sans dupliquer les colonnes de l'axe X.
+    interface ChartEntry { year: number; vote?: number; realise?: number; calcule?: number; calculeLabel?: string; }
     const chartData = useMemo(() => {
-        return visibleColumns.map(c => ({
-            name: `${typeLabel(c.type)} ${c.year}`,
-            montant: displayTotals[c.key] || 0
-        }));
+        const byYear = new Map<number, ChartEntry>();
+        for (const c of visibleColumns) {
+            if (!byYear.has(c.year)) byYear.set(c.year, { year: c.year });
+            const entry = byYear.get(c.year)!;
+            const val = displayTotals[c.key] || 0;
+            if (c.type === 'vote') entry.vote = val;
+            else if (c.type === 'realise') entry.realise = val;
+            else if (c.type === 'realise_engage' || c.type === 'prevision') {
+                entry.calcule = val;
+                entry.calculeLabel = typeLabel(c.type);
+            }
+        }
+        return Array.from(byYear.values()).sort((a, b) => a.year - b.year);
     }, [visibleColumns, displayTotals]);
 
     const toggleArticle = (serviceCode: string, articleCode: string) => {
@@ -454,7 +552,10 @@ const BudgetPrepTab: React.FC = () => {
                                                 <strong>{service.service_code} — {service.service_label}</strong>
                                             </td>
                                             {visibleColumns.map(c => (
-                                                <td key={c.key} className={`col-${c.type} num`}><strong>{fmt(service.values[c.key])}</strong></td>
+                                                <td key={c.key} className={`col-${c.type} num`}>
+                                                    <strong>{fmt(service.values[c.key])}</strong>
+                                                    {previsionBreakdown(c, service.values) && <div className="prevision-sub">{previsionBreakdown(c, service.values)}</div>}
+                                                </td>
                                             ))}
                                         </tr>
                                     )}
@@ -469,17 +570,41 @@ const BudgetPrepTab: React.FC = () => {
                                                         {group.article_libelle && <span className="lib">— {group.article_libelle}</span>}
                                                     </td>
                                                     <td className="muted">{group.children.length} fonction{group.children.length > 1 ? 's' : ''}</td>
-                                                    {visibleColumns.map(c => (
-                                                        <td key={c.key} className={`col-${c.type} num`}><strong>{fmt(group.values[c.key])}</strong></td>
-                                                    ))}
+                                                    {visibleColumns.map(c => {
+                                                        const clickable = DETAIL_TYPES.has(c.type) && group.values[c.key] !== undefined;
+                                                        const breakdown = previsionBreakdown(c, group.values);
+                                                        return (
+                                                            <td key={c.key} className={`col-${c.type} num`}>
+                                                                {clickable ? (
+                                                                    <strong className="detail-link" onClick={(e) => {
+                                                                        e.stopPropagation();
+                                                                        openDetail({ service_code: service.service_code, service_label: service.service_label, article_code: group.article_code, article_libelle: group.article_libelle, type: c.type, year: c.year });
+                                                                    }}>{fmt(group.values[c.key])}</strong>
+                                                                ) : <strong>{fmt(group.values[c.key])}</strong>}
+                                                                {breakdown && <div className="prevision-sub">{breakdown}</div>}
+                                                            </td>
+                                                        );
+                                                    })}
                                                 </tr>
                                                 {expanded && group.children.map(child => (
                                                     <tr key={`${service.service_code}-${group.article_code}-${child.fonction_code}`} className="fonction-row">
                                                         <td></td>
                                                         <td>{child.fonction_code} {child.fonction_libelle && <span className="lib">— {child.fonction_libelle}</span>}</td>
-                                                        {visibleColumns.map(c => (
-                                                            <td key={c.key} className={`col-${c.type} num`}>{fmt(child.values[c.key])}</td>
-                                                        ))}
+                                                        {visibleColumns.map(c => {
+                                                            const clickable = DETAIL_TYPES.has(c.type) && child.values[c.key] !== undefined;
+                                                            const breakdown = previsionBreakdown(c, child.values);
+                                                            return (
+                                                                <td key={c.key} className={`col-${c.type} num`}>
+                                                                    {clickable ? (
+                                                                        <span className="detail-link" onClick={(e) => {
+                                                                            e.stopPropagation();
+                                                                            openDetail({ service_code: service.service_code, service_label: service.service_label, article_code: group.article_code, article_libelle: group.article_libelle, type: c.type, year: c.year });
+                                                                        }}>{fmt(child.values[c.key])}</span>
+                                                                    ) : fmt(child.values[c.key])}
+                                                                    {breakdown && <div className="prevision-sub">{breakdown}</div>}
+                                                                </td>
+                                                            );
+                                                        })}
                                                     </tr>
                                                 ))}
                                             </React.Fragment>
@@ -492,7 +617,10 @@ const BudgetPrepTab: React.FC = () => {
                             <tr>
                                 <td colSpan={2}><strong>Total</strong></td>
                                 {visibleColumns.map(c => (
-                                    <td key={c.key} className={`col-${c.type} num`}><strong>{fmt(displayTotals[c.key])}</strong></td>
+                                    <td key={c.key} className={`col-${c.type} num`}>
+                                        <strong>{fmt(displayTotals[c.key])}</strong>
+                                        {previsionBreakdown(c, displayTotals) && <div className="prevision-sub">{previsionBreakdown(c, displayTotals)}</div>}
+                                    </td>
                                 ))}
                             </tr>
                         </tfoot>
@@ -503,16 +631,146 @@ const BudgetPrepTab: React.FC = () => {
             <div className="prep-chart-card">
                 <h3 className="chart-title">Évolution du total (selon filtres appliqués)</h3>
                 <ResponsiveContainer width="100%" height={340}>
-                    <BarChart data={chartData} margin={{ top: 10, right: 20, left: 10, bottom: 10 }}>
+                    <BarChart data={chartData} margin={{ top: 10, right: 20, left: 10, bottom: 10 }} barGap={-36} barCategoryGap="30%">
+                        <defs>
+                            <pattern id="prepHatch" patternUnits="userSpaceOnUse" width="7" height="7" patternTransform="rotate(45)">
+                                <rect width="7" height="7" fill="#f97316" />
+                                <line x1="0" y1="0" x2="0" y2="7" stroke="#ffffff" strokeWidth="2.5" />
+                            </pattern>
+                        </defs>
                         <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                        <XAxis dataKey="name" tick={{ fontSize: 12 }} />
+                        <XAxis dataKey="year" tick={{ fontSize: 12 }} />
                         <YAxis tickFormatter={(v) => fmt(v)} width={90} />
-                        <Tooltip formatter={(v: any) => fmt(Number(v)) + ' €'} />
-                        <Legend />
-                        <Bar dataKey="montant" name="Montant (€)" fill="#003366" radius={[4, 4, 0, 0]} />
+                        <Tooltip
+                            formatter={(v: any, key: any, item: any) => [
+                                fmt(Number(v)) + ' €',
+                                key === 'calcule' ? (item?.payload?.calculeLabel || 'Réalisé / Prévision') : key === 'vote' ? 'Voté' : 'Réalisé'
+                            ]}
+                            labelFormatter={(year) => `Année ${year}`}
+                        />
+                        <Legend formatter={(value) => value} />
+                        {/* barGap négatif : les trois barres sont superposées sur la même position (année)
+                            plutôt que côte à côte — le voté sert de fond, le réalisé/prévision (hachuré)
+                            est dessiné par-dessus pour le distinguer visuellement sans décaler l'axe. */}
+                        <Bar dataKey="vote" name="Voté" fill="#003366" barSize={36} radius={[4, 4, 0, 0]} />
+                        <Bar dataKey="realise" name="Réalisé" fill="#16a34a" barSize={36} radius={[4, 4, 0, 0]} />
+                        <Bar dataKey="calcule" name="Réalisé (engagements) / Prévision — hachuré" fill="url(#prepHatch)" stroke="#f97316" strokeWidth={1} barSize={36} radius={[4, 4, 0, 0]} />
                     </BarChart>
                 </ResponsiveContainer>
             </div>
+
+            {detailTarget && (
+                <div className="detail-modal-overlay" onClick={closeDetail}>
+                    <div className="detail-modal" onClick={e => e.stopPropagation()}>
+                        <div className="detail-modal-header">
+                            <h3>
+                                {typeLabel(detailTarget.type)} {detailTarget.year} — {detailTarget.service_code} — {detailTarget.article_code}
+                                {detailTarget.article_libelle && <span className="lib"> ({detailTarget.article_libelle})</span>}
+                            </h3>
+                            <button className="icon-btn" onClick={closeDetail}><X size={18} /></button>
+                        </div>
+                        <div className="detail-modal-body">
+                            {detailLoading && <div className="uploading-msg"><RefreshCw size={14} className="spin" /> Chargement...</div>}
+                            {detailError && <div className="alert alert-error">{detailError}</div>}
+                            {!detailLoading && !detailError && (
+                                <>
+                                    {detailTarget.type !== 'prevision_a_engager' && (
+                                    <>
+                                    <h4>Engagements ({detailEngagements.length})</h4>
+                                    {detailEngagements.length === 0 && <p className="muted">Aucun engagement.</p>}
+                                    {detailEngagements.length > 0 && (
+                                        <table className="detail-table">
+                                            <thead><tr><th>Numéro</th><th>Libellé</th><th className="num">Montant</th></tr></thead>
+                                            <tbody>
+                                                {detailEngagements.map((e, i) => (
+                                                    <tr key={i}><td>{e.numero}</td><td>{e.libelle}</td><td className="num">{fmt2(e.montant)} €</td></tr>
+                                                ))}
+                                            </tbody>
+                                            <tfoot>
+                                                <tr><td colSpan={2}><strong>Total engagements</strong></td><td className="num"><strong>{fmt2(detailEngagements.reduce((s, e) => s + e.montant, 0))} €</strong></td></tr>
+                                            </tfoot>
+                                        </table>
+                                    )}
+                                    </>
+                                    )}
+
+                                    {(detailTarget.type === 'prevision' || detailTarget.type === 'prevision_a_engager') && detailTarget.article_code === TELECOM_NATURE && detailTelecom && (
+                                        <>
+                                            <h4>Atterrissage télécom {detailTarget.year} (source /telecom)</h4>
+                                            <p className="muted">
+                                                Réel des mois écoulés + moyenne mensuelle × mois restants, tous opérateurs confondus.
+                                                Atterrissage global : <strong>{fmt2(detailTelecom.landing_global ?? undefined)} €</strong>.
+                                            </p>
+                                            {detailTelecom.operators.length > 0 && (
+                                                <table className="detail-table">
+                                                    <thead><tr><th>Opérateur</th><th className="num">Facturé à date</th><th className="num">Atterrissage</th></tr></thead>
+                                                    <tbody>
+                                                        {detailTelecom.operators.map((o, i) => (
+                                                            <tr key={i}>
+                                                                <td>{o.operator_name}</td>
+                                                                <td className="num">{fmt2(o.total)} €</td>
+                                                                <td className="num">{o.landing !== null ? `${fmt2(o.landing)} €` : '—'}</td>
+                                                            </tr>
+                                                        ))}
+                                                    </tbody>
+                                                    <tfoot>
+                                                        <tr><td><strong>Total</strong></td><td></td><td className="num"><strong>{fmt2(detailTelecom.landing_global ?? undefined)} €</strong></td></tr>
+                                                    </tfoot>
+                                                </table>
+                                            )}
+                                            <p className="detail-note">Voir /telecom pour le détail mois par mois et par compte de facturation.</p>
+                                        </>
+                                    )}
+                                    {(detailTarget.type === 'prevision' || detailTarget.type === 'prevision_a_engager') && detailTarget.article_code !== TELECOM_NATURE && (
+                                        <>
+                                            <h4>Contrats (prévision {detailTarget.year} sans montant réel connu)</h4>
+                                            {detailContrats.length === 0 && <p className="muted">Aucun contrat.</p>}
+                                            {detailContrats.length > 0 && (
+                                                <table className="detail-table">
+                                                    <thead><tr><th>Logiciel</th><th className="num">Prévision</th></tr></thead>
+                                                    <tbody>
+                                                        {detailContrats.map((c, i) => (
+                                                            <tr key={i}>
+                                                                <td>{c.logiciel}</td>
+                                                                <td className="num">{fmt2(c.montant)} €</td>
+                                                            </tr>
+                                                        ))}
+                                                    </tbody>
+                                                    <tfoot>
+                                                        <tr><td><strong>Total contrats</strong></td><td className="num"><strong>{fmt2(detailContrats.reduce((s, c) => s + c.montant, 0))} €</strong></td></tr>
+                                                    </tfoot>
+                                                </table>
+                                            )}
+                                        </>
+                                    )}
+                                    {(detailTarget.type === 'prevision' || detailTarget.type === 'prevision_a_engager') && detailOperations.length > 0 && (
+                                        <>
+                                            <h4>Opérations « Prev » (/budget opérations)</h4>
+                                            <table className="detail-table">
+                                                <thead><tr><th>Opération</th><th className="num">Prévu</th><th className="num">Engagé</th><th className="num">Reste à engager</th></tr></thead>
+                                                <tbody>
+                                                    {detailOperations.map((o, i) => (
+                                                        <tr key={i}>
+                                                            <td>{o.libelle}</td>
+                                                            <td className="num">{fmt2(o.montant_prevu)} €</td>
+                                                            <td className="num">{fmt2(o.used_amount)} €</td>
+                                                            <td className="num">{fmt2(o.reste_a_engager)} €</td>
+                                                        </tr>
+                                                    ))}
+                                                </tbody>
+                                                <tfoot>
+                                                    <tr><td colSpan={3}><strong>Total reste à engager</strong></td><td className="num"><strong>{fmt2(detailOperations.reduce((s, o) => s + o.reste_a_engager, 0))} €</strong></td></tr>
+                                                </tfoot>
+                                            </table>
+                                            <p className="detail-note">Opérations basculées en « Prev » dans /budget, dont le reste à engager est ajouté à la prévision.</p>
+                                        </>
+                                    )}
+                                </>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            )}
 
             <style>{`
                 .budget-prep-container { display: flex; flex-direction: column; gap: 1.5rem; }
@@ -546,6 +804,8 @@ const BudgetPrepTab: React.FC = () => {
                 .prep-table th.col-realise_engage, .prep-table td.col-realise_engage { background: #ecfeff; }
                 .prep-table th.col-prevision, .prep-table td.col-prevision { background: #fff7ed; }
                 .prep-table td.num { text-align: right; font-variant-numeric: tabular-nums; }
+                .prevision-sub { font-size: 0.72rem; font-weight: 400; color: #9a6a3f; opacity: 0.85; white-space: nowrap; }
+                .prep-table .service-row .prevision-sub { color: #cbd5e1; }
                 .prep-table .lib { color: #94a3b8; font-weight: 400; margin-left: 0.35rem; }
                 .prep-table .service-row td { background: #003366; color: white; padding-top: 0.6rem; padding-bottom: 0.6rem; }
                 .prep-table .service-row { cursor: pointer; }
@@ -561,6 +821,22 @@ const BudgetPrepTab: React.FC = () => {
                 .prep-chart-card { background: white; border: 1px solid var(--color-slate-200); border-radius: 1rem; padding: 1.25rem; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05); }
                 .chart-title { margin: 0 0 1rem 0; font-size: 1rem; color: #1e293b; }
                 .alert-error { background: #fef2f2; color: #b91c1c; padding: 0.75rem 1rem; border-radius: 0.5rem; border: 1px solid #fecaca; }
+
+                .detail-link { cursor: pointer; text-decoration: underline dotted; text-underline-offset: 3px; }
+                .detail-link:hover { color: #003366; }
+
+                .detail-modal-overlay { position: fixed; inset: 0; background: rgba(15, 23, 42, 0.5); display: flex; align-items: center; justify-content: center; z-index: 1000; padding: 1rem; }
+                .detail-modal { background: white; border-radius: 1rem; width: 100%; max-width: 720px; max-height: 85vh; display: flex; flex-direction: column; box-shadow: 0 20px 40px -8px rgba(0,0,0,0.25); }
+                .detail-modal-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; padding: 1.25rem 1.25rem 0.75rem 1.25rem; border-bottom: 1px solid var(--color-slate-100); }
+                .detail-modal-header h3 { margin: 0; font-size: 1rem; color: #003366; }
+                .detail-modal-body { padding: 1rem 1.25rem 1.25rem 1.25rem; overflow-y: auto; }
+                .detail-modal-body h4 { margin: 1rem 0 0.5rem 0; font-size: 0.9rem; color: #1e293b; }
+                .detail-modal-body h4:first-child { margin-top: 0; }
+                .detail-note { color: #94a3b8; font-size: 0.8rem; margin-top: 0.5rem; }
+                .detail-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+                .detail-table th, .detail-table td { padding: 0.4rem 0.6rem; border-bottom: 1px solid var(--color-slate-100); text-align: left; }
+                .detail-table td.num, .detail-table th.num { text-align: right; font-variant-numeric: tabular-nums; }
+                .detail-table tfoot td { border-top: 2px solid var(--color-slate-200); border-bottom: none; }
             `}</style>
         </div>
     );

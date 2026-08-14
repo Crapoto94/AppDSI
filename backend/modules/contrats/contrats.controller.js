@@ -1,7 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const xlsx = require('xlsx');
-const { pgDb } = require('../../shared/database');
+const { pgDb, pool } = require('../../shared/database');
 const storage = require('../../shared/storage');
 
 const MODULE = 'contrats';
@@ -54,6 +54,27 @@ function toStr(v) {
     return String(v).trim();
 }
 
+// Miroir des colonnes de lien mono sur le contrat (dernière liaison ajoutée),
+// pour garder la compat avec les vues/exports qui lisent les anciennes colonnes.
+async function syncLinkMirror(db, contratId) {
+    const latest = await db.get(`
+        SELECT commande_type, commande_sedit, commande_numero, commande_libelle,
+               commande_montant, engagement_code, engagement_libelle, lien_annee
+        FROM hub_contrats.contrats_liaisons
+        WHERE contrat_id = ?
+        ORDER BY id DESC LIMIT 1`, [contratId]);
+    await db.run(`UPDATE contrats SET
+        commande_type = ?, commande_sedit = ?, commande_numero = ?,
+        commande_libelle = ?, commande_montant = ?,
+        engagement_code = ?, engagement_libelle = ?, lien_annee = ?
+        WHERE id = ?`, [
+        toStr(latest?.commande_type), toStr(latest?.commande_sedit), toStr(latest?.commande_numero),
+        toStr(latest?.commande_libelle), latest?.commande_montant ?? null,
+        toStr(latest?.engagement_code), toStr(latest?.engagement_libelle), latest?.lien_annee ?? null,
+        contratId
+    ]);
+}
+
 // Controller
 module.exports = {
     // Compteur contrats expirés / expirant bientôt (pour badge dashboard)
@@ -84,7 +105,22 @@ module.exports = {
                 SELECT
                     c.*,
                     t."TIERS_POBJ_EXTRACT_2" as tiers_nom,
-                    a.name as app_nom
+                    a.name as app_nom,
+                    COALESCE((
+                        SELECT json_agg(json_build_object(
+                            'id', l.id,
+                            'commande_type', l.commande_type,
+                            'commande_sedit', l.commande_sedit,
+                            'commande_numero', l.commande_numero,
+                            'commande_libelle', l.commande_libelle,
+                    'commande_montant', l.commande_montant,
+                    'date_commande', l.date_commande,
+                    'engagement_code', l.engagement_code,
+                            'engagement_libelle', l.engagement_libelle,
+                            'lien_annee', l.lien_annee
+                        ) ORDER BY l.id DESC)
+                        FROM hub_contrats.contrats_liaisons l WHERE l.contrat_id = c.id
+                    ), '[]') AS liaisons
                 FROM contrats c
                 LEFT JOIN oracle.gf_oracle_tiers t ON c.tiers = t."TIERS_TIERS"
                 LEFT JOIN magapp.apps a ON c.app_id = a.id
@@ -93,6 +129,275 @@ module.exports = {
             res.json(contrats);
         } catch (error) {
             res.status(500).json({ message: 'Erreur', error: error.message });
+        }
+    },
+
+    // Rechercher des bons de commande Sedit (filtres : libellé, tiers, montant, année).
+    async searchCommandes(req, res) {
+        try {
+            const { q, tiers, montantMin, montantMax, year, limit } = req.query;
+            const params = [];
+            const where = [];
+
+            if (q) {
+                params.push(`%${q}%`, `%${q}%`);
+                where.push(`(c."COMMANDE_COMMANDE" ILIKE $${params.length - 1} OR TRIM(CONCAT(COALESCE(c."COMMANDE_LIBELLE", ''), ' ', COALESCE(c."COMMANDE_CMD_LIBELLE2", ''))) ILIKE $${params.length})`);
+            }
+            if (tiers) {
+                params.push(`%${tiers}%`, `%${tiers}%`);
+                where.push(`(c."TIERS_TIERS" ILIKE $${params.length - 1} OR t."TIERS_POBJ_EXTRACT_2" ILIKE $${params.length})`);
+            }
+            const minF = parseFloat(montantMin);
+            if (montantMin && !isNaN(minF)) { params.push(minF); where.push(`c."COMMANDE_MONTANT_TTC" >= $${params.length}`); }
+            const maxF = parseFloat(montantMax);
+            if (montantMax && !isNaN(maxF)) { params.push(maxF); where.push(`c."COMMANDE_MONTANT_TTC" <= $${params.length}`); }
+            const y = parseInt(year);
+            if (year && !isNaN(y)) { params.push(y); where.push(`EXTRACT(YEAR FROM c."COMMANDE_CMD_DATECOMMANDE") = $${params.length}`); }
+
+            params.push(Math.min(parseInt(limit) || 100, 300));
+
+            const sql = `
+                SELECT
+                    TRIM(c."COMMANDE_COMMANDE") AS numero,
+                    TRIM(c."COMMANDE_ROO_IMA_REF") AS sedit_id,
+                    TRIM(CONCAT(COALESCE(c."COMMANDE_LIBELLE", ''), ' ', COALESCE(c."COMMANDE_CMD_LIBELLE2", ''))) AS libelle,
+                    TO_CHAR(c."COMMANDE_CMD_DATECOMMANDE", 'YYYY-MM-DD') AS date_commande,
+                    c."COMMANDE_MONTANT_HT" AS montant_ht,
+                    c."COMMANDE_MONTANT_TTC" AS montant_ttc,
+                    TRIM(c."TIERS_TIERS") AS tiers_code,
+                    t."TIERS_POBJ_EXTRACT_2" AS tiers_nom,
+                    c."BUDGET_LIBELLE" AS budget_libelle,
+                    c."SERVICEFI_LIBELLE" AS service_fi,
+                    c.section
+                FROM oracle.commandes_with_section c
+                LEFT JOIN (
+                    SELECT TRIM("TIERS_TIERS") AS code, MIN(TRIM("TIERS_POBJ_EXTRACT_2")) AS "TIERS_POBJ_EXTRACT_2"
+                    FROM oracle.gf_oracle_tiers
+                    GROUP BY TRIM("TIERS_TIERS")
+                ) t ON t.code = TRIM(c."TIERS_TIERS")
+                ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
+                ORDER BY c."COMMANDE_CMD_DATECOMMANDE" DESC NULLS LAST
+                LIMIT $${params.length}`;
+
+            const result = await pool.query(sql, params);
+            const rows = result.rows.map(r => ({
+                numero: r.numero,
+                sedit_id: r.sedit_id,
+                libelle: r.libelle,
+                date_commande: r.date_commande,
+                montant_ht: r.montant_ht != null ? parseFloat(r.montant_ht) : null,
+                montant_ttc: r.montant_ttc != null ? parseFloat(r.montant_ttc) : null,
+                tiers_code: r.tiers_code,
+                tiers_nom: r.tiers_nom || null,
+                budget_libelle: r.budget_libelle || '',
+                service_fi: r.service_fi || '',
+                section: r.section || ''
+            }));
+            res.json(rows);
+        } catch (error) {
+            console.error('[Contrats] searchCommandes error:', error.message);
+            res.status(500).json({ message: 'Erreur recherche commandes', error: error.message });
+        }
+    },
+
+    // Rechercher des factures Sedit (filtres : libellé/fournisseur, tiers, montant, année).
+    async searchFactures(req, res) {
+        try {
+            const { q, tiers, montantMin, montantMax, year, limit } = req.query;
+            const params = [];
+            const where = [];
+
+            if (q) {
+                params.push(`%${q}%`, `%${q}%`, `%${q}%`);
+                where.push(`(TRIM(f."FACTURE_FACTURE") ILIKE $${params.length - 2} OR TRIM(COALESCE(f."FACTURE_LIBELLE1", '')) ILIKE $${params.length - 1} OR TRIM(COALESCE(f."FACTURE_LIBELLE2", '')) ILIKE $${params.length})`);
+            }
+            if (tiers) {
+                params.push(`%${tiers}%`, `%${tiers}%`);
+                where.push(`(TRIM(COALESCE(f."FACTURE_FACTIERS", '')) ILIKE $${params.length - 1} OR TRIM(COALESCE(f."TIERS_POBJ_EXTRACT_2", '')) ILIKE $${params.length})`);
+            }
+            const minF = parseFloat(montantMin);
+            if (montantMin && !isNaN(minF)) { params.push(minF); where.push(`COALESCE(f."FACTURE_MONTANTTC_E", 0) >= $${params.length}`); }
+            const maxF = parseFloat(montantMax);
+            if (montantMax && !isNaN(maxF)) { params.push(maxF); where.push(`COALESCE(f."FACTURE_MONTANTTC_E", 0) <= $${params.length}`); }
+            const y = parseInt(year);
+            if (year && !isNaN(y)) { params.push(y); where.push(`EXTRACT(YEAR FROM f."FACTURE_DATENTREE") = $${params.length}`); }
+
+            params.push(Math.min(parseInt(limit) || 100, 300));
+
+            const sql = `
+                SELECT
+                    TRIM(f."FACTURE_FACTURE") AS numero,
+                    TRIM(f."FACTURE_ROO_IMA_REF") AS sedit_id,
+                    TRIM(COALESCE(f."FACTURE_LIBELLE1", '')) AS libelle,
+                    TRIM(COALESCE(f."FACTURE_LIBELLE2", '')) AS fournisseur,
+                    TRIM(COALESCE(f."FACTURE_REFERENCE", '')) AS reference,
+                    TO_CHAR(f."FACTURE_DATENTREE", 'YYYY-MM-DD') AS date_commande,
+                    f."FACTURE_MONTANTTC_E" AS montant_ttc,
+                    TRIM(COALESCE(f."FACTURE_FACTIERS", '')) AS tiers_code,
+                    TRIM(COALESCE(f."TIERS_POBJ_EXTRACT_2", '')) AS tiers_nom,
+                    TRIM(COALESCE(f."FACETAT_LIBELLE", '')) AS etat
+                FROM oracle.gf_oracle_facture f
+                ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
+                ORDER BY f."FACTURE_DATENTREE" DESC NULLS LAST
+                LIMIT $${params.length}`;
+
+            const result = await pool.query(sql, params);
+            const rows = result.rows.map(r => ({
+                numero: r.numero,
+                sedit_id: r.sedit_id,
+                libelle: r.libelle,
+                fournisseur: r.fournisseur || '',
+                reference: r.reference || '',
+                date_commande: r.date_commande,
+                montant_ttc: r.montant_ttc != null ? parseFloat(r.montant_ttc) : null,
+                tiers_code: r.tiers_code,
+                tiers_nom: r.tiers_nom || null,
+                etat: r.etat || ''
+            }));
+            res.json(rows);
+        } catch (error) {
+            console.error('[Contrats] searchFactures error:', error.message);
+            res.status(500).json({ message: 'Erreur recherche factures', error: error.message });
+        }
+    },
+
+    // Rechercher des engagements budgétaires (agrégés par code mouvement).
+    async searchEngagements(req, res) {
+        try {
+            const { q, tiers, year, montantMin, montantMax, limit } = req.query;
+            const params = [];
+            const where = [];
+
+            if (q) {
+                params.push(`%${q}%`, `%${q}%`);
+                where.push(`(TRIM("Code mouvement") ILIKE $${params.length - 1} OR TRIM(COALESCE("Libellé mouvement", '') || ' ' || COALESCE("Libellé", '')) ILIKE $${params.length})`);
+            }
+            if (tiers) { params.push(`%${tiers}%`); where.push(`"Nom tiers" ILIKE $${params.length}`); }
+            if (year) { params.push(String(year)); where.push(`TRIM("Exercice") = $${params.length}`); }
+            const minF = parseFloat(montantMin);
+            if (montantMin && !isNaN(minF)) { params.push(minF); where.push(`COALESCE("Montant TTC", 0) >= $${params.length}`); }
+            const maxF = parseFloat(montantMax);
+            if (montantMax && !isNaN(maxF)) { params.push(maxF); where.push(`COALESCE("Montant TTC", 0) <= $${params.length}`); }
+
+            params.push(Math.min(parseInt(limit) || 100, 300));
+
+            const sql = `
+                SELECT
+                    TRIM("Code mouvement") AS code,
+                    TRIM(MAX(COALESCE("Libellé mouvement", ''))) AS libelle,
+                    MAX("Nom tiers") AS tiers_nom,
+                    MAX("Section") AS section,
+                    MAX(TRIM("Imputation")) AS imputation,
+                    MAX(TRIM("Exercice")) AS exercice,
+                    MAX(TRIM(COALESCE("Commande", ''))) AS commande,
+                    MAX("Article par nature") AS nature,
+                    SUM(COALESCE("Montant TTC", 0)) AS montant,
+                    SUM(COALESCE("Reste engagé", 0)) AS solde
+                FROM oracle.budget_engagements
+                ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
+                GROUP BY TRIM("Code mouvement")
+                ORDER BY TRIM("Code mouvement")
+                LIMIT $${params.length}`;
+
+            const result = await pool.query(sql, params);
+            const round2 = (x) => Math.round(x * 100) / 100;
+            const rows = result.rows.map(r => {
+                const montant = round2(parseFloat(r.montant) || 0);
+                const solde = round2(parseFloat(r.solde) || 0);
+                return {
+                    code: r.code,
+                    libelle: r.libelle || '',
+                    tiers_nom: r.tiers_nom || '',
+                    section: r.section || '',
+                    imputation: r.imputation || '',
+                    exercice: r.exercice || '',
+                    commande: r.commande || '',
+                    nature: r.nature || '',
+                    montant,
+                    solde,
+                    realise: round2(montant - solde)
+                };
+            });
+            res.json(rows);
+        } catch (error) {
+            console.error('[Contrats] searchEngagements error:', error.message);
+            res.status(500).json({ message: 'Erreur recherche engagements', error: error.message });
+        }
+    },
+
+    // Lier un bon de commande Sedit ou un engagement au contrat (plusieurs liens possibles).
+    async linkCommande(req, res, db) {
+        try {
+            const b = req.body || {};
+            const type = b.commande_type === 'engagement' ? 'engagement' : (b.commande_type === 'bc' ? 'bc' : (b.commande_type === 'facture' ? 'facture' : ''));
+            if (!type) return res.status(400).json({ message: 'Type de lien invalide (bc, engagement ou facture)' });
+
+            const contrat = await db.get('SELECT id, tiers, raison_sociale FROM contrats WHERE id = ?', [req.params.id]);
+            if (!contrat) return res.status(404).json({ message: 'Contrat non trouvé' });
+
+            // Éviter de lier deux fois le même BC / engagement / facture
+            if (type === 'bc' && toStr(b.commande_sedit)) {
+                const dup = await db.get('SELECT id FROM hub_contrats.contrats_liaisons WHERE contrat_id = ? AND commande_type = ? AND commande_sedit = ?', [req.params.id, 'bc', toStr(b.commande_sedit)]);
+                if (dup) return res.status(400).json({ message: 'Ce bon de commande est déjà lié à ce contrat' });
+            }
+            if (type === 'engagement' && toStr(b.engagement_code)) {
+                const dup = await db.get('SELECT id FROM hub_contrats.contrats_liaisons WHERE contrat_id = ? AND commande_type = ? AND engagement_code = ?', [req.params.id, 'engagement', toStr(b.engagement_code)]);
+                if (dup) return res.status(400).json({ message: 'Cet engagement est déjà lié à ce contrat' });
+            }
+            if (type === 'facture') {
+                const dup = await db.get('SELECT id FROM hub_contrats.contrats_liaisons WHERE contrat_id = ? AND commande_type = ? AND commande_numero = ?', [req.params.id, 'facture', toStr(b.commande_numero)]);
+                if (dup) return res.status(400).json({ message: 'Cette facture est déjà liée à ce contrat' });
+            }
+
+            const montantN = (b.montant_2026 !== undefined && b.montant_2026 !== null && b.montant_2026 !== '')
+                ? toFloat(b.montant_2026) : null;
+
+            // Normaliser la date (ISO complet ou timestamp -> YYYY-MM-DD) car la colonne est VARCHAR(20)
+            const dateCmd = toStr(b.date_commande).slice(0, 10);
+
+            await db.run(`INSERT INTO hub_contrats.contrats_liaisons (
+                contrat_id, commande_type, commande_sedit, commande_numero, commande_libelle,
+                commande_montant, date_commande, engagement_code, engagement_libelle, lien_annee
+            ) VALUES (?,?,?,?,?,?,?,?,?,?)`, [
+                req.params.id, type,
+                toStr(b.commande_sedit), toStr(b.commande_numero), toStr(b.commande_libelle),
+                (b.commande_montant !== undefined && b.commande_montant !== null && b.commande_montant !== '')
+                    ? toFloat(b.commande_montant) : null,
+                dateCmd,
+                toStr(b.engagement_code), toStr(b.engagement_libelle),
+                new Date().getFullYear()
+            ]);
+
+            // Associer automatiquement le tiers de la commande / de l'engagement au contrat
+            // (uniquement si le contrat n'en a pas déjà, pour ne pas écraser une saisie manuelle).
+            const tiersCode = toStr(b.tiers_code);
+            const tiersNom = toStr(b.tiers_nom);
+            if (tiersCode && !contrat.tiers) await db.run('UPDATE contrats SET tiers = ? WHERE id = ?', [tiersCode, req.params.id]);
+            if (tiersNom && !contrat.raison_sociale) await db.run('UPDATE contrats SET raison_sociale = ? WHERE id = ?', [tiersNom, req.params.id]);
+
+            if (montantN !== null) await db.run('UPDATE contrats SET montant_2026 = ? WHERE id = ?', [montantN, req.params.id]);
+
+            await syncLinkMirror(db, req.params.id);
+            const updated = await db.get('SELECT * FROM contrats WHERE id = ?', [req.params.id]);
+            res.json({ message: 'Lien commande enregistré', contrat: updated });
+        } catch (error) {
+            console.error('[Contrats] linkCommande error:', error.message);
+            res.status(500).json({ message: 'Erreur enregistrement lien', error: error.message });
+        }
+    },
+
+    // Retirer une liaison précise (le montant 2026 est conservé).
+    async unlinkLiaison(req, res, db) {
+        try {
+            const liaison = await db.get('SELECT id, contrat_id FROM hub_contrats.contrats_liaisons WHERE id = ?', [req.params.liaisonId]);
+            if (!liaison) return res.status(404).json({ message: 'Lien non trouvé' });
+            await db.run('DELETE FROM hub_contrats.contrats_liaisons WHERE id = ?', [req.params.liaisonId]);
+            await syncLinkMirror(db, liaison.contrat_id);
+            const updated = await db.get('SELECT * FROM contrats WHERE id = ?', [liaison.contrat_id]);
+            res.json({ message: 'Lien commande retiré', contrat: updated });
+        } catch (error) {
+            console.error('[Contrats] unlinkLiaison error:', error.message);
+            res.status(500).json({ message: 'Erreur retrait lien', error: error.message });
         }
     },
 
@@ -141,16 +446,18 @@ module.exports = {
                 'marche_contrat', 'piece', 'date_reconduction', 'reconduction',
                 'montant_2022', 'montant_2023', 'montant_2024', 'montant_2025', 'montant_2026',
                 'prevision_2026', 'prevision_2027', 'prevision_2028', 'prevision_2029', 'commentaires',
-                'gti', 'gtr', 'penalite', 'indice_revision', 'numero_facture'
+                'gti', 'gtr', 'penalite', 'indice_revision', 'numero_facture',
+                'commande_sedit', 'commande_numero', 'commande_type', 'commande_libelle',
+                'commande_montant', 'engagement_code', 'engagement_libelle', 'lien_annee'
             ];
             const updates = [];
             const values = [];
             allowed.forEach(f => {
                 if (req.body[f] !== undefined) {
                     updates.push(`${f} = ?`);
-                    if (f === 'app_id' || f === 'annee_initiale' || f === 'nb_reconductions') {
+                    if (f === 'app_id' || f === 'annee_initiale' || f === 'nb_reconductions' || f === 'lien_annee') {
                         values.push(toInt(req.body[f]));
-                    } else if (f === 'duree_annees' || f.startsWith('montant_') || f.startsWith('prevision_')) {
+                    } else if (f === 'duree_annees' || f.startsWith('montant_') || f.startsWith('prevision_') || f === 'commande_montant') {
                         values.push(toFloat(req.body[f]));
                     } else if (f === 'date_debut' || f === 'date_fin') {
                         // Colonnes DATE : une chaîne vide fait échouer l'UPDATE côté Postgres ("invalid input syntax for type date").
