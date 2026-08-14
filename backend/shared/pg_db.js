@@ -2609,9 +2609,15 @@ async function setupPgDb() {
         file_name VARCHAR(255),
         nature VARCHAR(255),
         est_principal INTEGER DEFAULT 0,
+        archive INTEGER DEFAULT 0,
         uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
     `);
+    try {
+      await client.query(`ALTER TABLE hub_contrats.contrat_documents ADD COLUMN IF NOT EXISTS archive INTEGER DEFAULT 0`);
+    } catch (e) {
+      console.log('[PG DB] Migration contrat_documents.archive column:', e.message);
+    }
 
     // Add missing columns to existing contrats table
     try {
@@ -2644,6 +2650,17 @@ async function setupPgDb() {
       console.log('[PG DB] Migration prevision_2029 column:', e.message);
     }
 
+    // Refonte modale contrat : numéro, type de bien (logiciel/matériel), formule de révision,
+    // niveaux de service (GTI/GTR) en liste structurée plutôt qu'un simple texte libre.
+    try {
+      await client.query(`ALTER TABLE hub_contrats.contrats ADD COLUMN IF NOT EXISTS numero VARCHAR(255) DEFAULT ''`);
+      await client.query(`ALTER TABLE hub_contrats.contrats ADD COLUMN IF NOT EXISTS type_bien VARCHAR(50) DEFAULT 'logiciel'`);
+      await client.query(`ALTER TABLE hub_contrats.contrats ADD COLUMN IF NOT EXISTS formule_revision TEXT DEFAULT ''`);
+      await client.query(`ALTER TABLE hub_contrats.contrats ADD COLUMN IF NOT EXISTS sla_niveaux JSONB DEFAULT '[]'::jsonb`);
+    } catch (e) {
+      console.log('[PG DB] Migration numero/type_bien/formule_revision/sla_niveaux columns:', e.message);
+    }
+
     // Migration: lien bon de commande Sedit / engagement sur un contrat
     try {
       await client.query(`
@@ -2659,6 +2676,32 @@ async function setupPgDb() {
       `);
     } catch (e) {
       console.log('[PG DB] Migration lien commande columns:', e.message);
+    }
+
+    // Migration: indicateur de phase de renouvellement + dates vérifiées
+    try {
+      await client.query(`
+        ALTER TABLE hub_contrats.contrats
+          ADD COLUMN IF NOT EXISTS renouvellement_actuel INTEGER NOT NULL DEFAULT 0,
+          ADD COLUMN IF NOT EXISTS dates_verifiees INTEGER NOT NULL DEFAULT 0
+      `);
+    } catch (e) {
+      console.log('[PG DB] Migration renouvellement_actuel / dates_verifiees columns:', e.message);
+    }
+
+    // Vues de colonnes partagées ("général")
+    try {
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS hub_contrats.contrat_views (
+          id SERIAL PRIMARY KEY,
+          nom VARCHAR(120) NOT NULL UNIQUE,
+          columns JSONB NOT NULL DEFAULT '[]',
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+      `);
+    } catch (e) {
+      console.log('[PG DB] Migration contrat_views table:', e.message);
     }
 
     // Table des liaisons commande / engagement (plusieurs par contrat)

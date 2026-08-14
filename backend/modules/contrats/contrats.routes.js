@@ -35,6 +35,10 @@ router.delete('/:id/documents/:docId', authenticateAdmin, async (req, res) => {
     await controller.deleteDocument(req, res, pgDb);
 });
 
+router.put('/:id/documents/:docId/archive', authenticateAdminOrContrats, async (req, res) => {
+    await controller.archiveDocument(req, res, pgDb);
+});
+
 router.put('/:id/renouvellement', authenticateAdminOrContrats, async (req, res) => {
     await controller.updateRenewal(req, res, pgDb);
 });
@@ -52,8 +56,17 @@ router.get('/engagements/search', authenticateJWT, async (req, res) => {
     await controller.searchEngagements(req, res);
 });
 
-router.get('/factures/search', authenticateJWT, async (req, res) => {
-    await controller.searchFactures(req, res);
+// Vues de colonnes partagées ("général")
+router.get('/views', authenticateJWT, async (req, res) => {
+    await controller.listViews(req, res, pgDb);
+});
+
+router.post('/views', authenticateJWT, async (req, res) => {
+    await controller.saveView(req, res, pgDb);
+});
+
+router.delete('/views/:id', authenticateJWT, async (req, res) => {
+    await controller.deleteView(req, res, pgDb);
 });
 
 // Lier / détacher un bon de commande Sedit ou un engagement

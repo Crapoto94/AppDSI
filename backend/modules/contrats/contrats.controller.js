@@ -122,7 +122,13 @@ module.exports = {
                         FROM hub_contrats.contrats_liaisons l WHERE l.contrat_id = c.id
                     ), '[]') AS liaisons
                 FROM contrats c
-                LEFT JOIN oracle.gf_oracle_tiers t ON c.tiers = t."TIERS_TIERS"
+                LEFT JOIN LATERAL (
+                    SELECT t2."TIERS_POBJ_EXTRACT_2"
+                    FROM oracle.gf_oracle_tiers t2
+                    WHERE TRIM(t2."TIERS_TIERS") = TRIM(COALESCE(c.tiers, ''))
+                    ORDER BY t2."TIERS_DATEVALID" ASC NULLS LAST, TRIM(COALESCE(t2."TIERS_POBJ_EXTRACT_2", '')) ASC
+                    LIMIT 1
+                ) t ON TRUE
                 LEFT JOIN magapp.apps a ON c.app_id = a.id
                 ORDER BY c.date_fin ASC NULLS LAST, c.objet ASC
             `);
@@ -170,11 +176,13 @@ module.exports = {
                     c."SERVICEFI_LIBELLE" AS service_fi,
                     c.section
                 FROM oracle.commandes_with_section c
-                LEFT JOIN (
-                    SELECT TRIM("TIERS_TIERS") AS code, MIN(TRIM("TIERS_POBJ_EXTRACT_2")) AS "TIERS_POBJ_EXTRACT_2"
-                    FROM oracle.gf_oracle_tiers
-                    GROUP BY TRIM("TIERS_TIERS")
-                ) t ON t.code = TRIM(c."TIERS_TIERS")
+                LEFT JOIN LATERAL (
+                    SELECT t2."TIERS_POBJ_EXTRACT_2"
+                    FROM oracle.gf_oracle_tiers t2
+                    WHERE TRIM(t2."TIERS_TIERS") = TRIM(c."TIERS_TIERS")
+                    ORDER BY t2."TIERS_DATEVALID" ASC NULLS LAST, TRIM(COALESCE(t2."TIERS_POBJ_EXTRACT_2", '')) ASC
+                    LIMIT 1
+                ) t ON TRUE
                 ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
                 ORDER BY c."COMMANDE_CMD_DATECOMMANDE" DESC NULLS LAST
                 LIMIT $${params.length}`;
@@ -197,67 +205,6 @@ module.exports = {
         } catch (error) {
             console.error('[Contrats] searchCommandes error:', error.message);
             res.status(500).json({ message: 'Erreur recherche commandes', error: error.message });
-        }
-    },
-
-    // Rechercher des factures Sedit (filtres : libellé/fournisseur, tiers, montant, année).
-    async searchFactures(req, res) {
-        try {
-            const { q, tiers, montantMin, montantMax, year, limit } = req.query;
-            const params = [];
-            const where = [];
-
-            if (q) {
-                params.push(`%${q}%`, `%${q}%`, `%${q}%`);
-                where.push(`(TRIM(f."FACTURE_FACTURE") ILIKE $${params.length - 2} OR TRIM(COALESCE(f."FACTURE_LIBELLE1", '')) ILIKE $${params.length - 1} OR TRIM(COALESCE(f."FACTURE_LIBELLE2", '')) ILIKE $${params.length})`);
-            }
-            if (tiers) {
-                params.push(`%${tiers}%`, `%${tiers}%`);
-                where.push(`(TRIM(COALESCE(f."FACTURE_FACTIERS", '')) ILIKE $${params.length - 1} OR TRIM(COALESCE(f."TIERS_POBJ_EXTRACT_2", '')) ILIKE $${params.length})`);
-            }
-            const minF = parseFloat(montantMin);
-            if (montantMin && !isNaN(minF)) { params.push(minF); where.push(`COALESCE(f."FACTURE_MONTANTTC_E", 0) >= $${params.length}`); }
-            const maxF = parseFloat(montantMax);
-            if (montantMax && !isNaN(maxF)) { params.push(maxF); where.push(`COALESCE(f."FACTURE_MONTANTTC_E", 0) <= $${params.length}`); }
-            const y = parseInt(year);
-            if (year && !isNaN(y)) { params.push(y); where.push(`EXTRACT(YEAR FROM f."FACTURE_DATENTREE") = $${params.length}`); }
-
-            params.push(Math.min(parseInt(limit) || 100, 300));
-
-            const sql = `
-                SELECT
-                    TRIM(f."FACTURE_FACTURE") AS numero,
-                    TRIM(f."FACTURE_ROO_IMA_REF") AS sedit_id,
-                    TRIM(COALESCE(f."FACTURE_LIBELLE1", '')) AS libelle,
-                    TRIM(COALESCE(f."FACTURE_LIBELLE2", '')) AS fournisseur,
-                    TRIM(COALESCE(f."FACTURE_REFERENCE", '')) AS reference,
-                    TO_CHAR(f."FACTURE_DATENTREE", 'YYYY-MM-DD') AS date_commande,
-                    f."FACTURE_MONTANTTC_E" AS montant_ttc,
-                    TRIM(COALESCE(f."FACTURE_FACTIERS", '')) AS tiers_code,
-                    TRIM(COALESCE(f."TIERS_POBJ_EXTRACT_2", '')) AS tiers_nom,
-                    TRIM(COALESCE(f."FACETAT_LIBELLE", '')) AS etat
-                FROM oracle.gf_oracle_facture f
-                ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
-                ORDER BY f."FACTURE_DATENTREE" DESC NULLS LAST
-                LIMIT $${params.length}`;
-
-            const result = await pool.query(sql, params);
-            const rows = result.rows.map(r => ({
-                numero: r.numero,
-                sedit_id: r.sedit_id,
-                libelle: r.libelle,
-                fournisseur: r.fournisseur || '',
-                reference: r.reference || '',
-                date_commande: r.date_commande,
-                montant_ttc: r.montant_ttc != null ? parseFloat(r.montant_ttc) : null,
-                tiers_code: r.tiers_code,
-                tiers_nom: r.tiers_nom || null,
-                etat: r.etat || ''
-            }));
-            res.json(rows);
-        } catch (error) {
-            console.error('[Contrats] searchFactures error:', error.message);
-            res.status(500).json({ message: 'Erreur recherche factures', error: error.message });
         }
     },
 
@@ -329,13 +276,13 @@ module.exports = {
     async linkCommande(req, res, db) {
         try {
             const b = req.body || {};
-            const type = b.commande_type === 'engagement' ? 'engagement' : (b.commande_type === 'bc' ? 'bc' : (b.commande_type === 'facture' ? 'facture' : ''));
-            if (!type) return res.status(400).json({ message: 'Type de lien invalide (bc, engagement ou facture)' });
+            const type = b.commande_type === 'engagement' ? 'engagement' : (b.commande_type === 'bc' ? 'bc' : '');
+            if (!type) return res.status(400).json({ message: 'Type de lien invalide (bc ou engagement)' });
 
             const contrat = await db.get('SELECT id, tiers, raison_sociale FROM contrats WHERE id = ?', [req.params.id]);
             if (!contrat) return res.status(404).json({ message: 'Contrat non trouvé' });
 
-            // Éviter de lier deux fois le même BC / engagement / facture
+            // Éviter de lier deux fois le même BC / engagement
             if (type === 'bc' && toStr(b.commande_sedit)) {
                 const dup = await db.get('SELECT id FROM hub_contrats.contrats_liaisons WHERE contrat_id = ? AND commande_type = ? AND commande_sedit = ?', [req.params.id, 'bc', toStr(b.commande_sedit)]);
                 if (dup) return res.status(400).json({ message: 'Ce bon de commande est déjà lié à ce contrat' });
@@ -343,10 +290,6 @@ module.exports = {
             if (type === 'engagement' && toStr(b.engagement_code)) {
                 const dup = await db.get('SELECT id FROM hub_contrats.contrats_liaisons WHERE contrat_id = ? AND commande_type = ? AND engagement_code = ?', [req.params.id, 'engagement', toStr(b.engagement_code)]);
                 if (dup) return res.status(400).json({ message: 'Cet engagement est déjà lié à ce contrat' });
-            }
-            if (type === 'facture') {
-                const dup = await db.get('SELECT id FROM hub_contrats.contrats_liaisons WHERE contrat_id = ? AND commande_type = ? AND commande_numero = ?', [req.params.id, 'facture', toStr(b.commande_numero)]);
-                if (dup) return res.status(400).json({ message: 'Cette facture est déjà liée à ce contrat' });
             }
 
             const montantN = (b.montant_2026 !== undefined && b.montant_2026 !== null && b.montant_2026 !== '')
@@ -407,16 +350,17 @@ module.exports = {
             const b = req.body;
             const result = await db.run(
                 `INSERT INTO contrats (
-                    svc, objet, budget, raison_sociale, tiers, app_id, type_contrat, annee_initiale,
+                    svc, objet, budget, raison_sociale, tiers, app_id, type_contrat, type_bien, numero, annee_initiale,
                     direction, service, perimetre, nature, fonction,
                     date_debut, duree_annees, nb_reconductions, date_fin,
                     marche_contrat, piece, date_reconduction, reconduction,
                     montant_2022, montant_2023, montant_2024, montant_2025, montant_2026,
                     prevision_2026, prevision_2027, prevision_2028, prevision_2029, commentaires,
-                    gti, gtr, penalite, indice_revision, numero_facture, contrat_renouvellement_id
-                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+                    gti, gtr, penalite, indice_revision, formule_revision, sla_niveaux, numero_facture, contrat_renouvellement_id,
+                    renouvellement_actuel, dates_verifiees
+                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
                 [
-                    toStr(b.svc), toStr(b.objet), toStr(b.budget), toStr(b.raison_sociale), toStr(b.tiers), toInt(b.app_id), toStr(b.type_contrat),
+                    toStr(b.svc), toStr(b.objet), toStr(b.budget), toStr(b.raison_sociale), toStr(b.tiers), toInt(b.app_id), toStr(b.type_contrat), toStr(b.type_bien || 'logiciel'), toStr(b.numero),
                     toInt(b.annee_initiale), toStr(b.direction), toStr(b.service), toStr(b.perimetre),
                     toStr(b.nature), toStr(b.fonction), b.date_debut || null, toFloat(b.duree_annees),
                     toInt(b.nb_reconductions), b.date_fin || null, toStr(b.marche_contrat), toStr(b.piece),
@@ -425,8 +369,9 @@ module.exports = {
                     toFloat(b.montant_2025), toFloat(b.montant_2026),
                     toFloat(b.prevision_2026), toFloat(b.prevision_2027), toFloat(b.prevision_2028), toFloat(b.prevision_2029),
                     toStr(b.commentaires),
-                    toStr(b.gti), toStr(b.gtr), toStr(b.penalite), toStr(b.indice_revision), toStr(b.numero_facture),
-                    toInt(b.contrat_renouvellement_id)
+                    toStr(b.gti), toStr(b.gtr), toStr(b.penalite), toStr(b.indice_revision), toStr(b.formule_revision),
+                    JSON.stringify(Array.isArray(b.sla_niveaux) ? b.sla_niveaux : []), toStr(b.numero_facture),
+                    toInt(b.contrat_renouvellement_id), toInt(b.renouvellement_actuel ?? 0), toInt(b.dates_verifiees ?? 0)
                 ]
             );
             const newContrat = await db.get('SELECT * FROM contrats WHERE id = ?', [result.lastID]);
@@ -440,28 +385,31 @@ module.exports = {
     async update(req, res, db) {
         try {
             const allowed = [
-                'svc', 'objet', 'budget', 'raison_sociale', 'tiers', 'app_id', 'type_contrat', 'annee_initiale',
+                'svc', 'objet', 'budget', 'raison_sociale', 'tiers', 'app_id', 'type_contrat', 'type_bien', 'numero', 'annee_initiale',
                 'direction', 'service', 'perimetre', 'nature', 'fonction',
                 'date_debut', 'duree_annees', 'nb_reconductions', 'date_fin',
                 'marche_contrat', 'piece', 'date_reconduction', 'reconduction',
                 'montant_2022', 'montant_2023', 'montant_2024', 'montant_2025', 'montant_2026',
                 'prevision_2026', 'prevision_2027', 'prevision_2028', 'prevision_2029', 'commentaires',
-                'gti', 'gtr', 'penalite', 'indice_revision', 'numero_facture',
+                'gti', 'gtr', 'penalite', 'indice_revision', 'formule_revision', 'sla_niveaux', 'numero_facture',
                 'commande_sedit', 'commande_numero', 'commande_type', 'commande_libelle',
-                'commande_montant', 'engagement_code', 'engagement_libelle', 'lien_annee'
+                'commande_montant', 'engagement_code', 'engagement_libelle', 'lien_annee',
+                'renouvellement_actuel', 'dates_verifiees'
             ];
             const updates = [];
             const values = [];
             allowed.forEach(f => {
                 if (req.body[f] !== undefined) {
                     updates.push(`${f} = ?`);
-                    if (f === 'app_id' || f === 'annee_initiale' || f === 'nb_reconductions' || f === 'lien_annee') {
+                    if (f === 'app_id' || f === 'annee_initiale' || f === 'nb_reconductions' || f === 'lien_annee' || f === 'renouvellement_actuel' || f === 'dates_verifiees') {
                         values.push(toInt(req.body[f]));
                     } else if (f === 'duree_annees' || f.startsWith('montant_') || f.startsWith('prevision_') || f === 'commande_montant') {
                         values.push(toFloat(req.body[f]));
                     } else if (f === 'date_debut' || f === 'date_fin') {
                         // Colonnes DATE : une chaîne vide fait échouer l'UPDATE côté Postgres ("invalid input syntax for type date").
                         values.push(req.body[f] || null);
+                    } else if (f === 'sla_niveaux') {
+                        values.push(JSON.stringify(Array.isArray(req.body[f]) ? req.body[f] : []));
                     } else {
                         values.push(toStr(req.body[f]));
                     }
@@ -717,6 +665,20 @@ module.exports = {
         }
     },
 
+    // Documents - Archiver / désarchiver
+    async archiveDocument(req, res, db) {
+        try {
+            const doc = await db.get('SELECT * FROM contrat_documents WHERE id = ? AND contrat_id = ?', [req.params.docId, req.params.id]);
+            if (!doc) return res.status(404).json({ message: 'Document non trouvé' });
+            const archive = req.body.archive ? 1 : 0;
+            await db.run('UPDATE contrat_documents SET archive = ? WHERE id = ?', [archive, doc.id]);
+            const updated = await db.get('SELECT * FROM contrat_documents WHERE id = ?', [doc.id]);
+            res.json(updated);
+        } catch (error) {
+            res.status(500).json({ message: 'Erreur archivage document', error: error.message });
+        }
+    },
+
     // Renouvellement
     async updateRenewal(req, res, db) {
         const { renouvellement_statut, renouvellement_commentaire, nouvelle_date_fin } = req.body;
@@ -743,6 +705,53 @@ module.exports = {
             res.json({ message: `Contrat ${statut}`, contrat: updated });
         } catch (error) {
             res.status(500).json({ message: 'Erreur archivage', error: error.message });
+        }
+    },
+
+    // ── Vues de colonnes partagées ("général") ─────────────────────────────────
+    async listViews(req, res, db) {
+        try {
+            const rows = await db.all('SELECT id, nom, columns FROM hub_contrats.contrat_views ORDER BY nom ASC');
+            res.json(rows.map(r => ({
+                id: r.id,
+                nom: r.nom,
+                columns: typeof r.columns === 'string' ? (() => { try { return JSON.parse(r.columns); } catch { return []; } })() : (Array.isArray(r.columns) ? r.columns : [])
+            })));
+        } catch (error) {
+            console.error('[Contrats] listViews error:', error.message);
+            res.status(500).json({ message: 'Erreur liste vues', error: error.message });
+        }
+    },
+
+    async saveView(req, res, db) {
+        try {
+            const nom = String(req.body?.nom || '').trim();
+            if (!nom) return res.status(400).json({ message: 'Nom de vue requis' });
+            const columns = Array.isArray(req.body?.columns) ? req.body.columns.filter(k => typeof k === 'string') : [];
+            const colsJson = JSON.stringify(columns);
+            const existing = await db.get('SELECT id FROM hub_contrats.contrat_views WHERE LOWER(nom) = LOWER(?)', [nom]);
+            let view;
+            if (existing) {
+                await db.run('UPDATE hub_contrats.contrat_views SET columns = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?', [colsJson, existing.id]);
+                view = { id: existing.id, nom, columns };
+            } else {
+                const result = await db.run('INSERT INTO hub_contrats.contrat_views (nom, columns) VALUES (?, ?)', [nom, colsJson]);
+                view = { id: result.lastID, nom, columns };
+            }
+            res.json(view);
+        } catch (error) {
+            console.error('[Contrats] saveView error:', error.message);
+            res.status(500).json({ message: 'Erreur sauvegarde vue', error: error.message });
+        }
+    },
+
+    async deleteView(req, res, db) {
+        try {
+            await db.run('DELETE FROM hub_contrats.contrat_views WHERE id = ?', [req.params.id]);
+            res.json({ message: 'Vue supprimée' });
+        } catch (error) {
+            console.error('[Contrats] deleteView error:', error.message);
+            res.status(500).json({ message: 'Erreur suppression vue', error: error.message });
         }
     }
 };

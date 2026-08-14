@@ -631,7 +631,7 @@ const BudgetPrepTab: React.FC = () => {
             <div className="prep-chart-card">
                 <h3 className="chart-title">Évolution du total (selon filtres appliqués)</h3>
                 <ResponsiveContainer width="100%" height={340}>
-                    <BarChart data={chartData} margin={{ top: 10, right: 20, left: 10, bottom: 10 }} barGap={-36} barCategoryGap="30%">
+                    <BarChart data={chartData} margin={{ top: 10, right: 20, left: 10, bottom: 10 }} barGap={-70} barCategoryGap="20%">
                         <defs>
                             <pattern id="prepHatch" patternUnits="userSpaceOnUse" width="7" height="7" patternTransform="rotate(45)">
                                 <rect width="7" height="7" fill="#f97316" />
@@ -642,19 +642,21 @@ const BudgetPrepTab: React.FC = () => {
                         <XAxis dataKey="year" tick={{ fontSize: 12 }} />
                         <YAxis tickFormatter={(v) => fmt(v)} width={90} />
                         <Tooltip
-                            formatter={(v: any, key: any, item: any) => [
-                                fmt(Number(v)) + ' €',
-                                key === 'calcule' ? (item?.payload?.calculeLabel || 'Réalisé / Prévision') : key === 'vote' ? 'Voté' : 'Réalisé'
-                            ]}
+                            formatter={(v: any, _name: any, entry: any) => {
+                                const dataKey = entry?.dataKey;
+                                const label = dataKey === 'calcule' ? (entry?.payload?.calculeLabel || 'Réalisé / Prévision')
+                                    : dataKey === 'vote' ? 'Voté' : 'Réalisé';
+                                return [fmt(Number(v)) + ' €', label];
+                            }}
                             labelFormatter={(year) => `Année ${year}`}
                         />
                         <Legend formatter={(value) => value} />
                         {/* barGap négatif : les trois barres sont superposées sur la même position (année)
                             plutôt que côte à côte — le voté sert de fond, le réalisé/prévision (hachuré)
                             est dessiné par-dessus pour le distinguer visuellement sans décaler l'axe. */}
-                        <Bar dataKey="vote" name="Voté" fill="#003366" barSize={36} radius={[4, 4, 0, 0]} />
-                        <Bar dataKey="realise" name="Réalisé" fill="#16a34a" barSize={36} radius={[4, 4, 0, 0]} />
-                        <Bar dataKey="calcule" name="Réalisé (engagements) / Prévision — hachuré" fill="url(#prepHatch)" stroke="#f97316" strokeWidth={1} barSize={36} radius={[4, 4, 0, 0]} />
+                        <Bar dataKey="vote" name="Voté" fill="#003366" barSize={70} radius={[4, 4, 0, 0]} />
+                        <Bar dataKey="realise" name="Réalisé" fill="#16a34a" barSize={70} radius={[4, 4, 0, 0]} />
+                        <Bar dataKey="calcule" name="Réalisé (engagements) / Prévision — hachuré" fill="url(#prepHatch)" stroke="#f97316" strokeWidth={1} barSize={70} radius={[4, 4, 0, 0]} />
                     </BarChart>
                 </ResponsiveContainer>
             </div>

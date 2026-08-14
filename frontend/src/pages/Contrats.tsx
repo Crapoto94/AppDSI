@@ -4,8 +4,8 @@ import Header from '../components/Header';
 import {
   Upload, Download, AlertCircle, Loader2, Trash2, Edit2, Check,
   X as CloseIcon, Search, RefreshCw, ChevronUp, ChevronDown, ChevronRight, Plus, FileSpreadsheet,
-  RefreshCcw, Archive, FileText, Columns, Filter, Link2, ExternalLink, FileCheck2, Receipt,
-  TrendingUp, TrendingDown, ArrowRight
+  RefreshCcw, Archive, FileText, Columns, Filter, Link2, ExternalLink, FileCheck2,
+  TrendingUp, TrendingDown, ArrowRight, Bookmark, Save, Paperclip
 } from 'lucide-react';
 
 interface Contrat {
@@ -19,6 +19,8 @@ interface Contrat {
   app_id: number | null;
   app_nom?: string;
   type_contrat: string;
+  type_bien: string;
+  numero: string;
   annee_initiale: number | null;
   direction: string;
   service: string;
@@ -29,6 +31,10 @@ interface Contrat {
   duree_annees: number | null;
   nb_reconductions: number | null;
   date_fin: string | null;
+  renouvellement_actuel: number | null;
+  dates_verifiees: number | null;
+  date_fin_cours?: string | null;
+  date_fin_maxi?: string | null;
   marche_contrat: string;
   piece: string;
   date_reconduction: string;
@@ -53,6 +59,8 @@ interface Contrat {
   gtr: string;
   penalite: string;
   indice_revision: string;
+  formule_revision: string;
+  sla_niveaux?: SlaNiveau[];
   numero_facture: string;
   contrat_renouvellement_id: number | null;
   created_at: string;
@@ -65,6 +73,12 @@ interface Contrat {
   engagement_libelle: string;
   lien_annee: number | null;
   liaisons?: ContratLiaison[];
+}
+
+interface SlaNiveau {
+  categorie: 'GTI' | 'GTR';
+  duree_heures: number | null;
+  type_service: string;
 }
 
 interface ContratLiaison {
@@ -88,6 +102,7 @@ interface Document {
   file_name: string;
   nature: string;
   est_principal: number;
+  archive: number;
   uploaded_at: string;
 }
 
@@ -115,13 +130,16 @@ const COLS: ColDef[] = [
   { key: 'perimetre', label: 'Périmètre', w: 130, defaultVisible: false },
   { key: 'nature', label: 'Nature', w: 70, defaultVisible: false },
   { key: 'fonction', label: 'Fonction', w: 65, defaultVisible: false },
-  { key: 'date_debut', label: 'Début', w: 82, type: 'date', defaultVisible: false },
+  { key: 'date_debut', label: 'Début', w: 82, type: 'date' },
   { key: 'duree_annees', label: 'Durée', w: 52, type: 'number' },
   { key: 'nb_reconductions', label: 'Recond.', w: 55, type: 'number', defaultVisible: false },
   { key: 'date_fin', label: 'Fin', w: 82, type: 'date' },
+  { key: 'date_fin_cours', label: 'Fin en cours', w: 82, type: 'date' },
+  { key: 'date_fin_maxi', label: 'Fin maxi', w: 82, type: 'date' },
+  { key: 'dates_verifiees', label: 'Contrat vérifié', w: 84 },
   { key: 'marche_contrat', label: 'Marché/Contrat', w: 110 },
   { key: 'piece', label: 'Pièce', w: 65, defaultVisible: false },
-  { key: 'date_reconduction', label: 'Date recond.', w: 82, defaultVisible: false },
+  { key: 'date_reconduction', label: 'Date recond.', w: 82 },
   { key: 'reconduction', label: 'Reconduction', w: 88 },
   { key: 'montant_2022', label: '2022', w: 82, type: 'number', defaultVisible: false },
   { key: 'montant_2023', label: '2023', w: 82, type: 'number', defaultVisible: false },
@@ -487,6 +505,13 @@ const Contrats: React.FC = () => {
   const [visibleCols, setVisibleCols] = useState<Set<ColKey>>(
     new Set(COLS.filter(c => c.defaultVisible !== false).map(c => c.key))
   );
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
+  const [savedViews, setSavedViews] = useState<{ id: number; nom: string; columns: ColKey[] }[]>([]);
+  const [showViewsPanel, setShowViewsPanel] = useState(false);
+  const [viewName, setViewName] = useState('');
+  const [activeView, setActiveView] = useState<{ id: number; nom: string } | null>(null);
+  const viewsPanelRef = useRef<HTMLDivElement>(null);
   const [showColPanel, setShowColPanel] = useState(false);
   const [showForm, setShowForm] = useState(false);
   const [newContrat, setNewContrat] = useState<Partial<Contrat>>({});
@@ -496,6 +521,8 @@ const Contrats: React.FC = () => {
   const [showPrevisionModal, setShowPrevisionModal] = useState(false);
 
   const [docModal, setDocModal] = useState<{ contrat: Contrat; docs: Document[] } | null>(null);
+  const [showArchivedDocs, setShowArchivedDocs] = useState(false);
+  const [editModalDocs, setEditModalDocs] = useState<Document[]>([]);
   const [docUploading, setDocUploading] = useState(false);
   const [selectedDocFiles, setSelectedDocFiles] = useState<Array<{ file: File; nature: string; principal: boolean }>>([]);
   const [dragOver, setDragOver] = useState(false);
@@ -507,9 +534,6 @@ const Contrats: React.FC = () => {
   const [docViewModal, setDocViewModal] = useState<{ contrat: Contrat; docs: Document[]; currentIndex: number } | null>(null);
   const [docViewEditData, setDocViewEditData] = useState<Partial<Contrat> | null>(null);
   const [linkedContracts, setLinkedContracts] = useState<{ previous: Contrat | null; renewals: Contrat[] } | null>(null);
-  const [tiersSuggestions, setTiersSuggestions] = useState<Array<{ code: string; name: string }>>([]);
-  const [tiersSearch, setTiersSearch] = useState('');
-  const [showTiersSuggestions, setShowTiersSuggestions] = useState(false);
   const [appsSuggestions, setAppsSuggestions] = useState<Array<{ id: number; name: string }>>([]);
   const [appsSearch, setAppsSearch] = useState('');
   const [showAppsSuggestions, setShowAppsSuggestions] = useState(false);
@@ -519,7 +543,7 @@ const Contrats: React.FC = () => {
 
   // ── Lien bon de commande Sedit / engagement ─────────────────────────────────
   const [linkModal, setLinkModal] = useState<{ contrat: Contrat } | null>(null);
-  const [linkTab, setLinkTab] = useState<'bc' | 'engagement' | 'facture'>('bc');
+  const [linkTab, setLinkTab] = useState<'bc' | 'engagement'>('bc');
   const [linkQ, setLinkQ] = useState('');
   const [linkTiers, setLinkTiers] = useState('');
   const [linkMin, setLinkMin] = useState('');
@@ -535,6 +559,7 @@ const Contrats: React.FC = () => {
 
   const excelInputRef = useRef<HTMLInputElement>(null);
   const docFileRef = useRef<HTMLInputElement>(null);
+  const editDocFileRef = useRef<HTMLInputElement>(null);
   const colPanelRef = useRef<HTMLDivElement>(null);
 
   const fetchContrats = async (): Promise<Contrat[] | null> => {
@@ -543,8 +568,12 @@ const Contrats: React.FC = () => {
       if (res.ok) {
         const data = await res.json();
         const list = Array.isArray(data) ? data : [];
-        setContrats(list);
-        return list;
+        const enriched = list.map((c: Contrat) => {
+          const { finCours, finMax } = computeFinContrat(c);
+          return { ...c, date_fin_cours: finCours, date_fin_maxi: finMax };
+        });
+        setContrats(enriched);
+        return enriched;
       } else if (res.status === 403) {
         showMsg('error', 'Session expirée. Veuillez vous reconnecter.');
         setContrats([]);
@@ -555,24 +584,6 @@ const Contrats: React.FC = () => {
     } catch { showMsg('error', 'Impossible de charger les contrats'); setContrats([]); }
     finally { setLoading(false); }
     return null;
-  };
-
-  const searchTiers = async (query: string) => {
-    if (query.length < 2) {
-      setTiersSuggestions([]);
-      return;
-    }
-    try {
-      const res = await fetch(`/api/tiers?search=${encodeURIComponent(query)}`, { headers: authHeaders() });
-      if (res.ok) {
-        const data = await res.json();
-        const tiersList = Array.isArray(data) ? data : (data.tiers || []);
-        const suggestions = tiersList.slice(0, 10).map((t: any) => ({ code: t.code || t.id, name: t.nom || t.name || t.raison_sociale || '' }));
-        setTiersSuggestions(suggestions);
-      }
-    } catch (err) {
-      setTiersSuggestions([]);
-    }
   };
 
   const searchApps = async (query: string) => {
@@ -644,12 +655,21 @@ const Contrats: React.FC = () => {
           setLinkEngagementYears(Array.isArray(years) ? years.map(String) : []);
         }
       } catch { }
+      fetchViews();
     })();
   }, []);
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
       if (colPanelRef.current && !colPanelRef.current.contains(e.target as Node)) setShowColPanel(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (viewsPanelRef.current && !viewsPanelRef.current.contains(e.target as Node)) setShowViewsPanel(false);
     };
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
@@ -717,6 +737,16 @@ const Contrats: React.FC = () => {
       ? <ChevronUp size={10} style={{ display: 'inline', marginLeft: 2 }} />
       : <ChevronDown size={10} style={{ display: 'inline', marginLeft: 2 }} />;
 
+  // ─── Pagination ──────────────────────────────────────────────────────────────
+
+  const totalPages = pageSize > 0 ? Math.max(1, Math.ceil(sorted.length / pageSize)) : 1;
+  const safePage = Math.min(page, totalPages);
+  const paged = pageSize > 0 ? sorted.slice((safePage - 1) * pageSize, safePage * pageSize) : sorted;
+
+  useEffect(() => {
+    setPage(1);
+  }, [searchQuery, filterDirection, filterType, alertFilter, engagedFilter, showArchives, sortKey, sortDir, colFilters, pageSize]);
+
   // ─── Import Excel ────────────────────────────────────────────────────────────
 
   const handleExcelImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -743,6 +773,7 @@ const Contrats: React.FC = () => {
         const v = c[col.key];
         if (col.type === 'date') row[col.label] = fmtDate(v as string | null);
         else if (col.type === 'number') row[col.label] = v == null ? '' : Number(v);
+        else if (col.key === 'dates_verifiees') row[col.label] = v ? 'Vérifié' : '';
         else row[col.label] = v == null ? '' : String(v);
       });
       return row;
@@ -756,16 +787,53 @@ const Contrats: React.FC = () => {
 
   // ─── CRUD ────────────────────────────────────────────────────────────────────
 
-  const calculateDateFin = (dateDebut: string | null, duree: number | null, nbRecond: number | null): string | null => {
-    if (!dateDebut || duree == null || nbRecond == null) return null;
-    try {
-      const start = new Date(dateDebut + 'T00:00:00Z');
-      if (isNaN(start.getTime())) return null;
-      const totalYears = (duree || 0) + (nbRecond || 0);
-      const end = new Date(Date.UTC(start.getUTCFullYear() + totalYears, start.getUTCMonth(), start.getUTCDate()));
-      if (isNaN(end.getTime())) return null;
-      return end.toISOString().split('T')[0];
-    } catch (e) { return null; }
+  const toLocalDateStr = (d: string): string => {
+    const dt = new Date(d);
+    if (isNaN(dt.getTime())) return d.split('T')[0] || d;
+    return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
+  };
+
+  const addDuree = (dateStr: string, duree: number, count: number): string | null => {
+    if (!dateStr || duree == null || count == null || duree <= 0) return null;
+    const d = new Date(toLocalDateStr(dateStr) + 'T00:00:00Z');
+    if (isNaN(d.getTime())) return null;
+    const totalMonths = Math.round(duree * 12) * count;
+    const lastDay = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + totalMonths + 1, 0)).getUTCDate();
+    const end = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + totalMonths, Math.min(d.getUTCDate(), lastDay)));
+    if (isNaN(end.getTime())) return null;
+    return end.toISOString().split('T')[0];
+  };
+
+  const calculateDateFin = (dateDebut: string | null, duree: number | null): string | null => {
+    if (!dateDebut || duree == null) return null;
+    return addDuree(dateDebut, duree, 1);
+  };
+
+  const computeFinContrat = (c: { date_fin?: string | null; duree_annees?: number | null; nb_reconductions?: number | null; renouvellement_actuel?: number | null }) => {
+    const fin = c.date_fin ? toLocalDateStr(c.date_fin) : null;
+    const duree = c.duree_annees ?? null;
+    if (!fin || !duree) return { finCours: null, finMax: null };
+    const actuel = Math.max(0, c.renouvellement_actuel ?? 0);
+    const max = Math.max(0, c.nb_reconductions ?? 0);
+    return {
+      finCours: addDuree(fin, duree, actuel),
+      finMax: addDuree(fin, duree, max),
+    };
+  };
+
+  const suggestRenouvellement = (dateFin: string | null, duree: number | null, nbRecond: number | null): number => {
+    if (!dateFin || !duree || !nbRecond || duree <= 0) return 0;
+    const fin = toLocalDateStr(dateFin);
+    const now = new Date();
+    const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    if (today < fin) return 0;
+    let k = 1;
+    while (k <= nbRecond) {
+      const endK = addDuree(fin, duree, k);
+      if (!endK || today < endK) return k;
+      k++;
+    }
+    return nbRecond;
   };
 
   const getLinkedContracts = async (c: Contrat) => {
@@ -791,12 +859,43 @@ const Contrats: React.FC = () => {
     }
   };
 
+  const fetchEditModalDocs = async (contratId: number) => {
+    try {
+      const res = await fetch(`/api/contrats/${contratId}/documents`, { headers: authHeaders() });
+      if (res.ok) setEditModalDocs(await res.json());
+    } catch { /* ignore */ }
+  };
+
+  const uploadFilesToContrat = async (contratId: number, files: FileList | File[]) => {
+    const fileArr = Array.from(files);
+    if (fileArr.length === 0) return;
+    setDocUploading(true);
+    try {
+      for (const file of fileArr) {
+        const fd = new FormData();
+        fd.append('file', file);
+        fd.append('nature', '');
+        fd.append('est_principal', '0');
+        await fetch(`/api/contrats/${contratId}/documents`, { method: 'POST', headers: authHeaders(), body: fd });
+      }
+      await fetchContrats();
+      await fetchEditModalDocs(contratId);
+      showMsg('success', `${fileArr.length} document${fileArr.length > 1 ? '(s)' : ''} uploadé${fileArr.length > 1 ? 's' : ''}`);
+    } catch {
+      showMsg('error', 'Erreur upload');
+    } finally {
+      setDocUploading(false);
+    }
+  };
+
   const openEditModal = (c: Contrat) => {
     setEditModal(c);
     setEditModalData({ ...c });
-    setTiersSearch('');
     setAppsSearch('');
     setCalculatedDateFin(false);
+    setShowArchivedDocs(false);
+    setEditModalDocs([]);
+    if (c.id) fetchEditModalDocs(c.id);
     getLinkedContracts(c);
   };
   const saveModal = async () => {
@@ -810,7 +909,7 @@ const Contrats: React.FC = () => {
         const data = await response.json().catch(() => null);
         throw new Error(data?.error || data?.message || `Erreur ${response.status}`);
       }
-      setEditModal(null); setEditModalData(null); setTiersSearch(''); setAppsSearch(''); await fetchContrats();
+      setEditModal(null); setEditModalData(null); setAppsSearch(''); await fetchContrats();
       showMsg('success', isNew ? 'Contrat créé' : 'Contrat mis à jour');
     } catch (error: any) {
       showMsg('error', error?.message || 'Impossible de sauvegarder');
@@ -837,18 +936,21 @@ const Contrats: React.FC = () => {
 
   const openNewContractModal = () => {
     const emptyContract: Partial<Contrat> = {
-      svc: '', objet: '', raison_sociale: '', tiers: '', app_id: null, type_contrat: '', direction: '', service: '',
+      svc: '', objet: '', raison_sociale: '', tiers: '', app_id: null, type_contrat: '', type_bien: 'logiciel', numero: '', direction: '', service: '',
       perimetre: '', nature: '', fonction: '', budget: '', annee_initiale: null,
       date_debut: null, duree_annees: null, nb_reconductions: null, date_fin: null,
       marche_contrat: '', piece: '', date_reconduction: '', reconduction: '',
       montant_2022: null, montant_2023: null, montant_2024: null, montant_2025: null, montant_2026: null,
       prevision_2026: null, prevision_2027: null, prevision_2028: null, prevision_2029: null, commentaires: '',
-      gti: '', gtr: '', penalite: '', indice_revision: '', numero_facture: ''
+      gti: '', gtr: '', penalite: '', indice_revision: '', formule_revision: '', sla_niveaux: [], numero_facture: '',
+      renouvellement_actuel: 0, dates_verifiees: 0
     };
     setEditModal(null);
     setEditModalData(emptyContract);
     setCalculatedDateFin(false);
     setLinkedContracts(null);
+    setShowArchivedDocs(false);
+    setEditModalDocs([]);
   };
   const handleDelete = async (id: number) => {
     try { await fetch(`/api/contrats/${id}`, { method: 'DELETE', headers: authHeaders() }); setDeleteConfirm(null); await fetchContrats(); showMsg('success', 'Contrat supprimé'); }
@@ -884,6 +986,8 @@ const Contrats: React.FC = () => {
       nb_reconductions: c.nb_reconductions,
       reconduction: c.reconduction,
       date_fin: c.date_fin,
+      renouvellement_actuel: c.renouvellement_actuel ?? 0,
+      dates_verifiees: c.dates_verifiees ?? 0,
       gti: c.gti,
       gtr: c.gtr,
       indice_revision: c.indice_revision,
@@ -939,6 +1043,15 @@ const Contrats: React.FC = () => {
     if (!docModal) return;
     await fetch(`/api/contrats/${docModal.contrat.id}/documents/${docId}`, { method: 'DELETE', headers: authHeaders() });
     await openDocModal(docModal.contrat); await fetchContrats();
+    if (editModal?.id === docModal.contrat.id) await fetchEditModalDocs(docModal.contrat.id);
+  };
+
+  const handleDocArchive = async (contratId: number, docId: number, archive: boolean) => {
+    await fetch(`/api/contrats/${contratId}/documents/${docId}/archive`, {
+      method: 'PUT', headers: { ...authHeaders(), 'Content-Type': 'application/json' }, body: JSON.stringify({ archive })
+    });
+    if (docModal?.contrat.id === contratId) await openDocModal(docModal.contrat);
+    if (editModal?.id === contratId) await fetchEditModalDocs(contratId);
   };
 
   // ─── Renouvellement ──────────────────────────────────────────────────────────
@@ -1039,7 +1152,7 @@ const Contrats: React.FC = () => {
     setLinkLoading(true);
     setLinkResults([]);
     try {
-      const path = linkTab === 'bc' ? '/api/contrats/commandes/search' : linkTab === 'engagement' ? '/api/contrats/engagements/search' : '/api/contrats/factures/search';
+      const path = linkTab === 'bc' ? '/api/contrats/commandes/search' : '/api/contrats/engagements/search';
       const params = new URLSearchParams();
       if (linkQ.trim()) params.set('q', linkQ.trim());
       if (linkTiers.trim()) params.set('tiers', linkTiers.trim());
@@ -1059,20 +1172,14 @@ const Contrats: React.FC = () => {
   };
 
   const linkItemKey = (item: any) => {
-    const k = linkTab === 'bc'
-      ? (item.numero || item.sedit_id || '')
-      : linkTab === 'engagement'
-        ? (item.code || '')
-        : (item.numero || item.sedit_id || '');
+    const k = linkTab === 'bc' ? (item.numero || item.sedit_id || '') : (item.code || '');
     return `${linkTab}:${k}`;
   };
 
   const linkItemAmount = (item: any) => {
     const a = linkTab === 'bc'
       ? (item.montant_ttc != null ? item.montant_ttc : item.montant_ht)
-      : linkTab === 'engagement'
-        ? (item.montant != null ? item.montant : item.solde)
-        : (item.montant_ttc != null ? item.montant_ttc : null);
+      : (item.montant != null ? item.montant : item.solde);
     return a != null && a !== '' ? a : null;
   };
 
@@ -1105,14 +1212,6 @@ const Contrats: React.FC = () => {
           payload.commande_libelle = sel.libelle || '';
           payload.commande_montant = sel.montant_ttc != null ? sel.montant_ttc : null;
           payload.date_commande = sel.date_commande || '';
-        } else if (linkTab === 'facture') {
-          payload.commande_sedit = sel.sedit_id || '';
-          payload.commande_numero = sel.numero || '';
-          payload.commande_libelle = sel.libelle || '';
-          payload.commande_montant = sel.montant_ttc != null ? sel.montant_ttc : null;
-          payload.date_commande = sel.date_commande || '';
-          payload.tiers_code = sel.tiers_code || '';
-          payload.tiers_nom = sel.tiers_nom || '';
         } else {
           payload.engagement_code = sel.code || '';
           payload.commande_libelle = sel.libelle || '';
@@ -1126,10 +1225,10 @@ const Contrats: React.FC = () => {
         if (res.ok) {
           okKeys.add(linkItemKey(sel));
         } else {
-          errors.push(`${linkTab === 'bc' ? (sel.numero || sel.sedit_id) : linkTab === 'engagement' ? sel.code : (sel.numero || sel.sedit_id)} : ${d?.message || `Erreur ${res.status}`}`);
+          errors.push(`${linkTab === 'bc' ? (sel.numero || sel.sedit_id) : sel.code} : ${d?.message || `Erreur ${res.status}`}`);
         }
       } catch (e: any) {
-        errors.push(`${linkTab === 'bc' ? (sel.numero || sel.sedit_id) : linkTab === 'engagement' ? sel.code : (sel.numero || sel.sedit_id)} : ${e?.message || 'Erreur'}`);
+        errors.push(`${linkTab === 'bc' ? (sel.numero || sel.sedit_id) : sel.code} : ${e?.message || 'Erreur'}`);
       }
     }
 
@@ -1141,7 +1240,7 @@ const Contrats: React.FC = () => {
 
     if (errors.length === 0) {
       setLinkModal(null);
-      showMsg('success', linkSelections.length > 1 ? `${linkSelections.length} commandes liées` : (linkTab === 'bc' ? 'Bon de commande lié' : linkTab === 'facture' ? 'Facture liée' : 'Engagement lié'));
+      showMsg('success', linkSelections.length > 1 ? `${linkSelections.length} commandes liées` : (linkTab === 'bc' ? 'Bon de commande lié' : 'Engagement lié'));
     } else {
       setLinkSelections(prev => prev.filter(s => !okKeys.has(linkItemKey(s))));
       showMsg('error', `Lien partiel — ${errors.length} échec(s) : ${errors.join(' ; ')}`);
@@ -1167,9 +1266,6 @@ const Contrats: React.FC = () => {
         if (l.commande_sedit) alreadyLinkedKeys.add(`bc:${l.commande_sedit}`);
       } else if (l.commande_type === 'engagement') {
         if (l.engagement_code) alreadyLinkedKeys.add(`engagement:${l.engagement_code}`);
-      } else if (l.commande_type === 'facture') {
-        if (l.commande_numero) alreadyLinkedKeys.add(`facture:${l.commande_numero}`);
-        if (l.commande_sedit) alreadyLinkedKeys.add(`facture:${l.commande_sedit}`);
       }
     });
   }
@@ -1178,12 +1274,64 @@ const Contrats: React.FC = () => {
 
   const toggleCol = (key: ColKey) => {
     setVisibleCols(prev => { const s = new Set(prev); if (s.has(key)) { if (s.size > 1) s.delete(key); } else s.add(key); return s; });
+    setActiveView(null);
   };
-  const showAllCols = () => setVisibleCols(new Set(COLS.map(c => c.key)));
-  const resetCols = () => setVisibleCols(new Set(COLS.filter(c => c.defaultVisible !== false).map(c => c.key)));
+  const showAllCols = () => { setVisibleCols(new Set(COLS.map(c => c.key))); setActiveView(null); };
+  const resetCols = () => { setVisibleCols(new Set(COLS.filter(c => c.defaultVisible !== false).map(c => c.key))); setActiveView(null); };
   const saveColPreferences = () => {
     localStorage.setItem('columnPreferences', JSON.stringify(Array.from(visibleCols)));
     showMsg('success', 'Configuration des colonnes enregistrée');
+  };
+
+  // ─── Vues de colonnes partagées ("général") ──────────────────────────────────
+
+  const fetchViews = async () => {
+    try {
+      const res = await fetch('/api/contrats/views', { headers: authHeaders() });
+      if (res.ok) setSavedViews(await res.json());
+    } catch { }
+  };
+
+  const saveCurrentView = async () => {
+    const name = viewName.trim();
+    if (!name) { showMsg('error', 'Nom de vue requis'); return; }
+    try {
+      const res = await fetch('/api/contrats/views', {
+        method: 'POST',
+        headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ nom: name, columns: Array.from(visibleCols) })
+      });
+      if (res.ok) {
+        const view = await res.json();
+        showMsg('success', `Vue « ${name} » enregistrée (partagée)`);
+        setActiveView({ id: view.id, nom: name });
+        setViewName('');
+        fetchViews();
+      } else {
+        const d = await res.json().catch(() => null);
+        showMsg('error', d?.message || 'Erreur enregistrement vue');
+      }
+    } catch { showMsg('error', 'Erreur enregistrement vue'); }
+  };
+
+  const loadView = (v: { id: number; nom: string; columns: ColKey[] }) => {
+    const valid = v.columns.filter((k): k is ColKey => COLS.some(c => c.key === k));
+    setVisibleCols(new Set(valid));
+    setActiveView({ id: v.id, nom: v.nom });
+    setShowViewsPanel(false);
+    showMsg('success', `Vue « ${v.nom} » chargée`);
+  };
+
+  const deleteView = async (id: number, nom: string) => {
+    if (!window.confirm(`Supprimer la vue partagée « ${nom} » ?`)) return;
+    try {
+      const res = await fetch(`/api/contrats/views/${id}`, { method: 'DELETE', headers: authHeaders() });
+      if (res.ok) {
+        setSavedViews(prev => prev.filter(v => v.id !== id));
+        if (activeView?.id === id) setActiveView(null);
+        showMsg('success', 'Vue supprimée');
+      }
+    } catch { showMsg('error', 'Erreur suppression vue'); }
   };
 
   // ─── Helpers UI ──────────────────────────────────────────────────────────────
@@ -1199,7 +1347,7 @@ const Contrats: React.FC = () => {
 
   const daysBadge = (c: Contrat) => {
     if (isNew(c.created_at)) return <span style={{ background: '#dbeafe', color: '#1d4ed8', padding: '2px 8px', borderRadius: 9999, fontSize: 11, fontWeight: 700 }}>🆕 NEW</span>;
-    const d = daysUntil(c.date_fin);
+    const d = daysUntil(c.date_fin_cours || c.date_fin);
     if (d === null) return <span style={{ color: '#999' }}>—</span>;
     if (d < 0) return <span style={{ background: '#fee2e2', color: '#dc2626', padding: '1px 6px', borderRadius: 9999, fontSize: 11, fontWeight: 700 }}>{d} j</span>;
     if (d <= 90) return <span style={{ background: '#fef3c7', color: '#b45309', padding: '1px 6px', borderRadius: 9999, fontSize: 11, fontWeight: 700 }}>{d} j</span>;
@@ -1220,7 +1368,7 @@ const Contrats: React.FC = () => {
   };
 
   const isDateFinCalculated = (c: Contrat): boolean => {
-    const calculated = calculateDateFin(c.date_debut, c.duree_annees, c.nb_reconductions);
+    const calculated = calculateDateFin(c.date_debut, c.duree_annees);
     return calculated === c.date_fin && c.date_fin !== null;
   };
 
@@ -1228,10 +1376,32 @@ const Contrats: React.FC = () => {
     const v = c[col.key];
     switch (col.key) {
       case 'svc': return <b style={{ color: '#374151' }}>{c.svc || '—'}</b>;
-      case 'objet': return <b title={c.objet} style={{ color: '#1e3a5f', display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: (col.w - 16) + 'px' }}>{c.objet || '—'}</b>;
+      case 'objet': {
+        const verifBadge = c.dates_verifiees ? (
+          <span title="Dates vérifiées" style={{ background: '#dcfce7', color: '#15803d', borderRadius: 9999, width: 15, height: 15, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 800, flexShrink: 0, marginRight: 4 }}>
+            V
+          </span>
+        ) : null;
+        return (
+          <span title={c.objet} style={{ display: 'flex', alignItems: 'center', maxWidth: col.w - 16, overflow: 'hidden' }}>
+            {verifBadge}
+            <b style={{ color: '#1e3a5f', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.objet || '—'}</b>
+          </span>
+        );
+      }
       case 'type_contrat': return c.type_contrat ? <span style={{ background: '#eff6ff', color: '#1d4ed8', padding: '1px 6px', borderRadius: 9999, fontSize: 10, fontWeight: 600 }}>{c.type_contrat}</span> : <span style={{ color: '#9ca3af' }}>—</span>;
       case 'date_debut': return fmtDate(c.date_debut);
       case 'date_fin': return <span style={{ fontStyle: isDateFinCalculated(c) ? 'italic' : 'normal', fontWeight: isDateFinCalculated(c) ? 600 : 400, color: isDateFinCalculated(c) ? '#10b981' : 'inherit' }}>{fmtDate(c.date_fin)}</span>;
+      case 'date_fin_cours': return c.date_fin_cours ? fmtDate(c.date_fin_cours) : <span style={{ color: '#9ca3af' }}>—</span>;
+      case 'date_fin_maxi': return c.date_fin_maxi ? fmtDate(c.date_fin_maxi) : <span style={{ color: '#9ca3af' }}>—</span>;
+      case 'dates_verifiees':
+        return c.dates_verifiees ? (
+          <span style={{ background: '#dcfce7', color: '#15803d', padding: '1px 6px', borderRadius: 9999, fontSize: 10, fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+            <Check size={11} /> Contrat vérifié
+          </span>
+        ) : (
+          <span style={{ background: '#fef3c7', color: '#b45309', padding: '1px 6px', borderRadius: 9999, fontSize: 10, fontWeight: 600 }}>À vérifier</span>
+        );
       case 'reconduction': return c.reconduction ? <span style={{ background: '#f0fdf4', color: '#15803d', padding: '1px 6px', borderRadius: 9999, fontSize: 10, fontWeight: 600 }}>{reconductionLabel(c.reconduction)}</span> : <span style={{ color: '#9ca3af' }}>—</span>;
       case 'montant_2022': return <span style={{ color: '#6b7280' }}>{fmt(c.montant_2022)}</span>;
       case 'montant_2023': return <span style={{ color: '#6b7280' }}>{fmt(c.montant_2023)}</span>;
@@ -1251,7 +1421,23 @@ const Contrats: React.FC = () => {
       case 'prevision_2028': return fmt(c.prevision_2028);
       case 'prevision_2029': return fmt(c.prevision_2029);
       case 'duree_annees': return v != null ? `${v}a` : '—';
-      case 'renouvellement_statut': return renewBadge(c);
+      case 'budget': {
+        if (!c.budget) return <span style={{ color: '#9ca3af' }}>—</span>;
+        const palette: Record<string, [string, string]> = {
+          '1': ['#ede9fe', '#6d28d9'], '3': ['#dbeafe', '#1d4ed8'], '8': ['#dcfce7', '#15803d'], 'CYB': ['#fee2e2', '#b91c1c'],
+        };
+        const [bg, col] = palette[c.budget.toUpperCase()] ?? ['#f3f4f6', '#374151'];
+        return <span title={`Budget ${c.budget}`} style={{ background: bg, color: col, padding: '1px 8px', borderRadius: 9999, fontSize: 10, fontWeight: 700 }}>{c.budget}</span>;
+      }
+      case 'renouvellement_statut':
+        return (
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+            {renewBadge(c)}
+            {c.nb_reconductions ? (
+              <span title={`Renouvellement en cours : ${c.renouvellement_actuel ?? 0}/${c.nb_reconductions}`} style={{ background: '#e0e7ff', color: '#4338ca', padding: '1px 6px', borderRadius: 9999, fontSize: 10, fontWeight: 600 }}>R{c.renouvellement_actuel ?? 0}/{c.nb_reconductions}</span>
+            ) : null}
+          </span>
+        );
       case 'tiers':
         return c.tiers ? (
           <button
@@ -1310,22 +1496,18 @@ const Contrats: React.FC = () => {
         if (liaisons.length === 1) {
           const l = liaisons[0];
           const isBc = l.commande_type === 'bc';
-          const isFacture = l.commande_type === 'facture';
-          const numero = isBc ? (l.commande_numero || 'BC') : isFacture ? (l.commande_numero || 'Facture') : (l.engagement_code || 'Engt');
-          const libelle = isBc ? (l.commande_libelle || '') : isFacture ? (l.commande_libelle || '') : (l.engagement_libelle || '');
-          const seditOk = (isBc || isFacture) && l.commande_sedit && linkSeditUrl;
-          const chipBg = isBc ? '#dbeafe' : isFacture ? '#fffbeb' : '#f5f3ff';
-          const chipFg = isBc ? '#1d4ed8' : isFacture ? '#b45309' : '#6d28d9';
-          const chipBd = isBc ? '#93c5fd' : isFacture ? '#fcd34d' : '#ddd6fe';
+          const numero = isBc ? (l.commande_numero || 'BC') : (l.engagement_code || 'Engt');
+          const libelle = isBc ? (l.commande_libelle || '') : (l.engagement_libelle || '');
+          const seditOk = isBc && l.commande_sedit && linkSeditUrl;
           return (
             <span
-              title={libelle || (isBc ? 'Bon de commande Sedit lié' : isFacture ? 'Facture Sedit liée' : 'Engagement budgétaire lié')}
+              title={libelle || (isBc ? 'Bon de commande Sedit lié' : 'Engagement budgétaire lié')}
               onClick={() => seditOk
-                ? window.open(`${linkSeditUrl}/${isBc ? 'FicheCommande.html?commandeId' : 'FicheFacture.html?factureId'}=${l.commande_sedit}`, '_blank')
+                ? window.open(`${linkSeditUrl}/FicheCommande.html?commandeId=${l.commande_sedit}`, '_blank')
                 : setLinkListModal({ contrat: c })}
-              style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: chipBg, color: chipFg, border: `1px solid ${chipBd}`, borderRadius: 9999, padding: '3px 8px', fontSize: 11, fontWeight: 600, whiteSpace: 'nowrap', cursor: 'pointer', maxWidth: col.w - 16 }}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: isBc ? '#dbeafe' : '#f5f3ff', color: isBc ? '#1d4ed8' : '#6d28d9', border: isBc ? '1px solid #93c5fd' : '1px solid #ddd6fe', borderRadius: 9999, padding: '3px 8px', fontSize: 11, fontWeight: 600, whiteSpace: 'nowrap', cursor: 'pointer', maxWidth: col.w - 16 }}
             >
-              {isBc ? <FileCheck2 size={12} /> : isFacture ? <Receipt size={12} /> : <Link2 size={12} />}
+              {isBc ? <FileCheck2 size={12} /> : <Link2 size={12} />}
               <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{numero}</span>
               {seditOk && <ExternalLink size={10} style={{ flexShrink: 0 }} />}
             </span>
@@ -1410,6 +1592,11 @@ const Contrats: React.FC = () => {
           <Filter size={12} /> Filtres
         </button>
 
+        {/* Toggle contrat vérifié */}
+        <button onClick={() => toggleCol('dates_verifiees')} style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '4px 8px', borderRadius: 6, border: 'none', cursor: 'pointer', fontSize: 11, fontWeight: 600, background: visibleCols.has('dates_verifiees') ? '#dcfce7' : '#f3f4f6', color: visibleCols.has('dates_verifiees') ? '#15803d' : '#374151' }}>
+          <Check size={12} /> Contrat vérifié
+        </button>
+
         {/* Colonnes */}
         <div style={{ position: 'relative' }} ref={colPanelRef}>
           <button onClick={() => setShowColPanel(p => !p)} style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '4px 8px', borderRadius: 6, border: 'none', cursor: 'pointer', fontSize: 11, fontWeight: 600, background: showColPanel ? '#eff6ff' : '#f3f4f6', color: showColPanel ? '#1d4ed8' : '#374151' }}>
@@ -1428,6 +1615,54 @@ const Contrats: React.FC = () => {
                   {col.label}
                 </label>
               ))}
+            </div>
+          )}
+        </div>
+
+        {/* Vues de colonnes partagées */}
+        <div style={{ position: 'relative' }} ref={viewsPanelRef}>
+          <button onClick={() => setShowViewsPanel(p => !p)} style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '4px 8px', borderRadius: 6, border: 'none', cursor: 'pointer', fontSize: 11, fontWeight: 600, background: showViewsPanel ? '#fef3c7' : '#f3f4f6', color: showViewsPanel ? '#b45309' : '#374151' }}>
+            <Bookmark size={12} /> Vues ({savedViews.length})
+          </button>
+          {activeView && (
+            <span style={{ marginLeft: 4, display: 'inline-flex', alignItems: 'center', gap: 4, background: '#fef3c7', color: '#b45309', borderRadius: 9999, padding: '2px 8px', fontSize: 10, fontWeight: 600, verticalAlign: 'middle' }}>
+              {activeView.nom}
+              <button onClick={() => setActiveView(null)} title="Revenir aux colonnes manuelles" style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#b45309', padding: 0, display: 'inline-flex' }}><CloseIcon size={10} /></button>
+            </span>
+          )}
+          {showViewsPanel && (
+            <div style={{ position: 'absolute', top: '100%', left: 0, zIndex: 200, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 8, boxShadow: '0 4px 16px rgba(0,0,0,.12)', padding: 12, minWidth: 260, maxHeight: 420, overflowY: 'auto' }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: '#1e3a5f', marginBottom: 8 }}>Vues de colonnes (partagées)</div>
+              {savedViews.length === 0 ? (
+                <div style={{ fontSize: 11, color: '#9ca3af', padding: '4px 0 8px' }}>Aucune vue enregistrée.</div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginBottom: 8 }}>
+                  {savedViews.map(v => (
+                    <div key={v.id} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <button onClick={() => loadView(v)} style={{ flex: 1, textAlign: 'left', padding: '5px 8px', borderRadius: 5, border: activeView?.id === v.id ? '1px solid #f59e0b' : '1px solid #e5e7eb', background: activeView?.id === v.id ? '#fffbeb' : '#fff', cursor: 'pointer', fontSize: 12, fontWeight: activeView?.id === v.id ? 600 : 400, color: '#1f2937' }}>
+                        {v.nom}
+                      </button>
+                      <button onClick={() => deleteView(v.id, v.nom)} title="Supprimer la vue" style={{ padding: '3px', borderRadius: 4, border: '1px solid #fee2e2', background: '#fff', cursor: 'pointer', color: '#dc2626', display: 'inline-flex' }}><Trash2 size={11} /></button>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <div style={{ borderTop: '1px solid #e2e8f0', paddingTop: 8 }}>
+                <div style={{ display: 'flex', gap: 5 }}>
+                  <input
+                    type="text"
+                    value={viewName}
+                    onChange={e => setViewName(e.target.value)}
+                    onKeyDown={e => { if (e.key === 'Enter') saveCurrentView(); }}
+                    placeholder="Nom de la vue…"
+                    style={{ flex: 1, padding: '5px 8px', border: '1px solid #d1d5db', borderRadius: 5, fontSize: 12, boxSizing: 'border-box' }}
+                  />
+                  <button onClick={saveCurrentView} title="Enregistrer les colonnes actuellement visibles sous ce nom" style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '5px 10px', borderRadius: 5, border: 'none', background: '#f59e0b', color: '#fff', cursor: 'pointer', fontSize: 11, fontWeight: 700, whiteSpace: 'nowrap' }}>
+                    <Save size={11} /> Enregistrer
+                  </button>
+                </div>
+                <div style={{ fontSize: 10, color: '#9ca3af', marginTop: 6 }}>Partagée par tous — enregistre les colonnes actuellement visibles.</div>
+              </div>
             </div>
           )}
         </div>
@@ -1499,7 +1734,7 @@ const Contrats: React.FC = () => {
             <p>Aucun contrat{searchQuery || filterDirection || filterType || alertFilter ? ' correspondant' : ''}.</p>
           </div>
         ) : (
-          <div style={{ overflowX: 'scroll', overflowY: 'auto', flex: 1 }}>
+          <div style={{ overflow: 'scroll', flex: 1 }}>
             <table style={{ borderCollapse: 'collapse', fontSize: 12, background: '#fff', minWidth: 'max-content', width: '100%' }}>
               <thead style={{ position: 'sticky', top: 0, zIndex: 10 }}>
                 {/* En-têtes colonnes */}
@@ -1535,7 +1770,7 @@ const Contrats: React.FC = () => {
                 )}
               </thead>
               <tbody>
-                {sorted.map((c, i) => {
+                {paged.map((c, i) => {
                   const archived = c.statut === 'archivé';
                   return (
                     <tr key={c.id} style={{ background: rowBg(c, i), opacity: archived ? 0.6 : 1 }}>
@@ -1548,6 +1783,9 @@ const Contrats: React.FC = () => {
                       {/* Actions */}
                       <td style={{ padding: '4px 6px', borderBottom: '1px solid #e5e7eb', whiteSpace: 'nowrap' }}>
                         <div style={{ display: 'flex', gap: 3 }}>
+                          <div style={{ width: 22, flexShrink: 0, display: 'flex' }}>
+                            {c.doc_principal_path && btnAction('Voir le document principal', '#f3e8ff', '#7c3aed', <Paperclip size={12} />, () => setPdfModal({ path: c.doc_principal_path, name: c.doc_principal_nom || 'Document' }))}
+                          </div>
                           {btnAction('Éditer', '#eff6ff', '#1d4ed8', <Edit2 size={12} />, () => openEditModal(c))}
                           {btnAction(c.liaisons && c.liaisons.length ? 'Gérer les liens commande / engagement' : 'Lier un bon de commande / engagement', '#dcfce7', '#15803d', <Link2 size={12} />, () => openLinkModal(c))}
                           {btnAction('Renouveler', '#fff7ed', '#c2410c', <RefreshCcw size={12} />, () => openRenewModal(c))}
@@ -1566,31 +1804,125 @@ const Contrats: React.FC = () => {
         )}
       </div>
 
-      <div style={{ textAlign: 'center', padding: '4px 20px 8px', color: '#9ca3af', fontSize: 11, flexShrink: 0 }}>
-        {sorted.length} contrat{sorted.length !== 1 ? 's' : ''} affichés sur {contrats.length} · {activeCols.length} colonne{activeCols.length !== 1 ? 's' : ''} visible{activeCols.length !== 1 ? 's' : ''}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12, padding: '6px 20px 8px', color: '#6b7280', fontSize: 11, flexShrink: 0, flexWrap: 'wrap' }}>
+        <select value={String(pageSize)} onChange={e => setPageSize(Number(e.target.value))} title="Lignes par page" style={{ padding: '3px 6px', borderRadius: 4, border: '1px solid #d1d5db', background: '#fff', fontSize: 11, cursor: 'pointer' }}>
+          <option value="20">20 / page</option>
+          <option value="50">50 / page</option>
+          <option value="100">100 / page</option>
+          <option value="0">Tous</option>
+        </select>
+        <span>{sorted.length === 0 ? 'Aucun contrat' : `${pageSize > 0 ? (safePage - 1) * pageSize + 1 : 1}–${pageSize > 0 ? Math.min(safePage * pageSize, sorted.length) : sorted.length} / ${sorted.length} contrat${sorted.length !== 1 ? 's' : ''}`} · {activeCols.length} colonne{activeCols.length !== 1 ? 's' : ''}</span>
+        <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={safePage <= 1} style={{ padding: '3px 9px', borderRadius: 4, border: '1px solid #d1d5db', background: safePage <= 1 ? '#f3f4f6' : '#fff', color: safePage <= 1 ? '#9ca3af' : '#374151', cursor: safePage <= 1 ? 'default' : 'pointer', fontSize: 11 }}>← Préc.</button>
+        <span>Page <b>{safePage}</b> / {totalPages}</span>
+        <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={safePage >= totalPages} style={{ padding: '3px 9px', borderRadius: 4, border: '1px solid #d1d5db', background: safePage >= totalPages ? '#f3f4f6' : '#fff', color: safePage >= totalPages ? '#9ca3af' : '#374151', cursor: safePage >= totalPages ? 'default' : 'pointer', fontSize: 11 }}>Suiv. →</button>
       </div>
 
       {/* ── Modale : Édition contrat ──────────────────────────────────────────── */}
       {editModalData && (() => {
-        const mf = (label: string, field: keyof Contrat, type = 'text') => (
-          <div key={field}>
-            <label style={{ fontSize: 10, color: '#6b7280', display: 'block', marginBottom: 2 }}>{label}</label>
-            <input
-              type={type}
-              value={String(editModalData[field] ?? '')}
-              onChange={e => setEditModalData(p => p ? { ...p, [field]: e.target.value } : p)}
-              style={{ width: '100%', padding: '5px 7px', border: '1px solid #d1d5db', borderRadius: 5, fontSize: 12, boxSizing: 'border-box' }}
-            />
-          </div>
-        );
-        const sectionTitle = (title: string) => (
-          <div style={{ fontSize: 11, fontWeight: 700, color: '#1e3a5f', textTransform: 'uppercase' as const, letterSpacing: '0.05em', marginBottom: 8, marginTop: 16, borderBottom: '1px solid #e2e8f0', paddingBottom: 4 }}>
+        const mf = (label: string, field: keyof Contrat, type = 'text') => {
+          const raw = editModalData[field] ?? '';
+          const val = type === 'date' && typeof raw === 'string' ? (raw ? toLocalDateStr(raw) : '') : String(raw);
+          return (
+            <div key={field}>
+              <label style={{ fontSize: 10, color: '#6b7280', display: 'block', marginBottom: 2 }}>{label}</label>
+              <input
+                type={type}
+                value={val}
+                onChange={e => {
+                  if (type === 'date' && e.target.value === '') return;
+                  setEditModalData(p => p ? { ...p, [field]: e.target.value } : p);
+                }}
+                style={{ width: '100%', padding: '5px 7px', border: '1px solid #d1d5db', borderRadius: 5, fontSize: 12, boxSizing: 'border-box' }}
+              />
+            </div>
+          );
+        };
+        const sectionTitle = (title: string, color = '#1e3a5f') => (
+          <div style={{ fontSize: 11, fontWeight: 700, color, textTransform: 'uppercase' as const, letterSpacing: '0.05em', marginBottom: 8, marginTop: 16, borderBottom: '1px solid #e2e8f0', paddingBottom: 4 }}>
             {title}
           </div>
         );
+        const inputStyle: React.CSSProperties = { width: '100%', padding: '5px 7px', border: '1px solid #d1d5db', borderRadius: 5, fontSize: 12, boxSizing: 'border-box' };
+        const labelStyle: React.CSSProperties = { fontSize: 10, color: '#6b7280', display: 'block', marginBottom: 2 };
+
+        // Valeurs existantes de "Type" normalisées en casse "Xxxxxx", pour la liste déroulante.
+        const normalizeCase = (s: string) => {
+          const t = s.trim();
+          return t ? t.charAt(0).toUpperCase() + t.slice(1).toLowerCase() : '';
+        };
+        const typeOptions = Array.from(new Set(
+          contrats.map(c => c.type_contrat).filter(Boolean).map(t => normalizeCase(t as string))
+        )).sort((a, b) => a.localeCompare(b, 'fr'));
+        const currentTypeNorm = editModalData.type_contrat ? normalizeCase(editModalData.type_contrat) : '';
+        if (currentTypeNorm && !typeOptions.includes(currentTypeNorm)) typeOptions.push(currentTypeNorm);
+
+        // Niveaux de service (GTI / GTR) : liste structurée { durée en heures, type de service }.
+        const slaNiveaux = editModalData.sla_niveaux || [];
+        const addSla = (categorie: 'GTI' | 'GTR') => {
+          setEditModalData(p => p ? { ...p, sla_niveaux: [...(p.sla_niveaux || []), { categorie, duree_heures: null, type_service: '' }] } : p);
+        };
+        const updateSla = (idx: number, patch: Partial<SlaNiveau>) => {
+          setEditModalData(p => {
+            if (!p) return p;
+            const list = [...(p.sla_niveaux || [])];
+            list[idx] = { ...list[idx], ...patch };
+            return { ...p, sla_niveaux: list };
+          });
+        };
+        const removeSla = (idx: number) => {
+          setEditModalData(p => {
+            if (!p) return p;
+            const list = [...(p.sla_niveaux || [])];
+            list.splice(idx, 1);
+            return { ...p, sla_niveaux: list };
+          });
+        };
+        const slaColumn = (categorie: 'GTI' | 'GTR', color: string) => (
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+              <span style={{ fontSize: 11, fontWeight: 700, color }}>{categorie}</span>
+              <button type="button" onClick={() => addSla(categorie)} title={`Ajouter un niveau ${categorie}`}
+                style={{ display: 'flex', alignItems: 'center', gap: 3, padding: '2px 7px', borderRadius: 5, border: `1px solid ${color}`, background: '#fff', color, cursor: 'pointer', fontSize: 11, fontWeight: 700 }}>
+                <Plus size={11} /> Ajouter
+              </button>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {slaNiveaux.map((n, i) => ({ n, i })).filter(({ n }) => n.categorie === categorie).map(({ n, i }) => (
+                <div key={i} style={{ display: 'grid', gridTemplateColumns: '70px 1fr auto', gap: 6, alignItems: 'center' }}>
+                  <input
+                    type="number" min={0} placeholder="h" value={n.duree_heures ?? ''}
+                    onChange={e => updateSla(i, { duree_heures: e.target.value ? parseFloat(e.target.value) : null })}
+                    title="Durée en heures"
+                    style={{ ...inputStyle, textAlign: 'center' }}
+                  />
+                  <input
+                    type="text" list="sla-type-options" placeholder="Type de service (ex: incident bloquant)"
+                    value={n.type_service} onChange={e => updateSla(i, { type_service: e.target.value })}
+                    style={inputStyle}
+                  />
+                  <button type="button" onClick={() => removeSla(i)} title="Supprimer"
+                    style={{ background: '#fee2e2', color: '#dc2626', border: 'none', borderRadius: 4, padding: '5px 6px', cursor: 'pointer' }}>
+                    <Trash2 size={11} />
+                  </button>
+                </div>
+              ))}
+              {slaNiveaux.filter(n => n.categorie === categorie).length === 0 && (
+                <p style={{ margin: 0, fontSize: 11, color: '#9ca3af', fontStyle: 'italic' }}>Aucun niveau {categorie}.</p>
+              )}
+            </div>
+          </div>
+        );
+
         return (
-          <Overlay onClose={() => { setEditModal(null); setEditModalData(null); setTiersSearch(''); setAppsSearch(''); }} maxWidth={860}>
-            <ModalHeader title={editModal ? `Éditer — ${editModal.objet || 'contrat'}${isNew(editModal.created_at) ? ' 🆕' : ''}` : 'Nouveau contrat'} onClose={() => { setEditModal(null); setEditModalData(null); setTiersSearch(''); setAppsSearch(''); }} />
+          <Overlay onClose={() => { setEditModal(null); setEditModalData(null); setAppsSearch(''); }} maxWidth={900}>
+            <datalist id="sla-type-options">
+              <option value="Incident bloquant" />
+              <option value="Incident urgent" />
+              <option value="Incident normal" />
+              <option value="Anomalie mineure" />
+              <option value="Demande" />
+            </datalist>
+            <ModalHeader title={editModal ? `Éditer — ${editModal.objet || 'contrat'}${isNew(editModal.created_at) ? ' 🆕' : ''}` : 'Nouveau contrat'} onClose={() => { setEditModal(null); setEditModalData(null); setAppsSearch(''); }} />
 
             {linkedContracts?.previous && (
               <div style={{ marginBottom: 12, padding: 10, background: '#f0fdf4', borderRadius: 6, border: '1px solid #dcfce7' }}>
@@ -1600,68 +1932,14 @@ const Contrats: React.FC = () => {
               </div>
             )}
 
-            {editModal && (
-              <div style={{ background: '#faf5ff', borderRadius: 6, padding: 10, border: '1px solid #e9d5ff', marginBottom: 12 }}>
-                <div
-                  onDragOver={e => { e.preventDefault(); setDragOver(true); }}
-                  onDragLeave={() => setDragOver(false)}
-                  onDrop={(e) => {
-                    e.preventDefault();
-                    setDragOver(false);
-                    if (!editModal.id) {
-                      showMsg('error', 'Enregistrez le contrat d\'abord');
-                      return;
-                    }
-                    const files = e.dataTransfer.files;
-                    if (files) {
-                      setDocUploading(true);
-                      (async () => {
-                        try {
-                          for (const file of Array.from(files)) {
-                            const fd = new FormData();
-                            fd.append('file', file);
-                            fd.append('nature', '');
-                            fd.append('est_principal', '0');
-                            await fetch(`/api/contrats/${editModal.id}/documents`, { method: 'POST', headers: authHeaders(), body: fd });
-                          }
-                          await fetchContrats();
-                          showMsg('success', `${files.length} document${files.length > 1 ? '(s)' : ''} uploadé${files.length > 1 ? 's' : ''}`);
-                        } catch {
-                          showMsg('error', 'Erreur upload');
-                        } finally {
-                          setDocUploading(false);
-                        }
-                      })();
-                    }
-                  }}
-                  onClick={() => editModal.id && docFileRef.current?.click()}
-                  style={{
-                    background: dragOver ? '#e0e7ff' : '#f3f4f6',
-                    border: `2px dashed ${dragOver ? '#4f46e5' : '#d1d5db'}`,
-                    borderRadius: 6,
-                    padding: 12,
-                    textAlign: 'center',
-                    cursor: editModal.id ? 'pointer' : 'not-allowed',
-                    marginBottom: 0,
-                    transition: 'all 0.2s',
-                    opacity: editModal.id ? 1 : 0.6,
-                  }}
-                >
-                  <p style={{ margin: 0, fontSize: 10, fontWeight: 600, color: '#1f2937' }}>
-                    {docUploading ? '⏳ Upload en cours...' : '📎 Dépose ou clique'}
-                  </p>
-                </div>
-              </div>
-            )}
-
-            {sectionTitle('Identification')}
+            {sectionTitle('1 — Identification')}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
               <div key="svc">
-                <label style={{ fontSize: 10, color: '#6b7280', display: 'block', marginBottom: 2 }}>SVC</label>
+                <label style={labelStyle}>SVC (service DSI)</label>
                 <select
                   value={String(editModalData.svc ?? '')}
                   onChange={e => setEditModalData(p => p ? { ...p, svc: e.target.value } : p)}
-                  style={{ width: '100%', padding: '5px 7px', border: '1px solid #d1d5db', borderRadius: 5, fontSize: 12, boxSizing: 'border-box' }}
+                  style={inputStyle}
                 >
                   <option value="">— Sélectionner —</option>
                   <option value="BF1">BF1</option>
@@ -1670,47 +1948,33 @@ const Contrats: React.FC = () => {
                   <option value="BF9">BF9</option>
                 </select>
               </div>
-              {mf('Logiciel / Objet', 'objet')}
-              {mf('Fournisseur', 'raison_sociale')}
-              <div key="tiers" style={{ position: 'relative' }}>
-                <label style={{ fontSize: 10, color: '#6b7280', display: 'block', marginBottom: 2 }}>Tiers</label>
-                <input
-                  type="text"
-                  placeholder="Rechercher un tiers..."
-                  value={tiersSearch}
-                  onChange={(e) => {
-                    const val = e.target.value;
-                    setTiersSearch(val);
-                    searchTiers(val);
-                    setShowTiersSuggestions(true);
-                  }}
-                  onFocus={() => setShowTiersSuggestions(true)}
-                  onBlur={() => setTimeout(() => setShowTiersSuggestions(false), 200)}
-                  style={{ width: '100%', padding: '5px 7px', border: '1px solid #d1d5db', borderRadius: 5, fontSize: 12, boxSizing: 'border-box' }}
-                />
-                {showTiersSuggestions && tiersSuggestions.length > 0 && (
-                  <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: '#fff', border: '1px solid #d1d5db', borderTop: 'none', borderRadius: '0 0 5px 5px', maxHeight: '200px', overflowY: 'auto', zIndex: 10 }}>
-                    {tiersSuggestions.map((t) => (
-                      <div
-                        key={t.code}
-                        onClick={() => {
-                          setEditModalData(p => p ? { ...p, tiers: t.code } : p);
-                          setTiersSearch(t.name);
-                          setShowTiersSuggestions(false);
-                        }}
-                        style={{ padding: '6px 8px', borderBottom: '1px solid #f3f4f6', cursor: 'pointer', fontSize: 11, color: '#374151' }}
-                        onMouseEnter={(e) => (e.currentTarget.style.background = '#f3f4f6')}
-                        onMouseLeave={(e) => (e.currentTarget.style.background = '#fff')}
-                      >
-                        <div style={{ fontWeight: 600 }}>{t.code}</div>
-                        <div style={{ fontSize: 10, color: '#6b7280' }}>{t.name}</div>
-                      </div>
-                    ))}
-                  </div>
-                )}
+              {mf('Nom', 'objet')}
+              {mf('Éditeur / Fabricant', 'raison_sociale')}
+              <div key="type_bien">
+                <label style={labelStyle}>Type de bien</label>
+                <select
+                  value={String(editModalData.type_bien ?? 'logiciel')}
+                  onChange={e => setEditModalData(p => p ? { ...p, type_bien: e.target.value } : p)}
+                  style={inputStyle}
+                >
+                  <option value="logiciel">Logiciel</option>
+                  <option value="materiel">Matériel</option>
+                </select>
               </div>
+              <div key="type_contrat">
+                <label style={labelStyle}>Type</label>
+                <select
+                  value={currentTypeNorm}
+                  onChange={e => setEditModalData(p => p ? { ...p, type_contrat: e.target.value } : p)}
+                  style={inputStyle}
+                >
+                  <option value="">— Sélectionner —</option>
+                  {typeOptions.map(t => <option key={t} value={t}>{t}</option>)}
+                </select>
+              </div>
+              {mf('Périmètre', 'perimetre')}
               <div key="app_id" style={{ position: 'relative' }}>
-                <label style={{ fontSize: 10, color: '#6b7280', display: 'block', marginBottom: 2 }}>Application</label>
+                <label style={labelStyle}>Application (magasin d'applications)</label>
                 <input
                   type="text"
                   placeholder="Rechercher une application..."
@@ -1723,7 +1987,7 @@ const Contrats: React.FC = () => {
                   }}
                   onFocus={() => setShowAppsSuggestions(true)}
                   onBlur={() => setTimeout(() => setShowAppsSuggestions(false), 200)}
-                  style={{ width: '100%', padding: '5px 7px', border: '1px solid #d1d5db', borderRadius: 5, fontSize: 12, boxSizing: 'border-box' }}
+                  style={inputStyle}
                 />
                 {showAppsSuggestions && appsSuggestions.length > 0 && (
                   <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: '#fff', border: '1px solid #d1d5db', borderTop: 'none', borderRadius: '0 0 5px 5px', maxHeight: '200px', overflowY: 'auto', zIndex: 10 }}>
@@ -1745,55 +2009,53 @@ const Contrats: React.FC = () => {
                   </div>
                 )}
               </div>
-              {mf('Type', 'type_contrat')}
-              {mf('Marché / Contrat', 'marche_contrat')}
-              {mf('Pièce', 'piece')}
             </div>
+            <p style={{ margin: '6px 0 0', fontSize: 10, color: '#9ca3af', fontStyle: 'italic' }}>
+              Le tiers sera déterminé automatiquement lors de l'association d'une commande.
+            </p>
 
-            {sectionTitle('Organisation')}
+            {sectionTitle('Bénéficiaires')}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
               {mf('Direction', 'direction')}
               {mf('Service', 'service')}
-              {mf('Périmètre', 'perimetre')}
-              {mf('Nature', 'nature')}
-              {mf('Fonction', 'fonction')}
-              {mf('Budget', 'budget')}
-              {mf('Année initiale', 'annee_initiale', 'number')}
             </div>
 
-            {sectionTitle('Dates & durée')}
+            {sectionTitle('2 — Contenu du contrat')}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
+              {mf('Numéro', 'numero')}
               {mf('Date de début', 'date_debut', 'date')}
               <div key="date_fin">
-                <label style={{ fontSize: 10, color: '#6b7280', display: 'block', marginBottom: 2 }}>Date de fin {calculatedDateFin && <span style={{ fontSize: 9, fontStyle: 'italic', color: '#10b981' }}>(calculée)</span>}</label>
+                <label style={labelStyle}>Date de fin initiale {calculatedDateFin && <span style={{ fontSize: 9, fontStyle: 'italic', color: '#10b981' }}>(calculée)</span>}</label>
                 <input
                   type="date"
-                  value={String(editModalData.date_fin ?? '')}
-                  onChange={e => setEditModalData(p => p ? { ...p, date_fin: e.target.value } : p)}
-                  style={{ width: '100%', padding: '5px 7px', border: '1px solid #d1d5db', borderRadius: 5, fontSize: 12, boxSizing: 'border-box', fontStyle: calculatedDateFin ? 'italic' : 'normal', fontWeight: calculatedDateFin ? 600 : 400, color: calculatedDateFin ? '#10b981' : '#1f2937' }}
+                  value={editModalData.date_fin ? toLocalDateStr(editModalData.date_fin) : ''}
+                  onChange={e => {
+                    if (e.target.value === '') return;
+                    setEditModalData(p => p ? { ...p, date_fin: e.target.value } : p);
+                  }}
+                  style={{ ...inputStyle, fontStyle: calculatedDateFin ? 'italic' : 'normal', fontWeight: calculatedDateFin ? 600 : 400, color: calculatedDateFin ? '#10b981' : '#1f2937' }}
                 />
               </div>
               {mf('Durée (années)', 'duree_annees', 'number')}
               <div key="nb_reconductions">
-                <label style={{ fontSize: 10, color: editModalData.reconduction === 'sans' ? '#d1d5db' : '#6b7280', display: 'block', marginBottom: 2 }}>Nb reconductions</label>
+                <label style={{ ...labelStyle, color: editModalData.reconduction === 'sans' ? '#d1d5db' : '#6b7280' }}>Nb reconductions</label>
                 <input
                   type="number"
                   value={String(editModalData.nb_reconductions ?? '')}
                   onChange={e => setEditModalData(p => p ? { ...p, nb_reconductions: e.target.value ? parseInt(e.target.value) : null } : p)}
                   disabled={editModalData.reconduction === 'sans'}
-                  style={{ width: '100%', padding: '5px 7px', border: '1px solid #d1d5db', borderRadius: 5, fontSize: 12, boxSizing: 'border-box', background: editModalData.reconduction === 'sans' ? '#f3f4f6' : '#fff', color: editModalData.reconduction === 'sans' ? '#d1d5db' : '#1f2937', cursor: editModalData.reconduction === 'sans' ? 'not-allowed' : 'text' }}
+                  style={{ ...inputStyle, background: editModalData.reconduction === 'sans' ? '#f3f4f6' : '#fff', color: editModalData.reconduction === 'sans' ? '#d1d5db' : '#1f2937', cursor: editModalData.reconduction === 'sans' ? 'not-allowed' : 'text' }}
                 />
               </div>
-              {mf('Date de reconduction', 'date_reconduction')}
               <div key="reconduction">
-                <label style={{ fontSize: 10, color: '#6b7280', display: 'block', marginBottom: 2 }}>Type de reconduction</label>
+                <label style={labelStyle}>Type de reconduction</label>
                 <select
                   value={String(editModalData.reconduction ?? '')}
                   onChange={e => {
                     const newRecond = e.target.value;
                     setEditModalData(p => p ? { ...p, reconduction: newRecond, nb_reconductions: newRecond === 'sans' ? 0 : p.nb_reconductions } : p);
                   }}
-                  style={{ width: '100%', padding: '5px 7px', border: '1px solid #d1d5db', borderRadius: 5, fontSize: 12, boxSizing: 'border-box' }}
+                  style={inputStyle}
                 >
                   <option value="">— Sélectionner —</option>
                   <option value="express">Express</option>
@@ -1801,54 +2063,230 @@ const Contrats: React.FC = () => {
                   <option value="sans">Sans reconduction</option>
                 </select>
               </div>
+              <div key="renouvellement_actuel">
+                <label style={{ ...labelStyle, color: editModalData.reconduction === 'sans' || !editModalData.nb_reconductions ? '#d1d5db' : '#6b7280' }}>Renouvellement en cours</label>
+                <div style={{ display: 'flex', gap: 4 }}>
+                  <input
+                    type="number"
+                    min={0}
+                    max={editModalData.nb_reconductions ?? 0}
+                    value={String(editModalData.renouvellement_actuel ?? 0)}
+                    onChange={e => {
+                      const v = e.target.value ? parseInt(e.target.value) : 0;
+                      setEditModalData(p => p ? { ...p, renouvellement_actuel: Math.max(0, Math.min(v, p.nb_reconductions ?? v)) } : p);
+                    }}
+                    disabled={editModalData.reconduction === 'sans'}
+                    style={{ ...inputStyle, background: editModalData.reconduction === 'sans' ? '#f3f4f6' : '#fff', color: editModalData.reconduction === 'sans' ? '#d1d5db' : '#1f2937', cursor: editModalData.reconduction === 'sans' ? 'not-allowed' : 'text' }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setEditModalData(p => p ? { ...p, renouvellement_actuel: suggestRenouvellement(p.date_fin ?? null, p.duree_annees ?? null, p.nb_reconductions ?? null) } : p)}
+                    title="Suggérer automatiquement selon la date du jour"
+                    style={{ flexShrink: 0, padding: '5px 8px', borderRadius: 5, border: '1px solid #d1d5db', background: '#eff6ff', color: '#1d4ed8', cursor: 'pointer', fontSize: 11, fontWeight: 600 }}
+                  >
+                    Auto
+                  </button>
+                </div>
+              </div>
             </div>
             <button
               onClick={() => {
-                console.log('Avant calcul:', { debut: editModalData.date_debut, duree: editModalData.duree_annees, recond: editModalData.nb_reconductions });
-                const calculated = calculateDateFin(editModalData.date_debut ?? null, editModalData.duree_annees ?? null, editModalData.nb_reconductions ?? null);
-                console.log('Résultat calcul:', calculated);
+                const calculated = calculateDateFin(editModalData.date_debut ?? null, editModalData.duree_annees ?? null);
                 if (calculated) {
                   setEditModalData(p => p ? { ...p, date_fin: calculated } : p);
                   setCalculatedDateFin(true);
                   showMsg('success', `Date calculée : ${calculated}`);
                 } else {
-                  showMsg('error', 'Remplir : Date début + Durée + Nb reconductions');
+                  showMsg('error', 'Remplir : Date début + Durée');
                 }
               }}
               style={{ marginTop: 8, padding: '5px 12px', borderRadius: 5, border: '1px solid #d1d5db', background: '#f0fdf4', color: '#15803d', cursor: 'pointer', fontSize: 11, fontWeight: 600 }}
             >
-              📅 Calculer date de fin
+              📅 Calculer date de fin (période initiale)
             </button>
 
-            {sectionTitle('Montants')}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8 }}>
-              {mf('2022', 'montant_2022', 'number')}
-              {mf('2023', 'montant_2023', 'number')}
-              {mf('2024', 'montant_2024', 'number')}
-              {mf('2025', 'montant_2025', 'number')}
-              {mf('2026', 'montant_2026', 'number')}
-              {mf('Prév. 2026', 'prevision_2026', 'number')}
-              {mf('Prév. 2027', 'prevision_2027', 'number')}
-              {mf('Prév. 2028', 'prevision_2028', 'number')}
-              {mf('Prév. 2029', 'prevision_2029', 'number')}
+            <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 8, padding: '10px 12px', marginTop: 10 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: '#1d4ed8', textTransform: 'uppercase' as const, letterSpacing: '0.05em', marginBottom: 8 }}>
+                Dates de fin du contrat
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8, fontSize: 12 }}>
+                <div>
+                  <label style={{ color: '#6b7280', fontWeight: 500, display: 'block', marginBottom: 2 }}>Fin 1re période</label>
+                  <div style={{ fontWeight: 600, color: '#1f2937' }}>{fmtDate(editModalData.date_fin ?? null)}</div>
+                </div>
+                <div>
+                  <label style={{ color: '#6b7280', fontWeight: 500, display: 'block', marginBottom: 2 }}>Renouvellement actuel</label>
+                  <div style={{ fontWeight: 600, color: '#1f2937' }}>
+                    {editModalData.renouvellement_actuel ? `${editModalData.renouvellement_actuel}${editModalData.renouvellement_actuel === 1 ? 're' : 'e'} reconduction` : 'Période initiale'}
+                  </div>
+                </div>
+                <div>
+                  <label style={{ color: '#6b7280', fontWeight: 500, display: 'block', marginBottom: 2 }}>Fin contrat en cours</label>
+                  <div style={{ fontWeight: 600, color: '#1d4ed8' }}>{fmtDate(computeFinContrat(editModalData).finCours)}</div>
+                </div>
+                <div>
+                  <label style={{ color: '#6b7280', fontWeight: 500, display: 'block', marginBottom: 2 }}>Fin maxi du contrat</label>
+                  <div style={{ fontWeight: 600, color: '#b45309' }}>{fmtDate(computeFinContrat(editModalData).finMax)}</div>
+                </div>
+              </div>
             </div>
 
-            {/* Zone spéciale Niveaux de service */}
+            <label style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 10, fontSize: 12, cursor: 'pointer' }}>
+              <input type="checkbox" checked={!!editModalData.dates_verifiees} onChange={e => setEditModalData(p => p ? { ...p, dates_verifiees: e.target.checked ? 1 : 0 } : p)} style={{ width: 15, height: 15 }} />
+              <span style={{ fontWeight: 600, color: '#1f2937' }}>Contrat vérifié</span>
+              <span style={{ color: '#9ca3af', fontSize: 11 }}>— les informations du contrat (dates, montants, niveaux de service...) ont été contrôlées</span>
+            </label>
+
+            {/* Niveaux de service */}
             <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 8, padding: '12px 14px', marginTop: 16 }}>
               <div style={{ fontSize: 11, fontWeight: 700, color: '#b45309', textTransform: 'uppercase' as const, letterSpacing: '0.05em', marginBottom: 10 }}>
                 Niveaux de service
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 10 }}>
-                {mf('GTI', 'gti')}
-                {mf('GTR', 'gtr')}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 16 }}>
+                {slaColumn('GTI', '#b45309')}
+                {slaColumn('GTR', '#b45309')}
+              </div>
+              <div style={{ marginTop: 10 }}>
                 {mf('Pénalité', 'penalite')}
-                {mf('Indice de révision', 'indice_revision')}
               </div>
             </div>
 
-            {sectionTitle('Facturation')}
+            {sectionTitle('Informations financières')}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
-              {mf('N° Facture', 'numero_facture')}
+              {mf('Nature', 'nature')}
+              {mf('Fonction', 'fonction')}
+              {mf('Budget', 'budget')}
+              {mf('Année initiale', 'annee_initiale', 'number')}
+              {mf('Indice de révision', 'indice_revision')}
+              {mf('Formule de révision', 'formule_revision')}
+            </div>
+
+            <div style={{ marginTop: 10 }}>
+              <div style={{ fontSize: 10, color: '#6b7280', fontWeight: 600, marginBottom: 4 }}>Historique</div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 8 }}>
+                {mf('2022', 'montant_2022', 'number')}
+                {mf('2023', 'montant_2023', 'number')}
+                {mf('2024', 'montant_2024', 'number')}
+                {mf('2025', 'montant_2025', 'number')}
+                {mf('2026', 'montant_2026', 'number')}
+              </div>
+              <div style={{ fontSize: 10, color: '#6b7280', fontWeight: 600, margin: '10px 0 4px' }}>
+                Prévision {!editModalData.montant_2026 && '(année en cours + 3 ans)'}{editModalData.montant_2026 && '(3 prochaines années — 2026 déjà connu)'}
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8 }}>
+                {!editModalData.montant_2026 && mf('Prév. 2026', 'prevision_2026', 'number')}
+                {mf('Prév. 2027', 'prevision_2027', 'number')}
+                {mf('Prév. 2028', 'prevision_2028', 'number')}
+                {mf('Prév. 2029', 'prevision_2029', 'number')}
+              </div>
+            </div>
+
+            {sectionTitle('3 — Documents')}
+            <div style={{ background: '#faf5ff', borderRadius: 6, padding: 10, border: '1px solid #e9d5ff' }}>
+              <div
+                onDragOver={e => { e.preventDefault(); setDragOver(true); }}
+                onDragLeave={() => setDragOver(false)}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  setDragOver(false);
+                  if (!editModal?.id) {
+                    showMsg('error', 'Enregistrez le contrat d\'abord');
+                    return;
+                  }
+                  if (e.dataTransfer.files) uploadFilesToContrat(editModal.id, e.dataTransfer.files);
+                }}
+                onClick={() => editModal?.id && editDocFileRef.current?.click()}
+                style={{
+                  background: dragOver ? '#e0e7ff' : '#f3f4f6',
+                  border: `2px dashed ${dragOver ? '#4f46e5' : '#d1d5db'}`,
+                  borderRadius: 6,
+                  padding: 12,
+                  textAlign: 'center',
+                  cursor: editModal?.id ? 'pointer' : 'not-allowed',
+                  transition: 'all 0.2s',
+                  opacity: editModal?.id ? 1 : 0.6,
+                }}
+              >
+                <p style={{ margin: 0, fontSize: 11, fontWeight: 600, color: '#1f2937' }}>
+                  {docUploading ? '⏳ Upload en cours...' : '📎 Dépose des fichiers ici ou clique (stockés dans la GED)'}
+                </p>
+              </div>
+              <input
+                ref={editDocFileRef}
+                type="file"
+                multiple
+                style={{ display: 'none' }}
+                onChange={(e) => {
+                  if (editModal?.id && e.target.files) uploadFilesToContrat(editModal.id, e.target.files);
+                  if (editDocFileRef.current) editDocFileRef.current.value = '';
+                }}
+              />
+              {!editModal?.id && (
+                <p style={{ margin: '8px 0 0', fontSize: 10, color: '#9ca3af', fontStyle: 'italic' }}>Enregistrez le contrat pour joindre des documents.</p>
+              )}
+
+              {editModal?.id && (() => {
+                const activeDocs = editModalDocs.filter(d => !d.archive);
+                const archivedDocs = editModalDocs.filter(d => !!d.archive);
+                const shown = showArchivedDocs ? archivedDocs : activeDocs;
+                return (
+                  <div style={{ marginTop: 10 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+                      <span style={{ fontSize: 10, color: '#6b7280', fontWeight: 600 }}>
+                        {showArchivedDocs ? `Documents archivés (${archivedDocs.length})` : `Documents (${activeDocs.length})`}
+                      </span>
+                      {archivedDocs.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => setShowArchivedDocs(v => !v)}
+                          style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '3px 8px', borderRadius: 5, border: '1px solid #d1d5db', background: showArchivedDocs ? '#7c3aed' : '#fff', color: showArchivedDocs ? '#fff' : '#7c3aed', cursor: 'pointer', fontSize: 10, fontWeight: 600 }}
+                        >
+                          <Archive size={11} /> {showArchivedDocs ? 'Voir les documents actifs' : `Voir les archives (${archivedDocs.length})`}
+                        </button>
+                      )}
+                    </div>
+                    {shown.length === 0 ? (
+                      <p style={{ margin: 0, fontSize: 11, color: '#9ca3af', fontStyle: 'italic' }}>
+                        {showArchivedDocs ? 'Aucun document archivé.' : 'Aucun document joint.'}
+                      </p>
+                    ) : (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                        {shown.map(doc => (
+                          <div key={doc.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 6px', background: '#fff', borderRadius: 5, border: '1px solid #e5e7eb' }}>
+                            <FileText size={12} style={{ color: '#6b7280', flexShrink: 0 }} />
+                            <button
+                              onClick={() => setPdfModal({ path: doc.file_path, name: doc.file_name })}
+                              style={{ flexGrow: 1, minWidth: 0, textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 12, color: '#1d4ed8', fontWeight: doc.est_principal ? 700 : 400, background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
+                            >
+                              {doc.file_name}
+                            </button>
+                            {doc.nature && <span style={{ fontSize: 9, color: '#6b7280', background: '#f3f4f6', padding: '1px 6px', borderRadius: 9999, flexShrink: 0 }}>{doc.nature}</span>}
+                            {doc.est_principal === 1 && <span style={{ fontSize: 9, color: '#15803d', background: '#dcfce7', padding: '1px 6px', borderRadius: 9999, fontWeight: 700, flexShrink: 0 }}>Principal</span>}
+                            <button
+                              onClick={() => handleDocArchive(editModal.id, doc.id, !doc.archive)}
+                              title={doc.archive ? 'Désarchiver' : 'Archiver'}
+                              style={{ background: '#f3f4f6', color: '#6b7280', border: 'none', borderRadius: 4, padding: '3px 6px', cursor: 'pointer', flexShrink: 0 }}
+                            >
+                              <Archive size={11} />
+                            </button>
+                            <button
+                              onClick={async () => {
+                                await fetch(`/api/contrats/${editModal.id}/documents/${doc.id}`, { method: 'DELETE', headers: authHeaders() });
+                                await fetchEditModalDocs(editModal.id);
+                                await fetchContrats();
+                              }}
+                              title="Supprimer"
+                              style={{ background: '#fee2e2', color: '#dc2626', border: 'none', borderRadius: 4, padding: '3px 6px', cursor: 'pointer', flexShrink: 0 }}
+                            >
+                              <Trash2 size={11} />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
             </div>
 
             {sectionTitle('Commentaires')}
@@ -1881,7 +2319,7 @@ const Contrats: React.FC = () => {
             )}
 
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 20 }}>
-              <button onClick={() => { setEditModal(null); setEditModalData(null); setTiersSearch(''); setAppsSearch(''); }} style={{ padding: '8px 16px', borderRadius: 6, border: '1px solid #d1d5db', background: '#fff', cursor: 'pointer', fontSize: 13 }}>Annuler</button>
+              <button onClick={() => { setEditModal(null); setEditModalData(null); setAppsSearch(''); }} style={{ padding: '8px 16px', borderRadius: 6, border: '1px solid #d1d5db', background: '#fff', cursor: 'pointer', fontSize: 13 }}>Annuler</button>
               <button onClick={saveModal} style={{ padding: '8px 16px', borderRadius: 6, border: 'none', background: '#1e3a5f', color: '#fff', cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>
                 <Check size={13} style={{ display: 'inline', marginRight: 5 }} />Enregistrer
               </button>
@@ -1987,7 +2425,7 @@ const Contrats: React.FC = () => {
             </div>
             <div>
               <label style={{ fontSize: 12, color: '#6b7280', display: 'block', marginBottom: 4 }}>Nouvelle date de fin</label>
-              <input type="date" value={renewDate} onChange={e => setRenewDate(e.target.value)} style={{ width: '100%', padding: '8px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, boxSizing: 'border-box' }} />
+              <input type="date" value={renewDate} onChange={e => { if (e.target.value === '') return; setRenewDate(e.target.value); }} style={{ width: '100%', padding: '8px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, boxSizing: 'border-box' }} />
             </div>
             <div>
               <label style={{ fontSize: 12, color: '#6b7280', display: 'block', marginBottom: 4 }}>Commentaire</label>
@@ -2030,12 +2468,6 @@ const Contrats: React.FC = () => {
             >
               Engagement budgétaire
             </button>
-            <button
-              onClick={() => { setLinkTab('facture'); setLinkResults([]); setLinkSelections([]); setLinkAmount(''); }}
-              style={{ padding: '6px 12px', borderRadius: 6, border: linkTab === 'facture' ? '1px solid #d97706' : '1px solid #d1d5db', background: linkTab === 'facture' ? '#fffbeb' : '#fff', color: linkTab === 'facture' ? '#b45309' : '#374151', cursor: 'pointer', fontSize: 12, fontWeight: 600 }}
-            >
-              Facture
-            </button>
           </div>
 
           {/* Liens actuels (plusieurs possibles) */}
@@ -2050,20 +2482,19 @@ const Contrats: React.FC = () => {
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
                   {current.map(l => {
                     const isBc = l.commande_type === 'bc';
-                    const isFacture = l.commande_type === 'facture';
-                    const chipBg = isBc ? '#dbeafe' : isFacture ? '#fffbeb' : '#f5f3ff';
-                    const chipFg = isBc ? '#1d4ed8' : isFacture ? '#b45309' : '#6d28d9';
-                    const chipBd = isBc ? '#93c5fd' : isFacture ? '#fcd34d' : '#ddd6fe';
-                    const chipTitle = isBc ? (l.commande_libelle || '') : isFacture ? (l.commande_libelle || '') : (l.engagement_libelle || '');
-                    const seditHref = (isBc || isFacture) && l.commande_sedit && linkSeditUrl
-                      ? `${linkSeditUrl}/${isBc ? 'FicheCommande.html?commandeId' : 'FicheFacture.html?factureId'}=${l.commande_sedit}`
+                    const chipBg = isBc ? '#dbeafe' : '#f5f3ff';
+                    const chipFg = isBc ? '#1d4ed8' : '#6d28d9';
+                    const chipBd = isBc ? '#93c5fd' : '#ddd6fe';
+                    const chipTitle = isBc ? (l.commande_libelle || '') : (l.engagement_libelle || '');
+                    const seditHref = isBc && l.commande_sedit && linkSeditUrl
+                      ? `${linkSeditUrl}/FicheCommande.html?commandeId=${l.commande_sedit}`
                       : null;
                     return (
                       <span key={l.id} title={chipTitle} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: chipBg, color: chipFg, border: `1px solid ${chipBd}`, borderRadius: 9999, padding: '3px 8px', fontSize: 11, fontWeight: 600, whiteSpace: 'nowrap' }}>
-                        {isBc ? <FileCheck2 size={12} /> : isFacture ? <Receipt size={12} /> : <Link2 size={12} />}
+                        {isBc ? <FileCheck2 size={12} /> : <Link2 size={12} />}
                         {seditHref
-                          ? <a href={seditHref} target="_blank" rel="noopener noreferrer" title="Ouvrir dans Sedit" style={{ color: chipFg, textDecoration: 'underline', display: 'inline-flex', alignItems: 'center', gap: 3 }}>{isBc ? (l.commande_numero || 'BC') : isFacture ? (l.commande_numero || 'Facture') : (l.engagement_code || 'Engt')} <ExternalLink size={10} /></a>
-                          : (isBc ? (l.commande_numero || 'BC') : isFacture ? (l.commande_numero || 'Facture') : (l.engagement_code || 'Engt'))}
+                          ? <a href={seditHref} target="_blank" rel="noopener noreferrer" title="Ouvrir dans Sedit" style={{ color: chipFg, textDecoration: 'underline', display: 'inline-flex', alignItems: 'center', gap: 3 }}>{isBc ? (l.commande_numero || 'BC') : (l.engagement_code || 'Engt')} <ExternalLink size={10} /></a>
+                          : (isBc ? (l.commande_numero || 'BC') : (l.engagement_code || 'Engt'))}
                         <button title="Retirer ce lien" onClick={() => unlinkLiaison(l.id)} style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: '#b91c1c', display: 'inline-flex', padding: 0, marginLeft: 2 }}>
                           <CloseIcon size={11} />
                         </button>
@@ -2129,9 +2560,9 @@ const Contrats: React.FC = () => {
                     </thead>
                     <tbody>
                       {linkResults.map((r, i) => {
-                        const num = linkTab === 'bc' ? (r.numero || r.sedit_id || '') : linkTab === 'engagement' ? (r.code || '') : (r.numero || r.sedit_id || '');
+                        const num = linkTab === 'bc' ? (r.numero || r.sedit_id || '') : (r.code || '');
                         const lib = r.libelle || r.objet || '';
-                        const montant = linkTab === 'bc' ? (r.montant_ttc != null ? r.montant_ttc : r.montant_ht) : linkTab === 'engagement' ? (r.montant != null ? r.montant : r.solde) : r.montant_ttc;
+                        const montant = linkTab === 'bc' ? (r.montant_ttc != null ? r.montant_ttc : r.montant_ht) : (r.montant != null ? r.montant : r.solde);
                         const key = linkItemKey(r);
                         const selected = linkSelections.some(s => linkItemKey(s) === key);
                         const isLinked = alreadyLinkedKeys.has(key);
@@ -2159,23 +2590,11 @@ const Contrats: React.FC = () => {
                                     {num} <ExternalLink size={11} />
                                   </a>
                                 )
-                                : linkTab === 'facture' && r.sedit_id && linkSeditUrl
-                                  ? (
-                                    <a
-                                      href={`${linkSeditUrl}/FicheFacture.html?factureId=${r.sedit_id}`}
-                                      target="_blank"
-                                      rel="noopener noreferrer"
-                                      title={`Ouvrir la facture ${num} dans Sedit`}
-                                      style={{ color: '#b45309', textDecoration: 'underline', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 3 }}
-                                    >
-                                      {num} <ExternalLink size={11} />
-                                    </a>
-                                  )
-                                  : num}
+                                : num}
                               {isLinked && <span style={{ marginLeft: 5, color: '#15803d', fontSize: 10, fontWeight: 600 }}>✓ lié</span>}
                             </td>
                             <td style={{ padding: '6px 8px', borderBottom: '1px solid #f3f4f6' }}>{lib}</td>
-                            <td style={{ padding: '6px 8px', borderBottom: '1px solid #f3f4f6', whiteSpace: 'nowrap' }}>{r.tiers_nom || r.fournisseur || r.tiers || ''}</td>
+                            <td style={{ padding: '6px 8px', borderBottom: '1px solid #f3f4f6', whiteSpace: 'nowrap' }}>{r.tiers_nom || r.tiers || ''}</td>
                             {linkTab === 'engagement' && <td style={{ padding: '6px 8px', borderBottom: '1px solid #f3f4f6', whiteSpace: 'nowrap' }}>{r.annee || r.year || ''}</td>}
                             <td style={{ padding: '6px 8px', borderBottom: '1px solid #f3f4f6', textAlign: 'right', whiteSpace: 'nowrap' }}>{montant != null ? Number(montant).toLocaleString('fr-FR') : ''} €</td>
                           </tr>
@@ -2194,15 +2613,15 @@ const Contrats: React.FC = () => {
               </div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 10 }}>
                 {linkSelections.map(s => {
-                  const chipBg = linkTab === 'bc' ? '#dbeafe' : linkTab === 'facture' ? '#fffbeb' : '#f5f3ff';
-                  const chipFg = linkTab === 'bc' ? '#1d4ed8' : linkTab === 'facture' ? '#b45309' : '#6d28d9';
-                  const chipBd = linkTab === 'bc' ? '#93c5fd' : linkTab === 'facture' ? '#fcd34d' : '#ddd6fe';
-                  const seditHref = linkTab !== 'engagement' && s.sedit_id && linkSeditUrl
-                    ? `${linkSeditUrl}/${linkTab === 'bc' ? 'FicheCommande.html?commandeId' : 'FicheFacture.html?factureId'}=${s.sedit_id}`
+                  const chipBg = linkTab === 'bc' ? '#dbeafe' : '#f5f3ff';
+                  const chipFg = linkTab === 'bc' ? '#1d4ed8' : '#6d28d9';
+                  const chipBd = linkTab === 'bc' ? '#93c5fd' : '#ddd6fe';
+                  const seditHref = linkTab === 'bc' && s.sedit_id && linkSeditUrl
+                    ? `${linkSeditUrl}/FicheCommande.html?commandeId=${s.sedit_id}`
                     : null;
                   return (
                     <span key={linkItemKey(s)} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: chipBg, color: chipFg, border: `1px solid ${chipBd}`, borderRadius: 9999, padding: '3px 8px', fontSize: 11, fontWeight: 600, whiteSpace: 'nowrap' }}>
-                      {linkTab === 'bc' ? <FileCheck2 size={12} /> : linkTab === 'facture' ? <Receipt size={12} /> : <Link2 size={12} />}
+                      {linkTab === 'bc' ? <FileCheck2 size={12} /> : <Link2 size={12} />}
                       {seditHref
                         ? <a href={seditHref} target="_blank" rel="noopener noreferrer" title="Ouvrir dans Sedit" style={{ color: chipFg, textDecoration: 'underline', display: 'inline-flex', alignItems: 'center', gap: 3 }}>{linkTab === 'engagement' ? s.code : (s.numero || s.sedit_id)} <ExternalLink size={10} /></a>
                         : (linkTab === 'engagement' ? s.code : (s.numero || s.sedit_id))}
@@ -2264,24 +2683,23 @@ const Contrats: React.FC = () => {
                 <tbody>
                   {cur.map((l, i) => {
                     const isBc = l.commande_type === 'bc';
-                    const isFacture = l.commande_type === 'facture';
-                    const badgeBg = isBc ? '#dbeafe' : isFacture ? '#fffbeb' : '#f5f3ff';
-                    const badgeFg = isBc ? '#1d4ed8' : isFacture ? '#b45309' : '#6d28d9';
-                    const badgeBd = isBc ? '#93c5fd' : isFacture ? '#fcd34d' : '#ddd6fe';
-                    const seditHref = (isBc || isFacture) && l.commande_sedit && linkSeditUrl
-                      ? `${linkSeditUrl}/${isBc ? 'FicheCommande.html?commandeId' : 'FicheFacture.html?factureId'}=${l.commande_sedit}`
+                    const badgeBg = isBc ? '#dbeafe' : '#f5f3ff';
+                    const badgeFg = isBc ? '#1d4ed8' : '#6d28d9';
+                    const badgeBd = isBc ? '#93c5fd' : '#ddd6fe';
+                    const seditHref = isBc && l.commande_sedit && linkSeditUrl
+                      ? `${linkSeditUrl}/FicheCommande.html?commandeId=${l.commande_sedit}`
                       : null;
                     return (
                       <tr key={l.id} style={{ background: i % 2 ? '#f9fafb' : '#fff' }}>
                         <td style={{ padding: '6px 8px', borderBottom: '1px solid #f3f4f6', whiteSpace: 'nowrap' }}>
                           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: badgeBg, color: badgeFg, border: `1px solid ${badgeBd}`, borderRadius: 9999, padding: '2px 8px', fontSize: 11, fontWeight: 600, whiteSpace: 'nowrap' }}>
-                            {isBc ? <FileCheck2 size={11} /> : isFacture ? <Receipt size={11} /> : <Link2 size={11} />}
-                            {isBc ? 'BC Sedit' : isFacture ? 'Facture' : 'Engagement'}
+                            {isBc ? <FileCheck2 size={11} /> : <Link2 size={11} />}
+                            {isBc ? 'BC Sedit' : 'Engagement'}
                           </span>
                         </td>
                         <td style={{ padding: '6px 8px', borderBottom: '1px solid #f3f4f6', whiteSpace: 'nowrap' }}>{fmtDate(l.date_commande)}</td>
-                        <td style={{ padding: '6px 8px', borderBottom: '1px solid #f3f4f6', whiteSpace: 'nowrap', fontWeight: 600 }}>{isBc ? (l.commande_numero || 'BC') : isFacture ? (l.commande_numero || 'Facture') : (l.engagement_code || 'Engt')}</td>
-                        <td style={{ padding: '6px 8px', borderBottom: '1px solid #f3f4f6', maxWidth: 260 }}>{isBc ? (l.commande_libelle || '') : isFacture ? (l.commande_libelle || '') : (l.engagement_libelle || '')}</td>
+                        <td style={{ padding: '6px 8px', borderBottom: '1px solid #f3f4f6', whiteSpace: 'nowrap', fontWeight: 600 }}>{isBc ? (l.commande_numero || 'BC') : (l.engagement_code || 'Engt')}</td>
+                        <td style={{ padding: '6px 8px', borderBottom: '1px solid #f3f4f6', maxWidth: 260 }}>{isBc ? (l.commande_libelle || '') : (l.engagement_libelle || '')}</td>
                         <td style={{ padding: '6px 8px', borderBottom: '1px solid #f3f4f6', whiteSpace: 'nowrap' }}>
                           {seditHref ? (
                             <a href={seditHref} target="_blank" rel="noopener noreferrer" title="Ouvrir dans Sedit" style={{ color: badgeFg, textDecoration: 'underline', display: 'inline-flex', alignItems: 'center', gap: 3 }}>
@@ -2392,7 +2810,7 @@ const Contrats: React.FC = () => {
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 10, fontSize: 11 }}>
                   <div>
                     <label style={{ color: '#6b7280', fontWeight: 500, display: 'block', marginBottom: 4 }}>Date début</label>
-                    <input type="date" value={docViewEditData?.date_debut?.split('T')[0] || ''} onChange={(e) => setDocViewEditData(d => d ? { ...d, date_debut: e.target.value } : null)} style={{ width: '100%', padding: '4px 6px', borderRadius: 4, border: '1px solid #d1d5db', fontSize: 11 }} />
+                    <input type="date" value={docViewEditData?.date_debut ? toLocalDateStr(docViewEditData.date_debut) : ''} onChange={(e) => { if (!e.target.value) return; setDocViewEditData(d => d ? { ...d, date_debut: e.target.value } : null); }} style={{ width: '100%', padding: '4px 6px', borderRadius: 4, border: '1px solid #d1d5db', fontSize: 11 }} />
                   </div>
                   <div>
                     <label style={{ color: '#6b7280', fontWeight: 500, display: 'block', marginBottom: 4 }}>Durée (années)</label>
@@ -2413,8 +2831,24 @@ const Contrats: React.FC = () => {
                   </div>
                   <div>
                     <label style={{ color: '#6b7280', fontWeight: 500, display: 'block', marginBottom: 4 }}>Date fin</label>
-                    <input type="date" value={docViewEditData?.date_fin?.split('T')[0] || ''} onChange={(e) => setDocViewEditData(d => d ? { ...d, date_fin: e.target.value } : null)} style={{ width: '100%', padding: '4px 6px', borderRadius: 4, border: '1px solid #d1d5db', fontSize: 11 }} />
+                    <input type="date" value={docViewEditData?.date_fin ? toLocalDateStr(docViewEditData.date_fin) : ''} onChange={(e) => { if (!e.target.value) return; setDocViewEditData(d => d ? { ...d, date_fin: e.target.value } : null); }} style={{ width: '100%', padding: '4px 6px', borderRadius: 4, border: '1px solid #d1d5db', fontSize: 11 }} />
                   </div>
+                  <div>
+                    <label style={{ color: '#6b7280', fontWeight: 500, display: 'block', marginBottom: 4 }}>Renouvellement en cours</label>
+                    <input type="number" min={0} max={docViewEditData?.nb_reconductions ?? 0} value={String(docViewEditData?.renouvellement_actuel ?? 0)} onChange={(e) => setDocViewEditData(d => d ? { ...d, renouvellement_actuel: Math.max(0, Math.min(e.target.value ? parseInt(e.target.value) : 0, d.nb_reconductions ?? 0)) } : null)} style={{ width: '100%', padding: '4px 6px', borderRadius: 4, border: '1px solid #d1d5db', fontSize: 11 }} />
+                  </div>
+                  <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 6, padding: '8px', marginTop: 2 }}>
+                    <div style={{ fontSize: 10, fontWeight: 700, color: '#1d4ed8', textTransform: 'uppercase' as const, letterSpacing: '0.05em', marginBottom: 6 }}>Dates de fin</div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 3, fontSize: 11 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}><span style={{ color: '#6b7280' }}>1re période</span><b>{fmtDate(docViewEditData?.date_fin ?? null)}</b></div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}><span style={{ color: '#6b7280' }}>En cours</span><b style={{ color: '#1d4ed8' }}>{fmtDate(computeFinContrat(docViewEditData ?? {}).finCours)}</b></div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}><span style={{ color: '#6b7280' }}>Maxi</span><b style={{ color: '#b45309' }}>{fmtDate(computeFinContrat(docViewEditData ?? {}).finMax)}</b></div>
+                    </div>
+                  </div>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, cursor: 'pointer' }}>
+                    <input type="checkbox" checked={!!docViewEditData?.dates_verifiees} onChange={(e) => setDocViewEditData(d => d ? { ...d, dates_verifiees: e.target.checked ? 1 : 0 } : null)} style={{ width: 14, height: 14 }} />
+                    <span style={{ fontWeight: 600, color: '#1f2937' }}>Contrat vérifié</span>
+                  </label>
                   <div>
                     <label style={{ color: '#6b7280', fontWeight: 500, display: 'block', marginBottom: 4 }}>GTI</label>
                     <input type="text" value={docViewEditData?.gti || ''} onChange={(e) => setDocViewEditData(d => d ? { ...d, gti: e.target.value } : null)} style={{ width: '100%', padding: '4px 6px', borderRadius: 4, border: '1px solid #d1d5db', fontSize: 11 }} />
