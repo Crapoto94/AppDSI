@@ -5,7 +5,7 @@ import {
   Upload, Download, AlertCircle, Loader2, Trash2, Edit2, Check,
   X as CloseIcon, Search, RefreshCw, ChevronUp, ChevronDown, ChevronRight, Plus, FileSpreadsheet,
   RefreshCcw, Archive, FileText, Columns, Filter, Link2, ExternalLink, FileCheck2,
-  TrendingUp, TrendingDown, ArrowRight, Bookmark, Save, Paperclip
+  TrendingUp, TrendingDown, ArrowRight, Bookmark, Save, Paperclip, AlertTriangle
 } from 'lucide-react';
 
 interface Contrat {
@@ -231,7 +231,13 @@ const daysUntil = (d: string | null) => {
 };
 
 const isExpired = (d: string | null) => { const n = daysUntil(d); return n !== null && n < 0; };
-const isExpiringSoon = (d: string | null) => { const n = daysUntil(d); return n !== null && n >= 0 && n <= 90; };
+const isExpiringWithinDays = (d: string | null, days: number) => { const n = daysUntil(d); return n !== null && n >= 0 && n <= days; };
+const isExpiringSoon = (d: string | null) => isExpiringWithinDays(d, 90);
+// Contrat "à renouveler" : la date de fin maxi (dernière reconduction possible épuisée) est
+// dépassée (rouge) ou dans les 6 mois glissants (orange) — au-delà, plus aucune reconduction
+// automatique n'est possible, il faut un nouveau contrat.
+const isRenewalDue = (c: { date_fin_maxi?: string | null }) => isExpired(c.date_fin_maxi ?? null) || isExpiringWithinDays(c.date_fin_maxi ?? null, 183);
+const isRenewalOverdue = (c: { date_fin_maxi?: string | null }) => isExpired(c.date_fin_maxi ?? null);
 const isNew = (createdAt: string | null) => {
   if (!createdAt) return false;
   const created = new Date(createdAt);
@@ -526,6 +532,7 @@ const Contrats: React.FC = () => {
   const [filterDirection, setFilterDirection] = useState('');
   const [filterType, setFilterType] = useState('');
   const [alertFilter, setAlertFilter] = useState<'expired' | 'soon' | null>(null);
+  const [renewalDueFilter, setRenewalDueFilter] = useState(false);
   // Engagement 2026 : null = tout · 'engaged' = montant 2026 renseigné (0 inclus) · 'not_engaged' = non renseigné
   const [engagedFilter, setEngagedFilter] = useState<'engaged' | 'not_engaged' | null>(null);
   const [sortKey, setSortKey] = useState<ColKey | 'ech'>('ech');
@@ -713,6 +720,7 @@ const Contrats: React.FC = () => {
 
   const expiredCount = contrats.filter(c => c.statut !== 'archivé' && isExpired(contractEndDate(c))).length;
   const soonCount = contrats.filter(c => c.statut !== 'archivé' && isExpiringSoon(contractEndDate(c))).length;
+  const renewalDueCount = contrats.filter(c => c.statut !== 'archivé' && isRenewalDue(c)).length;
   // Champs texte libre importés d'Excel : on déduplique/compare en normalisant la casse et les
   // espaces (ex: "DSI" / "Dsi " / " DSI") pour éviter que des variantes ne soient traitées comme
   // des valeurs distinctes (filtre qui semble ne chercher que dans une partie des contrats).
@@ -736,6 +744,7 @@ const Contrats: React.FC = () => {
     if (filterType && normText(c.type_contrat) !== normText(filterType)) return false;
     if (alertFilter === 'expired') { if (c.statut === 'archivé' || !isExpired(contractEndDate(c))) return false; }
     else if (alertFilter === 'soon') { if (c.statut === 'archivé' || !isExpiringSoon(contractEndDate(c))) return false; }
+    if (renewalDueFilter && (c.statut === 'archivé' || !isRenewalDue(c))) return false;
     if (engagedFilter === 'engaged' && c.montant_2026 == null) return false;
     if (engagedFilter === 'not_engaged' && c.montant_2026 != null) return false;
     // Filtres par colonne
@@ -792,7 +801,7 @@ const Contrats: React.FC = () => {
 
   useEffect(() => {
     setPage(1);
-  }, [searchQuery, filterDirection, filterType, alertFilter, engagedFilter, showArchives, sortKey, sortDir, colFilters, pageSize]);
+  }, [searchQuery, filterDirection, filterType, alertFilter, renewalDueFilter, engagedFilter, showArchives, sortKey, sortDir, colFilters, pageSize]);
 
   // ─── Import Excel ────────────────────────────────────────────────────────────
 
@@ -1378,8 +1387,7 @@ const Contrats: React.FC = () => {
   // ─── Helpers UI ──────────────────────────────────────────────────────────────
 
   const rowBg = (c: Contrat, i: number) => {
-    if (c.liaisons && c.liaisons.length > 0) return i % 2 === 0 ? '#f0fdf4' : '#dcfce7';
-    if (c.montant_2026 != null && Number(c.montant_2026) === 0) return i % 2 === 0 ? '#f0fdf4' : '#dcfce7';
+    if (c.montant_2026 != null && Number(c.montant_2026) >= 0) return i % 2 === 0 ? '#f0fdf4' : '#dcfce7';
     if (c.statut === 'archivé') return i % 2 === 0 ? '#f3f4f6' : '#e5e7eb';
     if (isExpired(contractEndDate(c))) return i % 2 === 0 ? '#fff0f0' : '#fde8e8';
     if (isExpiringSoon(contractEndDate(c))) return i % 2 === 0 ? '#fffbeb' : '#fef3c7';
@@ -1393,6 +1401,16 @@ const Contrats: React.FC = () => {
     if (d < 0) return <span style={{ background: '#fee2e2', color: '#dc2626', padding: '1px 6px', borderRadius: 9999, fontSize: 11, fontWeight: 700 }}>{d} j</span>;
     if (d <= 90) return <span style={{ background: '#fef3c7', color: '#b45309', padding: '1px 6px', borderRadius: 9999, fontSize: 11, fontWeight: 700 }}>{d} j</span>;
     return <span style={{ color: '#6b7280', fontSize: 12 }}>{d} j</span>;
+  };
+
+  // Symbole ATTENTION : date de fin maxi (dernière reconduction épuisée) dépassée (rouge)
+  // ou dans les 6 mois glissants (orange) — le contrat doit être renouvelé.
+  const renewalWarningIcon = (c: Contrat) => {
+    if (c.statut === 'archivé' || !isRenewalDue(c)) return null;
+    const overdue = isRenewalOverdue(c);
+    const color = overdue ? '#dc2626' : '#b45309';
+    const title = `Contrat à renouveler — date de fin maxi ${overdue ? 'dépassée' : 'dans moins de 6 mois'} (${fmtDate(c.date_fin_maxi ?? null)})`;
+    return <span title={title} style={{ display: 'inline-flex', flexShrink: 0 }}><AlertTriangle size={14} color={color} /></span>;
   };
 
   const renewBadge = (c: Contrat) => {
@@ -1419,14 +1437,22 @@ const Contrats: React.FC = () => {
       case 'svc': return <b style={{ color: '#374151' }}>{c.svc || '—'}</b>;
       case 'objet': {
         const verifBadge = c.dates_verifiees ? (
-          <span title="Dates vérifiées" style={{ background: '#dcfce7', color: '#15803d', borderRadius: 9999, width: 15, height: 15, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 800, flexShrink: 0, marginRight: 4 }}>
+          <span title="Dates vérifiées" style={{ background: '#dcfce7', color: '#15803d', borderRadius: 9999, width: 15, height: 15, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 800, flexShrink: 0 }}>
             V
           </span>
         ) : null;
         return (
-          <span title={c.objet} style={{ display: 'flex', alignItems: 'center', maxWidth: col.w - 16, overflow: 'hidden' }}>
+          <span title={c.objet} style={{ display: 'flex', alignItems: 'center', gap: 4, maxWidth: col.w - 16, overflow: 'hidden' }}>
+            {renewalWarningIcon(c)}
             {verifBadge}
-            <b style={{ color: '#1e3a5f', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.objet || '—'}</b>
+            <b
+              onClick={() => openEditModal(c)}
+              style={{ color: '#1e3a5f', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', cursor: 'pointer' }}
+              onMouseEnter={e => { e.currentTarget.style.textDecoration = 'underline'; }}
+              onMouseLeave={e => { e.currentTarget.style.textDecoration = 'none'; }}
+            >
+              {c.objet || '—'}
+            </b>
           </span>
         );
       }
@@ -1597,6 +1623,12 @@ const Contrats: React.FC = () => {
         </button>
         <button onClick={() => setAlertFilter(alertFilter === 'soon' ? null : 'soon')} style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '4px 8px', borderRadius: 6, border: 'none', cursor: 'pointer', fontWeight: 600, fontSize: 11, background: alertFilter === 'soon' ? '#fef3c7' : '#f3f4f6', color: alertFilter === 'soon' ? '#b45309' : '#374151' }}>
           <AlertCircle size={12} /> ≤90j {soonCount > 0 && <span style={{ background: '#d97706', color: '#fff', borderRadius: 9999, padding: '0 5px', fontSize: 10 }}>{soonCount}</span>}
+        </button>
+        <button
+          onClick={() => setRenewalDueFilter(v => !v)}
+          title="Contrats dont la date de fin maxi (toutes reconductions épuisées) est dépassée ou dans les 6 mois"
+          style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '4px 8px', borderRadius: 6, border: 'none', cursor: 'pointer', fontWeight: 600, fontSize: 11, background: renewalDueFilter ? '#fef3c7' : '#f3f4f6', color: renewalDueFilter ? '#b45309' : '#374151' }}>
+          <AlertTriangle size={12} /> À renouveler {renewalDueCount > 0 && <span style={{ background: '#dc2626', color: '#fff', borderRadius: 9999, padding: '0 5px', fontSize: 10 }}>{renewalDueCount}</span>}
         </button>
         <button
           onClick={() => setEngagedFilter(engagedFilter === null ? 'engaged' : engagedFilter === 'engaged' ? 'not_engaged' : null)}
@@ -1776,7 +1808,7 @@ const Contrats: React.FC = () => {
         ) : sorted.length === 0 ? (
           <div style={{ textAlign: 'center', padding: 48, color: '#6b7280', background: '#fff', borderRadius: 8 }}>
             <FileSpreadsheet size={36} style={{ opacity: 0.25, marginBottom: 8 }} />
-            <p>Aucun contrat{searchQuery || filterDirection || filterType || alertFilter ? ' correspondant' : ''}.</p>
+            <p>Aucun contrat{searchQuery || filterDirection || filterType || alertFilter || renewalDueFilter ? ' correspondant' : ''}.</p>
           </div>
         ) : (
           <div style={{ overflow: 'scroll', flex: 1 }}>
