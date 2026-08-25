@@ -54,6 +54,7 @@ interface Contrat {
   renouvellement_commentaire: string;
   doc_principal_path: string;
   doc_principal_nom: string;
+  docs_count?: number;
   imported_at: string;
   gti: string;
   gtr: string;
@@ -504,6 +505,14 @@ const PrevisionModal: React.FC<{ contrats: Contrat[]; onClose: () => void }> = (
 const authHeaders = () => ({
   'Authorization': `Bearer ${localStorage.getItem('token')}`
 });
+
+// Construit une URL de prévisualisation à partir d'un chemin BD ("storage/..." ou "file_contrats/...").
+// Encode chaque segment pour supporter les noms de fichiers avec espaces/accents/caractères spéciaux.
+const docFileUrl = (filePath: string | null | undefined) => {
+  if (!filePath) return '';
+  const segments = String(filePath).replace(/\\/g, '/').split('/').filter(Boolean).map(encodeURIComponent);
+  return `/api/${segments.join('/')}`;
+};
 
 const Contrats: React.FC = () => {
   const [contrats, setContrats] = useState<Contrat[]>([]);
@@ -1820,7 +1829,7 @@ const Contrats: React.FC = () => {
                       <td style={{ padding: '4px 6px', borderBottom: '1px solid #e5e7eb', whiteSpace: 'nowrap' }}>
                         <div style={{ display: 'flex', gap: 3 }}>
                           <div style={{ width: 22, flexShrink: 0, display: 'flex' }}>
-                            {c.doc_principal_path && btnAction('Voir le document principal', '#f3e8ff', '#7c3aed', <Paperclip size={12} />, () => setPdfModal({ path: c.doc_principal_path, name: c.doc_principal_nom || 'Document' }))}
+                            {((c.docs_count ?? 0) > 0 || c.doc_principal_path) && btnAction('Voir les documents', '#f3e8ff', '#7c3aed', <Paperclip size={12} />, () => openDocViewModal(c))}
                           </div>
                           {btnAction('Éditer', '#eff6ff', '#1d4ed8', <Edit2 size={12} />, () => openEditModal(c))}
                           {btnAction(c.liaisons && c.liaisons.length ? 'Gérer les liens commande / engagement' : 'Lier un bon de commande / engagement', '#dcfce7', '#15803d', <Link2 size={12} />, () => openLinkModal(c))}
@@ -2481,7 +2490,7 @@ const Contrats: React.FC = () => {
         <Overlay onClose={() => setPdfModal(null)} maxWidth={900}>
           <ModalHeader title={pdfModal.name} onClose={() => setPdfModal(null)} />
           <iframe
-            src={`/api/${pdfModal.path}`}
+            src={docFileUrl(pdfModal.path)}
             style={{ width: '100%', height: '70vh', border: 'none', borderRadius: 6 }}
             title={pdfModal.name}
           />
@@ -2760,11 +2769,49 @@ const Contrats: React.FC = () => {
 
       {/* ── Modale : Visualisation des Documents avec Navigation ────────────────── */}
       {docViewModal && (
-        <Overlay onClose={() => setDocViewModal(null)} maxWidth={1000}>
+        <Overlay onClose={() => setDocViewModal(null)} maxWidth={1250}>
           <ModalHeader title={`Documents — ${docViewModal.contrat.objet}`} onClose={() => setDocViewModal(null)} />
           <div style={{ display: 'flex', gap: 16, height: '70vh' }}>
+            {/* Menu latéral gauche : liste des documents */}
+            <div style={{ width: 220, flexShrink: 0, display: 'flex', flexDirection: 'column', borderRight: '1px solid #e5e7eb', paddingRight: 16, overflowY: 'auto' }}>
+              <p style={{ margin: '0 0 12px', fontSize: 12, fontWeight: 600, color: '#374151' }}>Documents du contrat ({docViewModal.docs.length})</p>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {docViewModal.docs.map((doc, idx) => (
+                  <button
+                    key={doc.id}
+                    onClick={() => setDocViewModal(v => v ? { ...v, currentIndex: idx } : null)}
+                    style={{
+                      padding: '8px 10px',
+                      borderRadius: 4,
+                      border: idx === docViewModal.currentIndex ? '1px solid #1d4ed8' : '1px solid #e5e7eb',
+                      background: idx === docViewModal.currentIndex ? '#eff6ff' : '#fff',
+                      color: '#1f2937',
+                      cursor: 'pointer',
+                      fontSize: 11,
+                      textAlign: 'left',
+                      fontWeight: idx === docViewModal.currentIndex ? 600 : 400,
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 4,
+                      transition: 'all 0.2s'
+                    }}
+                    title={doc.file_name}
+                  >
+                    <FileText size={11} style={{ flexShrink: 0 }} />
+                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      {doc.file_name}
+                      {doc.est_principal === 1 && ' ⭐'}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
             {/* Affichage du document */}
-            <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12, paddingBottom: 12, borderBottom: '1px solid #e5e7eb' }}>
                 <div>
                   <h4 style={{ margin: 0, fontSize: 14, fontWeight: 600, color: '#1f2937' }}>
@@ -2795,54 +2842,16 @@ const Contrats: React.FC = () => {
                 </div>
               </div>
               <iframe
-                src={`/api/${docViewModal.docs[docViewModal.currentIndex]?.file_path}`}
+                src={docFileUrl(docViewModal.docs[docViewModal.currentIndex]?.file_path)}
                 style={{ flex: 1, border: 'none', borderRadius: 6, background: '#f9fafb' }}
                 title={docViewModal.docs[docViewModal.currentIndex]?.file_name}
               />
             </div>
 
-            {/* Panneau droit : Documents et Infos */}
-            <div style={{ width: 250, display: 'flex', flexDirection: 'column', borderLeft: '1px solid #e5e7eb', paddingLeft: 16, overflowY: 'auto' }}>
-              {/* Liste des documents */}
-              <div style={{ marginBottom: 20 }}>
-                <p style={{ margin: '0 0 12px', fontSize: 12, fontWeight: 600, color: '#374151' }}>Documents du contrat</p>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                  {docViewModal.docs.map((doc, idx) => (
-                    <button
-                      key={doc.id}
-                      onClick={() => setDocViewModal(v => v ? { ...v, currentIndex: idx } : null)}
-                      style={{
-                        padding: '8px 10px',
-                        borderRadius: 4,
-                        border: idx === docViewModal.currentIndex ? '1px solid #1d4ed8' : '1px solid #e5e7eb',
-                        background: idx === docViewModal.currentIndex ? '#eff6ff' : '#fff',
-                        color: '#1f2937',
-                        cursor: 'pointer',
-                        fontSize: 11,
-                        textAlign: 'left',
-                        fontWeight: idx === docViewModal.currentIndex ? 600 : 400,
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                        whiteSpace: 'nowrap',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 4,
-                        transition: 'all 0.2s'
-                      }}
-                      title={doc.file_name}
-                    >
-                      <FileText size={11} style={{ flexShrink: 0 }} />
-                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                        {doc.file_name}
-                        {doc.est_principal === 1 && ' ⭐'}
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-
+            {/* Panneau droit : Infos */}
+            <div style={{ width: 250, flexShrink: 0, display: 'flex', flexDirection: 'column', borderLeft: '1px solid #e5e7eb', paddingLeft: 16, overflowY: 'auto' }}>
               {/* Informations du contrat */}
-              <div style={{ borderTop: '1px solid #e5e7eb', paddingTop: 12 }}>
+              <div>
                 <p style={{ margin: '0 0 12px', fontSize: 12, fontWeight: 600, color: '#374151' }}>Informations</p>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 10, fontSize: 11 }}>
                   <div>

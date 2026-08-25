@@ -120,7 +120,11 @@ module.exports = {
                             'lien_annee', l.lien_annee
                         ) ORDER BY l.id DESC)
                         FROM hub_contrats.contrats_liaisons l WHERE l.contrat_id = c.id
-                    ), '[]') AS liaisons
+                    ), '[]') AS liaisons,
+                    COALESCE((
+                        SELECT COUNT(*)::int FROM contrat_documents d
+                        WHERE d.contrat_id = c.id AND COALESCE(d.archive, 0) = 0
+                    ), 0) AS docs_count
                 FROM contrats c
                 LEFT JOIN LATERAL (
                     SELECT t2."TIERS_POBJ_EXTRACT_2"
