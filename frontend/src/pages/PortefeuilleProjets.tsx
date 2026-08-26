@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { FolderOpen, Plus, Search } from 'lucide-react';
+import * as XLSX from 'xlsx';
+import { FolderOpen, Plus, Search, Download } from 'lucide-react';
 import Header from '../components/Header';
 import CreerProjetModal from '../components/projets/CreerProjetModal';
 import { useADSearch } from '../utils/useADSearch';
@@ -221,6 +222,59 @@ const PortefeuilleProjets: React.FC = () => {
     return <span style={{ marginLeft: '4px', color: '#2563eb' }}>{sortDir === 'asc' ? '▲' : '▼'}</span>;
   };
 
+  const meteoLabel = (m?: string) => m === 'soleil' ? 'Soleil' : m === 'nuageux' ? 'Nuageux' : m === 'orage' ? 'Orage' : '';
+  const fmtDateExport = (d?: string) => {
+    if (!d) return '';
+    const date = new Date(d);
+    return isNaN(date.getTime()) ? '' : date.toLocaleDateString('fr-FR');
+  };
+
+  const handleExportExcel = () => {
+    // On exporte les projets racines ; les sous-projets sont ajoutés en colonnes sur la même ligne que leur parent.
+    const rootItems = projetsTries.filter(p => !(p.projet_parent_id && projetMap[p.projet_parent_id]));
+    const maxChildren = rootItems.reduce((max, p) => Math.max(max, (childrenMap[p.id] || []).length), 0);
+
+    const baseHeaders = ['Code', 'Titre', 'Chef de projet', 'Statut', 'Service', 'Priorité', 'Score', 'Avancement (%)', 'Météo', 'Alertes', 'Dernière modification'];
+    const childHeaders: string[] = [];
+    for (let i = 1; i <= maxChildren; i++) {
+      childHeaders.push(`Sous-projet ${i}`, `Statut SP${i}`, `Chef de projet SP${i}`, `Avancement SP${i} (%)`);
+    }
+    const headers = [...baseHeaders, ...childHeaders];
+
+    const rows = rootItems.map(p => {
+      const row: (string | number)[] = [
+        p.code, p.titre, p.chef_projet_display_name || p.chef_projet_username || '',
+        STATUT_LABELS[p.statut] || p.statut || '', p.service_pilote_label || p.service_pilote || '',
+        p.priorite || 0, p.score_total || 0, p.avancement || 0, meteoLabel(p.meteo),
+        (p.nb_taches_en_retard || 0) + (p.nb_jalons_en_retard || 0), fmtDateExport(p.date_modification)
+      ];
+      const children = childrenMap[p.id] || [];
+      for (let i = 0; i < maxChildren; i++) {
+        const c = children[i];
+        row.push(
+          c ? c.titre : '',
+          c ? (STATUT_LABELS[c.statut] || c.statut || '') : '',
+          c ? (c.chef_projet_display_name || c.chef_projet_username || '') : '',
+          c ? (c.avancement || 0) : ''
+        );
+      }
+      return row;
+    });
+
+    const ws = XLSX.utils.aoa_to_sheet([headers, ...rows]);
+    ws['!cols'] = headers.map((h, i) => {
+      if (i === 1) return { wch: 42 };
+      if (childHeaders.length && i >= baseHeaders.length && (i - baseHeaders.length) % 4 === 0) return { wch: 36 };
+      return { wch: Math.max(h.length + 2, 14) };
+    });
+    ws['!autofilter'] = { ref: XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: 0, c: headers.length - 1 } }) };
+
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Projets');
+    const date = new Date().toISOString().split('T')[0];
+    XLSX.writeFile(wb, `portefeuille_projets_${date}.xlsx`);
+  };
+
   const thStyle = (col: string) => ({
     padding: '10px 16px',
     textAlign: col === 'meteo' || col === 'priorite' || col === 'score' || col === 'avancement' || col === 'alertes' || col === 'favoris' ? 'center' as const : 'left' as const,
@@ -242,6 +296,9 @@ const PortefeuilleProjets: React.FC = () => {
           <h1 style={{ margin: 0, fontSize: '22px', fontWeight: '800', color: '#1e293b', flex: 1 }}>
             📁 Portefeuille Projets
           </h1>
+          <button onClick={handleExportExcel} style={{ padding: '10px 16px', background: '#0d9488', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: '700', fontSize: '14px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <Download size={16} /> Export Excel
+          </button>
           <button onClick={() => setShowCreateModal(true)} style={{ padding: '10px 18px', background: '#2563eb', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: '700', fontSize: '14px', display: 'flex', alignItems: 'center', gap: '6px' }}>
             <Plus size={18} /> Nouveau projet
           </button>
