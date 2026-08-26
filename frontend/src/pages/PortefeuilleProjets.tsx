@@ -10,7 +10,7 @@ import { isSuperAdmin, isAdminLike } from '../utils/roles';
 import AgentPresenceBadge from '../components/AgentPresenceBadge';
 
 interface Projet {
-  id: number; code: string; titre: string; statut: string;
+  id: number; code: string; titre: string; statut: string; description?: string;
   niveau_projet: string; service_pilote: string; priorite: number;
   score_total: number; avancement: number; meteo: string; date_modification: string;
   nb_roles: number; nb_documents: number; nb_reunions: number;
@@ -234,16 +234,17 @@ const PortefeuilleProjets: React.FC = () => {
     const rootItems = projetsTries.filter(p => !(p.projet_parent_id && projetMap[p.projet_parent_id]));
     const maxChildren = rootItems.reduce((max, p) => Math.max(max, (childrenMap[p.id] || []).length), 0);
 
-    const baseHeaders = ['Code', 'Titre', 'Chef de projet', 'Statut', 'Service', 'Priorité', 'Score', 'Avancement (%)', 'Météo', 'Alertes', 'Dernière modification'];
+    const baseHeaders = ['Code', 'Titre', 'Description', 'Chef de projet', 'Statut', 'Service', 'Priorité', 'Score', 'Avancement (%)', 'Météo', 'Alertes', 'Dernière modification'];
     const childHeaders: string[] = [];
+    const colsPerChild = 5;
     for (let i = 1; i <= maxChildren; i++) {
-      childHeaders.push(`Sous-projet ${i}`, `Statut SP${i}`, `Chef de projet SP${i}`, `Avancement SP${i} (%)`);
+      childHeaders.push(`Sous-projet ${i}`, `Description SP${i}`, `Statut SP${i}`, `Chef de projet SP${i}`, `Avancement SP${i} (%)`);
     }
     const headers = [...baseHeaders, ...childHeaders];
 
     const rows = rootItems.map(p => {
       const row: (string | number)[] = [
-        p.code, p.titre, p.chef_projet_display_name || p.chef_projet_username || '',
+        p.code, p.titre, p.description || '', p.chef_projet_display_name || p.chef_projet_username || '',
         STATUT_LABELS[p.statut] || p.statut || '', p.service_pilote_label || p.service_pilote || '',
         p.priorite || 0, p.score_total || 0, p.avancement || 0, meteoLabel(p.meteo),
         (p.nb_taches_en_retard || 0) + (p.nb_jalons_en_retard || 0), fmtDateExport(p.date_modification)
@@ -253,6 +254,7 @@ const PortefeuilleProjets: React.FC = () => {
         const c = children[i];
         row.push(
           c ? c.titre : '',
+          c ? (c.description || '') : '',
           c ? (STATUT_LABELS[c.statut] || c.statut || '') : '',
           c ? (c.chef_projet_display_name || c.chef_projet_username || '') : '',
           c ? (c.avancement || 0) : ''
@@ -263,8 +265,13 @@ const PortefeuilleProjets: React.FC = () => {
 
     const ws = XLSX.utils.aoa_to_sheet([headers, ...rows]);
     ws['!cols'] = headers.map((h, i) => {
-      if (i === 1) return { wch: 42 };
-      if (childHeaders.length && i >= baseHeaders.length && (i - baseHeaders.length) % 4 === 0) return { wch: 36 };
+      if (i === 1) return { wch: 42 }; // Titre
+      if (i === 2) return { wch: 50 }; // Description
+      if (childHeaders.length && i >= baseHeaders.length) {
+        const posInChild = (i - baseHeaders.length) % colsPerChild;
+        if (posInChild === 0) return { wch: 36 }; // Sous-projet N
+        if (posInChild === 1) return { wch: 50 }; // Description SPN
+      }
       return { wch: Math.max(h.length + 2, 14) };
     });
     ws['!autofilter'] = { ref: XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: 0, c: headers.length - 1 } }) };
