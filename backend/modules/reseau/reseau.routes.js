@@ -48,6 +48,11 @@ router.get('/sites-with-switches',   ctrl.getSitesWithSwitches);
 // ── Liens switchs (API Infra) ──────────────────────────────────────
 router.get('/switch-links',   ctrl.getSwitchLinks);
 
+// ── Synoptique (plan interactif) : disposition des sites ───────────
+router.get('/synoptique/layout',            ctrl.getSynoptiqueLayout);
+router.put('/synoptique/layout',            authenticateAdmin, ctrl.saveSynoptiqueLayout);
+router.delete('/synoptique/layout',         authenticateAdmin, ctrl.resetSynoptiqueLayout);
+
 // ── Agrégat topologie ──────────────────────────────────────────────
 router.get('/topologie',      ctrl.getTopologie);
 router.get('/stats',          ctrl.getStats);

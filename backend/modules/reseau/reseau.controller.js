@@ -457,6 +457,53 @@ module.exports = {
         } catch (e) { res.status(500).json({ message: e.message }); }
     },
 
+    // ─── Synoptique : disposition des sites ────────────────────────
+    // La topologie elle-même est figée côté front (extraite du synoptique PDF) ;
+    // seule la position des boîtes est personnalisable et partagée.
+    getSynoptiqueLayout: async (req, res) => {
+        try {
+            const vue = String(req.query.vue || 'default');
+            const row = await pgDb.get('SELECT positions, maj_le, maj_par FROM hub_reseau.synoptique_layout WHERE vue = ?', [vue]);
+            res.json({
+                vue,
+                positions: row ? (row.positions || {}) : {},
+                maj_le: row ? row.maj_le : null,
+                maj_par: row ? row.maj_par : null,
+            });
+        } catch (e) { res.status(500).json({ message: e.message }); }
+    },
+
+    saveSynoptiqueLayout: async (req, res) => {
+        try {
+            const vue = String(req.body?.vue || req.query.vue || 'default');
+            const positions = req.body?.positions;
+            if (!positions || typeof positions !== 'object' || Array.isArray(positions)) {
+                return res.status(400).json({ message: 'positions doit être un objet { nodeId: { x, y } }' });
+            }
+            // Nettoyage : on ne conserve que des couples de nombres finis.
+            const clean = {};
+            for (const [id, p] of Object.entries(positions)) {
+                const x = Number(p?.x), y = Number(p?.y);
+                if (Number.isFinite(x) && Number.isFinite(y)) clean[id] = { x, y };
+            }
+            await pool.query(`
+                INSERT INTO hub_reseau.synoptique_layout (vue, positions, maj_le, maj_par)
+                VALUES ($1, $2::jsonb, NOW(), $3)
+                ON CONFLICT (vue) DO UPDATE
+                  SET positions = EXCLUDED.positions, maj_le = NOW(), maj_par = EXCLUDED.maj_par
+            `, [vue, JSON.stringify(clean), req.user?.username || null]);
+            res.json({ ok: true, vue, count: Object.keys(clean).length });
+        } catch (e) { res.status(500).json({ message: e.message }); }
+    },
+
+    resetSynoptiqueLayout: async (req, res) => {
+        try {
+            const vue = String(req.query.vue || 'default');
+            await pool.query('DELETE FROM hub_reseau.synoptique_layout WHERE vue = $1', [vue]);
+            res.json({ ok: true, vue });
+        } catch (e) { res.status(500).json({ message: e.message }); }
+    },
+
     // ─── Stats réseau ───────────────────────────────────────────────
     getStats: async (req, res) => {
         try {
