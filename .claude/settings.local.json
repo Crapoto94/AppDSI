@@ -404,7 +404,13 @@
       "Bash(node -c db.js)",
       "Bash(npx tsc *)",
       "Bash(git add *)",
-      "Bash(git commit -m ' *)"
+      "Bash(git commit -m ' *)",
+      "Bash(node -e \"require\\('./modules/ville/ville.routes.js'\\)\")",
+      "Bash(node -e \"require\\('./modules/ville/ville.routes.js'\\); console.log\\('OK'\\)\")",
+      "Bash(node --check modules/param-ville/param-ville.controller.js)",
+      "Bash(echo \"EXIT:$?\")",
+      "Bash(git reset *)",
+      "Bash(git commit -m 'feat\\(param-ville\\): export Excel des sites avec coordonnees GPS *)"
     ]
   }
 }

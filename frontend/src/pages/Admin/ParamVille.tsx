@@ -2,7 +2,8 @@ import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { useAuth } from '../../contexts/AuthContext';
 import Header from '../../components/Header';
 import axios from 'axios';
-import { Plus, Edit2, Trash2, Upload, Search, ChevronUp, ChevronDown, ChevronsUpDown, X, MapPin, ChevronRight, List, Network, Phone, UserCheck, UserX, AlertTriangle, RefreshCw, CheckCircle } from 'lucide-react';
+import { Plus, Edit2, Trash2, Upload, Search, ChevronUp, ChevronDown, ChevronsUpDown, X, MapPin, ChevronRight, List, Network, Phone, UserCheck, UserX, AlertTriangle, RefreshCw, CheckCircle, FileSpreadsheet } from 'lucide-react';
+import * as XLSX from 'xlsx';
 import AdminOrganisation from '../AdminOrganisation';
 import 'leaflet/dist/leaflet.css';
 import { MapContainer, TileLayer, Marker, Popup, useMap, useMapEvents } from 'react-leaflet';
@@ -1011,6 +1012,7 @@ export default function ParamVille() {
   const [importProgress, setImportProgress] = useState<number>(0);
   const [isImporting, setIsImporting] = useState<boolean>(false);
   const [importedSitesList, setImportedSitesList] = useState<any[]>([]);
+  const [showExportMenu, setShowExportMenu] = useState(false);
 
   // Sites search / filter / sort / view
   const [search, setSearch] = useState('');
@@ -1235,6 +1237,43 @@ export default function ParamVille() {
     const count = (nodes: TreeNode[]): number => nodes.reduce((n, node) => n + 1 + count(node.children), 0);
     return count(treeRoots) + treeOrphans.length;
   }, [treeRoots, treeOrphans]);
+
+  // Export Excel des sites (avec coordonnées GPS). scope='sites' : uniquement les sites
+  // racines (codes SXXX) — scope='all' : sites + sous-sites (bâtiments, locaux, niveaux…).
+  // Respecte les filtres/recherche actuellement appliqués à la vue Liste.
+  const exportSitesExcel = (scope: 'sites' | 'all') => {
+    setShowExportMenu(false);
+    const rows = sitesFiltered
+      .filter(site => scope === 'all' || parseSiteCode(site.code_bien || '').type === 'site')
+      .map(site => {
+        const parsed = parseSiteCode(site.code_bien || '');
+        return [
+          site.code_bien || '',
+          site.nom,
+          parsed.typeLabel,
+          site.categorie || '',
+          site.abbreviation || '',
+          parseAddress(site.adresse || ''),
+          site.is_active ? 'Actif' : 'Inactif',
+          site.lat ?? '',
+          site.lng ?? '',
+          site.lat && site.lng ? (site.geocoded_manually ? 'Manuelle' : 'Automatique') : '',
+        ];
+      });
+
+    const headers = ['Code', 'Désignation', 'Type', 'Catégorie', 'Abréviation', 'Adresse', 'État', 'Latitude', 'Longitude', 'Géolocalisation'];
+    const ws = XLSX.utils.aoa_to_sheet([headers, ...rows]);
+    ws['!cols'] = [
+      { wch: 16 }, { wch: 42 }, { wch: 14 }, { wch: 22 }, { wch: 12 },
+      { wch: 40 }, { wch: 10 }, { wch: 12 }, { wch: 12 }, { wch: 16 },
+    ];
+    ws['!autofilter'] = { ref: XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: 0, c: headers.length - 1 } }) };
+
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, scope === 'all' ? 'Sites et sous-sites' : 'Sites');
+    const date = new Date().toISOString().split('T')[0];
+    XLSX.writeFile(wb, `sites_ville_${scope === 'all' ? 'avec_sous_sites' : 'principaux'}_${date}.xlsx`);
+  };
 
   const allSitesSorted = useMemo(() =>
     sites.filter(s => s.code_bien && (showInactifsCarte || s.is_active))
@@ -1594,6 +1633,31 @@ export default function ParamVille() {
                 style={{ padding: '7px 12px', border: 'none', borderLeft: '1px solid #d1d5db', background: viewMode === 'arborescence' ? '#0ea5e9' : 'white', color: viewMode === 'arborescence' ? 'white' : '#6b7280', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5, fontSize: '12px', fontWeight: 600 }}>
                 <Network size={14} /> Arborescence
               </button>
+            </div>
+
+            {/* Export Excel */}
+            <div style={{ position: 'relative' }}>
+              <button onClick={() => setShowExportMenu(v => !v)}
+                style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 12px', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '6px', cursor: 'pointer', fontWeight: 600, fontSize: '12px', color: '#15803d', whiteSpace: 'nowrap' as const }}>
+                <FileSpreadsheet size={14} /> Export Excel <ChevronDown size={12} />
+              </button>
+              {showExportMenu && (
+                <>
+                  <div onClick={() => setShowExportMenu(false)} style={{ position: 'fixed', inset: 0, zIndex: 99 }} />
+                  <div style={{ position: 'absolute', top: '100%', right: 0, zIndex: 100, marginTop: 4, background: 'white', border: '1px solid #e2e8f0', borderRadius: 8, boxShadow: '0 8px 24px rgba(0,0,0,0.12)', minWidth: 260, overflow: 'hidden' }}>
+                    <button onClick={() => exportSitesExcel('sites')}
+                      style={{ display: 'block', width: '100%', textAlign: 'left', padding: '10px 14px', border: 'none', borderBottom: '1px solid #f1f5f9', background: 'white', cursor: 'pointer', fontSize: '13px', color: '#1e293b' }}>
+                      <div style={{ fontWeight: 700 }}>🏢 Sites uniquement</div>
+                      <div style={{ fontSize: '11px', color: '#64748b' }}>Sites racines (codes SXXX) — 1 ligne par site</div>
+                    </button>
+                    <button onClick={() => exportSitesExcel('all')}
+                      style={{ display: 'block', width: '100%', textAlign: 'left', padding: '10px 14px', border: 'none', background: 'white', cursor: 'pointer', fontSize: '13px', color: '#1e293b' }}>
+                      <div style={{ fontWeight: 700 }}>🏗️ Sites + sous-sites</div>
+                      <div style={{ fontSize: '11px', color: '#64748b' }}>Inclut bâtiments, locaux, niveaux, terrains…</div>
+                    </button>
+                  </div>
+                </>
+              )}
             </div>
 
             <span style={{ fontSize: '13px', color: '#6b7280' }}>
