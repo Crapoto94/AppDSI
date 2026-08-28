@@ -115,6 +115,7 @@ export default function SynoptiqueReseau({ isAdmin }: { isAdmin: boolean }) {
   // ── Vue ────────────────────────────────────────────────────────────────────
   const [vue, setVue] = useState<Vue>({ k: 0.55, tx: 20, ty: 10 });
   const pan = useRef<{ x: number; y: number; tx: number; ty: number } | null>(null);
+  const [enPano, setEnPano] = useState(false);
   const drag = useRef<{ id: string; dx: number; dy: number; moved: boolean } | null>(null);
 
   // ── Interaction ────────────────────────────────────────────────────────────
@@ -295,6 +296,7 @@ export default function SynoptiqueReseau({ isAdmin }: { isAdmin: boolean }) {
   const onPointerDownFond = (e: React.PointerEvent) => {
     if (e.button !== 0) return;
     pan.current = { x: e.clientX, y: e.clientY, tx: vue.tx, ty: vue.ty };
+    setEnPano(true);
     (e.currentTarget as Element).setPointerCapture(e.pointerId);
   };
 
@@ -315,7 +317,7 @@ export default function SynoptiqueReseau({ isAdmin }: { isAdmin: boolean }) {
     }
   };
 
-  const onPointerUp = () => { pan.current = null; drag.current = null; };
+  const onPointerUp = () => { pan.current = null; drag.current = null; setEnPano(false); };
 
   const onPointerDownNode = (e: React.PointerEvent, n: SynNode) => {
     e.stopPropagation();
@@ -584,7 +586,7 @@ export default function SynoptiqueReseau({ isAdmin }: { isAdmin: boolean }) {
         )}
 
         {/* canevas */}
-        <div ref={wrapRef} onWheel={onWheel} style={{ position: 'absolute', inset: 0, cursor: pan.current ? 'grabbing' : 'default' }}>
+        <div ref={wrapRef} onWheel={onWheel} style={{ position: 'absolute', inset: 0, cursor: enPano ? 'grabbing' : 'default' }}>
           <svg
             ref={svgRef} width="100%" height="100%"
             onPointerDown={onPointerDownFond}
@@ -621,7 +623,7 @@ export default function SynoptiqueReseau({ isAdmin }: { isAdmin: boolean }) {
           <div style={{ fontWeight: 700, fontSize: 11, color: '#334155', marginBottom: 5 }}>Légende — cliquez pour masquer</div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginBottom: 6 }}>
             {(Object.keys(CAT_STYLE) as SynCat[]).map(c => (
-              <button key={c} onClick={() => setCatsMasquees(s => { const n = new Set(s); n.has(c) ? n.delete(c) : n.add(c); return n; })}
+              <button key={c} onClick={() => setCatsMasquees(s => { const n = new Set(s); if (n.has(c)) n.delete(c); else n.add(c); return n; })}
                 style={{ ...puce, opacity: catsMasquees.has(c) ? 0.35 : 1 }}>
                 <span style={{ width: 10, height: 10, borderRadius: 2, background: CAT_STYLE[c].fill, border: `1px solid ${CAT_STYLE[c].stroke}` }} />
                 {CAT_STYLE[c].label}
@@ -630,7 +632,7 @@ export default function SynoptiqueReseau({ isAdmin }: { isAdmin: boolean }) {
           </div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
             {(Object.keys(KIND_STYLE) as SynKind[]).map(k => (
-              <button key={k} onClick={() => setKindsMasques(s => { const n = new Set(s); n.has(k) ? n.delete(k) : n.add(k); return n; })}
+              <button key={k} onClick={() => setKindsMasques(s => { const n = new Set(s); if (n.has(k)) n.delete(k); else n.add(k); return n; })}
                 style={{ ...puce, opacity: kindsMasques.has(k) ? 0.35 : 1 }}>
                 <span style={{ width: 16, height: 3, borderRadius: 2, background: KIND_STYLE[k].color }} />
                 {KIND_STYLE[k].label}
