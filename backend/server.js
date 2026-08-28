@@ -22,6 +22,7 @@ const { authenticateJWT, authenticateAdmin, authenticateAdminUI, authenticateInt
 const magappRouter = require('./modules/magapp/magapp.routes');
 const rhRouter = require('./modules/rh/rh.routes');
 const contractsRouter = require('./modules/rh/contracts/contracts.routes');
+const paramVilleRouter = require('./modules/param-ville/param-ville.routes');
 const contractsCtrl = require('./modules/rh/contracts/contracts.controller');
 const financeRouter = require('./modules/finance/finance.routes');
 const fieldMappingRouter = require('./modules/finance/field-mapping.routes');
@@ -481,6 +482,7 @@ app.get(/^\/api\/contrats\/documents\/(.+)$/, (req, res) => {
 app.use('/api/transcriptmanager', transcriptManagerRouter);
 app.use('/api', magappRouter);
 app.use('/api/admin/rh', rhRouter);
+app.use('/api/admin/param-ville', paramVilleRouter);
 
 // ─── RH Contract Renewals ──────────────────────────────────────────
 app.use('/api/admin/rh/contracts', contractsRouter);

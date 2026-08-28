@@ -37,6 +37,7 @@ const MODULES_REGISTRY = [
     { key: 'parc',         title: 'Parc informatique',     icon: 'Monitor',      description: 'Inventaire et suivi du parc informatique (équipements, déploiements, mobilité).', url: '/parc' },
     { key: 'rh',           title: 'Ressources Humaines',   icon: 'Users',        description: 'Gestion des agents DSI, contractuels et organigramme.', url: '/rh' },
     { key: 'vols',         title: 'Vols et Pertes de Matériel', icon: 'ShieldAlert', description: 'Suivi des matériels volés ou perdus.', url: '/vols' },
+    { key: 'param-ville',  title: 'Paramètres Ville',      icon: 'City',        description: 'Paramétrage de la ville et localisations.', url: '/admin/param-ville' },
 ];
 
 module.exports = { MODULES_REGISTRY };
