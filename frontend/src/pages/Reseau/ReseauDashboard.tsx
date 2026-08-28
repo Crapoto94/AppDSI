@@ -49,7 +49,7 @@ export default function ReseauDashboard() {
   const [sitesWithSwitches, setSitesWithSwitches] = useState<SiteWithSwitches[]>([]);
   const [stats, setStats]           = useState<ReseauStats | null>(null);
 
-  const [tab, setTab]     = useState<Tab>('carte');
+  const [tab, setTab]     = useState<Tab>('synoptique');
   const [view, setView]   = useState<'map' | 'topology'>('map');
   const [loading, setLoading] = useState(true);
   const [error, setError]     = useState('');
@@ -452,8 +452,8 @@ export default function ReseauDashboard() {
         {/* ── Onglets ── */}
         <div style={{ display: 'flex', gap: 4, marginBottom: 16, borderBottom: '2px solid #f1f5f9', paddingBottom: 2 }}>
           {([
-            ['carte',      <><MapIcon size={14} /> Carte & Topologie</>,    'carte'],
             ['synoptique', <><Waypoints size={14} /> Synoptique</>,          'synoptique'],
+            ['carte',      <><MapIcon size={14} /> Carte & Topologie</>,    'carte'],
             ['liens-switchs', <><Link2 size={14} /> Liens switchs</>,        'liens-switchs'],
             ['irf',        <><GitBranch size={14} /> IRF Stacks</>,          'irf'],
             ['equipements',<><Cpu size={14} /> Équipements</>,               'equipements'],
