@@ -4,11 +4,14 @@ import Header from '../../components/Header';
 import {
   Network, Map as MapIcon, MapPin, Share2, Plus, Trash2,
   Cpu, GitBranch, Tag, Cable, BarChart2, Wifi, Shield, Server, Router, Link2, File, Building2,
+  Waypoints,
 } from 'lucide-react';
 import NetworkMap from './NetworkMap';
 import type { MoveResult } from './NetworkMap';
 import DxfImportDialog from './DxfImportDialog';
 import NetworkTopology from './NetworkTopology';
+import SynoptiqueReseau from './SynoptiqueReseau';
+import { useAuth } from '../../contexts/AuthContext';
 import { linkStyle } from './utils';
 import type {
   NetworkLink, NetworkAccess, Duct, SiteRef, LinkType, Operator,
@@ -24,9 +27,11 @@ const emptyForm = {
   capacity: '', carries_data: true, carries_voice: false, is_loop: false, is_redundant: false,
 };
 
-type Tab = 'carte' | 'liens-switchs' | 'irf' | 'equipements' | 'vlans' | 'liaisons-fo' | 'sites' | 'stats';
+type Tab = 'carte' | 'synoptique' | 'liens-switchs' | 'irf' | 'equipements' | 'vlans' | 'liaisons-fo' | 'sites' | 'stats';
 
 export default function ReseauDashboard() {
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'admin' || user?.role === 'superadmin';
   const token = localStorage.getItem('token');
   const headers = useMemo(() => ({ Authorization: `Bearer ${token}` }), [token]);
 
@@ -448,6 +453,7 @@ export default function ReseauDashboard() {
         <div style={{ display: 'flex', gap: 4, marginBottom: 16, borderBottom: '2px solid #f1f5f9', paddingBottom: 2 }}>
           {([
             ['carte',      <><MapIcon size={14} /> Carte & Topologie</>,    'carte'],
+            ['synoptique', <><Waypoints size={14} /> Synoptique</>,          'synoptique'],
             ['liens-switchs', <><Link2 size={14} /> Liens switchs</>,        'liens-switchs'],
             ['irf',        <><GitBranch size={14} /> IRF Stacks</>,          'irf'],
             ['equipements',<><Cpu size={14} /> Équipements</>,               'equipements'],
@@ -712,6 +718,9 @@ export default function ReseauDashboard() {
         )}
 
         {/* ══════════════════ TAB LIENS SWITCHS ══════════════════ */}
+        {/* ══════════════ TAB SYNOPTIQUE ══════════════ */}
+        {tab === 'synoptique' && <SynoptiqueReseau isAdmin={isAdmin} />}
+
         {tab === 'liens-switchs' && (
           <div>
             <div style={{ display: 'flex', gap: 10, marginBottom: 14, flexWrap: 'wrap' }}>

@@ -4903,6 +4903,18 @@ async function setupPgDb() {
           maj_le TIMESTAMPTZ DEFAULT NOW()
         )
       `);
+      // ── Synoptique réseau : disposition personnalisée des sites ────
+      // Une ligne par vue (« default »). positions = { <nodeId>: { x, y }, … }
+      // exprimé dans le repère du plan d'origine (1900 × 1277).
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS hub_reseau.synoptique_layout (
+          vue TEXT PRIMARY KEY,
+          positions JSONB NOT NULL DEFAULT '{}',
+          maj_le TIMESTAMPTZ DEFAULT NOW(),
+          maj_par TEXT
+        )
+      `);
+
       // Styles d'affichage par calque (visibilité + couleur), partagés entre documents.
       await client.query(`
         CREATE TABLE IF NOT EXISTS hub_reseau.dxf_layer_styles (
