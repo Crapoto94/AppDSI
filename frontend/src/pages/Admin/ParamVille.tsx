@@ -6,7 +6,7 @@ import { Plus, Edit2, Trash2, Upload, Search, ChevronUp, ChevronDown, ChevronsUp
 import * as XLSX from 'xlsx';
 import AdminOrganisation from '../AdminOrganisation';
 import 'leaflet/dist/leaflet.css';
-import { MapContainer, TileLayer, Marker, Popup, useMap, useMapEvents } from 'react-leaflet';
+import { MapContainer, TileLayer, Marker, Popup, Tooltip, useMap, useMapEvents } from 'react-leaflet';
 import L from 'leaflet';
 
 delete (L.Icon.Default.prototype as any)._getIconUrl;
@@ -318,6 +318,18 @@ function exportToCSV(filename: string, headers: string[], rows: (string | number
 const parseAddress = (adresse: string): string =>
   adresse.replace(/^(\d+)(?:-\d+)+\s+/, '$1 ').trim();
 
+// Beaucoup de désignations sont préfixées par le mot générique "SITE"
+// (ex. "SITE 23 RUE RASPAIL") : ce préfixe n'apporte rien à l'affichage.
+const cleanSiteName = (nom: string): string => (nom || '').replace(/^SITE\s+/i, '').trim();
+
+// Catégories affichées par défaut sur la carte des sites (services "actifs"
+// pour le citoyen — écoles, mairie, santé…) ; le reste reste masqué mais
+// activable via la légende rapide.
+const DEFAULT_MAP_CATEGORIES = [
+  'ADMINISTRATIF', 'CULTUREL', 'TECHNIQUE', 'FOYER', 'CENTRE DE VACANCES',
+  'CITE', 'PETITE ENFANCE', 'SCOLAIRE', 'SANTE', 'SOCIAL', 'CIMETIERE', 'ESPACES VERTS',
+];
+
 const isCentreDeVacances = (site: Site): boolean => {
   const nom = (site.nom || '').toUpperCase();
   const cat = (site.categorie || '').toUpperCase();
@@ -628,10 +640,12 @@ function EncadrantsTab({ token }: { token: string | null }) {
       });
       if (r.ok) {
         setEncadrants(prev => prev.map(e => e.matricule === matricule
-          ? { ...e, email: result.email, email_source: 'manuel', ad_username: result.username }
+          ? { ...e, email: result.email || e.email, email_source: result.email ? 'manuel' : e.email_source, ad_username: result.username }
           : e));
-        setSaveMsg(`✔ Lien AD créé : ${result.displayName} → ${result.email}`);
-        setTimeout(() => setSaveMsg(''), 3000);
+        setSaveMsg(result.email
+          ? `✔ Lien AD créé : ${result.displayName} → ${result.email}`
+          : `✔ Lien AD créé : ${result.displayName} (pas encore de mail, sera récupéré automatiquement dès qu'il sera disponible)`);
+        setTimeout(() => setSaveMsg(''), 4000);
         setADLinkMatricule(null);
         setADSearchQ(''); setADSearchResults([]);
       }
@@ -863,7 +877,9 @@ function EncadrantsTab({ token }: { token: string | null }) {
                                 onMouseEnter={ev => (ev.currentTarget.style.background = '#f0f9ff')}
                                 onMouseLeave={ev => (ev.currentTarget.style.background = '')}>
                                 <div style={{ fontWeight: 700, color: '#1e293b' }}>{r.displayName}</div>
-                                <div style={{ color: '#64748b' }}>{r.email}{r.department ? ` · ${r.department}` : ''}</div>
+                                <div style={{ color: r.email ? '#64748b' : '#d97706', fontStyle: r.email ? 'normal' : 'italic' }}>
+                                  {r.email || 'Pas encore de mail (boîte en cours de création)'}{r.department ? ` · ${r.department}` : ''}
+                                </div>
                                 {r.employeeID && <div style={{ fontSize: 10, color: '#94a3b8' }}>Matricule AD : {r.employeeID}</div>}
                               </div>
                             ))}
@@ -1034,7 +1050,7 @@ export default function ParamVille() {
   const [isGeocoding, setIsGeocoding] = useState(false);
   const geocodingStopRef = useRef(false);
   const [selectedMapSite, setSelectedMapSite] = useState<string | null>(null);
-  const [carteFilterCategorie, setCarteFilterCategorie] = useState('');
+  const [carteVisibleCats, setCarteVisibleCats] = useState<Set<string>>(new Set(DEFAULT_MAP_CATEGORIES));
   const [showInactifsCarte, setShowInactifsCarte] = useState(false);
   const [movingAdminSite, setMovingAdminSite] = useState<Site | null>(null);
   const [movingAdminSaving, setMovingAdminSaving] = useState(false);
@@ -1284,8 +1300,16 @@ export default function ParamVille() {
     [...new Set(allSitesSorted.map(s => s.categorie).filter(Boolean) as string[])].sort(), [allSitesSorted]);
 
   const geocodedSitesFiltered = useMemo(() =>
-    carteFilterCategorie ? geocodedSites.filter(s => s.categorie === carteFilterCategorie) : geocodedSites,
-    [geocodedSites, carteFilterCategorie]);
+    geocodedSites.filter(s => carteVisibleCats.has(s.categorie || '')),
+    [geocodedSites, carteVisibleCats]);
+
+  const toggleCarteCategorie = (cat: string) => {
+    setCarteVisibleCats(prev => {
+      const next = new Set(prev);
+      if (next.has(cat)) next.delete(cat); else next.add(cat);
+      return next;
+    });
+  };
 
   // Statistiques localisation
   const localisedCount = useMemo(() => sites.filter(s => s.lat && s.lng).length, [sites]);
@@ -1943,21 +1967,12 @@ export default function ParamVille() {
           <div style={{ display: 'flex', gap: '14px', height: 'calc(100vh - 300px)', minHeight: '500px' }}>
             {/* Liste SXXX */}
             <div style={{ width: '270px', flexShrink: 0, display: 'flex', flexDirection: 'column', border: '1px solid #e2e8f0', borderRadius: '8px', backgroundColor: 'white', overflow: 'hidden' }}>
-              <div style={{ padding: '8px 10px', borderBottom: '1px solid #e2e8f0', backgroundColor: '#f8fafc', flexShrink: 0 }}>
-                <select
-                  style={{ width: '100%', padding: '6px 8px', borderRadius: '5px', border: '1px solid #d1d5db', fontSize: '12px', backgroundColor: 'white' }}
-                  value={carteFilterCategorie}
-                  onChange={e => setCarteFilterCategorie(e.target.value)}
-                >
-                  <option value="">Toutes catégories ({allSitesSorted.length})</option>
-                  {carteCategories.map(c => (
-                    <option key={c} value={c}>{getCategoryEmoji(c)} {c} ({allSitesSorted.filter(s => s.categorie === c).length})</option>
-                  ))}
-                </select>
+              <div style={{ padding: '8px 10px', borderBottom: '1px solid #e2e8f0', backgroundColor: '#f8fafc', flexShrink: 0, fontSize: '11px', color: '#64748b' }}>
+                {carteVisibleCats.size} / {carteCategories.length} catégories affichées — voir la légende sur la carte →
               </div>
 
               <div style={{ overflowY: 'auto', flex: 1 }}>
-                {allSitesSorted.filter(s => !carteFilterCategorie || s.categorie === carteFilterCategorie).map(site => {
+                {allSitesSorted.filter(s => carteVisibleCats.has(s.categorie || '')).map(site => {
                   const geocoded = geocodedSites.find(g => g.code === site.code_bien);
                   const isSelected = selectedMapSite === site.code_bien;
                   return (
@@ -1969,31 +1984,12 @@ export default function ParamVille() {
                         {!site.is_active && <span style={{ fontSize: '10px', color: '#ef4444' }}>inactif</span>}
                         <span style={{ marginLeft: 'auto', fontSize: '10px', color: geocoded ? '#10b981' : '#d1d5db', fontWeight: geocoded ? '600' : '400' }}>📍</span>
                       </div>
-                      <div style={{ fontSize: '12px', color: '#374151', lineHeight: 1.3 }}>{site.nom}</div>
+                      <div style={{ fontSize: '12px', color: '#374151', lineHeight: 1.3 }}>{cleanSiteName(site.nom)}</div>
                       {site.adresse && <div style={{ fontSize: '11px', color: '#94a3b8', marginTop: '2px' }}>{site.adresse}</div>}
                     </div>
                   );
                 })}
               </div>
-
-              {geocodedSites.length > 0 && (
-                <div style={{ borderTop: '1px solid #e2e8f0', padding: '8px 10px', backgroundColor: '#f8fafc', flexShrink: 0, maxHeight: '180px', overflowY: 'auto' }}>
-                  <div style={{ fontSize: '10px', fontWeight: '700', color: '#94a3b8', marginBottom: '5px', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Légende</div>
-                  {carteCategories.map(cat => {
-                    const count = geocodedSites.filter(g => g.categorie === cat).length;
-                    if (count === 0) return null;
-                    const isActive = carteFilterCategorie === cat;
-                    return (
-                      <div key={cat} onClick={() => setCarteFilterCategorie(isActive ? '' : cat)}
-                        style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '4px 6px', borderRadius: '4px', cursor: 'pointer', backgroundColor: isActive ? getCategoryColor(cat) + '20' : 'transparent', border: isActive ? `1px solid ${getCategoryColor(cat)}40` : '1px solid transparent', marginBottom: '2px' }}>
-                        <span style={{ fontSize: '14px' }}>{getCategoryEmoji(cat)}</span>
-                        <span style={{ fontSize: '11px', color: '#475569', flex: 1 }}>{cat}</span>
-                        <span style={{ fontSize: '11px', fontWeight: '700', color: getCategoryColor(cat) }}>{count}</span>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
             </div>
 
             {/* Carte Leaflet */}
@@ -2037,6 +2033,11 @@ export default function ParamVille() {
                   const isManual = fullSite?.geocoded_manually;
                   return (
                   <Marker key={site.code} position={[site.lat, site.lng]} icon={getCategoryIcon(site.categorie)}>
+                    {/* Infobulle au survol : nom du site (préfixe "SITE" retiré) */}
+                    <Tooltip direction="top" offset={[0, -17]}>
+                      <strong>{cleanSiteName(site.nom)}</strong>
+                      {site.categorie && <><br /><span style={{ color: getCategoryColor(site.categorie) }}>{getCategoryEmoji(site.categorie)} {site.categorie}</span></>}
+                    </Tooltip>
                     <Popup>
                       <div style={{ minWidth: '180px' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
@@ -2044,7 +2045,7 @@ export default function ParamVille() {
                           <code style={{ background: '#f1f5f9', padding: '2px 6px', borderRadius: '4px', fontSize: '12px', fontWeight: '700' }}>{site.code}</code>
                           {isManual && <span style={{ fontSize: 10, background: '#fef9c3', color: '#92400e', padding: '1px 5px', borderRadius: 8, fontWeight: 700 }}>📍 Manuel</span>}
                         </div>
-                        <div style={{ fontSize: '13px', fontWeight: '600', color: '#1e293b', marginBottom: '4px' }}>{site.nom}</div>
+                        <div style={{ fontSize: '13px', fontWeight: '600', color: '#1e293b', marginBottom: '4px' }}>{cleanSiteName(site.nom)}</div>
                         {site.categorie && <div style={{ fontSize: '11px', color: getCategoryColor(site.categorie), fontWeight: '600', marginBottom: '4px' }}>{site.categorie}</div>}
                         {site.adresse && <div style={{ fontSize: '11px', color: '#64748b', marginBottom: '6px' }}>{site.adresse}</div>}
                         <button
@@ -2059,23 +2060,26 @@ export default function ParamVille() {
                 })}
               </MapContainer>
 
-              {/* Overlay filtres */}
-              <div style={{ position: 'absolute', top: '10px', right: '10px', zIndex: 1000, backgroundColor: 'white', borderRadius: '8px', padding: '10px 12px', boxShadow: '0 2px 12px rgba(0,0,0,0.15)', minWidth: '200px', maxHeight: '60vh', overflowY: 'auto' }}
+              {/* Légende rapide / filtre par catégorie (multi-sélection, un icône par type) */}
+              <div style={{ position: 'absolute', top: '10px', right: '10px', zIndex: 1000, backgroundColor: 'white', borderRadius: '8px', padding: '10px 12px', boxShadow: '0 2px 12px rgba(0,0,0,0.15)', minWidth: '210px', maxHeight: '60vh', overflowY: 'auto' }}
                 onMouseDown={e => e.stopPropagation()}>
-                <div style={{ fontSize: '11px', fontWeight: '700', color: '#64748b', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Catégories</div>
-                <div onClick={() => setCarteFilterCategorie('')}
-                  style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '5px 6px', borderRadius: '5px', cursor: 'pointer', marginBottom: '4px', backgroundColor: !carteFilterCategorie ? '#eff6ff' : 'transparent', fontWeight: !carteFilterCategorie ? '600' : '400' }}>
-                  <span style={{ fontSize: '14px' }}>🗺️</span>
-                  <span style={{ fontSize: '12px', color: '#334155', flex: 1 }}>Tout afficher</span>
-                  <span style={{ fontSize: '11px', fontWeight: '600', color: '#64748b' }}>{geocodedSites.length}</span>
+                <div style={{ display: 'flex', alignItems: 'center', marginBottom: '8px' }}>
+                  <span style={{ fontSize: '11px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Légende</span>
+                  <div style={{ marginLeft: 'auto', display: 'flex', gap: '8px' }}>
+                    <button onClick={() => setCarteVisibleCats(new Set(carteCategories))}
+                      style={{ border: 'none', background: 'none', cursor: 'pointer', fontSize: '11px', color: '#0ea5e9', fontWeight: 600, padding: 0 }}>Tout</button>
+                    <button onClick={() => setCarteVisibleCats(new Set())}
+                      style={{ border: 'none', background: 'none', cursor: 'pointer', fontSize: '11px', color: '#94a3b8', fontWeight: 600, padding: 0 }}>Aucun</button>
+                  </div>
                 </div>
                 {carteCategories.map(cat => {
                   const count = geocodedSites.filter(g => g.categorie === cat).length;
                   if (count === 0) return null;
-                  const isActive = carteFilterCategorie === cat;
+                  const isActive = carteVisibleCats.has(cat);
                   return (
-                    <div key={cat} onClick={() => setCarteFilterCategorie(isActive ? '' : cat)}
-                      style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '5px 6px', borderRadius: '5px', cursor: 'pointer', marginBottom: '2px', backgroundColor: isActive ? getCategoryColor(cat) + '18' : 'transparent', borderLeft: isActive ? `3px solid ${getCategoryColor(cat)}` : '3px solid transparent' }}>
+                    <div key={cat} onClick={() => toggleCarteCategorie(cat)}
+                      style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '5px 6px', borderRadius: '5px', cursor: 'pointer', marginBottom: '2px', backgroundColor: isActive ? getCategoryColor(cat) + '18' : 'transparent', borderLeft: isActive ? `3px solid ${getCategoryColor(cat)}` : '3px solid transparent', opacity: isActive ? 1 : 0.5 }}>
+                      <input type="checkbox" checked={isActive} readOnly style={{ pointerEvents: 'none', margin: 0 }} />
                       <span style={{ fontSize: '16px', lineHeight: 1 }}>{getCategoryEmoji(cat)}</span>
                       <span style={{ fontSize: '12px', color: '#334155', flex: 1 }}>{cat}</span>
                       <span style={{ fontSize: '11px', fontWeight: '700', color: getCategoryColor(cat) }}>{count}</span>

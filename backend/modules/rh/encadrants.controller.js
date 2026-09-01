@@ -14,15 +14,29 @@ const { flattenLDAPEntry, decodeLDAPString } = require('../../shared/utils');
 
 const ACTIVE_FILTER = `("POSITION_L" LIKE 'Activité%' OR "POSITION_L" LIKE 'Temps partiel%')`;
 
-/** Détecte si un service code = service "d'accueil" de sa direction
- *  (le responsable = directeur de la direction)
- *  Ex. BF1 pour BF, BB1 pour BB, AA1 pour AA.
- *  Règle : le code service commence par le code direction et le reste est court (1-2 chars).
+/** Détecte si un service = le service "d'accueil" de sa direction, c'est-à-dire
+ *  le service générique qui porte le même libellé que la direction elle-même
+ *  (ex. SERVICE_L "DIRECTION DES SPORTS" pour DIRECTION_L "DIRECTION DES SPORTS").
+ *  NB : l'ancienne règle se basait sur le code service (préfixe du code direction
+ *  + 1-2 caractères), mais cette convention de codage est utilisée pour TOUS les
+ *  services d'une direction (BT2, BT3, BU5…), pas seulement le service d'accueil,
+ *  ce qui faisait matcher à tort quasiment tous les responsables de service.
  */
-function isDirectionService(dirCode, svcCode) {
-    if (!dirCode || !svcCode) return false;
-    const tail = svcCode.slice(dirCode.length);
-    return svcCode.startsWith(dirCode) && tail.length >= 1 && tail.length <= 2;
+function isDirectionService(dirLabel, svcLabel) {
+    if (!dirLabel || !svcLabel) return false;
+    return dirLabel.trim().toUpperCase() === svcLabel.trim().toUpperCase();
+}
+
+/** Certains comptes AD récents n'ont pas (encore) l'attribut `mail` renseigné
+ *  (write-back Azure AD Connect / provisionnement Exchange en retard, voire
+ *  jamais synchronisé côté on-prem) alors que `userPrincipalName` est déjà au
+ *  format email et correct (vérifié : ex. compte avec mail vide mais
+ *  userPrincipalName = "FDesneulin@ivry94.fr"). On utilise l'UPN comme repli.
+ */
+function bestEmail(mail, upn) {
+    if (mail) return mail;
+    if (upn && upn.includes('@')) return upn;
+    return '';
 }
 
 /** Crée un client LDAP connecté + bindé, prêt à l'emploi. */
@@ -243,16 +257,18 @@ module.exports = {
                                 try {
                                     client.search(adSettings.base_dn, {
                                         filter, scope: 'sub',
-                                        attributes: ['employeeID', 'mail', 'telephoneNumber', 'mobile']
+                                        attributes: ['employeeID', 'mail', 'userPrincipalName', 'telephoneNumber', 'mobile']
                                     }, (err2, r) => {
                                         if (err2) { console.warn('[ENCADRANTS] search err:', err2.message); clearTimeout(guard); return finish(); }
                                         r.on('searchEntry', (entry) => {
                                             const u = flattenLDAPEntry(entry);
                                             const empId = String(Array.isArray(u.employeeID) ? u.employeeID[0] : (u.employeeID || '')).trim();
                                             const mail  = Array.isArray(u.mail) ? u.mail[0] : (u.mail || '');
+                                            const upn   = Array.isArray(u.userPrincipalName) ? u.userPrincipalName[0] : (u.userPrincipalName || '');
+                                            const email = bestEmail(mail, upn);
                                             const phone = Array.isArray(u.telephoneNumber) ? u.telephoneNumber[0] : (u.telephoneNumber || '');
                                             const mobile = Array.isArray(u.mobile) ? u.mobile[0] : (u.mobile || '');
-                                            if (empId && mail) emailMap.set(empId, { email: mail, ad_phone: phone || mobile });
+                                            if (empId && email) emailMap.set(empId, { email, ad_phone: phone || mobile });
                                         });
                                         r.on('error', (e) => { console.warn('[ENCADRANTS] entry err:', e.message); clearTimeout(guard); finish(); });
                                         r.on('end', () => { clearTimeout(guard); client.destroy(); finish(); });
@@ -291,13 +307,14 @@ module.exports = {
                             client.on('error', () => { clearTimeout(guard); finish(); });
                             client.bind(adSettings2.bind_dn, adSettings2.bind_password, (err) => {
                                 if (err) { clearTimeout(guard); return finish(); }
-                                // Une seule requête : tous les users AD avec mail
+                                // Une seule requête : tous les users AD avec mail (ou UPN au format email
+                                // en repli, pour les comptes récents pas encore synchronisés côté mail)
                                 const adByDisplay = new Map();
                                 try {
                                     client.search(adSettings2.base_dn, {
-                                        filter: '(&(objectClass=user)(mail=*))',
+                                        filter: '(&(objectClass=user)(|(mail=*)(userPrincipalName=*@*)))',
                                         scope: 'sub',
-                                        attributes: ['displayName', 'cn', 'mail', 'telephoneNumber', 'mobile'],
+                                        attributes: ['displayName', 'cn', 'mail', 'userPrincipalName', 'telephoneNumber', 'mobile'],
                                         paged: { pageSize: 500, pagePause: false }
                                     }, (err2, r) => {
                                         if (err2) { clearTimeout(guard); return finish(); }
@@ -305,9 +322,11 @@ module.exports = {
                                             const u = flattenLDAPEntry(entry);
                                             const dn = decodeLDAPString(u.displayName || u.cn || '');
                                             const mail = Array.isArray(u.mail) ? u.mail[0] : (u.mail || '');
+                                            const upn  = Array.isArray(u.userPrincipalName) ? u.userPrincipalName[0] : (u.userPrincipalName || '');
+                                            const email = bestEmail(mail, upn);
                                             const phone = Array.isArray(u.telephoneNumber) ? u.telephoneNumber[0] : (u.telephoneNumber || '');
                                             const mobile = Array.isArray(u.mobile) ? u.mobile[0] : (u.mobile || '');
-                                            if (dn && mail) adByDisplay.set(norm(dn), { email: mail, ad_phone: phone || mobile });
+                                            if (dn && email) adByDisplay.set(norm(dn), { email, ad_phone: phone || mobile });
                                         });
                                         r.on('error', () => { clearTimeout(guard); finish(); });
                                         r.on('end', () => {
@@ -334,6 +353,77 @@ module.exports = {
                 }
             }
 
+            // 3c. Pour les agents liés manuellement par ad_username (cas d'un compte AD tout
+            // juste créé, sans mail au moment de la liaison) mais toujours sans email : on
+            // retente une recherche directe par sAMAccountName, le mail ayant pu être
+            // renseigné depuis (provisionnement O365 différé).
+            const usernamesToRetry = [...new Set(
+                agents
+                    .filter(a => !emailMap.has(a.MATRICULE))
+                    .map(a => phoneMap.get(a.MATRICULE))
+                    .filter(st => st && st.ad_username && !st.email_override)
+                    .map(st => st.ad_username)
+            )];
+            if (usernamesToRetry.length > 0) {
+                try {
+                    const db3 = getSqlite();
+                    const adSettings3 = await db3.get('SELECT * FROM ad_settings WHERE id=1');
+                    if (adSettings3 && adSettings3.is_enabled && adSettings3.host) {
+                        const esc = (v) => String(v).trim().replace(/[*()\\\x00]/g, '\\$&');
+                        const usernameMailMap = new Map(); // username (lower) → { email, ad_phone }
+                        const CHUNK = 50;
+                        for (let i = 0; i < usernamesToRetry.length; i += CHUNK) {
+                            const chunk = usernamesToRetry.slice(i, i + CHUNK);
+                            const filter = chunk.length === 1
+                                ? `(&(objectClass=user)(sAMAccountName=${esc(chunk[0])}))`
+                                : `(&(objectClass=user)(|${chunk.map(u => `(sAMAccountName=${esc(u)})`).join('')}))`;
+                            await new Promise((resolve) => {
+                                let settled = false;
+                                const finish = () => { if (!settled) { settled = true; resolve(); } };
+                                const client = ldap.createClient({
+                                    url: `ldap://${adSettings3.host}:${adSettings3.port || 389}`,
+                                    connectTimeout: 6000, timeout: 12000
+                                });
+                                const guard = setTimeout(() => { client.destroy(); finish(); }, 15000);
+                                client.on('error', () => { clearTimeout(guard); finish(); });
+                                client.bind(adSettings3.bind_dn, adSettings3.bind_password, (err) => {
+                                    if (err) { clearTimeout(guard); return finish(); }
+                                    try {
+                                        client.search(adSettings3.base_dn, {
+                                            filter, scope: 'sub',
+                                            attributes: ['sAMAccountName', 'mail', 'userPrincipalName', 'telephoneNumber', 'mobile']
+                                        }, (err2, r) => {
+                                            if (err2) { clearTimeout(guard); return finish(); }
+                                            r.on('searchEntry', (entry) => {
+                                                const u = flattenLDAPEntry(entry);
+                                                const username = String(u.sAMAccountName || '').trim();
+                                                const mail = Array.isArray(u.mail) ? u.mail[0] : (u.mail || '');
+                                                const upn  = Array.isArray(u.userPrincipalName) ? u.userPrincipalName[0] : (u.userPrincipalName || '');
+                                                const email = bestEmail(mail, upn);
+                                                const phone = Array.isArray(u.telephoneNumber) ? u.telephoneNumber[0] : (u.telephoneNumber || '');
+                                                const mobile = Array.isArray(u.mobile) ? u.mobile[0] : (u.mobile || '');
+                                                if (username && email) usernameMailMap.set(username.toLowerCase(), { email, ad_phone: phone || mobile });
+                                            });
+                                            r.on('error', () => { clearTimeout(guard); finish(); });
+                                            r.on('end', () => { clearTimeout(guard); client.destroy(); finish(); });
+                                        });
+                                    } catch (se) { clearTimeout(guard); client.destroy(); finish(); }
+                                });
+                            });
+                        }
+                        for (const a of agents) {
+                            if (emailMap.has(a.MATRICULE)) continue;
+                            const st = phoneMap.get(a.MATRICULE);
+                            if (!st || !st.ad_username) continue;
+                            const match = usernameMailMap.get(st.ad_username.toLowerCase());
+                            if (match) emailMap.set(a.MATRICULE, match);
+                        }
+                    }
+                } catch (e) {
+                    console.warn('[ENCADRANTS] retry par ad_username échoué:', e.message);
+                }
+            }
+
             // 4. Assembler la réponse
             const result = agents.map(a => {
                 const adData = emailMap.get(a.MATRICULE) || {};
@@ -342,7 +432,7 @@ module.exports = {
                 const isDirecteur = poste.startsWith('DIRECTEUR');
                 const isDG = isDirecteur && poste.includes('GENERAL');
                 const role = isDG ? 'dg' : (isDirecteur ? 'directeur' : 'responsable_service');
-                const isDirSvc = role === 'responsable_service' && isDirectionService(a.DIRECTION, a.SERVICE);
+                const isDirSvc = role === 'responsable_service' && isDirectionService(a.DIRECTION_L, a.SERVICE_L);
                 // Email : priorité à l'override manuel, puis à l'AD
                 const email = stored.email_override || adData.email || '';
                 return {
@@ -573,21 +663,26 @@ module.exports = {
                     if (err) { clearTimeout(guard); return finish(found); }
                     const esc = (s) => s.replace(/[*()\\\x00]/g, '\\$&');
                     const e = esc(q);
-                    const filter = `(&(objectClass=user)(mail=*)(|(displayName=*${e}*)(cn=*${e}*)(sAMAccountName=*${e}*)))`;
+                    // Pas de filtre (mail=*) : un compte AD tout juste créé (nouvel agent)
+                    // n'a souvent pas l'attribut mail renseigné (write-back Azure AD Connect /
+                    // provisionnement Exchange en retard) alors que userPrincipalName est déjà
+                    // au format email — voir bestEmail(). On veut aussi pouvoir retrouver un
+                    // compte qui n'aurait vraiment ni l'un ni l'autre, pour le lier manuellement.
+                    const filter = `(&(objectClass=user)(|(displayName=*${e}*)(cn=*${e}*)(sAMAccountName=*${e}*)))`;
                     try {
                         client.search(adSettings.base_dn, {
                             filter, scope: 'sub', sizeLimit: 20,
-                            attributes: ['sAMAccountName', 'displayName', 'cn', 'mail', 'title', 'department', 'employeeID']
+                            attributes: ['sAMAccountName', 'displayName', 'cn', 'mail', 'userPrincipalName', 'title', 'department', 'employeeID']
                         }, (err2, r) => {
                             if (err2) { clearTimeout(guard); return finish(found); }
                             r.on('searchEntry', (entry) => {
                                 const u = flattenLDAPEntry(entry);
                                 const mail = Array.isArray(u.mail) ? u.mail[0] : (u.mail || '');
-                                if (!mail) return;
+                                const upn  = Array.isArray(u.userPrincipalName) ? u.userPrincipalName[0] : (u.userPrincipalName || '');
                                 found.push({
                                     username: u.sAMAccountName || '',
                                     displayName: decodeLDAPString(u.displayName || u.cn || ''),
-                                    email: mail,
+                                    email: bestEmail(mail, upn),
                                     title: decodeLDAPString(Array.isArray(u.title) ? u.title[0] : (u.title || '')),
                                     department: decodeLDAPString(Array.isArray(u.department) ? u.department[0] : (u.department || '')),
                                     employeeID: Array.isArray(u.employeeID) ? u.employeeID[0] : (u.employeeID || '')
