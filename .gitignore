@@ -45,6 +45,11 @@ dip/
 # Config locale Claude
 .claude/settings.local.json
 
+# Deploiement Docker distant (credentials en clair, local uniquement)
+pulldocker.ini
+pulldocker.ps1
+pulldocker.bat
+
 # Logs
 npm-debug.log*
 yarn-debug.log*

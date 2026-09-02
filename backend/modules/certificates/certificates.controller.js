@@ -313,12 +313,65 @@ module.exports = {
     getCertificates: async (req, res) => {
         try {
             const db = pgDb;
-            const certs = await db.all('SELECT * FROM hub.certificates ORDER BY request_date DESC NULLS LAST, uploaded_at DESC');
+            const certs = await db.all(`
+                SELECT c.*, u.label AS usage_label
+                FROM hub.certificates c
+                LEFT JOIN hub.certificate_usages u ON u.id = c.usage_id
+                ORDER BY c.request_date DESC NULLS LAST, c.uploaded_at DESC
+            `);
             // Don't format dates here - keep them as ISO for frontend sorting
             // Frontend will format them for display
             res.json(certs);
         } catch (error) {
             res.status(500).json({ message: 'Error fetching certificates', error: error.message });
+        }
+    },
+
+    getUsages: async (req, res) => {
+        try {
+            const usages = await pgDb.all('SELECT * FROM hub.certificate_usages ORDER BY sort_order, label');
+            res.json(usages);
+        } catch (error) {
+            res.status(500).json({ message: 'Erreur lors de la récupération des usages', error: error.message });
+        }
+    },
+
+    createUsage: async (req, res) => {
+        try {
+            const { label = '', sort_order = 0 } = req.body;
+            if (!label.trim()) return res.status(400).json({ message: 'Le libellé est requis' });
+            const result = await pgDb.run('INSERT INTO hub.certificate_usages (label, sort_order) VALUES (?, ?)', [label.trim(), sort_order]);
+            const usage = await pgDb.get('SELECT * FROM hub.certificate_usages WHERE id = ?', [result.lastID]);
+            res.status(201).json(usage);
+        } catch (error) {
+            res.status(500).json({ message: 'Erreur lors de la création de l\'usage', error: error.message });
+        }
+    },
+
+    updateUsage: async (req, res) => {
+        try {
+            const { label, sort_order } = req.body;
+            const updates = [];
+            const values = [];
+            if (label !== undefined) { updates.push('label = ?'); values.push(label); }
+            if (sort_order !== undefined) { updates.push('sort_order = ?'); values.push(sort_order); }
+            if (updates.length === 0) return res.status(400).json({ message: 'Aucun champ modifiable fourni' });
+            values.push(req.params.id);
+            await pgDb.run(`UPDATE hub.certificate_usages SET ${updates.join(', ')} WHERE id = ?`, values);
+            const usage = await pgDb.get('SELECT * FROM hub.certificate_usages WHERE id = ?', [req.params.id]);
+            res.json(usage);
+        } catch (error) {
+            res.status(500).json({ message: 'Erreur lors de la mise à jour de l\'usage', error: error.message });
+        }
+    },
+
+    deleteUsage: async (req, res) => {
+        try {
+            await pgDb.run('UPDATE hub.certificates SET usage_id = NULL WHERE usage_id = ?', [req.params.id]);
+            await pgDb.run('DELETE FROM hub.certificate_usages WHERE id = ?', [req.params.id]);
+            res.json({ message: 'Usage supprimé avec succès' });
+        } catch (error) {
+            res.status(500).json({ message: 'Erreur lors de la suppression de l\'usage', error: error.message });
         }
     },
 
@@ -336,11 +389,11 @@ module.exports = {
     createCertificate: async (req, res) => {
         try {
             const db = pgDb;
-            const { order_number = '', request_date = new Date().toISOString().split('T')[0], beneficiary_name = '', beneficiary_email = '', product_code = '', product_label = '', expiry_date = null, sedit_number = '', is_provisional = 1, observations = '' } = req.body;
+            const { order_number = '', request_date = new Date().toISOString().split('T')[0], beneficiary_name = '', beneficiary_email = '', product_code = '', product_label = '', expiry_date = null, sedit_number = '', is_provisional = 1, observations = '', usage_id = null, service_code = '', service_label = '' } = req.body;
             const finalProvisional = expiry_date ? 0 : (is_provisional ?? 1);
             const result = await db.run(
-                `INSERT INTO hub.certificates (order_number, request_date, beneficiary_name, beneficiary_email, product_code, product_label, file_path, expiry_date, sedit_number, is_provisional, observations) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-                [order_number, request_date, beneficiary_name, normalizeEmail(beneficiary_email), product_code, product_label, '', expiry_date, sedit_number, finalProvisional, observations]
+                `INSERT INTO hub.certificates (order_number, request_date, beneficiary_name, beneficiary_email, product_code, product_label, file_path, expiry_date, sedit_number, is_provisional, observations, usage_id, service_code, service_label) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                [order_number, request_date, beneficiary_name, normalizeEmail(beneficiary_email), product_code, product_label, '', expiry_date, sedit_number, finalProvisional, observations, usage_id || null, service_code, service_label]
             );
             const newCertificate = await db.get('SELECT * FROM hub.certificates WHERE id = ?', [result.lastID]);
             const formatted = { ...newCertificate, request_date: formatDateFrench(newCertificate.request_date), expiry_date: formatDateFrench(newCertificate.expiry_date) };
@@ -406,7 +459,7 @@ module.exports = {
     updateCertificate: async (req, res) => {
         try {
             const db = pgDb;
-            const allowedFields = ['order_number', 'request_date', 'beneficiary_name', 'beneficiary_email', 'product_code', 'product_label', 'expiry_date', 'sedit_number', 'is_provisional', 'observations', 'renewal_status', 'renewal_comment'];
+            const allowedFields = ['order_number', 'request_date', 'beneficiary_name', 'beneficiary_email', 'product_code', 'product_label', 'expiry_date', 'sedit_number', 'is_provisional', 'observations', 'renewal_status', 'renewal_comment', 'usage_id', 'service_code', 'service_label'];
             const updates = [];
             const values = [];
             allowedFields.forEach((field) => {

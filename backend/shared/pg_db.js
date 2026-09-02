@@ -1277,6 +1277,27 @@ async function setupPgDb() {
       );
     `);
 
+    try { await client.query(`ALTER TABLE hub.certificates ADD COLUMN IF NOT EXISTS usage_id INTEGER`); } catch (e) {}
+    try { await client.query(`ALTER TABLE hub.certificates ADD COLUMN IF NOT EXISTS service_code VARCHAR(255)`); } catch (e) {}
+    try { await client.query(`ALTER TABLE hub.certificates ADD COLUMN IF NOT EXISTS service_label TEXT`); } catch (e) {}
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS hub.certificate_usages (
+        id SERIAL PRIMARY KEY,
+        label VARCHAR(255) UNIQUE NOT NULL,
+        sort_order INTEGER DEFAULT 0,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+    await client.query(`
+      INSERT INTO hub.certificate_usages (label, sort_order) VALUES
+        ('Signature 1', 1),
+        ('Signature 2', 2),
+        ('Envoi contrôle de légalité', 3),
+        ('Autre', 4)
+      ON CONFLICT (label) DO NOTHING;
+    `);
+
     try { await client.query(`ALTER TABLE hub.user_tile_order DROP CONSTRAINT IF EXISTS user_tile_order_user_id_fkey`); } catch (e) {}
     try { await client.query(`ALTER TABLE hub.user_tile_order DROP CONSTRAINT IF EXISTS hub_user_tile_order_user_id_fkey`); } catch (e) {}
     try { await client.query(`ALTER TABLE hub.user_tile_order DROP CONSTRAINT IF EXISTS fk_user_tile_order_user`); } catch (e) {}

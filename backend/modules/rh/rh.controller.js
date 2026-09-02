@@ -263,6 +263,27 @@ const rhController = {
         }
     },
 
+    // Liste plate et dédupliquée des services (utilisée pour alimenter des listes
+    // déroulantes ailleurs dans l'app, ex. module certificats).
+    getServicesList: async (req, res) => {
+        try {
+            const v2Count = await pgDb.get('SELECT COUNT(*) c FROM oracle.rh_siim_organigramme_v2').catch(() => ({ c: 0 }));
+            const orgTable = Number(v2Count.c) > 0 ? 'oracle.rh_siim_organigramme_v2' : 'oracle.rh_siim_organigramme';
+            const rows = await pgDb.all(`
+                SELECT DISTINCT "SERVICE" AS code, "SERVICE_L" AS label
+                FROM ${orgTable}
+                WHERE "SERVICE" IS NOT NULL AND "SERVICE" NOT LIKE '$%' AND "SERVICE" != ''
+            `);
+            const services = rows
+                .map(r => ({ code: (r.code || '').trim(), label: (r.label || '').trim() || (r.code || '').trim() }))
+                .filter(s => s.code)
+                .sort((a, b) => a.label.localeCompare(b.label, 'fr'));
+            res.json(services);
+        } catch (err) {
+            res.status(500).json({ message: 'Erreur récupération services', error: err.message });
+        }
+    },
+
     // Organisation chart depuis oracle.rh_siim_organigramme_v2 (repli sur v1 si vide)
     getOrganisationChart: async (req, res) => {
         try {

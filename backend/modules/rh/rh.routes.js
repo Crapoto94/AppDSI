@@ -8,6 +8,7 @@ const { authenticateAdmin, authenticateJWT } = require('../../shared/middleware'
 router.get('/stats', authenticateAdmin, rhController.getStats);
 router.get('/hierarchy', authenticateAdmin, rhController.getHierarchy);
 router.get('/organisation-chart', authenticateJWT, rhController.getOrganisationChart); // lecture : tout utilisateur connecté
+router.get('/services-list', authenticateJWT, rhController.getServicesList); // liste plate des services, tout utilisateur connecté
 router.get('/onboarding', authenticateAdmin, rhController.getOnboarding);
 
 // Agents Management

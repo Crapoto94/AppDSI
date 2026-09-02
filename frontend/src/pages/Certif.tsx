@@ -19,6 +19,21 @@ interface Certificate {
   uploaded_at: string;
   renewal_status: string | null;
   renewal_comment: string;
+  usage_id: number | null;
+  usage_label?: string | null;
+  service_code: string | null;
+  service_label: string | null;
+}
+
+interface CertUsage {
+  id: number;
+  label: string;
+  sort_order: number;
+}
+
+interface CertService {
+  code: string;
+  label: string;
 }
 
 const authHeaders = (): HeadersInit => ({
@@ -44,8 +59,14 @@ const Certif: React.FC = () => {
     expiry_date: '',
     sedit_number: '',
     is_provisional: 1,
-    observations: ''
+    observations: '',
+    usage_id: null,
+    service_code: '',
+    service_label: ''
   });
+  const [usages, setUsages] = useState<CertUsage[]>([]);
+  const [services, setServices] = useState<CertService[]>([]);
+  const [showUsageManager, setShowUsageManager] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editingCertificate, setEditingCertificate] = useState<Partial<Certificate> | null>(null);
@@ -60,6 +81,9 @@ const Certif: React.FC = () => {
   const [nonRenewalModal, setNonRenewalModal] = useState<{ id: number; orderNum: string } | null>(null);
   const [nonRenewalComment, setNonRenewalComment] = useState<string>('');
   const [viewer, setViewer] = useState<{ url: string; title: string } | null>(null);
+  const [newUsageLabel, setNewUsageLabel] = useState('');
+  const [editingUsageId, setEditingUsageId] = useState<number | null>(null);
+  const [editingUsageLabel, setEditingUsageLabel] = useState('');
   const actionMenuRef = useRef<HTMLDivElement>(null);
 
   const isExpiringSoon = (expiryStr: string | null, renewal_status: string | null) => {
@@ -167,7 +191,10 @@ const Certif: React.FC = () => {
       expiry_date: cert.expiry_date,
       sedit_number: cert.sedit_number,
       is_provisional: cert.is_provisional,
-      observations: cert.observations
+      observations: cert.observations,
+      usage_id: cert.usage_id,
+      service_code: cert.service_code,
+      service_label: cert.service_label
     });
   };
 
@@ -230,9 +257,92 @@ const Certif: React.FC = () => {
     }
   };
 
+  const fetchUsages = async () => {
+    try {
+      const response = await fetch('/api/certificates/usages', { headers: authHeaders() });
+      if (response.ok) setUsages(await response.json());
+    } catch (err) {
+      console.error('Failed to fetch usages:', err);
+    }
+  };
+
+  const fetchServices = async () => {
+    try {
+      const response = await fetch('/api/admin/rh/services-list', { headers: authHeaders() });
+      if (response.ok) setServices(await response.json());
+    } catch (err) {
+      console.error('Failed to fetch services:', err);
+    }
+  };
+
   useEffect(() => {
     fetchCertificates();
+    fetchUsages();
+    fetchServices();
   }, []);
+
+  const addUsage = async () => {
+    if (!newUsageLabel.trim()) return;
+    try {
+      const res = await fetch('/api/certificates/usages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeaders() },
+        body: JSON.stringify({ label: newUsageLabel.trim(), sort_order: usages.length })
+      });
+      if (res.ok) {
+        setNewUsageLabel('');
+        await fetchUsages();
+      } else {
+        const err = await res.json();
+        setMessage({ type: 'error', text: err.message || 'Erreur lors de la création de l\'usage' });
+      }
+    } catch {
+      setMessage({ type: 'error', text: 'Impossible de contacter le serveur' });
+    }
+  };
+
+  const startEditUsage = (usage: CertUsage) => {
+    setEditingUsageId(usage.id);
+    setEditingUsageLabel(usage.label);
+  };
+
+  const saveUsageEdit = async (id: number) => {
+    if (!editingUsageLabel.trim()) return;
+    try {
+      const res = await fetch(`/api/certificates/usages/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...authHeaders() },
+        body: JSON.stringify({ label: editingUsageLabel.trim() })
+      });
+      if (res.ok) {
+        setEditingUsageId(null);
+        setEditingUsageLabel('');
+        await fetchUsages();
+        await fetchCertificates();
+      } else {
+        const err = await res.json();
+        setMessage({ type: 'error', text: err.message || 'Erreur lors de la mise à jour de l\'usage' });
+      }
+    } catch {
+      setMessage({ type: 'error', text: 'Impossible de contacter le serveur' });
+    }
+  };
+
+  const deleteUsageItem = async (id: number) => {
+    if (!window.confirm('Supprimer cet usage ? Les certificats qui l\'utilisent perdront cette information.')) return;
+    try {
+      const res = await fetch(`/api/certificates/usages/${id}`, { method: 'DELETE', headers: authHeaders() });
+      if (res.ok) {
+        await fetchUsages();
+        await fetchCertificates();
+      } else {
+        const err = await res.json();
+        setMessage({ type: 'error', text: err.message || 'Erreur lors de la suppression de l\'usage' });
+      }
+    } catch {
+      setMessage({ type: 'error', text: 'Impossible de contacter le serveur' });
+    }
+  };
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -347,7 +457,10 @@ const Certif: React.FC = () => {
         expiry_date: newCertificate.expiry_date || null,
         sedit_number: newCertificate.sedit_number || '',
         is_provisional: Number(newCertificate.is_provisional ?? 1),
-        observations: newCertificate.observations || ''
+        observations: newCertificate.observations || '',
+        usage_id: newCertificate.usage_id || null,
+        service_code: newCertificate.service_code || '',
+        service_label: newCertificate.service_label || ''
       };
 
       const response = await fetch('/api/certificates', {
@@ -376,7 +489,10 @@ const Certif: React.FC = () => {
           expiry_date: '',
           sedit_number: '',
           is_provisional: 1,
-          observations: ''
+          observations: '',
+          usage_id: null,
+          service_code: '',
+          service_label: ''
         });
         fetchCertificates();
       } else {
@@ -464,6 +580,10 @@ const Certif: React.FC = () => {
             </button>
             {editMode && (
               <>
+                <button className="upload-button usage-manage-btn" onClick={() => setShowUsageManager(true)}>
+                  <Edit2 className="icon" />
+                  Gérer les usages
+                </button>
                 <label className={`upload-button ${uploading ? 'disabled' : ''}`}>
                   {uploading ? <Loader2 className="icon animate-spin" /> : <Upload className="icon" />}
                   {uploading ? 'Traitement en cours...' : 'Importer un PDF'}
@@ -549,6 +669,56 @@ const Certif: React.FC = () => {
           </div>
         )}
 
+        {showUsageManager && (
+          <div className="modal-overlay" onClick={() => setShowUsageManager(false)}>
+            <div className="modal-box usage-modal-box" onClick={(e) => e.stopPropagation()}>
+              <h3>Gérer les usages</h3>
+              <p>Valeurs proposées dans la liste déroulante « Usage » des certificats.</p>
+              <div className="usage-list">
+                {usages.length === 0 ? (
+                  <div className="usage-empty">Aucun usage défini.</div>
+                ) : usages.map((u) => (
+                  <div key={u.id} className="usage-item">
+                    {editingUsageId === u.id ? (
+                      <>
+                        <input
+                          type="text"
+                          className="inline-input"
+                          value={editingUsageLabel}
+                          onChange={(e) => setEditingUsageLabel(e.target.value)}
+                          autoFocus
+                        />
+                        <button className="confirm-btn" title="Enregistrer" onClick={() => saveUsageEdit(u.id)}><Check size={16} /></button>
+                        <button className="cancel-btn" title="Annuler" onClick={() => { setEditingUsageId(null); setEditingUsageLabel(''); }}><CloseIcon size={16} /></button>
+                      </>
+                    ) : (
+                      <>
+                        <span className="usage-label">{u.label}</span>
+                        <button className="edit-btn" title="Renommer" onClick={() => startEditUsage(u)}><Edit2 size={15} /></button>
+                        <button className="delete-btn" title="Supprimer" onClick={() => deleteUsageItem(u.id)}><Trash2 size={15} /></button>
+                      </>
+                    )}
+                  </div>
+                ))}
+              </div>
+              <div className="usage-add-row">
+                <input
+                  type="text"
+                  className="inline-input"
+                  placeholder="Nouvel usage…"
+                  value={newUsageLabel}
+                  onChange={(e) => setNewUsageLabel(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') addUsage(); }}
+                />
+                <button className="modal-confirm" onClick={addUsage}>Ajouter</button>
+              </div>
+              <div className="modal-actions">
+                <button className="modal-cancel" onClick={() => setShowUsageManager(false)}>Fermer</button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {viewer && (
           <div className="viewer-overlay" onClick={() => setViewer(null)}>
             <div className="viewer-box" onClick={(e) => e.stopPropagation()}>
@@ -583,6 +753,20 @@ const Certif: React.FC = () => {
               <input type="text" placeholder="Code produit" value={newCertificate.product_code || ''} onChange={(e) => handleManualChange('product_code', e.target.value)} />
               <input type="text" placeholder="Libellé produit" value={newCertificate.product_label || ''} onChange={(e) => handleManualChange('product_label', e.target.value)} />
               <input type="date" placeholder="Date fin validité" value={newCertificate.expiry_date || ''} onChange={(e) => handleManualChange('expiry_date', e.target.value)} />
+              <select value={newCertificate.usage_id ?? ''} onChange={(e) => handleManualChange('usage_id', e.target.value ? Number(e.target.value) : '')}>
+                <option value="">Usage…</option>
+                {usages.map((u) => <option key={u.id} value={u.id}>{u.label}</option>)}
+              </select>
+              <select
+                value={newCertificate.service_code || ''}
+                onChange={(e) => {
+                  const svc = services.find((s) => s.code === e.target.value);
+                  setNewCertificate((prev) => ({ ...prev, service_code: svc?.code || '', service_label: svc?.label || '' }));
+                }}
+              >
+                <option value="">Service…</option>
+                {services.map((s) => <option key={s.code} value={s.code}>{s.label}</option>)}
+              </select>
               <textarea placeholder="Observations" value={newCertificate.observations || ''} onChange={(e) => handleManualChange('observations', e.target.value)} rows={2} style={{ gridColumn: '1 / -1' }} />
             </div>
             <div className="form-file-row">
@@ -681,6 +865,9 @@ const Certif: React.FC = () => {
                     <th className="sortable" onClick={() => handleSort('product_label')}>
                       Produit {sortKey === 'product_label' ? (sortDirection === 'asc' ? '▲' : '▼') : ''}
                     </th>
+                    <th className="sortable" onClick={() => handleSort('service_label')}>
+                      Service {sortKey === 'service_label' ? (sortDirection === 'asc' ? '▲' : '▼') : ''}
+                    </th>
                     <th className="sortable" onClick={() => handleSort('expiry_date')}>
                       Fin Validité {sortKey === 'expiry_date' ? (sortDirection === 'asc' ? '▲' : '▼') : ''}
                     </th>
@@ -692,7 +879,7 @@ const Certif: React.FC = () => {
                 </thead>
                 <tbody>
                   {filteredCertificates.length === 0 ? (
-                    <tr><td colSpan={7} style={{ textAlign: 'center', padding: '40px', color: '#94a3b8' }}>Aucun certificat ne correspond à votre recherche.</td></tr>
+                    <tr><td colSpan={8} style={{ textAlign: 'center', padding: '40px', color: '#94a3b8' }}>Aucun certificat ne correspond à votre recherche.</td></tr>
                   ) : filteredCertificates.map((cert) => (
                     <tr key={cert.id} className={isExpired(cert.expiry_date) ? 'expired-row' : ''}>
                       <td>
@@ -787,6 +974,39 @@ const Certif: React.FC = () => {
                       </td>
                       <td>
                         {editingId === cert.id ? (
+                          <>
+                            <select
+                              value={editingCertificate?.service_code || ''}
+                              onChange={(e) => {
+                                const svc = services.find((s) => s.code === e.target.value);
+                                setEditingCertificate((prev) => prev ? { ...prev, service_code: svc?.code || '', service_label: svc?.label || '' } : prev);
+                              }}
+                              className="inline-input"
+                            >
+                              <option value="">Service…</option>
+                              {services.map((s) => <option key={s.code} value={s.code}>{s.label}</option>)}
+                            </select>
+                            <select
+                              value={editingCertificate?.usage_id ?? ''}
+                              onChange={(e) => {
+                                const val = e.target.value ? Number(e.target.value) : null;
+                                setEditingCertificate((prev) => prev ? { ...prev, usage_id: val } : prev);
+                              }}
+                              className="inline-input"
+                            >
+                              <option value="">Usage…</option>
+                              {usages.map((u) => <option key={u.id} value={u.id}>{u.label}</option>)}
+                            </select>
+                          </>
+                        ) : (
+                          <div className="product">
+                            <span className="label">{cert.service_label || '-'}</span>
+                            {cert.usage_label && <span className="code">{cert.usage_label}</span>}
+                          </div>
+                        )}
+                      </td>
+                      <td>
+                        {editingId === cert.id ? (
                           <input
                             type="date"
                             value={editingCertificate?.expiry_date || ''}
@@ -809,7 +1029,10 @@ const Certif: React.FC = () => {
                                 expiry_date: cert.expiry_date,
                                 sedit_number: cert.sedit_number,
                                 is_provisional: cert.is_provisional,
-                                observations: cert.observations
+                                observations: cert.observations,
+                                usage_id: cert.usage_id,
+                                service_code: cert.service_code,
+                                service_label: cert.service_label
                               });
                             }}
                             title={cert.is_provisional ? 'Date provisoire (calculée automatiquement)' : 'Date validée'}
@@ -1169,12 +1392,15 @@ const Certif: React.FC = () => {
           padding: 8px 10px;
           font-size: 13px;
         }
-        .manual-grid textarea {
+        .manual-grid textarea,
+        .manual-grid select {
           border: 1px solid #cbd5e1;
           border-radius: 8px;
           padding: 8px 10px;
           font-size: 13px;
           font-family: inherit;
+          background: white;
+          color: #0f172a;
         }
         .manual-form button {
           padding: 10px 16px;
@@ -1731,6 +1957,40 @@ const Certif: React.FC = () => {
           font-size: 14px;
         }
         .modal-cancel:hover { background: #e2e8f0; }
+        .usage-modal-box { width: 480px; }
+        .usage-list {
+          max-height: 300px;
+          overflow-y: auto;
+          margin-bottom: 14px;
+          border: 1px solid #f1f5f9;
+          border-radius: 8px;
+        }
+        .usage-empty {
+          padding: 16px;
+          text-align: center;
+          color: #94a3b8;
+          font-size: 13px;
+        }
+        .usage-item {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          padding: 8px 10px;
+          border-bottom: 1px solid #f1f5f9;
+        }
+        .usage-item:last-child { border-bottom: none; }
+        .usage-label {
+          flex: 1;
+          font-size: 14px;
+          color: #1e293b;
+        }
+        .usage-item .inline-input { margin: 0; flex: 1; }
+        .usage-add-row {
+          display: flex;
+          gap: 8px;
+          margin-bottom: 16px;
+        }
+        .usage-add-row .inline-input { margin: 0; }
 
         @media (max-height: 800px) {
           .container { padding: 16px 0; }
