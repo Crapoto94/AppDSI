@@ -65,7 +65,7 @@ router.get('/assign-alert-pref',  authenticateJWT, (req, res) => controller.getA
 router.patch('/assign-alert-pref',authenticateJWT, (req, res) => controller.setAssignAlertPref(req, res));
 router.post('/alert-test',        authenticateJWT, (req, res) => controller.sendTestAlert(req, res));
 router.get('/services',           authenticateJWT, (req, res) => controller.getServices(req, res));
-router.get('/ticket-groups',      authenticateJWT, (req, res) => controller.getTicketGroups(req, res));
+router.get('/ticket-groups',      apiTasks, (req, res) => controller.getTicketGroups(req, res));
 router.get('/by-context',         apiTasks, (req, res) => controller.getTasksByContext(req, res));
 router.get('/assigned-by-me',     authenticateJWT, (req, res) => controller.getAssignedByMe(req, res));
 router.get('/kpi-history',        authenticateJWT, (req, res) => controller.getKpiHistory(req, res));
@@ -78,6 +78,9 @@ router.post('/todo-sync/run',     authenticateJWT, (req, res) => controller.runT
 // ─── Task CRUD ────────────────────────────────────────────────────────────────
 router.get('/',                   authenticateJWT, (req, res) => controller.getMyTasks(req, res));
 router.post('/',                  authenticateJWT, requireTicketPermission("ticket:create"), (req, res) => controller.createTask(req, res));
+// RH Studio -> DSI Hub : pousse une tâche d'onboarding marquée "Tâche DSI Hub"
+// (clé API scope='tasks', permission read_write ; cf. /admin/api-keys).
+router.post('/external/rh-studio', apiTasks, (req, res) => controller.createExternalRhStudioTask(req, res));
 router.patch('/edit/:id',         authenticateJWT, (req, res) => controller.editTask(req, res));
 router.patch('/:source/:id/favorite',      authenticateJWT, (req, res) => controller.toggleFavorite(req, res));
 router.patch('/:source/:id',      authenticateJWT, (req, res) => controller.updateTaskStatus(req, res));

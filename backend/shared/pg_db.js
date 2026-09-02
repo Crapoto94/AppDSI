@@ -3949,6 +3949,12 @@ async function setupPgDb() {
     try { await client.query(`ALTER TABLE hub.user_tasks ADD COLUMN IF NOT EXISTS priority TEXT DEFAULT 'normale'`); } catch (e) {}
     try { await client.query(`ALTER TABLE hub.user_tasks ADD COLUMN IF NOT EXISTS is_public BOOLEAN DEFAULT FALSE`); } catch (e) {}
     try { await client.query(`ALTER TABLE hub.user_tasks ADD COLUMN IF NOT EXISTS taken_by TEXT`); } catch (e) {}
+    // ID de l'OnboardingTask RH Studio dont cette tâche est le miroir DSI Hub
+    // (poussée via POST /api/tasks/external/rh-studio) : permet le rappel
+    // d'acquittement automatique côté RH Studio quand elle passe à 'terminé'
+    // (cf. tasks.controller.js updateTaskStatus).
+    try { await client.query(`ALTER TABLE hub.user_tasks ADD COLUMN IF NOT EXISTS rh_studio_task_id INTEGER`); } catch (e) {}
+    try { await client.query(`CREATE INDEX IF NOT EXISTS idx_user_tasks_rh_studio ON hub.user_tasks(rh_studio_task_id) WHERE rh_studio_task_id IS NOT NULL`); } catch (e) {}
     try { await client.query(`
         CREATE TABLE IF NOT EXISTS hub.todo_reunion_task_map (
             reunion_id  INTEGER NOT NULL,
@@ -5389,6 +5395,10 @@ async function setupPgDb() {
           last_used_at TIMESTAMPTZ
         )
       `);
+      // Une clé est en lecture seule par defaut (comportement historique de la
+      // passerelle apiKeyGate, qui ne laissait passer que GET) ; 'read_write'
+      // debloque les methodes d'ecriture pour cette cle, dans son scope.
+      await client.query(`ALTER TABLE hub.api_keys ADD COLUMN IF NOT EXISTS permissions VARCHAR(20) NOT NULL DEFAULT 'read'`);
     } catch (e) { console.error('[PG DB] api_keys:', e.message); }
 
     // ─── hub.encadrants : téléphones des directeurs / resp. de service ──────────

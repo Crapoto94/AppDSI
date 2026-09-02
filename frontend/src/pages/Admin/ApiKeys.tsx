@@ -7,6 +7,7 @@ interface ApiKey {
   name: string;
   key_prefix: string;
   scope: string;
+  permissions: 'read' | 'read_write';
   expires_at: string | null;
   is_active: boolean;
   created_by: string;
@@ -55,6 +56,7 @@ export default function ApiKeysAdmin() {
   const [showCreate, setShowCreate] = useState(false);
   const [newName, setNewName] = useState('');
   const [newScope, setNewScope] = useState('*');
+  const [newPermissions, setNewPermissions] = useState<'read' | 'read_write'>('read');
   const [newExpiry, setNewExpiry] = useState('');
   const [creating, setCreating] = useState(false);
   const [createdKey, setCreatedKey] = useState<string | null>(null);
@@ -87,6 +89,7 @@ export default function ApiKeysAdmin() {
         body: JSON.stringify({
           name: newName.trim(),
           scope: newScope,
+          permissions: newPermissions,
           expires_at: newExpiry ? new Date(newExpiry).toISOString() : null,
         }),
       });
@@ -95,6 +98,7 @@ export default function ApiKeysAdmin() {
       setCreatedKey(data.api_key);
       setNewName('');
       setNewScope('*');
+      setNewPermissions('read');
       setNewExpiry('');
       setShowCreate(true);
       await fetchKeys();
@@ -172,7 +176,7 @@ export default function ApiKeysAdmin() {
             Actualiser
           </button>
           <button
-            onClick={() => { setShowCreate(true); setCreatedKey(null); setNewName(''); setNewScope('*'); setNewExpiry(''); setError(''); }}
+            onClick={() => { setShowCreate(true); setCreatedKey(null); setNewName(''); setNewScope('*'); setNewPermissions('read'); setNewExpiry(''); setError(''); }}
             style={{
               display: 'flex', alignItems: 'center', gap: 8, background: '#3b82f6',
               color: '#fff', border: 'none', padding: '9px 16px',
@@ -310,6 +314,24 @@ export default function ApiKeysAdmin() {
                   </span>
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+                  <label style={{ fontSize: '0.78rem', fontWeight: 700, color: '#475569' }}>Permissions</label>
+                  <select
+                    value={newPermissions}
+                    onChange={(e) => setNewPermissions(e.target.value as 'read' | 'read_write')}
+                    style={{
+                      padding: '9px 12px', border: '1.5px solid #e2e8f0', borderRadius: 9,
+                      fontSize: '0.85rem', color: '#1e293b', outline: 'none', width: '100%',
+                      boxSizing: 'border-box', background: '#fff',
+                    }}
+                  >
+                    <option value="read">Lecture seule</option>
+                    <option value="read_write">Lecture / écriture</option>
+                  </select>
+                  <span style={{ fontSize: '0.72rem', color: '#94a3b8' }}>
+                    Par défaut une clé ne peut que lire (GET). Cochez "Lecture / écriture" seulement si l'intégration doit créer/modifier des données (ex. RH Studio poussant des tâches).
+                  </span>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
                   <label style={{ fontSize: '0.78rem', fontWeight: 700, color: '#475569' }}>Expiration (optionnelle)</label>
                   <input
                     type="date"
@@ -391,6 +413,14 @@ export default function ApiKeysAdmin() {
                         fontWeight: 700, padding: '2px 8px', borderRadius: 999,
                       }}>
                         Expirée
+                      </span>
+                    )}
+                    {key.permissions === 'read_write' && (
+                      <span style={{
+                        background: '#fff7ed', color: '#c2410c', fontSize: '0.7rem',
+                        fontWeight: 700, padding: '2px 8px', borderRadius: 999,
+                      }}>
+                        Lecture / écriture
                       </span>
                     )}
                   </div>

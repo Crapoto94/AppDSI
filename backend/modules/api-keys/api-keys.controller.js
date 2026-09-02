@@ -22,7 +22,7 @@ module.exports = {
   async list(req, res) {
     try {
       const { rows } = await pool.query(
-        `SELECT id, name, key_prefix, scope, expires_at, is_active, created_by, created_at, last_used_at
+        `SELECT id, name, key_prefix, scope, permissions, expires_at, is_active, created_by, created_at, last_used_at
          FROM hub.api_keys ORDER BY created_at DESC`
       );
       res.json(rows);
@@ -31,17 +31,18 @@ module.exports = {
     }
   },
 
-  // POST /api/admin/api-keys  { name, scope?, expires_at? }
+  // POST /api/admin/api-keys  { name, scope?, permissions?, expires_at? }
   async create(req, res) {
-    const { name, scope, expires_at } = req.body;
+    const { name, scope, permissions, expires_at } = req.body;
     if (!name?.trim()) return res.status(400).json({ error: 'name requis' });
+    const perms = permissions === 'read_write' ? 'read_write' : 'read';
     try {
       const { raw, prefix, secret } = generateApiKey();
       const key_hash = await hashKey(secret);
       const { rows } = await pool.query(
-        `INSERT INTO hub.api_keys (name, key_hash, key_prefix, scope, expires_at, created_by)
-         VALUES ($1,$2,$3,$4,$5,$6) RETURNING id`,
-        [name.trim(), key_hash, prefix, scope || '*', expires_at || null, req.user?.username || 'admin']
+        `INSERT INTO hub.api_keys (name, key_hash, key_prefix, scope, permissions, expires_at, created_by)
+         VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id`,
+        [name.trim(), key_hash, prefix, scope || '*', perms, expires_at || null, req.user?.username || 'admin']
       );
       res.status(201).json({
         id: rows[0].id,
@@ -49,6 +50,7 @@ module.exports = {
         key_prefix: prefix,
         api_key: raw,
         scope: scope || '*',
+        permissions: perms,
         expires_at: expires_at || null,
         message: 'Cette clé ne sera plus jamais affichée. Conservez-la précieusement.'
       });
@@ -57,13 +59,13 @@ module.exports = {
     }
   },
 
-  // PATCH /api/admin/api-keys/:id  { name?, scope?, expires_at?, is_active? }
+  // PATCH /api/admin/api-keys/:id  { name?, scope?, permissions?, expires_at?, is_active? }
   async update(req, res) {
     const { id } = req.params;
     const fields = [];
     const params = [];
     let idx = 1;
-    for (const key of ['name', 'scope', 'expires_at', 'is_active']) {
+    for (const key of ['name', 'scope', 'permissions', 'expires_at', 'is_active']) {
       if (req.body[key] !== undefined) {
         fields.push(`${key} = $${idx++}`);
         params.push(req.body[key]);

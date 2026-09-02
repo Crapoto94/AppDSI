@@ -591,6 +591,67 @@ module.exports = {
         }
     },
 
+    // POST /api/tasks/external/rh-studio — RH Studio pousse une tâche DSI Hub
+    // (clé API scope='tasks', permission read_write). Utilisé pour les tâches
+    // d'onboarding marquées "Tâche DSI Hub" (par opposition aux tâches "email
+    // autonome" qui restent gérées entièrement côté RH Studio) : la tâche est
+    // rattachée au ticket créé par le formulaire de demande "Arrivée d'agent"
+    // (context_source='ticket') et affectée au groupe choisi lors du
+    // paramétrage du workflow d'onboarding (même mécanisme que ticket_group_id
+    // dans createTask ci-dessus). rh_studio_task_id permet le rappel
+    // d'acquittement automatique quand la tâche DSI Hub passe à 'terminé'
+    // (cf. updateTaskStatus plus bas).
+    async createExternalRhStudioTask(req, res) {
+        const { ticket_id, group_id, description, rh_studio_task_id, echeance } = req.body || {};
+        if (!ticket_id || !group_id || !description?.trim() || !rh_studio_task_id) {
+            return res.status(400).json({ error: 'ticket_id, group_id, description et rh_studio_task_id requis' });
+        }
+        try {
+            const ticket = await pgDb.get('SELECT glpi_id, title FROM hub_tickets.tickets WHERE glpi_id = ?', [ticket_id]);
+            if (!ticket) return res.status(404).json({ error: 'Ticket introuvable' });
+
+            const { rows: groupRows } = await pool.query(
+                `SELECT u.username, g.name AS group_name
+                 FROM hub_tickets.technician_group_members tgm
+                 JOIN hub.users u ON u.id = tgm.user_id
+                 JOIN hub_tickets.technician_groups g ON g.id = tgm.group_id
+                 WHERE tgm.group_id = $1 AND u.username IS NOT NULL`,
+                [group_id]
+            );
+            if (groupRows.length === 0) return res.status(400).json({ error: 'Ce groupe est introuvable ou ne contient aucun membre' });
+            const targets = groupRows.map((u) => u.username);
+            const teamGroupName = groupRows[0].group_name;
+            const isTeamTask = targets.length > 1;
+            const teamGroupId = isTeamTask ? randomUUID() : null;
+
+            const createdIds = [];
+            for (const uname of targets) {
+                const result = await pgDb.run(
+                    `INSERT INTO hub.user_tasks
+                       (username, description, echeance, statut,
+                        is_team_task, team_group_id, team_group_name, created_by,
+                        context_source, context_id, context_title,
+                        rh_studio_task_id, priority, is_public)
+                     VALUES (?, ?, ?, 'a_faire', ?, ?, ?, 'rhstudio', 'ticket', ?, ?, ?, 'normale', false)`,
+                    [uname, description.trim(), echeance || null, isTeamTask, teamGroupId, teamGroupName,
+                     ticket_id, ticket.title || null, rh_studio_task_id]
+                );
+                createdIds.push(result.lastID);
+            }
+
+            notifyTaskAssignment({
+                targets, creatorUsername: 'RH Studio',
+                description: description.trim(), echeance: echeance || null,
+                isTeamTask, contextTitle: ticket.title || null,
+                contextSource: 'ticket',
+            }).catch((e) => console.error('[tasks] notify assignment (rhstudio) error:', e.message));
+
+            res.status(201).json({ ids: createdIds, id: createdIds[0] });
+        } catch (error) {
+            res.status(500).json({ error: error.message });
+        }
+    },
+
     // GET /api/tasks/ticket-groups — active technician groups with member usernames
     async getTicketGroups(req, res) {
         try {
@@ -671,7 +732,7 @@ module.exports = {
             // updated in place rather than mis-routed to a synthetic-id branch.
             let taskContext = null;
             const { rows: utRows } = await pool.query(
-                'SELECT context_source, context_id, description, team_group_id, is_team_task, created_by FROM hub.user_tasks WHERE id = $1',
+                'SELECT context_source, context_id, description, team_group_id, is_team_task, created_by, rh_studio_task_id FROM hub.user_tasks WHERE id = $1',
                 [id]
             );
             if (utRows.length > 0) taskContext = utRows[0];
@@ -834,6 +895,15 @@ module.exports = {
                 } catch (e) {
                     console.error('[HISTORY] updateTaskStatus log failed:', e.message);
                 }
+            }
+
+            // Rappel d'acquittement RH Studio : si cette tâche est le miroir DSI Hub
+            // d'une OnboardingTask (rh_studio_task_id non nul) et passe à 'terminé',
+            // on acquitte la tâche correspondante côté RH Studio. Best-effort : ne
+            // bloque jamais la mise à jour locale, échec seulement loggé.
+            if (statut === 'terminé' && taskContext?.rh_studio_task_id) {
+                require('../infra/studio-onboarding').acknowledgeTask(taskContext.rh_studio_task_id)
+                    .catch((e) => console.error('[tasks] RH Studio acknowledge failed:', e.message));
             }
 
             res.json({ ok: true });

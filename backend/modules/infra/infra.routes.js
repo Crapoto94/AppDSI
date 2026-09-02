@@ -23,4 +23,8 @@ router.get('/agents/presence',     ctrl.agentPresence);
 router.post('/agents/presence/parse-excel', uploadExcel.single('file'), ctrl.parseAgentsExcel);
 router.post('/agents/presence/batch',       ctrl.verifyAgentsBatch);
 
+// ── Onboarding RH Studio (formulaire de demande "Arrivée d'agent") ────────
+router.post('/rh-studio/onboarding',        ctrl.createOnboarding);
+router.get('/rh-studio/futurs-agents',      ctrl.listFutursAgents);
+
 module.exports = router;

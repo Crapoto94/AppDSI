@@ -5,6 +5,7 @@
 const { pgDb, pool } = require('../../shared/database');
 const { syncReseauLinks, fetchLinks } = require('./reseau-sync');
 const { fetchAgentPresence, matchAgent } = require('./agent-presence');
+const studioOnboarding = require('./studio-onboarding');
 const xlsx = require('xlsx');
 
 function maskKey(k) {
@@ -154,6 +155,29 @@ module.exports = {
             await Promise.all(Array.from({ length: Math.min(CONCURRENCY, agents.length) }, worker));
 
             res.json({ results });
+        } catch (e) {
+            res.status(502).json({ message: e.message });
+        }
+    },
+
+    // ── Onboarding RH Studio (formulaire de demande "Arrivée d'agent") ────────
+
+    // POST /api/infra/rh-studio/onboarding
+    // { agent_id?, nom_temp?, prenom_temp?, manager_id, date_arrivee_prevue?, dsihub_ticket_id? }
+    createOnboarding: async (req, res) => {
+        try {
+            const result = await studioOnboarding.createOnboarding(req.body || {});
+            res.status(201).json(result);
+        } catch (e) {
+            res.status(502).json({ message: e.message });
+        }
+    },
+
+    // GET /api/infra/rh-studio/futurs-agents
+    listFutursAgents: async (req, res) => {
+        try {
+            const result = await studioOnboarding.listFutursAgents();
+            res.json(Array.isArray(result) ? result : []);
         } catch (e) {
             res.status(502).json({ message: e.message });
         }

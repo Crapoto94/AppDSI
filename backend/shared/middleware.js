@@ -388,7 +388,7 @@ const authenticateApiKey = async (req, res, next) => {
   const prefix = key.length > 20 ? key.slice(0, 20) : key;
   try {
     const { rows } = await pool.query(
-      `SELECT id, name, key_hash, scope, expires_at, is_active FROM hub.api_keys WHERE key_prefix = $1`,
+      `SELECT id, name, key_hash, scope, permissions, expires_at, is_active FROM hub.api_keys WHERE key_prefix = $1`,
       [prefix]
     );
     for (const row of rows) {
@@ -397,7 +397,7 @@ const authenticateApiKey = async (req, res, next) => {
       if (!row.is_active) return res.status(403).json({ error: 'Clé API désactivée' });
       if (row.expires_at && new Date(row.expires_at) < new Date()) return res.status(403).json({ error: 'Clé API expirée' });
       await pool.query('UPDATE hub.api_keys SET last_used_at = NOW() WHERE id = $1', [row.id]);
-      req.apiKey = { id: row.id, name: row.name, scope: row.scope };
+      req.apiKey = { id: row.id, name: row.name, scope: row.scope, permissions: row.permissions || 'read' };
       // Identité de service synthétique : les contrôleurs/services attendent un req.user.
       // user_id null est toléré (pas de FK sur ticket_history.user_id).
       req.user = {
@@ -509,8 +509,8 @@ const scopeForPath = (relPath) => {
 const apiKeyGate = (req, res, next) => {
   if (!extractApiKey(req)) return next();
   return authenticateApiKey(req, res, () => {
-    if (req.method !== 'GET') {
-      return res.status(403).json({ error: 'Clé API : accès en lecture seule (GET uniquement)' });
+    if (req.method !== 'GET' && req.apiKey.permissions !== 'read_write') {
+      return res.status(403).json({ error: "Clé API en lecture seule : passez la permission de cette clé en 'read_write' (/admin/api-keys) pour autoriser l'écriture" });
     }
     const scope = scopeForPath(req.path);
     if (!scope) {
