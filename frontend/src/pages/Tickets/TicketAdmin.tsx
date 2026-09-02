@@ -6,7 +6,11 @@ import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianG
 import AutoResolution from '../Admin/AutoResolution';
 import ResponseTemplatesAdmin from './ResponseTemplatesAdmin';
 import KnowledgeBaseAdmin from './KnowledgeBaseAdmin';
-type Tab = 'categories' | 'category_mapping' | 'sla' | 'rules' | 'vip' | 'journal' | 'templates' | 'triggers' | 'technicians' | 'groups' | 'group_mapping' | 'escalade' | 'roles' | 'params' | 'closure' | 'live_config' | 'satisfaction' | 'auto_resolution' | 'response_auto' | 'knowledge_base' | 'teams';
+import RequestFormFieldRenderer from '../../components/RequestFormFieldRenderer';
+import { FIELD_TYPE_LABELS, REQUEST_FORM_ICON_PRESETS } from '../../components/requestFormTypes';
+import type { FormFieldDef, FormFieldType, ServiceDirectionDef } from '../../components/requestFormTypes';
+import DynamicIcon from '../../components/DynamicIcon';
+type Tab = 'categories' | 'category_mapping' | 'sla' | 'rules' | 'vip' | 'journal' | 'templates' | 'triggers' | 'technicians' | 'groups' | 'group_mapping' | 'escalade' | 'roles' | 'params' | 'closure' | 'live_config' | 'satisfaction' | 'auto_resolution' | 'response_auto' | 'knowledge_base' | 'teams' | 'form_requests';
 
 const btn = (active: boolean): React.CSSProperties => ({
   padding: '8px 16px', border: 'none', borderRadius: 8, cursor: 'pointer',
@@ -157,6 +161,7 @@ export default function TicketAdmin() {
     { key: 'response_auto', label: '💬 Réponses auto' },
     { key: 'knowledge_base', label: '📚 Base documentaire' },
     { key: 'teams',          label: '🔄 Teams' },
+    { key: 'form_requests',  label: '📋 Formulaires de demande' },
   ];
 
   return (
@@ -191,6 +196,7 @@ export default function TicketAdmin() {
         {tab === 'response_auto' && <ResponseTemplatesAdmin />}
         {tab === 'knowledge_base' && <KnowledgeBaseAdmin />}
         {tab === 'teams' && <TeamsConfig />}
+        {tab === 'form_requests' && <FormRequestsManager />}
         {tab === 'live_config' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
 
@@ -4135,6 +4141,424 @@ function TeamsConfig() {
           <li>Utilisez le bouton "Tester" ci-dessus pour valider la connexion avant d'activer.</li>
         </ul>
       </div>
+    </div>
+  );
+}
+
+// ─── Formulaires de demande ─────────────────────────────────────────────────
+// Form-builder générique inspiré du mécanisme d'onboarding de Studio-RH :
+// chaque formulaire porte un tableau JSON de définitions de champs
+// (fields_config), sauvegardé en un bloc. Les demandes soumises côté magapp
+// génèrent automatiquement un ticket (voir backend/modules/tickets/request-forms.*).
+interface RequestForm {
+  id: number;
+  name: string;
+  description: string;
+  fields_config: FormFieldDef[];
+  category_id: number | null;
+  category_name?: string;
+  subcategory_id: number | null;
+  subcategory_name?: string;
+  is_published: boolean;
+  sort_order: number;
+  allowed_roles: string[];
+  icon: string | null;
+  columns: number;
+}
+
+const REQUEST_FIELD_TYPES: FormFieldType[] = ['text', 'textarea', 'select', 'boolean', 'agent', 'agent_multi', 'direction_service', 'date', 'description'];
+const ENCADRANT_ROLE_LABELS: Record<string, string> = { dg: 'DG / DGA', directeur: 'Directeurs', responsable_service: 'Resp. de service' };
+
+function emptyRequestField(n: number): FormFieldDef {
+  return { key: `champ_${n}`, label: 'Nouveau champ', description: '', type: 'text', required: false, column_start: null, column_span: 1, options: [], conditional_on: null };
+}
+
+function FormRequestsManager() {
+  const token = localStorage.getItem('token');
+  const headers = { Authorization: `Bearer ${token}` };
+
+  const [forms, setForms] = useState<RequestForm[]>([]);
+  const [categories, setCategories] = useState<any[]>([]);
+  const [serviceTree, setServiceTree] = useState<ServiceDirectionDef[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [selected, setSelected] = useState<RequestForm | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState('');
+  const [showPreview, setShowPreview] = useState(false);
+  const [previewAnswers, setPreviewAnswers] = useState<Record<string, any>>({});
+  const [newFormName, setNewFormName] = useState('');
+
+  const loadForms = () => axios.get('/api/request-forms/admin', { headers }).then((r) => setForms(r.data)).catch(() => {});
+
+  useEffect(() => {
+    setLoading(true);
+    Promise.all([
+      loadForms(),
+      axios.get('/api/tickets/admin/categories', { headers }).then((r) => setCategories(r.data)).catch(() => {}),
+      axios.get('/api/admin/rh/services-tree', { headers }).then((r) => setServiceTree(r.data)).catch(() => {}),
+    ]).finally(() => setLoading(false));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const createForm = async () => {
+    if (!newFormName.trim()) return;
+    const res = await axios.post('/api/request-forms/admin', { name: newFormName.trim() }, { headers });
+    setNewFormName('');
+    await loadForms();
+    setSelected({ ...res.data });
+  };
+
+  const deleteForm = async (id: number) => {
+    if (!confirm('Supprimer ce formulaire ? Les demandes déjà envoyées et les tickets créés ne sont pas affectés.')) return;
+    await axios.delete(`/api/request-forms/admin/${id}`, { headers });
+    setSelected(null);
+    await loadForms();
+  };
+
+  const save = async () => {
+    if (!selected) return;
+    setSaving(true);
+    setMessage('');
+    try {
+      await axios.put(`/api/request-forms/admin/${selected.id}`, {
+        name: selected.name,
+        description: selected.description,
+        category_id: selected.category_id,
+        subcategory_id: selected.subcategory_id,
+        is_published: selected.is_published,
+        fields_config: selected.fields_config,
+        allowed_roles: selected.allowed_roles,
+        icon: selected.icon,
+        columns: selected.columns,
+      }, { headers });
+      setMessage('Enregistré.');
+      await loadForms();
+    } catch (e: any) {
+      setMessage(e.response?.data?.message || 'Erreur lors de l\'enregistrement');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const updateField = (idx: number, patch: Partial<FormFieldDef>) => {
+    if (!selected) return;
+    const fields = [...selected.fields_config];
+    fields[idx] = { ...fields[idx], ...patch };
+    setSelected({ ...selected, fields_config: fields });
+  };
+
+  const moveField = (idx: number, dir: -1 | 1) => {
+    if (!selected) return;
+    const fields = [...selected.fields_config];
+    const target = idx + dir;
+    if (target < 0 || target >= fields.length) return;
+    [fields[idx], fields[target]] = [fields[target], fields[idx]];
+    setSelected({ ...selected, fields_config: fields });
+  };
+
+  const removeField = (idx: number) => {
+    if (!selected) return;
+    setSelected({ ...selected, fields_config: selected.fields_config.filter((_, i) => i !== idx) });
+  };
+
+  const addField = () => {
+    if (!selected) return;
+    setSelected({ ...selected, fields_config: [...selected.fields_config, emptyRequestField(selected.fields_config.length + 1)] });
+  };
+
+  if (loading) return <div>Chargement…</div>;
+
+  // ─── Vue liste ───
+  if (!selected) {
+    return (
+      <div>
+        <div style={{ display: 'flex', gap: 10, marginBottom: 20, alignItems: 'center' }}>
+          <input
+            placeholder="Nom du nouveau formulaire…"
+            value={newFormName}
+            onChange={(e) => setNewFormName(e.target.value)}
+            style={{ padding: '8px 12px', border: '1px solid #cbd5e1', borderRadius: 8, fontSize: 13, minWidth: 260 }}
+          />
+          <button onClick={createForm} disabled={!newFormName.trim()} style={btn(true)}>+ Nouveau formulaire</button>
+        </div>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+          <thead>
+            <tr style={{ background: '#f8fafc', textAlign: 'left' }}>
+              <th style={{ padding: '8px 10px' }}>Nom</th>
+              <th style={{ padding: '8px 10px' }}>Champs</th>
+              <th style={{ padding: '8px 10px' }}>Catégorie ticket</th>
+              <th style={{ padding: '8px 10px' }}>Public</th>
+              <th style={{ padding: '8px 10px' }}>En ligne</th>
+              <th style={{ padding: '8px 10px' }}></th>
+            </tr>
+          </thead>
+          <tbody>
+            {forms.length === 0 ? (
+              <tr><td colSpan={6} style={{ padding: 20, textAlign: 'center', color: '#94a3b8' }}>Aucun formulaire. Créez-en un ci-dessus.</td></tr>
+            ) : forms.map((f) => (
+              <tr key={f.id} style={{ borderBottom: '1px solid #f1f5f9', cursor: 'pointer' }} onClick={() => setSelected({ ...f })}>
+                <td style={{ padding: '10px' }}>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                    <DynamicIcon name={f.icon} size={16} color="#6366f1" />
+                    <strong>{f.name}</strong>
+                  </span>
+                </td>
+                <td style={{ padding: '10px' }}>{f.fields_config?.length || 0}</td>
+                <td style={{ padding: '10px' }}>
+                  {f.category_name
+                    ? [f.category_name, f.subcategory_name].filter(Boolean).join(' / ')
+                    : <span style={{ color: '#94a3b8' }}>—</span>}
+                </td>
+                <td style={{ padding: '10px' }}>
+                  {f.allowed_roles && f.allowed_roles.length > 0
+                    ? f.allowed_roles.map((r) => ENCADRANT_ROLE_LABELS[r] || r).join(', ')
+                    : <span style={{ color: '#94a3b8' }}>Tous</span>}
+                </td>
+                <td style={{ padding: '10px' }}>
+                  <span style={{ padding: '2px 8px', borderRadius: 4, fontSize: 11, fontWeight: 600, background: f.is_published ? '#dcfce7' : '#f1f5f9', color: f.is_published ? '#15803d' : '#94a3b8' }}>
+                    {f.is_published ? 'En ligne' : 'Hors ligne'}
+                  </span>
+                </td>
+                <td style={{ padding: '10px', textAlign: 'right' }}>
+                  <button onClick={(e) => { e.stopPropagation(); deleteForm(f.id); }} style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer', fontSize: 16 }} title="Supprimer">🗑</button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    );
+  }
+
+  // ─── Vue édition ───
+  return (
+    <div>
+      <button onClick={() => setSelected(null)} style={{ background: 'none', border: 'none', color: '#6366f1', cursor: 'pointer', fontSize: 13, marginBottom: 16, padding: 0 }}>← Retour à la liste</button>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 14, marginBottom: 20 }}>
+        <div>
+          <label style={{ fontSize: 12, fontWeight: 600, color: '#64748b', display: 'block', marginBottom: 4 }}>Nom du formulaire</label>
+          <input value={selected.name} onChange={(e) => setSelected({ ...selected, name: e.target.value })} style={{ width: '100%', padding: '8px 10px', border: '1px solid #cbd5e1', borderRadius: 8, fontSize: 13 }} />
+        </div>
+        <div>
+          <label style={{ fontSize: 12, fontWeight: 600, color: '#64748b', display: 'block', marginBottom: 4 }}>Catégorie ticket générée</label>
+          <select
+            value={selected.category_id ?? ''}
+            onChange={(e) => setSelected({ ...selected, category_id: e.target.value ? Number(e.target.value) : null, subcategory_id: null })}
+            style={{ width: '100%', padding: '8px 10px', border: '1px solid #cbd5e1', borderRadius: 8, fontSize: 13 }}
+          >
+            <option value="">— aucune —</option>
+            {categories.filter((c) => !c.parent_id).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </select>
+        </div>
+        <div>
+          <label style={{ fontSize: 12, fontWeight: 600, color: '#64748b', display: 'block', marginBottom: 4 }}>Sous-catégorie</label>
+          <select
+            value={selected.subcategory_id ?? ''}
+            disabled={!selected.category_id}
+            onChange={(e) => setSelected({ ...selected, subcategory_id: e.target.value ? Number(e.target.value) : null })}
+            style={{ width: '100%', padding: '8px 10px', border: '1px solid #cbd5e1', borderRadius: 8, fontSize: 13, opacity: !selected.category_id ? 0.6 : 1 }}
+          >
+            <option value="">{selected.category_id ? '— aucune —' : 'Choisir une catégorie d\'abord'}</option>
+            {categories.filter((c) => c.parent_id === selected.category_id).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </select>
+        </div>
+        <div>
+          <label style={{ fontSize: 12, fontWeight: 600, color: '#64748b', display: 'block', marginBottom: 4 }}>Nombre de colonnes</label>
+          <input
+            type="number" min={1} max={4}
+            value={selected.columns}
+            onChange={(e) => setSelected({ ...selected, columns: Math.max(1, Math.min(4, Number(e.target.value) || 1)) })}
+            style={{ width: '100%', padding: '8px 10px', border: '1px solid #cbd5e1', borderRadius: 8, fontSize: 13 }}
+          />
+        </div>
+        <div style={{ display: 'flex', alignItems: 'flex-end', gap: 10 }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, fontWeight: 600, color: '#334155', cursor: 'pointer' }}>
+            <input type="checkbox" checked={selected.is_published} onChange={(e) => setSelected({ ...selected, is_published: e.target.checked })} />
+            En ligne (disponible dans le magasin d'applications)
+          </label>
+        </div>
+        <div style={{ gridColumn: '1 / -1' }}>
+          <label style={{ fontSize: 12, fontWeight: 600, color: '#64748b', display: 'block', marginBottom: 4 }}>Description (affichée aux utilisateurs)</label>
+          <textarea value={selected.description} onChange={(e) => setSelected({ ...selected, description: e.target.value })} rows={2} style={{ width: '100%', padding: '8px 10px', border: '1px solid #cbd5e1', borderRadius: 8, fontSize: 13, fontFamily: 'inherit' }} />
+        </div>
+        <div style={{ gridColumn: '1 / -1' }}>
+          <label style={{ fontSize: 12, fontWeight: 600, color: '#64748b', display: 'block', marginBottom: 6 }}>Icône</label>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+            <div style={{ width: 36, height: 36, borderRadius: 8, background: '#eef2ff', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+              <DynamicIcon name={selected.icon} size={18} color="#4338ca" />
+            </div>
+            <input
+              value={selected.icon || ''}
+              onChange={(e) => setSelected({ ...selected, icon: e.target.value })}
+              placeholder="Nom d'icône lucide (ex. Smartphone)…"
+              style={{ padding: '8px 10px', border: '1px solid #cbd5e1', borderRadius: 8, fontSize: 13, width: 260 }}
+            />
+            <a href="https://lucide.dev/icons" target="_blank" rel="noreferrer" style={{ fontSize: 12, color: '#6366f1' }}>Parcourir toutes les icônes ↗</a>
+          </div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+            {REQUEST_FORM_ICON_PRESETS.map((iconName) => (
+              <button
+                key={iconName}
+                type="button"
+                title={iconName}
+                onClick={() => setSelected({ ...selected, icon: iconName })}
+                style={{
+                  width: 32, height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  borderRadius: 6, cursor: 'pointer',
+                  border: selected.icon === iconName ? '2px solid #6366f1' : '1px solid #e2e8f0',
+                  background: selected.icon === iconName ? '#eef2ff' : 'white',
+                }}
+              >
+                <DynamicIcon name={iconName} size={16} color={selected.icon === iconName ? '#4338ca' : '#64748b'} />
+              </button>
+            ))}
+          </div>
+        </div>
+        <div style={{ gridColumn: '1 / -1' }}>
+          <label style={{ fontSize: 12, fontWeight: 600, color: '#64748b', display: 'block', marginBottom: 6 }}>
+            Public autorisé <span style={{ fontWeight: 400, color: '#94a3b8' }}>(aucune case cochée = visible de tous — encadrants d'après /admin/param-ville)</span>
+          </label>
+          <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+            {Object.entries(ENCADRANT_ROLE_LABELS).map(([role, label]) => (
+              <label key={role} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: '#334155', cursor: 'pointer' }}>
+                <input
+                  type="checkbox"
+                  checked={selected.allowed_roles.includes(role)}
+                  onChange={(e) => setSelected({
+                    ...selected,
+                    allowed_roles: e.target.checked
+                      ? [...selected.allowed_roles, role]
+                      : selected.allowed_roles.filter((r) => r !== role),
+                  })}
+                />
+                {label}
+              </label>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <h3 style={{ fontSize: 14, fontWeight: 700, color: '#1e293b', marginBottom: 10 }}>Champs du formulaire</h3>
+      <div style={{ overflowX: 'auto', marginBottom: 14 }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+          <thead>
+            <tr style={{ background: '#f8fafc', textAlign: 'left' }}>
+              <th style={{ padding: '6px 8px' }}></th>
+              <th style={{ padding: '6px 8px' }}>Clé</th>
+              <th style={{ padding: '6px 8px' }}>Libellé</th>
+              <th style={{ padding: '6px 8px' }}>Description (aide)</th>
+              <th style={{ padding: '6px 8px' }}>Type</th>
+              <th style={{ padding: '6px 8px' }}>Options (liste, séparées par ;)</th>
+              <th style={{ padding: '6px 8px' }}>Requis</th>
+              <th style={{ padding: '6px 8px' }}>Colonne début</th>
+              <th style={{ padding: '6px 8px' }}>Largeur</th>
+              <th style={{ padding: '6px 8px' }}>Affiché si</th>
+              <th style={{ padding: '6px 8px' }}></th>
+            </tr>
+          </thead>
+          <tbody>
+            {selected.fields_config.map((f, idx) => (
+              <tr key={idx} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                <td style={{ padding: '4px', whiteSpace: 'nowrap' }}>
+                  <button onClick={() => moveField(idx, -1)} disabled={idx === 0} style={{ border: 'none', background: 'none', cursor: 'pointer' }}>▲</button>
+                  <button onClick={() => moveField(idx, 1)} disabled={idx === selected.fields_config.length - 1} style={{ border: 'none', background: 'none', cursor: 'pointer' }}>▼</button>
+                </td>
+                <td style={{ padding: '4px' }}><input value={f.key} onChange={(e) => updateField(idx, { key: e.target.value })} style={{ width: 110, padding: 4, border: '1px solid #e2e8f0', borderRadius: 4, fontFamily: 'monospace', fontSize: 11 }} /></td>
+                <td style={{ padding: '4px' }}><input value={f.label} onChange={(e) => updateField(idx, { label: e.target.value })} style={{ width: 140, padding: 4, border: '1px solid #e2e8f0', borderRadius: 4 }} /></td>
+                <td style={{ padding: '4px' }}><input value={f.description} onChange={(e) => updateField(idx, { description: e.target.value })} style={{ width: 160, padding: 4, border: '1px solid #e2e8f0', borderRadius: 4 }} /></td>
+                <td style={{ padding: '4px' }}>
+                  <select value={f.type} onChange={(e) => updateField(idx, { type: e.target.value as FormFieldType })} style={{ padding: 4, border: '1px solid #e2e8f0', borderRadius: 4 }}>
+                    {REQUEST_FIELD_TYPES.map((t) => <option key={t} value={t}>{FIELD_TYPE_LABELS[t]}</option>)}
+                  </select>
+                </td>
+                <td style={{ padding: '4px' }}>
+                  {f.type === 'select' ? (
+                    <input
+                      value={f.options.join(';')}
+                      onChange={(e) => updateField(idx, { options: e.target.value.split(';').map((s) => s.trim()).filter(Boolean) })}
+                      placeholder="Option 1;Option 2;…"
+                      style={{ width: 200, padding: 4, border: '1px solid #e2e8f0', borderRadius: 4 }}
+                    />
+                  ) : <span style={{ color: '#cbd5e1' }}>—</span>}
+                </td>
+                <td style={{ padding: '4px', textAlign: 'center' }}><input type="checkbox" checked={f.required} onChange={(e) => updateField(idx, { required: e.target.checked })} /></td>
+                <td style={{ padding: '4px' }}>
+                  <input
+                    type="number" min={1} max={selected.columns}
+                    value={f.column_start ?? ''}
+                    placeholder="auto"
+                    onChange={(e) => updateField(idx, { column_start: e.target.value ? Number(e.target.value) : null })}
+                    style={{ width: 60, padding: 4, border: '1px solid #e2e8f0', borderRadius: 4 }}
+                  />
+                </td>
+                <td style={{ padding: '4px' }}>
+                  <input
+                    type="number" min={1} max={selected.columns}
+                    value={f.column_span}
+                    onChange={(e) => updateField(idx, { column_span: Math.max(1, Math.min(selected.columns, Number(e.target.value) || 1)) })}
+                    style={{ width: 50, padding: 4, border: '1px solid #e2e8f0', borderRadius: 4 }}
+                  />
+                </td>
+                <td style={{ padding: '4px' }}>
+                  <div style={{ display: 'flex', gap: 2 }}>
+                    <select
+                      value={f.conditional_on?.field || ''}
+                      onChange={(e) => updateField(idx, { conditional_on: e.target.value ? { field: e.target.value, equals: f.conditional_on?.equals ?? true } : null })}
+                      style={{ padding: 4, border: '1px solid #e2e8f0', borderRadius: 4, width: 90 }}
+                    >
+                      <option value="">(toujours)</option>
+                      {selected.fields_config.filter((_, i) => i !== idx).map((of) => <option key={of.key} value={of.key}>{of.key}</option>)}
+                    </select>
+                    {f.conditional_on && (
+                      <input
+                        value={String(f.conditional_on.equals)}
+                        onChange={(e) => {
+                          const raw = e.target.value;
+                          const v = raw === 'true' ? true : raw === 'false' ? false : raw;
+                          updateField(idx, { conditional_on: { field: f.conditional_on!.field, equals: v } });
+                        }}
+                        placeholder="= valeur"
+                        style={{ width: 70, padding: 4, border: '1px solid #e2e8f0', borderRadius: 4 }}
+                      />
+                    )}
+                  </div>
+                </td>
+                <td style={{ padding: '4px' }}>
+                  <button onClick={() => removeField(idx)} style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer' }}>🗑</button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <button onClick={addField} style={{ ...btn(false), marginBottom: 20 }}>+ Ajouter un champ</button>
+
+      <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+        <button onClick={save} disabled={saving} style={btn(true)}>{saving ? 'Enregistrement…' : 'Enregistrer'}</button>
+        <button onClick={() => { setPreviewAnswers({}); setShowPreview(true); }} style={btn(false)}>👁 Prévisualisation</button>
+        {message && <span style={{ fontSize: 13, color: message.includes('Erreur') ? '#dc2626' : '#16a34a' }}>{message}</span>}
+      </div>
+
+      {showPreview && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.5)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }} onClick={() => setShowPreview(false)}>
+          <div style={{ background: 'white', borderRadius: 12, padding: 28, width: 720, maxWidth: '95vw', maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 24px 70px rgba(0,0,0,0.3)' }} onClick={(e) => e.stopPropagation()}>
+            <h3 style={{ marginBottom: 4 }}>{selected.name}</h3>
+            {selected.description && <p style={{ color: '#64748b', fontSize: 13, marginBottom: 18 }}>{selected.description}</p>}
+            <RequestFormFieldRenderer
+              fields={selected.fields_config}
+              answers={previewAnswers}
+              onChange={(key, value) => setPreviewAnswers((prev) => ({ ...prev, [key]: value }))}
+              serviceTree={serviceTree}
+              columns={selected.columns}
+              token={token}
+            />
+            <div style={{ marginTop: 20, textAlign: 'right' }}>
+              <button onClick={() => setShowPreview(false)} style={btn(false)}>Fermer l'aperçu</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

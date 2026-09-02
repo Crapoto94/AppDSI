@@ -7,6 +7,18 @@ import Login from './Login';
 import ConfirmationModal from './components/ConfirmationModal';
 import ConsumableRequestModal from './components/ConsumableRequestModal';
 import ChatWidget from './components/ChatWidget';
+import RequestFormFieldRenderer from './components/RequestFormFieldRenderer';
+import type { FormFieldDef, ServiceDirectionDef } from './components/requestFormTypes';
+import DynamicIcon from './components/DynamicIcon';
+
+interface RequestForm {
+  id: number;
+  name: string;
+  description: string;
+  fields_config: FormFieldDef[];
+  icon: string | null;
+  columns: number;
+}
 
 interface Category {
   id: number;
@@ -91,6 +103,12 @@ function App() {
   const [showVersionHistory, setShowVersionHistory] = useState(false);
   const [showCreateTicket, setShowCreateTicket] = useState(false);
   const [ticketType, setTicketType] = useState<'incident' | 'demande'>('incident');
+  const [publishedForms, setPublishedForms] = useState<RequestForm[]>([]);
+  const [showFormChooser, setShowFormChooser] = useState(false);
+  const [activeForm, setActiveForm] = useState<RequestForm | null>(null);
+  const [formAnswers, setFormAnswers] = useState<Record<string, any>>({});
+  const [submittingForm, setSubmittingForm] = useState(false);
+  const [requestFormServiceTree, setRequestFormServiceTree] = useState<ServiceDirectionDef[]>([]);
   const [ticketTitle, setTicketTitle] = useState('');
   const [ticketDescription, setTicketDescription] = useState('');
   const [ticketPhone, setTicketPhone] = useState('');
@@ -186,6 +204,49 @@ function App() {
 
     checkAuth();
   }, []);
+
+  // Formulaires de demande paramétrables (Admin Tickets -> "Formulaires de
+  // demande" côté DSI Hub) disponibles pour le bouton "Faire une demande".
+  useEffect(() => {
+    if (!isLoggedIn) return;
+    const token = localStorage.getItem('token');
+    axios.get('/api/request-forms/published', { headers: { Authorization: `Bearer ${token}` } })
+      .then((res) => setPublishedForms(res.data || []))
+      .catch(() => setPublishedForms([]));
+    axios.get('/api/admin/rh/services-tree', { headers: { Authorization: `Bearer ${token}` } })
+      .then((res) => setRequestFormServiceTree(res.data || []))
+      .catch(() => setRequestFormServiceTree([]));
+  }, [isLoggedIn]);
+
+  const submitRequestForm = async () => {
+    if (!activeForm) return;
+    setSubmittingForm(true);
+    try {
+      const token = localStorage.getItem('token');
+      const res = await axios.post(`/api/request-forms/${activeForm.id}/submit`, { answers: formAnswers }, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setActiveForm(null);
+      setFormAnswers({});
+      setModalConfig({
+        isOpen: true,
+        type: 'success',
+        title: 'Demande envoyée',
+        message: `Votre demande a été créée avec succès.\nNuméro : ${res.data.ticket_id}`,
+        onConfirm: () => setModalConfig((prev) => ({ ...prev, isOpen: false }))
+      });
+    } catch (e) {
+      setModalConfig({
+        isOpen: true,
+        type: 'error',
+        title: 'Erreur',
+        message: (axios.isAxiosError(e) && e.response?.data?.message) || 'Impossible d\'envoyer la demande.',
+        onConfirm: () => setModalConfig((prev) => ({ ...prev, isOpen: false }))
+      });
+    } finally {
+      setSubmittingForm(false);
+    }
+  };
 
   const openLibrary = async (app: AppItem) => {
     setSelectedAppForDocs(app);
@@ -1562,7 +1623,7 @@ function App() {
                     {settings.is_beta_user && !settings.show_create_buttons_original && <span style={{ position: 'absolute', top: '-4px', right: '6px', baselineShift: '2mm', background: '#f59e0b', color: '#1e293b', fontSize: '0.6rem', fontWeight: 800, padding: '1px 5px', borderRadius: '6px', letterSpacing: '0.05em' }}>BETA</span>}
                   </button>
                   <button
-                    onClick={() => { setTicketType('demande'); setShowCreateTicket(true); }}
+                    onClick={() => { if (publishedForms.length > 0) { setShowFormChooser(true); } else { setTicketType('demande'); setShowCreateTicket(true); } }}
                     style={{ flex: 1, padding: '12px', background: '#2563eb', color: 'white', border: 'none', borderRadius: '12px', fontSize: '0.9rem', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', position: 'relative' }}
                   >
                     <Clock size={18} />
@@ -2134,6 +2195,94 @@ function App() {
         displayName={displayName}
         username={windowLogin}
       />
+
+      {showFormChooser && (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000, padding: '20px' }}
+          onClick={() => setShowFormChooser(false)}
+        >
+          <div style={{ background: 'white', borderRadius: '16px', padding: '30px', width: '100%', maxWidth: '420px', maxHeight: '90vh', overflow: 'auto' }} onClick={(e) => e.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+              <h3 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 800, color: '#1e293b' }}>Faire une demande</h3>
+              <button onClick={() => setShowFormChooser(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '5px' }}>
+                <X size={24} color="#64748b" />
+              </button>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              {publishedForms.map((f) => (
+                <button
+                  key={f.id}
+                  onClick={() => { setActiveForm(f); setFormAnswers({}); setShowFormChooser(false); }}
+                  style={{ textAlign: 'left', padding: '14px 16px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '12px', cursor: 'pointer', display: 'flex', alignItems: 'flex-start', gap: 12 }}
+                >
+                  <div style={{ width: 36, height: 36, borderRadius: 10, background: '#eef2ff', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                    <DynamicIcon name={f.icon} size={18} color="#4338ca" />
+                  </div>
+                  <div>
+                    <div style={{ fontWeight: 700, color: '#1e293b', fontSize: '0.95rem' }}>{f.name}</div>
+                    {f.description && <div style={{ fontSize: '0.8rem', color: '#64748b', marginTop: 2 }}>{f.description}</div>}
+                  </div>
+                </button>
+              ))}
+              <button
+                onClick={() => { setShowFormChooser(false); setTicketType('demande'); setShowCreateTicket(true); }}
+                style={{ textAlign: 'left', padding: '14px 16px', background: 'white', border: '1px dashed #cbd5e1', borderRadius: '12px', cursor: 'pointer', color: '#475569', fontWeight: 600 }}
+              >
+                Autre demande…
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {activeForm && (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000, padding: '20px' }}>
+          <div style={{ background: 'white', borderRadius: '16px', padding: '30px', width: '100%', maxWidth: '540px', maxHeight: '90vh', overflow: 'auto' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <div style={{ width: 32, height: 32, borderRadius: 8, background: '#eef2ff', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                  <DynamicIcon name={activeForm.icon} size={16} color="#4338ca" />
+                </div>
+                <h3 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 800, color: '#1e293b' }}>{activeForm.name}</h3>
+              </div>
+              <button
+                onClick={() => { setActiveForm(null); setFormAnswers({}); }}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '5px' }}
+              >
+                <X size={24} color="#64748b" />
+              </button>
+            </div>
+            {activeForm.description && (
+              <p style={{ color: '#64748b', fontSize: '0.85rem', marginBottom: '20px' }}>{activeForm.description}</p>
+            )}
+
+            <RequestFormFieldRenderer
+              fields={activeForm.fields_config}
+              answers={formAnswers}
+              onChange={(key, value) => setFormAnswers((prev) => ({ ...prev, [key]: value }))}
+              serviceTree={requestFormServiceTree}
+              columns={activeForm.columns}
+              token={localStorage.getItem('token')}
+            />
+
+            <div style={{ display: 'flex', gap: '10px', marginTop: '24px' }}>
+              <button
+                onClick={() => { setActiveForm(null); setFormAnswers({}); }}
+                style={{ flex: 1, padding: '12px', background: '#f1f5f9', color: '#475569', border: 'none', borderRadius: '12px', fontSize: '0.9rem', fontWeight: 700, cursor: 'pointer' }}
+              >
+                Annuler
+              </button>
+              <button
+                onClick={submitRequestForm}
+                disabled={submittingForm}
+                style={{ flex: 2, padding: '12px', background: '#2563eb', color: 'white', border: 'none', borderRadius: '12px', fontSize: '0.9rem', fontWeight: 700, cursor: submittingForm ? 'default' : 'pointer', opacity: submittingForm ? 0.7 : 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
+              >
+                {submittingForm ? <Loader2 size={18} className="loading-spinner" /> : <Clock size={18} />}
+                {submittingForm ? 'Envoi...' : 'Envoyer la demande'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {showCreateTicket && (
         <div style={{

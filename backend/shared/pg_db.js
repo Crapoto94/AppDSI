@@ -97,6 +97,9 @@ function escapePgValue(val) {
     if (typeof val === 'boolean') return val ? 'TRUE' : 'FALSE';
     if (typeof val === 'number') return String(val);
     if (Array.isArray(val)) {
+        // ARRAY[] seul (sans elements) est un litteral invalide pour Postgres
+        // ("cannot determine type of empty array") : il faut le caster.
+        if (val.length === 0) return `ARRAY[]::text[]`;
         return `ARRAY[${val.map(v => escapePgValue(v)).join(', ')}]`;
     }
     if (val instanceof Date) {
@@ -1299,6 +1302,45 @@ async function setupPgDb() {
         ('Envoi contrôle de légalité', 3),
         ('Autre', 4)
       ON CONFLICT (label) DO NOTHING;
+    `);
+
+    // Formulaires de demande paramétrables (Admin Tickets -> "Formulaires de
+    // demande") : la définition des champs est un blob JSON par formulaire,
+    // sur le modèle du form-builder d'onboarding de Studio-RH.
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS hub.request_forms (
+        id SERIAL PRIMARY KEY,
+        name TEXT NOT NULL,
+        description TEXT DEFAULT '',
+        fields_config JSONB NOT NULL DEFAULT '[]',
+        category_id INTEGER REFERENCES hub_tickets.ticket_categories(id) ON DELETE SET NULL,
+        subcategory_id INTEGER REFERENCES hub_tickets.ticket_categories(id) ON DELETE SET NULL,
+        is_published BOOLEAN DEFAULT FALSE,
+        sort_order INTEGER DEFAULT 0,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+    try { await client.query(`ALTER TABLE hub.request_forms ADD COLUMN IF NOT EXISTS subcategory_id INTEGER REFERENCES hub_tickets.ticket_categories(id) ON DELETE SET NULL`); } catch (e) {}
+    // Public autorise : sous-ensemble de 'dg','directeur','responsable_service' (encadrants,
+    // cf /admin/param-ville). Vide/NULL = visible de tous.
+    try { await client.query(`ALTER TABLE hub.request_forms ADD COLUMN IF NOT EXISTS allowed_roles TEXT[] DEFAULT '{}'`); } catch (e) {}
+    // Nom d'une icone lucide-react (ex. 'Smartphone'), saisi librement cote admin.
+    try { await client.query(`ALTER TABLE hub.request_forms ADD COLUMN IF NOT EXISTS icon TEXT DEFAULT 'FileText'`); } catch (e) {}
+    // Nombre de colonnes de la grille du formulaire ; chaque champ se place
+    // via column_start/column_span (voir sanitizeFieldsConfig).
+    try { await client.query(`ALTER TABLE hub.request_forms ADD COLUMN IF NOT EXISTS columns INTEGER DEFAULT 2`); } catch (e) {}
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS hub.request_form_submissions (
+        id SERIAL PRIMARY KEY,
+        form_id INTEGER REFERENCES hub.request_forms(id) ON DELETE SET NULL,
+        submitted_by_username TEXT,
+        submitted_by_name TEXT,
+        submitted_by_email TEXT,
+        answers JSONB NOT NULL DEFAULT '{}',
+        ticket_id INTEGER,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
     `);
 
     try { await client.query(`ALTER TABLE hub.user_tile_order DROP CONSTRAINT IF EXISTS user_tile_order_user_id_fkey`); } catch (e) {}
