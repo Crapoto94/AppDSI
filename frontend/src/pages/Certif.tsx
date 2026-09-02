@@ -36,6 +36,12 @@ interface CertService {
   label: string;
 }
 
+interface CertServiceDirection {
+  code: string;
+  label: string;
+  services: CertService[];
+}
+
 const authHeaders = (): HeadersInit => ({
   'Authorization': `Bearer ${localStorage.getItem('token')}`
 });
@@ -65,7 +71,9 @@ const Certif: React.FC = () => {
     service_label: ''
   });
   const [usages, setUsages] = useState<CertUsage[]>([]);
-  const [services, setServices] = useState<CertService[]>([]);
+  const [serviceTree, setServiceTree] = useState<CertServiceDirection[]>([]);
+  const [newCertDirectionCode, setNewCertDirectionCode] = useState('');
+  const [editDirectionCode, setEditDirectionCode] = useState('');
   const [showUsageManager, setShowUsageManager] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
   const [editingId, setEditingId] = useState<number | null>(null);
@@ -196,6 +204,7 @@ const Certif: React.FC = () => {
       service_code: cert.service_code,
       service_label: cert.service_label
     });
+    setEditDirectionCode(findDirectionForService(cert.service_code));
   };
 
   const cancelEdit = () => {
@@ -268,11 +277,19 @@ const Certif: React.FC = () => {
 
   const fetchServices = async () => {
     try {
-      const response = await fetch('/api/admin/rh/services-list', { headers: authHeaders() });
-      if (response.ok) setServices(await response.json());
+      const response = await fetch('/api/admin/rh/services-tree', { headers: authHeaders() });
+      if (response.ok) setServiceTree(await response.json());
     } catch (err) {
       console.error('Failed to fetch services:', err);
     }
+  };
+
+  // Retrouve le code de la direction contenant un service donné (pour
+  // pré-positionner le premier select "Direction" lors de l'édition).
+  const findDirectionForService = (serviceCode: string | null | undefined): string => {
+    if (!serviceCode) return '';
+    const dir = serviceTree.find((d) => d.services.some((s) => s.code === serviceCode));
+    return dir?.code || '';
   };
 
   useEffect(() => {
@@ -494,6 +511,7 @@ const Certif: React.FC = () => {
           service_code: '',
           service_label: ''
         });
+        setNewCertDirectionCode('');
         fetchCertificates();
       } else {
         const err = await response.json();
@@ -719,6 +737,121 @@ const Certif: React.FC = () => {
           </div>
         )}
 
+        {editingId !== null && editingCertificate && (
+          <div className="modal-overlay" onClick={() => { if (!uploading) { cancelEdit(); setEditFile(null); } }}>
+            <div className="modal-box cert-edit-modal-box" onClick={(e) => e.stopPropagation()}>
+              <h3>Modifier le certificat</h3>
+
+              <div className="edit-section">
+                <h4 className="edit-section-title">Bénéficiaire</h4>
+                <div className="edit-fields-grid">
+                  <div className="field">
+                    <label>Nom du bénéficiaire</label>
+                    <input type="text" value={editingCertificate.beneficiary_name || ''} onChange={(e) => handleEditChange('beneficiary_name', e.target.value)} />
+                  </div>
+                  <div className="field">
+                    <label>Email</label>
+                    <input type="email" value={editingCertificate.beneficiary_email || ''} onChange={(e) => handleEditChange('beneficiary_email', e.target.value)} />
+                  </div>
+                  <div className="field">
+                    <label>Direction</label>
+                    <select
+                      value={editDirectionCode}
+                      onChange={(e) => {
+                        setEditDirectionCode(e.target.value);
+                        setEditingCertificate((prev) => prev ? { ...prev, service_code: '', service_label: '' } : prev);
+                      }}
+                    >
+                      <option value="">Direction…</option>
+                      {serviceTree.map((d) => <option key={d.code} value={d.code}>{d.label}</option>)}
+                    </select>
+                  </div>
+                  <div className="field">
+                    <label>Service</label>
+                    <select
+                      value={editingCertificate.service_code || ''}
+                      disabled={!editDirectionCode}
+                      onChange={(e) => {
+                        const svc = serviceTree.find((d) => d.code === editDirectionCode)?.services.find((s) => s.code === e.target.value);
+                        setEditingCertificate((prev) => prev ? { ...prev, service_code: svc?.code || '', service_label: svc?.label || '' } : prev);
+                      }}
+                    >
+                      <option value="">{editDirectionCode ? 'Service…' : 'Choisir une direction d\'abord'}</option>
+                      {(serviceTree.find((d) => d.code === editDirectionCode)?.services || []).map((s) => <option key={s.code} value={s.code}>{s.label}</option>)}
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              <div className="edit-section">
+                <h4 className="edit-section-title">Certificat</h4>
+                <div className="edit-fields-grid">
+                  <div className="field">
+                    <label>N° Commande</label>
+                    <input type="text" value={editingCertificate.order_number || ''} onChange={(e) => handleEditChange('order_number', e.target.value)} />
+                  </div>
+                  <div className="field">
+                    <label>N° Sedit</label>
+                    <input type="text" value={editingCertificate.sedit_number || ''} onChange={(e) => handleEditChange('sedit_number', e.target.value)} />
+                  </div>
+                  <div className="field">
+                    <label>Usage</label>
+                    <select
+                      value={editingCertificate.usage_id ?? ''}
+                      onChange={(e) => {
+                        const val = e.target.value ? Number(e.target.value) : null;
+                        setEditingCertificate((prev) => prev ? { ...prev, usage_id: val } : prev);
+                      }}
+                    >
+                      <option value="">Usage…</option>
+                      {usages.map((u) => <option key={u.id} value={u.id}>{u.label}</option>)}
+                    </select>
+                  </div>
+                  <div className="field">
+                    <label>Type / libellé produit</label>
+                    <input type="text" value={editingCertificate.product_label || ''} onChange={(e) => handleEditChange('product_label', e.target.value)} />
+                  </div>
+                  <div className="field">
+                    <label>Code produit</label>
+                    <input type="text" value={editingCertificate.product_code || ''} onChange={(e) => handleEditChange('product_code', e.target.value)} />
+                  </div>
+                  <div className="field">
+                    <label>Date de demande</label>
+                    <input type="date" value={editingCertificate.request_date || ''} onChange={(e) => handleEditChange('request_date', e.target.value)} />
+                  </div>
+                  <div className="field">
+                    <label>Date de fin de validité</label>
+                    <input type="date" value={editingCertificate.expiry_date || ''} onChange={(e) => handleEditChange('expiry_date', e.target.value)} />
+                  </div>
+                  <div className="field field-full">
+                    <label>Observations</label>
+                    <textarea value={editingCertificate.observations || ''} onChange={(e) => handleEditChange('observations', e.target.value)} rows={2} />
+                  </div>
+                </div>
+              </div>
+
+              <div className="field field-full">
+                <label>Fichier PDF</label>
+                <div className="form-file-row">
+                  <label className="form-file-label">
+                    <Upload size={14} />
+                    {editFile ? editFile.name : 'Joindre un nouveau PDF (optionnel)'}
+                    <input type="file" accept=".pdf" style={{ display: 'none' }} onChange={(e) => setEditFile(e.target.files?.[0] || null)} />
+                  </label>
+                  {editFile && <button className="form-file-clear" onClick={() => setEditFile(null)}><CloseIcon size={13} /></button>}
+                </div>
+              </div>
+
+              <div className="modal-actions">
+                <button className="modal-confirm" onClick={saveEdit} disabled={uploading}>
+                  {uploading ? 'Enregistrement...' : 'Enregistrer'}
+                </button>
+                <button className="modal-cancel" onClick={() => { cancelEdit(); setEditFile(null); }} disabled={uploading}>Annuler</button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {viewer && (
           <div className="viewer-overlay" onClick={() => setViewer(null)}>
             <div className="viewer-box" onClick={(e) => e.stopPropagation()}>
@@ -758,14 +891,25 @@ const Certif: React.FC = () => {
                 {usages.map((u) => <option key={u.id} value={u.id}>{u.label}</option>)}
               </select>
               <select
-                value={newCertificate.service_code || ''}
+                value={newCertDirectionCode}
                 onChange={(e) => {
-                  const svc = services.find((s) => s.code === e.target.value);
+                  setNewCertDirectionCode(e.target.value);
+                  setNewCertificate((prev) => ({ ...prev, service_code: '', service_label: '' }));
+                }}
+              >
+                <option value="">Direction…</option>
+                {serviceTree.map((d) => <option key={d.code} value={d.code}>{d.label}</option>)}
+              </select>
+              <select
+                value={newCertificate.service_code || ''}
+                disabled={!newCertDirectionCode}
+                onChange={(e) => {
+                  const svc = serviceTree.find((d) => d.code === newCertDirectionCode)?.services.find((s) => s.code === e.target.value);
                   setNewCertificate((prev) => ({ ...prev, service_code: svc?.code || '', service_label: svc?.label || '' }));
                 }}
               >
-                <option value="">Service…</option>
-                {services.map((s) => <option key={s.code} value={s.code}>{s.label}</option>)}
+                <option value="">{newCertDirectionCode ? 'Service…' : 'Choisir une direction d\'abord'}</option>
+                {(serviceTree.find((d) => d.code === newCertDirectionCode)?.services || []).map((s) => <option key={s.code} value={s.code}>{s.label}</option>)}
               </select>
               <textarea placeholder="Observations" value={newCertificate.observations || ''} onChange={(e) => handleManualChange('observations', e.target.value)} rows={2} style={{ gridColumn: '1 / -1' }} />
             </div>
@@ -883,248 +1027,97 @@ const Certif: React.FC = () => {
                   ) : filteredCertificates.map((cert) => (
                     <tr key={cert.id} className={isExpired(cert.expiry_date) ? 'expired-row' : ''}>
                       <td>
-                        {editingId === cert.id ? (
-                          <>
-                            <input
-                              type="text"
-                              value={editingCertificate?.order_number || ''}
-                              onChange={(e) => handleEditChange('order_number', e.target.value)}
-                              className="inline-input"
-                              placeholder="N° Commande"
-                            />
-                            <input
-                              type="text"
-                              value={editingCertificate?.sedit_number || ''}
-                              onChange={(e) => handleEditChange('sedit_number', e.target.value)}
-                              className="inline-input sedit-input"
-                              placeholder="N° Sedit"
-                            />
-                          </>
-                        ) : (
-                          <div className="order-cell">
-                            <span className="order-number">{cert.order_number}</span>
-                            {cert.sedit_number && <span className="sedit-number">{cert.sedit_number}</span>}
-                          </div>
-                        )}
+                        <div className="order-cell">
+                          <span className="order-number">{cert.order_number}</span>
+                          {cert.sedit_number && <span className="sedit-number">{cert.sedit_number}</span>}
+                        </div>
+                      </td>
+                      <td>{formatDate(cert.request_date)}</td>
+                      <td>
+                        <div className="beneficiary">
+                          <span className="name">
+                            {cert.beneficiary_name}
+                            <AgentPresenceBadge email={cert.beneficiary_email} name={cert.beneficiary_name} />
+                          </span>
+                          <span className="email">{cert.beneficiary_email}</span>
+                        </div>
                       </td>
                       <td>
-                        {editingId === cert.id ? (
-                          <input
-                            type="date"
-                            value={editingCertificate?.request_date || ''}
-                            onChange={(e) => handleEditChange('request_date', e.target.value)}
-                            className="inline-input"
-                          />
-                        ) : (
-                          formatDate(cert.request_date)
-                        )}
+                        <div className="product">
+                          <span className="label">{cert.product_label}</span>
+                          <span className="code">{cert.product_code}</span>
+                        </div>
                       </td>
                       <td>
-                        {editingId === cert.id ? (
-                          <>
-                            <input
-                              type="text"
-                              value={editingCertificate?.beneficiary_name || ''}
-                              onChange={(e) => handleEditChange('beneficiary_name', e.target.value)}
-                              className="inline-input"
-                              placeholder="Nom"
-                            />
-                            <input
-                              type="email"
-                              value={editingCertificate?.beneficiary_email || ''}
-                              onChange={(e) => handleEditChange('beneficiary_email', e.target.value)}
-                              className="inline-input"
-                              placeholder="Email"
-                            />
-                          </>
-                        ) : (
-                          <div className="beneficiary">
-                            <span className="name">
-                              {cert.beneficiary_name}
-                              <AgentPresenceBadge email={cert.beneficiary_email} name={cert.beneficiary_name} />
-                            </span>
-                            <span className="email">{cert.beneficiary_email}</span>
-                          </div>
-                        )}
+                        <div className="product">
+                          <span className="label">{cert.service_label || '-'}</span>
+                          {cert.usage_label && <span className="code">{cert.usage_label}</span>}
+                        </div>
                       </td>
                       <td>
-                        {editingId === cert.id ? (
-                          <>
-                            <input
-                              type="text"
-                              value={editingCertificate?.product_label || ''}
-                              onChange={(e) => handleEditChange('product_label', e.target.value)}
-                              className="inline-input"
-                              placeholder="Libellé"
-                            />
-                            <input
-                              type="text"
-                              value={editingCertificate?.product_code || ''}
-                              onChange={(e) => handleEditChange('product_code', e.target.value)}
-                              className="inline-input"
-                              placeholder="Code"
-                            />
-                          </>
-                        ) : (
-                          <div className="product">
-                            <span className="label">{cert.product_label}</span>
-                            <span className="code">{cert.product_code}</span>
-                          </div>
-                        )}
-                      </td>
-                      <td>
-                        {editingId === cert.id ? (
-                          <>
-                            <select
-                              value={editingCertificate?.service_code || ''}
-                              onChange={(e) => {
-                                const svc = services.find((s) => s.code === e.target.value);
-                                setEditingCertificate((prev) => prev ? { ...prev, service_code: svc?.code || '', service_label: svc?.label || '' } : prev);
-                              }}
-                              className="inline-input"
-                            >
-                              <option value="">Service…</option>
-                              {services.map((s) => <option key={s.code} value={s.code}>{s.label}</option>)}
-                            </select>
-                            <select
-                              value={editingCertificate?.usage_id ?? ''}
-                              onChange={(e) => {
-                                const val = e.target.value ? Number(e.target.value) : null;
-                                setEditingCertificate((prev) => prev ? { ...prev, usage_id: val } : prev);
-                              }}
-                              className="inline-input"
-                            >
-                              <option value="">Usage…</option>
-                              {usages.map((u) => <option key={u.id} value={u.id}>{u.label}</option>)}
-                            </select>
-                          </>
-                        ) : (
-                          <div className="product">
-                            <span className="label">{cert.service_label || '-'}</span>
-                            {cert.usage_label && <span className="code">{cert.usage_label}</span>}
-                          </div>
-                        )}
-                      </td>
-                      <td>
-                        {editingId === cert.id ? (
-                          <input
-                            type="date"
-                            value={editingCertificate?.expiry_date || ''}
-                            onChange={(e) => handleEditChange('expiry_date', e.target.value)}
-                            className="inline-input"
-                          />
-                        ) : (
-                          <div
-                            className={`expiry-display ${isExpired(cert.expiry_date) ? 'expired' : ''} ${cert.is_provisional ? 'provisional' : ''} ${!editMode ? 'readonly' : ''}`}
-                            onClick={() => {
-                              if (!editMode) return;
-                              setEditingId(cert.id);
-                              setEditingCertificate({
-                                order_number: cert.order_number,
-                                request_date: cert.request_date,
-                                beneficiary_name: cert.beneficiary_name,
-                                beneficiary_email: cert.beneficiary_email,
-                                product_code: cert.product_code,
-                                product_label: cert.product_label,
-                                expiry_date: cert.expiry_date,
-                                sedit_number: cert.sedit_number,
-                                is_provisional: cert.is_provisional,
-                                observations: cert.observations,
-                                usage_id: cert.usage_id,
-                                service_code: cert.service_code,
-                                service_label: cert.service_label
-                              });
-                            }}
-                            title={cert.is_provisional ? 'Date provisoire (calculée automatiquement)' : 'Date validée'}
-                          >
-                            {cert.is_provisional ? <Hourglass size={14} className="icon-provisional" /> : <Calendar size={14} className="icon" />}
-                            <span>{formatDate(cert.expiry_date)}</span>
-                            {editMode && <Edit2 size={12} className="edit-icon" />}
-                          </div>
-                        )}
+                        <div
+                          className={`expiry-display ${isExpired(cert.expiry_date) ? 'expired' : ''} ${cert.is_provisional ? 'provisional' : ''} ${!editMode ? 'readonly' : ''}`}
+                          onClick={() => { if (editMode) startEdit(cert); }}
+                          title={cert.is_provisional ? 'Date provisoire (calculée automatiquement)' : 'Date validée'}
+                        >
+                          {cert.is_provisional ? <Hourglass size={14} className="icon-provisional" /> : <Calendar size={14} className="icon" />}
+                          <span>{formatDate(cert.expiry_date)}</span>
+                          {editMode && <Edit2 size={12} className="edit-icon" />}
+                        </div>
                       </td>
                       <td>
                         <div className="actions">
-                          {editingId === cert.id ? (
+                          {cert.file_path && (
+                            <button
+                              type="button"
+                              onClick={() => setViewer({ url: `/api/${cert.file_path}`, title: `Certificat — ${cert.order_number}` })}
+                              className="view-btn"
+                              title="Voir le PDF"
+                            >
+                              <Eye size={16} />
+                              <span>Voir</span>
+                            </button>
+                          )}
+                          {editMode && (
                             <>
-                              <label className="inline-file-label" title="Joindre un PDF">
-                                <Upload size={14} />
-                                {editFile ? <span className="inline-file-name">{editFile.name}</span> : null}
-                                <input type="file" accept=".pdf" style={{ display: 'none' }} onChange={(e) => setEditFile(e.target.files?.[0] || null)} />
-                              </label>
-                              {editFile && <button className="cancel-btn" title="Retirer le fichier" onClick={() => setEditFile(null)}><CloseIcon size={14} /></button>}
-                              <button onClick={saveEdit} className="confirm-btn" title="Enregistrer" disabled={uploading}>
-                                <Check size={16} />
+                              <button onClick={() => startEdit(cert)} className="edit-btn" title="Modifier le certificat">
+                                <Edit2 size={16} />
                               </button>
-                              <button onClick={() => { cancelEdit(); setEditFile(null); }} className="cancel-btn" title="Annuler" disabled={uploading}>
-                                <CloseIcon size={16} />
-                              </button>
-                            </>
-                          ) : (
-                            <>
-                              {cert.file_path && (
-                                <button
-                                  type="button"
-                                  onClick={() => setViewer({ url: `/api/${cert.file_path}`, title: `Certificat — ${cert.order_number}` })}
-                                  className="view-btn"
-                                  title="Voir le PDF"
-                                >
-                                  <Eye size={16} />
-                                  <span>Voir</span>
+                              <div className="action-menu-wrapper" ref={openActionMenu === cert.id ? actionMenuRef : null}>
+                                <button className="action-menu-btn" title="Actions renouvellement" onClick={() => setOpenActionMenu(openActionMenu === cert.id ? null : cert.id)}>
+                                  <RefreshCw size={14} />
+                                  <ChevronDown size={12} />
                                 </button>
-                              )}
-                              {editMode && (
-                                <>
-                                  <button onClick={() => startEdit(cert)} className="edit-btn" title="Modifier le certificat">
-                                    <Edit2 size={16} />
-                                  </button>
-                                  <div className="action-menu-wrapper" ref={openActionMenu === cert.id ? actionMenuRef : null}>
-                                    <button className="action-menu-btn" title="Actions renouvellement" onClick={() => setOpenActionMenu(openActionMenu === cert.id ? null : cert.id)}>
-                                      <RefreshCw size={14} />
-                                      <ChevronDown size={12} />
-                                    </button>
-                                    {openActionMenu === cert.id && (
-                                      <div className="action-dropdown">
-                                        <button onClick={() => handleRenewalStatus(cert.id, 'en_cours')}>Renouvellement en cours</button>
-                                        <button onClick={() => handleRenewalStatus(cert.id, 'renouvelé')}>Renouvelé</button>
-                                        <button onClick={() => { setOpenActionMenu(null); setNonRenewalModal({ id: cert.id, orderNum: cert.order_number }); }}>Non renouvelé</button>
-                                        {cert.renewal_status && (
-                                          <button className="action-reset" onClick={() => handleRenewalStatus(cert.id, '')}>Réinitialiser statut</button>
-                                        )}
-                                      </div>
+                                {openActionMenu === cert.id && (
+                                  <div className="action-dropdown">
+                                    <button onClick={() => handleRenewalStatus(cert.id, 'en_cours')}>Renouvellement en cours</button>
+                                    <button onClick={() => handleRenewalStatus(cert.id, 'renouvelé')}>Renouvelé</button>
+                                    <button onClick={() => { setOpenActionMenu(null); setNonRenewalModal({ id: cert.id, orderNum: cert.order_number }); }}>Non renouvelé</button>
+                                    {cert.renewal_status && (
+                                      <button className="action-reset" onClick={() => handleRenewalStatus(cert.id, '')}>Réinitialiser statut</button>
                                     )}
                                   </div>
-                                  <button onClick={() => handleDelete(cert.id, cert.order_number)} className="delete-btn" title="Supprimer ce certificat">
-                                    <Trash2 size={16} />
-                                  </button>
-                                </>
-                              )}
+                                )}
+                              </div>
+                              <button onClick={() => handleDelete(cert.id, cert.order_number)} className="delete-btn" title="Supprimer ce certificat">
+                                <Trash2 size={16} />
+                              </button>
                             </>
                           )}
                         </div>
                       </td>
                       <td>
-                        {editingId === cert.id ? (
-                          <textarea
-                            value={editingCertificate?.observations || ''}
-                            onChange={(e) => handleEditChange('observations', e.target.value)}
-                            className="inline-input"
-                            rows={2}
-                            placeholder="Observations"
-                          />
-                        ) : (
-                          <div>
-                            {cert.renewal_status && (
-                              <span className={`renewal-badge renewal-${cert.renewal_status.replace('_', '-')}`}>
-                                {cert.renewal_status === 'en_cours' ? 'Renouvellement en cours' : cert.renewal_status === 'renouvelé' ? 'Renouvelé' : 'Non renouvelé'}
-                              </span>
-                            )}
-                            {cert.renewal_status === 'non_renouvelé' && cert.renewal_comment && (
-                              <div className="renewal-comment">{cert.renewal_comment}</div>
-                            )}
-                            {cert.observations || (!cert.renewal_status ? '-' : '')}
-                          </div>
-                        )}
+                        <div>
+                          {cert.renewal_status && (
+                            <span className={`renewal-badge renewal-${cert.renewal_status.replace('_', '-')}`}>
+                              {cert.renewal_status === 'en_cours' ? 'Renouvellement en cours' : cert.renewal_status === 'renouvelé' ? 'Renouvelé' : 'Non renouvelé'}
+                            </span>
+                          )}
+                          {cert.renewal_status === 'non_renouvelé' && cert.renewal_comment && (
+                            <div className="renewal-comment">{cert.renewal_comment}</div>
+                          )}
+                          {cert.observations || (!cert.renewal_status ? '-' : '')}
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -1401,6 +1394,11 @@ const Certif: React.FC = () => {
           font-family: inherit;
           background: white;
           color: #0f172a;
+        }
+        .manual-grid select:disabled {
+          background: #f1f5f9;
+          color: #94a3b8;
+          cursor: not-allowed;
         }
         .manual-form button {
           padding: 10px 16px;
@@ -1958,6 +1956,63 @@ const Certif: React.FC = () => {
         }
         .modal-cancel:hover { background: #e2e8f0; }
         .usage-modal-box { width: 480px; }
+        .cert-edit-modal-box {
+          width: 640px;
+          max-height: 90vh;
+          overflow-y: auto;
+        }
+        .cert-edit-modal-box h3 { margin-bottom: 18px; }
+        .edit-section { margin-bottom: 20px; }
+        .edit-section-title {
+          font-size: 11px;
+          font-weight: 700;
+          letter-spacing: 0.06em;
+          text-transform: uppercase;
+          color: #94a3b8;
+          margin-bottom: 10px;
+          padding-bottom: 6px;
+          border-bottom: 1px solid #f1f5f9;
+        }
+        .edit-fields-grid {
+          display: grid;
+          grid-template-columns: repeat(2, 1fr);
+          gap: 12px 16px;
+        }
+        .field {
+          display: flex;
+          flex-direction: column;
+          gap: 4px;
+        }
+        .field-full { grid-column: 1 / -1; }
+        .field label {
+          font-size: 12px;
+          font-weight: 600;
+          color: #64748b;
+        }
+        .field input,
+        .field select,
+        .field textarea {
+          border: 1px solid #cbd5e1;
+          border-radius: 8px;
+          padding: 8px 10px;
+          font-size: 13px;
+          font-family: inherit;
+          background: white;
+          color: #0f172a;
+        }
+        .field select:disabled {
+          background: #f1f5f9;
+          color: #94a3b8;
+          cursor: not-allowed;
+        }
+        .field input:focus,
+        .field select:focus,
+        .field textarea:focus {
+          outline: 2px solid var(--primary-color, #e11d48);
+          border-color: var(--primary-color, #e11d48);
+        }
+        .field textarea { resize: vertical; }
+        .field .form-file-row { margin-bottom: 0; }
         .usage-list {
           max-height: 300px;
           overflow-y: auto;

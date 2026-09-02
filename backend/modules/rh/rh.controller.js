@@ -263,22 +263,37 @@ const rhController = {
         }
     },
 
-    // Liste plate et dédupliquée des services (utilisée pour alimenter des listes
-    // déroulantes ailleurs dans l'app, ex. module certificats).
-    getServicesList: async (req, res) => {
+    // Arborescence Direction -> Services (utilisée pour alimenter des listes
+    // déroulantes en cascade ailleurs dans l'app, ex. module certificats).
+    getServicesTree: async (req, res) => {
         try {
             const v2Count = await pgDb.get('SELECT COUNT(*) c FROM oracle.rh_siim_organigramme_v2').catch(() => ({ c: 0 }));
             const orgTable = Number(v2Count.c) > 0 ? 'oracle.rh_siim_organigramme_v2' : 'oracle.rh_siim_organigramme';
             const rows = await pgDb.all(`
-                SELECT DISTINCT "SERVICE" AS code, "SERVICE_L" AS label
+                SELECT DISTINCT "DIRECTION" AS dcode, "DIRECTION_L" AS dlabel, "SERVICE" AS scode, "SERVICE_L" AS slabel
                 FROM ${orgTable}
-                WHERE "SERVICE" IS NOT NULL AND "SERVICE" NOT LIKE '$%' AND "SERVICE" != ''
+                WHERE "DIRECTION" IS NOT NULL AND "DIRECTION" NOT LIKE '$%' AND "DIRECTION" != ''
+                  AND "SERVICE" IS NOT NULL AND "SERVICE" NOT LIKE '$%' AND "SERVICE" != ''
             `);
-            const services = rows
-                .map(r => ({ code: (r.code || '').trim(), label: (r.label || '').trim() || (r.code || '').trim() }))
-                .filter(s => s.code)
+            const isReal = (v) => v && v.trim() && !v.trim().startsWith('$');
+            const dirMap = new Map();
+            for (const row of rows) {
+                const dCode = (row.dcode || '').trim();
+                const dLabel = (row.dlabel || '').trim() || dCode;
+                const sCode = (row.scode || '').trim();
+                const sLabel = (row.slabel || '').trim() || sCode;
+                if (!isReal(dCode) || !isReal(sCode)) continue;
+                if (!dirMap.has(dCode)) dirMap.set(dCode, { code: dCode, label: dLabel, services: new Map() });
+                dirMap.get(dCode).services.set(sCode, { code: sCode, label: sLabel });
+            }
+            const tree = Array.from(dirMap.values())
+                .map(d => ({
+                    code: d.code,
+                    label: d.label,
+                    services: Array.from(d.services.values()).sort((a, b) => a.label.localeCompare(b.label, 'fr'))
+                }))
                 .sort((a, b) => a.label.localeCompare(b.label, 'fr'));
-            res.json(services);
+            res.json(tree);
         } catch (err) {
             res.status(500).json({ message: 'Erreur récupération services', error: err.message });
         }
