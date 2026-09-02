@@ -764,5 +764,112 @@ module.exports = {
             console.error('[ENCADRANTS] getADGroup:', error.message);
             res.status(500).json({ error: error.message });
         }
-    }
+    },
+
+    // ─── Groupes particuliers (basés sur une liste de diffusion AD) ───────────
+    // Permet de « nommer » un groupe AD choisi (ex. "Secrétaires et Collaborateurs
+    // des Elus") pour le rendre réutilisable ailleurs dans le Hub (ex. restriction
+    // d'accès à un formulaire de demande) sans avoir à re-taper le DN à chaque fois.
+    // La liste des membres n'est jamais recopiée en base : elle est toujours
+    // relue en direct depuis l'AD via `ad_group_dn`, donc toujours à jour.
+
+    /**
+     * GET /api/admin/rh/encadrants/custom-groups
+     * Liste les groupes particuliers déjà enregistrés (tout utilisateur connecté,
+     * nécessaire pour peupler les cases à cocher "public autorisé" ailleurs).
+     */
+    listCustomGroups: async (req, res) => {
+        try {
+            const groups = await pgDb.all(`SELECT id, name, ad_group_dn, ad_group_cn, description, created_at, updated_at FROM hub.custom_groups ORDER BY name`);
+            res.json({ groups });
+        } catch (error) {
+            console.error('[ENCADRANTS] listCustomGroups:', error.message);
+            res.status(500).json({ error: error.message });
+        }
+    },
+
+    /**
+     * POST /api/admin/rh/encadrants/custom-groups
+     * Crée un groupe particulier à partir d'un groupe AD choisi dans le dropdown.
+     */
+    createCustomGroup: async (req, res) => {
+        try {
+            const { name, ad_group_dn, ad_group_cn, description } = req.body || {};
+            if (!name || !String(name).trim()) return res.status(400).json({ error: 'Nom requis' });
+            if (!ad_group_dn || !String(ad_group_dn).trim()) return res.status(400).json({ error: 'Groupe AD requis' });
+            const result = await pgDb.run(
+                `INSERT INTO hub.custom_groups (name, ad_group_dn, ad_group_cn, description) VALUES (?, ?, ?, ?)`,
+                [String(name).trim(), ad_group_dn, ad_group_cn || '', description || '']
+            );
+            res.json({ ok: true, id: result.lastID });
+        } catch (error) {
+            console.error('[ENCADRANTS] createCustomGroup:', error.message);
+            res.status(500).json({ error: error.message });
+        }
+    },
+
+    /**
+     * PUT /api/admin/rh/encadrants/custom-groups/:id
+     * Modifie le nom / la description, ou repointe vers un autre groupe AD.
+     */
+    updateCustomGroup: async (req, res) => {
+        try {
+            const { id } = req.params;
+            const { name, ad_group_dn, ad_group_cn, description } = req.body || {};
+            const fields = [];
+            const values = [];
+            if (name !== undefined) { fields.push('name = ?'); values.push(String(name).trim()); }
+            if (ad_group_dn !== undefined) { fields.push('ad_group_dn = ?'); values.push(ad_group_dn); }
+            if (ad_group_cn !== undefined) { fields.push('ad_group_cn = ?'); values.push(ad_group_cn); }
+            if (description !== undefined) { fields.push('description = ?'); values.push(description); }
+            if (fields.length === 0) return res.status(400).json({ error: 'Aucun champ à modifier' });
+            fields.push('updated_at = NOW()');
+            values.push(id);
+            await pgDb.run(`UPDATE hub.custom_groups SET ${fields.join(', ')} WHERE id = ?`, values);
+            res.json({ ok: true });
+        } catch (error) {
+            console.error('[ENCADRANTS] updateCustomGroup:', error.message);
+            res.status(500).json({ error: error.message });
+        }
+    },
+
+    /**
+     * DELETE /api/admin/rh/encadrants/custom-groups/:id
+     */
+    deleteCustomGroup: async (req, res) => {
+        try {
+            const { id } = req.params;
+            await pgDb.run(`DELETE FROM hub.custom_groups WHERE id = ?`, [id]);
+            res.json({ ok: true });
+        } catch (error) {
+            console.error('[ENCADRANTS] deleteCustomGroup:', error.message);
+            res.status(500).json({ error: error.message });
+        }
+    },
+
+    /**
+     * GET /api/admin/rh/encadrants/custom-groups/:id/members
+     * Relit en direct les membres du groupe AD associé.
+     */
+    getCustomGroupMembers: async (req, res) => {
+        try {
+            const { id } = req.params;
+            const group = await pgDb.get(`SELECT * FROM hub.custom_groups WHERE id = ?`, [id]);
+            if (!group) return res.status(404).json({ error: 'Groupe introuvable' });
+            const db = getSqlite();
+            const adSettings = await db.get('SELECT * FROM ad_settings WHERE id=1');
+            if (!adSettings || !adSettings.is_enabled || !adSettings.host) {
+                return res.json({ members: [], error: 'AD non configuré' });
+            }
+            const members = await searchADGroupMembersByDN(group.ad_group_dn, adSettings);
+            res.json({ members, group, count: members.length });
+        } catch (error) {
+            console.error('[ENCADRANTS] getCustomGroupMembers:', error.message);
+            res.status(500).json({ error: error.message });
+        }
+    },
+
+    // Exposé pour réutilisation par d'autres modules (ex. request-forms.controller.js
+    // pour vérifier l'appartenance d'un utilisateur à un groupe particulier).
+    searchADGroupMembersByDN
 };

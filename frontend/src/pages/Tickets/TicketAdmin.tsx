@@ -4162,8 +4162,17 @@ interface RequestForm {
   is_published: boolean;
   sort_order: number;
   allowed_roles: string[];
+  allowed_group_ids: number[];
   icon: string | null;
   columns: number;
+}
+
+interface CustomGroup {
+  id: number;
+  name: string;
+  ad_group_dn: string;
+  ad_group_cn: string;
+  description: string;
 }
 
 const REQUEST_FIELD_TYPES: FormFieldType[] = ['text', 'textarea', 'select', 'boolean', 'agent', 'agent_multi', 'direction_service', 'date', 'description'];
@@ -4180,6 +4189,7 @@ function FormRequestsManager() {
   const [forms, setForms] = useState<RequestForm[]>([]);
   const [categories, setCategories] = useState<any[]>([]);
   const [serviceTree, setServiceTree] = useState<ServiceDirectionDef[]>([]);
+  const [customGroups, setCustomGroups] = useState<CustomGroup[]>([]);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<RequestForm | null>(null);
   const [saving, setSaving] = useState(false);
@@ -4196,6 +4206,7 @@ function FormRequestsManager() {
       loadForms(),
       axios.get('/api/tickets/admin/categories', { headers }).then((r) => setCategories(r.data)).catch(() => {}),
       axios.get('/api/admin/rh/services-tree', { headers }).then((r) => setServiceTree(r.data)).catch(() => {}),
+      axios.get('/api/admin/rh/encadrants/custom-groups', { headers }).then((r) => setCustomGroups(r.data.groups || [])).catch(() => {}),
     ]).finally(() => setLoading(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -4228,6 +4239,7 @@ function FormRequestsManager() {
         is_published: selected.is_published,
         fields_config: selected.fields_config,
         allowed_roles: selected.allowed_roles,
+        allowed_group_ids: selected.allowed_group_ids,
         icon: selected.icon,
         columns: selected.columns,
       }, { headers });
@@ -4310,8 +4322,11 @@ function FormRequestsManager() {
                     : <span style={{ color: '#94a3b8' }}>—</span>}
                 </td>
                 <td style={{ padding: '10px' }}>
-                  {f.allowed_roles && f.allowed_roles.length > 0
-                    ? f.allowed_roles.map((r) => ENCADRANT_ROLE_LABELS[r] || r).join(', ')
+                  {(f.allowed_roles && f.allowed_roles.length > 0) || (f.allowed_group_ids && f.allowed_group_ids.length > 0)
+                    ? [
+                        ...(f.allowed_roles || []).map((r) => ENCADRANT_ROLE_LABELS[r] || r),
+                        ...(f.allowed_group_ids || []).map((gid) => customGroups.find((g) => g.id === gid)?.name || `Groupe #${gid}`),
+                      ].join(', ')
                     : <span style={{ color: '#94a3b8' }}>Tous</span>}
                 </td>
                 <td style={{ padding: '10px' }}>
@@ -4435,7 +4450,27 @@ function FormRequestsManager() {
                 {label}
               </label>
             ))}
+            {customGroups.map((g) => (
+              <label key={`group-${g.id}`} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: '#334155', cursor: 'pointer' }} title={`Groupe particulier (AD : ${g.ad_group_cn || g.ad_group_dn})`}>
+                <input
+                  type="checkbox"
+                  checked={selected.allowed_group_ids.includes(g.id)}
+                  onChange={(e) => setSelected({
+                    ...selected,
+                    allowed_group_ids: e.target.checked
+                      ? [...selected.allowed_group_ids, g.id]
+                      : selected.allowed_group_ids.filter((id) => id !== g.id),
+                  })}
+                />
+                {g.name}
+              </label>
+            ))}
           </div>
+          {customGroups.length === 0 && (
+            <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 4 }}>
+              Aucun groupe particulier défini — créez-en dans <em>/admin/param-ville</em> (onglet Encadrants) pour restreindre l'accès à un groupe de diffusion AD.
+            </div>
+          )}
         </div>
       </div>
 

@@ -98,8 +98,14 @@ function escapePgValue(val) {
     if (typeof val === 'number') return String(val);
     if (Array.isArray(val)) {
         // ARRAY[] seul (sans elements) est un litteral invalide pour Postgres
-        // ("cannot determine type of empty array") : il faut le caster.
-        if (val.length === 0) return `ARRAY[]::text[]`;
+        // ("cannot determine type of empty array") : il faut le caster. Un cast
+        // fixe (ex. ARRAY[]::text[]) casserait toute colonne d'un autre type de
+        // tableau (ex. integer[]) avec "column is of type integer[] but
+        // expression is of type text[]". La chaine '{}' est en revanche un
+        // litteral "de type inconnu" que Postgres convertit implicitement selon
+        // le type de la colonne cible (assignment cast) : ca marche pour
+        // n'importe quel type de tableau.
+        if (val.length === 0) return `'{}'`;
         return `ARRAY[${val.map(v => escapePgValue(v)).join(', ')}]`;
     }
     if (val instanceof Date) {
@@ -1330,6 +1336,11 @@ async function setupPgDb() {
     // Nombre de colonnes de la grille du formulaire ; chaque champ se place
     // via column_start/column_span (voir sanitizeFieldsConfig).
     try { await client.query(`ALTER TABLE hub.request_forms ADD COLUMN IF NOT EXISTS columns INTEGER DEFAULT 2`); } catch (e) {}
+    // Public autorise (bis) : sous-ensemble d'ids de hub.custom_groups (groupes
+    // particuliers bases sur une liste de diffusion AD, cf /admin/param-ville ->
+    // Encadrants). Se cumule avec allowed_roles (OR logique) ; vide/NULL = pas de
+    // restriction par groupe.
+    try { await client.query(`ALTER TABLE hub.request_forms ADD COLUMN IF NOT EXISTS allowed_group_ids INTEGER[] DEFAULT '{}'`); } catch (e) {}
     await client.query(`
       CREATE TABLE IF NOT EXISTS hub.request_form_submissions (
         id SERIAL PRIMARY KEY,
@@ -5391,6 +5402,26 @@ async function setupPgDb() {
         )
       `);
     } catch (e) { console.error('[PG DB] hub.encadrants:', e.message); }
+
+    // ─── hub.custom_groups : "groupes particuliers" bases sur une liste de
+    // diffusion AD (ex. "Secretaires et Collaborateurs des Elus"), definis dans
+    // /admin/param-ville -> Encadrants. La liste des membres n'est jamais
+    // recopiee ici : elle est toujours relue en direct depuis l'AD via
+    // ad_group_dn (voir encadrants.controller.js). Reutilisable ailleurs dans le
+    // Hub pour restreindre un acces (cf hub.request_forms.allowed_group_ids).
+    try {
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS hub.custom_groups (
+          id            SERIAL PRIMARY KEY,
+          name          TEXT NOT NULL,
+          ad_group_dn   TEXT NOT NULL,
+          ad_group_cn   TEXT DEFAULT '',
+          description   TEXT DEFAULT '',
+          created_at    TIMESTAMPTZ DEFAULT NOW(),
+          updated_at    TIMESTAMPTZ DEFAULT NOW()
+        )
+      `);
+    } catch (e) { console.error('[PG DB] hub.custom_groups:', e.message); }
 
     // ─── hub_telecom : opérateurs, comptes de facturation et factures télécom ────
     try {

@@ -6,7 +6,7 @@
  * (fields_config), types text/textarea/select/boolean/agent/direction_service/date,
  * avec affichage conditionnel simple (conditional_on).
  */
-const { pgDb } = require('../../shared/database');
+const { pgDb, getSqlite } = require('../../shared/database');
 const ticketService = require('./services/ticket.service');
 const { resolveTicketRole } = require('./middleware/ticket-permissions');
 const encadrantsController = require('../rh/encadrants.controller');
@@ -49,11 +49,54 @@ async function getUserEncadrantRole(user) {
     return map.get(String(user.email).toLowerCase()) || null;
 }
 
-/** Un formulaire sans restriction (allowed_roles vide) est visible de tous. */
-function isFormAllowedForRole(form, role) {
-    const restrictions = Array.isArray(form.allowed_roles) ? form.allowed_roles : [];
-    if (restrictions.length === 0) return true;
-    return !!role && restrictions.includes(role);
+// Cache en mémoire (15 min) : id de groupe particulier -> Set des emails
+// (minuscules) de ses membres AD, pour ne pas relancer une recherche LDAP à
+// chaque affichage du portail magapp. Comme getEncadrantsRoleMap ci-dessus,
+// tous les groupes sont résolus en une passe puis mis en cache ensemble.
+let customGroupsMemberCache = { map: null, expiresAt: 0 };
+
+async function getCustomGroupsMemberMap() {
+    if (customGroupsMemberCache.map && Date.now() < customGroupsMemberCache.expiresAt) {
+        return customGroupsMemberCache.map;
+    }
+    const map = new Map();
+    try {
+        const groups = await pgDb.all('SELECT id, ad_group_dn FROM hub.custom_groups');
+        if (groups.length > 0) {
+            const db = getSqlite();
+            const adSettings = await db.get('SELECT * FROM ad_settings WHERE id=1');
+            if (adSettings && adSettings.is_enabled && adSettings.host) {
+                for (const g of groups) {
+                    try {
+                        const members = await encadrantsController.searchADGroupMembersByDN(g.ad_group_dn, adSettings);
+                        map.set(g.id, new Set(members.filter((m) => m.email).map((m) => m.email.toLowerCase())));
+                    } catch (e) {
+                        map.set(g.id, new Set());
+                    }
+                }
+            }
+        }
+    } catch (e) { /* pas de groupe particulier défini, ou AD indisponible : map vide */ }
+    customGroupsMemberCache = { map, expiresAt: Date.now() + 15 * 60 * 1000 };
+    return map;
+}
+
+/**
+ * Un formulaire sans restriction (ni allowed_roles ni allowed_group_ids) est
+ * visible de tous. Sinon il faut correspondre à AU MOINS une des deux
+ * restrictions (rôle d'encadrant OU membre d'un des groupes particuliers).
+ */
+async function isFormAllowedForUser(form, role, email) {
+    const roleRestrictions = Array.isArray(form.allowed_roles) ? form.allowed_roles : [];
+    const groupRestrictions = Array.isArray(form.allowed_group_ids) ? form.allowed_group_ids : [];
+    if (roleRestrictions.length === 0 && groupRestrictions.length === 0) return true;
+    if (role && roleRestrictions.includes(role)) return true;
+    if (groupRestrictions.length > 0 && email) {
+        const map = await getCustomGroupsMemberMap();
+        const lower = String(email).toLowerCase();
+        if (groupRestrictions.some((gid) => map.get(gid)?.has(lower))) return true;
+    }
+    return false;
 }
 
 /** Normalise/valide un tableau de définitions de champs avant sauvegarde. */
@@ -176,6 +219,13 @@ module.exports = {
                 updates.push('allowed_roles = ?');
                 values.push(roles);
             }
+            if (req.body.allowed_group_ids !== undefined) {
+                const groupIds = Array.isArray(req.body.allowed_group_ids)
+                    ? req.body.allowed_group_ids.map((n) => Number(n)).filter((n) => Number.isInteger(n) && n > 0)
+                    : [];
+                updates.push('allowed_group_ids = ?');
+                values.push(groupIds);
+            }
             if (updates.length === 0) return res.status(400).json({ message: 'Aucun champ modifiable fourni' });
             updates.push('updated_at = CURRENT_TIMESTAMP');
             values.push(req.params.id);
@@ -202,13 +252,21 @@ module.exports = {
     listPublished: async (req, res) => {
         try {
             const forms = await pgDb.all(
-                "SELECT id, name, description, fields_config, allowed_roles, icon, columns FROM hub.request_forms WHERE is_published = true ORDER BY sort_order, name"
+                "SELECT id, name, description, fields_config, allowed_roles, allowed_group_ids, icon, columns FROM hub.request_forms WHERE is_published = true ORDER BY sort_order, name"
             );
-            const withRestriction = forms.some((f) => Array.isArray(f.allowed_roles) && f.allowed_roles.length > 0);
+            const withRestriction = forms.some((f) =>
+                (Array.isArray(f.allowed_roles) && f.allowed_roles.length > 0) ||
+                (Array.isArray(f.allowed_group_ids) && f.allowed_group_ids.length > 0)
+            );
             const userRole = withRestriction ? await getUserEncadrantRole(req.user) : null;
-            const visible = forms
-                .filter((f) => isFormAllowedForRole(f, userRole))
-                .map(({ allowed_roles, ...f }) => f);
+            const userEmail = req.user?.email;
+            const visible = [];
+            for (const f of forms) {
+                if (await isFormAllowedForUser(f, userRole, userEmail)) {
+                    const { allowed_roles, allowed_group_ids, ...rest } = f;
+                    visible.push(rest);
+                }
+            }
             res.json(visible);
         } catch (error) {
             res.status(500).json({ message: 'Erreur lors de la récupération des formulaires', error: error.message });
@@ -227,7 +285,7 @@ module.exports = {
             }
             if (!isAdmin) {
                 const userRole = await getUserEncadrantRole(req.user);
-                if (!isFormAllowedForRole(form, userRole)) {
+                if (!await isFormAllowedForUser(form, userRole, req.user?.email)) {
                     return res.status(403).json({ message: 'Ce formulaire n\'est pas disponible pour votre profil' });
                 }
             }
@@ -244,7 +302,7 @@ module.exports = {
             if (!form) return res.status(404).json({ message: 'Formulaire non trouvé' });
             if (!form.is_published) return res.status(403).json({ message: 'Ce formulaire n\'est plus disponible' });
             const userRole = await getUserEncadrantRole(req.user);
-            if (!isFormAllowedForRole(form, userRole)) {
+            if (!await isFormAllowedForUser(form, userRole, req.user?.email)) {
                 return res.status(403).json({ message: 'Ce formulaire n\'est pas disponible pour votre profil' });
             }
 

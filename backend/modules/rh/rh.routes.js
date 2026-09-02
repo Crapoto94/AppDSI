@@ -44,6 +44,15 @@ router.put('/encadrants/:matricule/ad-link', authenticateJWT, encadrantsCtrl.lin
 router.get('/encadrants/ad-groups-list', authenticateJWT, encadrantsCtrl.listADGroups);
 router.get('/encadrants/ad-group', authenticateJWT, encadrantsCtrl.getADGroup);
 
+// Groupes particuliers (bases sur une liste de diffusion AD) — lecture ouverte
+// à tout utilisateur connecté (nécessaire pour peupler les cases "public
+// autorisé" côté formulaires de demande), écriture réservée aux admins.
+router.get('/encadrants/custom-groups', authenticateJWT, encadrantsCtrl.listCustomGroups);
+router.post('/encadrants/custom-groups', authenticateAdmin, encadrantsCtrl.createCustomGroup);
+router.put('/encadrants/custom-groups/:id', authenticateAdmin, encadrantsCtrl.updateCustomGroup);
+router.delete('/encadrants/custom-groups/:id', authenticateAdmin, encadrantsCtrl.deleteCustomGroup);
+router.get('/encadrants/custom-groups/:id/members', authenticateJWT, encadrantsCtrl.getCustomGroupMembers);
+
 // AD Matching & Proposals
 router.get('/ad-proposals', authenticateAdmin, rhController.getADProposals);
 router.post('/ad-proposals/action', authenticateAdmin, rhController.handleADProposal);

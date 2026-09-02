@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { useAuth } from '../../contexts/AuthContext';
 import Header from '../../components/Header';
 import axios from 'axios';
-import { Plus, Edit2, Trash2, Upload, Search, ChevronUp, ChevronDown, ChevronsUpDown, X, MapPin, ChevronRight, List, Network, Phone, UserCheck, UserX, AlertTriangle, RefreshCw, CheckCircle, FileSpreadsheet } from 'lucide-react';
+import { Plus, Edit2, Trash2, Upload, Search, ChevronUp, ChevronDown, ChevronsUpDown, X, MapPin, ChevronRight, List, Network, Phone, UserCheck, UserX, AlertTriangle, RefreshCw, CheckCircle, FileSpreadsheet, Users } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import AdminOrganisation from '../AdminOrganisation';
 import 'leaflet/dist/leaflet.css';
@@ -499,6 +499,7 @@ interface Encadrant {
 }
 interface ADSearchResult { username: string; displayName: string; email: string; title: string; department: string; employeeID: string; }
 interface ADMember { username: string; displayName: string; email: string; title: string; department: string; }
+interface CustomGroup { id: number; name: string; ad_group_dn: string; ad_group_cn: string; description: string; }
 
 function EncadrantsTab({ token }: { token: string | null }) {
   const [encadrants, setEncadrants] = useState<Encadrant[]>([]);
@@ -525,6 +526,21 @@ function EncadrantsTab({ token }: { token: string | null }) {
   const [filterRole, setFilterRole] = useState<'all' | 'dg' | 'directeur' | 'responsable_service'>('all');
   const [showADCompare, setShowADCompare] = useState(false);
   const [saveMsg, setSaveMsg] = useState('');
+
+  // Groupes particuliers : un groupe AD (liste de diffusion) "nommé" pour être
+  // réutilisable ailleurs dans le Hub (ex. restriction d'accès à un formulaire
+  // de demande). La liste des membres n'est jamais recopiée en base, elle est
+  // toujours relue en direct depuis l'AD via son DN.
+  const [showGroupManager, setShowGroupManager] = useState(false);
+  const [customGroups, setCustomGroups] = useState<CustomGroup[]>([]);
+  const [loadingCustomGroups, setLoadingCustomGroups] = useState(false);
+  const [newGroupFilter, setNewGroupFilter] = useState('');
+  const [newGroupPick, setNewGroupPick] = useState<{ dn: string; cn: string; displayName: string } | null>(null);
+  const [newGroupName, setNewGroupName] = useState('');
+  const [savingGroup, setSavingGroup] = useState(false);
+  const [expandedGroupId, setExpandedGroupId] = useState<number | null>(null);
+  const [expandedGroupMembers, setExpandedGroupMembers] = useState<ADMember[]>([]);
+  const [loadingGroupMembers, setLoadingGroupMembers] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true); setError('');
@@ -582,6 +598,57 @@ function EncadrantsTab({ token }: { token: string | null }) {
       else setError(d.error || 'Erreur liste AD');
     } catch { setError('Erreur réseau AD'); }
     finally { setLoadingAD(false); }
+  };
+
+  const loadCustomGroups = useCallback(async () => {
+    setLoadingCustomGroups(true);
+    try {
+      const r = await fetch('/api/admin/rh/encadrants/custom-groups', { headers: { Authorization: `Bearer ${token}` } });
+      const d = await r.json();
+      if (r.ok) setCustomGroups(d.groups || []);
+    } catch { }
+    finally { setLoadingCustomGroups(false); }
+  }, [token]);
+
+  useEffect(() => { loadCustomGroups(); }, [loadCustomGroups]);
+
+  const createCustomGroup = async () => {
+    if (!newGroupPick || !newGroupName.trim()) return;
+    setSavingGroup(true);
+    try {
+      const r = await fetch('/api/admin/rh/encadrants/custom-groups', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: newGroupName.trim(), ad_group_dn: newGroupPick.dn, ad_group_cn: newGroupPick.cn })
+      });
+      const d = await r.json();
+      if (r.ok) {
+        setNewGroupName(''); setNewGroupPick(null); setNewGroupFilter('');
+        await loadCustomGroups();
+      } else setError(d.error || 'Erreur création du groupe');
+    } catch { setError('Erreur réseau'); }
+    finally { setSavingGroup(false); }
+  };
+
+  const deleteCustomGroup = async (id: number) => {
+    if (!confirm('Supprimer ce groupe particulier ? Il ne pourra plus être utilisé pour restreindre un accès (le groupe AD lui-même n\'est pas affecté).')) return;
+    try {
+      await fetch(`/api/admin/rh/encadrants/custom-groups/${id}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } });
+      if (expandedGroupId === id) { setExpandedGroupId(null); setExpandedGroupMembers([]); }
+      await loadCustomGroups();
+    } catch { setError('Erreur réseau'); }
+  };
+
+  const toggleGroupMembers = async (group: CustomGroup) => {
+    if (expandedGroupId === group.id) { setExpandedGroupId(null); setExpandedGroupMembers([]); return; }
+    setExpandedGroupId(group.id); setLoadingGroupMembers(true); setExpandedGroupMembers([]);
+    try {
+      const r = await fetch(`/api/admin/rh/encadrants/custom-groups/${group.id}/members`, { headers: { Authorization: `Bearer ${token}` } });
+      const d = await r.json();
+      if (r.ok) setExpandedGroupMembers(d.members || []);
+      else setError(d.error || 'Erreur lecture des membres');
+    } catch { setError('Erreur réseau AD'); }
+    finally { setLoadingGroupMembers(false); }
   };
 
   const loadParcPhones = async () => {
@@ -711,6 +778,10 @@ function EncadrantsTab({ token }: { token: string | null }) {
         <button onClick={() => { setShowADCompare(v => !v); if (!showADCompare && !adGroupsList.length) loadADGroupsList(); }}
           style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px', background: showADCompare ? '#eff6ff' : '#f8fafc', border: `1px solid ${showADCompare ? '#bfdbfe' : '#e2e8f0'}`, borderRadius: 8, cursor: 'pointer', fontWeight: 600, fontSize: 13, color: showADCompare ? '#1d4ed8' : '#475569' }}>
           Comparer avec liste AD
+        </button>
+        <button onClick={() => { setShowGroupManager(v => !v); if (!showGroupManager && !adGroupsList.length) loadADGroupsList(); }}
+          style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px', background: showGroupManager ? '#faf5ff' : '#f8fafc', border: `1px solid ${showGroupManager ? '#e9d5ff' : '#e2e8f0'}`, borderRadius: 8, cursor: 'pointer', fontWeight: 600, fontSize: 13, color: showGroupManager ? '#7e22ce' : '#475569' }}>
+          <Users size={14} /> Groupes particuliers{customGroups.length > 0 ? ` (${customGroups.length})` : ''}
         </button>
         <button onClick={exportEncadrantsCSV} disabled={filtered.length === 0}
           style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px', background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 8, cursor: 'pointer', fontWeight: 600, fontSize: 13, color: '#1d4ed8', opacity: filtered.length === 0 ? 0.5 : 1 }}>
@@ -999,6 +1070,117 @@ function EncadrantsTab({ token }: { token: string | null }) {
               </div>
             </div>
           )}
+        </div>
+      )}
+
+      {/* Groupes particuliers (basés sur une liste de diffusion AD) */}
+      {showGroupManager && (
+        <div style={{ marginTop: 24, background: 'white', borderRadius: 12, border: '1px solid #e2e8f0', padding: 20 }}>
+          <h3 style={{ margin: '0 0 4px', fontSize: 15, fontWeight: 800, color: '#1e293b' }}>Groupes particuliers</h3>
+          <p style={{ margin: '0 0 16px', fontSize: 12, color: '#64748b', maxWidth: 640 }}>
+            « Nomme » une liste de diffusion / un groupe AD pour le rendre réutilisable ailleurs dans le Hub
+            (par ex. restreindre l'accès à un formulaire de demande dans <em>/tickets/admin</em>). Les membres ne sont
+            jamais recopiés : ils sont toujours relus en direct depuis l'AD.
+          </p>
+
+          {loadingCustomGroups ? (
+            <p style={{ fontSize: 13, color: '#94a3b8' }}>Chargement…</p>
+          ) : customGroups.length === 0 ? (
+            <p style={{ fontSize: 13, color: '#94a3b8' }}>Aucun groupe particulier défini.</p>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 20 }}>
+              {customGroups.map(g => (
+                <div key={g.id} style={{ border: '1px solid #e2e8f0', borderRadius: 8, overflow: 'hidden' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', background: '#faf5ff' }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <strong style={{ fontSize: 13, color: '#1e293b' }}>{g.name}</strong>
+                      <div style={{ fontSize: 11, color: '#64748b' }}>AD : {g.ad_group_cn || g.ad_group_dn}</div>
+                    </div>
+                    <button onClick={() => toggleGroupMembers(g)}
+                      style={{ padding: '5px 10px', background: 'white', border: '1px solid #e9d5ff', borderRadius: 6, cursor: 'pointer', fontWeight: 600, fontSize: 12, color: '#7e22ce', whiteSpace: 'nowrap' }}>
+                      {expandedGroupId === g.id ? 'Masquer' : 'Voir les membres'}
+                    </button>
+                    <button onClick={() => deleteCustomGroup(g.id)} title="Supprimer"
+                      style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer', fontSize: 16 }}>🗑</button>
+                  </div>
+                  {expandedGroupId === g.id && (
+                    <div style={{ padding: '10px 14px' }}>
+                      {loadingGroupMembers ? (
+                        <span style={{ fontSize: 12, color: '#94a3b8' }}>Chargement…</span>
+                      ) : expandedGroupMembers.length === 0 ? (
+                        <span style={{ fontSize: 12, color: '#94a3b8' }}>Aucun membre trouvé (ou AD indisponible).</span>
+                      ) : (
+                        <>
+                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 6 }}>
+                            {expandedGroupMembers.map(m => (
+                              <div key={m.username} style={{ fontSize: 12, padding: '6px 10px', background: '#f8fafc', borderRadius: 6 }}>
+                                <strong>{m.displayName}</strong><br /><span style={{ color: '#64748b' }}>{m.email}</span>
+                              </div>
+                            ))}
+                          </div>
+                          <div style={{ marginTop: 6, fontSize: 11, color: '#94a3b8' }}>{expandedGroupMembers.length} membre(s)</div>
+                        </>
+                      )}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+
+          <div style={{ borderTop: '1px solid #f1f5f9', paddingTop: 16 }}>
+            <h4 style={{ margin: '0 0 10px', fontSize: 13, fontWeight: 700, color: '#1e293b' }}>Nouveau groupe particulier</h4>
+            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+              <div style={{ position: 'relative', flex: 1, minWidth: 260 }}>
+                <label style={{ fontSize: 11, fontWeight: 600, color: '#64748b', display: 'block', marginBottom: 4 }}>Groupe AD source</label>
+                {loadingGroupsList ? (
+                  <span style={{ fontSize: 13, color: '#94a3b8' }}>Chargement des groupes AD…</span>
+                ) : (
+                  <input
+                    placeholder="Rechercher un groupe AD…"
+                    value={newGroupPick ? newGroupPick.displayName : newGroupFilter}
+                    onChange={e => { setNewGroupPick(null); setNewGroupFilter(e.target.value); }}
+                    style={{ width: '100%', padding: '7px 10px', border: '1px solid #e2e8f0', borderRadius: 6, fontSize: 13, boxSizing: 'border-box' }}
+                  />
+                )}
+                {!newGroupPick && newGroupFilter && adGroupsList.length > 0 && (
+                  <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 100, background: 'white', border: '1px solid #e2e8f0', borderRadius: 8, boxShadow: '0 8px 24px rgba(0,0,0,0.1)', maxHeight: 220, overflowY: 'auto', marginTop: 2 }}>
+                    {adGroupsList
+                      .filter(g => g.displayName.toLowerCase().includes(newGroupFilter.toLowerCase()) || g.cn.toLowerCase().includes(newGroupFilter.toLowerCase()))
+                      .slice(0, 50)
+                      .map(g => (
+                        <div key={g.dn}
+                          onClick={() => { setNewGroupPick({ dn: g.dn, cn: g.cn, displayName: g.displayName }); setNewGroupFilter(''); setNewGroupName(prev => prev || g.displayName); }}
+                          style={{ padding: '8px 12px', cursor: 'pointer', fontSize: 13, color: '#1e293b', borderBottom: '1px solid #f1f5f9' }}
+                          onMouseEnter={e => (e.currentTarget.style.background = '#faf5ff')}
+                          onMouseLeave={e => (e.currentTarget.style.background = '')}>
+                          <span style={{ fontWeight: 600 }}>{g.displayName}</span>
+                          {g.mail && <span style={{ fontSize: 11, color: '#64748b', marginLeft: 8 }}>{g.mail}</span>}
+                        </div>
+                      ))}
+                  </div>
+                )}
+              </div>
+              <div style={{ flex: 1, minWidth: 220 }}>
+                <label style={{ fontSize: 11, fontWeight: 600, color: '#64748b', display: 'block', marginBottom: 4 }}>Nom dans le Hub</label>
+                <input
+                  value={newGroupName}
+                  onChange={e => setNewGroupName(e.target.value)}
+                  placeholder="Ex. Secrétaires et Collaborateurs des Elus"
+                  style={{ width: '100%', padding: '7px 10px', border: '1px solid #e2e8f0', borderRadius: 6, fontSize: 13, boxSizing: 'border-box' }}
+                />
+              </div>
+              <button onClick={createCustomGroup} disabled={!newGroupPick || !newGroupName.trim() || savingGroup}
+                style={{
+                  padding: '8px 16px', color: 'white', border: 'none', borderRadius: 8, fontWeight: 700, fontSize: 13,
+                  background: (!newGroupPick || !newGroupName.trim()) ? '#e2e8f0' : '#7e22ce',
+                  cursor: (!newGroupPick || !newGroupName.trim()) ? 'default' : 'pointer',
+                }}>
+                {savingGroup ? '…' : '+ Créer'}
+              </button>
+            </div>
+            {newGroupPick && <div style={{ fontSize: 11, color: '#7e22ce', marginTop: 6 }}>Groupe AD sélectionné : <strong>{newGroupPick.displayName}</strong></div>}
+          </div>
         </div>
       )}
     </div>
