@@ -71,6 +71,20 @@ async function matchAgent(cfg, { nom = '', prenom = '', email = '' } = {}) {
             const r2 = await fetchAgentPresence(cfg, { q: input.nom });
             if (r2 && r2.found && r2.agent) candidate = r2.agent;
         }
+        // Repli supplementaire : la recherche RH Studio ne remonte un agent que
+        // si la requete est une sous-chaine EXACTE du nom en base (aucune
+        // tolerance cote leur recherche) ; deux fautes de frappe simultanees
+        // (prenom ET nom, ex. "Franck PLICHARD" saisi pour "Frank PLICHART")
+        // font donc echouer les deux essais ci-dessus alors que l'agent existe.
+        // On tente des prefixes de plus en plus courts du nom, qui survivent
+        // souvent a une faute de frappe en fin de mot.
+        if (!candidate && input.nom && input.nom.length >= 5) {
+            const minLen = Math.max(4, input.nom.length - 3);
+            for (let len = input.nom.length - 1; len >= minLen && !candidate; len--) {
+                const r3 = await fetchAgentPresence(cfg, { q: input.nom.slice(0, len) });
+                if (r3 && r3.found && r3.agent) candidate = r3.agent;
+            }
+        }
     } catch (e) { /* candidate reste null, on renvoie "non trouve" */ }
 
     if (!candidate) return base;
