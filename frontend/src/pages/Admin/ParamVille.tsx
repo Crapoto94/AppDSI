@@ -1005,10 +1005,331 @@ function EncadrantsTab({ token }: { token: string | null }) {
   );
 }
 
+// ─── Onglet Vérification RH Studio ─────────────────────────────────────────────
+// Import d'un fichier Excel externe (agents/élus/contacts), mapping des colonnes
+// vers nom/prénom/email, puis recherche en lot dans RH Studio (config /admin/infra,
+// clé rh_studio_presence) avec repli email -> nom et tolérance aux fautes de frappe
+// sur le nom (comparaison de similarité faite côté serveur).
+type RHPresenceStatus = 'present' | 'departed' | 'not_arrived' | 'unknown';
+
+interface RHAgent {
+  nom?: string;
+  prenom?: string;
+  present?: boolean;
+  status?: string;
+  statusLabel?: string;
+  dateArriveePrevue?: string | null;
+  dateDepart?: string | null;
+  service?: string;
+  service_label?: string;
+  direction?: string;
+  direction_label?: string;
+  [key: string]: unknown;
+}
+
+interface RHMatchResult {
+  input: { nom: string; prenom: string; email: string };
+  matchedBy: 'email' | 'nom' | null;
+  similarity: number | null;
+  found: boolean;
+  agent: RHAgent | null;
+  error?: string;
+}
+
+function classifyRHAgent(agent: RHAgent | null | undefined): RHPresenceStatus {
+  if (!agent) return 'unknown';
+  if (agent.present) return 'present';
+  const s = `${agent.status || ''} ${agent.statusLabel || ''}`.toLowerCase();
+  if (s.includes('parti') || s.includes('depart') || s.includes('sorti')) return 'departed';
+  if (s.includes('arriv') || s.includes('venir') || s.includes('attendu')) return 'not_arrived';
+  const now = Date.now();
+  if (agent.dateArriveePrevue && new Date(agent.dateArriveePrevue).getTime() > now) return 'not_arrived';
+  if (agent.dateDepart && new Date(agent.dateDepart).getTime() < now) return 'departed';
+  return 'departed';
+}
+
+const RH_STATUS_META: Record<RHPresenceStatus, { label: string; color: string; bg: string }> = {
+  present: { label: '⭐ Présent', color: '#92400e', bg: '#fef3c7' },
+  departed: { label: '❌ Parti', color: '#991b1b', bg: '#fee2e2' },
+  not_arrived: { label: '⏳ Pas encore arrivé', color: '#1d4ed8', bg: '#dbeafe' },
+  unknown: { label: '❓ Inconnu', color: '#475569', bg: '#f1f5f9' },
+};
+
+function rhAgentName(agent?: RHAgent | null): string {
+  if (!agent) return '';
+  const prenom = agent.prenom ? agent.prenom.charAt(0).toUpperCase() + agent.prenom.slice(1).toLowerCase() : '';
+  const nom = agent.nom ? agent.nom.toUpperCase() : '';
+  return [prenom, nom].filter(Boolean).join(' ');
+}
+
+function rhAgentService(agent?: RHAgent | null): string {
+  if (!agent) return '-';
+  return (agent.service_label || agent.service || agent.direction_label || agent.direction || '-') as string;
+}
+
+function normalizeHeaderKey(s: string): string {
+  return s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '');
+}
+
+function guessColumn(headers: string[], candidates: string[]): string {
+  const normCandidates = candidates.map(normalizeHeaderKey);
+  const exact = headers.find((h) => normCandidates.includes(normalizeHeaderKey(h)));
+  if (exact) return exact;
+  const partial = headers.find((h) => { const nh = normalizeHeaderKey(h); return normCandidates.some((c) => nh.includes(c)); });
+  return partial || '';
+}
+
+function VerificationRHTab({ token }: { token: string | null }) {
+  const [file, setFile] = useState<File | null>(null);
+  const [headers, setHeaders] = useState<string[]>([]);
+  const [rows, setRows] = useState<Record<string, string>[]>([]);
+  const [mapping, setMapping] = useState<{ nom: string; prenom: string; email: string }>({ nom: '', prenom: '', email: '' });
+  const [parsing, setParsing] = useState(false);
+  const [parseError, setParseError] = useState('');
+  const [verifying, setVerifying] = useState(false);
+  const [verifyError, setVerifyError] = useState('');
+  const [results, setResults] = useState<RHMatchResult[] | null>(null);
+  const [filterStatus, setFilterStatus] = useState<'all' | RHPresenceStatus | 'not_found'>('all');
+
+  const authHeaders = () => ({ Authorization: `Bearer ${token}` });
+
+  const reset = () => {
+    setFile(null); setHeaders([]); setRows([]);
+    setMapping({ nom: '', prenom: '', email: '' });
+    setParseError(''); setVerifyError(''); setResults(null); setFilterStatus('all');
+  };
+
+  const handleFileSelect = async (f: File | null) => {
+    reset();
+    if (!f) return;
+    setFile(f);
+    setParsing(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', f);
+      const res = await axios.post('/api/infra/agents/presence/parse-excel', formData, {
+        headers: { ...authHeaders(), 'Content-Type': 'multipart/form-data' },
+      });
+      const h: string[] = res.data.headers || [];
+      const r: Record<string, string>[] = res.data.rows || [];
+      setHeaders(h);
+      setRows(r);
+      setMapping({
+        nom: guessColumn(h, ['nom', 'lastname', 'name']),
+        prenom: guessColumn(h, ['prenom', 'prénom', 'firstname']),
+        email: guessColumn(h, ['email', 'mail', 'courriel']),
+      });
+    } catch (err) {
+      setParseError(axios.isAxiosError(err) ? (err.response?.data?.message || err.message) : 'Erreur lors de la lecture du fichier');
+    } finally {
+      setParsing(false);
+    }
+  };
+
+  const runVerification = async () => {
+    if (!mapping.nom && !mapping.email) {
+      setVerifyError('Associez au moins la colonne "Nom" ou la colonne "Email".');
+      return;
+    }
+    setVerifying(true);
+    setVerifyError('');
+    setResults(null);
+    try {
+      const agents = rows.map((r) => ({
+        nom: mapping.nom ? (r[mapping.nom] || '').toString().trim() : '',
+        prenom: mapping.prenom ? (r[mapping.prenom] || '').toString().trim() : '',
+        email: mapping.email ? (r[mapping.email] || '').toString().trim() : '',
+      }));
+      const res = await axios.post('/api/infra/agents/presence/batch', { agents }, { headers: authHeaders() });
+      setResults(res.data.results || []);
+    } catch (err) {
+      setVerifyError(axios.isAxiosError(err) ? (err.response?.data?.message || err.message) : 'Erreur lors de la vérification');
+    } finally {
+      setVerifying(false);
+    }
+  };
+
+  const filteredResults = (results || []).filter((r) => {
+    if (filterStatus === 'all') return true;
+    if (filterStatus === 'not_found') return !r.found;
+    return r.found && classifyRHAgent(r.agent) === filterStatus;
+  });
+
+  const counts = (results || []).reduce(
+    (acc, r) => {
+      if (!r.found) { acc.not_found++; return acc; }
+      acc[classifyRHAgent(r.agent)]++;
+      return acc;
+    },
+    { present: 0, departed: 0, not_arrived: 0, unknown: 0, not_found: 0 } as Record<RHPresenceStatus | 'not_found', number>
+  );
+
+  const st = {
+    section: { background: 'white', borderRadius: 10, padding: 20, boxShadow: '0 1px 3px rgba(0,0,0,0.08)', marginBottom: 16 } as React.CSSProperties,
+    label: { fontSize: 12, fontWeight: 600, color: '#64748b', marginBottom: 4, display: 'block' } as React.CSSProperties,
+    select: { width: '100%', padding: '8px 10px', borderRadius: 6, border: '1px solid #cbd5e1', fontSize: 13, background: 'white', color: '#0f172a' } as React.CSSProperties,
+    btnPrimary: { background: '#0ea5e9', color: 'white', border: 'none', padding: '9px 18px', borderRadius: 8, fontWeight: 600, fontSize: 13, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 8 } as React.CSSProperties,
+    btnGhost: { background: '#f1f5f9', color: '#475569', border: '1px solid #cbd5e1', padding: '9px 16px', borderRadius: 8, fontWeight: 600, fontSize: 13, cursor: 'pointer' } as React.CSSProperties,
+  };
+
+  return (
+    <div>
+      <div style={st.section}>
+        <h3 style={{ marginBottom: 6, color: '#0f172a' }}>Vérification RH Studio</h3>
+        <p style={{ fontSize: 13, color: '#64748b', marginBottom: 16 }}>
+          Importez un fichier Excel (agents, élus, contacts…), faites correspondre les colonnes, puis lancez la
+          vérification : chaque ligne est recherchée dans RH Studio par email, avec repli sur le nom (tolérant aux
+          petites fautes d'orthographe) — configuration dans <strong>Admin → Infra</strong>.
+        </p>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+          <input
+            type="file"
+            accept=".xlsx,.xls"
+            onChange={(e) => handleFileSelect(e.target.files?.[0] || null)}
+            disabled={parsing}
+            style={{ padding: 7, borderRadius: 6, border: '1px solid #d1d5db', opacity: parsing ? 0.5 : 1 }}
+          />
+          {parsing && <span style={{ fontSize: 13, color: '#64748b' }}>Lecture du fichier…</span>}
+          {file && !parsing && (
+            <span style={{ fontSize: 13, color: '#16a34a', fontWeight: 600 }}>
+              ✓ {rows.length} ligne{rows.length > 1 ? 's' : ''} lue{rows.length > 1 ? 's' : ''} ({file.name})
+            </span>
+          )}
+          {(file || results) && (
+            <button style={st.btnGhost} onClick={reset}><X size={14} style={{ marginRight: 4 }} />Recommencer</button>
+          )}
+        </div>
+        {parseError && <div style={{ marginTop: 10, color: '#dc2626', fontSize: 13 }}>{parseError}</div>}
+      </div>
+
+      {headers.length > 0 && (
+        <div style={st.section}>
+          <h4 style={{ marginBottom: 12, color: '#0f172a', fontSize: 14 }}>Correspondance des colonnes</h4>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 14 }}>
+            <div>
+              <label style={st.label}>Colonne "Nom"</label>
+              <select style={st.select} value={mapping.nom} onChange={(e) => setMapping((m) => ({ ...m, nom: e.target.value }))}>
+                <option value="">— non mappée —</option>
+                {headers.map((h) => <option key={h} value={h}>{h}</option>)}
+              </select>
+            </div>
+            <div>
+              <label style={st.label}>Colonne "Prénom"</label>
+              <select style={st.select} value={mapping.prenom} onChange={(e) => setMapping((m) => ({ ...m, prenom: e.target.value }))}>
+                <option value="">— non mappée —</option>
+                {headers.map((h) => <option key={h} value={h}>{h}</option>)}
+              </select>
+            </div>
+            <div>
+              <label style={st.label}>Colonne "Email"</label>
+              <select style={st.select} value={mapping.email} onChange={(e) => setMapping((m) => ({ ...m, email: e.target.value }))}>
+                <option value="">— non mappée —</option>
+                {headers.map((h) => <option key={h} value={h}>{h}</option>)}
+              </select>
+            </div>
+          </div>
+          <div style={{ marginTop: 16, display: 'flex', alignItems: 'center', gap: 12 }}>
+            <button style={{ ...st.btnPrimary, opacity: verifying ? 0.7 : 1 }} onClick={runVerification} disabled={verifying}>
+              <CheckCircle size={15} />
+              {verifying ? 'Vérification en cours…' : `Lancer la vérification (${rows.length} ligne${rows.length > 1 ? 's' : ''})`}
+            </button>
+            {verifyError && <span style={{ color: '#dc2626', fontSize: 13 }}>{verifyError}</span>}
+          </div>
+        </div>
+      )}
+
+      {results && (
+        <div style={st.section}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14, flexWrap: 'wrap', gap: 10 }}>
+            <h4 style={{ color: '#0f172a', fontSize: 14 }}>Résultats ({results.length})</h4>
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+              {(['all', 'present', 'departed', 'not_arrived', 'unknown', 'not_found'] as const).map((f) => (
+                <button
+                  key={f}
+                  onClick={() => setFilterStatus(f)}
+                  style={{
+                    padding: '5px 10px', borderRadius: 999, fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                    border: filterStatus === f ? '2px solid #0ea5e9' : '1px solid #e2e8f0',
+                    background: filterStatus === f ? '#eff6ff' : 'white', color: '#334155',
+                  }}
+                >
+                  {f === 'all' ? `Tous (${results.length})`
+                    : f === 'not_found' ? `Non trouvés (${counts.not_found})`
+                    : `${RH_STATUS_META[f].label} (${counts[f]})`}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+              <thead>
+                <tr style={{ background: '#f8fafc', textAlign: 'left' }}>
+                  <th style={{ padding: '8px 10px' }}>Saisi</th>
+                  <th style={{ padding: '8px 10px' }}>Identité RH Studio</th>
+                  <th style={{ padding: '8px 10px' }}>Statut</th>
+                  <th style={{ padding: '8px 10px' }}>Service / Direction</th>
+                  <th style={{ padding: '8px 10px' }}>Correspondance</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredResults.length === 0 ? (
+                  <tr><td colSpan={5} style={{ padding: 20, textAlign: 'center', color: '#94a3b8' }}>Aucune ligne ne correspond à ce filtre.</td></tr>
+                ) : filteredResults.map((r, i) => {
+                  // Un candidat de faible confiance (nom proche mais sous le seuil) est
+                  // quand même affiché — grisé/italique — pour que l'utilisateur juge
+                  // lui-même (cas "Mark CHEVALIER" -> "Marc CHEVALIER" bien au-dessus du
+                  // seuil sera lui affiché en clair, found=true).
+                  const status = r.agent ? classifyRHAgent(r.agent) : null;
+                  const meta = status ? RH_STATUS_META[status] : null;
+                  return (
+                    <tr key={i} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                      <td style={{ padding: '8px 10px' }}>
+                        <div style={{ fontWeight: 600, color: '#1e293b' }}>{[r.input.prenom, r.input.nom].filter(Boolean).join(' ') || '-'}</div>
+                        {r.input.email && <div style={{ fontSize: 11, color: '#94a3b8' }}>{r.input.email}</div>}
+                      </td>
+                      <td style={{ padding: '8px 10px' }}>
+                        {r.agent ? (
+                          <span style={{ color: r.found ? '#1e293b' : '#b45309', fontStyle: r.found ? 'normal' : 'italic' }}>
+                            {rhAgentName(r.agent)}
+                          </span>
+                        ) : (
+                          <span style={{ color: '#94a3b8' }}>Non trouvé</span>
+                        )}
+                      </td>
+                      <td style={{ padding: '8px 10px' }}>
+                        {meta && (
+                          <span style={{ background: meta.bg, color: meta.color, padding: '2px 8px', borderRadius: 4, fontSize: 12, fontWeight: 600 }}>
+                            {meta.label}
+                          </span>
+                        )}
+                      </td>
+                      <td style={{ padding: '8px 10px', color: '#475569' }}>{r.agent ? rhAgentService(r.agent) : '-'}</td>
+                      <td style={{ padding: '8px 10px' }}>
+                        {r.matchedBy === 'email' && <span style={{ fontSize: 12, color: '#16a34a', fontWeight: 600 }}>Email exact</span>}
+                        {r.matchedBy === 'nom' && r.similarity != null && (
+                          <span style={{ fontSize: 12, color: r.similarity >= 0.85 ? '#16a34a' : '#d97706', fontWeight: 600 }}>
+                            Nom — {Math.round(r.similarity * 100)}% {r.similarity < 0.85 ? '(à vérifier)' : ''}
+                          </span>
+                        )}
+                        {!r.matchedBy && <span style={{ fontSize: 12, color: '#94a3b8' }}>—</span>}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Composant principal ──────────────────────────────────────────────────────
 export default function ParamVille() {
   const { user: _user, token } = useAuth();
-  const [selectedTab, setSelectedTab] = useState<'general' | 'elus' | 'sites' | 'ecoles' | 'carte' | 'organisation' | 'encadrants'>('general');
+  const [selectedTab, setSelectedTab] = useState<'general' | 'elus' | 'sites' | 'ecoles' | 'carte' | 'organisation' | 'encadrants' | 'verification'>('general');
 
   const [config, setConfig] = useState<VilleConfig>({ nom: '', code_postal: '' });
 
@@ -1453,9 +1774,9 @@ export default function ParamVille() {
       <p style={s.subtitle}>Configuration générale, élus, sites et écoles</p>
 
       <div style={s.tabs}>
-        {(['general', 'elus', 'sites', 'ecoles', 'carte', 'organisation', 'encadrants'] as const).map(tab => (
+        {(['general', 'elus', 'sites', 'ecoles', 'carte', 'organisation', 'encadrants', 'verification'] as const).map(tab => (
           <button key={tab} style={s.tab(selectedTab === tab)} onClick={() => setSelectedTab(tab)}>
-            {tab === 'general' ? '⚙️ Général' : tab === 'elus' ? '👤 Élus' : tab === 'sites' ? '🏢 Sites' : tab === 'ecoles' ? '🏫 Écoles' : tab === 'carte' ? '🗺️ Carte' : tab === 'organisation' ? '🏛️ Organisation' : '👔 Encadrants'}
+            {tab === 'general' ? '⚙️ Général' : tab === 'elus' ? '👤 Élus' : tab === 'sites' ? '🏢 Sites' : tab === 'ecoles' ? '🏫 Écoles' : tab === 'carte' ? '🗺️ Carte' : tab === 'organisation' ? '🏛️ Organisation' : tab === 'encadrants' ? '👔 Encadrants' : '🔎 Vérification RH'}
           </button>
         ))}
       </div>
@@ -1469,6 +1790,9 @@ export default function ParamVille() {
 
       {/* ─── ENCADRANTS ──────────────────────────────────────────── */}
       {selectedTab === 'encadrants' && <EncadrantsTab token={token} />}
+
+      {/* ─── VÉRIFICATION RH STUDIO ─────────────────────────────── */}
+      {selectedTab === 'verification' && <VerificationRHTab token={token} />}
 
       {/* ─── GÉNÉRAL ─────────────────────────────────────────────── */}
       {selectedTab === 'general' && (

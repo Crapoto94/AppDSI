@@ -4,7 +4,8 @@
  */
 const { pgDb, pool } = require('../../shared/database');
 const { syncReseauLinks, fetchLinks } = require('./reseau-sync');
-const { fetchAgentPresence } = require('./agent-presence');
+const { fetchAgentPresence, matchAgent } = require('./agent-presence');
+const xlsx = require('xlsx');
 
 function maskKey(k) {
     if (!k) return null;
@@ -91,6 +92,68 @@ module.exports = {
 
             const result = await fetchAgentPresence(cfg, { email, q, nom, prenom });
             res.json(result);
+        } catch (e) {
+            res.status(502).json({ message: e.message });
+        }
+    },
+
+    // POST /api/infra/agents/presence/parse-excel
+    // Lit un fichier Excel uploadé et renvoie ses en-têtes + toutes ses lignes
+    // (sans logique métier), pour que le frontend propose un mapping colonne -> champ.
+    parseAgentsExcel: async (req, res) => {
+        if (!req.file) return res.status(400).json({ message: 'Aucun fichier fourni' });
+        try {
+            const workbook = xlsx.read(req.file.buffer, { type: 'buffer' });
+            const sheet = workbook.Sheets[workbook.SheetNames[0]];
+            if (!sheet) return res.status(400).json({ message: 'Le fichier ne contient aucune feuille exploitable' });
+
+            const headerRow = xlsx.utils.sheet_to_json(sheet, { header: 1, defval: '' })[0] || [];
+            const headers = headerRow.map((h) => String(h).trim()).filter((h) => h.length > 0);
+            const rows = xlsx.utils.sheet_to_json(sheet, { defval: '' });
+
+            if (rows.length > 2000) {
+                return res.status(400).json({ message: `Fichier trop volumineux (${rows.length} lignes, 2000 maximum)` });
+            }
+
+            res.json({ headers, rows, count: rows.length });
+        } catch (e) {
+            res.status(400).json({ message: 'Erreur lors de la lecture du fichier Excel', error: e.message });
+        }
+    },
+
+    // POST /api/infra/agents/presence/batch
+    // { agents: [{ nom, prenom, email }, ...] } -> recherche RH Studio en lot
+    // (email d'abord, repli sur le nom avec tolerance aux fautes de frappe).
+    verifyAgentsBatch: async (req, res) => {
+        try {
+            const { agents } = req.body || {};
+            if (!Array.isArray(agents) || agents.length === 0) {
+                return res.status(400).json({ message: 'Fournir un tableau "agents" non vide' });
+            }
+            if (agents.length > 500) {
+                return res.status(400).json({ message: `Trop de lignes (${agents.length}, 500 maximum par lot)` });
+            }
+
+            const cfg = await pgDb.get('SELECT * FROM hub.infra_apis WHERE key = ?', ['rh_studio_presence']);
+            if (!cfg) return res.status(404).json({ message: "Configuration 'rh_studio_presence' introuvable" });
+            if (cfg.enabled === false) return res.status(503).json({ message: "L'API RH Studio est désactivée" });
+
+            const CONCURRENCY = 5;
+            const results = new Array(agents.length);
+            let cursor = 0;
+            async function worker() {
+                while (cursor < agents.length) {
+                    const i = cursor++;
+                    try {
+                        results[i] = await matchAgent(cfg, agents[i] || {});
+                    } catch (e) {
+                        results[i] = { input: agents[i], matchedBy: null, similarity: null, found: false, agent: null, error: e.message };
+                    }
+                }
+            }
+            await Promise.all(Array.from({ length: Math.min(CONCURRENCY, agents.length) }, worker));
+
+            res.json({ results });
         } catch (e) {
             res.status(502).json({ message: e.message });
         }
