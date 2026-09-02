@@ -61,9 +61,44 @@ function ldapSearch(client, base, opts) {
 }
 
 /**
+ * Décode les séquences d'échappement hexadécimales (\XX) d'une chaîne DN LDAP
+ * vers leur forme UTF-8 littérale (ex. "Secr\c3\a9taires" -> "Secrétaires").
+ * ldapjs sérialise systématiquement les octets non-ASCII d'un DN sous cette
+ * forme (RFC 4514, syntaxe valide), mais réutiliser tel quel ce DN comme base
+ * d'une recherche scope=base échoue côté AD avec "No Such Object" dès qu'il
+ * contient un caractère accentué (le round-trip hex-échappé -> requête LDAP
+ * ne préserve pas les octets d'origine). Les octets \XX consécutifs sont
+ * regroupés avant décodage UTF-8 car un caractère accentué occupe souvent
+ * 2 octets (donc 2 séquences \XX). Les échappements structurels non-hex du
+ * DN (ex. "\," pour une virgule dans un nom) sont laissés intacts.
+ */
+function unescapeDnHexBytes(dn) {
+    const bytes = [];
+    let out = '';
+    const flush = () => { if (bytes.length) { out += Buffer.from(bytes).toString('utf8'); bytes.length = 0; } };
+    const re = /\\([0-9a-fA-F]{2})/g;
+    let lastIndex = 0, m;
+    while ((m = re.exec(dn))) {
+        if (m.index !== lastIndex) { flush(); out += dn.slice(lastIndex, m.index); }
+        bytes.push(parseInt(m[1], 16));
+        lastIndex = re.lastIndex;
+    }
+    flush();
+    out += dn.slice(lastIndex);
+    return out;
+}
+
+/** Échappe une valeur pour l'insérer dans un filtre LDAP (RFC 4515). */
+function escapeLdapFilterValue(v) {
+    return String(v).replace(/[\\*()\x00]/g, (c) => '\\' + c.charCodeAt(0).toString(16).padStart(2, '0'));
+}
+
+/**
  * Cherche les membres d'un groupe AD par son DN exact.
  * Stratégie :
- *  1. Récupère l'attribut `member` du groupe (liste de DNs) — pas de limite de page.
+ *  1. Récupère l'attribut `member` du groupe via un filtre `distinguishedName=`
+ *     (et non un scope=base sur le DN lui-même, cf. unescapeDnHexBytes ci-dessus)
+ *     — pas de limite de page.
  *  2. Extrait les CNs des DNs membres.
  *  3. Batch-search les utilisateurs par CN (chunks de 50) pour récupérer mail etc.
  */
@@ -80,8 +115,10 @@ async function searchADGroupMembersByDN(groupDN, adSettings) {
             if (err) { clearTimeout(guard); return done(members); }
             try {
                 // 1. Attribut `member` du groupe
-                const groupEntries = await ldapSearch(client, groupDN, {
-                    scope: 'base', filter: '(objectClass=*)', attributes: ['member']
+                const literalDn = unescapeDnHexBytes(groupDN);
+                const groupFilter = `(distinguishedName=${escapeLdapFilterValue(literalDn)})`;
+                const groupEntries = await ldapSearch(client, adSettings.base_dn, {
+                    scope: 'sub', filter: groupFilter, attributes: ['member']
                 });
                 if (!groupEntries.length) { clearTimeout(guard); return done(members); }
 
@@ -101,9 +138,13 @@ async function searchADGroupMembersByDN(groupDN, adSettings) {
                 const CHUNK = 50;
                 for (let i = 0; i < cns.length; i += CHUNK) {
                     const chunk = cns.slice(i, i + CHUNK);
+                    // NB : le filtre OR multi-CN avait une parenthèse superflue
+                    // ( "(|(" + clauses + "))" au lieu de "(|" + clauses + ")" )
+                    // qui produisait un filtre LDAP invalide dès que le groupe
+                    // avait plus d'un membre ("invalid attribute name" côté AD).
                     const filter = chunk.length === 1
-                        ? `(&(objectClass=user)(cn=${chunk[0].replace(/[*()\\\x00]/g, '\\$&')}))`
-                        : `(&(objectClass=user)(|(${chunk.map(c => `(cn=${c.replace(/[*()\\\x00]/g, '\\$&')})`).join('')})))`;
+                        ? `(&(objectClass=user)(cn=${escapeLdapFilterValue(chunk[0])}))`
+                        : `(&(objectClass=user)(|${chunk.map(c => `(cn=${escapeLdapFilterValue(c)})`).join('')}))`;
                     try {
                         const entries = await ldapSearch(client, adSettings.base_dn, {
                             filter, scope: 'sub',
