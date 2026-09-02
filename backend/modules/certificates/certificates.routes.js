@@ -23,6 +23,8 @@ router.delete('/:id', authenticateJWT, certificatesController.deleteCertificate)
 router.put('/:id', authenticateJWT, certificatesController.updateCertificate);
 router.put('/:id/renewal', authenticateJWT, certificatesController.updateRenewal);
 router.put('/:id/expiry', authenticateJWT, certificatesController.updateExpiry);
+router.put('/:id/revoke', authenticateJWT, certificatesController.revokeCertificate);
+router.put('/:id/unrevoke', authenticateJWT, certificatesController.unrevokeCertificate);
 
 // File handling
 router.post('/:id/file', authenticateJWT, upload.single('file'), certificatesController.attachFile);

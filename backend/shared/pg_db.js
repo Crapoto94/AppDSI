@@ -1280,6 +1280,9 @@ async function setupPgDb() {
     try { await client.query(`ALTER TABLE hub.certificates ADD COLUMN IF NOT EXISTS usage_id INTEGER`); } catch (e) {}
     try { await client.query(`ALTER TABLE hub.certificates ADD COLUMN IF NOT EXISTS service_code VARCHAR(255)`); } catch (e) {}
     try { await client.query(`ALTER TABLE hub.certificates ADD COLUMN IF NOT EXISTS service_label TEXT`); } catch (e) {}
+    try { await client.query(`ALTER TABLE hub.certificates ADD COLUMN IF NOT EXISTS serenite BOOLEAN DEFAULT FALSE`); } catch (e) {}
+    try { await client.query(`ALTER TABLE hub.certificates ADD COLUMN IF NOT EXISTS revoked_at DATE`); } catch (e) {}
+    try { await client.query(`ALTER TABLE hub.certificates ADD COLUMN IF NOT EXISTS revocation_reason TEXT DEFAULT ''`); } catch (e) {}
 
     await client.query(`
       CREATE TABLE IF NOT EXISTS hub.certificate_usages (

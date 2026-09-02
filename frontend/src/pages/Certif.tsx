@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import Header from '../components/Header';
-import { Upload, FileText, CheckCircle, AlertCircle, Loader2, Eye, Trash2, Calendar, Edit2, Check, X as CloseIcon, Hourglass, Search, RefreshCw, ChevronDown } from 'lucide-react';
+import { Upload, FileText, CheckCircle, AlertCircle, Loader2, Eye, Trash2, Calendar, Edit2, Check, X as CloseIcon, Hourglass, Search, RefreshCw, ChevronDown, ShieldCheck, Ban } from 'lucide-react';
 import AgentPresenceBadge from '../components/AgentPresenceBadge';
 
 interface Certificate {
@@ -23,6 +23,9 @@ interface Certificate {
   usage_label?: string | null;
   service_code: string | null;
   service_label: string | null;
+  serenite: boolean;
+  revoked_at: string | null;
+  revocation_reason: string | null;
 }
 
 interface CertUsage {
@@ -68,7 +71,8 @@ const Certif: React.FC = () => {
     observations: '',
     usage_id: null,
     service_code: '',
-    service_label: ''
+    service_label: '',
+    serenite: false
   });
   const [usages, setUsages] = useState<CertUsage[]>([]);
   const [serviceTree, setServiceTree] = useState<CertServiceDirection[]>([]);
@@ -88,6 +92,9 @@ const Certif: React.FC = () => {
   const [openActionMenu, setOpenActionMenu] = useState<number | null>(null);
   const [nonRenewalModal, setNonRenewalModal] = useState<{ id: number; orderNum: string } | null>(null);
   const [nonRenewalComment, setNonRenewalComment] = useState<string>('');
+  const [revokeModal, setRevokeModal] = useState<{ id: number; orderNum: string } | null>(null);
+  const [revokeReason, setRevokeReason] = useState<string>('');
+  const [revokeDate, setRevokeDate] = useState<string>('');
   const [viewer, setViewer] = useState<{ url: string; title: string } | null>(null);
   const [newUsageLabel, setNewUsageLabel] = useState('');
   const [editingUsageId, setEditingUsageId] = useState<number | null>(null);
@@ -123,6 +130,30 @@ const Certif: React.FC = () => {
       setOpenActionMenu(null);
     } catch {
       setMessage({ type: 'error', text: 'Impossible de mettre à jour le statut' });
+    }
+  };
+
+  const handleRevoke = async (id: number, reason: string, date: string) => {
+    try {
+      await fetch(`/api/certificates/${id}/revoke`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...authHeaders() },
+        body: JSON.stringify({ revocation_reason: reason, revoked_at: date || undefined })
+      });
+      await fetchCertificates();
+      setOpenActionMenu(null);
+    } catch {
+      setMessage({ type: 'error', text: 'Impossible de révoquer le certificat' });
+    }
+  };
+
+  const handleUnrevoke = async (id: number) => {
+    try {
+      await fetch(`/api/certificates/${id}/unrevoke`, { method: 'PUT', headers: authHeaders() });
+      await fetchCertificates();
+      setOpenActionMenu(null);
+    } catch {
+      setMessage({ type: 'error', text: 'Impossible d\'annuler la révocation' });
     }
   };
 
@@ -202,7 +233,8 @@ const Certif: React.FC = () => {
       observations: cert.observations,
       usage_id: cert.usage_id,
       service_code: cert.service_code,
-      service_label: cert.service_label
+      service_label: cert.service_label,
+      serenite: cert.serenite
     });
     setEditDirectionCode(findDirectionForService(cert.service_code));
   };
@@ -477,7 +509,8 @@ const Certif: React.FC = () => {
         observations: newCertificate.observations || '',
         usage_id: newCertificate.usage_id || null,
         service_code: newCertificate.service_code || '',
-        service_label: newCertificate.service_label || ''
+        service_label: newCertificate.service_label || '',
+        serenite: !!newCertificate.serenite
       };
 
       const response = await fetch('/api/certificates', {
@@ -509,7 +542,8 @@ const Certif: React.FC = () => {
           observations: '',
           usage_id: null,
           service_code: '',
-          service_label: ''
+          service_label: '',
+          serenite: false
         });
         setNewCertDirectionCode('');
         fetchCertificates();
@@ -687,6 +721,40 @@ const Certif: React.FC = () => {
           </div>
         )}
 
+        {revokeModal && (
+          <div className="modal-overlay">
+            <div className="modal-box">
+              <h3>Révoquer le certificat</h3>
+              <p>Commande : <strong>{revokeModal.orderNum}</strong></p>
+              <label className="modal-field-label">Date de révocation</label>
+              <input
+                type="date"
+                className="modal-date-input"
+                value={revokeDate}
+                onChange={(e) => setRevokeDate(e.target.value)}
+              />
+              <label className="modal-field-label">Raison</label>
+              <textarea
+                className="modal-textarea"
+                placeholder="Raison de la révocation…"
+                value={revokeReason}
+                onChange={(e) => setRevokeReason(e.target.value)}
+                rows={4}
+                autoFocus
+              />
+              <div className="modal-actions">
+                <button className="modal-confirm modal-danger" onClick={async () => {
+                  await handleRevoke(revokeModal.id, revokeReason, revokeDate);
+                  setRevokeModal(null);
+                  setRevokeReason('');
+                  setRevokeDate('');
+                }}>Révoquer</button>
+                <button className="modal-cancel" onClick={() => { setRevokeModal(null); setRevokeReason(''); setRevokeDate(''); }}>Annuler</button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {showUsageManager && (
           <div className="modal-overlay" onClick={() => setShowUsageManager(false)}>
             <div className="modal-box usage-modal-box" onClick={(e) => e.stopPropagation()}>
@@ -823,6 +891,20 @@ const Certif: React.FC = () => {
                     <label>Date de fin de validité</label>
                     <input type="date" value={editingCertificate.expiry_date || ''} onChange={(e) => handleEditChange('expiry_date', e.target.value)} />
                   </div>
+                  <div className="field">
+                    <label>Option Sérénité</label>
+                    <label className="toggle-field">
+                      <span className="toggle-switch">
+                        <input
+                          type="checkbox"
+                          checked={!!editingCertificate.serenite}
+                          onChange={(e) => setEditingCertificate((prev) => prev ? { ...prev, serenite: e.target.checked } : prev)}
+                        />
+                        <span className="toggle-slider" />
+                      </span>
+                      <span className="toggle-label">{editingCertificate.serenite ? 'Activée' : 'Désactivée'}</span>
+                    </label>
+                  </div>
                   <div className="field field-full">
                     <label>Observations</label>
                     <textarea value={editingCertificate.observations || ''} onChange={(e) => handleEditChange('observations', e.target.value)} rows={2} />
@@ -911,6 +993,13 @@ const Certif: React.FC = () => {
                 <option value="">{newCertDirectionCode ? 'Service…' : 'Choisir une direction d\'abord'}</option>
                 {(serviceTree.find((d) => d.code === newCertDirectionCode)?.services || []).map((s) => <option key={s.code} value={s.code}>{s.label}</option>)}
               </select>
+              <label className="toggle-field">
+                <span className="toggle-switch">
+                  <input type="checkbox" checked={!!newCertificate.serenite} onChange={(e) => setNewCertificate((prev) => ({ ...prev, serenite: e.target.checked }))} />
+                  <span className="toggle-slider" />
+                </span>
+                <span className="toggle-label">Option Sérénité</span>
+              </label>
               <textarea placeholder="Observations" value={newCertificate.observations || ''} onChange={(e) => handleManualChange('observations', e.target.value)} rows={2} style={{ gridColumn: '1 / -1' }} />
             </div>
             <div className="form-file-row">
@@ -1025,7 +1114,7 @@ const Certif: React.FC = () => {
                   {filteredCertificates.length === 0 ? (
                     <tr><td colSpan={8} style={{ textAlign: 'center', padding: '40px', color: '#94a3b8' }}>Aucun certificat ne correspond à votre recherche.</td></tr>
                   ) : filteredCertificates.map((cert) => (
-                    <tr key={cert.id} className={isExpired(cert.expiry_date) ? 'expired-row' : ''}>
+                    <tr key={cert.id} className={cert.revoked_at ? 'revoked-row' : isExpired(cert.expiry_date) ? 'expired-row' : ''}>
                       <td>
                         <div className="order-cell">
                           <span className="order-number">{cert.order_number}</span>
@@ -1046,6 +1135,11 @@ const Certif: React.FC = () => {
                         <div className="product">
                           <span className="label">{cert.product_label}</span>
                           <span className="code">{cert.product_code}</span>
+                          {cert.serenite && (
+                            <span className="serenite-badge" title="Option Sérénité">
+                              <ShieldCheck size={11} /> Sérénité
+                            </span>
+                          )}
                         </div>
                       </td>
                       <td>
@@ -1096,6 +1190,21 @@ const Certif: React.FC = () => {
                                     {cert.renewal_status && (
                                       <button className="action-reset" onClick={() => handleRenewalStatus(cert.id, '')}>Réinitialiser statut</button>
                                     )}
+                                    {cert.revoked_at ? (
+                                      <button className="action-reset" onClick={() => handleUnrevoke(cert.id)}>Annuler la révocation</button>
+                                    ) : (
+                                      <button
+                                        className="action-danger"
+                                        onClick={() => {
+                                          setOpenActionMenu(null);
+                                          setRevokeDate(new Date().toISOString().split('T')[0]);
+                                          setRevokeReason('');
+                                          setRevokeModal({ id: cert.id, orderNum: cert.order_number });
+                                        }}
+                                      >
+                                        <Ban size={13} style={{ marginRight: 6 }} />Révoquer le certificat
+                                      </button>
+                                    )}
                                   </div>
                                 )}
                               </div>
@@ -1108,6 +1217,15 @@ const Certif: React.FC = () => {
                       </td>
                       <td>
                         <div>
+                          {cert.revoked_at && (
+                            <span className="renewal-badge renewal-revoked">
+                              <Ban size={11} style={{ marginRight: 3, verticalAlign: -1 }} />
+                              Révoqué le {formatDate(cert.revoked_at)}
+                            </span>
+                          )}
+                          {cert.revoked_at && cert.revocation_reason && (
+                            <div className="renewal-comment">{cert.revocation_reason}</div>
+                          )}
                           {cert.renewal_status && (
                             <span className={`renewal-badge renewal-${cert.renewal_status.replace('_', '-')}`}>
                               {cert.renewal_status === 'en_cours' ? 'Renouvellement en cours' : cert.renewal_status === 'renouvelé' ? 'Renouvelé' : 'Non renouvelé'}
@@ -1116,7 +1234,7 @@ const Certif: React.FC = () => {
                           {cert.renewal_status === 'non_renouvelé' && cert.renewal_comment && (
                             <div className="renewal-comment">{cert.renewal_comment}</div>
                           )}
-                          {cert.observations || (!cert.renewal_status ? '-' : '')}
+                          {cert.observations || (!cert.renewal_status && !cert.revoked_at ? '-' : '')}
                         </div>
                       </td>
                     </tr>
@@ -1400,6 +1518,55 @@ const Certif: React.FC = () => {
           color: #94a3b8;
           cursor: not-allowed;
         }
+        .toggle-field {
+          display: inline-flex;
+          align-items: center;
+          gap: 10px;
+          cursor: pointer;
+          user-select: none;
+        }
+        .toggle-switch {
+          position: relative;
+          display: inline-block;
+          width: 38px;
+          height: 22px;
+          flex-shrink: 0;
+        }
+        .toggle-switch input {
+          opacity: 0;
+          width: 0;
+          height: 0;
+        }
+        .toggle-slider {
+          position: absolute;
+          inset: 0;
+          background: #cbd5e1;
+          border-radius: 999px;
+          transition: background 0.2s;
+        }
+        .toggle-slider::before {
+          content: '';
+          position: absolute;
+          height: 16px;
+          width: 16px;
+          left: 3px;
+          top: 3px;
+          background: white;
+          border-radius: 50%;
+          transition: transform 0.2s;
+          box-shadow: 0 1px 2px rgba(0,0,0,0.2);
+        }
+        .toggle-switch input:checked + .toggle-slider {
+          background: var(--primary-color, #e11d48);
+        }
+        .toggle-switch input:checked + .toggle-slider::before {
+          transform: translateX(16px);
+        }
+        .toggle-label {
+          font-size: 13px;
+          color: #334155;
+          font-weight: 500;
+        }
         .manual-form button {
           padding: 10px 16px;
           border: none;
@@ -1546,6 +1713,14 @@ const Certif: React.FC = () => {
         .expired-row {
           background: #fff1f2;
         }
+        .revoked-row {
+          background: #f8fafc;
+          opacity: 0.75;
+        }
+        .renewal-revoked {
+          background: #fee2e2;
+          color: #b91c1c;
+        }
         .bold { font-weight: 700; color: #1e293b; }
         .order-cell { display: flex; flex-direction: column; gap: 2px; }
         .order-number { font-weight: 700; color: #1e293b; }
@@ -1581,6 +1756,20 @@ const Certif: React.FC = () => {
           width: fit-content;
           margin-top: 4px;
           color: #475569;
+        }
+        .serenite-badge {
+          display: inline-flex;
+          align-items: center;
+          gap: 4px;
+          font-size: 11px;
+          font-weight: 600;
+          background: #ecfdf5;
+          color: #059669;
+          border: 1px solid #a7f3d0;
+          padding: 2px 7px;
+          border-radius: 4px;
+          width: fit-content;
+          margin-top: 4px;
         }
         .expiry-display.readonly { cursor: default; }
         .expiry-display.readonly:hover { background: transparent !important; border-color: transparent !important; }
@@ -1823,6 +2012,14 @@ const Certif: React.FC = () => {
           border-top: 1px solid #f1f5f9;
           font-size: 12px;
         }
+        .action-dropdown button.action-danger {
+          color: #e11d48;
+          border-top: 1px solid #f1f5f9;
+          font-weight: 600;
+          display: flex;
+          align-items: center;
+        }
+        .action-dropdown button.action-danger:hover { background: #fff1f2; }
         /* Modal */
         .modal-overlay {
           position: fixed;
@@ -1955,6 +2152,26 @@ const Certif: React.FC = () => {
           font-size: 14px;
         }
         .modal-cancel:hover { background: #e2e8f0; }
+        .modal-field-label {
+          display: block;
+          font-size: 12px;
+          font-weight: 600;
+          color: #64748b;
+          margin-bottom: 6px;
+        }
+        .modal-date-input {
+          width: 100%;
+          border: 1px solid #cbd5e1;
+          border-radius: 8px;
+          padding: 9px 10px;
+          font-size: 14px;
+          font-family: inherit;
+          margin-bottom: 16px;
+        }
+        .modal-danger {
+          background: #e11d48;
+        }
+        .modal-danger:hover { background: #be123c; }
         .usage-modal-box { width: 480px; }
         .cert-edit-modal-box {
           width: 640px;

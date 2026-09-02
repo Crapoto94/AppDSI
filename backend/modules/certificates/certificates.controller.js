@@ -389,11 +389,11 @@ module.exports = {
     createCertificate: async (req, res) => {
         try {
             const db = pgDb;
-            const { order_number = '', request_date = new Date().toISOString().split('T')[0], beneficiary_name = '', beneficiary_email = '', product_code = '', product_label = '', expiry_date = null, sedit_number = '', is_provisional = 1, observations = '', usage_id = null, service_code = '', service_label = '' } = req.body;
+            const { order_number = '', request_date = new Date().toISOString().split('T')[0], beneficiary_name = '', beneficiary_email = '', product_code = '', product_label = '', expiry_date = null, sedit_number = '', is_provisional = 1, observations = '', usage_id = null, service_code = '', service_label = '', serenite = false } = req.body;
             const finalProvisional = expiry_date ? 0 : (is_provisional ?? 1);
             const result = await db.run(
-                `INSERT INTO hub.certificates (order_number, request_date, beneficiary_name, beneficiary_email, product_code, product_label, file_path, expiry_date, sedit_number, is_provisional, observations, usage_id, service_code, service_label) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-                [order_number, request_date, beneficiary_name, normalizeEmail(beneficiary_email), product_code, product_label, '', expiry_date, sedit_number, finalProvisional, observations, usage_id || null, service_code, service_label]
+                `INSERT INTO hub.certificates (order_number, request_date, beneficiary_name, beneficiary_email, product_code, product_label, file_path, expiry_date, sedit_number, is_provisional, observations, usage_id, service_code, service_label, serenite) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                [order_number, request_date, beneficiary_name, normalizeEmail(beneficiary_email), product_code, product_label, '', expiry_date, sedit_number, finalProvisional, observations, usage_id || null, service_code, service_label, !!serenite]
             );
             const newCertificate = await db.get('SELECT * FROM hub.certificates WHERE id = ?', [result.lastID]);
             const formatted = { ...newCertificate, request_date: formatDateFrench(newCertificate.request_date), expiry_date: formatDateFrench(newCertificate.expiry_date) };
@@ -456,10 +456,36 @@ module.exports = {
         }
     },
 
+    revokeCertificate: async (req, res) => {
+        try {
+            const db = pgDb;
+            const { revocation_reason = '', revoked_at } = req.body;
+            const finalDate = revoked_at || new Date().toISOString().split('T')[0];
+            await db.run('UPDATE hub.certificates SET revoked_at = ?, revocation_reason = ? WHERE id = ?', [finalDate, revocation_reason, req.params.id]);
+            const updated = await db.get('SELECT * FROM hub.certificates WHERE id = ?', [req.params.id]);
+            const formatted = { ...updated, request_date: formatDateFrench(updated.request_date), expiry_date: formatDateFrench(updated.expiry_date), revoked_at: formatDateFrench(updated.revoked_at) };
+            res.json({ message: 'Certificat révoqué', certificate: formatted });
+        } catch (error) {
+            res.status(500).json({ message: 'Erreur lors de la révocation', error: error.message });
+        }
+    },
+
+    unrevokeCertificate: async (req, res) => {
+        try {
+            const db = pgDb;
+            await db.run('UPDATE hub.certificates SET revoked_at = NULL, revocation_reason = ? WHERE id = ?', ['', req.params.id]);
+            const updated = await db.get('SELECT * FROM hub.certificates WHERE id = ?', [req.params.id]);
+            const formatted = { ...updated, request_date: formatDateFrench(updated.request_date), expiry_date: formatDateFrench(updated.expiry_date) };
+            res.json({ message: 'Révocation annulée', certificate: formatted });
+        } catch (error) {
+            res.status(500).json({ message: 'Erreur lors de l\'annulation de la révocation', error: error.message });
+        }
+    },
+
     updateCertificate: async (req, res) => {
         try {
             const db = pgDb;
-            const allowedFields = ['order_number', 'request_date', 'beneficiary_name', 'beneficiary_email', 'product_code', 'product_label', 'expiry_date', 'sedit_number', 'is_provisional', 'observations', 'renewal_status', 'renewal_comment', 'usage_id', 'service_code', 'service_label'];
+            const allowedFields = ['order_number', 'request_date', 'beneficiary_name', 'beneficiary_email', 'product_code', 'product_label', 'expiry_date', 'sedit_number', 'is_provisional', 'observations', 'renewal_status', 'renewal_comment', 'usage_id', 'service_code', 'service_label', 'serenite'];
             const updates = [];
             const values = [];
             allowedFields.forEach((field) => {
