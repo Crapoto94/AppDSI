@@ -8,7 +8,7 @@ const fieldStyles: Record<string, React.CSSProperties> = {
   label: { fontSize: '0.9rem', fontWeight: 600, color: '#334155' },
   required: { color: '#e11d48', marginLeft: 3 },
   desc: { fontSize: '0.8rem', color: '#94a3b8' },
-  input: { border: '1px solid #e2e8f0', borderRadius: 8, padding: '10px 12px', fontSize: '0.95rem', fontFamily: 'inherit' },
+  input: { border: '1px solid #e2e8f0', borderRadius: 8, padding: '10px 12px', fontSize: '0.95rem', fontFamily: 'inherit', width: '100%', boxSizing: 'border-box' },
 };
 
 /**
@@ -34,7 +34,7 @@ function AgentSearchInput({ value, onChange, token, clearAfterSelect }: { value:
     <div style={{ position: 'relative' }}>
       <input
         style={fieldStyles.input}
-        placeholder="Rechercher un agent…"
+        placeholder={clearAfterSelect ? 'Ajouter un agent…' : 'Rechercher un agent…'}
         value={ad.query}
         onChange={(e) => { onChange(null); ad.setQuery(e.target.value); }}
       />
