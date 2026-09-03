@@ -51,10 +51,19 @@ async function createOnboarding(payload) {
     return callRhStudio(cfg, cfg.endpoint || '/onboarding', { method: 'POST', body: JSON.stringify(payload) });
 }
 
-/** Liste les agents dont l'arrivée est prévue prochainement et pas encore onboardés. */
+/**
+ * Liste les agents dont l'arrivée est prévue prochainement, sélectionnables
+ * pour un onboarding. mode=futurs_actionable (pas mode=futurs, réservé au
+ * dashboard RH Studio) : n'exclut que les agents dont l'onboarding a
+ * réellement démarré (statut != 'a_faire'), pas les stubs auto-détectés côté
+ * RH Studio (statut 'a_faire', jamais lancés par un manager) — sinon ces
+ * agents disparaissent de la liste sans qu'aucun onboarding n'ait été
+ * réellement traité pour eux. POST /api/onboarding complète alors ce stub
+ * au lieu d'en créer un doublon.
+ */
 async function listFutursAgents() {
     const cfg = await getConfig();
-    return callRhStudio(cfg, `${cfg.endpoint || '/onboarding'}?mode=futurs`, { method: 'GET' });
+    return callRhStudio(cfg, `${cfg.endpoint || '/onboarding'}?mode=futurs_actionable`, { method: 'GET' });
 }
 
 /** Acquitte (done=true) une OnboardingTask suite à la complétion de sa tâche DSI Hub miroir. */
