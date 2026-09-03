@@ -63,6 +63,15 @@ module.exports = {
                 return res.json({ ok: true, count: result.found ? 1 : 0, sample: [result] });
             }
 
+            if (key === 'rh_studio_onboarding') {
+                // GET ?mode=futurs : simple liste en lecture, aucun effet de
+                // bord (contrairement à GET sans mode, qui auto-crée des
+                // onboardings côté RH Studio — jamais utiliser ça pour un test).
+                const result = await studioOnboarding.listFutursAgents();
+                const list = Array.isArray(result) ? result : [];
+                return res.json({ ok: true, count: list.length, sample: list.slice(0, 3) });
+            }
+
             const data = await fetchLinks(cfg);
             res.json({ ok: true, count: data.length, sample: data.slice(0, 3) });
         } catch (e) {
