@@ -5469,6 +5469,39 @@ async function setupPgDb() {
       `);
     } catch (e) { console.error('[PG DB] hub.custom_groups:', e.message); }
 
+    // ─── hub.shared_mailboxes : boites mail partagees demandees via le
+    // formulaire de demande "Demande de boite mail partagée"
+    // (hub.request_forms.special_action = 'boite_partagee') — alimentee a la
+    // soumission (arbitrage_decision NULL = en attente), mise a jour a la
+    // decision d'arbitrage (cf. request-forms.controller.js /
+    // tasks.controller.js#submitArbitrageDecision). Liste TOUTES les boites,
+    // favorables comme defavorables (module /boites-partagees).
+    try {
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS hub.shared_mailboxes (
+          id                     SERIAL PRIMARY KEY,
+          nom                    TEXT NOT NULL,
+          type                   TEXT,
+          usage_type             TEXT,
+          responsable_display    TEXT,
+          responsable_email      TEXT,
+          provisoire             BOOLEAN DEFAULT FALSE,
+          date_fin               DATE,
+          membres                JSONB DEFAULT '[]',
+          justification          TEXT,
+          ticket_id              INTEGER,
+          form_id                INTEGER REFERENCES hub.request_forms(id) ON DELETE SET NULL,
+          requested_by_username  TEXT,
+          requested_by_name      TEXT,
+          arbitrage_decision     TEXT,
+          arbitrage_comment      TEXT,
+          created_at             TIMESTAMPTZ DEFAULT NOW(),
+          updated_at             TIMESTAMPTZ DEFAULT NOW()
+        )
+      `);
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_shared_mailboxes_ticket ON hub.shared_mailboxes(ticket_id)`);
+    } catch (e) { console.error('[PG DB] hub.shared_mailboxes:', e.message); }
+
     // ─── hub_telecom : opérateurs, comptes de facturation et factures télécom ────
     try {
       await client.query(`CREATE SCHEMA IF NOT EXISTS hub_telecom`);

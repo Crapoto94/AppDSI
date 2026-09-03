@@ -11,6 +11,7 @@ const ticketService = require('./services/ticket.service');
 const { resolveTicketRole } = require('./middleware/ticket-permissions');
 const encadrantsController = require('../rh/encadrants.controller');
 const studioOnboarding = require('../infra/studio-onboarding');
+const mailboxesService = require('../mailboxes/mailboxes.service');
 const { randomUUID } = require('crypto');
 
 const TICKET_ADMIN_ROLES = ['supervisor', 'admin', 'superadmin'];
@@ -26,7 +27,13 @@ const ENCADRANT_ROLES = ['dg', 'directeur', 'responsable_service'];
 //   - agent_arrive        (studio_agent)                utilisé si deja_arrive = true
 //   - futurs_agent        (studio_futurs_agent_picker)  utilisé si deja_arrive = false
 //   - manager             (studio_agent)                N+1 / manager, toujours requis
-const ALLOWED_SPECIAL_ACTIONS = ['onboarding_rhstudio'];
+// 'boite_partagee' (formulaire "Demande de boite mail partagée") attend :
+//   - nom, type, usage, admi (agent, responsable), provisoire, datefin,
+//     membres (agent_multi), justification
+// alimente hub.shared_mailboxes (module /boites-partagees) — un enregistrement
+// par soumission, mis à jour à la décision d'arbitrage (cf.
+// tasks.controller.js#submitArbitrageDecision).
+const ALLOWED_SPECIAL_ACTIONS = ['onboarding_rhstudio', 'boite_partagee'];
 
 // Cache en mémoire (15 min) de l'email -> rôle d'encadrant (dg/directeur/
 // responsable_service), pour ne pas relancer la recherche AD/LDAP de
@@ -539,6 +546,10 @@ module.exports = {
             let onboarding = null;
             if (form.special_action === 'onboarding_rhstudio') {
                 onboarding = await triggerOnboardingRhStudio(answers, ticketId, user);
+            }
+            if (form.special_action === 'boite_partagee') {
+                try { await mailboxesService.createRecord(answers, ticketId, form.id, user); }
+                catch (e) { console.error('[request-forms] createRecord (boite_partagee) failed:', e.message); }
             }
             const arbitrage = await createArbitrageTask(form, ticketId, ticketTitle);
 

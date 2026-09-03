@@ -4179,9 +4179,13 @@ interface TicketGroup { id: number; name: string; description: string; members: 
 // création de ticket. 'onboarding_rhstudio' (formulaire "Arrivée d'agent")
 // attend des clés de champ FIXES : deja_arrive (boolean), agent_arrive
 // (studio_agent), futurs_agent (studio_futurs_agent_picker), manager
-// (studio_agent) — cf. backend/modules/tickets/request-forms.controller.js.
+// (studio_agent). 'boite_partagee' (formulaire "Demande de boite mail
+// partagée") attend : nom, type, usage, admi (agent), provisoire, datefin,
+// membres (agent_multi), justification — alimente /boites-partagees.
+// Cf. backend/modules/tickets/request-forms.controller.js.
 const SPECIAL_ACTION_LABELS: Record<string, string> = {
   onboarding_rhstudio: 'Déclenche un onboarding RH Studio',
+  boite_partagee: 'Alimente le module Boîtes mail partagées',
 };
 
 interface CustomGroup {

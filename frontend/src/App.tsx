@@ -6,6 +6,7 @@ import Admin from './pages/Admin';
 import Budget from './pages/Budget';
 import Profile from './pages/Profile';
 import Certif from './pages/Certif';
+import BoitesPartagees from './pages/BoitesPartagees';
 import Documents from './pages/Documents';
 import MesTaches from './pages/MesTaches';
 import AdminMail from './pages/AdminMail';
@@ -147,6 +148,7 @@ function App() {
         <Route path="/tiers" element={<PrivateRoute path="/tiers"><Tiers /></PrivateRoute>} />
         <Route path="/profile" element={<PrivateRoute path="/profile"><Profile /></PrivateRoute>} />
         <Route path="/certif" element={<PrivateRoute path="/certif"><Certif /></PrivateRoute>} />
+        <Route path="/boites-partagees" element={<PrivateRoute path="/boites-partagees"><BoitesPartagees /></PrivateRoute>} />
         <Route path="/documents" element={<PrivateRoute path="/documents"><Documents /></PrivateRoute>} />
         <Route path="/mes-taches" element={<PrivateRoute path="/mes-taches"><MesTaches /></PrivateRoute>} />
         <Route path="/telecom" element={<PrivateRoute path="/telecom"><TelecomManagement /></PrivateRoute>} />

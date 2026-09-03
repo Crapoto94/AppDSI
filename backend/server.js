@@ -5992,11 +5992,13 @@ const slaService = require('./modules/tickets/services/sla.service');
 const ticketGroupsRouter = require('./modules/tickets/ticket-groups.routes');
 const ticketsAutoActionsRouter = require('./modules/tickets/auto-actions.routes');
 const requestFormsRouter = require('./modules/tickets/request-forms.routes');
+const mailboxesRouter = require('./modules/mailboxes/mailboxes.routes');
 ticketsCtrl.setSendMail(sendMail);
 app.use('/api/tickets/groups', ticketGroupsRouter);
 app.use('/api/tickets/admin', ticketsAdminRouter);
 app.use('/api/tickets/auto-actions', ticketsAutoActionsRouter);
 app.use('/api/request-forms', requestFormsRouter);
+app.use('/api/mailboxes', mailboxesRouter);
 app.use('/api/tickets', ticketsRouter);
 
 // ── Auto Resolution ──────────────────────────────────────────────────
