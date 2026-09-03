@@ -504,7 +504,11 @@ module.exports = {
             const answers = req.body.answers || {};
 
             const isEmptyAnswer = (v) => v === undefined || v === null || v === '' || (Array.isArray(v) && v.length === 0);
-            const missing = fields.filter((f) => f.type !== 'description' && f.required && isEmptyAnswer(answers[f.key]));
+            // Un champ requis mais masqué (conditional_on non satisfait, cf.
+            // isFieldVisible côté frontend requestFormTypes.ts) ne doit jamais
+            // bloquer la soumission — il n'a jamais été présenté à l'utilisateur.
+            const isVisible = (f) => !f.conditional_on || answers[f.conditional_on.field] === f.conditional_on.equals;
+            const missing = fields.filter((f) => f.type !== 'description' && f.required && isVisible(f) && isEmptyAnswer(answers[f.key]));
             if (missing.length > 0) {
                 return res.status(400).json({ message: `Champ(s) requis manquant(s) : ${missing.map((f) => f.label).join(', ')}` });
             }
