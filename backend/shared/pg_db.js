@@ -5038,6 +5038,16 @@ async function setupPgDb() {
                 'rh_75f6b6559d6fab7b820687b1dea7b1bfe3d526609af23117', 'x-api-key')
         ON CONFLICT (key) DO NOTHING
       `);
+      // Clé DISTINCTE de rh_studio_presence (lecture seule) : celle-ci doit
+      // avoir la permission read_write côté RH Studio (création d'onboarding,
+      // acquittement de tâche) — api_key à renseigner via /admin/infra une
+      // fois la clé générée côté RH Studio (/parametres -> clés API).
+      await client.query(`
+        INSERT INTO hub.infra_apis (key, label, base_url, endpoint, api_key, header_name, enabled)
+        VALUES ('rh_studio_onboarding', 'API RH Studio (onboarding, écriture)', 'https://studiorh.ivry.local/api', '/onboarding',
+                '', 'x-api-key', FALSE)
+        ON CONFLICT (key) DO NOTHING
+      `);
 
       // ── Seed v2 (version-gated) ────────────────────────────────────
       // DÉSACTIVÉ : le réseau est désormais alimenté par l'API Infra (switchs + liens),

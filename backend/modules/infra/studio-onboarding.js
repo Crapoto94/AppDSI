@@ -48,19 +48,22 @@ async function callRhStudio(cfg, path, opts = {}) {
  */
 async function createOnboarding(payload) {
     const cfg = await getConfig();
-    return callRhStudio(cfg, cfg.endpoint || '/api/onboarding', { method: 'POST', body: JSON.stringify(payload) });
+    return callRhStudio(cfg, cfg.endpoint || '/onboarding', { method: 'POST', body: JSON.stringify(payload) });
 }
 
 /** Liste les agents dont l'arrivée est prévue prochainement et pas encore onboardés. */
 async function listFutursAgents() {
     const cfg = await getConfig();
-    return callRhStudio(cfg, `${cfg.endpoint || '/api/onboarding'}?mode=futurs`, { method: 'GET' });
+    return callRhStudio(cfg, `${cfg.endpoint || '/onboarding'}?mode=futurs`, { method: 'GET' });
 }
 
 /** Acquitte (done=true) une OnboardingTask suite à la complétion de sa tâche DSI Hub miroir. */
 async function acknowledgeTask(rhStudioTaskId) {
     const cfg = await getConfig();
-    return callRhStudio(cfg, `/api/onboarding/tasks/${rhStudioTaskId}`, { method: 'PATCH', body: JSON.stringify({ done: true }) });
+    // NB : chemin absolu (pas cfg.endpoint) car base_url inclut déjà /api
+    // (cf. hub.infra_apis 'rh_studio_onboarding') — endpoint ne couvre que
+    // /onboarding, pas le sous-chemin /onboarding/tasks/{id}.
+    return callRhStudio(cfg, `/onboarding/tasks/${rhStudioTaskId}`, { method: 'PATCH', body: JSON.stringify({ done: true }) });
 }
 
 module.exports = { createOnboarding, listFutursAgents, acknowledgeTask };
