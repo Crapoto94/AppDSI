@@ -1,10 +1,13 @@
 /**
- * Boîtes mail partagées — alimenté par le formulaire de demande "Demande de
- * boite mail partagée" (hub.request_forms.special_action = 'boite_partagee').
- * Un enregistrement est créé à la soumission (arbitrage_decision NULL = en
- * attente) puis mis à jour quand la tâche d'arbitrage liée au ticket est
- * décidée — cf. request-forms.controller.js#submit et
- * tasks.controller.js#submitArbitrageDecision.
+ * Boîtes mail partagées — module d'inventaire (/boites-partagees), accessible
+ * en lecture à tous. Deux façons d'alimenter hub.shared_mailboxes :
+ *  1. Automatiquement à la soumission du formulaire de demande "Demande de
+ *     boite mail partagée" (hub.request_forms.special_action =
+ *     'boite_partagee') — createRecord, arbitrage_decision NULL (en attente)
+ *     jusqu'à la décision d'arbitrage liée au ticket (syncArbitrageDecision,
+ *     appelée depuis tasks.controller.js#submitArbitrageDecision).
+ *  2. Manuellement via le module (créer/modifier une fiche directement,
+ *     sans ticket) — createManual / updateRecord.
  *
  * Convention de clés fixes attendues dans les réponses du formulaire (comme
  * pour special_action='onboarding_rhstudio') : nom, type, usage, admi
@@ -13,16 +16,20 @@
  */
 const { pgDb } = require('../../shared/database');
 
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
 async function createRecord(answers, ticketId, formId, user) {
     const admi = (answers.admi && typeof answers.admi === 'object') ? answers.admi : {};
     const membres = Array.isArray(answers.membres) ? answers.membres : [];
+    const nom = answers.nom || '';
     const result = await pgDb.run(
         `INSERT INTO hub.shared_mailboxes
-           (nom, type, usage_type, responsable_display, responsable_email, provisoire, date_fin,
+           (nom, email, type, usage_type, responsable_display, responsable_email, provisoire, date_fin,
             membres, justification, ticket_id, form_id, requested_by_username, requested_by_name)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
-            answers.nom || '',
+            nom,
+            EMAIL_RE.test(nom) ? nom : null, // pré-remplissage si le nom saisi est déjà une adresse mail
             answers.type || null,
             answers.usage || null,
             admi.displayName || null,
@@ -48,4 +55,62 @@ async function syncArbitrageDecision(ticketId, decision, comment) {
     );
 }
 
-module.exports = { createRecord, syncArbitrageDecision };
+/** Ajout manuel depuis le module (pas de ticket/formulaire associé). */
+async function createManual(data, user) {
+    const result = await pgDb.run(
+        `INSERT INTO hub.shared_mailboxes
+           (nom, email, type, usage_type, responsable_display, responsable_email, provisoire, date_fin,
+            membres, justification, requested_by_username, requested_by_name, arbitrage_decision, arbitrage_comment)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+            data.nom || '',
+            data.email || null,
+            data.type || null,
+            data.usage_type || null,
+            data.responsable_display || null,
+            data.responsable_email || null,
+            !!data.provisoire,
+            data.date_fin || null,
+            JSON.stringify(Array.isArray(data.membres) ? data.membres : []),
+            data.justification || null,
+            user.username,
+            user.displayName || user.username,
+            ['positif', 'negatif'].includes(data.arbitrage_decision) ? data.arbitrage_decision : null,
+            data.arbitrage_comment || null,
+        ]
+    );
+    return result.lastID;
+}
+
+const EDITABLE_FIELDS = [
+    'nom', 'email', 'type', 'usage_type', 'responsable_display', 'responsable_email',
+    'provisoire', 'date_fin', 'membres', 'justification', 'arbitrage_decision', 'arbitrage_comment',
+];
+
+async function updateRecord(id, data) {
+    const fields = [];
+    const values = [];
+    for (const key of EDITABLE_FIELDS) {
+        if (data[key] === undefined) continue;
+        fields.push(`${key} = ?`);
+        if (key === 'membres') {
+            values.push(JSON.stringify(Array.isArray(data.membres) ? data.membres : []));
+        } else if (key === 'arbitrage_decision') {
+            values.push(['positif', 'negatif'].includes(data.arbitrage_decision) ? data.arbitrage_decision : null);
+        } else if (key === 'provisoire') {
+            values.push(!!data.provisoire);
+        } else {
+            values.push(data[key] === '' ? null : data[key]);
+        }
+    }
+    if (fields.length === 0) return;
+    fields.push('updated_at = CURRENT_TIMESTAMP');
+    values.push(id);
+    await pgDb.run(`UPDATE hub.shared_mailboxes SET ${fields.join(', ')} WHERE id = ?`, values);
+}
+
+async function deleteRecord(id) {
+    await pgDb.run('DELETE FROM hub.shared_mailboxes WHERE id = ?', [id]);
+}
+
+module.exports = { createRecord, syncArbitrageDecision, createManual, updateRecord, deleteRecord };

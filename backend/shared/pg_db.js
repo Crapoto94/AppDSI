@@ -5500,6 +5500,9 @@ async function setupPgDb() {
         )
       `);
       await client.query(`CREATE INDEX IF NOT EXISTS idx_shared_mailboxes_ticket ON hub.shared_mailboxes(ticket_id)`);
+      // Adresse mail precise de la boite (distincte de `nom`, qui reste un
+      // libelle libre) — module /boites-partagees, saisie/modif manuelle.
+      await client.query(`ALTER TABLE hub.shared_mailboxes ADD COLUMN IF NOT EXISTS email TEXT`);
     } catch (e) { console.error('[PG DB] hub.shared_mailboxes:', e.message); }
 
     // ─── hub_telecom : opérateurs, comptes de facturation et factures télécom ────
