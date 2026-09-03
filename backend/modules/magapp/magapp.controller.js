@@ -206,7 +206,11 @@ const MagAppController = {
                 database: mariadbSettings.database, 
                 connectTimeout: 5000
             });
-            const rows = await conn.query('SELECT id, name, description FROM m_applications ORDER BY name');
+            // Table réelle : "applications" (pas "m_applications", qui n'existe pas
+            // — la requête échouait silencieusement depuis un moment, cf. erreur
+            // 1146 "Table 'mercator.m_applications' doesn't exist" dans les logs).
+            // deleted_at IS NULL exclut les applications décommissionnées (soft-delete Laravel).
+            const rows = await conn.query('SELECT id, name, description FROM applications WHERE deleted_at IS NULL ORDER BY name');
             await conn.end();
             res.json(rows);
         } catch (err) {
