@@ -1318,20 +1318,38 @@ const MagappAdmin: React.FC = () => {
                             <label>Description</label>
                             <textarea rows={2} value={editingApp ? editingApp.description : newApp.description} onChange={e => editingApp ? setEditingApp({...editingApp, description: e.target.value}) : setNewApp({...newApp, description: e.target.value})}></textarea>
                           </div>
-                          <div className="form-group-v2">
-                            <label>MagApp</label>
-                            <select value={editingApp ? editingApp.present_magapp : newApp.present_magapp} onChange={e => editingApp ? setEditingApp({...editingApp, present_magapp: e.target.value}) : setNewApp({...newApp, present_magapp: e.target.value})}>
-                              <option value="oui">Oui</option>
-                              <option value="non">Non</option>
-                            </select>
+                          <div className="form-group-v2 full-width section-divider-v2"><span>Visibilité &amp; statut</span></div>
+                          <div className="form-group-v2 full-width">
+                            <div style={{ display: 'flex', gap: 28, flexWrap: 'wrap' }}>
+                              <label className="toggle-field-v2">
+                                <span className="toggle-switch-v2">
+                                  <input type="checkbox" checked={(editingApp ? editingApp.present_magapp : newApp.present_magapp) === 'oui'} onChange={e => editingApp ? setEditingApp({...editingApp, present_magapp: e.target.checked ? 'oui' : 'non'}) : setNewApp({...newApp, present_magapp: e.target.checked ? 'oui' : 'non'})} />
+                                  <span className="toggle-slider-v2" />
+                                </span>
+                                <span>MagApp</span>
+                              </label>
+                              <label className="toggle-field-v2">
+                                <span className="toggle-switch-v2">
+                                  <input type="checkbox" checked={(editingApp ? editingApp.present_onboard : newApp.present_onboard) === 'oui'} onChange={e => editingApp ? setEditingApp({...editingApp, present_onboard: e.target.checked ? 'oui' : 'non'}) : setNewApp({...newApp, present_onboard: e.target.checked ? 'oui' : 'non'})} />
+                                  <span className="toggle-slider-v2" />
+                                </span>
+                                <span>OnBoard</span>
+                              </label>
+                              <label className="toggle-field-v2">
+                                <span className="toggle-switch-v2">
+                                  <input type="checkbox" checked={!!(editingApp ? editingApp.dsi_only : newApp.dsi_only)} onChange={e => editingApp ? setEditingApp({...editingApp, dsi_only: e.target.checked ? 1 : 0}) : setNewApp({...newApp, dsi_only: e.target.checked ? 1 : 0})} />
+                                  <span className="toggle-slider-v2" />
+                                </span>
+                                <span>Réservée DSI</span>
+                              </label>
+                            </div>
                           </div>
                           <div className="form-group-v2">
-                            <label>OnBoard</label>
-                            <select value={editingApp ? editingApp.present_onboard : newApp.present_onboard} onChange={e => editingApp ? setEditingApp({...editingApp, present_onboard: e.target.value}) : setNewApp({...newApp, present_onboard: e.target.value})}>
-                              <option value="oui">Oui</option>
-                              <option value="non">Non</option>
-                            </select>
+                            <label>Ordre</label>
+                            <input type="number" value={editingApp ? editingApp.display_order : newApp.display_order} onChange={e => editingApp ? setEditingApp({...editingApp, display_order: parseInt(e.target.value)}) : setNewApp({...newApp, display_order: parseInt(e.target.value)})} />
                           </div>
+
+                          <div className="form-group-v2 full-width section-divider-v2"><span>Responsable</span></div>
                           <div className="form-group-v2">
                             <label>Email Créateur</label>
                             <input type="text" value={editingApp ? editingApp.email_createur : newApp.email_createur} onChange={e => editingApp ? setEditingApp({...editingApp, email_createur: e.target.value}) : setNewApp({...newApp, email_createur: e.target.value})} />
@@ -1381,6 +1399,7 @@ const MagappAdmin: React.FC = () => {
                             })()}
                           </div>
 
+                          <div className="form-group-v2 full-width section-divider-v2"><span>Intégration</span></div>
                           <div className="form-group-v2">
                             <label>Application Mercator</label>
                             <select 
@@ -1442,31 +1461,6 @@ const MagappAdmin: React.FC = () => {
                             </div>
                           </div>
 
-                          <div className="form-group-v2">
-                            <label>Maintenance</label>
-                            <select value={editingApp ? editingApp.is_maintenance : newApp.is_maintenance} onChange={e => editingApp ? setEditingApp({...editingApp, is_maintenance: parseInt(e.target.value)}) : setNewApp({...newApp, is_maintenance: parseInt(e.target.value)})}>
-                              <option value={0}>Non</option>
-                              <option value={1}>En cours</option>
-                            </select>
-                          </div>
-                          <div className="form-group-v2">
-                            <label>Début Maintenance</label>
-                            <input type="datetime-local" value={editingApp ? (editingApp.maintenance_start ? new Date(editingApp.maintenance_start).toISOString().slice(0, 16) : '') : (newApp.maintenance_start || '')} onChange={e => editingApp ? setEditingApp({...editingApp, maintenance_start: e.target.value}) : setNewApp({...newApp, maintenance_start: e.target.value})} />
-                          </div>
-                          <div className="form-group-v2">
-                            <label>Fin Maintenance (estimée)</label>
-                            <input type="datetime-local" value={editingApp ? (editingApp.maintenance_end ? new Date(editingApp.maintenance_end).toISOString().slice(0, 16) : '') : (newApp.maintenance_end || '')} onChange={e => editingApp ? setEditingApp({...editingApp, maintenance_end: e.target.value}) : setNewApp({...newApp, maintenance_end: e.target.value})} />
-                          </div>
-                          <div className="form-group-v2">
-                            <label>Ordre</label>
-                            <input type="number" value={editingApp ? editingApp.display_order : newApp.display_order} onChange={e => editingApp ? setEditingApp({...editingApp, display_order: parseInt(e.target.value)}) : setNewApp({...newApp, display_order: parseInt(e.target.value)})} />
-                          </div>
-                          <div className="form-group-v2 full-width">
-                            <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', padding: '10px 16px', background: '#f8fafc', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
-                              <input type="checkbox" checked={editingApp ? !!editingApp.dsi_only : !!newApp.dsi_only} onChange={e => editingApp ? setEditingApp({...editingApp, dsi_only: e.target.checked ? 1 : 0}) : setNewApp({...newApp, dsi_only: e.target.checked ? 1 : 0})} style={{ width: '18px', height: '18px', cursor: 'pointer', accentColor: '#4f46e5' }} />
-                              <span style={{ fontWeight: 600, color: '#334155' }}>Application réservée à la DSI (invisible dans le MagApp public)</span>
-                            </label>
-                          </div>
                         </div>
                       ) : (
                         <div className="users-management">
@@ -2952,6 +2946,68 @@ const MagappAdmin: React.FC = () => {
           background: white;
           box-shadow: 0 0 0 4px rgba(79, 70, 229, 0.1);
           outline: none;
+        }
+
+        .section-divider-v2 {
+          margin-top: 6px;
+          padding-bottom: 6px;
+          border-bottom: 1px solid #eef1f6;
+        }
+        .section-divider-v2 span {
+          font-size: 0.72rem;
+          font-weight: 800;
+          letter-spacing: 0.06em;
+          text-transform: uppercase;
+          color: #94a3b8;
+        }
+
+        .toggle-field-v2 {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          cursor: pointer;
+          user-select: none;
+          font-size: 0.9rem;
+          font-weight: 600;
+          color: #334155;
+        }
+        .toggle-switch-v2 {
+          position: relative;
+          display: inline-block;
+          width: 40px;
+          height: 22px;
+          flex-shrink: 0;
+        }
+        .toggle-switch-v2 input {
+          opacity: 0;
+          width: 0;
+          height: 0;
+        }
+        .toggle-slider-v2 {
+          position: absolute;
+          cursor: pointer;
+          top: 0; left: 0; right: 0; bottom: 0;
+          background: #cbd5e1;
+          border-radius: 22px;
+          transition: 0.2s;
+        }
+        .toggle-slider-v2::before {
+          position: absolute;
+          content: "";
+          height: 16px;
+          width: 16px;
+          left: 3px;
+          bottom: 3px;
+          background: white;
+          border-radius: 50%;
+          transition: 0.2s;
+          box-shadow: 0 1px 2px rgba(0,0,0,0.2);
+        }
+        .toggle-switch-v2 input:checked + .toggle-slider-v2 {
+          background: #4f46e5;
+        }
+        .toggle-switch-v2 input:checked + .toggle-slider-v2::before {
+          transform: translateX(18px);
         }
 
         .apps-grid-v2 {
