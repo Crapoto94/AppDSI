@@ -4166,7 +4166,14 @@ interface RequestForm {
   icon: string | null;
   columns: number;
   special_action: string | null;
+  arbitrage_enabled: boolean;
+  arbitrage_type: 'user' | 'group' | null;
+  arbitrage_username: string | null;
+  arbitrage_group_id: number | null;
+  arbitrage_group_name: string | null;
 }
+
+interface TicketGroup { id: number; name: string; description: string; members: string[]; }
 
 // Formulaires "particuliers" déclenchant une action au-delà de la simple
 // création de ticket. 'onboarding_rhstudio' (formulaire "Arrivée d'agent")
@@ -4200,6 +4207,7 @@ function FormRequestsManager() {
   const [categories, setCategories] = useState<any[]>([]);
   const [serviceTree, setServiceTree] = useState<ServiceDirectionDef[]>([]);
   const [customGroups, setCustomGroups] = useState<CustomGroup[]>([]);
+  const [ticketGroups, setTicketGroups] = useState<TicketGroup[]>([]);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<RequestForm | null>(null);
   const [saving, setSaving] = useState(false);
@@ -4207,6 +4215,8 @@ function FormRequestsManager() {
   const [showPreview, setShowPreview] = useState(false);
   const [previewAnswers, setPreviewAnswers] = useState<Record<string, any>>({});
   const [newFormName, setNewFormName] = useState('');
+  const [arbitrageUserQuery, setArbitrageUserQuery] = useState('');
+  const [arbitrageUserResults, setArbitrageUserResults] = useState<{ username: string; name: string; email: string }[]>([]);
 
   const loadForms = () => axios.get('/api/request-forms/admin', { headers }).then((r) => setForms(r.data)).catch(() => {});
 
@@ -4217,9 +4227,23 @@ function FormRequestsManager() {
       axios.get('/api/tickets/admin/categories', { headers }).then((r) => setCategories(r.data)).catch(() => {}),
       axios.get('/api/admin/rh/services-tree', { headers }).then((r) => setServiceTree(r.data)).catch(() => {}),
       axios.get('/api/admin/rh/encadrants/custom-groups', { headers }).then((r) => setCustomGroups(r.data.groups || [])).catch(() => {}),
+      axios.get('/api/tasks/ticket-groups', { headers }).then((r) => setTicketGroups(r.data || [])).catch(() => {}),
     ]).finally(() => setLoading(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Recherche d'une personne (hub.users + AD) pour l'arbitrage — même endpoint
+  // que le picker "observateur"/"demandeur" de TicketDetail.tsx.
+  useEffect(() => {
+    if (arbitrageUserQuery.trim().length < 2) { setArbitrageUserResults([]); return; }
+    const t = setTimeout(() => {
+      axios.get(`/api/tickets/users/search?q=${encodeURIComponent(arbitrageUserQuery)}`, { headers })
+        .then((r) => setArbitrageUserResults(r.data || []))
+        .catch(() => setArbitrageUserResults([]));
+    }, 300);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [arbitrageUserQuery]);
 
   const createForm = async () => {
     if (!newFormName.trim()) return;
@@ -4253,6 +4277,11 @@ function FormRequestsManager() {
         icon: selected.icon,
         columns: selected.columns,
         special_action: selected.special_action,
+        arbitrage_enabled: selected.arbitrage_enabled,
+        arbitrage_type: selected.arbitrage_type,
+        arbitrage_username: selected.arbitrage_username,
+        arbitrage_group_id: selected.arbitrage_group_id,
+        arbitrage_group_name: selected.arbitrage_group_name,
       }, { headers });
       setMessage('Enregistré.');
       await loadForms();
@@ -4505,6 +4534,74 @@ function FormRequestsManager() {
             <code>agent_arrive</code> (Recherche agent RH Studio, si "déjà arrivé"),{' '}
             <code>futurs_agent</code> (Sélecteur futur arrivant, sinon), <code>manager</code> (Recherche agent RH Studio, N+1 — toujours requis).
           </p>
+        )}
+      </div>
+
+      <div style={{ marginBottom: 20, padding: 14, background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 8 }}>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, fontWeight: 600, color: '#15803d', cursor: 'pointer', marginBottom: selected.arbitrage_enabled ? 10 : 0 }}>
+          <input
+            type="checkbox"
+            checked={selected.arbitrage_enabled}
+            onChange={(e) => setSelected({ ...selected, arbitrage_enabled: e.target.checked, arbitrage_type: selected.arbitrage_type || 'user' })}
+          />
+          Arbitrage <span style={{ fontWeight: 400, color: '#16a34a' }}>(crée automatiquement une tâche de validation à la soumission)</span>
+        </label>
+        {selected.arbitrage_enabled && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <div style={{ display: 'flex', gap: 16 }}>
+              {[{ v: 'user', label: 'Une personne' }, { v: 'group', label: 'Un groupe' }].map((opt) => (
+                <label key={opt.v} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: '#334155', cursor: 'pointer' }}>
+                  <input
+                    type="radio"
+                    name="arbitrage_type"
+                    checked={selected.arbitrage_type === opt.v}
+                    onChange={() => setSelected({ ...selected, arbitrage_type: opt.v as 'user' | 'group' })}
+                  />
+                  {opt.label}
+                </label>
+              ))}
+            </div>
+            {selected.arbitrage_type === 'user' && (
+              <div style={{ position: 'relative', maxWidth: 360 }}>
+                <input
+                  placeholder="Rechercher une personne…"
+                  value={selected.arbitrage_username ? arbitrageUserQuery || selected.arbitrage_username : arbitrageUserQuery}
+                  onChange={(e) => { setSelected({ ...selected, arbitrage_username: null }); setArbitrageUserQuery(e.target.value); }}
+                  style={{ width: '100%', padding: '7px 10px', border: '1px solid #e2e8f0', borderRadius: 6, fontSize: 13, boxSizing: 'border-box' }}
+                />
+                {selected.arbitrage_username && !arbitrageUserQuery && (
+                  <div style={{ fontSize: 11, color: '#16a34a', marginTop: 4 }}>✓ {selected.arbitrage_username}</div>
+                )}
+                {arbitrageUserResults.length > 0 && (
+                  <div style={{ position: 'absolute', zIndex: 20, top: '100%', left: 0, right: 0, background: 'white', border: '1px solid #e2e8f0', borderRadius: 8, boxShadow: '0 8px 20px rgba(0,0,0,0.1)', maxHeight: 220, overflowY: 'auto', marginTop: 4 }}>
+                    {arbitrageUserResults.map((u) => (
+                      <div
+                        key={u.username}
+                        onMouseDown={() => { setSelected({ ...selected, arbitrage_username: u.username }); setArbitrageUserQuery(''); setArbitrageUserResults([]); }}
+                        style={{ padding: '8px 12px', cursor: 'pointer', fontSize: 13, borderBottom: '1px solid #f1f5f9' }}
+                      >
+                        <div style={{ fontWeight: 600, color: '#1e293b' }}>{u.name}</div>
+                        <div style={{ fontSize: 11, color: '#94a3b8' }}>{u.email} — {u.username}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+            {selected.arbitrage_type === 'group' && (
+              <select
+                value={selected.arbitrage_group_id || ''}
+                onChange={(e) => {
+                  const g = ticketGroups.find((g) => g.id === Number(e.target.value));
+                  setSelected({ ...selected, arbitrage_group_id: g?.id || null, arbitrage_group_name: g?.name || null });
+                }}
+                style={{ padding: '7px 10px', border: '1px solid #e2e8f0', borderRadius: 6, fontSize: 13, minWidth: 280 }}
+              >
+                <option value="">— choisir un groupe —</option>
+                {ticketGroups.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
+              </select>
+            )}
+          </div>
         )}
       </div>
 

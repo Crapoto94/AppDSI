@@ -11,6 +11,7 @@ const ticketService = require('./services/ticket.service');
 const { resolveTicketRole } = require('./middleware/ticket-permissions');
 const encadrantsController = require('../rh/encadrants.controller');
 const studioOnboarding = require('../infra/studio-onboarding');
+const { randomUUID } = require('crypto');
 
 const TICKET_ADMIN_ROLES = ['supervisor', 'admin', 'superadmin'];
 
@@ -232,6 +233,66 @@ async function triggerOnboardingRhStudio(answers, ticketId, user) {
     }
 }
 
+/**
+ * Arbitrage : crée automatiquement une tâche DSI Hub liée au ticket créé par
+ * ce formulaire, affectée à la personne ou au groupe choisi lors du
+ * paramétrage (jamais les deux — cf. arbitrage_type). Best-effort, comme
+ * triggerOnboardingRhStudio ci-dessus : un échec ne remet jamais en cause le
+ * ticket déjà créé, juste journalisé dans son historique.
+ */
+async function createArbitrageTask(form, ticketId, ticketTitle) {
+    if (!form.arbitrage_enabled) return null;
+    const logHistory = async (action, comment) => {
+        try {
+            await pgDb.run(
+                `INSERT INTO hub_tickets.ticket_history (ticket_id, user_id, action, field_name, old_value, new_value, comment) VALUES (?, NULL, ?, NULL, NULL, NULL, ?)`,
+                [ticketId, action, comment]
+            );
+        } catch (e) { console.error('[request-forms] arbitrage history log failed:', e.message); }
+    };
+
+    try {
+        let targets = [];
+        let teamGroupName = null;
+        if (form.arbitrage_type === 'group' && form.arbitrage_group_id) {
+            const members = await pgDb.all(
+                `SELECT u.username FROM hub_tickets.technician_group_members tgm
+                 JOIN hub.users u ON u.id = tgm.user_id
+                 WHERE tgm.group_id = ? AND u.username IS NOT NULL`,
+                [form.arbitrage_group_id]
+            );
+            targets = members.map((m) => m.username);
+            teamGroupName = form.arbitrage_group_name || null;
+            if (targets.length === 0) throw new Error(`Le groupe d'arbitrage "${teamGroupName || form.arbitrage_group_id}" ne contient aucun membre`);
+        } else if (form.arbitrage_type === 'user' && form.arbitrage_username) {
+            targets = [form.arbitrage_username];
+        } else {
+            throw new Error('Arbitrage activé mais aucune personne/groupe configuré');
+        }
+
+        const description = `Arbitrage : ${form.name}`;
+        const isTeamTask = targets.length > 1;
+        const teamGroupId = isTeamTask ? randomUUID() : null;
+        const createdIds = [];
+        for (const uname of targets) {
+            const result = await pgDb.run(
+                `INSERT INTO hub.user_tasks
+                   (username, description, statut, is_team_task, team_group_id, team_group_name, created_by,
+                    context_source, context_id, context_title, priority, is_public)
+                 VALUES (?, ?, 'a_faire', ?, ?, ?, 'request_form', 'ticket', ?, ?, 'normale', false)`,
+                [uname, description, isTeamTask, teamGroupId, teamGroupName, ticketId, ticketTitle || null]
+            );
+            createdIds.push(result.lastID);
+        }
+        await logHistory('arbitrage_task_created', `Tâche d'arbitrage créée pour ${form.arbitrage_type === 'group' ? `le groupe "${teamGroupName}"` : form.arbitrage_username}`);
+        return { ok: true, ids: createdIds };
+    } catch (e) {
+        console.error('[request-forms] createArbitrageTask failed:', e.message);
+        await logHistory('arbitrage_task_failed', `Échec de création de la tâche d'arbitrage : ${e.message}`);
+        return { ok: false, error: e.message };
+    }
+}
+
 module.exports = {
     // GET /api/request-forms/admin
     listAdmin: async (req, res) => {
@@ -300,6 +361,28 @@ module.exports = {
                 const action = ALLOWED_SPECIAL_ACTIONS.includes(req.body.special_action) ? req.body.special_action : null;
                 updates.push('special_action = ?');
                 values.push(action);
+            }
+            if (req.body.arbitrage_enabled !== undefined) {
+                updates.push('arbitrage_enabled = ?');
+                values.push(!!req.body.arbitrage_enabled);
+            }
+            if (req.body.arbitrage_type !== undefined) {
+                const type = ['user', 'group'].includes(req.body.arbitrage_type) ? req.body.arbitrage_type : null;
+                updates.push('arbitrage_type = ?');
+                values.push(type);
+            }
+            if (req.body.arbitrage_username !== undefined) {
+                updates.push('arbitrage_username = ?');
+                values.push(req.body.arbitrage_username || null);
+            }
+            if (req.body.arbitrage_group_id !== undefined) {
+                const groupId = Number.isInteger(req.body.arbitrage_group_id) ? req.body.arbitrage_group_id : null;
+                updates.push('arbitrage_group_id = ?');
+                values.push(groupId);
+            }
+            if (req.body.arbitrage_group_name !== undefined) {
+                updates.push('arbitrage_group_name = ?');
+                values.push(req.body.arbitrage_group_name || null);
             }
             if (updates.length === 0) return res.status(400).json({ message: 'Aucun champ modifiable fourni' });
             updates.push('updated_at = CURRENT_TIMESTAMP');
@@ -393,8 +476,9 @@ module.exports = {
             const content = buildTicketContentHtml(form.name, fields, answers);
 
             const user = req.user;
+            const ticketTitle = `${form.name} — ${user.displayName || user.username}`;
             const ticketId = await ticketService.create({
-                title: `${form.name} — ${user.displayName || user.username}`,
+                title: ticketTitle,
                 content,
                 type: 2,
                 category_id: form.category_id || undefined,
@@ -411,11 +495,13 @@ module.exports = {
             if (form.special_action === 'onboarding_rhstudio') {
                 onboarding = await triggerOnboardingRhStudio(answers, ticketId, user);
             }
+            const arbitrage = await createArbitrageTask(form, ticketId, ticketTitle);
 
             res.status(201).json({
                 message: 'Demande envoyée',
                 ticket_id: ticketId,
                 ...(onboarding ? { onboarding } : {}),
+                ...(arbitrage ? { arbitrage } : {}),
             });
         } catch (error) {
             res.status(500).json({ message: 'Erreur lors de l\'envoi de la demande', error: error.message });

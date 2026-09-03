@@ -1348,6 +1348,16 @@ async function setupPgDb() {
     // (deja_arrive, agent_arrive, futurs_agent, manager), voir commentaire
     // dans le controller.
     try { await client.query(`ALTER TABLE hub.request_forms ADD COLUMN IF NOT EXISTS special_action TEXT`); } catch (e) {}
+    // Arbitrage : cree automatiquement une tache DSI Hub (liee au ticket) a la
+    // soumission du formulaire, affectee a une personne OU un groupe (jamais
+    // les deux). arbitrage_enabled permet de desactiver sans perdre la
+    // selection deja faite. arbitrage_group_name est mis en cache pour
+    // l'affichage admin (evite une jointure a chaque listAdmin).
+    try { await client.query(`ALTER TABLE hub.request_forms ADD COLUMN IF NOT EXISTS arbitrage_enabled BOOLEAN DEFAULT FALSE`); } catch (e) {}
+    try { await client.query(`ALTER TABLE hub.request_forms ADD COLUMN IF NOT EXISTS arbitrage_type TEXT`); } catch (e) {}
+    try { await client.query(`ALTER TABLE hub.request_forms ADD COLUMN IF NOT EXISTS arbitrage_username TEXT`); } catch (e) {}
+    try { await client.query(`ALTER TABLE hub.request_forms ADD COLUMN IF NOT EXISTS arbitrage_group_id INTEGER REFERENCES hub_tickets.technician_groups(id) ON DELETE SET NULL`); } catch (e) {}
+    try { await client.query(`ALTER TABLE hub.request_forms ADD COLUMN IF NOT EXISTS arbitrage_group_name TEXT`); } catch (e) {}
     await client.query(`
       CREATE TABLE IF NOT EXISTS hub.request_form_submissions (
         id SERIAL PRIMARY KEY,
