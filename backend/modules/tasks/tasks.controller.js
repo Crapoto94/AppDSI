@@ -212,7 +212,10 @@ module.exports = {
                         ut.priority,
                         ut.is_public,
                         (LOWER(COALESCE(ut.created_by, '')) = $1) AS can_edit,
-                        ut.taken_by
+                        ut.taken_by,
+                        ut.is_arbitrage,
+                        ut.arbitrage_decision,
+                        ut.arbitrage_comment
                     FROM hub.user_tasks ut
                     WHERE LOWER(ut.username) = $1
 
@@ -236,7 +239,10 @@ module.exports = {
                         ut.priority,
                         ut.is_public,
                         (LOWER(COALESCE(ut.created_by, '')) = $1) AS can_edit,
-                        ut.taken_by
+                        ut.taken_by,
+                        ut.is_arbitrage,
+                        ut.arbitrage_decision,
+                        ut.arbitrage_comment
                     FROM hub.user_tasks ut
                     WHERE ut.is_public = true
                       AND LOWER(ut.username) != $1
@@ -269,7 +275,10 @@ module.exports = {
                         NULL          AS priority,
                         FALSE         AS is_public,
                         FALSE         AS can_edit,
-                        NULL::text    AS taken_by
+                        NULL::text    AS taken_by,
+                        FALSE         AS is_arbitrage,
+                        NULL          AS arbitrage_decision,
+                        NULL          AS arbitrage_comment
                     FROM transcript.tasks t
                     JOIN transcript.meetings m ON t.meeting_id = m.id
                     WHERE t.is_completed = 0
@@ -309,7 +318,10 @@ module.exports = {
                              AND LOWER(pr5.username) = $1
                              AND pr5.role = 'chef_projet'
                          )) AS can_edit,
-                        NULL::text              AS taken_by
+                        NULL::text              AS taken_by,
+                        FALSE                   AS is_arbitrage,
+                        NULL                    AS arbitrage_decision,
+                        NULL                    AS arbitrage_comment
                     FROM projets.projet_taches_standalone pts
                     JOIN projets.projets p ON pts.projet_id = p.id
                     WHERE pts.statut NOT IN ('terminé','terminee','terminée')
@@ -349,7 +361,10 @@ module.exports = {
                         NULL                   AS priority,
                         FALSE                  AS is_public,
                         FALSE                  AS can_edit,
-                        NULL::text             AS taken_by
+                        NULL::text             AS taken_by,
+                        FALSE                  AS is_arbitrage,
+                        NULL                   AS arbitrage_decision,
+                        NULL                   AS arbitrage_comment
                     FROM hub_rencontres.rencontres_suivi rs
                     JOIN hub_rencontres.rencontres_budgetaires rb ON rs.rencontre_id = rb.id
                     WHERE rs.statut NOT IN ('terminé', 'done')
@@ -375,7 +390,10 @@ module.exports = {
                         NULL                 AS priority,
                         FALSE                AS is_public,
                         FALSE                AS can_edit,
-                        NULL::text           AS taken_by
+                        NULL::text           AS taken_by,
+                        FALSE                AS is_arbitrage,
+                        NULL                 AS arbitrage_decision,
+                        NULL                 AS arbitrage_comment
                     FROM hub_rencontres.revue_taches rt
                     JOIN hub_rencontres.revues rv ON rt.revue_id = rv.id
                     WHERE rt.statut != 'terminé'
@@ -401,7 +419,10 @@ module.exports = {
                         NULL                 AS priority,
                         FALSE                AS is_public,
                         FALSE                AS can_edit,
-                        NULL::text           AS taken_by
+                        NULL::text           AS taken_by,
+                        FALSE                AS is_arbitrage,
+                        NULL                 AS arbitrage_decision,
+                        NULL                 AS arbitrage_comment
                     FROM hub_rencontres.rencontres_reunions r
                     CROSS JOIN LATERAL json_array_elements(
                         CASE WHEN r.liste_taches IS NOT NULL AND r.liste_taches NOT IN ('', '[]')
@@ -964,6 +985,16 @@ module.exports = {
                         [task.context_id, req.user?.id || null, decision, finalComment]
                     );
                 } catch (e) { console.error('[HISTORY] arbitrage decision log failed:', e.message); }
+
+                // Best-effort (n'affecte jamais la réponse ni la mise à jour
+                // de la tâche) : ne fait rien si aucune boîte mail partagée
+                // n'est liée à ce ticket (cf. hub.shared_mailboxes). Awaité
+                // (contrairement à l'acquittement RH Studio, appel externe) :
+                // une écriture locale, autant garantir qu'elle est bien
+                // appliquée avant de répondre.
+                try {
+                    await require('../mailboxes/mailboxes.service').syncArbitrageDecision(task.context_id, decision, finalComment);
+                } catch (e) { console.error('[tasks] shared_mailboxes sync failed:', e.message); }
             }
 
             res.json({ ok: true, decision, comment: finalComment });

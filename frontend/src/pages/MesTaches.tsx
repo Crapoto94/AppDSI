@@ -44,6 +44,9 @@ interface Task {
   is_public?: boolean;
   can_edit?: boolean;
   taken_by?: string | null;
+  is_arbitrage?: boolean;
+  arbitrage_decision?: 'positif' | 'negatif' | null;
+  arbitrage_comment?: string | null;
 }
 
 interface AssignedAssignee {
@@ -307,6 +310,13 @@ const MesTaches: React.FC = () => {
   // ── Refuse modal ─────────────────────────────────────────────────────────────
   const [refuseTask, setRefuseTask] = useState<Task | null>(null);
 
+  // ── Panneau de décision d'arbitrage (remplace le cycle a_faire/en_cours/
+  // terminé pour les tâches is_arbitrage) ─────────────────────────────────────
+  const [arbitratingKey, setArbitratingKey] = useState<string | null>(null);
+  const [arbitrationChoice, setArbitrationChoice] = useState<'positif' | 'negatif' | null>(null);
+  const [arbitrationComment, setArbitrationComment] = useState('');
+  const [submittingArbitration, setSubmittingArbitration] = useState(false);
+
   // ── Confirmation modal ────────────────────────────────────────────────────────
   const [confirmModal, setConfirmModal] = useState<{ title: string; message: string; onConfirm: () => void; isDangerous?: boolean } | null>(null);
 
@@ -537,6 +547,41 @@ const MesTaches: React.FC = () => {
   const handleRefuse = async (task: Task, raison: string) => {
     setRefuseTask(null);
     await updateStatus(task, 'refuse', raison);
+  };
+
+  function openArbitrationPanel(task: Task, choice: 'positif' | 'negatif') {
+    setArbitratingKey(`${task.source}:${task.id}`);
+    setArbitrationChoice(choice);
+    setArbitrationComment('');
+  }
+
+  const submitArbitration = async (task: Task) => {
+    if (!arbitrationChoice) return;
+    if (arbitrationChoice === 'negatif' && !arbitrationComment.trim()) return;
+    setSubmittingArbitration(true);
+    try {
+      const res = await fetch(`/api/tasks/${task.source}/${task.id}/arbitrage`, {
+        method: 'POST',
+        headers: authHeaders,
+        body: JSON.stringify({ decision: arbitrationChoice, comment: arbitrationComment.trim() || undefined }),
+      });
+      if (!res.ok) {
+        let msg = 'Échec de l\'envoi de la décision';
+        try { const data = await res.json(); if (data?.error) msg = data.error; } catch { /* ignore */ }
+        setConfirmModal({ title: 'Erreur', message: msg, onConfirm: () => setConfirmModal(null) });
+        return;
+      }
+      setTasks(prev => prev.map(t =>
+        (t.source === task.source && t.id === task.id) || (task.team_group_id && t.team_group_id === task.team_group_id)
+          ? { ...t, statut: 'terminé', arbitrage_decision: arbitrationChoice, arbitrage_comment: arbitrationComment.trim() || null }
+          : t
+      ));
+      setArbitratingKey(null);
+      setArbitrationChoice(null);
+      setArbitrationComment('');
+    } finally {
+      setSubmittingArbitration(false);
+    }
   };
 
   const deleteTask = async (task: Task) => {
@@ -1198,6 +1243,15 @@ const MesTaches: React.FC = () => {
                               ❌ {task.refus_raison}
                             </span>
                           )}
+                          {task.is_arbitrage && task.arbitrage_decision && (
+                            <span style={{
+                              fontSize: 10, borderRadius: 6, padding: '1px 6px', fontWeight: 600, textDecoration: 'none',
+                              color: task.arbitrage_decision === 'positif' ? '#15803d' : '#dc2626',
+                              background: task.arbitrage_decision === 'positif' ? '#dcfce7' : '#fef2f2',
+                            }}>
+                              {task.arbitrage_decision === 'positif' ? '✅ Favorable' : '❌ Défavorable'}{task.arbitrage_comment ? ` — ${task.arbitrage_comment}` : ''}
+                            </span>
+                          )}
                         </div>
                       </td>
 
@@ -1222,26 +1276,53 @@ const MesTaches: React.FC = () => {
 
                       {/* Actions */}
                       <td style={{ padding: '10px 12px', textAlign: 'center', whiteSpace: 'nowrap' }}>
-                        {/* Cycle statut */}
-                        <button
-                          onClick={() => !isUpdating && cycleStatus(task)}
-                          disabled={isUpdating}
-                          title={isDone ? 'Réouvrir' : `Passer à : ${STATUT_CYCLE[(STATUT_CYCLE.indexOf(task.statut as any) + 1) % STATUT_CYCLE.length] || 'terminé'}`}
-                          style={{ background: 'none', border: 'none', cursor: 'pointer', color: actionColor(task.statut), padding: 4, verticalAlign: 'middle' }}
-                        >
-                          <CheckCircle2 size={18} />
-                        </button>
+                        {task.is_arbitrage ? (
+                          task.arbitrage_decision ? (
+                            <span title={task.arbitrage_decision === 'positif' ? 'Arbitrage favorable' : 'Arbitrage défavorable'} style={{ fontSize: 14, padding: 4, verticalAlign: 'middle' }}>
+                              {task.arbitrage_decision === 'positif' ? '✅' : '❌'}
+                            </span>
+                          ) : (
+                            <>
+                              <button
+                                onClick={() => openArbitrationPanel(task, 'positif')}
+                                title="Arbitrage favorable"
+                                style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#16a34a', padding: 4, verticalAlign: 'middle' }}
+                              >
+                                ✅
+                              </button>
+                              <button
+                                onClick={() => openArbitrationPanel(task, 'negatif')}
+                                title="Arbitrage défavorable"
+                                style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#dc2626', padding: 4, verticalAlign: 'middle' }}
+                              >
+                                ❌
+                              </button>
+                            </>
+                          )
+                        ) : (
+                          <>
+                            {/* Cycle statut */}
+                            <button
+                              onClick={() => !isUpdating && cycleStatus(task)}
+                              disabled={isUpdating}
+                              title={isDone ? 'Réouvrir' : `Passer à : ${STATUT_CYCLE[(STATUT_CYCLE.indexOf(task.statut as any) + 1) % STATUT_CYCLE.length] || 'terminé'}`}
+                              style={{ background: 'none', border: 'none', cursor: 'pointer', color: actionColor(task.statut), padding: 4, verticalAlign: 'middle' }}
+                            >
+                              <CheckCircle2 size={18} />
+                            </button>
 
-                        {/* Refuser (uniquement pour tâches personal/ticket non terminées) */}
-                        {canRefuse && (
-                          <button
-                            onClick={() => setRefuseTask(task)}
-                            disabled={isUpdating}
-                            title="Refuser cette tâche"
-                            style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ef4444', padding: 4, verticalAlign: 'middle', opacity: 0.7 }}
-                          >
-                            <XCircle size={16} />
-                          </button>
+                            {/* Refuser (uniquement pour tâches personal/ticket non terminées) */}
+                            {canRefuse && (
+                              <button
+                                onClick={() => setRefuseTask(task)}
+                                disabled={isUpdating}
+                                title="Refuser cette tâche"
+                                style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ef4444', padding: 4, verticalAlign: 'middle', opacity: 0.7 }}
+                              >
+                                <XCircle size={16} />
+                              </button>
+                            )}
+                          </>
                         )}
 
                         {/* Notes */}
@@ -1296,6 +1377,44 @@ const MesTaches: React.FC = () => {
                       </td>
                     </tr>
                   ];
+
+                  // Panneau de décision d'arbitrage
+                  if (task.is_arbitrage && !task.arbitrage_decision && arbitratingKey === key) {
+                    rows.push(
+                      <tr key={`${key}-arbitrage`}>
+                        <td colSpan={5} style={{ padding: '8px 12px 10px', borderBottom: '1px solid #f1f5f9', background: '#fffbeb' }}>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxWidth: 480 }}>
+                            <textarea
+                              value={arbitrationComment}
+                              onChange={e => setArbitrationComment(e.target.value)}
+                              placeholder={arbitrationChoice === 'negatif' ? 'Justification (obligatoire)…' : 'Commentaire (facultatif)…'}
+                              rows={2}
+                              autoFocus
+                              style={{ padding: '6px 8px', border: '1px solid #cbd5e1', borderRadius: 5, fontSize: 12, fontFamily: 'inherit', resize: 'vertical' }}
+                            />
+                            <div style={{ display: 'flex', gap: 6 }}>
+                              <button
+                                onClick={() => submitArbitration(task)}
+                                disabled={submittingArbitration || (arbitrationChoice === 'negatif' && !arbitrationComment.trim())}
+                                style={{
+                                  padding: '4px 12px', color: 'white', border: 'none', borderRadius: 5, fontWeight: 600, fontSize: 11,
+                                  background: arbitrationChoice === 'positif' ? '#16a34a' : '#dc2626',
+                                  cursor: (submittingArbitration || (arbitrationChoice === 'negatif' && !arbitrationComment.trim())) ? 'default' : 'pointer',
+                                  opacity: (submittingArbitration || (arbitrationChoice === 'negatif' && !arbitrationComment.trim())) ? 0.5 : 1,
+                                }}
+                              >
+                                {submittingArbitration ? '…' : `Confirmer ${arbitrationChoice === 'positif' ? 'favorable' : 'défavorable'}`}
+                              </button>
+                              <button onClick={() => { setArbitratingKey(null); setArbitrationChoice(null); setArbitrationComment(''); }}
+                                style={{ padding: '4px 12px', background: '#f1f5f9', color: '#475569', border: '1px solid #e2e8f0', borderRadius: 5, cursor: 'pointer', fontWeight: 600, fontSize: 11 }}>
+                                Annuler
+                              </button>
+                            </div>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  }
 
                   // Notes row
                   if (isExpanded) {

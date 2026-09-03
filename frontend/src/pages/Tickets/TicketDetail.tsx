@@ -1466,8 +1466,7 @@ export default function TicketDetail() {
                         opacity: done && !isArbitrage ? 0.75 : 1
                       }}>
                         {isArbitrage ? (
-                          <span title={arbitrated ? (task.arbitrage_decision === 'positif' ? 'Arbitrage favorable' : 'Arbitrage défavorable') : 'Arbitrage en attente'}
-                            style={{ flexShrink: 0, fontSize: 14 }}>
+                          <span style={{ flexShrink: 0, fontSize: 14 }}>
                             {arbitrated ? (task.arbitrage_decision === 'positif' ? '✅' : '❌') : '⚖️'}
                           </span>
                         ) : (
@@ -1502,6 +1501,15 @@ export default function TicketDetail() {
                         ) : (
                           <span style={{ flex: 1, fontSize: 13, color: done ? '#94a3b8' : '#18181b', textDecoration: done ? 'line-through' : 'none', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                             {task.description}
+                          </span>
+                        )}
+                        {arbitrated && (
+                          <span style={{
+                            fontSize: 11, fontWeight: 700, padding: '2px 7px', borderRadius: 4, flexShrink: 0,
+                            color: task.arbitrage_decision === 'positif' ? '#166534' : '#991b1b',
+                            background: task.arbitrage_decision === 'positif' ? '#dcfce7' : '#fee2e2',
+                          }}>
+                            {task.arbitrage_decision === 'positif' ? 'FAVORABLE' : 'DÉFAVORABLE'}
                           </span>
                         )}
                         {task._isTeam ? (
