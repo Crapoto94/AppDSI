@@ -39,7 +39,7 @@ function AgentSearchInput({ value, onChange, token, clearAfterSelect }: { value:
         onChange={(e) => { onChange(null); ad.setQuery(e.target.value); }}
       />
       {ad.searching && <span style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', fontSize: 11, color: '#94a3b8' }}>…</span>}
-      {ad.results.length > 0 && (
+      {ad.results.length > 0 && ad.query !== (value?.displayName || '') && (
         <div style={{ position: 'absolute', zIndex: 2100, top: '100%', left: 0, right: 0, background: 'white', border: '1px solid #e2e8f0', borderRadius: 8, boxShadow: '0 8px 20px rgba(0,0,0,0.15)', maxHeight: 220, overflowY: 'auto', marginTop: 4 }}>
           {ad.results.map((u) => (
             <div
@@ -87,7 +87,7 @@ function StudioAgentSearchInput({ value, onChange, token }: { value: StudioAgent
         onChange={(e) => { onChange(null); ad.setQuery(e.target.value); }}
       />
       {ad.searching && <span style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', fontSize: 11, color: '#94a3b8' }}>…</span>}
-      {ad.results.length > 0 && (
+      {ad.results.length > 0 && ad.query !== (value?.displayName || '') && (
         <div style={{ position: 'absolute', zIndex: 2100, top: '100%', left: 0, right: 0, background: 'white', border: '1px solid #e2e8f0', borderRadius: 8, boxShadow: '0 8px 20px rgba(0,0,0,0.15)', maxHeight: 220, overflowY: 'auto', marginTop: 4 }}>
           {ad.results.map((u) => (
             <div

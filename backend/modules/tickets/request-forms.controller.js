@@ -183,6 +183,42 @@ function buildTicketContentHtml(formName, fields, answers) {
 }
 
 /**
+ * Extrait un court extrait d'une réponse texte pour différencier le titre du
+ * ticket entre deux soumissions distinctes du même formulaire par la même
+ * personne. Nécessaire car ticket.repository.js#create considère comme
+ * doublon (et renvoie l'id existant SANS rien créer) tout ticket de même
+ * titre + même email dans les 2 dernières minutes — protection anti double-
+ * clic légitime pour un ticket "normal" (titre déjà spécifique à la
+ * demande), mais qui collapsait à tort deux VRAIES demandes différentes ici,
+ * puisque le titre était jusque-là toujours "<nom du formulaire> — <nom de
+ * l'agent>", identique pour toute soumission du même formulaire par la même
+ * personne, quel que soit le contenu réel de la demande.
+ */
+function buildTicketTitleHint(fields, answers) {
+    for (const f of fields) {
+        const v = answers[f.key];
+        if (v === undefined || v === null || v === '') continue;
+        if (['text', 'textarea', 'select'].includes(f.type)) {
+            const s = String(v).replace(/\s+/g, ' ').trim();
+            if (s) return s.length > 40 ? `${s.slice(0, 40)}…` : s;
+        } else if ((f.type === 'agent' || f.type === 'studio_agent') && v.displayName) {
+            return v.displayName;
+        } else if (f.type === 'agent_multi' && Array.isArray(v) && v.length > 0) {
+            const names = v.map((a) => a.displayName).filter(Boolean).join(', ');
+            if (names) return names.length > 40 ? `${names.slice(0, 40)}…` : names;
+        } else if (f.type === 'studio_futurs_agent_picker' && (v.nom || v.prenom)) {
+            const s = `${v.prenom || ''} ${v.nom || ''}`.trim();
+            if (s) return s;
+        }
+    }
+    // Repli ultime (formulaire sans champ identifiant, ex. uniquement des
+    // booléens/dates) : un fragment temporel garantit tout de même
+    // l'unicité entre deux soumissions distinctes, même à quelques
+    // secondes d'écart.
+    return null;
+}
+
+/**
  * Résout les réponses du formulaire "Arrivée d'agent" (clés fixes, cf.
  * ALLOWED_SPECIAL_ACTIONS ci-dessus) en un appel à l'API onboarding RH
  * Studio, et journalise le résultat (succès ou échec) dans l'historique du
@@ -476,7 +512,12 @@ module.exports = {
             const content = buildTicketContentHtml(form.name, fields, answers);
 
             const user = req.user;
-            const ticketTitle = `${form.name} — ${user.displayName || user.username}`;
+            // Repli ultime (formulaire sans champ identifiant, ex. uniquement
+            // des booléens/dates) : un fragment temporel garantit tout de
+            // même l'unicité entre deux soumissions distinctes, même
+            // proches dans le temps — cf. buildTicketTitleHint ci-dessus.
+            const titleHint = buildTicketTitleHint(fields, answers) || new Date().toLocaleTimeString('fr-FR');
+            const ticketTitle = `${form.name} — ${user.displayName || user.username} (${titleHint})`;
             const ticketId = await ticketService.create({
                 title: ticketTitle,
                 content,
