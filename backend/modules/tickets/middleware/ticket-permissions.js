@@ -29,6 +29,7 @@ const DEFAULT_PERMISSIONS = {
     'dashboard:view_stats':   ['technician', 'supervisor', 'admin', 'superadmin'],
     'dashboard:view_kpi':     ['technician', 'supervisor', 'admin', 'superadmin'],
     'ticket:ad_search':       ['user', 'technician', 'supervisor', 'admin', 'superadmin'],
+    'ticket:search':          ['user', 'technician', 'supervisor', 'admin', 'superadmin'],
 };
 
 // Mutable in-memory cache — starts with defaults, refreshed from DB
@@ -38,13 +39,23 @@ async function loadPermissionsFromDb() {
     try {
         const rows = await pgDb.all('SELECT role, permission FROM hub_tickets.role_permissions');
         if (rows && rows.length > 0) {
-            const perms = {};
+            // Part de DEFAULT_PERMISSIONS (pas un objet vide) : la table
+            // hub_tickets.role_permissions n'est seedée qu'UNE fois (au
+            // premier démarrage, cf. pg_db.js), donc toute permission ajoutée
+            // au code APRÈS ce seed initial (ex. 'ticket:search') n'existe
+            // jamais en base — un remplacement complet la rendait alors
+            // refusée pour TOUT LE MONDE en permanence (allowedRoles
+            // undefined), y compris les admins. Les entrées présentes en
+            // base restent prioritaires (l'admin les a explicitement
+            // configurées via /tickets/admin -> Rôles).
+            const perms = { ...DEFAULT_PERMISSIONS };
+            const overridden = new Set();
             for (const row of rows) {
-                if (!perms[row.permission]) perms[row.permission] = [];
+                if (!overridden.has(row.permission)) { perms[row.permission] = []; overridden.add(row.permission); }
                 perms[row.permission].push(row.role);
             }
             PERMISSIONS = perms;
-            console.log(`[PERMISSIONS] Loaded ${rows.length} entries from DB`);
+            console.log(`[PERMISSIONS] Loaded ${rows.length} entries from DB (+ defaults for permissions not yet in DB)`);
         }
     } catch (e) {
         console.error('[PERMISSIONS] Failed to load from DB, using defaults:', e.message);
