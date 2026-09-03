@@ -1341,6 +1341,13 @@ async function setupPgDb() {
     // Encadrants). Se cumule avec allowed_roles (OR logique) ; vide/NULL = pas de
     // restriction par groupe.
     try { await client.query(`ALTER TABLE hub.request_forms ADD COLUMN IF NOT EXISTS allowed_group_ids INTEGER[] DEFAULT '{}'`); } catch (e) {}
+    // Action speciale executee en plus de la creation du ticket a la soumission
+    // (NULL = comportement normal, ticket seul). 'onboarding_rhstudio' :
+    // declenche aussi un onboarding RH Studio (cf request-forms.controller.js
+    // submit) — le formulaire doit alors utiliser des cles de champ fixes
+    // (deja_arrive, agent_arrive, futurs_agent, manager), voir commentaire
+    // dans le controller.
+    try { await client.query(`ALTER TABLE hub.request_forms ADD COLUMN IF NOT EXISTS special_action TEXT`); } catch (e) {}
     await client.query(`
       CREATE TABLE IF NOT EXISTS hub.request_form_submissions (
         id SERIAL PRIMARY KEY,

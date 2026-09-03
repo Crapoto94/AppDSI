@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import type { FormFieldDef, ServiceDirectionDef, AgentAnswer } from './requestFormTypes';
+import React, { useState, useEffect } from 'react';
+import type { FormFieldDef, ServiceDirectionDef, AgentAnswer, StudioAgentAnswer, FutursAgentAnswer } from './requestFormTypes';
 import { isFieldVisible } from './requestFormTypes';
 import { useADSearch } from '../utils/useADSearch';
 
@@ -55,6 +55,135 @@ function AgentSearchInput({ value, onChange, token, clearAfterSelect }: { value:
               <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}>{u.email}{u.service ? ` — ${u.service}` : ''}</div>
             </div>
           ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Recherche d'agent dans le référentiel RH Studio (pas l'AD) — utilisée par
+ * le formulaire spécial "Arrivée d'agent" (agent arrivé + N+1/manager, tous
+ * deux doivent résoudre à un agent RH Studio existant). Réutilise useADSearch
+ * pointé sur le proxy /api/infra/rh-studio/agents/search, dont la réponse est
+ * façonnée côté serveur pour respecter la forme ADUser ; l'id numérique
+ * RefAgent (nécessaire pour agent_id/manager_id côté RH Studio) est
+ * transporté dans `username` (reconverti en nombre ici).
+ */
+function StudioAgentSearchInput({ value, onChange, token }: { value: StudioAgentAnswer | null | undefined; onChange: (v: StudioAgentAnswer | null) => void; token: string | null }) {
+  const ad = useADSearch(token, { endpoint: '/api/infra/rh-studio/agents/search' });
+  const [prevDisplayName, setPrevDisplayName] = useState(value?.displayName || '');
+  if ((value?.displayName || '') !== prevDisplayName) {
+    setPrevDisplayName(value?.displayName || '');
+    ad.setQuery(value?.displayName || '');
+  }
+
+  return (
+    <div style={{ position: 'relative' }}>
+      <input
+        style={fieldStyles.input}
+        placeholder="Rechercher un agent (RH Studio)…"
+        value={ad.query}
+        onChange={(e) => { onChange(null); ad.setQuery(e.target.value); }}
+      />
+      {ad.searching && <span style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', fontSize: 11, color: '#94a3b8' }}>…</span>}
+      {ad.results.length > 0 && (
+        <div style={{ position: 'absolute', zIndex: 2100, top: '100%', left: 0, right: 0, background: 'white', border: '1px solid #e2e8f0', borderRadius: 8, boxShadow: '0 8px 20px rgba(0,0,0,0.15)', maxHeight: 220, overflowY: 'auto', marginTop: 4 }}>
+          {ad.results.map((u) => (
+            <div
+              key={u.username}
+              style={{ padding: '8px 12px', cursor: 'pointer', fontSize: '0.85rem', borderBottom: '1px solid #f1f5f9' }}
+              onMouseDown={() => {
+                onChange({ id: Number(u.username), displayName: u.displayName, email: u.email, service: u.service });
+                ad.setQuery(u.displayName);
+                ad.clearResults();
+              }}
+            >
+              <div style={{ fontWeight: 600, color: '#1e293b' }}>{u.displayName}</div>
+              <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}>{u.email}{u.service ? ` — ${u.service}` : ''}</div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+interface FutursAgent { id: number; nom: string; prenom: string; date_premiere_arrivee: string | null; }
+
+/**
+ * Champ spécial du formulaire "Arrivée d'agent" (étape "pas encore arrivé") :
+ * propose la liste des agents dont l'arrivée est prévue prochainement côté
+ * RH Studio (déjà connus, pas encore onboardés), ou "aucun d'entre eux" qui
+ * révèle une saisie manuelle nom/prénom (RH Studio créera alors l'agent avec
+ * nom_temp/prenom_temp en attendant sa fiche RH complète).
+ */
+function FutursAgentPicker({ value, onChange, token }: { value: FutursAgentAnswer | null | undefined; onChange: (v: FutursAgentAnswer | null) => void; token: string | null }) {
+  const [agents, setAgents] = useState<FutursAgent[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const manualMode = value?.mode === 'manual' || (!value && agents.length === 0 && !loading);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/api/infra/rh-studio/futurs-agents', { headers: { Authorization: `Bearer ${token}` } })
+      .then((r) => r.json())
+      .then((d) => { if (!cancelled) setAgents(Array.isArray(d) ? d : []); })
+      .catch(() => { if (!cancelled) setError('Impossible de contacter RH Studio'); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [token]);
+
+  if (loading) return <div style={{ fontSize: '0.85rem', color: '#94a3b8' }}>Chargement des futurs arrivants…</div>;
+  if (error) return <div style={{ fontSize: '0.85rem', color: '#dc2626' }}>{error}</div>;
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      {agents.map((a) => {
+        const selected = value?.mode === 'existing' && value.agent_id === a.id;
+        return (
+          <button
+            key={a.id}
+            type="button"
+            onClick={() => onChange({ mode: 'existing', agent_id: a.id, nom: a.nom, prenom: a.prenom, date_arrivee_prevue: a.date_premiere_arrivee })}
+            style={{
+              textAlign: 'left', padding: '10px 14px', borderRadius: 8, cursor: 'pointer',
+              border: selected ? '2px solid #2563eb' : '1px solid #e2e8f0',
+              background: selected ? '#eff6ff' : 'white',
+            }}
+          >
+            <div style={{ fontWeight: 600, fontSize: '0.85rem', color: '#1e293b' }}>{a.prenom} {a.nom}</div>
+            {a.date_premiere_arrivee && (
+              <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}>Arrivée prévue le {new Date(a.date_premiere_arrivee).toLocaleDateString('fr-FR')}</div>
+            )}
+          </button>
+        );
+      })}
+      <button
+        type="button"
+        onClick={() => onChange({ mode: 'manual', nom: '', prenom: '' })}
+        style={{
+          textAlign: 'left', padding: '10px 14px', borderRadius: 8, cursor: 'pointer',
+          border: manualMode ? '2px solid #2563eb' : '1px dashed #e2e8f0',
+          background: manualMode ? '#eff6ff' : 'white', color: '#475569', fontSize: '0.85rem', fontWeight: 600,
+        }}
+      >
+        Aucun de la liste / autre agent
+      </button>
+      {manualMode && (
+        <div style={{ display: 'flex', gap: 8 }}>
+          <input
+            style={fieldStyles.input}
+            placeholder="Nom"
+            value={value?.mode === 'manual' ? value.nom : ''}
+            onChange={(e) => onChange({ mode: 'manual', nom: e.target.value, prenom: value?.mode === 'manual' ? value.prenom : '' })}
+          />
+          <input
+            style={fieldStyles.input}
+            placeholder="Prénom"
+            value={value?.mode === 'manual' ? value.prenom : ''}
+            onChange={(e) => onChange({ mode: 'manual', nom: value?.mode === 'manual' ? value.nom : '', prenom: e.target.value })}
+          />
         </div>
       )}
     </div>
@@ -166,6 +295,12 @@ export default function RequestFormFieldRenderer({ fields, answers, onChange, se
                   }}
                 />
               </div>
+            )}
+            {f.type === 'studio_agent' && (
+              <StudioAgentSearchInput value={value} onChange={(v) => onChange(f.key, v)} token={token || null} />
+            )}
+            {f.type === 'studio_futurs_agent_picker' && (
+              <FutursAgentPicker value={value} onChange={(v) => onChange(f.key, v)} token={token || null} />
             )}
             {f.type === 'direction_service' && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>

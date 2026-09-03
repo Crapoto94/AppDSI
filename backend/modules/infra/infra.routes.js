@@ -26,5 +26,6 @@ router.post('/agents/presence/batch',       ctrl.verifyAgentsBatch);
 // ── Onboarding RH Studio (formulaire de demande "Arrivée d'agent") ────────
 router.post('/rh-studio/onboarding',        ctrl.createOnboarding);
 router.get('/rh-studio/futurs-agents',      ctrl.listFutursAgents);
+router.get('/rh-studio/agents/search',      ctrl.searchStudioAgents);
 
 module.exports = router;

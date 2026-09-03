@@ -4165,7 +4165,17 @@ interface RequestForm {
   allowed_group_ids: number[];
   icon: string | null;
   columns: number;
+  special_action: string | null;
 }
+
+// Formulaires "particuliers" déclenchant une action au-delà de la simple
+// création de ticket. 'onboarding_rhstudio' (formulaire "Arrivée d'agent")
+// attend des clés de champ FIXES : deja_arrive (boolean), agent_arrive
+// (studio_agent), futurs_agent (studio_futurs_agent_picker), manager
+// (studio_agent) — cf. backend/modules/tickets/request-forms.controller.js.
+const SPECIAL_ACTION_LABELS: Record<string, string> = {
+  onboarding_rhstudio: 'Déclenche un onboarding RH Studio',
+};
 
 interface CustomGroup {
   id: number;
@@ -4175,7 +4185,7 @@ interface CustomGroup {
   description: string;
 }
 
-const REQUEST_FIELD_TYPES: FormFieldType[] = ['text', 'textarea', 'select', 'boolean', 'agent', 'agent_multi', 'direction_service', 'date', 'description'];
+const REQUEST_FIELD_TYPES: FormFieldType[] = ['text', 'textarea', 'select', 'boolean', 'agent', 'agent_multi', 'direction_service', 'date', 'description', 'studio_agent', 'studio_futurs_agent_picker'];
 const ENCADRANT_ROLE_LABELS: Record<string, string> = { dg: 'DG / DGA', directeur: 'Directeurs', responsable_service: 'Resp. de service' };
 
 function emptyRequestField(n: number): FormFieldDef {
@@ -4242,6 +4252,7 @@ function FormRequestsManager() {
         allowed_group_ids: selected.allowed_group_ids,
         icon: selected.icon,
         columns: selected.columns,
+        special_action: selected.special_action,
       }, { headers });
       setMessage('Enregistré.');
       await loadForms();
@@ -4472,6 +4483,29 @@ function FormRequestsManager() {
             </div>
           )}
         </div>
+      </div>
+
+      <div style={{ marginBottom: 20, padding: 14, background: '#fdf4ff', border: '1px solid #f0abfc', borderRadius: 8 }}>
+        <label style={{ fontSize: 12, fontWeight: 600, color: '#86198f', display: 'block', marginBottom: 6 }}>
+          Formulaire particulier <span style={{ fontWeight: 400, color: '#a21caf' }}>(action déclenchée en plus de la création du ticket)</span>
+        </label>
+        <select
+          value={selected.special_action || ''}
+          onChange={(e) => setSelected({ ...selected, special_action: e.target.value || null })}
+          style={{ padding: '7px 10px', border: '1px solid #e2e8f0', borderRadius: 6, fontSize: 13, minWidth: 320 }}
+        >
+          <option value="">Aucune (formulaire de demande normal)</option>
+          {Object.entries(SPECIAL_ACTION_LABELS).map(([action, label]) => (
+            <option key={action} value={action}>{label}</option>
+          ))}
+        </select>
+        {selected.special_action === 'onboarding_rhstudio' && (
+          <p style={{ fontSize: 11, color: '#a21caf', marginTop: 8, marginBottom: 0, lineHeight: 1.5 }}>
+            Ce formulaire doit utiliser des clés de champ fixes : <code>deja_arrive</code> (Oui/Non),{' '}
+            <code>agent_arrive</code> (Recherche agent RH Studio, si "déjà arrivé"),{' '}
+            <code>futurs_agent</code> (Sélecteur futur arrivant, sinon), <code>manager</code> (Recherche agent RH Studio, N+1 — toujours requis).
+          </p>
+        )}
       </div>
 
       <h3 style={{ fontSize: 14, fontWeight: 700, color: '#1e293b', marginBottom: 10 }}>Champs du formulaire</h3>

@@ -10,11 +10,22 @@ const { pgDb, getSqlite } = require('../../shared/database');
 const ticketService = require('./services/ticket.service');
 const { resolveTicketRole } = require('./middleware/ticket-permissions');
 const encadrantsController = require('../rh/encadrants.controller');
+const studioOnboarding = require('../infra/studio-onboarding');
 
 const TICKET_ADMIN_ROLES = ['supervisor', 'admin', 'superadmin'];
 
-const ALLOWED_FIELD_TYPES = ['text', 'textarea', 'select', 'boolean', 'agent', 'agent_multi', 'direction_service', 'date', 'description'];
+const ALLOWED_FIELD_TYPES = ['text', 'textarea', 'select', 'boolean', 'agent', 'agent_multi', 'direction_service', 'date', 'description', 'studio_agent', 'studio_futurs_agent_picker'];
 const ENCADRANT_ROLES = ['dg', 'directeur', 'responsable_service'];
+
+// Actions spéciales exécutées en plus de la création normale du ticket, à la
+// soumission d'un formulaire. 'onboarding_rhstudio' (formulaire "Arrivée
+// d'agent") attend des CLÉS DE CHAMP FIXES dans fields_config (peu importe
+// leur libellé/ordre/type exact du moment que la clé est respectée) :
+//   - deja_arrive         (boolean)                    "L'agent est-il déjà arrivé ?"
+//   - agent_arrive        (studio_agent)                utilisé si deja_arrive = true
+//   - futurs_agent        (studio_futurs_agent_picker)  utilisé si deja_arrive = false
+//   - manager             (studio_agent)                N+1 / manager, toujours requis
+const ALLOWED_SPECIAL_ACTIONS = ['onboarding_rhstudio'];
 
 // Cache en mémoire (15 min) de l'email -> rôle d'encadrant (dg/directeur/
 // responsable_service), pour ne pas relancer la recherche AD/LDAP de
@@ -140,6 +151,14 @@ function formatAnswer(field, value) {
                 return [value.direction_label, value.service_label].filter(Boolean).join(' / ') || '—';
             }
             return String(value);
+        case 'studio_agent':
+            return typeof value === 'object' ? `${value.displayName || ''} (${value.email || ''})` : String(value);
+        case 'studio_futurs_agent_picker':
+            if (typeof value === 'object') {
+                const label = `${value.prenom || ''} ${value.nom || ''}`.trim() || '—';
+                return value.mode === 'manual' ? `${label} (nouvel agent, pas encore dans RH Studio)` : label;
+            }
+            return String(value);
         default:
             return String(value);
     }
@@ -160,6 +179,57 @@ function buildTicketContentHtml(formName, fields, answers) {
         .map((f) => `<tr><td style="padding:4px 14px 4px 0;font-weight:600;white-space:nowrap;vertical-align:top;">${escapeHtml(f.label)}</td><td style="padding:4px 0;">${escapeHtml(formatAnswer(f, answers[f.key])).replace(/\n/g, '<br>')}</td></tr>`)
         .join('');
     return `<p>Demande générée depuis le formulaire « ${escapeHtml(formName)} »</p><table style="border-collapse:collapse;">${rows}</table>`;
+}
+
+/**
+ * Résout les réponses du formulaire "Arrivée d'agent" (clés fixes, cf.
+ * ALLOWED_SPECIAL_ACTIONS ci-dessus) en un appel à l'API onboarding RH
+ * Studio, et journalise le résultat (succès ou échec) dans l'historique du
+ * ticket créé. Best-effort : une erreur ici n'annule jamais la création du
+ * ticket, déjà actée à ce stade — l'utilisateur/l'admin doit pouvoir la voir
+ * dans l'historique du ticket plutôt qu'elle ne se perde silencieusement.
+ */
+async function triggerOnboardingRhStudio(answers, ticketId, user) {
+    const logHistory = async (action, comment) => {
+        try {
+            await pgDb.run(
+                `INSERT INTO hub_tickets.ticket_history (ticket_id, user_id, action, field_name, old_value, new_value, comment) VALUES (?, ?, ?, NULL, NULL, NULL, ?)`,
+                [ticketId, user?.id || null, action, comment]
+            );
+        } catch (e) { console.error('[request-forms] onboarding history log failed:', e.message); }
+    };
+
+    try {
+        const dejaArrive = answers.deja_arrive === true || answers.deja_arrive === 'true';
+        const manager = answers.manager;
+        if (!manager || !manager.id) throw new Error('N+1 / manager non renseigné');
+
+        const payload = { manager_id: manager.id, dsihub_ticket_id: ticketId };
+        if (dejaArrive) {
+            const agent = answers.agent_arrive;
+            if (!agent || !agent.id) throw new Error('Agent arrivé non renseigné');
+            payload.agent_id = agent.id;
+        } else {
+            const futurs = answers.futurs_agent;
+            if (!futurs) throw new Error('Futur agent non renseigné');
+            if (futurs.mode === 'existing') {
+                payload.agent_id = futurs.agent_id;
+                if (futurs.date_arrivee_prevue) payload.date_arrivee_prevue = futurs.date_arrivee_prevue;
+            } else {
+                if (!futurs.nom || !futurs.prenom) throw new Error('Nom/prénom du futur agent manquant');
+                payload.nom_temp = futurs.nom;
+                payload.prenom_temp = futurs.prenom;
+            }
+        }
+
+        const onboarding = await studioOnboarding.createOnboarding(payload);
+        await logHistory('onboarding_rhstudio', `Onboarding RH Studio déclenché (id #${onboarding.id})`);
+        return { ok: true, id: onboarding.id };
+    } catch (e) {
+        console.error('[request-forms] triggerOnboardingRhStudio failed:', e.message);
+        await logHistory('onboarding_rhstudio_failed', `Échec du déclenchement de l'onboarding RH Studio : ${e.message}`);
+        return { ok: false, error: e.message };
+    }
 }
 
 module.exports = {
@@ -225,6 +295,11 @@ module.exports = {
                     : [];
                 updates.push('allowed_group_ids = ?');
                 values.push(groupIds);
+            }
+            if (req.body.special_action !== undefined) {
+                const action = ALLOWED_SPECIAL_ACTIONS.includes(req.body.special_action) ? req.body.special_action : null;
+                updates.push('special_action = ?');
+                values.push(action);
             }
             if (updates.length === 0) return res.status(400).json({ message: 'Aucun champ modifiable fourni' });
             updates.push('updated_at = CURRENT_TIMESTAMP');
@@ -332,7 +407,16 @@ module.exports = {
                 [form.id, user.username, user.displayName || user.username, user.email, JSON.stringify(answers), ticketId]
             );
 
-            res.status(201).json({ message: 'Demande envoyée', ticket_id: ticketId });
+            let onboarding = null;
+            if (form.special_action === 'onboarding_rhstudio') {
+                onboarding = await triggerOnboardingRhStudio(answers, ticketId, user);
+            }
+
+            res.status(201).json({
+                message: 'Demande envoyée',
+                ticket_id: ticketId,
+                ...(onboarding ? { onboarding } : {}),
+            });
         } catch (error) {
             res.status(500).json({ message: 'Erreur lors de l\'envoi de la demande', error: error.message });
         }

@@ -2,7 +2,7 @@
 // magapp. Séparés du composant pour que RequestFormFieldRenderer.tsx
 // n'exporte que des composants (react-refresh).
 
-export type FormFieldType = 'text' | 'textarea' | 'select' | 'boolean' | 'agent' | 'agent_multi' | 'direction_service' | 'date' | 'description';
+export type FormFieldType = 'text' | 'textarea' | 'select' | 'boolean' | 'agent' | 'agent_multi' | 'direction_service' | 'date' | 'description' | 'studio_agent' | 'studio_futurs_agent_picker';
 
 export interface FormFieldDef {
   key: string;
@@ -29,3 +29,16 @@ export function isFieldVisible(field: FormFieldDef, answers: Record<string, unkn
 
 export interface AgentAnswer { displayName: string; email: string; }
 export interface DirectionServiceAnswer { direction_code: string; direction_label: string; service_code: string; service_label: string; }
+
+// Réponse d'un champ "studio_agent" (recherche dans le référentiel RH Studio,
+// pas l'AD — id numérique RefAgent requis par Onboarding.agent_id/manager_id
+// côté RH Studio, cf. formulaire spécial "Arrivée d'agent").
+export interface StudioAgentAnswer { id: number; displayName: string; email: string; matricule?: string; service?: string; }
+
+// Réponse d'un champ "studio_futurs_agent_picker" : soit l'un des futurs
+// arrivants déjà connus de RH Studio (mode 'existing'), soit un agent pas
+// encore répertorié, saisi manuellement (mode 'manual' — nom_temp/prenom_temp
+// côté RH Studio).
+export type FutursAgentAnswer =
+  | { mode: 'existing'; agent_id: number; nom: string; prenom: string; date_arrivee_prevue: string | null }
+  | { mode: 'manual'; nom: string; prenom: string };

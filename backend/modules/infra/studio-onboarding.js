@@ -66,4 +66,17 @@ async function acknowledgeTask(rhStudioTaskId) {
     return callRhStudio(cfg, `/onboarding/tasks/${rhStudioTaskId}`, { method: 'PATCH', body: JSON.stringify({ done: true }) });
 }
 
-module.exports = { createOnboarding, listFutursAgents, acknowledgeTask };
+/**
+ * Recherche multi-résultats d'agents RH Studio (RefAgent) par nom/prénom
+ * (autocomplete) — utilisée par le champ "studio_agent" du formulaire de
+ * demande "Arrivée d'agent" (agent arrivé ET son N+1/manager, tous deux
+ * devant résoudre à un RefAgent existant). Réutilise la même clé/config que
+ * createOnboarding/listFutursAgents (chemin absolu : /agents/search, pas
+ * sous cfg.endpoint qui ne couvre que /onboarding).
+ */
+async function searchAgents(q) {
+    const cfg = await getConfig();
+    return callRhStudio(cfg, `/agents/search?q=${encodeURIComponent(q || '')}`, { method: 'GET' });
+}
+
+module.exports = { createOnboarding, listFutursAgents, acknowledgeTask, searchAgents };

@@ -182,4 +182,28 @@ module.exports = {
             res.status(502).json({ message: e.message });
         }
     },
+
+    // GET /api/infra/rh-studio/agents/search?q=...
+    // Renvoie un tableau brut (pas {data:[...]}) façonné comme le retour de
+    // useADSearch (username/displayName/email/service) pour pouvoir réutiliser
+    // ce hook côté frontend malgré la source différente (RH Studio, pas l'AD)
+    // — l'id numérique RefAgent (nécessaire pour agent_id/manager_id) est
+    // transporté dans `username` (converti en nombre côté composant).
+    searchStudioAgents: async (req, res) => {
+        try {
+            const { q } = req.query;
+            if (!q || String(q).trim().length < 2) return res.json([]);
+            const result = await studioOnboarding.searchAgents(q);
+            const agents = Array.isArray(result?.data) ? result.data : [];
+            res.json(agents.map((a) => ({
+                username: String(a.id),
+                displayName: `${a.prenom || ''} ${a.nom || ''}`.trim(),
+                email: a.email || '',
+                service: a.service || '',
+                matricule: a.matricule || '',
+            })));
+        } catch (e) {
+            res.status(502).json({ message: e.message });
+        }
+    },
 };
