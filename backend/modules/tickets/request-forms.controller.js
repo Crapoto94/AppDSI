@@ -248,7 +248,12 @@ async function triggerOnboardingRhStudio(answers, ticketId, user) {
         const manager = answers.manager;
         if (!manager || !manager.id) throw new Error('N+1 / manager non renseigné');
 
-        const payload = { manager_id: manager.id, dsihub_ticket_id: ticketId };
+        // ticketId vient de nextval('hub_tickets.ticket_id_seq') (BIGINT) :
+        // node-postgres renvoie les BIGINT en string pour éviter les pertes de
+        // précision, mais Prisma (côté RH Studio) attend un vrai number JSON
+        // pour la colonne Int dsihub_ticket_id — sinon PrismaClientValidationError
+        // ("Expected Int... provided String"), constaté en prod sur le ticket #44965.
+        const payload = { manager_id: manager.id, dsihub_ticket_id: Number(ticketId) };
         if (dejaArrive) {
             const agent = answers.agent_arrive;
             if (!agent || !agent.id) throw new Error('Agent arrivé non renseigné');
