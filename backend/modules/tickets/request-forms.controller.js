@@ -8,6 +8,7 @@
  */
 const { pgDb, getSqlite } = require('../../shared/database');
 const ticketService = require('./services/ticket.service');
+const notificationService = require('./services/notification.service');
 const { resolveTicketRole } = require('./middleware/ticket-permissions');
 const encadrantsController = require('../rh/encadrants.controller');
 const studioOnboarding = require('../infra/studio-onboarding');
@@ -272,8 +273,38 @@ async function triggerOnboardingRhStudio(answers, ticketId, user) {
         }
 
         const onboarding = await studioOnboarding.createOnboarding(payload);
-        await logHistory('onboarding_rhstudio', `Onboarding RH Studio déclenché (id #${onboarding.id})`);
-        return { ok: true, id: onboarding.id };
+        const managerName = manager.displayName || manager.email || 'le manager';
+
+        // Lien public vers le formulaire manager (base_url de la config moins
+        // le suffixe /api : ex. https://studiorh.ivry.local/api ->
+        // https://studiorh.ivry.local/onboarding/form?token=...) + notice
+        // "action requise" injectée dans le contenu du ticket — visible à la
+        // fois sur le ticket ET dans l'email de confirmation au demandeur
+        // (le template utilise {{ticket_content}}), cf. submit() qui diffère
+        // exprès la notification tant que ce contenu n'est pas finalisé.
+        let formLink = null;
+        if (onboarding.token_formulaire) {
+            try {
+                const cfg = await pgDb.get(`SELECT base_url FROM hub.infra_apis WHERE key = ?`, ['rh_studio_onboarding']);
+                const publicBase = (cfg?.base_url || '').replace(/\/api\/?$/, '');
+                if (publicBase) formLink = `${publicBase}/onboarding/form?token=${onboarding.token_formulaire}`;
+            } catch (e) { console.error('[request-forms] build formLink failed:', e.message); }
+        }
+
+        const notice = `<div style="margin-top:16px;padding:12px 16px;border:1px solid #f0ad4e;background:#fff8e6;border-radius:6px;">`
+            + `<strong>⚠️ Action requise :</strong> un email a été envoyé à <strong>${escapeHtml(managerName)}</strong> pour compléter le formulaire d'arrivée de l'agent. `
+            + `La demande sera traitée une fois ce formulaire rempli.`
+            + (formLink ? `<br/><a href="${escapeHtml(formLink)}" target="_blank" rel="noopener noreferrer">Accéder au formulaire</a>` : '')
+            + `</div>`;
+
+        // Statut 4 = "En attente" (cf. STATUS_LABELS, teams.service.js) : le
+        // ticket attend une action du manager, pas de la hot-line.
+        try {
+            await pgDb.run(`UPDATE hub_tickets.tickets SET content = content || ?, status = 4 WHERE glpi_id = ?`, [notice, ticketId]);
+        } catch (e) { console.error('[request-forms] ticket content/status update failed:', e.message); }
+
+        await logHistory('onboarding_rhstudio', `Email envoyé à ${managerName} pour remplir le formulaire nouvel arrivant (onboarding RH Studio #${onboarding.id})`);
+        return { ok: true, id: onboarding.id, formLink };
     } catch (e) {
         console.error('[request-forms] triggerOnboardingRhStudio failed:', e.message);
         await logHistory('onboarding_rhstudio_failed', `Échec du déclenchement de l'onboarding RH Studio : ${e.message}`);
@@ -534,6 +565,13 @@ module.exports = {
             // proches dans le temps — cf. buildTicketTitleHint ci-dessus.
             const titleHint = buildTicketTitleHint(fields, answers) || new Date().toLocaleTimeString('fr-FR');
             const ticketTitle = `${form.name} — ${user.displayName || user.username} (${titleHint})`;
+            // Formulaire "Arrivée d'agent" : on diffère l'email de confirmation
+            // au demandeur (déclenché normalement ici même par
+            // ticketService.create) tant que triggerOnboardingRhStudio n'a pas
+            // enrichi le contenu/statut du ticket ci-dessous, pour que ce mail
+            // reflète bien la notice manager + lien formulaire, pas le contenu
+            // brut d'avant onboarding.
+            const isOnboardingForm = form.special_action === 'onboarding_rhstudio';
             const ticketId = await ticketService.create({
                 title: ticketTitle,
                 content,
@@ -541,7 +579,7 @@ module.exports = {
                 category_id: form.category_id || undefined,
                 subcategory_id: form.subcategory_id || undefined,
                 source: 'magapp',
-            }, user);
+            }, user, { skipNotification: isOnboardingForm });
 
             await pgDb.run(
                 'INSERT INTO hub.request_form_submissions (form_id, submitted_by_username, submitted_by_name, submitted_by_email, answers, ticket_id) VALUES (?, ?, ?, ?, ?, ?)',
@@ -549,8 +587,10 @@ module.exports = {
             );
 
             let onboarding = null;
-            if (form.special_action === 'onboarding_rhstudio') {
+            if (isOnboardingForm) {
                 onboarding = await triggerOnboardingRhStudio(answers, ticketId, user);
+                try { await notificationService.trigger('ticket.created', { ticket_id: ticketId, user }); }
+                catch (e) { console.error('[request-forms] deferred ticket.created notification failed:', e.message); }
             }
             if (form.special_action === 'boite_partagee') {
                 try { await mailboxesService.createRecord(answers, ticketId, form.id, user); }

@@ -673,6 +673,34 @@ module.exports = {
         }
     },
 
+    // PATCH /api/tasks/external/rh-studio/onboarding-started
+    // Appelée par RH Studio quand le manager a rempli le formulaire d'arrivée
+    // (onboarding.statut passe à 'en_cours_realisation') : le ticket "Arrivée
+    // d'agent", jusque-là "En attente" (4, cf. triggerOnboardingRhStudio dans
+    // request-forms.controller.js) du manager, passe "En cours" (3) — la
+    // hot-line peut désormais traiter les tâches poussées dans la foulée
+    // (cf. createExternalRhStudioTask ci-dessus). Ne fait rien si le ticket
+    // n'est plus en attente (déjà traité/fermé manuellement entretemps).
+    async markOnboardingTicketInProgress(req, res) {
+        const { ticket_id } = req.body || {};
+        if (!ticket_id) return res.status(400).json({ error: 'ticket_id requis' });
+        try {
+            const ticket = await pgDb.get('SELECT glpi_id, status FROM hub_tickets.tickets WHERE glpi_id = ?', [ticket_id]);
+            if (!ticket) return res.status(404).json({ error: 'Ticket introuvable' });
+            if (Number(ticket.status) !== 4) {
+                return res.json({ ok: true, skipped: true, reason: `Ticket déjà au statut ${ticket.status} (pas "En attente")` });
+            }
+            await pgDb.run('UPDATE hub_tickets.tickets SET status = 3 WHERE glpi_id = ?', [ticket_id]);
+            await pgDb.run(
+                `INSERT INTO hub_tickets.ticket_history (ticket_id, user_id, action, field_name, old_value, new_value, comment) VALUES (?, NULL, 'status_changed', 'status', '4', '3', ?)`,
+                [ticket_id, 'Le manager a rempli le formulaire d\'arrivée (RH Studio) — demande en cours de traitement']
+            );
+            res.json({ ok: true });
+        } catch (error) {
+            res.status(500).json({ error: error.message });
+        }
+    },
+
     // GET /api/tasks/ticket-groups — active technician groups with member usernames
     async getTicketGroups(req, res) {
         try {

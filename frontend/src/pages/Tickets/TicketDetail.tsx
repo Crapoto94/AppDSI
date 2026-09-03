@@ -2464,7 +2464,9 @@ export default function TicketDetail() {
                       {h.action === 'updated' && `✏️ ${h.field_name || 'Champ modifié'}`}
                       {h.action === 'arbitrage_task_created' && '⚖️ Arbitrage demandé'}
                       {h.action === 'arbitrage_decision' && (h.new_value === 'positif' ? '✅ Arbitrage favorable' : '❌ Arbitrage défavorable')}
-                      {!['created','status_changed','assigned','assigned_group','comment_added','comment_propagated','comment_sent_to_requester','task_created','task_status_changed','sla_breached','vip_set','vip_unset','deleted','grouped','ungrouped','problem_created','solved','updated','arbitrage_task_created','arbitrage_decision'].includes(h.action) && h.action}
+                      {h.action === 'onboarding_rhstudio' && '📧 Email envoyé au manager (RH Studio)'}
+                      {h.action === 'onboarding_rhstudio_failed' && '⚠️ Échec envoi onboarding RH Studio'}
+                      {!['created','status_changed','assigned','assigned_group','comment_added','comment_propagated','comment_sent_to_requester','task_created','task_status_changed','sla_breached','vip_set','vip_unset','deleted','grouped','ungrouped','problem_created','solved','updated','arbitrage_task_created','arbitrage_decision','onboarding_rhstudio','onboarding_rhstudio_failed'].includes(h.action) && h.action}
                     </div>
                     {h.created_at && (
                       <div style={{ fontSize: 11, color: '#a1a1aa', marginTop: 2 }}>

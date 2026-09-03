@@ -43,7 +43,7 @@ module.exports = {
         return ticketDto.toDTO(ticket);
     },
 
-    async create(data, user) {
+    async create(data, user, options = {}) {
         const ticketData = {
             ...data,
             type: normalizeTicketType(data.type) || 1,
@@ -70,8 +70,16 @@ module.exports = {
         try { await slaService.applySLA(ticketId, ticketData); }
         catch (e) { console.error('[TICKET] SLA apply failed:', e.message); }
 
-        try { await notificationService.trigger('ticket.created', { ticket_id: ticketId, user }); }
-        catch (e) { console.error('[TICKET] notification failed:', e.message); }
+        // skipNotification : utilisé par le formulaire "Arrivée d'agent"
+        // (request-forms.controller.js), qui enrichit le contenu du ticket
+        // (notice manager + lien formulaire, cf. triggerOnboardingRhStudio)
+        // et le statut AVANT de déclencher lui-même cette notification, pour
+        // que l'email de confirmation au demandeur reflète ce contenu final
+        // plutôt que le contenu brut à la création.
+        if (!options.skipNotification) {
+            try { await notificationService.trigger('ticket.created', { ticket_id: ticketId, user }); }
+            catch (e) { console.error('[TICKET] notification failed:', e.message); }
+        }
 
         // Ajouter les observateurs si fournis
         if (data.observer_ids && Array.isArray(data.observer_ids)) {

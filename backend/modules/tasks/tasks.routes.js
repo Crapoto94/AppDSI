@@ -81,6 +81,9 @@ router.post('/',                  authenticateJWT, requireTicketPermission("tick
 // RH Studio -> DSI Hub : pousse une tâche d'onboarding marquée "Tâche DSI Hub"
 // (clé API scope='tasks', permission read_write ; cf. /admin/api-keys).
 router.post('/external/rh-studio', apiTasks, (req, res) => controller.createExternalRhStudioTask(req, res));
+// RH Studio -> DSI Hub : le manager a rempli le formulaire d'arrivée, le
+// ticket "En attente" passe "En cours" (même clé/scope que ci-dessus).
+router.patch('/external/rh-studio/onboarding-started', apiTasks, (req, res) => controller.markOnboardingTicketInProgress(req, res));
 router.patch('/edit/:id',         authenticateJWT, (req, res) => controller.editTask(req, res));
 router.patch('/:source/:id/favorite',      authenticateJWT, (req, res) => controller.toggleFavorite(req, res));
 router.patch('/:source/:id',      authenticateJWT, (req, res) => controller.updateTaskStatus(req, res));
