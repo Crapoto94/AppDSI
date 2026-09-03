@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import * as XLSX from 'xlsx';
 import Header from '../components/Header';
 import { Plus, Edit2, Trash2, Save, X, Globe, LayoutGrid, BarChart2, Bell, Tag, Code, CheckCircle, Settings, Users, Lightbulb, GraduationCap, Star, FileText, Wrench, Calendar, Paperclip, Download, Search, ChevronRight, Layers, Banknote, ShieldAlert, ExternalLink } from 'lucide-react';
 import { ResponsiveContainer, LineChart, Line, ReferenceLine, CartesianGrid, XAxis, YAxis, Tooltip as RTooltip } from 'recharts';
@@ -991,6 +992,33 @@ const MagappAdmin: React.FC = () => {
     return (a.name || '').localeCompare(b.name || '', 'fr');
   });
 
+  // ─── Export Excel (respecte les filtres/tri en cours, cf. filteredApps) ────────
+  const handleExportAppsExcel = () => {
+    const rows = filteredApps.map(app => ({
+      'Nom': app.name || '',
+      'Catégorie': catName(app.category_id),
+      'Type': app.app_type || '',
+      'URL': app.url || '',
+      'Description': app.description || '',
+      'MagApp': app.present_magapp === 'oui' ? 'Oui' : 'Non',
+      'OnBoard': app.present_onboard === 'oui' ? 'Oui' : 'Non',
+      'Réservée DSI': app.dsi_only ? 'Oui' : 'Non',
+      'Email créateur': app.email_createur || '',
+      'Chef de projet': app.project_manager_name || '',
+      'Application Mercator': app.mercator_name || '',
+      'Ordre': app.display_order ?? '',
+      'Utilisateurs': app.user_count || 0,
+      'Documents': (app.normal_doc_count || 0) + (app.technical_doc_count || 0),
+      'Contrats': app.contract_count || 0,
+      'Montant commandes (€)': app.orders_amount || 0,
+    }));
+    const ws = XLSX.utils.json_to_sheet(rows);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Applications');
+    const date = new Date().toISOString().split('T')[0];
+    XLSX.writeFile(wb, `applications_magapp_${date}.xlsx`);
+  };
+
   // KPI généraux (sur l'ensemble du catalogue)
   const magKpi = {
     total: apps.length,
@@ -1161,7 +1189,10 @@ const MagappAdmin: React.FC = () => {
                     <option value="orders">Tri : montant commandes</option>
                     <option value="docs">Tri : documents</option>
                   </select>
-                  <button className="primary-btn-v2" style={{ marginLeft: 'auto' }} onClick={() => { setEditingApp(null); setShowAppModal(true); }}>
+                  <button className="filter-btn-v2" style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6 }} onClick={handleExportAppsExcel} title="Exporte les applications actuellement filtrées">
+                    <Download size={16} /> Export Excel
+                  </button>
+                  <button className="primary-btn-v2" onClick={() => { setEditingApp(null); setShowAppModal(true); }}>
                     <Plus size={18} /> Nouvelle Application
                   </button>
                 </div>
