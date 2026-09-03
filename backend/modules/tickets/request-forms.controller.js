@@ -278,8 +278,8 @@ async function createArbitrageTask(form, ticketId, ticketTitle) {
             const result = await pgDb.run(
                 `INSERT INTO hub.user_tasks
                    (username, description, statut, is_team_task, team_group_id, team_group_name, created_by,
-                    context_source, context_id, context_title, priority, is_public)
-                 VALUES (?, ?, 'a_faire', ?, ?, ?, 'request_form', 'ticket', ?, ?, 'normale', false)`,
+                    context_source, context_id, context_title, priority, is_public, is_arbitrage)
+                 VALUES (?, ?, 'a_faire', ?, ?, ?, 'request_form', 'ticket', ?, ?, 'normale', false, true)`,
                 [uname, description, isTeamTask, teamGroupId, teamGroupName, ticketId, ticketTitle || null]
             );
             createdIds.push(result.lastID);

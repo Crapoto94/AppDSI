@@ -3972,6 +3972,15 @@ async function setupPgDb() {
     // (cf. tasks.controller.js updateTaskStatus).
     try { await client.query(`ALTER TABLE hub.user_tasks ADD COLUMN IF NOT EXISTS rh_studio_task_id INTEGER`); } catch (e) {}
     try { await client.query(`CREATE INDEX IF NOT EXISTS idx_user_tasks_rh_studio ON hub.user_tasks(rh_studio_task_id) WHERE rh_studio_task_id IS NOT NULL`); } catch (e) {}
+    // Tâches d'arbitrage (formulaires de demande, cf. hub.request_forms.
+    // arbitrage_*) : contrairement au cycle normal a_faire/en_cours/terminé,
+    // une tâche d'arbitrage se termine par une DÉCISION (favorable/
+    // défavorable), avec justification obligatoire si défavorable — cf.
+    // POST /api/tasks/:source/:id/arbitrage. is_arbitrage distingue ces
+    // tâches des tâches normales pour l'UI (boutons dédiés dans le ticket).
+    try { await client.query(`ALTER TABLE hub.user_tasks ADD COLUMN IF NOT EXISTS is_arbitrage BOOLEAN DEFAULT FALSE`); } catch (e) {}
+    try { await client.query(`ALTER TABLE hub.user_tasks ADD COLUMN IF NOT EXISTS arbitrage_decision TEXT`); } catch (e) {}
+    try { await client.query(`ALTER TABLE hub.user_tasks ADD COLUMN IF NOT EXISTS arbitrage_comment TEXT`); } catch (e) {}
     try { await client.query(`
         CREATE TABLE IF NOT EXISTS hub.todo_reunion_task_map (
             reunion_id  INTEGER NOT NULL,

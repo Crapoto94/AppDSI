@@ -912,6 +912,66 @@ module.exports = {
         }
     },
 
+    // POST /api/tasks/:source/:id/arbitrage  { decision: 'positif'|'negatif', comment? }
+    // Décision d'arbitrage (formulaires de demande avec arbitrage activé) :
+    // remplace le cycle a_faire/en_cours/terminé normal pour ces tâches.
+    // Justification obligatoire si défavorable, facultative si favorable.
+    // Sur une tâche d'équipe (groupe d'arbitrage), la première décision
+    // tranche pour tout le groupe (même sémantique que la propagation
+    // d'équipe de updateTaskStatus ci-dessus).
+    async submitArbitrageDecision(req, res) {
+        const { id } = req.params;
+        const { decision, comment } = req.body || {};
+        if (!['positif', 'negatif'].includes(decision)) {
+            return res.status(400).json({ error: "decision doit être 'positif' ou 'negatif'" });
+        }
+        if (decision === 'negatif' && !comment?.trim()) {
+            return res.status(400).json({ error: 'Justification requise pour un arbitrage défavorable' });
+        }
+        try {
+            const { rows } = await pool.query(
+                'SELECT * FROM hub.user_tasks WHERE id = $1',
+                [id]
+            );
+            const task = rows[0];
+            if (!task) return res.status(404).json({ error: 'Tâche introuvable' });
+            if (!task.is_arbitrage) return res.status(400).json({ error: "Cette tâche n'est pas une tâche d'arbitrage" });
+            if (task.arbitrage_decision) return res.status(409).json({ error: 'Cet arbitrage a déjà été rendu' });
+
+            const finalComment = comment?.trim() || null;
+            await pool.query(
+                `UPDATE hub.user_tasks
+                 SET statut = 'terminé', arbitrage_decision = $1, arbitrage_comment = $2,
+                     taken_by = COALESCE(taken_by, $3), updated_at = CURRENT_TIMESTAMP
+                 WHERE id = $4`,
+                [decision, finalComment, req.user.username, id]
+            );
+            // Tâche d'équipe (groupe d'arbitrage) : la décision tranche pour tout le groupe.
+            if (task.is_team_task && task.team_group_id) {
+                await pool.query(
+                    `UPDATE hub.user_tasks
+                     SET statut = 'terminé', arbitrage_decision = $1, arbitrage_comment = $2,
+                         taken_by = COALESCE(taken_by, $3), updated_at = CURRENT_TIMESTAMP
+                     WHERE team_group_id = $4 AND arbitrage_decision IS NULL`,
+                    [decision, finalComment, req.user.username, task.team_group_id]
+                );
+            }
+
+            if (task.context_source === 'ticket' && task.context_id) {
+                try {
+                    await pgDb.run(
+                        `INSERT INTO hub_tickets.ticket_history (ticket_id, user_id, action, field_name, old_value, new_value, comment) VALUES (?, ?, 'arbitrage_decision', 'arbitrage', NULL, ?, ?)`,
+                        [task.context_id, req.user?.id || null, decision, finalComment]
+                    );
+                } catch (e) { console.error('[HISTORY] arbitrage decision log failed:', e.message); }
+            }
+
+            res.json({ ok: true, decision, comment: finalComment });
+        } catch (error) {
+            res.status(500).json({ error: error.message });
+        }
+    },
+
     // DELETE /api/tasks/personal/:id
     // Supprime une tâche personnelle/assignée. Pour une tâche d'équipe (team_group_id),
     // supprime toutes les lignes du groupe afin qu'elle disparaisse en une seule action.

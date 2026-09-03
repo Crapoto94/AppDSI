@@ -84,6 +84,7 @@ router.post('/external/rh-studio', apiTasks, (req, res) => controller.createExte
 router.patch('/edit/:id',         authenticateJWT, (req, res) => controller.editTask(req, res));
 router.patch('/:source/:id/favorite',      authenticateJWT, (req, res) => controller.toggleFavorite(req, res));
 router.patch('/:source/:id',      authenticateJWT, (req, res) => controller.updateTaskStatus(req, res));
+router.post('/:source/:id/arbitrage', authenticateJWT, (req, res) => controller.submitArbitrageDecision(req, res));
 router.delete('/personal/:id',    authenticateJWT, (req, res) => controller.deleteTask(req, res));
 
 // ─── Notes (MUST come before /:source/:id to avoid param conflict) ────────────

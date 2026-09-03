@@ -171,6 +171,15 @@ export default function TicketDetail() {
   const [taskNoteLoading, setTaskNoteLoading] = useState<Record<number, boolean>>({});
   const [editingTaskId, setEditingTaskId] = useState<number | null>(null);
   const [editingTaskDesc, setEditingTaskDesc] = useState('');
+  // Panneau de décision d'arbitrage (remplace le cycle a_faire/en_cours/
+  // terminé pour les tâches is_arbitrage) : arbitratingTaskId ouvre le
+  // panneau, arbitrationChoice mémorise le bouton cliqué (favorable/
+  // défavorable) avant confirmation, arbitrationComment le commentaire/la
+  // justification saisie.
+  const [arbitratingTaskId, setArbitratingTaskId] = useState<number | null>(null);
+  const [arbitrationChoice, setArbitrationChoice] = useState<'positif' | 'negatif' | null>(null);
+  const [arbitrationComment, setArbitrationComment] = useState('');
+  const [submittingArbitration, setSubmittingArbitration] = useState(false);
   const taskFileInputRef = useRef<HTMLInputElement>(null);
   const [uploadingTaskNote, setUploadingTaskNote] = useState(false);
   const taskNoteTargetId = useRef<number | null>(null);
@@ -561,6 +570,40 @@ export default function TicketDetail() {
       }));
     } catch (e: any) {
       alert(e.response?.data?.message || 'Erreur lors de la mise à jour de la tâche');
+    }
+  }
+
+  function openArbitrationPanel(taskId: number, choice: 'positif' | 'negatif') {
+    setArbitratingTaskId(taskId);
+    setArbitrationChoice(choice);
+    setArbitrationComment('');
+  }
+
+  async function submitArbitration(task: any) {
+    if (!arbitrationChoice) return;
+    if (arbitrationChoice === 'negatif' && !arbitrationComment.trim()) return;
+    setSubmittingArbitration(true);
+    try {
+      const token = localStorage.getItem('token');
+      const source = task.context_source || 'personal';
+      await axios.post(`/api/tasks/${source}/${task.id}/arbitrage`,
+        { decision: arbitrationChoice, comment: arbitrationComment.trim() || undefined },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      setTicketTasks(prev => prev.map(t => {
+        if (t.id === task.id || (task.team_group_id && t.team_group_id === task.team_group_id)) {
+          return { ...t, statut: 'terminé', arbitrage_decision: arbitrationChoice, arbitrage_comment: arbitrationComment.trim() || null };
+        }
+        return t;
+      }));
+      setArbitratingTaskId(null);
+      setArbitrationChoice(null);
+      setArbitrationComment('');
+      loadTicket(); // recharge l'historique du ticket (entrée arbitrage_decision)
+    } catch (e: any) {
+      alert(e.response?.data?.error || 'Erreur lors de l\'envoi de la décision');
+    } finally {
+      setSubmittingArbitration(false);
     }
   }
 
@@ -1411,24 +1454,34 @@ export default function TicketDetail() {
                     const isExpanded = expandedTaskId === task.id;
                     const notes = taskNotes[task.id] || [];
                     const noteCount = task.note_count || 0;
+                    const isArbitrage = !!task.is_arbitrage;
+                    const arbitrated = !!task.arbitrage_decision;
+                    const isArbitratingThis = arbitratingTaskId === task.id || (task.team_group_id && arbitratingTaskId && displayTasks.find((t: any) => t.id === arbitratingTaskId)?.team_group_id === task.team_group_id);
                     return (<>
                       <div key={task.team_group_id || task.id} style={{
                         display: 'flex', alignItems: 'center', gap: 10,
                         padding: '8px 12px', borderRadius: 7,
-                        background: done ? '#f0fdf4' : '#fff',
-                        border: `1px solid ${done ? '#bbf7d0' : '#f4f4f5'}`,
-                        opacity: done ? 0.75 : 1
+                        background: arbitrated ? (task.arbitrage_decision === 'positif' ? '#f0fdf4' : '#fef2f2') : done ? '#f0fdf4' : '#fff',
+                        border: `1px solid ${arbitrated ? (task.arbitrage_decision === 'positif' ? '#bbf7d0' : '#fecaca') : done ? '#bbf7d0' : '#f4f4f5'}`,
+                        opacity: done && !isArbitrage ? 0.75 : 1
                       }}>
-                        <button onClick={() => handleTaskStatusCycle(task.id, statut, task._isTeam ? task.team_group_id : undefined)}
-                          style={{
-                            flexShrink: 0, width: 18, height: 18, borderRadius: '50%',
-                            border: `2px solid ${done ? '#22c55e' : inprog ? '#3b82f6' : '#d4d4d8'}`,
-                            background: done ? '#22c55e' : inprog ? '#dbeafe' : 'transparent',
-                            cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                            padding: 0, color: '#fff', fontSize: 9
-                          }}>
-                          {done ? '✓' : inprog ? '⟳' : ''}
-                        </button>
+                        {isArbitrage ? (
+                          <span title={arbitrated ? (task.arbitrage_decision === 'positif' ? 'Arbitrage favorable' : 'Arbitrage défavorable') : 'Arbitrage en attente'}
+                            style={{ flexShrink: 0, fontSize: 14 }}>
+                            {arbitrated ? (task.arbitrage_decision === 'positif' ? '✅' : '❌') : '⚖️'}
+                          </span>
+                        ) : (
+                          <button onClick={() => handleTaskStatusCycle(task.id, statut, task._isTeam ? task.team_group_id : undefined)}
+                            style={{
+                              flexShrink: 0, width: 18, height: 18, borderRadius: '50%',
+                              border: `2px solid ${done ? '#22c55e' : inprog ? '#3b82f6' : '#d4d4d8'}`,
+                              background: done ? '#22c55e' : inprog ? '#dbeafe' : 'transparent',
+                              cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                              padding: 0, color: '#fff', fontSize: 9
+                            }}>
+                            {done ? '✓' : inprog ? '⟳' : ''}
+                          </button>
+                        )}
                         {editingTaskId === task.id ? (
                           <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 4 }}>
                             <input
@@ -1493,6 +1546,67 @@ export default function TicketDetail() {
                           {noteCount || '+'}
                         </button>
                       </div>
+                      {isArbitrage && (
+                        <div style={{
+                          padding: '6px 12px 10px 34px', marginTop: -5,
+                          background: arbitrated ? 'transparent' : '#fffbeb',
+                          border: arbitrated ? 'none' : '1px solid #fde68a', borderTop: 'none',
+                          borderRadius: '0 0 7px 7px',
+                        }}>
+                          {!arbitrated ? (
+                            isArbitratingThis ? (
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxWidth: 480 }}>
+                                <textarea
+                                  value={arbitrationComment}
+                                  onChange={(e) => setArbitrationComment(e.target.value)}
+                                  placeholder={arbitrationChoice === 'negatif' ? 'Justification (obligatoire)…' : 'Commentaire (facultatif)…'}
+                                  rows={2}
+                                  autoFocus
+                                  style={{ padding: '6px 8px', border: '1px solid #cbd5e1', borderRadius: 5, fontSize: 12, fontFamily: 'inherit', resize: 'vertical' }}
+                                />
+                                <div style={{ display: 'flex', gap: 6 }}>
+                                  <button
+                                    onClick={() => submitArbitration(task)}
+                                    disabled={submittingArbitration || (arbitrationChoice === 'negatif' && !arbitrationComment.trim())}
+                                    style={{
+                                      padding: '4px 12px', color: 'white', border: 'none', borderRadius: 5, fontWeight: 600, fontSize: 11,
+                                      background: arbitrationChoice === 'positif' ? '#16a34a' : '#dc2626',
+                                      cursor: (submittingArbitration || (arbitrationChoice === 'negatif' && !arbitrationComment.trim())) ? 'default' : 'pointer',
+                                      opacity: (submittingArbitration || (arbitrationChoice === 'negatif' && !arbitrationComment.trim())) ? 0.5 : 1,
+                                    }}
+                                  >
+                                    {submittingArbitration ? '…' : `Confirmer ${arbitrationChoice === 'positif' ? 'favorable' : 'défavorable'}`}
+                                  </button>
+                                  <button onClick={() => { setArbitratingTaskId(null); setArbitrationChoice(null); setArbitrationComment(''); }}
+                                    style={{ padding: '4px 12px', background: '#f1f5f9', color: '#475569', border: '1px solid #e2e8f0', borderRadius: 5, cursor: 'pointer', fontWeight: 600, fontSize: 11 }}>
+                                    Annuler
+                                  </button>
+                                </div>
+                              </div>
+                            ) : (
+                              <div style={{ display: 'flex', gap: 6 }}>
+                                <button onClick={() => openArbitrationPanel(task.id, 'positif')}
+                                  style={{ padding: '4px 12px', background: 'white', color: '#16a34a', border: '1px solid #bbf7d0', borderRadius: 5, cursor: 'pointer', fontWeight: 600, fontSize: 11 }}>
+                                  ✅ Favorable
+                                </button>
+                                <button onClick={() => openArbitrationPanel(task.id, 'negatif')}
+                                  style={{ padding: '4px 12px', background: 'white', color: '#dc2626', border: '1px solid #fecaca', borderRadius: 5, cursor: 'pointer', fontWeight: 600, fontSize: 11 }}>
+                                  ❌ Défavorable
+                                </button>
+                              </div>
+                            )
+                          ) : task.arbitrage_comment ? (
+                            <div style={{
+                              fontSize: 12, borderRadius: 5, padding: '5px 8px',
+                              color: task.arbitrage_decision === 'positif' ? '#166534' : '#991b1b',
+                              background: task.arbitrage_decision === 'positif' ? '#f0fdf4' : '#fef2f2',
+                              border: `1px solid ${task.arbitrage_decision === 'positif' ? '#bbf7d0' : '#fecaca'}`,
+                            }}>
+                              💬 {task.arbitrage_comment}
+                            </div>
+                          ) : null}
+                        </div>
+                      )}
                       {isExpanded && (
                         <div style={{ padding: '4px 12px 8px 12px', background: '#fafafa', borderRadius: '0 0 7px 7px', marginTop: -5 }}>
                           <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
@@ -2340,7 +2454,9 @@ export default function TicketDetail() {
                       {h.action === 'comment_propagated' && '💬 Commentaire propagé (groupe)'}
                       {h.action === 'solved' && '✅ Ticket résolu'}
                       {h.action === 'updated' && `✏️ ${h.field_name || 'Champ modifié'}`}
-                      {!['created','status_changed','assigned','assigned_group','comment_added','comment_propagated','comment_sent_to_requester','task_created','task_status_changed','sla_breached','vip_set','vip_unset','deleted','grouped','ungrouped','problem_created','solved','updated'].includes(h.action) && h.action}
+                      {h.action === 'arbitrage_task_created' && '⚖️ Arbitrage demandé'}
+                      {h.action === 'arbitrage_decision' && (h.new_value === 'positif' ? '✅ Arbitrage favorable' : '❌ Arbitrage défavorable')}
+                      {!['created','status_changed','assigned','assigned_group','comment_added','comment_propagated','comment_sent_to_requester','task_created','task_status_changed','sla_breached','vip_set','vip_unset','deleted','grouped','ungrouped','problem_created','solved','updated','arbitrage_task_created','arbitrage_decision'].includes(h.action) && h.action}
                     </div>
                     {h.created_at && (
                       <div style={{ fontSize: 11, color: '#a1a1aa', marginTop: 2 }}>
