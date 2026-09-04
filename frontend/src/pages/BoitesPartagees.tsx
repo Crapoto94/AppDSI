@@ -357,6 +357,7 @@ export default function BoitesPartagees() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'pending' | 'positif' | 'negatif'>('all');
+  const [typeFilter, setTypeFilter] = useState<string>('all');
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const [modalMailbox, setModalMailbox] = useState<SharedMailbox | null | undefined>(undefined); // undefined = closed
   // Ecriture reservee aux superviseurs/admins tickets cote backend
@@ -395,17 +396,31 @@ export default function BoitesPartagees() {
   const departedResponsables = useDepartedEmails(responsableEmails);
   const alertCount = boxes.filter((b) => b.responsable_email && departedResponsables.has(b.responsable_email.toLowerCase())).length;
 
+  // Types réellement présents en base (plutôt que TYPE_OPTIONS en dur) : couvre
+  // aussi bien la valeur canonique qu'une variante héritée non normalisée,
+  // pour que le filtre ne fasse jamais disparaître silencieusement une fiche.
+  const typeCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    boxes.forEach((b) => { if (b.type) counts.set(b.type, (counts.get(b.type) || 0) + 1); });
+    return counts;
+  }, [boxes]);
+  const availableTypes = useMemo(
+    () => [...typeCounts.keys()].sort((a, b) => a.localeCompare(b, 'fr')),
+    [typeCounts]
+  );
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     return boxes.filter((b) => {
       if (statusFilter === 'pending' && b.arbitrage_decision) return false;
       if (statusFilter === 'positif' && b.arbitrage_decision !== 'positif') return false;
       if (statusFilter === 'negatif' && b.arbitrage_decision !== 'negatif') return false;
+      if (typeFilter !== 'all' && b.type !== typeFilter) return false;
       if (!q) return true;
       return [b.nom, b.email, b.responsable_display, b.responsable_email, b.requested_by_name, ...(b.membres || []).map((m) => m.displayName)]
         .filter(Boolean).some((s) => String(s).toLowerCase().includes(q));
     });
-  }, [boxes, search, statusFilter]);
+  }, [boxes, search, statusFilter, typeFilter]);
 
   const counts = useMemo(() => ({
     total: boxes.length,
@@ -458,6 +473,16 @@ export default function BoitesPartagees() {
               style={{ width: '100%', padding: '8px 10px 8px 30px', border: '1px solid #e2e8f0', borderRadius: 8, fontSize: 13, boxSizing: 'border-box' }}
             />
           </div>
+          <select
+            value={typeFilter}
+            onChange={(e) => setTypeFilter(e.target.value)}
+            style={{ padding: '7px 10px', borderRadius: 8, border: '1px solid #e2e8f0', fontSize: 12, fontWeight: 600, color: typeFilter === 'all' ? '#475569' : '#1d4ed8', background: typeFilter === 'all' ? 'white' : '#eff6ff' }}
+          >
+            <option value="all">Tous les types ({boxes.length})</option>
+            {availableTypes.map((t) => (
+              <option key={t} value={t}>{t} ({typeCounts.get(t)})</option>
+            ))}
+          </select>
           {[
             { v: 'all', label: 'Toutes' },
             { v: 'pending', label: '⏳ En attente' },
