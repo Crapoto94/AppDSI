@@ -5524,6 +5524,10 @@ async function setupPgDb() {
       // 'permission_denied' (impossible de vérifier les groupes, permission
       // Group.Read.All manquante sur l'app), NULL = jamais vérifié.
       await client.query(`ALTER TABLE hub.shared_mailboxes ADD COLUMN IF NOT EXISTS o365_status TEXT`);
+      // Marque une boîte/liste comme appartenant à la DSI elle-même (par
+      // opposition aux autres directions/services) — toggle depuis la liste
+      // principale, filtrable.
+      await client.query(`ALTER TABLE hub.shared_mailboxes ADD COLUMN IF NOT EXISTS is_dsi BOOLEAN DEFAULT FALSE`);
     } catch (e) { console.error('[PG DB] hub.shared_mailboxes:', e.message); }
 
     // ─── hub_telecom : opérateurs, comptes de facturation et factures télécom ────

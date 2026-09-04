@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Mail, Search, ExternalLink, Users, Plus, Pencil, Trash2, X, AlertTriangle, RefreshCw, Cloud, Lock } from 'lucide-react';
+import { Mail, Search, ExternalLink, Users, Plus, Pencil, Trash2, X, AlertTriangle, RefreshCw, Cloud, Lock, Building2 } from 'lucide-react';
 import Header from '../components/Header';
 import AgentPresenceBadge from '../components/AgentPresenceBadge';
 import { classify, type PresenceInfo, type PresenceStatus } from '../utils/agentPresence';
@@ -38,6 +38,7 @@ interface SharedMailbox {
   // (absente aussi d'O365), 'permission_denied' (impossible de vérifier les
   // groupes, permission Graph manquante), NULL = jamais vérifié.
   o365_status: string | null;
+  is_dsi: boolean;
   created_at: string;
 }
 
@@ -188,6 +189,7 @@ const emptyForm = {
   nom: '', email: '', type: '', usage_type: '', provisoire: false, date_fin: '', date_creation: '',
   responsable: null as Membre | null, membres: [] as Membre[], justification: '',
   arbitrage_decision: '' as '' | 'positif' | 'negatif', arbitrage_comment: '', ad_sync_error: '', o365_status: '',
+  is_dsi: false,
 };
 
 function MailboxModal({ initial, token, onClose, onSaved }: { initial: SharedMailbox | null; token: string | null; onClose: () => void; onSaved: () => void }) {
@@ -200,6 +202,7 @@ function MailboxModal({ initial, token, onClose, onSaved }: { initial: SharedMai
     arbitrage_decision: (initial.arbitrage_decision || '') as '' | 'positif' | 'negatif',
     arbitrage_comment: initial.arbitrage_comment || '',
     ad_sync_error: initial.ad_sync_error || '', o365_status: initial.o365_status || '',
+    is_dsi: initial.is_dsi || false,
   } : emptyForm);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -258,6 +261,7 @@ function MailboxModal({ initial, token, onClose, onSaved }: { initial: SharedMai
       membres: form.membres, justification: form.justification || null,
       arbitrage_decision: form.arbitrage_decision || null, arbitrage_comment: form.arbitrage_comment || null,
       date_creation: form.date_creation || null, ad_sync_error: form.ad_sync_error || null, o365_status: form.o365_status || null,
+      is_dsi: form.is_dsi,
     };
     try {
       const res = await fetch(initial ? `/api/mailboxes/${initial.id}` : '/api/mailboxes', {
@@ -345,6 +349,10 @@ function MailboxModal({ initial, token, onClose, onSaved }: { initial: SharedMai
             {form.provisoire && (
               <input type="date" style={{ ...fieldStyles, width: 'auto' }} value={form.date_fin} onChange={(e) => setForm({ ...form, date_fin: e.target.value })} />
             )}
+            <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, fontWeight: 600, color: '#334155', cursor: 'pointer' }}>
+              <input type="checkbox" checked={form.is_dsi} onChange={(e) => setForm({ ...form, is_dsi: e.target.checked })} />
+              Boîte/liste DSI
+            </label>
           </div>
           <div>
             <label style={labelStyles}>Justification</label>
@@ -463,6 +471,8 @@ export default function BoitesPartagees() {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'pending' | 'positif' | 'negatif'>('all');
   const [typeFilter, setTypeFilter] = useState<string>('all');
+  const [memberFilter, setMemberFilter] = useState<'all' | 'zero' | 'o365_confirmed' | 'error'>('all');
+  const [dsiOnly, setDsiOnly] = useState(false);
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const [modalMailbox, setModalMailbox] = useState<SharedMailbox | null | undefined>(undefined); // undefined = closed
   // Ecriture reservee aux superviseurs/admins tickets cote backend
@@ -531,6 +541,30 @@ export default function BoitesPartagees() {
     [typeCounts]
   );
 
+  // Catégorie "membres" d'une fiche — pour le filtre ET la liste déroulante
+  // (cf. AdSyncBadge pour le détail des symboles associés) :
+  //  - 'o365_confirmed' : confirmée dans O365 (boîte ou groupe), pas dans l'AD.
+  //  - 'error'           : non résolue (introuvable partout, permission Graph
+  //                        manquante, ou jamais vérifiée côté O365) — priment
+  //                        sur "zero" ci-dessous, plus précis.
+  //  - 'zero'            : 0 membre confirmé (aucun souci de résolution).
+  //  - 'ok'               : au moins un membre.
+  function memberCategory(b: SharedMailbox): 'o365_confirmed' | 'error' | 'zero' | 'ok' {
+    if (b.o365_status === 'user_found' || b.o365_status === 'group_found') return 'o365_confirmed';
+    if (b.ad_sync_error) return 'error';
+    if ((b.membres || []).length === 0) return 'zero';
+    return 'ok';
+  }
+  const memberCounts = useMemo(() => {
+    const counts = { zero: 0, o365_confirmed: 0, error: 0 };
+    boxes.forEach((b) => {
+      const cat = memberCategory(b);
+      if (cat === 'zero' || cat === 'o365_confirmed' || cat === 'error') counts[cat]++;
+    });
+    return counts;
+  }, [boxes]);
+  const dsiCount = useMemo(() => boxes.filter((b) => b.is_dsi).length, [boxes]);
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     return boxes.filter((b) => {
@@ -538,11 +572,13 @@ export default function BoitesPartagees() {
       if (statusFilter === 'positif' && b.arbitrage_decision !== 'positif') return false;
       if (statusFilter === 'negatif' && b.arbitrage_decision !== 'negatif') return false;
       if (typeFilter !== 'all' && b.type !== typeFilter) return false;
+      if (memberFilter !== 'all' && memberCategory(b) !== memberFilter) return false;
+      if (dsiOnly && !b.is_dsi) return false;
       if (!q) return true;
       return [b.nom, b.email, b.responsable_display, b.responsable_email, b.requested_by_name, ...(b.membres || []).map((m) => m.displayName)]
         .filter(Boolean).some((s) => String(s).toLowerCase().includes(q));
     }).sort((a, b) => a.nom.localeCompare(b.nom, 'fr', { sensitivity: 'base' }));
-  }, [boxes, search, statusFilter, typeFilter]);
+  }, [boxes, search, statusFilter, typeFilter, memberFilter, dsiOnly]);
 
   const counts = useMemo(() => ({
     total: boxes.length,
@@ -555,6 +591,23 @@ export default function BoitesPartagees() {
     if (!window.confirm(`Supprimer la boîte "${b.nom}" ?`)) return;
     await fetch(`/api/mailboxes/${b.id}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } });
     load();
+  };
+
+  // Toggle direct depuis la liste (pas besoin d'ouvrir la fiche) — mise à
+  // jour optimiste, puis rollback silencieux si l'appel échoue.
+  const toggleDsi = async (b: SharedMailbox) => {
+    const next = !b.is_dsi;
+    setBoxes((prev) => prev.map((x) => (x.id === b.id ? { ...x, is_dsi: next } : x)));
+    try {
+      const res = await fetch(`/api/mailboxes/${b.id}`, {
+        method: 'PUT',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ is_dsi: next }),
+      });
+      if (!res.ok) throw new Error();
+    } catch {
+      setBoxes((prev) => prev.map((x) => (x.id === b.id ? { ...x, is_dsi: !next } : x)));
+    }
   };
 
   return (
@@ -605,6 +658,28 @@ export default function BoitesPartagees() {
               <option key={t} value={t}>{t} ({typeCounts.get(t)})</option>
             ))}
           </select>
+          <select
+            value={memberFilter}
+            onChange={(e) => setMemberFilter(e.target.value as typeof memberFilter)}
+            style={{ padding: '7px 10px', borderRadius: 8, border: '1px solid #e2e8f0', fontSize: 12, fontWeight: 600, color: memberFilter === 'all' ? '#475569' : '#1d4ed8', background: memberFilter === 'all' ? 'white' : '#eff6ff' }}
+          >
+            <option value="all">Membres : tous</option>
+            <option value="zero">👥 0 personne ({memberCounts.zero})</option>
+            <option value="o365_confirmed">☁️ Confirmée O365, pas AD ({memberCounts.o365_confirmed})</option>
+            <option value="error">⚠️ En erreur ({memberCounts.error})</option>
+          </select>
+          <button
+            onClick={() => setDsiOnly((v) => !v)}
+            title="N'afficher que les boîtes/listes de la DSI"
+            style={{
+              display: 'flex', alignItems: 'center', gap: 6, padding: '7px 14px', borderRadius: 8, cursor: 'pointer', fontSize: 12, fontWeight: 600,
+              border: dsiOnly ? '1px solid #93c5fd' : '1px solid #e2e8f0',
+              background: dsiOnly ? '#eff6ff' : 'white',
+              color: dsiOnly ? '#1d4ed8' : '#475569',
+            }}
+          >
+            <Building2 size={13} /> DSI ({dsiCount})
+          </button>
           {[
             { v: 'all', label: 'Toutes' },
             { v: 'pending', label: '⏳ En attente' },
@@ -640,6 +715,7 @@ export default function BoitesPartagees() {
                 <tr style={{ background: '#f8fafc', textAlign: 'left' }}>
                   <th style={{ padding: '10px 14px', fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>Boîte</th>
                   <th style={{ padding: '10px 14px', fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>Type</th>
+                  <th style={{ padding: '10px 14px', fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>DSI</th>
                   <th style={{ padding: '10px 14px', fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>Responsable</th>
                   <th style={{ padding: '10px 14px', fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>Agents</th>
                   <th style={{ padding: '10px 14px', fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>Créée le</th>
@@ -667,6 +743,26 @@ export default function BoitesPartagees() {
                         </td>
                         <td style={{ padding: '10px 14px' }}>
                           <TypeBadge type={b.type} usageType={b.usage_type} />
+                        </td>
+                        <td style={{ padding: '10px 14px' }} onClick={(e) => e.stopPropagation()}>
+                          {canManage ? (
+                            <button
+                              onClick={() => toggleDsi(b)}
+                              title={b.is_dsi ? 'Boîte/liste DSI — cliquer pour retirer' : 'Marquer comme boîte/liste DSI'}
+                              style={{
+                                display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 8px', borderRadius: 999, fontSize: 11, fontWeight: 700, cursor: 'pointer',
+                                border: b.is_dsi ? '1px solid #93c5fd' : '1px solid #e2e8f0',
+                                background: b.is_dsi ? '#eff6ff' : 'white',
+                                color: b.is_dsi ? '#1d4ed8' : '#cbd5e1',
+                              }}
+                            >
+                              <Building2 size={12} /> {b.is_dsi ? 'DSI' : ''}
+                            </button>
+                          ) : b.is_dsi ? (
+                            <span title="Boîte/liste DSI" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 8px', borderRadius: 999, fontSize: 11, fontWeight: 700, background: '#eff6ff', color: '#1d4ed8' }}>
+                              <Building2 size={12} /> DSI
+                            </span>
+                          ) : null}
                         </td>
                         <td style={{ padding: '10px 14px' }}>
                           {b.responsable_display ? (
@@ -734,7 +830,7 @@ export default function BoitesPartagees() {
                       </tr>
                       {expanded && (
                         <tr style={{ background: '#fafbfc' }}>
-                          <td colSpan={canManage ? 9 : 8} style={{ padding: '10px 14px 16px' }}>
+                          <td colSpan={canManage ? 10 : 9} style={{ padding: '10px 14px 16px' }}>
                             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
                               <div>
                                 <div style={{ fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', marginBottom: 6 }}>Agents ayant accès</div>
