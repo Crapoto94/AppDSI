@@ -14,6 +14,10 @@
  *   icon        nom d'icône lucide-react (cf. Tile.tsx)
  *   description courte description affichée sur la tuile
  *   url         route interne du module
+ *   is_public   optionnel (défaut false) — tuile visible par tout utilisateur
+ *               connecté sans autorisation individuelle (cf. seed dans
+ *               sqlite_db.js et is_public dans /api/tiles). N'a d'effet qu'à
+ *               la création de la tuile ; sans effet si elle existe déjà.
  */
 const MODULES_REGISTRY = [
     { key: 'tickets',      title: 'Tickets & Support',     icon: 'Inbox',        description: 'Gestion des tickets et du support utilisateurs.', url: '/tickets' },
@@ -38,6 +42,7 @@ const MODULES_REGISTRY = [
     { key: 'rh',           title: 'Ressources Humaines',   icon: 'Users',        description: 'Gestion des agents DSI, contractuels et organigramme.', url: '/rh' },
     { key: 'vols',         title: 'Vols et Pertes de Matériel', icon: 'ShieldAlert', description: 'Suivi des matériels volés ou perdus.', url: '/vols' },
     { key: 'param-ville',  title: 'Paramètres Ville',      icon: 'City',        description: 'Paramétrage de la ville et localisations.', url: '/admin/param-ville' },
+    { key: 'boites-partagees', title: 'Boîtes mail partagées', icon: 'Mail',    description: 'Suivi des boîtes mail partagées et de leurs membres.', url: '/boites-partagees', is_public: true },
 ];
 
 module.exports = { MODULES_REGISTRY };

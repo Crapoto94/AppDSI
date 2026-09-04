@@ -754,7 +754,7 @@ async function setupDb() {
                 const maxOrder = await db.get('SELECT MAX(sort_order) as m FROM tiles');
                 const result = await db.run(
                     'INSERT INTO tiles (title, icon, description, status, sort_order, is_public, is_module, module_key) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-                    [mod.title, mod.icon, mod.description, 'active', (maxOrder?.m || 0) + 1, 0, 1, mod.key]
+                    [mod.title, mod.icon, mod.description, 'active', (maxOrder?.m || 0) + 1, mod.is_public ? 1 : 0, 1, mod.key]
                 );
                 await db.run(
                     'INSERT INTO tile_links (tile_id, label, url, is_internal) VALUES (?, ?, ?, ?)',
