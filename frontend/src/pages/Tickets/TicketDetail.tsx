@@ -1184,7 +1184,12 @@ export default function TicketDetail() {
         assignees: [selectedArbitre.username],
         context_source: 'ticket',
         context_id: parseInt(id || '0'),
-        statut: 'a_faire'
+        context_title: ticket.title || null,
+        statut: 'a_faire',
+        // Vraie tâche d'arbitrage (Favorable/Défavorable via
+        // POST /api/tasks/:source/:id/arbitrage), même format que celles
+        // générées par les formulaires de demande — pas un simple todo.
+        is_arbitrage: true
       }, { headers: { Authorization: `Bearer ${token}` } });
       setShowArbitrageModal(false);
       arbitreAd.setQuery('');

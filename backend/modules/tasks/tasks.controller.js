@@ -527,7 +527,7 @@ module.exports = {
     // POST /api/tasks  — unified creation (personal, context, team)
     // Body: { description, echeance?, context_source?, context_id?, context_title?,
     //         is_team_task?, assignees?: string[], service_code?: string,
-    //         ticket_group_id?: number }
+    //         ticket_group_id?: number, is_arbitrage?: boolean }
     async createTask(req, res) {
         const creator = req.user.username;
         const {
@@ -535,7 +535,13 @@ module.exports = {
             context_source = 'personal', context_id = null, context_title = null,
             is_team_task = false, assignees = [], service_code = null,
             priority = 'normale', is_public = false,
-            ticket_group_id = null
+            ticket_group_id = null,
+            // Tâche d'arbitrage manuelle (bouton "Arbitrage" sur un ticket) : même
+            // format que celles générées par les formulaires de demande (cf.
+            // request-forms.controller.js#createArbitrageTask) — décision
+            // Favorable/Défavorable via POST /api/tasks/:source/:id/arbitrage au
+            // lieu du cycle a_faire/en_cours/terminé habituel.
+            is_arbitrage = false
         } = req.body;
         if (!description?.trim()) return res.status(400).json({ error: 'Description requise' });
         try {
@@ -586,13 +592,13 @@ module.exports = {
                            (username, description, echeance, statut,
                             is_team_task, team_group_id, team_group_name, created_by,
                             context_source, context_id, context_title,
-                            priority, is_public)
-                         VALUES ($1,$2,$3,'a_faire',$4,$5,$6,$7,$8,$9,$10,$11,$12)
+                            priority, is_public, is_arbitrage)
+                         VALUES ($1,$2,$3,'a_faire',$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
                          RETURNING *`,
                     [uname, description.trim(), echeance || null,
                      effectiveTeamTask, teamGroupId, teamGroupName, creator,
                      context_source, context_id, context_title,
-                     priority, is_public]
+                     priority, is_public, !!is_arbitrage]
                 );
                 created.push(rows[0]);
             }
