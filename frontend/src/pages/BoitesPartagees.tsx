@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Mail, Search, ExternalLink, Users, Plus, Pencil, Trash2, X, AlertTriangle, RefreshCw, Cloud, Lock, Building2 } from 'lucide-react';
+import { Mail, Search, ExternalLink, Users, Plus, Pencil, Trash2, X, AlertTriangle, RefreshCw, Cloud, Lock, Building2, Wrench, UserSearch } from 'lucide-react';
 import Header from '../components/Header';
 import AgentPresenceBadge from '../components/AgentPresenceBadge';
 import { classify, type PresenceInfo, type PresenceStatus } from '../utils/agentPresence';
@@ -39,6 +39,7 @@ interface SharedMailbox {
   // groupes, permission Graph manquante), NULL = jamais vérifié.
   o365_status: string | null;
   is_dsi: boolean;
+  is_technique: boolean;
   created_at: string;
 }
 
@@ -189,7 +190,7 @@ const emptyForm = {
   nom: '', email: '', type: '', usage_type: '', provisoire: false, date_fin: '', date_creation: '',
   responsable: null as Membre | null, membres: [] as Membre[], justification: '',
   arbitrage_decision: '' as '' | 'positif' | 'negatif', arbitrage_comment: '', ad_sync_error: '', o365_status: '',
-  is_dsi: false,
+  is_dsi: false, is_technique: false,
 };
 
 function MailboxModal({ initial, token, onClose, onSaved }: { initial: SharedMailbox | null; token: string | null; onClose: () => void; onSaved: () => void }) {
@@ -202,7 +203,7 @@ function MailboxModal({ initial, token, onClose, onSaved }: { initial: SharedMai
     arbitrage_decision: (initial.arbitrage_decision || '') as '' | 'positif' | 'negatif',
     arbitrage_comment: initial.arbitrage_comment || '',
     ad_sync_error: initial.ad_sync_error || '', o365_status: initial.o365_status || '',
-    is_dsi: initial.is_dsi || false,
+    is_dsi: initial.is_dsi || false, is_technique: initial.is_technique || false,
   } : emptyForm);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -261,7 +262,7 @@ function MailboxModal({ initial, token, onClose, onSaved }: { initial: SharedMai
       membres: form.membres, justification: form.justification || null,
       arbitrage_decision: form.arbitrage_decision || null, arbitrage_comment: form.arbitrage_comment || null,
       date_creation: form.date_creation || null, ad_sync_error: form.ad_sync_error || null, o365_status: form.o365_status || null,
-      is_dsi: form.is_dsi,
+      is_dsi: form.is_dsi, is_technique: form.is_technique,
     };
     try {
       const res = await fetch(initial ? `/api/mailboxes/${initial.id}` : '/api/mailboxes', {
@@ -352,6 +353,10 @@ function MailboxModal({ initial, token, onClose, onSaved }: { initial: SharedMai
             <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, fontWeight: 600, color: '#334155', cursor: 'pointer' }}>
               <input type="checkbox" checked={form.is_dsi} onChange={(e) => setForm({ ...form, is_dsi: e.target.checked })} />
               Boîte/liste DSI
+            </label>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, fontWeight: 600, color: '#334155', cursor: 'pointer' }}>
+              <input type="checkbox" checked={form.is_technique} onChange={(e) => setForm({ ...form, is_technique: e.target.checked })} />
+              Boîte/liste technique
             </label>
           </div>
           <div>
@@ -473,6 +478,8 @@ export default function BoitesPartagees() {
   const [typeFilter, setTypeFilter] = useState<string>('all');
   const [memberFilter, setMemberFilter] = useState<'all' | 'zero' | 'o365_confirmed' | 'error'>('all');
   const [dsiOnly, setDsiOnly] = useState(false);
+  const [techniqueOnly, setTechniqueOnly] = useState(false);
+  const [agentAccessFilter, setAgentAccessFilter] = useState<Membre | null>(null);
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const [modalMailbox, setModalMailbox] = useState<SharedMailbox | null | undefined>(undefined); // undefined = closed
   // Ecriture reservee aux superviseurs/admins tickets cote backend
@@ -549,6 +556,13 @@ export default function BoitesPartagees() {
   //                        sur "zero" ci-dessous, plus précis.
   //  - 'zero'            : 0 membre confirmé (aucun souci de résolution).
   //  - 'ok'               : au moins un membre.
+  // Un agent "a accès" à une boîte/liste s'il en est membre ou responsable.
+  function hasAgentAccess(b: SharedMailbox, agentEmail: string): boolean {
+    const e = agentEmail.toLowerCase();
+    if ((b.responsable_email || '').toLowerCase() === e) return true;
+    return (b.membres || []).some((m) => (m.email || '').toLowerCase() === e);
+  }
+
   function memberCategory(b: SharedMailbox): 'o365_confirmed' | 'error' | 'zero' | 'ok' {
     if (b.o365_status === 'user_found' || b.o365_status === 'group_found') return 'o365_confirmed';
     if (b.ad_sync_error) return 'error';
@@ -564,6 +578,11 @@ export default function BoitesPartagees() {
     return counts;
   }, [boxes]);
   const dsiCount = useMemo(() => boxes.filter((b) => b.is_dsi).length, [boxes]);
+  const techniqueCount = useMemo(() => boxes.filter((b) => b.is_technique).length, [boxes]);
+  const agentAccessCount = useMemo(
+    () => (agentAccessFilter ? boxes.filter((b) => hasAgentAccess(b, agentAccessFilter.email)).length : 0),
+    [boxes, agentAccessFilter]
+  );
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -574,11 +593,13 @@ export default function BoitesPartagees() {
       if (typeFilter !== 'all' && b.type !== typeFilter) return false;
       if (memberFilter !== 'all' && memberCategory(b) !== memberFilter) return false;
       if (dsiOnly && !b.is_dsi) return false;
+      if (techniqueOnly && !b.is_technique) return false;
+      if (agentAccessFilter && !hasAgentAccess(b, agentAccessFilter.email)) return false;
       if (!q) return true;
       return [b.nom, b.email, b.responsable_display, b.responsable_email, b.requested_by_name, ...(b.membres || []).map((m) => m.displayName)]
         .filter(Boolean).some((s) => String(s).toLowerCase().includes(q));
     }).sort((a, b) => a.nom.localeCompare(b.nom, 'fr', { sensitivity: 'base' }));
-  }, [boxes, search, statusFilter, typeFilter, memberFilter, dsiOnly]);
+  }, [boxes, search, statusFilter, typeFilter, memberFilter, dsiOnly, techniqueOnly, agentAccessFilter]);
 
   const counts = useMemo(() => ({
     total: boxes.length,
@@ -594,26 +615,27 @@ export default function BoitesPartagees() {
   };
 
   // Toggle direct depuis la liste (pas besoin d'ouvrir la fiche) — mise à
-  // jour optimiste, puis rollback silencieux si l'appel échoue.
-  const toggleDsi = async (b: SharedMailbox) => {
-    const next = !b.is_dsi;
-    setBoxes((prev) => prev.map((x) => (x.id === b.id ? { ...x, is_dsi: next } : x)));
+  // jour optimiste, puis rollback silencieux si l'appel échoue. Générique :
+  // sert à la fois pour is_dsi et is_technique.
+  const toggleFlag = async (b: SharedMailbox, field: 'is_dsi' | 'is_technique') => {
+    const next = !b[field];
+    setBoxes((prev) => prev.map((x) => (x.id === b.id ? { ...x, [field]: next } : x)));
     try {
       const res = await fetch(`/api/mailboxes/${b.id}`, {
         method: 'PUT',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ is_dsi: next }),
+        body: JSON.stringify({ [field]: next }),
       });
       if (!res.ok) throw new Error();
     } catch {
-      setBoxes((prev) => prev.map((x) => (x.id === b.id ? { ...x, is_dsi: !next } : x)));
+      setBoxes((prev) => prev.map((x) => (x.id === b.id ? { ...x, [field]: !next } : x)));
     }
   };
 
   return (
     <div>
       <Header />
-      <div style={{ maxWidth: 1200, margin: '0 auto', padding: '24px 20px' }}>
+      <div style={{ width: '80%', margin: '0 auto', padding: '24px 0' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20 }}>
           <div style={{ width: 44, height: 44, borderRadius: 12, background: '#eff6ff', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#2563eb' }}>
             <Mail size={22} />
@@ -628,6 +650,26 @@ export default function BoitesPartagees() {
             <button onClick={() => setModalMailbox(null)} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '9px 16px', background: '#2563eb', color: 'white', border: 'none', borderRadius: 8, cursor: 'pointer', fontWeight: 700, fontSize: 13 }}>
               <Plus size={15} /> Ajouter une boîte
             </button>
+          )}
+        </div>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16, padding: '10px 14px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 10, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 700, color: '#475569', flexShrink: 0 }}>
+            <UserSearch size={15} /> Boîtes accessibles par :
+          </div>
+          <div style={{ width: 260 }}>
+            <AgentPicker value={agentAccessFilter} token={token} onChange={setAgentAccessFilter} placeholder="Rechercher un agent (AD)…" />
+          </div>
+          {agentAccessFilter && (
+            <>
+              <span style={{ fontSize: 12, color: '#64748b', fontWeight: 600 }}>
+                {agentAccessCount} boîte{agentAccessCount > 1 ? 's' : ''} trouvée{agentAccessCount > 1 ? 's' : ''}
+              </span>
+              <button onClick={() => setAgentAccessFilter(null)} title="Effacer"
+                style={{ display: 'flex', alignItems: 'center', gap: 4, border: 'none', background: '#f1f5f9', borderRadius: 6, padding: '4px 8px', cursor: 'pointer', color: '#64748b', fontSize: 12, fontWeight: 600 }}>
+                <X size={12} /> Effacer
+              </button>
+            </>
           )}
         </div>
 
@@ -680,6 +722,18 @@ export default function BoitesPartagees() {
           >
             <Building2 size={13} /> DSI ({dsiCount})
           </button>
+          <button
+            onClick={() => setTechniqueOnly((v) => !v)}
+            title="N'afficher que les boîtes/listes techniques"
+            style={{
+              display: 'flex', alignItems: 'center', gap: 6, padding: '7px 14px', borderRadius: 8, cursor: 'pointer', fontSize: 12, fontWeight: 600,
+              border: techniqueOnly ? '1px solid #93c5fd' : '1px solid #e2e8f0',
+              background: techniqueOnly ? '#eff6ff' : 'white',
+              color: techniqueOnly ? '#1d4ed8' : '#475569',
+            }}
+          >
+            <Wrench size={13} /> Technique ({techniqueCount})
+          </button>
           {[
             { v: 'all', label: 'Toutes' },
             { v: 'pending', label: '⏳ En attente' },
@@ -710,12 +764,13 @@ export default function BoitesPartagees() {
           </div>
         ) : (
           <div style={{ background: 'white', borderRadius: 12, border: '1px solid #e2e8f0', overflow: 'hidden' }}>
+            <div style={{ overflowX: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
               <thead>
                 <tr style={{ background: '#f8fafc', textAlign: 'left' }}>
                   <th style={{ padding: '10px 14px', fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>Boîte</th>
                   <th style={{ padding: '10px 14px', fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>Type</th>
-                  <th style={{ padding: '10px 14px', fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>DSI</th>
+                  <th style={{ padding: '10px 14px', fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>Tags</th>
                   <th style={{ padding: '10px 14px', fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>Responsable</th>
                   <th style={{ padding: '10px 14px', fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>Agents</th>
                   <th style={{ padding: '10px 14px', fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>Créée le</th>
@@ -745,24 +800,44 @@ export default function BoitesPartagees() {
                           <TypeBadge type={b.type} usageType={b.usage_type} />
                         </td>
                         <td style={{ padding: '10px 14px' }} onClick={(e) => e.stopPropagation()}>
-                          {canManage ? (
-                            <button
-                              onClick={() => toggleDsi(b)}
-                              title={b.is_dsi ? 'Boîte/liste DSI — cliquer pour retirer' : 'Marquer comme boîte/liste DSI'}
-                              style={{
-                                display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 8px', borderRadius: 999, fontSize: 11, fontWeight: 700, cursor: 'pointer',
-                                border: b.is_dsi ? '1px solid #93c5fd' : '1px solid #e2e8f0',
-                                background: b.is_dsi ? '#eff6ff' : 'white',
-                                color: b.is_dsi ? '#1d4ed8' : '#cbd5e1',
-                              }}
-                            >
-                              <Building2 size={12} /> {b.is_dsi ? 'DSI' : ''}
-                            </button>
-                          ) : b.is_dsi ? (
-                            <span title="Boîte/liste DSI" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 8px', borderRadius: 999, fontSize: 11, fontWeight: 700, background: '#eff6ff', color: '#1d4ed8' }}>
-                              <Building2 size={12} /> DSI
-                            </span>
-                          ) : null}
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                            {canManage ? (
+                              <button
+                                onClick={() => toggleFlag(b, 'is_dsi')}
+                                title={b.is_dsi ? 'Boîte/liste DSI — cliquer pour retirer' : 'Marquer comme boîte/liste DSI'}
+                                style={{
+                                  display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 8px', borderRadius: 999, fontSize: 11, fontWeight: 700, cursor: 'pointer',
+                                  border: b.is_dsi ? '1px solid #93c5fd' : '1px solid #e2e8f0',
+                                  background: b.is_dsi ? '#eff6ff' : 'white',
+                                  color: b.is_dsi ? '#1d4ed8' : '#cbd5e1',
+                                }}
+                              >
+                                <Building2 size={12} /> {b.is_dsi ? 'DSI' : ''}
+                              </button>
+                            ) : b.is_dsi ? (
+                              <span title="Boîte/liste DSI" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 8px', borderRadius: 999, fontSize: 11, fontWeight: 700, background: '#eff6ff', color: '#1d4ed8' }}>
+                                <Building2 size={12} /> DSI
+                              </span>
+                            ) : null}
+                            {canManage ? (
+                              <button
+                                onClick={() => toggleFlag(b, 'is_technique')}
+                                title={b.is_technique ? 'Boîte/liste technique — cliquer pour retirer' : 'Marquer comme boîte/liste technique'}
+                                style={{
+                                  display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 8px', borderRadius: 999, fontSize: 11, fontWeight: 700, cursor: 'pointer',
+                                  border: b.is_technique ? '1px solid #fbbf24' : '1px solid #e2e8f0',
+                                  background: b.is_technique ? '#fffbeb' : 'white',
+                                  color: b.is_technique ? '#b45309' : '#cbd5e1',
+                                }}
+                              >
+                                <Wrench size={12} /> {b.is_technique ? 'Tech.' : ''}
+                              </button>
+                            ) : b.is_technique ? (
+                              <span title="Boîte/liste technique" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 8px', borderRadius: 999, fontSize: 11, fontWeight: 700, background: '#fffbeb', color: '#b45309' }}>
+                                <Wrench size={12} /> Tech.
+                              </span>
+                            ) : null}
+                          </div>
                         </td>
                         <td style={{ padding: '10px 14px' }}>
                           {b.responsable_display ? (
@@ -888,6 +963,7 @@ export default function BoitesPartagees() {
                 })}
               </tbody>
             </table>
+            </div>
           </div>
         )}
       </div>

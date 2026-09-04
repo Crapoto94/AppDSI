@@ -5528,6 +5528,10 @@ async function setupPgDb() {
       // opposition aux autres directions/services) — toggle depuis la liste
       // principale, filtrable.
       await client.query(`ALTER TABLE hub.shared_mailboxes ADD COLUMN IF NOT EXISTS is_dsi BOOLEAN DEFAULT FALSE`);
+      // Marque une boîte/liste comme "technique" (alerte système, compte de
+      // service, notification automatisée…) plutôt que métier — même
+      // mécanisme que is_dsi (toggle liste + filtre).
+      await client.query(`ALTER TABLE hub.shared_mailboxes ADD COLUMN IF NOT EXISTS is_technique BOOLEAN DEFAULT FALSE`);
     } catch (e) { console.error('[PG DB] hub.shared_mailboxes:', e.message); }
 
     // ─── hub_telecom : opérateurs, comptes de facturation et factures télécom ────
