@@ -5507,6 +5507,13 @@ async function setupPgDb() {
       // scripts/import_exchange_groups.js) — distincte de created_at, qui est
       // la date de création de LA FICHE dans DSI Hub.
       await client.query(`ALTER TABLE hub.shared_mailboxes ADD COLUMN IF NOT EXISTS date_creation TIMESTAMPTZ`);
+      // Message d'erreur du dernier essai de résolution AD (searchADRecipientMembers)
+      // s'il a échoué (objet absent de l'AD on-prem, etc.) ; NULL si le dernier
+      // essai a réussi ou si aucun essai n'a encore eu lieu. Sert UNIQUEMENT à
+      // distinguer en UI un "0 membre" parce que l'AD n'a pas pu être interrogé
+      // d'un "0 membre" réellement confirmé (cf. TypeBadge/Agents dans
+      // BoitesPartagees.tsx) — sans lui, les deux cas sont indiscernables.
+      await client.query(`ALTER TABLE hub.shared_mailboxes ADD COLUMN IF NOT EXISTS ad_sync_error TEXT`);
     } catch (e) { console.error('[PG DB] hub.shared_mailboxes:', e.message); }
 
     // ─── hub_telecom : opérateurs, comptes de facturation et factures télécom ────

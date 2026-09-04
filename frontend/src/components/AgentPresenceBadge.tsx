@@ -3,84 +3,12 @@
 // ⭐ présent confirmé · ❌ parti · ⏳ pas encore arrivé · ❓ inconnu de RH Studio
 // Recherche par email d'abord, puis par nom/prénom en repli si l'email ne
 // donne rien. Résultats mis en cache en mémoire (session) + dédoublonnage
-// des requêtes concurrentes, sur le modèle de UserHoverCard.
+// des requêtes concurrentes, sur le modèle de UserHoverCard. Logique pure
+// (cache, classify…) dans utils/agentPresence.ts pour être réutilisable
+// ailleurs (ex. BoitesPartagees.tsx) sans casser react-refresh.
 import React, { useEffect, useState } from 'react';
 import { Star, UserX, Hourglass, HelpCircle } from 'lucide-react';
-
-interface PresenceAgent {
-  nom?: string;
-  prenom?: string;
-  present?: boolean;
-  status?: string;
-  statusLabel?: string;
-  dateArriveePrevue?: string | null;
-  dateDepart?: string | null;
-}
-
-interface PresenceInfo {
-  found: boolean;
-  agent?: PresenceAgent;
-}
-
-type PresenceStatus = 'present' | 'departed' | 'not_arrived' | 'unknown';
-
-const cache = new Map<string, PresenceInfo>();
-const inflight = new Map<string, Promise<PresenceInfo>>();
-
-const presenceKey = (email?: string | null, name?: string | null) =>
-  `${(email || '').trim().toLowerCase()}|${(name || '').trim().toLowerCase()}`;
-
-async function queryPresence(params: URLSearchParams): Promise<PresenceInfo | null> {
-  const token = localStorage.getItem('token');
-  try {
-    const response = await fetch(`/api/infra/agents/presence?${params.toString()}`, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    if (!response.ok) return null;
-    return await response.json();
-  } catch {
-    return null;
-  }
-}
-
-function loadPresence(email?: string | null, name?: string | null): Promise<PresenceInfo> {
-  const key = presenceKey(email, name);
-  if (cache.has(key)) return Promise.resolve(cache.get(key)!);
-  if (!inflight.has(key)) {
-    const trimmedEmail = email?.trim();
-    const trimmedName = name?.trim();
-    const p = (async () => {
-      if (trimmedEmail) {
-        const byEmail = await queryPresence(new URLSearchParams({ email: trimmedEmail }));
-        if (byEmail?.found) return byEmail;
-      }
-      if (trimmedName) {
-        const byName = await queryPresence(new URLSearchParams({ q: trimmedName }));
-        if (byName?.found) return byName;
-      }
-      return { found: false };
-    })()
-      .then((result) => { cache.set(key, result); return result; })
-      .finally(() => inflight.delete(key));
-    inflight.set(key, p);
-  }
-  return inflight.get(key)!;
-}
-
-function classify(info: PresenceInfo | null): PresenceStatus {
-  if (!info || !info.found || !info.agent) return 'unknown';
-  const { agent } = info;
-  if (agent.present) return 'present';
-
-  const s = `${agent.status || ''} ${agent.statusLabel || ''}`.toLowerCase();
-  if (s.includes('parti') || s.includes('depart') || s.includes('sorti')) return 'departed';
-  if (s.includes('arriv') || s.includes('venir') || s.includes('attendu')) return 'not_arrived';
-
-  const now = Date.now();
-  if (agent.dateArriveePrevue && new Date(agent.dateArriveePrevue).getTime() > now) return 'not_arrived';
-  if (agent.dateDepart && new Date(agent.dateDepart).getTime() < now) return 'departed';
-  return 'departed';
-}
+import { classify, loadPresence, presenceCache, presenceKey, type PresenceAgent, type PresenceInfo, type PresenceStatus } from '../utils/agentPresence';
 
 function formatDate(value?: string | null): string | null {
   if (!value) return null;
@@ -137,8 +65,8 @@ export default function AgentPresenceBadge({ email, name, size = 13, style }: Pr
   useEffect(() => {
     if (!email && !name) { setInfo(null); return; }
     let cancelled = false;
-    if (cache.has(key)) {
-      setInfo(cache.get(key)!);
+    if (presenceCache.has(key)) {
+      setInfo(presenceCache.get(key)!);
     } else {
       loadPresence(email, name).then((result) => { if (!cancelled) setInfo(result); });
     }

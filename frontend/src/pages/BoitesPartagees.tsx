@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { Mail, Search, ExternalLink, Users, Plus, Pencil, Trash2, X, AlertTriangle, RefreshCw } from 'lucide-react';
 import Header from '../components/Header';
 import AgentPresenceBadge from '../components/AgentPresenceBadge';
+import { classify, type PresenceInfo, type PresenceStatus } from '../utils/agentPresence';
 import { useAuth } from '../contexts/AuthContext';
 import { useADSearch } from '../utils/useADSearch';
 
@@ -26,6 +27,10 @@ interface SharedMailbox {
   arbitrage_decision: 'positif' | 'negatif' | null;
   arbitrage_comment: string | null;
   date_creation: string | null;
+  // Message du dernier échec de résolution AD (objet absent de l'AD on-prem…),
+  // NULL si le dernier essai a réussi ou si aucun essai n'a encore eu lieu —
+  // seul moyen de distinguer un "0 membre" non résolu d'un "0 membre" confirmé.
+  ad_sync_error: string | null;
   created_at: string;
 }
 
@@ -139,7 +144,7 @@ function MultiAgentPicker({ value, onChange, token }: { value: Membre[]; onChang
 const emptyForm = {
   nom: '', email: '', type: '', usage_type: '', provisoire: false, date_fin: '', date_creation: '',
   responsable: null as Membre | null, membres: [] as Membre[], justification: '',
-  arbitrage_decision: '' as '' | 'positif' | 'negatif', arbitrage_comment: '',
+  arbitrage_decision: '' as '' | 'positif' | 'negatif', arbitrage_comment: '', ad_sync_error: '',
 };
 
 function MailboxModal({ initial, token, onClose, onSaved }: { initial: SharedMailbox | null; token: string | null; onClose: () => void; onSaved: () => void }) {
@@ -151,6 +156,7 @@ function MailboxModal({ initial, token, onClose, onSaved }: { initial: SharedMai
     membres: initial.membres || [], justification: initial.justification || '',
     arbitrage_decision: (initial.arbitrage_decision || '') as '' | 'positif' | 'negatif',
     arbitrage_comment: initial.arbitrage_comment || '',
+    ad_sync_error: initial.ad_sync_error || '',
   } : emptyForm);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -174,6 +180,7 @@ function MailboxModal({ initial, token, onClose, onSaved }: { initial: SharedMai
       setForm((f) => ({
         ...f,
         membres: members,
+        ad_sync_error: '', // succès : efface un échec précédent éventuel
         // L'AD distingue boîte partagée / groupe mail-enabled, mais pas liste
         // de diffusion vs liste de sécurité (même attribut `member` des deux
         // côtés) — on ne recale donc PAS un Type "Liste sécurité" déjà choisi.
@@ -182,7 +189,12 @@ function MailboxModal({ initial, token, onClose, onSaved }: { initial: SharedMai
       }));
       setSyncAdMsg({ ok: true, text: `${members.length} membre${members.length > 1 ? 's' : ''} récupéré${members.length > 1 ? 's' : ''} depuis l'AD (${data.recipientName || email}).` });
     } catch (e) {
-      setSyncAdMsg({ ok: false, text: e instanceof Error ? e.message : 'Erreur lors de la lecture AD' });
+      const msg = e instanceof Error ? e.message : 'Erreur lors de la lecture AD';
+      // Échec : on ne touche PAS à la liste de membres existante (pas de perte
+      // de données), mais on mémorise l'échec pour l'affichage en liste — cf.
+      // ad_sync_error, distingue "0 non résolu" de "0 confirmé".
+      setForm((f) => ({ ...f, ad_sync_error: msg }));
+      setSyncAdMsg({ ok: false, text: msg });
     } finally {
       setSyncingAd(false);
     }
@@ -198,7 +210,7 @@ function MailboxModal({ initial, token, onClose, onSaved }: { initial: SharedMai
       responsable_display: form.responsable?.displayName || null, responsable_email: form.responsable?.email || null,
       membres: form.membres, justification: form.justification || null,
       arbitrage_decision: form.arbitrage_decision || null, arbitrage_comment: form.arbitrage_comment || null,
-      date_creation: form.date_creation || null,
+      date_creation: form.date_creation || null, ad_sync_error: form.ad_sync_error || null,
     };
     try {
       const res = await fetch(initial ? `/api/mailboxes/${initial.id}` : '/api/mailboxes', {
@@ -351,6 +363,52 @@ function useDepartedEmails(emails: string[]): Set<string> {
   return departed;
 }
 
+/**
+ * Statut RH Studio (présent / parti / pas encore arrivé / inconnu) de tous
+ * les membres de toutes les boîtes/listes, en une poignée d'appels groupés
+ * (POST /api/infra/agents/presence/batch, jusqu'à 500 agents par appel —
+ * même classification que AgentPresenceBadge, cf. classify()) plutôt qu'une
+ * requête par membre : ~680 emails uniques pour ~500 boîtes, une recherche
+ * individuelle par ligne du tableau serait beaucoup trop coûteuse.
+ */
+function useMembersPresenceStatus(boxes: SharedMailbox[]): Map<string, PresenceStatus> {
+  const [statusByEmail, setStatusByEmail] = useState<Map<string, PresenceStatus>>(new Map());
+  const token = localStorage.getItem('token');
+  const uniqueEmails = useMemo(
+    () => [...new Set(boxes.flatMap((b) => (b.membres || []).map((m) => (m.email || '').trim().toLowerCase()).filter(Boolean)))],
+    [boxes]
+  );
+  const key = uniqueEmails.join(',');
+
+  useEffect(() => {
+    if (uniqueEmails.length === 0) { setStatusByEmail(new Map()); return; }
+    let cancelled = false;
+    (async () => {
+      const result = new Map<string, PresenceStatus>();
+      const CHUNK = 500;
+      for (let i = 0; i < uniqueEmails.length; i += CHUNK) {
+        const chunk = uniqueEmails.slice(i, i + CHUNK);
+        try {
+          const res = await fetch('/api/infra/agents/presence/batch', {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ agents: chunk.map((email) => ({ email })) }),
+          });
+          const data = await res.json();
+          (data.results || []).forEach((r: { found: boolean; agent?: unknown }, idx: number) => {
+            result.set(chunk[idx], classify(r.found ? { found: true, agent: r.agent as PresenceInfo['agent'] } : { found: false }));
+          });
+        } catch { /* boîtes concernées affichées comme "inconnu" par défaut, cf. valeur de repli ci-dessous */ }
+      }
+      if (!cancelled) setStatusByEmail(result);
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key]);
+
+  return statusByEmail;
+}
+
 export default function BoitesPartagees() {
   const { token } = useAuth();
   const [boxes, setBoxes] = useState<SharedMailbox[]>([]);
@@ -395,6 +453,23 @@ export default function BoitesPartagees() {
   );
   const departedResponsables = useDepartedEmails(responsableEmails);
   const alertCount = boxes.filter((b) => b.responsable_email && departedResponsables.has(b.responsable_email.toLowerCase())).length;
+  const memberPresence = useMembersPresenceStatus(boxes);
+  // Emails absents de memberPresence (chargement pas encore terminé, ou lot en
+  // échec) : ni compté "parti" ni "inconnu" tant qu'on n'a pas de réponse, pour
+  // ne pas afficher un ❓ transitoire à chaque chargement de page.
+  const memberIssueCounts = useMemo(() => {
+    const map = new Map<number, { departed: number; unknown: number }>();
+    boxes.forEach((b) => {
+      let departed = 0, unknown = 0;
+      (b.membres || []).forEach((m) => {
+        const status = memberPresence.get((m.email || '').trim().toLowerCase());
+        if (status === 'departed') departed++;
+        else if (status === 'unknown') unknown++;
+      });
+      if (departed || unknown) map.set(b.id, { departed, unknown });
+    });
+    return map;
+  }, [boxes, memberPresence]);
 
   // Types réellement présents en base (plutôt que TYPE_OPTIONS en dur) : couvre
   // aussi bien la valeur canonique qu'une variante héritée non normalisée,
@@ -419,7 +494,7 @@ export default function BoitesPartagees() {
       if (!q) return true;
       return [b.nom, b.email, b.responsable_display, b.responsable_email, b.requested_by_name, ...(b.membres || []).map((m) => m.displayName)]
         .filter(Boolean).some((s) => String(s).toLowerCase().includes(q));
-    });
+    }).sort((a, b) => a.nom.localeCompare(b.nom, 'fr', { sensitivity: 'base' }));
   }, [boxes, search, statusFilter, typeFilter]);
 
   const counts = useMemo(() => ({
@@ -558,9 +633,27 @@ export default function BoitesPartagees() {
                           ) : '—'}
                         </td>
                         <td style={{ padding: '10px 14px', color: '#475569' }}>
-                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                            <Users size={12} /> {(b.membres || []).length}
-                          </span>
+                          {(b.membres || []).length === 0 && b.ad_sync_error ? (
+                            <span title={`Non résolu dans l'AD : ${b.ad_sync_error}`} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, color: '#dc2626', fontWeight: 600, cursor: 'help' }}>
+                              <AlertTriangle size={12} /> ?
+                            </span>
+                          ) : (
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                                <Users size={12} /> {(b.membres || []).length}
+                              </span>
+                              {memberIssueCounts.get(b.id)?.departed ? (
+                                <span title={`${memberIssueCounts.get(b.id)!.departed} membre(s) parti(s) (RH Studio)`} style={{ color: '#dc2626', fontWeight: 700, fontSize: 11, cursor: 'help' }}>
+                                  ❌{memberIssueCounts.get(b.id)!.departed}
+                                </span>
+                              ) : null}
+                              {memberIssueCounts.get(b.id)?.unknown ? (
+                                <span title={`${memberIssueCounts.get(b.id)!.unknown} membre(s) inconnu(s) de RH Studio`} style={{ color: '#94a3b8', fontWeight: 700, fontSize: 11, cursor: 'help' }}>
+                                  ❓{memberIssueCounts.get(b.id)!.unknown}
+                                </span>
+                              ) : null}
+                            </span>
+                          )}
                         </td>
                         <td style={{ padding: '10px 14px', color: '#64748b' }}>
                           {b.provisoire && b.date_fin ? new Date(b.date_fin).toLocaleDateString('fr-FR') : b.provisoire ? 'Provisoire' : '—'}
@@ -597,7 +690,13 @@ export default function BoitesPartagees() {
                               <div>
                                 <div style={{ fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', marginBottom: 6 }}>Agents ayant accès</div>
                                 {(b.membres || []).length === 0 ? (
-                                  <div style={{ fontSize: 12, color: '#94a3b8' }}>Aucun</div>
+                                  b.ad_sync_error ? (
+                                    <div style={{ fontSize: 12, color: '#dc2626', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 5 }}>
+                                      <AlertTriangle size={13} /> Non résolu dans l'AD : {b.ad_sync_error}
+                                    </div>
+                                  ) : (
+                                    <div style={{ fontSize: 12, color: '#94a3b8' }}>Aucun</div>
+                                  )
                                 ) : (
                                   <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                                     {b.membres.map((m, i) => (

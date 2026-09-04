@@ -61,8 +61,8 @@ async function createManual(data, user) {
         `INSERT INTO hub.shared_mailboxes
            (nom, email, type, usage_type, responsable_display, responsable_email, provisoire, date_fin,
             membres, justification, requested_by_username, requested_by_name, arbitrage_decision, arbitrage_comment,
-            date_creation)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            date_creation, ad_sync_error)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
             data.nom || '',
             data.email || null,
@@ -79,6 +79,7 @@ async function createManual(data, user) {
             ['positif', 'negatif'].includes(data.arbitrage_decision) ? data.arbitrage_decision : null,
             data.arbitrage_comment || null,
             data.date_creation || null,
+            data.ad_sync_error || null,
         ]
     );
     return result.lastID;
@@ -87,7 +88,7 @@ async function createManual(data, user) {
 const EDITABLE_FIELDS = [
     'nom', 'email', 'type', 'usage_type', 'responsable_display', 'responsable_email',
     'provisoire', 'date_fin', 'membres', 'justification', 'arbitrage_decision', 'arbitrage_comment',
-    'date_creation',
+    'date_creation', 'ad_sync_error',
 ];
 
 async function updateRecord(id, data) {
