@@ -1,5 +1,6 @@
-const { pgDb } = require('../../shared/database');
+const { pgDb, getSqlite } = require('../../shared/database');
 const service = require('./mailboxes.service');
+const { searchADRecipientMembers } = require('../../shared/ad_helper');
 
 module.exports = {
     // GET /api/mailboxes — toutes les boîtes mail partagées, quel que soit
@@ -41,6 +42,30 @@ module.exports = {
             res.json(row);
         } catch (error) {
             res.status(500).json({ message: 'Erreur lors de la modification de la boîte', error: error.message });
+        }
+    },
+
+    // GET /api/mailboxes/ad-members?email=… — relit en direct dans l'annuaire
+    // AD les membres réels d'une boîte partagée (délégués Accès total) ou
+    // d'une liste de diffusion (membres du groupe), identifiée par son
+    // adresse mail. Best-effort : ne modifie rien, le résultat est appliqué
+    // par le front (bouton "Récupérer depuis l'AD" dans la fiche).
+    async getAdMembers(req, res) {
+        try {
+            const email = (req.query.email || '').trim();
+            if (!email) return res.status(400).json({ message: 'Adresse mail requise' });
+            const db = getSqlite();
+            const adSettings = db ? await db.get('SELECT * FROM ad_settings WHERE id = 1') : null;
+            if (!adSettings || !adSettings.is_enabled || !adSettings.host) {
+                return res.status(400).json({ message: "Annuaire AD non configuré" });
+            }
+            const result = await searchADRecipientMembers(email, adSettings);
+            if (!result.found) {
+                return res.status(404).json({ message: result.error || `Aucun objet AD ne correspond à ${email}`, ...result });
+            }
+            res.json(result);
+        } catch (error) {
+            res.status(500).json({ message: 'Erreur lors de la lecture AD', error: error.message });
         }
     },
 

@@ -290,10 +290,119 @@ async function lookupADUsersOrg(usernames, config) {
     return result;
 }
 
+/**
+ * Résout un DN AD (ex. « CN=DUPONT Jean,OU=… ») en fiche agent, par lots de 50
+ * sur leur CN (même limite/technique que searchADComputers/lookupADUsersOrg —
+ * on ne peut pas faire un scope=base sur le DN brut sans le ré-échapper, cf.
+ * unescapeDnHexBytes dans encadrants.controller.js ; le CN suffit ici car les
+ * homonymes exacts sont rarissimes dans l'annuaire et sans conséquence pour
+ * un simple affichage de membres).
+ */
+async function resolveMemberDns(rawDns, config) {
+    const members = [];
+    if (!rawDns || !rawDns.length) return members;
+    const cns = rawDns.map((dn) => {
+        const m = String(dn).match(/^CN=([^,]+)/i);
+        return m ? m[1] : null;
+    }).filter(Boolean);
+    if (!cns.length) return members;
+
+    const BATCH = 50;
+    for (let i = 0; i < cns.length; i += BATCH) {
+        const chunk = cns.slice(i, i + BATCH);
+        await new Promise((resolve) => {
+            let settled = false;
+            const client = ldap.createClient({ url: `ldap://${config.host}:${config.port}`, connectTimeout: 10000, timeout: 20000 });
+            const finish = () => { if (settled) return; settled = true; clearTimeout(guard); try { client.destroy(); } catch (_) {} resolve(); };
+            const guard = setTimeout(finish, 20000);
+            client.on('error', (e) => { console.error('[AD resolveMemberDns]', e.message); finish(); });
+            client.bind(config.bind_dn, config.bind_password, (err) => {
+                if (err) { console.error('[AD resolveMemberDns bind]', err.message); return finish(); }
+                const esc = (v) => String(v).replace(/[*()\\\x00]/g, '\\$&');
+                const filter = chunk.length === 1
+                    ? `(&(objectClass=user)(cn=${esc(chunk[0])}))`
+                    : `(&(objectClass=user)(|${chunk.map((c) => `(cn=${esc(c)})`).join('')}))`;
+                client.search(config.base_dn, { filter, scope: 'sub', attributes: ['sAMAccountName', 'displayName', 'cn', 'mail'] }, (err2, res) => {
+                    if (err2) { console.error('[AD resolveMemberDns search]', err2.message); return finish(); }
+                    res.on('searchEntry', (entry) => {
+                        const u = flattenLDAPEntry(entry);
+                        members.push({
+                            username: u.sAMAccountName || '',
+                            displayName: decodeLDAPString(u.displayName || u.cn || ''),
+                            email: Array.isArray(u.mail) ? u.mail[0] : (u.mail || ''),
+                        });
+                    });
+                    res.on('error', finish);
+                    res.on('end', finish);
+                });
+            });
+        });
+    }
+    return members;
+}
+
+/**
+ * Membres « réels » (annuaire AD) d'une boîte mail partagée ou d'une liste de
+ * diffusion, retrouvée par son adresse mail. Deux types de destinataires
+ * Exchange, deux attributs AD différents portent la liste :
+ *  - liste de diffusion / groupe mail-enabled (objectClass=group) → `member`
+ *  - boîte partagée (objectClass=user, msExchRecipientTypeDetails=2147483648)
+ *    → `msExchDelegateListLink` (délégués Accès total, écrit dans l'AD
+ *    on-prem par Exchange — vérifié empiriquement sur ce domaine).
+ * On se base sur la présence de l'attribut plutôt que sur le code numérique
+ * msExchRecipientTypeDetails (absent sur certains groupes non-Exchange), donc
+ * plus robuste. La Promise se résout toujours (jamais reject).
+ */
+async function searchADRecipientMembers(email, config) {
+    return new Promise((resolve) => {
+        let settled = false;
+        const client = ldap.createClient({ url: `ldap://${config.host}:${config.port}`, connectTimeout: 6000, timeout: 15000 });
+        const finish = (val) => { if (settled) return; settled = true; clearTimeout(guard); try { client.destroy(); } catch (_) {} resolve(val); };
+        const guard = setTimeout(() => finish({ found: false, type: null, members: [], error: 'Délai AD dépassé' }), 20000);
+
+        client.on('error', (e) => { console.error('[AD searchADRecipientMembers]', e.message); finish({ found: false, type: null, members: [], error: e.message }); });
+        client.bind(config.bind_dn, config.bind_password, async (err) => {
+            if (err) { console.error('[AD searchADRecipientMembers bind]', err.message); return finish({ found: false, type: null, members: [], error: 'Échec de connexion AD' }); }
+            try {
+                const esc = String(email).replace(/[*()\\\x00]/g, '\\$&');
+                const entries = await new Promise((res2, rej2) => {
+                    client.search(config.base_dn, {
+                        filter: `(mail=${esc})`, scope: 'sub',
+                        attributes: ['objectClass', 'cn', 'displayName', 'member', 'msExchDelegateListLink'],
+                    }, (searchErr, searchRes) => {
+                        if (searchErr) return rej2(searchErr);
+                        const found = [];
+                        searchRes.on('searchEntry', (e) => found.push(e));
+                        searchRes.on('error', rej2);
+                        searchRes.on('end', () => res2(found));
+                    });
+                });
+                if (!entries.length) { clearTimeout(guard); return finish({ found: false, type: null, members: [] }); }
+
+                const obj = flattenLDAPEntry(entries[0]);
+                const objectClasses = Array.isArray(obj.objectClass) ? obj.objectClass : [obj.objectClass].filter(Boolean);
+                const isGroup = objectClasses.includes('group');
+                const toArray = (v) => (v ? (Array.isArray(v) ? v : [v]) : []);
+                const rawDns = isGroup ? toArray(obj.member) : toArray(obj.msExchDelegateListLink);
+                const type = isGroup ? 'liste' : (rawDns.length ? 'boite_partagee' : 'autre');
+                clearTimeout(guard);
+                client.unbind(() => {});
+                const members = await resolveMemberDns(rawDns, config);
+                finish({ found: true, type, recipientName: decodeLDAPString(obj.displayName || obj.cn || ''), members });
+            } catch (e) {
+                console.error('[AD searchADRecipientMembers]', e.message);
+                clearTimeout(guard);
+                finish({ found: false, type: null, members: [], error: e.message });
+            }
+        });
+    });
+}
+
 module.exports = {
     searchADUsersByQuery,
     lookupADUsersOrg,
     searchADComputers,
+    searchADRecipientMembers,
     deriveEmailFromUsager,
     parseGeneralizedTime,
     parseFiletime,

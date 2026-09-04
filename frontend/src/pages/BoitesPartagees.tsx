@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Mail, Search, ExternalLink, Users, Plus, Pencil, Trash2, X, AlertTriangle } from 'lucide-react';
+import { Mail, Search, ExternalLink, Users, Plus, Pencil, Trash2, X, AlertTriangle, RefreshCw } from 'lucide-react';
 import Header from '../components/Header';
 import AgentPresenceBadge from '../components/AgentPresenceBadge';
 import { useAuth } from '../contexts/AuthContext';
@@ -30,6 +30,38 @@ interface SharedMailbox {
 
 const fieldStyles: React.CSSProperties = { border: '1px solid #cbd5e1', borderRadius: 8, padding: '9px 10px', fontSize: 14, fontFamily: 'inherit', width: '100%', boxSizing: 'border-box' };
 const labelStyles: React.CSSProperties = { fontSize: 12, fontWeight: 700, color: '#475569', display: 'block', marginBottom: 5 };
+
+// Valeurs canoniques des listes déroulantes Type / Usage. Les fiches déjà en
+// base peuvent porter une variante d'orthographe/casse saisie à la main avant
+// que ces champs ne soient devenus des listes (ex. "Boite Partagée") :
+// normalizeToOption() les fait correspondre à l'option canonique sans toucher
+// aux données existantes, et le <select> garde quand même toute valeur
+// inconnue en option supplémentaire plutôt que de la faire disparaître.
+const TYPE_OPTIONS = ['Boîte partagée', 'Liste de diffusion'];
+const USAGE_OPTIONS = ['Interne', 'Externe'];
+function normalizeToOption(value: string, options: string[]): string {
+  if (!value) return '';
+  const match = options.find((o) => o.toLowerCase() === value.toLowerCase());
+  return match || value;
+}
+
+function TypeBadge({ type, usageType }: { type: string | null; usageType: string | null }) {
+  if (!type && !usageType) return <span style={{ color: '#cbd5e1' }}>—</span>;
+  const isListe = (type || '').toLowerCase().includes('liste') || (type || '').toLowerCase().includes('diffusion');
+  return (
+    <div>
+      {type && (
+        <span style={{
+          display: 'inline-block', padding: '2px 8px', borderRadius: 999, fontSize: 11, fontWeight: 700,
+          background: isListe ? '#eef2ff' : '#ecfdf5', color: isListe ? '#4338ca' : '#047857',
+        }}>
+          {type}
+        </span>
+      )}
+      {usageType && <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 3 }}>{usageType}</div>}
+    </div>
+  );
+}
 
 function ArbitrageBadge({ decision }: { decision: 'positif' | 'negatif' | null }) {
   if (decision === 'positif') {
@@ -106,7 +138,8 @@ const emptyForm = {
 
 function MailboxModal({ initial, token, onClose, onSaved }: { initial: SharedMailbox | null; token: string | null; onClose: () => void; onSaved: () => void }) {
   const [form, setForm] = useState(() => initial ? {
-    nom: initial.nom, email: initial.email || '', type: initial.type || '', usage_type: initial.usage_type || '',
+    nom: initial.nom, email: initial.email || '',
+    type: normalizeToOption(initial.type || '', TYPE_OPTIONS), usage_type: normalizeToOption(initial.usage_type || '', USAGE_OPTIONS),
     provisoire: initial.provisoire, date_fin: (initial.date_fin || '').slice(0, 10),
     responsable: initial.responsable_display ? { displayName: initial.responsable_display, email: initial.responsable_email || '' } : null,
     membres: initial.membres || [], justification: initial.justification || '',
@@ -115,6 +148,35 @@ function MailboxModal({ initial, token, onClose, onSaved }: { initial: SharedMai
   } : emptyForm);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [syncingAd, setSyncingAd] = useState(false);
+  const [syncAdMsg, setSyncAdMsg] = useState<{ ok: boolean; text: string } | null>(null);
+
+  // Relit dans l'annuaire AD les membres réels de la boîte/liste (délégués
+  // Accès total pour une boîte partagée, membres de groupe pour une liste de
+  // diffusion — cf. GET /api/mailboxes/ad-members) et remplace la liste
+  // manuelle. Recale aussi le Type si l'AD contredit la fiche.
+  const syncFromAd = async () => {
+    const email = form.email.trim();
+    if (!email) { setSyncAdMsg({ ok: false, text: "Renseignez d'abord l'adresse mail précise de la boîte/liste." }); return; }
+    setSyncingAd(true);
+    setSyncAdMsg(null);
+    try {
+      const res = await fetch(`/api/mailboxes/ad-members?email=${encodeURIComponent(email)}`, { headers: { Authorization: `Bearer ${token}` } });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || "Introuvable dans l'AD");
+      const members: Membre[] = (data.members || []).map((m: Membre) => ({ displayName: m.displayName, email: m.email }));
+      setForm((f) => ({
+        ...f,
+        membres: members,
+        type: data.type === 'liste' ? 'Liste de diffusion' : data.type === 'boite_partagee' ? 'Boîte partagée' : f.type,
+      }));
+      setSyncAdMsg({ ok: true, text: `${members.length} membre${members.length > 1 ? 's' : ''} récupéré${members.length > 1 ? 's' : ''} depuis l'AD (${data.recipientName || email}).` });
+    } catch (e) {
+      setSyncAdMsg({ ok: false, text: e instanceof Error ? e.message : 'Erreur lors de la lecture AD' });
+    } finally {
+      setSyncingAd(false);
+    }
+  };
 
   const save = async () => {
     if (!form.nom.trim()) { setError('Le nom de la boîte est requis'); return; }
@@ -164,11 +226,21 @@ function MailboxModal({ initial, token, onClose, onSaved }: { initial: SharedMai
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
             <div>
               <label style={labelStyles}>Type</label>
-              <input style={fieldStyles} value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value })} placeholder="Boite partagée / Liste de diffusion" />
+              <select style={fieldStyles} value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value })}>
+                <option value="">—</option>
+                {(form.type && !TYPE_OPTIONS.includes(form.type) ? [form.type, ...TYPE_OPTIONS] : TYPE_OPTIONS).map((o) => (
+                  <option key={o} value={o}>{o}</option>
+                ))}
+              </select>
             </div>
             <div>
               <label style={labelStyles}>Usage</label>
-              <input style={fieldStyles} value={form.usage_type} onChange={(e) => setForm({ ...form, usage_type: e.target.value })} placeholder="Interne / Externe" />
+              <select style={fieldStyles} value={form.usage_type} onChange={(e) => setForm({ ...form, usage_type: e.target.value })}>
+                <option value="">—</option>
+                {(form.usage_type && !USAGE_OPTIONS.includes(form.usage_type) ? [form.usage_type, ...USAGE_OPTIONS] : USAGE_OPTIONS).map((o) => (
+                  <option key={o} value={o}>{o}</option>
+                ))}
+              </select>
             </div>
           </div>
           <div>
@@ -176,7 +248,19 @@ function MailboxModal({ initial, token, onClose, onSaved }: { initial: SharedMai
             <AgentPicker value={form.responsable} token={token} onChange={(v) => setForm({ ...form, responsable: v })} />
           </div>
           <div>
-            <label style={labelStyles}>Agents ayant accès</label>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 5 }}>
+              <label style={{ ...labelStyles, marginBottom: 0 }}>Agents ayant accès</label>
+              <button type="button" onClick={syncFromAd} disabled={syncingAd}
+                style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '4px 10px', background: '#eef2ff', color: '#4338ca', border: '1px solid #c7d2fe', borderRadius: 6, cursor: syncingAd ? 'default' : 'pointer', fontSize: 11, fontWeight: 700, opacity: syncingAd ? 0.6 : 1 }}
+                title="Relire la liste réelle des membres depuis l'annuaire AD (remplace la liste ci-dessous)">
+                <RefreshCw size={11} className={syncingAd ? 'animate-spin' : ''} /> {syncingAd ? 'Recherche…' : "Récupérer depuis l'AD"}
+              </button>
+            </div>
+            {syncAdMsg && (
+              <div style={{ fontSize: 11, fontWeight: 600, marginBottom: 6, color: syncAdMsg.ok ? '#15803d' : '#dc2626' }}>
+                {syncAdMsg.ok ? '✅' : '❌'} {syncAdMsg.text}
+              </div>
+            )}
             <MultiAgentPicker value={form.membres} token={token} onChange={(v) => setForm({ ...form, membres: v })} />
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
@@ -213,6 +297,10 @@ function MailboxModal({ initial, token, onClose, onSaved }: { initial: SharedMai
           </button>
         </div>
       </div>
+      <style>{`
+        .animate-spin { animation: boites-spin 1s linear infinite; }
+        @keyframes boites-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+      `}</style>
     </div>
   );
 }
@@ -389,6 +477,7 @@ export default function BoitesPartagees() {
               <thead>
                 <tr style={{ background: '#f8fafc', textAlign: 'left' }}>
                   <th style={{ padding: '10px 14px', fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>Boîte</th>
+                  <th style={{ padding: '10px 14px', fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>Type</th>
                   <th style={{ padding: '10px 14px', fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>Responsable</th>
                   <th style={{ padding: '10px 14px', fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>Agents</th>
                   <th style={{ padding: '10px 14px', fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>Fin</th>
@@ -410,10 +499,11 @@ export default function BoitesPartagees() {
                         onMouseLeave={(e) => (e.currentTarget.style.background = '')}
                       >
                         <td style={{ padding: '10px 14px' }}>
-                          <div style={{ fontWeight: 700, color: '#1e293b' }}>{b.nom}</div>
-                          <div style={{ fontSize: 11, color: '#94a3b8' }}>
-                            {b.email || '—'}{b.type ? ` · ${b.type}` : ''}{b.usage_type ? ` · ${b.usage_type}` : ''}
-                          </div>
+                          <div style={{ fontWeight: 700, color: '#1e293b' }}>{b.email || '—'}</div>
+                          <div style={{ fontSize: 11, color: '#94a3b8' }}>{b.nom}</div>
+                        </td>
+                        <td style={{ padding: '10px 14px' }}>
+                          <TypeBadge type={b.type} usageType={b.usage_type} />
                         </td>
                         <td style={{ padding: '10px 14px' }}>
                           {b.responsable_display ? (
@@ -462,7 +552,7 @@ export default function BoitesPartagees() {
                       </tr>
                       {expanded && (
                         <tr style={{ background: '#fafbfc' }}>
-                          <td colSpan={canManage ? 7 : 6} style={{ padding: '10px 14px 16px' }}>
+                          <td colSpan={canManage ? 8 : 7} style={{ padding: '10px 14px 16px' }}>
                             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
                               <div>
                                 <div style={{ fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', marginBottom: 6 }}>Agents ayant accès</div>
