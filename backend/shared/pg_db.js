@@ -5503,6 +5503,10 @@ async function setupPgDb() {
       // Adresse mail precise de la boite (distincte de `nom`, qui reste un
       // libelle libre) — module /boites-partagees, saisie/modif manuelle.
       await client.query(`ALTER TABLE hub.shared_mailboxes ADD COLUMN IF NOT EXISTS email TEXT`);
+      // Date de création réelle du groupe/boîte côté Exchange (import en masse
+      // scripts/import_exchange_groups.js) — distincte de created_at, qui est
+      // la date de création de LA FICHE dans DSI Hub.
+      await client.query(`ALTER TABLE hub.shared_mailboxes ADD COLUMN IF NOT EXISTS date_creation TIMESTAMPTZ`);
     } catch (e) { console.error('[PG DB] hub.shared_mailboxes:', e.message); }
 
     // ─── hub_telecom : opérateurs, comptes de facturation et factures télécom ────

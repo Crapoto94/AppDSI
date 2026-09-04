@@ -25,6 +25,7 @@ interface SharedMailbox {
   requested_by_name: string;
   arbitrage_decision: 'positif' | 'negatif' | null;
   arbitrage_comment: string | null;
+  date_creation: string | null;
   created_at: string;
 }
 
@@ -37,7 +38,7 @@ const labelStyles: React.CSSProperties = { fontSize: 12, fontWeight: 700, color:
 // normalizeToOption() les fait correspondre à l'option canonique sans toucher
 // aux données existantes, et le <select> garde quand même toute valeur
 // inconnue en option supplémentaire plutôt que de la faire disparaître.
-const TYPE_OPTIONS = ['Boîte partagée', 'Liste de diffusion'];
+const TYPE_OPTIONS = ['Boîte partagée', 'Liste de diffusion', 'Liste sécurité'];
 const USAGE_OPTIONS = ['Interne', 'Externe'];
 function normalizeToOption(value: string, options: string[]): string {
   if (!value) return '';
@@ -45,15 +46,20 @@ function normalizeToOption(value: string, options: string[]): string {
   return match || value;
 }
 
+const TYPE_BADGE_COLORS: Record<string, { bg: string; fg: string }> = {
+  'Boîte partagée': { bg: '#ecfdf5', fg: '#047857' },
+  'Liste de diffusion': { bg: '#eef2ff', fg: '#4338ca' },
+  'Liste sécurité': { bg: '#fff7ed', fg: '#c2410c' },
+};
 function TypeBadge({ type, usageType }: { type: string | null; usageType: string | null }) {
   if (!type && !usageType) return <span style={{ color: '#cbd5e1' }}>—</span>;
-  const isListe = (type || '').toLowerCase().includes('liste') || (type || '').toLowerCase().includes('diffusion');
+  const colors = (type && TYPE_BADGE_COLORS[type]) || { bg: '#f1f5f9', fg: '#475569' };
   return (
     <div>
       {type && (
         <span style={{
           display: 'inline-block', padding: '2px 8px', borderRadius: 999, fontSize: 11, fontWeight: 700,
-          background: isListe ? '#eef2ff' : '#ecfdf5', color: isListe ? '#4338ca' : '#047857',
+          background: colors.bg, color: colors.fg,
         }}>
           {type}
         </span>
@@ -131,7 +137,7 @@ function MultiAgentPicker({ value, onChange, token }: { value: Membre[]; onChang
 }
 
 const emptyForm = {
-  nom: '', email: '', type: '', usage_type: '', provisoire: false, date_fin: '',
+  nom: '', email: '', type: '', usage_type: '', provisoire: false, date_fin: '', date_creation: '',
   responsable: null as Membre | null, membres: [] as Membre[], justification: '',
   arbitrage_decision: '' as '' | 'positif' | 'negatif', arbitrage_comment: '',
 };
@@ -140,7 +146,7 @@ function MailboxModal({ initial, token, onClose, onSaved }: { initial: SharedMai
   const [form, setForm] = useState(() => initial ? {
     nom: initial.nom, email: initial.email || '',
     type: normalizeToOption(initial.type || '', TYPE_OPTIONS), usage_type: normalizeToOption(initial.usage_type || '', USAGE_OPTIONS),
-    provisoire: initial.provisoire, date_fin: (initial.date_fin || '').slice(0, 10),
+    provisoire: initial.provisoire, date_fin: (initial.date_fin || '').slice(0, 10), date_creation: (initial.date_creation || '').slice(0, 10),
     responsable: initial.responsable_display ? { displayName: initial.responsable_display, email: initial.responsable_email || '' } : null,
     membres: initial.membres || [], justification: initial.justification || '',
     arbitrage_decision: (initial.arbitrage_decision || '') as '' | 'positif' | 'negatif',
@@ -168,7 +174,11 @@ function MailboxModal({ initial, token, onClose, onSaved }: { initial: SharedMai
       setForm((f) => ({
         ...f,
         membres: members,
-        type: data.type === 'liste' ? 'Liste de diffusion' : data.type === 'boite_partagee' ? 'Boîte partagée' : f.type,
+        // L'AD distingue boîte partagée / groupe mail-enabled, mais pas liste
+        // de diffusion vs liste de sécurité (même attribut `member` des deux
+        // côtés) — on ne recale donc PAS un Type "Liste sécurité" déjà choisi.
+        type: data.type === 'liste' ? (f.type === 'Liste sécurité' ? f.type : 'Liste de diffusion')
+          : data.type === 'boite_partagee' ? 'Boîte partagée' : f.type,
       }));
       setSyncAdMsg({ ok: true, text: `${members.length} membre${members.length > 1 ? 's' : ''} récupéré${members.length > 1 ? 's' : ''} depuis l'AD (${data.recipientName || email}).` });
     } catch (e) {
@@ -188,6 +198,7 @@ function MailboxModal({ initial, token, onClose, onSaved }: { initial: SharedMai
       responsable_display: form.responsable?.displayName || null, responsable_email: form.responsable?.email || null,
       membres: form.membres, justification: form.justification || null,
       arbitrage_decision: form.arbitrage_decision || null, arbitrage_comment: form.arbitrage_comment || null,
+      date_creation: form.date_creation || null,
     };
     try {
       const res = await fetch(initial ? `/api/mailboxes/${initial.id}` : '/api/mailboxes', {
@@ -242,6 +253,10 @@ function MailboxModal({ initial, token, onClose, onSaved }: { initial: SharedMai
                 ))}
               </select>
             </div>
+          </div>
+          <div>
+            <label style={labelStyles}>Date de création</label>
+            <input type="date" style={{ ...fieldStyles, width: 'auto' }} value={form.date_creation} onChange={(e) => setForm({ ...form, date_creation: e.target.value })} />
           </div>
           <div>
             <label style={labelStyles}>Responsable</label>
@@ -570,6 +585,7 @@ export default function BoitesPartagees() {
                                 )}
                                 <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 10 }}>
                                   Demandée par {b.requested_by_name} le {new Date(b.created_at).toLocaleDateString('fr-FR')}
+                                  {b.date_creation && <> — créée le {new Date(b.date_creation).toLocaleDateString('fr-FR')}</>}
                                 </div>
                               </div>
                               <div>
