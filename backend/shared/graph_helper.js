@@ -122,4 +122,31 @@ async function listGraphGroupMembers(groupId, token) {
     return members;
 }
 
-module.exports = { checkO365Existence, getGraphToken };
+/**
+ * Nombre de messages / non lus (dossier Inbox uniquement) d'une boîte
+ * partagée O365. Utilise volontairement une app registration DIFFÉRENTE de
+ * checkO365Existence ci-dessus : SQLite `o365_settings` (celle de "Messagerie
+ * O365" /admin/mail, déjà utilisée par le collecteur de mail), pas
+ * `azure_ad_settings` — elle a les permissions Mail.Read / Mail.ReadBasic.All
+ * (vérifié empiriquement), que l'app azure_ad_settings n'a pas. Ne s'applique
+ * qu'à un objet "user" (boîte partagée) : un groupe (liste de diffusion/
+ * sécurité) n'a pas de boîte aux lettres et renvoie 404 ErrorInvalidUser.
+ * Ne lève jamais — renvoie toujours { ok, total?, unread?, error? }.
+ */
+async function getMailboxMessageCounts(email, o365Settings) {
+    if (!o365Settings || !o365Settings.is_enabled || !o365Settings.client_id || !o365Settings.client_secret || !o365Settings.tenant_id) {
+        return { ok: false, error: 'Messagerie O365 non configurée (/admin/mail)' };
+    }
+    try {
+        const token = await getGraphToken(o365Settings);
+        const r = await axios.get(`https://graph.microsoft.com/v1.0/users/${escapeODataString(email)}/mailFolders/inbox`, {
+            headers: { Authorization: `Bearer ${token}` },
+        });
+        return { ok: true, total: r.data.totalItemCount ?? null, unread: r.data.unreadItemCount ?? null };
+    } catch (e) {
+        const msg = e.response?.data?.error?.message || e.message;
+        return { ok: false, error: msg };
+    }
+}
+
+module.exports = { checkO365Existence, getGraphToken, getMailboxMessageCounts };

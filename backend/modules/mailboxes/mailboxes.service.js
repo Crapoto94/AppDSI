@@ -92,6 +92,7 @@ const EDITABLE_FIELDS = [
     'nom', 'email', 'type', 'usage_type', 'responsable_display', 'responsable_email',
     'provisoire', 'date_fin', 'membres', 'justification', 'arbitrage_decision', 'arbitrage_comment',
     'date_creation', 'ad_sync_error', 'o365_status', 'is_dsi', 'is_technique',
+    'mail_total_count', 'mail_unread_count', 'mail_counts_synced_at', 'mail_counts_error',
 ];
 
 async function updateRecord(id, data) {

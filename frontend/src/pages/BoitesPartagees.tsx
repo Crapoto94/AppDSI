@@ -40,6 +40,12 @@ interface SharedMailbox {
   o365_status: string | null;
   is_dsi: boolean;
   is_technique: boolean;
+  // Compteurs O365 (dossier Inbox, boîtes partagées uniquement — cf.
+  // GET/POST .../sync-mail-counts) : NULL = jamais synchronisé.
+  mail_total_count: number | null;
+  mail_unread_count: number | null;
+  mail_counts_synced_at: string | null;
+  mail_counts_error: string | null;
   created_at: string;
 }
 
@@ -632,6 +638,23 @@ export default function BoitesPartagees() {
     }
   };
 
+  // Relit en direct les compteurs O365 (Inbox) d'UNE boîte et remplace la
+  // fiche locale par la réponse serveur (déjà persistée côté backend, pas de
+  // mise à jour optimiste nécessaire ici).
+  const [syncingMailId, setSyncingMailId] = useState<number | null>(null);
+  const syncMailCounts = async (b: SharedMailbox) => {
+    setSyncingMailId(b.id);
+    try {
+      const res = await fetch(`/api/mailboxes/${b.id}/sync-mail-counts`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const updated = await res.json();
+      if (res.ok) setBoxes((prev) => prev.map((x) => (x.id === b.id ? updated : x)));
+    } catch { /* ignore — l'ancien état reste affiché */ }
+    finally { setSyncingMailId(null); }
+  };
+
   return (
     <div>
       <Header />
@@ -773,6 +796,7 @@ export default function BoitesPartagees() {
                   <th style={{ padding: '10px 14px', fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>Tags</th>
                   <th style={{ padding: '10px 14px', fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>Responsable</th>
                   <th style={{ padding: '10px 14px', fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>Agents</th>
+                  <th style={{ padding: '10px 14px', fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>Messages</th>
                   <th style={{ padding: '10px 14px', fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>Créée le</th>
                   <th style={{ padding: '10px 14px', fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>Fin</th>
                   <th style={{ padding: '10px 14px', fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>Ticket</th>
@@ -872,6 +896,34 @@ export default function BoitesPartagees() {
                             </span>
                           )}
                         </td>
+                        <td style={{ padding: '10px 14px' }} onClick={(e) => e.stopPropagation()}>
+                          {b.type !== 'Boîte partagée' ? (
+                            <span style={{ color: '#cbd5e1' }}>—</span>
+                          ) : (
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                              {b.mail_total_count !== null ? (
+                                <span title={b.mail_counts_synced_at ? `Synchronisé le ${new Date(b.mail_counts_synced_at).toLocaleString('fr-FR')}` : undefined} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, color: '#475569' }}>
+                                  <Mail size={12} /> {b.mail_total_count}
+                                  {!!b.mail_unread_count && (
+                                    <span style={{ color: '#2563eb', fontWeight: 700 }}>· {b.mail_unread_count} non lu{b.mail_unread_count > 1 ? 's' : ''}</span>
+                                  )}
+                                </span>
+                              ) : b.mail_counts_error ? (
+                                <span title={b.mail_counts_error} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, color: '#dc2626', cursor: 'help' }}>
+                                  <AlertTriangle size={12} /> ?
+                                </span>
+                              ) : (
+                                <span style={{ fontSize: 12, color: '#cbd5e1' }}>—</span>
+                              )}
+                              {canManage && (
+                                <button onClick={() => syncMailCounts(b)} disabled={syncingMailId === b.id} title="Relire les compteurs depuis O365"
+                                  style={{ display: 'inline-flex', alignItems: 'center', border: 'none', background: 'none', cursor: syncingMailId === b.id ? 'default' : 'pointer', color: '#94a3b8', padding: 2 }}>
+                                  <RefreshCw size={11} className={syncingMailId === b.id ? 'animate-spin' : ''} />
+                                </button>
+                              )}
+                            </span>
+                          )}
+                        </td>
                         <td style={{ padding: '10px 14px', color: '#64748b' }}>
                           {b.date_creation ? new Date(b.date_creation).toLocaleDateString('fr-FR') : '—'}
                         </td>
@@ -905,7 +957,7 @@ export default function BoitesPartagees() {
                       </tr>
                       {expanded && (
                         <tr style={{ background: '#fafbfc' }}>
-                          <td colSpan={canManage ? 10 : 9} style={{ padding: '10px 14px 16px' }}>
+                          <td colSpan={canManage ? 11 : 10} style={{ padding: '10px 14px 16px' }}>
                             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
                               <div>
                                 <div style={{ fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', marginBottom: 6 }}>Agents ayant accès</div>
@@ -971,6 +1023,10 @@ export default function BoitesPartagees() {
       {modalMailbox !== undefined && (
         <MailboxModal initial={modalMailbox} token={token} onClose={() => setModalMailbox(undefined)} onSaved={load} />
       )}
+      <style>{`
+        .animate-spin { animation: boites-spin 1s linear infinite; }
+        @keyframes boites-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+      `}</style>
     </div>
   );
 }

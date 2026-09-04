@@ -18,6 +18,7 @@ router.get('/ad-members', authenticateTicketAdmin, ctrl.getAdMembers);
 // donnée de gestion DSI, pas librement modifiable par tous.
 router.post('/', authenticateTicketAdmin, ctrl.create);
 router.put('/:id', authenticateTicketAdmin, ctrl.update);
+router.post('/:id/sync-mail-counts', authenticateTicketAdmin, ctrl.syncMailCounts);
 router.delete('/:id', authenticateTicketAdmin, ctrl.remove);
 
 module.exports = router;

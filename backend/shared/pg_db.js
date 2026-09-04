@@ -5532,6 +5532,17 @@ async function setupPgDb() {
       // service, notification automatisée…) plutôt que métier — même
       // mécanisme que is_dsi (toggle liste + filtre).
       await client.query(`ALTER TABLE hub.shared_mailboxes ADD COLUMN IF NOT EXISTS is_technique BOOLEAN DEFAULT FALSE`);
+      // Nombre de messages / non lus (dossier Inbox), lus via Microsoft Graph
+      // avec l'app registration "Messagerie O365" (SQLite o365_settings —
+      // DISTINCTE de azure_ad_settings, a les permissions Mail.Read /
+      // Mail.ReadBasic.All, vérifié empiriquement). Ne s'applique qu'aux
+      // boîtes partagées (type = "Boîte partagée") : une liste de diffusion/
+      // sécurité n'a pas de boîte aux lettres. Rafraîchi à la demande (bouton
+      // dans la liste) ou par scripts/sync_mail_counts.js.
+      await client.query(`ALTER TABLE hub.shared_mailboxes ADD COLUMN IF NOT EXISTS mail_total_count INTEGER`);
+      await client.query(`ALTER TABLE hub.shared_mailboxes ADD COLUMN IF NOT EXISTS mail_unread_count INTEGER`);
+      await client.query(`ALTER TABLE hub.shared_mailboxes ADD COLUMN IF NOT EXISTS mail_counts_synced_at TIMESTAMPTZ`);
+      await client.query(`ALTER TABLE hub.shared_mailboxes ADD COLUMN IF NOT EXISTS mail_counts_error TEXT`);
     } catch (e) { console.error('[PG DB] hub.shared_mailboxes:', e.message); }
 
     // ─── hub_telecom : opérateurs, comptes de facturation et factures télécom ────

@@ -1,7 +1,7 @@
 const { pgDb, getSqlite } = require('../../shared/database');
 const service = require('./mailboxes.service');
 const { searchADRecipientMembers } = require('../../shared/ad_helper');
-const { checkO365Existence } = require('../../shared/graph_helper');
+const { checkO365Existence, getMailboxMessageCounts } = require('../../shared/graph_helper');
 
 module.exports = {
     // GET /api/mailboxes — toutes les boîtes mail partagées, quel que soit
@@ -103,6 +103,36 @@ module.exports = {
             });
         } catch (error) {
             res.status(500).json({ message: 'Erreur lors de la lecture AD/O365', error: error.message });
+        }
+    },
+
+    // POST /api/mailboxes/:id/sync-mail-counts — relit en direct dans O365
+    // (Microsoft Graph, app "Messagerie O365" — cf. graph_helper.js
+    // #getMailboxMessageCounts) le nombre de messages / non lus du dossier
+    // Inbox, et persiste directement (pas de fiche à ré-enregistrer,
+    // contrairement à ad-members : aucune décision à valider ici).
+    async syncMailCounts(req, res) {
+        try {
+            const existing = await pgDb.get('SELECT id, email FROM hub.shared_mailboxes WHERE id = ?', [req.params.id]);
+            if (!existing) return res.status(404).json({ message: 'Boîte introuvable' });
+            if (!existing.email) return res.status(400).json({ message: 'Adresse mail non renseignée' });
+
+            const db = getSqlite();
+            const o365Settings = db ? await db.get('SELECT * FROM o365_settings WHERE id = 1') : null;
+            const result = await getMailboxMessageCounts(existing.email, o365Settings);
+
+            if (result.ok) {
+                await service.updateRecord(existing.id, {
+                    mail_total_count: result.total, mail_unread_count: result.unread,
+                    mail_counts_synced_at: new Date().toISOString(), mail_counts_error: null,
+                });
+            } else {
+                await service.updateRecord(existing.id, { mail_counts_error: result.error });
+            }
+            const row = await pgDb.get('SELECT * FROM hub.shared_mailboxes WHERE id = ?', [existing.id]);
+            res.json(row);
+        } catch (error) {
+            res.status(500).json({ message: 'Erreur lors de la lecture des compteurs O365', error: error.message });
         }
     },
 
