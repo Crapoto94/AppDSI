@@ -1,6 +1,7 @@
 const { pgDb, getSqlite } = require('../../shared/database');
 const service = require('./mailboxes.service');
 const { searchADRecipientMembers } = require('../../shared/ad_helper');
+const { checkO365Existence } = require('../../shared/graph_helper');
 
 module.exports = {
     // GET /api/mailboxes — toutes les boîtes mail partagées, quel que soit
@@ -48,24 +49,60 @@ module.exports = {
     // GET /api/mailboxes/ad-members?email=… — relit en direct dans l'annuaire
     // AD les membres réels d'une boîte partagée (délégués Accès total) ou
     // d'une liste de diffusion (membres du groupe), identifiée par son
-    // adresse mail. Best-effort : ne modifie rien, le résultat est appliqué
-    // par le front (bouton "Récupérer depuis l'AD" dans la fiche).
+    // adresse mail. Si absente de l'AD on-prem, repli sur Microsoft Graph
+    // (O365/Entra ID) — cf. graph_helper.js : confirme l'existence d'une
+    // boîte cloud-only (ses membres restent alors inconnus, Graph ne les
+    // expose pas) ou liste les vrais membres d'un groupe cloud (si l'app a
+    // la permission Group.Read.All). Best-effort : ne modifie rien, le
+    // résultat est appliqué par le front (bouton "Récupérer depuis
+    // l'AD/O365" dans la fiche).
     async getAdMembers(req, res) {
         try {
             const email = (req.query.email || '').trim();
             if (!email) return res.status(400).json({ message: 'Adresse mail requise' });
             const db = getSqlite();
             const adSettings = db ? await db.get('SELECT * FROM ad_settings WHERE id = 1') : null;
-            if (!adSettings || !adSettings.is_enabled || !adSettings.host) {
-                return res.status(400).json({ message: "Annuaire AD non configuré" });
+            if (adSettings?.is_enabled && adSettings.host) {
+                const result = await searchADRecipientMembers(email, adSettings);
+                if (result.found) return res.json({ ...result, source: 'ad', o365_status: null });
             }
-            const result = await searchADRecipientMembers(email, adSettings);
-            if (!result.found) {
-                return res.status(404).json({ message: result.error || `Aucun objet AD ne correspond à ${email}`, ...result });
+
+            // Repli O365 (best-effort — l'échec de cette étape ne doit jamais
+            // masquer le "introuvable dans l'AD" déjà établi ci-dessus).
+            const azureSettings = db ? await db.get('SELECT * FROM azure_ad_settings WHERE id = 1') : null;
+            const o365 = await checkO365Existence(email, azureSettings);
+
+            if (o365.status === 'user_found') {
+                return res.json({
+                    found: true, source: 'o365', type: 'boite_partagee', recipientName: o365.displayName,
+                    members: [], o365_status: 'user_found',
+                    message: "Boîte confirmée dans O365 (cloud), absente de l'AD on-prem — Microsoft Graph n'expose pas ses délégués, ses membres restent inconnus.",
+                });
             }
-            res.json(result);
+            if (o365.status === 'group_found' && !o365.permissionDenied) {
+                return res.json({
+                    found: true, source: 'o365', type: 'liste', recipientName: o365.displayName,
+                    members: o365.members || [], o365_status: 'group_found',
+                });
+            }
+            if (o365.status === 'group_found' && o365.permissionDenied) {
+                return res.status(404).json({
+                    message: "Introuvable dans l'AD. Impossible de vérifier s'il s'agit d'une liste O365 : permission Microsoft Graph « Group.Read.All » manquante sur l'application (à accorder par un administrateur Entra ID).",
+                    found: false, o365_status: 'permission_denied',
+                });
+            }
+            if (o365.status === 'not_found') {
+                return res.status(404).json({
+                    message: `Introuvable dans l'AD ni dans O365 — l'objet a probablement été supprimé.`,
+                    found: false, o365_status: 'not_found',
+                });
+            }
+            return res.status(404).json({
+                message: `Aucun objet AD ne correspond à ${email}` + (o365.error ? ` (vérification O365 également en échec : ${o365.error})` : ''),
+                found: false, o365_status: null,
+            });
         } catch (error) {
-            res.status(500).json({ message: 'Erreur lors de la lecture AD', error: error.message });
+            res.status(500).json({ message: 'Erreur lors de la lecture AD/O365', error: error.message });
         }
     },
 

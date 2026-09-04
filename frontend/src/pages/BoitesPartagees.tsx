@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Mail, Search, ExternalLink, Users, Plus, Pencil, Trash2, X, AlertTriangle, RefreshCw } from 'lucide-react';
+import { Mail, Search, ExternalLink, Users, Plus, Pencil, Trash2, X, AlertTriangle, RefreshCw, Cloud, Lock } from 'lucide-react';
 import Header from '../components/Header';
 import AgentPresenceBadge from '../components/AgentPresenceBadge';
 import { classify, type PresenceInfo, type PresenceStatus } from '../utils/agentPresence';
@@ -31,6 +31,13 @@ interface SharedMailbox {
   // NULL si le dernier essai a réussi ou si aucun essai n'a encore eu lieu —
   // seul moyen de distinguer un "0 membre" non résolu d'un "0 membre" confirmé.
   ad_sync_error: string | null;
+  // Résultat de la vérification O365/Graph tentée en repli quand l'AD ne
+  // trouve rien : 'user_found' (boîte confirmée dans le cloud, membres
+  // inconnus — Graph n'expose pas les délégués), 'group_found' (liste
+  // confirmée, membres listés si permission Graph disponible), 'not_found'
+  // (absente aussi d'O365), 'permission_denied' (impossible de vérifier les
+  // groupes, permission Graph manquante), NULL = jamais vérifié.
+  o365_status: string | null;
   created_at: string;
 }
 
@@ -71,6 +78,42 @@ function TypeBadge({ type, usageType }: { type: string | null; usageType: string
       )}
       {usageType && <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 3 }}>{usageType}</div>}
     </div>
+  );
+}
+
+/**
+ * Symbole affiché à la place du nombre de membres quand celui-ci n'a pas pu
+ * être établi (0 non confirmé) — distingue trois cas bien différents pour
+ * l'admin, cf. o365_status renvoyé par GET /api/mailboxes/ad-members :
+ *  - ☁️ confirmée dans O365 mais absente de l'AD on-prem : ses membres
+ *    restent structurellement inconnus (Graph n'expose pas les délégués
+ *    Accès total d'une boîte partagée, quelle que soit la permission).
+ *  - 🔒 impossible de vérifier si c'est une liste O365 (permission Graph
+ *    Group.Read.All manquante sur l'application).
+ *  - ⚠️ introuvable nulle part (AD + O365), ou jamais vérifié côté O365.
+ */
+function AdSyncBadge({ adSyncError, o365Status }: { adSyncError: string; o365Status: string | null }) {
+  if (o365Status === 'user_found') {
+    return (
+      <span title={`Confirmée dans O365 (cloud), absente de l'AD on-prem — membres non exposés par Microsoft Graph pour une boîte partagée.`}
+        style={{ display: 'inline-flex', alignItems: 'center', gap: 4, color: '#2563eb', fontWeight: 600, cursor: 'help' }}>
+        <Cloud size={12} /> ?
+      </span>
+    );
+  }
+  if (o365Status === 'permission_denied') {
+    return (
+      <span title={`Introuvable dans l'AD. Impossible de vérifier s'il s'agit d'une liste O365 : permission Microsoft Graph "Group.Read.All" manquante.`}
+        style={{ display: 'inline-flex', alignItems: 'center', gap: 4, color: '#a16207', fontWeight: 600, cursor: 'help' }}>
+        <Lock size={12} /> ?
+      </span>
+    );
+  }
+  return (
+    <span title={`Non résolu (AD${o365Status === 'not_found' ? ' + O365' : ''}) : ${adSyncError}`}
+      style={{ display: 'inline-flex', alignItems: 'center', gap: 4, color: '#dc2626', fontWeight: 600, cursor: 'help' }}>
+      <AlertTriangle size={12} /> ?
+    </span>
   );
 }
 
@@ -144,7 +187,7 @@ function MultiAgentPicker({ value, onChange, token }: { value: Membre[]; onChang
 const emptyForm = {
   nom: '', email: '', type: '', usage_type: '', provisoire: false, date_fin: '', date_creation: '',
   responsable: null as Membre | null, membres: [] as Membre[], justification: '',
-  arbitrage_decision: '' as '' | 'positif' | 'negatif', arbitrage_comment: '', ad_sync_error: '',
+  arbitrage_decision: '' as '' | 'positif' | 'negatif', arbitrage_comment: '', ad_sync_error: '', o365_status: '',
 };
 
 function MailboxModal({ initial, token, onClose, onSaved }: { initial: SharedMailbox | null; token: string | null; onClose: () => void; onSaved: () => void }) {
@@ -156,17 +199,18 @@ function MailboxModal({ initial, token, onClose, onSaved }: { initial: SharedMai
     membres: initial.membres || [], justification: initial.justification || '',
     arbitrage_decision: (initial.arbitrage_decision || '') as '' | 'positif' | 'negatif',
     arbitrage_comment: initial.arbitrage_comment || '',
-    ad_sync_error: initial.ad_sync_error || '',
+    ad_sync_error: initial.ad_sync_error || '', o365_status: initial.o365_status || '',
   } : emptyForm);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [syncingAd, setSyncingAd] = useState(false);
   const [syncAdMsg, setSyncAdMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
-  // Relit dans l'annuaire AD les membres réels de la boîte/liste (délégués
-  // Accès total pour une boîte partagée, membres de groupe pour une liste de
-  // diffusion — cf. GET /api/mailboxes/ad-members) et remplace la liste
-  // manuelle. Recale aussi le Type si l'AD contredit la fiche.
+  // Relit les membres réels de la boîte/liste : d'abord l'AD on-prem
+  // (délégués Accès total pour une boîte partagée, membres de groupe pour
+  // une liste), puis en repli Microsoft Graph (O365/Entra ID) si absente de
+  // l'AD — cf. GET /api/mailboxes/ad-members. Recale aussi le Type si la
+  // source contredit la fiche.
   const syncFromAd = async () => {
     const email = form.email.trim();
     if (!email) { setSyncAdMsg({ ok: false, text: "Renseignez d'abord l'adresse mail précise de la boîte/liste." }); return; }
@@ -175,25 +219,28 @@ function MailboxModal({ initial, token, onClose, onSaved }: { initial: SharedMai
     try {
       const res = await fetch(`/api/mailboxes/ad-members?email=${encodeURIComponent(email)}`, { headers: { Authorization: `Bearer ${token}` } });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.message || "Introuvable dans l'AD");
+      if (!data.found) throw Object.assign(new Error(data.message || "Introuvable dans l'AD ni dans O365"), { o365_status: data.o365_status || null });
       const members: Membre[] = (data.members || []).map((m: Membre) => ({ displayName: m.displayName, email: m.email }));
       setForm((f) => ({
         ...f,
         membres: members,
-        ad_sync_error: '', // succès : efface un échec précédent éventuel
-        // L'AD distingue boîte partagée / groupe mail-enabled, mais pas liste
-        // de diffusion vs liste de sécurité (même attribut `member` des deux
-        // côtés) — on ne recale donc PAS un Type "Liste sécurité" déjà choisi.
+        ad_sync_error: '', o365_status: data.o365_status || '', // succès : efface un échec précédent éventuel
+        // La source distingue boîte partagée / groupe mail-enabled, mais pas
+        // liste de diffusion vs liste de sécurité (même attribut `member`/
+        // même type "group" des deux côtés) — on ne recale donc PAS un Type
+        // "Liste sécurité" déjà choisi.
         type: data.type === 'liste' ? (f.type === 'Liste sécurité' ? f.type : 'Liste de diffusion')
           : data.type === 'boite_partagee' ? 'Boîte partagée' : f.type,
       }));
-      setSyncAdMsg({ ok: true, text: `${members.length} membre${members.length > 1 ? 's' : ''} récupéré${members.length > 1 ? 's' : ''} depuis l'AD (${data.recipientName || email}).` });
+      const sourceLabel = data.source === 'o365' ? ' (source : O365, absente de l\'AD on-prem)' : '';
+      setSyncAdMsg({ ok: true, text: (data.message ? `${data.message} ` : '') + `${members.length} membre${members.length > 1 ? 's' : ''} récupéré${members.length > 1 ? 's' : ''}${sourceLabel}.` });
     } catch (e) {
-      const msg = e instanceof Error ? e.message : 'Erreur lors de la lecture AD';
+      const msg = e instanceof Error ? e.message : 'Erreur lors de la lecture AD/O365';
+      const o365Status = (e as { o365_status?: string })?.o365_status || '';
       // Échec : on ne touche PAS à la liste de membres existante (pas de perte
       // de données), mais on mémorise l'échec pour l'affichage en liste — cf.
-      // ad_sync_error, distingue "0 non résolu" de "0 confirmé".
-      setForm((f) => ({ ...f, ad_sync_error: msg }));
+      // ad_sync_error/o365_status, distingue "0 non résolu" de "0 confirmé".
+      setForm((f) => ({ ...f, ad_sync_error: msg, o365_status: o365Status }));
       setSyncAdMsg({ ok: false, text: msg });
     } finally {
       setSyncingAd(false);
@@ -210,7 +257,7 @@ function MailboxModal({ initial, token, onClose, onSaved }: { initial: SharedMai
       responsable_display: form.responsable?.displayName || null, responsable_email: form.responsable?.email || null,
       membres: form.membres, justification: form.justification || null,
       arbitrage_decision: form.arbitrage_decision || null, arbitrage_comment: form.arbitrage_comment || null,
-      date_creation: form.date_creation || null, ad_sync_error: form.ad_sync_error || null,
+      date_creation: form.date_creation || null, ad_sync_error: form.ad_sync_error || null, o365_status: form.o365_status || null,
     };
     try {
       const res = await fetch(initial ? `/api/mailboxes/${initial.id}` : '/api/mailboxes', {
@@ -595,6 +642,7 @@ export default function BoitesPartagees() {
                   <th style={{ padding: '10px 14px', fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>Type</th>
                   <th style={{ padding: '10px 14px', fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>Responsable</th>
                   <th style={{ padding: '10px 14px', fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>Agents</th>
+                  <th style={{ padding: '10px 14px', fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>Créée le</th>
                   <th style={{ padding: '10px 14px', fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>Fin</th>
                   <th style={{ padding: '10px 14px', fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>Ticket</th>
                   <th style={{ padding: '10px 14px', fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>Arbitrage</th>
@@ -634,9 +682,7 @@ export default function BoitesPartagees() {
                         </td>
                         <td style={{ padding: '10px 14px', color: '#475569' }}>
                           {(b.membres || []).length === 0 && b.ad_sync_error ? (
-                            <span title={`Non résolu dans l'AD : ${b.ad_sync_error}`} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, color: '#dc2626', fontWeight: 600, cursor: 'help' }}>
-                              <AlertTriangle size={12} /> ?
-                            </span>
+                            <AdSyncBadge adSyncError={b.ad_sync_error} o365Status={b.o365_status} />
                           ) : (
                             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
                               <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
@@ -654,6 +700,9 @@ export default function BoitesPartagees() {
                               ) : null}
                             </span>
                           )}
+                        </td>
+                        <td style={{ padding: '10px 14px', color: '#64748b' }}>
+                          {b.date_creation ? new Date(b.date_creation).toLocaleDateString('fr-FR') : '—'}
                         </td>
                         <td style={{ padding: '10px 14px', color: '#64748b' }}>
                           {b.provisoire && b.date_fin ? new Date(b.date_fin).toLocaleDateString('fr-FR') : b.provisoire ? 'Provisoire' : '—'}
@@ -685,14 +734,18 @@ export default function BoitesPartagees() {
                       </tr>
                       {expanded && (
                         <tr style={{ background: '#fafbfc' }}>
-                          <td colSpan={canManage ? 8 : 7} style={{ padding: '10px 14px 16px' }}>
+                          <td colSpan={canManage ? 9 : 8} style={{ padding: '10px 14px 16px' }}>
                             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
                               <div>
                                 <div style={{ fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', marginBottom: 6 }}>Agents ayant accès</div>
                                 {(b.membres || []).length === 0 ? (
                                   b.ad_sync_error ? (
-                                    <div style={{ fontSize: 12, color: '#dc2626', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 5 }}>
-                                      <AlertTriangle size={13} /> Non résolu dans l'AD : {b.ad_sync_error}
+                                    <div style={{
+                                      fontSize: 12, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 5,
+                                      color: b.o365_status === 'user_found' ? '#2563eb' : b.o365_status === 'permission_denied' ? '#a16207' : '#dc2626',
+                                    }}>
+                                      {b.o365_status === 'user_found' ? <Cloud size={13} /> : b.o365_status === 'permission_denied' ? <Lock size={13} /> : <AlertTriangle size={13} />}
+                                      {b.ad_sync_error}
                                     </div>
                                   ) : (
                                     <div style={{ fontSize: 12, color: '#94a3b8' }}>Aucun</div>
@@ -709,7 +762,6 @@ export default function BoitesPartagees() {
                                 )}
                                 <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 10 }}>
                                   Demandée par {b.requested_by_name} le {new Date(b.created_at).toLocaleDateString('fr-FR')}
-                                  {b.date_creation && <> — créée le {new Date(b.date_creation).toLocaleDateString('fr-FR')}</>}
                                 </div>
                               </div>
                               <div>

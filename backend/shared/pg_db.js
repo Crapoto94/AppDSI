@@ -5514,6 +5514,16 @@ async function setupPgDb() {
       // d'un "0 membre" réellement confirmé (cf. TypeBadge/Agents dans
       // BoitesPartagees.tsx) — sans lui, les deux cas sont indiscernables.
       await client.query(`ALTER TABLE hub.shared_mailboxes ADD COLUMN IF NOT EXISTS ad_sync_error TEXT`);
+      // Résultat de la vérification Microsoft Graph (O365/Entra ID), tentée
+      // en repli quand l'objet est absent de l'AD on-prem (cf. graph_helper.js
+      // #checkO365Existence) : 'user_found' (boîte partagée confirmée dans le
+      // cloud — Graph n'expose PAS ses délégués Accès total, limitation
+      // structurelle de l'API, pas de permission manquante), 'group_found'
+      // (liste confirmée, membres listés si Group.Read.All est accordé),
+      // 'not_found' (absente aussi de l'O365 — probablement supprimée),
+      // 'permission_denied' (impossible de vérifier les groupes, permission
+      // Group.Read.All manquante sur l'app), NULL = jamais vérifié.
+      await client.query(`ALTER TABLE hub.shared_mailboxes ADD COLUMN IF NOT EXISTS o365_status TEXT`);
     } catch (e) { console.error('[PG DB] hub.shared_mailboxes:', e.message); }
 
     // ─── hub_telecom : opérateurs, comptes de facturation et factures télécom ────
