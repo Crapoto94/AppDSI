@@ -222,6 +222,10 @@ export default function TicketDetail() {
   const [requesterSearch, setRequesterSearch] = useState('');
   const [requesterResults, setRequesterResults] = useState<any[]>([]);
   const [requesterSearching, setRequesterSearching] = useState(false);
+  // Empêche la recherche de se relancer automatiquement quand on pré-remplit le champ
+  // avec le demandeur déjà en place à l'ouverture du mode édition (sinon son propre
+  // nom réapparaît dans la liste de résultats, comme s'il fallait le resélectionner).
+  const requesterSearchSkipRef = useRef(false);
   const [escaladeTargets, setEscaladeTargets] = useState<any[]>([]);
   const [assignees, setAssignees] = useState<any[]>([]);
   const [assignTab, setAssignTab] = useState<'tech' | 'escalade'>('tech');
@@ -750,7 +754,12 @@ export default function TicketDetail() {
     if (newStatus === 3) {
       try {
         const token = localStorage.getItem('token');
-        if (user?.username) {
+        if (ticket.status?.id === 4) {
+          // "Reprendre" depuis "En attente" : le technicien est déjà affecté, on ne
+          // fait que remettre le ticket en cours (l'endpoint /assign ne change pas le
+          // statut quand il n'est pas Nouveau/Attribué, cf. assignment.service.js).
+          await doChangeStatus(3);
+        } else if (user?.username) {
           await axios.post(`/api/tickets/${id}/assign`, { technician_username: user.username }, { headers: { Authorization: `Bearer ${token}` } });
         }
         loadTicket();
@@ -874,6 +883,7 @@ export default function TicketDetail() {
 
   useEffect(() => {
     if (!editingInfo || !requesterSearch || requesterSearch.length < 2) { setRequesterResults([]); return; }
+    if (requesterSearchSkipRef.current) { requesterSearchSkipRef.current = false; return; }
     const timer = setTimeout(async () => {
       setRequesterSearching(true);
       try {
@@ -1945,6 +1955,7 @@ export default function TicketDetail() {
                     requester_name: ticket.requester?.name || ticket.requester_name || ''
                   });
                   setLocationSearch(ticket.location || '');
+                  requesterSearchSkipRef.current = true;
                   setRequesterSearch(ticket.requester?.name || ticket.requester_name || '');
                 }}
                   style={{ padding: '3px 9px', background: 'transparent', border: '1px solid #e4e4e7', borderRadius: 6, color: '#6366f1', cursor: 'pointer', fontSize: 11, fontWeight: 600 }}>
