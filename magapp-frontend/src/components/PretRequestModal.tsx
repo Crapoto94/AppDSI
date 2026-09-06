@@ -32,7 +32,9 @@ const PretRequestModal: React.FC<PretRequestModalProps> = ({ isOpen, onClose, to
   const [motif, setMotif] = useState('');
   const [direction, setDirection] = useState('');
   const [service, setService] = useState('');
-  const [nomDemandeur, setNomDemandeur] = useState(displayName);
+  // Lecture seule (affiché mais non modifiable) : pas besoin d'état local, la
+  // valeur suit directement le prop displayName.
+  const nomDemandeur = displayName;
 
   useEffect(() => {
     if (isOpen) {
