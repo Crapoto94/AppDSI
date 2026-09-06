@@ -104,7 +104,8 @@ async function searchADUsersByQuery(query, config) {
                             username: user.sAMAccountName,
                             displayName: decodeLDAPString(user.displayName || user.cn || user.sAMAccountName),
                             email: user.mail || '',
-                            service: user.department || ''
+                            service: user.department || '',
+                            direction: user.company || ''
                         });
                     }
                 });

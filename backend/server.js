@@ -16,6 +16,7 @@ const cors = require('cors');
 const bcrypt = require('bcryptjs');
 const { setupDb, pgDb, pool, setupPgDb } = require('./shared/database');
 const { logMouchard, flattenLDAPEntry, decodeLDAPString, excelDateToISO } = require('./shared/utils');
+const { searchADUsersByQuery } = require('./shared/ad_helper');
 const { SECRET_KEY, PORT, FOLDERS } = require('./shared/config');
 const { MODULES_REGISTRY } = require('./shared/modules-registry');
 const { authenticateJWT, authenticateAdmin, authenticateAdminUI, authenticateInternalOrAdmin, authenticateAdminOrFinances, authenticateMagappControl, isSuperAdmin, isAdminLike } = require('./shared/middleware');
@@ -693,47 +694,6 @@ app.get('/api/ad/search', authenticateJWT, async (req, res) => {
         res.status(500).json({ error: error.message });
     }
 });
-
-async function searchADUsersByQuery(query, config) {
-    return new Promise((resolve, reject) => {
-        const client = ldap.createClient({ url: `ldap://${config.host}:${config.port}` });
-        client.bind(config.bind_dn, config.bind_password, (err) => {
-            if (err) { client.destroy(); return reject(err); }
-
-            const escaped = query.replace(/[*()\\\x00]/g, '\\$&');
-            const filter = `(&(objectClass=user)(|(displayName=*${escaped}*)(sAMAccountName=*${escaped}*)(cn=*${escaped}*)))`;
-            const opts = {
-                filter,
-                scope: 'sub',
-                attributes: ['sAMAccountName', 'displayName', 'cn', 'mail', 'userPrincipalName', 'department', 'company'],
-                sizeLimit: 20
-            };
-
-            const results = [];
-            const foundUsernames = new Set();
-
-            client.search(config.base_dn, opts, (err, searchRes) => {
-                if (err) { client.destroy(); return reject(err); }
-
-                searchRes.on('searchEntry', (entry) => {
-                    const user = flattenLDAPEntry(entry);
-                    if (user && user.sAMAccountName && !foundUsernames.has(user.sAMAccountName)) {
-                        foundUsernames.add(user.sAMAccountName);
-                        results.push({
-                            username: user.sAMAccountName,
-                            displayName: decodeLDAPString(user.displayName || user.cn || user.sAMAccountName),
-                            email: user.mail || user.userPrincipalName || '',
-                            service: user.department || '',
-                            direction: user.company || ''
-                        });
-                    }
-                });
-                searchRes.on('end', () => { client.destroy(); resolve(results); });
-                searchRes.on('error', (err) => { client.destroy(); reject(err); });
-            });
-        });
-    });
-}
 
 // Récupérer les infos AD de l'utilisateur connecté (service, direction)
 app.get('/api/ad/my-info', authenticateJWT, async (req, res) => {

@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { X, ShoppingCart, ChevronLeft, ChevronRight, Package, Printer, AlertCircle, Building2, User } from 'lucide-react';
+import { resolveDesignationImageUrl } from '../utils/designationImages';
+import { getConsumableTypeIcon } from '../utils/consumableTypeIcon';
 
 interface ConsumableType {
   id: number;
@@ -103,7 +105,9 @@ const ConsumableRequestModal: React.FC<ConsumableRequestModalProps> = ({ isOpen,
 
   const loadDesignationImages = async () => {
     try {
-      const response = await axios.get('/api/consumable/admin/images/all', {
+      // Route non-admin : n'importe quel agent créant une demande doit
+      // pouvoir voir les images (cf. /admin/images/all, réservé à l'admin).
+      const response = await axios.get('/api/consumable/images', {
         headers: { Authorization: `Bearer ${token}` }
       });
       const imagesMap: Record<string, { image_path: string }> = {};
@@ -258,12 +262,15 @@ const ConsumableRequestModal: React.FC<ConsumableRequestModalProps> = ({ isOpen,
             <div>
               <h4 style={{ margin: '0 0 16px', fontSize: '1rem', fontWeight: 700, color: '#1e293b' }}>Sélectionnez le type de consommable</h4>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '16px' }}>
-                {consumableTypes.map(type => (
-                  <button key={type.id} onClick={() => handleTypeSelect(type)} style={{ padding: '24px 16px', background: 'white', border: '1.5px solid #e2e8f0', borderRadius: '12px', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px', transition: 'all 0.2s' }}>
-                    <div style={{ width: '48px', height: '48px', borderRadius: '50%', background: '#f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#0078a4' }}><Package size={24} /></div>
-                    <span style={{ fontWeight: 700, color: '#334155' }}>{type.display_name || type.name}</span>
-                  </button>
-                ))}
+                {consumableTypes.map(type => {
+                  const TypeIcon = getConsumableTypeIcon(type.display_name || type.name);
+                  return (
+                    <button key={type.id} onClick={() => handleTypeSelect(type)} style={{ padding: '24px 16px', background: 'white', border: '1.5px solid #e2e8f0', borderRadius: '12px', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px', transition: 'all 0.2s' }}>
+                      <div style={{ width: '48px', height: '48px', borderRadius: '50%', background: '#f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#0078a4' }}><TypeIcon size={24} /></div>
+                      <span style={{ fontWeight: 700, color: '#334155' }}>{type.display_name || type.name}</span>
+                    </button>
+                  );
+                })}
               </div>
             </div>
           )}
@@ -279,9 +286,9 @@ const ConsumableRequestModal: React.FC<ConsumableRequestModalProps> = ({ isOpen,
                   <button key={des} onClick={() => handleDesignationSelect(des)} style={{ padding: '16px', background: 'white', border: '1.5px solid #e2e8f0', borderRadius: '12px', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px', transition: 'all 0.2s' }}>
                     <div style={{ width: '100%', height: '100px', borderRadius: '8px', background: '#f8fafc', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
                       {designationImages[des] ? (
-                        <img 
-                          src={`/api/consumable/images/${encodeURIComponent(des)}`} 
-                          alt={des} 
+                        <img
+                          src={resolveDesignationImageUrl(designationImages[des].image_path)}
+                          alt={des}
                           style={{ width: '100%', height: '100%', objectFit: 'contain', padding: '8px' }} 
                           onError={(e) => {
                             const img = e.target as HTMLImageElement;
@@ -331,7 +338,15 @@ const ConsumableRequestModal: React.FC<ConsumableRequestModalProps> = ({ isOpen,
                 {cart.length > 0 && <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#f0f9ff', padding: '6px 12px', borderRadius: '20px', color: '#0078a4', fontSize: '0.85rem', fontWeight: 700 }}><ShoppingCart size={16} /> {cart.reduce((s, i) => s + i.quantite, 0)} articles</div>}
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                {consumableArticles.map(article => <ArticleRow key={article.id} article={article} inCartQty={cart.find(i => i.catalogId === article.id)?.quantite || 0} onAdd={(q) => addToCart(article, q)} />)}
+                {consumableArticles.map(article => (
+                  <ArticleRow
+                    key={article.id}
+                    article={article}
+                    inCartQty={cart.find(i => i.catalogId === article.id)?.quantite || 0}
+                    onAdd={(q) => addToCart(article, q)}
+                    designationImagePath={article.designation ? designationImages[article.designation]?.image_path : undefined}
+                  />
+                ))}
               </div>
               {cart.length > 0 && (
                 <div style={{ marginTop: '24px', display: 'flex', justifyContent: 'flex-end' }}>
@@ -374,19 +389,29 @@ const ConsumableRequestModal: React.FC<ConsumableRequestModalProps> = ({ isOpen,
   );
 };
 
-const ArticleRow: React.FC<{ article: ConsumableArticle, inCartQty: number, onAdd: (q: number) => void }> = ({ article, inCartQty, onAdd }) => {
+const ArticleRow: React.FC<{ article: ConsumableArticle, inCartQty: number, onAdd: (q: number) => void, designationImagePath?: string }> = ({ article, inCartQty, onAdd, designationImagePath }) => {
   const [qty, setQty] = useState(1);
   return (
     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', border: '1.5px solid #e2e8f0', borderRadius: '10px', background: inCartQty > 0 ? '#f0fdf4' : 'white', borderColor: inCartQty > 0 ? '#86efac' : '#e2e8f0', gap: '12px' }}>
-      <div style={{ flex: 1 }}>
-        <p style={{ margin: 0, fontWeight: 700, fontSize: '0.95rem', color: '#1e293b' }}>
-          {article.designation || article.article}
-        </p>
-        {article.designation && (
-          <p style={{ margin: '2px 0 0', fontSize: '0.75rem', color: '#64748b' }}>
-            {article.article}
-          </p>
+      <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: '10px' }}>
+        {designationImagePath && (
+          <img
+            src={resolveDesignationImageUrl(designationImagePath)}
+            alt={article.designation || ''}
+            style={{ width: 28, height: 28, objectFit: 'contain', borderRadius: 6, border: '1px solid #e2e8f0', background: '#f8fafc', flexShrink: 0 }}
+            onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+          />
         )}
+        <div>
+          <p style={{ margin: 0, fontWeight: 700, fontSize: '0.95rem', color: '#1e293b' }}>
+            {article.designation || article.article}
+          </p>
+          {article.designation && (
+            <p style={{ margin: '2px 0 0', fontSize: '0.75rem', color: '#64748b' }}>
+              {article.article}
+            </p>
+          )}
+        </div>
       </div>
       {inCartQty > 0 && <div style={{ background: '#dcfce7', color: '#166534', padding: '2px 8px', borderRadius: '12px', fontSize: '0.7rem', fontWeight: 700 }}>{inCartQty} au panier</div>}
       <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}><input type="number" min="1" value={qty} onChange={e => setQty(Math.max(1, parseInt(e.target.value) || 1))} style={{ width: '50px', padding: '8px', border: '1px solid #e2e8f0', borderRadius: '8px', textAlign: 'center', fontSize: '0.9rem' }} /><button onClick={() => { onAdd(qty); setQty(1); }} style={{ padding: '8px 12px', border: 'none', borderRadius: '8px', background: '#0078a4', color: 'white', cursor: 'pointer', fontWeight: 700, fontSize: '0.85rem' }}>Ajouter</button></div>

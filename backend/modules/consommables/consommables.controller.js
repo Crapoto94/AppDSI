@@ -753,8 +753,11 @@ const controller = {
     try {
       const { type_id, designation, article, code_fabricant, ref_commande } = req.body;
 
-      if (!type_id || !article) {
-        return res.status(400).json({ error: 'type_id et article sont requis' });
+      // Certains articles "DIVERS" (ex. CD-R, DVD+R) n'ont pas de nom d'article
+      // distinct de leur désignation — le nom complet vit alors uniquement dans
+      // designation. On exige donc l'un des deux, pas systématiquement article.
+      if (!type_id || (!article && !designation)) {
+        return res.status(400).json({ error: 'type_id et (désignation ou article) sont requis' });
       }
 
       const query = `
@@ -785,8 +788,10 @@ const controller = {
       const { articleId } = req.params;
       const { designation, article, code_fabricant, ref_commande } = req.body;
 
-      if (!article) {
-        return res.status(400).json({ error: 'article est requis' });
+      // cf. addArticle ci-dessus : certains articles "DIVERS" n'ont pas de nom
+      // distinct de leur désignation (ex. CD-R) — on exige l'un des deux.
+      if (!article && !designation) {
+        return res.status(400).json({ error: 'Désignation ou article requis' });
       }
 
       const query = `

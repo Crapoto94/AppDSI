@@ -4,20 +4,12 @@ const consommablesController = require('./consommables.controller');
 const designationImagesController = require('./designation-images.controller');
 const { authenticateJWT, authenticateAdmin, authenticateConsommablesAdmin } = require('../../shared/middleware');
 const multer = require('multer');
-const path = require('path');
 
-// Configuration multer pour les images
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, path.join(__dirname, '../../uploads/temp'));
-  },
-  filename: (req, file, cb) => {
-    cb(null, Date.now() + '_' + file.originalname);
-  }
-});
-
+// Configuration multer pour les images — memoryStorage : le buffer est écrit
+// via le service de stockage unifié (shared/storage.js, cf. skill « ged »),
+// pas de fichier temporaire sur disque.
 const upload = multer({
-  storage: storage,
+  storage: multer.memoryStorage(),
   fileFilter: (req, file, cb) => {
     const allowedMimes = ['image/png', 'image/jpeg', 'image/jpg', 'image/webp'];
     if (allowedMimes.includes(file.mimetype)) {
@@ -100,6 +92,11 @@ router.delete('/admin/catalog/:articleId', authenticateConsommablesAdmin, consom
 router.post('/admin/catalog/bulk-add', authenticateConsommablesAdmin, consommablesController.bulkAddArticles);
 
 // Routes pour les images des désignations
+// /images (liste complète) est accessible à tout utilisateur connecté — la
+// désignation/imprimante est choisie pendant la création d'une demande par
+// n'importe quel agent, pas seulement les admins consommables. /admin/images/all
+// reste réservé à la page d'administration (upload/suppression).
+router.get('/images', authenticateJWT, designationImagesController.getAllImages);
 router.get('/images/:designation', authenticateJWT, designationImagesController.getDesignationImage);
 router.get('/admin/images/all', authenticateConsommablesAdmin, designationImagesController.getAllImages);
 router.post('/admin/images/upload', authenticateConsommablesAdmin, upload.single('image'), designationImagesController.uploadImage);

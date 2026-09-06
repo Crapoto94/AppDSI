@@ -17,7 +17,7 @@ const { randomUUID } = require('crypto');
 
 const TICKET_ADMIN_ROLES = ['supervisor', 'admin', 'superadmin'];
 
-const ALLOWED_FIELD_TYPES = ['text', 'textarea', 'select', 'boolean', 'agent', 'agent_multi', 'direction_service', 'date', 'description', 'studio_agent', 'studio_futurs_agent_picker'];
+const ALLOWED_FIELD_TYPES = ['text', 'textarea', 'select', 'boolean', 'agent', 'agent_multi', 'direction_service', 'date', 'description', 'studio_agent', 'studio_futurs_agent_picker', 'attachment'];
 const ENCADRANT_ROLES = ['dg', 'directeur', 'responsable_service'];
 
 // Actions spéciales exécutées en plus de la création normale du ticket, à la
@@ -137,7 +137,60 @@ function sanitizeFieldsConfig(fields) {
         conditional_on: (f.conditional_on && f.conditional_on.field && f.conditional_on.equals !== undefined)
             ? { field: String(f.conditional_on.field), equals: f.conditional_on.equals }
             : null,
+        // Uniquement pertinent pour type === 'agent' : ajoute automatiquement,
+        // sans le demander, la Direction/Service de l'agent choisi (résolu
+        // depuis le référentiel RH — cf. resolveAgentDirectionService).
+        agent_include_direction_service: !!f.agent_include_direction_service,
     }));
+}
+
+/** Normalise/valide la liste des tâches créées à la soumission (section
+ * "Tâches à réaliser" du form-builder — toujours affectées à un GROUPE,
+ * jamais une personne, cf. createFormTasks). Les tâches incomplètes
+ * (nom ou groupe manquant) sont silencieusement écartées. `conditional_on`
+ * suit le même principe que pour les champs (cf. sanitizeFieldsConfig) : la
+ * tâche n'est créée QUE SI le champ désigné vaut `equals` dans les réponses
+ * (cf. isFieldVisible côté frontend requestFormTypes.ts, et le filtre dans
+ * createFormTasks côté submit()). */
+function sanitizeTasksConfig(tasks) {
+    if (!Array.isArray(tasks)) return [];
+    return tasks
+        .map((t, i) => ({
+            name: String(t.name || `Tâche ${i + 1}`).trim(),
+            group_id: Number.isInteger(t.group_id) ? t.group_id : (Number.isFinite(Number(t.group_id)) && t.group_id !== null ? Number(t.group_id) : null),
+            group_name: t.group_name ? String(t.group_name) : null,
+            conditional_on: (t.conditional_on && t.conditional_on.field && t.conditional_on.equals !== undefined)
+                ? { field: String(t.conditional_on.field), equals: t.conditional_on.equals }
+                : null,
+        }))
+        .filter((t) => t.name && Number.isInteger(t.group_id) && t.group_id > 0);
+}
+
+/**
+ * Résout la Direction/Service d'un agent depuis le référentiel RH
+ * (rh.referentiel_agents, SQLite — le même référentiel utilisé par le module
+ * RH/organigramme), par son identifiant AD (ad_username). Best-effort : ne
+ * bloque jamais la création du ticket si le référentiel est indisponible ou
+ * l'agent introuvable.
+ */
+async function resolveAgentDirectionService(username) {
+    if (!username) return null;
+    try {
+        const db = getSqlite();
+        if (!db) return null;
+        const row = await db.get(
+            'SELECT DIRECTION_L, SERVICE_L FROM rh.referentiel_agents WHERE LOWER(ad_username) = LOWER(?)',
+            [username]
+        );
+        if (!row) return null;
+        const direction = (row.DIRECTION_L || '').trim();
+        const service = (row.SERVICE_L || '').trim();
+        if (!direction && !service) return null;
+        return { direction, service };
+    } catch (e) {
+        console.error('[request-forms] resolveAgentDirectionService failed:', e.message);
+        return null;
+    }
 }
 
 /** Rend une réponse de champ lisible pour l'insertion dans le contenu du ticket. */
@@ -168,6 +221,14 @@ function formatAnswer(field, value) {
                 return value.mode === 'manual' ? `${label} (nouvel agent, pas encore dans RH Studio)` : label;
             }
             return String(value);
+        case 'attachment':
+            // Le fichier réel est joint au ticket via POST /api/tickets/:id/attachments
+            // (cf. submitRequestForm côté magapp) — ici on ne reçoit qu'un résumé
+            // sérialisable ({name, size}), jamais le contenu du fichier.
+            if (Array.isArray(value)) {
+                return value.length > 0 ? value.map((v) => v?.name || String(v)).join(', ') : '—';
+            }
+            return String(value);
         default:
             return String(value);
     }
@@ -181,13 +242,23 @@ function escapeHtml(str) {
         .replace(/"/g, '&quot;');
 }
 
-/** Construit le contenu HTML du ticket (le champ content est affiché en HTML côté ticket). */
-function buildTicketContentHtml(formName, fields, answers) {
-    const rows = fields
-        .filter((f) => f.type !== 'description')
-        .map((f) => `<tr><td style="padding:4px 14px 4px 0;font-weight:600;white-space:nowrap;vertical-align:top;">${escapeHtml(f.label)}</td><td style="padding:4px 0;">${escapeHtml(formatAnswer(f, answers[f.key])).replace(/\n/g, '<br>')}</td></tr>`)
-        .join('');
-    return `<p>Demande générée depuis le formulaire « ${escapeHtml(formName)} »</p><table style="border-collapse:collapse;">${rows}</table>`;
+/**
+ * Construit le contenu HTML du ticket (le champ content est affiché en HTML
+ * côté ticket). `extraRows` ({ afterKey, label, value }[]) insère des lignes
+ * supplémentaires juste après le champ `afterKey` — utilisé pour la
+ * Direction/Service auto-résolue d'un champ "agent" (cf.
+ * resolveAgentDirectionService), qui n'est pas une vraie réponse de champ.
+ */
+function buildTicketContentHtml(formName, fields, answers, extraRows = []) {
+    const rows = [];
+    for (const f of fields) {
+        if (f.type === 'description') continue;
+        rows.push(`<tr><td style="padding:4px 14px 4px 0;font-weight:600;white-space:nowrap;vertical-align:top;">${escapeHtml(f.label)}</td><td style="padding:4px 0;">${escapeHtml(formatAnswer(f, answers[f.key])).replace(/\n/g, '<br>')}</td></tr>`);
+        for (const extra of extraRows.filter((e) => e.afterKey === f.key)) {
+            rows.push(`<tr><td style="padding:4px 14px 4px 0;font-weight:600;white-space:nowrap;vertical-align:top;">${escapeHtml(extra.label)}</td><td style="padding:4px 0;">${escapeHtml(extra.value)}</td></tr>`);
+        }
+    }
+    return `<p>Demande générée depuis le formulaire « ${escapeHtml(formName)} »</p><table style="border-collapse:collapse;">${rows.join('')}</table>`;
 }
 
 /**
@@ -372,6 +443,67 @@ async function createArbitrageTask(form, ticketId, ticketTitle) {
     }
 }
 
+/**
+ * "Tâches à réaliser" : contrairement à l'arbitrage (une tâche unique liée à
+ * un workflow de décision favorable/défavorable, cf. Mes Tâches), le
+ * form-builder peut définir ici une liste libre de tâches à créer à la
+ * soumission (chacune avec son propre nom), TOUJOURS affectées à un GROUPE —
+ * jamais une personne (cf. sanitizeTasksConfig). Best-effort par tâche : une
+ * tâche en échec n'empêche ni le ticket ni les autres tâches d'être créés.
+ * `answers` permet d'évaluer `conditional_on` (même principe que les champs,
+ * cf. isFieldVisible) : une tâche conditionnée à un champ dont la réponse ne
+ * correspond pas n'est simplement pas créée (pas une erreur, pas de ligne
+ * dans les résultats — elle n'a jamais été "due").
+ */
+async function createFormTasks(form, ticketId, ticketTitle, answers) {
+    const allTasks = Array.isArray(form.tasks_config) ? form.tasks_config : [];
+    const tasks = allTasks.filter((t) => !t.conditional_on || answers[t.conditional_on.field] === t.conditional_on.equals);
+    if (tasks.length === 0) return null;
+
+    const results = [];
+    for (const task of tasks) {
+        const logHistory = async (action, comment) => {
+            try {
+                await pgDb.run(
+                    `INSERT INTO hub_tickets.ticket_history (ticket_id, user_id, action, field_name, old_value, new_value, comment) VALUES (?, NULL, ?, NULL, NULL, NULL, ?)`,
+                    [ticketId, action, comment]
+                );
+            } catch (e) { console.error('[request-forms] form task history log failed:', e.message); }
+        };
+
+        try {
+            const members = await pgDb.all(
+                `SELECT u.username FROM hub_tickets.technician_group_members tgm
+                 JOIN hub.users u ON u.id = tgm.user_id
+                 WHERE tgm.group_id = ? AND u.username IS NOT NULL`,
+                [task.group_id]
+            );
+            if (members.length === 0) throw new Error(`Le groupe "${task.group_name || task.group_id}" ne contient aucun membre`);
+
+            const isTeamTask = members.length > 1;
+            const teamGroupId = isTeamTask ? randomUUID() : null;
+            const createdIds = [];
+            for (const m of members) {
+                const result = await pgDb.run(
+                    `INSERT INTO hub.user_tasks
+                       (username, description, statut, is_team_task, team_group_id, team_group_name, created_by,
+                        context_source, context_id, context_title, priority, is_public, is_arbitrage)
+                     VALUES (?, ?, 'a_faire', ?, ?, ?, 'request_form', 'ticket', ?, ?, 'normale', false, false)`,
+                    [m.username, task.name, isTeamTask, teamGroupId, task.group_name || null, ticketId, ticketTitle || null]
+                );
+                createdIds.push(result.lastID);
+            }
+            await logHistory('form_task_created', `Tâche "${task.name}" créée pour le groupe "${task.group_name || task.group_id}"`);
+            results.push({ ok: true, name: task.name, ids: createdIds });
+        } catch (e) {
+            console.error('[request-forms] createFormTasks failed:', e.message);
+            await logHistory('form_task_failed', `Échec de création de la tâche "${task.name}" : ${e.message}`);
+            results.push({ ok: false, name: task.name, error: e.message });
+        }
+    }
+    return results;
+}
+
 module.exports = {
     // GET /api/request-forms/admin
     listAdmin: async (req, res) => {
@@ -421,6 +553,10 @@ module.exports = {
             if (req.body.fields_config !== undefined) {
                 updates.push('fields_config = ?');
                 values.push(JSON.stringify(sanitizeFieldsConfig(req.body.fields_config)));
+            }
+            if (req.body.tasks_config !== undefined) {
+                updates.push('tasks_config = ?');
+                values.push(JSON.stringify(sanitizeTasksConfig(req.body.tasks_config)));
             }
             if (req.body.allowed_roles !== undefined) {
                 const roles = Array.isArray(req.body.allowed_roles)
@@ -556,7 +692,25 @@ module.exports = {
                 return res.status(400).json({ message: `Champ(s) requis manquant(s) : ${missing.map((f) => f.label).join(', ')}` });
             }
 
-            const content = buildTicketContentHtml(form.name, fields, answers);
+            // Champs "agent" configurés pour ajouter automatiquement (sans le
+            // demander) la Direction/Service de l'agent choisi, résolue depuis
+            // le référentiel RH — cf. resolveAgentDirectionService.
+            const extraRows = [];
+            for (const f of fields) {
+                if (f.type !== 'agent' || !f.agent_include_direction_service) continue;
+                const agent = answers[f.key];
+                const username = agent && typeof agent === 'object' ? agent.username : null;
+                const resolved = await resolveAgentDirectionService(username);
+                if (resolved) {
+                    extraRows.push({
+                        afterKey: f.key,
+                        label: 'Direction / Service',
+                        value: [resolved.direction, resolved.service].filter(Boolean).join(' / ') || '—',
+                    });
+                }
+            }
+
+            const content = buildTicketContentHtml(form.name, fields, answers, extraRows);
 
             const user = req.user;
             // Repli ultime (formulaire sans champ identifiant, ex. uniquement
@@ -597,12 +751,14 @@ module.exports = {
                 catch (e) { console.error('[request-forms] createRecord (boite_partagee) failed:', e.message); }
             }
             const arbitrage = await createArbitrageTask(form, ticketId, ticketTitle);
+            const formTasks = await createFormTasks(form, ticketId, ticketTitle, answers);
 
             res.status(201).json({
                 message: 'Demande envoyée',
                 ticket_id: ticketId,
                 ...(onboarding ? { onboarding } : {}),
                 ...(arbitrage ? { arbitrage } : {}),
+                ...(formTasks ? { form_tasks: formTasks } : {}),
             });
         } catch (error) {
             res.status(500).json({ message: 'Erreur lors de l\'envoi de la demande', error: error.message });

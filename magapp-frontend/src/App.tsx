@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
-import { Search, Loader2, Clock, Bell, User, Heart, X, LogOut, LifeBuoy, AlertTriangle, Activity, CheckCircle2, XCircle, Tag, Lightbulb, Paperclip, Eye, BarChart3, Briefcase, FileText, MessageSquare, GraduationCap, Star, ShoppingCart, FlaskConical, Send, MessageCircle } from 'lucide-react';
+import { Search, Loader2, Clock, Bell, User, Heart, X, LogOut, LifeBuoy, AlertTriangle, Activity, CheckCircle2, XCircle, Tag, Lightbulb, Paperclip, Eye, BarChart3, Briefcase, FileText, MessageSquare, GraduationCap, Star, ShoppingCart, FlaskConical, Send, MessageCircle, Plus } from 'lucide-react';
 import './index.css';
 import logoDsiHub from './assets/DSI.png';
 import Login from './Login';
@@ -223,9 +223,38 @@ function App() {
     setSubmittingForm(true);
     try {
       const token = localStorage.getItem('token');
-      const res = await axios.post(`/api/request-forms/${activeForm.id}/submit`, { answers: formAnswers }, {
+      // Les champs "Pièce jointe" contiennent de vrais File côté client — non
+      // sérialisables tels quels (et le fichier ne doit pas transiter dans le
+      // JSON `answers`). On envoie un résumé {name, size} pour le contenu du
+      // ticket, puis on joint les vrais fichiers ci-dessous une fois le
+      // ticket créé (même flux que la création manuelle de ticket).
+      const serializableAnswers: Record<string, any> = { ...formAnswers };
+      for (const f of activeForm.fields_config) {
+        if (f.type === 'attachment' && Array.isArray(serializableAnswers[f.key])) {
+          serializableAnswers[f.key] = serializableAnswers[f.key].map((file: File) => ({ name: file.name, size: file.size }));
+        }
+      }
+      const res = await axios.post(`/api/request-forms/${activeForm.id}/submit`, { answers: serializableAnswers }, {
         headers: { Authorization: `Bearer ${token}` }
       });
+      const createdTicketId = res.data.ticket_id;
+      if (createdTicketId) {
+        for (const f of activeForm.fields_config) {
+          if (f.type !== 'attachment') continue;
+          const files: File[] = Array.isArray(formAnswers[f.key]) ? formAnswers[f.key] : [];
+          for (const file of files) {
+            try {
+              const fd = new FormData();
+              fd.append('file', file);
+              await axios.post(`/api/tickets/${createdTicketId}/attachments`, fd, {
+                headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'multipart/form-data' }
+              });
+            } catch (uploadErr) {
+              console.error('Erreur upload pièce jointe:', uploadErr);
+            }
+          }
+        }
+      }
       setActiveForm(null);
       setFormAnswers({});
       setModalConfig({
@@ -1246,32 +1275,6 @@ function App() {
               </button>
             )}
 
-            {(settings.show_consommables || settings.is_beta_user || hasConsommablesAccess) && (
-              <button
-                onClick={() => setShowConsumables(true)}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '8px',
-                  background: '#0078a4',
-                  color: 'white',
-                  border: 'none',
-                  padding: '10px 18px',
-                  borderRadius: '10px',
-                  fontSize: '0.9rem',
-                  fontWeight: 700,
-                  cursor: 'pointer',
-                  transition: 'all 0.2s',
-                  boxShadow: '0 4px 6px -1px rgba(0,120,164,0.2)',
-                  position: 'relative'
-                }}
-              >
-                <ShoppingCart size={18} />
-                Consommables
-                {!settings.show_consommables_original && <span style={{ position: 'absolute', top: '-4px', right: '-4px', background: '#f59e0b', color: '#1e293b', fontSize: '0.55rem', fontWeight: 800, padding: '1px 4px', borderRadius: '6px', letterSpacing: '0.05em' }}>BETA</span>}
-              </button>
-            )}
-
             <button
               onClick={handleLogout}
               style={{
@@ -1623,7 +1626,10 @@ function App() {
                     {settings.is_beta_user && !settings.show_create_buttons_original && <span style={{ position: 'absolute', top: '-4px', right: '6px', baselineShift: '2mm', background: '#f59e0b', color: '#1e293b', fontSize: '0.6rem', fontWeight: 800, padding: '1px 5px', borderRadius: '6px', letterSpacing: '0.05em' }}>BETA</span>}
                   </button>
                   <button
-                    onClick={() => { if (publishedForms.length > 0) { setShowFormChooser(true); } else { setTicketType('demande'); setShowCreateTicket(true); } }}
+                    onClick={() => {
+                      const consommablesAvailable = settings.show_consommables || settings.is_beta_user || hasConsommablesAccess;
+                      if (publishedForms.length > 0 || consommablesAvailable) { setShowFormChooser(true); } else { setTicketType('demande'); setShowCreateTicket(true); }
+                    }}
                     style={{ flex: 1, padding: '12px', background: '#2563eb', color: 'white', border: 'none', borderRadius: '12px', fontSize: '0.9rem', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', position: 'relative' }}
                   >
                     <Clock size={18} />
@@ -2200,14 +2206,28 @@ function App() {
         <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000, padding: '20px' }}
           onClick={() => setShowFormChooser(false)}
         >
-          <div style={{ background: 'white', borderRadius: '16px', padding: '30px', width: '100%', maxWidth: '420px', maxHeight: '90vh', overflow: 'auto' }} onClick={(e) => e.stopPropagation()}>
+          <div style={{ background: 'white', borderRadius: '16px', padding: '30px', width: '100%', maxWidth: '680px', maxHeight: '90vh', overflow: 'auto' }} onClick={(e) => e.stopPropagation()}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
               <h3 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 800, color: '#1e293b' }}>Faire une demande</h3>
               <button onClick={() => setShowFormChooser(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '5px' }}>
                 <X size={24} color="#64748b" />
               </button>
             </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '10px' }}>
+              {(settings.show_consommables || settings.is_beta_user || hasConsommablesAccess) && (
+                <button
+                  onClick={() => { setShowFormChooser(false); setShowConsumables(true); }}
+                  style={{ textAlign: 'left', padding: '14px 16px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '12px', cursor: 'pointer', display: 'flex', alignItems: 'flex-start', gap: 12 }}
+                >
+                  <div style={{ width: 36, height: 36, borderRadius: 10, background: '#ecfeff', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                    <ShoppingCart size={18} style={{ color: '#0891b2' }} />
+                  </div>
+                  <div>
+                    <div style={{ fontWeight: 700, color: '#1e293b', fontSize: '0.95rem' }}>Consommables</div>
+                    <div style={{ fontSize: '0.8rem', color: '#64748b', marginTop: 2 }}>Toner, papier, cartouches…</div>
+                  </div>
+                </button>
+              )}
               {publishedForms.map((f) => (
                 <button
                   key={f.id}
@@ -2225,9 +2245,15 @@ function App() {
               ))}
               <button
                 onClick={() => { setShowFormChooser(false); setTicketType('demande'); setShowCreateTicket(true); }}
-                style={{ textAlign: 'left', padding: '14px 16px', background: 'white', border: '1px dashed #cbd5e1', borderRadius: '12px', cursor: 'pointer', color: '#475569', fontWeight: 600 }}
+                style={{ gridColumn: '1 / -1', textAlign: 'left', padding: '16px 18px', marginTop: 4, background: '#eff6ff', border: '2px solid #2563eb', borderRadius: '12px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 12 }}
               >
-                Autre demande…
+                <div style={{ width: 40, height: 40, borderRadius: 10, background: '#2563eb', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                  <Plus size={20} color="white" />
+                </div>
+                <div>
+                  <div style={{ fontWeight: 800, color: '#1d4ed8', fontSize: '1rem' }}>Autre demande…</div>
+                  <div style={{ fontSize: '0.8rem', color: '#3b82f6', marginTop: 2 }}>Un besoin non listé ci-dessus ? Décrivez-le librement.</div>
+                </div>
               </button>
             </div>
           </div>
