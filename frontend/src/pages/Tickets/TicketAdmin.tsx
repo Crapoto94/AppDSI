@@ -4172,6 +4172,8 @@ interface RequestForm {
   arbitrage_group_id: number | null;
   arbitrage_group_name: string | null;
   tasks_config: FormTaskDef[];
+  kind: 'dynamic' | 'external_module';
+  module_target: string | null;
 }
 
 // "Tâches à réaliser" : liste libre de tâches créées à la soumission (en plus
@@ -4387,9 +4389,12 @@ function FormRequestsManager() {
                   <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
                     <DynamicIcon name={f.icon} size={16} color="#6366f1" />
                     <strong>{f.name}</strong>
+                    {f.kind === 'external_module' && (
+                      <span style={{ padding: '2px 6px', borderRadius: 4, fontSize: 10, fontWeight: 700, background: '#dbeafe', color: '#1e40af' }}>Module externe</span>
+                    )}
                   </span>
                 </td>
-                <td style={{ padding: '10px' }}>{f.fields_config?.length || 0}</td>
+                <td style={{ padding: '10px' }}>{f.kind === 'external_module' ? <span style={{ color: '#94a3b8' }}>—</span> : (f.fields_config?.length || 0)}</td>
                 <td style={{ padding: '10px' }}>
                   {f.category_name
                     ? [f.category_name, f.subcategory_name].filter(Boolean).join(' / ')
@@ -4424,11 +4429,20 @@ function FormRequestsManager() {
     <div>
       <button onClick={() => setSelected(null)} style={{ background: 'none', border: 'none', color: '#6366f1', cursor: 'pointer', fontSize: 13, marginBottom: 16, padding: 0 }}>← Retour à la liste</button>
 
+      {selected.kind === 'external_module' && (
+        <div style={{ marginBottom: 20, padding: 14, background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 8, fontSize: 13, color: '#1e40af' }}>
+          Ce formulaire pointe vers le module <strong>{selected.module_target === 'prets' ? 'Prêts de matériel' : selected.module_target === 'consommables' ? 'Consommables' : selected.module_target}</strong> —
+          ses champs et sa logique de soumission sont gérés directement par ce module, pas ici. Seuls la publication, le public visé et l'icône s'appliquent.
+        </div>
+      )}
+
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 14, marginBottom: 20 }}>
         <div>
           <label style={{ fontSize: 12, fontWeight: 600, color: '#64748b', display: 'block', marginBottom: 4 }}>Nom du formulaire</label>
           <input value={selected.name} onChange={(e) => setSelected({ ...selected, name: e.target.value })} style={{ width: '100%', padding: '8px 10px', border: '1px solid #cbd5e1', borderRadius: 8, fontSize: 13 }} />
         </div>
+        {selected.kind !== 'external_module' && (
+        <>
         <div>
           <label style={{ fontSize: 12, fontWeight: 600, color: '#64748b', display: 'block', marginBottom: 4 }}>Catégorie ticket générée</label>
           <select
@@ -4461,6 +4475,8 @@ function FormRequestsManager() {
             style={{ width: '100%', padding: '8px 10px', border: '1px solid #cbd5e1', borderRadius: 8, fontSize: 13 }}
           />
         </div>
+        </>
+        )}
         <div style={{ display: 'flex', alignItems: 'flex-end', gap: 10 }}>
           <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, fontWeight: 600, color: '#334155', cursor: 'pointer' }}>
             <input type="checkbox" checked={selected.is_published} onChange={(e) => setSelected({ ...selected, is_published: e.target.checked })} />
@@ -4548,6 +4564,8 @@ function FormRequestsManager() {
         </div>
       </div>
 
+      {selected.kind !== 'external_module' && (
+      <>
       <div style={{ marginBottom: 20, padding: 14, background: '#fdf4ff', border: '1px solid #f0abfc', borderRadius: 8 }}>
         <label style={{ fontSize: 12, fontWeight: 600, color: '#86198f', display: 'block', marginBottom: 6 }}>
           Formulaire particulier <span style={{ fontWeight: 400, color: '#a21caf' }}>(action déclenchée en plus de la création du ticket)</span>
@@ -4801,10 +4819,14 @@ function FormRequestsManager() {
         </table>
       </div>
       <button onClick={addField} style={{ ...btn(false), marginBottom: 20 }}>+ Ajouter un champ</button>
+      </>
+      )}
 
       <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
         <button onClick={save} disabled={saving} style={btn(true)}>{saving ? 'Enregistrement…' : 'Enregistrer'}</button>
-        <button onClick={() => { setPreviewAnswers({}); setShowPreview(true); }} style={btn(false)}>👁 Prévisualisation</button>
+        {selected.kind !== 'external_module' && (
+          <button onClick={() => { setPreviewAnswers({}); setShowPreview(true); }} style={btn(false)}>👁 Prévisualisation</button>
+        )}
         {message && <span style={{ fontSize: 13, color: message.includes('Erreur') ? '#dc2626' : '#16a34a' }}>{message}</span>}
       </div>
 

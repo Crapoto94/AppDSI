@@ -2,9 +2,9 @@ import React, { useEffect, useState } from 'react';
 import axios from 'axios';
 import { useAuth } from '../../../contexts/AuthContext';
 import WidgetWrapper from './WidgetWrapper';
-import { Package, Shield, FileText, CheckSquare } from 'lucide-react';
+import { Package, Shield, FileText, CheckSquare, Truck } from 'lucide-react';
 
-type CounterType = 'consommables' | 'certificats' | 'contrats' | 'taches';
+type CounterType = 'consommables' | 'certificats' | 'contrats' | 'taches' | 'prets';
 
 const CONFIG: Record<CounterType, {
   title: string; icon: React.ElementType; color: string;
@@ -34,6 +34,14 @@ const CONFIG: Record<CounterType, {
     extract: d => ({
       main: (d.overdue || 0) + (d.en_cours || 0),
       sub: `${d.overdue || 0} en retard · ${d.en_cours || 0} en cours`,
+    }),
+  },
+  prets: {
+    title: 'Prêts de matériel', icon: Truck, color: '#0891b2',
+    url: '/api/prets/kpis',
+    extract: d => ({
+      main: (d.prets_en_retard || 0) + (d.prets_en_cours || 0),
+      sub: `${d.prets_en_retard || 0} en retard · ${d.reservations_en_attente || 0} réservé(s)`,
     }),
   },
 };
@@ -71,3 +79,4 @@ export function ConsommablesWidget() { return <CounterWidget type="consommables"
 export function CertificatsWidget() { return <CounterWidget type="certificats" />; }
 export function ContratsWidget() { return <CounterWidget type="contrats" />; }
 export function TachesWidget() { return <CounterWidget type="taches" />; }
+export function PretsWidget() { return <CounterWidget type="prets" />; }

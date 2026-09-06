@@ -368,6 +368,33 @@ const authenticateConsommablesAdmin = (req, res, next) => {
     });
 };
 
+/**
+ * Middleware for Admin or Prêts (module de prêt de matériel) management users.
+ * Même logique que authenticateConsommablesAdmin : tout utilisateur ayant accès à
+ * une tuile dont le titre contient "Prêt" obtient l'accès admin complet au module.
+ */
+const authenticatePretsAdmin = (req, res, next) => {
+    authenticateJWT(req, res, async () => {
+        if (isAdminLike(req.user)) return next();
+
+        try {
+            const db = getSqlite();
+            if (req.user && req.user.id && db) {
+                const authorized = await db.get(`
+                    SELECT ut.tile_id, t.title FROM user_tiles ut
+                    JOIN tiles t ON ut.tile_id = t.id
+                    WHERE ut.user_id = ? AND (t.title LIKE '%Prêt%' OR t.title LIKE '%Pret%')
+                `, [req.user.id]);
+                if (authorized) return next();
+            }
+        } catch (error) {
+            console.error('[AUTH PRETS] Error checking tile access:', error);
+        }
+
+        res.status(403).json({ message: 'Accès refusé : administrateur ou accès prêts requis' });
+    });
+};
+
 // ─── API Key middleware ─────────────────────────────────────────────────────────
 // Extrait une clé API depuis X-API-Key, ?api_key=, ou Authorization: Bearer dsk_...
 const extractApiKey = (req) => {
@@ -542,6 +569,7 @@ module.exports = {
     authenticateMagappControl: bypassIfApiKey(authenticateMagappControl),
     authenticateGLPIControl: bypassIfApiKey(authenticateGLPIControl),
     authenticateConsommablesAdmin: bypassIfApiKey(authenticateConsommablesAdmin),
+    authenticatePretsAdmin: bypassIfApiKey(authenticatePretsAdmin),
     authenticateApiKey,
     requireApiScope,
     authenticateJWTorApiKey,

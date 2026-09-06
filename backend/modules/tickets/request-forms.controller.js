@@ -625,7 +625,7 @@ module.exports = {
     listPublished: async (req, res) => {
         try {
             const forms = await pgDb.all(
-                "SELECT id, name, description, fields_config, allowed_roles, allowed_group_ids, icon, columns FROM hub.request_forms WHERE is_published = true ORDER BY sort_order, name"
+                "SELECT id, name, description, fields_config, allowed_roles, allowed_group_ids, icon, columns, kind, module_target FROM hub.request_forms WHERE is_published = true ORDER BY sort_order, name"
             );
             const withRestriction = forms.some((f) =>
                 (Array.isArray(f.allowed_roles) && f.allowed_roles.length > 0) ||

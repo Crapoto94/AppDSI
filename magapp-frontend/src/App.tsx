@@ -6,6 +6,7 @@ import logoDsiHub from './assets/DSI.png';
 import Login from './Login';
 import ConfirmationModal from './components/ConfirmationModal';
 import ConsumableRequestModal from './components/ConsumableRequestModal';
+import PretRequestModal from './components/PretRequestModal';
 import ChatWidget from './components/ChatWidget';
 import RequestFormFieldRenderer from './components/RequestFormFieldRenderer';
 import type { FormFieldDef, ServiceDirectionDef } from './components/requestFormTypes';
@@ -18,6 +19,8 @@ interface RequestForm {
   fields_config: FormFieldDef[];
   icon: string | null;
   columns: number;
+  kind?: 'dynamic' | 'external_module';
+  module_target?: string | null;
 }
 
 interface Category {
@@ -135,6 +138,7 @@ function App() {
   const [selectedIncidentId, setSelectedIncidentId] = useState<number | null>(null);
   const [isCreatingIdea, setIsCreatingIdea] = useState(false);
   const [showConsumables, setShowConsumables] = useState(false);
+  const [showPretRequest, setShowPretRequest] = useState(false);
   
   // Library states
   const [showLibrary, setShowLibrary] = useState(false);
@@ -1627,8 +1631,7 @@ function App() {
                   </button>
                   <button
                     onClick={() => {
-                      const consommablesAvailable = settings.show_consommables || settings.is_beta_user || hasConsommablesAccess;
-                      if (publishedForms.length > 0 || consommablesAvailable) { setShowFormChooser(true); } else { setTicketType('demande'); setShowCreateTicket(true); }
+                      if (publishedForms.length > 0 || hasConsommablesAccess) { setShowFormChooser(true); } else { setTicketType('demande'); setShowCreateTicket(true); }
                     }}
                     style={{ flex: 1, padding: '12px', background: '#2563eb', color: 'white', border: 'none', borderRadius: '12px', fontSize: '0.9rem', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', position: 'relative' }}
                   >
@@ -2202,6 +2205,14 @@ function App() {
         username={windowLogin}
       />
 
+      <PretRequestModal
+        isOpen={showPretRequest}
+        onClose={() => setShowPretRequest(false)}
+        token={localStorage.getItem('token') || ''}
+        displayName={displayName}
+        username={windowLogin}
+      />
+
       {showFormChooser && (
         <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000, padding: '20px' }}
           onClick={() => setShowFormChooser(false)}
@@ -2214,7 +2225,35 @@ function App() {
               </button>
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '10px' }}>
-              {(settings.show_consommables || settings.is_beta_user || hasConsommablesAccess) && (
+              {/* Formulaires "vitrine" (Prêts, Consommables) ET formulaires dynamiques
+                  proviennent tous de /api/request-forms/published — un admin peut les
+                  activer/désactiver depuis /admin/tickets -> Formulaires de demande,
+                  qu'il s'agisse d'un module externe (kind='external_module', le
+                  contenu/la logique restent gérés par ce module) ou d'un formulaire
+                  dynamique classique. */}
+              {publishedForms.map((f) => (
+                <button
+                  key={f.id}
+                  onClick={() => {
+                    setShowFormChooser(false);
+                    if (f.module_target === 'consommables') setShowConsumables(true);
+                    else if (f.module_target === 'prets') setShowPretRequest(true);
+                    else { setActiveForm(f); setFormAnswers({}); }
+                  }}
+                  style={{ textAlign: 'left', padding: '14px 16px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '12px', cursor: 'pointer', display: 'flex', alignItems: 'flex-start', gap: 12 }}
+                >
+                  <div style={{ width: 36, height: 36, borderRadius: 10, background: '#eef2ff', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                    <DynamicIcon name={f.icon} size={18} color="#4338ca" />
+                  </div>
+                  <div>
+                    <div style={{ fontWeight: 700, color: '#1e293b', fontSize: '0.95rem' }}>{f.name}</div>
+                    {f.description && <div style={{ fontSize: '0.8rem', color: '#64748b', marginTop: 2 }}>{f.description}</div>}
+                  </div>
+                </button>
+              ))}
+              {/* Repli : accès direct accordé à cet agent (tuile Consommables) même si
+                  l'entrée globale est désactivée dans Formulaires de demande. */}
+              {hasConsommablesAccess && !publishedForms.some((f) => f.module_target === 'consommables') && (
                 <button
                   onClick={() => { setShowFormChooser(false); setShowConsumables(true); }}
                   style={{ textAlign: 'left', padding: '14px 16px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '12px', cursor: 'pointer', display: 'flex', alignItems: 'flex-start', gap: 12 }}
@@ -2228,21 +2267,6 @@ function App() {
                   </div>
                 </button>
               )}
-              {publishedForms.map((f) => (
-                <button
-                  key={f.id}
-                  onClick={() => { setActiveForm(f); setFormAnswers({}); setShowFormChooser(false); }}
-                  style={{ textAlign: 'left', padding: '14px 16px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '12px', cursor: 'pointer', display: 'flex', alignItems: 'flex-start', gap: 12 }}
-                >
-                  <div style={{ width: 36, height: 36, borderRadius: 10, background: '#eef2ff', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                    <DynamicIcon name={f.icon} size={18} color="#4338ca" />
-                  </div>
-                  <div>
-                    <div style={{ fontWeight: 700, color: '#1e293b', fontSize: '0.95rem' }}>{f.name}</div>
-                    {f.description && <div style={{ fontSize: '0.8rem', color: '#64748b', marginTop: 2 }}>{f.description}</div>}
-                  </div>
-                </button>
-              ))}
               <button
                 onClick={() => { setShowFormChooser(false); setTicketType('demande'); setShowCreateTicket(true); }}
                 style={{ gridColumn: '1 / -1', textAlign: 'left', padding: '16px 18px', marginTop: 4, background: '#eff6ff', border: '2px solid #2563eb', borderRadius: '12px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 12 }}

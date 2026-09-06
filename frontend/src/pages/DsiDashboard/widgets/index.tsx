@@ -40,6 +40,7 @@ const ConsommablesWidget = lazy(() => import('./CounterWidget').then(m => ({ def
 const CertificatsWidget  = lazy(() => import('./CounterWidget').then(m => ({ default: m.CertificatsWidget })));
 const ContratsWidget     = lazy(() => import('./CounterWidget').then(m => ({ default: m.ContratsWidget })));
 const TachesWidget       = lazy(() => import('./CounterWidget').then(m => ({ default: m.TachesWidget })));
+const PretsWidget        = lazy(() => import('./CounterWidget').then(m => ({ default: m.PretsWidget })));
 
 const WIDGET_MAP: Record<string, React.ComponentType> = {
   tickets_kpi:        TicketsKpiWidget,
@@ -69,6 +70,7 @@ const WIDGET_MAP: Record<string, React.ComponentType> = {
   certificats:        CertificatsWidget,
   contrats:           ContratsWidget,
   taches:             TachesWidget,
+  prets:              PretsWidget,
   projets:            ProjetsWidget,
   parc_kpi:           ParcKpiWidget,
   parc_ages:          ParcAgesWidget,

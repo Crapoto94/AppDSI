@@ -27,6 +27,7 @@ backend/glpi_attachments/
 # Stockage GED en repli local (pas de racine UNC configurée en dev, cf.
 # shared/storage.js) — jamais de fichiers de stockage dans le repo
 backend/consommables/
+backend/prets/
 
 # Variables d'environnement et secrets
 .env
