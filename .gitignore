@@ -24,6 +24,10 @@ backend/file_factures/
 backend/file_telecom/
 backend/glpi_attachments/
 
+# Stockage GED en repli local (pas de racine UNC configurée en dev, cf.
+# shared/storage.js) — jamais de fichiers de stockage dans le repo
+backend/consommables/
+
 # Variables d'environnement et secrets
 .env
 .env.local

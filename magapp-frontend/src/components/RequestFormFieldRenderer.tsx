@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { Paperclip } from 'lucide-react';
 import type { FormFieldDef, ServiceDirectionDef, AgentAnswer, StudioAgentAnswer, FutursAgentAnswer } from './requestFormTypes';
 import { isFieldVisible } from './requestFormTypes';
 import { useADSearch } from '../utils/useADSearch';
@@ -46,7 +47,7 @@ function AgentSearchInput({ value, onChange, token, clearAfterSelect }: { value:
               key={u.username}
               style={{ padding: '8px 12px', cursor: 'pointer', fontSize: '0.85rem', borderBottom: '1px solid #f1f5f9' }}
               onMouseDown={() => {
-                onChange({ displayName: u.displayName, email: u.email });
+                onChange({ displayName: u.displayName, email: u.email, username: u.username });
                 ad.setQuery(clearAfterSelect ? '' : u.displayName);
                 ad.clearResults();
               }}
@@ -328,6 +329,54 @@ export default function RequestFormFieldRenderer({ fields, answers, onChange, se
                   <option value="">{value?.direction_code ? 'Service…' : 'Choisir une direction'}</option>
                   {(serviceTree.find((d) => d.code === value?.direction_code)?.services || []).map((s) => <option key={s.code} value={s.code}>{s.label}</option>)}
                 </select>
+              </div>
+            )}
+            {f.type === 'attachment' && (
+              <div>
+                {Array.isArray(value) && value.length > 0 && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 8 }}>
+                    {value.map((file: File, i: number) => (
+                      <div key={i} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '6px 10px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 6 }}>
+                        <span style={{ fontSize: '0.8rem', color: '#334155', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {file.name} <span style={{ color: '#94a3b8' }}>({Math.round(file.size / 1024)} Ko)</span>
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => onChange(f.key, value.filter((_: File, idx: number) => idx !== i))}
+                          style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer', fontSize: '0.9rem', flexShrink: 0, marginLeft: 8 }}
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <label
+                  style={{
+                    display: 'inline-flex', alignItems: 'center', gap: 8,
+                    padding: '10px 16px', borderRadius: 8, cursor: 'pointer',
+                    fontSize: '0.85rem', fontWeight: 600, color: '#1d4ed8',
+                    background: '#eff6ff', border: '1px solid #bfdbfe',
+                    transition: 'background 0.15s, border-color 0.15s',
+                  }}
+                  onMouseEnter={(e) => { e.currentTarget.style.background = '#dbeafe'; e.currentTarget.style.borderColor = '#93c5fd'; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.background = '#eff6ff'; e.currentTarget.style.borderColor = '#bfdbfe'; }}
+                >
+                  <Paperclip size={15} />
+                  Ajouter un fichier
+                  <input
+                    type="file"
+                    multiple
+                    onChange={(e) => {
+                      const newFiles = Array.from(e.target.files || []);
+                      if (newFiles.length === 0) return;
+                      const current: File[] = Array.isArray(value) ? value : [];
+                      onChange(f.key, [...current, ...newFiles]);
+                      e.target.value = '';
+                    }}
+                    style={{ display: 'none' }}
+                  />
+                </label>
               </div>
             )}
           </div>

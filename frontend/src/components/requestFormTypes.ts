@@ -2,7 +2,7 @@
 // (Admin Tickets) et son rendu de champs. Séparés du composant pour que
 // RequestFormFieldRenderer.tsx n'exporte que des composants (react-refresh).
 
-export type FormFieldType = 'text' | 'textarea' | 'select' | 'boolean' | 'agent' | 'agent_multi' | 'direction_service' | 'date' | 'description' | 'studio_agent' | 'studio_futurs_agent_picker';
+export type FormFieldType = 'text' | 'textarea' | 'select' | 'boolean' | 'agent' | 'agent_multi' | 'direction_service' | 'date' | 'description' | 'studio_agent' | 'studio_futurs_agent_picker' | 'attachment';
 
 export interface FormFieldDef {
   key: string;
@@ -17,6 +17,11 @@ export interface FormFieldDef {
   column_span: number;
   options: string[];
   conditional_on: { field: string; equals: string | boolean } | null;
+  // Uniquement pour type === 'agent' : ajoute automatiquement (sans le
+  // demander) la Direction/Service de l'agent choisi, résolue côté serveur
+  // depuis le référentiel RH — cf. resolveAgentDirectionService
+  // (request-forms.controller.js).
+  agent_include_direction_service?: boolean;
 }
 
 export interface ServiceDef { code: string; label: string; }
@@ -34,6 +39,7 @@ export const FIELD_TYPE_LABELS: Record<FormFieldType, string> = {
   description: 'Texte descriptif (pas de saisie)',
   studio_agent: 'Recherche agent (RH Studio)',
   studio_futurs_agent_picker: 'Sélecteur futur arrivant (RH Studio)',
+  attachment: 'Pièce jointe',
 };
 
 export function isFieldVisible(field: FormFieldDef, answers: Record<string, unknown>): boolean {
@@ -41,7 +47,11 @@ export function isFieldVisible(field: FormFieldDef, answers: Record<string, unkn
   return answers[field.conditional_on.field] === field.conditional_on.equals;
 }
 
-export interface AgentAnswer { displayName: string; email: string; }
+// username : sAMAccountName AD (issu de la recherche AD, cf. ADUser côté
+// useADSearch) — porté ici uniquement pour résoudre côté serveur la
+// Direction/Service dans le référentiel RH quand
+// agent_include_direction_service est activé (jamais affiché/demandé).
+export interface AgentAnswer { displayName: string; email: string; username?: string; }
 export interface DirectionServiceAnswer { direction_code: string; direction_label: string; service_code: string; service_label: string; }
 
 // Réponse d'un champ "studio_agent" (recherche dans le référentiel RH Studio,

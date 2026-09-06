@@ -4171,7 +4171,15 @@ interface RequestForm {
   arbitrage_username: string | null;
   arbitrage_group_id: number | null;
   arbitrage_group_name: string | null;
+  tasks_config: FormTaskDef[];
 }
+
+// "Tâches à réaliser" : liste libre de tâches créées à la soumission (en plus
+// du ticket et de l'éventuel arbitrage), chacune TOUJOURS affectée à un
+// GROUPE — jamais une personne (cf. createFormTasks côté backend).
+// conditional_on : même principe que pour les champs (cf. FormFieldDef) — la
+// tâche n'est créée que si le champ désigné vaut `equals` dans les réponses.
+interface FormTaskDef { name: string; group_id: number | null; group_name: string | null; conditional_on: { field: string; equals: string | boolean } | null; }
 
 interface TicketGroup { id: number; name: string; description: string; members: string[]; }
 
@@ -4196,7 +4204,11 @@ interface CustomGroup {
   description: string;
 }
 
-const REQUEST_FIELD_TYPES: FormFieldType[] = ['text', 'textarea', 'select', 'boolean', 'agent', 'agent_multi', 'direction_service', 'date', 'description', 'studio_agent', 'studio_futurs_agent_picker'];
+const REQUEST_FIELD_TYPES: FormFieldType[] = ['text', 'textarea', 'select', 'boolean', 'agent', 'agent_multi', 'direction_service', 'date', 'description', 'studio_agent', 'studio_futurs_agent_picker', 'attachment'];
+
+function emptyFormTask(): FormTaskDef {
+  return { name: '', group_id: null, group_name: null, conditional_on: null };
+}
 const ENCADRANT_ROLE_LABELS: Record<string, string> = { dg: 'DG / DGA', directeur: 'Directeurs', responsable_service: 'Resp. de service' };
 
 function emptyRequestField(n: number): FormFieldDef {
@@ -4286,6 +4298,7 @@ function FormRequestsManager() {
         arbitrage_username: selected.arbitrage_username,
         arbitrage_group_id: selected.arbitrage_group_id,
         arbitrage_group_name: selected.arbitrage_group_name,
+        tasks_config: selected.tasks_config,
       }, { headers });
       setMessage('Enregistré.');
       await loadForms();
@@ -4320,6 +4333,23 @@ function FormRequestsManager() {
   const addField = () => {
     if (!selected) return;
     setSelected({ ...selected, fields_config: [...selected.fields_config, emptyRequestField(selected.fields_config.length + 1)] });
+  };
+
+  const updateTask = (idx: number, patch: Partial<FormTaskDef>) => {
+    if (!selected) return;
+    const tasks = [...selected.tasks_config];
+    tasks[idx] = { ...tasks[idx], ...patch };
+    setSelected({ ...selected, tasks_config: tasks });
+  };
+
+  const removeTask = (idx: number) => {
+    if (!selected) return;
+    setSelected({ ...selected, tasks_config: selected.tasks_config.filter((_, i) => i !== idx) });
+  };
+
+  const addTask = () => {
+    if (!selected) return;
+    setSelected({ ...selected, tasks_config: [...selected.tasks_config, emptyFormTask()] });
   };
 
   if (loading) return <div>Chargement…</div>;
@@ -4609,6 +4639,65 @@ function FormRequestsManager() {
         )}
       </div>
 
+      <div style={{ marginBottom: 20, padding: 14, background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 8 }}>
+        <div style={{ fontSize: 12, fontWeight: 600, color: '#1d4ed8', marginBottom: 10 }}>
+          🗒️ Tâches à réaliser <span style={{ fontWeight: 400, color: '#2563eb' }}>(créées automatiquement à la soumission, en plus du ticket — toujours affectées à un groupe, jamais une personne)</span>
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 10 }}>
+          {selected.tasks_config.map((t, idx) => (
+            <div key={idx} style={{ border: '1px solid #dbeafe', borderRadius: 8, padding: 10, background: 'white' }}>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8 }}>
+                <input
+                  placeholder="Nom de la tâche…"
+                  value={t.name}
+                  onChange={(e) => updateTask(idx, { name: e.target.value })}
+                  style={{ flex: 1, padding: '7px 10px', border: '1px solid #e2e8f0', borderRadius: 6, fontSize: 13 }}
+                />
+                <select
+                  value={t.group_id || ''}
+                  onChange={(e) => {
+                    const g = ticketGroups.find((g) => g.id === Number(e.target.value));
+                    updateTask(idx, { group_id: g?.id || null, group_name: g?.name || null });
+                  }}
+                  style={{ padding: '7px 10px', border: '1px solid #e2e8f0', borderRadius: 6, fontSize: 13, minWidth: 220 }}
+                >
+                  <option value="">— choisir un groupe —</option>
+                  {ticketGroups.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
+                </select>
+                <button onClick={() => removeTask(idx)} style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer', fontSize: 14 }} title="Supprimer">🗑</button>
+              </div>
+              <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                <span style={{ fontSize: 11, color: '#64748b', whiteSpace: 'nowrap' }}>Créée si :</span>
+                <select
+                  value={t.conditional_on?.field || ''}
+                  onChange={(e) => updateTask(idx, { conditional_on: e.target.value ? { field: e.target.value, equals: t.conditional_on?.equals ?? true } : null })}
+                  style={{ padding: 4, border: '1px solid #e2e8f0', borderRadius: 4, fontSize: 11, minWidth: 140 }}
+                >
+                  <option value="">(toujours)</option>
+                  {selected.fields_config.map((f) => <option key={f.key} value={f.key}>{f.key}</option>)}
+                </select>
+                {t.conditional_on && (
+                  <input
+                    value={String(t.conditional_on.equals)}
+                    onChange={(e) => {
+                      const raw = e.target.value;
+                      const v = raw === 'true' ? true : raw === 'false' ? false : raw;
+                      updateTask(idx, { conditional_on: { field: t.conditional_on!.field, equals: v } });
+                    }}
+                    placeholder="= valeur"
+                    style={{ width: 90, padding: 4, border: '1px solid #e2e8f0', borderRadius: 4, fontSize: 11 }}
+                  />
+                )}
+              </div>
+            </div>
+          ))}
+          {selected.tasks_config.length === 0 && (
+            <div style={{ fontSize: 12, color: '#94a3b8' }}>Aucune tâche configurée.</div>
+          )}
+        </div>
+        <button onClick={addTask} style={btn(false)}>+ Ajouter une tâche</button>
+      </div>
+
       <h3 style={{ fontSize: 14, fontWeight: 700, color: '#1e293b', marginBottom: 10 }}>Champs du formulaire</h3>
       <div style={{ overflowX: 'auto', marginBottom: 14 }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
@@ -4650,6 +4739,15 @@ function FormRequestsManager() {
                       placeholder="Option 1;Option 2;…"
                       style={{ width: 200, padding: 4, border: '1px solid #e2e8f0', borderRadius: 4 }}
                     />
+                  ) : f.type === 'agent' ? (
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: '#334155', cursor: 'pointer', whiteSpace: 'nowrap' }} title="Ajoute automatiquement, sans le demander, la Direction/Service de l'agent choisi (résolue depuis le référentiel RH)">
+                      <input
+                        type="checkbox"
+                        checked={!!f.agent_include_direction_service}
+                        onChange={(e) => updateField(idx, { agent_include_direction_service: e.target.checked })}
+                      />
+                      + Direction/Service
+                    </label>
                   ) : <span style={{ color: '#cbd5e1' }}>—</span>}
                 </td>
                 <td style={{ padding: '4px', textAlign: 'center' }}><input type="checkbox" checked={f.required} onChange={(e) => updateField(idx, { required: e.target.checked })} /></td>

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Upload, Search, Trash2, AlertCircle, CheckCircle } from 'lucide-react';
 import axios from 'axios';
+import { resolveDesignationImageUrl } from '../utils/designationImages';
 
 interface DesignationImage {
   id: number;
@@ -117,6 +118,12 @@ const DesignationImagesManager: React.FC<DesignationImagesManagerProps> = ({ tok
     !images.some(img => img.designation === d)
   );
 
+  // Toutes les désignations, triées — contrairement à unmappedDesignations
+  // (qui alimente le panneau "sans image"), la sélection d'upload doit aussi
+  // permettre de RE-choisir une désignation déjà illustrée pour remplacer sa
+  // photo (l'upload fait un upsert côté serveur, cf. ON CONFLICT (designation)).
+  const sortedDesignations = [...designations].sort((a, b) => a.localeCompare(b, 'fr'));
+
   const filteredImages = showMissingOnly
     ? [] // Pas d'images à afficher quand on montre les manquantes
     : images.filter(img =>
@@ -167,9 +174,10 @@ const DesignationImagesManager: React.FC<DesignationImagesManagerProps> = ({ tok
               }}
             >
               <option value="">-- Sélectionner --</option>
-              {unmappedDesignations.map(d => (
-                <option key={d} value={d}>{d}</option>
-              ))}
+              {sortedDesignations.map(d => {
+                const hasImage = images.some(img => img.designation === d);
+                return <option key={d} value={d}>{d}{hasImage ? ' — photo déjà présente (remplacer)' : ''}</option>;
+              })}
             </select>
           </div>
 
@@ -311,7 +319,7 @@ const DesignationImagesManager: React.FC<DesignationImagesManagerProps> = ({ tok
                   <tr key={img.id} style={{ borderBottom: '1px solid #f1f5f9', background: idx % 2 === 0 ? 'white' : '#f8fafc' }}>
                     <td style={{ padding: '12px 20px' }}>
                       <img
-                        src={img.image_path}
+                        src={resolveDesignationImageUrl(img.image_path)}
                         alt={img.designation}
                         style={{ width: 60, height: 60, objectFit: 'contain', borderRadius: 6 }}
                         onError={(e) => {

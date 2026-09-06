@@ -4,11 +4,14 @@ import { useAuth } from '../contexts/AuthContext';
 import {
   ChevronRight, Download, X, Plus, Edit2, Trash2, Search, Package,
   AlertCircle, CheckCircle, Clock, BookOpen, ArrowRight, ListChecks, Tag, Image,
-  ShoppingCart, Printer, ChevronLeft, ShoppingBag, Trash, User, Calendar, Building2, Phone, Archive
+  ShoppingCart, Printer, ChevronLeft, ShoppingBag, Trash, User, Calendar, Building2, Phone, Archive,
+  Paperclip
 } from 'lucide-react';
 import axios from 'axios';
 import DesignationImagesManager from './DesignationImagesManager';
 import AgentPresenceBadge from '../components/AgentPresenceBadge';
+import { resolveDesignationImageUrl } from '../utils/designationImages';
+import { getConsumableTypeIcon } from '../utils/consumableTypeIcon';
 
 interface ConsumableType {
   id: number;
@@ -95,6 +98,7 @@ const ConsommablesManagement: React.FC = () => {
   const [editingArticle, setEditingArticle] = useState<ConsumableArticle | null>(null);
   const [showCatalogForm, setShowCatalogForm] = useState(false);
   const [allCatalogDesignations, setAllCatalogDesignations] = useState<string[]>([]);
+  const [catalogImageUploading, setCatalogImageUploading] = useState(false);
   const [designations, setDesignations] = useState<string[]>([]);
   const [designationImages, setDesignationImages] = useState<Record<string, { image_path: string }>>({});
 const [adminTab, setAdminTab] = useState<'demandes' | 'commander' | 'commandees' | 'archivees'>('demandes');
@@ -316,7 +320,10 @@ const [selectedDesignation, setSelectedDesignation] = useState<string>(() => {
 
   const loadDesignationImages = async () => {
     try {
-      const response = await axios.get('/api/consumable/admin/images/all', {
+      // Route non-admin : la désignation/imprimante est choisie par n'importe
+      // quel agent créant une demande, pas seulement les admins consommables
+      // (cf. /admin/images/all, réservé à la page d'administration).
+      const response = await axios.get('/api/consumable/images', {
         headers: { Authorization: `Bearer ${token}` }
       });
       const imagesMap: Record<string, { image_path: string }> = {};
@@ -530,8 +537,12 @@ const [selectedDesignation, setSelectedDesignation] = useState<string>(() => {
   };
 
   const handleSaveCatalogArticle = async () => {
-    if (!catalogFormData.type_id || !catalogFormData.article) {
-      setError('Type et article sont requis');
+    // Certains articles "DIVERS" (ex. CD-R, DVD+R) n'ont pas de nom d'article
+    // distinct de leur désignation — le nom complet vit alors uniquement dans
+    // la désignation. On exige donc l'un des deux, pas systématiquement l'article
+    // (cf. backend consommables.controller.js#addArticle/updateArticle).
+    if (!catalogFormData.type_id || (!catalogFormData.article.trim() && !catalogFormData.designation.trim())) {
+      setError('Le type et (la désignation ou l\'article) sont requis');
       return;
     }
     try {
@@ -554,6 +565,31 @@ const [selectedDesignation, setSelectedDesignation] = useState<string>(() => {
     } catch (err: any) {
       const errorMsg = err.response?.data?.error || 'Erreur lors de la sauvegarde';
       setError(errorMsg);
+    }
+  };
+
+  // Upload/remplacement de l'image d'imprimante depuis la modale d'un article
+  // de catalogue — même endpoint que l'onglet Images (l'image est rattachée à
+  // la désignation, pas à l'article ; ON CONFLICT (designation) côté serveur
+  // remplace donc l'image existante si la désignation en avait déjà une).
+  const handleCatalogImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !catalogFormData.designation.trim()) return;
+    try {
+      setCatalogImageUploading(true);
+      setError('');
+      const fd = new FormData();
+      fd.append('image', file);
+      fd.append('designation', catalogFormData.designation.trim());
+      const response = await axios.post('/api/consumable/admin/images/upload', fd, {
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'multipart/form-data' }
+      });
+      setDesignationImages(prev => ({ ...prev, [catalogFormData.designation.trim()]: { image_path: response.data.data.image_path } }));
+    } catch (err: any) {
+      setError(err.response?.data?.error || 'Erreur lors du téléchargement de l\'image');
+    } finally {
+      setCatalogImageUploading(false);
+      (e.target as HTMLInputElement).value = '';
     }
   };
 
@@ -1046,29 +1082,32 @@ const [selectedDesignation, setSelectedDesignation] = useState<string>(() => {
                       </div>
                     ) : (
                       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 12, marginBottom: 24 }}>
-                        {consumableTypes.map(type => (
-                          <button
-                            key={type.id}
-                            onClick={() => handleTypeSelect(type)}
-                            style={{
-                              padding: '18px 20px', border: '2px solid #e2e8f0', borderRadius: 12,
-                              background: 'white', textAlign: 'left', cursor: 'pointer',
-                              transition: 'all 0.2s', fontFamily: 'inherit'
-                            }}
-                            onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--secondary-color)'; e.currentTarget.style.background = '#f0f5ff'; }}
-                            onMouseLeave={e => { e.currentTarget.style.borderColor = '#e2e8f0'; e.currentTarget.style.background = 'white'; }}
-                          >
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                              <div style={{ width: 36, height: 36, borderRadius: 8, background: '#eff6ff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                                <Package size={18} style={{ color: 'var(--secondary-color)' }} />
+                        {consumableTypes.map(type => {
+                          const TypeIcon = getConsumableTypeIcon(type.display_name || type.name);
+                          return (
+                            <button
+                              key={type.id}
+                              onClick={() => handleTypeSelect(type)}
+                              style={{
+                                padding: '18px 20px', border: '2px solid #e2e8f0', borderRadius: 12,
+                                background: 'white', textAlign: 'left', cursor: 'pointer',
+                                transition: 'all 0.2s', fontFamily: 'inherit'
+                              }}
+                              onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--secondary-color)'; e.currentTarget.style.background = '#f0f5ff'; }}
+                              onMouseLeave={e => { e.currentTarget.style.borderColor = '#e2e8f0'; e.currentTarget.style.background = 'white'; }}
+                            >
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                                <div style={{ width: 36, height: 36, borderRadius: 8, background: '#eff6ff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                  <TypeIcon size={18} style={{ color: 'var(--secondary-color)' }} />
+                                </div>
+                                <div>
+                                  <p style={{ margin: 0, fontWeight: 700, fontSize: 14, color: '#1e293b' }}>{type.display_name}</p>
+                                  <p style={{ margin: '2px 0 0', fontSize: 12, color: '#94a3b8' }}>Sélectionner →</p>
+                                </div>
                               </div>
-                              <div>
-                                <p style={{ margin: 0, fontWeight: 700, fontSize: 14, color: '#1e293b' }}>{type.display_name}</p>
-                                <p style={{ margin: '2px 0 0', fontSize: 12, color: '#94a3b8' }}>Sélectionner →</p>
-                              </div>
-                            </div>
-                          </button>
-                        ))}
+                            </button>
+                          );
+                        })}
                       </div>
                     )}
 
@@ -1119,7 +1158,7 @@ const [selectedDesignation, setSelectedDesignation] = useState<string>(() => {
                             >
                               <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                                 {image ? (
-                                  <img src={image.image_path} alt={designation}
+                                  <img src={resolveDesignationImageUrl(image.image_path)} alt={designation}
                                     style={{ width: 48, height: 48, objectFit: 'contain', borderRadius: 6, flexShrink: 0 }}
                                     onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
                                   />
@@ -1663,6 +1702,42 @@ const [selectedDesignation, setSelectedDesignation] = useState<string>(() => {
                       />
                     </div>
                     <div>
+                      <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 6 }}>Photo de l'imprimante</label>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                        {catalogFormData.designation.trim() && designationImages[catalogFormData.designation.trim()] && (
+                          <img
+                            src={resolveDesignationImageUrl(designationImages[catalogFormData.designation.trim()].image_path)}
+                            alt={catalogFormData.designation}
+                            style={{ width: 56, height: 56, objectFit: 'contain', borderRadius: 8, border: '1px solid #e2e8f0', background: '#f8fafc', flexShrink: 0 }}
+                            onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                          />
+                        )}
+                        <label
+                          style={{
+                            display: 'inline-flex', alignItems: 'center', gap: 8,
+                            padding: '9px 16px', borderRadius: 8,
+                            cursor: !catalogFormData.designation.trim() || catalogImageUploading ? 'default' : 'pointer',
+                            fontSize: 13, fontWeight: 600, color: '#4338ca',
+                            background: '#eef2ff', border: '1px solid #c7d2fe',
+                            opacity: !catalogFormData.designation.trim() || catalogImageUploading ? 0.5 : 1,
+                          }}
+                        >
+                          <Paperclip size={15} />
+                          {catalogImageUploading ? 'Envoi…' : (designationImages[catalogFormData.designation.trim()] ? 'Remplacer la photo' : 'Ajouter une photo')}
+                          <input
+                            type="file"
+                            accept="image/png,image/jpeg,image/webp"
+                            disabled={!catalogFormData.designation.trim() || catalogImageUploading}
+                            onChange={handleCatalogImageUpload}
+                            style={{ display: 'none' }}
+                          />
+                        </label>
+                      </div>
+                      {!catalogFormData.designation.trim() && (
+                        <p style={{ margin: '6px 0 0', fontSize: 12, color: '#94a3b8' }}>Renseignez la désignation avant d'ajouter une photo.</p>
+                      )}
+                    </div>
+                    <div>
                       <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 6 }}>Article (consommable)</label>
                       <input type="text" placeholder="Ex: Toner noir" value={catalogFormData.article}
                         onChange={e => setCatalogFormData({ ...catalogFormData, article: e.target.value })}
@@ -1703,6 +1778,7 @@ const [selectedDesignation, setSelectedDesignation] = useState<string>(() => {
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
                 <thead>
                   <tr style={{ background: 'var(--secondary-color)' }}>
+                    <th style={{ padding: '14px 20px', textAlign: 'left', fontWeight: 700, color: 'white', fontSize: 13 }}>Image</th>
                     <th style={{ padding: '14px 20px', textAlign: 'left', fontWeight: 700, color: 'white', fontSize: 13 }}>Type</th>
                     <th style={{ padding: '14px 20px', textAlign: 'left', fontWeight: 700, color: 'white', fontSize: 13 }}>Désignation</th>
                     <th style={{ padding: '14px 20px', textAlign: 'left', fontWeight: 700, color: 'white', fontSize: 13 }}>Article</th>
@@ -1713,14 +1789,30 @@ const [selectedDesignation, setSelectedDesignation] = useState<string>(() => {
                 <tbody>
                   {filteredCatalogArticles.length === 0 ? (
                     <tr>
-                      <td colSpan={5} style={{ padding: '50px 20px', textAlign: 'center', color: '#94a3b8' }}>
+                      <td colSpan={6} style={{ padding: '50px 20px', textAlign: 'center', color: '#94a3b8' }}>
                         <Package size={40} style={{ display: 'block', margin: '0 auto 10px', opacity: 0.3 }} />
                         <p style={{ margin: 0, fontWeight: 600 }}>Aucun article trouvé</p>
                       </td>
                     </tr>
                   ) : (
-                    filteredCatalogArticles.map((article, idx) => (
+                    filteredCatalogArticles.map((article, idx) => {
+                      const articleImage = article.designation ? designationImages[article.designation] : undefined;
+                      return (
                       <tr key={article.id} style={{ borderBottom: '1px solid #f1f5f9', background: idx % 2 === 0 ? 'white' : '#f8fafc' }}>
+                        <td style={{ padding: '12px 20px' }}>
+                          {articleImage ? (
+                            <img
+                              src={resolveDesignationImageUrl(articleImage.image_path)}
+                              alt={article.designation || article.article}
+                              style={{ width: 40, height: 40, objectFit: 'contain', borderRadius: 6, border: '1px solid #e2e8f0', background: '#f8fafc' }}
+                              onError={(e) => { (e.target as HTMLImageElement).style.visibility = 'hidden'; }}
+                            />
+                          ) : (
+                            <div style={{ width: 40, height: 40, borderRadius: 6, border: '1px dashed #e2e8f0', background: '#f8fafc', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                              <Image size={16} style={{ color: '#cbd5e1' }} />
+                            </div>
+                          )}
+                        </td>
                         <td style={{ padding: '12px 20px', fontWeight: 600, color: '#475569' }}>{article.type_display_name}</td>
                         <td style={{ padding: '12px 20px', color: '#64748b', fontSize: 13 }}>{article.designation || '—'}</td>
                         <td style={{ padding: '12px 20px', fontWeight: 700, color: '#1e293b' }}>{article.article}</td>
@@ -1738,7 +1830,8 @@ const [selectedDesignation, setSelectedDesignation] = useState<string>(() => {
                           </div>
                         </td>
                       </tr>
-                    ))
+                      );
+                    })
                   )}
                 </tbody>
               </table>

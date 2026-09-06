@@ -1358,6 +1358,11 @@ async function setupPgDb() {
     try { await client.query(`ALTER TABLE hub.request_forms ADD COLUMN IF NOT EXISTS arbitrage_username TEXT`); } catch (e) {}
     try { await client.query(`ALTER TABLE hub.request_forms ADD COLUMN IF NOT EXISTS arbitrage_group_id INTEGER REFERENCES hub_tickets.technician_groups(id) ON DELETE SET NULL`); } catch (e) {}
     try { await client.query(`ALTER TABLE hub.request_forms ADD COLUMN IF NOT EXISTS arbitrage_group_name TEXT`); } catch (e) {}
+    // Tâches à réaliser : liste de tâches DSI Hub créées automatiquement à la
+    // soumission (en plus du ticket et de l'éventuel arbitrage ci-dessus),
+    // chacune affectée à un GROUPE (jamais une personne — cf. createFormTasks
+    // dans request-forms.controller.js). Un item : { name, group_id, group_name }.
+    try { await client.query(`ALTER TABLE hub.request_forms ADD COLUMN IF NOT EXISTS tasks_config JSONB NOT NULL DEFAULT '[]'`); } catch (e) {}
     await client.query(`
       CREATE TABLE IF NOT EXISTS hub.request_form_submissions (
         id SERIAL PRIMARY KEY,
