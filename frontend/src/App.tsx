@@ -41,6 +41,7 @@ import CopieursKPI from './pages/CopieursKPI';
 import CalendrierDSI from './pages/CalendrierDSI';
 import AgentsDSI from './pages/AgentsDSI';
 import ConsommablesManagement from './pages/ConsommablesManagement';
+import PretsManagement from './pages/Prets/PretsManagement';
 import RequestFeature from './pages/RequestFeature';
 import AdminBacklogMerged from './pages/AdminBacklogMerged';
 import AdminOrganisation from './pages/AdminOrganisation';
@@ -169,6 +170,7 @@ function App() {
         <Route path="/copieurs/kpi" element={<PrivateRoute path="/copieurs"><CopieursKPI /></PrivateRoute>} />
         <Route path="/copieurs" element={<PrivateRoute path="/copieurs"><Copieurs /></PrivateRoute>} />
         <Route path="/consommables" element={<PrivateRoute path="/consommables"><ConsommablesManagement /></PrivateRoute>} />
+        <Route path="/prets" element={<PrivateRoute path="/prets"><PretsManagement /></PrivateRoute>} />
         <Route path="/reseau" element={<PrivateRoute path="/reseau"><ReseauDashboard /></PrivateRoute>} />
         <Route path="/parc" element={<PrivateRoute path="/parc"><ParcInformatique /></PrivateRoute>} />
         <Route path="/rh" element={<PrivateRoute path="/rh"><RHPage /></PrivateRoute>} />

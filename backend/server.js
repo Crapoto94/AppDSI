@@ -41,6 +41,7 @@ const certificatesRouter = require('./modules/certificates/certificates.routes')
 const copieursRouter = require('./modules/copieurs/copieurs.routes');
 const transcriptManagerRouter = require('./modules/transcriptmanager/transcriptmanager.routes');
 const consommablesRouter = require('./modules/consommables/consommables.routes');
+const pretsRouter = require('./modules/prets/prets.routes');
 const { recalculateAllOperations, deduplicateOperations } = require('./modules/finance/finance.controller');
 const multer = require('multer');
 let _markedParse = null;
@@ -2320,6 +2321,10 @@ const consommablesCtrl = require('./modules/consommables/consommables.controller
 consommablesCtrl.setSendMail(sendMail);
 app.use('/api/consumable', consommablesRouter);
 
+const pretsCtrl = require('./modules/prets/prets.controller');
+pretsCtrl.setSendMail(sendMail);
+app.use('/api/prets', pretsRouter);
+
 // Stocks Module (gestion des stocks)
 app.use('/api/stocks', require('./modules/stocks/stocks.routes'));
 
@@ -3315,6 +3320,53 @@ setupDb().then(async database => {
         }
     } catch (e) {
         console.error('[Consommables] Error seeding email templates:', e.message);
+    }
+
+    // Seed prets email templates
+    try {
+        const pretsTemplates = [
+            {
+                slug: 'pret_confirmation',
+                label: 'Confirmation réservation de prêt',
+                subject: '[Prêts] Confirmation de votre réservation n°{{loan_id}}',
+                body: `<h2>Réservation de matériel n°{{loan_id}}</h2>
+<p>Bonjour {{nom_demandeur}},</p>
+<p>Votre demande de prêt a bien été enregistrée et confirmée.</p>
+<table border="0" cellpadding="8" cellspacing="0" style="border-collapse:collapse;width:100%;max-width:500px">
+<tr><td style="padding:8px;border:1px solid #e2e8f0"><strong>Matériel</strong></td><td style="padding:8px;border:1px solid #e2e8f0">{{equipment}}</td></tr>
+<tr><td style="padding:8px;border:1px solid #e2e8f0"><strong>Quantité</strong></td><td style="padding:8px;border:1px solid #e2e8f0">{{quantity}}</td></tr>
+<tr><td style="padding:8px;border:1px solid #e2e8f0"><strong>Du</strong></td><td style="padding:8px;border:1px solid #e2e8f0">{{start_date}}</td></tr>
+<tr><td style="padding:8px;border:1px solid #e2e8f0"><strong>Au</strong></td><td style="padding:8px;border:1px solid #e2e8f0">{{end_date}}</td></tr>
+<tr><td style="padding:8px;border:1px solid #e2e8f0"><strong>Motif</strong></td><td style="padding:8px;border:1px solid #e2e8f0">{{motif}}</td></tr>
+</table>
+<p>Le retrait se fait auprès de la DSI. Vous serez notifié·e la veille de la date de retour.</p>`
+            },
+            {
+                slug: 'pret_reminder',
+                label: 'Rappel de retour de prêt (J-1)',
+                subject: '[Prêts] Retour prévu demain — {{equipment}}',
+                body: `<p>Bonjour {{nom_demandeur}},</p><p>Le retour de « {{equipment}} » (x{{quantity}}) est prévu demain ({{end_date}}). Merci de le rapporter à la DSI.</p>`
+            },
+            {
+                slug: 'pret_overdue',
+                label: 'Alerte retard de retour de prêt',
+                subject: '[Prêts] Retour en retard — {{equipment}}',
+                body: `<p>Bonjour {{nom_demandeur}},</p><p>Le retour de « {{equipment}} » (x{{quantity}}) était prévu le {{end_date}} et n'a pas encore été enregistré. Merci de le rapporter dès que possible à la DSI.</p>`
+            }
+        ];
+
+        for (const tpl of pretsTemplates) {
+            const existing = await db.get('SELECT id FROM email_templates WHERE slug = ?', [tpl.slug]);
+            if (!existing) {
+                await db.run(
+                    'INSERT INTO email_templates (slug, label, subject, body) VALUES (?, ?, ?, ?)',
+                    [tpl.slug, tpl.label, tpl.subject, tpl.body]
+                );
+                console.log(`[Prets] Email template "${tpl.slug}" created`);
+            }
+        }
+    } catch (e) {
+        console.error('[Prets] Error seeding email templates:', e.message);
     }
 
     httpServer.listen(PORT, '0.0.0.0', () => {
@@ -5862,6 +5914,12 @@ tasksCtrl.setSendMail(sendMail);
 cron.schedule('0 8 * * *', () => {
     console.log('[CRON] Envoi des alertes tâches quotidiennes...');
     tasksCtrl.sendDailyAlerts().catch(e => console.error('[CRON tasks-alert]', e.message));
+}, { timezone: 'Europe/Paris' });
+
+// ─── Prêts : rappels de retour (J-1) et alertes de retard, tous les jours à 8h00 ──
+cron.schedule('0 8 * * *', () => {
+    console.log('[CRON] Rappels/retards prêts de matériel...');
+    pretsCtrl.sendRemindersAndOverdueAlerts().catch(e => console.error('[CRON prets-reminders]', e.message));
 }, { timezone: 'Europe/Paris' });
 
 // ─── Copieurs : collecte SNMP quotidienne à 11h00 (toners, erreurs, compteurs) ──

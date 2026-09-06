@@ -1363,6 +1363,31 @@ async function setupPgDb() {
     // chacune affectée à un GROUPE (jamais une personne — cf. createFormTasks
     // dans request-forms.controller.js). Un item : { name, group_id, group_name }.
     try { await client.query(`ALTER TABLE hub.request_forms ADD COLUMN IF NOT EXISTS tasks_config JSONB NOT NULL DEFAULT '[]'`); } catch (e) {}
+    // Discriminant de nature du formulaire : 'dynamic' (par defaut, comportement
+    // historique — champs/soumission/ticket geres par ce module) ou
+    // 'external_module' — une ligne "vitrine" qui ne fait que pointer vers un
+    // module dedie (Prets, Consommables...) dont le contenu/la logique de
+    // soumission sont geres ailleurs. Ces lignes n'utilisent pas fields_config
+    // ni /submit : seuls is_published/sort_order/allowed_roles/allowed_group_ids
+    // s'appliquent, pour permettre a l'admin de les activer/desactiver "comme
+    // les autres formulaires" (cf. FormRequestsManager, TicketAdmin.tsx) sans
+    // dupliquer un mecanisme de visibilite specifique par module.
+    try { await client.query(`ALTER TABLE hub.request_forms ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'dynamic'`); } catch (e) {}
+    try { await client.query(`ALTER TABLE hub.request_forms ADD COLUMN IF NOT EXISTS module_target TEXT`); } catch (e) {}
+    // Seed (idempotent) des deux entrees "module externe" existantes — Prets et
+    // Consommables — si elles n'existent pas encore. is_published=true pour
+    // conserver le comportement actuel (Prets toujours visible, Consommables
+    // visible par defaut) tant que l'admin ne les desactive pas explicitement.
+    await client.query(`
+      INSERT INTO hub.request_forms (name, description, kind, module_target, is_published, icon, sort_order)
+      SELECT 'Prêt de matériel', 'Emprunter du matériel (ordinateur, écran, caméra…) auprès de la DSI', 'external_module', 'prets', TRUE, 'Truck', 0
+      WHERE NOT EXISTS (SELECT 1 FROM hub.request_forms WHERE module_target = 'prets');
+    `);
+    await client.query(`
+      INSERT INTO hub.request_forms (name, description, kind, module_target, is_published, icon, sort_order)
+      SELECT 'Consommables', 'Commander des consommables (toner, papier, cartouches…)', 'external_module', 'consommables', TRUE, 'ShoppingCart', 0
+      WHERE NOT EXISTS (SELECT 1 FROM hub.request_forms WHERE module_target = 'consommables');
+    `);
     await client.query(`
       CREATE TABLE IF NOT EXISTS hub.request_form_submissions (
         id SERIAL PRIMARY KEY,
@@ -3293,6 +3318,153 @@ async function setupPgDb() {
     await client.query('CREATE INDEX IF NOT EXISTS idx_consumable_catalog_type ON hub_consommables.consumable_catalog(type_id)');
     await client.query('CREATE INDEX IF NOT EXISTS idx_request_articles_request ON hub_consommables.request_articles(request_id)');
     await client.query('CREATE INDEX IF NOT EXISTS idx_request_articles_catalog ON hub_consommables.request_articles(catalog_id)');
+
+    // ═══ Module Prêts de matériel (hub_prets) ═══
+    // Stock dédié (indépendant du parc GLPI / hub_parc.mobilite_devices) : catégories
+    // administrables, matériel avec quantité globale (pour le calendrier de dispo),
+    // unités physiques individuelles (n° d'inventaire scanné à la remise), et prêts
+    // réservés par plage de dates (auto-acceptés, cf. skill/CLAUDE.md conventions GED
+    // pour la fiche de remise/retour générée via le moteur /stocks bl-pdf).
+    await client.query('CREATE SCHEMA IF NOT EXISTS hub_prets;');
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS hub_prets.categories (
+        id SERIAL PRIMARY KEY,
+        name TEXT NOT NULL UNIQUE,
+        display_name TEXT,
+        icon TEXT,
+        display_order INTEGER DEFAULT 0,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS hub_prets.equipment (
+        id SERIAL PRIMARY KEY,
+        category_id INTEGER REFERENCES hub_prets.categories(id) ON DELETE SET NULL,
+        name TEXT NOT NULL,
+        description TEXT,
+        total_quantity INTEGER NOT NULL DEFAULT 1,
+        image_path TEXT,
+        active BOOLEAN DEFAULT TRUE,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
+    // Lots d'arrivée de stock : la quantité totale d'un matériel n'est pas un nombre
+    // figé mais la somme de lots, chacun disponible seulement à partir de sa date
+    // d'arrivée (matériel commandé mais pas encore livré). equipment.total_quantity
+    // reste une colonne dénormalisée = somme de tous les lots (affichage rapide) ;
+    // la disponibilité réelle à une date donnée est toujours recalculée depuis cette
+    // table (cf. prets.availability.js::capacityAtDate).
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS hub_prets.equipment_arrivals (
+        id SERIAL PRIMARY KEY,
+        equipment_id INTEGER NOT NULL REFERENCES hub_prets.equipment(id) ON DELETE CASCADE,
+        quantity INTEGER NOT NULL,
+        arrival_date DATE NOT NULL DEFAULT CURRENT_DATE,
+        note TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+    // Rétro-compatibilité : le matériel créé avant l'introduction des lots n'a pas
+    // encore de ligne d'arrivée — on lui en crée une (déjà en stock aujourd'hui) à
+    // hauteur de son total_quantity existant, une seule fois (idempotent).
+    await client.query(`
+      INSERT INTO hub_prets.equipment_arrivals (equipment_id, quantity, arrival_date)
+      SELECT e.id, e.total_quantity, CURRENT_DATE FROM hub_prets.equipment e
+      WHERE e.total_quantity > 0
+        AND NOT EXISTS (SELECT 1 FROM hub_prets.equipment_arrivals a WHERE a.equipment_id = e.id);
+    `);
+
+    // Unités physiques (n° d'inventaire) — le nombre de lignes n'est pas forcément
+    // égal à total_quantity : les unités sont exemplarisées/scannées au fil de l'eau
+    // à la remise (cf. prets.controller.js::deliverLoan, upsert à la volée).
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS hub_prets.equipment_units (
+        id SERIAL PRIMARY KEY,
+        equipment_id INTEGER NOT NULL REFERENCES hub_prets.equipment(id) ON DELETE CASCADE,
+        inventory_number TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'available',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(equipment_id, inventory_number)
+      );
+    `);
+
+    // Réglage global unique (id=1) : délai de battement en heures entre deux prêts
+    // d'un même matériel (nettoyage/préparation).
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS hub_prets.settings (
+        id INTEGER PRIMARY KEY DEFAULT 1,
+        buffer_hours INTEGER NOT NULL DEFAULT 0,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT single_row CHECK (id = 1)
+      );
+    `);
+    await client.query(`INSERT INTO hub_prets.settings (id, buffer_hours) VALUES (1, 0) ON CONFLICT (id) DO NOTHING;`);
+
+    // Prêts : réservation auto-acceptée par plage de dates. Cycle de vie :
+    // confirmed -> delivered -> returned (ou cancelled à tout moment avant delivered).
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS hub_prets.loans (
+        id SERIAL PRIMARY KEY,
+        equipment_id INTEGER NOT NULL REFERENCES hub_prets.equipment(id),
+        quantity INTEGER NOT NULL DEFAULT 1,
+        user_id TEXT,
+        username TEXT,
+        email TEXT,
+        nom_demandeur TEXT,
+        direction TEXT,
+        service TEXT,
+        motif TEXT,
+        start_date TIMESTAMP NOT NULL,
+        end_date TIMESTAMP NOT NULL,
+        status TEXT NOT NULL DEFAULT 'confirmed',
+        batch_id INTEGER,
+        is_internal BOOLEAN DEFAULT FALSE,
+        fiche_remise_document_id INTEGER,
+        fiche_retour_document_id INTEGER,
+        delivered_by TEXT,
+        delivered_at TIMESTAMP,
+        returned_by TEXT,
+        returned_at TIMESTAMP,
+        cancelled_at TIMESTAMP,
+        reminder_sent_at TIMESTAMP,
+        overdue_notified_at TIMESTAMP,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
+    // Unités effectivement remises pour un prêt (scannées à la remise) — permet de
+    // tracer précisément quel exemplaire est parti avec quel emprunteur.
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS hub_prets.loan_units (
+        id SERIAL PRIMARY KEY,
+        loan_id INTEGER NOT NULL REFERENCES hub_prets.loans(id) ON DELETE CASCADE,
+        equipment_unit_id INTEGER NOT NULL REFERENCES hub_prets.equipment_units(id),
+        returned BOOLEAN DEFAULT FALSE,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(loan_id, equipment_unit_id)
+      );
+    `);
+
+    // Migrations non destructives : hub_prets.loans existait déjà (schéma initial,
+    // avant l'ajout du panier/réservations DSI) — CREATE TABLE IF NOT EXISTS
+    // n'ajoute pas de colonnes à une table déjà créée par un précédent démarrage.
+    try { await client.query(`ALTER TABLE hub_prets.loans ADD COLUMN IF NOT EXISTS batch_id INTEGER`); } catch (e) {}
+    try { await client.query(`ALTER TABLE hub_prets.loans ADD COLUMN IF NOT EXISTS is_internal BOOLEAN DEFAULT FALSE`); } catch (e) {}
+
+    await client.query('CREATE INDEX IF NOT EXISTS idx_prets_equipment_category ON hub_prets.equipment(category_id)');
+    await client.query('CREATE INDEX IF NOT EXISTS idx_prets_units_equipment ON hub_prets.equipment_units(equipment_id)');
+    await client.query('CREATE INDEX IF NOT EXISTS idx_prets_loans_equipment ON hub_prets.loans(equipment_id)');
+    await client.query('CREATE INDEX IF NOT EXISTS idx_prets_loans_status ON hub_prets.loans(status)');
+    await client.query('CREATE INDEX IF NOT EXISTS idx_prets_loans_dates ON hub_prets.loans(start_date, end_date)');
+    await client.query('CREATE INDEX IF NOT EXISTS idx_prets_loans_user ON hub_prets.loans(user_id)');
+    await client.query('CREATE INDEX IF NOT EXISTS idx_prets_loan_units_loan ON hub_prets.loan_units(loan_id)');
+    await client.query('CREATE INDEX IF NOT EXISTS idx_prets_loans_batch ON hub_prets.loans(batch_id)');
+    await client.query('CREATE INDEX IF NOT EXISTS idx_prets_arrivals_equipment_date ON hub_prets.equipment_arrivals(equipment_id, arrival_date)');
 
     // Create hub_calendrier schema and table
     await client.query('CREATE SCHEMA IF NOT EXISTS hub_calendrier;');

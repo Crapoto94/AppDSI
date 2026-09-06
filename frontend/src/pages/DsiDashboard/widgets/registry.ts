@@ -248,6 +248,14 @@ export const WIDGET_REGISTRY: WidgetDef[] = [
     minSize: { w: 2, h: 2 },
   },
   {
+    key: 'prets',
+    label: 'Prêts de matériel',
+    description: 'Prêts en cours et en retard',
+    module: 'Prêts',
+    defaultSize: { w: 3, h: 2 },
+    minSize: { w: 2, h: 2 },
+  },
+  {
     key: 'certificats',
     label: 'Certificats à renouveler',
     description: 'Certificats expirés ou expirant bientôt',
