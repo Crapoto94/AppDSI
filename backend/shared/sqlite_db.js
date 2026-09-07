@@ -400,10 +400,10 @@ async function setupDb() {
                 </tr>
                 <!-- Content Area -->
                 <tr>
-                    <td bgcolor="#ffffff" style="background-color: #ffffff; padding: 40px; border: 1px solid #e1e7ed; border-radius: 12px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);">
-                        <table width="100%" border="0" cellspacing="0" cellpadding="0">
+                    <td bgcolor="#ffffff" style="background-color: #ffffff; padding: 40px; border: 1px solid #e1e7ed; border-radius: 12px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05); word-break: break-all; overflow-wrap: break-word;">
+                        <table width="100%" border="0" cellspacing="0" cellpadding="0" style="width: 100%; max-width: 100%; table-layout: fixed;">
                             <tr>
-                                <td style="font-size: 16px; line-height: 1.6; color: #2d3748;">
+                                <td style="font-size: 16px; line-height: 1.6; color: #2d3748; width: 100%; max-width: 100%; word-break: break-all; overflow-wrap: break-word;">
                                     {{content}}
                                 </td>
                             </tr>
@@ -800,6 +800,14 @@ async function setupDb() {
 
     // Azure AD Settings migration — ajout mailbox pour fusion o365_settings
     try { await db.run("ALTER TABLE azure_ad_settings ADD COLUMN mailbox TEXT DEFAULT ''"); } catch (e) {}
+
+    // Template email global : le lien de secours en clair ("Ou copiez ce lien")
+    // débordait sans retour à la ligne sur certains clients mail (Outlook) faute
+    // d'un word-break assez agressif. Idempotent : ne touche rien si le template
+    // a déjà été mis à jour ou totalement personnalisé sans cette chaîne exacte.
+    try {
+        await db.run("UPDATE mail_settings SET template_html = REPLACE(template_html, 'word-break: break-word', 'word-break: break-all') WHERE template_html LIKE '%word-break: break-word%'");
+    } catch (e) {}
 
 
     try {
