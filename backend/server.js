@@ -5967,6 +5967,21 @@ cron.schedule('0 6 * * *', async () => {
     }
 }, { timezone: 'Europe/Paris' });
 
+// ─── RH : recalage quotidien de la direction/service (magapp.users + hub.users) sur le
+// référentiel RH (oracle.rh_v_extract_dsi) à 05h30 — évite qu'un agent reste affiché avec
+// une ancienne direction/service tant qu'il ne se reconnecte pas (voir shared/rh-service-sync.js).
+cron.schedule('30 5 * * *', async () => {
+    console.log('[CRON] Recalage direction/service RH (05h30)...');
+    try {
+        const { syncAgentServicesFromRH } = require('./shared/rh-service-sync');
+        const r = await syncAgentServicesFromRH({ dryRun: false });
+        console.log(`[CRON rh-service-sync] ${r.pg.updated} compte(s) PG + ${r.sqlite.updated} compte(s) SQLite mis à jour (${r.collisions.length} collision(s) ignorée(s)).`);
+    } catch (e) {
+        console.error('[CRON rh-service-sync]', e.message);
+        logMouchard(`Recalage direction/service RH échoué: ${e.message}`);
+    }
+}, { timezone: 'Europe/Paris' });
+
 app.use('/api/projets', projetsRouter);
 
 // ============================================
