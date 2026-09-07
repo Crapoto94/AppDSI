@@ -143,7 +143,12 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
     }
   }, [columns]);
 
+  const isFirstSearchRun = useRef(true);
   useEffect(() => {
+    // Le montage initial est déjà couvert par l'effet [token, rubriqueName, fiscalYear] ci-dessus ;
+    // sans ce garde, ce timer se déclenchait aussi au montage avec un fetchData figé sur le
+    // sortConfig de l'époque (null), et écrasait ~400ms plus tard le tri par défaut appliqué entre-temps.
+    if (isFirstSearchRun.current) { isFirstSearchRun.current = false; return; }
     const timer = setTimeout(() => { setCurrentPage(0); fetchData(searchTerm, 0); }, 400);
     return () => clearTimeout(timer);
   }, [searchTerm]);

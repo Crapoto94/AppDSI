@@ -714,7 +714,7 @@ async assign(req, res) {
                             <p>Vous avez reçu un message concernant votre ticket <strong>#${ticketId} – ${ticket.title}</strong> :</p>
                             <blockquote style="border-left:4px solid #6366f1;padding-left:12px;margin:12px 0;color:#374151;word-break:break-word;overflow-wrap:break-word;white-space:pre-wrap;">${content}</blockquote>
                             <p style="margin-top:16px;"><a href="${replyUrl}" style="display:inline-block;padding:10px 20px;background:#6366f1;color:#fff;text-decoration:none;border-radius:6px;font-weight:600;">Voir le message</a></p>
-                            <p style="font-size:12px;color:#94a3b8;">Ou copiez ce lien : ${replyUrl}</p>
+                            <p style="font-size:12px;color:#94a3b8;word-break:break-all;overflow-wrap:break-word;">Ou copiez ce lien : <a href="${replyUrl}" style="color:#6366f1;word-break:break-all;overflow-wrap:break-word;">${replyUrl}</a></p>
                             <p>Cordialement,<br>${authorName}</p>`;
                     }
                 } catch (tplErr) {
@@ -724,7 +724,7 @@ async assign(req, res) {
                         <p>Vous avez reçu un message concernant votre ticket <strong>#${ticketId} – ${ticket.title}</strong> :</p>
                         <blockquote style="border-left:4px solid #6366f1;padding-left:12px;margin:12px 0;color:#374151;word-break:break-word;overflow-wrap:break-word;white-space:pre-wrap;">${content}</blockquote>
                         <p style="margin-top:16px;"><a href="${replyUrl}" style="display:inline-block;padding:10px 20px;background:#6366f1;color:#fff;text-decoration:none;border-radius:6px;font-weight:600;">Voir le message</a></p>
-                        <p style="font-size:12px;color:#94a3b8;">Ou copiez ce lien : ${replyUrl}</p>
+                        <p style="font-size:12px;color:#94a3b8;word-break:break-all;overflow-wrap:break-word;">Ou copiez ce lien : <a href="${replyUrl}" style="color:#6366f1;word-break:break-all;overflow-wrap:break-word;">${replyUrl}</a></p>
                         <p>Cordialement,<br>${authorName}</p>`;
                 }
 

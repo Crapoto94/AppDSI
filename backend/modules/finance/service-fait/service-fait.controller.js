@@ -56,10 +56,17 @@ async function getRequesterEmail(username) {
     }
 }
 
+// hub_telecom.invoices.invoice_number est alimenté avec le N° Fournisseur de la facture
+// (colonne FACTURE_FACTIERS dans oracle.gf_oracle_facture), PAS avec son N° Interne
+// (FACTURE_FACTURE) qui sert d'invoice_ref au workflow de service fait. Il faut donc
+// repasser par la table Oracle pour retrouver le FACTURE_FACTIERS correspondant à
+// l'invoice_ref avant de chercher une correspondance côté Telecom.
 function isTelecomIntegrated(invoiceRef) {
     if (!invoiceRef) return false;
     return pool.query(
-        `SELECT 1 FROM hub_telecom.invoices WHERE LOWER(TRIM(invoice_number)) = LOWER(TRIM($1)) LIMIT 1`,
+        `SELECT 1 FROM oracle.gf_oracle_facture f
+         JOIN hub_telecom.invoices t ON LOWER(TRIM(t.invoice_number)) = LOWER(TRIM(f."FACTURE_FACTIERS"))
+         WHERE TRIM(f."FACTURE_FACTURE") = $1 LIMIT 1`,
         [invoiceRef]
     ).then(r => r.rowCount > 0).catch(() => false);
 }
@@ -196,17 +203,21 @@ const controller = {
 
             // Factures déjà intégrées au module Telecom : pas de workflow possible,
             // on renvoie un pseudo-statut 'telecom' pour que le front affiche une
-            // pastille au lieu du bouton "À lancer" (voir isTelecomIntegrated).
-            const normalizedRefs = Array.from(new Set(invoice_refs.map(r => String(r || '').trim().toLowerCase()).filter(Boolean)));
+            // pastille au lieu du bouton "À lancer" (voir isTelecomIntegrated pour
+            // l'explication du passage par FACTURE_FACTIERS plutôt que invoice_ref).
+            const normalizedRefs = Array.from(new Set(invoice_refs.map(r => String(r || '').trim()).filter(Boolean)));
             if (normalizedRefs.length > 0) {
                 try {
                     const telecomRes = await pool.query(
-                        `SELECT DISTINCT LOWER(TRIM(invoice_number)) AS ref FROM hub_telecom.invoices WHERE LOWER(TRIM(invoice_number)) = ANY($1)`,
+                        `SELECT DISTINCT TRIM(f."FACTURE_FACTURE") AS ref
+                         FROM oracle.gf_oracle_facture f
+                         JOIN hub_telecom.invoices t ON LOWER(TRIM(t.invoice_number)) = LOWER(TRIM(f."FACTURE_FACTIERS"))
+                         WHERE TRIM(f."FACTURE_FACTURE") = ANY($1)`,
                         [normalizedRefs]
                     );
                     const telecomSet = new Set(telecomRes.rows.map(r => r.ref));
                     for (const ref of invoice_refs) {
-                        const norm = String(ref || '').trim().toLowerCase();
+                        const norm = String(ref || '').trim();
                         if (telecomSet.has(norm) && !map[ref]) {
                             map[ref] = { workflowId: null, status: 'telecom', verifier_name: null, updated_at: null, decision_at: null };
                         }
