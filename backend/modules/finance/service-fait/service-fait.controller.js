@@ -44,6 +44,18 @@ function getClientIp(req) {
     return req.ip || req.connection?.remoteAddress || '';
 }
 
+async function getRequesterEmail(username) {
+    try {
+        const r = await pool.query(
+            `SELECT email FROM hub.users WHERE LOWER(TRIM(username)) = LOWER(TRIM($1)) LIMIT 1`,
+            [username]
+        );
+        return r.rows[0]?.email || null;
+    } catch {
+        return null;
+    }
+}
+
 function isTelecomIntegrated(invoiceRef) {
     if (!invoiceRef) return false;
     return pool.query(
@@ -181,6 +193,29 @@ const controller = {
                     decision_at: row.decision_at
                 };
             }
+
+            // Factures déjà intégrées au module Telecom : pas de workflow possible,
+            // on renvoie un pseudo-statut 'telecom' pour que le front affiche une
+            // pastille au lieu du bouton "À lancer" (voir isTelecomIntegrated).
+            const normalizedRefs = Array.from(new Set(invoice_refs.map(r => String(r || '').trim().toLowerCase()).filter(Boolean)));
+            if (normalizedRefs.length > 0) {
+                try {
+                    const telecomRes = await pool.query(
+                        `SELECT DISTINCT LOWER(TRIM(invoice_number)) AS ref FROM hub_telecom.invoices WHERE LOWER(TRIM(invoice_number)) = ANY($1)`,
+                        [normalizedRefs]
+                    );
+                    const telecomSet = new Set(telecomRes.rows.map(r => r.ref));
+                    for (const ref of invoice_refs) {
+                        const norm = String(ref || '').trim().toLowerCase();
+                        if (telecomSet.has(norm) && !map[ref]) {
+                            map[ref] = { workflowId: null, status: 'telecom', verifier_name: null, updated_at: null, decision_at: null };
+                        }
+                    }
+                } catch (e) {
+                    console.error('[ServiceFait] getStatuses telecom check error:', e.message);
+                }
+            }
+
             res.json(map);
         } catch (error) {
             console.error('[ServiceFait] getStatuses error:', error);
@@ -336,6 +371,19 @@ const controller = {
                 return res.status(400).json({ message: 'Un commentaire est requis pour cette décision' });
             }
 
+            // Quelle que soit la décision, il faut au moins une pièce jointe (déjà
+            // présente sur le workflow, ou ajoutée juste avant via /pieces-jointes)
+            // ou un motif — même pour une simple validation du service fait.
+            if (!comment || !comment.trim()) {
+                const pjCountRes = await pool.query(
+                    `SELECT COUNT(*)::int AS n FROM finance.service_fait_pieces_jointes WHERE workflow_id = $1`,
+                    [wf.id]
+                );
+                if (pjCountRes.rows[0].n === 0) {
+                    return res.status(400).json({ message: 'Une pièce jointe ou un motif est requis pour valider cette décision' });
+                }
+            }
+
             let newStatus = decision;
             let newVerifierUsername = wf.verifier_username;
             let newVerifierName = wf.verifier_name;
@@ -424,11 +472,7 @@ const controller = {
             }
 
             if (decision !== 'transfere' && sendMailFn) {
-                const reqUserRes = await pool.query(
-                    `SELECT email FROM hub.users WHERE LOWER(TRIM(username)) = LOWER(TRIM($1)) LIMIT 1`,
-                    [wf.requested_by]
-                );
-                const requesterEmail = reqUserRes.rows[0]?.email;
+                const requesterEmail = await getRequesterEmail(wf.requested_by);
                 if (requesterEmail) {
                     const statusLabels = {
                         'valide': '✅ Validé',
@@ -481,6 +525,22 @@ const controller = {
                  VALUES ($1, 'annulation', $2, $3, $4, $5, $6)`,
                 [id, req.user.username, req.user.username, comment || '', getClientIp(req), req.headers['user-agent'] || '']
             );
+
+            if (sendMailFn && wf.requested_by !== req.user.username) {
+                const requesterEmail = await getRequesterEmail(wf.requested_by);
+                if (requesterEmail) {
+                    const html = `
+                        <p>Bonjour ${wf.requested_by},</p>
+                        <p>Le processus de validation du service fait pour la facture <strong>${wf.invoice_number || wf.invoice_ref}</strong> a été annulé par <strong>${req.user.username}</strong>.</p>
+                        ${comment ? `<p><strong>Motif :</strong> ${comment}</p>` : ''}
+                    `;
+                    try {
+                        await sendMailFn(requesterEmail, 'Processus de validation du service fait annulé', html);
+                    } catch (e) {
+                        console.error('[ServiceFait] Cancel notification email error:', e.message);
+                    }
+                }
+            }
 
             res.json({ success: true, status: 'annule' });
         } catch (error) {

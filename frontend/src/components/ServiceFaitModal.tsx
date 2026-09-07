@@ -17,17 +17,33 @@ interface ServiceFaitModalProps {
 }
 
 // Mappe les libellés de colonnes connus vers les champs du workflow.
-// Les noms exacts sont dynamiques (configurés en BDD), on couvre les variantes.
+// Les noms affichés (col.name) sont librement renommables en admin, donc fragiles ;
+// on matche donc en priorité sur l'expression (le champ source Sedit/Oracle, stable),
+// avec un repli sur le nom affiché pour compatibilité si l'expression est absente.
 const LABEL_MAP: Record<string, string> = {
   'N° Facture fournisseur': 'invoice_number',
   'N° Facture interne': 'invoice_number',
   'Libellé': 'invoice_label',
   'Fournisseur': 'invoice_supplier',
+  'Tiers': 'invoice_supplier',
   'Montant TTC': 'invoice_amount',
+  'Montant': 'invoice_amount',
   'Section': 'invoice_section',
 };
 
+const EXPRESSION_MAP: Record<string, string> = {
+  'FACTURE_FACTIERS': 'invoice_supplier',
+  'FACTURE_LIBELLE': 'invoice_label',
+  'FACTURE_MONTANTTC_E': 'invoice_amount',
+  'FACTURE_REFERENCE': 'invoice_number',
+};
+
 function pick(row: any, columns: MappingColumn[], field: string): any {
+  for (const col of columns) {
+    if (col.expression && EXPRESSION_MAP[col.expression] === field) {
+      return row[col.name];
+    }
+  }
   for (const col of columns) {
     if (LABEL_MAP[col.name] === field) {
       return row[col.name];

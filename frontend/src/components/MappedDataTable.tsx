@@ -45,6 +45,7 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
   const [error, setError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' } | null>(null);
+  const [defaultSortApplied, setDefaultSortApplied] = useState(false);
   const [currentPage, setCurrentPage] = useState(0);
   const [itemsPerPage, setItemsPerPage] = useState<number | 'all'>(() => {
     try {
@@ -152,6 +153,18 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
   useEffect(() => {
     if (sortConfig) fetchData(searchTerm, currentPage * effectivePageSize, sortConfig);
   }, [sortConfig?.key, sortConfig?.direction, effectivePageSize]);
+
+  // Tri par défaut de la page Factures : date décroissante, tant que l'utilisateur
+  // n'a pas lui-même choisi un tri (ne s'applique qu'une fois par montage).
+  useEffect(() => {
+    if (rubriqueName !== 'Factures' || defaultSortApplied) return;
+    if (sortConfig) { setDefaultSortApplied(true); return; }
+    if (columns.length === 0) return;
+    const dateCol = columns.find(c => c.expression === 'FACTURE_DATENTREE')
+      || columns.find(c => ['date', 'timestamp', 'text_date', 'text_timestamp'].includes(c.display_type));
+    if (dateCol) setSortConfig({ key: dateCol.name, direction: 'desc' });
+    setDefaultSortApplied(true);
+  }, [rubriqueName, columns, sortConfig, defaultSortApplied]);
 
   useEffect(() => {
     setCurrentPage(0);
@@ -424,7 +437,7 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
               const expandable = !!(childRubriqueId && childLinkValue);
               const factureCol = rubriqueName === 'Factures' ? columns.find(c => c.expression === 'FACTURE_FACTURE') : null;
               const factureRef = factureCol ? String(row[factureCol.name] || '').trim() : null;
-              let sfInfo: { label: string; color: string; bg: string; workflowId: number | null; tooltip: string; ongoing: boolean } | null = null;
+              let sfInfo: { label: string; color: string; bg: string; workflowId: number | null; tooltip: string; ongoing: boolean; relaunchable: boolean } | null = null;
               if (rubriqueName === 'Factures') {
                 const st = sfStatuses[factureRef || ''] || null;
                 if (st) {
@@ -437,10 +450,17 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
                     'ne_me_concerne_pas': { label: '🔄 Retourné', color: '#1e40af', bg: '#dbeafe' },
                     'transfere': { label: '➡️ Transféré', color: '#6b21a8', bg: '#f3e8ff' },
                     'annule': { label: '🚫 Annulé', color: '#64748b', bg: '#f1f5f9' },
+                    'telecom': { label: '📡 Intégré Telecom', color: '#0369a1', bg: '#e0f2fe' },
                   };
                   const meta = map[st.status] || { label: st.status, color: '#334155', bg: '#f1f5f9' };
                   const ongoing = ['en_attente', 'en_cours', 'transfere'].includes(st.status);
-                  sfInfo = { ...meta, workflowId: st.workflowId || null, tooltip: `${st.status}\nVérificateur: ${st.verifier_name || '-'}`, ongoing };
+                  // Statuts pour lesquels une nouvelle demande peut être relancée sur la même
+                  // facture (doit rester synchro avec l'exclusion côté backend, createWorkflow).
+                  const relaunchable = ['non_valide', 'ne_me_concerne_pas', 'annule'].includes(st.status);
+                  const tooltip = st.status === 'telecom'
+                    ? 'Facture déjà intégrée au module Telecom — pas de service fait à valider ici'
+                    : `${st.status}\nVérificateur: ${st.verifier_name || '-'}`;
+                  sfInfo = { ...meta, workflowId: st.workflowId || null, tooltip, ongoing, relaunchable };
                 }
               }
               return (
@@ -491,16 +511,25 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
                                         )}
                                       </>
                                     ) : (
-                                      sfInfo.workflowId ? (
-                                        <button title="Voir le processus de validation" onClick={() => setSfProcessModal({ workflowId: sfInfo!.workflowId! })}
-                                          style={{ background: sfInfo.bg, color: sfInfo.color, border: 'none', borderRadius: '4px', padding: '3px 8px', fontSize: '11px', fontWeight: 600, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
-                                          {sfInfo.label}
-                                        </button>
-                                      ) : (
-                                        <span title={sfInfo.tooltip} style={{ background: sfInfo.bg, color: sfInfo.color, border: 'none', borderRadius: '4px', padding: '3px 8px', fontSize: '11px', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
-                                          {sfInfo.label}
-                                        </span>
-                                      )
+                                      <>
+                                        {sfInfo.workflowId ? (
+                                          <button title="Voir le processus de validation" onClick={() => setSfProcessModal({ workflowId: sfInfo!.workflowId! })}
+                                            style={{ background: sfInfo.bg, color: sfInfo.color, border: 'none', borderRadius: '4px', padding: '3px 8px', fontSize: '11px', fontWeight: 600, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+                                            {sfInfo.label}
+                                          </button>
+                                        ) : (
+                                          <span title={sfInfo.tooltip} style={{ background: sfInfo.bg, color: sfInfo.color, border: 'none', borderRadius: '4px', padding: '3px 8px', fontSize: '11px', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+                                            {sfInfo.label}
+                                          </span>
+                                        )}
+                                        {sfInfo.relaunchable && (
+                                          <button title="Relancer une nouvelle demande de validation"
+                                            onClick={() => setSfModalRow({ row })}
+                                            style={{ background: '#2563eb', color: 'white', border: 'none', borderRadius: '4px', padding: '3px 8px', fontSize: '11px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '3px' }}>
+                                            <Rocket size={12} /> Relancer
+                                          </button>
+                                        )}
+                                      </>
                                     )}
                                   </>
                                 )}
