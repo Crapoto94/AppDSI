@@ -302,6 +302,8 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
   };
 
   const showActions = !!seditIdColumn;
+  const showSfColumn = showActions && rubriqueName === 'Factures';
+  const actionColsCount = (showSfColumn ? 1 : 0) + (showActions ? 1 : 0);
 
   if (loading && rows.length === 0) {
     return <div style={{ padding: '2rem', textAlign: 'center', color: '#64748b' }}>Chargement...</div>;
@@ -432,12 +434,13 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
                 </th>
                 );
               })}
-              {showActions && <th className="mdt-th" style={{ minWidth: '120px' }}>Actions</th>}
+              {showSfColumn && <th className="mdt-th" style={{ minWidth: '160px' }}>Service Fait</th>}
+              {showActions && <th className="mdt-th" style={{ minWidth: '120px' }}>Sedit</th>}
             </tr>
           </thead>
           <tbody>
             {displayRows.length === 0 ? (
-              <tr><td colSpan={(childRubriqueId ? 1 : 0) + activeCols.length + (showActions ? 1 : 0)} className="mdt-empty">Aucun résultat</td></tr>
+              <tr><td colSpan={(childRubriqueId ? 1 : 0) + activeCols.length + actionColsCount} className="mdt-empty">Aucun résultat</td></tr>
             ) : displayRows.map((row, i) => {
               const seditCol = seditIdColumn ? columns.find(c => c.expression === seditIdColumn) : null;
               const seditId = seditCol ? String(row[seditCol.name] || '').trim() : null;
@@ -467,7 +470,7 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
                     'ne_me_concerne_pas': { label: '🔄 Retourné', color: '#1e40af', bg: '#dbeafe' },
                     'transfere': { label: '➡️ Transféré', color: '#6b21a8', bg: '#f3e8ff' },
                     'annule': { label: '🚫 Annulé', color: '#64748b', bg: '#f1f5f9' },
-                    'telecom': { label: '📡 Intégré Telecom', color: '#0369a1', bg: '#e0f2fe' },
+                    'telecom': { label: '📡 Telecom', color: '#0369a1', bg: '#e0f2fe' },
                   };
                   const meta = map[st.status] || { label: st.status, color: '#334155', bg: '#f1f5f9' };
                   const ongoing = ['en_attente', 'en_cours', 'transfere'].includes(st.status);
@@ -506,59 +509,61 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
                       const cellTitle = row[col.name] != null && row[col.name] !== '' ? String(row[col.name]) : undefined;
                       return <td key={col.name} className="mdt-cell" style={tdStyle} title={cellTitle}>{formatCell(row[col.name], col)}</td>;
                     })}
+                    {showSfColumn && (
+                      <td className="mdt-cell" style={{ whiteSpace: 'nowrap' }}>
+                        <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+                          {sfInfo && (
+                            <>
+                              {sfInfo.ongoing ? (
+                                <>
+                                  <span title={sfInfo.tooltip} style={{ background: sfInfo.bg, color: sfInfo.color, border: 'none', borderRadius: '4px', padding: '3px 8px', fontSize: '11px', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+                                    {sfInfo.label}
+                                  </span>
+                                  {sfInfo.workflowId && (
+                                    <button title="Voir le processus de validation"
+                                      onClick={() => setSfProcessModal({ workflowId: sfInfo!.workflowId! })}
+                                      style={{ background: '#2563eb', color: 'white', border: 'none', borderRadius: '4px', padding: '3px 8px', fontSize: '11px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '3px' }}>
+                                      <Eye size={12} /> Processus
+                                    </button>
+                                  )}
+                                </>
+                              ) : (
+                                <>
+                                  {sfInfo.workflowId ? (
+                                    <button title="Voir le processus de validation" onClick={() => setSfProcessModal({ workflowId: sfInfo!.workflowId! })}
+                                      style={{ background: sfInfo.bg, color: sfInfo.color, border: 'none', borderRadius: '4px', padding: '3px 8px', fontSize: '11px', fontWeight: 600, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+                                      {sfInfo.label}
+                                    </button>
+                                  ) : (
+                                    <span title={sfInfo.tooltip} style={{ background: sfInfo.bg, color: sfInfo.color, border: 'none', borderRadius: '4px', padding: '3px 8px', fontSize: '11px', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+                                      {sfInfo.label}
+                                    </span>
+                                  )}
+                                  {sfInfo.relaunchable && (
+                                    <button title="Relancer une nouvelle demande de validation"
+                                      onClick={() => setSfModalRow({ row })}
+                                      style={{ background: '#2563eb', color: 'white', border: 'none', borderRadius: '4px', padding: '3px 8px', fontSize: '11px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '3px' }}>
+                                      <Rocket size={12} /> Relancer
+                                    </button>
+                                  )}
+                                </>
+                              )}
+                            </>
+                          )}
+                          {!sfInfo && (
+                            <button title="Lancer la validation du service fait"
+                              onClick={() => setSfModalRow({ row })}
+                              style={{ background: '#2563eb', color: 'white', border: 'none', borderRadius: '4px', padding: '3px 8px', fontSize: '11px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '3px' }}>
+                              <Rocket size={12} /> À lancer
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    )}
                     {showActions && (
                       <td className="mdt-cell" style={{ whiteSpace: 'nowrap' }}>
                         <div style={{ display: 'flex', gap: '8px', alignItems: 'center', justifyContent: 'space-between' }}>
                           <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
-                            {rubriqueName === 'Factures' && (
-                              <>
-                                {sfInfo && (
-                                  <>
-                                    {sfInfo.ongoing ? (
-                                      <>
-                                        <span title={sfInfo.tooltip} style={{ background: sfInfo.bg, color: sfInfo.color, border: 'none', borderRadius: '4px', padding: '3px 8px', fontSize: '11px', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
-                                          {sfInfo.label}
-                                        </span>
-                                        {sfInfo.workflowId && (
-                                          <button title="Voir le processus de validation"
-                                            onClick={() => setSfProcessModal({ workflowId: sfInfo!.workflowId! })}
-                                            style={{ background: '#2563eb', color: 'white', border: 'none', borderRadius: '4px', padding: '3px 8px', fontSize: '11px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '3px' }}>
-                                            <Eye size={12} /> Processus
-                                          </button>
-                                        )}
-                                      </>
-                                    ) : (
-                                      <>
-                                        {sfInfo.workflowId ? (
-                                          <button title="Voir le processus de validation" onClick={() => setSfProcessModal({ workflowId: sfInfo!.workflowId! })}
-                                            style={{ background: sfInfo.bg, color: sfInfo.color, border: 'none', borderRadius: '4px', padding: '3px 8px', fontSize: '11px', fontWeight: 600, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
-                                            {sfInfo.label}
-                                          </button>
-                                        ) : (
-                                          <span title={sfInfo.tooltip} style={{ background: sfInfo.bg, color: sfInfo.color, border: 'none', borderRadius: '4px', padding: '3px 8px', fontSize: '11px', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
-                                            {sfInfo.label}
-                                          </span>
-                                        )}
-                                        {sfInfo.relaunchable && (
-                                          <button title="Relancer une nouvelle demande de validation"
-                                            onClick={() => setSfModalRow({ row })}
-                                            style={{ background: '#2563eb', color: 'white', border: 'none', borderRadius: '4px', padding: '3px 8px', fontSize: '11px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '3px' }}>
-                                            <Rocket size={12} /> Relancer
-                                          </button>
-                                        )}
-                                      </>
-                                    )}
-                                  </>
-                                )}
-                                {!sfInfo && (
-                                  <button title="Lancer la validation du service fait"
-                                    onClick={() => setSfModalRow({ row })}
-                                    style={{ background: '#2563eb', color: 'white', border: 'none', borderRadius: '4px', padding: '3px 8px', fontSize: '11px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '3px' }}>
-                                    <Rocket size={12} /> À lancer
-                                  </button>
-                                )}
-                              </>
-                            )}
                             {seditId && (
                               <button title="Ouvrir dans Sedit"
                                 onClick={() => window.open(`${urlSedit}/${seditUrlPage}?${seditUrlParam}=${seditId}`, '_blank')}
@@ -599,7 +604,7 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
                   </tr>
                   {isExpanded && child && child.rows.length > 0 && (
                     <tr className="mdt-child-row">
-                      <td colSpan={(childRubriqueId ? 1 : 0) + activeCols.length + (showActions ? 1 : 0)} style={{ padding: 0 }}>
+                      <td colSpan={(childRubriqueId ? 1 : 0) + activeCols.length + actionColsCount} style={{ padding: 0 }}>
                         <div style={{ display: 'flex', justifyContent: 'flex-end', padding: '4px 8px', background: '#f1f5f9', borderBottom: '1px solid #e2e8f0' }}>
                           <div style={{ position: 'relative' }}>
                             <button className="mdt-col-btn" style={{ fontSize: '0.7rem', padding: '2px 8px' }}
@@ -649,14 +654,14 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
                   )}
                   {isExpanded && isLoadingChild && (
                     <tr className="mdt-child-row">
-                      <td colSpan={(childRubriqueId ? 1 : 0) + activeCols.length + (showActions ? 1 : 0)} className="mdt-cell" style={{ textAlign: 'center', padding: '16px', color: '#94a3b8', fontSize: '0.8rem' }}>
+                      <td colSpan={(childRubriqueId ? 1 : 0) + activeCols.length + actionColsCount} className="mdt-cell" style={{ textAlign: 'center', padding: '16px', color: '#94a3b8', fontSize: '0.8rem' }}>
                         Chargement...
                       </td>
                     </tr>
                   )}
                   {isExpanded && child && child.rows.length === 0 && (
                     <tr className="mdt-child-row">
-                      <td colSpan={(childRubriqueId ? 1 : 0) + activeCols.length + (showActions ? 1 : 0)} className="mdt-cell" style={{ textAlign: 'center', padding: '16px', color: '#94a3b8', fontSize: '0.8rem' }}>
+                      <td colSpan={(childRubriqueId ? 1 : 0) + activeCols.length + actionColsCount} className="mdt-cell" style={{ textAlign: 'center', padding: '16px', color: '#94a3b8', fontSize: '0.8rem' }}>
                         Aucune ligne
                       </td>
                     </tr>
