@@ -92,7 +92,15 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
 
   const effectivePageSize = itemsPerPage === 'all' ? 10000 : itemsPerPage;
 
+  // Plusieurs effets ci-dessous appellent tous fetchData() au montage (token/rubrique,
+  // fiscalYear, page/pageSize, filtres...), en parallèle de la requête triée déclenchée
+  // par le tri par défaut une fois les colonnes connues. Sans garde, la réponse d'une
+  // requête non triée dispatchée avant peut arriver après la triée et écraser l'état.
+  // fetchSeqRef permet de n'appliquer que la réponse de la DERNIÈRE requête émise.
+  const fetchSeqRef = useRef(0);
+
   const fetchData = async (search?: string, offset?: number, sort?: { key: string; direction: 'asc' | 'desc' } | null) => {
+    const seq = ++fetchSeqRef.current;
     setLoading(true);
     setError(null);
     try {
@@ -110,6 +118,7 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
         headers,
         params
       });
+      if (seq !== fetchSeqRef.current) return; // réponse obsolète, une requête plus récente a déjà été émise
       setColumns(res.data.columns || []);
       setRows(res.data.rows || []);
       setTotal(res.data.total || 0);
@@ -126,9 +135,10 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
         setVisibleCols(res.data.columns.map((c: MappingColumn) => c.name));
       }
     } catch (err: any) {
+      if (seq !== fetchSeqRef.current) return;
       setError(err?.response?.data?.message || 'Erreur de chargement');
     } finally {
-      setLoading(false);
+      if (seq === fetchSeqRef.current) setLoading(false);
     }
   };
 
