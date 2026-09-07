@@ -420,9 +420,11 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
               const child = childrenData[childKey];
               const isLoadingChild = loadingChildren[childKey];
               const expandable = !!(childRubriqueId && childLinkValue);
+              const factureCol = rubriqueName === 'Factures' ? columns.find(c => c.expression === 'FACTURE_FACTURE') : null;
+              const factureRef = factureCol ? String(row[factureCol.name] || '').trim() : null;
               let sfInfo: { label: string; color: string; bg: string; workflowId: number | null; tooltip: string } | null = null;
               if (rubriqueName === 'Factures') {
-                const st = sfStatuses[seditId || ''] || null;
+                const st = sfStatuses[factureRef || ''] || null;
                 if (st) {
                   const map: Record<string, { label: string; color: string; bg: string }> = {
                     'en_attente': { label: '⏳ En attente', color: '#92400e', bg: '#fef3c7' },
