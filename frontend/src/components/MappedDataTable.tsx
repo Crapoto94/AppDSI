@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import { useAuth } from '../contexts/AuthContext';
-import { Search, ChevronUp, ChevronDown, ChevronRight, Columns, ExternalLink, Link2, AppWindow } from 'lucide-react';
+import { Search, ChevronUp, ChevronDown, ChevronRight, Columns, ExternalLink, Link2, AppWindow, Rocket, Eye } from 'lucide-react';
+import ServiceFaitModal from './ServiceFaitModal';
 
 interface MappingColumn {
   name: string;
@@ -75,6 +76,8 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
   const [loadingChildren, setLoadingChildren] = useState<Record<string, boolean>>({});
   const [childVisibleCols, setChildVisibleCols] = useState<string[]>([]);
   const [pendingFilter, setPendingFilter] = useState(false);
+  const [sfModalRow, setSfModalRow] = useState<{ row: any; } | null>(null);
+  const [sfStatuses, setSfStatuses] = useState<Record<string, any>>({});
 
   useEffect(() => { localStorage.setItem(storageKey, JSON.stringify(visibleCols)); }, [visibleCols, storageKey]);
 
@@ -152,6 +155,20 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
     setCurrentPage(0);
     fetchData(searchTerm, 0);
   }, [pendingFilter, sectionFilter]);
+
+  useEffect(() => {
+    if (rubriqueName !== 'Factures') return;
+    if (rows.length === 0) { setSfStatuses({}); return; }
+    const factureCol = columns.find(c => c.expression === 'FACTURE_FACTURE');
+    const refs = rows
+      .map(r => String(r[factureCol?.name || ''] ?? '').trim())
+      .filter(Boolean);
+    if (refs.length === 0) return;
+    const uniq = Array.from(new Set(refs));
+    axios.post('/api/finance/service-fait/statuses', { invoice_refs: uniq }, { headers })
+      .then(res => { if (res.data) setSfStatuses(res.data); })
+      .catch(() => {});
+  }, [rows, columns, rubriqueName]);
 
   useEffect(() => {
     axios.get('/api/budget/operations', { headers }).then(res => setOperations(res.data || [])).catch(() => {});
@@ -403,6 +420,23 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
               const child = childrenData[childKey];
               const isLoadingChild = loadingChildren[childKey];
               const expandable = !!(childRubriqueId && childLinkValue);
+              let sfInfo: { label: string; color: string; bg: string; workflowId: number | null; tooltip: string } | null = null;
+              if (rubriqueName === 'Factures') {
+                const st = sfStatuses[seditId || ''] || null;
+                if (st) {
+                  const map: Record<string, { label: string; color: string; bg: string }> = {
+                    'en_attente': { label: '⏳ En attente', color: '#92400e', bg: '#fef3c7' },
+                    'en_cours': { label: '🔵 En cours', color: '#1e40af', bg: '#dbeafe' },
+                    'valide': { label: '✅ Validé', color: '#166534', bg: '#dcfce7' },
+                    'valide_avec_reserves': { label: '⚠️ Avec réserves', color: '#92400e', bg: '#fef3c7' },
+                    'non_valide': { label: '❌ Non validé', color: '#991b1b', bg: '#fee2e2' },
+                    'ne_me_concerne_pas': { label: '🔄 Retourné', color: '#1e40af', bg: '#dbeafe' },
+                    'transfere': { label: '➡️ Transféré', color: '#6b21a8', bg: '#f3e8ff' },
+                  };
+                  const meta = map[st.status] || { label: st.status, color: '#334155', bg: '#f1f5f9' };
+                  sfInfo = { ...meta, workflowId: st.workflowId || null, tooltip: `${st.status}\nVérificateur: ${st.verifier_name || '-'}` };
+                }
+              }
               return (
                 <React.Fragment key={i}>
                   <tr className={`mdt-row${isExpanded ? ' mdt-row-expanded' : ''}`}>
@@ -432,7 +466,32 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
                     {showActions && (
                       <td className="mdt-cell" style={{ whiteSpace: 'nowrap' }}>
                         <div style={{ display: 'flex', gap: '8px', alignItems: 'center', justifyContent: 'space-between' }}>
-                          <div style={{ display: 'flex', gap: '4px' }}>
+                          <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+                            {rubriqueName === 'Factures' && (
+                              <>
+                                {sfInfo && (
+                                  <>
+                                    <span title={sfInfo.tooltip} style={{ background: sfInfo.bg, color: sfInfo.color, border: 'none', borderRadius: '4px', padding: '3px 8px', fontSize: '11px', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+                                      {sfInfo.label}
+                                    </span>
+                                    {sfInfo.workflowId && (
+                                      <button title="Voir le processus de validation"
+                                        onClick={() => window.location.href = `/service-fait/processus/${sfInfo.workflowId}`}
+                                        style={{ background: '#2563eb', color: 'white', border: 'none', borderRadius: '4px', padding: '3px 8px', fontSize: '11px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '3px' }}>
+                                        <Eye size={12} /> Processus
+                                      </button>
+                                    )}
+                                  </>
+                                )}
+                                {!sfInfo && (
+                                  <button title="Lancer la validation du service fait"
+                                    onClick={() => setSfModalRow({ row })}
+                                    style={{ background: '#2563eb', color: 'white', border: 'none', borderRadius: '4px', padding: '3px 8px', fontSize: '11px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '3px' }}>
+                                    <Rocket size={12} /> À lancer
+                                  </button>
+                                )}
+                              </>
+                            )}
                             {seditId && (
                               <button title="Ouvrir dans Sedit"
                                 onClick={() => window.open(`${urlSedit}/${seditUrlPage}?${seditUrlParam}=${seditId}`, '_blank')}
@@ -676,6 +735,15 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
         .mdt-modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.4); display: flex; align-items: center; justify-content: center; z-index: 1000; }
         .mdt-modal { background: white; border-radius: 12px; padding: 24px; width: 90%; max-height: 80vh; overflow-y: auto; }
       `}</style>
+
+      {sfModalRow && rubriqueName === 'Factures' && (
+        <ServiceFaitModal
+          row={sfModalRow.row}
+          columns={columns}
+          onClose={() => setSfModalRow(null)}
+          onCreated={() => fetchData(searchTerm, currentPage * effectivePageSize)}
+        />
+      )}
     </div>
   );
 };

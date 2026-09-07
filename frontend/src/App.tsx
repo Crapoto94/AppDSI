@@ -58,6 +58,8 @@ import TicketsStats from './pages/Tickets/TicketsStats';
 import ChatEcole from './pages/Tickets/ChatEcole';
 import AdminGED from './pages/AdminGED';
 import PublicTicketReply from './pages/PublicTicketReply';
+import ServiceFaitVerifier from './pages/ServiceFaitVerifier';
+import ServiceFaitProcessus from './pages/ServiceFaitProcessus';
 import ChatWidget from './components/LiveChat/ChatWidget';
 import ParamVille from './pages/Admin/ParamVille';
 import HubSettings from './pages/Admin/HubSettings';
@@ -139,6 +141,8 @@ function App() {
         <Route path="/login" element={<Login />} />
         <Route path="/request-access" element={<AccessRequestPage />} />
         <Route path="/repondre/:token" element={<PublicTicketReply />} />
+        <Route path="/service-fait-verifier/:token" element={<ServiceFaitVerifier />} />
+        <Route path="/service-fait/processus/:id" element={<PrivateRoute path="/budget"><ServiceFaitProcessus /></PrivateRoute>} />
         <Route path="/auto-resolution/keep-alive/:token" element={<AutoResolutionConfirm />} />
         <Route path="/request-feature" element={<PrivateRoute path="/request-feature"><RequestFeature /></PrivateRoute>} />
         <Route path="/whats-new" element={<PrivateRoute path="/whats-new"><WhatsNew /></PrivateRoute>} />

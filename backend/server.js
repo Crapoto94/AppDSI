@@ -2340,6 +2340,8 @@ app.use('/api/infra', require('./modules/infra/infra.routes'));
 // Finance & Tiers Module
 app.use('/api/budget', financeRouter);
 app.use('/api/finance/field-mapping', fieldMappingRouter);
+app.use('/api/finance/service-fait', require('./modules/finance/service-fait/service-fait.routes'));
+require('./modules/finance/service-fait/service-fait.controller').setSendMail(sendMail);
 app.use('/api/budget-prep', require('./modules/budget-prep/budget-prep.routes'));
 app.use('/api/tiers', tiersRouter);
 app.use('/api/contacts', contactsRouter);

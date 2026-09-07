@@ -3007,6 +3007,67 @@ async function setupPgDb() {
       await client.query(`ALTER TABLE finance.field_mapping_variables ADD COLUMN IF NOT EXISTS display_type TEXT NOT NULL DEFAULT 'text'`);
     } catch (e) {}
 
+    // ── Service Fait validation workflow ──
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS finance.service_fait_workflows (
+        id SERIAL PRIMARY KEY,
+        invoice_ref TEXT NOT NULL,
+        invoice_number TEXT DEFAULT '',
+        invoice_label TEXT DEFAULT '',
+        invoice_supplier TEXT DEFAULT '',
+        invoice_amount NUMERIC,
+        invoice_section TEXT DEFAULT '',
+        status TEXT NOT NULL DEFAULT 'en_attente',
+        requested_by TEXT NOT NULL,
+        requested_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        verifier_username TEXT,
+        verifier_name TEXT DEFAULT '',
+        verifier_email TEXT DEFAULT '',
+        decision_at TIMESTAMP,
+        decision_comment TEXT DEFAULT '',
+        transfer_to_username TEXT,
+        transfer_to_name TEXT DEFAULT '',
+        transfer_to_email TEXT DEFAULT '',
+        file_path TEXT,
+        token TEXT UNIQUE,
+        token_expires_at TIMESTAMP,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+    try {
+      await client.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_sf_workflows_token ON finance.service_fait_workflows(token)`);
+    } catch (e) {}
+    try {
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_sf_workflows_invoice_ref ON finance.service_fait_workflows(invoice_ref)`);
+    } catch (e) {}
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS finance.service_fait_pieces_jointes (
+        id SERIAL PRIMARY KEY,
+        workflow_id INTEGER NOT NULL REFERENCES finance.service_fait_workflows(id) ON DELETE CASCADE,
+        file_path TEXT NOT NULL,
+        original_name TEXT NOT NULL,
+        uploaded_by TEXT NOT NULL,
+        uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS finance.service_fait_historique (
+        id SERIAL PRIMARY KEY,
+        workflow_id INTEGER NOT NULL REFERENCES finance.service_fait_workflows(id) ON DELETE CASCADE,
+        action TEXT NOT NULL,
+        actor_username TEXT NOT NULL,
+        actor_name TEXT DEFAULT '',
+        comment TEXT DEFAULT '',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+    try {
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_sf_historique_workflow ON finance.service_fait_historique(workflow_id)`);
+    } catch (e) {}
+
     // Create hub_copieurs schema and table
     await client.query('CREATE SCHEMA IF NOT EXISTS hub_copieurs;');
     await client.query(`
