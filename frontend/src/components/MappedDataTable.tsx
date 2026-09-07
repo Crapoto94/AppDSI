@@ -441,10 +441,12 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
               if (rubriqueName === 'Factures') {
                 const st = sfStatuses[factureRef || ''] || null;
                 if (st) {
+                  const decisionDate = st.decision_at || st.updated_at;
+                  const formattedDecisionDate = decisionDate ? new Date(decisionDate).toLocaleDateString('fr-FR') : '';
                   const map: Record<string, { label: string; color: string; bg: string }> = {
                     'en_attente': { label: '⏳ En attente', color: '#92400e', bg: '#fef3c7' },
                     'en_cours': { label: '🔵 En cours', color: '#1e40af', bg: '#dbeafe' },
-                    'valide': { label: '✅ Validé', color: '#166534', bg: '#dcfce7' },
+                    'valide': { label: formattedDecisionDate ? `✅ SF le ${formattedDecisionDate}` : '✅ Validé', color: '#166534', bg: '#dcfce7' },
                     'valide_avec_reserves': { label: '⚠️ Avec réserves', color: '#92400e', bg: '#fef3c7' },
                     'non_valide': { label: '❌ Non validé', color: '#991b1b', bg: '#fee2e2' },
                     'ne_me_concerne_pas': { label: '🔄 Retourné', color: '#1e40af', bg: '#dbeafe' },

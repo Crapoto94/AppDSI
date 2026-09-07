@@ -153,7 +153,7 @@ const controller = {
                     <p style="margin-top:16px">
                         <a href="${verifierUrl}" style="display:inline-block;padding:12px 24px;background:#6366f1;color:#fff;text-decoration:none;border-radius:6px;font-weight:600;">Valider le service fait</a>
                     </p>
-                    <p style="font-size:12px;color:#94a3b8;margin-top:8px;">Ou copiez ce lien : ${verifierUrl}</p>
+                    <p style="font-size:12px;color:#94a3b8;margin-top:8px;word-break:break-all;overflow-wrap:break-word;">Ou copiez ce lien : <a href="${verifierUrl}" style="color:#6366f1;word-break:break-all;overflow-wrap:break-word;">${verifierUrl}</a></p>
                 `;
                 try {
                     await sendMailFn(agent.email, 'Demande de validation du service fait', html);
@@ -462,7 +462,7 @@ const controller = {
                     <p style="margin-top:16px">
                         <a href="${verifierUrl}" style="display:inline-block;padding:12px 24px;background:#6366f1;color:#fff;text-decoration:none;border-radius:6px;font-weight:600;">Valider le service fait</a>
                     </p>
-                    <p style="font-size:12px;color:#94a3b8;margin-top:8px;">Ou copiez ce lien : ${verifierUrl}</p>
+                    <p style="font-size:12px;color:#94a3b8;margin-top:8px;word-break:break-all;overflow-wrap:break-word;">Ou copiez ce lien : <a href="${verifierUrl}" style="color:#6366f1;word-break:break-all;overflow-wrap:break-word;">${verifierUrl}</a></p>
                 `;
                 try {
                     await sendMailFn(newVerifierEmail, subjectMap[decision], html);
