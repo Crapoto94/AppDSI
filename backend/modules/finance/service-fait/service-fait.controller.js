@@ -38,6 +38,12 @@ function verifyToken(token) {
     }
 }
 
+function getClientIp(req) {
+    const fwd = req.headers['x-forwarded-for'];
+    if (fwd) return String(fwd).split(',')[0].trim();
+    return req.ip || req.connection?.remoteAddress || '';
+}
+
 function isTelecomIntegrated(invoiceRef) {
     if (!invoiceRef) return false;
     return pool.query(
@@ -76,7 +82,7 @@ const controller = {
 
             const existing = await pool.query(
                 `SELECT id, status FROM finance.service_fait_workflows
-                 WHERE invoice_ref = $1 AND status NOT IN ('non_valide', 'ne_me_concerne_pas')`,
+                 WHERE invoice_ref = $1 AND status NOT IN ('non_valide', 'ne_me_concerne_pas', 'annule')`,
                 [invoice_ref]
             );
             if (existing.rowCount > 0) {
@@ -114,9 +120,9 @@ const controller = {
             }
 
             await pool.query(
-                `INSERT INTO finance.service_fait_historique (workflow_id, action, actor_username, actor_name, comment)
-                 VALUES ($1, 'demande_validation', $2, $3, $4)`,
-                [workflowId, req.user.username, req.user.username, `Vérificateur: ${agent.nom || agent.username}`]
+                `INSERT INTO finance.service_fait_historique (workflow_id, action, actor_username, actor_name, comment, actor_ip, actor_user_agent)
+                 VALUES ($1, 'demande_validation', $2, $3, $4, $5, $6)`,
+                [workflowId, req.user.username, req.user.username, `Vérificateur: ${agent.nom || agent.username}`, getClientIp(req), req.headers['user-agent'] || '']
             );
 
             const appUrl = await getAppBaseUrl();
@@ -381,9 +387,9 @@ const controller = {
             );
 
             await pool.query(
-                `INSERT INTO finance.service_fait_historique (workflow_id, action, actor_username, actor_name, comment)
-                 VALUES ($1, $2, $3, $4, $5)`,
-                [wf.id, actionLabels[decision], wf.verifier_username, wf.verifier_name, comment || '']
+                `INSERT INTO finance.service_fait_historique (workflow_id, action, actor_username, actor_name, comment, actor_ip, actor_user_agent)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+                [wf.id, actionLabels[decision], wf.verifier_username, wf.verifier_name, comment || '', getClientIp(req), req.headers['user-agent'] || '']
             );
 
             const appUrl = await getAppBaseUrl();
@@ -449,6 +455,37 @@ const controller = {
         } catch (error) {
             console.error('[ServiceFait] submitDecision error:', error);
             res.status(500).json({ message: 'Erreur soumission décision', error: error.message });
+        }
+    },
+
+    cancelWorkflow: async (req, res) => {
+        try {
+            const { id } = req.params;
+            const { comment } = req.body || {};
+
+            const wfRes = await pool.query(`SELECT * FROM finance.service_fait_workflows WHERE id = $1`, [id]);
+            if (wfRes.rowCount === 0) return res.status(404).json({ message: 'Workflow non trouvé' });
+            const wf = wfRes.rows[0];
+
+            if (!['en_attente', 'en_cours', 'transfere'].includes(wf.status)) {
+                return res.status(400).json({ message: 'Ce processus est déjà terminé, il ne peut plus être annulé' });
+            }
+
+            await pool.query(
+                `UPDATE finance.service_fait_workflows SET status = 'annule', updated_at = CURRENT_TIMESTAMP WHERE id = $1`,
+                [id]
+            );
+
+            await pool.query(
+                `INSERT INTO finance.service_fait_historique (workflow_id, action, actor_username, actor_name, comment, actor_ip, actor_user_agent)
+                 VALUES ($1, 'annulation', $2, $3, $4, $5, $6)`,
+                [id, req.user.username, req.user.username, comment || '', getClientIp(req), req.headers['user-agent'] || '']
+            );
+
+            res.json({ success: true, status: 'annule' });
+        } catch (error) {
+            console.error('[ServiceFait] cancelWorkflow error:', error);
+            res.status(500).json({ message: 'Erreur annulation workflow', error: error.message });
         }
     }
 };

@@ -3,6 +3,7 @@ import axios from 'axios';
 import { useAuth } from '../contexts/AuthContext';
 import { Search, ChevronUp, ChevronDown, ChevronRight, Columns, ExternalLink, Link2, AppWindow, Rocket, Eye } from 'lucide-react';
 import ServiceFaitModal from './ServiceFaitModal';
+import ServiceFaitProcessusModal from './ServiceFaitProcessusModal';
 
 interface MappingColumn {
   name: string;
@@ -78,6 +79,7 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
   const [pendingFilter, setPendingFilter] = useState(false);
   const [sfModalRow, setSfModalRow] = useState<{ row: any; } | null>(null);
   const [sfStatuses, setSfStatuses] = useState<Record<string, any>>({});
+  const [sfProcessModal, setSfProcessModal] = useState<{ workflowId: number } | null>(null);
 
   useEffect(() => { localStorage.setItem(storageKey, JSON.stringify(visibleCols)); }, [visibleCols, storageKey]);
 
@@ -422,7 +424,7 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
               const expandable = !!(childRubriqueId && childLinkValue);
               const factureCol = rubriqueName === 'Factures' ? columns.find(c => c.expression === 'FACTURE_FACTURE') : null;
               const factureRef = factureCol ? String(row[factureCol.name] || '').trim() : null;
-              let sfInfo: { label: string; color: string; bg: string; workflowId: number | null; tooltip: string } | null = null;
+              let sfInfo: { label: string; color: string; bg: string; workflowId: number | null; tooltip: string; ongoing: boolean } | null = null;
               if (rubriqueName === 'Factures') {
                 const st = sfStatuses[factureRef || ''] || null;
                 if (st) {
@@ -434,9 +436,11 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
                     'non_valide': { label: '❌ Non validé', color: '#991b1b', bg: '#fee2e2' },
                     'ne_me_concerne_pas': { label: '🔄 Retourné', color: '#1e40af', bg: '#dbeafe' },
                     'transfere': { label: '➡️ Transféré', color: '#6b21a8', bg: '#f3e8ff' },
+                    'annule': { label: '🚫 Annulé', color: '#64748b', bg: '#f1f5f9' },
                   };
                   const meta = map[st.status] || { label: st.status, color: '#334155', bg: '#f1f5f9' };
-                  sfInfo = { ...meta, workflowId: st.workflowId || null, tooltip: `${st.status}\nVérificateur: ${st.verifier_name || '-'}` };
+                  const ongoing = ['en_attente', 'en_cours', 'transfere'].includes(st.status);
+                  sfInfo = { ...meta, workflowId: st.workflowId || null, tooltip: `${st.status}\nVérificateur: ${st.verifier_name || '-'}`, ongoing };
                 }
               }
               return (
@@ -473,15 +477,30 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
                               <>
                                 {sfInfo && (
                                   <>
-                                    <span title={sfInfo.tooltip} style={{ background: sfInfo.bg, color: sfInfo.color, border: 'none', borderRadius: '4px', padding: '3px 8px', fontSize: '11px', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
-                                      {sfInfo.label}
-                                    </span>
-                                    {sfInfo.workflowId && (
-                                      <button title="Voir le processus de validation"
-                                        onClick={() => window.location.href = `/service-fait/processus/${sfInfo.workflowId}`}
-                                        style={{ background: '#2563eb', color: 'white', border: 'none', borderRadius: '4px', padding: '3px 8px', fontSize: '11px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '3px' }}>
-                                        <Eye size={12} /> Processus
-                                      </button>
+                                    {sfInfo.ongoing ? (
+                                      <>
+                                        <span title={sfInfo.tooltip} style={{ background: sfInfo.bg, color: sfInfo.color, border: 'none', borderRadius: '4px', padding: '3px 8px', fontSize: '11px', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+                                          {sfInfo.label}
+                                        </span>
+                                        {sfInfo.workflowId && (
+                                          <button title="Voir le processus de validation"
+                                            onClick={() => setSfProcessModal({ workflowId: sfInfo!.workflowId! })}
+                                            style={{ background: '#2563eb', color: 'white', border: 'none', borderRadius: '4px', padding: '3px 8px', fontSize: '11px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '3px' }}>
+                                            <Eye size={12} /> Processus
+                                          </button>
+                                        )}
+                                      </>
+                                    ) : (
+                                      sfInfo.workflowId ? (
+                                        <button title="Voir le processus de validation" onClick={() => setSfProcessModal({ workflowId: sfInfo!.workflowId! })}
+                                          style={{ background: sfInfo.bg, color: sfInfo.color, border: 'none', borderRadius: '4px', padding: '3px 8px', fontSize: '11px', fontWeight: 600, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+                                          {sfInfo.label}
+                                        </button>
+                                      ) : (
+                                        <span title={sfInfo.tooltip} style={{ background: sfInfo.bg, color: sfInfo.color, border: 'none', borderRadius: '4px', padding: '3px 8px', fontSize: '11px', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+                                          {sfInfo.label}
+                                        </span>
+                                      )
                                     )}
                                   </>
                                 )}
@@ -744,6 +763,14 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
           columns={columns}
           onClose={() => setSfModalRow(null)}
           onCreated={() => fetchData(searchTerm, currentPage * effectivePageSize)}
+        />
+      )}
+
+      {sfProcessModal && (
+        <ServiceFaitProcessusModal
+          workflowId={sfProcessModal.workflowId}
+          onClose={() => setSfProcessModal(null)}
+          onChanged={() => fetchData(searchTerm, currentPage * effectivePageSize)}
         />
       )}
     </div>
