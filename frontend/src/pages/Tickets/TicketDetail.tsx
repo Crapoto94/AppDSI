@@ -32,6 +32,16 @@ function rewriteGlpiImages(html: string, cidMap?: Record<string, number>): strin
   const token = localStorage.getItem('token') || '';
   let out = html;
 
+  // Sécurité : le contenu vient d'emails importés tels quels (Outlook/Word ajoutent
+  // souvent <base href="..."> dans le HTML). Injecté via dangerouslySetInnerHTML, un
+  // <base> prend effet sur TOUTE la page (pas seulement le fragment) et détourne la
+  // résolution de tous les liens/appels relatifs (ex: "Accueil" → site externe, voire
+  // les appels /api/* avec le token JWT). On le retire, avec les <meta refresh> pour
+  // la même raison (redirection auto de la page entière).
+  out = out
+    .replace(/<base\b[^>]*>/gi, '')
+    .replace(/<meta\b(?=[^>]*http-equiv\s*=\s*["']?refresh)[^>]*>/gi, '');
+
   // Réécriture des cid: (images inline d'email : cid:image001.png@XXXXX)
   if (cidMap && Object.keys(cidMap).length > 0) {
     out = out.replace(
@@ -148,6 +158,15 @@ function SoftwareSelect({ apps, value, onChange }: { apps: any[]; value: string;
   );
 }
 
+// Modes de réponse du ticket : sélecteur vertical façon "dossiers à onglets" (cf. zone de réponse).
+type ReplyMode = 'comment' | 'internal' | 'email' | 'resolution';
+const REPLY_MODES: { key: ReplyMode; label: string; icon: string; color: string; bg: string; border: string }[] = [
+  { key: 'comment', label: 'Commentaire simple', icon: '💬', color: '#52525b', bg: '#f4f4f5', border: '#d4d4d8' },
+  { key: 'internal', label: 'Note interne', icon: '🔒', color: '#c2410c', bg: '#fff7ed', border: '#fdba74' },
+  { key: 'email', label: 'Réponse e-mail', icon: '✉️', color: '#1d4ed8', bg: '#eff6ff', border: '#93c5fd' },
+  { key: 'resolution', label: 'Résolution', icon: '✅', color: '#15803d', bg: '#f0fdf4', border: '#86efac' },
+];
+
 export default function TicketDetail() {
   const { id } = useParams();
   const { user, token } = useAuth();
@@ -184,7 +203,10 @@ export default function TicketDetail() {
   const [uploadingTaskNote, setUploadingTaskNote] = useState(false);
   const taskNoteTargetId = useRef<number | null>(null);
   const [newComment, setNewComment] = useState('');
-  const [commentPrivate, setCommentPrivate] = useState(false);
+  const [replyMode, setReplyMode] = useState<ReplyMode>('comment');
+  const [ccTechnicians, setCcTechnicians] = useState(false);
+  const [recipientsMenuOpen, setRecipientsMenuOpen] = useState(false);
+  const recipientsMenuRef = useRef<HTMLDivElement>(null);
   const [loading, setLoading] = useState(true);
   const [requesterTickets, setRequesterTickets] = useState<any>(null);
   const [showRequesterTickets, setShowRequesterTickets] = useState(false);
@@ -259,6 +281,26 @@ export default function TicketDetail() {
 
   // CC observateurs à l'envoi
   const [ccObservers, setCcObservers] = useState(false);
+
+  // Réinitialise les destinataires additionnels à chaque changement de mode
+  // (Demandeur reste implicite/obligatoire en mode email et résolution).
+  useEffect(() => {
+    setCcObservers(false);
+    setCcTechnicians(false);
+    setRecipientsMenuOpen(false);
+  }, [replyMode]);
+
+  // Ferme le menu destinataires au clic extérieur
+  useEffect(() => {
+    if (!recipientsMenuOpen) return;
+    function onClickOutside(e: MouseEvent) {
+      if (recipientsMenuRef.current && !recipientsMenuRef.current.contains(e.target as Node)) {
+        setRecipientsMenuOpen(false);
+      }
+    }
+    document.addEventListener('mousedown', onClickOutside);
+    return () => document.removeEventListener('mousedown', onClickOutside);
+  }, [recipientsMenuOpen]);
 
   // Résolution en cascade
   const [showCascadeModal, setShowCascadeModal] = useState(false);
@@ -937,14 +979,14 @@ export default function TicketDetail() {
     return ids;
   }
 
-  async function handleAddComment() {
+  async function handleAddComment(isPrivate: boolean) {
     if (nothingToSend) return;
     try {
       const token = localStorage.getItem('token');
       const attachment_ids = await buildAttachmentIds();
       await axios.post(`/api/tickets/${id}/comments`, {
         content: newComment,
-        is_private: commentPrivate ? 1 : 0,
+        is_private: isPrivate ? 1 : 0,
         attachment_ids
       }, { headers: { Authorization: `Bearer ${token}` } });
       setNewComment('');
@@ -969,8 +1011,9 @@ export default function TicketDetail() {
     }
   }
 
-  // Valide le commentaire comme SOLUTION : le poste, le définit comme solution
-  // du ticket (affichage distinct) et passe le statut à Résolu.
+  // Valide le commentaire comme SOLUTION : le poste (et l'envoie par email au
+  // demandeur s'il en a un, comme le mode Réponse e-mail), le définit comme
+  // solution du ticket (affichage distinct) et passe le statut à Résolu.
   async function handleSolutionner() {
     if (isCommentEmpty(newComment)) return;
     setSolutionning(true);
@@ -978,13 +1021,25 @@ export default function TicketDetail() {
       const token = localStorage.getItem('token');
       const h = { headers: { Authorization: `Bearer ${token}` } };
       const attachment_ids = await buildAttachmentIds();
-      // 1) Poster le commentaire (public)
-      await axios.post(`/api/tickets/${id}/comments`, { content: newComment, is_private: 0, attachment_ids }, h);
+      // 1) Poster le commentaire — envoyé par email au demandeur si connu
+      //    (+ CC techniciens/observateurs sélectionnés), sinon commentaire public simple.
+      if (ticket.requester?.email) {
+        await axios.post(`/api/tickets/${id}/comments/send`, {
+          content: newComment, is_private: 0,
+          cc_observers: ccObservers, cc_technicians: ccTechnicians,
+          is_resolution: true,
+          attachment_ids
+        }, h);
+      } else {
+        await axios.post(`/api/tickets/${id}/comments`, { content: newComment, is_private: 0, attachment_ids }, h);
+      }
       // 2) Le définir comme solution → statut Résolu (5) + date_solved (côté backend)
       await axios.post(`/api/tickets/${id}/solution`, { solution: newComment }, h);
       setNewComment('');
       setCommentFile(null);
       setPendingDocs([]);
+      setCcObservers(false);
+      setCcTechnicians(false);
       await loadTicket();
     } catch (err: any) {
       alert(err.response?.data?.message || 'Erreur lors de la résolution');
@@ -995,6 +1050,7 @@ export default function TicketDetail() {
 
   async function handleSendToUser() {
     if (nothingToSend) return;
+    if (!ticket.requester?.email) { alert('Aucun email demandeur trouvé : impossible d\'envoyer par e-mail.'); return; }
     setSendingToUser(true);
     try {
       const token = localStorage.getItem('token');
@@ -1003,12 +1059,14 @@ export default function TicketDetail() {
         content: newComment,
         is_private: 0,
         cc_observers: ccObservers,
+        cc_technicians: ccTechnicians,
         attachment_ids
       }, { headers: { Authorization: `Bearer ${token}` } });
       setNewComment('');
       setCommentFile(null);
       setPendingDocs([]);
       setCcObservers(false);
+      setCcTechnicians(false);
       loadTicket();
     } catch (err: any) {
       alert(err.response?.data?.message || 'Erreur envoi email');
@@ -1016,6 +1074,28 @@ export default function TicketDetail() {
       setSendingToUser(false);
     }
   }
+
+  // Point d'entrée unique de publication : dispatch selon le mode actif.
+  function handleSubmitReply() {
+    if (replyMode === 'internal') return handleAddComment(true);
+    if (replyMode === 'email') return handleSendToUser();
+    if (replyMode === 'resolution') return handleSolutionner();
+    return handleAddComment(false);
+  }
+
+  const submitDisabled = replyMode === 'resolution'
+    ? (isCommentEmpty(newComment) || solutionning)
+    : replyMode === 'email'
+      ? (nothingToSend || sendingToUser || !ticket?.requester?.email)
+      : nothingToSend;
+
+  const submitLabel = replyMode === 'internal' ? '🔒 Enregistrer la note'
+    : replyMode === 'email' ? (sendingToUser ? 'Envoi...' : '✉️ Envoyer')
+      : replyMode === 'resolution' ? (solutionning ? 'Résolution…' : '✅ Valider la solution')
+        : 'Publier';
+
+  const activeReplyMode = REPLY_MODES.find(m => m.key === replyMode)!;
+  const techCount = ticket?.technician_email ? 1 : 0;
 
   async function handleToggleVip() {
     try {
@@ -1412,10 +1492,12 @@ export default function TicketDetail() {
             {/* DESCRIPTION */}
             <div style={{ borderBottom: '1px solid #f4f4f5', paddingBottom: 20 }}>
               <span style={{ fontSize: 11, fontWeight: 600, color: '#a1a1aa', textTransform: 'uppercase', letterSpacing: '0.06em', display: 'block', padding: '16px 0 8px' }}>Description</span>
-              {ticket.content
-                ? <div className="ticket-html-content" style={{ fontSize: 13, color: '#3f3f46', lineHeight: 1.6, maxHeight: 320, overflowY: 'auto', paddingRight: 4 }} dangerouslySetInnerHTML={{ __html: rewriteGlpiImages(decodeHtml(ticket.content), cidDocs) }} />
-                : <p style={{ fontSize: 13, color: '#a1a1aa', margin: 0, fontStyle: 'italic' }}>Aucune description</p>
-              }
+              <div style={{ background: '#fafafa', border: '1px solid #e4e4e7', borderRadius: 8, padding: '12px 14px' }}>
+                {ticket.content
+                  ? <div className="ticket-html-content" style={{ fontSize: 13, color: '#3f3f46', lineHeight: 1.6, maxHeight: 320, overflowY: 'auto', paddingRight: 4 }} dangerouslySetInnerHTML={{ __html: rewriteGlpiImages(decodeHtml(ticket.content), cidDocs) }} />
+                  : <p style={{ fontSize: 13, color: '#a1a1aa', margin: 0, fontStyle: 'italic' }}>Aucune description</p>
+                }
+              </div>
             </div>
 
             {/* PROBLÈME */}
@@ -1737,6 +1819,16 @@ export default function TicketDetail() {
                             ><Edit3 size={13} /></button>
                           )}
                         </div>
+                        {isSentToUser && !!c.sent_to && (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap', marginBottom: 5 }}>
+                            <span style={{ fontSize: 11, color: '#a1a1aa' }}>À :</span>
+                            {String(c.sent_to).split(',').map((e: string) => e.trim()).filter(Boolean).map((email: string) => (
+                              <span key={email} style={{ fontSize: 11, color: '#1d4ed8', background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 10, padding: '1px 8px' }}>
+                                {email}
+                              </span>
+                            ))}
+                          </div>
+                        )}
                         {editingCommentId === c.id ? (
                           <div>
                             <textarea
@@ -1786,116 +1878,142 @@ export default function TicketDetail() {
           {/* end scrollable content */}
 
           {/* ── REPLY BAR (inside left pane) ── */}
-          <div style={{ flexShrink: 0, borderTop: '1px solid #f4f4f5', background: '#fff', padding: '10px 20px' }}>
-            {/* Reformulation proposal */}
-            {reformulationProposal !== null && (
-              <div style={{ marginBottom: 8, background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 8, padding: '10px 14px' }}>
-                <div style={{ fontSize: 11, fontWeight: 600, color: '#15803d', marginBottom: 6 }}>✨ Proposition de reformulation :</div>
-                <div style={{ fontSize: 13, color: '#166534', lineHeight: 1.5, whiteSpace: 'pre-wrap', marginBottom: 8 }}>{reformulationProposal}</div>
-                <div style={{ display: 'flex', gap: 6 }}>
-                  <button onClick={() => { setNewComment(reformulationProposal); setReformulationProposal(null); }}
-                    style={{ padding: '4px 12px', background: '#16a34a', color: '#fff', border: 'none', borderRadius: 5, cursor: 'pointer', fontSize: 11, fontWeight: 600 }}>
-                    ✓ Accepter
-                  </button>
-                  <button onClick={() => setReformulationProposal(null)}
-                    style={{ padding: '4px 12px', background: 'transparent', color: '#6b7280', border: '1px solid #e4e4e7', borderRadius: 5, cursor: 'pointer', fontSize: 11 }}>
-                    ✕ Ignorer
-                  </button>
+          <div style={{ flexShrink: 0, borderTop: '1px solid #f4f4f5', background: '#fff' }}>
+            <div style={{ display: 'flex', alignItems: 'stretch' }}>
+
+              {/* Sélecteur de mode — dossiers à onglets, vertical */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 3, padding: '10px 0 10px 10px', flexShrink: 0 }}>
+                {REPLY_MODES.map(m => {
+                  const active = replyMode === m.key;
+                  return (
+                    <button key={m.key} type="button" onClick={() => setReplyMode(m.key)} title={m.label}
+                      style={{
+                        display: 'flex', alignItems: 'center', gap: 6,
+                        padding: isMobile ? '8px 9px' : '8px 12px 8px 10px',
+                        border: `1px solid ${active ? m.border : 'transparent'}`,
+                        borderRight: active ? '1px solid ' + m.bg : '1px solid transparent',
+                        borderRadius: '8px 0 0 8px',
+                        background: active ? m.bg : 'transparent',
+                        color: active ? m.color : '#a1a1aa',
+                        fontWeight: active ? 700 : 500, fontSize: 12,
+                        cursor: 'pointer', whiteSpace: 'nowrap', textAlign: 'left',
+                        marginRight: active ? -1 : 0, position: 'relative', zIndex: active ? 1 : 0,
+                      }}>
+                      <span>{m.icon}</span>{!isMobile && m.label}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Contenu du mode actif */}
+              <div style={{
+                flex: 1, minWidth: 0, padding: '10px 20px 10px 14px',
+                border: `1px solid ${activeReplyMode.border}`, borderBottom: 'none', borderRight: 'none',
+                borderTopLeftRadius: 8, background: activeReplyMode.bg,
+              }}>
+                {/* Reformulation proposal */}
+                {reformulationProposal !== null && (
+                  <div style={{ marginBottom: 8, background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 8, padding: '10px 14px' }}>
+                    <div style={{ fontSize: 11, fontWeight: 600, color: '#15803d', marginBottom: 6 }}>✨ Proposition de reformulation :</div>
+                    <div style={{ fontSize: 13, color: '#166534', lineHeight: 1.5, whiteSpace: 'pre-wrap', marginBottom: 8 }}>{reformulationProposal}</div>
+                    <div style={{ display: 'flex', gap: 6 }}>
+                      <button onClick={() => { setNewComment(reformulationProposal); setReformulationProposal(null); }}
+                        style={{ padding: '4px 12px', background: '#16a34a', color: '#fff', border: 'none', borderRadius: 5, cursor: 'pointer', fontSize: 11, fontWeight: 600 }}>
+                        ✓ Accepter
+                      </button>
+                      <button onClick={() => setReformulationProposal(null)}
+                        style={{ padding: '4px 12px', background: 'transparent', color: '#6b7280', border: '1px solid #e4e4e7', borderRadius: 5, cursor: 'pointer', fontSize: 11 }}>
+                        ✕ Ignorer
+                      </button>
+                    </div>
+                  </div>
+                )}
+                <div
+                  onKeyDown={e => { if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); if (!submitDisabled) handleSubmitReply(); } }}
+                  style={{ border: `1px solid ${activeReplyMode.border}`, borderRadius: 8, overflow: 'hidden', marginBottom: 8, background: '#fff' }}>
+                  <ReactQuill value={newComment} onChange={setNewComment} placeholder="Ajouter un commentaire... (Ctrl+Entrée pour publier)"
+                    modules={{ toolbar: [['bold', 'italic', 'underline'], [{ list: 'ordered' }, { list: 'bullet' }], ['link'], ['clean']] }}
+                    style={{ fontFamily: 'inherit', fontSize: 13 }}
+                  />
                 </div>
-              </div>
-            )}
-            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-              <div style={{ flex: '1 1 320px', minWidth: 0 }}>
-                <ResponseSuggestions
-                  categoryId={ticket?.category_id}
-                  subcategoryId={ticket?.subcategory_id}
-                  ticket={ticket}
-                  onApply={(html) => setNewComment(html)}
-                />
-              </div>
-              <div style={{ flex: '1 1 320px', minWidth: 0 }}>
-                <DocumentSuggestions
-                  categoryId={ticket?.category_id}
-                  softwareId={ticket?.software_id}
-                  softwareName={ticket?.software_name}
-                  onAttach={(doc: AttachDoc) => setPendingDocs(prev =>
-                    prev.some(p => p.source === doc.source && p.id === doc.id) ? prev : [...prev, doc])}
-                />
-              </div>
-            </div>
-            <div style={{ border: '1px solid #e4e4e7', borderRadius: 8, overflow: 'hidden', marginBottom: 8 }}>
-              <ReactQuill value={newComment} onChange={setNewComment} placeholder="Ajouter un commentaire..."
-                modules={{ toolbar: [['bold', 'italic', 'underline'], [{ list: 'ordered' }, { list: 'bullet' }], ['link'], ['clean']] }}
-                style={{ fontFamily: 'inherit', fontSize: 13 }}
-              />
-            </div>
-            {(commentFile || pendingDocs.length > 0) && (
-              <div style={{ marginBottom: 8, display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                {commentFile && (
-                  <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11, color: '#71717a', background: '#f9f9fb', padding: '3px 8px', borderRadius: 5, border: '1px solid #f4f4f5' }}>
-                    <span>📎 {commentFile.name}</span>
-                    <button onClick={() => setCommentFile(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#a1a1aa', padding: 0, fontSize: 13 }}>✕</button>
+                {(commentFile || pendingDocs.length > 0) && (
+                  <div style={{ marginBottom: 8, display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                    {commentFile && (
+                      <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11, color: '#71717a', background: '#f9f9fb', padding: '3px 8px', borderRadius: 5, border: '1px solid #f4f4f5' }}>
+                        <span>📎 {commentFile.name}</span>
+                        <button onClick={() => setCommentFile(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#a1a1aa', padding: 0, fontSize: 13 }}>✕</button>
+                      </div>
+                    )}
+                    {pendingDocs.map(d => (
+                      <div key={`${d.source}-${d.id}`} title="Sera envoyé en pièce jointe"
+                        style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11, color: '#047857', background: '#ecfdf5', padding: '3px 8px', borderRadius: 5, border: '1px solid #d1fae5' }}>
+                        <span>📎 {d.name}</span>
+                        <button onClick={() => setPendingDocs(prev => prev.filter(p => !(p.source === d.source && p.id === d.id)))}
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#10b981', padding: 0, fontSize: 13 }}>✕</button>
+                      </div>
+                    ))}
                   </div>
                 )}
-                {pendingDocs.map(d => (
-                  <div key={`${d.source}-${d.id}`} title="Sera envoyé en pièce jointe"
-                    style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11, color: '#047857', background: '#ecfdf5', padding: '3px 8px', borderRadius: 5, border: '1px solid #d1fae5' }}>
-                    <span>📎 {d.name}</span>
-                    <button onClick={() => setPendingDocs(prev => prev.filter(p => !(p.source === d.source && p.id === d.id)))}
-                      style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#10b981', padding: 0, fontSize: 13 }}>✕</button>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                    <button onClick={() => fileInputRef.current?.click()} title="Joindre un fichier"
+                      style={{ background: 'none', border: '1px solid #e4e4e7', borderRadius: 5, padding: '3px 8px', cursor: 'pointer', fontSize: 11, color: '#71717a', display: 'flex', alignItems: 'center', gap: 3 }}>
+                      📎 Fichier
+                    </button>
+                    <input ref={fileInputRef} type="file" style={{ display: 'none' }}
+                      onChange={e => setCommentFile(e.target.files?.[0] || null)}
+                      accept=".pdf,.png,.jpg,.jpeg,.doc,.docx,.xls,.xlsx,.zip,.txt" />
+                    <button onClick={toggleCommentDictation}
+                      title={listenComment ? 'Arrêter la dictée' : 'Dictée vocale'}
+                      style={{ background: listenComment ? '#fef2f2' : 'none', border: `1px solid ${listenComment ? '#fca5a5' : '#e4e4e7'}`, borderRadius: 5, padding: '3px 8px', cursor: 'pointer', fontSize: 11, color: listenComment ? '#dc2626' : '#71717a', display: 'flex', alignItems: 'center', gap: 3 }}>
+                      🎤 {listenComment ? 'Arrêter' : 'Dicter'}
+                    </button>
+                    {aiReformulationEnabled && (
+                      <button onClick={handleReformulate} disabled={isCommentEmpty(newComment) || reformulating}
+                        title="Reformuler avec l'IA"
+                        style={{ background: 'none', border: '1px solid #e4e4e7', borderRadius: 5, padding: '3px 8px', cursor: isCommentEmpty(newComment) ? 'default' : 'pointer', fontSize: 11, color: '#8b5cf6', display: 'flex', alignItems: 'center', gap: 3, opacity: isCommentEmpty(newComment) ? 0.4 : 1 }}>
+                        {reformulating ? '⏳' : '✨'} Reformuler
+                      </button>
+                    )}
                   </div>
-                ))}
-              </div>
-            )}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                <label style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 5, color: '#71717a', cursor: 'pointer' }}>
-                  <input type="checkbox" checked={commentPrivate} onChange={e => setCommentPrivate(e.target.checked)} />
-                  Interne
-                </label>
-                {ticket.requester?.email && !commentPrivate && observers.length > 0 && (
-                  <label style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 5, color: '#71717a', cursor: 'pointer' }}>
-                    <input type="checkbox" checked={ccObservers} onChange={e => setCcObservers(e.target.checked)} />
-                    CC observateurs
-                  </label>
-                )}
-                <button onClick={() => fileInputRef.current?.click()} title="Joindre un fichier"
-                  style={{ background: 'none', border: '1px solid #e4e4e7', borderRadius: 5, padding: '3px 8px', cursor: 'pointer', fontSize: 11, color: '#71717a', display: 'flex', alignItems: 'center', gap: 3 }}>
-                  📎 Fichier
-                </button>
-                <input ref={fileInputRef} type="file" style={{ display: 'none' }}
-                  onChange={e => setCommentFile(e.target.files?.[0] || null)}
-                  accept=".pdf,.png,.jpg,.jpeg,.doc,.docx,.xls,.xlsx,.zip,.txt" />
-                <button onClick={toggleCommentDictation}
-                  title={listenComment ? 'Arrêter la dictée' : 'Dictée vocale'}
-                  style={{ background: listenComment ? '#fef2f2' : 'none', border: `1px solid ${listenComment ? '#fca5a5' : '#e4e4e7'}`, borderRadius: 5, padding: '3px 8px', cursor: 'pointer', fontSize: 11, color: listenComment ? '#dc2626' : '#71717a', display: 'flex', alignItems: 'center', gap: 3 }}>
-                  🎤 {listenComment ? 'Arrêter' : 'Dicter'}
-                </button>
-                {aiReformulationEnabled && (
-                  <button onClick={handleReformulate} disabled={isCommentEmpty(newComment) || reformulating}
-                    title="Reformuler avec l'IA"
-                    style={{ background: 'none', border: '1px solid #e4e4e7', borderRadius: 5, padding: '3px 8px', cursor: isCommentEmpty(newComment) ? 'default' : 'pointer', fontSize: 11, color: '#8b5cf6', display: 'flex', alignItems: 'center', gap: 3, opacity: isCommentEmpty(newComment) ? 0.4 : 1 }}>
-                    {reformulating ? '⏳' : '✨'} Reformuler
-                  </button>
-                )}
-              </div>
-              <div style={{ display: 'flex', gap: 7 }}>
-                {ticket.requester?.email && !commentPrivate && (
-                  <button onClick={handleSendToUser} disabled={nothingToSend || sendingToUser}
-                    title={`Envoyer par email à ${ticket.requester.email}`}
-                    style={{ padding: '6px 14px', background: '#0ea5e9', color: '#fff', border: 'none', borderRadius: 7, fontWeight: 600, fontSize: 12, cursor: 'pointer', opacity: nothingToSend || sendingToUser ? 0.5 : 1 }}>
-                    {sendingToUser ? 'Envoi...' : '✉️ Enregistrer & envoyer'}
-                  </button>
-                )}
-                <button onClick={handleAddComment} disabled={nothingToSend}
-                  style={{ padding: '6px 16px', background: '#6366f1', color: '#fff', border: 'none', borderRadius: 7, fontWeight: 600, fontSize: 12, cursor: 'pointer', opacity: nothingToSend ? 0.5 : 1 }}>
-                  Enregistrer
-                </button>
-                <button onClick={handleSolutionner} disabled={isCommentEmpty(newComment) || solutionning}
-                  title="Valider ce commentaire comme solution et passer le ticket à Résolu"
-                  style={{ padding: '6px 16px', background: '#16a34a', color: '#fff', border: 'none', borderRadius: 7, fontWeight: 600, fontSize: 12, cursor: 'pointer', opacity: (isCommentEmpty(newComment) || solutionning) ? 0.5 : 1 }}>
-                  {solutionning ? 'Résolution…' : '✅ Solutionner'}
-                </button>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+                    {(replyMode === 'email' || replyMode === 'resolution') && (
+                      <div ref={recipientsMenuRef} style={{ position: 'relative' }}>
+                        <button type="button" onClick={() => setRecipientsMenuOpen(o => !o)}
+                          style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '6px 10px', background: '#fff', border: '1px solid #e4e4e7', borderRadius: 7, fontSize: 11, cursor: 'pointer', color: '#71717a', whiteSpace: 'nowrap' }}>
+                          <span>Destinataires :</span>
+                          <span style={{ fontWeight: 700, color: '#1d4ed8' }}>Demandeur</span>
+                          <span>-</span>
+                          <span style={{ fontWeight: ccTechnicians ? 700 : 400, color: ccTechnicians ? '#1d4ed8' : '#a1a1aa' }}>Techniciens : {techCount}</span>
+                          <span>-</span>
+                          <span style={{ fontWeight: ccObservers ? 700 : 400, color: ccObservers ? '#1d4ed8' : '#a1a1aa' }}>Observateurs : {observers.length}</span>
+                          <span style={{ fontSize: 9 }}>▾</span>
+                        </button>
+                        {recipientsMenuOpen && (
+                          <div style={{ position: 'absolute', bottom: 'calc(100% + 6px)', right: 0, zIndex: 60, background: '#fff', border: '1px solid #e4e4e7', borderRadius: 8, boxShadow: '0 8px 24px rgba(0,0,0,0.12)', padding: 6, minWidth: 240 }}>
+                            <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, padding: '5px 6px', color: '#71717a' }}>
+                              <input type="checkbox" checked disabled />
+                              Demandeur {ticket.requester?.email ? <span style={{ fontSize: 10, color: '#a1a1aa' }}>({ticket.requester.email})</span> : <span style={{ fontSize: 10, color: '#dc2626' }}>(aucun email)</span>}
+                            </label>
+                            <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, padding: '5px 6px', color: techCount ? '#3f3f46' : '#c4c4c8', cursor: techCount ? 'pointer' : 'default' }}>
+                              <input type="checkbox" disabled={!techCount} checked={ccTechnicians} onChange={e => setCcTechnicians(e.target.checked)} />
+                              Techniciens assignés ({techCount})
+                            </label>
+                            <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, padding: '5px 6px', color: observers.length ? '#3f3f46' : '#c4c4c8', cursor: observers.length ? 'pointer' : 'default' }}>
+                              <input type="checkbox" disabled={!observers.length} checked={ccObservers} onChange={e => setCcObservers(e.target.checked)} />
+                              Observateurs ({observers.length})
+                            </label>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                    <button onClick={handleSubmitReply} disabled={submitDisabled}
+                      title={replyMode === 'resolution' ? 'Valider ce commentaire comme solution et passer le ticket à Résolu' : replyMode === 'email' ? `Envoyer par email à ${ticket.requester?.email || ''}` : undefined}
+                      style={{ padding: '6px 18px', background: activeReplyMode.color, color: '#fff', border: 'none', borderRadius: 7, fontWeight: 700, fontSize: 12, cursor: 'pointer', opacity: submitDisabled ? 0.5 : 1 }}>
+                      {submitLabel}
+                    </button>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
@@ -2356,6 +2474,25 @@ export default function TicketDetail() {
                 </div>
               )}
             </div>
+
+            {/* RÉPONSES TYPES & BASE DE CONNAISSANCE (repliées) */}
+            <div style={{ borderBottom: '1px solid #f4f4f5', padding: '10px 0' }}>
+              <div style={{ fontSize: 11, fontWeight: 600, color: '#a1a1aa', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>Aide à la réponse</div>
+              <ResponseSuggestions
+                categoryId={ticket?.category_id}
+                subcategoryId={ticket?.subcategory_id}
+                ticket={ticket}
+                onApply={(html) => setNewComment(html)}
+              />
+              <DocumentSuggestions
+                categoryId={ticket?.category_id}
+                softwareId={ticket?.software_id}
+                softwareName={ticket?.software_name}
+                onAttach={(doc: AttachDoc) => setPendingDocs(prev =>
+                  prev.some(p => p.source === doc.source && p.id === doc.id) ? prev : [...prev, doc])}
+              />
+            </div>
+
             {/* GROUPES & ASSOCIATIONS */}
             <div style={{ borderBottom: '1px solid #f4f4f5', padding: '10px 0' }}>
               <div style={{ fontSize: 11, fontWeight: 600, color: '#a1a1aa', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>Associations</div>

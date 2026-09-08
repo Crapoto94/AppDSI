@@ -871,7 +871,7 @@ function App() {
 
   const htmlDecode = (str: string | null | undefined): string => {
     if (!str) return '';
-    return str
+    const decoded = str
       .replace(/&lt;/g, '<')
       .replace(/&gt;/g, '>')
       .replace(/&quot;/g, '"')
@@ -879,6 +879,13 @@ function App() {
       .replace(/&#039;/g, "'")
       .replace(/&nbsp;/g, '\u00A0')
       .replace(/&amp;/g, '&');
+    // S\u00E9curit\u00E9 : ce contenu (description/solution/commentaires de ticket) vient
+    // d'emails import\u00E9s tels quels (Outlook/Word ajoutent souvent <base href="...">).
+    // Inject\u00E9 via dangerouslySetInnerHTML, un <base> prend effet sur TOUTE la page
+    // (pas seulement le fragment) et d\u00E9tourne la r\u00E9solution des liens/appels relatifs.
+    return decoded
+      .replace(/<base\b[^>]*>/gi, '')
+      .replace(/<meta\b(?=[^>]*http-equiv\s*=\s*["']?refresh)[^>]*>/gi, '');
   };
 
   const handleSubscribe = async (e: React.MouseEvent, app: AppItem) => {

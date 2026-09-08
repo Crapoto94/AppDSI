@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import * as XLSX from 'xlsx';
 import Header from '../components/Header';
+import { stripDangerousHtmlTags } from '../utils/sanitizeHtml';
 import { Plus, Edit2, Trash2, Save, X, Globe, LayoutGrid, BarChart2, Bell, Tag, Code, CheckCircle, Settings, Users, Lightbulb, GraduationCap, Star, FileText, Wrench, Calendar, Paperclip, Download, Search, ChevronRight, Layers, Banknote, ShieldAlert, ExternalLink } from 'lucide-react';
 import { ResponsiveContainer, LineChart, Line, ReferenceLine, CartesianGrid, XAxis, YAxis, Tooltip as RTooltip } from 'recharts';
 import ReactQuill from 'react-quill-new';
@@ -1456,7 +1457,7 @@ const MagappAdmin: React.FC = () => {
                                     return (
                                         <div style={{ marginTop: '10px', padding: '10px 15px', background: '#eef2ff', borderRadius: '8px', color: '#4338ca', fontSize: '0.85rem', lineHeight: '1.4' }}>
                                             <strong>Description Mercator :</strong><br/>
-                                            <div dangerouslySetInnerHTML={{ __html: currMercator.description }} />
+                                            <div dangerouslySetInnerHTML={{ __html: stripDangerousHtmlTags(currMercator.description) }} />
                                         </div>
                                     );
                                 }

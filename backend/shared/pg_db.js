@@ -958,6 +958,8 @@ async function setupPgDb() {
     try { await client.query("ALTER TABLE hub_tickets.tickets ADD COLUMN IF NOT EXISTS resolution_method TEXT"); } catch (e) {}
     try { await client.query("ALTER TABLE hub_tickets.tickets ADD COLUMN IF NOT EXISTS knowledge_article TEXT"); } catch (e) {}
     try { await client.query("ALTER TABLE hub_tickets.ticket_followups ADD COLUMN IF NOT EXISTS sent_to_user INTEGER DEFAULT 0"); } catch (e) {}
+    // Liste des destinataires effectifs (emails séparés par virgule) d'un commentaire envoyé par email.
+    try { await client.query("ALTER TABLE hub_tickets.ticket_followups ADD COLUMN IF NOT EXISTS sent_to TEXT"); } catch (e) {}
     try { await client.query("ALTER TABLE hub_tickets.technician_groups ADD COLUMN IF NOT EXISTS is_default BOOLEAN DEFAULT FALSE"); } catch (e) {}
     // Auto-réparation : des lignes corrompues (id NULL) ont pu être insérées après une
     // perte de la clé primaire, ce qui casse les requêtes GROUP BY g.id. On nettoie et on restaure la PK.

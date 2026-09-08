@@ -6,6 +6,7 @@ import 'react-quill-new/dist/quill.snow.css';
 import Header from '../components/Header';
 import { useAuth } from '../contexts/AuthContext';
 import AddTaskModal from '../components/AddTaskModal';
+import { stripDangerousHtmlTags } from '../utils/sanitizeHtml';
 import { useADSearch } from '../utils/useADSearch';
 import { isAdminLike } from '../utils/roles';
 import AgentPresenceBadge from '../components/AgentPresenceBadge';
@@ -540,7 +541,7 @@ export default function RevueDeProjets() {
                       <p style={{ margin: '0 0 4px', fontSize: '10px', fontWeight: '700', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
                         Commentaire précédent{step2PrevCommentaires[projet.id].date_revue ? ' du ' + new Date(step2PrevCommentaires[projet.id].date_revue).toLocaleDateString('fr-FR') : ''}
                       </p>
-                      <div className="quill-html" style={{ margin: 0, fontSize: '12px', color: '#475569', fontStyle: 'italic' }} dangerouslySetInnerHTML={{ __html: step2PrevCommentaires[projet.id].commentaire }} />
+                      <div className="quill-html" style={{ margin: 0, fontSize: '12px', color: '#475569', fontStyle: 'italic' }} dangerouslySetInnerHTML={{ __html: stripDangerousHtmlTags(step2PrevCommentaires[projet.id].commentaire) }} />
                     </div>
                   )}
 
@@ -739,7 +740,7 @@ export default function RevueDeProjets() {
                   {rp.commentaire_precedent && (
                     <div style={{ marginBottom: '12px', padding: '10px', background: '#f1f5f9', borderRadius: '6px', border: '1px solid #e2e8f0' }}>
                       <p style={{ margin: '0 0 4px', fontSize: '10px', fontWeight: '700', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Commentaire précédent</p>
-                      <div className="quill-html" style={{ margin: 0, fontSize: '12px', color: '#475569', fontStyle: 'italic' }} dangerouslySetInnerHTML={{ __html: rp.commentaire_precedent }} />
+                      <div className="quill-html" style={{ margin: 0, fontSize: '12px', color: '#475569', fontStyle: 'italic' }} dangerouslySetInnerHTML={{ __html: stripDangerousHtmlTags(rp.commentaire_precedent) }} />
                     </div>
                   )}
 
