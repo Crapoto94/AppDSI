@@ -1,0 +1,59 @@
+server {
+    listen 5175;
+    server_name ${CHAT_DOMAIN};
+    client_max_body_size 10M;
+
+    root /usr/share/nginx/html;
+    index index.html;
+
+    # En-têtes de base recommandés pour un service exposé en DMZ.
+    # (Le TLS/HSTS réel est terminé par le reverse proxy DMZ en amont.)
+    add_header X-Content-Type-Options nosniff;
+    add_header X-Frame-Options SAMEORIGIN;
+    add_header Referrer-Policy strict-origin-when-cross-origin;
+
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+
+    # Socket.io WebSocket proxy — doit être avant /api/
+    location /socket.io/ {
+        proxy_pass ${BACKEND_URL}/socket.io/;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 86400;
+    }
+
+    # IMPORTANT (sécurité DMZ) : le backend est un monolithe qui sert aussi
+    # les tickets, la finance, la RH, l'admin, etc. sous /api/*. On ne proxy
+    # ici QUE ce dont le chat a besoin, jamais /api/ dans son ensemble, pour
+    # ne pas exposer publiquement le reste de l'API interne.
+
+    # Routes fonctionnelles du chat (auth, sessions, messages...)
+    location /api/live/ {
+        proxy_pass ${BACKEND_URL}/api/live/;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host $host;
+        proxy_cache_bypass $http_upgrade;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # Pièces jointes du chat (servies par shared/storage.js sous /api/storage/...)
+    location /api/storage/ {
+        proxy_pass ${BACKEND_URL}/api/storage/;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
