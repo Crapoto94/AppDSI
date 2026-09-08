@@ -100,7 +100,10 @@ router.get('/:id/revues', authenticateJWT, ctrl.getRevuesLiees);
 // ============================================
 router.get('/:id/journal', authenticateJWT, ctrl.getJournal);
 router.post('/:id/journal', authenticateJWT, uploadDoc.single('file'), ctrl.ajouterEntreeJournal);
-router.delete('/:id/journal/:journalId', authenticateAdminOrPMO, ctrl.supprimerEntreeJournal);
+// Modification/suppression : réservées à l'auteur de l'entrée ou à un admin/PMO
+// (vérifié dans le contrôleur, qui a besoin de charger l'entrée pour connaître son auteur).
+router.put('/:id/journal/:journalId', authenticateJWT, ctrl.modifierEntreeJournal);
+router.delete('/:id/journal/:journalId', authenticateJWT, ctrl.supprimerEntreeJournal);
 
 // ============================================
 // INDICATEURS

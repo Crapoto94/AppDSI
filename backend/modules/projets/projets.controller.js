@@ -23,6 +23,11 @@ async function estPMO(username) {
     } catch { return false; }
 }
 
+async function isAdminOrPMO(user) {
+    if (isSuperAdmin(user) || user?.role === 'admin') return true;
+    return estPMO(user?.username);
+}
+
 // Retourne la liste de codes services dans le périmètre d'un PMO (via ses affectations org)
 async function getPmoServiceCodes(pmoUsername) {
     try {
@@ -2069,16 +2074,42 @@ const ajouterEntreeJournal = async (req, res) => {
 
         let details_obj = details ? JSON.stringify(details) : null;
 
-        // Si un fichier est téléchargé, l'ajouter aux détails
+        // Si un fichier est joint, on le dépose dans l'espace documentaire du projet
+        // (même mécanisme qu'un dépôt en vrac : projet_documents + projet_versions_document
+        // + enregistrement central hub_docs), plutôt que de le stocker "à part" dans le
+        // journal où il n'était ni visible dans l'onglet Documents ni téléchargeable.
         if (req.file) {
-            const fileInfo = {
-                filename: req.file.originalname,
-                path: req.file.filename,
-                size: req.file.size,
-                mimetype: req.file.mimetype,
-                uploadedAt: new Date().toISOString()
-            };
-            details_obj = JSON.stringify(fileInfo);
+            if (req.file.originalname) req.file.originalname = storage.fixUploadName(req.file.originalname);
+            const docResult = await pgDb.run(
+                `INSERT INTO projet_documents (projet_id, type_documentaire, type_vrac, created_by_username) VALUES ($1, 'journal', 1, $2)`,
+                [id, username]
+            );
+            const did = docResult.lastID;
+            const saved = await storage.saveFile(MODULE, id, req.file);
+            await pgDb.run(
+                `INSERT INTO projet_versions_document (document_id, version, fichier_nom, fichier_original, fichier_taille, fichier_type, est_version_courante, depose_par_username, file_path) VALUES ($1, 'v1.0', $2, $3, $4, $5, 1, $6, $7)`,
+                [did, saved.filename, req.file.originalname, req.file.size, req.file.mimetype, username, saved.dbPath]
+            );
+            try {
+                const docsService = require('../../shared/documents.service');
+                await docsService.registerExternalUpload({
+                    module: 'projets',
+                    entityType: 'journal',
+                    entityId: id,
+                    title: req.file.originalname,
+                    filename: saved.filename,
+                    originalName: req.file.originalname,
+                    mimetype: req.file.mimetype,
+                    size: req.file.size,
+                    storageRef: saved.dbPath,
+                    metadata: { projet_id: id, legacy_document_id: did },
+                    uploadedBy: username,
+                });
+            } catch (e) { console.warn('[DOCS] register failed:', e.message); }
+
+            // Même forme que les entrées 'document_depose' : le frontend sait ouvrir
+            // n'importe quelle entrée de journal dont les détails portent un document_id.
+            details_obj = JSON.stringify({ document_id: did, version: 'v1.0', type: req.file.originalname });
         }
 
         const entryDate = date_entree ? date_entree : new Date().toISOString().split('T')[0];
@@ -2094,9 +2125,41 @@ const ajouterEntreeJournal = async (req, res) => {
     }
 };
 
+const modifierEntreeJournal = async (req, res) => {
+    try {
+        const { id, journalId } = req.params;
+        const { type_entree, message, date_entree } = req.body;
+        if (!message || !message.trim()) return res.status(400).json({ error: 'Message requis' });
+
+        const entry = await pgDb.get('SELECT username FROM projet_journal WHERE id = $1 AND projet_id = $2', [journalId, id]);
+        if (!entry) return res.status(404).json({ error: 'Entrée du journal non trouvée' });
+
+        const isOwner = entry.username && entry.username.toLowerCase() === req.user.username.toLowerCase();
+        if (!isOwner && !(await isAdminOrPMO(req.user))) {
+            return res.status(403).json({ error: 'Vous ne pouvez modifier que vos propres entrées de journal.' });
+        }
+
+        await pgDb.run(
+            `UPDATE projet_journal SET type_entree = COALESCE($1, type_entree), message = $2, date_entree = COALESCE($3, date_entree) WHERE id = $4`,
+            [type_entree || null, message, date_entree || null, journalId]
+        );
+        res.json({ message: 'Entrée mise à jour' });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
 const supprimerEntreeJournal = async (req, res) => {
     try {
         const { id, journalId } = req.params;
+
+        const entry = await pgDb.get('SELECT username FROM projet_journal WHERE id = $1 AND projet_id = $2', [journalId, id]);
+        if (!entry) return res.status(404).json({ error: 'Entrée du journal non trouvée' });
+
+        const isOwner = entry.username && entry.username.toLowerCase() === req.user.username.toLowerCase();
+        if (!isOwner && !(await isAdminOrPMO(req.user))) {
+            return res.status(403).json({ error: 'Vous ne pouvez supprimer que vos propres entrées de journal.' });
+        }
 
         const result = await pgDb.run(
             `DELETE FROM projet_journal WHERE id = $1 AND projet_id = $2`,
@@ -3151,7 +3214,7 @@ module.exports = {
     creerDocument, updateDocumentType, supprimerDocument, uploadVersion, uploadVersionsVrac, getDocuments, getDocumentDetail, telechargerVersion, getControlesDocuments,
     enregistrerScore, getScores, getScoreCalcule,
     lierReunion, delierReunion, getReunionsLiees, getRevuesLiees,
-    getJournal, getJournalGlobal, getPlanningGlobal, ajouterEntreeJournal, supprimerEntreeJournal,
+    getJournal, getJournalGlobal, getPlanningGlobal, ajouterEntreeJournal, modifierEntreeJournal, supprimerEntreeJournal,
     getIndicateurs, ajouterIndicateur,
     getStats,
     getScoringConfig, updateScoringConfig, getTypesDocumentaires, updateTypesDocumentaires,
