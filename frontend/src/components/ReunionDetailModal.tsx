@@ -7,6 +7,7 @@ import TranscriptViewModal from './TranscriptViewModal';
 import AddTaskModal from './AddTaskModal';
 import { useADSearch } from '../utils/useADSearch';
 import type { ADUser } from '../utils/useADSearch';
+import { stripDangerousHtmlTags } from '../utils/sanitizeHtml';
 
 const QUILL_MODULES_RICH = {
   toolbar: [
@@ -464,7 +465,7 @@ const ReunionDetailModal: React.FC<Props> = ({ isOpen, reunionId, token, userRol
           {selectedReunion.ordre_du_jour && selectedReunion.ordre_du_jour.replace(/<[^>]*>/g, '').trim() && (
             <div style={{marginBottom: '20px'}}>
               <h3 style={{margin: '0 0 8px', fontSize: '13px', fontWeight: 700, color: '#1e293b'}}>📋 Ordre du jour</h3>
-              <div className="quill-html" style={{padding: '12px 14px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: '14px', lineHeight: 1.7, color: '#1e293b'}} dangerouslySetInnerHTML={{__html: selectedReunion.ordre_du_jour}} />
+              <div className="quill-html" style={{padding: '12px 14px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: '14px', lineHeight: 1.7, color: '#1e293b'}} dangerouslySetInnerHTML={{__html: stripDangerousHtmlTags(selectedReunion.ordre_du_jour)}} />
             </div>
           )}
           {/* Projet lié */}

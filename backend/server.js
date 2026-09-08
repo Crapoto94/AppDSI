@@ -6075,6 +6075,10 @@ app.use('/api/dsi-dashboard', require('./modules/dsi-dashboard/dsi-dashboard.rou
 app.get('/api/public/reply/:token', (req, res) => ticketsCtrl.getReplyFormInfo(req, res));
 app.post('/api/public/reply/:token', (req, res) => ticketsCtrl.submitPublicReply(req, res));
 
+// Public reopen routes (no auth) — lien "Rouvrir le ticket" de l'email de résolution
+app.get('/api/public/reopen/:token', (req, res) => ticketsCtrl.getReopenInfo(req, res));
+app.post('/api/public/reopen/:token', (req, res) => ticketsCtrl.submitReopen(req, res));
+
 // Public KB document viewer (no auth, signed link) — pour les liens dans les emails
 app.get('/api/public/kb-document/:id', async (req, res) => {
   try {

@@ -6,6 +6,17 @@ function stripHtml(html: string) {
   return html ? html.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim() : '';
 }
 
+// Sécurité : ce contenu vient d'emails importés tels quels (Outlook/Word ajoutent
+// souvent <base href="..."> dans le HTML). Injecté via dangerouslySetInnerHTML sur
+// cette page PUBLIQUE, un <base> détournerait la résolution de tous les liens/appels
+// relatifs de la page (ex: le formulaire de réponse). On le retire.
+function sanitizeEmailHtml(html: string) {
+  if (!html) return html;
+  return html
+    .replace(/<base\b[^>]*>/gi, '')
+    .replace(/<meta\b(?=[^>]*http-equiv\s*=\s*["']?refresh)[^>]*>/gi, '');
+}
+
 export default function PublicTicketReply() {
   const { token } = useParams();
   const [info, setInfo] = useState<any>(null);
@@ -100,7 +111,7 @@ export default function PublicTicketReply() {
                   💬 Message du technicien
                 </div>
                 <div style={{ fontSize: 13, color: '#78350f', lineHeight: 1.6, wordBreak: 'break-word', overflowWrap: 'break-word', whiteSpace: 'pre-wrap' }}
-                  dangerouslySetInnerHTML={{ __html: info.lastQuestion.content }} />
+                  dangerouslySetInnerHTML={{ __html: sanitizeEmailHtml(info.lastQuestion.content) }} />
                 <div style={{ marginTop: 8, fontSize: 11, color: '#a16207' }}>
                   — {info.lastQuestion.author_name}
                   {info.lastQuestion.date_creation && (

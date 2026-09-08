@@ -1,0 +1,34 @@
+services:
+  chat-frontend-dmz:
+    build: .
+    container_name: appdsi-chat-dmz
+    environment:
+      # Adresse LAN du backend, JOIGNABLE DEPUIS LA DMZ (pas "http://backend:3001",
+      # ce nom Docker n'existe que sur le réseau interne du serveur applicatif).
+      # Ex: http://10.103.130.X:3001 — l'hôte qui expose le port 3001 (cf. docker-compose.yml
+      # racine du projet, service "backend", port publié 3001:3001).
+      - BACKEND_URL=${BACKEND_URL}
+      - CHAT_DOMAIN=${CHAT_DOMAIN:-chat.ivry94.fr}
+    # Publié sur l'hôte Docker DMZ : votre reverse proxy DMZ existant (celui qui gère
+    # déjà le TLS pour vos autres services) pointe vers <ip-hote-dmz>:5175 en HTTP.
+    ports:
+      - "5175:5175"
+    restart: unless-stopped
+
+    # --- Si votre reverse proxy DMZ route par réseau Docker (ex: Traefik avec le
+    # provider docker) plutôt que par port publié, remplacez le bloc "ports" ci-dessus
+    # par un rattachement au réseau externe de ce proxy, et décommentez les labels
+    # Traefik ci-dessous (à adapter au nom réel de votre réseau/proxy) :
+    #
+    # networks:
+    #   - dmz-proxy
+    # labels:
+    #   - "traefik.enable=true"
+    #   - "traefik.http.routers.chat.rule=Host(`chat.ivry94.fr`)"
+    #   - "traefik.http.routers.chat.entrypoints=websecure"
+    #   - "traefik.http.routers.chat.tls.certresolver=letsencrypt"
+    #   - "traefik.http.services.chat.loadbalancer.server.port=5175"
+
+# networks:
+#   dmz-proxy:
+#     external: true

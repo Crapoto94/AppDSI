@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useADSearch } from '../utils/useADSearch';
 import type { ADUser } from '../utils/useADSearch';
+import { stripDangerousHtmlTags } from '../utils/sanitizeHtml';
 import { useParams, useNavigate } from 'react-router-dom';
 import { ArrowLeft, FileText, MessageSquare, Calendar, BarChart3, Settings, Activity, Upload, UserPlus, ArrowRight, Plus, Trash2, CheckCircle2, ListChecks, X, Users, Pencil, ClipboardList } from 'lucide-react';
 import { TaskTable } from '../components/TaskTable';
@@ -2206,7 +2207,7 @@ const RevuesTab: React.FC<{ projetId: number; token: string | null }> = ({ proje
             {commentaireVide(r.commentaire) ? (
               <p style={{ margin: 0, fontSize: '12px', color: '#94a3b8', fontStyle: 'italic' }}>Aucun commentaire saisi pour ce projet lors de cette revue.</p>
             ) : (
-              <div className="quill-html" style={{ fontSize: '13px', color: '#334155', lineHeight: 1.5 }} dangerouslySetInnerHTML={{ __html: r.commentaire }} />
+              <div className="quill-html" style={{ fontSize: '13px', color: '#334155', lineHeight: 1.5 }} dangerouslySetInnerHTML={{ __html: stripDangerousHtmlTags(r.commentaire) }} />
             )}
           </div>
         </div>
