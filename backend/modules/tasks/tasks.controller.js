@@ -849,28 +849,62 @@ module.exports = {
                     );
                     break;
                 case 'projet':
-                    await pool.query(
-                        'UPDATE projets.projet_taches SET statut = $1 WHERE id = $2',
-                        [dbStatut, id]
-                    );
+                    // Une tâche projet ASSIGNÉE à un utilisateur (visible dans "Mes tâches")
+                    // vit dans hub.user_tasks (context_source='projet', context_id = id réel
+                    // dans projets.projet_taches) — l'id reçu ici est alors celui de
+                    // hub.user_tasks, pas celui de projets.projet_taches. Sans ce garde-fou,
+                    // le PATCH mettait à jour la mauvaise table avec le mauvais id et ne
+                    // persistait rien (silencieusement).
+                    if (isUserTask) {
+                        await pool.query(
+                            'UPDATE hub.user_tasks SET statut = $1, refus_raison = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = $2',
+                            [statut, id]
+                        );
+                    } else {
+                        await pool.query(
+                            'UPDATE projets.projet_taches SET statut = $1 WHERE id = $2',
+                            [dbStatut, id]
+                        );
+                    }
                     break;
                 case 'projet_standalone':
-                    await pool.query(
-                        'UPDATE projets.projet_taches_standalone SET statut = $1 WHERE id = $2',
-                        [dbStatut, id]
-                    );
+                    if (isUserTask) {
+                        await pool.query(
+                            'UPDATE hub.user_tasks SET statut = $1, refus_raison = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = $2',
+                            [statut, id]
+                        );
+                    } else {
+                        await pool.query(
+                            'UPDATE projets.projet_taches_standalone SET statut = $1 WHERE id = $2',
+                            [dbStatut, id]
+                        );
+                    }
                     break;
                 case 'rencontre':
-                    await pool.query(
-                        'UPDATE hub_rencontres.rencontres_suivi SET statut = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2',
-                        [statut, id]
-                    );
+                    if (isUserTask) {
+                        await pool.query(
+                            'UPDATE hub.user_tasks SET statut = $1, refus_raison = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = $2',
+                            [statut, id]
+                        );
+                    } else {
+                        await pool.query(
+                            'UPDATE hub_rencontres.rencontres_suivi SET statut = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2',
+                            [statut, id]
+                        );
+                    }
                     break;
                 case 'revue':
-                    await pool.query(
-                        'UPDATE hub_rencontres.revue_taches SET statut = $1 WHERE id = $2',
-                        [statut, id]
-                    );
+                    if (isUserTask) {
+                        await pool.query(
+                            'UPDATE hub.user_tasks SET statut = $1, refus_raison = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = $2',
+                            [statut, id]
+                        );
+                    } else {
+                        await pool.query(
+                            'UPDATE hub_rencontres.revue_taches SET statut = $1 WHERE id = $2',
+                            [statut, id]
+                        );
+                    }
                     break;
                 case 'reunion': {
                     // An assigned reunion task lives in hub.user_tasks with a
