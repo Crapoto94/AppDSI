@@ -137,6 +137,11 @@ async function getAppBaseUrl() {
     }
 }
 
+// Délai pendant lequel le demandeur peut rouvrir son ticket lui-même depuis le lien
+// reçu dans l'email de résolution (au-delà, il doit créer un nouveau ticket).
+// Aligné sur la fenêtre déjà utilisée par la réouverture interne (workflow.service.reopen : 7 jours).
+const REOPEN_WINDOW_HOURS = 168;
+
 function makeReplyToken(ticketId, requesterEmail) {
     const ts = Date.now();
     const payload = `${ticketId}|${requesterEmail}|${ts}`;
@@ -637,7 +642,7 @@ async assign(req, res) {
 
     async sendCommentToRequester(req, res) {
         try {
-            const { content, is_private = 0, cc_observers = false } = req.body;
+            const { content, is_private = 0, cc_observers = false, cc_technicians = false, is_resolution = false } = req.body;
             const ticketId = parseInt(req.params.id);
             const ticket = await ticketService.findById(ticketId, req.user);
             if (!ticket) return res.status(404).json({ message: 'Ticket non trouvé' });
@@ -645,7 +650,18 @@ async assign(req, res) {
             const requesterEmail = ticket.requester?.email;
             if (!requesterEmail) return res.status(400).json({ message: 'Aucun email demandeur trouvé' });
 
-            const comment = await commentRepo.create(ticketId, { content, is_private: is_private ? 1 : 0, sent_to_user: 1 }, req.user);
+            // Liste des destinataires effectifs, pour affichage ultérieur ("À : ...").
+            const recipientEmails = [requesterEmail];
+            let ccObserversList = [];
+            if (cc_observers) {
+                ccObserversList = (await observerRepo.findByTicket(ticketId)).filter(o => o.email && o.email !== requesterEmail);
+                recipientEmails.push(...ccObserversList.map(o => o.email));
+            }
+            if (cc_technicians && ticket.technician_email && ticket.technician_email !== requesterEmail && !recipientEmails.includes(ticket.technician_email)) {
+                recipientEmails.push(ticket.technician_email);
+            }
+
+            const comment = await commentRepo.create(ticketId, { content, is_private: is_private ? 1 : 0, sent_to_user: 1, sent_to: recipientEmails }, req.user);
 
             // Documents joints (base de connaissance / doc logiciel) : rattachés au
             // ticket et envoyés en pièce jointe de l'email (pas de lien inline).
@@ -714,7 +730,7 @@ async assign(req, res) {
                             <p>Vous avez reçu un message concernant votre ticket <strong>#${ticketId} – ${ticket.title}</strong> :</p>
                             <blockquote style="border-left:4px solid #6366f1;padding-left:12px;margin:12px 0;color:#374151;word-break:break-word;overflow-wrap:break-word;white-space:pre-wrap;">${content}</blockquote>
                             <p style="margin-top:16px;"><a href="${replyUrl}" style="display:inline-block;padding:10px 20px;background:#6366f1;color:#fff;text-decoration:none;border-radius:6px;font-weight:600;">Voir le message</a></p>
-                            <p style="font-size:12px;color:#94a3b8;">Ou copiez ce lien : ${replyUrl}</p>
+                            <p style="font-size:12px;color:#94a3b8;word-break:break-all;overflow-wrap:break-word;">Ou copiez ce lien : <a href="${replyUrl}" style="color:#6366f1;word-break:break-all;overflow-wrap:break-word;">${replyUrl}</a></p>
                             <p>Cordialement,<br>${authorName}</p>`;
                     }
                 } catch (tplErr) {
@@ -724,8 +740,28 @@ async assign(req, res) {
                         <p>Vous avez reçu un message concernant votre ticket <strong>#${ticketId} – ${ticket.title}</strong> :</p>
                         <blockquote style="border-left:4px solid #6366f1;padding-left:12px;margin:12px 0;color:#374151;word-break:break-word;overflow-wrap:break-word;white-space:pre-wrap;">${content}</blockquote>
                         <p style="margin-top:16px;"><a href="${replyUrl}" style="display:inline-block;padding:10px 20px;background:#6366f1;color:#fff;text-decoration:none;border-radius:6px;font-weight:600;">Voir le message</a></p>
-                        <p style="font-size:12px;color:#94a3b8;">Ou copiez ce lien : ${replyUrl}</p>
+                        <p style="font-size:12px;color:#94a3b8;word-break:break-all;overflow-wrap:break-word;">Ou copiez ce lien : <a href="${replyUrl}" style="color:#6366f1;word-break:break-all;overflow-wrap:break-word;">${replyUrl}</a></p>
                         <p>Cordialement,<br>${authorName}</p>`;
+                }
+
+                // Ticket résolu : ajoute une mention + un bouton pour rouvrir soi-même
+                // le ticket depuis l'email, tant que la fenêtre de réouverture est ouverte.
+                if (is_resolution) {
+                    const reopenToken = makeReplyToken(ticketId, requesterEmail);
+                    const reopenUrl = `${await getAppBaseUrl()}/reouvrir/${reopenToken}`;
+                    const reopenDays = Math.round(REOPEN_WINDOW_HOURS / 24);
+                    body += `
+                        <div style="margin-top:24px;padding-top:16px;border-top:1px solid #e5e7eb;">
+                            <p style="font-size:13px;color:#6b7280;margin:0 0 12px;">
+                                Ce ticket a été marqué comme résolu. Si le problème persiste, vous pouvez le rouvrir
+                                vous-même pendant les ${reopenDays} prochains jours (${REOPEN_WINDOW_HOURS}h) :
+                            </p>
+                            <p style="margin:0;">
+                                <a href="${reopenUrl}" style="display:inline-block;padding:9px 20px;background:#dc2626;color:#fff;text-decoration:none;border-radius:6px;font-weight:600;font-size:13px;">
+                                    ↺ Rouvrir le ticket
+                                </a>
+                            </p>
+                        </div>`;
                 }
 
                 if (mailAttachments.length > 0) {
@@ -755,12 +791,13 @@ async assign(req, res) {
                 }
 
                 if (cc_observers) {
-                    const obs = await observerRepo.findByTicket(ticketId);
-                    for (const o of obs) {
-                        if (o.email && o.email !== requesterEmail) {
-                            try { await _sendMail(o.email, `[CC] ${subject}`, body, mailAttachments); } catch { /**/ }
-                        }
+                    for (const o of ccObserversList) {
+                        try { await _sendMail(o.email, `[CC] ${subject}`, body, mailAttachments); } catch { /**/ }
                     }
+                }
+
+                if (cc_technicians && ticket.technician_email && ticket.technician_email !== requesterEmail) {
+                    try { await _sendMail(ticket.technician_email, `[CC] ${subject}`, body, mailAttachments); } catch { /**/ }
                 }
             }
 
@@ -1216,6 +1253,59 @@ async assign(req, res) {
         const fakeUser = { displayName: ticket.requester_name || info.email, username: info.email, email: info.email, id: null };
         await commentRepo.create(info.ticketId, { content, is_private: 0 }, fakeUser);
         res.json({ message: 'Réponse envoyée avec succès' });
+    },
+
+    // ── Réouverture publique (lien "Rouvrir le ticket" dans l'email de résolution) ──
+    getReopenInfo: async function(req, res) {
+        const info = verifyReplyToken(req.params.token);
+        if (!info) return res.status(400).json({ message: 'Lien invalide ou expiré' });
+        const ticket = await ticketRepo.findById(info.ticketId);
+        if (!ticket) return res.status(404).json({ message: 'Ticket non trouvé' });
+
+        const solvedDate = ticket.date_solved ? new Date(ticket.date_solved) : (ticket.date_mod ? new Date(ticket.date_mod) : null);
+        const hoursSince = solvedDate ? (Date.now() - solvedDate.getTime()) / (1000 * 60 * 60) : null;
+        const withinWindow = hoursSince == null || hoursSince <= REOPEN_WINDOW_HOURS;
+        const reopenable = [5, 6, 8].includes(ticket.status);
+
+        res.json({
+            ticketId: info.ticketId, title: ticket.title, email: info.email,
+            status: ticket.status,
+            reopenable, withinWindow,
+            windowHours: REOPEN_WINDOW_HOURS,
+            hoursRemaining: (hoursSince != null) ? Math.max(0, Math.round(REOPEN_WINDOW_HOURS - hoursSince)) : null,
+        });
+    },
+
+    submitReopen: async function(req, res) {
+        const info = verifyReplyToken(req.params.token);
+        if (!info) return res.status(400).json({ message: 'Lien invalide ou expiré' });
+        const reason = (req.body?.reason || '').trim();
+        if (!reason) return res.status(400).json({ message: 'Merci d\'indiquer la raison de la réouverture.' });
+
+        const ticket = await ticketRepo.findById(info.ticketId);
+        if (!ticket) return res.status(404).json({ message: 'Ticket non trouvé' });
+
+        if (![5, 6, 8].includes(ticket.status)) {
+            return res.status(400).json({ message: 'Ce ticket n\'est pas dans un état permettant la réouverture.' });
+        }
+        const solvedDate = ticket.date_solved ? new Date(ticket.date_solved) : (ticket.date_mod ? new Date(ticket.date_mod) : null);
+        if (solvedDate) {
+            const hoursSince = (Date.now() - solvedDate.getTime()) / (1000 * 60 * 60);
+            if (hoursSince > REOPEN_WINDOW_HOURS) {
+                return res.status(400).json({ message: `Le délai de réouverture (${REOPEN_WINDOW_HOURS}h après résolution) est dépassé. Merci de créer un nouveau ticket.` });
+            }
+        }
+
+        const fakeUser = { displayName: ticket.requester_name || info.email, username: info.email, email: info.email, id: null, role: 'user' };
+        try {
+            // Le motif devient un commentaire public sur le ticket, visible des techniciens.
+            await commentRepo.create(info.ticketId, { content: reason, is_private: 0 }, fakeUser);
+            await workflowService.changeStatus(info.ticketId, 2, null,
+                `Réouvert par le demandeur via le lien reçu par email (${info.email}) — Motif : ${reason}`, fakeUser);
+        } catch (e) {
+            return res.status(400).json({ message: e.message });
+        }
+        res.json({ message: 'Ticket réouvert' });
     },
 
     // ── GET /api/tickets/dashboard/live-stats ──────────────────────

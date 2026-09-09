@@ -521,16 +521,16 @@ ${tasksHtml}
                 const emails = participants.map(p => p.email).filter(e => e && e.includes('@'));
                 if (emails.length > 0 && sendMailFn) {
                     const changeRows = [];
-                    if (dateChanged) changeRows.push(`<tr><td style="padding:8px 12px;color:#475569;font-weight:700">Date &amp; heure</td><td style="padding:8px 12px;color:#dc2626;text-decoration:line-through">${oldDateStr}</td><td style="padding:8px 12px;color:#16a34a;font-weight:700">${newDateStr}</td></tr>`);
-                    if (lieuChanged) changeRows.push(`<tr><td style="padding:8px 12px;color:#475569;font-weight:700">Lieu</td><td style="padding:8px 12px;color:#dc2626;text-decoration:line-through">${reunion.lieu || '—'}</td><td style="padding:8px 12px;color:#16a34a;font-weight:700">${newLieu || '—'}</td></tr>`);
+                    if (dateChanged) changeRows.push(`<tr><td style="padding:8px 12px;color:#475569;font-weight:700;word-wrap:break-word;word-break:break-word">Date &amp; heure</td><td style="padding:8px 12px;color:#dc2626;text-decoration:line-through;word-wrap:break-word;word-break:break-word">${oldDateStr}</td><td style="padding:8px 12px;color:#16a34a;font-weight:700;word-wrap:break-word;word-break:break-word">${newDateStr}</td></tr>`);
+                    if (lieuChanged) changeRows.push(`<tr><td style="padding:8px 12px;color:#475569;font-weight:700;word-wrap:break-word;word-break:break-word">Lieu</td><td style="padding:8px 12px;color:#dc2626;text-decoration:line-through;word-wrap:break-word;word-break:break-word">${reunion.lieu || '—'}</td><td style="padding:8px 12px;color:#16a34a;font-weight:700;word-wrap:break-word;word-break:break-word">${newLieu || '—'}</td></tr>`);
                     const teamsHtml = reunion.teams_join_url ? `<p style="margin:16px 0 0"><a href="${reunion.teams_join_url}" style="display:inline-block;background:#5b5fc7;color:white;padding:10px 18px;border-radius:8px;text-decoration:none;font-weight:700">Rejoindre la réunion Teams</a></p>` : '';
                     const content = `
 <h1 style="color:#1e293b;margin:0 0 8px;font-size:22px;font-weight:900">✏️ Réunion modifiée</h1>
-<h2 style="color:#0f172a;margin:0 0 16px;font-size:18px">${reunion.titre}</h2>
+<h2 style="color:#0f172a;margin:0 0 16px;font-size:18px;word-wrap:break-word;word-break:break-word">${reunion.titre}</h2>
 <div style="margin-bottom:16px;padding:12px 16px;background:#fef3c7;border:1px solid #fde68a;border-radius:8px;font-size:14px;color:#92400e">
   Les informations de cette réunion ont été <strong>modifiées</strong>. Merci de mettre à jour votre agenda.
 </div>
-<table style="width:100%;border-collapse:collapse;font-size:13px;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden">
+<table style="width:100%;max-width:100%;table-layout:fixed;border-collapse:collapse;font-size:13px;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden">
   <thead><tr style="background:#f8fafc"><th style="padding:8px 12px;text-align:left;color:#475569">Champ</th><th style="padding:8px 12px;text-align:left;color:#475569">Avant</th><th style="padding:8px 12px;text-align:left;color:#475569">Après</th></tr></thead>
   <tbody>${changeRows.join('')}</tbody>
 </table>

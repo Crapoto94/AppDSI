@@ -38,10 +38,35 @@ function verifyToken(token) {
     }
 }
 
+function getClientIp(req) {
+    const fwd = req.headers['x-forwarded-for'];
+    if (fwd) return String(fwd).split(',')[0].trim();
+    return req.ip || req.connection?.remoteAddress || '';
+}
+
+async function getRequesterEmail(username) {
+    try {
+        const r = await pool.query(
+            `SELECT email FROM hub.users WHERE LOWER(TRIM(username)) = LOWER(TRIM($1)) LIMIT 1`,
+            [username]
+        );
+        return r.rows[0]?.email || null;
+    } catch {
+        return null;
+    }
+}
+
+// hub_telecom.invoices.invoice_number est alimenté avec le N° Fournisseur de la facture
+// (colonne FACTURE_FACTIERS dans oracle.gf_oracle_facture), PAS avec son N° Interne
+// (FACTURE_FACTURE) qui sert d'invoice_ref au workflow de service fait. Il faut donc
+// repasser par la table Oracle pour retrouver le FACTURE_FACTIERS correspondant à
+// l'invoice_ref avant de chercher une correspondance côté Telecom.
 function isTelecomIntegrated(invoiceRef) {
     if (!invoiceRef) return false;
     return pool.query(
-        `SELECT 1 FROM hub_telecom.invoices WHERE LOWER(TRIM(invoice_number)) = LOWER(TRIM($1)) LIMIT 1`,
+        `SELECT 1 FROM oracle.gf_oracle_facture f
+         JOIN hub_telecom.invoices t ON LOWER(TRIM(t.invoice_number)) = LOWER(TRIM(f."FACTURE_FACTIERS"))
+         WHERE TRIM(f."FACTURE_FACTURE") = $1 LIMIT 1`,
         [invoiceRef]
     ).then(r => r.rowCount > 0).catch(() => false);
 }
@@ -76,7 +101,7 @@ const controller = {
 
             const existing = await pool.query(
                 `SELECT id, status FROM finance.service_fait_workflows
-                 WHERE invoice_ref = $1 AND status NOT IN ('non_valide', 'ne_me_concerne_pas')`,
+                 WHERE invoice_ref = $1 AND status NOT IN ('non_valide', 'ne_me_concerne_pas', 'annule')`,
                 [invoice_ref]
             );
             if (existing.rowCount > 0) {
@@ -114,9 +139,9 @@ const controller = {
             }
 
             await pool.query(
-                `INSERT INTO finance.service_fait_historique (workflow_id, action, actor_username, actor_name, comment)
-                 VALUES ($1, 'demande_validation', $2, $3, $4)`,
-                [workflowId, req.user.username, req.user.username, `Vérificateur: ${agent.nom || agent.username}`]
+                `INSERT INTO finance.service_fait_historique (workflow_id, action, actor_username, actor_name, comment, actor_ip, actor_user_agent)
+                 VALUES ($1, 'demande_validation', $2, $3, $4, $5, $6)`,
+                [workflowId, req.user.username, req.user.username, `Vérificateur: ${agent.nom || agent.username}`, getClientIp(req), req.headers['user-agent'] || '']
             );
 
             const appUrl = await getAppBaseUrl();
@@ -135,7 +160,7 @@ const controller = {
                     <p style="margin-top:16px">
                         <a href="${verifierUrl}" style="display:inline-block;padding:12px 24px;background:#6366f1;color:#fff;text-decoration:none;border-radius:6px;font-weight:600;">Valider le service fait</a>
                     </p>
-                    <p style="font-size:12px;color:#94a3b8;margin-top:8px;">Ou copiez ce lien : ${verifierUrl}</p>
+                    <p style="font-size:12px;color:#94a3b8;margin-top:8px;word-break:break-all;overflow-wrap:break-word;">Ou copiez ce lien : <a href="${verifierUrl}" style="color:#6366f1;word-break:break-all;overflow-wrap:break-word;">${verifierUrl}</a></p>
                 `;
                 try {
                     await sendMailFn(agent.email, 'Demande de validation du service fait', html);
@@ -175,6 +200,33 @@ const controller = {
                     decision_at: row.decision_at
                 };
             }
+
+            // Factures déjà intégrées au module Telecom : pas de workflow possible,
+            // on renvoie un pseudo-statut 'telecom' pour que le front affiche une
+            // pastille au lieu du bouton "À lancer" (voir isTelecomIntegrated pour
+            // l'explication du passage par FACTURE_FACTIERS plutôt que invoice_ref).
+            const normalizedRefs = Array.from(new Set(invoice_refs.map(r => String(r || '').trim()).filter(Boolean)));
+            if (normalizedRefs.length > 0) {
+                try {
+                    const telecomRes = await pool.query(
+                        `SELECT DISTINCT TRIM(f."FACTURE_FACTURE") AS ref
+                         FROM oracle.gf_oracle_facture f
+                         JOIN hub_telecom.invoices t ON LOWER(TRIM(t.invoice_number)) = LOWER(TRIM(f."FACTURE_FACTIERS"))
+                         WHERE TRIM(f."FACTURE_FACTURE") = ANY($1)`,
+                        [normalizedRefs]
+                    );
+                    const telecomSet = new Set(telecomRes.rows.map(r => r.ref));
+                    for (const ref of invoice_refs) {
+                        const norm = String(ref || '').trim();
+                        if (telecomSet.has(norm) && !map[ref]) {
+                            map[ref] = { workflowId: null, status: 'telecom', verifier_name: null, updated_at: null, decision_at: null };
+                        }
+                    }
+                } catch (e) {
+                    console.error('[ServiceFait] getStatuses telecom check error:', e.message);
+                }
+            }
+
             res.json(map);
         } catch (error) {
             console.error('[ServiceFait] getStatuses error:', error);
@@ -330,6 +382,19 @@ const controller = {
                 return res.status(400).json({ message: 'Un commentaire est requis pour cette décision' });
             }
 
+            // Quelle que soit la décision, il faut au moins une pièce jointe (déjà
+            // présente sur le workflow, ou ajoutée juste avant via /pieces-jointes)
+            // ou un motif — même pour une simple validation du service fait.
+            if (!comment || !comment.trim()) {
+                const pjCountRes = await pool.query(
+                    `SELECT COUNT(*)::int AS n FROM finance.service_fait_pieces_jointes WHERE workflow_id = $1`,
+                    [wf.id]
+                );
+                if (pjCountRes.rows[0].n === 0) {
+                    return res.status(400).json({ message: 'Une pièce jointe ou un motif est requis pour valider cette décision' });
+                }
+            }
+
             let newStatus = decision;
             let newVerifierUsername = wf.verifier_username;
             let newVerifierName = wf.verifier_name;
@@ -381,9 +446,9 @@ const controller = {
             );
 
             await pool.query(
-                `INSERT INTO finance.service_fait_historique (workflow_id, action, actor_username, actor_name, comment)
-                 VALUES ($1, $2, $3, $4, $5)`,
-                [wf.id, actionLabels[decision], wf.verifier_username, wf.verifier_name, comment || '']
+                `INSERT INTO finance.service_fait_historique (workflow_id, action, actor_username, actor_name, comment, actor_ip, actor_user_agent)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+                [wf.id, actionLabels[decision], wf.verifier_username, wf.verifier_name, comment || '', getClientIp(req), req.headers['user-agent'] || '']
             );
 
             const appUrl = await getAppBaseUrl();
@@ -408,7 +473,7 @@ const controller = {
                     <p style="margin-top:16px">
                         <a href="${verifierUrl}" style="display:inline-block;padding:12px 24px;background:#6366f1;color:#fff;text-decoration:none;border-radius:6px;font-weight:600;">Valider le service fait</a>
                     </p>
-                    <p style="font-size:12px;color:#94a3b8;margin-top:8px;">Ou copiez ce lien : ${verifierUrl}</p>
+                    <p style="font-size:12px;color:#94a3b8;margin-top:8px;word-break:break-all;overflow-wrap:break-word;">Ou copiez ce lien : <a href="${verifierUrl}" style="color:#6366f1;word-break:break-all;overflow-wrap:break-word;">${verifierUrl}</a></p>
                 `;
                 try {
                     await sendMailFn(newVerifierEmail, subjectMap[decision], html);
@@ -418,11 +483,7 @@ const controller = {
             }
 
             if (decision !== 'transfere' && sendMailFn) {
-                const reqUserRes = await pool.query(
-                    `SELECT email FROM hub.users WHERE LOWER(TRIM(username)) = LOWER(TRIM($1)) LIMIT 1`,
-                    [wf.requested_by]
-                );
-                const requesterEmail = reqUserRes.rows[0]?.email;
+                const requesterEmail = await getRequesterEmail(wf.requested_by);
                 if (requesterEmail) {
                     const statusLabels = {
                         'valide': '✅ Validé',
@@ -449,6 +510,53 @@ const controller = {
         } catch (error) {
             console.error('[ServiceFait] submitDecision error:', error);
             res.status(500).json({ message: 'Erreur soumission décision', error: error.message });
+        }
+    },
+
+    cancelWorkflow: async (req, res) => {
+        try {
+            const { id } = req.params;
+            const { comment } = req.body || {};
+
+            const wfRes = await pool.query(`SELECT * FROM finance.service_fait_workflows WHERE id = $1`, [id]);
+            if (wfRes.rowCount === 0) return res.status(404).json({ message: 'Workflow non trouvé' });
+            const wf = wfRes.rows[0];
+
+            if (!['en_attente', 'en_cours', 'transfere'].includes(wf.status)) {
+                return res.status(400).json({ message: 'Ce processus est déjà terminé, il ne peut plus être annulé' });
+            }
+
+            await pool.query(
+                `UPDATE finance.service_fait_workflows SET status = 'annule', updated_at = CURRENT_TIMESTAMP WHERE id = $1`,
+                [id]
+            );
+
+            await pool.query(
+                `INSERT INTO finance.service_fait_historique (workflow_id, action, actor_username, actor_name, comment, actor_ip, actor_user_agent)
+                 VALUES ($1, 'annulation', $2, $3, $4, $5, $6)`,
+                [id, req.user.username, req.user.username, comment || '', getClientIp(req), req.headers['user-agent'] || '']
+            );
+
+            if (sendMailFn && wf.requested_by !== req.user.username) {
+                const requesterEmail = await getRequesterEmail(wf.requested_by);
+                if (requesterEmail) {
+                    const html = `
+                        <p>Bonjour ${wf.requested_by},</p>
+                        <p>Le processus de validation du service fait pour la facture <strong>${wf.invoice_number || wf.invoice_ref}</strong> a été annulé par <strong>${req.user.username}</strong>.</p>
+                        ${comment ? `<p><strong>Motif :</strong> ${comment}</p>` : ''}
+                    `;
+                    try {
+                        await sendMailFn(requesterEmail, 'Processus de validation du service fait annulé', html);
+                    } catch (e) {
+                        console.error('[ServiceFait] Cancel notification email error:', e.message);
+                    }
+                }
+            }
+
+            res.json({ success: true, status: 'annule' });
+        } catch (error) {
+            console.error('[ServiceFait] cancelWorkflow error:', error);
+            res.status(500).json({ message: 'Erreur annulation workflow', error: error.message });
         }
     }
 };

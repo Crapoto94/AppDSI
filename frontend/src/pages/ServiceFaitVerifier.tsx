@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import axios from 'axios';
-import { CheckCircle, AlertTriangle, XCircle, UserRoundCog, Repeat, FileText, Paperclip, History, Loader } from 'lucide-react';
+import { CheckCircle, AlertTriangle, XCircle, UserRoundCog, Repeat, FileText, Paperclip, History, Loader, Upload, X as CloseIcon, Eye, Download } from 'lucide-react';
 
 const STATUT_LABELS: Record<string, { label: string; color: string; bg: string }> = {
   'en_attente': { label: 'En attente', color: '#92400e', bg: '#fef3c7' },
@@ -55,6 +55,7 @@ export default function ServiceFaitVerifier() {
   const [sending, setSending] = useState(false);
   const [sent, setSent] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
+  const [viewer, setViewer] = useState<{ url: string; title: string } | null>(null);
 
   useEffect(() => {
     if (!token) return;
@@ -82,13 +83,10 @@ export default function ServiceFaitVerifier() {
     setError('');
     try {
       const body: any = { decision };
-      if (['valide_avec_reserves', 'non_valide'].includes(decision)) {
-        body.comment = comment.trim();
-      }
+      if (comment.trim()) body.comment = comment.trim();
       if (decision === 'transfere') {
         if (!transferTo) { setError('Veuillez sélectionner un agent pour le transfert.'); setSending(false); return; }
         body.transfer_to_username = transferTo;
-        if (comment.trim()) body.comment = comment.trim();
       }
       if (pjFiles.length > 0) {
         const formData = new FormData();
@@ -104,12 +102,17 @@ export default function ServiceFaitVerifier() {
     }
   }
 
+  const hasExistingPj = (data?.pieces_jointes?.length || 0) > 0;
+
   const renderDecisionError = () => {
     if (['valide_avec_reserves', 'non_valide'].includes(decision) && !comment.trim()) {
       return 'Un commentaire est requis pour cette décision.';
     }
     if (decision === 'transfere' && !transferTo) {
       return 'Veuillez sélectionner un agent pour le transfert.';
+    }
+    if (!comment.trim() && pjFiles.length === 0 && !hasExistingPj) {
+      return 'Veuillez joindre une pièce justificative ou indiquer un motif.';
     }
     return null;
   };
@@ -175,9 +178,11 @@ export default function ServiceFaitVerifier() {
               )}
               {wf.file_path && (
                 <div style={{ marginTop: 16, paddingTop: 16, borderTop: '1px solid #e2e8f0' }}>
-                  <a href={fileUrl(wf.file_path)} target="_blank" rel="noreferrer" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: '#2563eb', fontWeight: 600, fontSize: 13, textDecoration: 'none' }}>
+                  <button type="button"
+                    onClick={() => setViewer({ url: fileUrl(wf.file_path), title: `Facture ${wf.invoice_number || wf.invoice_ref}` })}
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: '#2563eb', fontWeight: 600, fontSize: 13, background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
                     <FileText size={14} /> Voir la facture
-                  </a>
+                  </button>
                 </div>
               )}
             </div>
@@ -190,13 +195,13 @@ export default function ServiceFaitVerifier() {
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                   {data.pieces_jointes.map((pj: any) => (
-                    <a key={pj.id} href={fileUrl(pj.file_path)} target="_blank" rel="noreferrer"
-                      style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, color: '#1e40af', fontSize: 13, textDecoration: 'none' }}>
+                    <button key={pj.id} type="button" onClick={() => setViewer({ url: fileUrl(pj.file_path), title: pj.original_name })}
+                      style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, color: '#1e40af', fontSize: 13, textAlign: 'left', cursor: 'pointer', width: '100%' }}>
                       <FileText size={14} /> {pj.original_name}
                       <span style={{ marginLeft: 'auto', fontSize: 11, color: '#94a3b8' }}>
                         {pj.uploaded_at ? new Date(pj.uploaded_at).toLocaleDateString('fr-FR') : ''}
                       </span>
-                    </a>
+                    </button>
                   ))}
                 </div>
               </div>
@@ -245,14 +250,15 @@ export default function ServiceFaitVerifier() {
             ) : canAct ? (
               <form onSubmit={handleSubmit}>
                 <div style={{ fontSize: 12, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 12 }}>Votre décision</div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                  {DECISIONS.map(d => (
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                  {DECISIONS.map((d, idx) => (
                     <label key={d.id}
                       style={{
                         display: 'flex', alignItems: 'center', gap: 12, padding: '14px 16px',
                         border: decision === d.id ? `2px solid ${d.color}` : '1.5px solid #e2e8f0',
                         borderRadius: 10, cursor: 'pointer', background: decision === d.id ? d.bg : '#fff',
-                        transition: 'all 0.15s'
+                        transition: 'all 0.15s',
+                        gridColumn: idx === 0 ? '1 / -1' : undefined
                       }}>
                       <input type="radio" name="decision" value={d.id} checked={decision === d.id}
                         onChange={() => { setDecision(d.id); setComment(''); setTransferTo(''); }}
@@ -268,20 +274,8 @@ export default function ServiceFaitVerifier() {
 
                 {decision && (
                   <div style={{ marginTop: 16 }}>
-                    {['valide_avec_reserves', 'non_valide'].includes(decision) && (
-                      <div>
-                        <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 6 }}>
-                          {decision === 'valide_avec_reserves' ? 'Vos réserves' : 'Motif'}
-                        </label>
-                        <textarea value={comment} onChange={e => setComment(e.target.value)}
-                          placeholder={decision === 'valide_avec_reserves' ? 'Décrivez vos réserves...' : 'Motif du refus...'}
-                          rows={3} required
-                          style={{ width: '100%', padding: '10px 12px', border: '1.5px solid #e2e8f0', borderRadius: 8, fontSize: 14, fontFamily: 'inherit', resize: 'vertical', outline: 'none', boxSizing: 'border-box' }} />
-                      </div>
-                    )}
-
                     {decision === 'transfere' && (
-                      <div>
+                      <div style={{ marginBottom: 12 }}>
                         <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 6 }}>
                           Agent à qui transférer
                         </label>
@@ -292,27 +286,62 @@ export default function ServiceFaitVerifier() {
                             <option key={a.username} value={a.username}>{a.nom || a.username}</option>
                           ))}
                         </select>
-                        <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#374151', margin: '12px 0 6px' }}>
-                          Commentaire du transfert (optionnel)
-                        </label>
-                        <textarea value={comment} onChange={e => setComment(e.target.value)}
-                          placeholder="Précisez pourquoi vous transférez..."
-                          rows={2}
-                          style={{ width: '100%', padding: '10px 12px', border: '1.5px solid #e2e8f0', borderRadius: 8, fontSize: 14, fontFamily: 'inherit', resize: 'vertical', outline: 'none', boxSizing: 'border-box' }} />
                       </div>
                     )}
 
-                    {/* Ajout de PJ par le vérificateur */}
-                    {(decision === 'valide' || decision === 'valide_avec_reserves') && (
-                      <div style={{ marginTop: 12 }}>
-                        <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 6 }}>
-                          Pièces jointes (optionnel)
-                        </label>
-                        <input type="file" multiple
-                          onChange={e => setPjFiles(Array.from(e.target.files || []))}
-                          style={{ fontSize: 13 }} />
-                      </div>
-                    )}
+                    {/* Motif / commentaire — toujours proposé ; obligatoire pour réserves et non-validation,
+                        sinon requis uniquement si aucune pièce jointe n'accompagne la décision. */}
+                    <div>
+                      <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 6 }}>
+                        {decision === 'valide_avec_reserves' ? 'Vos réserves' : decision === 'non_valide' ? 'Motif' : 'Motif / commentaire'}
+                        {!['valide_avec_reserves', 'non_valide'].includes(decision) && (
+                          <span style={{ fontWeight: 400, color: '#94a3b8' }}> (requis si aucune pièce jointe)</span>
+                        )}
+                      </label>
+                      <textarea value={comment} onChange={e => setComment(e.target.value)}
+                        placeholder={decision === 'valide_avec_reserves' ? 'Décrivez vos réserves...' : decision === 'non_valide' ? 'Motif du refus...' : 'Précisions sur votre décision...'}
+                        rows={decision === 'transfere' ? 2 : 3} required={['valide_avec_reserves', 'non_valide'].includes(decision)}
+                        style={{ width: '100%', padding: '10px 12px', border: '1.5px solid #e2e8f0', borderRadius: 8, fontSize: 14, fontFamily: 'inherit', resize: 'vertical', outline: 'none', boxSizing: 'border-box' }} />
+                    </div>
+
+                    {/* Pièce(s) jointe(s) — bouton amélioré, liste des fichiers sélectionnés avec suppression */}
+                    <div style={{ marginTop: 12 }}>
+                      <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 6 }}>
+                        Pièce(s) jointe(s)
+                        {!['valide_avec_reserves', 'non_valide'].includes(decision) && (
+                          <span style={{ fontWeight: 400, color: '#94a3b8' }}> (requis si aucun motif)</span>
+                        )}
+                      </label>
+                      <label style={{
+                        display: 'flex', alignItems: 'center', gap: 10, padding: '14px 16px',
+                        border: '1.5px dashed #cbd5e1', borderRadius: 10, cursor: 'pointer', background: '#f8fafc'
+                      }}>
+                        <Upload size={18} color="#6366f1" />
+                        <div style={{ fontSize: 13, color: '#64748b' }}>
+                          {pjFiles.length > 0 ? `${pjFiles.length} fichier(s) sélectionné(s) — cliquez pour en ajouter d'autres` : 'Cliquez pour joindre un ou plusieurs fichiers (PDF, image...)'}
+                        </div>
+                        <input type="file" multiple style={{ display: 'none' }}
+                          onChange={e => setPjFiles(prev => [...prev, ...Array.from(e.target.files || [])])} />
+                      </label>
+                      {pjFiles.length > 0 && (
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
+                          {pjFiles.map((f, i) => (
+                            <span key={i} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: '#eef2ff', color: '#3730a3', borderRadius: 999, padding: '4px 6px 4px 10px', fontSize: 12 }}>
+                              <FileText size={12} /> {f.name}
+                              <button type="button" onClick={() => setPjFiles(prev => prev.filter((_, j) => j !== i))}
+                                style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', background: 'none', border: 'none', cursor: 'pointer', color: '#4338ca', padding: 2 }}>
+                                <CloseIcon size={12} />
+                              </button>
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                      {hasExistingPj && (
+                        <div style={{ marginTop: 6, fontSize: 11, color: '#94a3b8' }}>
+                          Une pièce jointe est déjà présente sur ce dossier (voir ci-dessus) — elle suffit à satisfaire cette exigence.
+                        </div>
+                      )}
+                    </div>
                   </div>
                 )}
 
@@ -339,6 +368,36 @@ export default function ServiceFaitVerifier() {
           </div>
         ) : null}
       </div>
+
+      {viewer && (
+        <div onClick={() => setViewer(null)}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.65)', zIndex: 1200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
+          <div onClick={(e) => e.stopPropagation()}
+            style={{ background: '#fff', borderRadius: 12, width: 980, maxWidth: '95vw', height: '90vh', display: 'flex', flexDirection: 'column', overflow: 'hidden', boxShadow: '0 24px 70px rgba(0,0,0,0.35)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '12px 16px', borderBottom: '1px solid #e2e8f0', background: '#f8fafc' }}>
+              <span style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, fontWeight: 600, color: '#0f172a', overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}>
+                <FileText size={16} /> {viewer.title}
+              </span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+                <a href={viewer.url} target="_blank" rel="noopener noreferrer" title="Ouvrir dans un nouvel onglet"
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 12px', borderRadius: 8, background: '#fff', border: '1px solid #cbd5e1', color: '#1e293b', fontSize: 13, textDecoration: 'none' }}>
+                  <Eye size={15} /> Onglet
+                </a>
+                <a href={viewer.url} download title="Télécharger"
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 12px', borderRadius: 8, background: '#fff', border: '1px solid #cbd5e1', color: '#1e293b', fontSize: 13, textDecoration: 'none' }}>
+                  <Download size={15} /> Télécharger
+                </a>
+                <button onClick={() => setViewer(null)} title="Fermer"
+                  style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 32, height: 32, borderRadius: 8, border: '1px solid #cbd5e1', background: '#fff', color: '#64748b', cursor: 'pointer' }}>
+                  <CloseIcon size={18} />
+                </button>
+              </div>
+            </div>
+            <iframe src={viewer.url} title={viewer.title} style={{ flex: 1, width: '100%', border: 0, background: '#525659' }} />
+          </div>
+        </div>
+      )}
+
       <style>{`.spinner{animation:spin 1s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}`}</style>
     </div>
   );

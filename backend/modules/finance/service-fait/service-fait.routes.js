@@ -9,6 +9,7 @@ const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 
 router.post('/', authenticateJWT, upload.single('file'), controller.createWorkflow);
 router.post('/statuses', authenticateJWT, controller.getStatuses);
 router.get('/:id', authenticateJWT, controller.getWorkflow);
+router.post('/:id/cancel', authenticateJWT, controller.cancelWorkflow);
 router.post('/:id/pieces-jointes', authenticateJWT, upload.array('files', 10), controller.addPiecesJointes);
 router.delete('/pieces-jointes/:pjId', authenticateJWT, controller.deletePieceJointe);
 

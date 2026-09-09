@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useADSearch } from '../utils/useADSearch';
 import type { ADUser } from '../utils/useADSearch';
+import { stripDangerousHtmlTags } from '../utils/sanitizeHtml';
 import { useParams, useNavigate } from 'react-router-dom';
 import { ArrowLeft, FileText, MessageSquare, Calendar, BarChart3, Settings, Activity, Upload, UserPlus, ArrowRight, Plus, Trash2, CheckCircle2, ListChecks, X, Users, Pencil, ClipboardList } from 'lucide-react';
 import { TaskTable } from '../components/TaskTable';
@@ -1771,6 +1772,10 @@ const JournalTab: React.FC<{ projetId: number; token: string | null; onOuvrirDoc
   const [newEntryDate, setNewEntryDate] = useState(new Date().toISOString().split('T')[0]);
   const [newEntryFile, setNewEntryFile] = useState<File | null>(null);
   const [adding, setAdding] = useState(false);
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [editMsg, setEditMsg] = useState('');
+  const [editType, setEditType] = useState('note');
+  const [saving, setSaving] = useState(false);
   const isAdmin = user?.role === 'admin';
   const isPMO = user?.est_pmo;
 
@@ -1826,6 +1831,29 @@ const JournalTab: React.FC<{ projetId: number; token: string | null; onOuvrirDoc
     } catch (e) { console.error(e); }
   };
 
+  const startEdit = (e: any) => {
+    setEditingId(e.id);
+    setEditMsg(e.message);
+    setEditType(e.type_entree);
+  };
+
+  const cancelEdit = () => { setEditingId(null); setEditMsg(''); };
+
+  const saveEdit = async (entryId: number) => {
+    if (!editMsg.trim()) return;
+    setSaving(true);
+    try {
+      await fetch(`/api/projets/${projetId}/journal/${entryId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ type_entree: editType, message: editMsg })
+      });
+      setEditingId(null);
+      loadJournal();
+    } catch (e) { console.error(e); }
+    finally { setSaving(false); }
+  };
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
       <div style={{ background: 'white', borderRadius: '12px', border: '1px solid #e2e8f0', padding: '16px' }}>
@@ -1866,26 +1894,71 @@ const JournalTab: React.FC<{ projetId: number; token: string | null; onOuvrirDoc
       </div>
       {entries.length === 0 ? (
         <p style={{ color: '#94a3b8', textAlign: 'center', padding: '40px' }}>Aucune entrée dans le journal</p>
-      ) : entries.map(e => (
-        <div key={e.id} style={{ display: 'flex', alignItems: 'center', gap: '10px', background: 'white', borderRadius: '8px', border: '1px solid #e2e8f0', padding: '8px 14px' }}>
-          <span style={{ minWidth: '120px', fontSize: '11px', color: '#94a3b8', flexShrink: 0 }}>{new Date(e.date_entree).toLocaleString('fr-FR')}</span>
-          <span style={{ fontSize: '15px', flexShrink: 0, width: '22px', textAlign: 'center' }}>{JOURNAL_ICONES[e.type_entree] || '📋'}</span>
-          <span style={{ flex: 1, fontSize: '13px', color: '#1e293b', fontWeight: '500', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            {(e.type_entree === 'document_depose' || e.type_entree === 'version_change') && e.details ? (
-              <a onClick={() => onOuvrirDocument(e.details)} style={{ color: '#2563eb', cursor: 'pointer', textDecoration: 'underline' }}>{e.message}</a>
-            ) : e.message}
-          </span>
-          <span style={{ fontSize: '11px', color: '#94a3b8', flexShrink: 0 }}>{e.username}</span>
-          {(isAdmin || isPMO) && (
-            <button
-              onClick={() => deleteEntry(e.id)}
-              style={{ padding: '4px 8px', background: '#ef4444', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', flexShrink: 0, display: 'flex', alignItems: 'center', gap: '4px' }}
-            >
-              <Trash2 size={14} />
-            </button>
-          )}
-        </div>
-      ))}
+      ) : entries.map(e => {
+        const isOwner = e.username && user?.username && e.username.toLowerCase() === user.username.toLowerCase();
+        const canManage = isAdmin || isPMO || isOwner;
+        let detailsObj: any = null;
+        try { detailsObj = e.details ? JSON.parse(e.details) : null; } catch {}
+        const isEditing = editingId === e.id;
+        return (
+          <div key={e.id} style={{ display: 'flex', alignItems: isEditing ? 'flex-start' : 'center', gap: '10px', background: 'white', borderRadius: '8px', border: '1px solid #e2e8f0', padding: '8px 14px' }}>
+            {isEditing ? (
+              <>
+                <select value={editType} onChange={ev => setEditType(ev.target.value)} style={{ padding: '6px 8px', borderRadius: '6px', border: '1px solid #e2e8f0', fontSize: '12px', background: 'white', flexShrink: 0 }}>
+                  <option value="note">📝 Note</option>
+                  <option value="decision">⚖️ Décision</option>
+                  <option value="action">✅ Action</option>
+                  <option value="alerte">⚠️ Alerte</option>
+                  <option value="evenement">📌 Événement</option>
+                </select>
+                <textarea
+                  value={editMsg}
+                  onChange={ev => setEditMsg(ev.target.value)}
+                  style={{ flex: 1, padding: '6px 8px', borderRadius: '6px', border: '1px solid #2563eb', fontSize: '13px', fontFamily: 'inherit', minHeight: '36px', boxSizing: 'border-box' }}
+                  autoFocus
+                />
+                <button onClick={() => saveEdit(e.id)} disabled={saving || !editMsg.trim()} style={{ padding: '5px 10px', background: '#16a34a', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: 700, flexShrink: 0, opacity: (saving || !editMsg.trim()) ? 0.5 : 1 }}>
+                  {saving ? '…' : 'OK'}
+                </button>
+                <button onClick={cancelEdit} style={{ padding: '5px 10px', background: '#f1f5f9', color: '#475569', border: '1px solid #e2e8f0', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', flexShrink: 0 }}>
+                  Annuler
+                </button>
+              </>
+            ) : (
+              <>
+                <span style={{ minWidth: '120px', fontSize: '11px', color: '#94a3b8', flexShrink: 0 }}>{new Date(e.date_entree).toLocaleString('fr-FR')}</span>
+                <span style={{ fontSize: '15px', flexShrink: 0, width: '22px', textAlign: 'center' }}>{JOURNAL_ICONES[e.type_entree] || '📋'}</span>
+                <span style={{ flex: 1, fontSize: '13px', color: '#1e293b', fontWeight: '500', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {detailsObj?.document_id ? (
+                    <a onClick={() => onOuvrirDocument(e.details)} style={{ color: '#2563eb', cursor: 'pointer', textDecoration: 'underline' }}>
+                      {e.message} 📎
+                    </a>
+                  ) : e.message}
+                </span>
+                <span style={{ fontSize: '11px', color: '#94a3b8', flexShrink: 0 }}>{e.username}</span>
+                {canManage && (
+                  <>
+                    <button
+                      onClick={() => startEdit(e)}
+                      title="Modifier"
+                      style={{ padding: '4px 8px', background: '#f1f5f9', color: '#475569', border: '1px solid #e2e8f0', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', flexShrink: 0, display: 'flex', alignItems: 'center', gap: '4px' }}
+                    >
+                      <Pencil size={14} />
+                    </button>
+                    <button
+                      onClick={() => deleteEntry(e.id)}
+                      title="Supprimer"
+                      style={{ padding: '4px 8px', background: '#ef4444', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', flexShrink: 0, display: 'flex', alignItems: 'center', gap: '4px' }}
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </>
+                )}
+              </>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 };
@@ -2206,7 +2279,7 @@ const RevuesTab: React.FC<{ projetId: number; token: string | null }> = ({ proje
             {commentaireVide(r.commentaire) ? (
               <p style={{ margin: 0, fontSize: '12px', color: '#94a3b8', fontStyle: 'italic' }}>Aucun commentaire saisi pour ce projet lors de cette revue.</p>
             ) : (
-              <div className="quill-html" style={{ fontSize: '13px', color: '#334155', lineHeight: 1.5 }} dangerouslySetInnerHTML={{ __html: r.commentaire }} />
+              <div className="quill-html" style={{ fontSize: '13px', color: '#334155', lineHeight: 1.5 }} dangerouslySetInnerHTML={{ __html: stripDangerousHtmlTags(r.commentaire) }} />
             )}
           </div>
         </div>

@@ -958,6 +958,8 @@ async function setupPgDb() {
     try { await client.query("ALTER TABLE hub_tickets.tickets ADD COLUMN IF NOT EXISTS resolution_method TEXT"); } catch (e) {}
     try { await client.query("ALTER TABLE hub_tickets.tickets ADD COLUMN IF NOT EXISTS knowledge_article TEXT"); } catch (e) {}
     try { await client.query("ALTER TABLE hub_tickets.ticket_followups ADD COLUMN IF NOT EXISTS sent_to_user INTEGER DEFAULT 0"); } catch (e) {}
+    // Liste des destinataires effectifs (emails séparés par virgule) d'un commentaire envoyé par email.
+    try { await client.query("ALTER TABLE hub_tickets.ticket_followups ADD COLUMN IF NOT EXISTS sent_to TEXT"); } catch (e) {}
     try { await client.query("ALTER TABLE hub_tickets.technician_groups ADD COLUMN IF NOT EXISTS is_default BOOLEAN DEFAULT FALSE"); } catch (e) {}
     // Auto-réparation : des lignes corrompues (id NULL) ont pu être insérées après une
     // perte de la clé primaire, ce qui casse les requêtes GROUP BY g.id. On nettoie et on restaure la PK.
@@ -3019,20 +3021,20 @@ async function setupPgDb() {
         invoice_section TEXT DEFAULT '',
         status TEXT NOT NULL DEFAULT 'en_attente',
         requested_by TEXT NOT NULL,
-        requested_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        requested_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
         verifier_username TEXT,
         verifier_name TEXT DEFAULT '',
         verifier_email TEXT DEFAULT '',
-        decision_at TIMESTAMP,
+        decision_at TIMESTAMPTZ,
         decision_comment TEXT DEFAULT '',
         transfer_to_username TEXT,
         transfer_to_name TEXT DEFAULT '',
         transfer_to_email TEXT DEFAULT '',
         file_path TEXT,
         token TEXT UNIQUE,
-        token_expires_at TIMESTAMP,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        token_expires_at TIMESTAMPTZ,
+        created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
       );
     `);
     try {
@@ -3061,12 +3063,45 @@ async function setupPgDb() {
         actor_username TEXT NOT NULL,
         actor_name TEXT DEFAULT '',
         comment TEXT DEFAULT '',
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        actor_ip TEXT,
+        actor_user_agent TEXT,
+        created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
       );
     `);
     try {
       await client.query(`CREATE INDEX IF NOT EXISTS idx_sf_historique_workflow ON finance.service_fait_historique(workflow_id)`);
     } catch (e) {}
+    try {
+      await client.query(`ALTER TABLE finance.service_fait_historique ADD COLUMN IF NOT EXISTS actor_ip TEXT`);
+      await client.query(`ALTER TABLE finance.service_fait_historique ADD COLUMN IF NOT EXISTS actor_user_agent TEXT`);
+    } catch (e) {}
+
+    // ── Migration fuseau horaire — service fait : mêmes conditions que le LOT 1
+    // hub_tickets ci-dessus (session DB en UTC, colonnes stockées sans fuseau).
+    for (const [sch, tbl, col] of [
+      ['finance', 'service_fait_workflows', 'requested_at'],
+      ['finance', 'service_fait_workflows', 'decision_at'],
+      ['finance', 'service_fait_workflows', 'token_expires_at'],
+      ['finance', 'service_fait_workflows', 'created_at'],
+      ['finance', 'service_fait_workflows', 'updated_at'],
+      ['finance', 'service_fait_historique', 'created_at'],
+    ]) {
+      try {
+        await client.query(`
+          DO $$
+          BEGIN
+            IF EXISTS (
+              SELECT 1 FROM information_schema.columns
+              WHERE table_schema = '${sch}' AND table_name = '${tbl}'
+                AND column_name = '${col}' AND data_type = 'timestamp without time zone'
+            ) THEN
+              EXECUTE 'ALTER TABLE ${sch}.${tbl} ALTER COLUMN ${col} TYPE timestamptz USING ${col} AT TIME ZONE ''UTC''';
+              RAISE NOTICE '[tz] ${sch}.${tbl}.${col} -> timestamptz';
+            END IF;
+          END $$;
+        `);
+      } catch (e) { console.log('[DB][tz] skip', tbl, col, ':', e.message); }
+    }
 
     // Create hub_copieurs schema and table
     await client.query('CREATE SCHEMA IF NOT EXISTS hub_copieurs;');

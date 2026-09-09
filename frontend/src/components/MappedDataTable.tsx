@@ -3,6 +3,7 @@ import axios from 'axios';
 import { useAuth } from '../contexts/AuthContext';
 import { Search, ChevronUp, ChevronDown, ChevronRight, Columns, ExternalLink, Link2, AppWindow, Rocket, Eye } from 'lucide-react';
 import ServiceFaitModal from './ServiceFaitModal';
+import ServiceFaitProcessusModal from './ServiceFaitProcessusModal';
 
 interface MappingColumn {
   name: string;
@@ -44,6 +45,7 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
   const [error, setError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' } | null>(null);
+  const [defaultSortApplied, setDefaultSortApplied] = useState(false);
   const [currentPage, setCurrentPage] = useState(0);
   const [itemsPerPage, setItemsPerPage] = useState<number | 'all'>(() => {
     try {
@@ -78,6 +80,7 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
   const [pendingFilter, setPendingFilter] = useState(false);
   const [sfModalRow, setSfModalRow] = useState<{ row: any; } | null>(null);
   const [sfStatuses, setSfStatuses] = useState<Record<string, any>>({});
+  const [sfProcessModal, setSfProcessModal] = useState<{ workflowId: number } | null>(null);
 
   useEffect(() => { localStorage.setItem(storageKey, JSON.stringify(visibleCols)); }, [visibleCols, storageKey]);
 
@@ -89,7 +92,15 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
 
   const effectivePageSize = itemsPerPage === 'all' ? 10000 : itemsPerPage;
 
+  // Plusieurs effets ci-dessous appellent tous fetchData() au montage (token/rubrique,
+  // fiscalYear, page/pageSize, filtres...), en parallèle de la requête triée déclenchée
+  // par le tri par défaut une fois les colonnes connues. Sans garde, la réponse d'une
+  // requête non triée dispatchée avant peut arriver après la triée et écraser l'état.
+  // fetchSeqRef permet de n'appliquer que la réponse de la DERNIÈRE requête émise.
+  const fetchSeqRef = useRef(0);
+
   const fetchData = async (search?: string, offset?: number, sort?: { key: string; direction: 'asc' | 'desc' } | null) => {
+    const seq = ++fetchSeqRef.current;
     setLoading(true);
     setError(null);
     try {
@@ -107,6 +118,7 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
         headers,
         params
       });
+      if (seq !== fetchSeqRef.current) return; // réponse obsolète, une requête plus récente a déjà été émise
       setColumns(res.data.columns || []);
       setRows(res.data.rows || []);
       setTotal(res.data.total || 0);
@@ -123,9 +135,10 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
         setVisibleCols(res.data.columns.map((c: MappingColumn) => c.name));
       }
     } catch (err: any) {
+      if (seq !== fetchSeqRef.current) return;
       setError(err?.response?.data?.message || 'Erreur de chargement');
     } finally {
-      setLoading(false);
+      if (seq === fetchSeqRef.current) setLoading(false);
     }
   };
 
@@ -140,7 +153,12 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
     }
   }, [columns]);
 
+  const isFirstSearchRun = useRef(true);
   useEffect(() => {
+    // Le montage initial est déjà couvert par l'effet [token, rubriqueName, fiscalYear] ci-dessus ;
+    // sans ce garde, ce timer se déclenchait aussi au montage avec un fetchData figé sur le
+    // sortConfig de l'époque (null), et écrasait ~400ms plus tard le tri par défaut appliqué entre-temps.
+    if (isFirstSearchRun.current) { isFirstSearchRun.current = false; return; }
     const timer = setTimeout(() => { setCurrentPage(0); fetchData(searchTerm, 0); }, 400);
     return () => clearTimeout(timer);
   }, [searchTerm]);
@@ -150,6 +168,18 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
   useEffect(() => {
     if (sortConfig) fetchData(searchTerm, currentPage * effectivePageSize, sortConfig);
   }, [sortConfig?.key, sortConfig?.direction, effectivePageSize]);
+
+  // Tri par défaut de la page Factures : date décroissante, tant que l'utilisateur
+  // n'a pas lui-même choisi un tri (ne s'applique qu'une fois par montage).
+  useEffect(() => {
+    if (rubriqueName !== 'Factures' || defaultSortApplied) return;
+    if (sortConfig) { setDefaultSortApplied(true); return; }
+    if (columns.length === 0) return;
+    const dateCol = columns.find(c => c.expression === 'FACTURE_DATENTREE')
+      || columns.find(c => ['date', 'timestamp', 'text_date', 'text_timestamp'].includes(c.display_type));
+    if (dateCol) setSortConfig({ key: dateCol.name, direction: 'desc' });
+    setDefaultSortApplied(true);
+  }, [rubriqueName, columns, sortConfig, defaultSortApplied]);
 
   useEffect(() => {
     setCurrentPage(0);
@@ -272,6 +302,8 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
   };
 
   const showActions = !!seditIdColumn;
+  const showSfColumn = showActions && rubriqueName === 'Factures';
+  const actionColsCount = (showSfColumn ? 1 : 0) + (showActions ? 1 : 0);
 
   if (loading && rows.length === 0) {
     return <div style={{ padding: '2rem', textAlign: 'center', color: '#64748b' }}>Chargement...</div>;
@@ -402,12 +434,13 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
                 </th>
                 );
               })}
-              {showActions && <th className="mdt-th" style={{ minWidth: '120px' }}>Actions</th>}
+              {showSfColumn && <th className="mdt-th" style={{ minWidth: '160px' }}>Service Fait</th>}
+              {showActions && <th className="mdt-th" style={{ minWidth: '120px' }}>Sedit</th>}
             </tr>
           </thead>
           <tbody>
             {displayRows.length === 0 ? (
-              <tr><td colSpan={(childRubriqueId ? 1 : 0) + activeCols.length + (showActions ? 1 : 0)} className="mdt-empty">Aucun résultat</td></tr>
+              <tr><td colSpan={(childRubriqueId ? 1 : 0) + activeCols.length + actionColsCount} className="mdt-empty">Aucun résultat</td></tr>
             ) : displayRows.map((row, i) => {
               const seditCol = seditIdColumn ? columns.find(c => c.expression === seditIdColumn) : null;
               const seditId = seditCol ? String(row[seditCol.name] || '').trim() : null;
@@ -422,21 +455,32 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
               const expandable = !!(childRubriqueId && childLinkValue);
               const factureCol = rubriqueName === 'Factures' ? columns.find(c => c.expression === 'FACTURE_FACTURE') : null;
               const factureRef = factureCol ? String(row[factureCol.name] || '').trim() : null;
-              let sfInfo: { label: string; color: string; bg: string; workflowId: number | null; tooltip: string } | null = null;
+              let sfInfo: { label: string; color: string; bg: string; workflowId: number | null; tooltip: string; ongoing: boolean; relaunchable: boolean } | null = null;
               if (rubriqueName === 'Factures') {
                 const st = sfStatuses[factureRef || ''] || null;
                 if (st) {
+                  const decisionDate = st.decision_at || st.updated_at;
+                  const formattedDecisionDate = decisionDate ? new Date(decisionDate).toLocaleDateString('fr-FR') : '';
                   const map: Record<string, { label: string; color: string; bg: string }> = {
                     'en_attente': { label: '⏳ En attente', color: '#92400e', bg: '#fef3c7' },
                     'en_cours': { label: '🔵 En cours', color: '#1e40af', bg: '#dbeafe' },
-                    'valide': { label: '✅ Validé', color: '#166534', bg: '#dcfce7' },
+                    'valide': { label: formattedDecisionDate ? `✅ SF le ${formattedDecisionDate}` : '✅ Validé', color: '#166534', bg: '#dcfce7' },
                     'valide_avec_reserves': { label: '⚠️ Avec réserves', color: '#92400e', bg: '#fef3c7' },
                     'non_valide': { label: '❌ Non validé', color: '#991b1b', bg: '#fee2e2' },
                     'ne_me_concerne_pas': { label: '🔄 Retourné', color: '#1e40af', bg: '#dbeafe' },
                     'transfere': { label: '➡️ Transféré', color: '#6b21a8', bg: '#f3e8ff' },
+                    'annule': { label: '🚫 Annulé', color: '#64748b', bg: '#f1f5f9' },
+                    'telecom': { label: '📡 Telecom', color: '#0369a1', bg: '#e0f2fe' },
                   };
                   const meta = map[st.status] || { label: st.status, color: '#334155', bg: '#f1f5f9' };
-                  sfInfo = { ...meta, workflowId: st.workflowId || null, tooltip: `${st.status}\nVérificateur: ${st.verifier_name || '-'}` };
+                  const ongoing = ['en_attente', 'en_cours', 'transfere'].includes(st.status);
+                  // Statuts pour lesquels une nouvelle demande peut être relancée sur la même
+                  // facture (doit rester synchro avec l'exclusion côté backend, createWorkflow).
+                  const relaunchable = ['non_valide', 'ne_me_concerne_pas', 'annule'].includes(st.status);
+                  const tooltip = st.status === 'telecom'
+                    ? 'Facture déjà intégrée au module Telecom — pas de service fait à valider ici'
+                    : `${st.status}\nVérificateur: ${st.verifier_name || '-'}`;
+                  sfInfo = { ...meta, workflowId: st.workflowId || null, tooltip, ongoing, relaunchable };
                 }
               }
               return (
@@ -465,35 +509,61 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
                       const cellTitle = row[col.name] != null && row[col.name] !== '' ? String(row[col.name]) : undefined;
                       return <td key={col.name} className="mdt-cell" style={tdStyle} title={cellTitle}>{formatCell(row[col.name], col)}</td>;
                     })}
+                    {showSfColumn && (
+                      <td className="mdt-cell" style={{ whiteSpace: 'nowrap' }}>
+                        <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+                          {sfInfo && (
+                            <>
+                              {sfInfo.ongoing ? (
+                                <>
+                                  <span title={sfInfo.tooltip} style={{ background: sfInfo.bg, color: sfInfo.color, border: 'none', borderRadius: '4px', padding: '3px 8px', fontSize: '11px', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+                                    {sfInfo.label}
+                                  </span>
+                                  {sfInfo.workflowId && (
+                                    <button title="Voir le processus de validation"
+                                      onClick={() => setSfProcessModal({ workflowId: sfInfo!.workflowId! })}
+                                      style={{ background: '#2563eb', color: 'white', border: 'none', borderRadius: '4px', padding: '3px 8px', fontSize: '11px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '3px' }}>
+                                      <Eye size={12} /> Processus
+                                    </button>
+                                  )}
+                                </>
+                              ) : (
+                                <>
+                                  {sfInfo.workflowId ? (
+                                    <button title="Voir le processus de validation" onClick={() => setSfProcessModal({ workflowId: sfInfo!.workflowId! })}
+                                      style={{ background: sfInfo.bg, color: sfInfo.color, border: 'none', borderRadius: '4px', padding: '3px 8px', fontSize: '11px', fontWeight: 600, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+                                      {sfInfo.label}
+                                    </button>
+                                  ) : (
+                                    <span title={sfInfo.tooltip} style={{ background: sfInfo.bg, color: sfInfo.color, border: 'none', borderRadius: '4px', padding: '3px 8px', fontSize: '11px', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+                                      {sfInfo.label}
+                                    </span>
+                                  )}
+                                  {sfInfo.relaunchable && (
+                                    <button title="Relancer une nouvelle demande de validation"
+                                      onClick={() => setSfModalRow({ row })}
+                                      style={{ background: '#2563eb', color: 'white', border: 'none', borderRadius: '4px', padding: '3px 8px', fontSize: '11px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '3px' }}>
+                                      <Rocket size={12} /> Relancer
+                                    </button>
+                                  )}
+                                </>
+                              )}
+                            </>
+                          )}
+                          {!sfInfo && (
+                            <button title="Lancer la validation du service fait"
+                              onClick={() => setSfModalRow({ row })}
+                              style={{ background: '#2563eb', color: 'white', border: 'none', borderRadius: '4px', padding: '3px 8px', fontSize: '11px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '3px' }}>
+                              <Rocket size={12} /> À lancer
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    )}
                     {showActions && (
                       <td className="mdt-cell" style={{ whiteSpace: 'nowrap' }}>
                         <div style={{ display: 'flex', gap: '8px', alignItems: 'center', justifyContent: 'space-between' }}>
                           <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
-                            {rubriqueName === 'Factures' && (
-                              <>
-                                {sfInfo && (
-                                  <>
-                                    <span title={sfInfo.tooltip} style={{ background: sfInfo.bg, color: sfInfo.color, border: 'none', borderRadius: '4px', padding: '3px 8px', fontSize: '11px', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
-                                      {sfInfo.label}
-                                    </span>
-                                    {sfInfo.workflowId && (
-                                      <button title="Voir le processus de validation"
-                                        onClick={() => window.location.href = `/service-fait/processus/${sfInfo.workflowId}`}
-                                        style={{ background: '#2563eb', color: 'white', border: 'none', borderRadius: '4px', padding: '3px 8px', fontSize: '11px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '3px' }}>
-                                        <Eye size={12} /> Processus
-                                      </button>
-                                    )}
-                                  </>
-                                )}
-                                {!sfInfo && (
-                                  <button title="Lancer la validation du service fait"
-                                    onClick={() => setSfModalRow({ row })}
-                                    style={{ background: '#2563eb', color: 'white', border: 'none', borderRadius: '4px', padding: '3px 8px', fontSize: '11px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '3px' }}>
-                                    <Rocket size={12} /> À lancer
-                                  </button>
-                                )}
-                              </>
-                            )}
                             {seditId && (
                               <button title="Ouvrir dans Sedit"
                                 onClick={() => window.open(`${urlSedit}/${seditUrlPage}?${seditUrlParam}=${seditId}`, '_blank')}
@@ -534,7 +604,7 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
                   </tr>
                   {isExpanded && child && child.rows.length > 0 && (
                     <tr className="mdt-child-row">
-                      <td colSpan={(childRubriqueId ? 1 : 0) + activeCols.length + (showActions ? 1 : 0)} style={{ padding: 0 }}>
+                      <td colSpan={(childRubriqueId ? 1 : 0) + activeCols.length + actionColsCount} style={{ padding: 0 }}>
                         <div style={{ display: 'flex', justifyContent: 'flex-end', padding: '4px 8px', background: '#f1f5f9', borderBottom: '1px solid #e2e8f0' }}>
                           <div style={{ position: 'relative' }}>
                             <button className="mdt-col-btn" style={{ fontSize: '0.7rem', padding: '2px 8px' }}
@@ -584,14 +654,14 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
                   )}
                   {isExpanded && isLoadingChild && (
                     <tr className="mdt-child-row">
-                      <td colSpan={(childRubriqueId ? 1 : 0) + activeCols.length + (showActions ? 1 : 0)} className="mdt-cell" style={{ textAlign: 'center', padding: '16px', color: '#94a3b8', fontSize: '0.8rem' }}>
+                      <td colSpan={(childRubriqueId ? 1 : 0) + activeCols.length + actionColsCount} className="mdt-cell" style={{ textAlign: 'center', padding: '16px', color: '#94a3b8', fontSize: '0.8rem' }}>
                         Chargement...
                       </td>
                     </tr>
                   )}
                   {isExpanded && child && child.rows.length === 0 && (
                     <tr className="mdt-child-row">
-                      <td colSpan={(childRubriqueId ? 1 : 0) + activeCols.length + (showActions ? 1 : 0)} className="mdt-cell" style={{ textAlign: 'center', padding: '16px', color: '#94a3b8', fontSize: '0.8rem' }}>
+                      <td colSpan={(childRubriqueId ? 1 : 0) + activeCols.length + actionColsCount} className="mdt-cell" style={{ textAlign: 'center', padding: '16px', color: '#94a3b8', fontSize: '0.8rem' }}>
                         Aucune ligne
                       </td>
                     </tr>
@@ -744,6 +814,14 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
           columns={columns}
           onClose={() => setSfModalRow(null)}
           onCreated={() => fetchData(searchTerm, currentPage * effectivePageSize)}
+        />
+      )}
+
+      {sfProcessModal && (
+        <ServiceFaitProcessusModal
+          workflowId={sfProcessModal.workflowId}
+          onClose={() => setSfProcessModal(null)}
+          onChanged={() => fetchData(searchTerm, currentPage * effectivePageSize)}
         />
       )}
     </div>

@@ -30,14 +30,16 @@ module.exports = {
     async create(ticketId, data, user) {
         const contentHash = crypto.createHash('md5').update(data.content || '').digest('hex');
 
+        const sentTo = Array.isArray(data.sent_to) ? data.sent_to.filter(Boolean).join(', ') : (data.sent_to || null);
+
         const result = await pgDb.run(`
             INSERT INTO hub_tickets.ticket_followups
-                (ticket_id, content, content_hash, author_name, author_email, is_private, sent_to_user, date_creation)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                (ticket_id, content, content_hash, author_name, author_email, is_private, sent_to_user, sent_to, date_creation)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
         `, [
             ticketId, data.content, contentHash,
             user.displayName || user.username, user.email || '',
-            data.is_private ? 1 : 0, data.sent_to_user ? 1 : 0, new Date()
+            data.is_private ? 1 : 0, data.sent_to_user ? 1 : 0, sentTo, new Date()
         ]);
 
         const id = result.lastID;
