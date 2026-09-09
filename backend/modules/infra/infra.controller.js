@@ -198,6 +198,9 @@ module.exports = {
     // ce hook côté frontend malgré la source différente (RH Studio, pas l'AD)
     // — l'id numérique RefAgent (nécessaire pour agent_id/manager_id) est
     // transporté dans `username` (converti en nombre côté composant).
+    // hasAd (has_ad côté RH Studio) : l'agent a-t-il déjà un compte AD ? Un
+    // nouvel arrivant n'en a souvent pas encore — c'est justement ce que ce
+    // formulaire déclenche — d'où l'icône différenciée côté StudioAgentSearchInput.
     searchStudioAgents: async (req, res) => {
         try {
             const { q } = req.query;
@@ -210,6 +213,7 @@ module.exports = {
                 email: a.email || '',
                 service: a.service || '',
                 matricule: a.matricule || '',
+                hasAd: !!a.has_ad,
             })));
         } catch (e) {
             res.status(502).json({ message: e.message });

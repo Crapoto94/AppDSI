@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Paperclip, UserRound, X } from 'lucide-react';
+import { Paperclip, X, ShieldCheck, ShieldOff } from 'lucide-react';
 import type { FormFieldDef, ServiceDirectionDef, AgentAnswer, StudioAgentAnswer, FutursAgentAnswer } from './requestFormTypes';
 import { isFieldVisible } from './requestFormTypes';
 import { useADSearch } from '../utils/useADSearch';
@@ -62,6 +62,15 @@ function AgentSearchInput({ value, onChange, token, clearAfterSelect }: { value:
   );
 }
 
+/** Icône signalant si l'agent a déjà un compte AD ou non (cf. StudioAgentSearchInput). */
+function AdStatusIcon({ hasAd }: { hasAd?: boolean }) {
+  return hasAd ? (
+    <ShieldCheck size={16} style={{ color: '#16a34a', flexShrink: 0 }} aria-label="Compte AD existant" />
+  ) : (
+    <ShieldOff size={16} style={{ color: '#d97706', flexShrink: 0 }} aria-label="Pas encore de compte AD" />
+  );
+}
+
 /**
  * Recherche d'agent dans le référentiel RH Studio (pas l'AD) — utilisée par
  * le formulaire spécial "Arrivée d'agent" (agent arrivé + N+1/manager, tous
@@ -69,7 +78,11 @@ function AgentSearchInput({ value, onChange, token, clearAfterSelect }: { value:
  * pointé sur le proxy /api/infra/rh-studio/agents/search, dont la réponse est
  * façonnée côté serveur pour respecter la forme ADUser ; l'id numérique
  * RefAgent (nécessaire pour agent_id/manager_id côté RH Studio) est
- * transporté dans `username` (reconverti en nombre ici).
+ * transporté dans `username` (reconverti en nombre ici). Recherche par
+ * nom/prénom/matricule (contains côté RH Studio) — volontairement PAS l'AD :
+ * un nouvel arrivant n'a souvent pas encore de compte AD, tout l'intérêt de
+ * ce formulaire étant justement de déclencher sa création — d'où l'icône
+ * AdStatusIcon distinguant les deux cas dans les résultats et la sélection.
  *
  * Une fois un agent sélectionné, le champ de recherche est remplacé par une
  * carte non éditable (nom, service, croix pour retirer) : la valeur ne peut
@@ -84,11 +97,11 @@ function StudioAgentSearchInput({ value, onChange, token }: { value: StudioAgent
     return (
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, padding: '9px 12px', background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 8 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
-          <UserRound size={18} style={{ color: '#2563eb', flexShrink: 0 }} />
+          <AdStatusIcon hasAd={value.hasAd} />
           <div style={{ minWidth: 0 }}>
             <div style={{ fontWeight: 600, fontSize: '0.85rem', color: '#1e293b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{value.displayName}</div>
-            {(value.email || value.service) && (
-              <div style={{ fontSize: '0.75rem', color: '#64748b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{[value.email, value.service].filter(Boolean).join(' — ')}</div>
+            {(value.email || value.service || value.matricule) && (
+              <div style={{ fontSize: '0.75rem', color: '#64748b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{[value.matricule, value.email, value.service].filter(Boolean).join(' — ')}</div>
             )}
           </div>
         </div>
@@ -109,7 +122,7 @@ function StudioAgentSearchInput({ value, onChange, token }: { value: StudioAgent
     <div style={{ position: 'relative' }}>
       <input
         style={fieldStyles.input}
-        placeholder="Rechercher un agent (RH Studio)…"
+        placeholder="Rechercher un agent par nom ou matricule (RH Studio)…"
         value={ad.query}
         onChange={(e) => ad.setQuery(e.target.value)}
       />
@@ -119,14 +132,17 @@ function StudioAgentSearchInput({ value, onChange, token }: { value: StudioAgent
           {ad.results.map((u) => (
             <div
               key={u.username}
-              style={{ padding: '8px 12px', cursor: 'pointer', fontSize: '0.85rem', borderBottom: '1px solid #f1f5f9' }}
+              style={{ display: 'flex', alignItems: 'flex-start', gap: 8, padding: '8px 12px', cursor: 'pointer', fontSize: '0.85rem', borderBottom: '1px solid #f1f5f9' }}
               onMouseDown={() => {
-                onChange({ id: Number(u.username), displayName: u.displayName, email: u.email, service: u.service });
+                onChange({ id: Number(u.username), displayName: u.displayName, email: u.email, service: u.service, matricule: u.matricule, hasAd: u.hasAd });
                 ad.clearResults();
               }}
             >
-              <div style={{ fontWeight: 600, color: '#1e293b' }}>{u.displayName}</div>
-              <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}>{u.email}{u.service ? ` — ${u.service}` : ''}</div>
+              <AdStatusIcon hasAd={u.hasAd} />
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontWeight: 600, color: '#1e293b' }}>{u.displayName}</div>
+                <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}>{[u.matricule, u.email, u.service].filter(Boolean).join(' — ')}</div>
+              </div>
             </div>
           ))}
         </div>

@@ -40,7 +40,7 @@ export interface DirectionServiceAnswer { direction_code: string; direction_labe
 // Réponse d'un champ "studio_agent" (recherche dans le référentiel RH Studio,
 // pas l'AD — id numérique RefAgent requis par Onboarding.agent_id/manager_id
 // côté RH Studio, cf. formulaire spécial "Arrivée d'agent").
-export interface StudioAgentAnswer { id: number; displayName: string; email: string; matricule?: string; service?: string; }
+export interface StudioAgentAnswer { id: number; displayName: string; email: string; matricule?: string; service?: string; hasAd?: boolean; }
 
 // Réponse d'un champ "studio_futurs_agent_picker" : soit l'un des futurs
 // arrivants déjà connus de RH Studio (mode 'existing'), soit un agent pas

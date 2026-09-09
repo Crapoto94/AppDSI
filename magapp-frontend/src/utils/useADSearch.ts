@@ -6,6 +6,10 @@ export interface ADUser {
   email: string;
   service?: string;
   direction?: string;
+  // Présents uniquement pour l'endpoint RH Studio (/api/infra/rh-studio/agents/search) :
+  // matricule (affichage/désambiguïsation) et hasAd (l'agent a-t-il déjà un compte AD ?).
+  matricule?: string;
+  hasAd?: boolean;
 }
 
 interface UseADSearchOptions {
