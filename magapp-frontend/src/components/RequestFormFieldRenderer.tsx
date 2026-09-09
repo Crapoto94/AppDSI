@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Paperclip } from 'lucide-react';
+import { Paperclip, UserRound, X } from 'lucide-react';
 import type { FormFieldDef, ServiceDirectionDef, AgentAnswer, StudioAgentAnswer, FutursAgentAnswer } from './requestFormTypes';
 import { isFieldVisible } from './requestFormTypes';
 import { useADSearch } from '../utils/useADSearch';
@@ -70,13 +70,39 @@ function AgentSearchInput({ value, onChange, token, clearAfterSelect }: { value:
  * façonnée côté serveur pour respecter la forme ADUser ; l'id numérique
  * RefAgent (nécessaire pour agent_id/manager_id côté RH Studio) est
  * transporté dans `username` (reconverti en nombre ici).
+ *
+ * Une fois un agent sélectionné, le champ de recherche est remplacé par une
+ * carte non éditable (nom, service, croix pour retirer) : la valeur ne peut
+ * venir QUE d'une sélection dans la liste, jamais d'une saisie libre laissée
+ * telle quelle dans le champ (ce qui rendait "sélectionné" et "juste tapé"
+ * visuellement indiscernables).
  */
 function StudioAgentSearchInput({ value, onChange, token }: { value: StudioAgentAnswer | null | undefined; onChange: (v: StudioAgentAnswer | null) => void; token: string | null }) {
   const ad = useADSearch(token, { endpoint: '/api/infra/rh-studio/agents/search' });
-  const [prevDisplayName, setPrevDisplayName] = useState(value?.displayName || '');
-  if ((value?.displayName || '') !== prevDisplayName) {
-    setPrevDisplayName(value?.displayName || '');
-    ad.setQuery(value?.displayName || '');
+
+  if (value) {
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, padding: '9px 12px', background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 8 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+          <UserRound size={18} style={{ color: '#2563eb', flexShrink: 0 }} />
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontWeight: 600, fontSize: '0.85rem', color: '#1e293b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{value.displayName}</div>
+            {(value.email || value.service) && (
+              <div style={{ fontSize: '0.75rem', color: '#64748b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{[value.email, value.service].filter(Boolean).join(' — ')}</div>
+            )}
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={() => { onChange(null); ad.setQuery(''); }}
+          style={{ background: 'none', border: 'none', color: '#64748b', cursor: 'pointer', flexShrink: 0, padding: 4, display: 'flex' }}
+          aria-label="Retirer l'agent sélectionné"
+          title="Retirer l'agent sélectionné"
+        >
+          <X size={16} />
+        </button>
+      </div>
+    );
   }
 
   return (
@@ -85,10 +111,10 @@ function StudioAgentSearchInput({ value, onChange, token }: { value: StudioAgent
         style={fieldStyles.input}
         placeholder="Rechercher un agent (RH Studio)…"
         value={ad.query}
-        onChange={(e) => { onChange(null); ad.setQuery(e.target.value); }}
+        onChange={(e) => ad.setQuery(e.target.value)}
       />
       {ad.searching && <span style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', fontSize: 11, color: '#94a3b8' }}>…</span>}
-      {ad.results.length > 0 && ad.query !== (value?.displayName || '') && (
+      {ad.results.length > 0 && (
         <div style={{ position: 'absolute', zIndex: 2100, top: '100%', left: 0, right: 0, background: 'white', border: '1px solid #e2e8f0', borderRadius: 8, boxShadow: '0 8px 20px rgba(0,0,0,0.15)', maxHeight: 220, overflowY: 'auto', marginTop: 4 }}>
           {ad.results.map((u) => (
             <div
@@ -96,7 +122,6 @@ function StudioAgentSearchInput({ value, onChange, token }: { value: StudioAgent
               style={{ padding: '8px 12px', cursor: 'pointer', fontSize: '0.85rem', borderBottom: '1px solid #f1f5f9' }}
               onMouseDown={() => {
                 onChange({ id: Number(u.username), displayName: u.displayName, email: u.email, service: u.service });
-                ad.setQuery(u.displayName);
                 ad.clearResults();
               }}
             >
