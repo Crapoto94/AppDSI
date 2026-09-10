@@ -1,7 +1,6 @@
 const fs = require('fs');
 const path = require('path');
 const xlsx = require('xlsx');
-const axios = require('axios');
 const { getSqlite, pgDb } = require('../../shared/database');
 const { excelDateToISO, parseOracleDate } = require('../../shared/utils');
 
@@ -318,43 +317,20 @@ module.exports = {
         } catch (error) { res.status(500).json({ error: error.message }); }
     },
 
-    // GLPI Link
-    glpiLink: async (req, res) => {
+    // Lien vers le ticket DSIHUB associé (le champ ticket_glpi stocke désormais l'id d'un ticket hub_tickets et non plus un ticket GLPI)
+    ticketLink: async (req, res) => {
         try {
-            const db = getSqlite();
             const { id } = req.params;
             const rencontre = await pgDb.get('SELECT ticket_glpi FROM rencontres_budgetaires WHERE id=?', [id]);
-            if (!rencontre || !rencontre.ticket_glpi) return res.json({ exists: false, message: 'Aucun ticket GLPI associé' });
+            if (!rencontre || !rencontre.ticket_glpi) return res.json({ exists: false, message: 'Aucun ticket associé' });
 
             const ticketId = rencontre.ticket_glpi;
-            const settings = await db.get('SELECT * FROM glpi_settings WHERE id = 1');
-            if (!settings || !settings.url || !settings.is_enabled) return res.json({ exists: true, url: null, message: `Ticket #${ticketId} (GLPI non configuré)` });
-
-            let url = settings.url.trim();
-            if (!url.includes('apirest.php')) url = url.endsWith('/') ? `${url}apirest.php` : `${url}/apirest.php`;
-            const baseUrl = url.replace(/\/apirest\.php$/, '');
-            const commonHeaders = { 'App-Token': settings.app_token.trim(), 'Content-Type': 'application/json', 'Accept': 'application/json' };
-            const authHeader = (settings.login && settings.password) ? `Basic ${Buffer.from(`${settings.login}:${settings.password}`).toString('base64')}` : `user_token ${settings.user_token}`;
-
-            try {
-                const sessionRes = await axios.get(`${url}/initSession`, { headers: { ...commonHeaders, 'Authorization': authHeader }, timeout: 8000 });
-                const sessionToken = sessionRes.data?.session_token;
-                if (!sessionToken) return res.json({ exists: true, url: `${baseUrl}/front/ticket.form.php?id=${ticketId}`, message: `Ticket #${ticketId}` });
-                try {
-                    await axios.get(`${url}/Ticket/${ticketId}?session_token=${sessionToken}`, { headers: commonHeaders, timeout: 8000 });
-                    await axios.get(`${url}/killSession`, { headers: { ...commonHeaders, 'Session-Token': sessionToken } }).catch(() => {});
-                    return res.json({ exists: true, url: `${baseUrl}/front/ticket.form.php?id=${ticketId}`, message: `Ticket #${ticketId}` });
-                } catch (e) {
-                    await axios.get(`${url}/killSession`, { headers: { ...commonHeaders, 'Session-Token': sessionToken } }).catch(() => {});
-                    if (e.response?.status === 404) {
-                        await pgDb.run('UPDATE rencontres_budgetaires SET ticket_glpi=NULL WHERE id=?', [id]);
-                        return res.json({ exists: false, message: `Ticket #${ticketId} introuvable dans GLPI — lien supprimé` });
-                    }
-                    return res.json({ exists: true, url: `${baseUrl}/front/ticket.form.php?id=${ticketId}`, message: `Ticket #${ticketId}` });
-                }
-            } catch {
-                return res.json({ exists: true, url: `${baseUrl}/front/ticket.form.php?id=${ticketId}`, message: `Ticket #${ticketId}` });
+            const ticket = await pgDb.get('SELECT glpi_id FROM hub_tickets.tickets WHERE glpi_id=?', [ticketId]);
+            if (!ticket) {
+                await pgDb.run('UPDATE rencontres_budgetaires SET ticket_glpi=NULL WHERE id=?', [id]);
+                return res.json({ exists: false, message: `Ticket #${ticketId} introuvable — lien supprimé` });
             }
+            return res.json({ exists: true, url: `/tickets/${ticketId}`, message: `Ticket #${ticketId}` });
         } catch (error) { res.status(500).json({ error: error.message }); }
     },
 

@@ -42,8 +42,8 @@ router.delete('/:id', authenticateAdmin, rencontresCtrl.deleteOne);
 router.post('/:id/participants', authenticateJWT, rencontresCtrl.addParticipant);
 router.delete('/participants/:id', authenticateJWT, rencontresCtrl.deleteParticipant);
 
-// GLPI Link
-router.get('/:id/glpi-link', authenticateJWT, rencontresCtrl.glpiLink);
+// Lien vers le ticket DSIHUB associé
+router.get('/:id/ticket-link', authenticateJWT, rencontresCtrl.ticketLink);
 
 // Suivi
 router.post('/:id/suivi', authenticateJWT, rencontresCtrl.addSuivi);

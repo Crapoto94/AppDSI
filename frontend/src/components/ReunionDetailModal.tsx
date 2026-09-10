@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { X, Plus, Send, Upload, Trash2, FileText, Users, Video, CalendarClock, FolderOpen } from 'lucide-react';
+import { X, Plus, Send, Upload, Trash2, Pencil, FileText, Users, Video, CalendarClock, FolderOpen } from 'lucide-react';
 import ReactQuill from 'react-quill-new';
 import 'react-quill-new/dist/quill.snow.css';
 import TranscriptUploadModal from './TranscriptUploadModal';
@@ -69,6 +69,9 @@ const ReunionDetailModal: React.FC<Props> = ({ isOpen, reunionId, token, userRol
   const [showTranscriptUpload, setShowTranscriptUpload] = useState(false);
   const [showTranscriptView, setShowTranscriptView] = useState(false);
   const [newDemande, setNewDemande] = useState({ titre: '', direction: '', service: '', type: '', description: '' });
+  const [editingDemandeId, setEditingDemandeId] = useState<number | null>(null);
+  const [editDemandeData, setEditDemandeData] = useState<any>(null);
+  const [isSavingDemande, setIsSavingDemande] = useState(false);
   const descriptionRef = useRef('');
   const attachmentInputRef = useRef<HTMLInputElement>(null);
   const [projects, setProjects] = useState<{id: number; code: string; titre: string}[]>([]);
@@ -373,6 +376,47 @@ const ReunionDetailModal: React.FC<Props> = ({ isOpen, reunionId, token, userRol
         onDemandeCreated?.();
       } else { const err = await res.json(); alert(`Erreur : ${err.error || 'Erreur'}`); }
     } catch (e) { alert('Erreur création demande'); }
+  };
+
+  const startEditDemande = (d: any) => {
+    setEditingDemandeId(d.id);
+    setEditDemandeData({ ...d });
+  };
+
+  const cancelEditDemande = () => {
+    setEditingDemandeId(null);
+    setEditDemandeData(null);
+  };
+
+  const saveEditDemande = async () => {
+    if (!editDemandeData?.titre) { alert('Le titre de la demande est obligatoire'); return; }
+    try {
+      setIsSavingDemande(true);
+      const res = await fetch(`/api/rencontres-budgetaires/${editingDemandeId}`, {
+        method: 'PUT',
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(editDemandeData)
+      });
+      if (res.ok) {
+        setEditingDemandeId(null);
+        setEditDemandeData(null);
+        fetchReunion();
+        onDemandeCreated?.();
+      } else {
+        const err = await res.json().catch(() => ({}));
+        alert(`Erreur : ${err.error || err.message || 'Échec de la mise à jour'}`);
+      }
+    } catch (e) { alert('Erreur mise à jour demande'); }
+    finally { setIsSavingDemande(false); }
+  };
+
+  const handleDeleteDemande = async (id: number) => {
+    if (!window.confirm('Supprimer cette demande ?')) return;
+    try {
+      const res = await fetch(`/api/rencontres-budgetaires/${id}`, { method: 'DELETE', headers: { 'Authorization': `Bearer ${token}` } });
+      if (res.ok) { fetchReunion(); onDemandeCreated?.(); }
+      else { const err = await res.json().catch(() => ({})); alert(`Erreur : ${err.error || err.message || 'Échec de la suppression'}`); }
+    } catch (e) { alert('Erreur suppression demande'); }
   };
 
   return (
@@ -699,14 +743,46 @@ const ReunionDetailModal: React.FC<Props> = ({ isOpen, reunionId, token, userRol
                 <th style={{padding: '8px 12px', textAlign: 'left', fontWeight: '600', color: '#475569'}}>Direction / Service</th>
                 <th style={{padding: '8px 12px', textAlign: 'left', fontWeight: '600', color: '#475569'}}>Type</th>
                 <th style={{padding: '8px 12px', textAlign: 'left', fontWeight: '600', color: '#475569'}}>Statut</th>
+                <th style={{padding: '8px 12px'}}></th>
               </tr></thead>
               <tbody>
-                {(selectedReunion.demandes || []).map(d => (
+                {(selectedReunion.demandes || []).map(d => editingDemandeId === d.id ? (
+                  <tr key={d.id} style={{borderBottom: '1px solid #f1f5f9', background: '#eff6ff'}}>
+                    <td style={{padding: '6px 8px'}}>
+                      <input type="text" style={{width: '100%', padding: '5px 7px', border: '1px solid #cbd5e1', borderRadius: '4px', fontSize: '12px'}} value={editDemandeData.titre || ''} onChange={e => setEditDemandeData((v: any) => ({...v, titre: e.target.value}))} />
+                    </td>
+                    <td style={{padding: '6px 8px'}}>
+                      <div style={{display: 'flex', gap: '4px'}}>
+                        <input type="text" placeholder="Direction" style={{width: '50%', padding: '5px 7px', border: '1px solid #cbd5e1', borderRadius: '4px', fontSize: '12px'}} value={editDemandeData.direction || ''} onChange={e => setEditDemandeData((v: any) => ({...v, direction: e.target.value}))} />
+                        <input type="text" placeholder="Service" style={{width: '50%', padding: '5px 7px', border: '1px solid #cbd5e1', borderRadius: '4px', fontSize: '12px'}} value={editDemandeData.service || ''} onChange={e => setEditDemandeData((v: any) => ({...v, service: e.target.value}))} />
+                      </div>
+                    </td>
+                    <td style={{padding: '6px 8px'}}>
+                      <select style={{width: '100%', padding: '5px 7px', border: '1px solid #cbd5e1', borderRadius: '4px', fontSize: '12px'}} value={editDemandeData.type || ''} onChange={e => setEditDemandeData((v: any) => ({...v, type: e.target.value}))}>
+                        <option value="">-</option>
+                        {types.map(t => <option key={t} value={t}>{t}</option>)}
+                      </select>
+                    </td>
+                    <td style={{padding: '6px 8px'}}>
+                      <select style={{width: '100%', padding: '5px 7px', border: '1px solid #cbd5e1', borderRadius: '4px', fontSize: '12px'}} value={editDemandeData.statut || ''} onChange={e => setEditDemandeData((v: any) => ({...v, statut: e.target.value}))}>
+                        {['demandée', 'planifiée', 'effectuée'].map(s => <option key={s} value={s}>{s}</option>)}
+                      </select>
+                    </td>
+                    <td style={{padding: '6px 8px', whiteSpace: 'nowrap', textAlign: 'right'}}>
+                      <button onClick={cancelEditDemande} style={{padding: '4px 8px', background: '#f1f5f9', border: '1px solid #e2e8f0', borderRadius: '4px', cursor: 'pointer', fontWeight: '600', fontSize: '11px', color: '#475569', marginRight: '4px'}}>Annuler</button>
+                      <button onClick={saveEditDemande} disabled={isSavingDemande} style={{padding: '4px 8px', background: '#2563eb', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: '600', fontSize: '11px'}}>{isSavingDemande ? '...' : 'Enregistrer'}</button>
+                    </td>
+                  </tr>
+                ) : (
                   <tr key={d.id} style={{borderBottom: '1px solid #f1f5f9'}}>
                     <td style={{padding: '8px 12px', fontWeight: '600', color: '#1e293b'}}>{d.titre}</td>
                     <td style={{padding: '8px 12px', color: '#475569'}}>{d.direction}{d.service ? ` / ${d.service}` : ''}</td>
                     <td style={{padding: '8px 12px', color: '#475569'}}>{d.type || '-'}</td>
                     <td style={{padding: '8px 12px'}}><span style={{padding: '3px 8px', borderRadius: '6px', fontSize: '11px', fontWeight: '600', background: '#fef3c7', color: '#92400e'}}>{d.statut}</span></td>
+                    <td style={{padding: '8px 12px', textAlign: 'right', whiteSpace: 'nowrap'}}>
+                      <button onClick={() => startEditDemande(d)} style={{background: 'none', border: 'none', cursor: 'pointer', color: '#2563eb', padding: '4px', marginRight: '2px'}} title="Modifier"><Pencil size={14} /></button>
+                      <button onClick={() => handleDeleteDemande(d.id)} style={{background: 'none', border: 'none', cursor: 'pointer', color: '#ef4444', padding: '4px'}} title="Supprimer"><Trash2 size={14} /></button>
+                    </td>
                   </tr>
                 ))}
               </tbody>

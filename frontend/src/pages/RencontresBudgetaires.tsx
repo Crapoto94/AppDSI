@@ -302,9 +302,9 @@ const RencontresBudgetaires: React.FC = () => {
     }
   };
 
-  const handleOpenGlpiTicket = async (rencontreId: number) => {
+  const handleOpenTicket = async (rencontreId: number) => {
     try {
-      const res = await fetch(`/api/rencontres-budgetaires/${rencontreId}/glpi-link`, {
+      const res = await fetch(`/api/rencontres-budgetaires/${rencontreId}/ticket-link`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       const data = await res.json();
@@ -316,14 +316,14 @@ const RencontresBudgetaires: React.FC = () => {
       }
       window.open(data.url, '_blank');
     } catch {
-      alert('Impossible de vérifier le ticket GLPI');
+      alert('Impossible de vérifier le ticket');
     }
   };
 
-  const handleCreateGlpiTicket = async () => {
+  const handleCreateTicket = async () => {
     if (!selectedRencontre) return;
     if (selectedRencontre.ticket_glpi) {
-      if (!window.confirm(`Un ticket GLPI existe déjà (#${selectedRencontre.ticket_glpi}). Créer quand même un nouveau ticket ?`)) return;
+      if (!window.confirm(`Un ticket existe déjà (#${selectedRencontre.ticket_glpi}). Créer quand même un nouveau ticket ?`)) return;
     }
     try {
       setIsCreatingTicket(true);
@@ -342,7 +342,7 @@ const RencontresBudgetaires: React.FC = () => {
         selectedRencontre.responsable_dsi ? `Responsable DSI : ${selectedRencontre.responsable_dsi}` : '',
       ].filter(Boolean).join('\n');
 
-      const res = await fetch('/api/glpi/tickets', {
+      const res = await fetch('/api/tickets', {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -354,9 +354,9 @@ const RencontresBudgetaires: React.FC = () => {
         })
       });
       const result = await res.json();
-      if (!res.ok) { alert(`Erreur GLPI : ${result.message || 'Échec de la création'}`); return; }
+      if (!res.ok) { alert(`Erreur : ${result.message || 'Échec de la création'}`); return; }
 
-      const ticketId = result.ticket?.id || result.ticket;
+      const ticketId = result.id;
       if (!ticketId) { alert('Ticket créé mais numéro non récupéré'); return; }
 
       const updateRes = await fetch(`/api/rencontres-budgetaires/${selectedRencontre.id}`, {
@@ -368,13 +368,13 @@ const RencontresBudgetaires: React.FC = () => {
         const updated = { ...selectedRencontre, ticket_glpi: String(ticketId) };
         setSelectedRencontre(updated);
         setRencontres(prev => prev.map(r => r.id === updated.id ? updated : r));
-        alert(`Ticket GLPI #${ticketId} créé avec succès`);
+        alert(`Ticket DSIHUB #${ticketId} créé avec succès`);
       } else {
-        alert(`Ticket GLPI #${ticketId} créé mais erreur lors de la mise à jour en base`);
+        alert(`Ticket DSIHUB #${ticketId} créé mais erreur lors de la mise à jour en base`);
       }
     } catch (err) {
-      console.error('Erreur création ticket GLPI:', err);
-      alert('Erreur lors de la création du ticket GLPI');
+      console.error('Erreur création ticket:', err);
+      alert('Erreur lors de la création du ticket');
     } finally {
       setIsCreatingTicket(false);
     }
@@ -792,8 +792,8 @@ const RencontresBudgetaires: React.FC = () => {
                         {r.ticket_glpi && (
                           <button
                             style={{ ...styles.iconBtn, marginRight: '8px', background: '#ede9fe', padding: '4px 8px', borderRadius: '4px', fontSize: '12px', fontWeight: '600', color: '#7c3aed', gap: '4px', display: 'inline-flex', alignItems: 'center' }}
-                            onClick={() => handleOpenGlpiTicket(r.id)}
-                            title={`Ouvrir ticket GLPI #${r.ticket_glpi}`}
+                            onClick={() => handleOpenTicket(r.id)}
+                            title={`Ouvrir ticket DSIHUB #${r.ticket_glpi}`}
                           >
                             <Ticket size={13} />
                             #{r.ticket_glpi}
@@ -1060,7 +1060,7 @@ const RencontresBudgetaires: React.FC = () => {
                       )}
                     </div>
                     <div style={styles.detailField}>
-                      <label style={styles.label}>Ticket GLPI</label>
+                      <label style={styles.label}>Ticket DSIHUB</label>
                       {isEditMode ? (
                         <input
                           type="text"
@@ -1129,12 +1129,12 @@ const RencontresBudgetaires: React.FC = () => {
                         gap: '6px',
                         cursor: isCreatingTicket ? 'not-allowed' : 'pointer',
                       }}
-                      onClick={selectedRencontre.ticket_glpi ? () => handleOpenGlpiTicket(selectedRencontre.id) : handleCreateGlpiTicket}
+                      onClick={selectedRencontre.ticket_glpi ? () => handleOpenTicket(selectedRencontre.id) : handleCreateTicket}
                       disabled={isCreatingTicket}
-                      title={selectedRencontre.ticket_glpi ? `Ouvrir ticket GLPI #${selectedRencontre.ticket_glpi}` : 'Créer un ticket GLPI'}
+                      title={selectedRencontre.ticket_glpi ? `Ouvrir ticket DSIHUB #${selectedRencontre.ticket_glpi}` : 'Créer un ticket DSIHUB'}
                     >
                       <Ticket size={16} />
-                      {isCreatingTicket ? 'Création...' : selectedRencontre.ticket_glpi ? `GLPI #${selectedRencontre.ticket_glpi}` : 'Créer ticket GLPI'}
+                      {isCreatingTicket ? 'Création...' : selectedRencontre.ticket_glpi ? `Ticket #${selectedRencontre.ticket_glpi}` : 'Créer ticket DSIHUB'}
                     </button>
                     <button
                       style={{ ...styles.btn, backgroundColor: '#10b981', color: 'white', border: 'none' }}
@@ -1163,12 +1163,12 @@ const RencontresBudgetaires: React.FC = () => {
                         gap: '6px',
                         cursor: isCreatingTicket ? 'not-allowed' : 'pointer',
                       }}
-                      onClick={selectedRencontre.ticket_glpi ? () => handleOpenGlpiTicket(selectedRencontre.id) : handleCreateGlpiTicket}
+                      onClick={selectedRencontre.ticket_glpi ? () => handleOpenTicket(selectedRencontre.id) : handleCreateTicket}
                       disabled={isCreatingTicket}
-                      title={selectedRencontre.ticket_glpi ? `Ouvrir ticket GLPI #${selectedRencontre.ticket_glpi}` : 'Créer un ticket GLPI'}
+                      title={selectedRencontre.ticket_glpi ? `Ouvrir ticket DSIHUB #${selectedRencontre.ticket_glpi}` : 'Créer un ticket DSIHUB'}
                     >
                       <Ticket size={16} />
-                      {isCreatingTicket ? 'Création...' : selectedRencontre.ticket_glpi ? `GLPI #${selectedRencontre.ticket_glpi}` : 'Créer ticket GLPI'}
+                      {isCreatingTicket ? 'Création...' : selectedRencontre.ticket_glpi ? `Ticket #${selectedRencontre.ticket_glpi}` : 'Créer ticket DSIHUB'}
                     </button>
                     <button
                       style={styles.btn}
