@@ -34,7 +34,13 @@ router.get('/:id', authenticateJWT, rencontresCtrl.getById);
 router.post('/import', authenticateAdminOrFinances, uploadMemory.single('file'), rencontresCtrl.importFile);
 router.post('/from-reunion', authenticateJWT, rencontresCtrl.createFromReunion);
 router.post('/', authenticateAdminOrFinances, rencontresCtrl.create);
-router.put('/:id', authenticateAdminOrFinances, rencontresCtrl.update);
+// La modification d'une demande (édition manuelle, ou rattachement du ticket DSIHUB
+// juste après sa création) était réservée à authenticateAdminOrFinances (superadmin/
+// finances/compta), alors que le bouton "Éditer" et "Créer ticket DSIHUB" sont
+// affichés à tout utilisateur ayant accès à la page — d'où des échecs silencieux
+// pour les autres rôles (ex: supervisor). Alignée sur la création (from-reunion,
+// suivi, participants), déjà ouverte à authenticateJWT.
+router.put('/:id', authenticateJWT, rencontresCtrl.update);
 router.delete('/delete-all', authenticateAdmin, rencontresCtrl.deleteAll);
 router.delete('/:id', authenticateAdmin, rencontresCtrl.deleteOne);
 
