@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
-import { Search, Loader2, Clock, Bell, User, Heart, X, LogOut, LifeBuoy, AlertTriangle, Activity, CheckCircle2, XCircle, Tag, Lightbulb, Paperclip, Eye, BarChart3, Briefcase, FileText, MessageSquare, GraduationCap, Star, ShoppingCart, FlaskConical, Send, MessageCircle, Plus } from 'lucide-react';
+import { Search, Loader2, Clock, Bell, User, Heart, X, LogOut, LifeBuoy, AlertTriangle, Activity, CheckCircle2, XCircle, Tag, Lightbulb, Paperclip, Eye, BarChart3, Briefcase, FileText, MessageSquare, GraduationCap, Star, ShoppingCart, FlaskConical, Send, MessageCircle, Plus, Ticket } from 'lucide-react';
 import './index.css';
 import logoDsiHub from './assets/DSI.png';
 import Login from './Login';
@@ -792,6 +792,36 @@ function App() {
     }
   };
 
+  // Ouvre le détail d'un ticket lié à une demande de rencontre budgétaire : on n'a
+  // que son numéro (r.ticket_glpi), pas d'objet ticket déjà chargé comme pour
+  // userTickets/observedTickets, donc on va le chercher d'abord. Accessible même si
+  // l'utilisateur n'est ni demandeur ni observateur du ticket (API tickets ouverte à
+  // tout utilisateur authentifié) : c'est justement ce qui est demandé ici.
+  const openTicketFromDemande = async (ticketId: number | string) => {
+    try {
+      const token = localStorage.getItem('token');
+      const res = await axios.get(`${apiBase}/tickets/${ticketId}`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {}
+      });
+      const t = res.data;
+      openTicketDetail({
+        ...t,
+        requester_name: t.requester?.name,
+        requester_email: t.requester?.email,
+        status_label: t.status?.label,
+      });
+    } catch (e) {
+      console.error('Erreur chargement ticket:', e);
+      setModalConfig({
+        isOpen: true,
+        type: 'error',
+        title: 'Erreur',
+        message: `Impossible de charger le ticket #${ticketId}.`,
+        onConfirm: () => setModalConfig(prev => ({ ...prev, isOpen: false }))
+      });
+    }
+  };
+
   const handleCloseTicketFromDetail = async () => {
     const ticketId = selectedTicketData?.id || selectedTicketData?.glpi_id;
     if (!ticketId) return;
@@ -1376,6 +1406,15 @@ function App() {
                                             ? <CheckCircle2 size={14} color="#16a34a" />
                                             : r.type?.toLowerCase() === 'projet' ? <Briefcase size={13} color="#7c3aed" /> : r.type?.toLowerCase() === 'incident' ? <AlertTriangle size={13} color="#dc2626" /> : <FileText size={13} color="#0284c7" />}
                                           <span style={{ color: r.statut === 'effectuée' ? '#15803d' : '#1e293b' }}>{r.titre || r.description}</span>
+                                          {r.ticket_glpi && (
+                                            <button
+                                              onClick={() => openTicketFromDemande(r.ticket_glpi)}
+                                              title={`Voir le ticket #${r.ticket_glpi}`}
+                                              style={{ display: 'inline-flex', alignItems: 'center', gap: '3px', marginLeft: '2px', padding: '1px 7px', borderRadius: '10px', background: '#ede9fe', color: '#7c3aed', fontSize: '0.68rem', fontWeight: 700, border: 'none', cursor: 'pointer' }}
+                                            >
+                                              <Ticket size={11} /> #{r.ticket_glpi}
+                                            </button>
+                                          )}
                                           {r.commentaires && (
                                             <span
                                               style={{ cursor: 'pointer', display: 'inline-flex', alignItems: 'center', marginLeft: '4px', color: '#64748b' }}
