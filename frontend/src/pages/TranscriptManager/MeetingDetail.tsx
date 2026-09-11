@@ -3,7 +3,8 @@ import Header from '../../components/Header';
 import {
     ArrowLeft, Calendar, Clock, Send,
     CheckCircle2, Circle, RefreshCw,
-    MessageSquare, ListTodo, FileText, Search, Users, Share2, Building2, CheckCircle, UserCheck
+    MessageSquare, ListTodo, FileText, Search, Users, Share2, Building2, CheckCircle, UserCheck,
+    Paperclip, Upload, Trash2
 } from 'lucide-react';
 import AgentPresenceBadge from '../../components/AgentPresenceBadge';
 import TaskValidationModal from '../../components/TaskValidationModal';
@@ -48,6 +49,22 @@ interface Task {
     app_task_id?: number | null;
 }
 
+interface Attachment {
+    id: number;
+    filename: string;
+    original_name: string;
+    mimetype?: string;
+    size?: number;
+    uploaded_by?: string;
+    created_at?: string;
+}
+
+interface AxiosErrorLike {
+    response?: { status?: number; data?: { error?: string } };
+    code?: string;
+    message?: string;
+}
+
 const MeetingDetail: React.FC = () => {
     const { id } = useParams();
     const navigate = useNavigate();
@@ -71,6 +88,11 @@ const MeetingDetail: React.FC = () => {
     const [isSaving, setIsSaving] = useState(false);
     const [showAllSpeakers, setShowAllSpeakers] = useState(false);
     const [transcriptSearch, setTranscriptSearch] = useState("");
+
+    // Pièces jointes de la réunion (stockées via shared/storage.js → /GED)
+    const [attachments, setAttachments] = useState<Attachment[]>([]);
+    const [isUploadingAttachment, setIsUploadingAttachment] = useState(false);
+    const attachmentInputRef = useRef<HTMLInputElement>(null);
 
     // Génération IA (APM) : choix du modèle + rapprochement agents DSI.
     // Le modèle par défaut vient de l'admin (transcript_apm_default_model) —
@@ -136,9 +158,10 @@ const MeetingDetail: React.FC = () => {
     const fetchData = async () => {
         if (!token || !id) return;
         try {
-            const [mRes, tRes] = await Promise.all([
+            const [mRes, tRes, aRes] = await Promise.all([
                 axios.get(`/api/transcriptmanager/meeting/${id}`, { headers: { Authorization: `Bearer ${token}` } }),
-                axios.get(`/api/transcriptmanager/tasks?meeting_id=${id}`, { headers: { Authorization: `Bearer ${token}` } })
+                axios.get(`/api/transcriptmanager/tasks?meeting_id=${id}`, { headers: { Authorization: `Bearer ${token}` } }),
+                axios.get(`/api/transcriptmanager/meeting/${id}/attachments`, { headers: { Authorization: `Bearer ${token}` } })
             ]);
             setMeeting(mRes.data);
             setEditValues({
@@ -146,6 +169,7 @@ const MeetingDetail: React.FC = () => {
                 meeting_date: mRes.data.meeting_date ? new Date(mRes.data.meeting_date).toISOString().split('T')[0] : new Date(mRes.data.created_at).toISOString().split('T')[0]
             });
             setTasks(tRes.data);
+            setAttachments(aRes.data || []);
             // Init sharing state from existing meeting data
             const existingDir = mRes.data.shared_with_direction || '';
             const existingService = mRes.data.shared_with_service || '';
@@ -254,6 +278,52 @@ const MeetingDetail: React.FC = () => {
         pollTimeoutRef.current = setTimeout(poll, POLL_INTERVAL_MS);
     };
 
+    // Génération asynchrone (fix 504) : POST /summarize répond immédiatement avec
+    // un jobId, on suit l'avancement en pollant /summarize-status/:jobId toutes les
+    // 3 s — plus aucune connexion HTTP longue ne peut être coupée par un proxy
+    // intermédiaire.
+    const pollSummarizeJob = (jobId: string, genStart: number) => {
+        const POLL_INTERVAL_MS = 3000;
+        const MAX_WAIT_MS = 26 * 60 * 1000; // 26 min — borne APM de 20 min + marge
+        const poll = async () => {
+            if (!id || !token) { stopGenerating(); return; }
+            try {
+                const res = await axios.get(`/api/transcriptmanager/summarize-status/${jobId}`, {
+                    headers: { Authorization: `Bearer ${token}` },
+                    timeout: 10000
+                });
+                const job = res.data;
+                if (job?.status === 'completed') {
+                    await fetchData();
+                    stopGenerating();
+                    return;
+                }
+                if (job?.status === 'error') {
+                    stopGenerating();
+                    alert(`Erreur lors de la génération du résumé : ${job.error || 'erreur inconnue'}`);
+                    return;
+                }
+            } catch (error: unknown) {
+                // Job serveur perdu (restart) ou réseau : on bascule sur la
+                // vérification directe du résumé enregistré, comme avant.
+                const err = error as AxiosErrorLike;
+                if (err?.response?.status === 404) {
+                    setIsPollingAfterError(true);
+                    pollForLateResult(meeting?.summary || '', genStart);
+                    return;
+                }
+                console.error(error);
+            }
+            if (Date.now() - genStart > MAX_WAIT_MS) {
+                stopGenerating();
+                alert("Toujours aucun résumé après 26 min — la génération a probablement réellement échoué.");
+                return;
+            }
+            pollTimeoutRef.current = setTimeout(poll, POLL_INTERVAL_MS);
+        };
+        pollTimeoutRef.current = setTimeout(poll, POLL_INTERVAL_MS);
+    };
+
     const handleSummarize = async () => {
         if (!id || !token) return;
         if (!selectedModel) {
@@ -268,14 +338,22 @@ const MeetingDetail: React.FC = () => {
         if (genTimerRef.current) clearInterval(genTimerRef.current);
         genTimerRef.current = setInterval(() => setGenElapsed(Math.floor((Date.now() - genStart) / 1000)), 1000);
         try {
-            await axios.post(`/api/transcriptmanager/meeting/${id}/summarize`,
+            const res = await axios.post(`/api/transcriptmanager/meeting/${id}/summarize`,
                 { model: selectedModel },
                 { headers: { Authorization: `Bearer ${token}` } }
             );
-            await fetchData();
-            stopGenerating();
-        } catch (err: any) {
-            console.error(err);
+            const jobId = res.data?.jobId;
+            if (!jobId) {
+                // Ancien serveur (réponse synchrone) : résultat direct
+                await fetchData();
+                stopGenerating();
+                return;
+            }
+            // Le POST renvoie quasi immédiatement ; le suivi du résumé passe par le job.
+            await pollSummarizeJob(jobId, genStart);
+        } catch (error: unknown) {
+            const err = error as AxiosErrorLike;
+            console.error(error);
             // err.response absent = aucune réponse HTTP reçue (coupure réseau/proxy
             // en cours de route, pas une erreur renvoyée par notre backend) : on
             // affiche le code/message axios (ex. ECONNABORTED, Network Error) pour
@@ -290,8 +368,8 @@ const MeetingDetail: React.FC = () => {
             // Forme typique d'une coupure par un proxy intermédiaire plutôt que
             // d'une vraie erreur applicative renvoyée par notre backend : pas de
             // réponse du tout, ou un 502/503/504.
-            const looksLikeGatewayCutoff = !err?.response || [502, 503, 504].includes(status)
-                || ['ECONNABORTED', 'ERR_NETWORK', 'ERR_BAD_RESPONSE'].includes(err?.code);
+            const looksLikeGatewayCutoff = !err?.response || (status !== undefined && [502, 503, 504].includes(status))
+                || (err?.code ? ['ECONNABORTED', 'ERR_NETWORK', 'ERR_BAD_RESPONSE'].includes(err.code) : false);
 
             if (looksLikeGatewayCutoff) {
                 alert(
@@ -354,6 +432,35 @@ const MeetingDetail: React.FC = () => {
                 headers: { Authorization: `Bearer ${token}` }
             });
             setTasks(tasks.filter(t => t.id !== taskId));
+        } catch (err) { console.error(err); }
+    };
+
+    // ===== Pièces jointes =====
+    const handleUploadAttachment = async (files: FileList | null) => {
+        if (!files || files.length === 0 || !token || !id) return;
+        setIsUploadingAttachment(true);
+        try {
+            const formData = new FormData();
+            Array.from(files).forEach(f => formData.append('files', f));
+            await axios.post(`/api/transcriptmanager/meeting/${id}/attachments`, formData, {
+                headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'multipart/form-data' }
+            });
+            const aRes = await axios.get(`/api/transcriptmanager/meeting/${id}/attachments`, { headers: { Authorization: `Bearer ${token}` } });
+            setAttachments(aRes.data || []);
+        } catch (err) {
+            console.error(err);
+            alert("Erreur lors de l'ajout des pièces jointes");
+        } finally {
+            setIsUploadingAttachment(false);
+            if (attachmentInputRef.current) attachmentInputRef.current.value = '';
+        }
+    };
+
+    const handleDeleteAttachment = async (attId: number) => {
+        if (!token || !window.confirm('Supprimer cette pièce jointe ?')) return;
+        try {
+            await axios.delete(`/api/transcriptmanager/attachments/${attId}`, { headers: { Authorization: `Bearer ${token}` } });
+            setAttachments(attachments.filter(a => a.id !== attId));
         } catch (err) { console.error(err); }
     };
 
@@ -641,6 +748,56 @@ const MeetingDetail: React.FC = () => {
                             )}
                         </div>
                         )}
+
+                        <div className="md-card">
+                            <div className="card-head">
+                                <Paperclip size={18} />
+                                <h2>Pièces jointes</h2>
+                                <span className="badge">{attachments.length}</span>
+                                <input
+                                    ref={attachmentInputRef}
+                                    type="file"
+                                    multiple
+                                    style={{ display: 'none' }}
+                                    onChange={(e) => handleUploadAttachment(e.target.files)}
+                                />
+                                <button className="md-btn-add-att" onClick={() => attachmentInputRef.current?.click()} disabled={isUploadingAttachment}>
+                                    <Upload size={14} /> {isUploadingAttachment ? 'Ajout...' : 'Ajouter'}
+                                </button>
+                            </div>
+                            {attachments.length === 0 ? (
+                                <p className="no-tasks" style={{ padding: '1rem 1.5rem' }}>
+                                    {isUploadingAttachment ? 'Ajout en cours...' : 'Aucune pièce jointe.'}
+                                </p>
+                            ) : (
+                                <div style={{ padding: '0.5rem 1.5rem 1rem' }}>
+                                    {attachments.map(att => (
+                                        <div key={att.id} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.5rem 0', borderBottom: '1px solid #F8FAFC' }}>
+                                            <span style={{ fontSize: '1rem', flexShrink: 0 }}>
+                                                {att.mimetype?.includes('pdf') ? '📄' : att.mimetype?.includes('image') ? '🖼️' : att.mimetype?.includes('sheet') || att.original_name.endsWith('.xlsx') || att.original_name.endsWith('.csv') ? '📊' : '📎'}
+                                            </span>
+                                            <div style={{ minWidth: 0, flex: 1 }}>
+                                                <a
+                                                    href={`/api/transcriptmanager/attachments/${att.id}/file?mode=inline&token=${encodeURIComponent(token || '')}`}
+                                                    target="_blank" rel="noopener noreferrer"
+                                                    style={{ fontSize: '0.8rem', color: '#2563EB', textDecoration: 'none', display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                                                    title={att.original_name}
+                                                >
+                                                    {att.original_name}
+                                                </a>
+                                                <span style={{ fontSize: '0.7rem', color: '#94A3B8' }}>
+                                                    {att.size ? `${(att.size / 1024).toFixed(0)} Ko` : ''}
+                                                    {att.uploaded_by ? `${att.size ? ' · ' : ''}${att.uploaded_by}` : ''}
+                                                </span>
+                                            </div>
+                                            <button className="task-action-btn" title="Supprimer" onClick={() => handleDeleteAttachment(att.id)}>
+                                                <Trash2 size={14} style={{ color: '#EF4444' }} />
+                                            </button>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
 
                         <div className="md-card tasks-card">
                             <div className="card-head">
@@ -1144,6 +1301,24 @@ const MeetingDetail: React.FC = () => {
                     font-size: 0.8rem; cursor: pointer; transition: background 0.2s;
                 }
                 .md-btn-propose:hover { background: #D97706; }
+                .md-btn-add-att {
+                    display: inline-flex;
+                    align-items: center;
+                    gap: 0.35rem;
+                    background: #3B82F6;
+                    color: white;
+                    border: none;
+                    padding: 0.4rem 0.8rem;
+                    border-radius: 8px;
+                    font-size: 0.75rem;
+                    font-weight: 700;
+                    cursor: pointer;
+                    transition: background 0.2s;
+                    white-space: nowrap;
+                    margin-left: auto;
+                }
+                .md-btn-add-att:hover { background: #2563EB; }
+                .md-btn-add-att:disabled { opacity: 0.6; cursor: not-allowed; }
                 .ts {
                     background: #F1F5F9;
                     border: none;

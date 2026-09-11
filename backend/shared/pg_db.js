@@ -55,6 +55,7 @@ function convertSqliteToPostgres(sql) {
                     .replace(/(?<!transcript\.)\btranscript_meetings\b/gi, 'transcript.meetings')
                     .replace(/(?<!transcript\.)\btranscript_cues\b/gi, 'transcript.cues')
                     .replace(/(?<!transcript\.)\btranscript_tasks\b/gi, 'transcript.tasks')
+                    .replace(/(?<!transcript\.)\btranscript_meeting_attachments\b/gi, 'transcript.meeting_attachments')
                     .replace(/(?<!projets\.)\bprojet_comites\b/gi, 'projets.projet_comites')
                     .replace(/(?<!projets\.)\bprojet_comites_membres\b/gi, 'projets.projet_comites_membres')
                     .replace(/(?<!projets\.)\bprojet_etapes\b/gi, 'projets.projet_etapes')
@@ -76,6 +77,7 @@ function convertSqliteToPostgres(sql) {
     newSql = newSql.replace(/transcript_meetings/gi, 'transcript.meetings')
                     .replace(/transcript_cues/gi, 'transcript.cues')
                     .replace(/transcript_tasks/gi, 'transcript.tasks')
+                    .replace(/transcript_meeting_attachments/gi, 'transcript.meeting_attachments')
                     .replace(/transcript_settings/gi, 'transcript.settings');
 
     newSql = newSql.replace(/INSERT OR IGNORE INTO/gi, 'INSERT INTO');
@@ -2293,6 +2295,22 @@ async function setupPgDb() {
     } catch (e) {
         console.error('Error migrating transcript.tasks columns:', e.message);
     }
+    // Pièces jointes des réunions (Transcript Manager) — fichiers stockés via
+    // shared/storage.js (racine GED `<root>/transcript/<meeting_id>/...`) et
+    // double-écriture hub_docs (viewer central / GED).
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS transcript.meeting_attachments (
+        id SERIAL PRIMARY KEY,
+        meeting_id INTEGER NOT NULL REFERENCES transcript.meetings(id) ON DELETE CASCADE,
+        filename TEXT NOT NULL,
+        original_name TEXT NOT NULL,
+        mimetype TEXT,
+        size INTEGER,
+        uploaded_by TEXT,
+        file_path TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
     await client.query(`
       CREATE TABLE IF NOT EXISTS transcript.settings (
         id SERIAL PRIMARY KEY,

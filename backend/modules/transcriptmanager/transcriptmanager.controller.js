@@ -5,7 +5,11 @@ const axios = require('axios');
 const fs = require('fs');
 const path = require('path');
 const apmAi = require('../../shared/apm_ai');
+const storage = require('../../shared/storage');
 const { listDsiAgents, matchDsiAgent } = require('./agent-match');
+
+// Module GED pour les pièces jointes : <root>/transcript/<meeting_id>/<fichier>
+const ATTACHMENT_MODULE = 'transcript';
 
 const DEFAULT_PROMPT_TEMPLATE = `Tu es un assistant spécialisé dans la synthèse de réunions de direction d'un service informatique (DSI) municipal.
 Ta mission est de produire un compte-rendu clair, structuré et professionnel à partir de la transcription fournie.
@@ -45,6 +49,11 @@ FORMAT DU JSON :
  * Controller for Transcript Manager module
  */
 let importJobs = {};
+// Jobs de génération IA asynchrones (POST /meeting/:id/summarize renvoie un jobId,
+// le front poll /summarize-status/:jobId). Permet de ne plus jamais retenir une
+// requête HTTP 20+ minutes (proxies intermédiaires → 504), le traitement continue
+// en arrière-plan côté serveur.
+let summarizeJobs = {};
 
 const transcriptController = {
     /**
@@ -342,69 +351,48 @@ const transcriptController = {
      * against DSI agents (hub_calendrier.agents_dsi) and persisted, but NOT
      * auto-converted into real app tasks — that step requires explicit user
      * validation (see linkAppTask / frontend modal).
+     *
+     * Asynchrone depuis le fix 504 : la route répond immédiatement avec un
+     * jobId, le traitement continue en arrière-plan (cf. summarizeJobs) et le
+     * front suivit l'avancement via GET /summarize-status/:jobId. Plus aucune
+     * connexion HTTP longue n'expose l'app aux timeout des proxies réseau (nginx,
+     * etc.) qui coupaient la génération (ERR_BAD_RESPONSE / HTTP 504).
      */
     summarizeMeeting: async (req, res) => {
         const meetingId = req.params.id;
-        const db = pgDb;
-        const sqlite = getSqlite();
-        const { model } = req.body || {};
-
         try {
-            const meeting = await db.get('SELECT * FROM transcript_meetings WHERE id = ?', [meetingId]);
+            const meeting = await pgDb.get('SELECT * FROM transcript_meetings WHERE id = ?', [meetingId]);
             if (!meeting) return res.status(404).json({ error: 'Réunion non trouvée' });
 
-            const cues = await db.all('SELECT * FROM transcript_cues WHERE meeting_id = ? ORDER BY start_seconds', [meetingId]);
-            let transcriptText = cues.map(c => `[${formatTime(c.start_seconds)}] ${c.speaker_name}: ${c.text}`).join('\n');
-            console.log(`[TranscriptManager] Transcript length: ${transcriptText.length} chars for meeting ${meetingId}`);
+            const jobId = `sum_${Date.now()}_${meetingId}`;
+            summarizeJobs[jobId] = {
+                status: 'starting',
+                progress: 0,
+                meetingId: parseInt(meetingId, 10),
+                model: (req.body || {}).model || null,
+                createdAt: Date.now(),
+            };
+            pruneSummarizeJobs();
 
-            const source = await getAiSource();
+            // Réponse immédiate — le travail se poursuit en arrière-plan.
+            res.json({ jobId });
 
-            // Limite de contexte : le réglage "max_chars_context" (si renseigné) prime
-            // toujours. Sans réglage explicite, l'API Ville (APM) — des modèles hébergés
-            // avec un grand contexte — utilise un défaut large, tandis que l'IA locale
-            // AppDSI (Groq/Gemini/OpenRouter/Anthropic/Ollama, fenêtre de contexte et
-            // limites de requête bien plus restreintes) retombe sur des défauts par
-            // fournisseur — sinon un prompt volumineux se fait rejeter (ex. 413 côté Groq).
-            const DEFAULT_MAX_BY_LOCAL_PROVIDER = { groq: 24000, openrouter: 80000, gemini: 80000, anthropic: 120000, ollama: 40000 };
-            const maxCharsRow = await sqlite.get('SELECT setting_value FROM app_settings WHERE setting_key = ?', ['max_chars_context']);
-            let MAX_TRANSCRIPT_CHARS = maxCharsRow?.setting_value ? parseInt(maxCharsRow.setting_value, 10) : null;
-            if (!MAX_TRANSCRIPT_CHARS) {
-                if (source === 'local') {
-                    const providerRow = await sqlite.get('SELECT setting_value FROM app_settings WHERE setting_key = ?', ['ai_provider']);
-                    const provider = providerRow?.setting_value || 'groq';
-                    MAX_TRANSCRIPT_CHARS = DEFAULT_MAX_BY_LOCAL_PROVIDER[provider] || 24000;
-                } else {
-                    MAX_TRANSCRIPT_CHARS = 100000;
-                }
-            }
-            if (transcriptText.length > MAX_TRANSCRIPT_CHARS) {
-                console.warn(`[TranscriptManager] Truncating transcript from ${transcriptText.length} to ${MAX_TRANSCRIPT_CHARS} chars (source: ${source})`);
-                transcriptText = transcriptText.substring(0, MAX_TRANSCRIPT_CHARS) + "\n... (Transcription tronquée car trop longue) ...";
-            }
-
-            // Prompt : réglage centralisé (persisté), partagé par les deux sources IA.
-            const customPromptRow = await sqlite.get('SELECT setting_value FROM app_settings WHERE setting_key = ?', ['custom_prompt']);
-            const promptTemplate = (customPromptRow?.setting_value) || DEFAULT_PROMPT_TEMPLATE;
-            const prompt = promptTemplate
-                .replace('{REUNION}', meeting.title)
-                .replace('{TRANSCRIPTION}', transcriptText);
-
-            // Sans modèle explicite dans la requête (ex. appel direct à l'API), on
-            // retombe sur le modèle par défaut choisi en admin pour le Transcript
-            // Manager — jamais sur le "défaut" propre à APM, qui est global à
-            // toutes les applications qui l'appellent.
-            const effectiveModel = model || (source === 'apm' ? await getTranscriptApmDefaultModel() : undefined);
-            console.log(`[TranscriptManager] Prompt length: ${prompt.length} chars — source: ${source} — model: ${effectiveModel || '(défaut)'}`);
-
-            const fullText = source === 'local'
-                ? await callLocalAi(prompt)
-                : await apmAi.queryAi(prompt, effectiveModel || undefined);
-            const result = await processFullText(meetingId, fullText);
-            res.json(result);
+            runSummarizeJob(parseInt(meetingId, 10), summarizeJobs[jobId].model, summarizeJobs[jobId])
+                .catch(err => console.error(`[TranscriptManager] Job résumé ${jobId} a échoué :`, err.message));
         } catch (error) {
             console.error('Summarize error:', error.message);
-            res.status(502).json({ error: error.message });
+            res.status(500).json({ error: error.message });
         }
+    },
+
+    /**
+     * Statut d'un job de génération (summarizeJobs). Le front le poll pendant
+     * qu'il tourne ; status = completed (avec summary/tasks) | error | running.
+     */
+    getSummarizeStatus: (req, res) => {
+        const job = summarizeJobs[req.params.jobId];
+        if (!job) return res.status(404).json({ status: 'error', message: 'Job non trouvé' });
+        res.json(job);
     },
 
     /**
@@ -486,11 +474,125 @@ const transcriptController = {
         try {
             const db = pgDb;
             const meetingId = req.params.id;
+
+            // Supprime les fichiers physiques des pièces jointes avant la
+            // suppression en base (le FK CASCADE ne touche que les enregistrements).
+            const atts = await db.all('SELECT * FROM transcript_meeting_attachments WHERE meeting_id = ?', [meetingId]);
+            for (const att of atts) {
+                try {
+                    const storagePath = att.file_path || (storage.isStoragePath(att.filename) ? att.filename : null);
+                    if (storagePath && storage.isStoragePath(storagePath)) {
+                        await storage.deleteFile(storagePath);
+                    } else {
+                        const filePath = path.join(__dirname, '..', '..', 'file_reunions', att.filename);
+                        if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+                    }
+                } catch (e) { console.warn('[TM] Suppression PJ échouée:', e.message); }
+            }
+
             await db.run('DELETE FROM transcript_meetings WHERE id = ?', [meetingId]);
             res.json({ success: true, message: 'Réunion supprimée' });
         } catch (error) {
             res.status(500).json({ error: error.message });
         }
+    },
+
+    // ===== Pièces jointes (stockées via shared/storage.js → /GED, double-écriture hub_docs) =====
+
+    uploadAttachments: async (req, res) => {
+        try {
+            const { id } = req.params;
+            const username = req.user?.username || 'unknown';
+            const meeting = await pgDb.get('SELECT id FROM transcript.meetings WHERE id = ?', [id]);
+            if (!meeting) return res.status(404).json({ error: 'Réunion non trouvée' });
+            if (!req.files || req.files.length === 0) return res.status(400).json({ error: 'Aucun fichier reçu' });
+
+            const inserted = [];
+            for (const file of req.files) {
+                // Corrige l'encodage du nom (multer décode en latin1) avant l'écriture
+                if (file && file.originalname) file.originalname = storage.fixUploadName(file.originalname);
+                const saved = await storage.saveFile(ATTACHMENT_MODULE, id, file);
+
+                const result = await pgDb.run(
+                    `INSERT INTO transcript.meeting_attachments (meeting_id, filename, original_name, mimetype, size, uploaded_by, file_path) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+                    [id, saved.filename, file.originalname, file.mimetype, file.size, username, saved.dbPath]
+                );
+
+                // Dual-write : enregistre dans hub_docs (viewer central / GED)
+                try {
+                    const docsService = require('../../shared/documents.service');
+                    await docsService.registerExternalUpload({
+                        module: ATTACHMENT_MODULE,
+                        entityType: 'attachment',
+                        entityId: id,
+                        title: file.originalname,
+                        filename: saved.filename,
+                        originalName: file.originalname,
+                        mimetype: file.mimetype,
+                        size: file.size,
+                        storageRef: saved.dbPath,
+                        uploadedBy: username,
+                    });
+                } catch (e) { console.warn('[DOCS] register failed:', e.message); }
+
+                inserted.push({ id: result.lastID, filename: saved.filename, original_name: file.originalname, mimetype: file.mimetype, size: file.size });
+            }
+            res.json({ uploaded: inserted.length, files: inserted });
+        } catch (error) { res.status(500).json({ error: error.message }); }
+    },
+
+    getAttachments: async (req, res) => {
+        try {
+            const attachments = await pgDb.all(`SELECT * FROM transcript.meeting_attachments WHERE meeting_id = ? ORDER BY created_at DESC`, [req.params.id]);
+            res.json(attachments);
+        } catch (error) { res.status(500).json({ error: error.message }); }
+    },
+
+    downloadAttachment: async (req, res) => {
+        try {
+            const att = await pgDb.get(`SELECT * FROM transcript.meeting_attachments WHERE id = ?`, [req.params.id]);
+            if (!att) return res.status(404).json({ error: 'PJ introuvable' });
+
+            const storagePath = att.file_path
+                || (storage.isStoragePath(att.filename) ? att.filename : null);
+
+            if (storagePath) {
+                const f = await storage.getFileForServe(storagePath);
+                if (!f) return res.status(404).json({ error: 'Fichier introuvable sur le stockage' });
+                const displayName = att.original_name || att.filename || 'fichier';
+                const disposition = req.query.mode === 'inline' ? 'inline' : 'attachment';
+                res.setHeader('Content-Disposition', `${disposition}; filename="${encodeURIComponent(displayName)}"`);
+                if (att.mimetype) res.type(att.mimetype);
+                else res.type(path.extname(displayName) || 'application/octet-stream');
+                if (f.absolutePath) return res.sendFile(f.absolutePath);
+                return res.send(f.buffer);
+            }
+
+            // Fallback legacy local
+            const filePath = path.join(__dirname, '..', '..', 'file_reunions', att.filename);
+            if (!fs.existsSync(filePath)) return res.status(404).json({ error: 'Fichier introuvable' });
+            res.download(filePath, att.original_name || att.filename);
+        } catch (error) { res.status(500).json({ error: error.message }); }
+    },
+
+    deleteAttachment: async (req, res) => {
+        try {
+            const att = await pgDb.get(`SELECT * FROM transcript.meeting_attachments WHERE id = ?`, [req.params.id]);
+            if (!att) return res.status(404).json({ error: 'PJ introuvable' });
+
+            // Supprime via le service de stockage (nouveau ou legacy)
+            if (storage.isStoragePath(att.file_path)) {
+                await storage.deleteFile(att.file_path);
+            } else if (storage.isStoragePath(att.filename)) {
+                await storage.deleteFile(att.filename);
+            } else {
+                const filePath = path.join(__dirname, '..', '..', 'file_reunions', att.filename);
+                if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+            }
+
+            await pgDb.run(`DELETE FROM transcript.meeting_attachments WHERE id = ?`, [req.params.id]);
+            res.json({ success: true });
+        } catch (error) { res.status(500).json({ error: error.message }); }
     },
 
     /**
@@ -942,6 +1044,98 @@ async function processFullText(meetingId, fullText) {
     }
 
     return { summary: displayText, tasks: savedTasks };
+}
+
+/**
+ * Exécute la génération de résumé en arrière-plan (appelée par summarizeMeeting,
+ * qui répond immédiatement). Met à jour le job passé en paramètre pour que le
+ * front puisse suivre l'avancement via /summarize-status/:jobId. Ne lève pas
+ * d'exception non capturée : les erreurs sont reportées dans job.error.
+ */
+async function runSummarizeJob(meetingId, model, job) {
+    const db = pgDb;
+    const sqlite = getSqlite();
+    try {
+        const meeting = await db.get('SELECT * FROM transcript_meetings WHERE id = ?', [meetingId]);
+        if (!meeting) throw new Error('Réunion non trouvée');
+
+        const cues = await db.all('SELECT * FROM transcript_cues WHERE meeting_id = ? ORDER BY start_seconds', [meetingId]);
+        let transcriptText = cues.map(c => `[${formatTime(c.start_seconds)}] ${c.speaker_name}: ${c.text}`).join('\n');
+        console.log(`[TranscriptManager] Transcript length: ${transcriptText.length} chars for meeting ${meetingId}`);
+        if (job) { job.status = 'analyse de la transcription'; job.progress = 10; }
+
+        const source = await getAiSource();
+
+        // Limite de contexte : le réglage "max_chars_context" (si renseigné) prime
+        // toujours. Sans réglage explicite, l'API Ville (APM) — des modèles hébergés
+        // avec un grand contexte — utilise un défaut large, tandis que l'IA locale
+        // AppDSI (Groq/Gemini/OpenRouter/Anthropic/Ollama, fenêtre de contexte et
+        // limites de requête bien plus restreintes) retombe sur des défauts par
+        // fournisseur — sinon un prompt volumineux se fait rejeter (ex. 413 côté Groq).
+        const DEFAULT_MAX_BY_LOCAL_PROVIDER = { groq: 24000, openrouter: 80000, gemini: 80000, anthropic: 120000, ollama: 40000 };
+        const maxCharsRow = await sqlite.get('SELECT setting_value FROM app_settings WHERE setting_key = ?', ['max_chars_context']);
+        let MAX_TRANSCRIPT_CHARS = maxCharsRow?.setting_value ? parseInt(maxCharsRow.setting_value, 10) : null;
+        if (!MAX_TRANSCRIPT_CHARS) {
+            if (source === 'local') {
+                const providerRow = await sqlite.get('SELECT setting_value FROM app_settings WHERE setting_key = ?', ['ai_provider']);
+                const provider = providerRow?.setting_value || 'groq';
+                MAX_TRANSCRIPT_CHARS = DEFAULT_MAX_BY_LOCAL_PROVIDER[provider] || 24000;
+            } else {
+                MAX_TRANSCRIPT_CHARS = 100000;
+            }
+        }
+        if (transcriptText.length > MAX_TRANSCRIPT_CHARS) {
+            console.warn(`[TranscriptManager] Truncating transcript from ${transcriptText.length} to ${MAX_TRANSCRIPT_CHARS} chars (source: ${source})`);
+            transcriptText = transcriptText.substring(0, MAX_TRANSCRIPT_CHARS) + "\n... (Transcription tronquée car trop longue) ...";
+        }
+
+        // Prompt : réglage centralisé (persisté), partagé par les deux sources IA.
+        const customPromptRow = await sqlite.get('SELECT setting_value FROM app_settings WHERE setting_key = ?', ['custom_prompt']);
+        const promptTemplate = (customPromptRow?.setting_value) || DEFAULT_PROMPT_TEMPLATE;
+        const prompt = promptTemplate
+            .replace('{REUNION}', meeting.title)
+            .replace('{TRANSCRIPTION}', transcriptText);
+
+        // Sans modèle explicite dans la requête (ex. appel direct à l'API), on
+        // retombe sur le modèle par défaut choisi en admin pour le Transcript
+        // Manager — jamais sur le "défaut" propre à APM, qui est global à
+        // toutes les applications qui l'appellent.
+        const effectiveModel = model || (source === 'apm' ? await getTranscriptApmDefaultModel() : undefined);
+        console.log(`[TranscriptManager] Prompt length: ${prompt.length} chars — source: ${source} — model: ${effectiveModel || '(défaut)'}`);
+        if (job) { job.status = `Envoi du prompt (${effectiveModel || 'défaut'})`; job.progress = 40; }
+
+        const fullText = source === 'local'
+            ? await callLocalAi(prompt)
+            : await apmAi.queryAi(prompt, effectiveModel || undefined);
+        if (job) { job.status = 'enregistrement du résumé'; job.progress = 80; }
+
+        const result = await processFullText(meetingId, fullText);
+        if (job) {
+            job.status = 'completed';
+            job.progress = 100;
+            job.summary = result.summary;
+            job.tasks = result.tasks;
+        }
+        return result;
+    } catch (error) {
+        console.error('Summarize error:', error.message);
+        if (job) { job.status = 'error'; job.error = error.message; }
+        throw error;
+    }
+}
+
+/**
+ * Purge les jobs terminés/en échec de plus de 35 min (le front arrête de poll
+ * au bout de 26 min) — évite la fuite mémoire sur les longs uptimes.
+ */
+function pruneSummarizeJobs() {
+    const cutoff = Date.now() - 35 * 60 * 1000;
+    for (const key of Object.keys(summarizeJobs)) {
+        const job = summarizeJobs[key];
+        if (job.createdAt < cutoff) {
+            delete summarizeJobs[key];
+        }
+    }
 }
 
 module.exports = transcriptController;
