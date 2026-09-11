@@ -59,6 +59,13 @@ const MeetingDetail: React.FC = () => {
     const [isGenerating, setIsGenerating] = useState(false);
     const [genElapsed, setGenElapsed] = useState(0); // secondes écoulées depuis le clic sur "Générer"
     const genTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+    // Un proxy réseau intermédiaire peut couper la connexion avant que le
+    // backend n'ait fini (constaté : le résumé finit par être enregistré
+    // malgré l'erreur affichée au client). Dans ce cas, on vérifie
+    // périodiquement si le résultat arrive quand même plutôt que de laisser
+    // l'utilisateur croire à un échec pur et simple.
+    const [isPollingAfterError, setIsPollingAfterError] = useState(false);
+    const pollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const [isEditing, setIsEditing] = useState(false);
     const [editValues, setEditValues] = useState({ title: '', meeting_date: '' });
     const [isSaving, setIsSaving] = useState(false);
@@ -96,9 +103,10 @@ const MeetingDetail: React.FC = () => {
     }, [id, token]);
 
     // Sécurité : si on navigue hors de la page en pleine génération, on ne
-    // laisse pas le compteur tourner dans le vide.
+    // laisse pas le compteur — ni le sondage post-erreur — tourner dans le vide.
     useEffect(() => () => {
         if (genTimerRef.current) clearInterval(genTimerRef.current);
+        if (pollTimeoutRef.current) clearTimeout(pollTimeoutRef.current);
     }, []);
 
     useEffect(() => {
@@ -205,6 +213,47 @@ const MeetingDetail: React.FC = () => {
         }
     };
 
+    const stopGenerating = () => {
+        if (genTimerRef.current) { clearInterval(genTimerRef.current); genTimerRef.current = null; }
+        if (pollTimeoutRef.current) { clearTimeout(pollTimeoutRef.current); pollTimeoutRef.current = null; }
+        setIsGenerating(false);
+        setIsPollingAfterError(false);
+    };
+
+    // Constaté en pratique : un proxy réseau intermédiaire (nginx, etc.) coupe
+    // parfois la connexion avec le client avant que le backend n'ait fini —
+    // celui-ci continue de travailler et enregistre le résumé quand même. On
+    // vérifie donc périodiquement si le résultat finit par arriver avant de
+    // considérer que la génération a réellement échoué.
+    const pollForLateResult = (summaryBefore: string, genStart: number) => {
+        const POLL_INTERVAL_MS = 15000;
+        const MAX_WAIT_MS = 10 * 60 * 1000; // 10 min
+        setIsPollingAfterError(true);
+
+        const poll = async () => {
+            if (!id || !token) { stopGenerating(); return; }
+            try {
+                const res = await axios.get(`/api/transcriptmanager/meeting/${id}`, { headers: { Authorization: `Bearer ${token}` } });
+                const newSummary: string = res.data?.summary || '';
+                if (newSummary && newSummary !== summaryBefore) {
+                    await fetchData();
+                    stopGenerating();
+                    alert(`Le résumé a finalement été généré avec succès (après ${formatDuration(Math.floor((Date.now() - genStart) / 1000))}) malgré l'erreur réseau affichée précédemment.`);
+                    return;
+                }
+            } catch (err) {
+                console.error(err);
+            }
+            if (Date.now() - genStart > MAX_WAIT_MS) {
+                stopGenerating();
+                alert(`Toujours aucun résumé après ${formatDuration(Math.floor((Date.now() - genStart) / 1000))} — la génération a probablement réellement échoué cette fois (pas seulement une coupure réseau).`);
+                return;
+            }
+            pollTimeoutRef.current = setTimeout(poll, POLL_INTERVAL_MS);
+        };
+        pollTimeoutRef.current = setTimeout(poll, POLL_INTERVAL_MS);
+    };
+
     const handleSummarize = async () => {
         if (!id || !token) return;
         if (!selectedModel) {
@@ -212,8 +261,10 @@ const MeetingDetail: React.FC = () => {
             return;
         }
         setIsGenerating(true);
+        setIsPollingAfterError(false);
         setGenElapsed(0);
         const genStart = Date.now();
+        const summaryBefore = meeting?.summary || '';
         if (genTimerRef.current) clearInterval(genTimerRef.current);
         genTimerRef.current = setInterval(() => setGenElapsed(Math.floor((Date.now() - genStart) / 1000)), 1000);
         try {
@@ -222,6 +273,7 @@ const MeetingDetail: React.FC = () => {
                 { headers: { Authorization: `Bearer ${token}` } }
             );
             await fetchData();
+            stopGenerating();
         } catch (err: any) {
             console.error(err);
             // err.response absent = aucune réponse HTTP reçue (coupure réseau/proxy
@@ -232,15 +284,29 @@ const MeetingDetail: React.FC = () => {
             // vers un timeout de proxy (nginx par défaut), un échec quasi immédiat
             // vers un problème de config/réseau plutôt qu'un vrai timeout.
             const elapsed = Math.floor((Date.now() - genStart) / 1000);
+            const status = err?.response?.status;
             const detail = err?.response?.data?.error
                 || (err?.code ? `${err.code}${err.message ? ' — ' + err.message : ''}` : err?.message);
-            alert(
-                `Erreur lors de la génération du résumé (API IA Ville) après ${formatDuration(elapsed)}` +
-                (detail ? ` : ${detail}` : '.')
-            );
-        } finally {
-            if (genTimerRef.current) { clearInterval(genTimerRef.current); genTimerRef.current = null; }
-            setIsGenerating(false);
+            // Forme typique d'une coupure par un proxy intermédiaire plutôt que
+            // d'une vraie erreur applicative renvoyée par notre backend : pas de
+            // réponse du tout, ou un 502/503/504.
+            const looksLikeGatewayCutoff = !err?.response || [502, 503, 504].includes(status)
+                || ['ECONNABORTED', 'ERR_NETWORK', 'ERR_BAD_RESPONSE'].includes(err?.code);
+
+            if (looksLikeGatewayCutoff) {
+                alert(
+                    `La connexion a été coupée après ${formatDuration(elapsed)} (probablement un proxy réseau intermédiaire)` +
+                    (detail ? ` : ${detail}` : '.') +
+                    `\nLe traitement continue peut-être en arrière-plan côté serveur — vérification automatique en cours (jusqu'à 10 min)...`
+                );
+                pollForLateResult(summaryBefore, genStart);
+            } else {
+                alert(
+                    `Erreur lors de la génération du résumé (API IA Ville) après ${formatDuration(elapsed)}` +
+                    (detail ? ` : ${detail}` : '.')
+                );
+                stopGenerating();
+            }
         }
     };
 
@@ -707,7 +773,7 @@ const MeetingDetail: React.FC = () => {
                             <div className="summary-content">
                                 {isGenerating ? (
                                     <div className="stream-box">
-                                        {getGenerationPhase(genElapsed, aiSource, selectedModel)}
+                                        {getGenerationPhase(genElapsed, aiSource, selectedModel, isPollingAfterError)}
                                         <span className="gen-counter"> ({formatDuration(genElapsed)})</span>
                                     </div>
                                 ) : isEditingSummary ? (
@@ -737,22 +803,27 @@ const MeetingDetail: React.FC = () => {
             </div>
 
             {isGenerating && (() => {
-                const stepIndex = genElapsed < 2 ? 0 : genElapsed < 5 ? 1 : 2;
+                const stepIndex = isPollingAfterError ? 3 : (genElapsed < 2 ? 0 : genElapsed < 5 ? 1 : 2);
                 const steps = [
                     `Connexion à ${aiSource === 'local' ? "l'IA locale AppDSI" : "l'API IA Ville (APM)"}`,
                     `Envoi du prompt (modèle ${selectedModel})`,
                     'Génération de la réponse...',
+                    ...(isPollingAfterError ? ['⚠️ Connexion coupée — vérification en arrière-plan...'] : []),
                 ];
                 return (
                     <div className="gen-modal-overlay">
-                        <div className="gen-modal">
+                        <div className={`gen-modal ${isPollingAfterError ? 'gen-modal-warning' : ''}`}>
                             <div className="gen-modal-header">
                                 <RefreshCw className="animate-spin" size={20} />
-                                <h3>L'Intelligence Artificielle travaille...</h3>
+                                <h3>{isPollingAfterError ? 'Connexion coupée — vérification en cours...' : "L'Intelligence Artificielle travaille..."}</h3>
                                 <span className="gen-timer">{formatDuration(genElapsed)}</span>
                             </div>
                             <div className="gen-modal-body">
-                                <p className="gen-subtitle">Génération du résumé et extraction des tâches en cours. Veuillez patienter.</p>
+                                <p className="gen-subtitle">
+                                    {isPollingAfterError
+                                        ? "Un proxy réseau a coupé la connexion, mais le serveur continue peut-être de travailler en arrière-plan (déjà constaté). Vérification automatique toutes les 15 s, jusqu'à 10 min."
+                                        : 'Génération du résumé et extraction des tâches en cours. Veuillez patienter.'}
+                                </p>
                                 <ul className="gen-steps">
                                     {steps.map((label, i) => (
                                         <li key={i} className={i < stepIndex ? 'done' : i === stepIndex ? 'active' : 'pending'}>
@@ -762,7 +833,7 @@ const MeetingDetail: React.FC = () => {
                                     ))}
                                 </ul>
                                 <div className="stream-box-modal">
-                                    {getGenerationPhase(genElapsed, aiSource, selectedModel)}
+                                    {getGenerationPhase(genElapsed, aiSource, selectedModel, isPollingAfterError)}
                                 </div>
                             </div>
                         </div>
@@ -1238,7 +1309,11 @@ const MeetingDetail: React.FC = () => {
                     box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
                     overflow: hidden;
                     animation: modalPop 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+                    border-top: 4px solid transparent;
                 }
+                .gen-modal-warning { border-top-color: #F59E0B; }
+                .gen-modal-warning .gen-modal-header { color: #D97706; }
+                .gen-modal-warning .gen-timer { background: #FFFBEB; color: #D97706; }
                 @keyframes modalPop {
                     from { opacity: 0; transform: scale(0.95) translateY(10px); }
                     to { opacity: 1; transform: scale(1) translateY(0); }
@@ -1345,8 +1420,11 @@ function formatDuration(totalSec: number): string {
  * sur ce qui se passe, et au-delà d'un certain temps un indice diagnostique :
  * une coupure aux alentours de 60s pointe vers un timeout de proxy (défaut
  * nginx), au-delà de plusieurs minutes vers l'attente réelle du modèle.
+ * isPolling : la connexion a déjà été coupée une fois ; on revérifie
+ * périodiquement en arrière-plan si le résultat finit par arriver quand même.
  */
-function getGenerationPhase(elapsedSec: number, aiSource: 'apm' | 'local', selectedModel: string): string {
+function getGenerationPhase(elapsedSec: number, aiSource: 'apm' | 'local', selectedModel: string, isPolling: boolean): string {
+    if (isPolling) return 'Connexion réseau coupée — vérification périodique en arrière-plan (le serveur continue peut-être de travailler)...';
     if (elapsedSec < 2) return `Connexion à ${aiSource === 'local' ? "l'IA locale AppDSI" : "l'API IA Ville (APM)"}...`;
     if (elapsedSec < 5) return `Envoi du prompt (modèle ${selectedModel})...`;
     if (elapsedSec < 55) return 'Génération en cours...';
