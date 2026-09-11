@@ -893,11 +893,21 @@ app.post('/api/o365-mail-settings', authenticateAdmin, async (req, res) => {
 });
 
 // --- Transcript Settings API ---
+const TRANSCRIPT_SETTINGS_KEYS = [
+    'ai_provider', 'groq_api_key', 'gemini_api_key', 'openrouter_api_key', 'anthropic_api_key', 'ollama_host', 'anthropic_model', 'default_model',
+    'custom_prompt', 'max_chars_context', 'ai_reformulate_prompt',
+    // Source IA (apm|local) + modèle par défaut APM — un réglage indépendant par
+    // fonctionnalité, car le "modèle par défaut" d'APM est global côté APM
+    // (partagé par toutes les applications qui l'appellent), alors que DSIHUB a
+    // besoin d'un défaut propre à chaque usage.
+    'ai_summary_source', 'transcript_apm_default_model',
+    'ticket_reformulate_ai_source', 'ticket_reformulate_apm_model',
+];
+
 app.get('/api/transcript-settings', authenticateAdmin, async (req, res) => {
     try {
-        const keys = ['ai_provider', 'groq_api_key', 'gemini_api_key', 'openrouter_api_key', 'anthropic_api_key', 'ollama_host', 'anthropic_model', 'default_model', 'custom_prompt', 'max_chars_context', 'ai_reformulate_prompt', 'ai_summary_source'];
         const config = {};
-        for (const key of keys) {
+        for (const key of TRANSCRIPT_SETTINGS_KEYS) {
             const s = await db.get('SELECT setting_value FROM app_settings WHERE setting_key = ?', [key]);
             config[key] = s ? s.setting_value : '';
         }
@@ -907,10 +917,23 @@ app.get('/api/transcript-settings', authenticateAdmin, async (req, res) => {
     }
 });
 
+// GET /api/transcript-settings/apm-models — liste des modèles actifs de l'API
+// Ville (APM), pour peupler les sélecteurs "modèle par défaut" en admin
+// (Transcript Manager et reformulation de tickets).
+app.get('/api/transcript-settings/apm-models', authenticateAdmin, async (req, res) => {
+    try {
+        const apmAi = require('./shared/apm_ai');
+        const models = await apmAi.listModels();
+        res.json({ models });
+    } catch (error) {
+        res.status(502).json({ message: error.message });
+    }
+});
+
 app.post('/api/transcript-settings', authenticateAdmin, async (req, res) => {
     try {
         const payload = req.body;
-        const keys = ['ai_provider', 'groq_api_key', 'gemini_api_key', 'openrouter_api_key', 'anthropic_api_key', 'ollama_host', 'anthropic_model', 'default_model', 'custom_prompt', 'max_chars_context', 'ai_reformulate_prompt', 'ai_summary_source'];
+        const keys = TRANSCRIPT_SETTINGS_KEYS;
         for (const key of keys) {
             if (payload[key] !== undefined && payload[key] !== '••••••••' && payload[key] !== '********') {
                 const existing = await db.get('SELECT 1 FROM app_settings WHERE setting_key = ?', [key]);

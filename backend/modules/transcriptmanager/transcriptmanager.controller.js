@@ -4,7 +4,7 @@ const { isSuperAdmin } = require('../../shared/middleware');
 const axios = require('axios');
 const fs = require('fs');
 const path = require('path');
-const apmAi = require('./apm-ai');
+const apmAi = require('../../shared/apm_ai');
 const { listDsiAgents, matchDsiAgent } = require('./agent-match');
 
 const DEFAULT_PROMPT_TEMPLATE = `Tu es un assistant spécialisé dans la synthèse de réunions de direction d'un service informatique (DSI) municipal.
@@ -325,7 +325,8 @@ const transcriptController = {
                 return res.json({ models: [label], source: 'local' });
             }
             const models = await apmAi.listModels();
-            res.json({ models, source: 'apm' });
+            const defaultModel = await getTranscriptApmDefaultModel();
+            res.json({ models, source: 'apm', defaultModel: defaultModel && models.includes(defaultModel) ? defaultModel : null });
         } catch (error) {
             res.status(502).json({ error: error.message });
         }
@@ -388,11 +389,16 @@ const transcriptController = {
                 .replace('{REUNION}', meeting.title)
                 .replace('{TRANSCRIPTION}', transcriptText);
 
-            console.log(`[TranscriptManager] Prompt length: ${prompt.length} chars — source: ${source} — model: ${model || '(défaut)'}`);
+            // Sans modèle explicite dans la requête (ex. appel direct à l'API), on
+            // retombe sur le modèle par défaut choisi en admin pour le Transcript
+            // Manager — jamais sur le "défaut" propre à APM, qui est global à
+            // toutes les applications qui l'appellent.
+            const effectiveModel = model || (source === 'apm' ? await getTranscriptApmDefaultModel() : undefined);
+            console.log(`[TranscriptManager] Prompt length: ${prompt.length} chars — source: ${source} — model: ${effectiveModel || '(défaut)'}`);
 
             const fullText = source === 'local'
                 ? await callLocalAi(prompt)
-                : await apmAi.queryAi(prompt, model || undefined);
+                : await apmAi.queryAi(prompt, effectiveModel || undefined);
             const result = await processFullText(meetingId, fullText);
             res.json(result);
         } catch (error) {
@@ -759,6 +765,17 @@ async function getAiSource() {
     const sqlite = getSqlite();
     const s = await sqlite.get('SELECT setting_value FROM app_settings WHERE setting_key = ?', ['ai_summary_source']);
     return s?.setting_value === 'local' ? 'local' : 'apm';
+}
+
+/**
+ * Modèle APM par défaut choisi en admin pour le Transcript Manager
+ * (transcript_apm_default_model) — distinct du modèle par défaut de la
+ * reformulation de tickets, et distinct du "défaut" global côté APM lui-même.
+ */
+async function getTranscriptApmDefaultModel() {
+    const sqlite = getSqlite();
+    const s = await sqlite.get('SELECT setting_value FROM app_settings WHERE setting_key = ?', ['transcript_apm_default_model']);
+    return s?.setting_value || null;
 }
 
 /**

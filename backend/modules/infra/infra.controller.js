@@ -59,7 +59,7 @@ module.exports = {
             if (!cfg) return res.status(404).json({ message: 'API inconnue' });
 
             if (key === 'apm_ai') {
-                const apmAi = require('../transcriptmanager/apm-ai');
+                const apmAi = require('../../shared/apm_ai');
                 const models = await apmAi.listModels();
                 return res.json({ ok: true, count: models.length, sample: models.slice(0, 5) });
             }

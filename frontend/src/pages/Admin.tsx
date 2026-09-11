@@ -124,8 +124,14 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
     custom_prompt: '',
     max_chars_context: '',
     ai_reformulate_prompt: '',
-    ai_summary_source: 'apm'
+    ai_summary_source: 'apm',
+    transcript_apm_default_model: '',
+    ticket_reformulate_ai_source: 'local',
+    ticket_reformulate_apm_model: ''
   });
+  const [apmModelsList, setApmModelsList] = useState<string[]>([]);
+  const [apmModelsError, setApmModelsError] = useState('');
+  const [apmModelsLoading, setApmModelsLoading] = useState(false);
 
   const MAX_CHARS_BY_PROVIDER: Record<string, number> = {
     groq: 24000,
@@ -564,11 +570,34 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
           custom_prompt: data.custom_prompt || '',
           max_chars_context: data.max_chars_context || '',
           ai_reformulate_prompt: data.ai_reformulate_prompt || '',
-          ai_summary_source: data.ai_summary_source === 'local' ? 'local' : 'apm'
+          ai_summary_source: data.ai_summary_source === 'local' ? 'local' : 'apm',
+          transcript_apm_default_model: data.transcript_apm_default_model || '',
+          ticket_reformulate_ai_source: data.ticket_reformulate_ai_source === 'apm' ? 'apm' : 'local',
+          ticket_reformulate_apm_model: data.ticket_reformulate_apm_model || ''
         });
       }
     } catch (error) {
       console.error('Erreur chargement Transcript settings:', error);
+    }
+  };
+
+  const fetchApmModelsList = async () => {
+    setApmModelsLoading(true);
+    setApmModelsError('');
+    try {
+      const response = await fetch('/api/transcript-settings/apm-models', {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      const data = await response.json();
+      if (response.ok) {
+        setApmModelsList(Array.isArray(data.models) ? data.models : []);
+      } else {
+        setApmModelsError(data.message || "Impossible de charger les modèles API Ville.");
+      }
+    } catch {
+      setApmModelsError("Impossible de charger les modèles API Ville.");
+    } finally {
+      setApmModelsLoading(false);
     }
   };
 
@@ -774,7 +803,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
       fetchOracleSyncLogs();
     }
     if (section === 'mariadb') fetchMariaDBSettings();
-    if (section === 'transcript') fetchTranscriptSettings();
+    if (section === 'transcript') { fetchTranscriptSettings(); fetchApmModelsList(); }
     if (section === 'main') { fetchTiles(); fetchUsers(); }
   }, [section, token]);
 
@@ -2724,17 +2753,80 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                       </div>
                       <p style={{ fontSize: '0.78rem', color: '#64748B', marginTop: 6 }}>
                         {transcriptConfig.ai_summary_source === 'apm' ? (
-                          <>Utilise l'<strong>API IA Ville (APM)</strong>, configurée dans <code>/admin/infra</code> (clé <code>apm_ai</code>) — plusieurs modèles au choix, sélectionnables lors de la génération.</>
+                          <>Utilise l'<strong>API IA Ville (APM)</strong>, configurée dans <code>/admin/infra</code> (clé <code>apm_ai</code>) — modèle par défaut ci-dessous, modifiable lors de chaque génération.</>
                         ) : (
-                          <>Utilise le <strong>fournisseur d'IA ci-dessous</strong> (mêmes réglages que la reformulation assistée des tickets) — un seul modèle, pas de choix à la génération.</>
+                          <>Utilise le <strong>fournisseur d'IA</strong> ci-dessous — un seul modèle, pas de choix à la génération.</>
                         )}
                       </p>
+                      {transcriptConfig.ai_summary_source === 'apm' && (
+                        <div style={{ marginTop: 10 }}>
+                          <label className="field-label" style={{ fontSize: 12 }}>Modèle par défaut (API Ville)</label>
+                          <select
+                            className="admin-input"
+                            value={transcriptConfig.transcript_apm_default_model}
+                            onChange={e => setTranscriptConfig({ ...transcriptConfig, transcript_apm_default_model: e.target.value })}
+                            disabled={apmModelsLoading}
+                          >
+                            <option value="">— Automatique (premier modèle actif) —</option>
+                            {apmModelsList.map(m => <option key={m} value={m}>{m}</option>)}
+                          </select>
+                          {apmModelsError && <p style={{ fontSize: '0.75rem', color: '#DC2626', marginTop: 4 }}>{apmModelsError}</p>}
+                        </div>
+                      )}
                     </div>
+
+                    <div className="form-field full-width" style={{ marginBottom: '1.25rem' }}>
+                      <label className="field-label"><Zap size={14} /> Source IA pour la reformulation de tickets</label>
+                      <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+                        {([
+                          { value: 'local', label: 'IA locale AppDSI' },
+                          { value: 'apm', label: 'API Ville (APM)' },
+                        ] as const).map(opt => (
+                          <button
+                            key={opt.value}
+                            type="button"
+                            onClick={() => setTranscriptConfig({ ...transcriptConfig, ticket_reformulate_ai_source: opt.value })}
+                            style={{
+                              flex: 1, padding: '10px 0', borderRadius: 8, border: '1.5px solid',
+                              borderColor: transcriptConfig.ticket_reformulate_ai_source === opt.value ? '#6366f1' : '#e2e8f0',
+                              background: transcriptConfig.ticket_reformulate_ai_source === opt.value ? '#eef2ff' : 'white',
+                              color: transcriptConfig.ticket_reformulate_ai_source === opt.value ? '#4338ca' : '#64748b',
+                              fontWeight: 700, fontSize: 13, cursor: 'pointer'
+                            }}
+                          >
+                            {opt.label}
+                          </button>
+                        ))}
+                      </div>
+                      <p style={{ fontSize: '0.78rem', color: '#64748B', marginTop: 6 }}>
+                        {transcriptConfig.ticket_reformulate_ai_source === 'apm' ? (
+                          <>Utilise l'<strong>API IA Ville (APM)</strong> — modèle par défaut ci-dessous (pas de choix à l'usage, contrairement au Transcript Manager).</>
+                        ) : (
+                          <>Utilise le <strong>fournisseur d'IA</strong> ci-dessous — comportement actuel, inchangé.</>
+                        )}
+                      </p>
+                      {transcriptConfig.ticket_reformulate_ai_source === 'apm' && (
+                        <div style={{ marginTop: 10 }}>
+                          <label className="field-label" style={{ fontSize: 12 }}>Modèle par défaut (API Ville)</label>
+                          <select
+                            className="admin-input"
+                            value={transcriptConfig.ticket_reformulate_apm_model}
+                            onChange={e => setTranscriptConfig({ ...transcriptConfig, ticket_reformulate_apm_model: e.target.value })}
+                            disabled={apmModelsLoading}
+                          >
+                            <option value="">— Automatique (premier modèle actif) —</option>
+                            {apmModelsList.map(m => <option key={m} value={m}>{m}</option>)}
+                          </select>
+                          {apmModelsError && <p style={{ fontSize: '0.75rem', color: '#DC2626', marginTop: 4 }}>{apmModelsError}</p>}
+                        </div>
+                      )}
+                    </div>
+
                     <div className="form-responsive-grid">
                       <div className="form-field full-width">
-                        <label className="field-label"><Zap size={14} /> Fournisseur d'IA par défaut</label>
+                        <label className="field-label"><Zap size={14} /> Fournisseur d'IA par défaut (IA locale AppDSI)</label>
                         <p style={{ fontSize: '0.75rem', color: '#94A3B8', margin: '2px 0 6px' }}>
-                          Utilisé pour la reformulation assistée des tickets, et pour les résumés de réunion quand la source ci-dessus est réglée sur « IA locale AppDSI ».
+                          Utilisé quand l'une des sources ci-dessus est réglée sur « IA locale AppDSI ».
                         </p>
                         <select 
                           className="admin-input"

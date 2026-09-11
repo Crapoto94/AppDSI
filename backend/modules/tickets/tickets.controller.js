@@ -22,6 +22,7 @@ const fs = require('fs');
 const crypto = require('crypto');
 const { SECRET_KEY } = require('../../shared/config');
 const axios = require('axios');
+const apmAi = require('../../shared/apm_ai');
 const { searchADUsersByQuery } = require('../../shared/ad_helper');
 
 // Émet un événement temps réel vers les clients abonnés à la salle "tickets:watch".
@@ -1173,7 +1174,7 @@ async assign(req, res) {
             if (!text || !text.trim()) return res.status(400).json({ message: 'Texte requis' });
 
             const sqlite = getSqlite();
-            const keys = ['ai_provider', 'groq_api_key', 'openrouter_api_key', 'anthropic_api_key', 'ollama_host', 'anthropic_model', 'default_model', 'ai_reformulate_prompt'];
+            const keys = ['ai_provider', 'groq_api_key', 'openrouter_api_key', 'anthropic_api_key', 'ollama_host', 'anthropic_model', 'default_model', 'ai_reformulate_prompt', 'ticket_reformulate_ai_source', 'ticket_reformulate_apm_model'];
             const cfg = {};
             for (const k of keys) {
                 const row = await sqlite.get('SELECT setting_value FROM app_settings WHERE setting_key = ?', [k]);
@@ -1184,10 +1185,20 @@ async assign(req, res) {
                     : raw.replace(/[^\x20-\x7E]/g, '').trim();
             }
 
-            const provider = cfg.ai_provider || 'groq';
             const defaultPrompt = 'Reformule ce commentaire de manière professionnelle et claire, en conservant le sens exact. Réponds uniquement avec le texte reformulé, sans introduction ni commentaire.\n\nTexte original:\n{{text}}';
             const prompt = (cfg.ai_reformulate_prompt || defaultPrompt).replace('{{text}}', text);
 
+            // Source IA indépendante de celle du Transcript Manager (ai_summary_source) —
+            // chaque fonctionnalité choisit son propre fournisseur et, en mode API Ville,
+            // son propre modèle par défaut (transcript_apm_default_model vs
+            // ticket_reformulate_apm_model). Défaut 'local' pour ne pas changer le
+            // comportement existant tant que l'admin n'a rien choisi explicitement.
+            if (cfg.ticket_reformulate_ai_source === 'apm') {
+                const result = await apmAi.queryAi(prompt, cfg.ticket_reformulate_apm_model || undefined);
+                return res.json({ result: String(result).trim() });
+            }
+
+            const provider = cfg.ai_provider || 'groq';
             let result = '';
 
             if (provider === 'anthropic' && cfg.anthropic_api_key) {

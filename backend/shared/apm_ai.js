@@ -1,15 +1,16 @@
 /**
- * Client pour l'API IA Ville (APM) — utilisée par le Transcript Manager pour
- * générer les comptes-rendus de réunion, en remplacement de l'IA "locale"
- * (groq/gemini/anthropic/ollama, toujours utilisée pour la reformulation de
- * tickets ailleurs dans l'app, donc non touchée ici).
+ * Client pour l'API IA Ville (APM) — utilisée à la fois par le Transcript
+ * Manager (résumés de réunion) et la reformulation de tickets, chacun avec
+ * son propre réglage de source IA (apm/local) et son propre modèle par
+ * défaut (cf. transcript_apm_default_model / ticket_reformulate_apm_model
+ * dans app_settings, /admin section IA).
  *
  * Config : hub.infra_apis WHERE key='apm_ai' (label, base_url, endpoint,
  * api_key, header_name, enabled) — éditable via /admin/infra.
  *   POST {base_url}{endpoint}/query   { prompt, model? }  -> réponse IA
  *   GET  {base_url}{endpoint}/models                       -> modèles actifs
  */
-const { pgDb } = require('../../shared/database');
+const { pgDb } = require('./database');
 
 async function getConfig() {
     const cfg = await pgDb.get('SELECT * FROM hub.infra_apis WHERE key = ?', ['apm_ai']);

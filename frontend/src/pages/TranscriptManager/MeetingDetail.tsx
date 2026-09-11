@@ -63,11 +63,13 @@ const MeetingDetail: React.FC = () => {
     const [showAllSpeakers, setShowAllSpeakers] = useState(false);
     const [transcriptSearch, setTranscriptSearch] = useState("");
 
-    // Génération IA (APM) : choix du modèle + rapprochement agents DSI
+    // Génération IA (APM) : choix du modèle + rapprochement agents DSI.
+    // Le modèle par défaut vient de l'admin (transcript_apm_default_model) —
+    // pas de mémorisation par navigateur, pour que le réglage admin s'applique
+    // à chaque chargement ; le choix fait ici via le sélecteur ne vaut que
+    // pour cette génération.
     const [aiModels, setAiModels] = useState<string[]>([]);
-    const [selectedModel, setSelectedModel] = useState<string>(() => {
-        try { return localStorage.getItem('tm_ai_model') || ''; } catch { return ''; }
-    });
+    const [selectedModel, setSelectedModel] = useState<string>('');
     const [modelsError, setModelsError] = useState('');
     const [aiSource, setAiSource] = useState<'apm' | 'local'>('apm');
     const [dsiAgents, setDsiAgents] = useState<DsiAgent[]>([]);
@@ -96,12 +98,13 @@ const MeetingDetail: React.FC = () => {
         axios.get('/api/transcriptmanager/ai/models', { headers: { Authorization: `Bearer ${token}` } })
             .then(res => {
                 const models: string[] = res.data?.models || [];
+                const defaultModel: string = res.data?.defaultModel || '';
                 setAiModels(models);
                 setAiSource(res.data?.source === 'local' ? 'local' : 'apm');
                 setModelsError('');
                 setSelectedModel(prev => {
                     if (prev && models.includes(prev)) return prev;
-                    return models[0] || '';
+                    return (defaultModel && models.includes(defaultModel)) ? defaultModel : (models[0] || '');
                 });
             })
             .catch(err => {
@@ -113,11 +116,6 @@ const MeetingDetail: React.FC = () => {
             .then(res => setDsiAgents(res.data || []))
             .catch(err => console.error(err));
     }, [token]);
-
-    useEffect(() => {
-        if (!selectedModel) return;
-        try { localStorage.setItem('tm_ai_model', selectedModel); } catch { /* ignore */ }
-    }, [selectedModel]);
 
     const fetchData = async () => {
         if (!token || !id) return;
