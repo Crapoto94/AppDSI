@@ -212,7 +212,16 @@ const MeetingDetail: React.FC = () => {
             await fetchData();
         } catch (err: any) {
             console.error(err);
-            alert(err?.response?.data?.error || "Une erreur est survenue lors de la génération du résumé (API IA Ville).");
+            // err.response absent = aucune réponse HTTP reçue (coupure réseau/proxy
+            // en cours de route, pas une erreur renvoyée par notre backend) : on
+            // affiche le code/message axios (ex. ECONNABORTED, Network Error) pour
+            // pouvoir distinguer un timeout d'une coupure de connexion sans avoir à
+            // aller lire la console.
+            const detail = err?.response?.data?.error
+                || (err?.code ? `${err.code}${err.message ? ' — ' + err.message : ''}` : err?.message);
+            alert(detail
+                ? `Erreur lors de la génération du résumé (API IA Ville) : ${detail}`
+                : "Une erreur est survenue lors de la génération du résumé (API IA Ville).");
         } finally {
             setIsGenerating(false);
         }
