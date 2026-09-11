@@ -57,6 +57,8 @@ const MeetingDetail: React.FC = () => {
     const [tasks, setTasks] = useState<Task[]>([]);
     const [loading, setLoading] = useState(true);
     const [isGenerating, setIsGenerating] = useState(false);
+    const [genElapsed, setGenElapsed] = useState(0); // secondes écoulées depuis le clic sur "Générer"
+    const genTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
     const [isEditing, setIsEditing] = useState(false);
     const [editValues, setEditValues] = useState({ title: '', meeting_date: '' });
     const [isSaving, setIsSaving] = useState(false);
@@ -92,6 +94,12 @@ const MeetingDetail: React.FC = () => {
     useEffect(() => {
         fetchData();
     }, [id, token]);
+
+    // Sécurité : si on navigue hors de la page en pleine génération, on ne
+    // laisse pas le compteur tourner dans le vide.
+    useEffect(() => () => {
+        if (genTimerRef.current) clearInterval(genTimerRef.current);
+    }, []);
 
     useEffect(() => {
         if (!token) return;
@@ -204,6 +212,10 @@ const MeetingDetail: React.FC = () => {
             return;
         }
         setIsGenerating(true);
+        setGenElapsed(0);
+        const genStart = Date.now();
+        if (genTimerRef.current) clearInterval(genTimerRef.current);
+        genTimerRef.current = setInterval(() => setGenElapsed(Math.floor((Date.now() - genStart) / 1000)), 1000);
         try {
             await axios.post(`/api/transcriptmanager/meeting/${id}/summarize`,
                 { model: selectedModel },
@@ -216,13 +228,18 @@ const MeetingDetail: React.FC = () => {
             // en cours de route, pas une erreur renvoyée par notre backend) : on
             // affiche le code/message axios (ex. ECONNABORTED, Network Error) pour
             // pouvoir distinguer un timeout d'une coupure de connexion sans avoir à
-            // aller lire la console.
+            // aller lire la console. La durée écoulée aide encore plus : ~60s pointe
+            // vers un timeout de proxy (nginx par défaut), un échec quasi immédiat
+            // vers un problème de config/réseau plutôt qu'un vrai timeout.
+            const elapsed = Math.floor((Date.now() - genStart) / 1000);
             const detail = err?.response?.data?.error
                 || (err?.code ? `${err.code}${err.message ? ' — ' + err.message : ''}` : err?.message);
-            alert(detail
-                ? `Erreur lors de la génération du résumé (API IA Ville) : ${detail}`
-                : "Une erreur est survenue lors de la génération du résumé (API IA Ville).");
+            alert(
+                `Erreur lors de la génération du résumé (API IA Ville) après ${formatDuration(elapsed)}` +
+                (detail ? ` : ${detail}` : '.')
+            );
         } finally {
+            if (genTimerRef.current) { clearInterval(genTimerRef.current); genTimerRef.current = null; }
             setIsGenerating(false);
         }
     };
@@ -689,7 +706,10 @@ const MeetingDetail: React.FC = () => {
                             </div>
                             <div className="summary-content">
                                 {isGenerating ? (
-                                    <div className="stream-box">Génération du résumé via {aiSource === 'local' ? "l'IA locale AppDSI" : "l'API IA Ville (APM)"}, modèle {selectedModel}…</div>
+                                    <div className="stream-box">
+                                        {getGenerationPhase(genElapsed, aiSource, selectedModel)}
+                                        <span className="gen-counter"> ({formatDuration(genElapsed)})</span>
+                                    </div>
                                 ) : isEditingSummary ? (
                                     <div>
                                         <textarea
@@ -716,22 +736,39 @@ const MeetingDetail: React.FC = () => {
                 </div>
             </div>
 
-            {isGenerating && (
-                <div className="gen-modal-overlay">
-                    <div className="gen-modal">
-                        <div className="gen-modal-header">
-                            <RefreshCw className="animate-spin" size={20} />
-                            <h3>L'Intelligence Artificielle travaille...</h3>
-                        </div>
-                        <div className="gen-modal-body">
-                            <p className="gen-subtitle">Génération du résumé et extraction des tâches en cours ({aiSource === 'local' ? 'IA locale AppDSI' : 'API IA Ville'} — modèle {selectedModel}). Veuillez patienter.</p>
-                            <div className="stream-box-modal">
-                                Connexion à {aiSource === 'local' ? "l'IA locale AppDSI" : "l'API IA Ville (APM)"}...
+            {isGenerating && (() => {
+                const stepIndex = genElapsed < 2 ? 0 : genElapsed < 5 ? 1 : 2;
+                const steps = [
+                    `Connexion à ${aiSource === 'local' ? "l'IA locale AppDSI" : "l'API IA Ville (APM)"}`,
+                    `Envoi du prompt (modèle ${selectedModel})`,
+                    'Génération de la réponse...',
+                ];
+                return (
+                    <div className="gen-modal-overlay">
+                        <div className="gen-modal">
+                            <div className="gen-modal-header">
+                                <RefreshCw className="animate-spin" size={20} />
+                                <h3>L'Intelligence Artificielle travaille...</h3>
+                                <span className="gen-timer">{formatDuration(genElapsed)}</span>
+                            </div>
+                            <div className="gen-modal-body">
+                                <p className="gen-subtitle">Génération du résumé et extraction des tâches en cours. Veuillez patienter.</p>
+                                <ul className="gen-steps">
+                                    {steps.map((label, i) => (
+                                        <li key={i} className={i < stepIndex ? 'done' : i === stepIndex ? 'active' : 'pending'}>
+                                            <span className="gen-step-icon">{i < stepIndex ? '✓' : i === stepIndex ? '●' : '○'}</span>
+                                            {label}
+                                        </li>
+                                    ))}
+                                </ul>
+                                <div className="stream-box-modal">
+                                    {getGenerationPhase(genElapsed, aiSource, selectedModel)}
+                                </div>
                             </div>
                         </div>
                     </div>
-                </div>
-            )}
+                );
+            })()}
 
             {showTaskValidation && meeting && (
                 <TaskValidationModal
@@ -1220,6 +1257,16 @@ const MeetingDetail: React.FC = () => {
                     font-size: 1.25rem;
                     font-weight: 700;
                     color: #1E293B;
+                    flex: 1;
+                }
+                .gen-timer {
+                    font-family: 'Fira Code', monospace;
+                    font-size: 0.95rem;
+                    font-weight: 700;
+                    color: #2563EB;
+                    background: #EFF6FF;
+                    padding: 0.25rem 0.7rem;
+                    border-radius: 20px;
                 }
                 .gen-modal-body {
                     padding: 2rem;
@@ -1229,6 +1276,42 @@ const MeetingDetail: React.FC = () => {
                     margin-top: 0;
                     margin-bottom: 1.5rem;
                     font-size: 0.95rem;
+                }
+                .gen-steps {
+                    list-style: none;
+                    margin: 0 0 1.25rem;
+                    padding: 0;
+                    display: flex;
+                    flex-direction: column;
+                    gap: 0.6rem;
+                }
+                .gen-steps li {
+                    display: flex;
+                    align-items: center;
+                    gap: 0.6rem;
+                    font-size: 0.9rem;
+                    color: #94A3B8;
+                }
+                .gen-steps li.done { color: #16A34A; }
+                .gen-steps li.active { color: #1E293B; font-weight: 700; }
+                .gen-step-icon {
+                    display: inline-flex;
+                    align-items: center;
+                    justify-content: center;
+                    width: 20px;
+                    height: 20px;
+                    border-radius: 50%;
+                    font-size: 0.75rem;
+                    flex-shrink: 0;
+                }
+                .gen-steps li.done .gen-step-icon { background: #DCFCE7; color: #16A34A; }
+                .gen-steps li.active .gen-step-icon { background: #DBEAFE; color: #2563EB; animation: pulse 1.4s ease-in-out infinite; }
+                .gen-steps li.pending .gen-step-icon { background: #F1F5F9; color: #CBD5E1; }
+                @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+                .gen-counter {
+                    font-family: 'Fira Code', monospace;
+                    font-size: 0.85em;
+                    color: #64748B;
                 }
             `}</style>
         </div>
@@ -1248,5 +1331,27 @@ function formatTime(sec: number) {
     return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
 }
 
+/** "45 s", "2 min 03 s" — pour le compteur et les messages d'erreur de génération. */
+function formatDuration(totalSec: number): string {
+    if (totalSec < 60) return `${totalSec} s`;
+    const m = Math.floor(totalSec / 60);
+    const s = totalSec % 60;
+    return `${m} min ${s.toString().padStart(2, '0')} s`;
+}
+
+/**
+ * Phase affichée pendant la génération — approximative (l'appel est un seul
+ * POST bloquant, pas un flux d'événements serveur) mais donne un repère utile
+ * sur ce qui se passe, et au-delà d'un certain temps un indice diagnostique :
+ * une coupure aux alentours de 60s pointe vers un timeout de proxy (défaut
+ * nginx), au-delà de plusieurs minutes vers l'attente réelle du modèle.
+ */
+function getGenerationPhase(elapsedSec: number, aiSource: 'apm' | 'local', selectedModel: string): string {
+    if (elapsedSec < 2) return `Connexion à ${aiSource === 'local' ? "l'IA locale AppDSI" : "l'API IA Ville (APM)"}...`;
+    if (elapsedSec < 5) return `Envoi du prompt (modèle ${selectedModel})...`;
+    if (elapsedSec < 55) return 'Génération en cours...';
+    if (elapsedSec < 90) return 'Toujours en attente — au-delà d\'une minute, un proxy réseau intermédiaire pourrait couper la connexion.';
+    return 'Toujours en attente — la génération peut prendre plusieurs minutes selon le modèle.';
+}
 
 export default MeetingDetail;
