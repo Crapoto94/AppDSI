@@ -2282,6 +2282,17 @@ async function setupPgDb() {
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
     `);
+    try {
+      // Rapprochement automatique du champ "assignee" (nom libre renvoyé par
+      // l'IA) avec un agent hub_calendrier.agents_dsi (cf. transcriptmanager
+      // module + infra/name-match.js), et suivi de la conversion en tâche
+      // applicative réelle (hub.user_tasks) après validation utilisateur.
+      await client.query(`ALTER TABLE transcript.tasks ADD COLUMN IF NOT EXISTS assignee_username TEXT`);
+      await client.query(`ALTER TABLE transcript.tasks ADD COLUMN IF NOT EXISTS assignee_match_score NUMERIC`);
+      await client.query(`ALTER TABLE transcript.tasks ADD COLUMN IF NOT EXISTS app_task_id INTEGER`);
+    } catch (e) {
+        console.error('Error migrating transcript.tasks columns:', e.message);
+    }
     await client.query(`
       CREATE TABLE IF NOT EXISTS transcript.settings (
         id SERIAL PRIMARY KEY,
@@ -5345,6 +5356,18 @@ async function setupPgDb() {
         INSERT INTO hub.infra_apis (key, label, base_url, endpoint, api_key, header_name, enabled)
         VALUES ('rh_studio_onboarding', 'API RH Studio (onboarding, écriture)', 'https://studiorh.ivry.local/api', '/onboarding',
                 '', 'x-api-key', FALSE)
+        ON CONFLICT (key) DO NOTHING
+      `);
+
+      // API IA Ville (APM) — POST {base_url}{endpoint}/query (+ modèle optionnel)
+      // et GET {base_url}{endpoint}/models. Utilisée par le module Transcript
+      // Manager pour générer les comptes-rendus de réunion (remplace l'IA
+      // "locale" pour cet usage précis — groq/gemini/anthropic/ollama restent
+      // en place pour la reformulation de tickets ailleurs dans l'app).
+      // base_url/api_key à renseigner via /admin/infra une fois connus.
+      await client.query(`
+        INSERT INTO hub.infra_apis (key, label, base_url, endpoint, api_key, header_name, enabled)
+        VALUES ('apm_ai', 'API IA Ville (APM)', '', '/api/v1/ai', '', 'X-API-KEY', FALSE)
         ON CONFLICT (key) DO NOTHING
       `);
 

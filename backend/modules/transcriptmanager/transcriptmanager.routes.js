@@ -23,11 +23,13 @@ router.get('/meeting/:id', authenticateJWT, transcriptController.getMeeting);
 router.post('/upload', authenticateJWT, upload.single('file'), transcriptController.uploadTranscript);
 router.get('/upload-status/:jobId', authenticateJWT, transcriptController.getImportStatus);
 router.post('/meeting/:id/summarize', authenticateJWT, transcriptController.summarizeMeeting);
+router.get('/ai/models', authenticateJWT, transcriptController.getAiModels);
 
 router.get('/tasks', authenticateJWT, transcriptController.getTasks);
 router.post('/tasks', authenticateJWT, transcriptController.createTask);
 router.post('/task/:id/toggle', authenticateJWT, transcriptController.toggleTask);
 router.put('/task/:id', authenticateJWT, transcriptController.updateTask);
+router.patch('/task/:id/link-app-task', authenticateJWT, transcriptController.linkAppTask);
 router.delete('/task/:id', authenticateJWT, transcriptController.deleteTask);
 router.put('/meeting/:id', authenticateJWT, transcriptController.updateMeeting);
 router.delete('/meeting/:id', authenticateJWT, transcriptController.deleteMeeting);

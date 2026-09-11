@@ -123,7 +123,8 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
     anthropic_model: 'claude-3-5-sonnet-20240620',
     custom_prompt: '',
     max_chars_context: '',
-    ai_reformulate_prompt: ''
+    ai_reformulate_prompt: '',
+    ai_summary_source: 'apm'
   });
 
   const MAX_CHARS_BY_PROVIDER: Record<string, number> = {
@@ -562,7 +563,8 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
           anthropic_model: data.anthropic_model || 'claude-3-5-sonnet-20240620',
           custom_prompt: data.custom_prompt || '',
           max_chars_context: data.max_chars_context || '',
-          ai_reformulate_prompt: data.ai_reformulate_prompt || ''
+          ai_reformulate_prompt: data.ai_reformulate_prompt || '',
+          ai_summary_source: data.ai_summary_source === 'local' ? 'local' : 'apm'
         });
       }
     } catch (error) {
@@ -2697,9 +2699,43 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                   </div>
 
                   <div className="card-content">
+                    <div className="form-field full-width" style={{ marginBottom: '1.25rem' }}>
+                      <label className="field-label"><Zap size={14} /> Source IA pour les résumés de réunion (Transcript Manager)</label>
+                      <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+                        {([
+                          { value: 'apm', label: 'API Ville (APM)' },
+                          { value: 'local', label: 'IA locale AppDSI' },
+                        ] as const).map(opt => (
+                          <button
+                            key={opt.value}
+                            type="button"
+                            onClick={() => setTranscriptConfig({ ...transcriptConfig, ai_summary_source: opt.value })}
+                            style={{
+                              flex: 1, padding: '10px 0', borderRadius: 8, border: '1.5px solid',
+                              borderColor: transcriptConfig.ai_summary_source === opt.value ? '#6366f1' : '#e2e8f0',
+                              background: transcriptConfig.ai_summary_source === opt.value ? '#eef2ff' : 'white',
+                              color: transcriptConfig.ai_summary_source === opt.value ? '#4338ca' : '#64748b',
+                              fontWeight: 700, fontSize: 13, cursor: 'pointer'
+                            }}
+                          >
+                            {opt.label}
+                          </button>
+                        ))}
+                      </div>
+                      <p style={{ fontSize: '0.78rem', color: '#64748B', marginTop: 6 }}>
+                        {transcriptConfig.ai_summary_source === 'apm' ? (
+                          <>Utilise l'<strong>API IA Ville (APM)</strong>, configurée dans <code>/admin/infra</code> (clé <code>apm_ai</code>) — plusieurs modèles au choix, sélectionnables lors de la génération.</>
+                        ) : (
+                          <>Utilise le <strong>fournisseur d'IA ci-dessous</strong> (mêmes réglages que la reformulation assistée des tickets) — un seul modèle, pas de choix à la génération.</>
+                        )}
+                      </p>
+                    </div>
                     <div className="form-responsive-grid">
                       <div className="form-field full-width">
                         <label className="field-label"><Zap size={14} /> Fournisseur d'IA par défaut</label>
+                        <p style={{ fontSize: '0.75rem', color: '#94A3B8', margin: '2px 0 6px' }}>
+                          Utilisé pour la reformulation assistée des tickets, et pour les résumés de réunion quand la source ci-dessus est réglée sur « IA locale AppDSI ».
+                        </p>
                         <select 
                           className="admin-input"
                           value={transcriptConfig.ai_provider}

@@ -1,9 +1,11 @@
 const { pgDb, getSqlite } = require('../../shared/database');
 const { searchADUsersByQuery } = require('../../shared/ad_helper');
-const axios = require('axios');
 const { isSuperAdmin } = require('../../shared/middleware');
+const axios = require('axios');
 const fs = require('fs');
 const path = require('path');
+const apmAi = require('./apm-ai');
+const { listDsiAgents, matchDsiAgent } = require('./agent-match');
 
 const DEFAULT_PROMPT_TEMPLATE = `Tu es un assistant spécialisé dans la synthèse de réunions de direction d'un service informatique (DSI) municipal.
 Ta mission est de produire un compte-rendu clair, structuré et professionnel à partir de la transcription fournie.
@@ -308,13 +310,44 @@ const transcriptController = {
     },
 
     /**
-     * Summarize meeting using AI (Streaming)
+     * List the model(s) available for the currently selected AI source
+     * (ai_summary_source setting — see getAiSource): the APM API's active
+     * models (GET /api/v1/ai/models) in 'apm' mode, or a single entry
+     * describing the locally configured provider/model in 'local' mode
+     * (there is only ever one local model — same settings as ticket
+     * reformulation, cf. ai_provider in /admin).
+     */
+    getAiModels: async (req, res) => {
+        try {
+            const source = await getAiSource();
+            if (source === 'local') {
+                const label = await describeLocalModel();
+                return res.json({ models: [label], source: 'local' });
+            }
+            const models = await apmAi.listModels();
+            res.json({ models, source: 'apm' });
+        } catch (error) {
+            res.status(502).json({ error: error.message });
+        }
+    },
+
+    /**
+     * Summarize meeting via either the APM AI API (POST /api/v1/ai/query) or
+     * AppDSI's local AI provider (groq/gemini/openrouter/anthropic/ollama —
+     * same settings as ticket reformulation), depending on the
+     * ai_summary_source toggle in /admin (section IA, Transcript Manager).
+     * Both paths are non-streaming: the reply is parsed the same way
+     * (Markdown summary + trailing ```json task list), tasks are matched
+     * against DSI agents (hub_calendrier.agents_dsi) and persisted, but NOT
+     * auto-converted into real app tasks — that step requires explicit user
+     * validation (see linkAppTask / frontend modal).
      */
     summarizeMeeting: async (req, res) => {
         const meetingId = req.params.id;
         const db = pgDb;
         const sqlite = getSqlite();
-        
+        const { model } = req.body || {};
+
         try {
             const meeting = await db.get('SELECT * FROM transcript_meetings WHERE id = ?', [meetingId]);
             if (!meeting) return res.status(404).json({ error: 'Réunion non trouvée' });
@@ -323,176 +356,64 @@ const transcriptController = {
             let transcriptText = cues.map(c => `[${formatTime(c.start_seconds)}] ${c.speaker_name}: ${c.text}`).join('\n');
             console.log(`[TranscriptManager] Transcript length: ${transcriptText.length} chars for meeting ${meetingId}`);
 
-            // Fetch central AI settings from SQLite
-            const keys = ['ai_provider', 'groq_api_key', 'gemini_api_key', 'openrouter_api_key', 'anthropic_api_key', 'ollama_host', 'anthropic_model', 'default_model', 'max_chars_context'];
-            const config = {};
-            for (const key of keys) {
-                const s = await sqlite.get('SELECT setting_value FROM app_settings WHERE setting_key = ?', [key]);
-                config[key] = s ? s.setting_value : '';
+            const source = await getAiSource();
+
+            // Limite de contexte : le réglage "max_chars_context" (si renseigné) prime
+            // toujours. Sans réglage explicite, l'API Ville (APM) — des modèles hébergés
+            // avec un grand contexte — utilise un défaut large, tandis que l'IA locale
+            // AppDSI (Groq/Gemini/OpenRouter/Anthropic/Ollama, fenêtre de contexte et
+            // limites de requête bien plus restreintes) retombe sur des défauts par
+            // fournisseur — sinon un prompt volumineux se fait rejeter (ex. 413 côté Groq).
+            const DEFAULT_MAX_BY_LOCAL_PROVIDER = { groq: 24000, openrouter: 80000, gemini: 80000, anthropic: 120000, ollama: 40000 };
+            const maxCharsRow = await sqlite.get('SELECT setting_value FROM app_settings WHERE setting_key = ?', ['max_chars_context']);
+            let MAX_TRANSCRIPT_CHARS = maxCharsRow?.setting_value ? parseInt(maxCharsRow.setting_value, 10) : null;
+            if (!MAX_TRANSCRIPT_CHARS) {
+                if (source === 'local') {
+                    const providerRow = await sqlite.get('SELECT setting_value FROM app_settings WHERE setting_key = ?', ['ai_provider']);
+                    const provider = providerRow?.setting_value || 'groq';
+                    MAX_TRANSCRIPT_CHARS = DEFAULT_MAX_BY_LOCAL_PROVIDER[provider] || 24000;
+                } else {
+                    MAX_TRANSCRIPT_CHARS = 100000;
+                }
             }
-
-            const provider = config.ai_provider || 'groq';
-
-            // Limit transcript size: custom setting takes priority over per-provider defaults
-            const DEFAULT_MAX_BY_PROVIDER = { groq: 24000, openrouter: 80000, gemini: 80000, anthropic: 120000, ollama: 40000 };
-            const MAX_TRANSCRIPT_CHARS = config.max_chars_context
-                ? parseInt(config.max_chars_context, 10)
-                : (DEFAULT_MAX_BY_PROVIDER[provider] || 24000);
             if (transcriptText.length > MAX_TRANSCRIPT_CHARS) {
-                console.warn(`[TranscriptManager] Truncating transcript from ${transcriptText.length} to ${MAX_TRANSCRIPT_CHARS} chars (provider: ${provider})`);
+                console.warn(`[TranscriptManager] Truncating transcript from ${transcriptText.length} to ${MAX_TRANSCRIPT_CHARS} chars (source: ${source})`);
                 transcriptText = transcriptText.substring(0, MAX_TRANSCRIPT_CHARS) + "\n... (Transcription tronquée car trop longue) ...";
             }
-            let apiKey = '';
-            let model = config.default_model || '';
-            let apiUrl = '';
 
-            switch (provider) {
-                case 'gemini':
-                    apiKey = config.gemini_api_key;
-                    model = 'gemini-1.5-flash';
-                    apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:streamGenerateContent?alt=sse&key=${apiKey}`;
-                    break;
-                case 'openrouter':
-                    apiKey = config.openrouter_api_key;
-                    model = 'google/gemini-2.0-flash-001';
-                    apiUrl = 'https://openrouter.ai/api/v1/chat/completions';
-                    break;
-                case 'anthropic':
-                    apiKey = config.anthropic_api_key;
-                    model = config.anthropic_model || 'claude-3-5-sonnet-20240620';
-                    apiUrl = 'https://api.anthropic.com/v1/messages';
-                    break;
-                case 'ollama':
-                    apiUrl = `${config.ollama_host || 'http://localhost:11434'}/api/generate`;
-                    model = 'llama3';
-                    break;
-                case 'groq':
-                default:
-                    apiKey = config.groq_api_key;
-                    model = config.default_model || 'llama-3.3-70b-versatile';
-                    apiUrl = 'https://api.groq.com/openai/v1/chat/completions';
-                    break;
-            }
-
-            if (provider !== 'ollama' && !apiKey) return res.status(400).json({ error: `Clé API manquante pour ${provider}` });
-
-            res.setHeader('Content-Type', 'text/event-stream');
-            res.setHeader('Cache-Control', 'no-cache');
-            res.setHeader('Connection', 'keep-alive');
-
-            console.log(`[TranscriptManager] Starting generation with provider: ${provider}, model: ${model}`);
-
+            // Prompt : réglage centralisé (persisté), partagé par les deux sources IA.
             const customPromptRow = await sqlite.get('SELECT setting_value FROM app_settings WHERE setting_key = ?', ['custom_prompt']);
             const promptTemplate = (customPromptRow?.setting_value) || DEFAULT_PROMPT_TEMPLATE;
             const prompt = promptTemplate
                 .replace('{REUNION}', meeting.title)
                 .replace('{TRANSCRIPTION}', transcriptText);
 
-            console.log(`[TranscriptManager] Prompt length: ${prompt.length} chars`);
+            console.log(`[TranscriptManager] Prompt length: ${prompt.length} chars — source: ${source} — model: ${model || '(défaut)'}`);
 
-            let fullText = "";
-
-            if (provider === 'gemini') {
-                const response = await axios.post(apiUrl, {
-                    contents: [{ parts: [{ text: prompt }] }]
-                }, { responseType: 'stream' });
-
-                response.data.on('data', chunk => {
-                    const lines = chunk.toString().split('\n').filter(line => line.trim() !== '');
-                    for (const line of lines) {
-                        if (line.startsWith('data: ')) {
-                            try {
-                                const parsed = JSON.parse(line.substring(6));
-                                const content = parsed.candidates[0].content.parts[0].text;
-                                fullText += content;
-                                res.write(`data: ${content.replace(/\n/g, '\\n')}\n\n`);
-                            } catch (e) {}
-                        }
-                    }
-                });
-                response.data.on('end', () => {
-                    res.write('event: done\ndata: \n\n');
-                    processFullText(meetingId, fullText).then(() => res.end());
-                });
-            } else if (provider === 'groq' || provider === 'openrouter') {
-                const response = await axios.post(apiUrl, {
-                    model: model,
-                    messages: [{ role: "user", content: prompt }],
-                    stream: true
-                }, {
-                    headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-                    responseType: 'stream'
-                });
-
-                response.data.on('data', chunk => {
-                    const lines = chunk.toString().split('\n').filter(line => line.trim() !== '');
-                    for (const line of lines) {
-                        const message = line.replace(/^data: /, '');
-                        if (message === '[DONE]') {
-                            res.write('event: done\ndata: \n\n');
-                            processFullText(meetingId, fullText).then(() => res.end());
-                            return;
-                        }
-                        try {
-                            const parsed = JSON.parse(message);
-                            const content = parsed.choices[0].delta.content || "";
-                            fullText += content;
-                            res.write(`data: ${content.replace(/\n/g, '\\n')}\n\n`);
-                        } catch (e) {}
-                    }
-                });
-            } else if (provider === 'ollama') {
-                const response = await axios.post(apiUrl, {
-                    model: model,
-                    prompt: prompt,
-                    stream: true
-                }, { responseType: 'stream' });
-
-                response.data.on('data', chunk => {
-                    try {
-                        const parsed = JSON.parse(chunk.toString());
-                        const content = parsed.response;
-                        fullText += content;
-                        res.write(`data: ${content.replace(/\n/g, '\\n')}\n\n`);
-                        if (parsed.done) {
-                            res.write('event: done\ndata: \n\n');
-                            processFullText(meetingId, fullText).then(() => res.end());
-                        }
-                    } catch (e) {}
-                });
-            } else if (provider === 'anthropic') {
-                // Anthropic is a bit different, but for now we'll handle it without streaming to simplify or use their SSE
-                const response = await axios.post(apiUrl, {
-                    model: model,
-                    max_tokens: 4096,
-                    messages: [{ role: "user", content: prompt }]
-                }, {
-                    headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'Content-Type': 'application/json' }
-                });
-                const content = response.data.content[0].text;
-                fullText = content;
-                res.write(`data: ${content.replace(/\n/g, '\\n')}\n\n`);
-                res.write('event: done\ndata: \n\n');
-                await processFullText(meetingId, fullText);
-                res.end();
-            }
-
+            const fullText = source === 'local'
+                ? await callLocalAi(prompt)
+                : await apmAi.queryAi(prompt, model || undefined);
+            const result = await processFullText(meetingId, fullText);
+            res.json(result);
         } catch (error) {
             console.error('Summarize error:', error.message);
-            let detailedError = error.message;
-            if (error.response) {
-                console.error('Error status:', error.response.status);
-                try {
-                    const data = error.response.data;
-                    const dataStr = typeof data === 'string' ? data : typeof data === 'object' && data !== null && !data.pipe ? JSON.stringify(data) : '[stream]';
-                    detailedError += ` (Status: ${error.response.status}, Data: ${dataStr})`;
-                } catch (e) {
-                    detailedError += ` (Status: ${error.response.status})`;
-                }
-            }
-            if (!res.headersSent) res.setHeader('Content-Type', 'text/event-stream');
-            res.write(`event: error\ndata: ${JSON.stringify({ error: detailedError })}\n\n`);
-            res.end();
+            res.status(502).json({ error: error.message });
+        }
+    },
+
+    /**
+     * Link a transcript_task (AI-derived) to the real app task created for it
+     * (hub.user_tasks, via POST /api/tasks) once the user has validated it.
+     */
+    linkAppTask: async (req, res) => {
+        try {
+            const db = pgDb;
+            const { app_task_id } = req.body || {};
+            if (!app_task_id) return res.status(400).json({ error: 'app_task_id requis' });
+            await db.run('UPDATE transcript_tasks SET app_task_id = ? WHERE id = ?', [app_task_id, req.params.id]);
+            res.json({ success: true });
+        } catch (error) {
+            res.status(500).json({ error: error.message });
         }
     },
 
@@ -829,6 +750,138 @@ function formatTime(sec) {
     return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
 }
 
+/**
+ * 'apm' (API Ville) or 'local' (AppDSI's own provider settings — same ones
+ * used for ticket reformulation). Toggle in /admin (section IA, Transcript
+ * Manager). Defaults to 'apm' when unset (current behavior).
+ */
+async function getAiSource() {
+    const sqlite = getSqlite();
+    const s = await sqlite.get('SELECT setting_value FROM app_settings WHERE setting_key = ?', ['ai_summary_source']);
+    return s?.setting_value === 'local' ? 'local' : 'apm';
+}
+
+/**
+ * Human-readable label for the single local model currently configured
+ * (there is only ever one — no model choice in local mode, unlike APM).
+ */
+async function describeLocalModel() {
+    const sqlite = getSqlite();
+    const keys = ['ai_provider', 'anthropic_model', 'default_model'];
+    const config = {};
+    for (const key of keys) {
+        const s = await sqlite.get('SELECT setting_value FROM app_settings WHERE setting_key = ?', [key]);
+        config[key] = s ? s.setting_value : '';
+    }
+    const provider = config.ai_provider || 'groq';
+    const modelByProvider = {
+        groq: config.default_model || 'llama-3.3-70b-versatile',
+        gemini: 'gemini-1.5-flash',
+        openrouter: config.default_model || 'google/gemini-2.0-flash-001',
+        anthropic: config.anthropic_model || 'claude-3-5-sonnet-20240620',
+        ollama: 'llama3 (Ollama)',
+    };
+    const providerLabel = { groq: 'Groq', gemini: 'Gemini', openrouter: 'OpenRouter', anthropic: 'Anthropic', ollama: 'Ollama' }[provider] || provider;
+    return `${providerLabel} — ${modelByProvider[provider] || provider} (local AppDSI)`;
+}
+
+/**
+ * Calls AppDSI's own configured local AI provider (groq/gemini/openrouter/
+ * anthropic/ollama — same app_settings as ticket reformulation), blocking,
+ * and returns the full response text. Non-streaming port of the provider
+ * switch that used to live directly in summarizeMeeting before the APM
+ * integration (now used only when ai_summary_source='local').
+ */
+async function callLocalAi(prompt) {
+    const sqlite = getSqlite();
+    const keys = ['ai_provider', 'groq_api_key', 'gemini_api_key', 'openrouter_api_key', 'anthropic_api_key', 'ollama_host', 'anthropic_model', 'default_model'];
+    const config = {};
+    for (const key of keys) {
+        const s = await sqlite.get('SELECT setting_value FROM app_settings WHERE setting_key = ?', [key]);
+        config[key] = s ? s.setting_value : '';
+    }
+
+    const provider = config.ai_provider || 'groq';
+    let apiKey = '', model = config.default_model || '', apiUrl = '';
+
+    switch (provider) {
+        case 'gemini':
+            apiKey = config.gemini_api_key;
+            model = 'gemini-1.5-flash';
+            apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+            break;
+        case 'openrouter':
+            apiKey = config.openrouter_api_key;
+            model = config.default_model || 'google/gemini-2.0-flash-001';
+            apiUrl = 'https://openrouter.ai/api/v1/chat/completions';
+            break;
+        case 'anthropic':
+            apiKey = config.anthropic_api_key;
+            model = config.anthropic_model || 'claude-3-5-sonnet-20240620';
+            apiUrl = 'https://api.anthropic.com/v1/messages';
+            break;
+        case 'ollama':
+            apiUrl = `${config.ollama_host || 'http://localhost:11434'}/api/generate`;
+            model = 'llama3';
+            break;
+        case 'groq':
+        default:
+            apiKey = config.groq_api_key;
+            model = config.default_model || 'llama-3.3-70b-versatile';
+            apiUrl = 'https://api.groq.com/openai/v1/chat/completions';
+            break;
+    }
+    if (provider !== 'ollama' && !apiKey) throw new Error(`Clé API manquante pour ${provider} (IA locale AppDSI — configurer dans /admin, section IA)`);
+
+    const AXIOS_TIMEOUT = 180000;
+
+    try {
+        if (provider === 'gemini') {
+            const response = await axios.post(apiUrl, { contents: [{ parts: [{ text: prompt }] }] }, { timeout: AXIOS_TIMEOUT });
+            return response.data.candidates[0].content.parts[0].text;
+        }
+        if (provider === 'ollama') {
+            const response = await axios.post(apiUrl, { model, prompt, stream: false }, { timeout: AXIOS_TIMEOUT });
+            return response.data.response;
+        }
+        if (provider === 'anthropic') {
+            const response = await axios.post(apiUrl, {
+                model, max_tokens: 4096, messages: [{ role: 'user', content: prompt }]
+            }, {
+                headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'Content-Type': 'application/json' },
+                timeout: AXIOS_TIMEOUT
+            });
+            return response.data.content[0].text;
+        }
+        // groq, openrouter : API compatibles OpenAI
+        const response = await axios.post(apiUrl, {
+            model, messages: [{ role: 'user', content: prompt }], stream: false
+        }, {
+            headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+            timeout: AXIOS_TIMEOUT
+        });
+        return response.data.choices[0].message.content;
+    } catch (error) {
+        // Surface le vrai motif (ex. 413 "prompt trop volumineux pour ce fournisseur",
+        // clé invalide, modèle inconnu...) au lieu du générique axios
+        // "Request failed with status code XXX" — cf. logique équivalente de
+        // l'ancien flux streaming avant l'intégration APM.
+        if (error.response) {
+            const data = error.response.data;
+            const dataStr = typeof data === 'string' ? data.slice(0, 300)
+                : (data && typeof data === 'object' ? JSON.stringify(data).slice(0, 300) : '');
+            const hint = error.response.status === 413
+                ? ' — la transcription est trop volumineuse pour ce fournisseur, réduisez « Limite de contexte » dans /admin (section IA) ou passez sur API Ville (APM)'
+                : '';
+            throw new Error(`Erreur IA locale AppDSI (${provider}, HTTP ${error.response.status})${hint}${dataStr ? ' : ' + dataStr : ''}`);
+        }
+        if (error.code === 'ECONNABORTED') {
+            throw new Error(`Délai dépassé en contactant l'IA locale AppDSI (${provider})`);
+        }
+        throw new Error(`Erreur réseau vers l'IA locale AppDSI (${provider}) : ${error.message}`);
+    }
+}
+
 async function processFullText(meetingId, fullText) {
     const db = pgDb;
     let displayText = fullText;
@@ -842,18 +895,36 @@ async function processFullText(meetingId, fullText) {
 
     await db.run('UPDATE transcript_meetings SET summary = ? WHERE id = ?', [displayText, meetingId]);
 
+    const savedTasks = [];
     try {
         const tasks = JSON.parse(tasksJson);
+        const agents = await listDsiAgents();
         await db.run('DELETE FROM transcript_tasks WHERE meeting_id = ? AND origin = ?', [meetingId, 'ai']);
         for (const t of tasks) {
-            await db.run(
-                'INSERT INTO transcript_tasks (meeting_id, description, assignee, requester, deadline, origin, start_seconds) VALUES (?, ?, ?, ?, ?, ?, ?)',
-                [meetingId, t.what, t.who, t.req, t.when, 'ai', timeToSeconds(t.ts || "00:00:00")]
+            const match = matchDsiAgent(t.who, agents);
+            const result = await db.run(
+                `INSERT INTO transcript_tasks
+                    (meeting_id, description, assignee, requester, deadline, origin, start_seconds, assignee_username, assignee_match_score)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                [meetingId, t.what, t.who, t.req, t.when, 'ai', timeToSeconds(t.ts || "00:00:00"), match?.username || null, match?.score ?? null]
             );
+            savedTasks.push({
+                id: result.lastID,
+                description: t.what,
+                assignee: t.who,
+                requester: t.req,
+                deadline: t.when,
+                start_seconds: timeToSeconds(t.ts || "00:00:00"),
+                assignee_username: match?.username || null,
+                assignee_match_score: match?.score ?? null,
+                assignee_agent: match ? { username: match.username, nom: match.nom, email: match.email, service: match.service } : null,
+            });
         }
     } catch (e) {
         console.error('Error parsing tasks JSON:', e.message);
     }
+
+    return { summary: displayText, tasks: savedTasks };
 }
 
 module.exports = transcriptController;

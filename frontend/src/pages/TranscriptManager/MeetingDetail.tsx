@@ -3,12 +3,16 @@ import Header from '../../components/Header';
 import {
     ArrowLeft, Calendar, Clock, Send,
     CheckCircle2, Circle, RefreshCw,
-    MessageSquare, ListTodo, FileText, Search, Users, Share2, Building2, CheckCircle
+    MessageSquare, ListTodo, FileText, Search, Users, Share2, Building2, CheckCircle, UserCheck
 } from 'lucide-react';
 import AgentPresenceBadge from '../../components/AgentPresenceBadge';
+import TaskValidationModal from '../../components/TaskValidationModal';
+import type { DsiAgent } from '../../components/TaskValidationModal';
 import axios from 'axios';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 
 interface Cue {
     id: number;
@@ -38,6 +42,10 @@ interface Task {
     deadline: string;
     is_completed: boolean;
     start_seconds?: number;
+    origin?: string;
+    assignee_username?: string | null;
+    assignee_match_score?: number | null;
+    app_task_id?: number | null;
 }
 
 const MeetingDetail: React.FC = () => {
@@ -53,8 +61,17 @@ const MeetingDetail: React.FC = () => {
     const [editValues, setEditValues] = useState({ title: '', meeting_date: '' });
     const [isSaving, setIsSaving] = useState(false);
     const [showAllSpeakers, setShowAllSpeakers] = useState(false);
-    const [streamText, setStreamText] = useState("");
     const [transcriptSearch, setTranscriptSearch] = useState("");
+
+    // Génération IA (APM) : choix du modèle + rapprochement agents DSI
+    const [aiModels, setAiModels] = useState<string[]>([]);
+    const [selectedModel, setSelectedModel] = useState<string>(() => {
+        try { return localStorage.getItem('tm_ai_model') || ''; } catch { return ''; }
+    });
+    const [modelsError, setModelsError] = useState('');
+    const [aiSource, setAiSource] = useState<'apm' | 'local'>('apm');
+    const [dsiAgents, setDsiAgents] = useState<DsiAgent[]>([]);
+    const [showTaskValidation, setShowTaskValidation] = useState(false);
     const [isEditingSummary, setIsEditingSummary] = useState(false);
     const [summaryDraft, setSummaryDraft] = useState("");
     const [editingTaskId, setEditingTaskId] = useState<number | null>(null);
@@ -73,6 +90,34 @@ const MeetingDetail: React.FC = () => {
     useEffect(() => {
         fetchData();
     }, [id, token]);
+
+    useEffect(() => {
+        if (!token) return;
+        axios.get('/api/transcriptmanager/ai/models', { headers: { Authorization: `Bearer ${token}` } })
+            .then(res => {
+                const models: string[] = res.data?.models || [];
+                setAiModels(models);
+                setAiSource(res.data?.source === 'local' ? 'local' : 'apm');
+                setModelsError('');
+                setSelectedModel(prev => {
+                    if (prev && models.includes(prev)) return prev;
+                    return models[0] || '';
+                });
+            })
+            .catch(err => {
+                console.error(err);
+                setModelsError(err?.response?.data?.error || "Impossible de charger les modèles IA. Vérifier la configuration dans /admin (section IA) et /admin/infra.");
+            });
+
+        axios.get('/api/calendrier-dsi/agents', { headers: { Authorization: `Bearer ${token}` } })
+            .then(res => setDsiAgents(res.data || []))
+            .catch(err => console.error(err));
+    }, [token]);
+
+    useEffect(() => {
+        if (!selectedModel) return;
+        try { localStorage.setItem('tm_ai_model', selectedModel); } catch { /* ignore */ }
+    }, [selectedModel]);
 
     const fetchData = async () => {
         if (!token || !id) return;
@@ -156,68 +201,21 @@ const MeetingDetail: React.FC = () => {
 
     const handleSummarize = async () => {
         if (!id || !token) return;
+        if (!selectedModel) {
+            alert("Choisissez un modèle IA avant de générer le résumé.");
+            return;
+        }
         setIsGenerating(true);
-        setStreamText("");
-        
         try {
-            const response = await fetch(`/api/transcriptmanager/meeting/${id}/summarize`, {
-                method: 'POST',
-                headers: { 
-                    'Authorization': `Bearer ${token}`
-                }
-            });
-
-            if (!response.ok) {
-                const errData = await response.json().catch(() => ({}));
-                alert(errData.error || "Une erreur est survenue lors de la connexion au modèle.");
-                setIsGenerating(false);
-                return;
-            }
-
-            if (!response.body) return;
-            const reader = response.body.getReader();
-            const decoder = new TextDecoder();
-            let fullText = "";
-
-            while (true) {
-                const { value, done } = await reader.read();
-                if (done) break;
-                
-                const chunk = decoder.decode(value);
-                const lines = chunk.split('\n\n');
-                
-                for (const line of lines) {
-                    if (line.startsWith('data: ')) {
-                        const content = line.slice(6).replace(/\\n/g, '\n');
-                        fullText += content;
-                        // Strip JSON part for display
-                        setStreamText(fullText.split(/##\s*(?:Plan d'action|Tâches|Actions)|```json/i)[0]);
-                    } else if (line.startsWith('event: done')) {
-                        setIsGenerating(false);
-                        fetchData();
-                        return;
-                    } else if (line.startsWith('event: error')) {
-                        try {
-                            const errDataLine = line.split('\n').find(l => l.startsWith('data: '));
-                            if (errDataLine) {
-                                const errJson = JSON.parse(errDataLine.slice(6));
-                                alert(errJson.error || "Erreur de génération du résumé.");
-                            } else {
-                                alert("Erreur de génération du résumé.");
-                            }
-                        } catch (e) {
-                            alert("Erreur de génération du résumé.");
-                        }
-                        setIsGenerating(false);
-                        return;
-                    }
-                }
-            }
-            
-            setIsGenerating(false);
-            fetchData();
-        } catch (err) {
+            await axios.post(`/api/transcriptmanager/meeting/${id}/summarize`,
+                { model: selectedModel },
+                { headers: { Authorization: `Bearer ${token}` } }
+            );
+            await fetchData();
+        } catch (err: any) {
             console.error(err);
+            alert(err?.response?.data?.error || "Une erreur est survenue lors de la génération du résumé (API IA Ville).");
+        } finally {
             setIsGenerating(false);
         }
     };
@@ -331,6 +329,7 @@ const MeetingDetail: React.FC = () => {
     if (!meeting) return <div className="tm-error-page">Réunion introuvable.</div>;
 
     const speakers = Array.from(new Set(meeting.cues?.map(c => c.speaker_name) || []));
+    const pendingAiTasks = tasks.filter(t => t.origin === 'ai' && !t.app_task_id);
     const totalCues = meeting.cues?.length || 0;
     const searchLower = transcriptSearch.toLowerCase();
     const filteredCues = transcriptSearch
@@ -348,10 +347,24 @@ const MeetingDetail: React.FC = () => {
                         <ArrowLeft size={18} /> Retour
                     </button>
                     <div className="md-actions">
-                        <button 
+                        {modelsError ? (
+                            <span style={{ fontSize: '0.75rem', color: '#DC2626' }}>{modelsError}</span>
+                        ) : (
+                            <select
+                                className="md-model-select"
+                                value={selectedModel}
+                                onChange={e => setSelectedModel(e.target.value)}
+                                disabled={isGenerating || aiModels.length === 0 || aiSource === 'local'}
+                                title={aiSource === 'local' ? "IA locale AppDSI : un seul modèle configuré (changer dans /admin, section IA)" : "Modèle IA (API Ville / APM)"}
+                            >
+                                {aiModels.length === 0 && <option value="">Chargement des modèles…</option>}
+                                {aiModels.map(m => <option key={m} value={m}>{m}</option>)}
+                            </select>
+                        )}
+                        <button
                             className={`md-btn-generate ${isGenerating ? 'loading' : ''}`}
                             onClick={handleSummarize}
-                            disabled={isGenerating}
+                            disabled={isGenerating || !selectedModel}
                         >
                             {isGenerating ? <RefreshCw className="animate-spin" size={18} /> : <Send size={18} />}
                             {isGenerating ? 'Génération...' : 'Générer le résumé'}
@@ -539,47 +552,23 @@ const MeetingDetail: React.FC = () => {
                         </div>
                         )}
 
-                        <div className="md-card summary-card">
-                            <div className="card-head">
-                                <MessageSquare size={18} />
-                                <h2>Résumé Exécutif</h2>
-                                {!isGenerating && !isEditingSummary && (
-                                    <button className="md-btn-edit" onClick={() => {
-                                        setSummaryDraft(meeting.summary || '');
-                                        setIsEditingSummary(true);
-                                    }}>Modifier</button>
-                                )}
-                            </div>
-                            <div className="summary-content">
-                                {isGenerating ? (
-                                    <div className="stream-box">{streamText}</div>
-                                ) : isEditingSummary ? (
-                                    <div>
-                                        <textarea
-                                            style={{ width: '100%', minHeight: '220px', fontFamily: 'inherit', fontSize: '0.9rem', border: '1px solid #E2E8F0', borderRadius: '8px', padding: '0.75rem', resize: 'vertical', outline: 'none', lineHeight: 1.6 }}
-                                            value={summaryDraft}
-                                            onChange={e => setSummaryDraft(e.target.value)}
-                                            autoFocus
-                                        />
-                                        <div style={{ display: 'flex', gap: '0.75rem', marginTop: '0.75rem' }}>
-                                            <button className="btn-save" onClick={handleSaveSummary} disabled={isSaving}>{isSaving ? 'Enregistrement...' : 'Enregistrer'}</button>
-                                            <button className="btn-cancel" onClick={() => setIsEditingSummary(false)}>Annuler</button>
-                                        </div>
-                                    </div>
-                                ) : (
-                                    <div className="md-formatted" dangerouslySetInnerHTML={{ __html: formatMarkdown(meeting.summary || "Aucun résumé généré.") }} />
-                                )}
-                            </div>
-                        </div>
-
                         <div className="md-card tasks-card">
                             <div className="card-head">
                                 <ListTodo size={18} />
                                 <h2>Plan d'Action</h2>
                                 <span className="badge">{tasks.length}</span>
                             </div>
+                            {pendingAiTasks.length > 0 && (
+                                <div style={{ padding: '0.75rem 1.5rem', borderBottom: '1px solid #F1F5F9', background: '#FFFBEB' }}>
+                                    <button className="md-btn-propose" onClick={() => setShowTaskValidation(true)}>
+                                        <UserCheck size={14} /> Proposer {pendingAiTasks.length} tâche{pendingAiTasks.length > 1 ? 's' : ''} identifiée{pendingAiTasks.length > 1 ? 's' : ''} à l'application
+                                    </button>
+                                </div>
+                            )}
                             <div className="tasks-list">
-                                {tasks.length > 0 ? tasks.map(task => (
+                                {tasks.length > 0 ? tasks.map(task => {
+                                    const agent = task.assignee_username ? dsiAgents.find(a => a.username === task.assignee_username) : null;
+                                    return (
                                     <div key={task.id} className={`task-item ${task.is_completed ? 'done' : ''}`}>
                                         {editingTaskId === task.id ? (
                                             <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: '0.5rem', padding: '0.25rem 0' }}>
@@ -602,8 +591,19 @@ const MeetingDetail: React.FC = () => {
                                                 <div className="task-body">
                                                     <p>{task.description}</p>
                                                     <div className="task-foot">
-                                                        {task.assignee && <span className="who">@{task.assignee}</span>}
+                                                        {agent ? (
+                                                            <span className="who" style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                                                                @{agent.nom}
+                                                                <AgentPresenceBadge email={agent.email} name={agent.nom} size={11} />
+                                                                {typeof task.assignee_match_score === 'number' && task.assignee_match_score < 1 && (
+                                                                    <span title="Correspondance approximative" style={{ color: '#D97706' }}>~{Math.round(task.assignee_match_score * 100)}%</span>
+                                                                )}
+                                                            </span>
+                                                        ) : task.assignee ? (
+                                                            <span className="who unmatched" title="Aucun agent DSI correspondant trouvé automatiquement">@{task.assignee} ?</span>
+                                                        ) : null}
                                                         {task.deadline && <span className="deadline">{task.deadline}</span>}
+                                                        {task.app_task_id && <span className="linked-badge"><CheckCircle size={11} /> Tâche créée</span>}
                                                         {task.start_seconds !== undefined && (
                                                             <button className="ts" onClick={() => scrollToCue(task.start_seconds!)}>
                                                                 {formatTime(task.start_seconds)}
@@ -621,7 +621,8 @@ const MeetingDetail: React.FC = () => {
                                             </>
                                         )}
                                     </div>
-                                )) : <p className="no-tasks">Aucune tâche.</p>}
+                                    );
+                                }) : <p className="no-tasks">Aucune tâche.</p>}
                             </div>
                         </div>
                     </div>
@@ -667,6 +668,43 @@ const MeetingDetail: React.FC = () => {
                                 )) : <p className="no-data">{transcriptSearch ? 'Aucun résultat.' : 'Aucune transcription disponible.'}</p>}
                             </div>
                         </div>
+
+                        <div className="md-card summary-card">
+                            <div className="card-head">
+                                <MessageSquare size={18} />
+                                <h2>Résumé Exécutif</h2>
+                                {!isGenerating && !isEditingSummary && (
+                                    <button className="md-btn-edit" onClick={() => {
+                                        setSummaryDraft(meeting.summary || '');
+                                        setIsEditingSummary(true);
+                                    }}>Modifier</button>
+                                )}
+                            </div>
+                            <div className="summary-content">
+                                {isGenerating ? (
+                                    <div className="stream-box">Génération du résumé via {aiSource === 'local' ? "l'IA locale AppDSI" : "l'API IA Ville (APM)"}, modèle {selectedModel}…</div>
+                                ) : isEditingSummary ? (
+                                    <div>
+                                        <textarea
+                                            style={{ width: '100%', minHeight: '220px', fontFamily: 'inherit', fontSize: '0.9rem', border: '1px solid #E2E8F0', borderRadius: '8px', padding: '0.75rem', resize: 'vertical', outline: 'none', lineHeight: 1.6 }}
+                                            value={summaryDraft}
+                                            onChange={e => setSummaryDraft(e.target.value)}
+                                            autoFocus
+                                        />
+                                        <div style={{ display: 'flex', gap: '0.75rem', marginTop: '0.75rem' }}>
+                                            <button className="btn-save" onClick={handleSaveSummary} disabled={isSaving}>{isSaving ? 'Enregistrement...' : 'Enregistrer'}</button>
+                                            <button className="btn-cancel" onClick={() => setIsEditingSummary(false)}>Annuler</button>
+                                        </div>
+                                    </div>
+                                ) : (
+                                    <div className="md-formatted">
+                                        <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                                            {meeting.summary || "Aucun résumé généré."}
+                                        </ReactMarkdown>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -679,13 +717,25 @@ const MeetingDetail: React.FC = () => {
                             <h3>L'Intelligence Artificielle travaille...</h3>
                         </div>
                         <div className="gen-modal-body">
-                            <p className="gen-subtitle">Génération du résumé et extraction des tâches en cours. Veuillez patienter.</p>
+                            <p className="gen-subtitle">Génération du résumé et extraction des tâches en cours ({aiSource === 'local' ? 'IA locale AppDSI' : 'API IA Ville'} — modèle {selectedModel}). Veuillez patienter.</p>
                             <div className="stream-box-modal">
-                                {streamText || "Connexion au modèle d'IA..."}
+                                Connexion à {aiSource === 'local' ? "l'IA locale AppDSI" : "l'API IA Ville (APM)"}...
                             </div>
                         </div>
                     </div>
                 </div>
+            )}
+
+            {showTaskValidation && meeting && (
+                <TaskValidationModal
+                    meetingId={meeting.id}
+                    meetingTitle={meeting.title}
+                    tasks={pendingAiTasks}
+                    agents={dsiAgents}
+                    token={token || ''}
+                    onClose={() => setShowTaskValidation(false)}
+                    onValidated={() => { fetchData(); }}
+                />
             )}
 
             <style>{`
@@ -739,6 +789,23 @@ const MeetingDetail: React.FC = () => {
                     background: #B91C1C;
                     transform: translateY(-1px);
                 }
+                .md-actions {
+                    display: flex;
+                    align-items: center;
+                    gap: 0.75rem;
+                }
+                .md-model-select {
+                    padding: 0.55rem 0.75rem;
+                    border: 1px solid #E2E8F0;
+                    border-radius: 8px;
+                    font-size: 0.85rem;
+                    font-weight: 600;
+                    color: #334155;
+                    background: white;
+                    outline: none;
+                    min-width: 160px;
+                }
+                .md-model-select:focus { border-color: #DC2626; }
 
                 .md-header-card {
                     background: white;
@@ -893,9 +960,38 @@ const MeetingDetail: React.FC = () => {
 
                 .summary-content { padding: 1.5rem; font-size: 0.9375rem; line-height: 1.7; color: #475569; }
                 .stream-box { white-space: pre-wrap; color: #1D4ED8; font-weight: 500; }
-                .md-formatted h2 { font-size: 1.1rem; color: #111827; margin: 1.5rem 0 0.5rem; }
-                .md-formatted h2:first-child { margin-top: 0; }
-                .md-formatted ul { padding-left: 1.25rem; margin-bottom: 1rem; }
+                .md-formatted h1, .md-formatted h2, .md-formatted h3 {
+                    color: #111827; font-weight: 700; line-height: 1.3;
+                    margin: 1.5rem 0 0.6rem;
+                }
+                .md-formatted h1 { font-size: 1.3rem; }
+                .md-formatted h2 { font-size: 1.1rem; }
+                .md-formatted h3 { font-size: 1rem; }
+                .md-formatted h1:first-child, .md-formatted h2:first-child, .md-formatted h3:first-child { margin-top: 0; }
+                .md-formatted p { margin: 0 0 0.85rem; }
+                .md-formatted p:last-child { margin-bottom: 0; }
+                .md-formatted ul, .md-formatted ol { padding-left: 1.4rem; margin: 0 0 1rem; }
+                .md-formatted li { margin-bottom: 0.3rem; }
+                .md-formatted li > ul, .md-formatted li > ol { margin-top: 0.3rem; }
+                .md-formatted strong { color: #1E293B; font-weight: 700; }
+                .md-formatted code {
+                    background: #F1F5F9; color: #BE185D; padding: 0.1rem 0.35rem;
+                    border-radius: 4px; font-size: 0.85em; font-family: 'Fira Code', monospace;
+                }
+                .md-formatted blockquote {
+                    border-left: 3px solid #E2E8F0; margin: 0 0 1rem; padding: 0.25rem 0 0.25rem 1rem;
+                    color: #64748B; font-style: italic;
+                }
+                .md-formatted hr { border: none; border-top: 1px solid #E2E8F0; margin: 1.25rem 0; }
+                .md-formatted table {
+                    width: 100%; border-collapse: collapse; margin: 0 0 1.25rem;
+                    font-size: 0.875rem;
+                }
+                .md-formatted th, .md-formatted td {
+                    border: 1px solid #E2E8F0; padding: 0.5rem 0.75rem; text-align: left;
+                }
+                .md-formatted th { background: #F8FAFC; color: #334155; font-weight: 700; }
+                .md-formatted tr:nth-child(even) td { background: #FBFDFF; }
 
                 .tasks-list { padding: 0; }
                 .task-item {
@@ -919,7 +1015,20 @@ const MeetingDetail: React.FC = () => {
                 .task-body p { margin: 0; font-size: 0.875rem; color: #334155; font-weight: 500; }
                 .task-foot { display: flex; gap: 1rem; margin-top: 0.4rem; font-size: 0.75rem; flex-wrap: wrap; }
                 .who { color: #2563EB; font-weight: 600; }
+                .who.unmatched { color: #D97706; }
                 .deadline { color: #64748B; font-style: italic; }
+                .linked-badge {
+                    display: inline-flex; align-items: center; gap: 4px;
+                    color: #15803D; background: #F0FDF4; font-weight: 600;
+                    padding: 1px 8px; border-radius: 10px; font-size: 0.7rem;
+                }
+                .md-btn-propose {
+                    display: inline-flex; align-items: center; gap: 0.4rem;
+                    background: #F59E0B; color: white; border: none;
+                    padding: 0.5rem 1rem; border-radius: 8px; font-weight: 700;
+                    font-size: 0.8rem; cursor: pointer; transition: background 0.2s;
+                }
+                .md-btn-propose:hover { background: #D97706; }
                 .ts {
                     background: #F1F5F9;
                     border: none;
@@ -1132,13 +1241,5 @@ function formatTime(sec: number) {
     return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
 }
 
-function formatMarkdown(text: string) {
-    if (!text) return "";
-    return text
-        .replace(/^## (.*$)/gim, '<h2>$1</h2>')
-        .replace(/^\* (.*$)/gim, '<ul><li>$1</li></ul>')
-        .replace(/<\/ul>\s*<ul>/g, "")
-        .replace(/\n/g, '<br/>');
-}
 
 export default MeetingDetail;

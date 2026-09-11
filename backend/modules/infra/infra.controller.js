@@ -58,6 +58,12 @@ module.exports = {
             const cfg = await pgDb.get('SELECT * FROM hub.infra_apis WHERE key = ?', [key]);
             if (!cfg) return res.status(404).json({ message: 'API inconnue' });
 
+            if (key === 'apm_ai') {
+                const apmAi = require('../transcriptmanager/apm-ai');
+                const models = await apmAi.listModels();
+                return res.json({ ok: true, count: models.length, sample: models.slice(0, 5) });
+            }
+
             if (key === 'rh_studio_presence') {
                 const result = await fetchAgentPresence(cfg, { q: 'test' });
                 return res.json({ ok: true, count: result.found ? 1 : 0, sample: [result] });
