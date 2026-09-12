@@ -275,20 +275,46 @@ async function listTeamsTranscripts(userEmail, days = 30) {
     if (aadId) {
         const url = `https://graph.microsoft.com/v1.0/users/${aadId}/onlineMeetings/getAllTranscripts(meetingOrganizerUserId='${aadId}', startDateTime=${toIsoUtc(startDate)}, endDateTime=${toIsoUtc(endDate)})`;
         try {
-            const r = await retryTransientTenantDisabled(() => axios.get(url, { ...axiosOpts, headers }));
-            for (const t of r.data.value || []) {
-                const dup = meetings.some(m => m.transcriptId === t.id || (m.meetingId === t.meetingId && m.createdDateTime === t.createdDateTime));
-                if (dup) continue;
+            // Suivi de la pagination OData (@odata.nextLink) pour couvrir
+            // réellement toute la fenêtre glissante des N derniers jours.
+            const transcripts = [];
+            let pageUrl = url;
+            for (let page = 0; page < 20 && pageUrl; page++) {
+                const r = await retryTransientTenantDisabled(() => axios.get(pageUrl, { ...axiosOpts, headers }));
+                transcripts.push(...(r.data.value || []));
+                pageUrl = r.data['@odata.nextLink'] || null;
+            }
+            const organized = transcripts.filter(t =>
+                !meetings.some(m => m.transcriptId === t.id || (m.meetingId === t.meetingId && m.createdDateTime === t.createdDateTime))
+            );
+            // getAllTranscripts ne renvoie ni le sujet ni la date d'occurrence.
+            // On complète avec le détail de la réunion (sujet) et on utilise
+            // createdDateTime comme date réelle d'occurrence.
+            await Promise.allSettled(organized.map(async (t) => {
+                let subject = null;
+                let meetingStart = null;
+                if (t.meetingId) {
+                    try {
+                        const m = await axios.get(
+                            `https://graph.microsoft.com/v1.0/users/${encodeURIComponent(aadId)}/onlineMeetings/${encodeURIComponent(t.meetingId)}?$select=subject,startDateTime`,
+                            { ...axiosOpts, headers }
+                        );
+                        subject = m.data?.subject || null;
+                        meetingStart = m.data?.startDateTime || null;
+                    } catch (err) {
+                        console.error(`[TEAMS TRANSCRIPT] meeting detail failed: ${err.response?.data?.error?.message || err.message}`);
+                    }
+                }
                 meetings.push({
                     meetingId: t.meetingId,
                     transcriptId: t.id,
-                    subject: 'Réunion Teams (organisée par vous)',
-                    startDateTime: null,
+                    subject: (subject && subject !== 'Group chat') ? subject : 'Réunion Teams (organisée par vous)',
+                    startDateTime: t.createdDateTime || meetingStart || null,
                     createdDateTime: t.createdDateTime || null,
                     organizer: null,
                     transcriptContentUrl: t.transcriptContentUrl || null
                 });
-            }
+            }));
         } catch (err) {
             if (err.response?.status === 403) {
                 const hint = graphAccessHint(err.response?.data?.error?.message, err.response?.data?.error?.code) || 'Vérifier la configuration tenant Teams';
