@@ -1231,7 +1231,9 @@ async function setupPgDb() {
         show_ideas BOOLEAN DEFAULT true,
         show_rencontres BOOLEAN DEFAULT true,
         show_library BOOLEAN DEFAULT false,
-        show_consommables BOOLEAN DEFAULT true
+        show_consommables BOOLEAN DEFAULT true,
+        show_chat_live BOOLEAN DEFAULT false,
+        show_transcript_manager BOOLEAN DEFAULT false
       );
     `);
 
@@ -1623,6 +1625,9 @@ async function setupPgDb() {
     } catch (e) {}
     try {
       await client.query(`ALTER TABLE magapp.settings ADD COLUMN IF NOT EXISTS show_chat_live BOOLEAN DEFAULT false`);
+    } catch (e) {}
+    try {
+      await client.query(`ALTER TABLE magapp.settings ADD COLUMN IF NOT EXISTS show_transcript_manager BOOLEAN DEFAULT false`);
     } catch (e) {}
 
     await client.query(`
