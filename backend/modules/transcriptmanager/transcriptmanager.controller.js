@@ -89,29 +89,15 @@ const transcriptController = {
         try {
             const db = pgDb;
             const { username, email } = req.user;
-            // Agent (magapp) : espace personnel — uniquement ses transcripts.
-            const isAgentOwner = req.user.scope === 'transcript' && req.user.role === 'transcript_agent';
-            // Partage (lien) : lecture de toutes les réunions. Admins DSI : tout.
-            const isAdmin = isSuperAdmin(req.user) || req.user.scope === 'transcript';
+            // Seuls le lien de partage et les admins DSI voient tout. Les agents
+            // magapp (transcript_agent) utilisent les MÊMES règles d'accès que
+            // les utilisateurs DSIHub, en plus de leurs propres transcripts.
+            const canSeeAll = isSuperAdmin(req.user) || (req.user.scope === 'transcript' && req.user.role !== 'transcript_agent');
 
             const pm = participantMatchParams(req.user);
 
             let meetings;
-            if (isAgentOwner) {
-                // Agent magapp : ses transcripts + ceux des réunions auxquelles
-                // il a participé (importés par un autre participant).
-                meetings = await db.all(`
-                    SELECT m.*,
-                    (SELECT COUNT(DISTINCT speaker_name) FROM transcript_cues WHERE meeting_id = m.id) as speaker_count,
-                    (SELECT string_agg(DISTINCT speaker_email, ',') FROM transcript_cues WHERE meeting_id = m.id AND speaker_email IS NOT NULL) as speaker_emails,
-                    (SELECT MAX(start_seconds) FROM transcript_cues WHERE meeting_id = m.id) as duration_seconds,
-                    (SELECT COALESCE(SUM(LENGTH(text)), 0) FROM transcript_cues WHERE meeting_id = m.id) as char_count
-                    FROM transcript_meetings m
-                    WHERE LOWER(m.owner_username) = LOWER(?)
-                    ${participantExistsSql()}
-                    ORDER BY meeting_date DESC NULLS LAST, created_at DESC
-                `, [username, ...pm]);
-            } else if (isAdmin) {
+            if (canSeeAll) {
                 meetings = await db.all(`
                     SELECT m.*,
                     (SELECT COUNT(DISTINCT speaker_name) FROM transcript_cues WHERE meeting_id = m.id) as speaker_count,
@@ -132,7 +118,8 @@ const transcriptController = {
                     (SELECT COALESCE(SUM(LENGTH(text)), 0) FROM transcript_cues WHERE meeting_id = m.id) as char_count
                     FROM transcript_meetings m
                     WHERE (
-                        m.reunion_id IS NOT NULL
+                        LOWER(m.owner_username) = LOWER(?)
+                        OR m.reunion_id IS NOT NULL
                         AND EXISTS (
                             SELECT 1 FROM reunion_participants rp
                             WHERE rp.reunion_id = m.reunion_id
@@ -163,7 +150,7 @@ const transcriptController = {
                     )
                     ${participantExistsSql()}
                     ORDER BY meeting_date DESC NULLS LAST, created_at DESC
-                `, [emailFull, emailLocal, emailLocal, emailFull, emailLocal, username, username, ...pm]);
+                `, [username, emailFull, emailLocal, emailLocal, emailFull, emailLocal, username, username, ...pm]);
             }
             res.json(meetings);
         } catch (error) {
@@ -301,35 +288,23 @@ const transcriptController = {
         try {
             const db = pgDb;
             const meetingId = req.params.id;
-            const { username } = req.user;
-            const isAgentOwner = req.user.scope === 'transcript' && req.user.role === 'transcript_agent';
-            // Partage (lien) et admins DSI : lecture de toutes les réunions.
-            const isAdmin = isSuperAdmin(req.user) || req.user.scope === 'transcript';
+            const { username, email } = req.user;
+            // Seuls le lien de partage et les admins DSI voient tout.
+            const canSeeAll = isSuperAdmin(req.user) || (req.user.scope === 'transcript' && req.user.role !== 'transcript_agent');
 
             const meeting = await db.get('SELECT * FROM transcript_meetings WHERE id = ?', [meetingId]);
             if (!meeting) return res.status(404).json({ error: 'Réunion non trouvée' });
 
-            // Agent magapp : accès si propriétaire OU participant de la réunion.
-            if (isAgentOwner) {
-                const ownsIt = meeting.owner_username && String(meeting.owner_username).toLowerCase() === String(username).toLowerCase();
-                if (!ownsIt) {
-                    const pmParams = participantMatchParams(req.user);
-                    const isParticipant = await db.get(`
-                        SELECT 1 FROM transcript.meeting_participants
-                        WHERE meeting_id = ?
-                        AND (LOWER(email) = ? OR LOWER(email) = ? OR LOWER(username) = ? OR LOWER(username) = ?)
-                    `, [meetingId, ...pmParams]);
-                    if (!isParticipant) return res.status(403).json({ error: 'Accès refusé' });
-                }
-            } else if (!isAdmin) {
+            if (!canSeeAll) {
                 const emailLocal = (email || username || '').split('@')[0].toLowerCase();
-                const emailFull = `${emailLocal}@ivry94.fr`;
+                const emailFull = (email || `${emailLocal}@ivry94.fr`).toLowerCase();
 
                 const canAccess = await db.get(`
                     SELECT 1 FROM transcript_meetings m
                     WHERE m.id = ?
                     AND (
-                        (
+                        LOWER(m.owner_username) = LOWER(?)
+                        OR (
                             m.reunion_id IS NOT NULL
                             AND EXISTS (
                                 SELECT 1 FROM reunion_participants rp
@@ -361,7 +336,7 @@ const transcriptController = {
                         )
                         ${participantExistsSql()}
                     )
-                `, [meetingId, emailFull, emailLocal, emailLocal, emailFull, emailLocal, username, username, ...participantMatchParams(req.user)]);
+                `, [meetingId, username, emailFull, emailLocal, emailLocal, emailFull, emailLocal, username, username, ...participantMatchParams(req.user)]);
 
                 if (!canAccess) return res.status(403).json({ error: 'Accès refusé' });
             }
@@ -698,30 +673,15 @@ const transcriptController = {
             if (!q || q.trim().length < 2) return res.json([]);
             const db = pgDb;
             const { username, email } = req.user;
-            const isAgentOwner = req.user.scope === 'transcript' && req.user.role === 'transcript_agent';
-            // Partage (lien) et admins DSI : recherche globale.
-            const isAdmin = isSuperAdmin(req.user) || req.user.scope === 'transcript';
+            // Seuls le lien de partage et les admins DSI cherchent partout.
+            const canSeeAll = isSuperAdmin(req.user) || (req.user.scope === 'transcript' && req.user.role !== 'transcript_agent');
+            const emailLocal = (email || username || '').split('@')[0].toLowerCase();
+            const emailFull = (email || `${emailLocal}@ivry94.fr`).toLowerCase();
+            const pm = participantMatchParams(req.user);
             const term = `%${q.trim()}%`;
 
             let rows;
-            if (isAgentOwner) {
-                const pm = participantMatchParams(req.user);
-                rows = await db.all(`
-                    SELECT
-                        m.id as meeting_id, m.title as meeting_title,
-                        m.meeting_date, m.created_at,
-                        c.id as cue_id, c.speaker_name, c.text, c.start_seconds
-                    FROM transcript_cues c
-                    JOIN transcript_meetings m ON m.id = c.meeting_id
-                    WHERE (c.text ILIKE ? OR m.title ILIKE ?)
-                      AND (
-                        LOWER(m.owner_username) = LOWER(?)
-                        ${participantExistsSql()}
-                      )
-                    ORDER BY m.meeting_date DESC NULLS LAST, c.start_seconds ASC
-                    LIMIT 200
-                `, [term, term, username, ...pm]);
-            } else if (isAdmin) {
+            if (canSeeAll) {
                 rows = await db.all(`
                     SELECT
                         m.id as meeting_id, m.title as meeting_title,
@@ -734,8 +694,6 @@ const transcriptController = {
                     LIMIT 200
                 `, [term, term]);
             } else {
-                const emailLocal = (email || username || '').split('@')[0].toLowerCase();
-                const emailFull = `${emailLocal}@ivry94.fr`;
                 rows = await db.all(`
                     SELECT
                         m.id as meeting_id, m.title as meeting_title,
@@ -745,7 +703,8 @@ const transcriptController = {
                     JOIN transcript_meetings m ON m.id = c.meeting_id
                     WHERE (c.text ILIKE ? OR m.title ILIKE ?)
                       AND (
-                        (
+                        LOWER(m.owner_username) = LOWER(?)
+                        OR (
                             m.reunion_id IS NOT NULL
                             AND EXISTS (
                                 SELECT 1 FROM reunion_participants rp
@@ -775,10 +734,11 @@ const transcriptController = {
                                 AND cr.service = m.shared_with_service
                             )
                         )
+                        ${participantExistsSql()}
                       )
                     ORDER BY m.meeting_date DESC NULLS LAST, c.start_seconds ASC
                     LIMIT 200
-                `, [term, term, emailFull, emailLocal, emailLocal, emailFull, emailLocal, username, username]);
+                `, [term, term, username, emailFull, emailLocal, emailLocal, emailFull, emailLocal, username, username, ...pm]);
             }
 
             const grouped = new Map();
