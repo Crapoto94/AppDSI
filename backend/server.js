@@ -4301,8 +4301,13 @@ app.post('/api/auth/magapp-transcript-access', authenticateJWT, async (req, res)
             source: req.user.source || 'magapp',
             scope: 'transcript',
         }, SECRET_KEY);
-        const baseUrl = `${req.protocol}://${req.get('host')}`;
-        res.json({ url: `${baseUrl}/transcript/${accessToken}` });
+        let appBaseUrl = process.env.FRONTEND_URL || process.env.APP_BASE_URL || process.env.APP_URL || '';
+        try {
+            const baseRow = await db.get("SELECT setting_value FROM app_settings WHERE setting_key = 'app_base_url'");
+            appBaseUrl = (baseRow?.setting_value || '').trim() || appBaseUrl;
+        } catch { /* repli env */ }
+        appBaseUrl = (appBaseUrl || `${req.protocol}://${req.get('host')}`).replace(/\/+$/, '');
+        res.json({ url: `${appBaseUrl}/transcript/${accessToken}` });
     } catch (error) {
         console.error('[Transcript access error]', error.message);
         res.status(500).json({ message: 'Erreur lors de la génération de l\'accès au Transcript Manager' });
