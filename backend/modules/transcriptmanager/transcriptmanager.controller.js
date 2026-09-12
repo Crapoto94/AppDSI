@@ -179,7 +179,7 @@ const transcriptController = {
             for (const r of rows) imported.add(r.teams_transcript_id);
 
             const meetings = (result.meetings || []).map(m => ({ ...m, already_imported: imported.has(m.transcriptId) }));
-            res.json({ days, meetings, warnings: result.warnings || [], inaccessible: result.inaccessible || [] });
+            res.json({ days, meetings, warnings: result.warnings || [], inaccessible: result.inaccessible || [], noTranscript: result.noTranscript || [] });
         } catch (error) {
             res.status(500).json({ error: error.message });
         }

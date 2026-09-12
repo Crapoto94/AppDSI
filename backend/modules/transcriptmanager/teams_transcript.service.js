@@ -197,7 +197,7 @@ async function listTeamsTranscripts(userEmail, days = 30) {
         const res = await axios.get(
             `https://graph.microsoft.com/v1.0/users/${encodeURIComponent(userEmail)}/calendarView`
             + `?startDateTime=${toIsoUtc(startDate)}&endDateTime=${toIsoUtc(endDate)}`
-            + `&$select=id,subject,start,end,onlineMeeting,organizer&$top=50`,
+            + `&$select=id,subject,start,end,onlineMeeting,organizer,attendees&$top=50`,
             { ...axiosOpts, headers }
         );
         events = res.data.value || [];
@@ -237,27 +237,57 @@ async function listTeamsTranscripts(userEmail, days = 30) {
         console.error(`[TEAMS TRANSCRIPT] resolve batch failed: ${e.message}`);
     }
 
-    // Transcripts de chaque réunion résolue.
+    // Classification de CHAQUE réunion du calendrier en 3 états :
+    //   - meetings     : transcript récupérable (import possible)
+    //   - inaccessible : transcript présent mais hébergé sur un autre tenant (403)
+    //   - noTranscript : aucun transcript disponible
     const meetings = [];
     const inaccessible = [];
-    for (const ev of withJoinUrl) {
-        const meetingId = meetingByUrl.get(ev.onlineMeeting.joinUrl);
-        if (!meetingId) continue;
+    const noTranscript = [];
+
+    const baseFromEvent = (ev) => ({
+        subject: ev.subject || 'Réunion Teams',
+        startDateTime: ev.start?.dateTime || null,
+        organizer: ev.organizer?.emailAddress?.name || ev.organizer?.emailAddress?.address || null,
+        participants: (ev.attendees || [])
+            .map(a => a.emailAddress?.name || a.emailAddress?.address || '')
+            .filter(Boolean),
+    });
+
+    for (const ev of events) {
+        const joinUrl = ev.onlineMeeting?.joinUrl;
+        const base = baseFromEvent(ev);
+
+        // Réunion non Teams (pas de lien de jointure) → aucun transcript.
+        if (!joinUrl) {
+            noTranscript.push({ ...base, reason: 'Aucune réunion Teams (pas de lien de jointure)' });
+            continue;
+        }
+
+        const meetingId = meetingByUrl.get(joinUrl);
+        if (!meetingId) {
+            noTranscript.push({ ...base, reason: 'Transcript indisponible pour cette réunion' });
+            continue;
+        }
+
         try {
             const r = await axios.get(
                 `https://graph.microsoft.com/v1.0/users/${encodeURIComponent(userKey)}/onlineMeetings/${encodeURIComponent(meetingId)}/transcripts`,
                 { ...axiosOpts, headers }
             );
-            for (const t of r.data.value || []) {
-                meetings.push({
-                    meetingId,
-                    transcriptId: t.id,
-                    subject: ev.subject || 'Réunion Teams',
-                    startDateTime: ev.start?.dateTime || null,
-                    createdDateTime: t.createdDateTime || null,
-                    organizer: ev.organizer?.emailAddress?.name || ev.organizer?.emailAddress?.address || null,
-                    transcriptContentUrl: t.transcriptContentUrl || null
-                });
+            const list = r.data.value || [];
+            if (list.length === 0) {
+                noTranscript.push({ ...base, meetingId, reason: 'Aucun transcript pour cette réunion' });
+            } else {
+                for (const t of list) {
+                    meetings.push({
+                        ...base,
+                        meetingId,
+                        transcriptId: t.id,
+                        createdDateTime: t.createdDateTime || null,
+                        transcriptContentUrl: t.transcriptContentUrl || null,
+                    });
+                }
             }
         } catch (err) {
             if (err.response?.status === 403) {
@@ -267,13 +297,13 @@ async function listTeamsTranscripts(userEmail, days = 30) {
                 // À défaut d'import Graph, il faut un export VTT de l'organisateur.
                 if (!inaccessible.some(m => m.meetingId === meetingId)) {
                     inaccessible.push({
+                        ...base,
                         meetingId,
-                        subject: ev.subject || 'Réunion Teams',
-                        startDateTime: ev.start?.dateTime || null,
-                        organizer: ev.organizer?.emailAddress?.name || ev.organizer?.emailAddress?.address || null
+                        reason: "Transcript hébergé sur un autre tenant — demandez le fichier VTT à l'organisateur de la réunion",
                     });
                 }
             } else {
+                noTranscript.push({ ...base, meetingId, reason: 'Transcript non disponible' });
                 console.error(`[TEAMS TRANSCRIPT] list transcripts failed: ${err.response?.data?.error?.message || err.message}`);
             }
         }
@@ -323,6 +353,7 @@ async function listTeamsTranscripts(userEmail, days = 30) {
                     startDateTime: t.createdDateTime || meetingStart || null,
                     createdDateTime: t.createdDateTime || null,
                     organizer: null,
+                    participants: [],
                     transcriptContentUrl: t.transcriptContentUrl || null
                 });
             }));
@@ -336,8 +367,12 @@ async function listTeamsTranscripts(userEmail, days = 30) {
         }
     }
 
-    meetings.sort((a, b) => (b.startDateTime || b.createdDateTime || '').localeCompare(a.startDateTime || a.createdDateTime || ''));
-    return { ok: true, meetings, warnings, inaccessible };
+    // Tri strictement par date décroissante pour les 3 catégories.
+    const byDateDesc = (a, b) => (b.startDateTime || b.createdDateTime || '').localeCompare(a.startDateTime || a.createdDateTime || '');
+    meetings.sort(byDateDesc);
+    inaccessible.sort(byDateDesc);
+    noTranscript.sort(byDateDesc);
+    return { ok: true, meetings, warnings, inaccessible, noTranscript };
 }
 
 /**

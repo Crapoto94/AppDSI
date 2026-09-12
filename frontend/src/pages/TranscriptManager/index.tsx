@@ -4,7 +4,7 @@ import TranscriptAgentHeader from '../../components/TranscriptAgentHeader';
 import {
     Calendar, FileText, Plus, Search, Trash2,
     ArrowRight, Users, RefreshCw, UserCheck, Clock, Sparkles,
-    Video, Download, Share2, Lock
+    Video, Download, Share2, Lock, AlertTriangle
 } from 'lucide-react';
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
@@ -98,6 +98,7 @@ const TranscriptManager: React.FC = () => {
     const [teamsError, setTeamsError] = useState("");
     const [teamsWarnings, setTeamsWarnings] = useState<string[]>([]);
     const [teamsInaccessible, setTeamsInaccessible] = useState<any[]>([]);
+    const [teamsNoTranscript, setTeamsNoTranscript] = useState<any[]>([]);
     const [participantsExpanded, setParticipantsExpanded] = useState<Set<string>>(new Set());
     const [teamsDays, setTeamsDays] = useState(30);
     const [importingTranscriptId, setImportingTranscriptId] = useState<string | null>(null);
@@ -200,6 +201,7 @@ const TranscriptManager: React.FC = () => {
         setTeamsError("");
         setTeamsWarnings([]);
         setTeamsInaccessible([]);
+        setTeamsNoTranscript([]);
         setTeamsMeetings([]);
         try {
             const res = await axios.get(`/api/transcriptmanager/teams-transcripts?days=${days}`, {
@@ -208,6 +210,7 @@ const TranscriptManager: React.FC = () => {
             setTeamsMeetings(res.data.meetings || []);
             setTeamsWarnings(res.data.warnings || []);
             setTeamsInaccessible(res.data.inaccessible || []);
+            setTeamsNoTranscript(res.data.noTranscript || []);
             setTeamsDays(res.data.days || days);
         } catch (err: unknown) {
             const e = apiError(err);
@@ -579,53 +582,104 @@ const TranscriptManager: React.FC = () => {
                             {!teamsLoading && teamsError && (
                                 <p className="gs-error">{teamsError}</p>
                             )}
-                            {!teamsLoading && !teamsError && teamsMeetings.length === 0 && (
-                                <p className="gs-empty">Aucune réunion Teams avec transcript trouvée sur les {teamsDays} derniers jours.</p>
+                            {!teamsLoading && !teamsError && teamsMeetings.length === 0 && teamsInaccessible.length === 0 && teamsNoTranscript.length === 0 && (
+                                <p className="gs-empty">Aucune réunion trouvée sur les {teamsDays} derniers jours.</p>
                             )}
                             {teamsWarnings.length > 0 && (
                                 <div className="tt-warnings">
                                     {teamsWarnings.map((w, i) => <p key={i}>{w}</p>)}
                                 </div>
                             )}
-                            {teamsInaccessible.length > 0 && (
-                                <div className="tt-inaccessible">
-                                    <p className="tt-inaccessible-title"><Lock size={14} /> Réunions sans transcript lisible ({teamsInaccessible.length})</p>
-                                    {teamsInaccessible.map((m, i) => (
-                                        <div key={i} className="tt-item tt-item-dim">
-                                            <div className="tt-item-icon"><Video size={16} /></div>
-                                            <div className="tt-item-body">
-                                                <div className="tt-item-title">{m.subject || 'Réunion sans titre'}</div>
-                                                <div className="tt-item-meta">
-                                                    {m.startDateTime ? new Date(m.startDateTime).toLocaleString('fr-FR') : '—'}
-                                                    {m.reason ? ` · ${m.reason}` : ' · Transcript non disponible'}
+                            {(() => {
+                                // Liste unifiée de TOUTES les réunions, triée strictement par date desc.
+                                const allItems = [
+                                    ...teamsMeetings.map(m => ({ ...m, _status: 'recoverable' as const })),
+                                    ...teamsInaccessible.map(m => ({ ...m, _status: 'other_tenant' as const })),
+                                    ...teamsNoTranscript.map(m => ({ ...m, _status: 'no_transcript' as const })),
+                                ].sort((a: any, b: any) => {
+                                    const da = a.startDateTime || a.createdDateTime || '';
+                                    const db = b.startDateTime || b.createdDateTime || '';
+                                    return db.localeCompare(da);
+                                });
+
+                                if (allItems.length === 0) return null;
+
+                                return (
+                                    <>
+                                        <div className="tt-legend">
+                                            <span className="tt-legend-item"><span className="tt-dot tt-dot-green" /> Transcript récupérable ({teamsMeetings.length})</span>
+                                            <span className="tt-legend-item"><span className="tt-dot tt-dot-orange" /> Autre tenant — demander le VTT ({teamsInaccessible.length})</span>
+                                            <span className="tt-legend-item"><span className="tt-dot tt-dot-red" /> Aucun transcript ({teamsNoTranscript.length})</span>
+                                        </div>
+                                        {allItems.map((m: any, idx: number) => {
+                                            const status = m._status;
+                                            const key = `${status}-${m.transcriptId || m.meetingId || idx}`;
+                                            const participants: string[] = m.participants || [];
+                                            const expanded = participantsExpanded.has(key);
+                                            const statusClass = status === 'recoverable' ? 'green' : status === 'other_tenant' ? 'orange' : 'red';
+                                            return (
+                                                <div key={key} className={`tt-item tt-status-${statusClass}`}>
+                                                    <div className="tt-item-icon"><Video size={16} /></div>
+                                                    <div className="tt-item-body">
+                                                        <div className="tt-item-title">
+                                                            {m.subject || 'Réunion sans titre'}
+                                                            {status === 'recoverable' && <span className="tt-badge tt-badge-green">Transcript récupérable</span>}
+                                                            {status === 'other_tenant' && <span className="tt-badge tt-badge-orange">Autre tenant</span>}
+                                                            {status === 'no_transcript' && <span className="tt-badge tt-badge-red">Aucun transcript</span>}
+                                                        </div>
+                                                        <div className="tt-item-meta">
+                                                            {m.startDateTime ? new Date(m.startDateTime).toLocaleString('fr-FR') : '—'}
+                                                            {m.organizer ? ` · Organisateur : ${m.organizer}` : ''}
+                                                        </div>
+                                                        {status === 'other_tenant' && (
+                                                            <div className="tt-alert tt-alert-orange">
+                                                                <AlertTriangle size={14} />
+                                                                <span>{m.reason || "Transcript hébergé sur un autre tenant — demandez le fichier VTT à l'organisateur de la réunion."}</span>
+                                                            </div>
+                                                        )}
+                                                        {status === 'no_transcript' && (
+                                                            <div className="tt-alert tt-alert-red">
+                                                                <Lock size={14} />
+                                                                <span>{m.reason || 'Aucun transcript disponible pour cette réunion.'}</span>
+                                                            </div>
+                                                        )}
+                                                        {participants.length > 0 && (
+                                                            <button
+                                                                type="button"
+                                                                className="tt-participants-toggle"
+                                                                onClick={() => setParticipantsExpanded(prev => {
+                                                                    const next = new Set(prev);
+                                                                    if (next.has(key)) next.delete(key); else next.add(key);
+                                                                    return next;
+                                                                })}
+                                                            >
+                                                                <Users size={13} /> {expanded ? 'Masquer' : 'Voir'} les {participants.length} participants
+                                                            </button>
+                                                        )}
+                                                        {expanded && participants.length > 0 && (
+                                                            <div className="tt-participants-list">
+                                                                {participants.map((p, i) => <span key={i} className="tt-participant">{p}</span>)}
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                    {status === 'recoverable' && (
+                                                        <button
+                                                            className={`tt-import-btn ${m.already_imported ? 'tt-imported' : ''}`}
+                                                            disabled={importingTranscriptId !== null}
+                                                            title={m.already_imported ? "Déjà importé — cliquer pour réimporter" : "Importer ce transcript"}
+                                                            onClick={() => importTeamsMeeting(m)}
+                                                        >
+                                                            {m.already_imported ? <RefreshCw size={14} /> : <Download size={14} />}
+                                                            {m.already_imported ? 'Réimporter' : 'Importer'}
+                                                        </button>
+                                                    )}
                                                 </div>
-                                            </div>
-                                        </div>
-                                    ))}
-                                </div>
-                            )}
-                            {teamsMeetings.map(m => (
-                                <div key={m.transcriptId} className="tt-item">
-                                    <div className="tt-item-icon"><Video size={16} /></div>
-                                    <div className="tt-item-body">
-                                        <div className="tt-item-title">{m.subject}</div>
-                                        <div className="tt-item-meta">
-                                            {m.startDateTime ? new Date(m.startDateTime).toLocaleString('fr-FR') : '—'}
-                                            {m.organizer ? ` · ${m.organizer}` : ''}
-                                        </div>
-                                    </div>
-                                    <button
-                                        className={`tt-import-btn ${m.already_imported ? 'tt-imported' : ''}`}
-                                        disabled={importingTranscriptId !== null}
-                                        title={m.already_imported ? "Déjà importé — cliquer pour réimporter" : "Importer ce transcript"}
-                                        onClick={() => importTeamsMeeting(m)}
-                                    >
-                                        {m.already_imported ? <RefreshCw size={14} /> : <Download size={14} />}
-                                        {m.already_imported ? 'Réimporter' : 'Importer'}
-                                    </button>
-                                </div>
-                            ))}
-                            {!teamsLoading && !teamsError && teamsMeetings.length > 0 && (
+                                            );
+                                        })}
+                                    </>
+                                );
+                            })()}
+                            {!teamsLoading && !teamsError && (teamsMeetings.length > 0 || teamsInaccessible.length > 0 || teamsNoTranscript.length > 0) && (
                                 <div className="tt-more">
                                     <span className="tt-more-hint">Fenêtre affichée : {teamsDays} jours</span>
                                     <button className="tt-more-btn" onClick={() => loadTeamsMeetings(teamsDays + 30)}>
@@ -1092,6 +1146,62 @@ const TranscriptManager: React.FC = () => {
                 }
                 .tt-item-dim { opacity: 0.7; }
                 .tt-item-dim .tt-item-icon { background: #F1F5F9; border-color: #E2E8F0; }
+
+                /* Légende de couleur */
+                .tt-legend {
+                    display: flex; flex-wrap: wrap; gap: 0.9rem;
+                    margin: 0.75rem 0 0.5rem; font-size: 0.75rem; color: #475569;
+                }
+                .tt-legend-item { display: inline-flex; align-items: center; gap: 0.35rem; }
+                .tt-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+                .tt-dot-green { background: #22C55E; }
+                .tt-dot-orange { background: #F59E0B; }
+                .tt-dot-red { background: #EF4444; }
+
+                /* Coloration par statut */
+                .tt-status-green { border-left: 5px solid #22C55E; background: #F0FDF4; }
+                .tt-status-green:hover { background: #DCFCE7; }
+                .tt-status-orange { border-left: 5px solid #F59E0B; background: #FFFBEB; }
+                .tt-status-orange:hover { background: #FEF3C7; }
+                .tt-status-red { border-left: 5px solid #EF4444; background: #FEF2F2; }
+                .tt-status-red:hover { background: #FEE2E2; }
+                .tt-status-orange .tt-item-icon { background: #FEF3C7; color: #B45309; }
+                .tt-status-red .tt-item-icon { background: #FEE2E2; color: #B91C1C; }
+
+                .tt-badge {
+                    display: inline-block; margin-left: 0.5rem; vertical-align: middle;
+                    font-size: 0.62rem; font-weight: 800; text-transform: uppercase;
+                    letter-spacing: 0.04em; padding: 2px 7px; border-radius: 999px;
+                }
+                .tt-badge-green { background: #DCFCE7; color: #15803D; border: 1px solid #86EFAC; }
+                .tt-badge-orange { background: #FEF3C7; color: #B45309; border: 1px solid #FCD34D; }
+                .tt-badge-red { background: #FEE2E2; color: #B91C1C; border: 1px solid #FCA5A5; }
+
+                .tt-alert {
+                    display: flex; align-items: flex-start; gap: 0.4rem;
+                    margin-top: 0.45rem; padding: 0.45rem 0.6rem;
+                    border-radius: 8px; font-size: 0.75rem; line-height: 1.3;
+                }
+                .tt-alert svg { flex-shrink: 0; margin-top: 1px; }
+                .tt-alert-orange { background: #FEF3C7; color: #92400E; border: 1px solid #FCD34D; }
+                .tt-alert-red { background: #FEE2E2; color: #991B1B; border: 1px solid #FCA5A5; }
+
+                .tt-participants-toggle {
+                    display: inline-flex; align-items: center; gap: 0.35rem;
+                    margin-top: 0.45rem; background: transparent; border: none;
+                    color: #0078A4; font-size: 0.75rem; font-weight: 700;
+                    cursor: pointer; padding: 0;
+                }
+                .tt-participants-toggle:hover { text-decoration: underline; }
+                .tt-participants-list {
+                    display: flex; flex-wrap: wrap; gap: 0.35rem;
+                    margin-top: 0.4rem; padding: 0.5rem;
+                    background: #F0F9FF; border: 1px solid #BAE6FD; border-radius: 8px;
+                }
+                .tt-participant {
+                    font-size: 0.72rem; color: #0369A1; background: #E0F2FE;
+                    padding: 2px 8px; border-radius: 999px;
+                }
             `}</style>
         </div>
     </div>

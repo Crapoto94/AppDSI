@@ -304,6 +304,7 @@ const MagappAdmin: React.FC = () => {
           show_library: data.show_library_original ?? data.show_library ?? false,
           show_consommables: data.show_consommables_original ?? data.show_consommables ?? true,
           show_chat_live: data.show_chat_live ?? false,
+          show_transcript_manager: data.show_transcript_manager_original ?? data.show_transcript_manager ?? false,
         });
       }
       if (mercatorRes.ok) setMercatorApps(await mercatorRes.json());
@@ -2433,9 +2434,10 @@ const MagappAdmin: React.FC = () => {
                       style={{ width: '22px', height: '22px', cursor: 'pointer', accentColor: '#6366f1' }}
                     />
                   </label>
-<p style={{ margin: '5px 0 0 0', fontSize: '0.85rem', color: '#64748b' }}>
+                  <p style={{ margin: '5px 0 0 0', fontSize: '0.85rem', color: '#64748b' }}>
                     Affiche la bulle de chat en direct sur MagApp. Les utilisateurs peuvent contacter un technicien en temps réel.
-                </p>
+                  </p>
+                </div>
                 <div className="form-group-v2 full-width" style={{ padding: '15px', background: 'white', border: '1px solid #e2e8f0', borderRadius: '16px' }}>
                   <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', margin: 0 }}>
                     <span style={{ fontWeight: 600, fontSize: '1rem' }}>
