@@ -11,6 +11,10 @@ const Login: React.FC = () => {
   const navigate = useNavigate();
   const { setPendingApproval, login } = useAuth();
 
+  // Session restreinte venant du lien Transcript Manager (/transcriptmanager?nomenu=1) :
+  // l'agent s'authentifie via l'AD mais le jeton délivré n'ouvre QUE les comptes rendus.
+  const isTranscriptOnly = (localStorage.getItem('restrictedPath') || '').startsWith('/transcriptmanager');
+
   useEffect(() => {
     const attemptAuth = async () => {
       // 1. Si on est déjà connecté via localStorage, on redirige vers l'accueil
@@ -67,7 +71,7 @@ const Login: React.FC = () => {
     e.preventDefault();
     const redirectParam = new URLSearchParams(window.location.search).get('redirect') || localStorage.getItem('restrictedPath') || '';
     try {
-      const response = await fetch('/api/login', {
+      const response = await fetch(isTranscriptOnly ? '/api/auth/ad-login-transcript' : '/api/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username, password, redirect: redirectParam })
@@ -82,7 +86,7 @@ const Login: React.FC = () => {
       if (response.ok) {
         login(data.accessToken, data.user);
         localStorage.removeItem('manualLogout');
-        const redirect = data.redirect || '/';
+        const redirect = data.redirect || localStorage.getItem('restrictedPath') || '/';
         navigate(redirect);
       } else {
         setError(data.message || 'Erreur de connexion');
@@ -98,8 +102,8 @@ const Login: React.FC = () => {
       <div className="container login-container">
         <div className="login-box">
             <>
-              <h2>Connexion Hub DSI</h2>
-              <p>Connectez-vous pour accéder à vos services.</p>
+              <h2>{isTranscriptOnly ? 'Connexion aux comptes rendus de réunions' : 'Connexion Hub DSI'}</h2>
+              <p>{isTranscriptOnly ? 'Authentifiez-vous avec votre compte de la Ville pour accéder aux comptes rendus.' : 'Connectez-vous pour accéder à vos services.'}</p>
               
               <form onSubmit={handleSubmit}>
                 {error && <div className="error-msg">{error}</div>}
@@ -131,7 +135,7 @@ const Login: React.FC = () => {
                 </button>
               </form>
 
-              {azureEnabled && (
+              {azureEnabled && !isTranscriptOnly && (
                 <>
                   <div className="login-divider">
                     <span>OU</span>

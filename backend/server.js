@@ -4218,6 +4218,67 @@ app.post('/api/admin/sql/query', authenticateAdmin, async (req, res) => {
 
 // Auth Routes
 // Auth Routes
+// Login AD restreint au Transcript Manager : authenticité via Active Directory
+// (bind LDAP réel) mais jeton limité au scope 'transcript' (transcript_guest) —
+// l'agent de la ville n'accède qu'aux comptes rendus, jamais aux autres modules.
+app.post('/api/auth/ad-login-transcript', async (req, res) => {
+    try {
+        let { username, password } = req.body;
+        if (username) username = username.replace(/@ivry94\.fr$/i, '');
+        if (!username || !password) {
+            return res.status(400).json({ message: 'Identifiant et mot de passe requis' });
+        }
+
+        const adSettings = await db.get('SELECT * FROM ad_settings WHERE id = 1');
+        if (!adSettings || !adSettings.is_enabled) {
+            return res.status(503).json({ message: 'L\'authentification Active Directory n\'est pas activée' });
+        }
+
+        const adUser = await authenticateAD(username, password, adSettings);
+        if (!adUser) {
+            return res.status(401).json({ message: 'Identifiant ou mot de passe invalide' });
+        }
+
+        const userEmail = adUser.email && adUser.email.trim() !== ''
+            ? adUser.email
+            : `${username.toLowerCase()}@ivry94.fr`;
+
+        const accessToken = jwt.sign({
+            id: 0,
+            username: username.toLowerCase(),
+            displayName: adUser.displayName || username,
+            role: 'transcript_guest',
+            is_approved: 1,
+            service_code: adUser.company || null,
+            service_complement: adUser.department || null,
+            email: userEmail,
+            source: 'hub',
+            scope: 'transcript',
+        }, SECRET_KEY);
+
+        return res.json({
+            accessToken,
+            user: {
+                id: 0,
+                username: username.toLowerCase(),
+                displayName: adUser.displayName || username,
+                role: 'transcript_guest',
+                is_approved: 1,
+                service_code: adUser.company || null,
+                service_complement: adUser.department || null,
+                email: userEmail,
+                source: 'hub',
+                scope: 'transcript',
+                authorized_urls: ['/transcriptmanager', '/transcript'],
+            },
+            redirect: '',
+        });
+    } catch (error) {
+        console.error('[Transcript AD login error]', error.message);
+        res.status(500).json({ message: 'Erreur lors de l\'authentification' });
+    }
+});
+
 app.post(['/api/login', '/api/auth/magapp-login'], async (req, res) => {
     console.log(`[DEBUG LOGIN] Received request on ${req.path}`);
     let { username, password, redirect } = req.body;

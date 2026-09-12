@@ -152,7 +152,11 @@ const transcriptController = {
                 return res.status(400).json({ error: 'Aucune adresse email associée à votre compte.' });
             }
 
-            const result = await teamsTranscript.listTeamsTranscripts(userEmail, 30);
+            // Fenêtre de recherche paramétrable pas à pas (front : bouton « + 30 jours »)
+            const requestedDays = parseInt(req.query.days, 10);
+            const days = Number.isFinite(requestedDays) ? Math.min(Math.max(requestedDays, 30), 730) : 30;
+
+            const result = await teamsTranscript.listTeamsTranscripts(userEmail, days);
             if (!result.ok) return res.status(502).json({ error: result.error });
 
             // Transcripts déjà présents en base (idempotence)
@@ -161,7 +165,7 @@ const transcriptController = {
             for (const r of rows) imported.add(r.teams_transcript_id);
 
             const meetings = (result.meetings || []).map(m => ({ ...m, already_imported: imported.has(m.transcriptId) }));
-            res.json({ meetings, warnings: result.warnings || [], inaccessible: result.inaccessible || [] });
+            res.json({ days, meetings, warnings: result.warnings || [], inaccessible: result.inaccessible || [] });
         } catch (error) {
             res.status(500).json({ error: error.message });
         }

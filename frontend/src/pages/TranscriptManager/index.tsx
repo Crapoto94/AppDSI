@@ -96,6 +96,7 @@ const TranscriptManager: React.FC = () => {
     const [teamsLoading, setTeamsLoading] = useState(false);
     const [teamsError, setTeamsError] = useState("");
     const [teamsWarnings, setTeamsWarnings] = useState<string[]>([]);
+    const [teamsDays, setTeamsDays] = useState(30);
     const [importingTranscriptId, setImportingTranscriptId] = useState<string | null>(null);
     const { token, user } = useAuth();
     const navigate = useNavigate();
@@ -188,16 +189,21 @@ const TranscriptManager: React.FC = () => {
 
     const openTeamsModal = async () => {
         setIsTeamsModalOpen(true);
+        await loadTeamsMeetings(30);
+    };
+
+    const loadTeamsMeetings = async (days: number) => {
         setTeamsLoading(true);
         setTeamsError("");
         setTeamsWarnings([]);
         setTeamsMeetings([]);
         try {
-            const res = await axios.get('/api/transcriptmanager/teams-transcripts', {
+            const res = await axios.get(`/api/transcriptmanager/teams-transcripts?days=${days}`, {
                 headers: { Authorization: `Bearer ${token}` }
             });
             setTeamsMeetings(res.data.meetings || []);
             setTeamsWarnings(res.data.warnings || []);
+            setTeamsDays(res.data.days || days);
         } catch (err: unknown) {
             const e = apiError(err);
             const msg = e.response?.data?.error || e.message || "Erreur inconnue";
@@ -569,7 +575,7 @@ const TranscriptManager: React.FC = () => {
                                 <p className="gs-error">{teamsError}</p>
                             )}
                             {!teamsLoading && !teamsError && teamsMeetings.length === 0 && (
-                                <p className="gs-empty">Aucune réunion Teams avec transcript trouvée sur les 30 derniers jours.</p>
+                                <p className="gs-empty">Aucune réunion Teams avec transcript trouvée sur les {teamsDays} derniers jours.</p>
                             )}
                             {teamsWarnings.length > 0 && (
                                 <div className="tt-warnings">
@@ -597,6 +603,15 @@ const TranscriptManager: React.FC = () => {
                                     </button>
                                 </div>
                             ))}
+                            {!teamsLoading && !teamsError && teamsMeetings.length > 0 && (
+                                <div className="tt-more">
+                                    <span className="tt-more-hint">Fenêtre affichée : {teamsDays} jours</span>
+                                    <button className="tt-more-btn" onClick={() => loadTeamsMeetings(teamsDays + 30)}>
+                                        <RefreshCw size={14} />
+                                        Afficher les 30 jours précédents
+                                    </button>
+                                </div>
+                            )}
                         </div>
                     </div>
                 </div>
@@ -1019,6 +1034,20 @@ const TranscriptManager: React.FC = () => {
                 .tt-import-btn:hover:not(:disabled) { background: #DBEAFE; border-color: #93C5FD; }
                 .tt-import-btn:disabled { opacity: 0.5; cursor: not-allowed; }
                 .tt-import-btn.tt-imported { background: #FEF3C7; border-color: #FDE68A; color: #B45309; }
+                .tt-more {
+                    display: flex; align-items: center; justify-content: space-between;
+                    gap: 0.75rem; margin-top: 0.5rem; padding-top: 0.85rem;
+                    border-top: 1px dashed #E2E8F0; flex-wrap: wrap;
+                }
+                .tt-more-hint { font-size: 0.75rem; color: #94A3B8; }
+                .tt-more-btn {
+                    display: flex; align-items: center; gap: 0.4rem;
+                    border: 1px solid #CBD5E1; background: #F8FAFC; color: #334155;
+                    padding: 0.5rem 1rem; border-radius: 8px;
+                    font-weight: 700; font-size: 0.78rem; cursor: pointer;
+                    transition: all 0.15s;
+                }
+                .tt-more-btn:hover { background: #F1F5F9; border-color: #94A3B8; }
                 .tt-loading {
                     display: flex; align-items: center; justify-content: center;
                     gap: 0.6rem; padding: 2rem; color: #64748B; font-size: 0.9rem;
