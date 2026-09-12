@@ -80,6 +80,11 @@ const participantInputStyle: React.CSSProperties = {
     padding: '2px 6px', fontSize: '0.72rem', outline: 'none', background: '#FFFFFF',
 };
 
+// Retire le bloc « ## META » : on ne l'édite jamais à la main, il est réappliqué
+// automatiquement par le backend à l'enregistrement.
+const stripSummaryMetaClient = (text: string) =>
+    String(text || '').replace(/## META[\s\S]*$/m, '').replace(/\s+$/m, '');
+
 const MeetingDetail: React.FC = () => {
     const { id } = useParams();
     const navigate = useNavigate();
@@ -1053,7 +1058,7 @@ const MeetingDetail: React.FC = () => {
                                 {!isGenerating && !isEditingSummary && (
                                     <div style={{ display: 'flex', gap: '0.5rem' }}>
                                         <button className="md-btn-edit" onClick={() => {
-                                            setSummaryDraft(meeting.summary || '');
+                                            setSummaryDraft(stripSummaryMetaClient(meeting.summary || ''));
                                             setIsEditingSummary(true);
                                         }}>Modifier</button>
                                     </div>
@@ -1085,6 +1090,9 @@ const MeetingDetail: React.FC = () => {
                                             onChange={e => setSummaryDraft(e.target.value)}
                                             autoFocus
                                         />
+                                        <div style={{ fontSize: '0.75rem', color: '#64748B', marginTop: '0.5rem' }}>
+                                            ℹ️ Les informations META (demandeur, modèle, date, IA locale et frugale / statut de modification) sont appliquées automatiquement et ne se modifient pas ici.
+                                        </div>
                                         <div style={{ display: 'flex', gap: '0.75rem', marginTop: '0.75rem' }}>
                                             <button className="btn-save" onClick={handleSaveSummary} disabled={isSaving}>{isSaving ? 'Enregistrement...' : 'Enregistrer'}</button>
                                             <button className="btn-cancel" onClick={() => setIsEditingSummary(false)}>Annuler</button>

@@ -170,7 +170,7 @@ function buildSummaryEmailHtml({ summaryHtml, message, meetingTitle, meetingDate
     const verified = !!(meta?.editedBy || meta?.editedAt);
     const statusLine = verified
         ? `<div style="margin:6px 0;font-size:13px;color:#15803D;font-weight:700;">✅ Résumé vérifié${meta?.editedBy ? ` (corrigé par ${esc(meta.editedBy)}` : ' ('}${meta?.editedAt ? ` le ${esc(fmt(meta.editedAt))}` : ''}).</div>`
-        : `<div style="margin:6px 0;font-size:13px;color:#B45309;font-weight:700;">🤖 Résumé généré directement par l'IA — non vérifié.</div>`;
+        : `<div style="margin:6px 0;font-size:13px;color:#B45309;font-weight:700;">🤖 Résumé généré automatiquement par Intelligence Artificielle locale et frugale — non vérifié.</div>`;
 
     const participantsHtml = (participants || []).length ? `
         <div style="margin:16px 0;">
@@ -1475,11 +1475,11 @@ function buildSummaryMeta({ requester, model, requestedAt, durationMs, editedBy,
     lines.push('');
     lines.push(
         editedBy
-            ? '> résumé généré automatique par Intelligence Artificielle'
-            : '> résumé généré automatiquement par Intelligence Artificielle sécurisée locale, sans modification humaine'
+            ? '> résumé généré automatiquement par Intelligence Artificielle locale et frugale, puis modifié'
+            : '> résumé généré automatiquement par Intelligence Artificielle locale et frugale'
     );
     if (editedBy) {
-        lines.push(`> corrigée par ${editedBy}${editedAt ? ` le ${new Date(editedAt).toLocaleString('fr-FR')}` : ''}`);
+        lines.push(`> corrigé par ${editedBy}${editedAt ? ` le ${new Date(editedAt).toLocaleString('fr-FR')}` : ''}`);
     }
     return lines.join('\n');
 }
