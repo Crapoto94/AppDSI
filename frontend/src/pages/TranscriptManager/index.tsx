@@ -2,7 +2,8 @@ import React, { useEffect, useState, useRef } from 'react';
 import Header from '../../components/Header';
 import {
     Calendar, FileText, Plus, Search, Trash2,
-    ArrowRight, Users, RefreshCw, UserCheck, Clock, Sparkles
+    ArrowRight, Users, RefreshCw, UserCheck, Clock, Sparkles,
+    Video, Download
 } from 'lucide-react';
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
@@ -39,6 +40,33 @@ interface SearchResult {
     matches: SearchMatch[];
 }
 
+interface TeamsMeeting {
+    meetingId: string;
+    transcriptId: string;
+    subject: string;
+    startDateTime: string | null;
+    createdDateTime: string | null;
+    organizer: string | null;
+    already_imported: boolean;
+}
+
+interface ApiErrorResponseData {
+    error?: string;
+    existingMeetingId?: number;
+    existingTitle?: string;
+    [key: string]: unknown;
+}
+
+interface ApiError {
+    response?: { status?: number; data?: ApiErrorResponseData };
+    message?: string;
+}
+
+const apiError = (err: unknown): ApiError => {
+    if (typeof err === 'object' && err !== null) return err as ApiError;
+    return { message: typeof err === 'string' ? err : 'Erreur inconnue' };
+};
+
 const formatTime = (seconds?: number) => {
     if (seconds === undefined || seconds === null) return '--:--';
     const m = Math.floor(seconds / 60);
@@ -61,6 +89,12 @@ const TranscriptManager: React.FC = () => {
     const [uploadProgress, setUploadProgress] = useState(0);
     const [importStatus, setImportStatus] = useState("");
     const [selectedReunionId, setSelectedReunionId] = useState<number | null>(null);
+    const [isTeamsModalOpen, setIsTeamsModalOpen] = useState(false);
+    const [teamsMeetings, setTeamsMeetings] = useState<TeamsMeeting[]>([]);
+    const [teamsLoading, setTeamsLoading] = useState(false);
+    const [teamsError, setTeamsError] = useState("");
+    const [teamsWarnings, setTeamsWarnings] = useState<string[]>([]);
+    const [importingTranscriptId, setImportingTranscriptId] = useState<string | null>(null);
     const { token, user } = useAuth();
     const navigate = useNavigate();
 
@@ -145,8 +179,91 @@ const TranscriptManager: React.FC = () => {
                 headers: { Authorization: `Bearer ${token}` }
             });
             setMeetings(meetings.filter(m => m.id !== id));
-        } catch (err) {
+        } catch {
             alert("Erreur lors de la suppression");
+        }
+    };
+
+    const openTeamsModal = async () => {
+        setIsTeamsModalOpen(true);
+        setTeamsLoading(true);
+        setTeamsError("");
+        setTeamsWarnings([]);
+        setTeamsMeetings([]);
+        try {
+            const res = await axios.get('/api/transcriptmanager/teams-transcripts', {
+                headers: { Authorization: `Bearer ${token}` }
+            });
+            setTeamsMeetings(res.data.meetings || []);
+            setTeamsWarnings(res.data.warnings || []);
+        } catch (err: unknown) {
+            const e = apiError(err);
+            const msg = e.response?.data?.error || e.message || "Erreur inconnue";
+            setTeamsError(typeof msg === 'string' ? msg : JSON.stringify(msg));
+        } finally {
+            setTeamsLoading(false);
+        }
+    };
+
+    const startImportPolling = (jobId: string) => {
+        setIsUploading(true);
+        setUploadProgress(0);
+        setImportStatus("Import depuis Teams");
+        setIsTeamsModalOpen(false);
+
+        const pollInterval = setInterval(async () => {
+            try {
+                const statusRes = await axios.get(`/api/transcriptmanager/upload-status/${jobId}`, {
+                    headers: { Authorization: `Bearer ${token}` }
+                });
+
+                const { progress, status, meetingId } = statusRes.data;
+                setUploadProgress(progress);
+                setImportStatus(status);
+
+                if (status === 'completed') {
+                    clearInterval(pollInterval);
+                    setIsUploading(false);
+                    navigate(`/transcriptmanager/meeting/${meetingId}`);
+                } else if (status === 'error') {
+                    clearInterval(pollInterval);
+                    setIsUploading(false);
+                    alert(statusRes.data.message || "Une erreur est survenue");
+                }
+            } catch (err) {
+                clearInterval(pollInterval);
+                setIsUploading(false);
+                console.error(err);
+            }
+        }, 1500);
+    };
+
+    const importTeamsMeeting = async (m: TeamsMeeting, overwrite = false) => {
+        if (importingTranscriptId) return;
+        setImportingTranscriptId(m.transcriptId);
+        try {
+            const res = await axios.post('/api/transcriptmanager/teams-import', {
+                meetingId: m.meetingId,
+                transcriptId: m.transcriptId,
+                subject: m.subject,
+                startDateTime: m.startDateTime,
+                overwrite,
+            }, { headers: { Authorization: `Bearer ${token}` } });
+            startImportPolling(res.data.jobId);
+        } catch (err: unknown) {
+            const e = apiError(err);
+            if (e.response?.status === 409) {
+                const { existingTitle } = e.response.data || {};
+                const reimport = window.confirm(
+                    `Ce transcript a déjà été importé (« ${existingTitle || 'réunion'} »).\nVoulez-vous le réimporter ? L'ancienne réunion sera remplacée.`
+                );
+                if (reimport) await importTeamsMeeting(m, true);
+            } else {
+                const msg = e.response?.data?.error || e.message || "Erreur inconnue";
+                alert(typeof msg === 'string' ? msg : JSON.stringify(msg));
+            }
+        } finally {
+            setImportingTranscriptId(null);
         }
     };
 
@@ -174,10 +291,11 @@ const TranscriptManager: React.FC = () => {
                 if (version === searchVersion.current) {
                     setGlobalResults(res.data);
                 }
-            } catch (err: any) {
+            } catch (err: unknown) {
                 if (version === searchVersion.current) {
-                    const status = err.response?.status;
-                    const msg = err.response?.data?.error || err.response?.data || err.message || "Erreur inconnue";
+                    const e = apiError(err);
+                    const status = e.response?.status;
+                    const msg = e.response?.data?.error || e.response?.data || e.message || "Erreur inconnue";
                     setSearchError(`Erreur ${status || ''}: ${typeof msg === 'string' ? msg : JSON.stringify(msg)}`);
                     setGlobalResults([]);
                 }
@@ -209,6 +327,10 @@ const TranscriptManager: React.FC = () => {
                         <button className="tm-btn-search" onClick={() => { setIsSearchModalOpen(true); setGlobalQuery(""); setGlobalResults([]); setSearchError(""); setIsSearching(false); }}>
                             <Search size={18} />
                             Recherche dans les contenus
+                        </button>
+                        <button className="tm-btn-teams" onClick={openTeamsModal} title="Récupérer le transcript des dernières réunions Teams auxquelles vous étiez invité">
+                            <Video size={18} />
+                            Import auto
                         </button>
                         <input
                             type="file"
@@ -399,6 +521,58 @@ const TranscriptManager: React.FC = () => {
                 userRole={user?.role}
                 currentUsername={user?.username}
             />
+
+            {isTeamsModalOpen && (
+                <div className="gs-overlay" onClick={() => setIsTeamsModalOpen(false)}>
+                    <div className="gs-modal" onClick={e => e.stopPropagation()}>
+                        <div className="gs-header">
+                            <Video size={20} />
+                            <h3>Import auto — Transcripts Teams récents</h3>
+                            <button className="gs-close" onClick={() => setIsTeamsModalOpen(false)}>✕</button>
+                        </div>
+                        <div className="gs-body">
+                            {teamsLoading && (
+                                <div className="tt-loading">
+                                    <RefreshCw className="animate-spin" size={18} />
+                                    Recherche des derniers transcripts Teams...
+                                </div>
+                            )}
+                            {!teamsLoading && teamsError && (
+                                <p className="gs-error">{teamsError}</p>
+                            )}
+                            {!teamsLoading && !teamsError && teamsMeetings.length === 0 && (
+                                <p className="gs-empty">Aucune réunion Teams avec transcript trouvée sur les 30 derniers jours.</p>
+                            )}
+                            {teamsWarnings.length > 0 && (
+                                <div className="tt-warnings">
+                                    {teamsWarnings.map((w, i) => <p key={i}>{w}</p>)}
+                                </div>
+                            )}
+                            {teamsMeetings.map(m => (
+                                <div key={m.transcriptId} className="tt-item">
+                                    <div className="tt-item-icon"><Video size={16} /></div>
+                                    <div className="tt-item-body">
+                                        <div className="tt-item-title">{m.subject}</div>
+                                        <div className="tt-item-meta">
+                                            {m.startDateTime ? new Date(m.startDateTime).toLocaleString('fr-FR') : '—'}
+                                            {m.organizer ? ` · ${m.organizer}` : ''}
+                                        </div>
+                                    </div>
+                                    <button
+                                        className={`tt-import-btn ${m.already_imported ? 'tt-imported' : ''}`}
+                                        disabled={importingTranscriptId !== null}
+                                        title={m.already_imported ? "Déjà importé — cliquer pour réimporter" : "Importer ce transcript"}
+                                        onClick={() => importTeamsMeeting(m)}
+                                    >
+                                        {m.already_imported ? <RefreshCw size={14} /> : <Download size={14} />}
+                                        {m.already_imported ? 'Réimporter' : 'Importer'}
+                                    </button>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                </div>
+            )}
 
             <style>{`
                 .tm-page {
@@ -773,6 +947,60 @@ const TranscriptManager: React.FC = () => {
                     color: #94A3B8;
                     font-style: italic;
                 }
+
+                .tm-btn-teams {
+                    display: flex;
+                    align-items: center;
+                    gap: 0.5rem;
+                    background: linear-gradient(135deg, #6366F1, #4F46E5);
+                    color: white;
+                    padding: 0.75rem 1.1rem;
+                    border-radius: 12px;
+                    font-weight: 600;
+                    font-size: 0.85rem;
+                    cursor: pointer;
+                    transition: all 0.2s;
+                    box-shadow: 0 4px 6px -1px rgba(79, 70, 229, 0.25);
+                    white-space: nowrap;
+                    border: none;
+                }
+                .tm-btn-teams:hover { background: linear-gradient(135deg, #4F46E5, #4338CA); transform: translateY(-1px); }
+
+                .tt-item {
+                    display: flex; align-items: center; gap: 0.75rem;
+                    padding: 0.85rem 1rem; margin: 0.5rem 0;
+                    border: 1px solid #E2E8F0; border-radius: 12px;
+                    background: #F8FAFC; transition: background 0.15s;
+                }
+                .tt-item:hover { background: #EFF6FF; }
+                .tt-item-icon {
+                    display: flex; align-items: center; justify-content: center;
+                    width: 34px; height: 34px; border-radius: 10px;
+                    background: #F0F9FF; color: #0369A1; flex-shrink: 0;
+                }
+                .tt-item-body { flex: 1; min-width: 0; }
+                .tt-item-title { font-weight: 700; color: #1E293B; font-size: 0.9rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+                .tt-item-meta { font-size: 0.78rem; color: #64748B; margin-top: 2px; }
+                .tt-import-btn {
+                    display: flex; align-items: center; gap: 0.35rem;
+                    border: 1px solid #BFDBFE; background: #EFF6FF; color: #1D4ED8;
+                    padding: 0.45rem 0.8rem; border-radius: 8px;
+                    font-weight: 700; font-size: 0.75rem; cursor: pointer;
+                    transition: all 0.15s; white-space: nowrap; flex-shrink: 0;
+                }
+                .tt-import-btn:hover:not(:disabled) { background: #DBEAFE; border-color: #93C5FD; }
+                .tt-import-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+                .tt-import-btn.tt-imported { background: #FEF3C7; border-color: #FDE68A; color: #B45309; }
+                .tt-loading {
+                    display: flex; align-items: center; justify-content: center;
+                    gap: 0.6rem; padding: 2rem; color: #64748B; font-size: 0.9rem;
+                }
+                .tt-warnings {
+                    background: #FFFBEB; border: 1px solid #FDE68A; color: #92400E;
+                    border-radius: 10px; padding: 0.6rem 0.9rem; margin: 0.5rem 0;
+                    font-size: 0.78rem;
+                }
+                .tt-warnings p { margin: 0.2rem 0; }
             `}</style>
         </div>
     </div>

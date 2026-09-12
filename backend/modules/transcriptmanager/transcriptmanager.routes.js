@@ -38,6 +38,8 @@ router.get('/search', authenticateJWT, transcriptController.searchTranscripts);
 router.get('/meeting/:id', authenticateJWT, transcriptController.getMeeting);
 router.post('/upload', authenticateJWT, upload.single('file'), transcriptController.uploadTranscript);
 router.get('/upload-status/:jobId', authenticateJWT, transcriptController.getImportStatus);
+router.get('/teams-transcripts', authenticateJWT, transcriptController.listTeamsTranscripts);
+router.post('/teams-import', authenticateJWT, transcriptController.importTeamsTranscript);
 router.post('/meeting/:id/summarize', authenticateJWT, transcriptController.summarizeMeeting);
 router.get('/ai/models', authenticateJWT, transcriptController.getAiModels);
 

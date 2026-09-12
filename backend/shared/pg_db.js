@@ -2265,10 +2265,27 @@ async function setupPgDb() {
           IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='transcript' AND table_name='meetings' AND column_name='reunion_id') THEN
             ALTER TABLE transcript.meetings ADD COLUMN reunion_id INTEGER;
           END IF;
+          IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='transcript' AND table_name='meetings' AND column_name='source') THEN
+            ALTER TABLE transcript.meetings ADD COLUMN source TEXT;
+          END IF;
+          IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='transcript' AND table_name='meetings' AND column_name='teams_transcript_id') THEN
+            ALTER TABLE transcript.meetings ADD COLUMN teams_transcript_id TEXT;
+          END IF;
         END $$;
       `);
     } catch (e) {
         console.error('Error migrating transcript tables:', e.message);
+    }
+    try {
+      // Import idempotent des transcripts Teams : un transcript Graph = au plus
+      // un transcript AppDSI. L'index partiel permet plusieurs NULL (réunions
+      // importées hors Teams) tout en forçant l'unicité des IDs Graph.
+      await client.query(`
+        CREATE UNIQUE INDEX IF NOT EXISTS uq_transcript_meetings_teams_transcript_id
+        ON transcript.meetings (teams_transcript_id) WHERE teams_transcript_id IS NOT NULL;
+      `);
+    } catch (e) {
+        console.error('Error creating unique index on transcript.meetings.teams_transcript_id:', e.message);
     }
     await client.query(`
       CREATE TABLE IF NOT EXISTS transcript.tasks (

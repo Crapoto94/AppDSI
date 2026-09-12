@@ -7,6 +7,7 @@ const path = require('path');
 const apmAi = require('../../shared/apm_ai');
 const storage = require('../../shared/storage');
 const { listDsiAgents, matchDsiAgent } = require('./agent-match');
+const teamsTranscript = require('./teams_transcript.service');
 
 // Module GED pour les pièces jointes : <root>/transcript/<meeting_id>/<fichier>
 const ATTACHMENT_MODULE = 'transcript';
@@ -136,6 +137,96 @@ const transcriptController = {
     },
 
     /**
+     * Liste les dernières réunions Teams (calendrier de l'utilisateur courant)
+     * disposant d'un transcript Graph. Marque les transcripts déjà importés
+     * (idempotence par teams_transcript_id) pour que le front puisse le gérer
+     * côté utilisateur.
+     */
+    listTeamsTranscripts: async (req, res) => {
+        try {
+            const userEmail = req.user?.email || `${(req.user?.username || '').split('@')[0].toLowerCase()}@ivry94.fr`;
+            if (!userEmail || !userEmail.includes('@')) {
+                return res.status(400).json({ error: 'Aucune adresse email associée à votre compte.' });
+            }
+
+            const result = await teamsTranscript.listTeamsTranscripts(userEmail, 30);
+            if (!result.ok) return res.status(502).json({ error: result.error });
+
+            // Transcripts déjà présents en base (idempotence)
+            const imported = new Set();
+            const rows = await pgDb.all('SELECT teams_transcript_id FROM transcript_meetings WHERE teams_transcript_id IS NOT NULL');
+            for (const r of rows) imported.add(r.teams_transcript_id);
+
+            const meetings = (result.meetings || []).map(m => ({ ...m, already_imported: imported.has(m.transcriptId) }));
+            res.json({ meetings, warnings: result.warnings || [] });
+        } catch (error) {
+            res.status(500).json({ error: error.message });
+        }
+    },
+
+    /**
+     * Importe un transcript Teams Graph comme NOUVELLE réunion (sans lien avec
+     * le module rencontres) : téléchargement du VTT → création du transcript →
+     * pipeline d'insertion des cues (résolution AD + fusion) en job asynchrone
+     * (importJobs, pollé côté front via /upload-status/:jobId).
+     *
+     * En cas de duplicata (même teams_transcript_id déjà importé), renvoie 409
+     * avec existingMeetingId — le front demande à l'utilisateur ; si overwrite
+     * vaut true, l'ancienne réunion est supprimée et on réimporte.
+     */
+    importTeamsTranscript: async (req, res) => {
+        try {
+            const { meetingId, transcriptId, subject, startDateTime, overwrite } = req.body || {};
+            if (!meetingId || !transcriptId) return res.status(400).json({ error: 'meetingId et transcriptId requis' });
+
+            const userEmail = req.user?.email || `${(req.user?.username || '').split('@')[0].toLowerCase()}@ivry94.fr`;
+            if (!userEmail || !userEmail.includes('@')) {
+                return res.status(400).json({ error: 'Aucune adresse email associée à votre compte.' });
+            }
+
+            const existing = await pgDb.get('SELECT id, title FROM transcript_meetings WHERE teams_transcript_id = ?', [transcriptId]);
+            if (existing && !overwrite) {
+                return res.status(409).json({ error: 'Ce transcript a déjà été importé.', existingMeetingId: existing.id, existingTitle: existing.title });
+            }
+            if (existing && overwrite) {
+                await deleteMeetingById(existing.id);
+            }
+
+            const jobId = `teams_${Date.now()}`;
+            importJobs[jobId] = { progress: 0, status: 'starting', source: 'teams' };
+            res.json({ jobId });
+
+            (async () => {
+                try {
+                    importJobs[jobId].status = 'téléchargement depuis Teams';
+                    importJobs[jobId].progress = 5;
+                    const content = await teamsTranscript.fetchTranscriptContent(userEmail, meetingId, transcriptId);
+
+                    const title = (subject || `Réunion Teams ${new Date(startDateTime || Date.now()).toLocaleString('fr-FR')}`).trim();
+                    const meetingDate = startDateTime ? new Date(startDateTime) : null;
+
+                    const result = await pgDb.run(
+                        'INSERT INTO transcript_meetings (title, meeting_date, source, teams_transcript_id) VALUES (?, ?, ?, ?)',
+                        [title, meetingDate ? meetingDate.toISOString() : null, 'teams', transcriptId]
+                    );
+                    const newMeetingId = result.lastID;
+
+                    importJobs[jobId].status = 'analyse';
+                    const cues = parseTranscript(content);
+                    importJobs[jobId].meetingId = newMeetingId;
+                    await processCuesForMeeting(importJobs[jobId], cues, newMeetingId);
+                } catch (err) {
+                    console.error('[TEAMS IMPORT ERROR]', err.message);
+                    importJobs[jobId].status = 'error';
+                    importJobs[jobId].message = err.response?.data?.error?.message || err.message;
+                }
+            })();
+        } catch (error) {
+            res.status(500).json({ error: error.message });
+        }
+    },
+
+    /**
      * Get meeting details with cues
      */
     getMeeting: async (req, res) => {
@@ -237,79 +328,10 @@ const transcriptController = {
                 const result = await db.run('INSERT INTO transcript_meetings (title, reunion_id) VALUES (?, ?)', [title, reunion_id]);
                 const meetingId = result.lastID;
 
-                importJobs[jobId].progress = 10;
                 importJobs[jobId].status = 'analyse';
                 const cues = parseTranscript(content);
 
-                // AD Lookup for speakers
-                const adSettings = await getSqlite().get('SELECT * FROM ad_settings WHERE id = 1');
-                const speakerCache = new Map();
-                const uniqueSpeakers = [...new Set(cues.map(c => c.speaker))];
-
-                if (adSettings && adSettings.is_enabled) {
-                    const total = uniqueSpeakers.length;
-                    for (let i = 0; i < total; i++) {
-                        const speaker = uniqueSpeakers[i];
-                        importJobs[jobId].status = `Recherche AD : ${speaker}`;
-                        importJobs[jobId].progress = 10 + Math.round((i / total) * 70);
-                        
-                        if (speaker === "Inconnu" || !speaker) continue;
-                        
-                        // Nettoyage du nom de l'intervenant (retirer crochets, etc.)
-                        const cleanSpeaker = speaker.replace(/[\[\]\(\)]/g, '').trim();
-                        
-                        try {
-                            console.log(`[TM IMPORT] AD Lookup for: "${cleanSpeaker}" (original: "${speaker}")`);
-                            // Timeout de 10s par recherche pour ne pas bloquer le job
-                            const adUsers = await Promise.race([
-                                searchADUsersByQuery(cleanSpeaker, adSettings),
-                                new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout AD')), 10000))
-                            ]);
-                            
-                            if (adUsers && adUsers.length > 0) {
-                                console.log(`[TM IMPORT] Found ${adUsers.length} matches for "${cleanSpeaker}". Using first: ${adUsers[0].email}`);
-                                speakerCache.set(speaker, {
-                                    username: adUsers[0].username,
-                                    email: adUsers[0].email
-                                });
-                            } else {
-                                console.log(`[TM IMPORT] No AD match for "${cleanSpeaker}"`);
-                            }
-                        } catch (adErr) {
-                            console.error(`[AD LOOKUP FAILED] for ${cleanSpeaker}:`, adErr.message);
-                        }
-                    }
-                }
-
-                importJobs[jobId].status = 'enregistrement';
-                importJobs[jobId].progress = 85;
-
-                // Fusionner les cues consécutives du même intervenant
-                const mergedCues = [];
-                if (cues.length > 0) {
-                    let currentMerged = { ...cues[0] };
-                    for (let i = 1; i < cues.length; i++) {
-                        if (cues[i].speaker === currentMerged.speaker) {
-                            currentMerged.text += " " + cues[i].text;
-                        } else {
-                            mergedCues.push(currentMerged);
-                            currentMerged = { ...cues[i] };
-                        }
-                    }
-                    mergedCues.push(currentMerged);
-                }
-
-                for (const cue of mergedCues) {
-                    const adInfo = speakerCache.get(cue.speaker) || {};
-                    await db.run(
-                        'INSERT INTO transcript_cues (meeting_id, speaker_name, speaker_username, speaker_email, start_seconds, text) VALUES (?, ?, ?, ?, ?, ?)',
-                        [meetingId, cue.speaker, adInfo.username || null, adInfo.email || null, cue.start, cue.text]
-                    );
-                }
-
-                importJobs[jobId].progress = 100;
-                importJobs[jobId].status = 'completed';
-                importJobs[jobId].meetingId = meetingId;
+                await processCuesForMeeting(importJobs[jobId], cues, meetingId);
             } catch (err) {
                 console.error('[IMPORT ERROR]', err);
                 importJobs[jobId].status = 'error';
@@ -472,25 +494,7 @@ const transcriptController = {
      */
     deleteMeeting: async (req, res) => {
         try {
-            const db = pgDb;
-            const meetingId = req.params.id;
-
-            // Supprime les fichiers physiques des pièces jointes avant la
-            // suppression en base (le FK CASCADE ne touche que les enregistrements).
-            const atts = await db.all('SELECT * FROM transcript_meeting_attachments WHERE meeting_id = ?', [meetingId]);
-            for (const att of atts) {
-                try {
-                    const storagePath = att.file_path || (storage.isStoragePath(att.filename) ? att.filename : null);
-                    if (storagePath && storage.isStoragePath(storagePath)) {
-                        await storage.deleteFile(storagePath);
-                    } else {
-                        const filePath = path.join(__dirname, '..', '..', 'file_reunions', att.filename);
-                        if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
-                    }
-                } catch (e) { console.warn('[TM] Suppression PJ échouée:', e.message); }
-            }
-
-            await db.run('DELETE FROM transcript_meetings WHERE id = ?', [meetingId]);
+            await deleteMeetingById(req.params.id);
             res.json({ success: true, message: 'Réunion supprimée' });
         } catch (error) {
             res.status(500).json({ error: error.message });
@@ -754,6 +758,105 @@ const transcriptController = {
         }
     }
 };
+
+/**
+ * Supprime une réunion et ses données (y compris les fichiers physiques des
+ * pièces jointes — le FK CASCADE ne touche que les enregistrements).
+ */
+async function deleteMeetingById(meetingId) {
+    const db = pgDb;
+    const atts = await db.all('SELECT * FROM transcript_meeting_attachments WHERE meeting_id = ?', [meetingId]);
+    for (const att of atts) {
+        try {
+            const storagePath = att.file_path || (storage.isStoragePath(att.filename) ? att.filename : null);
+            if (storagePath && storage.isStoragePath(storagePath)) {
+                await storage.deleteFile(storagePath);
+            } else {
+                const filePath = path.join(__dirname, '..', '..', 'file_reunions', att.filename);
+                if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+            }
+        } catch (e) { console.warn('[TM] Suppression PJ échouée:', e.message); }
+    }
+    await db.run('DELETE FROM transcript_meetings WHERE id = ?', [meetingId]);
+}
+
+/**
+ * Pipeline partagé d'insertion des cues (upload .vtt/.txt ET import Teams) :
+ * résolution AD des intervenants (job asynchrone), fusion des cues
+ * consécutifs du même intervenant, insertion. Met à jour le job d'import
+ * (progress/status) et le termine (completed / meetingId).
+ */
+async function processCuesForMeeting(importJob, cues, meetingId) {
+    const db = pgDb;
+
+    const adSettings = await getSqlite().get('SELECT * FROM ad_settings WHERE id = 1');
+    const speakerCache = new Map();
+    const uniqueSpeakers = [...new Set(cues.map(c => c.speaker))];
+
+    if (adSettings && adSettings.is_enabled) {
+        const total = uniqueSpeakers.length;
+        for (let i = 0; i < total; i++) {
+            const speaker = uniqueSpeakers[i];
+            importJob.status = `Recherche AD : ${speaker}`;
+            importJob.progress = 10 + Math.round((i / total) * 70);
+
+            if (speaker === "Inconnu" || !speaker) continue;
+
+            const cleanSpeaker = speaker.replace(/[\[\]\(\)]/g, '').trim();
+
+            try {
+                console.log(`[TM IMPORT] AD Lookup for: "${cleanSpeaker}" (original: "${speaker}")`);
+                // Timeout de 10s par recherche pour ne pas bloquer le job
+                const adUsers = await Promise.race([
+                    searchADUsersByQuery(cleanSpeaker, adSettings),
+                    new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout AD')), 10000))
+                ]);
+
+                if (adUsers && adUsers.length > 0) {
+                    console.log(`[TM IMPORT] Found ${adUsers.length} matches for "${cleanSpeaker}". Using first: ${adUsers[0].email}`);
+                    speakerCache.set(speaker, {
+                        username: adUsers[0].username,
+                        email: adUsers[0].email
+                    });
+                } else {
+                    console.log(`[TM IMPORT] No AD match for "${cleanSpeaker}"`);
+                }
+            } catch (adErr) {
+                console.error(`[AD LOOKUP FAILED] for ${cleanSpeaker}:`, adErr.message);
+            }
+        }
+    }
+
+    importJob.status = 'enregistrement';
+    importJob.progress = 85;
+
+    // Fusionner les cues consécutives du même intervenant
+    const mergedCues = [];
+    if (cues.length > 0) {
+        let currentMerged = { ...cues[0] };
+        for (let i = 1; i < cues.length; i++) {
+            if (cues[i].speaker === currentMerged.speaker) {
+                currentMerged.text += " " + cues[i].text;
+            } else {
+                mergedCues.push(currentMerged);
+                currentMerged = { ...cues[i] };
+            }
+        }
+        mergedCues.push(currentMerged);
+    }
+
+    for (const cue of mergedCues) {
+        const adInfo = speakerCache.get(cue.speaker) || {};
+        await db.run(
+            'INSERT INTO transcript_cues (meeting_id, speaker_name, speaker_username, speaker_email, start_seconds, text) VALUES (?, ?, ?, ?, ?, ?)',
+            [meetingId, cue.speaker, adInfo.username || null, adInfo.email || null, cue.start, cue.text]
+        );
+    }
+
+    importJob.progress = 100;
+    importJob.status = 'completed';
+    importJob.meetingId = meetingId;
+}
 
 /**
  * Helper to parse VTT/TXT
