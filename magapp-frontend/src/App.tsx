@@ -532,6 +532,27 @@ function App() {
     }
   };
 
+  const handleOpenTranscript = async () => {
+    try {
+      const token = localStorage.getItem('token') || '';
+      const res = await axios.post('/api/auth/magapp-transcript-access', {}, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const url = res.data?.url;
+      if (!url) throw new Error('URL manquante');
+      window.open(url, '_blank', 'noopener');
+    } catch (error) {
+      console.error("Erreur d'ouverture du Transcript Manager", error);
+      setModalConfig({
+        isOpen: true,
+        type: 'error',
+        title: 'Transcript Manager',
+        message: "Impossible d'ouvrir votre Transcript Manager. Vérifiez votre session.",
+        onConfirm: () => setModalConfig(prev => ({ ...prev, isOpen: false }))
+      });
+    }
+  };
+
   const handleHealthCheck = async () => {
     setIsTesting(true);
     try {
@@ -1287,6 +1308,32 @@ function App() {
                 <LifeBuoy size={18} />
                 Mes tickets ({ticketCount})
                 {settings.is_beta_user && !settings.show_tickets_original && <span style={{ position: 'absolute', top: '-4px', right: '-4px', background: '#f59e0b', color: '#1e293b', fontSize: '0.55rem', fontWeight: 800, padding: '1px 4px', borderRadius: '6px', letterSpacing: '0.05em' }}>BETA</span>}
+              </button>
+            )}
+
+            {windowLogin && (
+              <button
+                onClick={handleOpenTranscript}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  background: 'white',
+                  border: '1px solid #cbd5e1',
+                  padding: '10px 18px',
+                  borderRadius: '10px',
+                  fontSize: '0.9rem',
+                  fontWeight: 600,
+                  color: '#475569',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s',
+                  boxShadow: '0 1px 2px rgba(0,0,0,0.05)',
+                  position: 'relative'
+                }}
+                title="Ouvrir mon Transcript Manager (réunions, résumés IA)"
+              >
+                <FileText size={18} />
+                Mon Transcript Manager
               </button>
             )}
 

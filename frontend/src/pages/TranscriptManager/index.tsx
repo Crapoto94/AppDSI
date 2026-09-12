@@ -336,7 +336,7 @@ const TranscriptManager: React.FC = () => {
 
     return (
         <div className="tm-page">
-            {user?.role === 'transcript_agent' ? <TranscriptAgentHeader user={user} /> : <Header />}
+            {user?.role === 'transcript_agent' || user?.role === 'transcript_guest' ? <TranscriptAgentHeader user={user} /> : <Header />}
             <div className="tm-container">
                 <div className="tm-top-bar">
                     <div className="tm-title-section">

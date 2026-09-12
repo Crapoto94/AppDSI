@@ -476,7 +476,7 @@ const MeetingDetail: React.FC = () => {
 
     if (loading) return (
         <div className="tm-loading-page">
-            {user?.role === 'transcript_agent' ? <TranscriptAgentHeader user={user} /> : <Header />}
+            {user?.role === 'transcript_agent' || user?.role === 'transcript_guest' ? <TranscriptAgentHeader user={user} /> : <Header />}
             <div className="loading-content">
                 <div className="spinner-orbit">
                     <div className="orbit-dot"></div>
