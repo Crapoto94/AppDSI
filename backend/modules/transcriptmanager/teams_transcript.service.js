@@ -1,26 +1,35 @@
 /**
  * Récupération des transcripts de réunions Teams via Microsoft Graph
- * (app-only, client_credentials — app registration de la « Messagerie O365 »,
- * o365_settings, sur laquelle les permissions transcripts sont configurées).
+ * (app-only, client_credentials — app registration configurée dans
+ * /Admin/entra, azure_ad_settings, qui porte les permissions transcripts).
  *
  * Stratégie (cf. doc Microsoft « Fetch meeting transcripts & recordings ») :
- *   1. le calendrier de l'utilisateur courant liste les réunions où il était
+ *   1. on résout l'ID AAD de l'utilisateur (GUID requis par les URLs
+ *      /onlineMeetings et /transcripts ; l'email suffit pour calendarView) ;
+ *   2. le calendrier de l'utilisateur courant liste les réunions où il était
  *      invité (GET /users/{email}/calendarView) ;
- *   2. chaque événement Teams porte un joinUrl → on résout l'onlineMeeting id
- *      (GET /users/{email}/onlineMeetings?$filter=JoinWebUrl eq '<url>') ;
- *   3. on liste les callTranscript de la réunion
- *      (GET /users/{email}/onlineMeetings/{id}/transcripts) ;
- *   4. le contenu est téléchargeable en VTT
+ *   3. chaque événement Teams porte un joinUrl → on résout l'onlineMeeting id
+ *      (GET /users/{id}/onlineMeetings?$filter=JoinWebUrl eq '<url>') ;
+ *   4. on liste les callTranscript de la réunion
+ *      (GET /users/{id}/onlineMeetings/{meetingId}/transcripts) ;
+ *   5. source complémentaire : getAllTranscripts(meetingOrganizerUserId=id)
+ *      renvoie les transcripts des réunions ORGANISÉES par l'utilisateur (le
+ *      calendrier ne remonte que celles où il était invité) ;
+ *   6. le contenu est téléchargeable en VTT
  *      (GET .../transcripts/{id}/content avec Accept: text/vtt) — format déjà
  *      géré par parseTranscript() côté controller.
  *
- * Permissions applicatives attendues sur l'app o365_settings :
- * Calendars.Read, OnlineMeetings.Read.All, OnlineMeetingTranscript.Read.All
- * (+ éventuellement une application access policy accordée par l'admin pour
- * les artifacts de réunion).
+ * Permissions applicatives attendues sur l'app azure_ad_settings :
+ * Calendars.Read, OnlineMeetings.Read.All, OnlineMeetingTranscript.Read.All,
+ * User.Read.All. Prérequis tenant Teams (PowerShell, hors de portée de l'app) :
+ *  - application access policy accordée à l'app sur l'utilisateur
+ *    (New-CsApplicationAccessPolicy + Grant-CsApplicationAccessPolicy) pour
+ *    lire les transcripts des réunions ;
+ *  - GraphAccessToTranscripts activé dans le tenant pour getAllTranscripts.
  *
- * Défensif par design : une réunion cross-tenant (403) ou sans transcript ne
- * fait jamais échouer l'ensemble — chaque réunion est traitée isolément.
+ * Défensif par design : une réunion en 403 ou sans transcript ne fait jamais
+ * échouer l'ensemble — chaque réunion est traitée isolément et les blocages
+ * de configuration remontent en warning avec l'action attendue.
  */
 const axios = require('axios');
 const https = require('https');
@@ -48,24 +57,42 @@ async function getGraphToken(settings, axiosOpts) {
     return tokenRes.data.access_token;
 }
 
-// Récupère l'app Graph : O365 en priorité (collecteur mail / « Messagerie O365 »),
-// repli sur Azure AD. On n'exige PAS is_enabled : le flag n'est qu'informatif et
-// des identifiants valides suffisent pour émettre un token (constaté en pratique).
+const isNetworkError = (e) => ['ECONNRESET', 'ETIMEDOUT', 'ECONNABORTED', 'EAI_AGAIN', 'ENOTFOUND', 'EPIPE', 'ERR_SOCKET_CONNECTION_TIMEOUT'].includes(e?.code)
+    || (e?.message && /socket hang up|network|connect/i.test(e.message));
+
+/** Relance la promesse `fn` sur erreur réseau transitoire (proxy, coupure). */
+async function retryNetwork(fn, attempts = 2) {
+    let lastErr;
+    for (let i = 0; i < attempts; i++) {
+        try {
+            return await fn();
+        } catch (e) {
+            lastErr = e;
+            if (!isNetworkError(e)) throw e;
+            if (i < attempts - 1) await new Promise(r => setTimeout(r, 800 * (i + 1)));
+        }
+    }
+    throw lastErr;
+}
+
+// L'app pour les transcripts est celle de /Admin/entra (azure_ad_settings),
+// qui porte Calendars.Read, OnlineMeetings.Read.All, OnlineMeetingTranscript.Read.All
+// et User.Read.All. L'app o365_settings (collecteur mail) ne sert qu'en repli.
 async function getGraphSettings() {
     const sqlite = getSqlite();
-    let settings = await sqlite.get('SELECT * FROM o365_settings WHERE id = 1');
+    let settings = await sqlite.get('SELECT * FROM azure_ad_settings WHERE id = 1');
     if (!settings || !settings.client_id || !settings.client_secret || !settings.tenant_id) {
-        settings = await sqlite.get('SELECT * FROM azure_ad_settings WHERE id = 1');
+        settings = await sqlite.get('SELECT * FROM o365_settings WHERE id = 1');
     }
     if (!settings || !settings.client_id || !settings.client_secret || !settings.tenant_id) {
-        throw new Error('Aucune application Microsoft Graph configurée (O365 ou Azure AD)');
+        throw new Error('Aucune application Microsoft Graph configurée (Entra ou O365)');
     }
     return settings;
 }
 
 const escapeODataString = (v) => String(v).replace(/'/g, "''");
 
-// Permissions Graph nécessaires sur l'app o365_settings pour lire les
+// Permissions Graph nécessaires sur l'app azure_ad_settings pour lire les
 // transcripts de réunions Teams (mode application) :
 const REQUIRED_PERMS = [
     'Calendars.Read (application)',
@@ -73,90 +100,130 @@ const REQUIRED_PERMS = [
     'OnlineMeetingTranscript.Read.All (application)'
 ];
 
-/** Message d'aide actionnable quand Graph refuse l'accès (403). */
-function permHint(graphMessage = '', code = '') {
+/** Aide actionnable quand Graph refuse l'accès (403 = config/premission). */
+function graphAccessHint(graphMessage = '', code = '') {
     const combined = `${code || ''} ${graphMessage || ''}`;
-    const missing = combined.includes('OnlineMeetingTranscript.Read.All')
-        ? 'OnlineMeetingTranscript.Read.All'
-        : /missing role permissions|not granted|roles on the request|Authorization_RequestDenied|ErrorAccessDenied/i.test(combined)
-            ? REQUIRED_PERMS.join(', ')
-            : null;
-    return missing
-        ? `Permission Graph manquante : ajouter « ${missing} » à l'app o365_settings (Azure AD > App registrations), consentir (admin consent) puis redémarrer le backend. Détail : ${graphMessage || code}`
-        : null;
+    if (combined.includes('OnlineMeetingTranscript.Read.All') || /missing role permissions|roles on the request|Authorization_RequestDenied|ErrorAccessDenied/i.test(combined)) {
+        return 'Permissions Graph manquantes sur l\'app /Admin/entra : ajouter « '
+            + REQUIRED_PERMS.join(', ')
+            + ' » et consentir (admin consent), puis redémarrer le backend.';
+    }
+    if (/application access policy/i.test(combined)) {
+        return 'L\'administration Teams doit accorder une application access policy à cette app (PowerShell : New-CsApplicationAccessPolicy -AppIds <appId> puis Grant-CsApplicationAccessPolicy -User <email>).';
+    }
+    if (/transcripts is disabled for this tenant/i.test(combined)) {
+        return 'Le tenant n\'autorise pas les transcripts via Graph (PowerShell : Set-CsMeetingConfiguration -GraphAccessToTranscripts $true).';
+    }
+    return null;
 }
 
 /** Date ISO UTC (format requis par calendarView / getAllTranscripts). */
 const toIsoUtc = (d) => d.toISOString().replace('.000Z', 'Z');
 
+// Cache process des IDs AAD (évite un GET /users par appel).
+const aadIdCache = new Map();
+
+/** Résout l'ID AAD (GUID) d'un utilisateur via son email (User.Read.All). */
+async function resolveUserAadId(userEmail, axiosOpts, headers) {
+    const key = String(userEmail).toLowerCase();
+    if (aadIdCache.has(key)) return aadIdCache.get(key);
+    try {
+        const r = await axios.get(
+            `https://graph.microsoft.com/v1.0/users/${encodeURIComponent(userEmail)}?$select=id,userPrincipalName`,
+            { ...axiosOpts, headers }
+        );
+        const id = r.data?.id || null;
+        aadIdCache.set(key, id);
+        return id;
+    } catch (e) {
+        console.error(`[TEAMS TRANSCRIPT] resolve AAD id failed: ${e.response?.data?.error?.message || e.message}`);
+        return null;
+    }
+}
+
 /**
- * Liste les dernières réunions Teams (calendrier de `userEmail`) disposant d'un
- * transcript Graph. Ne lève jamais — renvoie { ok, meetings, warnings, error }.
+ * Liste les transcripts disponibles pour `userEmail` (réunions où il était
+ * invité, via le calendrier, complété par les réunions qu'il organise via
+ * getAllTranscripts). Ne lève jamais — renvoie { ok, meetings, warnings }.
  *
  * @param {string} userEmail - email O365 de l'utilisateur connecté
  * @param {number} [days=30] - fenêtre de recherche en jours (passé)
  */
 async function listTeamsTranscripts(userEmail, days = 30) {
-    const settings = await getGraphSettings();
-    const axiosOpts = getAxiosOpts();
-    const token = await getGraphToken(settings, axiosOpts);
+    let settings, axiosOpts, token;
+    try {
+        settings = await getGraphSettings();
+        axiosOpts = getAxiosOpts();
+        token = await retryNetwork(() => getGraphToken(settings, axiosOpts));
+    } catch (e) {
+        const net = isNetworkError(e)
+            ? ` (${e.code || 'connexion interrompue'})`
+            : ` : ${e.message || e}`;
+        return { ok: false, meetings: [], warnings: [], error: `Connexion à Microsoft impossible${net} — réessayez plus tard.` };
+    }
     const headers = { Authorization: `Bearer ${token}` };
 
     const endDate = new Date();
     const startDate = new Date(Date.now() - (Number(days) || 30) * 86400000);
 
-    const url = `https://graph.microsoft.com/v1.0/users/${encodeURIComponent(userEmail)}/calendarView`
-        + `?startDateTime=${toIsoUtc(startDate)}&endDateTime=${toIsoUtc(endDate)}`
-        + `&$select=id,subject,start,end,onlineMeeting,organizer&$top=50`;
+    // L'email suffit pour calendarView, mais /onlineMeetings exige un GUID.
+    const aadId = await resolveUserAadId(userEmail, axiosOpts, headers);
+    const userKey = aadId || userEmail;
+    const warnings = [];
 
-    let events;
+    let events = [];
     try {
-        const res = await axios.get(url, { ...axiosOpts, headers });
+        const res = await axios.get(
+            `https://graph.microsoft.com/v1.0/users/${encodeURIComponent(userEmail)}/calendarView`
+            + `?startDateTime=${toIsoUtc(startDate)}&endDateTime=${toIsoUtc(endDate)}`
+            + `&$select=id,subject,start,end,onlineMeeting,organizer&$top=50`,
+            { ...axiosOpts, headers }
+        );
         events = res.data.value || [];
     } catch (e) {
         const code = e.response?.data?.error?.code || 'Erreur';
         const msg = e.response?.data?.error?.message || code;
-        const hint = (e.response?.status === 403 && permHint(msg, code)) ? ` — ${permHint(msg, code)}` : '';
-        return { ok: false, meetings: [], warnings: [], error: `Accès au calendrier impossible (${code})${hint}` };
+        const hint = (e.response?.status === 403 && graphAccessHint(msg, code)) ? ` — ${graphAccessHint(msg, code)}` : '';
+        return { ok: false, meetings: [], warnings, error: `Accès au calendrier impossible (${code})${hint}` };
     }
 
-    // Résolution onlineMeetingId par joinUrl : GET /onlineMeetings n'accepte
-    // que $filter=JoinWebUrl — on ne le fait que pour les événements Teams,
-    // en parallèle par petites rafales.
+    // Résolution onlineMeetingId par joinUrl — GET /onlineMeetings n'accepte
+    // que $filter=JoinWebUrl ; le filtre (l'URL de jointure contient & et #)
+    // doit être encodé dans la query string.
     const withJoinUrl = events.filter(ev => ev.onlineMeeting?.joinUrl);
     const meetingByUrl = new Map();
-
-    const resolveAll = async () => {
-        for (let i = 0; i < withJoinUrl.length; i += 5) {
-            const batch = withJoinUrl.slice(i, i + 5);
-            await Promise.all(batch.map(async (ev) => {
-                const joinUrl = ev.onlineMeeting.joinUrl;
-                try {
-                    const r = await axios.get(
-                        `https://graph.microsoft.com/v1.0/users/${encodeURIComponent(userEmail)}/onlineMeetings?$filter=JoinWebUrl eq '${escapeODataString(joinUrl)}'`,
-                        { ...axiosOpts, headers }
-                    );
-                    const m = (r.data.value || [])[0];
-                    if (m?.id) meetingByUrl.set(joinUrl, m.id);
-                } catch (err) {
-                    // 403 attendu pour les réunions cross-tenant ou si la
-                    // permission OnlineMeetings.Read.All / access policy manque
+    try {
+        await Promise.all(withJoinUrl.map(async (ev) => {
+            const joinUrl = ev.onlineMeeting.joinUrl;
+            try {
+                const filter = `JoinWebUrl eq '${escapeODataString(joinUrl)}'`;
+                const r = await axios.get(
+                    `https://graph.microsoft.com/v1.0/users/${encodeURIComponent(userKey)}/onlineMeetings?$filter=${encodeURIComponent(filter)}`,
+                    { ...axiosOpts, headers }
+                );
+                const m = (r.data.value || [])[0];
+                if (m?.id) meetingByUrl.set(joinUrl, m.id);
+            } catch (err) {
+                if (err.response?.status === 403 && /application access policy/i.test(err.response?.data?.error?.message || '')) {
+                    const hint = graphAccessHint(err.response?.data?.error?.message, err.response?.data?.error?.code);
+                    if (!warnings.some(w => w.includes('application access policy'))) warnings.push(`Réunions Teams inaccessibles — ${hint}`);
+                } else {
                     console.error(`[TEAMS TRANSCRIPT] resolve joinUrl failed: ${err.response?.data?.error?.message || err.message}`);
                 }
-            }));
-        }
-    };
-    await resolveAll();
+            }
+        }));
+    } catch (e) {
+        console.error(`[TEAMS TRANSCRIPT] resolve batch failed: ${e.message}`);
+    }
 
-    // Pour chaque réunion résolue, on liste les transcripts disponibles.
+    // Transcripts de chaque réunion résolue.
     const meetings = [];
-    const warnings = [];
     for (const ev of withJoinUrl) {
         const meetingId = meetingByUrl.get(ev.onlineMeeting.joinUrl);
         if (!meetingId) continue;
         try {
             const r = await axios.get(
-                `https://graph.microsoft.com/v1.0/users/${encodeURIComponent(userEmail)}/onlineMeetings/${encodeURIComponent(meetingId)}/transcripts`,
+                `https://graph.microsoft.com/v1.0/users/${encodeURIComponent(userKey)}/onlineMeetings/${encodeURIComponent(meetingId)}/transcripts`,
                 { ...axiosOpts, headers }
             );
             for (const t of r.data.value || []) {
@@ -171,13 +238,41 @@ async function listTeamsTranscripts(userEmail, days = 30) {
                 });
             }
         } catch (err) {
-            // 403 = transcript indisponible pour le compte app (permission
-            // OnlineMeetingTranscript.Read.All ou access policy manquante)
             if (err.response?.status === 403) {
-                const hint = permHint(err.response?.data?.error?.message, err.response?.data?.error?.code) || 'Vérifier la permission/access policy Graph';
-                warnings.push(`Transcripts de « ${ev.subject || 'réunion'} » inaccessibles — ${hint}`);
+                const hint = graphAccessHint(err.response?.data?.error?.message, err.response?.data?.error?.code) || 'Vérifier la permission/access policy Graph';
+                if (!warnings.some(w => w.includes('Transcripts de «'))) warnings.push(`Transcripts de « ${ev.subject || 'réunion'} » inaccessibles — ${hint}`);
             } else {
                 console.error(`[TEAMS TRANSCRIPT] list transcripts failed: ${err.response?.data?.error?.message || err.message}`);
+            }
+        }
+    }
+
+    // Source complémentaire : réunions organisées par l'utilisateur.
+    if (aadId) {
+        try {
+            const r = await axios.get(
+                `https://graph.microsoft.com/v1.0/users/${aadId}/onlineMeetings/getAllTranscripts(meetingOrganizerUserId='${aadId}', startDateTime=${toIsoUtc(startDate)}, endDateTime=${toIsoUtc(endDate)})`,
+                { ...axiosOpts, headers }
+            );
+            for (const t of r.data.value || []) {
+                const dup = meetings.some(m => m.transcriptId === t.id || (m.meetingId === t.meetingId && m.createdDateTime === t.createdDateTime));
+                if (dup) continue;
+                meetings.push({
+                    meetingId: t.meetingId,
+                    transcriptId: t.id,
+                    subject: 'Réunion Teams (organisée par vous)',
+                    startDateTime: null,
+                    createdDateTime: t.createdDateTime || null,
+                    organizer: null,
+                    transcriptContentUrl: t.transcriptContentUrl || null
+                });
+            }
+        } catch (err) {
+            if (err.response?.status === 403) {
+                const hint = graphAccessHint(err.response?.data?.error?.message, err.response?.data?.error?.code) || 'Vérifier la configuration tenant Teams';
+                if (!warnings.some(w => w.includes('Graph'))) warnings.push(`Réunions organisées — ${hint}`);
+            } else {
+                console.error(`[TEAMS TRANSCRIPT] getAllTranscripts failed: ${err.response?.data?.error?.message || err.message}`);
             }
         }
     }
@@ -196,10 +291,12 @@ async function listTeamsTranscripts(userEmail, days = 30) {
 async function fetchTranscriptContent(userEmail, meetingId, transcriptId) {
     const settings = await getGraphSettings();
     const axiosOpts = getAxiosOpts();
-    const token = await getGraphToken(settings, axiosOpts);
+    const token = await retryNetwork(() => getGraphToken(settings, axiosOpts));
+    const headers = { Authorization: `Bearer ${token}`, Accept: 'text/vtt' };
+    const aadId = await resolveUserAadId(userEmail, axiosOpts, headers);
     const res = await axios.get(
-        `https://graph.microsoft.com/v1.0/users/${encodeURIComponent(userEmail)}/onlineMeetings/${encodeURIComponent(meetingId)}/transcripts/${encodeURIComponent(transcriptId)}/content`,
-        { ...axiosOpts, headers: { Authorization: `Bearer ${token}`, Accept: 'text/vtt' }, responseType: 'text' }
+        `https://graph.microsoft.com/v1.0/users/${encodeURIComponent(aadId || userEmail)}/onlineMeetings/${encodeURIComponent(meetingId)}/transcripts/${encodeURIComponent(transcriptId)}/content`,
+        { ...axiosOpts, headers, responseType: 'text' }
     );
     return typeof res.data === 'string' ? res.data : JSON.stringify(res.data);
 }
