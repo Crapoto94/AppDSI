@@ -48,14 +48,13 @@ async function getGraphToken(settings, axiosOpts) {
     return tokenRes.data.access_token;
 }
 
-// Récupère l'app Graph : O365 en priorité (collecteur mail / « Messagerie O365 »,
-// c'est sur cette app registration que les permissions transcripts Teams
-// (OnlineMeetingTranscript.Read.All, OnlineMeetings.Read.All, Calendars.Read)
-// sont configurées), repli sur Azure AD.
+// Récupère l'app Graph : O365 en priorité (collecteur mail / « Messagerie O365 »),
+// repli sur Azure AD. On n'exige PAS is_enabled : le flag n'est qu'informatif et
+// des identifiants valides suffisent pour émettre un token (constaté en pratique).
 async function getGraphSettings() {
     const sqlite = getSqlite();
     let settings = await sqlite.get('SELECT * FROM o365_settings WHERE id = 1');
-    if (!settings || !settings.is_enabled || !settings.client_id || !settings.client_secret || !settings.tenant_id) {
+    if (!settings || !settings.client_id || !settings.client_secret || !settings.tenant_id) {
         settings = await sqlite.get('SELECT * FROM azure_ad_settings WHERE id = 1');
     }
     if (!settings || !settings.client_id || !settings.client_secret || !settings.tenant_id) {
@@ -65,6 +64,27 @@ async function getGraphSettings() {
 }
 
 const escapeODataString = (v) => String(v).replace(/'/g, "''");
+
+// Permissions Graph nécessaires sur l'app o365_settings pour lire les
+// transcripts de réunions Teams (mode application) :
+const REQUIRED_PERMS = [
+    'Calendars.Read (application)',
+    'OnlineMeetings.Read.All (application)',
+    'OnlineMeetingTranscript.Read.All (application)'
+];
+
+/** Message d'aide actionnable quand Graph refuse l'accès (403). */
+function permHint(graphMessage = '', code = '') {
+    const combined = `${code || ''} ${graphMessage || ''}`;
+    const missing = combined.includes('OnlineMeetingTranscript.Read.All')
+        ? 'OnlineMeetingTranscript.Read.All'
+        : /missing role permissions|not granted|roles on the request|Authorization_RequestDenied|ErrorAccessDenied/i.test(combined)
+            ? REQUIRED_PERMS.join(', ')
+            : null;
+    return missing
+        ? `Permission Graph manquante : ajouter « ${missing} » à l'app o365_settings (Azure AD > App registrations), consentir (admin consent) puis redémarrer le backend. Détail : ${graphMessage || code}`
+        : null;
+}
 
 /** Date ISO UTC (format requis par calendarView / getAllTranscripts). */
 const toIsoUtc = (d) => d.toISOString().replace('.000Z', 'Z');
@@ -94,8 +114,10 @@ async function listTeamsTranscripts(userEmail, days = 30) {
         const res = await axios.get(url, { ...axiosOpts, headers });
         events = res.data.value || [];
     } catch (e) {
-        const msg = e.response?.data?.error?.code || e.response?.data?.error?.message || e.message;
-        return { ok: false, meetings: [], warnings: [], error: `Accès au calendrier impossible (${msg})` };
+        const code = e.response?.data?.error?.code || 'Erreur';
+        const msg = e.response?.data?.error?.message || code;
+        const hint = (e.response?.status === 403 && permHint(msg, code)) ? ` — ${permHint(msg, code)}` : '';
+        return { ok: false, meetings: [], warnings: [], error: `Accès au calendrier impossible (${code})${hint}` };
     }
 
     // Résolution onlineMeetingId par joinUrl : GET /onlineMeetings n'accepte
@@ -152,7 +174,8 @@ async function listTeamsTranscripts(userEmail, days = 30) {
             // 403 = transcript indisponible pour le compte app (permission
             // OnlineMeetingTranscript.Read.All ou access policy manquante)
             if (err.response?.status === 403) {
-                warnings.push(`Transcripts de « ${ev.subject || 'réunion'} » inaccessibles (permission Graph) : ${err.response?.data?.error?.message || '403'}`);
+                const hint = permHint(err.response?.data?.error?.message, err.response?.data?.error?.code) || 'Vérifier la permission/access policy Graph';
+                warnings.push(`Transcripts de « ${ev.subject || 'réunion'} » inaccessibles — ${hint}`);
             } else {
                 console.error(`[TEAMS TRANSCRIPT] list transcripts failed: ${err.response?.data?.error?.message || err.message}`);
             }
