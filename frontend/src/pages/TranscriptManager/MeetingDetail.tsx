@@ -404,12 +404,14 @@ const MeetingDetail: React.FC = () => {
         if (!id || !token || !meeting) return;
         setIsSaving(true);
         try {
-            await axios.put(`/api/transcriptmanager/meeting/${id}`, {
+            const res = await axios.put(`/api/transcriptmanager/meeting/${id}`, {
                 title: meeting.title,
                 meeting_date: meeting.meeting_date || meeting.created_at,
                 summary: summaryDraft
             }, { headers: { Authorization: `Bearer ${token}` } });
-            setMeeting({ ...meeting, summary: summaryDraft });
+            const savedSummary = res.data?.summary || summaryDraft;
+            setMeeting({ ...meeting, summary: savedSummary });
+            setSummaryDraft(savedSummary);
             setIsEditingSummary(false);
         } catch (err) { console.error(err); }
         finally { setIsSaving(false); }

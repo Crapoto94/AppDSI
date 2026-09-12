@@ -4,7 +4,7 @@ import TranscriptAgentHeader from '../../components/TranscriptAgentHeader';
 import {
     Calendar, FileText, Plus, Search, Trash2,
     ArrowRight, Users, RefreshCw, UserCheck, Clock, Sparkles,
-    Video, Download, Share2
+    Video, Download, Share2, Lock
 } from 'lucide-react';
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
@@ -97,6 +97,7 @@ const TranscriptManager: React.FC = () => {
     const [teamsLoading, setTeamsLoading] = useState(false);
     const [teamsError, setTeamsError] = useState("");
     const [teamsWarnings, setTeamsWarnings] = useState<string[]>([]);
+    const [teamsInaccessible, setTeamsInaccessible] = useState<any[]>([]);
     const [teamsDays, setTeamsDays] = useState(30);
     const [importingTranscriptId, setImportingTranscriptId] = useState<string | null>(null);
     const { token, user } = useAuth();
@@ -197,6 +198,7 @@ const TranscriptManager: React.FC = () => {
         setTeamsLoading(true);
         setTeamsError("");
         setTeamsWarnings([]);
+        setTeamsInaccessible([]);
         setTeamsMeetings([]);
         try {
             const res = await axios.get(`/api/transcriptmanager/teams-transcripts?days=${days}`, {
@@ -204,6 +206,7 @@ const TranscriptManager: React.FC = () => {
             });
             setTeamsMeetings(res.data.meetings || []);
             setTeamsWarnings(res.data.warnings || []);
+            setTeamsInaccessible(res.data.inaccessible || []);
             setTeamsDays(res.data.days || days);
         } catch (err: unknown) {
             const e = apiError(err);
@@ -581,6 +584,23 @@ const TranscriptManager: React.FC = () => {
                             {teamsWarnings.length > 0 && (
                                 <div className="tt-warnings">
                                     {teamsWarnings.map((w, i) => <p key={i}>{w}</p>)}
+                                </div>
+                            )}
+                            {teamsInaccessible.length > 0 && (
+                                <div className="tt-inaccessible">
+                                    <p className="tt-inaccessible-title"><Lock size={14} /> Réunions sans transcript lisible ({teamsInaccessible.length})</p>
+                                    {teamsInaccessible.map((m, i) => (
+                                        <div key={i} className="tt-item tt-item-dim">
+                                            <div className="tt-item-icon"><Video size={16} /></div>
+                                            <div className="tt-item-body">
+                                                <div className="tt-item-title">{m.subject || 'Réunion sans titre'}</div>
+                                                <div className="tt-item-meta">
+                                                    {m.startDateTime ? new Date(m.startDateTime).toLocaleString('fr-FR') : '—'}
+                                                    {m.reason ? ` · ${m.reason}` : ' · Transcript non disponible'}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    ))}
                                 </div>
                             )}
                             {teamsMeetings.map(m => (
@@ -1059,6 +1079,18 @@ const TranscriptManager: React.FC = () => {
                     font-size: 0.78rem;
                 }
                 .tt-warnings p { margin: 0.2rem 0; }
+                .tt-inaccessible {
+                    margin-top: 1rem;
+                    padding-top: 0.75rem;
+                    border-top: 1px dashed #E2E8F0;
+                }
+                .tt-inaccessible-title {
+                    display: flex; align-items: center; gap: 0.4rem;
+                    color: #64748B; font-size: 0.8rem; font-weight: 700;
+                    margin: 0 0 0.5rem 0; text-transform: uppercase; letter-spacing: 0.04em;
+                }
+                .tt-item-dim { opacity: 0.7; }
+                .tt-item-dim .tt-item-icon { background: #F1F5F9; border-color: #E2E8F0; }
             `}</style>
         </div>
     </div>
