@@ -1134,6 +1134,7 @@ const MeetingDetail: React.FC = () => {
                     <div className="gen-modal-overlay">
                         <div className={`gen-modal ${isPollingAfterError ? 'gen-modal-warning' : ''}`}>
                             <div className="gen-modal-header">
+                                <img src="/img/Ivry.png" alt="Ville d'Ivry-sur-Seine" className="gen-logo" />
                                 <RefreshCw className="animate-spin" size={20} />
                                 <h3>{isPollingAfterError ? 'Connexion coupée — vérification en cours...' : "L'Intelligence Artificielle travaille..."}</h3>
                                 <span className="gen-timer">{formatDuration(genElapsed)}</span>
@@ -1795,13 +1796,14 @@ const MeetingDetail: React.FC = () => {
                 .stream-box-modal {
                     background: #1E293B;
                     color: #E2E8F0;
-                    padding: 1.5rem;
+                    padding: 1rem 1.25rem;
                     border-radius: 8px;
                     font-family: 'Fira Code', monospace;
                     font-size: 0.85rem;
                     white-space: pre-wrap;
                     overflow-y: auto;
-                    height: 400px;
+                    min-height: 64px;
+                    max-height: 130px;
                     box-shadow: inset 0 2px 4px rgba(0,0,0,0.5);
                     line-height: 1.6;
                 }
@@ -1849,12 +1851,18 @@ const MeetingDetail: React.FC = () => {
                 }
                 .gen-modal-header {
                     background: #F8FAFC;
-                    padding: 1.5rem 2rem;
+                    padding: 1.25rem 2rem;
                     border-bottom: 1px solid #E2E8F0;
                     display: flex;
                     align-items: center;
                     gap: 1rem;
                     color: #2563EB;
+                }
+                .gen-logo {
+                    height: 38px;
+                    width: auto;
+                    flex-shrink: 0;
+                    margin-right: 0.25rem;
                 }
                 .gen-modal-header h3 {
                     margin: 0;
