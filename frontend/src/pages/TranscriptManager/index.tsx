@@ -98,6 +98,7 @@ const TranscriptManager: React.FC = () => {
     const [teamsError, setTeamsError] = useState("");
     const [teamsWarnings, setTeamsWarnings] = useState<string[]>([]);
     const [teamsInaccessible, setTeamsInaccessible] = useState<any[]>([]);
+    const [participantsExpanded, setParticipantsExpanded] = useState<Set<string>>(new Set());
     const [teamsDays, setTeamsDays] = useState(30);
     const [importingTranscriptId, setImportingTranscriptId] = useState<string | null>(null);
     const { token, user } = useAuth();
