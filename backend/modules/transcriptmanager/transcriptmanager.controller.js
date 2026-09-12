@@ -8,6 +8,7 @@ const path = require('path');
 const jwt = require('jsonwebtoken');
 const { SECRET_KEY } = require('../../shared/config');
 const apmAi = require('../../shared/apm_ai');
+const apmMail = require('../../shared/apm_mail');
 const storage = require('../../shared/storage');
 const { listDsiAgents, matchDsiAgent } = require('./agent-match');
 const teamsTranscript = require('./teams_transcript.service');
@@ -607,7 +608,17 @@ const transcriptController = {
                         meetingDate, internal: t.internal, magappUrl,
                         participants, tasks, meta, attachmentNames,
                     });
-                    await _sendMail(t.email, `Résumé de la réunion : ${meeting.title || ''}`.trim(), html, attachments, 'transcript');
+                    const subject = `Résumé de la réunion : ${meeting.title || ''}`.trim();
+                    // Envoi via l'API Ville (APM) → template général de la Ville.
+                    // Repli sur le mailer local (template DSI Hub) si l'APM n'est
+                    // pas configurée ou est indisponible.
+                    try {
+                        await apmMail.sendMail({ to: t.email, subject, content: html, attachments });
+                    } catch (apmErr) {
+                        console.error('[TRANSCRIPT MAIL] API Ville indisponible, repli mailer local:', apmErr.message);
+                        if (typeof _sendMail !== 'function') throw apmErr;
+                        await _sendMail(t.email, subject, html, attachments, 'transcript');
+                    }
                     sent++;
                 } catch (e) {
                     failed++;
