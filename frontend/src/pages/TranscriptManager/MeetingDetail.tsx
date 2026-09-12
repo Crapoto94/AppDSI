@@ -34,6 +34,8 @@ interface Meeting {
     cues: Cue[];
     shared_with_direction?: string | null;
     shared_with_service?: string | null;
+    summary_edited_by?: string | null;
+    summary_edited_at?: string | null;
 }
 
 interface Task {
@@ -89,6 +91,7 @@ const MeetingDetail: React.FC = () => {
     const [isSaving, setIsSaving] = useState(false);
     const [showAllSpeakers, setShowAllSpeakers] = useState(false);
     const [transcriptSearch, setTranscriptSearch] = useState("");
+    const [speakerFilter, setSpeakerFilter] = useState<string>("");
 
     // Pièces jointes de la réunion (stockées via shared/storage.js → /GED)
     const [attachments, setAttachments] = useState<Attachment[]>([]);
@@ -331,6 +334,18 @@ const MeetingDetail: React.FC = () => {
             alert("Choisissez un modèle IA avant de générer le résumé.");
             return;
         }
+        // Le résumé a déjà été corrigé à la main : on demande confirmation avant
+        // d'écraser cette modification par une regénération IA.
+        const alreadyModified = !!(meeting?.summary_edited_by || meeting?.summary_edited_at);
+        if (meeting?.summary && alreadyModified) {
+            const who = meeting.summary_edited_by ? ` par ${meeting.summary_edited_by}` : '';
+            const when = meeting.summary_edited_at ? ` le ${new Date(meeting.summary_edited_at).toLocaleString('fr-FR')}` : '';
+            const ok = window.confirm(
+                `Le résumé de cette réunion a déjà fait l'objet d'une modification manuelle${who}${when}.\n\n` +
+                `Voulez-vous vraiment régénérer un résumé IA ? La modification existante sera écrasée.`
+            );
+            if (!ok) return;
+        }
         setIsGenerating(true);
         setIsPollingAfterError(false);
         setGenElapsed(0);
@@ -532,11 +547,11 @@ const MeetingDetail: React.FC = () => {
     const pendingAiTasks = tasks.filter(t => t.origin === 'ai' && !t.app_task_id);
     const totalCues = meeting.cues?.length || 0;
     const searchLower = transcriptSearch.toLowerCase();
-    const filteredCues = transcriptSearch
-        ? (meeting.cues || []).filter(c =>
-            c.text.toLowerCase().includes(searchLower) ||
-            c.speaker_name.toLowerCase().includes(searchLower))
-        : (meeting.cues || []);
+    const filteredCues = (meeting.cues || [])
+        .filter(c => !speakerFilter || c.speaker_name === speakerFilter)
+        .filter(c => !transcriptSearch
+            || c.text.toLowerCase().includes(searchLower)
+            || c.speaker_name.toLowerCase().includes(searchLower));
 
     return (
         <div className="md-page">
@@ -550,25 +565,27 @@ const MeetingDetail: React.FC = () => {
                         {modelsError ? (
                             <span style={{ fontSize: '0.75rem', color: '#DC2626' }}>{modelsError}</span>
                         ) : (
-                            <select
-                                className="md-model-select"
-                                value={selectedModel}
-                                onChange={e => setSelectedModel(e.target.value)}
-                                disabled={isGenerating || aiModels.length === 0 || aiSource === 'local'}
-                                title={aiSource === 'local' ? "IA locale AppDSI : un seul modèle configuré (changer dans /admin, section IA)" : "Modèle IA (APM) — LLAMA interne uniquement"}
-                            >
-                                {aiModels.length === 0 && <option value="">Chargement des modèles…</option>}
-                                {aiModels.map(m => <option key={m} value={m}>{m}</option>)}
-                            </select>
+                            <div className="md-generate-group">
+                                <button
+                                    className={`md-btn-generate ${isGenerating ? 'loading' : ''}`}
+                                    onClick={handleSummarize}
+                                    disabled={isGenerating || !selectedModel}
+                                >
+                                    {isGenerating ? <RefreshCw className="animate-spin" size={18} /> : <Bot size={18} />}
+                                    {isGenerating ? 'Génération...' : 'Générer résumé IA'}
+                                </button>
+                                <select
+                                    className="md-generate-model"
+                                    value={selectedModel}
+                                    onChange={e => setSelectedModel(e.target.value)}
+                                    disabled={isGenerating || aiModels.length === 0 || aiSource === 'local'}
+                                    title={aiSource === 'local' ? "IA locale AppDSI : un seul modèle configuré (changer dans /admin, section IA)" : "Modèle IA (APM) — LLAMA interne uniquement"}
+                                >
+                                    {aiModels.length === 0 && <option value="">…</option>}
+                                    {aiModels.map(m => <option key={m} value={m}>{m}</option>)}
+                                </select>
+                            </div>
                         )}
-                        <button
-                            className={`md-btn-generate ${isGenerating ? 'loading' : ''}`}
-                            onClick={handleSummarize}
-                            disabled={isGenerating || !selectedModel}
-                        >
-                            {isGenerating ? <RefreshCw className="animate-spin" size={18} /> : <Bot size={18} />}
-                            {isGenerating ? 'Génération...' : 'Générer résumé IA'}
-                        </button>
                     </div>
                 </div>
 
@@ -633,7 +650,13 @@ const MeetingDetail: React.FC = () => {
                                         const pct = Math.round((speaker.count / totalCues) * 100);
                                         const color = `hsl(${(speakers.indexOf(speaker.name) * 137) % 360}, 65%, 50%)`;
                                         return (
-                                            <div key={idx} className="speaker-stat">
+                                            <div
+                                                key={idx}
+                                                className={`speaker-stat ${speakerFilter === speaker.name ? 'speaker-stat-active' : ''}`}
+                                                onClick={() => setSpeakerFilter(prev => prev === speaker.name ? '' : speaker.name)}
+                                                title="Cliquer pour isoler les interventions de cet intervenant"
+                                                style={{ cursor: 'pointer' }}
+                                            >
                                                 <div className="speaker-labels">
                                                     <div style={{ display: 'flex', flexDirection: 'column' }}>
                                                         <span className="s-name" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
@@ -882,7 +905,13 @@ const MeetingDetail: React.FC = () => {
                             <div className="card-head">
                                 <FileText size={18} />
                                 <h2>Transcription</h2>
-                                {transcriptSearch && (
+                                {speakerFilter && (
+                                    <span className="speaker-filter-chip" title="Interventions isolées">
+                                        🎙️ {speakerFilter}
+                                        <button className="search-clear" onClick={() => setSpeakerFilter("")} title="Retirer le filtre intervenant">✕</button>
+                                    </span>
+                                )}
+                                {(transcriptSearch || speakerFilter) && (
                                     <span className="search-count">
                                         {filteredCues.length} résultat{filteredCues.length !== 1 ? 's' : ''}
                                     </span>
@@ -906,7 +935,12 @@ const MeetingDetail: React.FC = () => {
                                         <span className="cue-time" onClick={() => scrollToCue(cue.start_seconds)}>
                                             {formatTime(cue.start_seconds)}
                                         </span>
-                                        <div className="cue-speaker-block" style={{ color: `hsl(${(speakers.indexOf(cue.speaker_name) * 137) % 360}, 65%, 40%)` }}>
+                                        <div
+                                            className="cue-speaker-block"
+                                            style={{ color: `hsl(${(speakers.indexOf(cue.speaker_name) * 137) % 360}, 65%, 40%)`, cursor: 'pointer' }}
+                                            onClick={() => setSpeakerFilter(prev => prev === cue.speaker_name ? '' : cue.speaker_name)}
+                                            title="Isoler les interventions de cet intervenant"
+                                        >
                                             <span className="cue-speaker">{cue.speaker_name}</span>
                                             {cue.speaker_email && <span className="cue-email">{cue.speaker_email}</span>}
                                         </div>
@@ -915,7 +949,7 @@ const MeetingDetail: React.FC = () => {
                                             dangerouslySetInnerHTML={{ __html: highlightText(cue.text, transcriptSearch) }}
                                         />
                                     </div>
-                                )) : <p className="no-data">{transcriptSearch ? 'Aucun résultat.' : 'Aucune transcription disponible.'}</p>}
+                                )) : <p className="no-data">{(transcriptSearch || speakerFilter) ? 'Aucun résultat.' : 'Aucune transcription disponible.'}</p>}
                             </div>
                         </div>
 
@@ -1065,6 +1099,39 @@ const MeetingDetail: React.FC = () => {
                     background: #B91C1C;
                     transform: translateY(-1px);
                 }
+                /* Bouton « Générer résumé IA » avec le choix du modèle intégré à droite */
+                .md-generate-group {
+                    display: inline-flex;
+                    align-items: stretch;
+                    border-radius: 8px;
+                    overflow: hidden;
+                    box-shadow: 0 4px 6px -1px rgba(220, 38, 38, 0.2);
+                }
+                .md-generate-group .md-btn-generate {
+                    border-radius: 0;
+                    box-shadow: none;
+                }
+                .md-generate-group .md-btn-generate:hover { transform: none; }
+                .md-generate-model {
+                    border: none;
+                    border-left: 1px solid rgba(255,255,255,0.35);
+                    background: #DC2626;
+                    color: #fff;
+                    font-size: 0.78rem;
+                    font-weight: 600;
+                    padding: 0 1.6rem 0 0.6rem;
+                    max-width: 170px;
+                    outline: none;
+                    cursor: pointer;
+                    appearance: none;
+                    -webkit-appearance: none;
+                    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'><polyline points='6 9 12 15 18 9'/></svg>");
+                    background-repeat: no-repeat;
+                    background-position: right 0.5rem center;
+                }
+                .md-generate-model:hover:not(:disabled) { background: #B91C1C; }
+                .md-generate-model:disabled { opacity: 0.75; cursor: default; }
+                .md-generate-model option { color: #1E293B; background: #fff; }
                 .md-actions {
                     display: flex;
                     align-items: center;
@@ -1199,7 +1266,17 @@ const MeetingDetail: React.FC = () => {
                 }
 
                 .speaker-list { padding: 1.5rem; }
-                .speaker-stat { margin-bottom: 1.25rem; }
+                .speaker-stat { margin-bottom: 1.25rem; padding: 0.35rem 0.5rem; margin-left: -0.5rem; margin-right: -0.5rem; border-radius: 8px; transition: background 0.15s, box-shadow 0.15s; }
+                .speaker-stat:hover { background: #F1F5F9; }
+                .speaker-stat-active { background: #EFF6FF; box-shadow: inset 0 0 0 1.5px #2563EB; }
+                .speaker-stat-active .s-name { color: #1D4ED8; }
+                .speaker-filter-chip {
+                    display: inline-flex; align-items: center; gap: 0.35rem;
+                    background: #EFF6FF; border: 1px solid #BFDBFE; color: #1D4ED8;
+                    font-size: 0.75rem; font-weight: 700;
+                    padding: 2px 4px 2px 10px; border-radius: 999px;
+                }
+                .speaker-filter-chip .search-clear { color: #1D4ED8; font-size: 0.7rem; }
                 .speaker-labels {
                     display: flex;
                     justify-content: space-between;

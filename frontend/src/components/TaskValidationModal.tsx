@@ -37,6 +37,7 @@ interface Row {
     mode: 'person' | 'group';
     personUsername: string;
     personDisplayName: string;
+    personEmail: string;
     groupId: number | '';
 }
 
@@ -116,7 +117,7 @@ const AssignmentRow: React.FC<{
         const best = pickBestAdMatch(ad.results, row.personDisplayName);
         if (best) {
             autoPinnedRef.current = true;
-            onChange({ personDisplayName: best.displayName, personUsername: best.username, include: true });
+            onChange({ personDisplayName: best.displayName, personUsername: best.username, personEmail: best.email || '', include: true });
             ad.clearResults();
         }
     }, [ad.results, row.personDisplayName, row.personUsername]);
@@ -163,22 +164,43 @@ const AssignmentRow: React.FC<{
                     <div style={{ position: 'relative' }}>
                         <label style={miniLabel}>Affecter à</label>
                         {row.mode === 'person' ? (
+                            row.personUsername ? (
+                                <div style={fixedPersonStyle} title="Personne trouvée dans l'AD et sélectionnée">
+                                    <CheckCircle2 size={15} style={{ color: '#16a34a', flexShrink: 0 }} />
+                                    <div style={{ flex: 1, minWidth: 0 }}>
+                                        <div style={{ fontWeight: 700, color: '#166534', fontSize: 13, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                            {row.personDisplayName}
+                                        </div>
+                                        <div style={{ fontSize: 10.5, color: '#15803D', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                            {row.personEmail || row.personUsername} · fixé (AD) ✓
+                                        </div>
+                                    </div>
+                                    <button
+                                        type="button"
+                                        onClick={() => onChange({ personUsername: '', personEmail: '', personDisplayName: '' })}
+                                        style={changeBtnStyle}
+                                        title="Retirer cette personne et en choisir une autre"
+                                    >
+                                        Changer
+                                    </button>
+                                </div>
+                            ) : (
                             <>
                                 <input
                                     type="text"
-                                    placeholder="Rechercher dans l'AD..."
+                                    placeholder="Rechercher dans l'AD (sinon texte libre)…"
                                     value={row.personDisplayName}
                                     onChange={e => {
-                                        onChange({ personDisplayName: e.target.value, personUsername: '' });
+                                        onChange({ personDisplayName: e.target.value, personUsername: '', personEmail: '' });
                                         ad.setQuery(e.target.value);
                                     }}
-                                    style={{ ...inputStyle, borderColor: row.personUsername ? '#16a34a' : '#e2e8f0' }}
+                                    style={{ ...inputStyle, borderColor: '#e2e8f0' }}
                                 />
                                 {ad.results.length > 0 && (
                                     <div style={dropdownStyle}>
                                         {ad.results.map(u => (
                                             <div key={u.username} style={dropdownItemStyle}
-                                                onClick={() => { onChange({ personDisplayName: u.displayName, personUsername: u.username }); ad.clearResults(); }}
+                                                onClick={() => { onChange({ personDisplayName: u.displayName, personUsername: u.username, personEmail: u.email || '' }); ad.clearResults(); }}
                                                 onMouseEnter={e => (e.currentTarget.style.background = '#eff6ff')}
                                                 onMouseLeave={e => (e.currentTarget.style.background = 'white')}>
                                                 <UserPlus size={12} style={{ color: '#2563eb', flexShrink: 0 }} />
@@ -191,6 +213,7 @@ const AssignmentRow: React.FC<{
                                     </div>
                                 )}
                             </>
+                            )
                         ) : (
                             <div style={{ position: 'relative' }}>
                                 <select
@@ -252,6 +275,7 @@ const TaskValidationModal: React.FC<Props> = ({ meetingId, meetingTitle, tasks, 
             mode: 'person',
             personUsername: t.assignee_username || '',
             personDisplayName: matchedAgent?.nom || t.assignee || '',
+            personEmail: matchedAgent?.email || '',
             groupId: '',
         };
     }));
@@ -275,7 +299,7 @@ const TaskValidationModal: React.FC<Props> = ({ meetingId, meetingTitle, tasks, 
     const handleSubmit = async () => {
         const toCreate = rows.filter(r =>
             r.include && r.description.trim() &&
-            ((r.mode === 'person' && r.personUsername) || (r.mode === 'group' && r.groupId !== ''))
+            ((r.mode === 'person' && (r.personUsername || r.personDisplayName.trim())) || (r.mode === 'group' && r.groupId !== ''))
         );
         if (toCreate.length === 0) {
             alert("Sélectionnez au moins une tâche avec un destinataire (personne ou groupe de /ticket).");
@@ -295,7 +319,8 @@ const TaskValidationModal: React.FC<Props> = ({ meetingId, meetingTitle, tasks, 
                 if (row.mode === 'group') {
                     body.ticket_group_id = Number(row.groupId);
                 } else {
-                    body.assignees = [row.personUsername];
+                    // Personne fixée dans l'AD, sinon nom en texte libre.
+                    body.assignees = [row.personUsername || row.personDisplayName.trim()];
                 }
                 const created = await axios.post('/api/tasks', body, { headers: { Authorization: `Bearer ${token}` } });
                 // Affectation à un groupe -> plusieurs lignes créées (une par
@@ -386,6 +411,15 @@ const inputStyle: React.CSSProperties = {
     fontSize: '0.85rem', outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box',
 };
 const miniLabel: React.CSSProperties = { fontSize: '0.7rem', fontWeight: 600, color: '#64748B', display: 'block', marginBottom: 2 };
+const fixedPersonStyle: React.CSSProperties = {
+    display: 'flex', alignItems: 'center', gap: 8,
+    border: '1.5px solid #16a34a', background: '#F0FDF4',
+    borderRadius: 8, padding: '0.4rem 0.6rem',
+};
+const changeBtnStyle: React.CSSProperties = {
+    background: 'white', border: '1px solid #86EFAC', color: '#15803D',
+    borderRadius: 6, padding: '3px 8px', fontSize: 11, fontWeight: 700, cursor: 'pointer', flexShrink: 0,
+};
 const dropdownStyle: React.CSSProperties = {
     position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 10, background: 'white',
     border: '1px solid #bfdbfe', borderRadius: 6, boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
