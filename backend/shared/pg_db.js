@@ -2322,9 +2322,19 @@ async function setupPgDb() {
         meeting_id INTEGER NOT NULL REFERENCES transcript.meetings(id) ON DELETE CASCADE,
         email TEXT,
         username TEXT,
-        name TEXT
+        name TEXT,
+        fonction TEXT,
+        direction TEXT,
+        service TEXT
       );
     `);
+    try {
+      await client.query(`ALTER TABLE transcript.meeting_participants ADD COLUMN IF NOT EXISTS fonction TEXT`);
+      await client.query(`ALTER TABLE transcript.meeting_participants ADD COLUMN IF NOT EXISTS direction TEXT`);
+      await client.query(`ALTER TABLE transcript.meeting_participants ADD COLUMN IF NOT EXISTS service TEXT`);
+    } catch (e) {
+        console.error('Error migrating transcript.meeting_participants columns:', e.message);
+    }
     try {
       await client.query(`CREATE INDEX IF NOT EXISTS idx_transcript_meeting_participants_meeting ON transcript.meeting_participants (meeting_id)`);
       await client.query(`CREATE INDEX IF NOT EXISTS idx_transcript_meeting_participants_email ON transcript.meeting_participants (LOWER(email))`);

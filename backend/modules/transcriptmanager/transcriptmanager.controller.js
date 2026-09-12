@@ -75,31 +75,78 @@ async function getAgentOrg(db, email) {
     } catch { return null; }
 }
 
+/** Recherche d'agents RH Studio (lecture). Renvoie le tableau brut `data`
+ *  (champs : nom, prenom, email, service, direction, fonction) ou null. */
+async function rhStudioSearch(q) {
+    const query = String(q || '').trim();
+    if (query.length < 2) return null;
+    let cfg = await pgDb.get('SELECT * FROM hub.infra_apis WHERE key = ?', ['rh_studio_presence']);
+    if (!cfg || !cfg.base_url || !cfg.api_key || cfg.enabled === false) {
+        cfg = await pgDb.get('SELECT * FROM hub.infra_apis WHERE key = ?', ['rh_studio_onboarding']);
+    }
+    if (!cfg || !cfg.base_url || !cfg.api_key || cfg.enabled === false) return null;
+    const url = `${(cfg.base_url || '').replace(/\/+$/, '')}/agents/search?q=${encodeURIComponent(query)}`;
+    const headerName = cfg.header_name || 'x-api-key';
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 8000);
+    try {
+        const resp = await fetch(url, { headers: { [headerName]: cfg.api_key, Accept: 'application/json' }, signal: ctrl.signal });
+        const data = await resp.json().catch(() => ({}));
+        if (!resp.ok) return null;
+        return Array.isArray(data?.data) ? data.data : [];
+    } catch { return null; }
+    finally { clearTimeout(timer); }
+}
+
+const normalizeName = (s) => String(s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z ]/g, ' ').replace(/\s+/g, ' ').trim();
+
+/** Fonction / direction / service d'un agent, via RH Studio (recherche par nom
+ *  puis rapprochement par email / nom complet). Null si non trouvé. */
+async function lookupRhStudioAgent(email, name) {
+    const e = String(email || '').toLowerCase();
+    const surname = String(name || '').trim().split(/\s+/).filter(Boolean).pop() || '';
+    const agents = await rhStudioSearch(surname || name);
+    if (!agents || !agents.length) {
+        // Repli : référentiel RH local
+        const local = await getAgentOrg(pgDb, email);
+        return local;
+    }
+    let best = agents.find(a => String(a.email || '').toLowerCase() === e);
+    if (!best) {
+        const target = normalizeName(name);
+        best = agents.find(a => normalizeName(`${a.prenom || ''} ${a.nom || ''}`) === target)
+            || agents.find(a => normalizeName(`${a.nom || ''} ${a.prenom || ''}`) === target);
+    }
+    if (!best && agents.length === 1 && e.endsWith(`@${ORG_EMAIL_DOMAIN}`)) best = agents[0];
+    if (!best) return null;
+    return { fonction: best.fonction || null, direction: best.direction || null, service: best.service || null };
+}
+
 /** Participants d'une réunion (stockés + intervenants), enrichis pour les
- *  internes avec leur fonction / direction / service. */
+ *  internes avec leur fonction / direction / service. Les valeurs déjà
+ *  enregistrées (éventuellement corrigées à la main) ont priorité. */
 async function buildParticipantsList(db, meetingId) {
     const byEmail = new Map();
     const stored = await db.all(
-        `SELECT DISTINCT LOWER(email) AS email, name FROM transcript.meeting_participants WHERE meeting_id = ? AND email IS NOT NULL`,
+        `SELECT DISTINCT LOWER(email) AS email, name, fonction, direction, service FROM transcript.meeting_participants WHERE meeting_id = ? AND email IS NOT NULL`,
         [meetingId]
     );
-    for (const r of stored) if (r.email) byEmail.set(r.email, r.name || '');
+    for (const r of stored) if (r.email) byEmail.set(r.email, { name: r.name || '', fonction: r.fonction, direction: r.direction, service: r.service });
     const speakers = await db.all(
         `SELECT DISTINCT LOWER(speaker_email) AS email, speaker_name AS name FROM transcript_cues WHERE meeting_id = ? AND speaker_email IS NOT NULL`,
         [meetingId]
     );
-    for (const s of speakers) if (s.email && !byEmail.has(s.email)) byEmail.set(s.email, s.name || '');
+    for (const s of speakers) if (s.email && !byEmail.has(s.email)) byEmail.set(s.email, { name: s.name || '', fonction: null, direction: null, service: null });
 
     const list = [];
-    for (const [email, name] of byEmail.entries()) {
+    for (const [email, info] of byEmail.entries()) {
         const internal = await isInternalEmail(db, email);
-        const org = internal ? await getAgentOrg(db, email) : null;
-        list.push({
-            email, name: name || email, internal,
-            fonction: org?.fonction || null,
-            direction: org?.direction || null,
-            service: org?.service || null,
-        });
+        let { fonction, direction, service } = info;
+        if (internal && !fonction && !direction && !service) {
+            const org = await lookupRhStudioAgent(email, info.name);
+            if (org) { fonction = org.fonction; direction = org.direction; service = org.service; }
+        }
+        list.push({ email, name: info.name || email, internal, fonction: fonction || null, direction: direction || null, service: service || null });
     }
     list.sort((a, b) => (Number(b.internal) - Number(a.internal)) || a.name.localeCompare(b.name, 'fr'));
     return list;
@@ -116,8 +163,14 @@ function buildSummaryEmailHtml({ summaryHtml, message, meetingTitle, meetingDate
     if (meta?.requestedAt) metaParts.push(`le ${esc(fmt(meta.requestedAt))}`);
     if (meta?.model) metaParts.push(`modèle <strong>${esc(meta.model)}</strong>`);
     if (meta?.durationMs != null) metaParts.push(`(${Math.round(meta.durationMs / 1000)}s)`);
-    if (meta?.editedBy) metaParts.push(`— corrigé par <strong>${esc(meta.editedBy)}</strong>${meta.editedAt ? ` le ${esc(fmt(meta.editedAt))}` : ''}`);
     const metaLine = metaParts.length ? `<div style="color:#64748b;font-size:12px;margin:8px 0;">${metaParts.join(' ')}</div>` : '';
+
+    // Statut de vérification : « vérifié » dès qu'il y a eu au moins une
+    // modification humaine du résumé, sinon « issu directement de l'IA ».
+    const verified = !!(meta?.editedBy || meta?.editedAt);
+    const statusLine = verified
+        ? `<div style="margin:6px 0;font-size:13px;color:#15803D;font-weight:700;">✅ Résumé vérifié${meta?.editedBy ? ` (corrigé par ${esc(meta.editedBy)}` : ' ('}${meta?.editedAt ? ` le ${esc(fmt(meta.editedAt))}` : ''}).</div>`
+        : `<div style="margin:6px 0;font-size:13px;color:#B45309;font-weight:700;">🤖 Résumé généré directement par l'IA — non vérifié.</div>`;
 
     const participantsHtml = (participants || []).length ? `
         <div style="margin:16px 0;">
@@ -149,6 +202,7 @@ function buildSummaryEmailHtml({ summaryHtml, message, meetingTitle, meetingDate
         <p>Bonjour,</p>
         <p>Vous recevez le résumé de la réunion <strong>${esc(meetingTitle)}</strong>${meetingDate ? ` du ${esc(meetingDate)}` : ''}.</p>
         ${metaLine}
+        ${statusLine}
         ${message ? `<div style="background:#f8fafc;border-left:3px solid #6366f1;padding:10px 14px;margin:12px 0;border-radius:6px;white-space:pre-wrap;">${esc(message)}</div>` : ''}
         ${participantsHtml}
         ${attHtml}
@@ -165,7 +219,6 @@ function buildSummaryEmailHtml({ summaryHtml, message, meetingTitle, meetingDate
                 ${magappUrl ? `<br/><a href="${esc(magappUrl)}" style="color:#0078a4;font-weight:600;">Ouvrir le magasin d'applications</a>` : ''}
             </div>
         </div>` : ''}
-        <p style="color:#64748b;font-size:13px;">Cordialement,<br/>La DSI</p>
     `;
 }
 
@@ -521,7 +574,7 @@ const transcriptController = {
             }
             const db = pgDb;
             const meetingId = req.params.id;
-            const { recipients, extraEmails, message } = req.body || {};
+            const { recipients, extraEmails, message, participants: bodyParticipants } = req.body || {};
 
             const meeting = await db.get('SELECT * FROM transcript_meetings WHERE id = ?', [meetingId]);
             if (!meeting) return res.status(404).json({ error: 'Réunion non trouvée' });
@@ -557,7 +610,44 @@ const transcriptController = {
             const meetingDate = meeting.meeting_date ? new Date(meeting.meeting_date).toLocaleString('fr-FR') : '';
 
             // Infos complémentaires : participants, plan d'actions, PJ, META.
-            const participants = await buildParticipantsList(db, meetingId);
+            // Les participants éventuellement corrigés dans l'UI ont priorité :
+            // on les persiste (fonction/direction/service) et on les utilise
+            // dans le mail.
+            let participants = await buildParticipantsList(db, meetingId);
+            if (Array.isArray(bodyParticipants) && bodyParticipants.length) {
+                const editedByEmail = new Map();
+                for (const p of bodyParticipants) {
+                    const email = String(p?.email || '').toLowerCase().trim();
+                    if (!email.includes('@')) continue;
+                    const rec = {
+                        email,
+                        name: p?.name || email,
+                        internal: !!p?.internal,
+                        fonction: p?.fonction || null,
+                        direction: p?.direction || null,
+                        service: p?.service || null,
+                    };
+                    editedByEmail.set(email, rec);
+                    // Persiste les champs org (upsert sur meeting_participants).
+                    try {
+                        const upd = await db.run(
+                            `UPDATE transcript.meeting_participants SET fonction = ?, direction = ?, service = ? WHERE meeting_id = ? AND LOWER(email) = ?`,
+                            [rec.fonction, rec.direction, rec.service, meetingId, email]
+                        );
+                        if (!upd || !upd.changes) {
+                            await db.run(
+                                `INSERT INTO transcript.meeting_participants (meeting_id, email, username, name, fonction, direction, service) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+                                [meetingId, email, email.split('@')[0], rec.name, rec.fonction, rec.direction, rec.service]
+                            );
+                        }
+                    } catch (e) { console.error('[TRANSCRIPT MAIL] maj participant échouée:', e.message); }
+                }
+                // Le mail reprend la liste corrigée (ordre interne/externe puis nom).
+                const base = new Map(participants.map(p => [p.email, p]));
+                participants = Array.from(editedByEmail.values())
+                    .map(rec => ({ ...(base.get(rec.email) || {}), ...rec }))
+                    .sort((a, b) => (Number(b.internal) - Number(a.internal)) || a.name.localeCompare(b.name, 'fr'));
+            }
             const tasks = await db.all(
                 `SELECT description, assignee, requester, deadline, is_completed FROM transcript.tasks WHERE meeting_id = ? ORDER BY id`,
                 [meetingId]

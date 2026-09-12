@@ -75,6 +75,11 @@ interface AxiosErrorLike {
     message?: string;
 }
 
+const participantInputStyle: React.CSSProperties = {
+    flex: 1, minWidth: 0, border: '1px solid #E2E8F0', borderRadius: 6,
+    padding: '2px 6px', fontSize: '0.72rem', outline: 'none', background: '#FFFFFF',
+};
+
 const MeetingDetail: React.FC = () => {
     const { id } = useParams();
     const navigate = useNavigate();
@@ -471,6 +476,10 @@ const MeetingDetail: React.FC = () => {
         }
     };
 
+    const updateParticipant = (email: string, patch: Partial<{ fonction: string; direction: string; service: string }>) => {
+        setEmailParticipants(prev => prev.map(p => p.email === email ? { ...p, ...patch } : p));
+    };
+
     const sendSummaryEmail = async () => {
         if (!id || !token) return;
         const recipients = emailParticipants.filter(p => emailSelected.has(p.email));
@@ -484,6 +493,7 @@ const MeetingDetail: React.FC = () => {
         try {
             const res = await axios.post(`/api/transcriptmanager/meeting/${id}/send-summary`, {
                 recipients,
+                participants: emailParticipants,
                 extraEmails: emailExtra,
                 message: emailMessage,
             }, { headers: { Authorization: `Bearer ${token}` } });
@@ -1159,9 +1169,9 @@ const MeetingDetail: React.FC = () => {
                                 </div>
                                 {emailParticipants.length === 0 && <p style={{ color: '#94A3B8', fontSize: '0.85rem', margin: 0 }}>Aucun participant connu pour cette réunion.</p>}
                                 {emailParticipants.length > 0 && (
-                                    <div style={{ display: 'flex', flexDirection: 'column', gap: 2, maxHeight: 220, overflowY: 'auto', border: '1px solid #E2E8F0', borderRadius: 8, padding: 8 }}>
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4, maxHeight: 260, overflowY: 'auto', border: '1px solid #E2E8F0', borderRadius: 8, padding: 8 }}>
                                         {emailParticipants.map(p => (
-                                            <label key={p.email} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.85rem', cursor: 'pointer', padding: '3px 4px', borderRadius: 6 }}>
+                                            <div key={p.email} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.85rem', padding: '3px 4px', borderRadius: 6 }}>
                                                 <input
                                                     type="checkbox"
                                                     checked={emailSelected.has(p.email)}
@@ -1170,18 +1180,41 @@ const MeetingDetail: React.FC = () => {
                                                         if (e.target.checked) n.add(p.email); else n.delete(p.email);
                                                         return n;
                                                     })}
+                                                    style={{ flexShrink: 0 }}
                                                 />
-                                                <span style={{ fontWeight: 600, color: '#1E293B' }}>{p.name}</span>
-                                                <span style={{ color: '#64748B', fontSize: '0.78rem' }}>{p.email}</span>
-                                                {p.internal && (p.fonction || p.direction || p.service) && (
-                                                    <span style={{ color: '#0369A1', fontSize: '0.72rem' }}>
-                                                        {[p.fonction, p.service, p.direction].filter(Boolean).join(' · ')}
-                                                    </span>
+                                                <span style={{ fontWeight: 600, color: '#1E293B', flex: '0 0 auto', maxWidth: 150, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</span>
+                                                <span style={{ color: '#64748B', fontSize: '0.72rem', flex: '0 0 auto', maxWidth: 150, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.email}</span>
+                                                {p.internal ? (
+                                                    <div style={{ display: 'flex', gap: 4, flex: 1, minWidth: 0 }}>
+                                                        <input
+                                                            value={p.fonction || ''}
+                                                            onChange={e => updateParticipant(p.email, { fonction: e.target.value })}
+                                                            placeholder="Fonction"
+                                                            title="Fonction (RH Studio) — modifiable"
+                                                            style={participantInputStyle}
+                                                        />
+                                                        <input
+                                                            value={p.service || ''}
+                                                            onChange={e => updateParticipant(p.email, { service: e.target.value })}
+                                                            placeholder="Service"
+                                                            title="Service (RH Studio) — modifiable"
+                                                            style={participantInputStyle}
+                                                        />
+                                                        <input
+                                                            value={p.direction || ''}
+                                                            onChange={e => updateParticipant(p.email, { direction: e.target.value })}
+                                                            placeholder="Direction"
+                                                            title="Direction (RH Studio) — modifiable"
+                                                            style={participantInputStyle}
+                                                        />
+                                                    </div>
+                                                ) : (
+                                                    <span style={{ flex: 1 }} />
                                                 )}
-                                                <span style={{ marginLeft: 'auto', fontSize: 10, fontWeight: 700, padding: '1px 7px', borderRadius: 999, background: p.internal ? '#DCFCE7' : '#FEF3C7', color: p.internal ? '#15803D' : '#B45309' }}>
+                                                <span style={{ flexShrink: 0, fontSize: 10, fontWeight: 700, padding: '1px 7px', borderRadius: 999, background: p.internal ? '#DCFCE7' : '#FEF3C7', color: p.internal ? '#15803D' : '#B45309' }}>
                                                     {p.internal ? 'interne' : 'externe'}
                                                 </span>
-                                            </label>
+                                            </div>
                                         ))}
                                     </div>
                                 )}
