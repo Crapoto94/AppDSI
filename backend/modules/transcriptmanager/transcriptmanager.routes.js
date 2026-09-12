@@ -52,6 +52,8 @@ router.get('/upload-status/:jobId', authenticateJWT, transcriptController.getImp
 router.get('/teams-transcripts', authenticateJWT, transcriptController.listTeamsTranscripts);
 router.post('/teams-import', authenticateJWT, blockTranscriptGuest, transcriptController.importTeamsTranscript);
 router.post('/meeting/:id/summarize', authenticateJWT, blockTranscriptGuest, transcriptController.summarizeMeeting);
+router.get('/meeting/:id/participants', authenticateJWT, transcriptController.getMeetingParticipants);
+router.post('/meeting/:id/send-summary', authenticateJWT, blockTranscriptGuest, transcriptController.sendMeetingSummary);
 router.get('/ai/models', authenticateJWT, transcriptController.getAiModels);
 router.get('/share-link', authenticateJWT, transcriptController.getShareLink);
 

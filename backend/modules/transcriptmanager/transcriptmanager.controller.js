@@ -11,6 +11,11 @@ const apmAi = require('../../shared/apm_ai');
 const storage = require('../../shared/storage');
 const { listDsiAgents, matchDsiAgent } = require('./agent-match');
 const teamsTranscript = require('./teams_transcript.service');
+const { marked } = require('marked');
+
+// Envoi de mail : injecté depuis server.js (même pattern que /tickets, /live…)
+let _sendMail = null;
+const setSendMail = (fn) => { _sendMail = fn; };
 
 // Module GED pour les pièces jointes : <root>/transcript/<meeting_id>/<fichier>
 const ATTACHMENT_MODULE = 'transcript';
@@ -35,6 +40,46 @@ function participantExistsSql() {
             WHERE mp.meeting_id = m.id
             AND (LOWER(mp.email) = ? OR LOWER(mp.email) = ? OR LOWER(mp.username) = ? OR LOWER(mp.username) = ?)
         )`;
+}
+
+// --- Envoi du résumé par mail ---
+const ORG_EMAIL_DOMAIN = 'ivry94.fr';
+
+/** Un participant est « interne » s'il s'agit du domaine de la collectivité ou
+ *  s'il existe dans hub.users (par email ou nom d'utilisateur). */
+async function isInternalEmail(db, email) {
+    const e = String(email || '').toLowerCase().trim();
+    if (!e.includes('@')) return false;
+    if (e.endsWith(`@${ORG_EMAIL_DOMAIN}`)) return true;
+    try {
+        const local = e.split('@')[0];
+        const found = await db.get('SELECT 1 FROM hub.users WHERE LOWER(email) = ? OR LOWER(username) = ? LIMIT 1', [e, local]);
+        return !!found;
+    } catch { return false; }
+}
+
+/** Corps HTML du mail de résumé. L'encart « magasin d'applications » n'est
+ *  ajouté QUE pour les destinataires internes. */
+function buildSummaryEmailHtml({ summaryHtml, message, meetingTitle, meetingDate, internal, magappUrl }) {
+    const esc = (s) => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    return `
+        <p>Bonjour,</p>
+        <p>Vous recevez le résumé de la réunion <strong>${esc(meetingTitle)}</strong>${meetingDate ? ` du ${esc(meetingDate)}` : ''}.</p>
+        ${message ? `<div style="background:#f8fafc;border-left:3px solid #6366f1;padding:10px 14px;margin:12px 0;border-radius:6px;white-space:pre-wrap;">${esc(message)}</div>` : ''}
+        <div style="margin:16px 0;padding:16px;border:1px solid #e2e8f0;border-radius:10px;background:#ffffff;">
+            ${summaryHtml}
+        </div>
+        ${internal ? `
+        <div style="margin:16px 0;padding:14px 16px;border:1px solid #bae6fd;background:#f0f9ff;border-radius:10px;">
+            <div style="font-weight:700;color:#0369a1;margin-bottom:6px;">📁 Transcript complet &amp; résumé disponibles</div>
+            <div style="color:#0c4a6e;font-size:14px;line-height:1.5;">
+                Le transcript complet et le résumé de cette réunion sont disponibles et accessibles via le
+                <strong>magasin d'applications</strong> (bouton « Mon Transcript Manager »).
+                ${magappUrl ? `<br/><a href="${esc(magappUrl)}" style="color:#0078a4;font-weight:600;">Ouvrir le magasin d'applications</a>` : ''}
+            </div>
+        </div>` : ''}
+        <p style="color:#64748b;font-size:13px;">Cordialement,<br/>La DSI</p>
+    `;
 }
 
 const DEFAULT_PROMPT_TEMPLATE = `Tu es un assistant spécialisé dans la synthèse de réunions de direction d'un service informatique (DSI) municipal.
@@ -82,6 +127,8 @@ let importJobs = {};
 let summarizeJobs = {};
 
 const transcriptController = {
+    setSendMail(fn) { _sendMail = fn; },
+
     /**
      * Get all meetings
      */
@@ -343,6 +390,110 @@ const transcriptController = {
 
             const cues = await db.all('SELECT * FROM transcript_cues WHERE meeting_id = ? ORDER BY start_seconds', [meetingId]);
             res.json({ ...meeting, cues });
+        } catch (error) {
+            res.status(500).json({ error: error.message });
+        }
+    },
+
+    /**
+     * Liste les participants d'une réunion (importés depuis Teams + intervenants
+     * du transcript), en distinguant internes et externes. Sert à l'envoi du
+     * résumé par mail (cases à cocher).
+     */
+    getMeetingParticipants: async (req, res) => {
+        try {
+            const db = pgDb;
+            const meetingId = req.params.id;
+            const meeting = await db.get('SELECT id FROM transcript_meetings WHERE id = ?', [meetingId]);
+            if (!meeting) return res.status(404).json({ error: 'Réunion non trouvée' });
+
+            const byEmail = new Map();
+            const stored = await db.all(
+                `SELECT DISTINCT LOWER(email) AS email, name FROM transcript.meeting_participants WHERE meeting_id = ? AND email IS NOT NULL`,
+                [meetingId]
+            );
+            for (const r of stored) if (r.email) byEmail.set(r.email, r.name || '');
+            const speakers = await db.all(
+                `SELECT DISTINCT LOWER(speaker_email) AS email, speaker_name AS name FROM transcript_cues WHERE meeting_id = ? AND speaker_email IS NOT NULL`,
+                [meetingId]
+            );
+            for (const s of speakers) if (s.email && !byEmail.has(s.email)) byEmail.set(s.email, s.name || '');
+
+            const participants = [];
+            for (const [email, name] of byEmail.entries()) {
+                participants.push({ email, name: name || email, internal: await isInternalEmail(db, email) });
+            }
+            participants.sort((a, b) => (Number(b.internal) - Number(a.internal)) || a.name.localeCompare(b.name, 'fr'));
+            res.json(participants);
+        } catch (error) {
+            res.status(500).json({ error: error.message });
+        }
+    },
+
+    /**
+     * Envoie le résumé IA par mail aux destinataires sélectionnés. Les internes
+     * reçoivent en plus un encart indiquant que le transcript complet et le
+     * résumé sont accessibles via le magasin d'applications.
+     */
+    sendMeetingSummary: async (req, res) => {
+        try {
+            if (typeof _sendMail !== 'function') {
+                return res.status(500).json({ error: "Service d'envoi de mail indisponible" });
+            }
+            const db = pgDb;
+            const meetingId = req.params.id;
+            const { recipients, extraEmails, message } = req.body || {};
+
+            const meeting = await db.get('SELECT * FROM transcript_meetings WHERE id = ?', [meetingId]);
+            if (!meeting) return res.status(404).json({ error: 'Réunion non trouvée' });
+            const bodySummary = meeting.summary ? stripSummaryMeta(meeting.summary).trim() : '';
+            if (!bodySummary) {
+                return res.status(400).json({ error: "Aucun résumé à envoyer. Générez d'abord un résumé IA." });
+            }
+
+            // Destinataires : participants cochés + adresses libres.
+            const targets = new Map();
+            for (const r of (Array.isArray(recipients) ? recipients : [])) {
+                const email = String(r?.email || '').trim().toLowerCase();
+                if (!email.includes('@')) continue;
+                targets.set(email, { email, name: r?.name || email, internal: !!r?.internal });
+            }
+            const extra = String(extraEmails || '')
+                .split(/[;,\s]+/).map(e => e.trim().toLowerCase()).filter(e => e.includes('@'));
+            for (const email of extra) {
+                if (!targets.has(email)) {
+                    targets.set(email, { email, name: email, internal: await isInternalEmail(db, email) });
+                }
+            }
+            if (targets.size === 0) return res.status(400).json({ error: 'Aucun destinataire sélectionné.' });
+
+            // URL du magasin d'applications (optionnelle).
+            let magappUrl = process.env.MAGAPP_URL || '';
+            try {
+                const row = await getSqlite()?.get("SELECT setting_value FROM app_settings WHERE setting_key = 'magapp_base_url'");
+                magappUrl = (row?.setting_value || '').trim() || magappUrl;
+            } catch { /* optionnel */ }
+
+            const summaryHtml = marked.parse(bodySummary);
+            const meetingDate = meeting.meeting_date ? new Date(meeting.meeting_date).toLocaleString('fr-FR') : '';
+
+            let sent = 0, failed = 0;
+            const errors = [];
+            for (const t of targets.values()) {
+                try {
+                    const html = buildSummaryEmailHtml({
+                        summaryHtml, message: message || '', meetingTitle: meeting.title || 'Réunion',
+                        meetingDate, internal: t.internal, magappUrl,
+                    });
+                    await _sendMail(t.email, `Résumé de la réunion : ${meeting.title || ''}`.trim(), html, [], 'transcript');
+                    sent++;
+                } catch (e) {
+                    failed++;
+                    errors.push(`${t.email}: ${e.message}`);
+                    console.error('[TRANSCRIPT MAIL] échec pour', t.email, e.message);
+                }
+            }
+            res.json({ sent, failed, total: targets.size, errors });
         } catch (error) {
             res.status(500).json({ error: error.message });
         }

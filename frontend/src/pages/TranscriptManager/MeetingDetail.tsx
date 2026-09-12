@@ -5,7 +5,7 @@ import {
     ArrowLeft, Calendar, Clock,
     CheckCircle2, Circle, RefreshCw,
     MessageSquare, ListTodo, FileText, Search, Users, Share2, Building2, CheckCircle, UserCheck,
-    Paperclip, Upload, Trash2, Bot
+    Paperclip, Upload, Trash2, Bot, Mail, Send, X
 } from 'lucide-react';
 import AgentPresenceBadge from '../../components/AgentPresenceBadge';
 import TaskValidationModal from '../../components/TaskValidationModal';
@@ -109,6 +109,15 @@ const MeetingDetail: React.FC = () => {
     const [aiSource, setAiSource] = useState<'apm' | 'local'>('apm');
     const [dsiAgents, setDsiAgents] = useState<DsiAgent[]>([]);
     const [showTaskValidation, setShowTaskValidation] = useState(false);
+    // Envoi du résumé IA par mail
+    const [showEmailModal, setShowEmailModal] = useState(false);
+    const [emailParticipants, setEmailParticipants] = useState<{ email: string; name: string; internal: boolean }[]>([]);
+    const [emailSelected, setEmailSelected] = useState<Set<string>>(new Set());
+    const [emailExtra, setEmailExtra] = useState('');
+    const [emailMessage, setEmailMessage] = useState('');
+    const [emailSending, setEmailSending] = useState(false);
+    const [emailResult, setEmailResult] = useState<{ sent: number; failed: number } | null>(null);
+    const [emailError, setEmailError] = useState('');
     const [isEditingSummary, setIsEditingSummary] = useState(false);
     const [summaryDraft, setSummaryDraft] = useState("");
     const [editingTaskId, setEditingTaskId] = useState<number | null>(null);
@@ -430,6 +439,54 @@ const MeetingDetail: React.FC = () => {
             setIsEditingSummary(false);
         } catch (err) { console.error(err); }
         finally { setIsSaving(false); }
+    };
+
+    // ===== Envoi du résumé IA par mail =====
+    const openEmailModal = async () => {
+        if (!id || !token) return;
+        setEmailError('');
+        setEmailResult(null);
+        setEmailExtra('');
+        setEmailMessage('');
+        setEmailParticipants([]);
+        setEmailSelected(new Set());
+        setShowEmailModal(true);
+        try {
+            const res = await axios.get(`/api/transcriptmanager/meeting/${id}/participants`, {
+                headers: { Authorization: `Bearer ${token}` }
+            });
+            const list = Array.isArray(res.data) ? res.data : [];
+            setEmailParticipants(list);
+            setEmailSelected(new Set(list.map((p: { email: string }) => p.email)));
+        } catch (err) {
+            const e = err as AxiosErrorLike;
+            setEmailError(e?.response?.data?.error || e?.message || 'Erreur lors du chargement des participants');
+        }
+    };
+
+    const sendSummaryEmail = async () => {
+        if (!id || !token) return;
+        const recipients = emailParticipants.filter(p => emailSelected.has(p.email));
+        if (recipients.length === 0 && !emailExtra.trim()) {
+            alert('Sélectionnez au moins un destinataire (participant ou email libre).');
+            return;
+        }
+        setEmailSending(true);
+        setEmailError('');
+        setEmailResult(null);
+        try {
+            const res = await axios.post(`/api/transcriptmanager/meeting/${id}/send-summary`, {
+                recipients,
+                extraEmails: emailExtra,
+                message: emailMessage,
+            }, { headers: { Authorization: `Bearer ${token}` } });
+            setEmailResult({ sent: res.data?.sent ?? 0, failed: res.data?.failed ?? 0 });
+        } catch (err) {
+            const e = err as AxiosErrorLike;
+            setEmailError(e?.response?.data?.error || e?.message || "Erreur lors de l'envoi");
+        } finally {
+            setEmailSending(false);
+        }
     };
 
     const handleSaveTask = async (taskId: number) => {
@@ -958,10 +1015,17 @@ const MeetingDetail: React.FC = () => {
                                 <MessageSquare size={18} />
                                 <h2>Résumé Exécutif</h2>
                                 {!isGenerating && !isEditingSummary && (
-                                    <button className="md-btn-edit" onClick={() => {
-                                        setSummaryDraft(meeting.summary || '');
-                                        setIsEditingSummary(true);
-                                    }}>Modifier</button>
+                                    <div style={{ display: 'flex', gap: '0.5rem' }}>
+                                        {meeting.summary && (
+                                            <button className="md-btn-edit email" onClick={openEmailModal} title="Envoyer le résumé par mail aux participants">
+                                                <Mail size={14} style={{ verticalAlign: -2, marginRight: 4 }} />Envoyer par mail
+                                            </button>
+                                        )}
+                                        <button className="md-btn-edit" onClick={() => {
+                                            setSummaryDraft(meeting.summary || '');
+                                            setIsEditingSummary(true);
+                                        }}>Modifier</button>
+                                    </div>
                                 )}
                             </div>
                             <div className="summary-content">
@@ -1046,6 +1110,82 @@ const MeetingDetail: React.FC = () => {
                     onClose={() => setShowTaskValidation(false)}
                     onValidated={() => { fetchData(); }}
                 />
+            )}
+
+            {showEmailModal && (
+                <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1100 }}>
+                    <div style={{ background: 'white', borderRadius: 16, width: '90%', maxWidth: 680, maxHeight: '85vh', display: 'flex', flexDirection: 'column', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.15)', overflow: 'hidden' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '1.25rem 1.5rem 0.5rem' }}>
+                            <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 700 }}>Envoyer le résumé par mail</h3>
+                            <button onClick={() => setShowEmailModal(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#64748B' }}><X size={18} /></button>
+                        </div>
+                        <div style={{ padding: '0.5rem 1.5rem', overflowY: 'auto', flex: 1, display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                            <div>
+                                <div style={{ fontWeight: 600, fontSize: '0.85rem', color: '#334155', marginBottom: 6 }}>
+                                    Participants {emailParticipants.length > 0 ? `(${emailSelected.size}/${emailParticipants.length} sélectionné${emailSelected.size > 1 ? 's' : ''})` : ''}
+                                </div>
+                                {emailParticipants.length === 0 && <p style={{ color: '#94A3B8', fontSize: '0.85rem', margin: 0 }}>Aucun participant connu pour cette réunion.</p>}
+                                {emailParticipants.length > 0 && (
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: 2, maxHeight: 220, overflowY: 'auto', border: '1px solid #E2E8F0', borderRadius: 8, padding: 8 }}>
+                                        {emailParticipants.map(p => (
+                                            <label key={p.email} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.85rem', cursor: 'pointer', padding: '3px 4px', borderRadius: 6 }}>
+                                                <input
+                                                    type="checkbox"
+                                                    checked={emailSelected.has(p.email)}
+                                                    onChange={e => setEmailSelected(prev => {
+                                                        const n = new Set(prev);
+                                                        if (e.target.checked) n.add(p.email); else n.delete(p.email);
+                                                        return n;
+                                                    })}
+                                                />
+                                                <span style={{ fontWeight: 600, color: '#1E293B' }}>{p.name}</span>
+                                                <span style={{ color: '#64748B', fontSize: '0.78rem' }}>{p.email}</span>
+                                                <span style={{ marginLeft: 'auto', fontSize: 10, fontWeight: 700, padding: '1px 7px', borderRadius: 999, background: p.internal ? '#DCFCE7' : '#FEF3C7', color: p.internal ? '#15803D' : '#B45309' }}>
+                                                    {p.internal ? 'interne' : 'externe'}
+                                                </span>
+                                            </label>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+                            <div>
+                                <div style={{ fontWeight: 600, fontSize: '0.85rem', color: '#334155', marginBottom: 6 }}>Destinataires supplémentaires (emails séparés par ; ou ,)</div>
+                                <input
+                                    type="text"
+                                    value={emailExtra}
+                                    onChange={e => setEmailExtra(e.target.value)}
+                                    placeholder="prenom.nom@exemple.fr ; autre@exemple.fr"
+                                    style={{ width: '100%', border: '1px solid #E2E8F0', borderRadius: 8, padding: '0.5rem 0.7rem', fontSize: '0.85rem', outline: 'none', boxSizing: 'border-box' }}
+                                />
+                            </div>
+                            <div>
+                                <div style={{ fontWeight: 600, fontSize: '0.85rem', color: '#334155', marginBottom: 6 }}>Message d'accompagnement (optionnel)</div>
+                                <textarea
+                                    value={emailMessage}
+                                    onChange={e => setEmailMessage(e.target.value)}
+                                    rows={3}
+                                    placeholder="Texte libre..."
+                                    style={{ width: '100%', border: '1px solid #E2E8F0', borderRadius: 8, padding: '0.5rem 0.7rem', fontSize: '0.85rem', outline: 'none', boxSizing: 'border-box', resize: 'vertical', fontFamily: 'inherit' }}
+                                />
+                            </div>
+                            <div style={{ fontSize: '0.78rem', color: '#64748B' }}>
+                                Les participants <strong>internes</strong> recevront en plus un encart indiquant que le transcript complet et le résumé sont accessibles via le magasin d'applications.
+                            </div>
+                            {emailError && <div style={{ color: '#B91C1C', fontSize: '0.85rem' }}>{emailError}</div>}
+                            {emailResult && (
+                                <div style={{ color: emailResult.failed ? '#B91C1C' : '#15803D', fontSize: '0.85rem' }}>
+                                    {emailResult.sent} mail(s) envoyé(s){emailResult.failed ? `, ${emailResult.failed} échec(s)` : ''}.
+                                </div>
+                            )}
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem', padding: '1rem 1.5rem', borderTop: '1px solid #F1F5F9' }}>
+                            <button onClick={() => setShowEmailModal(false)} style={{ background: '#F1F5F9', color: '#64748B', border: 'none', padding: '0.6rem 1.25rem', borderRadius: 8, fontWeight: 600, cursor: 'pointer' }}>Fermer</button>
+                            <button onClick={sendSummaryEmail} disabled={emailSending} style={{ background: '#DC2626', color: 'white', border: 'none', padding: '0.6rem 1.25rem', borderRadius: 8, fontWeight: 600, cursor: emailSending ? 'default' : 'pointer', opacity: emailSending ? 0.7 : 1 }}>
+                                <Send size={14} style={{ verticalAlign: -2, marginRight: 6 }} />{emailSending ? 'Envoi…' : 'Envoyer'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
             )}
 
             <style>{`

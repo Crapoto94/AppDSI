@@ -6180,6 +6180,9 @@ liveCtrl.setSendMail(sendMail);
 liveCtrl.startScheduler();
 app.use('/api/live', liveRouter);
 
+// ── Transcript Manager : envoi du résumé IA par mail ──────────────────
+require('./modules/transcriptmanager/transcriptmanager.controller').setSendMail(sendMail);
+
 // Module documents centralisé (gestion documentaire avec versionning)
 app.use('/api/documents', require('./modules/documents/documents.routes'));
 
