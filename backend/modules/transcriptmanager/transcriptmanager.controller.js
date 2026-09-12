@@ -58,17 +58,103 @@ async function isInternalEmail(db, email) {
     } catch { return false; }
 }
 
-/** Corps HTML du mail de résumé. L'encart « magasin d'applications » n'est
- *  ajouté QUE pour les destinataires internes. */
-function buildSummaryEmailHtml({ summaryHtml, message, meetingTitle, meetingDate, internal, magappUrl }) {
+/** Fonction / direction / service d'un agent ville (référentiel RH Postgres). */
+async function getAgentOrg(db, email) {
+    const local = String(email || '').split('@')[0].toLowerCase().trim();
+    if (!local) return null;
+    try {
+        const row = await db.get(`
+            SELECT DIRECTION_L AS direction, SERVICE_L AS service,
+                   COALESCE(NULLIF(POSTE_L, ''), FONCTION_L) AS fonction
+            FROM rh.referentiel_agents
+            WHERE LOWER(ad_username) = ?
+            LIMIT 1
+        `, [local]);
+        return row || null;
+    } catch { return null; }
+}
+
+/** Participants d'une réunion (stockés + intervenants), enrichis pour les
+ *  internes avec leur fonction / direction / service. */
+async function buildParticipantsList(db, meetingId) {
+    const byEmail = new Map();
+    const stored = await db.all(
+        `SELECT DISTINCT LOWER(email) AS email, name FROM transcript.meeting_participants WHERE meeting_id = ? AND email IS NOT NULL`,
+        [meetingId]
+    );
+    for (const r of stored) if (r.email) byEmail.set(r.email, r.name || '');
+    const speakers = await db.all(
+        `SELECT DISTINCT LOWER(speaker_email) AS email, speaker_name AS name FROM transcript_cues WHERE meeting_id = ? AND speaker_email IS NOT NULL`,
+        [meetingId]
+    );
+    for (const s of speakers) if (s.email && !byEmail.has(s.email)) byEmail.set(s.email, s.name || '');
+
+    const list = [];
+    for (const [email, name] of byEmail.entries()) {
+        const internal = await isInternalEmail(db, email);
+        const org = internal ? await getAgentOrg(db, email) : null;
+        list.push({
+            email, name: name || email, internal,
+            fonction: org?.fonction || null,
+            direction: org?.direction || null,
+            service: org?.service || null,
+        });
+    }
+    list.sort((a, b) => (Number(b.internal) - Number(a.internal)) || a.name.localeCompare(b.name, 'fr'));
+    return list;
+}
+
+/** Corps HTML du mail : META, participants, PJ, résumé, plan d'actions.
+ *  L'encart « magasin d'applications » n'est ajouté QUE pour les internes. */
+function buildSummaryEmailHtml({ summaryHtml, message, meetingTitle, meetingDate, internal, magappUrl, participants, tasks, meta, attachmentNames }) {
     const esc = (s) => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const fmt = (d) => d ? new Date(d).toLocaleString('fr-FR') : '';
+
+    const metaParts = [];
+    if (meta?.requester) metaParts.push(`Résumé généré par <strong>${esc(meta.requester)}</strong>`);
+    if (meta?.requestedAt) metaParts.push(`le ${esc(fmt(meta.requestedAt))}`);
+    if (meta?.model) metaParts.push(`modèle <strong>${esc(meta.model)}</strong>`);
+    if (meta?.durationMs != null) metaParts.push(`(${Math.round(meta.durationMs / 1000)}s)`);
+    if (meta?.editedBy) metaParts.push(`— corrigé par <strong>${esc(meta.editedBy)}</strong>${meta.editedAt ? ` le ${esc(fmt(meta.editedAt))}` : ''}`);
+    const metaLine = metaParts.length ? `<div style="color:#64748b;font-size:12px;margin:8px 0;">${metaParts.join(' ')}</div>` : '';
+
+    const participantsHtml = (participants || []).length ? `
+        <div style="margin:16px 0;">
+            <div style="font-weight:700;color:#334155;margin-bottom:6px;">👥 Participants (${participants.length})</div>
+            <ul style="margin:0;padding-left:18px;color:#334155;font-size:14px;line-height:1.6;">
+                ${participants.map(p => {
+                    const extra = p.internal && (p.fonction || p.direction || p.service)
+                        ? ` — ${[p.fonction, p.service, p.direction].filter(Boolean).map(esc).join(' · ')}`
+                        : '';
+                    return `<li>${esc(p.name)} &lt;${esc(p.email)}&gt;${extra}</li>`;
+                }).join('')}
+            </ul>
+        </div>` : '';
+
+    const tasksHtml = (tasks || []).length ? `
+        <div style="margin:16px 0;">
+            <div style="font-weight:700;color:#334155;margin-bottom:6px;">✅ Plan d'actions (${tasks.length})</div>
+            <ul style="margin:0;padding-left:18px;color:#334155;font-size:14px;line-height:1.6;">
+                ${tasks.map(t => `<li>${esc(t.description)}${t.assignee ? ` — <strong>${esc(t.assignee)}</strong>` : ''}${t.deadline ? ` (échéance : ${esc(t.deadline)})` : ''}${t.requester ? ` · demandé par ${esc(t.requester)}` : ''}</li>`).join('')}
+            </ul>
+        </div>` : '';
+
+    const attHtml = (attachmentNames || []).length ? `
+        <div style="margin:16px 0;color:#334155;font-size:14px;">
+            📎 <strong>Pièces jointes :</strong> ${attachmentNames.map(esc).join(', ')}
+        </div>` : '';
+
     return `
         <p>Bonjour,</p>
         <p>Vous recevez le résumé de la réunion <strong>${esc(meetingTitle)}</strong>${meetingDate ? ` du ${esc(meetingDate)}` : ''}.</p>
+        ${metaLine}
         ${message ? `<div style="background:#f8fafc;border-left:3px solid #6366f1;padding:10px 14px;margin:12px 0;border-radius:6px;white-space:pre-wrap;">${esc(message)}</div>` : ''}
+        ${participantsHtml}
+        ${attHtml}
         <div style="margin:16px 0;padding:16px;border:1px solid #e2e8f0;border-radius:10px;background:#ffffff;">
             ${summaryHtml}
         </div>
+        ${tasksHtml}
         ${internal ? `
         <div style="margin:16px 0;padding:14px 16px;border:1px solid #bae6fd;background:#f0f9ff;border-radius:10px;">
             <div style="font-weight:700;color:#0369a1;margin-bottom:6px;">📁 Transcript complet &amp; résumé disponibles</div>
@@ -407,23 +493,7 @@ const transcriptController = {
             const meeting = await db.get('SELECT id FROM transcript_meetings WHERE id = ?', [meetingId]);
             if (!meeting) return res.status(404).json({ error: 'Réunion non trouvée' });
 
-            const byEmail = new Map();
-            const stored = await db.all(
-                `SELECT DISTINCT LOWER(email) AS email, name FROM transcript.meeting_participants WHERE meeting_id = ? AND email IS NOT NULL`,
-                [meetingId]
-            );
-            for (const r of stored) if (r.email) byEmail.set(r.email, r.name || '');
-            const speakers = await db.all(
-                `SELECT DISTINCT LOWER(speaker_email) AS email, speaker_name AS name FROM transcript_cues WHERE meeting_id = ? AND speaker_email IS NOT NULL`,
-                [meetingId]
-            );
-            for (const s of speakers) if (s.email && !byEmail.has(s.email)) byEmail.set(s.email, s.name || '');
-
-            const participants = [];
-            for (const [email, name] of byEmail.entries()) {
-                participants.push({ email, name: name || email, internal: await isInternalEmail(db, email) });
-            }
-            participants.sort((a, b) => (Number(b.internal) - Number(a.internal)) || a.name.localeCompare(b.name, 'fr'));
+            const participants = await buildParticipantsList(db, meetingId);
             res.json(participants);
         } catch (error) {
             res.status(500).json({ error: error.message });
@@ -477,6 +547,49 @@ const transcriptController = {
             const summaryHtml = marked.parse(bodySummary);
             const meetingDate = meeting.meeting_date ? new Date(meeting.meeting_date).toLocaleString('fr-FR') : '';
 
+            // Infos complémentaires : participants, plan d'actions, PJ, META.
+            const participants = await buildParticipantsList(db, meetingId);
+            const tasks = await db.all(
+                `SELECT description, assignee, requester, deadline, is_completed FROM transcript.tasks WHERE meeting_id = ? ORDER BY id`,
+                [meetingId]
+            );
+            const meta = {
+                requester: meeting.summary_requester || null,
+                model: meeting.summary_model || null,
+                requestedAt: meeting.summary_requested_at || null,
+                durationMs: meeting.summary_duration_ms != null ? meeting.summary_duration_ms : null,
+                editedBy: meeting.summary_edited_by || null,
+                editedAt: meeting.summary_edited_at || null,
+            };
+
+            // Pièces jointes de la réunion → envoyées en pièces jointes du mail.
+            const attRows = await db.all(
+                `SELECT * FROM transcript.meeting_attachments WHERE meeting_id = ? ORDER BY created_at`,
+                [meetingId]
+            );
+            const attachments = [];
+            const attachmentNames = [];
+            for (const att of attRows) {
+                const displayName = att.original_name || att.filename || 'fichier';
+                try {
+                    const storagePath = att.file_path || (storage.isStoragePath(att.filename) ? att.filename : null);
+                    let buf = null;
+                    if (storagePath) {
+                        const f = await storage.getFileForServe(storagePath);
+                        if (f) buf = f.buffer || (f.absolutePath ? fs.readFileSync(f.absolutePath) : null);
+                    } else {
+                        const p = path.join(__dirname, '..', '..', 'file_reunions', att.filename);
+                        if (fs.existsSync(p)) buf = fs.readFileSync(p);
+                    }
+                    if (buf) {
+                        attachments.push({ filename: displayName, content: buf.toString('base64') });
+                        attachmentNames.push(displayName);
+                    }
+                } catch (e) {
+                    console.error('[TRANSCRIPT MAIL] PJ non ajoutée:', displayName, e.message);
+                }
+            }
+
             let sent = 0, failed = 0;
             const errors = [];
             for (const t of targets.values()) {
@@ -484,8 +597,9 @@ const transcriptController = {
                     const html = buildSummaryEmailHtml({
                         summaryHtml, message: message || '', meetingTitle: meeting.title || 'Réunion',
                         meetingDate, internal: t.internal, magappUrl,
+                        participants, tasks, meta, attachmentNames,
                     });
-                    await _sendMail(t.email, `Résumé de la réunion : ${meeting.title || ''}`.trim(), html, [], 'transcript');
+                    await _sendMail(t.email, `Résumé de la réunion : ${meeting.title || ''}`.trim(), html, attachments, 'transcript');
                     sent++;
                 } catch (e) {
                     failed++;

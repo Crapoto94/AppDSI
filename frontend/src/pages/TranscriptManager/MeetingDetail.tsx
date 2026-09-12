@@ -111,7 +111,7 @@ const MeetingDetail: React.FC = () => {
     const [showTaskValidation, setShowTaskValidation] = useState(false);
     // Envoi du résumé IA par mail
     const [showEmailModal, setShowEmailModal] = useState(false);
-    const [emailParticipants, setEmailParticipants] = useState<{ email: string; name: string; internal: boolean }[]>([]);
+    const [emailParticipants, setEmailParticipants] = useState<{ email: string; name: string; internal: boolean; fonction?: string | null; direction?: string | null; service?: string | null }[]>([]);
     const [emailSelected, setEmailSelected] = useState<Set<string>>(new Set());
     const [emailExtra, setEmailExtra] = useState('');
     const [emailMessage, setEmailMessage] = useState('');
@@ -643,6 +643,17 @@ const MeetingDetail: React.FC = () => {
                                 </select>
                             </div>
                         )}
+                        {meeting.summary && (
+                            <button
+                                className="md-btn-email"
+                                onClick={openEmailModal}
+                                disabled={isGenerating}
+                                title="Envoyer le résumé par mail aux participants"
+                            >
+                                <Mail size={18} />
+                                Envoyer par mail
+                            </button>
+                        )}
                     </div>
                 </div>
 
@@ -1016,11 +1027,6 @@ const MeetingDetail: React.FC = () => {
                                 <h2>Résumé Exécutif</h2>
                                 {!isGenerating && !isEditingSummary && (
                                     <div style={{ display: 'flex', gap: '0.5rem' }}>
-                                        {meeting.summary && (
-                                            <button className="md-btn-edit email" onClick={openEmailModal} title="Envoyer le résumé par mail aux participants">
-                                                <Mail size={14} style={{ verticalAlign: -2, marginRight: 4 }} />Envoyer par mail
-                                            </button>
-                                        )}
                                         <button className="md-btn-edit" onClick={() => {
                                             setSummaryDraft(meeting.summary || '');
                                             setIsEditingSummary(true);
@@ -1140,6 +1146,11 @@ const MeetingDetail: React.FC = () => {
                                                 />
                                                 <span style={{ fontWeight: 600, color: '#1E293B' }}>{p.name}</span>
                                                 <span style={{ color: '#64748B', fontSize: '0.78rem' }}>{p.email}</span>
+                                                {p.internal && (p.fonction || p.direction || p.service) && (
+                                                    <span style={{ color: '#0369A1', fontSize: '0.72rem' }}>
+                                                        {[p.fonction, p.service, p.direction].filter(Boolean).join(' · ')}
+                                                    </span>
+                                                )}
                                                 <span style={{ marginLeft: 'auto', fontSize: 10, fontWeight: 700, padding: '1px 7px', borderRadius: 999, background: p.internal ? '#DCFCE7' : '#FEF3C7', color: p.internal ? '#15803D' : '#B45309' }}>
                                                     {p.internal ? 'interne' : 'externe'}
                                                 </span>
@@ -1239,6 +1250,27 @@ const MeetingDetail: React.FC = () => {
                     background: #B91C1C;
                     transform: translateY(-1px);
                 }
+                /* Gros bouton « Envoyer par mail » (à côté de Générer résumé IA) */
+                .md-btn-email {
+                    display: flex;
+                    align-items: center;
+                    gap: 0.5rem;
+                    background: #0078A4;
+                    color: white;
+                    border: none;
+                    padding: 0.6rem 1.25rem;
+                    border-radius: 8px;
+                    font-weight: 600;
+                    font-size: 0.9rem;
+                    cursor: pointer;
+                    transition: all 0.2s;
+                    box-shadow: 0 4px 6px -1px rgba(0, 120, 164, 0.25);
+                }
+                .md-btn-email:hover:not(:disabled) {
+                    background: #006287;
+                    transform: translateY(-1px);
+                }
+                .md-btn-email:disabled { opacity: 0.6; cursor: not-allowed; }
                 /* Bouton « Générer résumé IA » avec le choix du modèle intégré à droite */
                 .md-generate-group {
                     display: inline-flex;
