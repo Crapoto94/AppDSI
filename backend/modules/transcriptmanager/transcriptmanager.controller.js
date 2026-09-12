@@ -1459,8 +1459,13 @@ transcriptController.getShareLink = async (req, res) => {
             is_approved: 1,
             scope: 'transcript',
         }, SECRET_KEY);
-        const baseUrl = `${req.protocol}://${req.get('host')}`;
-        res.json({ url: `${baseUrl}/transcript/${shareToken}` });
+        let appBaseUrl = process.env.FRONTEND_URL || process.env.APP_BASE_URL || process.env.APP_URL || '';
+        try {
+            const baseRow = await db.get("SELECT setting_value FROM app_settings WHERE setting_key = 'app_base_url'");
+            appBaseUrl = (baseRow?.setting_value || '').trim() || appBaseUrl;
+        } catch { /* repli env */ }
+        appBaseUrl = (appBaseUrl || `${req.protocol}://${req.get('host')}`).replace(/\/+$/, '');
+        res.json({ url: `${appBaseUrl}/transcript/${shareToken}` });
     } catch (err) {
         console.error('[TranscriptManager] Erreur génération du lien de partage:', err);
         res.status(500).json({ message: err.message || 'Erreur génération du lien de partage' });
