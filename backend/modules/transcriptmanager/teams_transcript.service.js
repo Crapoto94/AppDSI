@@ -256,7 +256,21 @@ async function listTeamsTranscripts(userEmail, days = 30) {
         participants: (ev.attendees || [])
             .map(a => a.emailAddress?.name || a.emailAddress?.address || '')
             .filter(Boolean),
+        // Emails des invités : stockés à l'import pour que tous les
+        // participants (y compris via le Magasin d'applications) voient le
+        // transcript importé par l'un d'eux.
+        participantEmails: (ev.attendees || [])
+            .map(a => (a.emailAddress?.address || '').toLowerCase().trim())
+            .filter(e => e.includes('@')),
     });
+
+    // Réunions périodiques : toutes les occurrences partagent le même
+    // onlineMeeting.id et /transcripts renvoie TOUS les transcripts de la série.
+    // Sans cache + dédoublonnage, chaque occurrence ré-ajouterait les mêmes
+    // transcripts (N occurrences × M transcripts).
+    const transcriptsCache = new Map(); // meetingId -> liste des transcripts
+    const seenTranscriptIds = new Set();
+    const seenNoTranscriptKeys = new Set();
 
     for (const ev of events) {
         const joinUrl = ev.onlineMeeting?.joinUrl;
@@ -275,19 +289,31 @@ async function listTeamsTranscripts(userEmail, days = 30) {
         }
 
         try {
-            const r = await axios.get(
-                `https://graph.microsoft.com/v1.0/users/${encodeURIComponent(userKey)}/onlineMeetings/${encodeURIComponent(meetingId)}/transcripts`,
-                { ...axiosOpts, headers }
-            );
-            const list = r.data.value || [];
+            let list;
+            if (transcriptsCache.has(meetingId)) {
+                list = transcriptsCache.get(meetingId);
+            } else {
+                const r = await axios.get(
+                    `https://graph.microsoft.com/v1.0/users/${encodeURIComponent(userKey)}/onlineMeetings/${encodeURIComponent(meetingId)}/transcripts`,
+                    { ...axiosOpts, headers }
+                );
+                list = r.data.value || [];
+                transcriptsCache.set(meetingId, list);
+            }
             if (list.length === 0) {
-                noTranscript.push({ ...base, meetingId, reason: 'Aucun transcript pour cette réunion' });
+                if (!seenNoTranscriptKeys.has(meetingId)) {
+                    seenNoTranscriptKeys.add(meetingId);
+                    noTranscript.push({ ...base, meetingId, reason: 'Aucun transcript pour cette réunion' });
+                }
             } else {
                 for (const t of list) {
+                    if (seenTranscriptIds.has(t.id)) continue; // évite les doublons de récurrence
+                    seenTranscriptIds.add(t.id);
                     meetings.push({
                         ...base,
                         meetingId,
                         transcriptId: t.id,
+                        startDateTime: t.createdDateTime || base.startDateTime,
                         createdDateTime: t.createdDateTime || null,
                         transcriptContentUrl: t.transcriptContentUrl || null,
                     });

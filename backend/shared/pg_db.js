@@ -2313,6 +2313,25 @@ async function setupPgDb() {
     } catch (e) {
         console.error('Error creating unique index on transcript.meetings.teams_transcript_id:', e.message);
     }
+    // Participants d'une réunion : permet à tout agent présent (y compris via
+    // le Magasin d'applications) de consulter un transcript importé par un
+    // autre participant. Rempli à l'import Teams avec les emails des invités.
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS transcript.meeting_participants (
+        id SERIAL PRIMARY KEY,
+        meeting_id INTEGER NOT NULL REFERENCES transcript.meetings(id) ON DELETE CASCADE,
+        email TEXT,
+        username TEXT,
+        name TEXT
+      );
+    `);
+    try {
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_transcript_meeting_participants_meeting ON transcript.meeting_participants (meeting_id)`);
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_transcript_meeting_participants_email ON transcript.meeting_participants (LOWER(email))`);
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_transcript_meeting_participants_username ON transcript.meeting_participants (LOWER(username))`);
+    } catch (e) {
+        console.error('Error creating transcript.meeting_participants indexes:', e.message);
+    }
     await client.query(`
       CREATE TABLE IF NOT EXISTS transcript.tasks (
         id SERIAL PRIMARY KEY,

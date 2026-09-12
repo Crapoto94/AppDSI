@@ -15,6 +15,28 @@ const teamsTranscript = require('./teams_transcript.service');
 // Module GED pour les pièces jointes : <root>/transcript/<meeting_id>/<fichier>
 const ATTACHMENT_MODULE = 'transcript';
 
+// --- Accès « participant » : un transcript importé par un participant est
+// visible par tous les invités de la réunion, y compris ceux qui se connectent
+// via le Magasin d'applications (rôle transcript_agent) ---
+function participantMatchParams(user) {
+    const username = String(user?.username || '').toLowerCase();
+    const rawEmail = String(user?.email || '').toLowerCase();
+    const emailLocal = (rawEmail.split('@')[0] || username || '').toLowerCase();
+    const emailFull = rawEmail.includes('@') ? rawEmail : `${emailLocal}@ivry94.fr`;
+    return [emailFull, emailLocal, username, emailLocal];
+}
+
+// Fragment SQL (préfixé par OR) à ajouter à une clause WHERE portant sur
+// transcript_meetings m. Consomme 4 paramètres (cf. participantMatchParams).
+function participantExistsSql() {
+    return `
+        OR EXISTS (
+            SELECT 1 FROM transcript.meeting_participants mp
+            WHERE mp.meeting_id = m.id
+            AND (LOWER(mp.email) = ? OR LOWER(mp.email) = ? OR LOWER(mp.username) = ? OR LOWER(mp.username) = ?)
+        )`;
+}
+
 const DEFAULT_PROMPT_TEMPLATE = `Tu es un assistant spécialisé dans la synthèse de réunions de direction d'un service informatique (DSI) municipal.
 Ta mission est de produire un compte-rendu clair, structuré et professionnel à partir de la transcription fournie.
 
@@ -72,8 +94,12 @@ const transcriptController = {
             // Partage (lien) : lecture de toutes les réunions. Admins DSI : tout.
             const isAdmin = isSuperAdmin(req.user) || req.user.scope === 'transcript';
 
+            const pm = participantMatchParams(req.user);
+
             let meetings;
             if (isAgentOwner) {
+                // Agent magapp : ses transcripts + ceux des réunions auxquelles
+                // il a participé (importés par un autre participant).
                 meetings = await db.all(`
                     SELECT m.*,
                     (SELECT COUNT(DISTINCT speaker_name) FROM transcript_cues WHERE meeting_id = m.id) as speaker_count,
@@ -81,9 +107,10 @@ const transcriptController = {
                     (SELECT MAX(start_seconds) FROM transcript_cues WHERE meeting_id = m.id) as duration_seconds,
                     (SELECT COALESCE(SUM(LENGTH(text)), 0) FROM transcript_cues WHERE meeting_id = m.id) as char_count
                     FROM transcript_meetings m
-                    WHERE LOWER(m.owner_username) = LOWER($1)
+                    WHERE LOWER(m.owner_username) = LOWER(?)
+                    ${participantExistsSql()}
                     ORDER BY meeting_date DESC NULLS LAST, created_at DESC
-                `, [username]);
+                `, [username, ...pm]);
             } else if (isAdmin) {
                 meetings = await db.all(`
                     SELECT m.*,
@@ -134,8 +161,9 @@ const transcriptController = {
                             AND cr.service = m.shared_with_service
                         )
                     )
+                    ${participantExistsSql()}
                     ORDER BY meeting_date DESC NULLS LAST, created_at DESC
-                `, [emailFull, emailLocal, emailLocal, emailFull, emailLocal, username, username]);
+                `, [emailFull, emailLocal, emailLocal, emailFull, emailLocal, username, username, ...pm]);
             }
             res.json(meetings);
         } catch (error) {
@@ -197,7 +225,7 @@ const transcriptController = {
      */
     importTeamsTranscript: async (req, res) => {
         try {
-            const { meetingId, transcriptId, subject, startDateTime, transcriptContentUrl, overwrite } = req.body || {};
+            const { meetingId, transcriptId, subject, startDateTime, transcriptContentUrl, overwrite, participantEmails, participants } = req.body || {};
             if (!meetingId || !transcriptId) return res.status(400).json({ error: 'meetingId et transcriptId requis' });
 
             const userEmail = req.user?.email || `${(req.user?.username || '').split('@')[0].toLowerCase()}@ivry94.fr`;
@@ -232,6 +260,25 @@ const transcriptController = {
                     );
                     const newMeetingId = result.lastID;
 
+                    // Mémorise les participants Teams (emails) pour partager le
+                    // transcript avec tous les invités, Magasin d'applications inclus.
+                    try {
+                        const emails = Array.isArray(participantEmails) ? participantEmails : [];
+                        const names = Array.isArray(participants) ? participants : [];
+                        const seen = new Set();
+                        for (let i = 0; i < emails.length; i++) {
+                            const email = String(emails[i] || '').toLowerCase().trim();
+                            if (!email || !email.includes('@') || seen.has(email)) continue;
+                            seen.add(email);
+                            await pgDb.run(
+                                'INSERT INTO transcript.meeting_participants (meeting_id, email, username, name) VALUES (?, ?, ?, ?)',
+                                [newMeetingId, email, email.split('@')[0], names[i] || null]
+                            );
+                        }
+                    } catch (e) {
+                        console.error('[TEAMS IMPORT] participants insert failed:', e.message);
+                    }
+
                     importJobs[jobId].status = 'analyse';
                     const cues = parseTranscript(content);
                     importJobs[jobId].meetingId = newMeetingId;
@@ -262,10 +309,17 @@ const transcriptController = {
             const meeting = await db.get('SELECT * FROM transcript_meetings WHERE id = ?', [meetingId]);
             if (!meeting) return res.status(404).json({ error: 'Réunion non trouvée' });
 
-            // Un agent n'accède qu'à ses propres transcripts.
+            // Agent magapp : accès si propriétaire OU participant de la réunion.
             if (isAgentOwner) {
-                if (!meeting.owner_username || String(meeting.owner_username).toLowerCase() !== String(username).toLowerCase()) {
-                    return res.status(403).json({ error: 'Accès refusé' });
+                const ownsIt = meeting.owner_username && String(meeting.owner_username).toLowerCase() === String(username).toLowerCase();
+                if (!ownsIt) {
+                    const pmParams = participantMatchParams(req.user);
+                    const isParticipant = await db.get(`
+                        SELECT 1 FROM transcript.meeting_participants
+                        WHERE meeting_id = ?
+                        AND (LOWER(email) = ? OR LOWER(email) = ? OR LOWER(username) = ? OR LOWER(username) = ?)
+                    `, [meetingId, ...pmParams]);
+                    if (!isParticipant) return res.status(403).json({ error: 'Accès refusé' });
                 }
             } else if (!isAdmin) {
                 const emailLocal = (email || username || '').split('@')[0].toLowerCase();
@@ -305,8 +359,9 @@ const transcriptController = {
                                 AND cr.service = m.shared_with_service
                             )
                         )
+                        ${participantExistsSql()}
                     )
-                `, [meetingId, emailFull, emailLocal, emailLocal, emailFull, emailLocal, username, username]);
+                `, [meetingId, emailFull, emailLocal, emailLocal, emailFull, emailLocal, username, username, ...participantMatchParams(req.user)]);
 
                 if (!canAccess) return res.status(403).json({ error: 'Accès refusé' });
             }
@@ -642,7 +697,7 @@ const transcriptController = {
             const { q } = req.query;
             if (!q || q.trim().length < 2) return res.json([]);
             const db = pgDb;
-            const { username } = req.user;
+            const { username, email } = req.user;
             const isAgentOwner = req.user.scope === 'transcript' && req.user.role === 'transcript_agent';
             // Partage (lien) et admins DSI : recherche globale.
             const isAdmin = isSuperAdmin(req.user) || req.user.scope === 'transcript';
@@ -650,6 +705,7 @@ const transcriptController = {
 
             let rows;
             if (isAgentOwner) {
+                const pm = participantMatchParams(req.user);
                 rows = await db.all(`
                     SELECT
                         m.id as meeting_id, m.title as meeting_title,
@@ -657,10 +713,14 @@ const transcriptController = {
                         c.id as cue_id, c.speaker_name, c.text, c.start_seconds
                     FROM transcript_cues c
                     JOIN transcript_meetings m ON m.id = c.meeting_id
-                    WHERE LOWER(m.owner_username) = LOWER($1) AND (c.text ILIKE $2 OR m.title ILIKE $2)
+                    WHERE (c.text ILIKE ? OR m.title ILIKE ?)
+                      AND (
+                        LOWER(m.owner_username) = LOWER(?)
+                        ${participantExistsSql()}
+                      )
                     ORDER BY m.meeting_date DESC NULLS LAST, c.start_seconds ASC
                     LIMIT 200
-                `, [username, term]);
+                `, [term, term, username, ...pm]);
             } else if (isAdmin) {
                 rows = await db.all(`
                     SELECT

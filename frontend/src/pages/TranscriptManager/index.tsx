@@ -51,6 +51,8 @@ interface TeamsMeeting {
     organizer: string | null;
     already_imported: boolean;
     transcriptContentUrl?: string | null;
+    participants?: string[];
+    participantEmails?: string[];
 }
 
 interface ApiErrorResponseData {
@@ -99,7 +101,7 @@ const TranscriptManager: React.FC = () => {
     const [teamsWarnings, setTeamsWarnings] = useState<string[]>([]);
     const [teamsInaccessible, setTeamsInaccessible] = useState<any[]>([]);
     const [teamsNoTranscript, setTeamsNoTranscript] = useState<any[]>([]);
-    const [teamsTab, setTeamsTab] = useState<'all' | 'recoverable' | 'other_tenant' | 'no_transcript'>('all');
+    const [teamsTab, setTeamsTab] = useState<'all' | 'recoverable' | 'other_tenant' | 'no_transcript'>('recoverable');
     const [participantsExpanded, setParticipantsExpanded] = useState<Set<string>>(new Set());
     const [teamsDays, setTeamsDays] = useState(30);
     const [importingTranscriptId, setImportingTranscriptId] = useState<string | null>(null);
@@ -284,6 +286,8 @@ const TranscriptManager: React.FC = () => {
                 subject: m.subject,
                 startDateTime: m.startDateTime,
                 transcriptContentUrl: m.transcriptContentUrl,
+                participants: (m as any).participants || [],
+                participantEmails: (m as any).participantEmails || [],
                 overwrite,
             }, { headers: { Authorization: `Bearer ${token}` } });
             startImportPolling(res.data.jobId);
@@ -605,6 +609,8 @@ const TranscriptManager: React.FC = () => {
 
                                 if (allItems.length === 0) return null;
 
+                                const visibleItems = allItems.filter((m: any) => teamsTab === 'all' || m._status === teamsTab);
+
                                 return (
                                     <>
                                         <div className="tt-tabs">
@@ -628,7 +634,10 @@ const TranscriptManager: React.FC = () => {
                                                 );
                                             })}
                                         </div>
-                                        {allItems.filter((m: any) => teamsTab === 'all' || m._status === teamsTab).map((m: any, idx: number) => {
+                                        {visibleItems.length === 0 && (
+                                            <p className="gs-empty">Aucune réunion dans cet onglet.</p>
+                                        )}
+                                        {visibleItems.map((m: any, idx: number) => {
                                             const status = m._status;
                                             const key = `${status}-${m.transcriptId || m.meetingId || idx}`;
                                             const participants: string[] = m.participants || [];
