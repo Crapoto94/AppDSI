@@ -127,7 +127,8 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
     ai_summary_source: 'apm',
     transcript_apm_default_model: '',
     ticket_reformulate_ai_source: 'local',
-    ticket_reformulate_apm_model: ''
+    ticket_reformulate_apm_model: '',
+    summary_notice_text: ''
   });
   const [apmModelsList, setApmModelsList] = useState<string[]>([]);
   const [apmModelsError, setApmModelsError] = useState('');
@@ -142,6 +143,11 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
   };
 
   const DEFAULT_PROMPT_TEMPLATE = DEFAULT_PROMPT_TEMPLATE_CONST;
+  const DEFAULT_SUMMARY_NOTICE_TEXT = [
+    "Ce compte rendu est généré par une IA locale et souveraine. Aucune donnée n'est transmise en dehors de la collectivité (conformité RGPD).",
+    "La synthèse produite par l'IA peut comporter des erreurs : elle doit être vérifiée et corrigée si nécessaire avant toute utilisation.",
+    "En cas de diffusion d'un compte rendu erroné, la responsabilité incombe à l'agent qui le diffuse, et non à l'IA.",
+  ].join('\n');
   const [azureConfig, setAzureConfig] = useState({
     is_enabled: false,
     tenant_id: '',
@@ -573,7 +579,8 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
           ai_summary_source: data.ai_summary_source === 'local' ? 'local' : 'apm',
           transcript_apm_default_model: data.transcript_apm_default_model || '',
           ticket_reformulate_ai_source: data.ticket_reformulate_ai_source === 'apm' ? 'apm' : 'local',
-          ticket_reformulate_apm_model: data.ticket_reformulate_apm_model || ''
+          ticket_reformulate_apm_model: data.ticket_reformulate_apm_model || '',
+          summary_notice_text: data.summary_notice_text || ''
         });
       }
     } catch (error) {
@@ -2985,6 +2992,33 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                           onClick={() => setTranscriptConfig({ ...transcriptConfig, custom_prompt: '' })}
                         >
                           Réinitialiser au prompt par défaut
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Texte d'information affiché avec les comptes rendus générés par IA */}
+                    <div className="form-field full-width" style={{ marginTop: '1rem' }}>
+                      <label className="field-label">
+                        ⚠️ Texte d'information des comptes rendus IA (affiché dans l'app et envoyé par mail)
+                      </label>
+                      <p style={{ fontSize: '0.78rem', color: '#7c3aed', marginBottom: '0.5rem' }}>
+                        Une ligne = un point. Laissez vide pour le texte par défaut (IA locale/souveraine, RGPD, vérification obligatoire, responsabilité de l'agent).
+                      </p>
+                      <textarea
+                        className="admin-input"
+                        rows={5}
+                        style={{ resize: 'vertical', lineHeight: 1.5 }}
+                        value={transcriptConfig.summary_notice_text || ''}
+                        onChange={e => setTranscriptConfig({ ...transcriptConfig, summary_notice_text: e.target.value })}
+                        placeholder={DEFAULT_SUMMARY_NOTICE_TEXT}
+                      />
+                      {transcriptConfig.summary_notice_text && (
+                        <button
+                          type="button"
+                          style={{ marginTop: '0.5rem', fontSize: '0.78rem', color: '#7c3aed', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline' }}
+                          onClick={() => setTranscriptConfig({ ...transcriptConfig, summary_notice_text: '' })}
+                        >
+                          Réinitialiser au texte par défaut
                         </button>
                       )}
                     </div>

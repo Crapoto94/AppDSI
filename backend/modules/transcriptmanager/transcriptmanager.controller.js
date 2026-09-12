@@ -18,6 +18,22 @@ const { marked } = require('marked');
 let _sendMail = null;
 const setSendMail = (fn) => { _sendMail = fn; };
 
+// Texte d'information affiché avec les comptes rendus (UI + mail) — modifiable
+// en admin (/admin/transcript, clé app_settings `summary_notice_text`).
+const DEFAULT_SUMMARY_NOTICE_TEXT = [
+    "Ce compte rendu est généré par une IA locale et souveraine. Aucune donnée n'est transmise en dehors de la collectivité (conformité RGPD).",
+    "La synthèse produite par l'IA peut comporter des erreurs : elle doit être vérifiée et corrigée si nécessaire avant toute utilisation.",
+    "En cas de diffusion d'un compte rendu erroné, la responsabilité incombe à l'agent qui le diffuse, et non à l'IA.",
+].join('\n');
+
+async function getSummaryNoticeText() {
+    try {
+        const row = await getSqlite()?.get("SELECT setting_value FROM app_settings WHERE setting_key = 'summary_notice_text'");
+        const val = (row?.setting_value || '').trim();
+        return val || DEFAULT_SUMMARY_NOTICE_TEXT;
+    } catch { return DEFAULT_SUMMARY_NOTICE_TEXT; }
+}
+
 // Module GED pour les pièces jointes : <root>/transcript/<meeting_id>/<fichier>
 const ATTACHMENT_MODULE = 'transcript';
 
@@ -154,7 +170,7 @@ async function buildParticipantsList(db, meetingId) {
 
 /** Corps HTML du mail : META, participants, PJ, résumé, plan d'actions.
  *  L'encart « magasin d'applications » n'est ajouté QUE pour les internes. */
-function buildSummaryEmailHtml({ summaryHtml, message, meetingTitle, meetingDate, internal, magappUrl, participants, tasks, meta, attachmentNames }) {
+function buildSummaryEmailHtml({ summaryHtml, message, meetingTitle, meetingDate, internal, magappUrl, participants, tasks, meta, attachmentNames, noticeText }) {
     const esc = (s) => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     const fmt = (d) => d ? new Date(d).toLocaleString('fr-FR') : '';
 
@@ -198,12 +214,22 @@ function buildSummaryEmailHtml({ summaryHtml, message, meetingTitle, meetingDate
             📎 <strong>Pièces jointes :</strong> ${attachmentNames.map(esc).join(', ')}
         </div>` : '';
 
+    const noticeLines = String(noticeText || '').split('\n').map(l => l.trim()).filter(Boolean);
+    const noticeHtml = noticeLines.length ? `
+        <div style="margin:16px 0;padding:12px 16px;border:1px solid #FDE68A;background:#FFFBEB;border-radius:10px;color:#92400E;font-size:13px;line-height:1.5;">
+            <div style="font-weight:700;margin-bottom:6px;">⚠️ À lire — compte rendu généré par Intelligence Artificielle</div>
+            <ol style="margin:0;padding-left:18px;">
+                ${noticeLines.map(l => `<li>${esc(l)}</li>`).join('')}
+            </ol>
+        </div>` : '';
+
     return `
         <p>Bonjour,</p>
         <p>Vous recevez le résumé de la réunion <strong>${esc(meetingTitle)}</strong>${meetingDate ? ` du ${esc(meetingDate)}` : ''}.</p>
         ${metaLine}
         ${statusLine}
         ${message ? `<div style="background:#f8fafc;border-left:3px solid #6366f1;padding:10px 14px;margin:12px 0;border-radius:6px;white-space:pre-wrap;">${esc(message)}</div>` : ''}
+        ${noticeHtml}
         ${participantsHtml}
         ${attHtml}
         <div style="margin:16px 0;padding:16px;border:1px solid #e2e8f0;border-radius:10px;background:#ffffff;">
@@ -537,7 +563,7 @@ const transcriptController = {
                     [meetingId]
                 ) || null;
             } catch { /* table pas encore migrée */ }
-            res.json({ ...meeting, cues, summary_last_send: summaryLastSend });
+            res.json({ ...meeting, cues, summary_last_send: summaryLastSend, summary_notice: await getSummaryNoticeText() });
         } catch (error) {
             res.status(500).json({ error: error.message });
         }
@@ -660,6 +686,7 @@ const transcriptController = {
                 editedBy: meeting.summary_edited_by || null,
                 editedAt: meeting.summary_edited_at || null,
             };
+            const noticeText = await getSummaryNoticeText();
 
             // Pièces jointes de la réunion → envoyées en pièces jointes du mail.
             const attRows = await db.all(
@@ -697,6 +724,7 @@ const transcriptController = {
                         summaryHtml, message: message || '', meetingTitle: meeting.title || 'Réunion',
                         meetingDate, internal: t.internal, magappUrl,
                         participants, tasks, meta, attachmentNames,
+                        noticeText,
                     });
                     const subject = `Résumé de la réunion : ${meeting.title || ''}`.trim();
                     // Envoi via l'API Ville (APM) → template général de la Ville.

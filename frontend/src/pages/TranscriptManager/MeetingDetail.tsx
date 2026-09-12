@@ -43,6 +43,7 @@ interface Meeting {
         sent_count: number | null;
         failed_count: number | null;
     } | null;
+    summary_notice?: string;
 }
 
 interface Task {
@@ -1074,6 +1075,16 @@ const MeetingDetail: React.FC = () => {
                                         {' '}à {(meeting.summary_last_send.recipients || '').split(',').map(r => r.trim()).filter(Boolean).join(', ') || '—'}
                                         {meeting.summary_last_send.failed_count ? ` (${meeting.summary_last_send.failed_count} échec(s))` : ''}.
                                     </span>
+                                </div>
+                            )}
+                            {meeting.summary && (
+                                <div style={{ margin: '0 1.5rem 0.75rem', padding: '12px 14px', background: '#FFFBEB', border: '1px solid #FDE68A', borderRadius: 8, fontSize: '0.78rem', color: '#92400E', lineHeight: 1.5 }}>
+                                    <strong>⚠️ À lire — compte rendu généré par Intelligence Artificielle</strong>
+                                    <ol style={{ margin: '6px 0 0', paddingLeft: 18 }}>
+                                        {(meeting.summary_notice || '').split('\n').map(l => l.trim()).filter(Boolean).map((line, i) => (
+                                            <li key={i}>{line}</li>
+                                        ))}
+                                    </ol>
                                 </div>
                             )}
                             <div className="summary-content">

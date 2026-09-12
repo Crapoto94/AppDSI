@@ -914,6 +914,9 @@ const TRANSCRIPT_SETTINGS_KEYS = [
     // besoin d'un défaut propre à chaque usage.
     'ai_summary_source', 'transcript_apm_default_model',
     'ticket_reformulate_ai_source', 'ticket_reformulate_apm_model',
+    // Texte d'information affiché avec les comptes rendus générés par IA
+    // (UI + mail) — modifiable en admin.
+    'summary_notice_text',
 ];
 
 app.get('/api/transcript-settings', authenticateAdmin, async (req, res) => {
