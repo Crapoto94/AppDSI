@@ -2271,6 +2271,9 @@ async function setupPgDb() {
           IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='transcript' AND table_name='meetings' AND column_name='teams_transcript_id') THEN
             ALTER TABLE transcript.meetings ADD COLUMN teams_transcript_id TEXT;
           END IF;
+          IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='transcript' AND table_name='meetings' AND column_name='owner_username') THEN
+            ALTER TABLE transcript.meetings ADD COLUMN owner_username TEXT;
+          END IF;
           IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='transcript' AND table_name='meetings' AND column_name='summary_requester') THEN
             ALTER TABLE transcript.meetings ADD COLUMN summary_requester TEXT;
           END IF;

@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useRef } from 'react';
 import Header from '../../components/Header';
+import TranscriptAgentHeader from '../../components/TranscriptAgentHeader';
 import {
     ArrowLeft, Calendar, Clock,
     CheckCircle2, Circle, RefreshCw,
@@ -475,7 +476,7 @@ const MeetingDetail: React.FC = () => {
 
     if (loading) return (
         <div className="tm-loading-page">
-            <Header />
+            {user?.role === 'transcript_agent' ? <TranscriptAgentHeader user={user} /> : <Header />}
             <div className="loading-content">
                 <div className="spinner-orbit">
                     <div className="orbit-dot"></div>
@@ -537,7 +538,7 @@ const MeetingDetail: React.FC = () => {
 
     return (
         <div className="md-page">
-            <Header />
+            {user?.role === 'transcript_agent' ? <TranscriptAgentHeader user={user} /> : <Header />}
             <div className="md-container">
                 <div className="md-top-nav">
                     <button className="md-btn-back" onClick={() => navigate('/transcriptmanager')}>
@@ -1005,7 +1006,7 @@ const MeetingDetail: React.FC = () => {
                     tasks={pendingAiTasks}
                     agents={dsiAgents}
                     token={token || ''}
-                    isGuest={user?.role === 'transcript_guest'}
+                    isGuest={user?.role === 'transcript_guest' || user?.role === 'transcript_agent'}
                     onClose={() => setShowTaskValidation(false)}
                     onValidated={() => { fetchData(); }}
                 />

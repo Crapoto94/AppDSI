@@ -504,13 +504,13 @@ app.get('/api/auth/me', authenticateJWT, async (req, res) => {
             });
         }
 
-        // Jeton du lien de partage du Transcript Manager : accès restreint au module.
+        // Jeton du lien de partage / accès agent du Transcript Manager : accès restreint au module.
         if (req.user.scope === 'transcript') {
             return res.json({
                 id: req.user.id || 0,
                 username: req.user.username,
                 displayName: req.user.displayName || 'Transcript Manager',
-                role: 'transcript_guest',
+                role: req.user.role || 'transcript_guest',
                 is_approved: 1,
                 authorized_urls: ['/transcriptmanager', '/transcript'],
             });
@@ -4276,6 +4276,36 @@ app.post('/api/auth/ad-login-transcript', async (req, res) => {
     } catch (error) {
         console.error('[Transcript AD login error]', error.message);
         res.status(500).json({ message: 'Erreur lors de l\'authentification' });
+    }
+});
+
+// Accès « module seul » pour un agent déjà identifié (provenant du Magapp) :
+// on re-signe son identité réelle avec un champ d'action restreint au Transcript
+// Manager (scope 'transcript', rôle 'transcript_agent'). Il peut alors importer
+// et résumer SES transcripts, mais n'a accès à aucun autre module du DSI Hub.
+app.post('/api/auth/magapp-transcript-access', authenticateJWT, async (req, res) => {
+    try {
+        const username = String(req.user.username || '').toLowerCase();
+        if (!username) {
+            return res.status(400).json({ message: 'Utilisateur non identifié' });
+        }
+        const accessToken = jwt.sign({
+            id: req.user.id || 0,
+            username,
+            displayName: req.user.displayName || username,
+            role: 'transcript_agent',
+            is_approved: 1,
+            service_code: req.user.service_code || null,
+            service_complement: req.user.service_complement || null,
+            email: req.user.email || null,
+            source: req.user.source || 'magapp',
+            scope: 'transcript',
+        }, SECRET_KEY);
+        const baseUrl = `${req.protocol}://${req.get('host')}`;
+        res.json({ url: `${baseUrl}/transcript/${accessToken}` });
+    } catch (error) {
+        console.error('[Transcript access error]', error.message);
+        res.status(500).json({ message: 'Erreur lors de la génération de l\'accès au Transcript Manager' });
     }
 });
 

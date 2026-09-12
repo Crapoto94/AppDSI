@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const transcriptController = require('./transcriptmanager.controller');
-const { authenticateJWT, isAdminLike } = require('../../shared/middleware');
+const { authenticateJWT } = require('../../shared/middleware');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
@@ -25,7 +25,7 @@ const uploadAttachment = multer({ storage: multer.memoryStorage() });
 // bloque toutes les écritures (import, upload, synthèse IA coûteuse, modifications,
 // suppressions) réservées à la DSI.
 const blockTranscriptGuest = (req, res, next) => {
-    if (req.user && req.user.scope === 'transcript' && !isAdminLike(req.user)) {
+    if (req.user && req.user.role === 'transcript_guest') {
         return res.status(403).json({ message: 'Mode partage : lecture seule' });
     }
     next();

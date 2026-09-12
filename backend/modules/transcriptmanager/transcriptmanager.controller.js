@@ -66,12 +66,25 @@ const transcriptController = {
     getMeetings: async (req, res) => {
         try {
             const db = pgDb;
-            const { username, email, role } = req.user;
-            // Le lien de partage (scope 'transcript') voit toutes les réunions en lecture.
+            const { username, email } = req.user;
+            // Agent (magapp) : espace personnel — uniquement ses transcripts.
+            const isAgentOwner = req.user.scope === 'transcript' && req.user.role === 'transcript_agent';
+            // Partage (lien) : lecture de toutes les réunions. Admins DSI : tout.
             const isAdmin = isSuperAdmin(req.user) || req.user.scope === 'transcript';
 
             let meetings;
-            if (isAdmin) {
+            if (isAgentOwner) {
+                meetings = await db.all(`
+                    SELECT m.*,
+                    (SELECT COUNT(DISTINCT speaker_name) FROM transcript_cues WHERE meeting_id = m.id) as speaker_count,
+                    (SELECT string_agg(DISTINCT speaker_email, ',') FROM transcript_cues WHERE meeting_id = m.id AND speaker_email IS NOT NULL) as speaker_emails,
+                    (SELECT MAX(start_seconds) FROM transcript_cues WHERE meeting_id = m.id) as duration_seconds,
+                    (SELECT COALESCE(SUM(LENGTH(text)), 0) FROM transcript_cues WHERE meeting_id = m.id) as char_count
+                    FROM transcript_meetings m
+                    WHERE LOWER(m.owner_username) = LOWER($1)
+                    ORDER BY meeting_date DESC NULLS LAST, created_at DESC
+                `, [username]);
+            } else if (isAdmin) {
                 meetings = await db.all(`
                     SELECT m.*,
                     (SELECT COUNT(DISTINCT speaker_name) FROM transcript_cues WHERE meeting_id = m.id) as speaker_count,
@@ -214,8 +227,8 @@ const transcriptController = {
                     const meetingDate = startDateTime ? new Date(startDateTime) : null;
 
                     const result = await pgDb.run(
-                        'INSERT INTO transcript_meetings (title, meeting_date, source, teams_transcript_id) VALUES (?, ?, ?, ?)',
-                        [title, meetingDate ? meetingDate.toISOString() : null, 'teams', transcriptId]
+                        'INSERT INTO transcript_meetings (title, meeting_date, source, teams_transcript_id, owner_username) VALUES (?, ?, ?, ?, ?)',
+                        [title, meetingDate ? meetingDate.toISOString() : null, 'teams', transcriptId, (req.user?.username || '').toLowerCase()]
                     );
                     const newMeetingId = result.lastID;
 
@@ -241,14 +254,20 @@ const transcriptController = {
         try {
             const db = pgDb;
             const meetingId = req.params.id;
-            const { username, email, role } = req.user;
-            // Le lien de partage (scope 'transcript') lit toutes les réunions.
+            const { username } = req.user;
+            const isAgentOwner = req.user.scope === 'transcript' && req.user.role === 'transcript_agent';
+            // Partage (lien) et admins DSI : lecture de toutes les réunions.
             const isAdmin = isSuperAdmin(req.user) || req.user.scope === 'transcript';
 
             const meeting = await db.get('SELECT * FROM transcript_meetings WHERE id = ?', [meetingId]);
             if (!meeting) return res.status(404).json({ error: 'Réunion non trouvée' });
 
-            if (!isAdmin) {
+            // Un agent n'accède qu'à ses propres transcripts.
+            if (isAgentOwner) {
+                if (!meeting.owner_username || String(meeting.owner_username).toLowerCase() !== String(username).toLowerCase()) {
+                    return res.status(403).json({ error: 'Accès refusé' });
+                }
+            } else if (!isAdmin) {
                 const emailLocal = (email || username || '').split('@')[0].toLowerCase();
                 const emailFull = `${emailLocal}@ivry94.fr`;
 
@@ -334,7 +353,7 @@ const transcriptController = {
 
                 console.log(`[TM IMPORT] reunion_id: ${reunion_id}, type: ${typeof reunion_id}`);
 
-                const result = await db.run('INSERT INTO transcript_meetings (title, reunion_id) VALUES (?, ?)', [title, reunion_id]);
+                const result = await db.run('INSERT INTO transcript_meetings (title, reunion_id, owner_username) VALUES (?, ?, ?)', [title, reunion_id, (req.user?.username || '').toLowerCase()]);
                 const meetingId = result.lastID;
 
                 importJobs[jobId].status = 'analyse';
@@ -623,13 +642,26 @@ const transcriptController = {
             const { q } = req.query;
             if (!q || q.trim().length < 2) return res.json([]);
             const db = pgDb;
-            const { username, email, role } = req.user;
-            // Le lien de partage (scope 'transcript') bénéficie de la recherche globale.
+            const { username } = req.user;
+            const isAgentOwner = req.user.scope === 'transcript' && req.user.role === 'transcript_agent';
+            // Partage (lien) et admins DSI : recherche globale.
             const isAdmin = isSuperAdmin(req.user) || req.user.scope === 'transcript';
             const term = `%${q.trim()}%`;
 
             let rows;
-            if (isAdmin) {
+            if (isAgentOwner) {
+                rows = await db.all(`
+                    SELECT
+                        m.id as meeting_id, m.title as meeting_title,
+                        m.meeting_date, m.created_at,
+                        c.id as cue_id, c.speaker_name, c.text, c.start_seconds
+                    FROM transcript_cues c
+                    JOIN transcript_meetings m ON m.id = c.meeting_id
+                    WHERE LOWER(m.owner_username) = LOWER($1) AND (c.text ILIKE $2 OR m.title ILIKE $2)
+                    ORDER BY m.meeting_date DESC NULLS LAST, c.start_seconds ASC
+                    LIMIT 200
+                `, [username, term]);
+            } else if (isAdmin) {
                 rows = await db.all(`
                     SELECT
                         m.id as meeting_id, m.title as meeting_title,
