@@ -99,6 +99,7 @@ const TranscriptManager: React.FC = () => {
     const [teamsWarnings, setTeamsWarnings] = useState<string[]>([]);
     const [teamsInaccessible, setTeamsInaccessible] = useState<any[]>([]);
     const [teamsNoTranscript, setTeamsNoTranscript] = useState<any[]>([]);
+    const [teamsTab, setTeamsTab] = useState<'all' | 'recoverable' | 'other_tenant' | 'no_transcript'>('all');
     const [participantsExpanded, setParticipantsExpanded] = useState<Set<string>>(new Set());
     const [teamsDays, setTeamsDays] = useState(30);
     const [importingTranscriptId, setImportingTranscriptId] = useState<string | null>(null);
@@ -606,12 +607,28 @@ const TranscriptManager: React.FC = () => {
 
                                 return (
                                     <>
-                                        <div className="tt-legend">
-                                            <span className="tt-legend-item"><span className="tt-dot tt-dot-green" /> Transcript récupérable ({teamsMeetings.length})</span>
-                                            <span className="tt-legend-item"><span className="tt-dot tt-dot-orange" /> Autre tenant — demander le VTT ({teamsInaccessible.length})</span>
-                                            <span className="tt-legend-item"><span className="tt-dot tt-dot-red" /> Aucun transcript ({teamsNoTranscript.length})</span>
+                                        <div className="tt-tabs">
+                                            {([
+                                                { id: 'all', label: 'Toutes', dot: '' },
+                                                { id: 'recoverable', label: 'Transcript récupérable', dot: 'tt-dot-green' },
+                                                { id: 'other_tenant', label: 'Autre tenant — demander le VTT', dot: 'tt-dot-orange' },
+                                                { id: 'no_transcript', label: 'Sans transcript', dot: 'tt-dot-red' },
+                                            ] as const).map(t => {
+                                                const count = t.id === 'all' ? allItems.length : allItems.filter((x: any) => x._status === t.id).length;
+                                                return (
+                                                    <button
+                                                        key={t.id}
+                                                        type="button"
+                                                        className={`tt-tab ${teamsTab === t.id ? 'tt-tab-active' : ''}`}
+                                                        onClick={() => setTeamsTab(t.id)}
+                                                    >
+                                                        {t.dot && <span className={`tt-dot ${t.dot}`} />}
+                                                        {t.label} <span className="tt-tab-count">{count}</span>
+                                                    </button>
+                                                );
+                                            })}
                                         </div>
-                                        {allItems.map((m: any, idx: number) => {
+                                        {allItems.filter((m: any) => teamsTab === 'all' || m._status === teamsTab).map((m: any, idx: number) => {
                                             const status = m._status;
                                             const key = `${status}-${m.transcriptId || m.meetingId || idx}`;
                                             const participants: string[] = m.participants || [];
@@ -1147,12 +1164,27 @@ const TranscriptManager: React.FC = () => {
                 .tt-item-dim { opacity: 0.7; }
                 .tt-item-dim .tt-item-icon { background: #F1F5F9; border-color: #E2E8F0; }
 
-                /* Légende de couleur */
-                .tt-legend {
-                    display: flex; flex-wrap: wrap; gap: 0.9rem;
-                    margin: 0.75rem 0 0.5rem; font-size: 0.75rem; color: #475569;
+                /* Onglets de statut */
+                .tt-tabs {
+                    display: flex; flex-wrap: wrap; gap: 0.4rem;
+                    margin: 0.75rem 0 0.6rem;
                 }
-                .tt-legend-item { display: inline-flex; align-items: center; gap: 0.35rem; }
+                .tt-tab {
+                    display: inline-flex; align-items: center; gap: 0.4rem;
+                    background: #FFFFFF; border: 1px solid #E2E8F0; color: #475569;
+                    padding: 0.45rem 0.85rem; border-radius: 999px;
+                    font-size: 0.78rem; font-weight: 700; cursor: pointer;
+                    transition: all 0.15s;
+                }
+                .tt-tab:hover { border-color: #94A3B8; background: #F8FAFC; }
+                .tt-tab-active { background: #0078A4; border-color: #0078A4; color: #FFFFFF; }
+                .tt-tab-active:hover { background: #006287; border-color: #006287; }
+                .tt-tab-count {
+                    background: #F1F5F9; color: #334155;
+                    font-size: 0.7rem; font-weight: 800;
+                    padding: 1px 7px; border-radius: 999px;
+                }
+                .tt-tab-active .tt-tab-count { background: rgba(255,255,255,0.25); color: #FFFFFF; }
                 .tt-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
                 .tt-dot-green { background: #22C55E; }
                 .tt-dot-orange { background: #F59E0B; }

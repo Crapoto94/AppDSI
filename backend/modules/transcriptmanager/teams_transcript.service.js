@@ -194,13 +194,17 @@ async function listTeamsTranscripts(userEmail, days = 30) {
 
     let events = [];
     try {
-        const res = await axios.get(
-            `https://graph.microsoft.com/v1.0/users/${encodeURIComponent(userEmail)}/calendarView`
+        // Pagination OData complète : sans elle, les réunions au-delà des 50
+        // premières (ex. réunions périodiques d'un simple participant) sont
+        // absentes de la liste.
+        let pageUrl = `https://graph.microsoft.com/v1.0/users/${encodeURIComponent(userEmail)}/calendarView`
             + `?startDateTime=${toIsoUtc(startDate)}&endDateTime=${toIsoUtc(endDate)}`
-            + `&$select=id,subject,start,end,onlineMeeting,organizer,attendees&$top=50`,
-            { ...axiosOpts, headers }
-        );
-        events = res.data.value || [];
+            + `&$select=id,subject,start,end,onlineMeeting,organizer,attendees&$top=50`;
+        for (let page = 0; page < 20 && pageUrl; page++) {
+            const res = await retryNetwork(() => axios.get(pageUrl, { ...axiosOpts, headers }));
+            events.push(...(res.data.value || []));
+            pageUrl = res.data['@odata.nextLink'] || null;
+        }
     } catch (e) {
         const code = e.response?.data?.error?.code || 'Erreur';
         const msg = e.response?.data?.error?.message || code;
@@ -334,14 +338,21 @@ async function listTeamsTranscripts(userEmail, days = 30) {
             await Promise.allSettled(organized.map(async (t) => {
                 let subject = null;
                 let meetingStart = null;
+                let participants = [];
                 if (t.meetingId) {
                     try {
                         const m = await axios.get(
-                            `https://graph.microsoft.com/v1.0/users/${encodeURIComponent(aadId)}/onlineMeetings/${encodeURIComponent(t.meetingId)}?$select=subject,startDateTime`,
+                            `https://graph.microsoft.com/v1.0/users/${encodeURIComponent(aadId)}/onlineMeetings/${encodeURIComponent(t.meetingId)}?$select=subject,startDateTime,participants`,
                             { ...axiosOpts, headers }
                         );
                         subject = m.data?.subject || null;
                         meetingStart = m.data?.startDateTime || null;
+                        // Les réunions périodiques/organisées n'exposent pas
+                        // d'attendees via le calendrier : on les récupère sur
+                        // l'onlineMeeting (participants.attendees).
+                        participants = (m.data?.participants?.attendees || [])
+                            .map(a => a.identity?.user?.displayName || a.identity?.user?.id || '')
+                            .filter(Boolean);
                     } catch (err) {
                         console.error(`[TEAMS TRANSCRIPT] meeting detail failed: ${err.response?.data?.error?.message || err.message}`);
                     }
@@ -353,7 +364,7 @@ async function listTeamsTranscripts(userEmail, days = 30) {
                     startDateTime: t.createdDateTime || meetingStart || null,
                     createdDateTime: t.createdDateTime || null,
                     organizer: null,
-                    participants: [],
+                    participants,
                     transcriptContentUrl: t.transcriptContentUrl || null
                 });
             }));

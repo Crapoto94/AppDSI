@@ -660,8 +660,12 @@ const MagAppController = {
                 result.show_rencontres = true;
                 result.show_library = true;
                 result.show_consommables = true;
-                // show_chat_live & show_transcript_manager sont des toggles admin :
-                // jamais forcés, on respecte le paramétrage.
+                // « Mon Transcript Manager » suit le même fonctionnement que
+                // « Mes abonnements » : visible avec un badge BETA pour les
+                // utilisateurs beta (tuile applications). Le toggle admin le
+                // rend disponible à tout le monde.
+                result.show_transcript_manager = true;
+                // show_chat_live reste un toggle admin strict (jamais forcé).
             } else {
                 result.show_tickets_original = result.show_tickets;
                 result.show_subscriptions_original = result.show_subscriptions;

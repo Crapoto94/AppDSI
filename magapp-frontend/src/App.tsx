@@ -1311,7 +1311,7 @@ function App() {
               </button>
             )}
 
-            {windowLogin && settings.show_transcript_manager && (
+            {windowLogin && (settings.show_transcript_manager || settings.is_beta_user) && (
               <button
                 onClick={handleOpenTranscript}
                 style={{
