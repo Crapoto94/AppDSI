@@ -239,6 +239,7 @@ async function listTeamsTranscripts(userEmail, days = 30) {
 
     // Transcripts de chaque réunion résolue.
     const meetings = [];
+    const inaccessible = [];
     for (const ev of withJoinUrl) {
         const meetingId = meetingByUrl.get(ev.onlineMeeting.joinUrl);
         if (!meetingId) continue;
@@ -260,8 +261,18 @@ async function listTeamsTranscripts(userEmail, days = 30) {
             }
         } catch (err) {
             if (err.response?.status === 403) {
-                const hint = graphAccessHint(err.response?.data?.error?.message, err.response?.data?.error?.code) || 'Vérifier la permission/access policy Graph';
-                if (!warnings.some(w => w.includes('Transcripts de «'))) warnings.push(`Transcripts de « ${ev.subject || 'réunion'} » inaccessibles — ${hint}`);
+                // Transcript non accessible depuis notre app : réunion très
+                // probablement organisée dans un autre tenant (le transcript est
+                // stocké côté organisateur — Graph ne le rend jamais accessible).
+                // À défaut d'import Graph, il faut un export VTT de l'organisateur.
+                if (!inaccessible.some(m => m.meetingId === meetingId)) {
+                    inaccessible.push({
+                        meetingId,
+                        subject: ev.subject || 'Réunion Teams',
+                        startDateTime: ev.start?.dateTime || null,
+                        organizer: ev.organizer?.emailAddress?.name || ev.organizer?.emailAddress?.address || null
+                    });
+                }
             } else {
                 console.error(`[TEAMS TRANSCRIPT] list transcripts failed: ${err.response?.data?.error?.message || err.message}`);
             }
@@ -326,7 +337,7 @@ async function listTeamsTranscripts(userEmail, days = 30) {
     }
 
     meetings.sort((a, b) => (b.startDateTime || b.createdDateTime || '').localeCompare(a.startDateTime || a.createdDateTime || ''));
-    return { ok: true, meetings, warnings };
+    return { ok: true, meetings, warnings, inaccessible };
 }
 
 /**

@@ -504,6 +504,18 @@ app.get('/api/auth/me', authenticateJWT, async (req, res) => {
             });
         }
 
+        // Jeton du lien de partage du Transcript Manager : accès restreint au module.
+        if (req.user.scope === 'transcript') {
+            return res.json({
+                id: req.user.id || 0,
+                username: req.user.username,
+                displayName: req.user.displayName || 'Transcript Manager',
+                role: 'transcript_guest',
+                is_approved: 1,
+                authorized_urls: ['/transcriptmanager', '/transcript'],
+            });
+        }
+
         let user = null;
         let source = '';
 

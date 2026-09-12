@@ -1,9 +1,11 @@
 const { pgDb, getSqlite } = require('../../shared/database');
 const { searchADUsersByQuery } = require('../../shared/ad_helper');
-const { isSuperAdmin } = require('../../shared/middleware');
+const { isSuperAdmin, isAdminLike } = require('../../shared/middleware');
 const axios = require('axios');
 const fs = require('fs');
 const path = require('path');
+const jwt = require('jsonwebtoken');
+const { SECRET_KEY } = require('../../shared/config');
 const apmAi = require('../../shared/apm_ai');
 const storage = require('../../shared/storage');
 const { listDsiAgents, matchDsiAgent } = require('./agent-match');
@@ -64,7 +66,8 @@ const transcriptController = {
         try {
             const db = pgDb;
             const { username, email, role } = req.user;
-            const isAdmin = isSuperAdmin(req.user);
+            // Le lien de partage (scope 'transcript') voit toutes les réunions en lecture.
+            const isAdmin = isSuperAdmin(req.user) || req.user.scope === 'transcript';
 
             let meetings;
             if (isAdmin) {
@@ -158,7 +161,7 @@ const transcriptController = {
             for (const r of rows) imported.add(r.teams_transcript_id);
 
             const meetings = (result.meetings || []).map(m => ({ ...m, already_imported: imported.has(m.transcriptId) }));
-            res.json({ meetings, warnings: result.warnings || [] });
+            res.json({ meetings, warnings: result.warnings || [], inaccessible: result.inaccessible || [] });
         } catch (error) {
             res.status(500).json({ error: error.message });
         }
@@ -234,7 +237,8 @@ const transcriptController = {
             const db = pgDb;
             const meetingId = req.params.id;
             const { username, email, role } = req.user;
-            const isAdmin = isSuperAdmin(req.user);
+            // Le lien de partage (scope 'transcript') lit toutes les réunions.
+            const isAdmin = isSuperAdmin(req.user) || req.user.scope === 'transcript';
 
             const meeting = await db.get('SELECT * FROM transcript_meetings WHERE id = ?', [meetingId]);
             if (!meeting) return res.status(404).json({ error: 'Réunion non trouvée' });
@@ -392,6 +396,8 @@ const transcriptController = {
                 progress: 0,
                 meetingId: parseInt(meetingId, 10),
                 model: (req.body || {}).model || null,
+                userName: req.user?.username || req.user?.email || null,
+                requestedAt: new Date().toISOString(),
                 createdAt: Date.now(),
             };
             pruneSummarizeJobs();
@@ -608,7 +614,8 @@ const transcriptController = {
             if (!q || q.trim().length < 2) return res.json([]);
             const db = pgDb;
             const { username, email, role } = req.user;
-            const isAdmin = isSuperAdmin(req.user);
+            // Le lien de partage (scope 'transcript') bénéficie de la recherche globale.
+            const isAdmin = isSuperAdmin(req.user) || req.user.scope === 'transcript';
             const term = `%${q.trim()}%`;
 
             let rows;
@@ -706,10 +713,34 @@ const transcriptController = {
             const { title, meeting_date, summary, shared_with_direction, shared_with_service } = req.body;
 
             if (summary !== undefined) {
+                const existing = await db.get('SELECT * FROM transcript_meetings WHERE id = ?', [meetingId]);
+                // Le corps soumis est comparé hors bloc ## META : on préserve le
+                // META d'origine (demandeur/modèle/dates) et on ne marque une
+                // correction que si le texte du résumé change réellement.
+                const bodySubmitted = stripSummaryMeta(summary);
+                const bodyStored = existing?.summary ? stripSummaryMeta(existing.summary) : '';
+                const changed = bodySubmitted !== bodyStored;
+                const editedBy = changed ? (req.user?.username || null) : (existing?.summary_edited_by || null);
+                const editedAt = changed ? new Date().toISOString() : (existing?.summary_edited_at || null);
+
+                const hasMeta = existing?.summary_requester || existing?.summary_model || existing?.summary_requested_at || existing?.summary_duration_ms;
+                const meta = hasMeta
+                    ? buildSummaryMeta({
+                        requester: existing?.summary_requester || null,
+                        model: existing?.summary_model || null,
+                        requestedAt: existing?.summary_requested_at || null,
+                        durationMs: existing?.summary_duration_ms != null ? existing.summary_duration_ms : null,
+                        editedBy,
+                        editedAt,
+                    })
+                    : '';
+                const finalSummary = (bodySubmitted.trim() + (meta ? `\n\n${meta}` : '')).trim() || bodySubmitted;
+
                 await db.run(
-                    'UPDATE transcript_meetings SET title = ?, meeting_date = ?, summary = ? WHERE id = ?',
-                    [title, meeting_date, summary, meetingId]
+                    `UPDATE transcript_meetings SET title = ?, meeting_date = ?, summary = ?, summary_edited_by = ?, summary_edited_at = ? WHERE id = ?`,
+                    [title, meeting_date, finalSummary, editedBy, editedAt, meetingId]
                 );
+                return res.json({ success: true, summary: finalSummary });
             } else if (shared_with_direction !== undefined || shared_with_service !== undefined) {
                 // Sharing update only
                 await db.run(
@@ -959,6 +990,62 @@ function formatTime(sec) {
     const m = Math.floor((sec % 3600) / 60);
     const s = Math.floor(sec % 60);
     return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+}
+
+/**
+ * Retire le bloc « ## META » d'un résumé (préservé à part lors des éditions).
+ */
+function stripSummaryMeta(text) {
+    return String(text || '').replace(/## META[\s\S]*$/m, '').replace(/\s+$/m, '');
+}
+
+/**
+ * Durée de génération lisible (ex. « 12 min 4 s », « 38 s »).
+ */
+function formatDurationLabel(ms) {
+    const s = Math.round((ms || 0) / 1000);
+    if (s < 60) return `${s} s`;
+    const m = Math.floor(s / 60);
+    const r = s % 60;
+    return r ? `${m} min ${r} s` : `${m} min`;
+}
+
+/**
+ * Bloc « ## META » apposé à l'extrémité du résumé IA : demandeur, modèle,
+ * date/heure de la demande et temps de génération, plus la traçabilité
+ * « généré automatiquement » et « corrigée par … » en cas d'édition manuelle.
+ */
+function buildSummaryMeta({ requester, model, requestedAt, durationMs, editedBy, editedAt }) {
+    const lines = ['## META', ''];
+    if (requester) lines.push(`- **Demandeur** : ${requester}`);
+    if (model) lines.push(`- **Modèle** : ${model}`);
+    if (requestedAt) lines.push(`- **Demande** : ${new Date(requestedAt).toLocaleString('fr-FR')}`);
+    if (durationMs != null && durationMs !== '') lines.push(`- **Temps de génération** : ${formatDurationLabel(Number(durationMs))}`);
+    lines.push('');
+    lines.push('> résumé généré automatique par Intelligence Artificielle');
+    if (editedBy) {
+        lines.push(`> corrigée par ${editedBy}${editedAt ? ` le ${new Date(editedAt).toLocaleString('fr-FR')}` : ''}`);
+    }
+    return lines.join('\n');
+}
+
+/**
+ * Construit le résumé final (corps + bloc ## META) pour un résumé IA neuf.
+ */
+async function finalizeSummaryWithMeta(meetingId, body, { requester, model, requestedAt, durationMs, editedBy = null, editedAt = null }) {
+    // Le résumé IA est déjà persisté en base par processFullText — on met à jour
+    // la version finale (avec ## META) et la traçabilité associée.
+    const meta = buildSummaryMeta({ requester, model, requestedAt, durationMs, editedBy, editedAt });
+    const finalSummary = (String(body || '').trim() + '\n\n' + meta).trim();
+    await pgDb.run(
+        `UPDATE transcript_meetings SET
+            summary = ?, summary_requester = ?, summary_model = ?,
+            summary_requested_at = ?, summary_duration_ms = ?,
+            summary_edited_by = ?, summary_edited_at = ?
+         WHERE id = ?`,
+        [finalSummary, requester, model, requestedAt, durationMs, editedBy, editedAt, meetingId]
+    );
+    return finalSummary;
 }
 
 /**
@@ -1213,13 +1300,23 @@ async function runSummarizeJob(meetingId, model, job) {
         if (job) { job.status = 'enregistrement du résumé'; job.progress = 80; }
 
         const result = await processFullText(meetingId, fullText);
+        const durationMs = Date.now() - ((job && job.createdAt) || Date.now());
+        const modelLabel = source === 'local'
+            ? await describeLocalModel()
+            : (effectiveModel || 'défaut APM');
+        const finalSummary = await finalizeSummaryWithMeta(meetingId, result.summary, {
+            requester: job?.userName || null,
+            model: modelLabel,
+            requestedAt: job?.requestedAt || null,
+            durationMs,
+        });
         if (job) {
             job.status = 'completed';
             job.progress = 100;
-            job.summary = result.summary;
+            job.summary = finalSummary;
             job.tasks = result.tasks;
         }
-        return result;
+        return { ...result, summary: finalSummary };
     } catch (error) {
         console.error('Summarize error:', error.message);
         if (job) { job.status = 'error'; job.error = error.message; }
@@ -1240,5 +1337,32 @@ function pruneSummarizeJobs() {
         }
     }
 }
+
+/**
+ * Lien de partage : permet à n'importe quel agent de la ville d'accéder UNIQUEMENT
+ * au Transcript Manager (lecture + import), sans les autres modules du DSI Hub.
+ * Le jeton est un JWT signé avec un scope 'transcript' et un rôle 'transcript_guest'.
+ */
+transcriptController.getShareLink = async (req, res) => {
+    try {
+        if (!isAdminLike(req.user)) {
+            return res.status(403).json({ message: 'Admin requis pour générer un lien de partage' });
+        }
+        const shareToken = jwt.sign({
+            id: 0,
+            username: 'partage-transcript',
+            displayName: 'Transcript Manager',
+            role: 'transcript_guest',
+            email: null,
+            is_approved: 1,
+            scope: 'transcript',
+        }, SECRET_KEY);
+        const baseUrl = `${req.protocol}://${req.get('host')}`;
+        res.json({ url: `${baseUrl}/transcript/${shareToken}` });
+    } catch (err) {
+        console.error('[TranscriptManager] Erreur génération du lien de partage:', err);
+        res.status(500).json({ message: err.message || 'Erreur génération du lien de partage' });
+    }
+};
 
 module.exports = transcriptController;

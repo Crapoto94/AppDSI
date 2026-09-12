@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const transcriptController = require('./transcriptmanager.controller');
-const { authenticateJWT } = require('../../shared/middleware');
+const { authenticateJWT, isAdminLike } = require('../../shared/middleware');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
@@ -20,6 +20,17 @@ const upload = multer({ storage: diskStorage });
 // Multer: mémoire pour les pièces jointes des réunions (écrites via shared/storage.js → GED)
 const uploadAttachment = multer({ storage: multer.memoryStorage() });
 
+// Lien de partage : le jeton porte `scope: 'transcript'` et un rôle 'transcript_guest'.
+// Il autorise la consultation (réunions, transcripts, tâches, pièces jointes) mais
+// bloque toutes les écritures (import, upload, synthèse IA coûteuse, modifications,
+// suppressions) réservées à la DSI.
+const blockTranscriptGuest = (req, res, next) => {
+    if (req.user && req.user.scope === 'transcript' && !isAdminLike(req.user)) {
+        return res.status(403).json({ message: 'Mode partage : lecture seule' });
+    }
+    next();
+};
+
 // Accepte token en query OU header (utile pour les <a href="...?token=..."> côté front — images, PDFs, etc.)
 const authJwtOrQuery = (req, res, next) => {
     const headerToken = (req.headers.authorization || '').split(' ')[1];
@@ -36,21 +47,22 @@ const authJwtOrQuery = (req, res, next) => {
 router.get('/meetings', authenticateJWT, transcriptController.getMeetings);
 router.get('/search', authenticateJWT, transcriptController.searchTranscripts);
 router.get('/meeting/:id', authenticateJWT, transcriptController.getMeeting);
-router.post('/upload', authenticateJWT, upload.single('file'), transcriptController.uploadTranscript);
+router.post('/upload', authenticateJWT, blockTranscriptGuest, upload.single('file'), transcriptController.uploadTranscript);
 router.get('/upload-status/:jobId', authenticateJWT, transcriptController.getImportStatus);
 router.get('/teams-transcripts', authenticateJWT, transcriptController.listTeamsTranscripts);
-router.post('/teams-import', authenticateJWT, transcriptController.importTeamsTranscript);
-router.post('/meeting/:id/summarize', authenticateJWT, transcriptController.summarizeMeeting);
+router.post('/teams-import', authenticateJWT, blockTranscriptGuest, transcriptController.importTeamsTranscript);
+router.post('/meeting/:id/summarize', authenticateJWT, blockTranscriptGuest, transcriptController.summarizeMeeting);
 router.get('/ai/models', authenticateJWT, transcriptController.getAiModels);
+router.get('/share-link', authenticateJWT, transcriptController.getShareLink);
 
 router.get('/tasks', authenticateJWT, transcriptController.getTasks);
-router.post('/tasks', authenticateJWT, transcriptController.createTask);
-router.post('/task/:id/toggle', authenticateJWT, transcriptController.toggleTask);
-router.put('/task/:id', authenticateJWT, transcriptController.updateTask);
-router.patch('/task/:id/link-app-task', authenticateJWT, transcriptController.linkAppTask);
-router.delete('/task/:id', authenticateJWT, transcriptController.deleteTask);
-router.put('/meeting/:id', authenticateJWT, transcriptController.updateMeeting);
-router.delete('/meeting/:id', authenticateJWT, transcriptController.deleteMeeting);
+router.post('/tasks', authenticateJWT, blockTranscriptGuest, transcriptController.createTask);
+router.post('/task/:id/toggle', authenticateJWT, blockTranscriptGuest, transcriptController.toggleTask);
+router.put('/task/:id', authenticateJWT, blockTranscriptGuest, transcriptController.updateTask);
+router.patch('/task/:id/link-app-task', authenticateJWT, blockTranscriptGuest, transcriptController.linkAppTask);
+router.delete('/task/:id', authenticateJWT, blockTranscriptGuest, transcriptController.deleteTask);
+router.put('/meeting/:id', authenticateJWT, blockTranscriptGuest, transcriptController.updateMeeting);
+router.delete('/meeting/:id', authenticateJWT, blockTranscriptGuest, transcriptController.deleteMeeting);
 
 // Statut du job de génération IA asynchrone (POST /summarize renvoie un jobId, le
 // front poll ce endpoint pour le suivi).
@@ -62,6 +74,6 @@ router.get('/summarize-status/:jobId', authenticateJWT, transcriptController.get
 router.post('/meeting/:id/attachments', authenticateJWT, uploadAttachment.array('files', 10), transcriptController.uploadAttachments);
 router.get('/meeting/:id/attachments', authenticateJWT, transcriptController.getAttachments);
 router.get('/attachments/:id/file', authJwtOrQuery, transcriptController.downloadAttachment);
-router.delete('/attachments/:id', authenticateJWT, transcriptController.deleteAttachment);
+router.delete('/attachments/:id', authenticateJWT, blockTranscriptGuest, transcriptController.deleteAttachment);
 
 module.exports = router;

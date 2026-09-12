@@ -3,12 +3,13 @@ import Header from '../../components/Header';
 import {
     Calendar, FileText, Plus, Search, Trash2,
     ArrowRight, Users, RefreshCw, UserCheck, Clock, Sparkles,
-    Video, Download
+    Video, Download, Share2
 } from 'lucide-react';
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
 import ReunionDetailModal from '../../components/ReunionDetailModal';
 import { useAuth } from '../../contexts/AuthContext';
+import { isAdminLike } from '../../utils/roles';
 
 interface Meeting {
     id: number;
@@ -206,6 +207,25 @@ const TranscriptManager: React.FC = () => {
         }
     };
 
+    const handleShareLink = async () => {
+        try {
+            const res = await axios.get('/api/transcriptmanager/share-link', {
+                headers: { Authorization: `Bearer ${token}` }
+            });
+            const url = res.data.url;
+            try {
+                await navigator.clipboard.writeText(url);
+            } catch {
+                // Presse-papiers indisponible : on laisse l'utilisateur copier depuis l'alerte.
+            }
+            alert(`Lien de partage copié (accès limité au Transcript Manager) :\n\n${url}`);
+        } catch (err: unknown) {
+            const e = apiError(err);
+            const msg = e.response?.data?.message || e.message || "Erreur inconnue";
+            alert(`Impossible de générer le lien de partage : ${typeof msg === 'string' ? msg : JSON.stringify(msg)}`);
+        }
+    };
+
     const startImportPolling = (jobId: string) => {
         setIsUploading(true);
         setUploadProgress(0);
@@ -334,6 +354,12 @@ const TranscriptManager: React.FC = () => {
                             <Video size={18} />
                             Import auto
                         </button>
+                        {isAdminLike(user) && (
+                            <button className="tm-btn-teams" onClick={handleShareLink} title="Copier un lien d'accès limité au Transcript Manager (pour tout agent de la ville, sans les autres modules)">
+                                <Share2 size={18} />
+                                Lien de partage
+                            </button>
+                        )}
                         <input
                             type="file"
                             id="tm-upload"

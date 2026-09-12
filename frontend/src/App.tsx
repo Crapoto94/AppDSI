@@ -34,6 +34,7 @@ import PlanningGeneral from './pages/PlanningGeneral';
 import ProjetDetail from './pages/ProjetDetail';
 import TranscriptManager from './pages/TranscriptManager';
 import TranscriptMeetingDetail from './pages/TranscriptManager/MeetingDetail';
+import TranscriptShare from './pages/TranscriptShare';
 import Contrats from './pages/Contrats';
 import Vols from './pages/Vols';
 import Copieurs from './pages/Copieurs';
@@ -83,6 +84,7 @@ import FastActions from './pages/FastActions';
 const ChatWidgetWrapper = () => {
   const location = useLocation();
   if (location.pathname === '/fast') return null;
+  if (location.search.includes('nomenu') || localStorage.getItem('restrictedPath')) return null;
   return <ChatWidget />;
 };
 
@@ -145,6 +147,7 @@ function App() {
         <Route path="/reouvrir/:token" element={<PublicReopenTicket />} />
         <Route path="/service-fait-verifier/:token" element={<ServiceFaitVerifier />} />
         <Route path="/service-fait/processus/:id" element={<PrivateRoute path="/budget"><ServiceFaitProcessus /></PrivateRoute>} />
+        <Route path="/transcript/:token" element={<TranscriptShare />} />
         <Route path="/auto-resolution/keep-alive/:token" element={<AutoResolutionConfirm />} />
         <Route path="/request-feature" element={<PrivateRoute path="/request-feature"><RequestFeature /></PrivateRoute>} />
         <Route path="/whats-new" element={<PrivateRoute path="/whats-new"><WhatsNew /></PrivateRoute>} />

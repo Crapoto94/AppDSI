@@ -50,7 +50,10 @@ const Header: React.FC<HeaderProps> = ({ columns, onColumnsChange }) => {
   const navigate = useNavigate();
   const location = useLocation();
   const searchParams = new URLSearchParams(location.search);
-  if (searchParams.get('nomenu') !== null) {
+  // Session restreinte (ex. lien de partage du Transcript Manager) : on masque le
+  // header entier, pas seulement sur l'URL portant `nomenu` — la navigation interne
+  // (React Router) perd ce paramètre alors que la session reste restreinte.
+  if (searchParams.get('nomenu') !== null || localStorage.getItem('restrictedPath')) {
     return null;
   }
   const token = localStorage.getItem('token');
