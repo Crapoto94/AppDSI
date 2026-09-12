@@ -365,8 +365,11 @@ const transcriptController = {
                 return res.json({ models: [label], source: 'local' });
             }
             const allModels = await apmAi.listModels();
-            // Seuls les modèles LLAMA (interne) sont proposés pour le résumé.
-            const models = allModels.filter(m => /llama/i.test(m));
+            // On ne propose que les modèles LLAMA (internes) si le référentiel
+            // APM en expose ; sinon on affiche toute la liste pour ne jamais
+            // bloquer la génération (le choix final reste validé par l'admin).
+            const llamaModels = allModels.filter(m => /llama/i.test(m));
+            const models = llamaModels.length > 0 ? llamaModels : allModels;
             const defaultModel = await getTranscriptApmDefaultModel();
             res.json({ models, source: 'apm', defaultModel: defaultModel && models.includes(defaultModel) ? defaultModel : null });
         } catch (error) {
