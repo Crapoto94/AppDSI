@@ -650,6 +650,7 @@ const MagAppController = {
                 result.show_library_original = result.show_library;
                 result.show_consommables_original = result.show_consommables;
                 result.show_chat_live_original = result.show_chat_live;
+                result.show_transcript_manager_original = result.show_transcript_manager;
 
                 result.show_tickets = true;
                 result.show_subscriptions = true;
@@ -659,7 +660,8 @@ const MagAppController = {
                 result.show_rencontres = true;
                 result.show_library = true;
                 result.show_consommables = true;
-                // show_chat_live is NOT forced for beta users — it respects the admin toggle
+                // show_chat_live & show_transcript_manager sont des toggles admin :
+                // jamais forcés, on respecte le paramétrage.
             } else {
                 result.show_tickets_original = result.show_tickets;
                 result.show_subscriptions_original = result.show_subscriptions;
@@ -670,6 +672,7 @@ const MagAppController = {
                 result.show_library_original = result.show_library;
                 result.show_consommables_original = result.show_consommables;
                 result.show_chat_live_original = result.show_chat_live;
+                result.show_transcript_manager_original = result.show_transcript_manager;
             }
 
             let hasRencontresAccess = false;
@@ -731,10 +734,10 @@ const MagAppController = {
     },
 
     updateSettings: async (req, res) => {
-        const { show_tickets, show_subscriptions, show_health_check, show_create_buttons, show_ideas, show_rencontres, show_library, show_consommables, show_chat_live } = req.body;
+        const { show_tickets, show_subscriptions, show_health_check, show_create_buttons, show_ideas, show_rencontres, show_library, show_consommables, show_chat_live, show_transcript_manager } = req.body;
         try {
-            await pgDb.run('UPDATE magapp.settings SET show_tickets = ?, show_subscriptions = ?, show_health_check = ?, show_create_buttons = ?, show_ideas = ?, show_rencontres = ?, show_library = ?, show_consommables = ?, show_chat_live = ? WHERE id = 1',
-                [!!show_tickets, !!show_subscriptions, !!show_health_check, !!show_create_buttons, !!show_ideas, !!show_rencontres, !!show_library, !!show_consommables, !!show_chat_live]);
+            await pgDb.run('UPDATE magapp.settings SET show_tickets = ?, show_subscriptions = ?, show_health_check = ?, show_create_buttons = ?, show_ideas = ?, show_rencontres = ?, show_library = ?, show_consommables = ?, show_chat_live = ?, show_transcript_manager = ? WHERE id = 1',
+                [!!show_tickets, !!show_subscriptions, !!show_health_check, !!show_create_buttons, !!show_ideas, !!show_rencontres, !!show_library, !!show_consommables, !!show_chat_live, !!show_transcript_manager]);
             res.json({ message: 'Settings updated' });
         } catch (error) {
             console.error('[MAGAPP] Error updating settings:', error.message);
