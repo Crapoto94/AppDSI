@@ -2846,6 +2846,16 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                           <option value="anthropic">Anthropic (Claude)</option>
                           <option value="ollama">Ollama (Local)</option>
                         </select>
+                        <div style={{ marginTop: '0.6rem', padding: '10px 12px', background: '#F0F9FF', border: '1px solid #BAE6FD', borderRadius: 8, fontSize: '0.78rem', color: '#0C4A6E', lineHeight: 1.5 }}>
+                          <strong>Types d'IA utilisables pour les comptes rendus de réunion :</strong>
+                          <ul style={{ margin: '4px 0 0', paddingLeft: 18 }}>
+                            <li><strong>API Ville (APM)</strong> — modèles hébergés par la collectivité : 100 % souverain (<strong>recommandé</strong>).</li>
+                            <li><strong>Ollama</strong> — inférence locale (ex. GPU <strong>Nvidia</strong>) : 100 % local et souverain.</li>
+                            <li><strong>Groq</strong> — cloud, rapide (les données sortent de la collectivité).</li>
+                            <li><strong>Gemini / OpenRouter / Anthropic</strong> — cloud (données chez un tiers).</li>
+                          </ul>
+                          <div style={{ marginTop: 4 }}>Pour le respect du RGPD / la souveraineté, préférez <strong>API Ville (APM)</strong> ou <strong>Ollama</strong>.</div>
+                        </div>
                       </div>
 
                       {transcriptConfig.ai_provider === 'groq' && (

@@ -1155,6 +1155,13 @@ const MeetingDetail: React.FC = () => {
                                 <div className="stream-box-modal">
                                     {getGenerationPhase(genElapsed, aiSource, selectedModel, isPollingAfterError)}
                                 </div>
+                                {meeting?.summary_notice && (
+                                    <div className="gen-notice">
+                                        {(meeting.summary_notice || '').split('\n').map(l => l.trim()).filter(Boolean).map((line, i) => (
+                                            <p key={i}>{line}</p>
+                                        ))}
+                                    </div>
+                                )}
                             </div>
                         </div>
                     </div>
@@ -1798,6 +1805,21 @@ const MeetingDetail: React.FC = () => {
                     box-shadow: inset 0 2px 4px rgba(0,0,0,0.5);
                     line-height: 1.6;
                 }
+                /* Avertissement (IA locale/souveraine, vérification, responsabilité)
+                   affiché en gros et en couleur vive pendant la génération. */
+                .gen-notice {
+                    margin-top: 1rem;
+                    padding: 1rem 1.1rem;
+                    background: #FEF08A;
+                    border: 2px solid #F59E0B;
+                    border-radius: 10px;
+                    color: #B91C1C;
+                    font-weight: 800;
+                    font-size: 1.05rem;
+                    line-height: 1.5;
+                    text-align: left;
+                }
+                .gen-notice p { margin: 0.35rem 0; }
                 .gen-modal-overlay {
                     position: fixed;
                     top: 0; left: 0; right: 0; bottom: 0;
