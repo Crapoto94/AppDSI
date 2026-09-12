@@ -1072,7 +1072,7 @@ const MeetingDetail: React.FC = () => {
                                         Compte rendu envoyé
                                         {meeting.summary_last_send.sent_at ? ` le ${new Date(meeting.summary_last_send.sent_at).toLocaleString('fr-FR')}` : ''}
                                         {meeting.summary_last_send.sent_by ? ` par ${meeting.summary_last_send.sent_by}` : ''}
-                                        {' '}à {(meeting.summary_last_send.recipients || '').split(',').map(r => r.trim()).filter(Boolean).join(', ') || '—'}
+                                        {' '}à {(meeting.summary_last_send.recipients || '').split(/[,;]/).map(r => r.trim()).filter(Boolean).join(' ; ') || '—'}
                                         {meeting.summary_last_send.failed_count ? ` (${meeting.summary_last_send.failed_count} échec(s))` : ''}.
                                     </span>
                                 </div>
@@ -1209,7 +1209,12 @@ const MeetingDetail: React.FC = () => {
                                                     })}
                                                     style={{ flexShrink: 0 }}
                                                 />
-                                                <span style={{ fontWeight: 600, color: '#1E293B', flex: '0 0 auto', maxWidth: 150, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</span>
+                                                <div style={{ display: 'flex', flexDirection: 'column', flex: '0 0 auto', maxWidth: 150, minWidth: 0 }}>
+                                                    <span style={{ fontWeight: 600, color: '#1E293B', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</span>
+                                                    {p.internal && p.service && (
+                                                        <span style={{ color: '#94A3B8', fontSize: '0.68rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.service}</span>
+                                                    )}
+                                                </div>
                                                 <span style={{ color: '#64748B', fontSize: '0.72rem', flex: '0 0 auto', maxWidth: 150, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.email}</span>
                                                 {p.internal ? (
                                                     <div style={{ display: 'flex', gap: 4, flex: 1, minWidth: 0 }}>

@@ -192,12 +192,7 @@ function buildSummaryEmailHtml({ summaryHtml, message, meetingTitle, meetingDate
         <div style="margin:16px 0;">
             <div style="font-weight:700;color:#334155;margin-bottom:6px;">👥 Participants (${participants.length})</div>
             <ul style="margin:0;padding-left:18px;color:#334155;font-size:14px;line-height:1.6;">
-                ${participants.map(p => {
-                    const extra = p.internal && (p.fonction || p.direction || p.service)
-                        ? ` — ${[p.fonction, p.service, p.direction].filter(Boolean).map(esc).join(' · ')}`
-                        : '';
-                    return `<li>${esc(p.name)} &lt;${esc(p.email)}&gt;${extra}</li>`;
-                }).join('')}
+                ${participants.map(p => `<li>${esc(p.name)} &lt;${esc(p.email)}&gt;</li>`).join('')}
             </ul>
         </div>` : '';
 
@@ -748,7 +743,7 @@ const transcriptController = {
             // Journalise l'envoi (date/heure, expéditeur, destinataires).
             let sentAt = null;
             try {
-                const recipientList = Array.from(targets.values()).map(t => t.email).join(', ');
+                const recipientList = Array.from(targets.values()).map(t => t.email).join('; ');
                 const logRes = await db.run(
                     `INSERT INTO transcript.summary_sends (meeting_id, sent_at, sent_by, recipients, sent_count, failed_count) VALUES (?, NOW(), ?, ?, ?, ?)`,
                     [meetingId, req.user?.username || null, recipientList, sent, failed]
