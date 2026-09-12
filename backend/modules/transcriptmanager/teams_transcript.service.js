@@ -1,6 +1,7 @@
 /**
  * Récupération des transcripts de réunions Teams via Microsoft Graph
- * (app-only, client_credentials — mêmes identifiants que le module rencontres).
+ * (app-only, client_credentials — app registration de la « Messagerie O365 »,
+ * o365_settings, sur laquelle les permissions transcripts sont configurées).
  *
  * Stratégie (cf. doc Microsoft « Fetch meeting transcripts & recordings ») :
  *   1. le calendrier de l'utilisateur courant liste les réunions où il était
@@ -13,10 +14,10 @@
  *      (GET .../transcripts/{id}/content avec Accept: text/vtt) — format déjà
  *      géré par parseTranscript() côté controller.
  *
- * Permissions applicatives attendues sur l'app registration (à vérifier au
- * moment du test) : Calendars.Read, OnlineMeetings.Read.All,
- * OnlineMeetingTranscript.Read.All (+ éventuellement une application access
- * policy accordée par l'admin pour les artifacts de réunion).
+ * Permissions applicatives attendues sur l'app o365_settings :
+ * Calendars.Read, OnlineMeetings.Read.All, OnlineMeetingTranscript.Read.All
+ * (+ éventuellement une application access policy accordée par l'admin pour
+ * les artifacts de réunion).
  *
  * Défensif par design : une réunion cross-tenant (403) ou sans transcript ne
  * fait jamais échouer l'ensemble — chaque réunion est traitée isolément.
@@ -47,16 +48,18 @@ async function getGraphToken(settings, axiosOpts) {
     return tokenRes.data.access_token;
 }
 
-// Récupère l'app Graph : Azure AD en priorité (droits calendrier/Teams attendus
-// sur cette app), repli sur O365 (collecteur mail).
+// Récupère l'app Graph : O365 en priorité (collecteur mail / « Messagerie O365 »,
+// c'est sur cette app registration que les permissions transcripts Teams
+// (OnlineMeetingTranscript.Read.All, OnlineMeetings.Read.All, Calendars.Read)
+// sont configurées), repli sur Azure AD.
 async function getGraphSettings() {
     const sqlite = getSqlite();
-    let settings = await sqlite.get('SELECT * FROM azure_ad_settings WHERE id = 1');
+    let settings = await sqlite.get('SELECT * FROM o365_settings WHERE id = 1');
     if (!settings || !settings.is_enabled || !settings.client_id || !settings.client_secret || !settings.tenant_id) {
-        settings = await sqlite.get('SELECT * FROM o365_settings WHERE id = 1');
+        settings = await sqlite.get('SELECT * FROM azure_ad_settings WHERE id = 1');
     }
     if (!settings || !settings.client_id || !settings.client_secret || !settings.tenant_id) {
-        throw new Error('Aucune application Microsoft Graph configurée (Azure AD ou O365)');
+        throw new Error('Aucune application Microsoft Graph configurée (O365 ou Azure AD)');
     }
     return settings;
 }
