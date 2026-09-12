@@ -2332,6 +2332,24 @@ async function setupPgDb() {
     } catch (e) {
         console.error('Error creating transcript.meeting_participants indexes:', e.message);
     }
+    // Journal des envois du compte rendu (résumé) par mail : date/heure,
+    // expéditeur et destinataires.
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS transcript.summary_sends (
+        id SERIAL PRIMARY KEY,
+        meeting_id INTEGER NOT NULL REFERENCES transcript.meetings(id) ON DELETE CASCADE,
+        sent_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        sent_by TEXT,
+        recipients TEXT,
+        sent_count INTEGER DEFAULT 0,
+        failed_count INTEGER DEFAULT 0
+      );
+    `);
+    try {
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_transcript_summary_sends_meeting ON transcript.summary_sends (meeting_id)`);
+    } catch (e) {
+        console.error('Error creating transcript.summary_sends index:', e.message);
+    }
     await client.query(`
       CREATE TABLE IF NOT EXISTS transcript.tasks (
         id SERIAL PRIMARY KEY,

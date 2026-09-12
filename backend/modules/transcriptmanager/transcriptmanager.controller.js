@@ -475,7 +475,15 @@ const transcriptController = {
             }
 
             const cues = await db.all('SELECT * FROM transcript_cues WHERE meeting_id = ? ORDER BY start_seconds', [meetingId]);
-            res.json({ ...meeting, cues });
+            // Dernier envoi du compte rendu (date/heure, expéditeur, destinataires).
+            let summaryLastSend = null;
+            try {
+                summaryLastSend = await db.get(
+                    'SELECT sent_at, sent_by, recipients, sent_count, failed_count FROM transcript.summary_sends WHERE meeting_id = ? ORDER BY sent_at DESC, id DESC LIMIT 1',
+                    [meetingId]
+                ) || null;
+            } catch { /* table pas encore migrée */ }
+            res.json({ ...meeting, cues, summary_last_send: summaryLastSend });
         } catch (error) {
             res.status(500).json({ error: error.message });
         }
@@ -607,7 +615,22 @@ const transcriptController = {
                     console.error('[TRANSCRIPT MAIL] échec pour', t.email, e.message);
                 }
             }
-            res.json({ sent, failed, total: targets.size, errors });
+
+            // Journalise l'envoi (date/heure, expéditeur, destinataires).
+            let sentAt = null;
+            try {
+                const recipientList = Array.from(targets.values()).map(t => t.email).join(', ');
+                const logRes = await db.run(
+                    `INSERT INTO transcript.summary_sends (meeting_id, sent_at, sent_by, recipients, sent_count, failed_count) VALUES (?, NOW(), ?, ?, ?, ?)`,
+                    [meetingId, req.user?.username || null, recipientList, sent, failed]
+                );
+                const row = await db.get(`SELECT sent_at FROM transcript.summary_sends WHERE id = ?`, [logRes.lastID]);
+                sentAt = row?.sent_at || null;
+            } catch (e) {
+                console.error('[TRANSCRIPT MAIL] journalisation échouée:', e.message);
+            }
+
+            res.json({ sent, failed, total: targets.size, errors, sent_at: sentAt });
         } catch (error) {
             res.status(500).json({ error: error.message });
         }

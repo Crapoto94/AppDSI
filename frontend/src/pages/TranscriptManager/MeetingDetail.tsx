@@ -36,6 +36,13 @@ interface Meeting {
     shared_with_service?: string | null;
     summary_edited_by?: string | null;
     summary_edited_at?: string | null;
+    summary_last_send?: {
+        sent_at: string | null;
+        sent_by: string | null;
+        recipients: string | null;
+        sent_count: number | null;
+        failed_count: number | null;
+    } | null;
 }
 
 interface Task {
@@ -480,7 +487,15 @@ const MeetingDetail: React.FC = () => {
                 extraEmails: emailExtra,
                 message: emailMessage,
             }, { headers: { Authorization: `Bearer ${token}` } });
-            setEmailResult({ sent: res.data?.sent ?? 0, failed: res.data?.failed ?? 0 });
+            const sent = res.data?.sent ?? 0;
+            const failed = res.data?.failed ?? 0;
+            setEmailResult({ sent, failed });
+            // Envoi effectué : on ferme la modale et on rafraîchit la fiche pour
+            // afficher la date/heure et les destinataires du dernier envoi.
+            if (sent > 0) {
+                setShowEmailModal(false);
+                fetchData();
+            }
         } catch (err) {
             const e = err as AxiosErrorLike;
             setEmailError(e?.response?.data?.error || e?.message || "Erreur lors de l'envoi");
@@ -1034,6 +1049,18 @@ const MeetingDetail: React.FC = () => {
                                     </div>
                                 )}
                             </div>
+                            {meeting.summary_last_send && (
+                                <div style={{ margin: '0 1.5rem 0.5rem', padding: '8px 12px', background: '#F0F9FF', border: '1px solid #BAE6FD', borderRadius: 8, fontSize: '0.78rem', color: '#0369A1', display: 'flex', alignItems: 'flex-start', gap: 6 }}>
+                                    <Mail size={14} style={{ flexShrink: 0, marginTop: 1 }} />
+                                    <span>
+                                        Compte rendu envoyé
+                                        {meeting.summary_last_send.sent_at ? ` le ${new Date(meeting.summary_last_send.sent_at).toLocaleString('fr-FR')}` : ''}
+                                        {meeting.summary_last_send.sent_by ? ` par ${meeting.summary_last_send.sent_by}` : ''}
+                                        {' '}à {(meeting.summary_last_send.recipients || '').split(',').map(r => r.trim()).filter(Boolean).join(', ') || '—'}
+                                        {meeting.summary_last_send.failed_count ? ` (${meeting.summary_last_send.failed_count} échec(s))` : ''}.
+                                    </span>
+                                </div>
+                            )}
                             <div className="summary-content">
                                 {isGenerating ? (
                                     <div className="stream-box">
