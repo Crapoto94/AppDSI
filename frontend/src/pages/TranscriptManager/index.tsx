@@ -48,6 +48,7 @@ interface TeamsMeeting {
     createdDateTime: string | null;
     organizer: string | null;
     already_imported: boolean;
+    transcriptContentUrl?: string | null;
 }
 
 interface ApiErrorResponseData {
@@ -247,6 +248,7 @@ const TranscriptManager: React.FC = () => {
                 transcriptId: m.transcriptId,
                 subject: m.subject,
                 startDateTime: m.startDateTime,
+                transcriptContentUrl: m.transcriptContentUrl,
                 overwrite,
             }, { headers: { Authorization: `Bearer ${token}` } });
             startImportPolling(res.data.jobId);

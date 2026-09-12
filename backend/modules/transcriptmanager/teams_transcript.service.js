@@ -75,6 +75,27 @@ async function retryNetwork(fn, attempts = 2) {
     throw lastErr;
 }
 
+/**
+ * Relance `fn` sur le 403 « Graph API access to transcripts is disabled for
+ * this tenant » : cette erreur est transitoire tant que la bascule tenant
+ * n'est pas répliquée partout (on l'a observé : succès intermittent).
+ */
+async function retryTransientTenantDisabled(fn, attempts = 3, delayMs = 2000) {
+    let lastErr;
+    for (let i = 0; i < attempts; i++) {
+        try {
+            return await fn();
+        } catch (e) {
+            lastErr = e;
+            const msg = e.response?.data?.error?.message || '';
+            const status = e.response?.status;
+            if (status !== 403 || !/transcripts is disabled for this tenant/i.test(msg)) throw e;
+            if (i < attempts - 1) await new Promise(r => setTimeout(r, delayMs));
+        }
+    }
+    throw lastErr;
+}
+
 // L'app pour les transcripts est celle de /Admin/entra (azure_ad_settings),
 // qui porte Calendars.Read, OnlineMeetings.Read.All, OnlineMeetingTranscript.Read.All
 // et User.Read.All. L'app o365_settings (collecteur mail) ne sert qu'en repli.
@@ -248,12 +269,13 @@ async function listTeamsTranscripts(userEmail, days = 30) {
     }
 
     // Source complémentaire : réunions organisées par l'utilisateur.
+    // NB : « Graph API access to transcripts is disabled for this tenant »
+    // revient en 403 transitoire tant que la bascule Teams Admin Center ne
+    // s'est pas propagée à toutes les régions — on réessaie quelques fois.
     if (aadId) {
+        const url = `https://graph.microsoft.com/v1.0/users/${aadId}/onlineMeetings/getAllTranscripts(meetingOrganizerUserId='${aadId}', startDateTime=${toIsoUtc(startDate)}, endDateTime=${toIsoUtc(endDate)})`;
         try {
-            const r = await axios.get(
-                `https://graph.microsoft.com/v1.0/users/${aadId}/onlineMeetings/getAllTranscripts(meetingOrganizerUserId='${aadId}', startDateTime=${toIsoUtc(startDate)}, endDateTime=${toIsoUtc(endDate)})`,
-                { ...axiosOpts, headers }
-            );
+            const r = await retryTransientTenantDisabled(() => axios.get(url, { ...axiosOpts, headers }));
             for (const t of r.data.value || []) {
                 const dup = meetings.some(m => m.transcriptId === t.id || (m.meetingId === t.meetingId && m.createdDateTime === t.createdDateTime));
                 if (dup) continue;
@@ -282,23 +304,45 @@ async function listTeamsTranscripts(userEmail, days = 30) {
 }
 
 /**
- * Télécharge le contenu VTT d'un transcript Graph.
+ * Télécharge le contenu d'un transcript Graph, en VTT si possible (intervenants
+ * nommés) avec repli sur le format non attribué si le tenant refuse le VTT.
+ *
  * @param {string} userEmail
  * @param {string} meetingId
  * @param {string} transcriptId
- * @returns {Promise<string>} contenu VTT brut
+ * @param {string} [transcriptContentUrl] - URL de contenu fournie par Graph
+ *        (getAllTranscripts) — permet d'éviter de reconstruire l'URL.
+ * @returns {Promise<string>} contenu brut du transcript
  */
-async function fetchTranscriptContent(userEmail, meetingId, transcriptId) {
+async function fetchTranscriptContent(userEmail, meetingId, transcriptId, transcriptContentUrl) {
     const settings = await getGraphSettings();
     const axiosOpts = getAxiosOpts();
     const token = await retryNetwork(() => getGraphToken(settings, axiosOpts));
-    const headers = { Authorization: `Bearer ${token}`, Accept: 'text/vtt' };
-    const aadId = await resolveUserAadId(userEmail, axiosOpts, headers);
-    const res = await axios.get(
-        `https://graph.microsoft.com/v1.0/users/${encodeURIComponent(aadId || userEmail)}/onlineMeetings/${encodeURIComponent(meetingId)}/transcripts/${encodeURIComponent(transcriptId)}/content`,
-        { ...axiosOpts, headers, responseType: 'text' }
-    );
-    return typeof res.data === 'string' ? res.data : JSON.stringify(res.data);
+    const headers = { Authorization: `Bearer ${token}` };
+    const url = transcriptContentUrl
+        || `https://graph.microsoft.com/v1.0/users/${encodeURIComponent(userEmail)}/onlineMeetings/${encodeURIComponent(meetingId)}/transcripts/${encodeURIComponent(transcriptId)}/content`;
+
+    // Demande d'abord le VTT avec attribution des intervenants.
+    try {
+        const res = await axios.get(url, {
+            ...axiosOpts,
+            headers: { ...headers, Accept: 'text/vtt' },
+            responseType: 'text'
+        });
+        return typeof res.data === 'string' ? res.data : JSON.stringify(res.data);
+    } catch (e) {
+        // Tenant sans attribution des intervenants : le VTT est refusé (403
+        // SpeakerAttributionNotAllowed) → repli sur le format non attribué.
+        const msg = e.response?.data?.error?.message || '';
+        const code = e.response?.data?.error?.code || '';
+        if (e.response?.status !== 403 || !/SpeakerAttribution|attribution/i.test(`${code} ${msg}`)) throw e;
+        const res = await axios.get(url, {
+            ...axiosOpts,
+            headers: { ...headers, Accept: 'application/vnd.microsoft.graph.transcript+text' },
+            responseType: 'text'
+        });
+        return typeof res.data === 'string' ? res.data : JSON.stringify(res.data);
+    }
 }
 
 module.exports = { listTeamsTranscripts, fetchTranscriptContent };

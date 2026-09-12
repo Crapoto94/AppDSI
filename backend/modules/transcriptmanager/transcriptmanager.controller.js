@@ -176,7 +176,7 @@ const transcriptController = {
      */
     importTeamsTranscript: async (req, res) => {
         try {
-            const { meetingId, transcriptId, subject, startDateTime, overwrite } = req.body || {};
+            const { meetingId, transcriptId, subject, startDateTime, transcriptContentUrl, overwrite } = req.body || {};
             if (!meetingId || !transcriptId) return res.status(400).json({ error: 'meetingId et transcriptId requis' });
 
             const userEmail = req.user?.email || `${(req.user?.username || '').split('@')[0].toLowerCase()}@ivry94.fr`;
@@ -200,7 +200,7 @@ const transcriptController = {
                 try {
                     importJobs[jobId].status = 'téléchargement depuis Teams';
                     importJobs[jobId].progress = 5;
-                    const content = await teamsTranscript.fetchTranscriptContent(userEmail, meetingId, transcriptId);
+                    const content = await teamsTranscript.fetchTranscriptContent(userEmail, meetingId, transcriptId, transcriptContentUrl);
 
                     const title = (subject || `Réunion Teams ${new Date(startDateTime || Date.now()).toLocaleString('fr-FR')}`).trim();
                     const meetingDate = startDateTime ? new Date(startDateTime) : null;
