@@ -297,7 +297,13 @@ async function listTeamsTranscripts(userEmail, days = 30) {
                     `https://graph.microsoft.com/v1.0/users/${encodeURIComponent(userKey)}/onlineMeetings/${encodeURIComponent(meetingId)}/transcripts`,
                     { ...axiosOpts, headers }
                 );
-                list = r.data.value || [];
+                // Graph renvoie TOUS les transcripts de la série (réunions
+                // périodiques), y compris ceux hors fenêtre : on ne conserve que
+                // ceux dont l'occurrence tombe dans la plage demandée.
+                list = (r.data.value || []).filter(t => {
+                    const dt = t.createdDateTime ? new Date(t.createdDateTime) : null;
+                    return !dt || (dt >= startDate && dt <= endDate);
+                });
                 transcriptsCache.set(meetingId, list);
             }
             if (list.length === 0) {
@@ -355,9 +361,11 @@ async function listTeamsTranscripts(userEmail, days = 30) {
                 transcripts.push(...(r.data.value || []));
                 pageUrl = r.data['@odata.nextLink'] || null;
             }
-            const organized = transcripts.filter(t =>
-                !meetings.some(m => m.transcriptId === t.id || (m.meetingId === t.meetingId && m.createdDateTime === t.createdDateTime))
-            );
+            const organized = transcripts.filter(t => {
+                const dt = t.createdDateTime ? new Date(t.createdDateTime) : null;
+                if (dt && (dt < startDate || dt > endDate)) return false;
+                return !meetings.some(m => m.transcriptId === t.id || (m.meetingId === t.meetingId && m.createdDateTime === t.createdDateTime));
+            });
             // getAllTranscripts ne renvoie ni le sujet ni la date d'occurrence.
             // On complète avec le détail de la réunion (sujet) et on utilise
             // createdDateTime comme date réelle d'occurrence.
