@@ -1,10 +1,10 @@
 import React, { useEffect, useState, useRef } from 'react';
 import Header from '../../components/Header';
 import {
-    ArrowLeft, Calendar, Clock, Send,
+    ArrowLeft, Calendar, Clock,
     CheckCircle2, Circle, RefreshCw,
     MessageSquare, ListTodo, FileText, Search, Users, Share2, Building2, CheckCircle, UserCheck,
-    Paperclip, Upload, Trash2
+    Paperclip, Upload, Trash2, Bot
 } from 'lucide-react';
 import AgentPresenceBadge from '../../components/AgentPresenceBadge';
 import TaskValidationModal from '../../components/TaskValidationModal';
@@ -552,7 +552,7 @@ const MeetingDetail: React.FC = () => {
                                 value={selectedModel}
                                 onChange={e => setSelectedModel(e.target.value)}
                                 disabled={isGenerating || aiModels.length === 0 || aiSource === 'local'}
-                                title={aiSource === 'local' ? "IA locale AppDSI : un seul modèle configuré (changer dans /admin, section IA)" : "Modèle IA (API Ville / APM)"}
+                                title={aiSource === 'local' ? "IA locale AppDSI : un seul modèle configuré (changer dans /admin, section IA)" : "Modèle IA (APM) — LLAMA interne uniquement"}
                             >
                                 {aiModels.length === 0 && <option value="">Chargement des modèles…</option>}
                                 {aiModels.map(m => <option key={m} value={m}>{m}</option>)}
@@ -563,8 +563,8 @@ const MeetingDetail: React.FC = () => {
                             onClick={handleSummarize}
                             disabled={isGenerating || !selectedModel}
                         >
-                            {isGenerating ? <RefreshCw className="animate-spin" size={18} /> : <Send size={18} />}
-                            {isGenerating ? 'Génération...' : 'Générer le résumé'}
+                            {isGenerating ? <RefreshCw className="animate-spin" size={18} /> : <Bot size={18} />}
+                            {isGenerating ? 'Génération...' : 'Générer résumé IA'}
                         </button>
                     </div>
                 </div>
@@ -1005,6 +1005,7 @@ const MeetingDetail: React.FC = () => {
                     tasks={pendingAiTasks}
                     agents={dsiAgents}
                     token={token || ''}
+                    isGuest={user?.role === 'transcript_guest'}
                     onClose={() => setShowTaskValidation(false)}
                     onValidated={() => { fetchData(); }}
                 />

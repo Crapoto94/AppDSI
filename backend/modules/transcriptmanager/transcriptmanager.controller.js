@@ -1,5 +1,6 @@
 const { pgDb, getSqlite } = require('../../shared/database');
 const { searchADUsersByQuery } = require('../../shared/ad_helper');
+const { nameSimilarity } = require('../infra/name-match');
 const { isSuperAdmin, isAdminLike } = require('../../shared/middleware');
 const axios = require('axios');
 const fs = require('fs');
@@ -363,7 +364,9 @@ const transcriptController = {
                 const label = await describeLocalModel();
                 return res.json({ models: [label], source: 'local' });
             }
-            const models = await apmAi.listModels();
+            const allModels = await apmAi.listModels();
+            // Seuls les modèles LLAMA (interne) sont proposés pour le résumé.
+            const models = allModels.filter(m => /llama/i.test(m));
             const defaultModel = await getTranscriptApmDefaultModel();
             res.json({ models, source: 'apm', defaultModel: defaultModel && models.includes(defaultModel) ? defaultModel : null });
         } catch (error) {
@@ -1026,7 +1029,11 @@ function buildSummaryMeta({ requester, model, requestedAt, durationMs, editedBy,
     if (requestedAt) lines.push(`- **Demande** : ${new Date(requestedAt).toLocaleString('fr-FR')}`);
     if (durationMs != null && durationMs !== '') lines.push(`- **Temps de génération** : ${formatDurationLabel(Number(durationMs))}`);
     lines.push('');
-    lines.push('> résumé généré automatique par Intelligence Artificielle');
+    lines.push(
+        editedBy
+            ? '> résumé généré automatique par Intelligence Artificielle'
+            : '> résumé généré automatiquement par Intelligence Artificielle sécurisée locale, sans modification humaine'
+    );
     if (editedBy) {
         lines.push(`> corrigée par ${editedBy}${editedAt ? ` le ${new Date(editedAt).toLocaleString('fr-FR')}` : ''}`);
     }
@@ -1195,6 +1202,60 @@ async function callLocalAi(prompt) {
     }
 }
 
+/**
+ * Rapprochement du destinataire d'une tâche IA avec une personne réelle.
+ * Par défaut, on recherche dans l'Active Directory (référentiel complet de la
+ * ville) — « fixer » la personne. En repli (AD non configuré/pas de match fiable),
+ * on retombe sur la liste des agents DSI (hub_calendrier.agents_dsi).
+ */
+const AD_MATCH_THRESHOLD = 0.55;
+
+async function getAdSettingsSafe() {
+    try {
+        const sqlite = getSqlite();
+        if (!sqlite) return null;
+        const row = await sqlite.get('SELECT * FROM ad_settings WHERE id = 1');
+        return row || null;
+    } catch (e) {
+        return null;
+    }
+}
+
+async function matchTaskAssignee(rawName, agents, adSettings) {
+    const name = (rawName || '').trim();
+    if (!name) return null;
+
+    if (adSettings && adSettings.is_enabled) {
+        try {
+            const adUsers = await searchADUsersByQuery(name, adSettings);
+            if (adUsers.length) {
+                let best = null;
+                let bestScore = 0;
+                for (const u of adUsers) {
+                    const score = nameSimilarity(name, u.displayName || u.username || '');
+                    if (score > bestScore) { bestScore = score; best = u; }
+                }
+                if (best && bestScore >= AD_MATCH_THRESHOLD) {
+                    return {
+                        username: best.username,
+                        displayName: best.displayName || best.username,
+                        email: best.email || null,
+                        service: best.service || null,
+                        score: Math.round(bestScore * 100) / 100,
+                    };
+                }
+            }
+        } catch (e) {
+            console.error('[TranscriptManager] Rapprochement AD des tâches échoué :', e.message);
+        }
+    }
+
+    const dsiMatch = matchDsiAgent(name, agents);
+    if (dsiMatch) return dsiMatch;
+
+    return null;
+}
+
 async function processFullText(meetingId, fullText) {
     const db = pgDb;
     let displayText = fullText;
@@ -1212,25 +1273,27 @@ async function processFullText(meetingId, fullText) {
     try {
         const tasks = JSON.parse(tasksJson);
         const agents = await listDsiAgents();
+        const adSettings = await getAdSettingsSafe();
         await db.run('DELETE FROM transcript_tasks WHERE meeting_id = ? AND origin = ?', [meetingId, 'ai']);
         for (const t of tasks) {
-            const match = matchDsiAgent(t.who, agents);
+            const match = await matchTaskAssignee(t.who, agents, adSettings);
+            const assigneeName = match?.displayName || match?.nom || t.who;
             const result = await db.run(
                 `INSERT INTO transcript_tasks
                     (meeting_id, description, assignee, requester, deadline, origin, start_seconds, assignee_username, assignee_match_score)
                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-                [meetingId, t.what, t.who, t.req, t.when, 'ai', timeToSeconds(t.ts || "00:00:00"), match?.username || null, match?.score ?? null]
+                [meetingId, t.what, assigneeName, t.req, t.when, 'ai', timeToSeconds(t.ts || "00:00:00"), match?.username || null, match?.score ?? null]
             );
             savedTasks.push({
                 id: result.lastID,
                 description: t.what,
-                assignee: t.who,
+                assignee: assigneeName,
                 requester: t.req,
                 deadline: t.when,
                 start_seconds: timeToSeconds(t.ts || "00:00:00"),
                 assignee_username: match?.username || null,
                 assignee_match_score: match?.score ?? null,
-                assignee_agent: match ? { username: match.username, nom: match.nom, email: match.email, service: match.service } : null,
+                assignee_agent: match?.username ? { username: match.username, nom: match.displayName || match.nom, email: match.email, service: match.service } : null,
             });
         }
     } catch (e) {

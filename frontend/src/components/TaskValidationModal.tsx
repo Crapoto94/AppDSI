@@ -1,7 +1,7 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import axios from 'axios';
 import { X, CheckCircle2, Users, UserPlus, ChevronDown } from 'lucide-react';
-import { useADSearch } from '../utils/useADSearch';
+import { useADSearch, type ADUser } from '../utils/useADSearch';
 
 export interface DsiAgent {
     username: string;
@@ -20,9 +20,11 @@ export interface AiTask {
     assignee_match_score?: number | null;
 }
 
-interface Service {
-    service_code: string;
-    user_count: number;
+interface TicketGroup {
+    id: number;
+    name: string;
+    description?: string | null;
+    members: string[];
 }
 
 interface Row {
@@ -32,31 +34,92 @@ interface Row {
     requester: string;
     echeance: string; // YYYY-MM-DD ou ''
     aiHint: string; // ce que l'IA a écrit pour l'échéance (indicatif)
-    mode: 'person' | 'service';
+    mode: 'person' | 'group';
     personUsername: string;
     personDisplayName: string;
-    serviceCode: string;
+    groupId: number | '';
 }
 
 function isIsoDate(s: string): boolean {
     return /^\d{4}-\d{2}-\d{2}$/.test((s || '').trim());
 }
 
+function normalizeName(s: string): string {
+    return (s || '')
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/[^a-z0-9 ]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+}
+
+/**
+ * Sélectionne la meilleure personne AD pour un nom renvoyé par l'IA :
+ * d'abord un match sur le nom de famille (dernier mot significatif), sinon la
+ * meilleure similarité Jaccard entre les mots. Ne renvoie une personne que si
+ * le rapprochement est suffisamment fiable (>= 0.5), sinon null.
+ */
+function pickBestAdMatch(results: ADUser[], queryName: string): ADUser | null {
+    const q = normalizeName(queryName);
+    if (q.length < 3 || results.length === 0) return null;
+    const surname = q.split(' ').filter(t => t.length >= 3).pop() || '';
+    if (surname) {
+        const bySurname = results.find(u => normalizeName(u.displayName).split(' ').includes(surname));
+        if (bySurname) return bySurname;
+    }
+    const qTokens = q.split(' ').filter(t => t.length > 1);
+    let best: ADUser | null = null;
+    let bestScore = 0;
+    for (const u of results) {
+        const dTokens = normalizeName(u.displayName).split(' ').filter(t => t.length > 1);
+        const common = qTokens.filter(t => dTokens.includes(t)).length;
+        const union = new Set([...qTokens, ...dTokens]).size;
+        const score = union ? common / union : 0;
+        if (score > bestScore) { bestScore = score; best = u; }
+    }
+    return bestScore >= 0.5 ? best : null;
+}
+
 /**
  * Ligne d'affectation d'une tâche — même pattern que AddTaskModal (le composant
  * réutilisé partout ailleurs pour créer une tâche) : recherche AD pour une
- * personne, ou sélection d'un service pour affecter toute l'équipe. Un
+ * personne, ou affectation à un groupe de techniciens (/ticket). Un
  * sous-composant par ligne est nécessaire pour que chaque recherche AD ait son
  * propre état (useADSearch ne peut pas être appelé dans une boucle).
+ *
+ * Dès qu'un nom a été proposé par l'IA sans personne déjà rattachée, une
+ * recherche AD est lancée automatiquement et la personne est « fixée » si le
+ * rapprochement est fiable.
  */
 const AssignmentRow: React.FC<{
     row: Row;
-    services: Service[];
-    servicesLoading: boolean;
+    isGuest: boolean;
+    groups: TicketGroup[];
+    groupsLoading: boolean;
     token: string | null;
     onChange: (patch: Partial<Row>) => void;
-}> = ({ row, services, servicesLoading, token, onChange }) => {
+}> = ({ row, isGuest, groups, groupsLoading, token, onChange }) => {
     const ad = useADSearch(token);
+    const autoPinnedRef = useRef(false);
+
+    useEffect(() => {
+        if (row.personUsername || autoPinnedRef.current) return;
+        const name = (row.personDisplayName || '').trim();
+        if (!name || name.length < 3) return;
+        ad.setQuery(name);
+    }, [row.personDisplayName, row.personUsername]);
+
+    useEffect(() => {
+        if (row.personUsername || autoPinnedRef.current) return;
+        if (!ad.results.length) return;
+        const best = pickBestAdMatch(ad.results, row.personDisplayName);
+        if (best) {
+            autoPinnedRef.current = true;
+            onChange({ personDisplayName: best.displayName, personUsername: best.username, include: true });
+            ad.clearResults();
+        }
+    }, [ad.results, row.personDisplayName, row.personUsername]);
 
     return (
         <div style={{ ...rowStyle, opacity: row.include ? 1 : 0.55 }}>
@@ -74,24 +137,27 @@ const AssignmentRow: React.FC<{
                     placeholder="Description de la tâche"
                 />
 
-                {/* Mode : personne ou service — même bascule que AddTaskModal */}
-                <div style={{ display: 'flex', gap: 6 }}>
-                    {(['person', 'service'] as const).map(m => (
-                        <button
-                            key={m}
-                            type="button"
-                            onClick={() => onChange({ mode: m })}
-                            style={{
-                                flex: 1, padding: '5px 8px', borderRadius: 7, fontSize: 11.5, fontWeight: 600, cursor: 'pointer',
-                                border: `1.5px solid ${row.mode === m ? '#2563eb' : '#e2e8f0'}`,
-                                background: row.mode === m ? '#2563eb' : 'white',
-                                color: row.mode === m ? 'white' : '#475569',
-                            }}
-                        >
-                            {m === 'person' ? '👤 Personne' : '🏢 Service'}
-                        </button>
-                    ))}
-                </div>
+                {/* Mode : personne ou groupe /ticket — la bascule n'existe qu'en
+                    accès DSI Hub ; en accès direct la personne est le seul choix. */}
+                {!isGuest && (
+                    <div style={{ display: 'flex', gap: 6 }}>
+                        {(['person', 'group'] as const).map(m => (
+                            <button
+                                key={m}
+                                type="button"
+                                onClick={() => onChange({ mode: m })}
+                                style={{
+                                    flex: 1, padding: '5px 8px', borderRadius: 7, fontSize: 11.5, fontWeight: 600, cursor: 'pointer',
+                                    border: `1.5px solid ${row.mode === m ? '#2563eb' : '#e2e8f0'}`,
+                                    background: row.mode === m ? '#2563eb' : 'white',
+                                    color: row.mode === m ? 'white' : '#475569',
+                                }}
+                            >
+                                {m === 'person' ? '👤 Personne' : '👥 Groupe de /ticket'}
+                            </button>
+                        ))}
+                    </div>
+                )}
 
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
                     <div style={{ position: 'relative' }}>
@@ -128,15 +194,15 @@ const AssignmentRow: React.FC<{
                         ) : (
                             <div style={{ position: 'relative' }}>
                                 <select
-                                    value={row.serviceCode}
-                                    onChange={e => onChange({ serviceCode: e.target.value })}
-                                    disabled={servicesLoading}
+                                    value={row.groupId}
+                                    onChange={e => onChange({ groupId: e.target.value ? Number(e.target.value) : '' })}
+                                    disabled={groupsLoading}
                                     style={{ ...inputStyle, appearance: 'none', paddingRight: 26 }}
                                 >
-                                    <option value="">— Sélectionnez un service —</option>
-                                    {services.map(s => (
-                                        <option key={s.service_code} value={s.service_code}>
-                                            {s.service_code} ({s.user_count} utilisateur{Number(s.user_count) > 1 ? 's' : ''})
+                                    <option value="">— Sélectionnez un groupe de /ticket —</option>
+                                    {groups.map(g => (
+                                        <option key={g.id} value={g.id}>
+                                            {g.name} ({g.members.length} membre{g.members.length > 1 ? 's' : ''})
                                         </option>
                                     ))}
                                 </select>
@@ -168,11 +234,12 @@ interface Props {
     tasks: AiTask[];
     agents: DsiAgent[];
     token: string;
+    isGuest: boolean;
     onClose: () => void;
     onValidated: () => void;
 }
 
-const TaskValidationModal: React.FC<Props> = ({ meetingId, meetingTitle, tasks, agents, token, onClose, onValidated }) => {
+const TaskValidationModal: React.FC<Props> = ({ meetingId, meetingTitle, tasks, agents, token, isGuest, onClose, onValidated }) => {
     const [rows, setRows] = useState<Row[]>(tasks.map(t => {
         const matchedAgent = t.assignee_username ? agents.find(a => a.username === t.assignee_username) : undefined;
         return {
@@ -185,20 +252,20 @@ const TaskValidationModal: React.FC<Props> = ({ meetingId, meetingTitle, tasks, 
             mode: 'person',
             personUsername: t.assignee_username || '',
             personDisplayName: matchedAgent?.nom || t.assignee || '',
-            serviceCode: '',
+            groupId: '',
         };
     }));
-    const [services, setServices] = useState<Service[]>([]);
-    const [servicesLoading, setServicesLoading] = useState(false);
+    const [groups, setGroups] = useState<TicketGroup[]>([]);
+    const [groupsLoading, setGroupsLoading] = useState(false);
     const [submitting, setSubmitting] = useState(false);
     const [result, setResult] = useState<{ ok: number; failed: number } | null>(null);
 
     useEffect(() => {
-        setServicesLoading(true);
-        axios.get('/api/tasks/services', { headers: { Authorization: `Bearer ${token}` } })
-            .then(res => setServices(Array.isArray(res.data) ? res.data : []))
+        setGroupsLoading(true);
+        axios.get('/api/tasks/ticket-groups', { headers: { Authorization: `Bearer ${token}` } })
+            .then(res => setGroups(Array.isArray(res.data) ? res.data : []))
             .catch(() => {})
-            .finally(() => setServicesLoading(false));
+            .finally(() => setGroupsLoading(false));
     }, [token]);
 
     const updateRow = (id: number, patch: Partial<Row>) => {
@@ -208,10 +275,10 @@ const TaskValidationModal: React.FC<Props> = ({ meetingId, meetingTitle, tasks, 
     const handleSubmit = async () => {
         const toCreate = rows.filter(r =>
             r.include && r.description.trim() &&
-            ((r.mode === 'person' && r.personUsername) || (r.mode === 'service' && r.serviceCode))
+            ((r.mode === 'person' && r.personUsername) || (r.mode === 'group' && r.groupId !== ''))
         );
         if (toCreate.length === 0) {
-            alert("Sélectionnez au moins une tâche avec un destinataire (personne ou service).");
+            alert("Sélectionnez au moins une tâche avec un destinataire (personne ou groupe de /ticket).");
             return;
         }
         setSubmitting(true);
@@ -225,15 +292,15 @@ const TaskValidationModal: React.FC<Props> = ({ meetingId, meetingTitle, tasks, 
                     context_id: meetingId,
                     context_title: meetingTitle,
                 };
-                if (row.mode === 'service') {
-                    body.is_team_task = true;
-                    body.service_code = row.serviceCode;
+                if (row.mode === 'group') {
+                    body.ticket_group_id = Number(row.groupId);
                 } else {
                     body.assignees = [row.personUsername];
                 }
                 const created = await axios.post('/api/tasks', body, { headers: { Authorization: `Bearer ${token}` } });
-                // Tâche de service -> plusieurs lignes créées (une par membre) : on ne peut
-                // rattacher transcript_tasks.app_task_id qu'à une seule ; on prend la première.
+                // Affectation à un groupe -> plusieurs lignes créées (une par
+                // membre) : on ne peut rattacher transcript_tasks.app_task_id
+                // qu'à une seule ; on prend la première.
                 const appTaskId = Array.isArray(created.data) ? created.data[0]?.id : created.data?.id;
                 if (appTaskId) {
                     await axios.patch(`/api/transcriptmanager/task/${row.id}/link-app-task`, { app_task_id: appTaskId }, {
@@ -259,7 +326,10 @@ const TaskValidationModal: React.FC<Props> = ({ meetingId, meetingTitle, tasks, 
                     <button onClick={onClose} style={closeBtn}><X size={18} /></button>
                 </div>
                 <div style={{ padding: '0 1.5rem 0.5rem', color: '#64748B', fontSize: '0.85rem' }}>
-                    Vérifiez les tâches reconnues par l'IA et leur destinataire (rapproché des agents DSI) avant de les créer dans l'application. Affectez à une personne (recherche AD) ou à un service entier — même principe que dans le module Tâches.
+                    Vérifiez les tâches reconnues par l'IA. Dès qu'un nom est proposé, la personne est recherchée dans l'AD et fixée si le rapprochement est fiable.
+                    {isGuest
+                        ? " En accès direct, l'affectation se fait uniquement à une personne."
+                        : ' Affectez à une personne (recherche AD) ou à un groupe de /ticket — même principe que dans le module Tâches.'}
                 </div>
                 <div style={body}>
                     {rows.length === 0 && <p style={{ color: '#94A3B8' }}>Aucune tâche à proposer.</p>}
@@ -267,8 +337,9 @@ const TaskValidationModal: React.FC<Props> = ({ meetingId, meetingTitle, tasks, 
                         <AssignmentRow
                             key={row.id}
                             row={row}
-                            services={services}
-                            servicesLoading={servicesLoading}
+                            isGuest={isGuest}
+                            groups={groups}
+                            groupsLoading={groupsLoading}
                             token={token}
                             onChange={patch => updateRow(row.id, patch)}
                         />
