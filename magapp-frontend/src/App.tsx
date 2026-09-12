@@ -349,14 +349,14 @@ function App() {
         fetchSafe(`${apiBase}/magapp/categories`, []),
         fetchSafe(`${apiBase}/magapp/apps`, []),
         fetchSafe(`${apiBase}/magapp/favorites?username=${username}`, []),
-        fetchSafe(`${apiBase}/magapp/settings?username=${encodeURIComponent(username)}${email ? '&email=' + encodeURIComponent(email) : ''}`, { show_tickets: true, show_subscriptions: true, show_health_check: true, show_create_buttons: true, show_ideas: true, show_rencontres: true, is_beta_user: false, show_tickets_original: true, show_subscriptions_original: true, show_health_check_original: true, show_create_buttons_original: true, show_ideas_original: true, show_chat_live: false }),
+        fetchSafe(`${apiBase}/magapp/settings?username=${encodeURIComponent(username)}${email ? '&email=' + encodeURIComponent(email) : ''}`, { show_tickets: true, show_subscriptions: true, show_health_check: true, show_create_buttons: true, show_ideas: true, show_rencontres: true, is_beta_user: false, show_tickets_original: true, show_subscriptions_original: true, show_health_check_original: true, show_create_buttons_original: true, show_ideas_original: true, show_chat_live: false, show_transcript_manager: false, show_transcript_manager_original: false }),
         fetchSafe(`${apiBase}/tiles`, [])
       ]);
 
       setCategories((cats || []).sort((a: Category, b: Category) => (a.display_order || 0) - (b.display_order || 0)));
       setApps((appsData || []).sort((a: AppItem, b: AppItem) => a.name.localeCompare(b.name, 'fr', { sensitivity: 'base' })));
       setFavorites(favs);
-      setSettings({...settingsData, is_beta_user: settingsData.is_beta_user || false, show_tickets_original: settingsData.show_tickets_original ?? settingsData.show_tickets, show_subscriptions_original: settingsData.show_subscriptions_original ?? settingsData.show_subscriptions, show_health_check_original: settingsData.show_health_check_original ?? settingsData.show_health_check, show_create_buttons_original: settingsData.show_create_buttons_original ?? settingsData.show_create_buttons, show_ideas_original: settingsData.show_ideas_original ?? settingsData.show_ideas, show_rencontres_original: settingsData.show_rencontres_original ?? settingsData.show_rencontres, show_consommables_original: settingsData.show_consommables_original ?? settingsData.show_consommables ?? true, show_chat_live: settingsData.show_chat_live ?? false});
+      setSettings({...settingsData, is_beta_user: settingsData.is_beta_user || false, show_tickets_original: settingsData.show_tickets_original ?? settingsData.show_tickets, show_subscriptions_original: settingsData.show_subscriptions_original ?? settingsData.show_subscriptions, show_health_check_original: settingsData.show_health_check_original ?? settingsData.show_health_check, show_create_buttons_original: settingsData.show_create_buttons_original ?? settingsData.show_create_buttons, show_ideas_original: settingsData.show_ideas_original ?? settingsData.show_ideas, show_rencontres_original: settingsData.show_rencontres_original ?? settingsData.show_rencontres, show_consommables_original: settingsData.show_consommables_original ?? settingsData.show_consommables ?? true, show_chat_live: settingsData.show_chat_live ?? false, show_transcript_manager: settingsData.show_transcript_manager ?? false, show_transcript_manager_original: settingsData.show_transcript_manager_original ?? false});
       setHasRencontresAccess(settingsData.has_rencontres_access || false);
       setHasConsommablesAccess(settingsData.has_consumables_access || false);
       setTiles((tilesData || []).sort((a: any, b: any) => (a.sort_order || 0) - (b.sort_order || 0)));
@@ -1311,7 +1311,7 @@ function App() {
               </button>
             )}
 
-            {windowLogin && (
+            {windowLogin && settings.show_transcript_manager && (
               <button
                 onClick={handleOpenTranscript}
                 style={{
@@ -1334,6 +1334,7 @@ function App() {
               >
                 <FileText size={18} />
                 Mon Transcript Manager
+                {settings.is_beta_user && !settings.show_transcript_manager_original && <span style={{ marginLeft: 8, background: '#f59e0b', color: '#1e293b', fontSize: '0.55rem', fontWeight: 800, padding: '1px 4px', borderRadius: '6px', letterSpacing: '0.05em' }}>BETA</span>}
               </button>
             )}
 
