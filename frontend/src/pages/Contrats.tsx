@@ -309,15 +309,17 @@ const DocAiActions: React.FC<{
   pdfInfo: { isPdf: boolean; isRaster: boolean; hasOcr: boolean; ocrStatus: string } | null;
   pdfInfoLoading: boolean;
   ocrRunning: boolean;
+  ocrTextLoading: boolean;
   analyseRunning: boolean;
   onOcr: () => void;
+  onShowOcr: () => void;
   onAnalyse: () => void;
   aiSource: 'apm' | 'local';
   aiModels: string[];
   selectedModel: string;
   onSelectModel: (m: string) => void;
   modelsError: string;
-}> = ({ pdfInfo, pdfInfoLoading, ocrRunning, analyseRunning, onOcr, onAnalyse, aiSource, aiModels, selectedModel, onSelectModel, modelsError }) => {
+}> = ({ pdfInfo, pdfInfoLoading, ocrRunning, ocrTextLoading, analyseRunning, onOcr, onShowOcr, onAnalyse, aiSource, aiModels, selectedModel, onSelectModel, modelsError }) => {
   if (!pdfInfo?.isPdf) return null;
   const canAnalyse = !pdfInfo.isRaster || pdfInfo.hasOcr;
   return (
@@ -328,7 +330,7 @@ const DocAiActions: React.FC<{
         <button
           onClick={onOcr}
           disabled={ocrRunning}
-          title="Ce PDF est un scan (pas de couche texte) : l'OCR extrait le texte pour une future analyse IA — le texte OCR n'est pas affiché."
+          title="Ce PDF est un scan (pas de couche texte) : l'OCR extrait le texte pour une future analyse IA — le texte pourra ensuite être consulté via « Afficher OCR »."
           style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 10px', borderRadius: 4, border: '1px solid #b45309', background: ocrRunning ? '#fef3c7' : '#fffbeb', color: '#92400e', cursor: ocrRunning ? 'default' : 'pointer', fontSize: 11, fontWeight: 600 }}
         >
           {ocrRunning ? <Loader2 size={13} className="animate-spin" /> : <ScanText size={13} />}
@@ -340,9 +342,16 @@ const DocAiActions: React.FC<{
         <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: '#15803d', fontWeight: 600 }}>
           <FileCheck2 size={13} /> Texte OCR disponible
           <button
+            onClick={onShowOcr}
+            disabled={ocrTextLoading}
+            style={{ marginLeft: 4, fontSize: 11, color: '#6b7280', background: 'none', border: 'none', cursor: ocrTextLoading ? 'default' : 'pointer', textDecoration: 'underline' }}
+          >
+            {ocrTextLoading ? 'Chargement…' : 'Afficher OCR'}
+          </button>
+          <button
             onClick={onOcr}
             disabled={ocrRunning}
-            style={{ marginLeft: 4, fontSize: 11, color: '#6b7280', background: 'none', border: 'none', cursor: ocrRunning ? 'default' : 'pointer', textDecoration: 'underline' }}
+            style={{ fontSize: 11, color: '#6b7280', background: 'none', border: 'none', cursor: ocrRunning ? 'default' : 'pointer', textDecoration: 'underline' }}
           >
             {ocrRunning ? 'OCR en cours…' : 'Relancer'}
           </button>
@@ -696,6 +705,10 @@ const Contrats: React.FC = () => {
   const [analyseRunning, setAnalyseRunning] = useState(false);
   const [analyseResult, setAnalyseResult] = useState<{ raw: string; json: any; documentName?: string; persisted?: boolean } | null>(null);
   const [analyseError, setAnalyseError] = useState('');
+  // Texte brut reconnu par l'OCR — affiché à la demande (bouton "Afficher OCR"), pour
+  // vérification manuelle uniquement (sinon jamais affiché, seulement utilisé pour l'analyse IA).
+  const [ocrTextModal, setOcrTextModal] = useState<{ documentName: string; text: string } | null>(null);
+  const [ocrTextLoading, setOcrTextLoading] = useState(false);
   // Analyse IA "à la volée" (bouton toolbar, à côté de "Prévision") : upload d'un fichier
   // PDF quelconque, non lié à un contrat, non conservé côté serveur (rien n'est persisté).
   const [adHocAnalysing, setAdHocAnalysing] = useState(false);
@@ -1274,6 +1287,21 @@ const Contrats: React.FC = () => {
       showMsg('error', e?.message || "Erreur lors de l'OCR du document");
     } finally {
       setOcrRunning(false);
+    }
+  };
+
+  const handleShowOcrText = async () => {
+    if (!activeDocCtx) return;
+    setOcrTextLoading(true);
+    try {
+      const res = await fetch(`/api/contrats/${activeDocCtx.contratId}/documents/${activeDocCtx.docId}/ocr-text`, { headers: authHeaders() });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.message || 'Erreur lecture du texte OCR');
+      setOcrTextModal({ documentName: data.documentName || activeDocCtx.fileName, text: data.text || '' });
+    } catch (e: any) {
+      showMsg('error', e?.message || "Erreur lors de la récupération du texte OCR");
+    } finally {
+      setOcrTextLoading(false);
     }
   };
 
@@ -2859,8 +2887,10 @@ const Contrats: React.FC = () => {
               pdfInfo={pdfInfo}
               pdfInfoLoading={pdfInfoLoading}
               ocrRunning={ocrRunning}
+              ocrTextLoading={ocrTextLoading}
               analyseRunning={analyseRunning}
               onOcr={handleOcrDocument}
+              onShowOcr={handleShowOcrText}
               onAnalyse={handleAnalyseDocumentAi}
               aiSource={contratAiSource}
               aiModels={contratAiModels}
@@ -3227,8 +3257,10 @@ const Contrats: React.FC = () => {
                 pdfInfo={pdfInfo}
                 pdfInfoLoading={pdfInfoLoading}
                 ocrRunning={ocrRunning}
+                ocrTextLoading={ocrTextLoading}
                 analyseRunning={analyseRunning}
                 onOcr={handleOcrDocument}
+                onShowOcr={handleShowOcrText}
                 onAnalyse={handleAnalyseDocumentAi}
                 aiSource={contratAiSource}
                 aiModels={contratAiModels}
@@ -3310,6 +3342,25 @@ const Contrats: React.FC = () => {
                 </div>
                 <button onClick={saveDocViewModal} style={{ width: '100%', padding: '6px 12px', marginTop: 12, borderRadius: 4, border: 'none', background: '#16a34a', color: '#fff', cursor: 'pointer', fontSize: 11, fontWeight: 600 }}>Enregistrer</button>
               </div>
+            </div>
+          </div>
+        </Overlay>
+      )}
+
+      {/* ── Modale : Texte reconnu par l'OCR (vérification manuelle) ────────────── */}
+      {ocrTextModal && (
+        <Overlay onClose={() => setOcrTextModal(null)} maxWidth={860}>
+          <ModalHeader title={`Texte OCR — ${ocrTextModal.documentName}`} onClose={() => setOcrTextModal(null)} />
+          <div style={{ padding: 20, maxHeight: '75vh', overflowY: 'auto' }}>
+            {ocrTextModal.text ? (
+              <pre style={{ whiteSpace: 'pre-wrap', fontFamily: 'monospace', fontSize: 12, lineHeight: 1.6, background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: 6, padding: '12px 14px', margin: 0 }}>
+                {ocrTextModal.text}
+              </pre>
+            ) : (
+              <p style={{ color: '#9ca3af', fontSize: 13, margin: 0 }}>Aucun texte OCR disponible pour ce document.</p>
+            )}
+            <div style={{ marginTop: 12, background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 6, padding: '8px 10px', fontSize: 11, color: '#92400e' }}>
+              Texte brut reconnu automatiquement (OCR) — peut contenir des erreurs de reconnaissance. Fourni à titre de vérification ; c'est ce texte qui est envoyé à l'IA lors d'une analyse.
             </div>
           </div>
         </Overlay>

@@ -43,6 +43,10 @@ router.get('/:id/documents/:docId/pdf-info', authenticateJWT, async (req, res) =
     await controller.getDocumentPdfInfo(req, res, pgDb);
 });
 
+router.get('/:id/documents/:docId/ocr-text', authenticateJWT, async (req, res) => {
+    await controller.getDocumentOcrText(req, res, pgDb);
+});
+
 // Modèles IA disponibles pour l'analyse de contrats (avant les routes /:id génériques)
 router.get('/analyse-ia/models', authenticateJWT, async (req, res) => {
     await controller.getContratAnalyseAiModels(req, res);

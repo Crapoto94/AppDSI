@@ -965,6 +965,23 @@ module.exports = {
         }
     },
 
+    // Documents - Texte reconnu par l'OCR (pour vérification manuelle — le texte OCR n'est
+    // sinon utilisé que côté serveur, pour l'analyse IA, jamais affiché ailleurs).
+    async getDocumentOcrText(req, res, db) {
+        try {
+            const doc = await db.get('SELECT ocr_text, ocr_status, ocr_updated_at, file_name FROM contrat_documents WHERE id = ? AND contrat_id = ?', [req.params.docId, req.params.id]);
+            if (!doc) return res.status(404).json({ message: 'Document non trouvé' });
+            res.json({
+                text: doc.ocr_text || '',
+                ocrStatus: doc.ocr_status || 'none',
+                ocrUpdatedAt: doc.ocr_updated_at || null,
+                documentName: doc.file_name,
+            });
+        } catch (error) {
+            res.status(500).json({ message: 'Erreur lecture du texte OCR', error: error.message });
+        }
+    },
+
     // Documents - Lancer l'OCR (PDF raster -> texte, stocké pour une analyse IA ultérieure).
     // Asynchrone : répond immédiatement avec un jobId, le traitement continue en arrière-plan
     // (cf. GET /jobs/:jobId) pour ne jamais retenir la connexion HTTP le temps de l'OCR.
