@@ -123,7 +123,7 @@ async function callLocalAiProvider(prompt, cfg) {
  * Partagé par l'analyse d'un document déjà attaché à un contrat et par l'analyse
  * "à la volée" (fichier non conservé).
  */
-async function runContratAnalysePrompt({ fileName, content, requestedModel }) {
+async function runContratAnalysePrompt({ fileName, content, requestedModel, job }) {
     const sqlite = getSqlite();
     const keys = [
         'contrat_analyse_prompt', 'contrat_analyse_ai_source', 'contrat_analyse_apm_model',
@@ -146,12 +146,43 @@ async function runContratAnalysePrompt({ fileName, content, requestedModel }) {
     // que le Transcript Manager, cf. GET /analyse-ia/models). Comme pour ai_summary_source côté
     // Transcript Manager, seul 'local' est un opt-out explicite : tout le reste (y compris
     // absent/vide — réglage jamais enregistré) utilise l'API Ville par défaut.
+    const model = (requestedModel || '').trim() || cfg.contrat_analyse_apm_model || undefined;
     const raw = cfg.contrat_analyse_ai_source !== 'local'
-        ? await apmAi.queryAi(prompt, (requestedModel || '').trim() || cfg.contrat_analyse_apm_model || undefined)
+        ? await queryApmWithProgress(prompt, model, job)
         : await callLocalAiProvider(prompt, cfg);
 
     const rawText = String(raw || '').trim();
     return { rawText, parsedJson: extractJsonFromAiResponse(rawText) };
+}
+
+/**
+ * Interroge l'API Ville en asynchrone (queryId + polling de la progression) plutôt qu'en un
+ * seul appel bloquant — remonte le nombre de tokens reçus en temps réel dans `job`
+ * (contratAiJobs, déjà suivi par le front via GET /jobs/:jobId) pendant que l'IA génère sa
+ * réponse. `job` est optionnel : sans lui, on interroge quand même en asynchrone (toujours
+ * préférable à un seul long appel HTTP), simplement sans rien à mettre à jour.
+ */
+async function queryApmWithProgress(prompt, model, job) {
+    const queryId = await apmAi.queryAiAsync(prompt, model);
+    const POLL_MS = 1500;
+    const MAX_WAIT_MS = 20 * 60 * 1000; // même borne que l'appel synchrone (query_timeout_ms max côté APM)
+    const start = Date.now();
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+        await new Promise(resolve => setTimeout(resolve, POLL_MS));
+        const progress = await apmAi.getQueryProgress(queryId);
+        if (job) {
+            job.tokensReceived = progress.tokensReceived || 0;
+            job.charsReceived = progress.charsReceived || 0;
+            job.aiProvider = progress.provider_label || null;
+            job.aiModel = progress.model || null;
+        }
+        if (progress.status === 'completed') return progress.response;
+        if (progress.status === 'error') throw new Error(progress.error || "Erreur lors de l'interrogation de l'IA");
+        if (Date.now() - start > MAX_WAIT_MS) {
+            throw new Error("Toujours aucune réponse de l'IA après un long délai — la génération a probablement échoué.");
+        }
+    }
 }
 
 /**
@@ -221,7 +252,7 @@ async function runAnalyseDocumentJob(doc, contratId, requestedModel, db, job) {
             throw new Error("Aucun texte disponible pour ce document. S'il s'agit d'un scan, OCRisez-le d'abord.");
         }
 
-        const { rawText, parsedJson } = await runContratAnalysePrompt({ fileName: doc.file_name, content, requestedModel });
+        const { rawText, parsedJson } = await runContratAnalysePrompt({ fileName: doc.file_name, content, requestedModel, job });
 
         await db.run(
             'UPDATE contrats SET ai_analyse_raw = ?, ai_analyse_json = ?, ai_analyse_document_id = ?, ai_analyse_at = CURRENT_TIMESTAMP WHERE id = ?',
@@ -254,7 +285,7 @@ async function runAdHocAnalyseJob(buffer, fileName, requestedModel, job) {
             throw new Error("Impossible d'extraire du texte de ce document.");
         }
 
-        const { rawText, parsedJson } = await runContratAnalysePrompt({ fileName, content, requestedModel });
+        const { rawText, parsedJson } = await runContratAnalysePrompt({ fileName, content, requestedModel, job });
 
         job.status = 'completed';
         job.result = { raw: rawText, json: parsedJson, documentName: fileName, ocrUsed };

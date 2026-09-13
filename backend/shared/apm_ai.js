@@ -7,8 +7,11 @@
  *
  * Config : hub.infra_apis WHERE key='apm_ai' (label, base_url, endpoint,
  * api_key, header_name, enabled) — éditable via /admin/infra.
- *   POST {base_url}{endpoint}/query   { prompt, model? }  -> réponse IA
- *   GET  {base_url}{endpoint}/models                       -> modèles actifs
+ *   POST {base_url}{endpoint}/query           { prompt, model? }  -> réponse IA
+ *   GET  {base_url}{endpoint}/models                                -> modèles actifs
+ *   POST {base_url}{endpoint}/query-async     { prompt, model? }  -> { queryId }
+ *   GET  {base_url}{endpoint}/query-progress/{queryId}              -> progression en temps réel
+ *        (tokensReceived pendant status='running' ; status='completed' -> response ; 'error' -> error)
  */
 const { pgDb } = require('./database');
 
@@ -94,4 +97,64 @@ async function queryAi(prompt, model) {
     }
 }
 
-module.exports = { getConfig, listModels, queryAi };
+/**
+ * POST .../query-async { prompt, model? } — démarre la génération côté APM et renvoie
+ * immédiatement un queryId, à suivre via getQueryProgress. Contrairement à queryAi() (qui
+ * attend la réponse complète en une seule requête HTTP potentiellement très longue),
+ * cet appel-ci est court : c'est le polling de getQueryProgress qui suit la génération.
+ */
+async function queryAiAsync(prompt, model) {
+    const cfg = await getConfig();
+    const url = buildUrl(cfg, '/query-async');
+    const headerName = cfg.header_name || 'X-API-KEY';
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 20000);
+    try {
+        const resp = await fetch(url, {
+            method: 'POST',
+            headers: { [headerName]: cfg.api_key, 'Content-Type': 'application/json' },
+            body: JSON.stringify(model ? { prompt, model } : { prompt }),
+            signal: ctrl.signal,
+        });
+        const rawText = await resp.text();
+        if (!resp.ok) {
+            throw new Error(`HTTP ${resp.status} depuis l'API IA (APM)${rawText ? ' — ' + rawText.slice(0, 300) : ''}`);
+        }
+        let data;
+        try { data = JSON.parse(rawText); } catch { throw new Error("Réponse invalide de l'API IA (APM) lors du démarrage de la requête asynchrone"); }
+        if (!data?.queryId) {
+            throw new Error("L'API IA (APM) n'a pas renvoyé de queryId — endpoint /query-async peut-être indisponible sur cette version de l'APM");
+        }
+        return data.queryId;
+    } finally {
+        clearTimeout(timer);
+    }
+}
+
+/**
+ * GET .../query-progress/{queryId} — état courant d'une génération démarrée via
+ * queryAiAsync : { status: 'running'|'completed'|'error', tokensReceived, charsReceived,
+ * response? (si completed), error? (si error) }.
+ */
+async function getQueryProgress(queryId) {
+    const cfg = await getConfig();
+    const url = buildUrl(cfg, `/query-progress/${encodeURIComponent(queryId)}`);
+    const headerName = cfg.header_name || 'X-API-KEY';
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 15000);
+    try {
+        const resp = await fetch(url, {
+            headers: { [headerName]: cfg.api_key, Accept: 'application/json' },
+            signal: ctrl.signal,
+        });
+        const rawText = await resp.text();
+        if (!resp.ok) {
+            throw new Error(`HTTP ${resp.status} depuis l'API IA (APM)${rawText ? ' — ' + rawText.slice(0, 300) : ''}`);
+        }
+        try { return JSON.parse(rawText); } catch { throw new Error("Réponse invalide de l'API IA (APM) pour la progression"); }
+    } finally {
+        clearTimeout(timer);
+    }
+}
+
+module.exports = { getConfig, listModels, queryAi, queryAiAsync, getQueryProgress };
