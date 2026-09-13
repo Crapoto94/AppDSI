@@ -48,6 +48,13 @@ router.get('/analyse-ia/models', authenticateJWT, async (req, res) => {
     await controller.getContratAnalyseAiModels(req, res);
 });
 
+// Statut d'un job OCR/analyse IA asynchrone (POST .../ocr, .../analyse-ia, .../ad-hoc y
+// répondent par un jobId à poller ici — évite qu'un reverse-proxy ne coupe une connexion
+// HTTP trop longue le temps du traitement).
+router.get('/jobs/:jobId', authenticateJWT, (req, res) => {
+    controller.getJobStatus(req, res);
+});
+
 // Analyse IA "à la volée" : PDF uploadé directement, non lié à un contrat, non conservé.
 router.post('/analyse-ia/ad-hoc', uploadDoc.single('file'), authenticateJWT, async (req, res) => {
     await controller.analyseAdHoc(req, res);

@@ -1233,6 +1233,33 @@ const Contrats: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Poll d'un job OCR/analyse IA asynchrone (POST .../ocr, .../analyse-ia, .../ad-hoc renvoient
+  // un jobId immédiatement, le traitement continue côté serveur) — évite qu'une connexion HTTP
+  // trop longue soit coupée par un reverse-proxy intermédiaire (nginx, etc.) avant la fin du
+  // traitement (constaté avec /analyse-ia : même correctif que /transcriptmanager/summarize).
+  const pollContratJob = async (jobId: string, maxWaitMs = 20 * 60 * 1000): Promise<any> => {
+    const start = Date.now();
+    const intervalMs = 3000;
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+      await new Promise(r => setTimeout(r, intervalMs));
+      let job: any = null;
+      try {
+        const res = await fetch(`/api/contrats/jobs/${jobId}`, { headers: authHeaders() });
+        if (res.ok) job = await res.json();
+        else if (res.status === 404) throw new Error('Job introuvable (le serveur a peut-être redémarré) — réessayez.');
+      } catch (e: any) {
+        if (e?.message?.includes('Job introuvable')) throw e;
+        // erreur réseau ponctuelle : on continue le polling
+      }
+      if (job?.status === 'completed') return job.result;
+      if (job?.status === 'error') throw new Error(job.error || 'Erreur inconnue');
+      if (Date.now() - start > maxWaitMs) {
+        throw new Error('Toujours aucun résultat après un long délai — le traitement a probablement échoué.');
+      }
+    }
+  };
+
   const handleOcrDocument = async () => {
     if (!activeDocCtx) return;
     setOcrRunning(true);
@@ -1240,7 +1267,8 @@ const Contrats: React.FC = () => {
       const res = await fetch(`/api/contrats/${activeDocCtx.contratId}/documents/${activeDocCtx.docId}/ocr`, { method: 'POST', headers: authHeaders() });
       const data = await res.json();
       if (!res.ok) throw new Error(data?.message || 'Erreur OCR');
-      showMsg('success', `OCR terminé (${data.pages} page${data.pages > 1 ? 's' : ''}${data.truncated ? ', document tronqué' : ''}).`);
+      const result = await pollContratJob(data.jobId);
+      showMsg('success', `OCR terminé (${result.pages} page${result.pages > 1 ? 's' : ''}${result.truncated ? ', document tronqué' : ''}).`);
       await fetchPdfInfo(activeDocCtx.contratId, activeDocCtx.docId);
     } catch (e: any) {
       showMsg('error', e?.message || "Erreur lors de l'OCR du document");
@@ -1261,7 +1289,8 @@ const Contrats: React.FC = () => {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data?.message || "Erreur lors de l'analyse IA");
-      setAnalyseResult({ raw: data.raw, json: data.json, documentName: data.documentName, persisted: true });
+      const result = await pollContratJob(data.jobId);
+      setAnalyseResult({ raw: result.raw, json: result.json, documentName: result.documentName, persisted: true });
     } catch (e: any) {
       setAnalyseError(e?.message || "Erreur lors de l'analyse IA");
       setAnalyseResult({ raw: '', json: null });
@@ -1283,7 +1312,8 @@ const Contrats: React.FC = () => {
       const res = await fetch('/api/contrats/analyse-ia/ad-hoc', { method: 'POST', headers: authHeaders(), body: fd });
       const data = await res.json();
       if (!res.ok) throw new Error(data?.message || "Erreur lors de l'analyse IA");
-      setAnalyseResult({ raw: data.raw, json: data.json, documentName: data.documentName, persisted: false });
+      const result = await pollContratJob(data.jobId);
+      setAnalyseResult({ raw: result.raw, json: result.json, documentName: result.documentName, persisted: false });
     } catch (e: any) {
       setAnalyseError(e?.message || "Erreur lors de l'analyse IA");
       setAnalyseResult({ raw: '', json: null, persisted: false });

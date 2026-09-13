@@ -9,6 +9,21 @@ const apmAi = require('../../shared/apm_ai');
 
 const MODULE = 'contrats';
 
+// Jobs asynchrones pour l'OCR et l'analyse IA (POST répond immédiatement avec un jobId,
+// le front poll GET /jobs/:jobId) — même pattern que summarizeJobs du Transcript Manager.
+// Nécessaire : un reverse-proxy devant l'appli (nginx, etc.) coupe une connexion HTTP
+// trop longue avant que le traitement (OCR multi-pages, appel IA) n'ait fini, renvoyant
+// sa propre page d'erreur HTML au client à la place de la réponse JSON du backend.
+let contratAiJobs = {};
+
+/** Purge les jobs terminés/en échec de plus de 35 min — évite la fuite mémoire. */
+function pruneContratAiJobs() {
+    const cutoff = Date.now() - 35 * 60 * 1000;
+    for (const key of Object.keys(contratAiJobs)) {
+        if (contratAiJobs[key].createdAt < cutoff) delete contratAiJobs[key];
+    }
+}
+
 // Prompt par défaut pour l'analyse IA d'un contrat (réglable dans /admin/transcript
 // — clé app_settings 'contrat_analyse_prompt'). Volontairement structuré en JSON
 // pour préparer une future mise à jour automatique des champs du contrat à partir
@@ -154,6 +169,99 @@ async function describeLocalAiModel(cfg) {
     };
     const providerLabel = { groq: 'Groq', gemini: 'Gemini', openrouter: 'OpenRouter', anthropic: 'Anthropic', ollama: 'Ollama' }[provider] || provider;
     return `${providerLabel} — ${modelByProvider[provider] || provider} (local AppDSI)`;
+}
+
+/**
+ * Exécute l'OCR en arrière-plan (appelée par ocrDocument, qui répond immédiatement avec un
+ * jobId). Met à jour `job` pour que le front puisse suivre l'avancement via GET /jobs/:jobId.
+ * Ne lève pas d'exception non capturée : les erreurs sont reportées dans job.error.
+ */
+async function runOcrJob(doc, db, job) {
+    try {
+        const buffer = await readDocumentBuffer(doc);
+        await db.run("UPDATE contrat_documents SET ocr_status = 'running', ocr_error = NULL WHERE id = ?", [doc.id]);
+        const result = await ocrService.ocrPdfBuffer(buffer, { lang: 'fra' });
+        await db.run(
+            "UPDATE contrat_documents SET ocr_status = 'done', ocr_text = ?, ocr_error = NULL, ocr_updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+            [result.text, doc.id]
+        );
+        job.status = 'completed';
+        job.result = { textLength: result.text.length, pages: result.pages, totalPages: result.totalPages, truncated: result.truncated };
+    } catch (error) {
+        try {
+            await db.run(
+                "UPDATE contrat_documents SET ocr_status = 'error', ocr_error = ?, ocr_updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                [error.message, doc.id]
+            );
+        } catch (e) { /* ignore */ }
+        job.status = 'error';
+        job.error = error.message;
+    }
+}
+
+/** Message d'erreur exploitable à partir d'une exception d'appel IA (axios ou autre). */
+function aiErrorMessage(error) {
+    return error.response?.data?.error?.message || error.response?.data?.message || error.message || "Erreur lors de l'analyse IA";
+}
+
+/**
+ * Exécute l'analyse IA d'un document déjà attaché à un contrat, en arrière-plan (appelée par
+ * analyseDocumentAi, qui répond immédiatement avec un jobId). Même logique que
+ * runContratAnalysePrompt, avec persistance du résultat sur le contrat en cas de succès.
+ */
+async function runAnalyseDocumentJob(doc, contratId, requestedModel, db, job) {
+    try {
+        let content = (doc.ocr_text || '').trim();
+        if (!content && /\.pdf$/i.test(doc.file_name || '')) {
+            const buffer = await readDocumentBuffer(doc);
+            const info = await ocrService.analyzePdf(buffer);
+            content = (info.text || '').trim();
+        }
+        if (!content) {
+            throw new Error("Aucun texte disponible pour ce document. S'il s'agit d'un scan, OCRisez-le d'abord.");
+        }
+
+        const { rawText, parsedJson } = await runContratAnalysePrompt({ fileName: doc.file_name, content, requestedModel });
+
+        await db.run(
+            'UPDATE contrats SET ai_analyse_raw = ?, ai_analyse_json = ?, ai_analyse_document_id = ?, ai_analyse_at = CURRENT_TIMESTAMP WHERE id = ?',
+            [rawText, parsedJson ? JSON.stringify(parsedJson) : null, doc.id, contratId]
+        );
+
+        job.status = 'completed';
+        job.result = { raw: rawText, json: parsedJson, documentId: doc.id, documentName: doc.file_name };
+    } catch (error) {
+        job.status = 'error';
+        job.error = aiErrorMessage(error);
+    }
+}
+
+/**
+ * Exécute l'analyse IA "à la volée" en arrière-plan (appelée par analyseAdHoc, qui répond
+ * immédiatement avec un jobId). Rien n'est persisté (ni le fichier, ni le résultat).
+ */
+async function runAdHocAnalyseJob(buffer, fileName, requestedModel, job) {
+    try {
+        const info = await ocrService.analyzePdf(buffer);
+        let content = (info.text || '').trim();
+        let ocrUsed = false;
+        if (info.isRaster || !content) {
+            const ocrResult = await ocrService.ocrPdfBuffer(buffer, { lang: 'fra' });
+            content = (ocrResult.text || '').trim();
+            ocrUsed = true;
+        }
+        if (!content) {
+            throw new Error("Impossible d'extraire du texte de ce document.");
+        }
+
+        const { rawText, parsedJson } = await runContratAnalysePrompt({ fileName, content, requestedModel });
+
+        job.status = 'completed';
+        job.result = { raw: rawText, json: parsedJson, documentName: fileName, ocrUsed };
+    } catch (error) {
+        job.status = 'error';
+        job.error = aiErrorMessage(error);
+    }
 }
 
 // Helpers
@@ -858,6 +966,8 @@ module.exports = {
     },
 
     // Documents - Lancer l'OCR (PDF raster -> texte, stocké pour une analyse IA ultérieure).
+    // Asynchrone : répond immédiatement avec un jobId, le traitement continue en arrière-plan
+    // (cf. GET /jobs/:jobId) pour ne jamais retenir la connexion HTTP le temps de l'OCR.
     async ocrDocument(req, res, db) {
         try {
             const doc = await db.get('SELECT * FROM contrat_documents WHERE id = ? AND contrat_id = ?', [req.params.docId, req.params.id]);
@@ -866,26 +976,22 @@ module.exports = {
                 return res.status(400).json({ message: 'Seuls les documents PDF peuvent être OCRisés.' });
             }
 
-            const buffer = await readDocumentBuffer(doc);
-            await db.run("UPDATE contrat_documents SET ocr_status = 'running', ocr_error = NULL WHERE id = ?", [doc.id]);
+            const jobId = `ocr_${Date.now()}_${doc.id}`;
+            contratAiJobs[jobId] = { status: 'running', createdAt: Date.now() };
+            pruneContratAiJobs();
+            res.json({ jobId });
 
-            try {
-                const result = await ocrService.ocrPdfBuffer(buffer, { lang: 'fra' });
-                await db.run(
-                    "UPDATE contrat_documents SET ocr_status = 'done', ocr_text = ?, ocr_error = NULL, ocr_updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-                    [result.text, doc.id]
-                );
-                res.json({ ocrStatus: 'done', textLength: result.text.length, pages: result.pages, totalPages: result.totalPages, truncated: result.truncated });
-            } catch (ocrError) {
-                await db.run(
-                    "UPDATE contrat_documents SET ocr_status = 'error', ocr_error = ?, ocr_updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-                    [ocrError.message, doc.id]
-                );
-                throw ocrError;
-            }
+            runOcrJob(doc, db, contratAiJobs[jobId]).catch(err => console.error(`[Contrats] Job OCR ${jobId} a échoué :`, err.message));
         } catch (error) {
             res.status(500).json({ message: "Erreur lors de l'OCR", error: error.message });
         }
+    },
+
+    // Statut d'un job OCR/analyse IA (contratAiJobs). Le front le poll pendant qu'il tourne.
+    getJobStatus(req, res) {
+        const job = contratAiJobs[req.params.jobId];
+        if (!job) return res.status(404).json({ status: 'error', message: 'Job non trouvé' });
+        res.json(job);
     },
 
     // Analyse IA - Modèle(s) disponibles pour la source configurée (/admin/transcript,
@@ -923,6 +1029,7 @@ module.exports = {
     // (/admin/transcript, clé 'contrat_analyse_prompt'). Affichage en modale côté front ;
     // le résultat est aussi conservé sur le contrat (ai_analyse_json / ai_analyse_raw) pour
     // préparer une future mise à jour automatique des champs.
+    // Asynchrone (même raison que l'OCR ci-dessus) : répond avec un jobId, cf. GET /jobs/:jobId.
     async analyseDocumentAi(req, res, db) {
         try {
             const doc = await db.get('SELECT * FROM contrat_documents WHERE id = ? AND contrat_id = ?', [req.params.docId, req.params.id]);
@@ -930,34 +1037,23 @@ module.exports = {
             const contrat = await db.get('SELECT id FROM contrats WHERE id = ?', [req.params.id]);
             if (!contrat) return res.status(404).json({ message: 'Contrat non trouvé' });
 
-            let content = (doc.ocr_text || '').trim();
-            if (!content && /\.pdf$/i.test(doc.file_name || '')) {
-                const buffer = await readDocumentBuffer(doc);
-                const info = await ocrService.analyzePdf(buffer);
-                content = (info.text || '').trim();
-            }
-            if (!content) {
-                return res.status(400).json({ message: "Aucun texte disponible pour ce document. S'il s'agit d'un scan, OCRisez-le d'abord." });
-            }
-
             const requestedModel = typeof req.body?.model === 'string' ? req.body.model : '';
-            const { rawText, parsedJson } = await runContratAnalysePrompt({ fileName: doc.file_name, content, requestedModel });
+            const jobId = `analyse_${Date.now()}_${doc.id}`;
+            contratAiJobs[jobId] = { status: 'running', createdAt: Date.now() };
+            pruneContratAiJobs();
+            res.json({ jobId });
 
-            await db.run(
-                'UPDATE contrats SET ai_analyse_raw = ?, ai_analyse_json = ?, ai_analyse_document_id = ?, ai_analyse_at = CURRENT_TIMESTAMP WHERE id = ?',
-                [rawText, parsedJson ? JSON.stringify(parsedJson) : null, doc.id, req.params.id]
-            );
-
-            res.json({ raw: rawText, json: parsedJson, documentId: doc.id, documentName: doc.file_name });
+            runAnalyseDocumentJob(doc, req.params.id, requestedModel, db, contratAiJobs[jobId])
+                .catch(err => console.error(`[Contrats] Job analyse IA ${jobId} a échoué :`, err.message));
         } catch (error) {
-            const msg = error.response?.data?.error?.message || error.response?.data?.message || error.message || "Erreur lors de l'analyse IA";
-            res.status(500).json({ message: msg });
+            res.status(500).json({ message: error.message || "Erreur lors de l'analyse IA" });
         }
     },
 
     // Analyse IA "à la volée" — PDF uploadé directement (pas besoin d'être déjà attaché à un
     // contrat), même prompt/modèle que l'analyse d'un document, OCR automatique si le PDF est
-    // un raster. Rien n'est conservé côté serveur (ni le fichier, ni le résultat).
+    // un raster. Rien n'est conservé côté serveur (ni le fichier, ni le résultat). Asynchrone
+    // elle aussi (multer a déjà tout le fichier en mémoire à ce stade — req.file.buffer).
     async analyseAdHoc(req, res) {
         try {
             if (!req.file) return res.status(400).json({ message: 'Aucun fichier fourni' });
@@ -966,28 +1062,16 @@ module.exports = {
                 return res.status(400).json({ message: 'Seuls les fichiers PDF sont pris en charge.' });
             }
 
-            const buffer = req.file.buffer;
-            const info = await ocrService.analyzePdf(buffer);
-            let content = (info.text || '').trim();
-            let ocrUsed = false;
-            if (info.isRaster || !content) {
-                const ocrResult = await ocrService.ocrPdfBuffer(buffer, { lang: 'fra' });
-                content = (ocrResult.text || '').trim();
-                ocrUsed = true;
-            }
-            if (!content) {
-                return res.status(400).json({ message: "Impossible d'extraire du texte de ce document." });
-            }
-
             const requestedModel = typeof req.body?.model === 'string' ? req.body.model : '';
-            const { rawText, parsedJson } = await runContratAnalysePrompt({ fileName, content, requestedModel });
+            const jobId = `adhoc_${Date.now()}`;
+            contratAiJobs[jobId] = { status: 'running', createdAt: Date.now() };
+            pruneContratAiJobs();
+            res.json({ jobId });
 
-            // Volontairement pas de db.run() ici : analyse ponctuelle, non liée à un contrat,
-            // rien n'est persisté (ni le fichier ni le résultat).
-            res.json({ raw: rawText, json: parsedJson, documentName: fileName, ocrUsed });
+            runAdHocAnalyseJob(req.file.buffer, fileName, requestedModel, contratAiJobs[jobId])
+                .catch(err => console.error(`[Contrats] Job analyse ad hoc ${jobId} a échoué :`, err.message));
         } catch (error) {
-            const msg = error.response?.data?.error?.message || error.response?.data?.message || error.message || "Erreur lors de l'analyse IA";
-            res.status(500).json({ message: msg });
+            res.status(500).json({ message: error.message || "Erreur lors de l'analyse IA" });
         }
     },
 
