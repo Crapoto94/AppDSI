@@ -380,6 +380,15 @@ async function syncLinkMirror(db, contratId) {
 
 // Controller
 module.exports = {
+    // Réutilisé hors HTTP (ex. scripts/batch_analyse_contrats.js) : pipeline OCR + prompt +
+    // appel IA d'un document, sans dépendance à req/res. Namespace séparé pour ne jamais
+    // entrer en collision avec un nom de handler de route ci-dessous.
+    _internal: {
+        runContratAnalysePrompt,
+        readDocumentBuffer,
+        DEFAULT_CONTRAT_ANALYSE_PROMPT,
+    },
+
     // Compteur contrats expirés / expirant bientôt (pour badge dashboard)
     async getExpiryCount(req, res, db) {
         try {

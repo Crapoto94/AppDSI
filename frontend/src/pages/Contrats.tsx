@@ -787,6 +787,20 @@ const docFileUrl = (filePath: string | null | undefined) => {
 const cleanFileName = (name: string | null | undefined): string =>
   name ? name.replace(/^\d{10,}-\d{1,15}-/, '') : '';
 
+// L'IA ne renvoie pas toujours score_global comme un nombre JS malgré la consigne du prompt
+// (ex. "85" en chaîne, "85/100", "85 %") — on extrait le premier nombre trouvé plutôt que de
+// n'accepter que `typeof === 'number'`, sous peine de perdre silencieusement un score pourtant
+// bien présent (n'affichait alors que le badge ✨ générique).
+const parseScoreGlobal = (json: any): number | null => {
+  const raw = json?.score_global;
+  if (raw == null) return null;
+  if (typeof raw === 'number' && isFinite(raw)) return Math.round(raw);
+  const match = String(raw).match(/-?\d+(\.\d+)?/);
+  if (!match) return null;
+  const n = parseFloat(match[0]);
+  return isFinite(n) ? Math.round(n) : null;
+};
+
 const Contrats: React.FC = () => {
   const [contrats, setContrats] = useState<Contrat[]>([]);
   const [loading, setLoading] = useState(true);
@@ -1078,8 +1092,8 @@ const Contrats: React.FC = () => {
       return sortDir === 'asc' ? av - bv : bv - av;
     }
     if (sortKey === 'ai_analyse_json') {
-      const av = typeof a.ai_analyse_json?.score_global === 'number' ? a.ai_analyse_json.score_global : -Infinity;
-      const bv = typeof b.ai_analyse_json?.score_global === 'number' ? b.ai_analyse_json.score_global : -Infinity;
+      const av = parseScoreGlobal(a.ai_analyse_json) ?? -Infinity;
+      const bv = parseScoreGlobal(b.ai_analyse_json) ?? -Infinity;
       return sortDir === 'asc' ? av - bv : bv - av;
     }
     let av: string | number = (a[sortKey] ?? '') as string | number;
@@ -2147,8 +2161,7 @@ const Contrats: React.FC = () => {
         // Score global renvoyé par l'IA (champ standardisé "score_global", 0-100 — cf. prompt
         // par défaut et aide admin). Un prompt personnalisé qui ne l'expose pas laisse la
         // colonne à "—" (badge cliquable pour ouvrir l'analyse si elle existe malgré tout).
-        const json = c.ai_analyse_json;
-        const score = json && typeof json.score_global === 'number' ? json.score_global : null;
+        const score = parseScoreGlobal(c.ai_analyse_json);
         if (!c.ai_analyse_at) return <span style={{ color: '#9ca3af' }}>—</span>;
         const color = score == null ? { bg: '#f3f4f6', fg: '#6b7280' }
           : score >= 70 ? { bg: '#dcfce7', fg: '#15803d' }
