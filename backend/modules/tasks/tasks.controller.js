@@ -263,7 +263,12 @@ module.exports = {
                         t.meeting_id  AS source_id,
                         m.title       AS source_title,
                         t.description,
-                        t.deadline    AS echeance,
+                        -- t.deadline est un champ texte libre (généré par l'IA de compte-rendu :
+                        -- "Immédiat", "À vérifier (prochainement)", etc.) et n'est pas toujours une
+                        -- vraie date. Le ORDER BY plus bas fait echeance::date : une valeur non-date
+                        -- ferait planter TOUTE la requête (donc une liste de tâches vide pour
+                        -- l'utilisateur concerné). On ne garde que les valeurs au format date.
+                        (CASE WHEN t.deadline ~ '^\d{4}-\d{2}-\d{2}' THEN t.deadline ELSE NULL END) AS echeance,
                         CASE WHEN t.is_completed = 1 THEN 'terminé' ELSE 'a_faire' END AS statut,
                         t.assignee    AS responsable,
                         t.created_at,
@@ -435,7 +440,10 @@ module.exports = {
                 ) q
                 ORDER BY
                     CASE WHEN statut IN ('terminé','refuse') THEN 1 ELSE 0 END,
-                    CASE WHEN echeance IS NOT NULL AND echeance::date < CURRENT_DATE THEN 0 ELSE 1 END,
+                    -- Garde-fou défensif : echeance::date planterait toute la requête si une
+                    -- branche remonte un jour une valeur non-date (cf. commentaire sur t.deadline
+                    -- plus haut). On ignore silencieusement les valeurs non conformes.
+                    CASE WHEN echeance IS NOT NULL AND echeance ~ '^\d{4}-\d{2}-\d{2}' AND echeance::date < CURRENT_DATE THEN 0 ELSE 1 END,
                     echeance ASC NULLS LAST,
                     created_at DESC
             `, [un, dn]);
@@ -482,7 +490,11 @@ module.exports = {
 
                     UNION ALL
 
-                    SELECT CASE WHEN is_completed=1 THEN 'terminé' ELSE 'a_faire' END, deadline::date
+                    -- deadline est un champ texte libre (cf. commentaire dans getMyTasks) : un
+                    -- deadline::date non conforme ("Immédiat", "À définir", ...) ferait planter
+                    -- toute la requête de comptage pour l'utilisateur concerné.
+                    SELECT CASE WHEN is_completed=1 THEN 'terminé' ELSE 'a_faire' END,
+                           (CASE WHEN deadline ~ '^\d{4}-\d{2}-\d{2}' THEN deadline::date ELSE NULL END)
                     FROM transcript.tasks
                     WHERE is_completed = 0 AND (LOWER(assignee) = $1 OR LOWER(assignee) = $2)
 
