@@ -1816,9 +1816,13 @@ async function runSummarizeJob(meetingId, model, job) {
         // Prompt : réglage centralisé (persisté), partagé par les deux sources IA.
         const customPromptRow = await sqlite.get('SELECT setting_value FROM app_settings WHERE setting_key = ?', ['custom_prompt']);
         const promptTemplate = (customPromptRow?.setting_value) || DEFAULT_PROMPT_TEMPLATE;
+        // Remplaçants sous forme de fonction (pas une simple chaîne) : String.replace()
+        // interprète des séquences spéciales ($&, $`, $', $$...) DANS le texte de remplacement,
+        // même pour une recherche de chaîne simple — un transcript contenant un "$" pourrait
+        // tronquer/dupliquer des morceaux du prompt. Une fonction insère la valeur littéralement.
         const prompt = promptTemplate
-            .replace('{REUNION}', meeting.title)
-            .replace('{TRANSCRIPTION}', transcriptText);
+            .replace('{REUNION}', () => meeting.title)
+            .replace('{TRANSCRIPTION}', () => transcriptText);
 
         // Sans modèle explicite dans la requête (ex. appel direct à l'API), on
         // retombe sur le modèle par défaut choisi en admin pour le Transcript
