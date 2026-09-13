@@ -28,9 +28,13 @@ const RASTER_MIN_CHARS_PER_PAGE = 30;
 // requête HTTP synchrone).
 const OCR_MAX_PAGES = 30;
 
-// Échelle de rendu des pages avant OCR (1.0 = 72 DPI, base de PDF.js).
-// 2.0 (~144 DPI) est un bon compromis qualité OCR / temps de traitement.
-const OCR_RENDER_SCALE = 2.0;
+// Échelle de rendu des pages avant OCR (1.0 = 72 DPI, base de PDF.js). Le standard pour
+// une bonne précision OCR est ~300 DPI (scale ~4.17) ; 144 DPI (2.0) sous-échantillonnait
+// nettement en dessous de ça, perdant de la précision sur les scans/fax d'origine médiocre
+// même quand leur résolution native le permettait. 3.0 (~216 DPI) est un compromis qualité
+// / temps de traitement nettement meilleur — chaque incrément ralentit le rendu ET le temps
+// de reconnaissance tesseract à peu près linéairement (surface de l'image).
+const OCR_RENDER_SCALE = 3.0;
 
 let _pdfjsPromise = null;
 function loadPdfjs() {
@@ -97,6 +101,11 @@ async function ocrPdfBuffer(buffer, opts = {}) {
     // (téléchargés une fois depuis https://github.com/naptha/tessdata).
     const workerOptions = process.env.OCR_LANG_PATH ? { langPath: process.env.OCR_LANG_PATH } : {};
     const worker = await createWorker(lang, undefined, workerOptions);
+    // Nos PNG rendus depuis le canvas n'ont pas de métadonnée DPI intégrée — sans ça,
+    // Tesseract se base sur une résolution par défaut pour certaines heuristiques de taille
+    // (détection ligne/caractère), ce qui dégrade la reconnaissance à notre résolution réelle.
+    // On la lui indique explicitement, cohérente avec OCR_RENDER_SCALE (base 72 DPI).
+    await worker.setParameters({ user_defined_dpi: String(Math.round(72 * OCR_RENDER_SCALE)) });
     const pageTexts = [];
     try {
         for (let i = 1; i <= pagesToOcr; i++) {
