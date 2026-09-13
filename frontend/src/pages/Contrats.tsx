@@ -77,6 +77,10 @@ interface Contrat {
   engagement_libelle: string;
   lien_annee: number | null;
   liaisons?: ContratLiaison[];
+  ai_analyse_raw?: string | null;
+  ai_analyse_json?: any;
+  ai_analyse_at?: string | null;
+  ai_analyse_document_id?: number | null;
 }
 
 interface SlaNiveau {
@@ -281,7 +285,8 @@ const RenderJsonValue: React.FC<{ value: any }> = ({ value }) => {
       <ul style={{ margin: '2px 0', paddingLeft: 18 }}>
         {value.map((item, i) => (
           <li key={i} style={{ marginBottom: 4 }}>
-            {(typeof item === 'object' && item !== null) ? <RenderJsonValue value={item} /> : String(item)}
+            {/* Élément trouvé par l'IA (ex. point de vigilance, recommandation) : mis en avant */}
+            {(typeof item === 'object' && item !== null) ? <RenderJsonValue value={item} /> : <strong>{String(item)}</strong>}
           </li>
         ))}
       </ul>
@@ -301,6 +306,87 @@ const RenderJsonValue: React.FC<{ value: any }> = ({ value }) => {
   }
   return <span style={{ whiteSpace: 'pre-wrap' }}>{String(value)}</span>;
 };
+
+// ── Champs "identité" connus d'une analyse de contrat — partagés entre l'affichage
+// (grille "Champs détectés") et l'export Markdown, pour rester cohérents.
+const KNOWN_ANALYSE_FIELDS: [string, string][] = [
+  ['fournisseur', 'Fournisseur'],
+  ['date_debut', 'Date début'],
+  ['duree_annees', 'Durée (années)'],
+  ['nb_reconductions', 'Reconductions'],
+  ['reconduction', 'Type reconduction'],
+  ['date_fin', 'Date fin'],
+  ['montant_2022', 'Montant initial'],
+  ['gti', 'GTI'],
+  ['gtr', 'GTR'],
+  ['indice_revision', 'Indice révision'],
+];
+const KNOWN_ANALYSE_KEYS = new Set([...KNOWN_ANALYSE_FIELDS.map(([k]) => k), 'resume']);
+
+/** Rendu Markdown récursif d'une valeur JSON (miroir de RenderJsonValue) — pour l'export .md. */
+function jsonValueToMarkdown(value: any, indent = 0): string {
+  const pad = '  '.repeat(indent);
+  if (value === null || value === undefined || value === '') return '_—_';
+  if (Array.isArray(value)) {
+    return value.map(item => (typeof item === 'object' && item !== null)
+      ? `${pad}- ${jsonValueToMarkdown(item, indent + 1).trim()}`
+      : `${pad}- **${String(item)}**`
+    ).join('\n');
+  }
+  if (typeof value === 'object') {
+    return Object.entries(value).map(([k, v]) => {
+      const vMd = jsonValueToMarkdown(v, indent + 1);
+      return vMd.includes('\n') ? `${pad}- **${humanizeJsonKey(k)}** :\n${vMd}` : `${pad}- **${humanizeJsonKey(k)}** : ${vMd}`;
+    }).join('\n');
+  }
+  return `**${String(value)}**`;
+}
+
+/** Construit le contenu Markdown téléchargeable d'un résultat d'analyse IA. */
+function buildAnalyseMarkdown(result: { raw: string; json: any; documentName?: string; persisted?: boolean }): string {
+  const lines: string[] = [`# Analyse IA — ${result.documentName || 'document'}`, '', `_Générée le ${new Date().toLocaleString('fr-FR')}_`, ''];
+
+  if (result.json) {
+    lines.push('## Champs détectés', '');
+    for (const [key, label] of KNOWN_ANALYSE_FIELDS) {
+      const v = result.json[key];
+      lines.push(`- ${label} : ${(v === null || v === undefined || v === '') ? '—' : `**${String(v)}**`}`);
+    }
+    lines.push('');
+
+    if (result.json.resume) {
+      lines.push('## Résumé', '', String(result.json.resume), '');
+    }
+
+    const extraEntries = Object.entries(result.json).filter(([k]) => !KNOWN_ANALYSE_KEYS.has(k));
+    for (const [k, v] of extraEntries) {
+      lines.push(`## ${humanizeJsonKey(k)}`, '', jsonValueToMarkdown(v), '');
+    }
+  } else if (result.raw) {
+    lines.push(result.raw, '');
+  }
+
+  lines.push('---', result.persisted
+    ? "_Cette analyse était conservée sur le contrat au moment de l'export (non appliquée automatiquement aux champs)._"
+    : "_Analyse ponctuelle : rien n'était conservé côté serveur._");
+
+  return lines.join('\n');
+}
+
+/** Déclenche le téléchargement du résultat d'analyse IA au format Markdown. */
+function downloadAnalyseMarkdown(result: { raw: string; json: any; documentName?: string; persisted?: boolean }) {
+  const md = buildAnalyseMarkdown(result);
+  const blob = new Blob([md], { type: 'text/markdown;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const safeName = (result.documentName || 'document').replace(/\.pdf$/i, '').replace(/[\\/:*?"<>|]+/g, '_').trim() || 'document';
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `Analyse IA - ${safeName}.md`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
 
 // ── OCR (PDF raster -> texte) + Analyse IA d'un document — utilisé à la fois dans la vue de
 // documents avec navigation (docViewModal) et dans la simple prévisualisation "à la volée"
@@ -703,7 +789,8 @@ const Contrats: React.FC = () => {
   const [pdfInfoLoading, setPdfInfoLoading] = useState(false);
   const [ocrRunning, setOcrRunning] = useState(false);
   const [analyseRunning, setAnalyseRunning] = useState(false);
-  const [analyseResult, setAnalyseResult] = useState<{ raw: string; json: any; documentName?: string; persisted?: boolean } | null>(null);
+  const [analyseResult, setAnalyseResult] = useState<{ raw: string; json: any; documentName?: string; persisted?: boolean; contratId?: number; saved?: boolean } | null>(null);
+  const [savingAnalyseDoc, setSavingAnalyseDoc] = useState(false);
   const [analyseError, setAnalyseError] = useState('');
   // Texte brut reconnu par l'OCR — affiché à la demande (bouton "Afficher OCR"), pour
   // vérification manuelle uniquement (sinon jamais affiché, seulement utilisé pour l'analyse IA).
@@ -1318,13 +1405,66 @@ const Contrats: React.FC = () => {
       const data = await res.json();
       if (!res.ok) throw new Error(data?.message || "Erreur lors de l'analyse IA");
       const result = await pollContratJob(data.jobId);
-      setAnalyseResult({ raw: result.raw, json: result.json, documentName: result.documentName, persisted: true });
+      setAnalyseResult({ raw: result.raw, json: result.json, documentName: result.documentName, persisted: true, contratId: activeDocCtx.contratId });
+      // Rafraîchit la liste pour faire apparaître le badge "Analyse IA disponible" sans recharger la page.
+      fetchContrats();
     } catch (e: any) {
       setAnalyseError(e?.message || "Erreur lors de l'analyse IA");
       setAnalyseResult({ raw: '', json: null });
     } finally {
       setAnalyseRunning(false);
     }
+  };
+
+  // Enregistre le résultat de l'analyse IA comme document du contrat (Markdown) — réutilise
+  // le circuit d'upload existant (stockage unifié + hub_docs), comme un fichier déposé à la main.
+  const handleSaveAnalyseAsDocument = async () => {
+    if (!analyseResult || analyseResult.contratId == null) return;
+    setSavingAnalyseDoc(true);
+    try {
+      const md = buildAnalyseMarkdown(analyseResult);
+      const safeName = (analyseResult.documentName || 'document').replace(/\.pdf$/i, '').replace(/[\\/:*?"<>|]+/g, '_').trim() || 'document';
+      const file = new File([md], `Analyse IA - ${safeName}.md`, { type: 'text/markdown' });
+      const fd = new FormData();
+      fd.append('file', file);
+      fd.append('nature', 'Analyse IA');
+      fd.append('est_principal', '0');
+      const res = await fetch(`/api/contrats/${analyseResult.contratId}/documents`, { method: 'POST', headers: authHeaders(), body: fd });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({} as any));
+        throw new Error(data?.message || "Erreur lors de l'enregistrement du document");
+      }
+      showMsg('success', "Analyse enregistrée dans les documents du contrat.");
+      setAnalyseResult(r => r ? { ...r, saved: true } : r);
+      // Rafraîchit la liste si la vue de documents (avec navigation) est ouverte sur ce contrat
+      if (docViewModal && docViewModal.contrat.id === analyseResult.contratId) {
+        const docsRes = await fetch(`/api/contrats/${analyseResult.contratId}/documents`, { headers: authHeaders() });
+        if (docsRes.ok) {
+          const docs = await docsRes.json();
+          setDocViewModal(v => v ? { ...v, docs } : null);
+        }
+      }
+      if (docModal && docModal.contrat.id === analyseResult.contratId) {
+        await openDocModal(docModal.contrat);
+      }
+    } catch (e: any) {
+      showMsg('error', e?.message || "Erreur lors de l'enregistrement du document");
+    } finally {
+      setSavingAnalyseDoc(false);
+    }
+  };
+
+  // Ré-ouvre la dernière analyse IA conservée sur un contrat (badge dans la liste), sans
+  // relancer l'IA — mêmes données que celles écrites par analyseDocumentAi (ai_analyse_*).
+  const openStoredAnalyse = (c: Contrat) => {
+    setAnalyseError('');
+    setAnalyseResult({
+      raw: c.ai_analyse_raw || '',
+      json: c.ai_analyse_json || null,
+      documentName: c.objet || `contrat #${c.id}`,
+      persisted: true,
+      contratId: c.id,
+    });
   };
 
   // Analyse IA "à la volée" (bouton toolbar) : upload direct d'un PDF quelconque (pas besoin
@@ -1746,10 +1886,20 @@ const Contrats: React.FC = () => {
             V
           </span>
         ) : null;
+        const aiBadge = c.ai_analyse_at ? (
+          <span
+            title={`Analyse IA disponible (${fmtDate(c.ai_analyse_at)}) — cliquer pour l'ouvrir`}
+            onClick={e => { e.stopPropagation(); openStoredAnalyse(c); }}
+            style={{ background: '#eef2ff', color: '#4338ca', borderRadius: 9999, width: 15, height: 15, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, cursor: 'pointer' }}
+          >
+            <Sparkles size={10} />
+          </span>
+        ) : null;
         return (
           <span title={c.objet} style={{ display: 'flex', alignItems: 'center', gap: 4, maxWidth: col.w - 16, overflow: 'hidden' }}>
             {renewalWarningIcon(c)}
             {verifBadge}
+            {aiBadge}
             <b
               onClick={() => openEditModal(c)}
               style={{ color: '#1e3a5f', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', cursor: 'pointer' }}
@@ -3370,6 +3520,27 @@ const Contrats: React.FC = () => {
       {analyseResult && (
         <Overlay onClose={() => { setAnalyseResult(null); setAnalyseError(''); }} maxWidth={980}>
           <ModalHeader title={`Analyse IA — ${analyseResult.documentName || 'document'}`} onClose={() => { setAnalyseResult(null); setAnalyseError(''); }} />
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginBottom: 4, flexWrap: 'wrap' }}>
+            {analyseResult.contratId != null && (
+              <button
+                onClick={handleSaveAnalyseAsDocument}
+                disabled={savingAnalyseDoc || analyseResult.saved || (!analyseResult.json && !analyseResult.raw)}
+                title="Ajoute ce résultat (Markdown) aux documents du contrat."
+                style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 10px', borderRadius: 4, border: '1px solid #16a34a', background: analyseResult.saved ? '#f0fdf4' : '#fff', color: '#15803d', cursor: (savingAnalyseDoc || analyseResult.saved) ? 'default' : 'pointer', fontSize: 11, fontWeight: 600 }}
+              >
+                {savingAnalyseDoc ? <Loader2 size={13} className="animate-spin" /> : <Paperclip size={13} />}
+                {savingAnalyseDoc ? 'Enregistrement…' : analyseResult.saved ? 'Enregistrée dans les documents' : "Enregistrer l'analyse"}
+              </button>
+            )}
+            <button
+              onClick={() => downloadAnalyseMarkdown(analyseResult)}
+              disabled={!analyseResult.json && !analyseResult.raw}
+              title="Télécharger ce résultat au format Markdown (.md)"
+              style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 10px', borderRadius: 4, border: '1px solid #6366f1', background: '#fff', color: '#4338ca', cursor: 'pointer', fontSize: 11, fontWeight: 600 }}
+            >
+              <Download size={13} /> Enregistrer (.md)
+            </button>
+          </div>
           <style>{`
             .contrat-ai-md { font-size: 12.5px; color: #1f2937; line-height: 1.6; }
             .contrat-ai-md p { margin: 0 0 10px; }
@@ -3391,23 +3562,17 @@ const Contrats: React.FC = () => {
               <div style={{ marginBottom: 16 }}>
                 <p style={{ margin: '0 0 8px', fontSize: 12, fontWeight: 700, color: '#374151' }}>Champs détectés</p>
                 <div style={{ display: 'grid', gridTemplateColumns: '140px 1fr', gap: 6, fontSize: 12 }}>
-                  {[
-                    ['Fournisseur', analyseResult.json.fournisseur],
-                    ['Date début', analyseResult.json.date_debut],
-                    ['Durée (années)', analyseResult.json.duree_annees],
-                    ['Reconductions', analyseResult.json.nb_reconductions],
-                    ['Type reconduction', analyseResult.json.reconduction],
-                    ['Date fin', analyseResult.json.date_fin],
-                    ['Montant initial', analyseResult.json.montant_2022],
-                    ['GTI', analyseResult.json.gti],
-                    ['GTR', analyseResult.json.gtr],
-                    ['Indice révision', analyseResult.json.indice_revision],
-                  ].map(([label, value]) => (
-                    <React.Fragment key={label as string}>
-                      <div style={{ color: '#6b7280', fontWeight: 500 }}>{label}</div>
-                      <div style={{ color: '#1f2937' }}>{value === null || value === undefined || value === '' ? '—' : String(value)}</div>
-                    </React.Fragment>
-                  ))}
+                  {KNOWN_ANALYSE_FIELDS.map(([key, label]) => {
+                    const value = (analyseResult.json as any)[key];
+                    return (
+                      <React.Fragment key={key}>
+                        <div style={{ color: '#6b7280', fontWeight: 500 }}>{label}</div>
+                        <div style={{ color: '#1f2937' }}>
+                          {value === null || value === undefined || value === '' ? '—' : <strong>{String(value)}</strong>}
+                        </div>
+                      </React.Fragment>
+                    );
+                  })}
                 </div>
                 {analyseResult.json.resume && (
                   <div style={{ marginTop: 12 }}>
@@ -3416,8 +3581,7 @@ const Contrats: React.FC = () => {
                   </div>
                 )}
                 {(() => {
-                  const KNOWN_KEYS = new Set(['fournisseur', 'date_debut', 'duree_annees', 'nb_reconductions', 'reconduction', 'date_fin', 'montant_2022', 'gti', 'gtr', 'indice_revision', 'resume']);
-                  const extraEntries = Object.entries(analyseResult.json).filter(([k]) => !KNOWN_KEYS.has(k));
+                  const extraEntries = Object.entries(analyseResult.json).filter(([k]) => !KNOWN_ANALYSE_KEYS.has(k));
                   if (extraEntries.length === 0) return null;
                   return (
                     <div style={{ marginTop: 12 }}>
