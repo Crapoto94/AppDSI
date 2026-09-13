@@ -31,6 +31,33 @@ function buildUrl(cfg, suffix) {
 }
 
 /**
+ * Le fetch() natif de Node (undici) lève un `TypeError: fetch failed` générique pour toute
+ * erreur réseau bas niveau (connexion refusée, DNS introuvable, certificat invalide,
+ * timeout...) — la vraie cause est dans `error.cause`, jamais dans `error.message`. On la
+ * ressort explicitement pour ne pas afficher "fetch failed" tel quel à l'utilisateur.
+ */
+function describeFetchError(error) {
+    if (error?.name === 'AbortError') return 'délai dépassé';
+    const cause = error?.cause;
+    if (cause) {
+        const code = cause.code || cause.errno;
+        const detail = cause.message || String(cause);
+        return code ? `${detail} (${code})` : detail;
+    }
+    return error?.message || String(error);
+}
+
+/** Exécute fetch(url, options) en remplaçant une erreur réseau bas niveau (TypeError
+ * "fetch failed") par un message exploitable — laisse passer toute autre erreur telle quelle. */
+async function safeFetch(url, options) {
+    try {
+        return await fetch(url, options);
+    } catch (error) {
+        throw new Error(`Impossible de contacter l'API IA (APM) (${url}) — ${describeFetchError(error)}`);
+    }
+}
+
+/**
  * GET .../models — renvoie la liste des modèles actifs, normalisée en
  * tableau de chaînes (l'API peut répondre un tableau brut, {models:[...]}
  * ou {data:[...]}, avec des entrées string ou {name|id|label}).
@@ -42,7 +69,7 @@ async function listModels() {
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), 15000);
     try {
-        const resp = await fetch(url, {
+        const resp = await safeFetch(url, {
             headers: { [headerName]: cfg.api_key, Accept: 'application/json' },
             signal: ctrl.signal,
         });
@@ -78,7 +105,7 @@ async function queryAi(prompt, model) {
     // relevé côté infra (ex. Nginx Proxy Manager : proxy_read_timeout/proxy_send_timeout).
     const timer = setTimeout(() => ctrl.abort(), 1500000);
     try {
-        const resp = await fetch(url, {
+        const resp = await safeFetch(url, {
             method: 'POST',
             headers: { [headerName]: cfg.api_key, 'Content-Type': 'application/json' },
             body: JSON.stringify(model ? { prompt, model } : { prompt }),
@@ -110,7 +137,7 @@ async function queryAiAsync(prompt, model) {
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), 20000);
     try {
-        const resp = await fetch(url, {
+        const resp = await safeFetch(url, {
             method: 'POST',
             headers: { [headerName]: cfg.api_key, 'Content-Type': 'application/json' },
             body: JSON.stringify(model ? { prompt, model } : { prompt }),
@@ -143,7 +170,7 @@ async function getQueryProgress(queryId) {
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), 15000);
     try {
-        const resp = await fetch(url, {
+        const resp = await safeFetch(url, {
             headers: { [headerName]: cfg.api_key, Accept: 'application/json' },
             signal: ctrl.signal,
         });
