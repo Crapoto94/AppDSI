@@ -1,10 +1,93 @@
 const fs = require('fs');
 const path = require('path');
 const xlsx = require('xlsx');
-const { pgDb, pool } = require('../../shared/database');
+const axios = require('axios');
+const { pgDb, pool, getSqlite } = require('../../shared/database');
 const storage = require('../../shared/storage');
+const ocrService = require('../../shared/ocr');
+const apmAi = require('../../shared/apm_ai');
 
 const MODULE = 'contrats';
+
+// Prompt par défaut pour l'analyse IA d'un contrat (réglable dans /admin/transcript
+// — clé app_settings 'contrat_analyse_prompt'). Volontairement structuré en JSON
+// pour préparer une future mise à jour automatique des champs du contrat à partir
+// de l'analyse (cf. ai_analyse_json sur hub_contrats.contrats).
+const DEFAULT_CONTRAT_ANALYSE_PROMPT = `Tu es un assistant spécialisé dans l'analyse de contrats pour une Direction des Systèmes d'Information (DSI) municipale.
+
+Analyse le contenu du contrat ci-dessous et réponds UNIQUEMENT avec un objet JSON valide (sans texte autour, sans balises markdown), avec exactement ces champs (laisse la valeur à null si l'information n'apparaît pas dans le texte) :
+{
+  "fournisseur": "nom du prestataire / fournisseur",
+  "date_debut": "date de début au format YYYY-MM-DD",
+  "duree_annees": nombre entier (durée initiale en années),
+  "nb_reconductions": nombre entier (nombre de reconductions possibles),
+  "reconduction": "tacite" ou "express" ou "sans",
+  "date_fin": "date de fin de la période initiale au format YYYY-MM-DD",
+  "montant_2022": nombre (montant annuel initial en euros, sans symbole),
+  "gti": "garantie de temps d'intervention, si mentionnée (ex: 4h)",
+  "gtr": "garantie de temps de rétablissement, si mentionnée (ex: 8h)",
+  "indice_revision": "indice de révision de prix, si mentionné (ex: ICHT-TS)",
+  "resume": "résumé libre en 3 à 5 phrases des points clés (objet, obligations, pénalités, conditions de résiliation)"
+}
+
+Contenu du contrat ({NOM_FICHIER}) :
+{CONTENU}`;
+
+/** Lit le contenu binaire d'un document de contrat, quel que soit le backend de stockage. */
+async function readDocumentBuffer(doc) {
+    if (storage.isStoragePath(doc.file_path)) {
+        const info = await storage.getFileForServe(doc.file_path);
+        if (!info) throw new Error('Fichier introuvable sur le stockage.');
+        if (info.buffer) return info.buffer;
+        return fs.readFileSync(info.absolutePath);
+    }
+    // Chemin legacy (avant le stockage unifié)
+    const fullPath = path.join(__dirname, '../../', doc.file_path);
+    if (!fs.existsSync(fullPath)) throw new Error('Fichier introuvable.');
+    return fs.readFileSync(fullPath);
+}
+
+/** Extrait un objet JSON d'une réponse IA (qui peut être entourée de ```json ... ``` ou de texte). */
+function extractJsonFromAiResponse(raw) {
+    if (!raw) return null;
+    let s = String(raw).trim();
+    const fenced = s.match(/```(?:json)?\s*([\s\S]*?)```/i);
+    if (fenced) s = fenced[1].trim();
+    const start = s.indexOf('{');
+    const end = s.lastIndexOf('}');
+    if (start === -1 || end === -1 || end <= start) return null;
+    try {
+        return JSON.parse(s.slice(start, end + 1));
+    } catch (e) {
+        return null;
+    }
+}
+
+/** Appelle le fournisseur d'IA locale configuré (ai_provider) — même logique que la reformulation de tickets. */
+async function callLocalAiProvider(prompt, cfg) {
+    const provider = cfg.ai_provider || 'groq';
+    if (provider === 'anthropic' && cfg.anthropic_api_key) {
+        const model = cfg.anthropic_model || 'claude-3-5-sonnet-20240620';
+        const resp = await axios.post('https://api.anthropic.com/v1/messages',
+            { model, max_tokens: 2048, messages: [{ role: 'user', content: prompt }] },
+            { headers: { 'x-api-key': cfg.anthropic_api_key, 'anthropic-version': '2023-06-01' } }
+        );
+        return resp.data?.content?.[0]?.text || '';
+    }
+    if (provider === 'ollama' && cfg.ollama_host) {
+        const host = cfg.ollama_host.replace(/\/+$/, '');
+        const resp = await axios.post(`${host}/api/generate`, { model: cfg.default_model || 'llama3', prompt, stream: false });
+        return resp.data?.response || '';
+    }
+    const apiKey = provider === 'openrouter' ? cfg.openrouter_api_key : cfg.groq_api_key;
+    const baseURL = provider === 'openrouter' ? 'https://openrouter.ai/api/v1' : 'https://api.groq.com/openai/v1';
+    const model = cfg.default_model || (provider === 'openrouter' ? 'google/gemini-2.0-flash-001' : 'llama-3.3-70b-versatile');
+    const resp = await axios.post(`${baseURL}/chat/completions`,
+        { model, messages: [{ role: 'user', content: prompt }], max_tokens: 2048 },
+        { headers: { Authorization: `Bearer ${apiKey}` } }
+    );
+    return resp.data?.choices?.[0]?.message?.content || '';
+}
 
 // Helpers
 function excelDateToISO(value) {
@@ -680,6 +763,118 @@ module.exports = {
             res.json(updated);
         } catch (error) {
             res.status(500).json({ message: 'Erreur archivage document', error: error.message });
+        }
+    },
+
+    // Documents - Info PDF (raster ou texte natif ? OCR déjà fait ?)
+    // Utilisé par la vue de documents pour savoir s'il faut proposer le bouton "OCRiser".
+    async getDocumentPdfInfo(req, res, db) {
+        try {
+            const doc = await db.get('SELECT * FROM contrat_documents WHERE id = ? AND contrat_id = ?', [req.params.docId, req.params.id]);
+            if (!doc) return res.status(404).json({ message: 'Document non trouvé' });
+
+            const isPdf = /\.pdf$/i.test(doc.file_name || '');
+            const base = {
+                isPdf,
+                hasOcr: !!(doc.ocr_text && doc.ocr_text.trim()),
+                ocrStatus: doc.ocr_status || 'none',
+                ocrUpdatedAt: doc.ocr_updated_at || null,
+            };
+            if (!isPdf) return res.json({ ...base, isRaster: false, numPages: 0, textLength: 0 });
+
+            const buffer = await readDocumentBuffer(doc);
+            const info = await ocrService.analyzePdf(buffer);
+            res.json({ ...base, isRaster: info.isRaster, numPages: info.numPages, textLength: info.textLength, error: info.error || null });
+        } catch (error) {
+            res.status(500).json({ message: 'Erreur analyse du PDF', error: error.message });
+        }
+    },
+
+    // Documents - Lancer l'OCR (PDF raster -> texte, stocké pour une analyse IA ultérieure).
+    async ocrDocument(req, res, db) {
+        try {
+            const doc = await db.get('SELECT * FROM contrat_documents WHERE id = ? AND contrat_id = ?', [req.params.docId, req.params.id]);
+            if (!doc) return res.status(404).json({ message: 'Document non trouvé' });
+            if (!/\.pdf$/i.test(doc.file_name || '')) {
+                return res.status(400).json({ message: 'Seuls les documents PDF peuvent être OCRisés.' });
+            }
+
+            const buffer = await readDocumentBuffer(doc);
+            await db.run("UPDATE contrat_documents SET ocr_status = 'running', ocr_error = NULL WHERE id = ?", [doc.id]);
+
+            try {
+                const result = await ocrService.ocrPdfBuffer(buffer, { lang: 'fra' });
+                await db.run(
+                    "UPDATE contrat_documents SET ocr_status = 'done', ocr_text = ?, ocr_error = NULL, ocr_updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                    [result.text, doc.id]
+                );
+                res.json({ ocrStatus: 'done', textLength: result.text.length, pages: result.pages, totalPages: result.totalPages, truncated: result.truncated });
+            } catch (ocrError) {
+                await db.run(
+                    "UPDATE contrat_documents SET ocr_status = 'error', ocr_error = ?, ocr_updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                    [ocrError.message, doc.id]
+                );
+                throw ocrError;
+            }
+        } catch (error) {
+            res.status(500).json({ message: "Erreur lors de l'OCR", error: error.message });
+        }
+    },
+
+    // Documents - Analyse IA du document courant, selon le prompt configuré en admin
+    // (/admin/transcript, clé 'contrat_analyse_prompt'). Affichage en modale côté front ;
+    // le résultat est aussi conservé sur le contrat (ai_analyse_json / ai_analyse_raw) pour
+    // préparer une future mise à jour automatique des champs.
+    async analyseDocumentAi(req, res, db) {
+        try {
+            const doc = await db.get('SELECT * FROM contrat_documents WHERE id = ? AND contrat_id = ?', [req.params.docId, req.params.id]);
+            if (!doc) return res.status(404).json({ message: 'Document non trouvé' });
+            const contrat = await db.get('SELECT id FROM contrats WHERE id = ?', [req.params.id]);
+            if (!contrat) return res.status(404).json({ message: 'Contrat non trouvé' });
+
+            let content = (doc.ocr_text || '').trim();
+            if (!content && /\.pdf$/i.test(doc.file_name || '')) {
+                const buffer = await readDocumentBuffer(doc);
+                const info = await ocrService.analyzePdf(buffer);
+                content = (info.text || '').trim();
+            }
+            if (!content) {
+                return res.status(400).json({ message: "Aucun texte disponible pour ce document. S'il s'agit d'un scan, OCRisez-le d'abord." });
+            }
+
+            const sqlite = getSqlite();
+            const keys = [
+                'contrat_analyse_prompt', 'contrat_analyse_ai_source', 'contrat_analyse_apm_model',
+                'ai_provider', 'groq_api_key', 'openrouter_api_key', 'anthropic_api_key', 'ollama_host', 'anthropic_model', 'default_model',
+            ];
+            const cfg = {};
+            for (const k of keys) {
+                const row = await sqlite.get('SELECT setting_value FROM app_settings WHERE setting_key = ?', [k]);
+                cfg[k] = row && row.setting_value != null ? String(row.setting_value) : '';
+            }
+
+            const MAX_CHARS = 24000; // cohérent avec la limite de contexte par défaut du Transcript Manager
+            const promptTemplate = cfg.contrat_analyse_prompt || DEFAULT_CONTRAT_ANALYSE_PROMPT;
+            const prompt = promptTemplate
+                .replace('{NOM_FICHIER}', doc.file_name || '')
+                .replace('{CONTENU}', content.slice(0, MAX_CHARS));
+
+            const raw = cfg.contrat_analyse_ai_source === 'apm'
+                ? await apmAi.queryAi(prompt, cfg.contrat_analyse_apm_model || undefined)
+                : await callLocalAiProvider(prompt, cfg);
+
+            const rawText = String(raw || '').trim();
+            const parsedJson = extractJsonFromAiResponse(rawText);
+
+            await db.run(
+                'UPDATE contrats SET ai_analyse_raw = ?, ai_analyse_json = ?, ai_analyse_document_id = ?, ai_analyse_at = CURRENT_TIMESTAMP WHERE id = ?',
+                [rawText, parsedJson ? JSON.stringify(parsedJson) : null, doc.id, req.params.id]
+            );
+
+            res.json({ raw: rawText, json: parsedJson, documentId: doc.id, documentName: doc.file_name });
+        } catch (error) {
+            const msg = error.response?.data?.error?.message || error.response?.data?.message || error.message || "Erreur lors de l'analyse IA";
+            res.status(500).json({ message: msg });
         }
     },
 

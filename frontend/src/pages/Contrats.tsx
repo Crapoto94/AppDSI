@@ -5,7 +5,8 @@ import {
   Upload, Download, AlertCircle, Loader2, Trash2, Edit2, Check,
   X as CloseIcon, Search, RefreshCw, ChevronUp, ChevronDown, ChevronRight, Plus, FileSpreadsheet,
   RefreshCcw, Archive, FileText, Columns, Filter, Link2, ExternalLink, FileCheck2,
-  TrendingUp, TrendingDown, ArrowRight, Bookmark, Save, Paperclip, AlertTriangle
+  TrendingUp, TrendingDown, ArrowRight, Bookmark, Save, Paperclip, AlertTriangle,
+  ScanText, Sparkles
 } from 'lucide-react';
 
 interface Contrat {
@@ -570,6 +571,12 @@ const Contrats: React.FC = () => {
   const [pdfModal, setPdfModal] = useState<{ path: string; name: string } | null>(null);
   const [docViewModal, setDocViewModal] = useState<{ contrat: Contrat; docs: Document[]; currentIndex: number } | null>(null);
   const [docViewEditData, setDocViewEditData] = useState<Partial<Contrat> | null>(null);
+  const [pdfInfo, setPdfInfo] = useState<{ isPdf: boolean; isRaster: boolean; hasOcr: boolean; ocrStatus: string } | null>(null);
+  const [pdfInfoLoading, setPdfInfoLoading] = useState(false);
+  const [ocrRunning, setOcrRunning] = useState(false);
+  const [analyseRunning, setAnalyseRunning] = useState(false);
+  const [analyseResult, setAnalyseResult] = useState<{ raw: string; json: any; documentName?: string } | null>(null);
+  const [analyseError, setAnalyseError] = useState('');
   const [linkedContracts, setLinkedContracts] = useState<{ previous: Contrat | null; renewals: Contrat[] } | null>(null);
   const [appsSuggestions, setAppsSuggestions] = useState<Array<{ id: number; name: string }>>([]);
   const [appsSearch, setAppsSearch] = useState('');
@@ -1043,6 +1050,63 @@ const Contrats: React.FC = () => {
       indice_revision: c.indice_revision,
       montant_2022: c.montant_2022
     });
+  };
+
+  // Vérifie si le document actuellement affiché dans la vue de documents est un PDF raster
+  // (scan sans couche texte) et s'il a déjà été OCRisé — pour proposer le bon bouton.
+  const fetchPdfInfo = async (contratId: number, docId: number) => {
+    setPdfInfoLoading(true);
+    setPdfInfo(null);
+    try {
+      const res = await fetch(`/api/contrats/${contratId}/documents/${docId}/pdf-info`, { headers: authHeaders() });
+      if (res.ok) setPdfInfo(await res.json());
+    } catch (e) { /* ignore */ }
+    finally { setPdfInfoLoading(false); }
+  };
+
+  useEffect(() => {
+    if (!docViewModal) { setPdfInfo(null); return; }
+    const doc = docViewModal.docs[docViewModal.currentIndex];
+    if (!doc) { setPdfInfo(null); return; }
+    fetchPdfInfo(docViewModal.contrat.id, doc.id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [docViewModal?.contrat.id, docViewModal?.currentIndex]);
+
+  const handleOcrDocument = async () => {
+    if (!docViewModal) return;
+    const doc = docViewModal.docs[docViewModal.currentIndex];
+    if (!doc) return;
+    setOcrRunning(true);
+    try {
+      const res = await fetch(`/api/contrats/${docViewModal.contrat.id}/documents/${doc.id}/ocr`, { method: 'POST', headers: authHeaders() });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.message || 'Erreur OCR');
+      showMsg('success', `OCR terminé (${data.pages} page${data.pages > 1 ? 's' : ''}${data.truncated ? ', document tronqué' : ''}).`);
+      await fetchPdfInfo(docViewModal.contrat.id, doc.id);
+    } catch (e: any) {
+      showMsg('error', e?.message || "Erreur lors de l'OCR du document");
+    } finally {
+      setOcrRunning(false);
+    }
+  };
+
+  const handleAnalyseDocumentAi = async () => {
+    if (!docViewModal) return;
+    const doc = docViewModal.docs[docViewModal.currentIndex];
+    if (!doc) return;
+    setAnalyseRunning(true);
+    setAnalyseError('');
+    try {
+      const res = await fetch(`/api/contrats/${docViewModal.contrat.id}/documents/${doc.id}/analyse-ia`, { method: 'POST', headers: authHeaders() });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.message || "Erreur lors de l'analyse IA");
+      setAnalyseResult({ raw: data.raw, json: data.json, documentName: data.documentName });
+    } catch (e: any) {
+      setAnalyseError(e?.message || "Erreur lors de l'analyse IA");
+      setAnalyseResult({ raw: '', json: null });
+    } finally {
+      setAnalyseRunning(false);
+    }
   };
 
   const handleDocSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -2873,6 +2937,51 @@ const Contrats: React.FC = () => {
                   </button>
                 </div>
               </div>
+
+              {/* OCR (PDF raster -> texte, pour l'analyse IA) + Analyse IA du document */}
+              {pdfInfo?.isPdf && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10, flexWrap: 'wrap' }}>
+                  {pdfInfoLoading && <span style={{ fontSize: 11, color: '#9ca3af' }}>Analyse du PDF…</span>}
+
+                  {!pdfInfoLoading && pdfInfo.isRaster && !pdfInfo.hasOcr && (
+                    <button
+                      onClick={handleOcrDocument}
+                      disabled={ocrRunning}
+                      title="Ce PDF est un scan (pas de couche texte) : l'OCR extrait le texte pour une future analyse IA — le texte OCR n'est pas affiché."
+                      style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 10px', borderRadius: 4, border: '1px solid #b45309', background: ocrRunning ? '#fef3c7' : '#fffbeb', color: '#92400e', cursor: ocrRunning ? 'default' : 'pointer', fontSize: 11, fontWeight: 600 }}
+                    >
+                      {ocrRunning ? <Loader2 size={13} className="animate-spin" /> : <ScanText size={13} />}
+                      {ocrRunning ? 'OCR en cours… (peut prendre plusieurs minutes)' : 'OCRiser ce document'}
+                    </button>
+                  )}
+
+                  {!pdfInfoLoading && pdfInfo.isRaster && pdfInfo.hasOcr && (
+                    <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: '#15803d', fontWeight: 600 }}>
+                      <FileCheck2 size={13} /> Texte OCR disponible
+                      <button
+                        onClick={handleOcrDocument}
+                        disabled={ocrRunning}
+                        style={{ marginLeft: 4, fontSize: 11, color: '#6b7280', background: 'none', border: 'none', cursor: ocrRunning ? 'default' : 'pointer', textDecoration: 'underline' }}
+                      >
+                        {ocrRunning ? 'OCR en cours…' : 'Relancer'}
+                      </button>
+                    </span>
+                  )}
+
+                  {!pdfInfoLoading && (!pdfInfo.isRaster || pdfInfo.hasOcr) && (
+                    <button
+                      onClick={handleAnalyseDocumentAi}
+                      disabled={analyseRunning}
+                      title="Envoie le texte du document (natif ou OCRisé) à l'IA, selon le prompt configuré dans /admin/transcript."
+                      style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 10px', borderRadius: 4, border: '1px solid #6366f1', background: analyseRunning ? '#eef2ff' : '#fff', color: '#4338ca', cursor: analyseRunning ? 'default' : 'pointer', fontSize: 11, fontWeight: 600 }}
+                    >
+                      {analyseRunning ? <Loader2 size={13} className="animate-spin" /> : <Sparkles size={13} />}
+                      {analyseRunning ? 'Analyse en cours…' : "Analyser avec l'IA"}
+                    </button>
+                  )}
+                </div>
+              )}
+
               <iframe
                 src={docFileUrl(docViewModal.docs[docViewModal.currentIndex]?.file_path)}
                 style={{ flex: 1, border: 'none', borderRadius: 6, background: '#f9fafb' }}
@@ -2947,6 +3056,61 @@ const Contrats: React.FC = () => {
                 <button onClick={saveDocViewModal} style={{ width: '100%', padding: '6px 12px', marginTop: 12, borderRadius: 4, border: 'none', background: '#16a34a', color: '#fff', cursor: 'pointer', fontSize: 11, fontWeight: 600 }}>Enregistrer</button>
               </div>
             </div>
+          </div>
+        </Overlay>
+      )}
+
+      {/* ── Modale : Résultat de l'analyse IA d'un document ─────────────────────── */}
+      {analyseResult && (
+        <Overlay onClose={() => { setAnalyseResult(null); setAnalyseError(''); }} maxWidth={640}>
+          <ModalHeader title={`Analyse IA — ${analyseResult.documentName || 'document'}`} onClose={() => { setAnalyseResult(null); setAnalyseError(''); }} />
+          <div style={{ padding: 20, maxHeight: '70vh', overflowY: 'auto' }}>
+            {analyseError && (
+              <div style={{ background: '#fef2f2', border: '1px solid #fca5a5', color: '#991b1b', borderRadius: 6, padding: '10px 12px', fontSize: 12, marginBottom: 14 }}>
+                {analyseError}
+              </div>
+            )}
+
+            {analyseResult.json && (
+              <div style={{ marginBottom: 16 }}>
+                <p style={{ margin: '0 0 8px', fontSize: 12, fontWeight: 700, color: '#374151' }}>Champs détectés</p>
+                <div style={{ display: 'grid', gridTemplateColumns: '140px 1fr', gap: 6, fontSize: 12 }}>
+                  {[
+                    ['Fournisseur', analyseResult.json.fournisseur],
+                    ['Date début', analyseResult.json.date_debut],
+                    ['Durée (années)', analyseResult.json.duree_annees],
+                    ['Reconductions', analyseResult.json.nb_reconductions],
+                    ['Type reconduction', analyseResult.json.reconduction],
+                    ['Date fin', analyseResult.json.date_fin],
+                    ['Montant initial', analyseResult.json.montant_2022],
+                    ['GTI', analyseResult.json.gti],
+                    ['GTR', analyseResult.json.gtr],
+                    ['Indice révision', analyseResult.json.indice_revision],
+                  ].map(([label, value]) => (
+                    <React.Fragment key={label as string}>
+                      <div style={{ color: '#6b7280', fontWeight: 500 }}>{label}</div>
+                      <div style={{ color: '#1f2937' }}>{value === null || value === undefined || value === '' ? '—' : String(value)}</div>
+                    </React.Fragment>
+                  ))}
+                </div>
+                {analyseResult.json.resume && (
+                  <div style={{ marginTop: 12 }}>
+                    <p style={{ margin: '0 0 4px', fontSize: 12, fontWeight: 700, color: '#374151' }}>Résumé</p>
+                    <p style={{ margin: 0, fontSize: 12, color: '#374151', lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{analyseResult.json.resume}</p>
+                  </div>
+                )}
+                <div style={{ marginTop: 12, background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 6, padding: '8px 10px', fontSize: 11, color: '#1d4ed8' }}>
+                  Cette analyse est conservée sur le contrat (non appliquée automatiquement pour l'instant) — elle pourra servir plus tard à préremplir ces champs.
+                </div>
+              </div>
+            )}
+
+            {!analyseResult.json && analyseResult.raw && (
+              <div>
+                <p style={{ margin: '0 0 8px', fontSize: 12, fontWeight: 700, color: '#374151' }}>Réponse de l'IA (non structurée)</p>
+                <pre style={{ whiteSpace: 'pre-wrap', fontSize: 12, background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: 6, padding: 10, margin: 0 }}>{analyseResult.raw}</pre>
+              </div>
+            )}
           </div>
         </Overlay>
       )}

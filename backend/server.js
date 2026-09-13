@@ -917,6 +917,9 @@ const TRANSCRIPT_SETTINGS_KEYS = [
     // Texte d'information affiché avec les comptes rendus générés par IA
     // (UI + mail) — modifiable en admin.
     'summary_notice_text',
+    // Analyse IA d'un contrat (bouton "Analyser avec l'IA" dans /contrats,
+    // vue de documents) — prompt + choix de source IA propres à cette fonctionnalité.
+    'contrat_analyse_prompt', 'contrat_analyse_ai_source', 'contrat_analyse_apm_model',
 ];
 
 app.get('/api/transcript-settings', authenticateAdmin, async (req, res) => {

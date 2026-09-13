@@ -39,6 +39,18 @@ router.put('/:id/documents/:docId/archive', authenticateAdminOrContrats, async (
     await controller.archiveDocument(req, res, pgDb);
 });
 
+router.get('/:id/documents/:docId/pdf-info', authenticateJWT, async (req, res) => {
+    await controller.getDocumentPdfInfo(req, res, pgDb);
+});
+
+router.post('/:id/documents/:docId/ocr', authenticateAdminOrContrats, async (req, res) => {
+    await controller.ocrDocument(req, res, pgDb);
+});
+
+router.post('/:id/documents/:docId/analyse-ia', authenticateAdminOrContrats, async (req, res) => {
+    await controller.analyseDocumentAi(req, res, pgDb);
+});
+
 router.put('/:id/renouvellement', authenticateAdminOrContrats, async (req, res) => {
     await controller.updateRenewal(req, res, pgDb);
 });

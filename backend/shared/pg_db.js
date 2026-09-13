@@ -2864,6 +2864,19 @@ async function setupPgDb() {
       console.log('[PG DB] Migration contrat_documents.archive column:', e.message);
     }
 
+    // OCR (pdf raster -> texte, préparation à l'analyse IA — pas d'affichage).
+    try {
+      await client.query(`
+        ALTER TABLE hub_contrats.contrat_documents
+          ADD COLUMN IF NOT EXISTS ocr_status VARCHAR(20) DEFAULT 'none',
+          ADD COLUMN IF NOT EXISTS ocr_text TEXT,
+          ADD COLUMN IF NOT EXISTS ocr_error TEXT,
+          ADD COLUMN IF NOT EXISTS ocr_updated_at TIMESTAMP
+      `);
+    } catch (e) {
+      console.log('[PG DB] Migration contrat_documents OCR columns:', e.message);
+    }
+
     // Add missing columns to existing contrats table
     try {
       await client.query(`
@@ -2921,6 +2934,21 @@ async function setupPgDb() {
       `);
     } catch (e) {
       console.log('[PG DB] Migration lien commande columns:', e.message);
+    }
+
+    // Analyse IA d'un contrat (déclenchée depuis la vue documents) : on garde le
+    // dernier résultat brut + une extraction JSON structurée (préparation à une
+    // future mise à jour automatique des champs du contrat depuis l'analyse).
+    try {
+      await client.query(`
+        ALTER TABLE hub_contrats.contrats
+          ADD COLUMN IF NOT EXISTS ai_analyse_raw TEXT,
+          ADD COLUMN IF NOT EXISTS ai_analyse_json JSONB,
+          ADD COLUMN IF NOT EXISTS ai_analyse_document_id INTEGER,
+          ADD COLUMN IF NOT EXISTS ai_analyse_at TIMESTAMP
+      `);
+    } catch (e) {
+      console.log('[PG DB] Migration contrats.ai_analyse columns:', e.message);
     }
 
     // Migration: indicateur de phase de renouvellement + dates vérifiées

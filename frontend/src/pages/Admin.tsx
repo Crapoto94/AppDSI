@@ -128,7 +128,10 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
     transcript_apm_default_model: '',
     ticket_reformulate_ai_source: 'local',
     ticket_reformulate_apm_model: '',
-    summary_notice_text: ''
+    summary_notice_text: '',
+    contrat_analyse_prompt: '',
+    contrat_analyse_ai_source: 'local',
+    contrat_analyse_apm_model: ''
   });
   const [apmModelsList, setApmModelsList] = useState<string[]>([]);
   const [apmModelsError, setApmModelsError] = useState('');
@@ -580,7 +583,10 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
           transcript_apm_default_model: data.transcript_apm_default_model || '',
           ticket_reformulate_ai_source: data.ticket_reformulate_ai_source === 'apm' ? 'apm' : 'local',
           ticket_reformulate_apm_model: data.ticket_reformulate_apm_model || '',
-          summary_notice_text: data.summary_notice_text || ''
+          summary_notice_text: data.summary_notice_text || '',
+          contrat_analyse_prompt: data.contrat_analyse_prompt || '',
+          contrat_analyse_ai_source: data.contrat_analyse_ai_source === 'apm' ? 'apm' : 'local',
+          contrat_analyse_apm_model: data.contrat_analyse_apm_model || ''
         });
       }
     } catch (error) {
@@ -3055,6 +3061,84 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                           type="button"
                           style={{ marginTop: '0.5rem', fontSize: '0.78rem', color: '#7c3aed', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline' }}
                           onClick={() => setTranscriptConfig({ ...transcriptConfig, ai_reformulate_prompt: '' })}
+                        >
+                          Réinitialiser au prompt par défaut
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Source IA + prompt d'analyse de contrats */}
+                    <div className="form-field full-width" style={{ marginBottom: '1.25rem', marginTop: '1.25rem', paddingTop: '1.25rem', borderTop: '1px dashed #e2e8f0' }}>
+                      <label className="field-label"><Zap size={14} /> Source IA pour l'analyse de contrats (module Contrats)</label>
+                      <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+                        {([
+                          { value: 'local', label: 'IA locale AppDSI' },
+                          { value: 'apm', label: 'API Ville (APM)' },
+                        ] as const).map(opt => (
+                          <button
+                            key={opt.value}
+                            type="button"
+                            onClick={() => setTranscriptConfig({ ...transcriptConfig, contrat_analyse_ai_source: opt.value })}
+                            style={{
+                              flex: 1, padding: '10px 0', borderRadius: 8, border: '1.5px solid',
+                              borderColor: transcriptConfig.contrat_analyse_ai_source === opt.value ? '#6366f1' : '#e2e8f0',
+                              background: transcriptConfig.contrat_analyse_ai_source === opt.value ? '#eef2ff' : 'white',
+                              color: transcriptConfig.contrat_analyse_ai_source === opt.value ? '#4338ca' : '#64748b',
+                              fontWeight: 700, fontSize: 13, cursor: 'pointer'
+                            }}
+                          >
+                            {opt.label}
+                          </button>
+                        ))}
+                      </div>
+                      <p style={{ fontSize: '0.78rem', color: '#64748B', marginTop: 6 }}>
+                        {transcriptConfig.contrat_analyse_ai_source === 'apm' ? (
+                          <>Utilise l'<strong>API IA Ville (APM)</strong> — modèle par défaut ci-dessous.</>
+                        ) : (
+                          <>Utilise le <strong>fournisseur d'IA</strong> ci-dessus (« Fournisseur d'IA par défaut »).</>
+                        )}
+                      </p>
+                      {transcriptConfig.contrat_analyse_ai_source === 'apm' && (
+                        <div style={{ marginTop: 10 }}>
+                          <label className="field-label" style={{ fontSize: 12 }}>Modèle par défaut (API Ville)</label>
+                          <select
+                            className="admin-input"
+                            value={transcriptConfig.contrat_analyse_apm_model}
+                            onChange={e => setTranscriptConfig({ ...transcriptConfig, contrat_analyse_apm_model: e.target.value })}
+                            disabled={apmModelsLoading}
+                          >
+                            <option value="">— Automatique (premier modèle actif) —</option>
+                            {apmModelsList.map(m => <option key={m} value={m}>{m}</option>)}
+                          </select>
+                          {apmModelsError && <p style={{ fontSize: '0.75rem', color: '#DC2626', marginTop: 4 }}>{apmModelsError}</p>}
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="form-field full-width" style={{ marginTop: '1rem' }}>
+                      <label className="field-label" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        📄 Prompt d'analyse de contrats (module Contrats)
+                      </label>
+                      <p style={{ fontSize: '0.78rem', color: '#7c3aed', marginBottom: '0.5rem' }}>
+                        Utilisé par le bouton "Analyser avec l'IA" dans la vue de documents d'un contrat. Utilisez{' '}
+                        <code style={{ background: '#ede9fe', padding: '1px 4px', borderRadius: '3px' }}>{'{NOM_FICHIER}'}</code> pour le nom du fichier et{' '}
+                        <code style={{ background: '#ede9fe', padding: '1px 4px', borderRadius: '3px' }}>{'{CONTENU}'}</code> pour le texte du document (natif ou OCRisé).
+                        Laissez vide pour le prompt par défaut, qui demande une réponse JSON structurée (fournisseur, dates, montant, GTI/GTR, résumé…) afin de préparer une future mise à jour automatique des champs du contrat.
+                      </p>
+                      <textarea
+                        className="admin-input"
+                        rows={16}
+                        style={{ fontFamily: 'monospace', fontSize: '0.8rem', resize: 'vertical', lineHeight: 1.5 }}
+                        placeholder={`Analyse le contenu du contrat ci-dessous et réponds en JSON avec : fournisseur, date_debut, duree_annees, nb_reconductions, reconduction, date_fin, montant_2022, gti, gtr, indice_revision, resume.\n\nContenu du contrat ({NOM_FICHIER}) :\n{CONTENU}`}
+                        value={transcriptConfig.contrat_analyse_prompt}
+                        onChange={e => setTranscriptConfig({ ...transcriptConfig, contrat_analyse_prompt: e.target.value })}
+                        spellCheck={false}
+                      />
+                      {transcriptConfig.contrat_analyse_prompt && (
+                        <button
+                          type="button"
+                          style={{ marginTop: '0.5rem', fontSize: '0.78rem', color: '#7c3aed', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline' }}
+                          onClick={() => setTranscriptConfig({ ...transcriptConfig, contrat_analyse_prompt: '' })}
                         >
                           Réinitialiser au prompt par défaut
                         </button>
