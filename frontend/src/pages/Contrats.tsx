@@ -131,6 +131,7 @@ const COLS: ColDef[] = [
   { key: 'tiers', label: 'Tiers', w: 120 },
   { key: 'app_id', label: 'App', w: 120 },
   { key: 'type_contrat', label: 'Type', w: 95 },
+  { key: 'ai_analyse_json', label: 'Score IA', w: 75, type: 'number' },
   { key: 'budget', label: 'Budget', w: 70, defaultVisible: false },
   { key: 'annee_initiale', label: 'An init.', w: 60, type: 'number', defaultVisible: false },
   { key: 'direction', label: 'Direction', w: 110 },
@@ -1074,6 +1075,11 @@ const Contrats: React.FC = () => {
       const bd = daysUntil(contractEndDate(b));
       const av = ad == null ? Number.MAX_SAFE_INTEGER : ad;
       const bv = bd == null ? Number.MAX_SAFE_INTEGER : bd;
+      return sortDir === 'asc' ? av - bv : bv - av;
+    }
+    if (sortKey === 'ai_analyse_json') {
+      const av = typeof a.ai_analyse_json?.score_global === 'number' ? a.ai_analyse_json.score_global : -Infinity;
+      const bv = typeof b.ai_analyse_json?.score_global === 'number' ? b.ai_analyse_json.score_global : -Infinity;
       return sortDir === 'asc' ? av - bv : bv - av;
     }
     let av: string | number = (a[sortKey] ?? '') as string | number;
@@ -2134,6 +2140,27 @@ const Contrats: React.FC = () => {
             style={{ background: '#dcfce7', color: '#15803d', border: '1px solid #86efac', borderRadius: 6, padding: '4px 9px', cursor: 'pointer', fontSize: 11, fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap' }}
           >
             <Link2 size={11} /> {liaisons.length} commande{liaisons.length > 1 ? 's' : ''}
+          </button>
+        );
+      }
+      case 'ai_analyse_json': {
+        // Score global renvoyé par l'IA (champ standardisé "score_global", 0-100 — cf. prompt
+        // par défaut et aide admin). Un prompt personnalisé qui ne l'expose pas laisse la
+        // colonne à "—" (badge cliquable pour ouvrir l'analyse si elle existe malgré tout).
+        const json = c.ai_analyse_json;
+        const score = json && typeof json.score_global === 'number' ? json.score_global : null;
+        if (!c.ai_analyse_at) return <span style={{ color: '#9ca3af' }}>—</span>;
+        const color = score == null ? { bg: '#f3f4f6', fg: '#6b7280' }
+          : score >= 70 ? { bg: '#dcfce7', fg: '#15803d' }
+          : score >= 40 ? { bg: '#fef3c7', fg: '#92400e' }
+          : { bg: '#fee2e2', fg: '#991b1b' };
+        return (
+          <button
+            onClick={() => openStoredAnalyse(c)}
+            title={`Analyse IA du ${fmtDate(c.ai_analyse_at)} — cliquer pour l'ouvrir`}
+            style={{ background: color.bg, color: color.fg, border: 'none', borderRadius: 9999, padding: '2px 10px', cursor: 'pointer', fontSize: 11, fontWeight: 700 }}
+          >
+            {score != null ? `${score}/100` : <Sparkles size={11} />}
           </button>
         );
       }

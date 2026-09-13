@@ -47,7 +47,8 @@ Analyse le contenu du contrat ci-dessous et réponds UNIQUEMENT avec un objet JS
     "points_de_vigilance": ["clauses ou points nécessitant une attention particulière : pénalités, résiliation, exclusivité, propriété intellectuelle, reconduction tacite, clauses inhabituelles..."],
     "recommandations": ["actions ou vérifications suggérées avant signature ou renouvellement"],
     "notes": "remarques libres : incohérences, informations manquantes ou ambiguës dans le texte du contrat"
-  }
+  },
+  "score_global": nombre entier de 0 à 100 (note globale du contrat pour la collectivité : 100 = aucun risque identifié, 0 = risques majeurs multiples — pondère l'ensemble des points de vigilance ci-dessus)
 }
 
 Contenu du contrat ({NOM_FICHIER}) :
