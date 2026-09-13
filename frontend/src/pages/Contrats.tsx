@@ -1025,6 +1025,20 @@ const Contrats: React.FC = () => {
     new Map(contrats.map(c => c.type_contrat).filter(Boolean).map(t => [normText(t), (t as string).trim()])).values()
   ).sort((a, b) => a.localeCompare(b, 'fr'));
   const activeCols = COLS.filter(c => visibleCols.has(c.key));
+  // Colonnes figées à gauche du tableau (comme un volet figé Excel) : reste visible même en
+  // scrollant horizontalement. "objet" (le nom du contrat) doit toujours être visible ; "svc"
+  // (très étroite) est figée avec lui pour ne pas laisser un décalage disgracieux. Le décalage
+  // (left) de chaque colonne figée est calculé dynamiquement à partir des colonnes réellement
+  // affichées avant elle (gère le cas où l'utilisateur masque "svc" via le sélecteur de colonnes).
+  const STICKY_COL_KEYS: ColKey[] = ['svc', 'objet'];
+  let _stickyLeft = 0;
+  const activeColsSticky = activeCols.map(col => {
+    const sticky = STICKY_COL_KEYS.includes(col.key);
+    const left = sticky ? _stickyLeft : null;
+    if (sticky) _stickyLeft += col.w;
+    return { col, sticky, left };
+  });
+  const lastStickyKey = [...activeColsSticky].reverse().find(c => c.sticky)?.col.key ?? null;
 
   // ─── Filtres & tri ───────────────────────────────────────────────────────────
 
@@ -2397,8 +2411,15 @@ const Contrats: React.FC = () => {
               <thead style={{ position: 'sticky', top: 0, zIndex: 10 }}>
                 {/* En-têtes colonnes */}
                 <tr>
-                  {activeCols.map(col => (
-                    <th key={col.key} onClick={() => handleSort(col.key)} style={{ padding: '7px 8px', background: '#1e3a5f', color: '#fff', fontWeight: 600, fontSize: 11, textAlign: 'left', cursor: 'pointer', whiteSpace: 'nowrap', width: col.w, userSelect: 'none' }}>
+                  {activeColsSticky.map(({ col, sticky, left }) => (
+                    <th
+                      key={col.key}
+                      onClick={() => handleSort(col.key)}
+                      style={{
+                        padding: '7px 8px', background: '#1e3a5f', color: '#fff', fontWeight: 600, fontSize: 11, textAlign: 'left', cursor: 'pointer', whiteSpace: 'nowrap', width: col.w, userSelect: 'none',
+                        ...(sticky ? { position: 'sticky', left: left as number, zIndex: 11, boxShadow: col.key === lastStickyKey ? '2px 0 4px rgba(0,0,0,.15)' : undefined } : {}),
+                      }}
+                    >
                       {col.label}<SI k={col.key} />
                     </th>
                   ))}
@@ -2409,8 +2430,14 @@ const Contrats: React.FC = () => {
                 {/* Ligne filtres */}
                 {showFilterRow && (
                   <tr style={{ background: '#f0f4ff' }}>
-                    {activeCols.map(col => (
-                      <th key={col.key} style={{ padding: '3px 4px', fontWeight: 'normal' }}>
+                    {activeColsSticky.map(({ col, sticky, left }) => (
+                      <th
+                        key={col.key}
+                        style={{
+                          padding: '3px 4px', fontWeight: 'normal',
+                          ...(sticky ? { position: 'sticky', left: left as number, zIndex: 11, background: '#f0f4ff' } : {}),
+                        }}
+                      >
                         <input
                           type="text"
                           value={colFilters[col.key] ?? ''}
@@ -2432,8 +2459,14 @@ const Contrats: React.FC = () => {
                   const archived = c.statut === 'archivé';
                   return (
                     <tr key={c.id} style={{ background: rowBg(c, i), opacity: archived ? 0.6 : 1 }}>
-                      {activeCols.map(col => (
-                        <td key={col.key} style={{ padding: '5px 8px', borderBottom: '1px solid #e5e7eb', whiteSpace: 'nowrap', maxWidth: col.w }}>
+                      {activeColsSticky.map(({ col, sticky, left }) => (
+                        <td
+                          key={col.key}
+                          style={{
+                            padding: '5px 8px', borderBottom: '1px solid #e5e7eb', whiteSpace: 'nowrap', maxWidth: col.w,
+                            ...(sticky ? { position: 'sticky', left: left as number, zIndex: 5, background: rowBg(c, i), boxShadow: col.key === lastStickyKey ? '2px 0 4px rgba(0,0,0,.08)' : undefined } : {}),
+                          }}
+                        >
                           {renderCellValue(c, col)}
                         </td>
                       ))}
