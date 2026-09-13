@@ -43,6 +43,16 @@ router.get('/:id/documents/:docId/pdf-info', authenticateJWT, async (req, res) =
     await controller.getDocumentPdfInfo(req, res, pgDb);
 });
 
+// Modèles IA disponibles pour l'analyse de contrats (avant les routes /:id génériques)
+router.get('/analyse-ia/models', authenticateJWT, async (req, res) => {
+    await controller.getContratAnalyseAiModels(req, res);
+});
+
+// Analyse IA "à la volée" : PDF uploadé directement, non lié à un contrat, non conservé.
+router.post('/analyse-ia/ad-hoc', uploadDoc.single('file'), authenticateJWT, async (req, res) => {
+    await controller.analyseAdHoc(req, res);
+});
+
 router.post('/:id/documents/:docId/ocr', authenticateAdminOrContrats, async (req, res) => {
     await controller.ocrDocument(req, res, pgDb);
 });

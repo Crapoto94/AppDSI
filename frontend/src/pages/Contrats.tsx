@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import * as XLSX from 'xlsx';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import Header from '../components/Header';
 import {
   Upload, Download, AlertCircle, Loader2, Trash2, Edit2, Check,
@@ -261,6 +263,83 @@ const ModalHeader: React.FC<{ title: string; onClose: () => void }> = ({ title, 
     <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#6b7280' }}><CloseIcon size={18} /></button>
   </div>
 );
+
+// ── OCR (PDF raster -> texte) + Analyse IA d'un document — utilisé à la fois dans la vue de
+// documents avec navigation (docViewModal) et dans la simple prévisualisation "à la volée"
+// (pdfModal), sur le document actuellement actif (cf. activeDocCtx dans le composant parent).
+const DocAiActions: React.FC<{
+  pdfInfo: { isPdf: boolean; isRaster: boolean; hasOcr: boolean; ocrStatus: string } | null;
+  pdfInfoLoading: boolean;
+  ocrRunning: boolean;
+  analyseRunning: boolean;
+  onOcr: () => void;
+  onAnalyse: () => void;
+  aiSource: 'apm' | 'local';
+  aiModels: string[];
+  selectedModel: string;
+  onSelectModel: (m: string) => void;
+  modelsError: string;
+}> = ({ pdfInfo, pdfInfoLoading, ocrRunning, analyseRunning, onOcr, onAnalyse, aiSource, aiModels, selectedModel, onSelectModel, modelsError }) => {
+  if (!pdfInfo?.isPdf) return null;
+  const canAnalyse = !pdfInfo.isRaster || pdfInfo.hasOcr;
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10, flexWrap: 'wrap' }}>
+      {pdfInfoLoading && <span style={{ fontSize: 11, color: '#9ca3af' }}>Analyse du PDF…</span>}
+
+      {!pdfInfoLoading && pdfInfo.isRaster && !pdfInfo.hasOcr && (
+        <button
+          onClick={onOcr}
+          disabled={ocrRunning}
+          title="Ce PDF est un scan (pas de couche texte) : l'OCR extrait le texte pour une future analyse IA — le texte OCR n'est pas affiché."
+          style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 10px', borderRadius: 4, border: '1px solid #b45309', background: ocrRunning ? '#fef3c7' : '#fffbeb', color: '#92400e', cursor: ocrRunning ? 'default' : 'pointer', fontSize: 11, fontWeight: 600 }}
+        >
+          {ocrRunning ? <Loader2 size={13} className="animate-spin" /> : <ScanText size={13} />}
+          {ocrRunning ? 'OCR en cours… (peut prendre plusieurs minutes)' : 'OCRiser ce document'}
+        </button>
+      )}
+
+      {!pdfInfoLoading && pdfInfo.isRaster && pdfInfo.hasOcr && (
+        <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: '#15803d', fontWeight: 600 }}>
+          <FileCheck2 size={13} /> Texte OCR disponible
+          <button
+            onClick={onOcr}
+            disabled={ocrRunning}
+            style={{ marginLeft: 4, fontSize: 11, color: '#6b7280', background: 'none', border: 'none', cursor: ocrRunning ? 'default' : 'pointer', textDecoration: 'underline' }}
+          >
+            {ocrRunning ? 'OCR en cours…' : 'Relancer'}
+          </button>
+        </span>
+      )}
+
+      {!pdfInfoLoading && canAnalyse && (
+        <>
+          <div className="contrat-ai-group">
+            <button
+              className="contrat-ai-btn"
+              onClick={onAnalyse}
+              disabled={analyseRunning || (aiSource === 'apm' && !selectedModel)}
+              title={aiSource === 'local' ? (aiModels[0] || "Envoie le texte du document à l'IA locale AppDSI.") : "Envoie le texte du document (natif ou OCRisé) à l'IA, selon le prompt configuré dans /admin/transcript."}
+            >
+              {analyseRunning ? <Loader2 size={13} className="animate-spin" /> : <Sparkles size={13} />}
+              {analyseRunning ? 'Analyse en cours…' : "Analyser avec l'IA"}
+            </button>
+            <select
+              className="contrat-ai-model"
+              value={aiSource === 'local' ? (aiModels[0] || '') : selectedModel}
+              onChange={e => onSelectModel(e.target.value)}
+              disabled={analyseRunning || aiModels.length === 0 || aiSource === 'local'}
+              title={modelsError || (aiSource === 'local' ? 'IA locale AppDSI : un seul modèle configuré (changer dans /admin, section IA)' : 'Modèle IA (API Ville) utilisé pour cette analyse')}
+            >
+              {aiModels.length === 0 && <option value="">…</option>}
+              {aiModels.map(m => <option key={m} value={m}>{m}</option>)}
+            </select>
+          </div>
+          {modelsError && <span style={{ fontSize: 10, color: '#dc2626' }}>{modelsError}</span>}
+        </>
+      )}
+    </div>
+  );
+};
 
 // ── Prévision budgétaire : total par SVC, déroulable par nature ───────────────
 // n-1 = montant réalisé N-1, n = montant réalisé de l'année en cours, n+1..n+3 = prévisions.
@@ -568,15 +647,28 @@ const Contrats: React.FC = () => {
   const [renewStatut, setRenewStatut] = useState('en_cours');
   const [renewComment, setRenewComment] = useState('');
   const [renewDate, setRenewDate] = useState('');
-  const [pdfModal, setPdfModal] = useState<{ path: string; name: string } | null>(null);
+  // contratId/docId : présents quand la prévisualisation vient de la vue "Documents" (docModal) ou
+  // de l'édition d'un contrat — permet d'y proposer aussi l'OCR/l'analyse IA "à la volée".
+  const [pdfModal, setPdfModal] = useState<{ path: string; name: string; contratId?: number; docId?: number } | null>(null);
   const [docViewModal, setDocViewModal] = useState<{ contrat: Contrat; docs: Document[]; currentIndex: number } | null>(null);
   const [docViewEditData, setDocViewEditData] = useState<Partial<Contrat> | null>(null);
   const [pdfInfo, setPdfInfo] = useState<{ isPdf: boolean; isRaster: boolean; hasOcr: boolean; ocrStatus: string } | null>(null);
   const [pdfInfoLoading, setPdfInfoLoading] = useState(false);
   const [ocrRunning, setOcrRunning] = useState(false);
   const [analyseRunning, setAnalyseRunning] = useState(false);
-  const [analyseResult, setAnalyseResult] = useState<{ raw: string; json: any; documentName?: string } | null>(null);
+  const [analyseResult, setAnalyseResult] = useState<{ raw: string; json: any; documentName?: string; persisted?: boolean } | null>(null);
   const [analyseError, setAnalyseError] = useState('');
+  // Analyse IA "à la volée" (bouton toolbar, à côté de "Prévision") : upload d'un fichier
+  // PDF quelconque, non lié à un contrat, non conservé côté serveur (rien n'est persisté).
+  const [adHocAnalysing, setAdHocAnalysing] = useState(false);
+  const adHocFileRef = useRef<HTMLInputElement>(null);
+  // Choix du modèle IA pour l'analyse de contrats (mode "API Ville" uniquement — comme dans
+  // le Transcript Manager) : le défaut vient de l'admin, l'utilisateur peut le changer pour
+  // cette analyse ponctuelle sans toucher au réglage admin.
+  const [contratAiModels, setContratAiModels] = useState<string[]>([]);
+  const [contratAiSource, setContratAiSource] = useState<'apm' | 'local'>('local');
+  const [contratSelectedModel, setContratSelectedModel] = useState('');
+  const [contratModelsError, setContratModelsError] = useState('');
   const [linkedContracts, setLinkedContracts] = useState<{ previous: Contrat | null; renewals: Contrat[] } | null>(null);
   const [appsSuggestions, setAppsSuggestions] = useState<Array<{ id: number; name: string }>>([]);
   const [appsSearch, setAppsSearch] = useState('');
@@ -1052,8 +1144,20 @@ const Contrats: React.FC = () => {
     });
   };
 
-  // Vérifie si le document actuellement affiché dans la vue de documents est un PDF raster
-  // (scan sans couche texte) et s'il a déjà été OCRisé — pour proposer le bon bouton.
+  // Document actuellement "actif" pour l'OCR / l'analyse IA : soit celui affiché dans la
+  // vue de documents (docViewModal, avec navigation), soit celui ouvert "à la volée" depuis
+  // une simple prévisualisation (pdfModal, ouverte depuis la liste des documents d'un contrat).
+  const activeDocCtx = docViewModal
+    ? (() => {
+        const doc = docViewModal.docs[docViewModal.currentIndex];
+        return doc ? { contratId: docViewModal.contrat.id, docId: doc.id, fileName: doc.file_name } : null;
+      })()
+    : (pdfModal && pdfModal.contratId != null && pdfModal.docId != null)
+      ? { contratId: pdfModal.contratId, docId: pdfModal.docId, fileName: pdfModal.name }
+      : null;
+
+  // Vérifie si le document actif est un PDF raster (scan sans couche texte) et s'il a déjà
+  // été OCRisé — pour proposer le bon bouton (OCRiser / Analyser avec l'IA).
   const fetchPdfInfo = async (contratId: number, docId: number) => {
     setPdfInfoLoading(true);
     setPdfInfo(null);
@@ -1065,24 +1169,41 @@ const Contrats: React.FC = () => {
   };
 
   useEffect(() => {
-    if (!docViewModal) { setPdfInfo(null); return; }
-    const doc = docViewModal.docs[docViewModal.currentIndex];
-    if (!doc) { setPdfInfo(null); return; }
-    fetchPdfInfo(docViewModal.contrat.id, doc.id);
+    if (!activeDocCtx) { setPdfInfo(null); return; }
+    fetchPdfInfo(activeDocCtx.contratId, activeDocCtx.docId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [docViewModal?.contrat.id, docViewModal?.currentIndex]);
+  }, [activeDocCtx?.contratId, activeDocCtx?.docId]);
+
+  // Modèle(s) IA disponibles pour l'analyse de contrats (choix à la volée en mode "API Ville",
+  // comme dans le Transcript Manager) — chargés une fois au montage : utilisés aussi bien pour
+  // l'analyse d'un document de contrat que pour l'analyse "à la volée" (bouton toolbar).
+  useEffect(() => {
+    fetch('/api/contrats/analyse-ia/models', { headers: authHeaders() })
+      .then(res => res.json().then(data => ({ ok: res.ok, data })))
+      .then(({ ok, data }) => {
+        if (!ok) throw new Error(data?.message || 'Erreur chargement des modèles IA');
+        const models: string[] = data.models || [];
+        setContratAiModels(models);
+        setContratAiSource(data.source === 'apm' ? 'apm' : 'local');
+        setContratModelsError('');
+        setContratSelectedModel(prev => {
+          if (prev && models.includes(prev)) return prev;
+          return (data.defaultModel && models.includes(data.defaultModel)) ? data.defaultModel : (models[0] || '');
+        });
+      })
+      .catch((e: any) => setContratModelsError(e?.message || "Impossible de charger les modèles IA. Vérifier la configuration dans /admin (section IA)."));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleOcrDocument = async () => {
-    if (!docViewModal) return;
-    const doc = docViewModal.docs[docViewModal.currentIndex];
-    if (!doc) return;
+    if (!activeDocCtx) return;
     setOcrRunning(true);
     try {
-      const res = await fetch(`/api/contrats/${docViewModal.contrat.id}/documents/${doc.id}/ocr`, { method: 'POST', headers: authHeaders() });
+      const res = await fetch(`/api/contrats/${activeDocCtx.contratId}/documents/${activeDocCtx.docId}/ocr`, { method: 'POST', headers: authHeaders() });
       const data = await res.json();
       if (!res.ok) throw new Error(data?.message || 'Erreur OCR');
       showMsg('success', `OCR terminé (${data.pages} page${data.pages > 1 ? 's' : ''}${data.truncated ? ', document tronqué' : ''}).`);
-      await fetchPdfInfo(docViewModal.contrat.id, doc.id);
+      await fetchPdfInfo(activeDocCtx.contratId, activeDocCtx.docId);
     } catch (e: any) {
       showMsg('error', e?.message || "Erreur lors de l'OCR du document");
     } finally {
@@ -1091,21 +1212,45 @@ const Contrats: React.FC = () => {
   };
 
   const handleAnalyseDocumentAi = async () => {
-    if (!docViewModal) return;
-    const doc = docViewModal.docs[docViewModal.currentIndex];
-    if (!doc) return;
+    if (!activeDocCtx) return;
     setAnalyseRunning(true);
     setAnalyseError('');
     try {
-      const res = await fetch(`/api/contrats/${docViewModal.contrat.id}/documents/${doc.id}/analyse-ia`, { method: 'POST', headers: authHeaders() });
+      const res = await fetch(`/api/contrats/${activeDocCtx.contratId}/documents/${activeDocCtx.docId}/analyse-ia`, {
+        method: 'POST',
+        headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+        body: JSON.stringify(contratAiSource === 'apm' && contratSelectedModel ? { model: contratSelectedModel } : {}),
+      });
       const data = await res.json();
       if (!res.ok) throw new Error(data?.message || "Erreur lors de l'analyse IA");
-      setAnalyseResult({ raw: data.raw, json: data.json, documentName: data.documentName });
+      setAnalyseResult({ raw: data.raw, json: data.json, documentName: data.documentName, persisted: true });
     } catch (e: any) {
       setAnalyseError(e?.message || "Erreur lors de l'analyse IA");
       setAnalyseResult({ raw: '', json: null });
     } finally {
       setAnalyseRunning(false);
+    }
+  };
+
+  // Analyse IA "à la volée" (bouton toolbar) : upload direct d'un PDF quelconque (pas besoin
+  // qu'il soit déjà attaché à un contrat), même prompt/modèle, OCR automatique si nécessaire
+  // côté serveur — rien n'est conservé (ni le fichier, ni le résultat).
+  const handleAdHocAnalyse = async (file: File) => {
+    setAdHocAnalysing(true);
+    setAnalyseError('');
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      if (contratAiSource === 'apm' && contratSelectedModel) fd.append('model', contratSelectedModel);
+      const res = await fetch('/api/contrats/analyse-ia/ad-hoc', { method: 'POST', headers: authHeaders(), body: fd });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.message || "Erreur lors de l'analyse IA");
+      setAnalyseResult({ raw: data.raw, json: data.json, documentName: data.documentName, persisted: false });
+    } catch (e: any) {
+      setAnalyseError(e?.message || "Erreur lors de l'analyse IA");
+      setAnalyseResult({ raw: '', json: null, persisted: false });
+    } finally {
+      setAdHocAnalysing(false);
     }
   };
 
@@ -1670,6 +1815,27 @@ const Contrats: React.FC = () => {
     <div style={{ fontFamily: 'system-ui, sans-serif', minHeight: '100vh', background: '#f1f5f9', display: 'flex', flexDirection: 'column' }}>
       <Header />
 
+      {/* Bouton "Analyser avec l'IA" + choix du modèle, groupés en un seul pilule (toolbar + vue de documents) */}
+      <style>{`
+        .contrat-ai-group { display: inline-flex; align-items: stretch; border-radius: 6px; overflow: hidden; }
+        .contrat-ai-group .contrat-ai-btn {
+          display: flex; align-items: center; gap: 6px; border: none; border-radius: 0;
+          background: #4338ca; color: #fff; padding: 5px 12px; font-size: 11px; font-weight: 600; cursor: pointer;
+        }
+        .contrat-ai-group .contrat-ai-btn:hover:not(:disabled) { background: #3730a3; }
+        .contrat-ai-group .contrat-ai-btn:disabled { cursor: default; opacity: 0.85; }
+        .contrat-ai-group .contrat-ai-model {
+          border: none; border-left: 1px solid rgba(255,255,255,0.35); background: #4338ca; color: #fff;
+          font-size: 10.5px; font-weight: 600; padding: 0 22px 0 8px; max-width: 190px; outline: none; cursor: pointer;
+          appearance: none; -webkit-appearance: none;
+          background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='11' height='11' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'><polyline points='6 9 12 15 18 9'/></svg>");
+          background-repeat: no-repeat; background-position: right 6px center;
+        }
+        .contrat-ai-group .contrat-ai-model:hover:not(:disabled) { background: #3730a3; }
+        .contrat-ai-group .contrat-ai-model:disabled { opacity: 0.85; cursor: default; }
+        .contrat-ai-group .contrat-ai-model option { color: #1e293b; background: #fff; }
+      `}</style>
+
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
 
       {/* Toast */}
@@ -1820,6 +1986,41 @@ const Contrats: React.FC = () => {
         <button onClick={() => setShowPrevisionModal(true)} style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '4px 10px', borderRadius: 6, border: 'none', background: '#7c3aed', color: '#fff', cursor: 'pointer', fontSize: 11, fontWeight: 600 }}>
           <TrendingUp size={12} /> Prévision
         </button>
+
+        {/* Analyse IA "à la volée" : PDF quelconque, non lié à un contrat, rien n'est conservé */}
+        <input
+          ref={adHocFileRef}
+          type="file"
+          accept=".pdf"
+          style={{ display: 'none' }}
+          onChange={e => {
+            const f = e.target.files?.[0];
+            if (f) handleAdHocAnalyse(f);
+            if (adHocFileRef.current) adHocFileRef.current.value = '';
+          }}
+        />
+        <div className="contrat-ai-group">
+          <button
+            className="contrat-ai-btn"
+            onClick={() => adHocFileRef.current?.click()}
+            disabled={adHocAnalysing || (contratAiSource === 'apm' && !contratSelectedModel)}
+            title="Choisir un PDF (contrat, devis…) et l'analyser avec l'IA — même prompt que dans /admin, résultat non conservé."
+          >
+            {adHocAnalysing ? <Loader2 size={12} className="animate-spin" /> : <Sparkles size={12} />}
+            {adHocAnalysing ? 'Analyse en cours…' : 'Analyser un fichier (IA)'}
+          </button>
+          <select
+            className="contrat-ai-model"
+            value={contratAiSource === 'local' ? (contratAiModels[0] || '') : contratSelectedModel}
+            onChange={e => setContratSelectedModel(e.target.value)}
+            disabled={adHocAnalysing || contratAiModels.length === 0 || contratAiSource === 'local'}
+            title={contratModelsError || (contratAiSource === 'local' ? 'IA locale AppDSI : un seul modèle configuré (changer dans /admin, section IA)' : 'Modèle IA (API Ville) utilisé pour cette analyse')}
+          >
+            {contratAiModels.length === 0 && <option value="">…</option>}
+            {contratAiModels.map(m => <option key={m} value={m}>{m}</option>)}
+          </select>
+        </div>
+        {contratModelsError && <span style={{ fontSize: 10, color: '#dc2626' }}>{contratModelsError}</span>}
       </div>
 
       {showPrevisionModal && (
@@ -2397,7 +2598,7 @@ const Contrats: React.FC = () => {
                           <div key={doc.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 6px', background: '#fff', borderRadius: 5, border: '1px solid #e5e7eb' }}>
                             <FileText size={12} style={{ color: '#6b7280', flexShrink: 0 }} />
                             <button
-                              onClick={() => setPdfModal({ path: doc.file_path, name: doc.file_name })}
+                              onClick={() => setPdfModal({ path: doc.file_path, name: doc.file_name, contratId: editModal?.id, docId: doc.id })}
                               style={{ flexGrow: 1, minWidth: 0, textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 12, color: '#1d4ed8', fontWeight: doc.est_principal ? 700 : 400, background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
                             >
                               {doc.file_name}
@@ -2481,7 +2682,7 @@ const Contrats: React.FC = () => {
                 <div key={doc.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0', borderBottom: '1px solid #f3f4f6' }}>
                   <FileText size={13} style={{ color: '#6b7280', flexShrink: 0 }} />
                   <div style={{ flexGrow: 1, minWidth: 0 }}>
-                    <button onClick={() => setPdfModal({ path: doc.file_path, name: doc.file_name })} style={{ fontSize: 13, color: '#1d4ed8', textDecoration: 'none', fontWeight: doc.est_principal ? 700 : 400, background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>{doc.file_name}</button>
+                    <button onClick={() => setPdfModal({ path: doc.file_path, name: doc.file_name, contratId: docModal.contrat.id, docId: doc.id })} style={{ fontSize: 13, color: '#1d4ed8', textDecoration: 'none', fontWeight: doc.est_principal ? 700 : 400, background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>{doc.file_name}</button>
                     {doc.nature && <span style={{ marginLeft: 6, fontSize: 10, color: '#6b7280', background: '#f3f4f6', padding: '1px 6px', borderRadius: 9999 }}>{doc.nature}</span>}
                     {doc.est_principal === 1 && <span style={{ marginLeft: 4, fontSize: 10, color: '#15803d', background: '#dcfce7', padding: '1px 6px', borderRadius: 9999, fontWeight: 700 }}>Principal</span>}
                   </div>
@@ -2585,6 +2786,21 @@ const Contrats: React.FC = () => {
       {pdfModal && (
         <Overlay onClose={() => setPdfModal(null)} maxWidth={900}>
           <ModalHeader title={pdfModal.name} onClose={() => setPdfModal(null)} />
+          {pdfModal.contratId != null && pdfModal.docId != null && (
+            <DocAiActions
+              pdfInfo={pdfInfo}
+              pdfInfoLoading={pdfInfoLoading}
+              ocrRunning={ocrRunning}
+              analyseRunning={analyseRunning}
+              onOcr={handleOcrDocument}
+              onAnalyse={handleAnalyseDocumentAi}
+              aiSource={contratAiSource}
+              aiModels={contratAiModels}
+              selectedModel={contratSelectedModel}
+              onSelectModel={setContratSelectedModel}
+              modelsError={contratModelsError}
+            />
+          )}
           <iframe
             src={docFileUrl(pdfModal.path)}
             style={{ width: '100%', height: '70vh', border: 'none', borderRadius: 6 }}
@@ -2939,48 +3155,19 @@ const Contrats: React.FC = () => {
               </div>
 
               {/* OCR (PDF raster -> texte, pour l'analyse IA) + Analyse IA du document */}
-              {pdfInfo?.isPdf && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10, flexWrap: 'wrap' }}>
-                  {pdfInfoLoading && <span style={{ fontSize: 11, color: '#9ca3af' }}>Analyse du PDF…</span>}
-
-                  {!pdfInfoLoading && pdfInfo.isRaster && !pdfInfo.hasOcr && (
-                    <button
-                      onClick={handleOcrDocument}
-                      disabled={ocrRunning}
-                      title="Ce PDF est un scan (pas de couche texte) : l'OCR extrait le texte pour une future analyse IA — le texte OCR n'est pas affiché."
-                      style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 10px', borderRadius: 4, border: '1px solid #b45309', background: ocrRunning ? '#fef3c7' : '#fffbeb', color: '#92400e', cursor: ocrRunning ? 'default' : 'pointer', fontSize: 11, fontWeight: 600 }}
-                    >
-                      {ocrRunning ? <Loader2 size={13} className="animate-spin" /> : <ScanText size={13} />}
-                      {ocrRunning ? 'OCR en cours… (peut prendre plusieurs minutes)' : 'OCRiser ce document'}
-                    </button>
-                  )}
-
-                  {!pdfInfoLoading && pdfInfo.isRaster && pdfInfo.hasOcr && (
-                    <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: '#15803d', fontWeight: 600 }}>
-                      <FileCheck2 size={13} /> Texte OCR disponible
-                      <button
-                        onClick={handleOcrDocument}
-                        disabled={ocrRunning}
-                        style={{ marginLeft: 4, fontSize: 11, color: '#6b7280', background: 'none', border: 'none', cursor: ocrRunning ? 'default' : 'pointer', textDecoration: 'underline' }}
-                      >
-                        {ocrRunning ? 'OCR en cours…' : 'Relancer'}
-                      </button>
-                    </span>
-                  )}
-
-                  {!pdfInfoLoading && (!pdfInfo.isRaster || pdfInfo.hasOcr) && (
-                    <button
-                      onClick={handleAnalyseDocumentAi}
-                      disabled={analyseRunning}
-                      title="Envoie le texte du document (natif ou OCRisé) à l'IA, selon le prompt configuré dans /admin/transcript."
-                      style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 10px', borderRadius: 4, border: '1px solid #6366f1', background: analyseRunning ? '#eef2ff' : '#fff', color: '#4338ca', cursor: analyseRunning ? 'default' : 'pointer', fontSize: 11, fontWeight: 600 }}
-                    >
-                      {analyseRunning ? <Loader2 size={13} className="animate-spin" /> : <Sparkles size={13} />}
-                      {analyseRunning ? 'Analyse en cours…' : "Analyser avec l'IA"}
-                    </button>
-                  )}
-                </div>
-              )}
+              <DocAiActions
+                pdfInfo={pdfInfo}
+                pdfInfoLoading={pdfInfoLoading}
+                ocrRunning={ocrRunning}
+                analyseRunning={analyseRunning}
+                onOcr={handleOcrDocument}
+                onAnalyse={handleAnalyseDocumentAi}
+                aiSource={contratAiSource}
+                aiModels={contratAiModels}
+                selectedModel={contratSelectedModel}
+                onSelectModel={setContratSelectedModel}
+                modelsError={contratModelsError}
+              />
 
               <iframe
                 src={docFileUrl(docViewModal.docs[docViewModal.currentIndex]?.file_path)}
@@ -3062,9 +3249,19 @@ const Contrats: React.FC = () => {
 
       {/* ── Modale : Résultat de l'analyse IA d'un document ─────────────────────── */}
       {analyseResult && (
-        <Overlay onClose={() => { setAnalyseResult(null); setAnalyseError(''); }} maxWidth={640}>
+        <Overlay onClose={() => { setAnalyseResult(null); setAnalyseError(''); }} maxWidth={980}>
           <ModalHeader title={`Analyse IA — ${analyseResult.documentName || 'document'}`} onClose={() => { setAnalyseResult(null); setAnalyseError(''); }} />
-          <div style={{ padding: 20, maxHeight: '70vh', overflowY: 'auto' }}>
+          <style>{`
+            .contrat-ai-md { font-size: 12.5px; color: #1f2937; line-height: 1.6; }
+            .contrat-ai-md p { margin: 0 0 10px; }
+            .contrat-ai-md h1, .contrat-ai-md h2, .contrat-ai-md h3 { font-size: 13px; margin: 14px 0 6px; color: #111827; }
+            .contrat-ai-md ul, .contrat-ai-md ol { margin: 0 0 10px; padding-left: 20px; }
+            .contrat-ai-md table { border-collapse: collapse; width: 100%; margin: 0 0 14px; font-size: 12px; }
+            .contrat-ai-md th, .contrat-ai-md td { border: 1px solid #e5e7eb; padding: 6px 8px; text-align: left; vertical-align: top; }
+            .contrat-ai-md th { background: #f9fafb; font-weight: 700; color: #374151; }
+            .contrat-ai-md code { background: #f3f4f6; padding: 1px 4px; border-radius: 3px; font-size: 11.5px; }
+          `}</style>
+          <div style={{ padding: 20, maxHeight: '75vh', overflowY: 'auto' }}>
             {analyseError && (
               <div style={{ background: '#fef2f2', border: '1px solid #fca5a5', color: '#991b1b', borderRadius: 6, padding: '10px 12px', fontSize: 12, marginBottom: 14 }}>
                 {analyseError}
@@ -3100,7 +3297,9 @@ const Contrats: React.FC = () => {
                   </div>
                 )}
                 <div style={{ marginTop: 12, background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 6, padding: '8px 10px', fontSize: 11, color: '#1d4ed8' }}>
-                  Cette analyse est conservée sur le contrat (non appliquée automatiquement pour l'instant) — elle pourra servir plus tard à préremplir ces champs.
+                  {analyseResult.persisted
+                    ? "Cette analyse est conservée sur le contrat (non appliquée automatiquement pour l'instant) — elle pourra servir plus tard à préremplir ces champs."
+                    : "Analyse ponctuelle : rien n'est conservé côté serveur (ni le fichier, ni ce résultat)."}
                 </div>
               </div>
             )}
@@ -3108,7 +3307,14 @@ const Contrats: React.FC = () => {
             {!analyseResult.json && analyseResult.raw && (
               <div>
                 <p style={{ margin: '0 0 8px', fontSize: 12, fontWeight: 700, color: '#374151' }}>Réponse de l'IA (non structurée)</p>
-                <pre style={{ whiteSpace: 'pre-wrap', fontSize: 12, background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: 6, padding: 10, margin: 0 }}>{analyseResult.raw}</pre>
+                <div className="contrat-ai-md" style={{ background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: 6, padding: '12px 14px' }}>
+                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{analyseResult.raw}</ReactMarkdown>
+                </div>
+                <div style={{ marginTop: 12, background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 6, padding: '8px 10px', fontSize: 11, color: '#1d4ed8' }}>
+                  {analyseResult.persisted
+                    ? "Cette analyse est conservée sur le contrat (non appliquée automatiquement pour l'instant)."
+                    : "Analyse ponctuelle : rien n'est conservé côté serveur (ni le fichier, ni ce résultat)."}
+                </div>
               </div>
             )}
           </div>

@@ -63,13 +63,20 @@ function extractJsonFromAiResponse(raw) {
     }
 }
 
-/** Appelle le fournisseur d'IA locale configuré (ai_provider) — même logique que la reformulation de tickets. */
+/**
+ * Appelle le fournisseur d'IA locale configuré (ai_provider) — même logique que la
+ * reformulation de tickets, mais avec les mêmes plafonds de tokens que le Transcript
+ * Manager (4096 pour Anthropic, pas de plafond pour Groq/OpenRouter — laissé au défaut
+ * du fournisseur) : une analyse de contrat (JSON structuré + résumé) est nettement plus
+ * longue qu'une reformulation de commentaire, un plafond à 2048 tronquait la réponse
+ * (JSON invalide en sortie, ou résumé coupé en milieu de phrase).
+ */
 async function callLocalAiProvider(prompt, cfg) {
     const provider = cfg.ai_provider || 'groq';
     if (provider === 'anthropic' && cfg.anthropic_api_key) {
         const model = cfg.anthropic_model || 'claude-3-5-sonnet-20240620';
         const resp = await axios.post('https://api.anthropic.com/v1/messages',
-            { model, max_tokens: 2048, messages: [{ role: 'user', content: prompt }] },
+            { model, max_tokens: 4096, messages: [{ role: 'user', content: prompt }] },
             { headers: { 'x-api-key': cfg.anthropic_api_key, 'anthropic-version': '2023-06-01' } }
         );
         return resp.data?.content?.[0]?.text || '';
@@ -83,10 +90,63 @@ async function callLocalAiProvider(prompt, cfg) {
     const baseURL = provider === 'openrouter' ? 'https://openrouter.ai/api/v1' : 'https://api.groq.com/openai/v1';
     const model = cfg.default_model || (provider === 'openrouter' ? 'google/gemini-2.0-flash-001' : 'llama-3.3-70b-versatile');
     const resp = await axios.post(`${baseURL}/chat/completions`,
-        { model, messages: [{ role: 'user', content: prompt }], max_tokens: 2048 },
+        { model, messages: [{ role: 'user', content: prompt }], stream: false },
         { headers: { Authorization: `Bearer ${apiKey}` } }
     );
     return resp.data?.choices?.[0]?.message?.content || '';
+}
+
+/**
+ * Lit le prompt/la config d'analyse de contrats, construit le prompt à partir du contenu
+ * fourni, interroge l'IA (source + modèle configurés en admin, modèle éventuellement
+ * surchargé à la volée par le front) et tente d'en extraire un objet JSON structuré.
+ * Partagé par l'analyse d'un document déjà attaché à un contrat et par l'analyse
+ * "à la volée" (fichier non conservé).
+ */
+async function runContratAnalysePrompt({ fileName, content, requestedModel }) {
+    const sqlite = getSqlite();
+    const keys = [
+        'contrat_analyse_prompt', 'contrat_analyse_ai_source', 'contrat_analyse_apm_model',
+        'ai_provider', 'groq_api_key', 'openrouter_api_key', 'anthropic_api_key', 'ollama_host', 'anthropic_model', 'default_model',
+    ];
+    const cfg = {};
+    for (const k of keys) {
+        const row = await sqlite.get('SELECT setting_value FROM app_settings WHERE setting_key = ?', [k]);
+        cfg[k] = row && row.setting_value != null ? String(row.setting_value) : '';
+    }
+
+    const MAX_CHARS = 24000; // cohérent avec la limite de contexte par défaut du Transcript Manager
+    const promptTemplate = cfg.contrat_analyse_prompt || DEFAULT_CONTRAT_ANALYSE_PROMPT;
+    const prompt = promptTemplate
+        .replace('{NOM_FICHIER}', fileName || '')
+        .replace('{CONTENU}', content.slice(0, MAX_CHARS));
+
+    // Le modèle par défaut vient de l'admin (contrat_analyse_apm_model) mais peut être choisi
+    // à la volée depuis le front (sélecteur de modèle, mode API Ville uniquement — même logique
+    // que le Transcript Manager, cf. GET /analyse-ia/models).
+    const raw = cfg.contrat_analyse_ai_source === 'apm'
+        ? await apmAi.queryAi(prompt, (requestedModel || '').trim() || cfg.contrat_analyse_apm_model || undefined)
+        : await callLocalAiProvider(prompt, cfg);
+
+    const rawText = String(raw || '').trim();
+    return { rawText, parsedJson: extractJsonFromAiResponse(rawText) };
+}
+
+/**
+ * Libellé du modèle local unique actuellement configuré (pas de choix en mode
+ * local, contrairement au mode API Ville — même logique que le Transcript Manager).
+ */
+async function describeLocalAiModel(cfg) {
+    const provider = cfg.ai_provider || 'groq';
+    const modelByProvider = {
+        groq: cfg.default_model || 'llama-3.3-70b-versatile',
+        gemini: 'gemini-1.5-flash',
+        openrouter: cfg.default_model || 'google/gemini-2.0-flash-001',
+        anthropic: cfg.anthropic_model || 'claude-3-5-sonnet-20240620',
+        ollama: 'llama3 (Ollama)',
+    };
+    const providerLabel = { groq: 'Groq', gemini: 'Gemini', openrouter: 'OpenRouter', anthropic: 'Anthropic', ollama: 'Ollama' }[provider] || provider;
+    return `${providerLabel} — ${modelByProvider[provider] || provider} (local AppDSI)`;
 }
 
 // Helpers
@@ -821,6 +881,35 @@ module.exports = {
         }
     },
 
+    // Analyse IA - Modèle(s) disponibles pour la source configurée (/admin/transcript,
+    // clé 'contrat_analyse_ai_source') : liste des modèles actifs de l'API Ville en mode
+    // 'apm' (le front laisse alors choisir, comme dans le Transcript Manager), ou une
+    // unique entrée décrivant le fournisseur local configuré (pas de choix) en mode 'local'.
+    async getContratAnalyseAiModels(req, res) {
+        try {
+            const sqlite = getSqlite();
+            const keys = ['contrat_analyse_ai_source', 'contrat_analyse_apm_model', 'ai_provider', 'anthropic_model', 'default_model'];
+            const cfg = {};
+            for (const k of keys) {
+                const row = await sqlite.get('SELECT setting_value FROM app_settings WHERE setting_key = ?', [k]);
+                cfg[k] = row && row.setting_value != null ? String(row.setting_value) : '';
+            }
+
+            if (cfg.contrat_analyse_ai_source !== 'apm') {
+                const label = await describeLocalAiModel(cfg);
+                return res.json({ models: [label], source: 'local' });
+            }
+
+            const allModels = await apmAi.listModels();
+            const llamaModels = allModels.filter(m => /llama/i.test(m));
+            const models = llamaModels.length > 0 ? llamaModels : allModels;
+            const defaultModel = cfg.contrat_analyse_apm_model || null;
+            res.json({ models, source: 'apm', defaultModel: defaultModel && models.includes(defaultModel) ? defaultModel : null });
+        } catch (error) {
+            res.status(502).json({ message: error.message });
+        }
+    },
+
     // Documents - Analyse IA du document courant, selon le prompt configuré en admin
     // (/admin/transcript, clé 'contrat_analyse_prompt'). Affichage en modale côté front ;
     // le résultat est aussi conservé sur le contrat (ai_analyse_json / ai_analyse_raw) pour
@@ -842,29 +931,8 @@ module.exports = {
                 return res.status(400).json({ message: "Aucun texte disponible pour ce document. S'il s'agit d'un scan, OCRisez-le d'abord." });
             }
 
-            const sqlite = getSqlite();
-            const keys = [
-                'contrat_analyse_prompt', 'contrat_analyse_ai_source', 'contrat_analyse_apm_model',
-                'ai_provider', 'groq_api_key', 'openrouter_api_key', 'anthropic_api_key', 'ollama_host', 'anthropic_model', 'default_model',
-            ];
-            const cfg = {};
-            for (const k of keys) {
-                const row = await sqlite.get('SELECT setting_value FROM app_settings WHERE setting_key = ?', [k]);
-                cfg[k] = row && row.setting_value != null ? String(row.setting_value) : '';
-            }
-
-            const MAX_CHARS = 24000; // cohérent avec la limite de contexte par défaut du Transcript Manager
-            const promptTemplate = cfg.contrat_analyse_prompt || DEFAULT_CONTRAT_ANALYSE_PROMPT;
-            const prompt = promptTemplate
-                .replace('{NOM_FICHIER}', doc.file_name || '')
-                .replace('{CONTENU}', content.slice(0, MAX_CHARS));
-
-            const raw = cfg.contrat_analyse_ai_source === 'apm'
-                ? await apmAi.queryAi(prompt, cfg.contrat_analyse_apm_model || undefined)
-                : await callLocalAiProvider(prompt, cfg);
-
-            const rawText = String(raw || '').trim();
-            const parsedJson = extractJsonFromAiResponse(rawText);
+            const requestedModel = typeof req.body?.model === 'string' ? req.body.model : '';
+            const { rawText, parsedJson } = await runContratAnalysePrompt({ fileName: doc.file_name, content, requestedModel });
 
             await db.run(
                 'UPDATE contrats SET ai_analyse_raw = ?, ai_analyse_json = ?, ai_analyse_document_id = ?, ai_analyse_at = CURRENT_TIMESTAMP WHERE id = ?',
@@ -872,6 +940,42 @@ module.exports = {
             );
 
             res.json({ raw: rawText, json: parsedJson, documentId: doc.id, documentName: doc.file_name });
+        } catch (error) {
+            const msg = error.response?.data?.error?.message || error.response?.data?.message || error.message || "Erreur lors de l'analyse IA";
+            res.status(500).json({ message: msg });
+        }
+    },
+
+    // Analyse IA "à la volée" — PDF uploadé directement (pas besoin d'être déjà attaché à un
+    // contrat), même prompt/modèle que l'analyse d'un document, OCR automatique si le PDF est
+    // un raster. Rien n'est conservé côté serveur (ni le fichier, ni le résultat).
+    async analyseAdHoc(req, res) {
+        try {
+            if (!req.file) return res.status(400).json({ message: 'Aucun fichier fourni' });
+            const fileName = req.file.originalname || 'document.pdf';
+            if (!/\.pdf$/i.test(fileName)) {
+                return res.status(400).json({ message: 'Seuls les fichiers PDF sont pris en charge.' });
+            }
+
+            const buffer = req.file.buffer;
+            const info = await ocrService.analyzePdf(buffer);
+            let content = (info.text || '').trim();
+            let ocrUsed = false;
+            if (info.isRaster || !content) {
+                const ocrResult = await ocrService.ocrPdfBuffer(buffer, { lang: 'fra' });
+                content = (ocrResult.text || '').trim();
+                ocrUsed = true;
+            }
+            if (!content) {
+                return res.status(400).json({ message: "Impossible d'extraire du texte de ce document." });
+            }
+
+            const requestedModel = typeof req.body?.model === 'string' ? req.body.model : '';
+            const { rawText, parsedJson } = await runContratAnalysePrompt({ fileName, content, requestedModel });
+
+            // Volontairement pas de db.run() ici : analyse ponctuelle, non liée à un contrat,
+            // rien n'est persisté (ni le fichier ni le résultat).
+            res.json({ raw: rawText, json: parsedJson, documentName: fileName, ocrUsed });
         } catch (error) {
             const msg = error.response?.data?.error?.message || error.response?.data?.message || error.message || "Erreur lors de l'analyse IA";
             res.status(500).json({ message: msg });
