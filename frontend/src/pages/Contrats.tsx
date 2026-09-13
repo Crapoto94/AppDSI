@@ -845,7 +845,11 @@ const Contrats: React.FC = () => {
   // Nombre de tokens reçus en temps réel pendant une analyse IA en cours (streaming côté
   // APM) — null tant qu'aucune progression n'est encore arrivée.
   const [analyseTokens, setAnalyseTokens] = useState<number | null>(null);
-  const [analyseResult, setAnalyseResult] = useState<{ raw: string; json: any; documentName?: string; persisted?: boolean; contratId?: number; saved?: boolean } | null>(null);
+  // `streaming` : true tant que la génération n'est pas terminée — le texte de `raw` grandit
+  // au fil de l'eau (progression en temps réel via l'APM), affiché tel quel dans la modale au
+  // lieu d'attendre la fin. `json` reste null pendant ce temps (l'objet JSON n'est exploitable
+  // qu'une fois la réponse complète).
+  const [analyseResult, setAnalyseResult] = useState<{ raw: string; json: any; documentName?: string; persisted?: boolean; contratId?: number; saved?: boolean; streaming?: boolean } | null>(null);
   const [savingAnalyseDoc, setSavingAnalyseDoc] = useState(false);
   const [analyseError, setAnalyseError] = useState('');
   // Texte brut reconnu par l'OCR — affiché à la demande (bouton "Afficher OCR"), pour
@@ -1471,6 +1475,9 @@ const Contrats: React.FC = () => {
     setAnalyseRunning(true);
     setAnalyseError('');
     setAnalyseTokens(null);
+    // Ouvre la modale tout de suite, en mode "streaming" : le texte s'affiche au fil de l'eau
+    // (mis à jour à chaque poll) au lieu d'attendre la fin de la génération.
+    setAnalyseResult({ raw: '', json: null, documentName: cleanFileName(activeDocCtx.fileName), persisted: true, contratId: activeDocCtx.contratId, streaming: true });
     try {
       const res = await fetch(`/api/contrats/${activeDocCtx.contratId}/documents/${activeDocCtx.docId}/analyse-ia`, {
         method: 'POST',
@@ -1479,13 +1486,16 @@ const Contrats: React.FC = () => {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data?.message || "Erreur lors de l'analyse IA");
-      const result = await pollContratJob(data.jobId, undefined, job => setAnalyseTokens(job.tokensReceived ?? null));
-      setAnalyseResult({ raw: result.raw, json: result.json, documentName: cleanFileName(result.documentName), persisted: true, contratId: activeDocCtx.contratId });
+      const result = await pollContratJob(data.jobId, undefined, job => {
+        setAnalyseTokens(job.tokensReceived ?? null);
+        if (job.partialText) setAnalyseResult(r => (r && r.streaming) ? { ...r, raw: job.partialText } : r);
+      });
+      setAnalyseResult({ raw: result.raw, json: result.json, documentName: cleanFileName(result.documentName), persisted: true, contratId: activeDocCtx.contratId, streaming: false });
       // Rafraîchit la liste pour faire apparaître le badge "Analyse IA disponible" sans recharger la page.
       fetchContrats();
     } catch (e: any) {
       setAnalyseError(e?.message || "Erreur lors de l'analyse IA");
-      setAnalyseResult({ raw: '', json: null });
+      setAnalyseResult({ raw: '', json: null, streaming: false });
     } finally {
       setAnalyseRunning(false);
     }
@@ -1549,6 +1559,9 @@ const Contrats: React.FC = () => {
     setAdHocAnalysing(true);
     setAnalyseError('');
     setAnalyseTokens(null);
+    // Ouvre la modale tout de suite, en mode "streaming" : le texte s'affiche au fil de l'eau
+    // (mis à jour à chaque poll) au lieu d'attendre la fin de la génération.
+    setAnalyseResult({ raw: '', json: null, documentName: cleanFileName(file.name), persisted: false, streaming: true });
     try {
       const fd = new FormData();
       fd.append('file', file);
@@ -1556,11 +1569,14 @@ const Contrats: React.FC = () => {
       const res = await fetch('/api/contrats/analyse-ia/ad-hoc', { method: 'POST', headers: authHeaders(), body: fd });
       const data = await res.json();
       if (!res.ok) throw new Error(data?.message || "Erreur lors de l'analyse IA");
-      const result = await pollContratJob(data.jobId, undefined, job => setAnalyseTokens(job.tokensReceived ?? null));
-      setAnalyseResult({ raw: result.raw, json: result.json, documentName: cleanFileName(result.documentName), persisted: false });
+      const result = await pollContratJob(data.jobId, undefined, job => {
+        setAnalyseTokens(job.tokensReceived ?? null);
+        if (job.partialText) setAnalyseResult(r => (r && r.streaming) ? { ...r, raw: job.partialText } : r);
+      });
+      setAnalyseResult({ raw: result.raw, json: result.json, documentName: cleanFileName(result.documentName), persisted: false, streaming: false });
     } catch (e: any) {
       setAnalyseError(e?.message || "Erreur lors de l'analyse IA");
-      setAnalyseResult({ raw: '', json: null, persisted: false });
+      setAnalyseResult({ raw: '', json: null, persisted: false, streaming: false });
     } finally {
       setAdHocAnalysing(false);
     }
@@ -3630,9 +3646,9 @@ const Contrats: React.FC = () => {
             {analyseResult.contratId != null && (
               <button
                 onClick={handleSaveAnalyseAsDocument}
-                disabled={savingAnalyseDoc || analyseResult.saved || (!analyseResult.json && !analyseResult.raw)}
+                disabled={savingAnalyseDoc || analyseResult.saved || analyseResult.streaming || (!analyseResult.json && !analyseResult.raw)}
                 title="Ajoute ce résultat (Markdown) aux documents du contrat."
-                style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 10px', borderRadius: 4, border: '1px solid #16a34a', background: analyseResult.saved ? '#f0fdf4' : '#fff', color: '#15803d', cursor: (savingAnalyseDoc || analyseResult.saved) ? 'default' : 'pointer', fontSize: 11, fontWeight: 600 }}
+                style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 10px', borderRadius: 4, border: '1px solid #16a34a', background: analyseResult.saved ? '#f0fdf4' : '#fff', color: '#15803d', cursor: (savingAnalyseDoc || analyseResult.saved) ? 'default' : 'pointer', fontSize: 11, fontWeight: 600, opacity: analyseResult.streaming ? 0.5 : 1 }}
               >
                 {savingAnalyseDoc ? <Loader2 size={13} className="animate-spin" /> : <Paperclip size={13} />}
                 {savingAnalyseDoc ? 'Enregistrement…' : analyseResult.saved ? 'Enregistrée dans les documents' : "Enregistrer l'analyse"}
@@ -3640,9 +3656,9 @@ const Contrats: React.FC = () => {
             )}
             <button
               onClick={() => downloadAnalyseMarkdown(analyseResult)}
-              disabled={!analyseResult.json && !analyseResult.raw}
+              disabled={analyseResult.streaming || (!analyseResult.json && !analyseResult.raw)}
               title="Télécharger ce résultat au format Markdown (.md)"
-              style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 10px', borderRadius: 4, border: '1px solid #6366f1', background: '#fff', color: '#4338ca', cursor: 'pointer', fontSize: 11, fontWeight: 600 }}
+              style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 10px', borderRadius: 4, border: '1px solid #6366f1', background: '#fff', color: '#4338ca', cursor: 'pointer', fontSize: 11, fontWeight: 600, opacity: analyseResult.streaming ? 0.5 : 1 }}
             >
               <Download size={13} /> Enregistrer (.md)
             </button>
@@ -3651,6 +3667,13 @@ const Contrats: React.FC = () => {
             {analyseError && (
               <div style={{ background: '#fef2f2', border: '1px solid #fca5a5', color: '#991b1b', borderRadius: 6, padding: '10px 12px', fontSize: 12, marginBottom: 14 }}>
                 {analyseError}
+              </div>
+            )}
+
+            {analyseResult.streaming && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: '#4338ca', marginBottom: 12 }}>
+                <Loader2 size={13} className="animate-spin" />
+                Génération en cours{analyseTokens ? ` (${analyseTokens} tokens reçus)` : '…'}
               </div>
             )}
 
@@ -3699,17 +3722,23 @@ const Contrats: React.FC = () => {
               </div>
             )}
 
-            {!analyseResult.json && analyseResult.raw && (
+            {!analyseResult.json && (analyseResult.raw || analyseResult.streaming) && (
               <div>
-                <p style={{ margin: '0 0 8px', fontSize: 12, fontWeight: 700, color: '#374151' }}>Réponse de l'IA (non structurée)</p>
-                <div className="contrat-ai-md" style={{ background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: 6, padding: '12px 14px' }}>
-                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{analyseResult.raw}</ReactMarkdown>
+                <p style={{ margin: '0 0 8px', fontSize: 12, fontWeight: 700, color: '#374151' }}>
+                  {analyseResult.streaming ? "Réponse de l'IA (en cours de génération…)" : "Réponse de l'IA (non structurée)"}
+                </p>
+                <div className="contrat-ai-md" style={{ background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: 6, padding: '12px 14px', minHeight: analyseResult.streaming ? 60 : undefined }}>
+                  {analyseResult.raw
+                    ? <ReactMarkdown remarkPlugins={[remarkGfm]}>{analyseResult.raw}</ReactMarkdown>
+                    : <span style={{ color: '#9ca3af' }}>En attente des premiers tokens…</span>}
                 </div>
-                <div style={{ marginTop: 12, background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 6, padding: '8px 10px', fontSize: 11, color: '#1d4ed8' }}>
-                  {analyseResult.persisted
-                    ? "Cette analyse est conservée sur le contrat (non appliquée automatiquement pour l'instant)."
-                    : "Analyse ponctuelle : rien n'est conservé côté serveur (ni le fichier, ni ce résultat)."}
-                </div>
+                {!analyseResult.streaming && (
+                  <div style={{ marginTop: 12, background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 6, padding: '8px 10px', fontSize: 11, color: '#1d4ed8' }}>
+                    {analyseResult.persisted
+                      ? "Cette analyse est conservée sur le contrat (non appliquée automatiquement pour l'instant)."
+                      : "Analyse ponctuelle : rien n'est conservé côté serveur (ni le fichier, ni ce résultat)."}
+                  </div>
+                )}
               </div>
             )}
           </div>

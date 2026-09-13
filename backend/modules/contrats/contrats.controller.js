@@ -179,6 +179,10 @@ async function queryApmWithProgress(prompt, model, job) {
         if (job) {
             job.tokensReceived = progress.tokensReceived || 0;
             job.charsReceived = progress.charsReceived || 0;
+            // Texte partiel de la réponse IA, mis à jour en direct pendant la génération
+            // (status='running') — permet au front d'afficher le résultat au fil de l'eau
+            // plutôt qu'attendre la fin (cf. GET /jobs/:jobId, déjà pollé par le front).
+            if (progress.status === 'running' && progress.response) job.partialText = progress.response;
             job.aiProvider = progress.provider_label || null;
             job.aiModel = progress.model || null;
         }
