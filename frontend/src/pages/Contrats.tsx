@@ -666,7 +666,7 @@ const Contrats: React.FC = () => {
   // le Transcript Manager) : le défaut vient de l'admin, l'utilisateur peut le changer pour
   // cette analyse ponctuelle sans toucher au réglage admin.
   const [contratAiModels, setContratAiModels] = useState<string[]>([]);
-  const [contratAiSource, setContratAiSource] = useState<'apm' | 'local'>('local');
+  const [contratAiSource, setContratAiSource] = useState<'apm' | 'local'>('apm');
   const [contratSelectedModel, setContratSelectedModel] = useState('');
   const [contratModelsError, setContratModelsError] = useState('');
   const [linkedContracts, setLinkedContracts] = useState<{ previous: Contrat | null; renewals: Contrat[] } | null>(null);

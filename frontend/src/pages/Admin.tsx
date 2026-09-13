@@ -130,7 +130,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
     ticket_reformulate_apm_model: '',
     summary_notice_text: '',
     contrat_analyse_prompt: '',
-    contrat_analyse_ai_source: 'local',
+    contrat_analyse_ai_source: 'apm',
     contrat_analyse_apm_model: ''
   });
   const [apmModelsList, setApmModelsList] = useState<string[]>([]);
@@ -585,7 +585,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
           ticket_reformulate_apm_model: data.ticket_reformulate_apm_model || '',
           summary_notice_text: data.summary_notice_text || '',
           contrat_analyse_prompt: data.contrat_analyse_prompt || '',
-          contrat_analyse_ai_source: data.contrat_analyse_ai_source === 'apm' ? 'apm' : 'local',
+          contrat_analyse_ai_source: data.contrat_analyse_ai_source === 'local' ? 'local' : 'apm',
           contrat_analyse_apm_model: data.contrat_analyse_apm_model || ''
         });
       }

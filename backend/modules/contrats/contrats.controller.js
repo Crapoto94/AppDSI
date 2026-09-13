@@ -123,8 +123,10 @@ async function runContratAnalysePrompt({ fileName, content, requestedModel }) {
 
     // Le modèle par défaut vient de l'admin (contrat_analyse_apm_model) mais peut être choisi
     // à la volée depuis le front (sélecteur de modèle, mode API Ville uniquement — même logique
-    // que le Transcript Manager, cf. GET /analyse-ia/models).
-    const raw = cfg.contrat_analyse_ai_source === 'apm'
+    // que le Transcript Manager, cf. GET /analyse-ia/models). Comme pour ai_summary_source côté
+    // Transcript Manager, seul 'local' est un opt-out explicite : tout le reste (y compris
+    // absent/vide — réglage jamais enregistré) utilise l'API Ville par défaut.
+    const raw = cfg.contrat_analyse_ai_source !== 'local'
         ? await apmAi.queryAi(prompt, (requestedModel || '').trim() || cfg.contrat_analyse_apm_model || undefined)
         : await callLocalAiProvider(prompt, cfg);
 
@@ -895,7 +897,9 @@ module.exports = {
                 cfg[k] = row && row.setting_value != null ? String(row.setting_value) : '';
             }
 
-            if (cfg.contrat_analyse_ai_source !== 'apm') {
+            // Comme ai_summary_source côté Transcript Manager : seul 'local' est un opt-out
+            // explicite, tout le reste (y compris un réglage jamais enregistré) utilise l'API Ville.
+            if (cfg.contrat_analyse_ai_source === 'local') {
                 const label = await describeLocalAiModel(cfg);
                 return res.json({ models: [label], source: 'local' });
             }
