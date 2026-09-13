@@ -137,14 +137,18 @@ async function runContratAnalysePrompt({ fileName, content, requestedModel, job 
 
     const MAX_CHARS = 24000; // cohérent avec la limite de contexte par défaut du Transcript Manager
     const promptTemplate = cfg.contrat_analyse_prompt || DEFAULT_CONTRAT_ANALYSE_PROMPT;
-    // Remplaçant sous forme de fonction (pas une simple chaîne) : String.replace() interprète
-    // des séquences spéciales ($&, $`, $', $$...) DANS le texte de remplacement, même pour une
-    // recherche de chaîne simple. Un texte OCRisé/extrait contenant un "$" (référence, montant,
-    // garbure OCR...) peut alors tronquer ou dupliquer des morceaux du prompt envoyé à l'IA —
-    // une fonction de remplacement insère la valeur littéralement, sans cette interprétation.
+    // replaceAll (pas replace) : un prompt personnalisé qui référence {CONTENU} plusieurs fois
+    // (fréquent dans un prompt long et détaillé — ex. rappelé avant chaque section d'analyse)
+    // ne verrait sinon que la PREMIÈRE occurrence remplacée ; les suivantes resteraient
+    // littéralement "{CONTENU}" dans le prompt envoyé à l'IA, qui peut alors répondre qu'elle
+    // n'a reçu aucun texte à analyser (observé en pratique avec un prompt admin personnalisé).
+    // Remplaçant sous forme de fonction (pas une simple chaîne) : String.replace[All]() interprète
+    // aussi des séquences spéciales ($&, $`, $', $$...) DANS le texte de remplacement, même pour
+    // une recherche de chaîne simple — un texte OCRisé/extrait contenant un "$" (référence,
+    // montant, garbure OCR...) pourrait sinon tronquer/dupliquer des morceaux du prompt.
     const prompt = promptTemplate
-        .replace('{NOM_FICHIER}', () => fileName || '')
-        .replace('{CONTENU}', () => content.slice(0, MAX_CHARS));
+        .replaceAll('{NOM_FICHIER}', () => fileName || '')
+        .replaceAll('{CONTENU}', () => content.slice(0, MAX_CHARS));
 
     // Le modèle par défaut vient de l'admin (contrat_analyse_apm_model) mais peut être choisi
     // à la volée depuis le front (sélecteur de modèle, mode API Ville uniquement — même logique

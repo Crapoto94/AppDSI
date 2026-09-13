@@ -1186,11 +1186,13 @@ async assign(req, res) {
             }
 
             const defaultPrompt = 'Reformule ce commentaire de manière professionnelle et claire, en conservant le sens exact. Réponds uniquement avec le texte reformulé, sans introduction ni commentaire.\n\nTexte original:\n{{text}}';
-            // Remplaçant sous forme de fonction (pas une simple chaîne) : String.replace()
-            // interprète des séquences spéciales ($&, $`, $', $$...) DANS le texte de
-            // remplacement, même pour une recherche de chaîne simple — un commentaire contenant
-            // un "$" pourrait tronquer/dupliquer des morceaux du prompt envoyé à l'IA.
-            const prompt = (cfg.ai_reformulate_prompt || defaultPrompt).replace('{{text}}', () => text);
+            // replaceAll (pas replace) : un prompt personnalisé référençant {{text}} plusieurs
+            // fois ne verrait sinon que la première occurrence remplacée. Remplaçant sous forme
+            // de fonction (pas une simple chaîne) : String.replace[All]() interprète aussi des
+            // séquences spéciales ($&, $`, $', $$...) DANS le texte de remplacement, même pour
+            // une recherche de chaîne simple — un commentaire contenant un "$" pourrait
+            // tronquer/dupliquer des morceaux du prompt envoyé à l'IA.
+            const prompt = (cfg.ai_reformulate_prompt || defaultPrompt).replaceAll('{{text}}', () => text);
 
             // Source IA indépendante de celle du Transcript Manager (ai_summary_source) —
             // chaque fonctionnalité choisit son propre fournisseur et, en mode API Ville,
