@@ -264,6 +264,44 @@ const ModalHeader: React.FC<{ title: string; onClose: () => void }> = ({ title, 
   </div>
 );
 
+// ── Rendu générique d'un résultat d'analyse IA en JSON ─────────────────────────────────
+// Le prompt d'analyse de contrats est personnalisable en admin (/admin/transcript) : un
+// prompt sur mesure (ex. "en 3 parties", avec un avis sécurité, des notes...) peut renvoyer
+// des clés différentes de celles du prompt par défaut. On affiche donc TOUJOURS les champs
+// "connus" du contrat avec des libellés soignés, PUIS tout le reste du JSON de façon
+// générique (récursif) — pour ne jamais faire disparaître silencieusement une partie de
+// la réponse de l'IA sous prétexte qu'elle n'est pas dans la liste des champs attendus.
+const humanizeJsonKey = (key: string): string =>
+  key.replace(/_/g, ' ').replace(/^./, c => c.toUpperCase());
+
+const RenderJsonValue: React.FC<{ value: any }> = ({ value }) => {
+  if (value === null || value === undefined || value === '') return <span style={{ color: '#9ca3af' }}>—</span>;
+  if (Array.isArray(value)) {
+    return (
+      <ul style={{ margin: '2px 0', paddingLeft: 18 }}>
+        {value.map((item, i) => (
+          <li key={i} style={{ marginBottom: 4 }}>
+            {(typeof item === 'object' && item !== null) ? <RenderJsonValue value={item} /> : String(item)}
+          </li>
+        ))}
+      </ul>
+    );
+  }
+  if (typeof value === 'object') {
+    return (
+      <div style={{ display: 'grid', gridTemplateColumns: '150px 1fr', gap: '4px 8px', marginTop: 2 }}>
+        {Object.entries(value).map(([k, v]) => (
+          <React.Fragment key={k}>
+            <div style={{ color: '#6b7280', fontWeight: 500 }}>{humanizeJsonKey(k)}</div>
+            <div style={{ color: '#1f2937' }}><RenderJsonValue value={v} /></div>
+          </React.Fragment>
+        ))}
+      </div>
+    );
+  }
+  return <span style={{ whiteSpace: 'pre-wrap' }}>{String(value)}</span>;
+};
+
 // ── OCR (PDF raster -> texte) + Analyse IA d'un document — utilisé à la fois dans la vue de
 // documents avec navigation (docViewModal) et dans la simple prévisualisation "à la volée"
 // (pdfModal), sur le document actuellement actif (cf. activeDocCtx dans le composant parent).
@@ -3296,6 +3334,22 @@ const Contrats: React.FC = () => {
                     <p style={{ margin: 0, fontSize: 12, color: '#374151', lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{analyseResult.json.resume}</p>
                   </div>
                 )}
+                {(() => {
+                  const KNOWN_KEYS = new Set(['fournisseur', 'date_debut', 'duree_annees', 'nb_reconductions', 'reconduction', 'date_fin', 'montant_2022', 'gti', 'gtr', 'indice_revision', 'resume']);
+                  const extraEntries = Object.entries(analyseResult.json).filter(([k]) => !KNOWN_KEYS.has(k));
+                  if (extraEntries.length === 0) return null;
+                  return (
+                    <div style={{ marginTop: 12 }}>
+                      <p style={{ margin: '0 0 8px', fontSize: 12, fontWeight: 700, color: '#374151' }}>Autres éléments du prompt</p>
+                      {extraEntries.map(([k, v]) => (
+                        <div key={k} style={{ marginBottom: 10, fontSize: 12 }}>
+                          <p style={{ margin: '0 0 3px', fontWeight: 600, color: '#4338ca' }}>{humanizeJsonKey(k)}</p>
+                          <RenderJsonValue value={v} />
+                        </div>
+                      ))}
+                    </div>
+                  );
+                })()}
                 <div style={{ marginTop: 12, background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 6, padding: '8px 10px', fontSize: 11, color: '#1d4ed8' }}>
                   {analyseResult.persisted
                     ? "Cette analyse est conservée sur le contrat (non appliquée automatiquement pour l'instant) — elle pourra servir plus tard à préremplir ces champs."

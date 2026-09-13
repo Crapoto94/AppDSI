@@ -3123,13 +3123,13 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                         Utilisé par le bouton "Analyser avec l'IA" dans la vue de documents d'un contrat. Utilisez{' '}
                         <code style={{ background: '#ede9fe', padding: '1px 4px', borderRadius: '3px' }}>{'{NOM_FICHIER}'}</code> pour le nom du fichier et{' '}
                         <code style={{ background: '#ede9fe', padding: '1px 4px', borderRadius: '3px' }}>{'{CONTENU}'}</code> pour le texte du document (natif ou OCRisé).
-                        Laissez vide pour le prompt par défaut, qui demande une réponse JSON structurée (fournisseur, dates, montant, GTI/GTR, résumé…) afin de préparer une future mise à jour automatique des champs du contrat.
+                        Laissez vide pour le prompt par défaut, structuré en 3 parties (données d'identification, résumé, avis) afin de préparer une future mise à jour automatique des champs du contrat. N'importe quel champ supplémentaire renvoyé par un prompt personnalisé s'affiche aussi dans la modale de résultat (rien n'est ignoré silencieusement).
                       </p>
                       <textarea
                         className="admin-input"
                         rows={16}
                         style={{ fontFamily: 'monospace', fontSize: '0.8rem', resize: 'vertical', lineHeight: 1.5 }}
-                        placeholder={`Analyse le contenu du contrat ci-dessous et réponds en JSON avec : fournisseur, date_debut, duree_annees, nb_reconductions, reconduction, date_fin, montant_2022, gti, gtr, indice_revision, resume.\n\nContenu du contrat ({NOM_FICHIER}) :\n{CONTENU}`}
+                        placeholder={`Analyse le contenu du contrat ci-dessous et réponds en JSON avec :\n- fournisseur, date_debut, duree_annees, nb_reconductions, reconduction, date_fin, montant_2022, gti, gtr, indice_revision\n- resume (texte libre)\n- avis : { points_de_vigilance: [...], recommandations: [...], notes: "..." }\n\nContenu du contrat ({NOM_FICHIER}) :\n{CONTENU}`}
                         value={transcriptConfig.contrat_analyse_prompt}
                         onChange={e => setTranscriptConfig({ ...transcriptConfig, contrat_analyse_prompt: e.target.value })}
                         spellCheck={false}

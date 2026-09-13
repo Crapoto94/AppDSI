@@ -15,7 +15,7 @@ const MODULE = 'contrats';
 // de l'analyse (cf. ai_analyse_json sur hub_contrats.contrats).
 const DEFAULT_CONTRAT_ANALYSE_PROMPT = `Tu es un assistant spécialisé dans l'analyse de contrats pour une Direction des Systèmes d'Information (DSI) municipale.
 
-Analyse le contenu du contrat ci-dessous et réponds UNIQUEMENT avec un objet JSON valide (sans texte autour, sans balises markdown), avec exactement ces champs (laisse la valeur à null si l'information n'apparaît pas dans le texte) :
+Analyse le contenu du contrat ci-dessous et réponds UNIQUEMENT avec un objet JSON valide (sans texte autour, sans balises markdown), structuré en 3 parties : les données d'identification, un résumé, et ton avis. Utilise exactement ces champs (laisse la valeur à null si l'information n'apparaît pas dans le texte) :
 {
   "fournisseur": "nom du prestataire / fournisseur",
   "date_debut": "date de début au format YYYY-MM-DD",
@@ -27,7 +27,12 @@ Analyse le contenu du contrat ci-dessous et réponds UNIQUEMENT avec un objet JS
   "gti": "garantie de temps d'intervention, si mentionnée (ex: 4h)",
   "gtr": "garantie de temps de rétablissement, si mentionnée (ex: 8h)",
   "indice_revision": "indice de révision de prix, si mentionné (ex: ICHT-TS)",
-  "resume": "résumé libre en 3 à 5 phrases des points clés (objet, obligations, pénalités, conditions de résiliation)"
+  "resume": "résumé libre en 3 à 5 phrases des points clés (objet, obligations, pénalités, conditions de résiliation)",
+  "avis": {
+    "points_de_vigilance": ["clauses ou points nécessitant une attention particulière : pénalités, résiliation, exclusivité, propriété intellectuelle, reconduction tacite, clauses inhabituelles..."],
+    "recommandations": ["actions ou vérifications suggérées avant signature ou renouvellement"],
+    "notes": "remarques libres : incohérences, informations manquantes ou ambiguës dans le texte du contrat"
+  }
 }
 
 Contenu du contrat ({NOM_FICHIER}) :
