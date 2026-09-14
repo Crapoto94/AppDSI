@@ -250,6 +250,42 @@ function aiErrorMessage(error) {
 }
 
 /**
+ * Extrait un score global (0-100) d'une analyse IA — colonne dédiée ai_analyse_score,
+ * indépendante de ai_analyse_json. Un prompt personnalisé peut répondre en Markdown
+ * structuré plutôt qu'en JSON (constaté en pratique : rapport avec tableaux, sections
+ * "===...==="), auquel cas parsedJson est null mais un score reste extractible par
+ * heuristique dans le texte brut. Gère aussi le cas où parsedJson.score_global n'est pas
+ * un nombre JS strict (chaîne, "85/100"...).
+ *
+ * Échelle : le JSON de notre propre prompt par défaut est explicitement 0-100 (pas de
+ * rescale). Le texte Markdown libre suit en revanche la convention /5 observée dans les
+ * rapports de cette collectivité ("Risque juridique : 4/5", "Score global | 2,5 |") —
+ * rescale ×20 vers /100 sauf dénominateur explicite (".../100") capturé dans le texte.
+ */
+function extractAnalyseScore(rawText, parsedJson) {
+    if (parsedJson && parsedJson.score_global != null) {
+        const raw = parsedJson.score_global;
+        const match = typeof raw === 'number' ? null : String(raw).match(/-?\d+(?:[.,]\d+)?/);
+        const num = typeof raw === 'number' ? raw : (match ? parseFloat(match[0].replace(',', '.')) : NaN);
+        if (isFinite(num)) return Math.max(0, Math.min(100, Math.round(num)));
+    }
+    if (rawText) {
+        const m = rawText.match(/score\s+global[^0-9\n]{0,25}?(\d+(?:[.,]\d+)?)(?:\s*\/\s*(\d+))?/i);
+        // Rejette un "match" dont le nombre capturé fait en fait partie d'un placeholder de
+        // template non rempli par l'IA (ex. "**Score global** | **[X/5]**" — vu en pratique
+        // sur une réponse tronquée/dégradée : le "5" de "[X/5]" serait sinon lu comme la note).
+        if (m && !/\[[^\]\d]*\d/.test(m[0])) {
+            const value = parseFloat(m[1].replace(',', '.'));
+            const scaleMax = m[2] ? parseInt(m[2], 10) : 5; // convention /5 sans dénominateur explicite
+            if (isFinite(value) && scaleMax > 0) {
+                return Math.max(0, Math.min(100, Math.round((value / scaleMax) * 100)));
+            }
+        }
+    }
+    return null;
+}
+
+/**
  * Exécute l'analyse IA d'un document déjà attaché à un contrat, en arrière-plan (appelée par
  * analyseDocumentAi, qui répond immédiatement avec un jobId). Même logique que
  * runContratAnalysePrompt, avec persistance du résultat sur le contrat en cas de succès.
@@ -267,10 +303,11 @@ async function runAnalyseDocumentJob(doc, contratId, requestedModel, db, job) {
         }
 
         const { rawText, parsedJson } = await runContratAnalysePrompt({ fileName: doc.file_name, content, requestedModel, job });
+        const score = extractAnalyseScore(rawText, parsedJson);
 
         await db.run(
-            'UPDATE contrats SET ai_analyse_raw = ?, ai_analyse_json = ?, ai_analyse_document_id = ?, ai_analyse_at = CURRENT_TIMESTAMP WHERE id = ?',
-            [rawText, parsedJson ? JSON.stringify(parsedJson) : null, doc.id, contratId]
+            'UPDATE contrats SET ai_analyse_raw = ?, ai_analyse_json = ?, ai_analyse_score = ?, ai_analyse_document_id = ?, ai_analyse_at = CURRENT_TIMESTAMP WHERE id = ?',
+            [rawText, parsedJson ? JSON.stringify(parsedJson) : null, score, doc.id, contratId]
         );
 
         job.status = 'completed';
@@ -386,6 +423,8 @@ module.exports = {
     _internal: {
         runContratAnalysePrompt,
         readDocumentBuffer,
+        runOcrJob,
+        extractAnalyseScore,
         DEFAULT_CONTRAT_ANALYSE_PROMPT,
     },
 

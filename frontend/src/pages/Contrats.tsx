@@ -79,6 +79,7 @@ interface Contrat {
   liaisons?: ContratLiaison[];
   ai_analyse_raw?: string | null;
   ai_analyse_json?: any;
+  ai_analyse_score?: number | null;
   ai_analyse_at?: string | null;
   ai_analyse_document_id?: number | null;
 }
@@ -801,6 +802,13 @@ const parseScoreGlobal = (json: any): number | null => {
   return isFinite(n) ? Math.round(n) : null;
 };
 
+// Score affiché en liste : la colonne dédiée ai_analyse_score (calculée côté serveur —
+// fonctionne même quand le prompt répond en Markdown libre plutôt qu'en JSON, cf.
+// extractAnalyseScore côté contrôleur) prime ; parseScoreGlobal(ai_analyse_json) reste un
+// filet de secours pour d'anciennes analyses antérieures à cette colonne.
+const getContratScore = (c: Contrat): number | null =>
+  (typeof c.ai_analyse_score === 'number' ? c.ai_analyse_score : null) ?? parseScoreGlobal(c.ai_analyse_json);
+
 const Contrats: React.FC = () => {
   const [contrats, setContrats] = useState<Contrat[]>([]);
   const [loading, setLoading] = useState(true);
@@ -1092,8 +1100,8 @@ const Contrats: React.FC = () => {
       return sortDir === 'asc' ? av - bv : bv - av;
     }
     if (sortKey === 'ai_analyse_json') {
-      const av = parseScoreGlobal(a.ai_analyse_json) ?? -Infinity;
-      const bv = parseScoreGlobal(b.ai_analyse_json) ?? -Infinity;
+      const av = getContratScore(a) ?? -Infinity;
+      const bv = getContratScore(b) ?? -Infinity;
       return sortDir === 'asc' ? av - bv : bv - av;
     }
     let av: string | number = (a[sortKey] ?? '') as string | number;
@@ -2158,10 +2166,9 @@ const Contrats: React.FC = () => {
         );
       }
       case 'ai_analyse_json': {
-        // Score global renvoyé par l'IA (champ standardisé "score_global", 0-100 — cf. prompt
-        // par défaut et aide admin). Un prompt personnalisé qui ne l'expose pas laisse la
-        // colonne à "—" (badge cliquable pour ouvrir l'analyse si elle existe malgré tout).
-        const score = parseScoreGlobal(c.ai_analyse_json);
+        // Score global (0-100) calculé côté serveur, JSON structuré ou rapport Markdown
+        // libre (cf. extractAnalyseScore) — badge cliquable pour ouvrir l'analyse.
+        const score = getContratScore(c);
         if (!c.ai_analyse_at) return <span style={{ color: '#9ca3af' }}>—</span>;
         const color = score == null ? { bg: '#f3f4f6', fg: '#6b7280' }
           : score >= 70 ? { bg: '#dcfce7', fg: '#15803d' }

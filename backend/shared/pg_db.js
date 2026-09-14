@@ -2951,6 +2951,18 @@ async function setupPgDb() {
       console.log('[PG DB] Migration contrats.ai_analyse columns:', e.message);
     }
 
+    // Score global (0-100), colonne dédiée séparée de ai_analyse_json : un prompt
+    // personnalisé peut répondre en Markdown structuré plutôt qu'en JSON (constaté en
+    // pratique), auquel cas ai_analyse_json reste NULL mais un score peut quand même être
+    // extrait du texte brut par heuristique (cf. extractAnalyseScore côté contrôleur) —
+    // alimente la colonne "Score IA" de la liste des contrats indépendamment du format
+    // de réponse de l'IA.
+    try {
+      await client.query(`ALTER TABLE hub_contrats.contrats ADD COLUMN IF NOT EXISTS ai_analyse_score INTEGER`);
+    } catch (e) {
+      console.log('[PG DB] Migration contrats.ai_analyse_score column:', e.message);
+    }
+
     // Migration: indicateur de phase de renouvellement + dates vérifiées
     try {
       await client.query(`
