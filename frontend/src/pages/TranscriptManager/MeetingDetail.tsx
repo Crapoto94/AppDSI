@@ -1697,7 +1697,7 @@ const MeetingDetail: React.FC = () => {
 
             {isEditingAmend && (
                 <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1150 }}>
-                    <div style={{ background: 'white', borderRadius: 16, width: '90%', maxWidth: 720, maxHeight: '85vh', display: 'flex', flexDirection: 'column', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.15)', overflow: 'hidden' }}>
+                    <div style={{ background: 'white', borderRadius: 16, width: '94%', maxWidth: 1100, height: '90vh', maxHeight: '90vh', display: 'flex', flexDirection: 'column', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.15)', overflow: 'hidden' }}>
                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '1.25rem 1.5rem 0.5rem' }}>
                             <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 8 }}>
                                 ✏️ Amender le compte rendu
@@ -1707,15 +1707,15 @@ const MeetingDetail: React.FC = () => {
                             </h3>
                             <button onClick={() => setIsEditingAmend(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#64748B' }}><X size={18} /></button>
                         </div>
-                        <div style={{ padding: '0.5rem 1.5rem', overflowY: 'auto', flex: 1 }}>
-                            <div style={{ border: `1.5px solid ${amendAccess.color || '#E2E8F0'}`, borderRadius: 8, overflow: 'hidden', background: '#fff' }}>
+                        <div style={{ padding: '0.5rem 1.5rem', overflowY: 'auto', flex: 1, display: 'flex', flexDirection: 'column' }}>
+                            <div className="amend-quill-wrap" style={{ border: `1.5px solid ${amendAccess.color || '#E2E8F0'}`, borderRadius: 8, overflow: 'hidden', background: '#fff', flex: 1, display: 'flex', flexDirection: 'column' }}>
                                 <ReactQuill
                                     ref={amendQuillRef}
                                     value={amendEditorHtml}
                                     onChange={setAmendEditorHtml}
                                     modules={AMEND_QUILL_MODULES}
                                     placeholder="Corrigez ou complétez le compte rendu..."
-                                    style={{ fontFamily: 'inherit', fontSize: '0.9rem' }}
+                                    style={{ fontFamily: 'inherit', fontSize: '0.9rem', display: 'flex', flexDirection: 'column', flex: 1 }}
                                 />
                             </div>
                             <div style={{ fontSize: '0.75rem', color: '#64748B', marginTop: '0.5rem' }}>
@@ -2067,6 +2067,11 @@ const MeetingDetail: React.FC = () => {
                 .ql-editor h1, .ql-editor h2, .ql-editor h3 { margin: 1.5rem 0 0.6rem; }
                 .ql-editor h1:first-child, .ql-editor h2:first-child, .ql-editor h3:first-child { margin-top: 0; }
                 .ql-editor li { margin-bottom: 0.3rem; }
+                /* Modale d'amendement : la zone d'édition doit occuper tout
+                   l'espace disponible dans la modale, pas seulement une
+                   petite zone par défaut. */
+                .amend-quill-wrap .ql-container { flex: 1; display: flex; flex-direction: column; }
+                .amend-quill-wrap .ql-editor { flex: 1; min-height: 0; }
                 .stream-box { white-space: pre-wrap; color: #1D4ED8; font-weight: 500; }
                 .md-formatted h1, .md-formatted h2, .md-formatted h3 {
                     color: #111827; font-weight: 700; line-height: 1.3;
