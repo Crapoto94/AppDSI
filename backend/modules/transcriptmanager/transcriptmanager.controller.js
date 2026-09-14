@@ -817,7 +817,7 @@ async function buildAndSendSummary(req, meetingId, targets, message, updateInfo 
             [meetingId, req?.user?.username || null, recipientList, sent, failed]
         );
         const row = await db.get(`SELECT sent_at FROM transcript.summary_sends WHERE id = ?`, [logRes.lastID]);
-        sentAt = row?.sent_at || null;
+        sentAt = fixPgNaiveTimestamp(row?.sent_at);
     } catch (e) {
         console.error('[TRANSCRIPT MAIL] journalisation échouée:', e.message);
     }
@@ -831,6 +831,30 @@ async function buildAndSendSummary(req, meetingId, targets, message, updateInfo 
  *  destinataires que l'envoi initial. Renvoie aussi la date de ce dernier
  *  envoi (sentAt), pour ne montrer dans le mail de mise à jour que les
  *  amendements survenus depuis. */
+/**
+ * Corrige la lecture d'une colonne Postgres `TIMESTAMP` (sans fuseau) écrite sous une session
+ * normalisée en UTC (cf. pool.on('connect', ... SET timezone = 'UTC') dans pg_db.js) : le pilote
+ * node-postgres, pour une colonne SANS fuseau, construit le Date en interprétant les chiffres
+ * lus comme une heure LOCALE (fuseau du process Node, pas de la session SQL) — sur un serveur en
+ * Europe/Paris, une valeur stockée "16:03:13" (UTC, écrite sous session UTC) ressort donc comme
+ * 16:03:13 heure de Paris, soit 14:03:13 UTC réel : 2h d'écart (heure d'été) avec le "vrai" UTC
+ * qu'elle représente. Les chiffres lus (année/mois/jour/heure/minute/seconde) sont en revanche
+ * corrects — on les ré-interprète simplement comme UTC plutôt que comme heure locale.
+ * Sans cette correction, comparer ce timestamp à s.at (chaîne ISO déjà correctement UTC, écrite
+ * en mémoire via new Date().toISOString() dans applyDiffToSpans) rendait `sinceAt` trop ancien de
+ * 2h — le mail de mise à jour traitait alors des amendements bien antérieurs comme "récents" et
+ * les affichait tous en couleur, au lieu du seul amendement déclenchant cet envoi.
+ */
+function fixPgNaiveTimestamp(d) {
+    if (!d) return null;
+    const date = d instanceof Date ? d : new Date(d);
+    if (Number.isNaN(date.getTime())) return null;
+    return new Date(Date.UTC(
+        date.getFullYear(), date.getMonth(), date.getDate(),
+        date.getHours(), date.getMinutes(), date.getSeconds(), date.getMilliseconds()
+    ));
+}
+
 async function getLastSendTargets(db, meetingId) {
     const last = await db.get(
         'SELECT recipients, sent_at FROM transcript.summary_sends WHERE meeting_id = ? ORDER BY sent_at DESC, id DESC LIMIT 1',
@@ -855,7 +879,11 @@ async function getLastSendTargets(db, meetingId) {
     // le moindre amendement récent : le mail de mise à jour montrait toujours
     // la version "propre" au lieu du mode révision. D'où la normalisation ici,
     // à la source, plutôt que dans chaque comparaison en aval.
-    return { targets, sentAt: last?.sent_at ? new Date(last.sent_at).toISOString() : null };
+    // fixPgNaiveTimestamp : sent_at est une colonne TIMESTAMP sans fuseau, sujette au
+    // décalage de 2h décrit sur cette fonction — sans quoi sinceAt serait trop ancien
+    // et le mail traiterait à tort tout l'historique comme "récent" (tout coloré).
+    const fixedSentAt = fixPgNaiveTimestamp(last?.sent_at);
+    return { targets, sentAt: fixedSentAt ? fixedSentAt.toISOString() : null };
 }
 
 const DEFAULT_PROMPT_TEMPLATE = `Tu es un assistant spécialisé dans la synthèse de réunions de direction d'un service informatique (DSI) municipal.
@@ -1134,19 +1162,23 @@ const transcriptController = {
                 // recipients_json : NULL pour un amendement antérieur à cette colonne, ou
                 // n'ayant déclenché aucune diffusion (aucun destinataire connu) — pas d'erreur,
                 // le front n'affiche alors simplement pas la mention "Envoyé à...".
+                // created_at : colonne TIMESTAMP sans fuseau, sujette au décalage de 2h décrit
+                // sur fixPgNaiveTimestamp — corrigée ici pour que l'heure affichée dans la
+                // timeline des amendements (app) soit la vraie heure UTC, pas décalée.
                 summaryAmendments = rows.map(r => {
                     let recipients = null;
                     try { recipients = r.recipients_json ? JSON.parse(r.recipients_json) : null; } catch { /* ignore */ }
-                    return { ...r, recipients };
+                    return { ...r, created_at: fixPgNaiveTimestamp(r.created_at), recipients };
                 });
             } catch { /* table pas encore migrée */ }
             // Dernier envoi du compte rendu (date/heure, expéditeur, destinataires).
             let summaryLastSend = null;
             try {
-                summaryLastSend = await db.get(
+                const row = await db.get(
                     'SELECT sent_at, sent_by, recipients, sent_count, failed_count FROM transcript.summary_sends WHERE meeting_id = ? ORDER BY sent_at DESC, id DESC LIMIT 1',
                     [meetingId]
-                ) || null;
+                );
+                summaryLastSend = row ? { ...row, sent_at: fixPgNaiveTimestamp(row.sent_at) } : null;
             } catch { /* table pas encore migrée */ }
             // Contenu de tous les amendements fusionnés en un seul rendu Markdown
             // (chaque portion colorée par son auteur) — affiché par l'app sous le
