@@ -519,20 +519,20 @@ function buildSummaryEmailHtml({ summaryHtml, message, meetingTitle, meetingDate
             <strong>🔄 Mise à jour du compte rendu</strong> — ce compte rendu a été amendé${updateNamesHtml ? ` par ${updateNamesHtml}` : ''} depuis le dernier envoi.
         </div>` : '';
 
-    // Conteneur largeur fixe + word-wrap explicite : sans ça, un paragraphe
-    // long (texte IA sans retour à la ligne) élargit tout le mail au lieu de
-    // passer à la ligne — certains clients mail (Outlook en tête) ne
-    // retournent pas le texte automatiquement à l'intérieur d'un tableau/bloc
-    // sans cette propriété posée explicitement. Auto-suffisant : fonctionne
-    // même si le template englobant (API Ville) ne contraint pas déjà la
-    // largeur.
+    // Conteneur largeur fixe (auto-suffisant même si le template englobant de
+    // l'API Ville ne contraint pas déjà la largeur). PAS de word-wrap/
+    // overflow-wrap/word-break ici : vérifié en pratique — l'ancien Outlook
+    // ne les reconnaît pas et, pire, semble geler TOUS les espaces en
+    // &nbsp; en réaction (aucun retour à la ligne possible nulle part) quand
+    // ces propriétés sont présentes. Seul forceBreakLongWords (plus bas,
+    // sans aucun CSS) traite réellement les mots trop longs.
     return `
         <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;">
             <tr>
                 <td align="center">
                     <table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" style="width:600px;max-width:600px;">
                         <tr>
-                            <td style="word-wrap:break-word;overflow-wrap:break-word;word-break:break-word;">
+                            <td>
         <p>Bonjour,</p>
         <p>${updateInfo
             ? `Le compte rendu de la réunion <strong>${esc(meetingTitle)}</strong>${meetingDate ? ` du ${esc(meetingDate)}` : ''} vient d'être mis à jour.`
@@ -544,7 +544,7 @@ function buildSummaryEmailHtml({ summaryHtml, message, meetingTitle, meetingDate
         ${noticeHtml}
         ${participantsHtml}
         ${attHtml}
-        <div style="margin:16px 0;padding:16px;border:1px solid #e2e8f0;border-radius:10px;background:#ffffff;word-wrap:break-word;overflow-wrap:break-word;word-break:break-word;">
+        <div style="margin:16px 0;padding:16px;border:1px solid #e2e8f0;border-radius:10px;background:#ffffff;">
             ${summaryHtml}
         </div>
         ${tasksHtml}
@@ -573,16 +573,19 @@ function buildSummaryEmailHtml({ summaryHtml, message, meetingTitle, meetingDate
  *  requête courante. */
 
 /**
- * L'ancien Outlook (moteur Word) n'implémente PAS du tout word-wrap/
- * overflow-wrap/word-break, même posés en ligne sur chaque élément — vérifié
- * en pratique. Une seule chaîne sans espace (test type "ppppppppppppppppp",
- * mot de passe collé par erreur, etc.) dans une cellule de tableau élargit
- * alors TOUT le tableau, entraînant avec elle du texte normal qui, lui,
- * aurait pu passer à la ligne. Seul recours fiable : donner un vrai point de
- * coupure — un espace de largeur nulle (U+200B) tous les ~10 caractères à
- * l'intérieur des mots de 14+ caractères. Ne touche jamais l'intérieur d'une
- * balise (attributs, src des images en base64, couleurs...), uniquement le
- * texte visible.
+ * Vérifié en pratique en comparant le HTML réellement reçu (extrait via
+ * Outlook, COM) d'un mail correct et d'un mail cassé : poser word-wrap/
+ * overflow-wrap/word-break en CSS (même en ligne, sur chaque élément) ne se
+ * contente pas d'être ignoré par l'ancien Outlook — le moteur Word semble y
+ * réagir en gelant TOUS les espaces du texte en &nbsp;, rendant le
+ * problème pire qu'en leur absence (plus un seul point de coupure nulle
+ * part). Ces propriétés ne doivent donc JAMAIS être ajoutées au HTML des
+ * mails. Seul recours fiable pour les chaînes sans espace (texte de test
+ * sans ponctuation, identifiant collé par erreur...) : donner un vrai point
+ * de coupure — un espace de largeur nulle (U+200B) tous les ~10 caractères
+ * à l'intérieur des mots de 14+ caractères. Ne touche jamais l'intérieur
+ * d'une balise (attributs, src des images en base64, couleurs...),
+ * uniquement le texte visible.
  */
 function forceBreakLongWords(html) {
     const ZWSP = '​';
@@ -594,24 +597,15 @@ function forceBreakLongWords(html) {
 
 /** Ajoute du CSS en ligne aux tableaux Markdown rendus (marked.parse ne le
  *  fait pas) — indispensable pour les clients mail qui ignorent les <style>
- *  externes (ex. tableau collé depuis Word via l'éditeur riche). */
+ *  externes (ex. tableau collé depuis Word via l'éditeur riche). Ne pose
+ *  volontairement PAS word-wrap/overflow-wrap/word-break — cf. le
+ *  commentaire de forceBreakLongWords juste au-dessus : ça aggrave le
+ *  problème sur l'ancien Outlook plutôt que de le résoudre. */
 function inlineTableStyles(html) {
-    // word-break direct sur CHAQUE élément (pas seulement sur un conteneur
-    // englobant) : le moteur Word de l'ancien Outlook convertit <ul>/<li> en
-    // son propre système de listes internes lors du rendu, ce qui casse
-    // l'héritage CSS depuis un parent — un <div style="word-wrap:..."> autour
-    // ne suffit pas, chaque <li>/<p> doit porter la propriété lui-même.
-    const wrap = 'word-wrap:break-word;overflow-wrap:break-word;word-break:break-word;';
     return String(html || '')
-        .replace(/<table>/g, `<table style="border-collapse:collapse;width:100%;margin:10px 0;font-size:13px;${wrap}">`)
-        .replace(/<th>/g, `<th style="border:1px solid #cbd5e1;padding:6px 10px;background:#f1f5f9;text-align:left;font-weight:700;color:#334155;${wrap}">`)
-        .replace(/<td>/g, `<td style="border:1px solid #e2e8f0;padding:6px 10px;text-align:left;color:#334155;${wrap}">`)
-        .replace(/<p>/g, `<p style="${wrap}">`)
-        .replace(/<li>/g, `<li style="${wrap}">`)
-        .replace(/<h1>/g, `<h1 style="${wrap}">`)
-        .replace(/<h2>/g, `<h2 style="${wrap}">`)
-        .replace(/<h3>/g, `<h3 style="${wrap}">`)
-        .replace(/<blockquote>/g, `<blockquote style="${wrap}">`);
+        .replace(/<table>/g, '<table style="border-collapse:collapse;width:100%;margin:10px 0;font-size:13px;">')
+        .replace(/<th>/g, '<th style="border:1px solid #cbd5e1;padding:6px 10px;background:#f1f5f9;text-align:left;font-weight:700;color:#334155;">')
+        .replace(/<td>/g, '<td style="border:1px solid #e2e8f0;padding:6px 10px;text-align:left;color:#334155;">');
 }
 
 async function getAppBaseUrl(req) {
