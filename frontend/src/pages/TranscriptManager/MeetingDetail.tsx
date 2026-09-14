@@ -2202,7 +2202,7 @@ const MeetingDetail: React.FC = () => {
                    .ql-editor du flux et on le cale exactement sur ses 4 bords —
                    plus fiable qu'un 3e niveau de flex imbriqué (qui laissait une
                    zone blanche vide sous une petite case d'édition figée). */
-                .amend-quill-wrap .ql-editor { position: absolute; inset: 0; overflow-y: auto; }
+                .amend-quill-wrap .ql-editor { position: absolute; inset: 0; overflow-y: auto; max-height: none; min-height: 0; }
                 .stream-box { white-space: pre-wrap; color: #1D4ED8; font-weight: 500; }
                 .md-formatted h1, .md-formatted h2, .md-formatted h3 {
                     color: #111827; font-weight: 700; line-height: 1.3;
