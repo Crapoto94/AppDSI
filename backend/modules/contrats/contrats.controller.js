@@ -6,7 +6,7 @@ const { pgDb, pool, getSqlite } = require('../../shared/database');
 const storage = require('../../shared/storage');
 const ocrService = require('../../shared/ocr');
 const apmAi = require('../../shared/apm_ai');
-const { saveAnalyseAsDocument: saveAnalyseAsGedDocument } = require('../../shared/contrat_analyse');
+const { saveAnalyseAsDocument: saveAnalyseAsGedDocument, persistAnalyseResult } = require('../../shared/contrat_analyse');
 
 const MODULE = 'contrats';
 
@@ -163,7 +163,15 @@ async function runContratAnalysePrompt({ fileName, content, requestedModel, job 
         : await callLocalAiProvider(prompt, cfg);
 
     const rawText = String(raw || '').trim();
-    return { rawText, parsedJson: extractJsonFromAiResponse(rawText) };
+    return {
+        rawText,
+        parsedJson: extractJsonFromAiResponse(rawText),
+        // Remontés pour traçabilité (table contrat_analyses_ia) — le modèle réellement utilisé
+        // peut différer de `model` demandé en cas de repli fournisseur côté APM (job.aiModel,
+        // renseigné pendant queryApmWithProgress, est alors plus précis quand un job est fourni).
+        model: (job && job.aiModel) || model || null,
+        source: cfg.contrat_analyse_ai_source !== 'local' ? 'apm' : 'local',
+    };
 }
 
 /**
@@ -303,13 +311,12 @@ async function runAnalyseDocumentJob(doc, contratId, requestedModel, db, job) {
             throw new Error("Aucun texte disponible pour ce document. S'il s'agit d'un scan, OCRisez-le d'abord.");
         }
 
-        const { rawText, parsedJson } = await runContratAnalysePrompt({ fileName: doc.file_name, content, requestedModel, job });
+        const { rawText, parsedJson, model, source } = await runContratAnalysePrompt({ fileName: doc.file_name, content, requestedModel, job });
         const score = extractAnalyseScore(rawText, parsedJson);
 
-        await db.run(
-            'UPDATE contrats SET ai_analyse_raw = ?, ai_analyse_json = ?, ai_analyse_score = ?, ai_analyse_document_id = ?, ai_analyse_at = CURRENT_TIMESTAMP WHERE id = ?',
-            [rawText, parsedJson ? JSON.stringify(parsedJson) : null, score, doc.id, contratId]
-        );
+        await persistAnalyseResult(db, {
+            contratId, documentId: doc.id, documentName: doc.file_name, rawText, parsedJson, score, model, source,
+        });
 
         job.status = 'completed';
         job.result = { raw: rawText, json: parsedJson, documentId: doc.id, documentName: doc.file_name };
@@ -364,13 +371,12 @@ async function triggerAutoAnalyse(db, contratId, doc) {
 
         // Pas de requestedModel : utilise le modèle par défaut configuré en admin
         // (contrat_analyse_apm_model), comme les autres points d'entrée d'analyse.
-        const { rawText, parsedJson } = await runContratAnalysePrompt({ fileName: doc.file_name, content, requestedModel: undefined, job: undefined });
+        const { rawText, parsedJson, model, source } = await runContratAnalysePrompt({ fileName: doc.file_name, content, requestedModel: undefined, job: undefined });
         const score = extractAnalyseScore(rawText, parsedJson);
 
-        await db.run(
-            'UPDATE contrats SET ai_analyse_raw = ?, ai_analyse_json = ?, ai_analyse_score = ?, ai_analyse_document_id = ?, ai_analyse_at = CURRENT_TIMESTAMP WHERE id = ?',
-            [rawText, parsedJson ? JSON.stringify(parsedJson) : null, score, doc.id, contratId]
-        );
+        await persistAnalyseResult(db, {
+            contratId, documentId: doc.id, documentName: doc.file_name, rawText, parsedJson, score, model, source,
+        });
 
         await saveAnalyseAsGedDocument(db, contratId, doc.file_name, rawText, parsedJson, null);
 
@@ -1213,6 +1219,28 @@ module.exports = {
             res.json({ models, source: 'apm', defaultModel: defaultModel && models.includes(defaultModel) ? defaultModel : null });
         } catch (error) {
             res.status(502).json({ message: error.message });
+        }
+    },
+
+    // Vue globale des analyses IA (bouton dédié dans /contrats) : toutes les lignes de
+    // hub_contrats.contrat_analyses_ia (une par contrat analysé), avec le contexte du contrat
+    // (objet, direction/service, fournisseur applicatif) pour permettre le tri/filtrage côté
+    // frontend sans requête supplémentaire par ligne.
+    async getAnalysesIaListe(req, res, db) {
+        try {
+            const rows = await db.all(`
+                SELECT
+                    a.*,
+                    c.objet AS contrat_objet, c.svc, c.direction, c.service, c.statut AS contrat_statut,
+                    c.raison_sociale, c.type_contrat, c.date_fin AS contrat_date_fin, ap.name AS app_nom
+                FROM hub_contrats.contrat_analyses_ia a
+                JOIN contrats c ON c.id = a.contrat_id
+                LEFT JOIN magapp.apps ap ON c.app_id = ap.id
+                ORDER BY a.analysed_at DESC NULLS LAST
+            `);
+            res.json(rows);
+        } catch (error) {
+            res.status(500).json({ message: 'Erreur récupération des analyses IA', error: error.message });
         }
     },
 

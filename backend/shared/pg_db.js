@@ -3027,6 +3027,48 @@ async function setupPgDb() {
       console.log('[PG DB] Migration contrats_liaisons table:', e.message);
     }
 
+    // Table dédiée aux données structurées extraites des analyses IA de contrats (une ligne
+    // par contrat, remplacée à chaque nouvelle analyse — même convention que le document
+    // Markdown "Analyse IA" en GED). Alimente la vue globale /contrats/analyses-ia
+    // (classement/filtrage) sans avoir à reparser ai_analyse_json/ai_analyse_raw à la volée.
+    try {
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS hub_contrats.contrat_analyses_ia (
+          id SERIAL PRIMARY KEY,
+          contrat_id INTEGER NOT NULL REFERENCES hub_contrats.contrats(id) ON DELETE CASCADE,
+          document_id INTEGER,
+          document_name VARCHAR(255) DEFAULT '',
+          fournisseur VARCHAR(255) DEFAULT '',
+          date_debut DATE,
+          date_fin DATE,
+          duree_annees INTEGER,
+          nb_reconductions INTEGER,
+          reconduction VARCHAR(50) DEFAULT '',
+          montant_annuel NUMERIC,
+          gti VARCHAR(255) DEFAULT '',
+          gtr VARCHAR(255) DEFAULT '',
+          indice_revision VARCHAR(255) DEFAULT '',
+          resume TEXT DEFAULT '',
+          points_de_vigilance JSONB DEFAULT '[]'::jsonb,
+          recommandations JSONB DEFAULT '[]'::jsonb,
+          notes TEXT DEFAULT '',
+          score_global INTEGER,
+          raw_text TEXT,
+          json_data JSONB,
+          ai_model VARCHAR(255) DEFAULT '',
+          ai_source VARCHAR(20) DEFAULT '',
+          analysed_at TIMESTAMP,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          UNIQUE(contrat_id)
+        );
+      `);
+      await client.query('CREATE INDEX IF NOT EXISTS idx_hub_contrats_analyses_ia_score ON hub_contrats.contrat_analyses_ia(score_global)');
+      await client.query('CREATE INDEX IF NOT EXISTS idx_hub_contrats_analyses_ia_fournisseur ON hub_contrats.contrat_analyses_ia(fournisseur)');
+    } catch (e) {
+      console.log('[PG DB] Migration contrat_analyses_ia table:', e.message);
+    }
+
     // Create gf_oracle_tiers table for tier lookups
     try {
       await client.query(`

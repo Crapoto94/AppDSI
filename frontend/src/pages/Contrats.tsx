@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import * as XLSX from 'xlsx';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -8,7 +9,7 @@ import {
   X as CloseIcon, Search, RefreshCw, ChevronUp, ChevronDown, ChevronRight, Plus, FileSpreadsheet,
   RefreshCcw, Archive, FileText, Columns, Filter, Link2, ExternalLink, FileCheck2,
   TrendingUp, TrendingDown, ArrowRight, Bookmark, Save, Paperclip, AlertTriangle,
-  ScanText, Sparkles
+  ScanText, Sparkles, LayoutGrid
 } from 'lucide-react';
 
 interface Contrat {
@@ -770,7 +771,7 @@ const PrevisionModal: React.FC<{ contrats: Contrat[]; onClose: () => void }> = (
   );
 };
 
-const authHeaders = () => ({
+export const authHeaders = () => ({
   'Authorization': `Bearer ${localStorage.getItem('token')}`
 });
 
@@ -786,7 +787,7 @@ const docFileUrl = (filePath: string | null | undefined) => {
 // "<timestamp>-<random>-" ajouté à l'upload (storage.saveFile, anti-collision) — jamais
 // pertinent à l'affichage. On ne le retire qu'à l'affichage : le nom brut reste utilisé
 // pour toute logique (détection d'extension, appels API...).
-const cleanFileName = (name: string | null | undefined): string =>
+export const cleanFileName = (name: string | null | undefined): string =>
   name ? name.replace(/^\d{10,}-\d{1,15}-/, '') : '';
 
 // L'IA ne renvoie pas toujours score_global comme un nombre JS malgré la consigne du prompt
@@ -811,6 +812,7 @@ const getContratScore = (c: Contrat): number | null =>
   (typeof c.ai_analyse_score === 'number' ? c.ai_analyse_score : null) ?? parseScoreGlobal(c.ai_analyse_json);
 
 const Contrats: React.FC = () => {
+  const navigate = useNavigate();
   const [contrats, setContrats] = useState<Contrat[]>([]);
   const [loading, setLoading] = useState(true);
   const [importing, setImporting] = useState(false);
@@ -2467,6 +2469,9 @@ const Contrats: React.FC = () => {
         </button>
         <button onClick={() => setShowPrevisionModal(true)} style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '4px 10px', borderRadius: 6, border: 'none', background: '#7c3aed', color: '#fff', cursor: 'pointer', fontSize: 11, fontWeight: 600 }}>
           <TrendingUp size={12} /> Prévision
+        </button>
+        <button onClick={() => navigate('/contrats/analyses-ia')} title="Vue globale des analyses IA de tous les contrats (triable, filtrable)" style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '4px 10px', borderRadius: 6, border: 'none', background: '#4f46e5', color: '#fff', cursor: 'pointer', fontSize: 11, fontWeight: 600 }}>
+          <LayoutGrid size={12} /> Analyses IA
         </button>
 
         {/* Analyse IA "à la volée" : PDF quelconque, non lié à un contrat, rien n'est conservé */}

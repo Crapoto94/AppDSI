@@ -56,6 +56,11 @@ router.get('/analyse-ia/models', authenticateJWT, async (req, res) => {
     await controller.getContratAnalyseAiModels(req, res);
 });
 
+// Vue globale des analyses IA (table dédiée, triable/filtrable côté front)
+router.get('/analyse-ia/liste', authenticateJWT, async (req, res) => {
+    await controller.getAnalysesIaListe(req, res, pgDb);
+});
+
 // Statut d'un job OCR/analyse IA asynchrone (POST .../ocr, .../analyse-ia, .../ad-hoc y
 // répondent par un jobId à poller ici — évite qu'un reverse-proxy ne coupe une connexion
 // HTTP trop longue le temps du traitement).

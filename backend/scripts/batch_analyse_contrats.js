@@ -32,7 +32,7 @@ const db = require('../shared/database');
 const ocrService = require('../shared/ocr');
 const contratsController = require('../modules/contrats/contrats.controller');
 const { runContratAnalysePrompt, readDocumentBuffer, runOcrJob, extractAnalyseScore } = contratsController._internal;
-const { saveAnalyseAsDocument } = require('../shared/contrat_analyse');
+const { saveAnalyseAsDocument, persistAnalyseResult } = require('../shared/contrat_analyse');
 
 function parseArgs(argv) {
     const args = { model: null, dryRun: false, limit: null, force: false, delay: 2000, ids: null };
@@ -138,15 +138,14 @@ async function pickDocument(pgDb, contratId) {
             if (!content) { console.log(`${label} : aucun texte exploitable même après OCR — sauté.`); summary.skipped++; continue; }
 
             console.log(`${label} : analyse IA en cours (${content.length} caractères, modèle "${args.model}")...`);
-            const { rawText, parsedJson } = await runContratAnalysePrompt({
+            const { rawText, parsedJson, model, source } = await runContratAnalysePrompt({
                 fileName: doc.file_name, content, requestedModel: args.model, job: undefined,
             });
 
             const score = extractAnalyseScore(rawText, parsedJson);
-            await pgDb.run(
-                'UPDATE hub_contrats.contrats SET ai_analyse_raw = ?, ai_analyse_json = ?, ai_analyse_score = ?, ai_analyse_document_id = ?, ai_analyse_at = CURRENT_TIMESTAMP WHERE id = ?',
-                [rawText, parsedJson ? JSON.stringify(parsedJson) : null, score, doc.id, c.id]
-            );
+            await persistAnalyseResult(pgDb, {
+                contratId: c.id, documentId: doc.id, documentName: doc.file_name, rawText, parsedJson, score, model, source,
+            });
 
             await saveAnalyseAsDocument(pgDb, c.id, doc.file_name, rawText, parsedJson, 'batch_analyse_contrats');
 

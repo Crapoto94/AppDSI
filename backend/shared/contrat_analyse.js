@@ -110,6 +110,112 @@ async function saveAnalyseAsDocument(pgDb, contratId, sourceFileName, rawText, p
     } catch (e) { console.warn('[Contrats] enregistrement hub_docs échoué (document quand même créé) :', e.message); }
 }
 
+// ── Table hub_contrats.contrat_analyses_ia (vue globale /contrats/analyses-ia) ─────────────
+// Une ligne par contrat, remplacée à chaque nouvelle analyse (même convention que le document
+// Markdown en GED ci-dessus) : extraction des champs structurés de ai_analyse_json (quand l'IA
+// répond en JSON — dépend du prompt configuré en admin, cf. extractAnalyseScore) pour permettre
+// le tri/filtrage côté frontend sans reparser le JSON à la volée à chaque affichage.
+
+/** Date "YYYY-MM-DD" valide -> chaîne inchangée pour Postgres (colonne DATE), sinon null. Rejette
+ * les dates non conformes plutôt que de laisser Postgres lever une erreur de cast au INSERT. */
+function toPgDate(v) {
+    if (typeof v !== 'string') return null;
+    const m = v.trim().match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (!m) return null;
+    const d = new Date(`${m[1]}-${m[2]}-${m[3]}T00:00:00Z`);
+    return Number.isNaN(d.getTime()) ? null : `${m[1]}-${m[2]}-${m[3]}`;
+}
+
+function toPgInt(v) {
+    if (v === null || v === undefined || v === '') return null;
+    const n = typeof v === 'number' ? v : parseInt(String(v).replace(/[^\d.-]/g, ''), 10);
+    return Number.isFinite(n) ? Math.round(n) : null;
+}
+
+function toPgNumber(v) {
+    if (v === null || v === undefined || v === '') return null;
+    const n = typeof v === 'number' ? v : parseFloat(String(v).replace(/[^\d,.-]/g, '').replace(',', '.'));
+    return Number.isFinite(n) ? n : null;
+}
+
+function toText(v) {
+    if (v === null || v === undefined || v === '') return null;
+    return typeof v === 'string' ? v : String(v);
+}
+
+function toJsonArray(v) {
+    if (Array.isArray(v)) return JSON.stringify(v);
+    if (v === null || v === undefined || v === '') return '[]';
+    return JSON.stringify([v]);
+}
+
+/**
+ * Met à jour (ou crée) la ligne "vue globale" d'un contrat dans hub_contrats.contrat_analyses_ia
+ * à partir du résultat brut d'une analyse IA. Fonctionne aussi quand l'IA a répondu en Markdown
+ * libre plutôt qu'en JSON (parsedJson null) : seuls score_global/raw_text/document restent
+ * renseignés dans ce cas, le reste des colonnes structurées est laissé à null — c'est le
+ * comportement attendu, pas une erreur (cf. extractAnalyseScore pour le même constat sur le
+ * score).
+ */
+async function upsertAnalyseIaRow(pgDb, { contratId, documentId, documentName, rawText, parsedJson, score, model, source }) {
+    const j = parsedJson || {};
+    const avis = (j.avis && typeof j.avis === 'object') ? j.avis : {};
+
+    await pgDb.run(
+        `INSERT INTO hub_contrats.contrat_analyses_ia (
+            contrat_id, document_id, document_name, fournisseur, date_debut, date_fin,
+            duree_annees, nb_reconductions, reconduction, montant_annuel, gti, gtr,
+            indice_revision, resume, points_de_vigilance, recommandations, notes,
+            score_global, raw_text, json_data, ai_model, ai_source, analysed_at, updated_at
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)
+        ON CONFLICT (contrat_id) DO UPDATE SET
+            document_id = EXCLUDED.document_id,
+            document_name = EXCLUDED.document_name,
+            fournisseur = EXCLUDED.fournisseur,
+            date_debut = EXCLUDED.date_debut,
+            date_fin = EXCLUDED.date_fin,
+            duree_annees = EXCLUDED.duree_annees,
+            nb_reconductions = EXCLUDED.nb_reconductions,
+            reconduction = EXCLUDED.reconduction,
+            montant_annuel = EXCLUDED.montant_annuel,
+            gti = EXCLUDED.gti,
+            gtr = EXCLUDED.gtr,
+            indice_revision = EXCLUDED.indice_revision,
+            resume = EXCLUDED.resume,
+            points_de_vigilance = EXCLUDED.points_de_vigilance,
+            recommandations = EXCLUDED.recommandations,
+            notes = EXCLUDED.notes,
+            score_global = EXCLUDED.score_global,
+            raw_text = EXCLUDED.raw_text,
+            json_data = EXCLUDED.json_data,
+            ai_model = EXCLUDED.ai_model,
+            ai_source = EXCLUDED.ai_source,
+            analysed_at = CURRENT_TIMESTAMP,
+            updated_at = CURRENT_TIMESTAMP`,
+        [
+            contratId, documentId || null, toText(documentName), toText(j.fournisseur), toPgDate(j.date_debut), toPgDate(j.date_fin),
+            toPgInt(j.duree_annees), toPgInt(j.nb_reconductions), toText(j.reconduction), toPgNumber(j.montant_2022), toText(j.gti), toText(j.gtr),
+            toText(j.indice_revision), toText(j.resume), toJsonArray(avis.points_de_vigilance), toJsonArray(avis.recommandations), toText(avis.notes),
+            score != null ? score : null, rawText || null, parsedJson ? JSON.stringify(parsedJson) : null, toText(model), toText(source),
+        ]
+    );
+}
+
+/**
+ * Point d'entrée unique appelé par les 3 endroits qui terminent une analyse IA de contrat
+ * (analyseDocumentAi, le déclenchement automatique à l'ajout de document, et le script batch) :
+ * persiste le résultat à la fois sur hub_contrats.contrats (colonnes ai_analyse_*, résumé
+ * "dernier résultat") et sur la table structurée contrat_analyses_ia (vue globale
+ * triable/filtrable). Centralisé ici pour ne pas dupliquer une troisième fois ces deux écritures.
+ */
+async function persistAnalyseResult(pgDb, { contratId, documentId, documentName, rawText, parsedJson, score, model, source }) {
+    await pgDb.run(
+        'UPDATE hub_contrats.contrats SET ai_analyse_raw = ?, ai_analyse_json = ?, ai_analyse_score = ?, ai_analyse_document_id = ?, ai_analyse_at = CURRENT_TIMESTAMP WHERE id = ?',
+        [rawText || null, parsedJson ? JSON.stringify(parsedJson) : null, score != null ? score : null, documentId || null, contratId]
+    );
+    await upsertAnalyseIaRow(pgDb, { contratId, documentId, documentName, rawText, parsedJson, score, model, source });
+}
+
 module.exports = {
     KNOWN_ANALYSE_FIELDS,
     KNOWN_ANALYSE_KEYS,
@@ -118,4 +224,9 @@ module.exports = {
     buildAnalyseMarkdown,
     safeDocName,
     saveAnalyseAsDocument,
+    toPgDate,
+    toPgInt,
+    toPgNumber,
+    upsertAnalyseIaRow,
+    persistAnalyseResult,
 };
