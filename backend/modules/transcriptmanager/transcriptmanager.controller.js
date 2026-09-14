@@ -519,20 +519,14 @@ function buildSummaryEmailHtml({ summaryHtml, message, meetingTitle, meetingDate
             <strong>🔄 Mise à jour du compte rendu</strong> — ce compte rendu a été amendé${updateNamesHtml ? ` par ${updateNamesHtml}` : ''} depuis le dernier envoi.
         </div>` : '';
 
-    // Conteneur largeur fixe (auto-suffisant même si le template englobant de
-    // l'API Ville ne contraint pas déjà la largeur). PAS de word-wrap/
-    // overflow-wrap/word-break ici : vérifié en pratique — l'ancien Outlook
-    // ne les reconnaît pas et, pire, semble geler TOUS les espaces en
-    // &nbsp; en réaction (aucun retour à la ligne possible nulle part) quand
-    // ces propriétés sont présentes. Seul forceBreakLongWords (plus bas,
-    // sans aucun CSS) traite réellement les mots trop longs.
+    // PAS de tableau englobant supplémentaire ici (retiré — cf. commentaire de
+    // forceBreakLongWords) : la largeur est déjà contrainte par le template
+    // englobant (API Ville, width="750"/table-layout:fixed) — un wrapper de
+    // plus ajoutait de la profondeur d'imbrication de tableaux, ce qui semble
+    // faire buter la passerelle mail (constaté : c'est justement ce wrapper,
+    // absent des mails plus anciens sans problème, qui coïncide avec
+    // l'apparition de la corruption des espaces en &nbsp;).
     return `
-        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;">
-            <tr>
-                <td align="center">
-                    <table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" style="width:600px;max-width:600px;">
-                        <tr>
-                            <td>
         <p>Bonjour,</p>
         <p>${updateInfo
             ? `Le compte rendu de la réunion <strong>${esc(meetingTitle)}</strong>${meetingDate ? ` du ${esc(meetingDate)}` : ''} vient d'être mis à jour.`
@@ -559,12 +553,6 @@ function buildSummaryEmailHtml({ summaryHtml, message, meetingTitle, meetingDate
                 ${magappUrl ? `<br/><a href="${esc(magappUrl)}" style="color:#0078a4;font-weight:600;">Ouvrir le magasin d'applications</a>` : ''}
             </div>
         </div>` : ''}
-                            </td>
-                        </tr>
-                    </table>
-                </td>
-            </tr>
-        </table>
     `;
 }
 
