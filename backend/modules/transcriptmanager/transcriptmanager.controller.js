@@ -572,6 +572,26 @@ function buildSummaryEmailHtml({ summaryHtml, message, meetingTitle, meetingDate
  *  SQLite `app_base_url`, sinon variables d'environnement, sinon hôte de la
  *  requête courante. */
 
+/**
+ * L'ancien Outlook (moteur Word) n'implémente PAS du tout word-wrap/
+ * overflow-wrap/word-break, même posés en ligne sur chaque élément — vérifié
+ * en pratique. Une seule chaîne sans espace (test type "ppppppppppppppppp",
+ * mot de passe collé par erreur, etc.) dans une cellule de tableau élargit
+ * alors TOUT le tableau, entraînant avec elle du texte normal qui, lui,
+ * aurait pu passer à la ligne. Seul recours fiable : donner un vrai point de
+ * coupure — un espace de largeur nulle (U+200B) tous les ~10 caractères à
+ * l'intérieur des mots de 14+ caractères. Ne touche jamais l'intérieur d'une
+ * balise (attributs, src des images en base64, couleurs...), uniquement le
+ * texte visible.
+ */
+function forceBreakLongWords(html) {
+    const ZWSP = '​';
+    return String(html || '').replace(/(<[^>]*>)|([^<]+)/g, (match, tag, text) => {
+        if (tag) return tag;
+        return text.replace(/[A-Za-z0-9]{14,}/g, (word) => word.replace(/(.{10})(?=.)/g, `$1${ZWSP}`));
+    });
+}
+
 /** Ajoute du CSS en ligne aux tableaux Markdown rendus (marked.parse ne le
  *  fait pas) — indispensable pour les clients mail qui ignorent les <style>
  *  externes (ex. tableau collé depuis Word via l'éditeur riche). */
@@ -727,12 +747,12 @@ async function buildAndSendSummary(req, meetingId, targets, message, updateInfo 
     const errors = [];
     for (const t of targets.values()) {
         try {
-            const html = buildSummaryEmailHtml({
+            const html = forceBreakLongWords(buildSummaryEmailHtml({
                 summaryHtml, message: message || '', meetingTitle: meeting.title || 'Réunion',
                 meetingDate, internal: t.internal, magappUrl, amendUrl,
                 participants, tasks, amendedHtml, meta, attachmentNames,
                 noticeText, updateInfo,
-            });
+            }));
             const subject = (updateInfo
                 ? `Mise à jour du compte rendu de la réunion : ${meeting.title || ''}`
                 : `Résumé de la réunion : ${meeting.title || ''}`).trim();
