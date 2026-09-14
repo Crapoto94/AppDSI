@@ -283,7 +283,7 @@ async function setupDb() {
         VALUES 
         ('budget_principal', '00001000000000001901000', 'Code du budget principal'),
         ('url_sedit_fi', 'https://seditgfprod.ivry.local/SeditGfSMProd', 'URL de base Sedit Finances'),
-        ('groq_api_key', 'gsk_h67R9mK9v8f4H7j2L3k5M1n0P9q8R7s6T5u4V3w2X1y0', 'Clé API Groq pour les résumés'),
+        ('groq_api_key', '', 'Clé API Groq pour les résumés'),
         ('ai_provider', 'groq', 'Fournisseur d''IA par défaut'),
         ('gemini_api_key', '', 'Clé API Google Gemini'),
         ('openrouter_api_key', '', 'Clé API OpenRouter'),

@@ -2413,7 +2413,7 @@ async function setupPgDb() {
     await client.query(`
       INSERT INTO transcript.settings (setting_key, setting_value, description)
       VALUES 
-      ('groq_api_key', 'gsk_h67R9mK9v8f4H7j2L3k5M1n0P9q8R7s6T5u4V3w2X1y0', 'Clé API Groq pour les résumés'),
+      ('groq_api_key', '', 'Clé API Groq pour les résumés'),
       ('ai_provider', 'groq', 'Fournisseur d''IA par défaut'),
       ('gemini_api_key', '', 'Clé API Google Gemini'),
       ('openrouter_api_key', '', 'Clé API OpenRouter'),
