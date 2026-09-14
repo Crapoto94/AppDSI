@@ -487,14 +487,18 @@ function buildSummaryEmailHtml({ summaryHtml, message, meetingTitle, meetingDate
             </ul>
         </div>` : '';
 
-    // Amendements : un seul bloc fusionné (déjà rendu en HTML par
-    // renderAnnotatedMarkdown + marked.parse côté appelant), pas un par amendement.
-    const amendmentsHtml = amendedHtml ? `
-        <div style="margin:16px 0;">
-            <div style="font-weight:700;color:#334155;margin-bottom:6px;">📝 Amendements</div>
-            <div style="padding:10px 14px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;font-size:13px;color:#334155;line-height:1.6;">
-                ${amendedHtml}
-            </div>
+    // Mise à jour : le corps du mail affiche le compte rendu en « mode
+    // révision » (insertions/suppressions colorées, déjà rendues en HTML par
+    // renderAnnotatedMarkdown + marked.parse côté appelant) plutôt que la
+    // version propre — on montre CE QUI A CHANGÉ depuis le dernier envoi, pas
+    // juste la dernière version comme si de rien n'était. Envoi initial (pas
+    // d'updateInfo) : rien à réviser, la version propre suffit.
+    const mainContentHtml = (updateInfo && amendedHtml) ? amendedHtml : summaryHtml;
+    const revisionLegendHtml = (updateInfo && amendedHtml) ? `
+        <div style="margin-top:8px;font-size:12px;color:#64748b;">
+            <span style="background:#2563eb1A;color:#2563eb;font-weight:600;">Surligné</span> = ajouté,
+            <span style="text-decoration:line-through;opacity:0.75;">barré</span> = supprimé,
+            depuis le dernier envoi (couleur = auteur de la modification). Le reste du texte est inchangé.
         </div>` : '';
 
     // Bouton « bulletproof » (table + bgcolor en attribut, pas seulement en
@@ -553,6 +557,7 @@ function buildSummaryEmailHtml({ summaryHtml, message, meetingTitle, meetingDate
     const updateHtml = updateInfo ? `
         <div style="margin:12px 0;padding:12px 16px;border:1px solid #C7D2FE;background:#EEF2FF;border-radius:10px;color:#3730A3;font-size:13px;line-height:1.5;">
             <strong>🔄 Mise à jour du compte rendu</strong> — ce compte rendu a été amendé${updateNamesHtml ? ` par ${updateNamesHtml}` : ''} depuis le dernier envoi.
+            ${revisionLegendHtml}
         </div>` : '';
 
     // PAS de tableau englobant supplémentaire ici (retiré — cf. commentaire de
@@ -575,10 +580,9 @@ function buildSummaryEmailHtml({ summaryHtml, message, meetingTitle, meetingDate
         ${participantsHtml}
         ${attHtml}
         <div style="margin:16px 0;padding:16px;border:1px solid #e2e8f0;border-radius:10px;background:#ffffff;">
-            ${summaryHtml}
+            ${mainContentHtml}
         </div>
         ${tasksHtml}
-        ${amendmentsHtml}
         ${amendHtml}
         ${internal ? `
         <div style="margin:16px 0;padding:14px 16px;border:1px solid #bae6fd;background:#f0f9ff;border-radius:10px;">
@@ -709,20 +713,25 @@ async function buildAndSendSummary(req, meetingId, targets, message, updateInfo 
         `SELECT description, assignee, requester, deadline, is_completed, added_by_name, added_by_color FROM transcript.tasks WHERE meeting_id = ? AND deleted_at IS NULL ORDER BY id`,
         [meetingId]
     );
-    // Amendements : un seul contenu fusionné (tous les auteurs, chacun dans
-    // sa couleur), Markdown correctement interprété. Mail de mise à jour
-    // (updateInfo présent) : seuls les changements depuis le dernier envoi
-    // restent colorés — le reste redevient du texte neutre (déjà connu des
-    // destinataires), pour ne pas répéter tout l'historique à chaque envoi.
+    // Mail de mise à jour (updateInfo présent) uniquement : rendu du compte
+    // rendu en « mode révision » — seuls les changements depuis le dernier
+    // envoi restent colorés (insertions/suppressions), le reste redevient du
+    // texte neutre (déjà connu des destinataires). Remplace la version
+    // "propre" dans le corps du mail (cf. mainContentHtml côté
+    // buildSummaryEmailHtml) — on montre CE QUI A CHANGÉ, pas juste la
+    // dernière version comme si de rien n'était. Envoi initial : rien à
+    // réviser, inutile de calculer.
     let amendedHtml = '';
-    try {
-        const spans = JSON.parse(meeting.summary_annotated_spans || 'null') || [];
-        const sinceAt = updateInfo?.sinceSentAt || null;
-        if (spans.length && (!updateInfo || hasRecentAmendments(spans, sinceAt))) {
-            const annotatedMd = renderAnnotatedMarkdown(spans, { sinceAt });
-            amendedHtml = inlineTableStyles(marked.parse(annotatedMd, { breaks: true }));
-        }
-    } catch (e) { console.error('[TRANSCRIPT MAIL] rendu amendements échoué:', e.message); }
+    if (updateInfo) {
+        try {
+            const spans = JSON.parse(meeting.summary_annotated_spans || 'null') || [];
+            const sinceAt = updateInfo.sinceSentAt || null;
+            if (spans.length && hasRecentAmendments(spans, sinceAt)) {
+                const annotatedMd = renderAnnotatedMarkdown(spans, { sinceAt });
+                amendedHtml = inlineTableStyles(marked.parse(annotatedMd, { breaks: true }));
+            }
+        } catch (e) { console.error('[TRANSCRIPT MAIL] rendu amendements échoué:', e.message); }
+    }
     const meta = {
         requester: meeting.summary_requester || null,
         model: meeting.summary_model || null,
