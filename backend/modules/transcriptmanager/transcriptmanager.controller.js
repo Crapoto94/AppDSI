@@ -531,7 +531,14 @@ function buildSummaryEmailHtml({ summaryHtml, message, meetingTitle, meetingDate
                 </tr>
             </table>
             <!--<![endif]-->
-            <div style="color:#64748b;font-size:12px;margin-top:8px;">Ajoutez une tâche oubliée ou corrigez le texte — vous devrez vous authentifier si vous ne l'êtes pas déjà.</div>
+            <!-- Espaceur dédié à l'ancien Outlook : sa forme VML (roundrect) ne
+                 réserve pas d'espace de bloc comme le ferait un <table> normal —
+                 un simple margin-top sur le <div> suivant ne suffit pas, il faut
+                 une ligne de hauteur explicite pour repousser le texte plus bas. -->
+            <!--[if mso]>
+            <table role="presentation" width="100%"><tr><td height="14" style="font-size:1px;line-height:14px;">&nbsp;</td></tr></table>
+            <![endif]-->
+            <div style="color:#64748b;font-size:12px;margin-top:14px;">Ajoutez une tâche oubliée ou corrigez le texte — vous devrez vous authentifier si vous ne l'êtes pas déjà.</div>
         </div>` : '';
 
     const attHtml = (attachmentNames || []).length ? `
@@ -838,7 +845,17 @@ async function getLastSendTargets(db, meetingId) {
         const p = byEmail.get(email);
         targets.set(email, { email, name: p?.name || email, internal: p ? p.internal : await isInternalEmail(db, email) });
     }
-    return { targets, sentAt: last?.sent_at || null };
+    // .toISOString() : pg renvoie sent_at comme un objet Date, jamais comme la
+    // chaîne ISO que portent les spans (s.at, écrits via new Date().toISOString()
+    // dans applyDiffToSpans). Comparer une chaîne à un Date avec ">" force sa
+    // conversion via toString() ("Mon Sep 14 2026 16:30:26 GMT+0200...") plutôt
+    // que sa valeur temporelle — cette comparaison est alors TOUJOURS fausse
+    // (le format ne trie jamais correctement face à une chaîne ISO), donc
+    // hasRecentAmendments/renderAnnotatedMarkdown(sinceAt) ne détectaient jamais
+    // le moindre amendement récent : le mail de mise à jour montrait toujours
+    // la version "propre" au lieu du mode révision. D'où la normalisation ici,
+    // à la source, plutôt que dans chaque comparaison en aval.
+    return { targets, sentAt: last?.sent_at ? new Date(last.sent_at).toISOString() : null };
 }
 
 const DEFAULT_PROMPT_TEMPLATE = `Tu es un assistant spécialisé dans la synthèse de réunions de direction d'un service informatique (DSI) municipal.
