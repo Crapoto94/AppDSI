@@ -1438,26 +1438,6 @@ const MeetingDetail: React.FC = () => {
                                         {getGenerationPhase(genElapsed, aiSource, selectedModel, isPollingAfterError)}
                                         <span className="gen-counter"> ({formatDuration(genElapsed)})</span>
                                     </div>
-                                ) : isEditingSummary ? (
-                                    <div>
-                                        <div style={{ border: '1.5px solid #E2E8F0', borderRadius: 8, overflow: 'hidden', background: '#fff' }}>
-                                            <ReactQuill
-                                                ref={summaryQuillRef}
-                                                value={summaryDraft}
-                                                onChange={setSummaryDraft}
-                                                modules={AMEND_QUILL_MODULES}
-                                                placeholder="Résumé de la réunion..."
-                                                style={{ fontFamily: 'inherit', fontSize: '0.9rem' }}
-                                            />
-                                        </div>
-                                        <div style={{ fontSize: '0.75rem', color: '#64748B', marginTop: '0.5rem' }}>
-                                            ℹ️ Les informations META (demandeur, modèle, date, IA locale et frugale / statut de modification) sont appliquées automatiquement et ne se modifient pas ici.
-                                        </div>
-                                        <div style={{ display: 'flex', gap: '0.75rem', marginTop: '0.75rem' }}>
-                                            <button className="btn-save" onClick={handleSaveSummary} disabled={isSaving}>{isSaving ? 'Enregistrement...' : 'Enregistrer'}</button>
-                                            <button className="btn-cancel" onClick={() => setIsEditingSummary(false)}>Annuler</button>
-                                        </div>
-                                    </div>
                                 ) : (
                                     <div className="md-formatted">
                                         <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]} urlTransform={markdownUrlTransform}>
@@ -1695,36 +1675,53 @@ const MeetingDetail: React.FC = () => {
                 </div>
             )}
 
-            {isEditingAmend && (
+            {(isEditingAmend || isEditingSummary) && (
                 <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1150 }}>
                     <div style={{ background: 'white', borderRadius: 16, width: '94%', maxWidth: 1100, height: '90vh', maxHeight: '90vh', display: 'flex', flexDirection: 'column', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.15)', overflow: 'hidden' }}>
                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '1.25rem 1.5rem 0.5rem' }}>
                             <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 8 }}>
-                                ✏️ Amender le compte rendu
-                                {amendAccess.color && (
+                                {isEditingAmend ? '✏️ Amender le compte rendu' : '✏️ Modifier le compte rendu'}
+                                {isEditingAmend && amendAccess.color && (
                                     <span title={`Vous : ${amendAccess.name}`} style={{ width: 10, height: 10, borderRadius: '50%', background: amendAccess.color, display: 'inline-block' }} />
                                 )}
                             </h3>
-                            <button onClick={() => setIsEditingAmend(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#64748B' }}><X size={18} /></button>
+                            <button onClick={() => { setIsEditingAmend(false); setIsEditingSummary(false); }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#64748B' }}><X size={18} /></button>
                         </div>
                         <div style={{ padding: '0.5rem 1.5rem', overflowY: 'auto', flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
-                            <div className="amend-quill-wrap" style={{ border: `1.5px solid ${amendAccess.color || '#E2E8F0'}`, borderRadius: 8, overflow: 'hidden', background: '#fff', flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
-                                <ReactQuill
-                                    ref={amendQuillRef}
-                                    value={amendEditorHtml}
-                                    onChange={setAmendEditorHtml}
-                                    modules={AMEND_QUILL_MODULES}
-                                    placeholder="Corrigez ou complétez le compte rendu..."
-                                    style={{ fontFamily: 'inherit', fontSize: '0.9rem', display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}
-                                />
+                            <div className="amend-quill-wrap" style={{ border: `1.5px solid ${isEditingAmend ? (amendAccess.color || '#E2E8F0') : '#E2E8F0'}`, borderRadius: 8, overflow: 'hidden', background: '#fff', flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+                                {isEditingAmend ? (
+                                    <ReactQuill
+                                        ref={amendQuillRef}
+                                        value={amendEditorHtml}
+                                        onChange={setAmendEditorHtml}
+                                        modules={AMEND_QUILL_MODULES}
+                                        placeholder="Corrigez ou complétez le compte rendu..."
+                                        style={{ fontFamily: 'inherit', fontSize: '0.9rem', display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}
+                                    />
+                                ) : (
+                                    <ReactQuill
+                                        ref={summaryQuillRef}
+                                        value={summaryDraft}
+                                        onChange={setSummaryDraft}
+                                        modules={AMEND_QUILL_MODULES}
+                                        placeholder="Résumé de la réunion..."
+                                        style={{ fontFamily: 'inherit', fontSize: '0.9rem', display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}
+                                    />
+                                )}
                             </div>
                             <div style={{ fontSize: '0.75rem', color: '#64748B', marginTop: '0.5rem', flexShrink: 0 }}>
-                                ℹ️ Vos ajouts/suppressions seront tracés (attribués à vous, en couleur) et le compte rendu mis à jour sera automatiquement renvoyé à tous les destinataires du dernier envoi.
+                                {isEditingAmend
+                                    ? 'ℹ️ Vos ajouts/suppressions seront tracés (attribués à vous, en couleur) et le compte rendu mis à jour sera automatiquement renvoyé à tous les destinataires du dernier envoi.'
+                                    : "ℹ️ Réécriture libre, sans suivi des modifications — ce texte deviendra la version 1 du compte rendu au moment de son premier envoi. Les informations META (demandeur, modèle, date, IA locale et frugale / statut de modification) sont appliquées automatiquement et ne se modifient pas ici."}
                             </div>
                         </div>
                         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem', padding: '1rem 1.5rem', borderTop: '1px solid #F1F5F9' }}>
-                            <button className="btn-cancel" onClick={() => setIsEditingAmend(false)}>Annuler</button>
-                            <button className="btn-save" onClick={handleAmendValidateClick} disabled={isAmending}>{isAmending ? 'Enregistrement...' : 'Valider mes amendements'}</button>
+                            <button className="btn-cancel" onClick={() => { setIsEditingAmend(false); setIsEditingSummary(false); }}>Annuler</button>
+                            {isEditingAmend ? (
+                                <button className="btn-save" onClick={handleAmendValidateClick} disabled={isAmending}>{isAmending ? 'Enregistrement...' : 'Valider mes amendements'}</button>
+                            ) : (
+                                <button className="btn-save" onClick={handleSaveSummary} disabled={isSaving}>{isSaving ? 'Enregistrement...' : 'Enregistrer'}</button>
+                            )}
                         </div>
                     </div>
                 </div>
