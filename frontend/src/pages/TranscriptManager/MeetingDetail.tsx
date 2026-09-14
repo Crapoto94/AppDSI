@@ -22,6 +22,7 @@ import 'react-quill-new/dist/quill.snow.css';
 import { marked } from 'marked';
 import TurndownService from 'turndown';
 import * as turndownGfm from 'turndown-plugin-gfm';
+import { useADSearch } from '../../utils/useADSearch';
 
 // Édition de l'amendement en WYSIWYG (react-quill-new, comme l'éditeur de
 // commentaires des tickets) : l'amendeur ne doit jamais voir de Markdown brut.
@@ -266,7 +267,17 @@ const MeetingDetail: React.FC = () => {
 
     // Amendement du CR (ajout/suppression de tâches + correction du texte,
     // par tout destinataire interne du mail — pas seulement l'admin/owner).
-    const [amendAccess, setAmendAccess] = useState<{ allowed: boolean; color?: string; name?: string; draft?: string | null; draft_updated_at?: string | null }>({ allowed: false });
+    const [amendAccess, setAmendAccess] = useState<{
+        allowed: boolean; color?: string; name?: string; draft?: string | null; draft_updated_at?: string | null;
+        recipients?: { email: string; name: string; internal: boolean }[]; isAdmin?: boolean;
+    }>({ allowed: false });
+    // Modale de validation des amendements : ajout (tout amendeur) / retrait
+    // (admin uniquement) de destinataires à la boucle de diffusion, avant
+    // envoi effectif — cf. handleAmendValidateClick / submitAmendment.
+    const [pendingAddRecipients, setPendingAddRecipients] = useState<{ email: string; name: string }[]>([]);
+    const [pendingRemoveEmails, setPendingRemoveEmails] = useState<Set<string>>(new Set());
+    const [manualRecipientEmail, setManualRecipientEmail] = useState('');
+    const recipientAd = useADSearch(token);
     const [showAddTask, setShowAddTask] = useState(false);
     const [newTaskDraft, setNewTaskDraft] = useState({ description: '', assignee: '', requester: '', deadline: '' });
     const [isAddingTask, setIsAddingTask] = useState(false);
@@ -756,8 +767,43 @@ const MeetingDetail: React.FC = () => {
         setIsEditingAmend(true);
     };
 
-    const handleAmendValidateClick = () => {
+    const handleAmendValidateClick = async () => {
+        setPendingAddRecipients([]);
+        setPendingRemoveEmails(new Set());
+        setManualRecipientEmail('');
+        recipientAd.setQuery('');
+        recipientAd.clearResults();
+        // Rafraîchit la liste des destinataires (un autre amendement a pu
+        // avoir lieu entre-temps) juste avant de l'afficher dans la modale.
+        if (token && id) {
+            try {
+                const res = await axios.get(`/api/transcriptmanager/meeting/${id}/amend-access`, { headers: { Authorization: `Bearer ${token}` } });
+                setAmendAccess(res.data || { allowed: false });
+            } catch { /* on garde la dernière valeur connue */ }
+        }
         setShowSendConfirmModal(true);
+    };
+
+    // Ajout d'un destinataire à la boucle (recherche AD ou email libre) —
+    // ouvert à tout amendeur, juste en attente locale jusqu'à validation.
+    const addPendingRecipient = (email: string, name: string) => {
+        const clean = email.trim().toLowerCase();
+        if (!clean || !clean.includes('@')) return;
+        const already = (amendAccess.recipients || []).some(r => r.email.toLowerCase() === clean)
+            || pendingAddRecipients.some(r => r.email.toLowerCase() === clean);
+        if (already) return;
+        setPendingAddRecipients(prev => [...prev, { email: clean, name: name || clean }]);
+        setManualRecipientEmail('');
+        recipientAd.setQuery('');
+        recipientAd.clearResults();
+    };
+
+    const toggleRemoveRecipient = (email: string) => {
+        setPendingRemoveEmails(prev => {
+            const next = new Set(prev);
+            if (next.has(email)) next.delete(email); else next.add(email);
+            return next;
+        });
     };
 
     const submitAmendment = async () => {
@@ -767,7 +813,11 @@ const MeetingDetail: React.FC = () => {
         setAmendMessage('');
         try {
             const res = await axios.post(`/api/transcriptmanager/meeting/${id}/amend-summary`,
-                { newText: htmlToMd(amendEditorHtml) },
+                {
+                    newText: htmlToMd(amendEditorHtml),
+                    addRecipients: pendingAddRecipients,
+                    removeEmails: Array.from(pendingRemoveEmails),
+                },
                 { headers: { Authorization: `Bearer ${token}` } }
             );
             if (!res.data?.changed) {
@@ -1729,13 +1779,92 @@ const MeetingDetail: React.FC = () => {
 
             {showSendConfirmModal && (
                 <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1200 }}>
-                    <div style={{ background: 'white', borderRadius: 16, width: '90%', maxWidth: 440, boxShadow: '0 20px 25px -5px rgba(0,0,0,0.15)', overflow: 'hidden' }}>
+                    <div style={{ background: 'white', borderRadius: 16, width: '90%', maxWidth: 520, maxHeight: '85vh', overflowY: 'auto', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.15)' }}>
                         <div style={{ padding: '1.5rem 1.5rem 0.5rem' }}>
                             <h3 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 700, color: '#1E293B' }}>Envoyer vos amendements ?</h3>
                         </div>
                         <div style={{ padding: '0.5rem 1.5rem 1.25rem', color: '#475569', fontSize: '0.85rem', lineHeight: 1.6 }}>
                             Si vous ne les envoyez pas maintenant, ils resteront dans votre <strong>brouillon</strong> — non validés, non visibles par les autres.
                         </div>
+
+                        <div style={{ margin: '0 1.5rem 1.25rem', padding: '12px 14px', background: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: 10 }}>
+                            <div style={{ fontWeight: 700, fontSize: '0.8rem', color: '#334155', marginBottom: 8 }}>
+                                📧 Le compte rendu mis à jour sera renvoyé à ({(amendAccess.recipients || []).length + pendingAddRecipients.length - pendingRemoveEmails.size}) :
+                            </div>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 4, maxHeight: 140, overflowY: 'auto' }}>
+                                {(amendAccess.recipients || []).map(r => {
+                                    const removed = pendingRemoveEmails.has(r.email);
+                                    return (
+                                        <div key={r.email} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, fontSize: '0.78rem', color: removed ? '#94A3B8' : '#334155', textDecoration: removed ? 'line-through' : 'none' }}>
+                                            <span>{r.name || r.email} {r.name && r.name !== r.email ? <span style={{ color: '#94A3B8' }}>&lt;{r.email}&gt;</span> : null}{!r.internal && <span style={{ color: '#94A3B8' }}> (externe)</span>}</span>
+                                            {amendAccess.isAdmin && (
+                                                <button onClick={() => toggleRemoveRecipient(r.email)} title={removed ? 'Annuler le retrait' : 'Retirer de la boucle'} style={{ background: 'none', border: 'none', cursor: 'pointer', color: removed ? '#0078A4' : '#DC2626', fontSize: '0.75rem', fontWeight: 600, flexShrink: 0 }}>
+                                                    {removed ? 'Annuler' : '× Retirer'}
+                                                </button>
+                                            )}
+                                        </div>
+                                    );
+                                })}
+                                {pendingAddRecipients.map(r => (
+                                    <div key={r.email} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, fontSize: '0.78rem', color: '#15803D' }}>
+                                        <span>+ {r.name || r.email} {r.name && r.name !== r.email ? <span style={{ color: '#86EFAC' }}>&lt;{r.email}&gt;</span> : null}</span>
+                                        <button onClick={() => setPendingAddRecipients(prev => prev.filter(p => p.email !== r.email))} title="Annuler l'ajout" style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94A3B8', fontSize: '0.75rem', fontWeight: 600, flexShrink: 0 }}>
+                                        × Annuler
+                                        </button>
+                                    </div>
+                                ))}
+                            </div>
+                            {!amendAccess.isAdmin && (
+                                <div style={{ fontSize: '0.7rem', color: '#94A3B8', marginTop: 6 }}>
+                                    Vous pouvez ajouter des personnes à la boucle, mais pas en retirer — seul un administrateur le peut.
+                                </div>
+                            )}
+                            <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid #E2E8F0' }}>
+                                <div style={{ fontSize: '0.75rem', fontWeight: 600, color: '#334155', marginBottom: 4 }}>+ Ajouter une personne à la boucle</div>
+                                <div style={{ position: 'relative' }}>
+                                    <input
+                                        type="text"
+                                        placeholder="Rechercher un agent (AD)..."
+                                        value={recipientAd.query}
+                                        onChange={e => recipientAd.setQuery(e.target.value)}
+                                        style={{ width: '100%', padding: '6px 10px', border: '1px solid #CBD5E1', borderRadius: 6, fontSize: '0.78rem', boxSizing: 'border-box' }}
+                                    />
+                                    {recipientAd.searching && <span style={{ position: 'absolute', right: 8, top: 6, fontSize: '0.7rem', color: '#94A3B8' }}>...</span>}
+                                    {recipientAd.results.length > 0 && (
+                                        <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: 'white', border: '1px solid #CBD5E1', borderRadius: 6, boxShadow: '0 4px 12px rgba(0,0,0,0.1)', zIndex: 10, maxHeight: 140, overflowY: 'auto' }}>
+                                            {recipientAd.results.map(u => (
+                                                <div key={u.username} onClick={() => addPendingRecipient(u.email, u.displayName)}
+                                                    style={{ padding: '6px 10px', cursor: 'pointer', borderBottom: '1px solid #F1F5F9', fontSize: '0.78rem' }}
+                                                    onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = '#EFF6FF'}
+                                                    onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = 'white'}
+                                                >
+                                                    <div style={{ fontWeight: 600, color: '#1E293B' }}>{u.displayName}</div>
+                                                    <div style={{ color: '#64748B', fontSize: '0.72rem' }}>{u.email || "Pas d'email AD"}</div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+                                <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
+                                    <input
+                                        type="email"
+                                        placeholder="ou email externe : prenom.nom@domaine.fr"
+                                        value={manualRecipientEmail}
+                                        onChange={e => setManualRecipientEmail(e.target.value)}
+                                        onKeyDown={e => { if (e.key === 'Enter') addPendingRecipient(manualRecipientEmail, manualRecipientEmail); }}
+                                        style={{ flex: 1, padding: '6px 10px', border: '1px solid #CBD5E1', borderRadius: 6, fontSize: '0.78rem', boxSizing: 'border-box' }}
+                                    />
+                                    <button
+                                        onClick={() => addPendingRecipient(manualRecipientEmail, manualRecipientEmail)}
+                                        disabled={!manualRecipientEmail.includes('@')}
+                                        style={{ padding: '6px 12px', background: '#0078A4', color: 'white', border: 'none', borderRadius: 6, fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer', opacity: manualRecipientEmail.includes('@') ? 1 : 0.5, whiteSpace: 'nowrap' }}
+                                    >
+                                        + Ajouter
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', padding: '0 1.5rem 1.5rem' }}>
                             <button
                                 onClick={submitAmendment}
@@ -2067,9 +2196,13 @@ const MeetingDetail: React.FC = () => {
                 /* Modale d'amendement : la zone d'édition doit occuper tout
                    l'espace disponible dans la modale, pas seulement une
                    petite zone par défaut. */
-                .amend-quill-wrap .ql-container { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+                .amend-quill-wrap .ql-container { flex: 1; min-height: 0; position: relative; }
                 .amend-quill-wrap .ql-toolbar { flex-shrink: 0; }
-                .amend-quill-wrap .ql-editor { flex: 1; min-height: 0; overflow-y: auto; }
+                /* .ql-container est déjà position:relative (CSS Quill) : on sort
+                   .ql-editor du flux et on le cale exactement sur ses 4 bords —
+                   plus fiable qu'un 3e niveau de flex imbriqué (qui laissait une
+                   zone blanche vide sous une petite case d'édition figée). */
+                .amend-quill-wrap .ql-editor { position: absolute; inset: 0; overflow-y: auto; }
                 .stream-box { white-space: pre-wrap; color: #1D4ED8; font-weight: 500; }
                 .md-formatted h1, .md-formatted h2, .md-formatted h3 {
                     color: #111827; font-weight: 700; line-height: 1.3;

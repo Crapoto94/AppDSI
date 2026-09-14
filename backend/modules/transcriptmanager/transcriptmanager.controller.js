@@ -241,13 +241,35 @@ async function hasReceivedMeetingSummary(db, meetingId, user) {
     } catch { return false; }
 }
 
-/** Un compte interne peut-il amender le CR de cette réunion (ajout/suppression
- *  de tâches, correction du texte du résumé) ? Admin DSI, participant, ou
- *  destinataire effectif d'un envoi précédent du CR. */
+/** Un compte interne peut-il gérer les tâches de cette réunion (ajout,
+ *  suppression, restauration, coche) ? Admin DSI, participant, ou
+ *  destinataire effectif d'un envoi précédent du CR. Utilisable à tout
+ *  moment, y compris avant le premier envoi (corriger le plan d'action
+ *  généré par l'IA n'a pas besoin d'attendre l'envoi). */
 async function canAmendMeeting(db, meetingId, user) {
     if (isAdminLike(user)) return true;
     if (await isMeetingParticipant(db, meetingId, user)) return true;
     return await hasReceivedMeetingSummary(db, meetingId, user);
+}
+
+/** Le CR a-t-il déjà été envoyé par mail au moins une fois (à qui que ce
+ *  soit) ? Tant que ce n'est pas le cas, il n'y a pas encore de "version 1"
+ *  figée à amender — seule la réécriture libre ("Modifier") a un sens. */
+async function hasAnySummarySend(db, meetingId) {
+    try {
+        const row = await db.get('SELECT 1 FROM transcript.summary_sends WHERE meeting_id = ? LIMIT 1', [meetingId]);
+        return !!row;
+    } catch { return false; }
+}
+
+/** Un compte interne peut-il amender le TEXTE du résumé (avec suivi tracé,
+ *  couleur d'attribution et rediffusion automatique) ? Mêmes règles que
+ *  canAmendMeeting, mais uniquement après un premier envoi par mail — avant
+ *  cela, il n'y a pas encore de "version 1" à amender, seule la réécriture
+ *  libre ("Modifier", sans suivi) a un sens. */
+async function canAmendSummaryText(db, meetingId, user) {
+    if (!(await hasAnySummarySend(db, meetingId))) return false;
+    return await canAmendMeeting(db, meetingId, user);
 }
 
 // Palette de couleurs distinctes attribuées aux amendeurs d'un CR (une par
@@ -489,7 +511,7 @@ function buildSummaryEmailHtml({ summaryHtml, message, meetingTitle, meetingDate
     const amendHtml = (internal && amendUrl) ? `
         <div style="margin:16px 0;padding:14px 16px;border:1px solid #e2e8f0;background:#f8fafc;border-radius:10px;text-align:center;">
             <!--[if mso]>
-            <v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" xmlns:w="urn:schemas-microsoft-com:office:word" href="${esc(amendUrl)}" style="height:42px;v-text-anchor:middle;width:250px;" arcsize="18%" stroke="f" fillcolor="#334155">
+            <v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" xmlns:w="urn:schemas-microsoft-com:office:word" href="${esc(amendUrl)}" style="height:42px;v-text-anchor:middle;width:290px;" arcsize="18%" stroke="f" fillcolor="#334155">
             <w:anchorlock/>
             <center style="color:#ffffff;font-family:Arial,sans-serif;font-size:13px;font-weight:bold;">✏️ Amender ce compte rendu</center>
             </v:roundrect>
@@ -1734,17 +1756,24 @@ const transcriptController = {
             const meetingId = req.params.id;
             const meeting = await db.get('SELECT id FROM transcript_meetings WHERE id = ?', [meetingId]);
             if (!meeting) return res.status(404).json({ error: 'Réunion non trouvée' });
-            const allowed = await canAmendMeeting(db, meetingId, req.user);
+            const allowed = await canAmendSummaryText(db, meetingId, req.user);
             if (!allowed) return res.json({ allowed: false });
             const { color, name } = await getOrAssignAmenderColor(db, meetingId, req.user);
             const row = await db.get(
                 'SELECT draft_text, draft_updated_at FROM transcript.amenders WHERE meeting_id = ? AND username = ?',
                 [meetingId, (req.user?.username || '').toLowerCase()]
             );
+            // Destinataires qui recevront le mail de mise à jour (= ceux du
+            // dernier envoi) — rappelés dans la modale de validation, avec la
+            // possibilité d'en ajouter (tout le monde) ou d'en retirer (admin
+            // seulement, cf. amendSummary).
+            const { targets } = await getLastSendTargets(db, meetingId);
             res.json({
                 allowed: true, color, name,
                 draft: row?.draft_text || null,
                 draft_updated_at: row?.draft_updated_at || null,
+                recipients: Array.from(targets.values()),
+                isAdmin: isAdminLike(req.user),
             });
         } catch (error) {
             res.status(500).json({ error: error.message });
@@ -1762,7 +1791,7 @@ const transcriptController = {
             const meetingId = req.params.id;
             const { draftText } = req.body || {};
             if (typeof draftText !== 'string') return res.status(400).json({ error: 'draftText requis' });
-            if (!(await canAmendMeeting(db, meetingId, req.user))) {
+            if (!(await canAmendSummaryText(db, meetingId, req.user))) {
                 return res.status(403).json({ error: 'Accès refusé' });
             }
             await getOrAssignAmenderColor(db, meetingId, req.user); // garantit la ligne transcript.amenders
@@ -1786,12 +1815,12 @@ const transcriptController = {
         try {
             const db = pgDb;
             const meetingId = req.params.id;
-            const { newText } = req.body || {};
+            const { newText, addRecipients, removeEmails } = req.body || {};
             if (typeof newText !== 'string') return res.status(400).json({ error: 'newText requis' });
 
             const meeting = await db.get('SELECT * FROM transcript_meetings WHERE id = ?', [meetingId]);
             if (!meeting) return res.status(404).json({ error: 'Réunion non trouvée' });
-            if (!(await canAmendMeeting(db, meetingId, req.user))) {
+            if (!(await canAmendSummaryText(db, meetingId, req.user))) {
                 return res.status(403).json({ error: 'Accès refusé' });
             }
 
@@ -1843,6 +1872,29 @@ const transcriptController = {
             let broadcastResult = { broadcast: false };
             try {
                 const { targets, sentAt } = await getLastSendTargets(db, meetingId);
+
+                // Retrait de la boucle — réservé aux admins (un amendeur ordinaire
+                // ne peut qu'ajouter des destinataires, jamais en retirer).
+                if (isAdminLike(req.user) && Array.isArray(removeEmails)) {
+                    for (const e of removeEmails) {
+                        const email = String(e || '').trim().toLowerCase();
+                        if (email) targets.delete(email);
+                    }
+                }
+                // Ajout à la boucle — ouvert à tout amendeur (recherche AD ou
+                // saisie libre d'un email externe) ; la personne ajoutée reçoit
+                // ce mail de mise à jour et restera dans la boucle pour les
+                // suivants (elle apparaît désormais dans les destinataires du
+                // dernier envoi, relus par getLastSendTargets la prochaine fois).
+                if (Array.isArray(addRecipients)) {
+                    for (const r of addRecipients) {
+                        const email = String(r?.email || '').trim().toLowerCase();
+                        if (!email || !email.includes('@') || targets.has(email)) continue;
+                        const internal = await isInternalEmail(db, email);
+                        targets.set(email, { email, name: r?.name || email, internal });
+                    }
+                }
+
                 if (targets.size > 0) {
                     const amenders = recentAmenders(newSpans, sentAt);
                     const sendRes = await buildAndSendSummary(req, meetingId, targets, '', { amenders, sinceSentAt: sentAt });
