@@ -65,7 +65,16 @@ const promoteTableHeaders = (html: string) => {
 // filtre rien). On laisse passer explicitement les data URI d'image.
 const markdownUrlTransform = (url: string) => /^data:image\//i.test(url) ? url : defaultUrlTransform(url);
 const mdToHtml = (md: string) => marked.parse(md || '', { breaks: true }) as string;
-const htmlToMd = (html: string) => turndownService.turndown(promoteTableHeaders(html || '')).trim();
+// Quill (comme tout contentEditable) substitue couramment de vrais espaces
+// insécables (U+00A0) aux espaces normaux pour empêcher leur suppression au
+// rendu — Turndown les recopie tels quels dans le Markdown. Résultat : le CR
+// stocké se remplissait progressivement de VRAIS caractères insécables (pas
+// juste l'entité "&nbsp;", indétectable à l'œil ou par une recherche de
+// texte) à chaque passage par l'éditeur riche — l'ancien Outlook les traite
+// comme réellement infranchissables, d'où le débordement. On les renormalise
+// systématiquement en espaces normaux ; ne touche pas notre propre usage de
+// l'entité littérale "&nbsp;" (texte, pas ce caractère) pour les lignes vides.
+const htmlToMd = (html: string) => turndownService.turndown(promoteTableHeaders(html || '')).replace(/ /g, ' ').trim();
 // `table: true` : sans ça, Quill ne reconnaît pas le <table> collé depuis Word/
 // Excel et le réduit à du texte en vrac — la mise en forme n'est pas éditable
 // via la barre d'outils (hors scope « fonctions de base ») mais le tableau
