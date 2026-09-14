@@ -79,7 +79,18 @@ async function listModels() {
         }
         const data = await resp.json();
         const raw = Array.isArray(data) ? data : (Array.isArray(data?.models) ? data.models : (Array.isArray(data?.data) ? data.data : []));
-        return raw.map(m => (typeof m === 'string' ? m : (m?.name || m?.id || m?.label || String(m)))).filter(Boolean);
+        // L'APM renvoie ICI tous les modèles (actifs et désactivés, avec un flag actif/inactif
+        // par modèle) — son admin en a besoin pour tout gérer, y compris désactivé. Filtrer aux
+        // seuls actifs est notre responsabilité ; sans ce filtre, un modèle désactivé côté APM
+        // (ex. un modèle retiré du service) continuait à apparaître dans les sélecteurs de
+        // modèle de l'app (Transcript Manager, analyse de contrats...). Une entrée sans champ
+        // actif/is_active (chaîne brute, ou forme de réponse minimale) reste incluse par défaut.
+        const activeOnly = raw.filter(m => {
+            if (typeof m !== 'object' || m === null) return true;
+            const flag = m.active !== undefined ? m.active : m.is_active;
+            return flag !== false;
+        });
+        return activeOnly.map(m => (typeof m === 'string' ? m : (m?.name || m?.id || m?.label || String(m)))).filter(Boolean);
     } finally {
         clearTimeout(timer);
     }
