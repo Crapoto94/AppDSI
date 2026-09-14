@@ -112,6 +112,7 @@ interface Document {
   nature: string;
   est_principal: number;
   archive: number;
+  commentaire?: string | null;
   uploaded_at: string;
 }
 
@@ -879,6 +880,11 @@ const Contrats: React.FC = () => {
   // vérification manuelle uniquement (sinon jamais affiché, seulement utilisé pour l'analyse IA).
   const [ocrTextModal, setOcrTextModal] = useState<{ documentName: string; text: string } | null>(null);
   const [ocrTextLoading, setOcrTextLoading] = useState(false);
+  // Commentaire libre sur le document affiché dans la vue de documents (docViewModal) —
+  // brouillon local, synchronisé sur le document courant, enregistré à la demande.
+  const [docCommentDraft, setDocCommentDraft] = useState('');
+  const [docCommentSaving, setDocCommentSaving] = useState(false);
+  const [docActionBusy, setDocActionBusy] = useState(false);
   // Analyse IA "à la volée" (bouton toolbar, à côté de "Prévision") : upload d'un fichier
   // PDF quelconque, non lié à un contrat, non conservé côté serveur (rien n'est persisté).
   const [adHocAnalysing, setAdHocAnalysing] = useState(false);
@@ -1396,6 +1402,73 @@ const Contrats: React.FC = () => {
       ? { contratId: pdfModal.contratId, docId: pdfModal.docId, fileName: pdfModal.name }
       : null;
 
+  // Synchronise le brouillon de commentaire sur le document affiché dans la vue de documents.
+  useEffect(() => {
+    setDocCommentDraft(docViewModal?.docs[docViewModal.currentIndex]?.commentaire || '');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [docViewModal?.contrat.id, docViewModal?.currentIndex]);
+
+  const handleDocViewDelete = async () => {
+    if (!docViewModal) return;
+    const doc = docViewModal.docs[docViewModal.currentIndex];
+    if (!doc) return;
+    if (!window.confirm(`Supprimer définitivement « ${cleanFileName(doc.file_name)} » ?`)) return;
+    setDocActionBusy(true);
+    try {
+      const res = await fetch(`/api/contrats/${docViewModal.contrat.id}/documents/${doc.id}`, { method: 'DELETE', headers: authHeaders() });
+      if (!res.ok) { const d = await res.json().catch(() => ({} as any)); throw new Error(d?.message || 'Erreur suppression'); }
+      const remaining = docViewModal.docs.filter(d => d.id !== doc.id);
+      if (remaining.length === 0) { setDocViewModal(null); }
+      else { setDocViewModal(v => v ? { ...v, docs: remaining, currentIndex: Math.min(v.currentIndex, remaining.length - 1) } : null); }
+      showMsg('success', 'Document supprimé.');
+      fetchContrats();
+    } catch (e: any) {
+      showMsg('error', e?.message || 'Erreur lors de la suppression du document');
+    } finally {
+      setDocActionBusy(false);
+    }
+  };
+
+  const handleDocViewArchiveToggle = async () => {
+    if (!docViewModal) return;
+    const doc = docViewModal.docs[docViewModal.currentIndex];
+    if (!doc) return;
+    setDocActionBusy(true);
+    try {
+      const res = await fetch(`/api/contrats/${docViewModal.contrat.id}/documents/${doc.id}/archive`, {
+        method: 'PUT', headers: { ...authHeaders(), 'Content-Type': 'application/json' }, body: JSON.stringify({ archive: !doc.archive }),
+      });
+      if (!res.ok) { const d = await res.json().catch(() => ({} as any)); throw new Error(d?.message || 'Erreur archivage'); }
+      const updated = await res.json();
+      setDocViewModal(v => v ? { ...v, docs: v.docs.map(d => d.id === doc.id ? updated : d) } : null);
+      showMsg('success', updated.archive ? 'Document archivé.' : 'Document désarchivé.');
+    } catch (e: any) {
+      showMsg('error', e?.message || "Erreur lors de l'archivage du document");
+    } finally {
+      setDocActionBusy(false);
+    }
+  };
+
+  const handleDocCommentSave = async () => {
+    if (!docViewModal) return;
+    const doc = docViewModal.docs[docViewModal.currentIndex];
+    if (!doc) return;
+    setDocCommentSaving(true);
+    try {
+      const res = await fetch(`/api/contrats/${docViewModal.contrat.id}/documents/${doc.id}/commentaire`, {
+        method: 'PUT', headers: { ...authHeaders(), 'Content-Type': 'application/json' }, body: JSON.stringify({ commentaire: docCommentDraft }),
+      });
+      if (!res.ok) { const d = await res.json().catch(() => ({} as any)); throw new Error(d?.message || 'Erreur enregistrement'); }
+      const updated = await res.json();
+      setDocViewModal(v => v ? { ...v, docs: v.docs.map(d => d.id === doc.id ? updated : d) } : null);
+      showMsg('success', 'Commentaire enregistré.');
+    } catch (e: any) {
+      showMsg('error', e?.message || "Erreur lors de l'enregistrement du commentaire");
+    } finally {
+      setDocCommentSaving(false);
+    }
+  };
+
   // Vérifie si le document actif est un PDF raster (scan sans couche texte) et s'il a déjà
   // été OCRisé — pour proposer le bon bouton (OCRiser / Analyser avec l'IA).
   const fetchPdfInfo = async (contratId: number, docId: number) => {
@@ -1535,6 +1608,19 @@ const Contrats: React.FC = () => {
     if (!analyseResult || analyseResult.contratId == null) return;
     setSavingAnalyseDoc(true);
     try {
+      // Une analyse déjà enregistrée pour ce contrat (nature "Analyse IA") ? Remplace au lieu
+      // d'empiler des doublons à chaque nouvelle analyse — sur confirmation explicite.
+      const existingRes = await fetch(`/api/contrats/${analyseResult.contratId}/documents`, { headers: authHeaders() });
+      const existingDocs: Document[] = existingRes.ok ? await existingRes.json() : [];
+      const existing = existingDocs.find(d => d.nature === 'Analyse IA');
+      if (existing) {
+        const when = (existing as any).uploaded_at ? new Date((existing as any).uploaded_at).toLocaleString('fr-FR') : '';
+        if (!window.confirm(`Une analyse IA est déjà enregistrée pour ce contrat (${cleanFileName(existing.file_name)}${when ? `, du ${when}` : ''}).\n\nLa remplacer par cette nouvelle analyse ?`)) {
+          setSavingAnalyseDoc(false);
+          return;
+        }
+      }
+
       const md = buildAnalyseMarkdown(analyseResult);
       const safeName = (analyseResult.documentName || 'document').replace(/\.pdf$/i, '').replace(/[\\/:*?"<>|]+/g, '_').trim() || 'document';
       const file = new File([md], `Analyse IA - ${safeName}.md`, { type: 'text/markdown' });
@@ -1547,7 +1633,10 @@ const Contrats: React.FC = () => {
         const data = await res.json().catch(() => ({} as any));
         throw new Error(data?.message || "Erreur lors de l'enregistrement du document");
       }
-      showMsg('success', "Analyse enregistrée dans les documents du contrat.");
+      if (existing) {
+        await fetch(`/api/contrats/${analyseResult.contratId}/documents/${existing.id}`, { method: 'DELETE', headers: authHeaders() });
+      }
+      showMsg('success', existing ? "Analyse IA remplacée dans les documents du contrat." : "Analyse enregistrée dans les documents du contrat.");
       setAnalyseResult(r => r ? { ...r, saved: true } : r);
       // Rafraîchit la liste si la vue de documents (avec navigation) est ouverte sur ce contrat
       if (docViewModal && docViewModal.contrat.id === analyseResult.contratId) {
@@ -3552,7 +3641,7 @@ const Contrats: React.FC = () => {
                     )}
                   </p>
                 </div>
-                <div style={{ display: 'flex', gap: 8 }}>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                   <button
                     onClick={() => setDocViewModal(v => v ? { ...v, currentIndex: Math.max(0, v.currentIndex - 1) } : null)}
                     disabled={docViewModal.currentIndex === 0}
@@ -3566,6 +3655,23 @@ const Contrats: React.FC = () => {
                     style={{ padding: '4px 8px', borderRadius: 4, border: 'none', background: docViewModal.currentIndex === docViewModal.docs.length - 1 ? '#f3f4f6' : '#eff6ff', color: docViewModal.currentIndex === docViewModal.docs.length - 1 ? '#9ca3af' : '#1d4ed8', cursor: docViewModal.currentIndex === docViewModal.docs.length - 1 ? 'default' : 'pointer', fontSize: 11, fontWeight: 600 }}
                   >
                     Suivant →
+                  </button>
+                  <span style={{ width: 1, height: 18, background: '#e5e7eb', margin: '0 2px' }} />
+                  <button
+                    onClick={handleDocViewArchiveToggle}
+                    disabled={docActionBusy}
+                    title={docViewModal.docs[docViewModal.currentIndex]?.archive ? 'Désarchiver ce document' : 'Archiver ce document'}
+                    style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '4px 8px', borderRadius: 4, border: '1px solid #d1d5db', background: docViewModal.docs[docViewModal.currentIndex]?.archive ? '#f3e8ff' : '#fff', color: '#7c3aed', cursor: docActionBusy ? 'default' : 'pointer', fontSize: 11, fontWeight: 600 }}
+                  >
+                    <Archive size={12} /> {docViewModal.docs[docViewModal.currentIndex]?.archive ? 'Archivé' : 'Archiver'}
+                  </button>
+                  <button
+                    onClick={handleDocViewDelete}
+                    disabled={docActionBusy}
+                    title="Supprimer ce document"
+                    style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '4px 8px', borderRadius: 4, border: '1px solid #fca5a5', background: '#fff', color: '#dc2626', cursor: docActionBusy ? 'default' : 'pointer', fontSize: 11, fontWeight: 600 }}
+                  >
+                    <Trash2 size={12} /> Supprimer
                   </button>
                 </div>
               </div>
@@ -3587,6 +3693,24 @@ const Contrats: React.FC = () => {
                 onSelectModel={setContratSelectedModel}
                 modelsError={contratModelsError}
               />
+
+              {/* Commentaire libre sur le document affiché */}
+              <div style={{ display: 'flex', alignItems: 'flex-start', gap: 6, marginBottom: 10 }}>
+                <input
+                  type="text"
+                  value={docCommentDraft}
+                  onChange={e => setDocCommentDraft(e.target.value)}
+                  placeholder="Commentaire sur ce document…"
+                  style={{ flex: 1, padding: '5px 8px', borderRadius: 4, border: '1px solid #d1d5db', fontSize: 11 }}
+                />
+                <button
+                  onClick={handleDocCommentSave}
+                  disabled={docCommentSaving || docCommentDraft === (docViewModal.docs[docViewModal.currentIndex]?.commentaire || '')}
+                  style={{ padding: '5px 10px', borderRadius: 4, border: 'none', background: '#4338ca', color: '#fff', cursor: 'pointer', fontSize: 11, fontWeight: 600, opacity: (docCommentSaving || docCommentDraft === (docViewModal.docs[docViewModal.currentIndex]?.commentaire || '')) ? 0.6 : 1 }}
+                >
+                  {docCommentSaving ? <Loader2 size={12} className="animate-spin" /> : 'Enregistrer'}
+                </button>
+              </div>
 
               <DocPreview
                 path={docViewModal.docs[docViewModal.currentIndex]?.file_path}

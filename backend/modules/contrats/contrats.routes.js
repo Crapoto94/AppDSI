@@ -39,6 +39,10 @@ router.put('/:id/documents/:docId/archive', authenticateAdminOrContrats, async (
     await controller.archiveDocument(req, res, pgDb);
 });
 
+router.put('/:id/documents/:docId/commentaire', authenticateAdminOrContrats, async (req, res) => {
+    await controller.updateDocumentComment(req, res, pgDb);
+});
+
 router.get('/:id/documents/:docId/pdf-info', authenticateJWT, async (req, res) => {
     await controller.getDocumentPdfInfo(req, res, pgDb);
 });

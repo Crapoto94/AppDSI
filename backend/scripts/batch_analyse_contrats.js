@@ -132,6 +132,19 @@ async function pickDocument(pgDb, contratId) {
 
 /** Enregistre le Markdown comme document du contrat (stockage unifié + dual-write hub_docs) — même circuit que "Enregistrer l'analyse" côté UI. */
 async function saveAnalyseAsDocument(pgDb, contratId, fileName, markdown) {
+    // Remplace une éventuelle analyse déjà enregistrée pour ce contrat (nature "Analyse IA")
+    // plutôt que d'empiler des doublons à chaque relance du batch (--force notamment).
+    const existing = await pgDb.all(
+        "SELECT id, file_path FROM hub_contrats.contrat_documents WHERE contrat_id = ? AND nature = 'Analyse IA'",
+        [contratId]
+    );
+    for (const old of existing) {
+        try {
+            if (storage.isStoragePath(old.file_path)) await storage.deleteFile(old.file_path);
+            await pgDb.run('DELETE FROM hub_contrats.contrat_documents WHERE id = ?', [old.id]);
+        } catch (e) { console.warn(`  [DOCS] suppression de l'ancienne analyse #${old.id} échouée :`, e.message); }
+    }
+
     const buffer = Buffer.from(markdown, 'utf8');
     const saved = await storage.saveFile(MODULE, contratId, { buffer, originalname: fileName });
     await pgDb.run(

@@ -2864,6 +2864,12 @@ async function setupPgDb() {
       console.log('[PG DB] Migration contrat_documents.archive column:', e.message);
     }
 
+    try {
+      await client.query(`ALTER TABLE hub_contrats.contrat_documents ADD COLUMN IF NOT EXISTS commentaire TEXT`);
+    } catch (e) {
+      console.log('[PG DB] Migration contrat_documents.commentaire column:', e.message);
+    }
+
     // OCR (pdf raster -> texte, préparation à l'analyse IA — pas d'affichage).
     try {
       await client.query(`

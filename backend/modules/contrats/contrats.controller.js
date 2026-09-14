@@ -1034,6 +1034,20 @@ module.exports = {
         }
     },
 
+    // Documents - Commentaire libre (note manuelle sur un document, distincte de "nature")
+    async updateDocumentComment(req, res, db) {
+        try {
+            const doc = await db.get('SELECT * FROM contrat_documents WHERE id = ? AND contrat_id = ?', [req.params.docId, req.params.id]);
+            if (!doc) return res.status(404).json({ message: 'Document non trouvé' });
+            const commentaire = typeof req.body.commentaire === 'string' ? req.body.commentaire.slice(0, 5000) : '';
+            await db.run('UPDATE contrat_documents SET commentaire = ? WHERE id = ?', [commentaire, doc.id]);
+            const updated = await db.get('SELECT * FROM contrat_documents WHERE id = ?', [doc.id]);
+            res.json(updated);
+        } catch (error) {
+            res.status(500).json({ message: 'Erreur enregistrement du commentaire', error: error.message });
+        }
+    },
+
     // Documents - Info PDF (raster ou texte natif ? OCR déjà fait ?)
     // Utilisé par la vue de documents pour savoir s'il faut proposer le bouton "OCRiser".
     async getDocumentPdfInfo(req, res, db) {
