@@ -1849,7 +1849,7 @@ const transcriptController = {
         try {
             const db = pgDb;
             const meetingId = req.params.id;
-            const { newText, addRecipients, removeEmails } = req.body || {};
+            const { newText, oldTextNormalized, addRecipients, removeEmails } = req.body || {};
             if (typeof newText !== 'string') return res.status(400).json({ error: 'newText requis' });
 
             const meeting = await db.get('SELECT * FROM transcript_meetings WHERE id = ?', [meetingId]);
@@ -1859,8 +1859,21 @@ const transcriptController = {
             }
 
             const oldClean = meeting.summary ? stripSummaryMeta(meeting.summary).trim() : '';
+            // Le Markdown stocké est brut (jamais passé par l'éditeur riche), mais newText, lui,
+            // vient TOUJOURS d'un aller-retour Markdown -> HTML -> Markdown (marked/Turndown côté
+            // front) qui n'est pas parfaitement réversible (espace en fin de paragraphe avant un
+            // titre, échappement de caractères spéciaux...) — même une session sans la moindre
+            // frappe au clavier peut ressortir légèrement différente. Differ newText contre
+            // oldClean brut faisait donc apparaître comme "modifié" tout le texte non
+            // intentionnellement touché dès qu'un aller-retour introduisait le moindre écart,
+            // recolorant à tort ces portions à l'amendeur courant et effaçant l'attribution des
+            // amendements précédents. Le front envoie donc oldTextNormalized : le texte de départ
+            // de CETTE session, déjà passé par le même aller-retour que newText — c'est cette
+            // version qui sert de référence pour le diff, avec repli sur oldClean si absent
+            // (ancien front / appel API direct).
+            const effectiveOldClean = (typeof oldTextNormalized === 'string' && oldTextNormalized.trim()) ? oldTextNormalized.trim() : oldClean;
             const cleanNewText = newText.trim();
-            if (cleanNewText === oldClean) {
+            if (cleanNewText === effectiveOldClean) {
                 return res.json({ changed: false, broadcast: false });
             }
 
@@ -1869,23 +1882,24 @@ const transcriptController = {
             // Fusionne ce nouvel amendement dans l'historique structuré (spans) —
             // un seul contenu cumulatif, chaque portion gardant l'attribution de
             // son auteur d'origine (cf. applyDiffToSpans).
-            let prevSpans = JSON.parse(meeting.summary_annotated_spans || 'null') || initialSpans(oldClean);
+            let prevSpans = JSON.parse(meeting.summary_annotated_spans || 'null') || initialSpans(effectiveOldClean);
             // Garde-fou d'intégrité : applyDiffToSpans marche caractère par
             // caractère dans prevSpans en supposant que la concaténation de ses
-            // spans text+delete reconstruit exactement oldClean. Si ce n'est
-            // plus vrai (spans désynchronisés du résumé réel — ex. correction
-            // directe passée à côté du mécanisme d'amendement), le découpage se
-            // décale et corrompt le texte affiché (mots tronqués/dupliqués),
-            // même si le résumé stocké, lui, reste correct. On repart alors
-            // d'un historique vierge plutôt que de produire un rendu faux —
-            // l'attribution colorée des amendements passés est perdue, mais le
-            // texte reste toujours exact.
+            // spans text+delete reconstruit exactement effectiveOldClean. Si ce
+            // n'est plus vrai (spans désynchronisés du résumé réel — ex.
+            // correction directe passée à côté du mécanisme d'amendement, ou
+            // première utilisation de oldTextNormalized sur un historique bâti
+            // avant son introduction), le découpage se décale et corrompt le
+            // texte affiché (mots tronqués/dupliqués), même si le résumé stocké,
+            // lui, reste correct. On repart alors d'un historique vierge plutôt
+            // que de produire un rendu faux — l'attribution colorée des
+            // amendements passés est perdue, mais le texte reste toujours exact.
             const reconstructedOld = prevSpans.filter(s => s.type !== 'delete').map(s => s.text).join('');
-            if (reconstructedOld !== oldClean) {
+            if (reconstructedOld !== effectiveOldClean) {
                 console.error(`[TRANSCRIPT AMEND] spans désynchronisés pour la réunion ${meetingId} — historique réinitialisé`);
-                prevSpans = initialSpans(oldClean);
+                prevSpans = initialSpans(effectiveOldClean);
             }
-            const newSpans = applyDiffToSpans(prevSpans, oldClean, cleanNewText, { color, name });
+            const newSpans = applyDiffToSpans(prevSpans, effectiveOldClean, cleanNewText, { color, name });
 
             // Trace légère (qui + quand) pour la timeline de l'app — le contenu
             // détaillé vit désormais dans summary_annotated_spans, pas ici.

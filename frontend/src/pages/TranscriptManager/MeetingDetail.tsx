@@ -294,6 +294,15 @@ const MeetingDetail: React.FC = () => {
     const [showDeletedTasks, setShowDeletedTasks] = useState(false);
     const [isEditingAmend, setIsEditingAmend] = useState(false);
     const [amendEditorHtml, setAmendEditorHtml] = useState(''); // contenu WYSIWYG (HTML) — jamais de MD affiché
+    // Version "déjà passée par l'aller-retour Markdown -> HTML -> Markdown" du texte de départ
+    // de CETTE session d'édition — cf. openAmendEditor. Envoyée au serveur comme référence pour
+    // calculer le diff (au lieu du Markdown stocké brut, jamais passé par cet aller-retour) :
+    // marked/Turndown ne sont pas parfaitement réversibles (espace en fin de paragraphe avant
+    // un titre, échappement de caractères...), donc comparer newText au Markdown brut faisait
+    // apparaître comme "modifié" tout le texte non touché par l'utilisateur dès qu'un aller-retour
+    // introduisait le moindre écart — recolorant à tort ces portions à l'amendeur courant et
+    // effaçant l'attribution des amendements précédents.
+    const amendOldTextNormalizedRef = useRef('');
     const amendQuillRef = useRef<ReactQuill>(null);
     const [isAmending, setIsAmending] = useState(false);
     const [amendMessage, setAmendMessage] = useState('');
@@ -771,7 +780,12 @@ const MeetingDetail: React.FC = () => {
     // "non" à la confirmation d'envoi), sinon le texte propre actuel.
     const openAmendEditor = () => {
         const md = amendAccess.draft || stripSummaryMetaClient(meeting?.summary || '');
-        setAmendEditorHtml(mdToHtml(md));
+        const html = mdToHtml(md);
+        setAmendEditorHtml(html);
+        // Référence pour le diff serveur : le texte de départ après le même aller-retour
+        // Markdown -> HTML -> Markdown que subira la version éditée à la validation (cf.
+        // déclaration du ref ci-dessus) — pas le Markdown stocké brut.
+        amendOldTextNormalizedRef.current = htmlToMd(html);
         setAmendMessage(amendAccess.draft ? 'Vous reprenez votre brouillon non envoyé.' : '');
         setIsEditingAmend(true);
     };
@@ -829,6 +843,7 @@ const MeetingDetail: React.FC = () => {
             const res = await axios.post(`/api/transcriptmanager/meeting/${id}/amend-summary`,
                 {
                     newText: htmlToMd(amendEditorHtml),
+                    oldTextNormalized: amendOldTextNormalizedRef.current,
                     addRecipients: pendingAddRecipients,
                     removeEmails: Array.from(pendingRemoveEmails),
                 },
