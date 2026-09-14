@@ -1872,7 +1872,7 @@ const transcriptController = {
             // d'un historique vierge plutôt que de produire un rendu faux —
             // l'attribution colorée des amendements passés est perdue, mais le
             // texte reste toujours exact.
-            const reconstructedOld = prevSpans.filter(s => s.type !== 'insert').map(s => s.text).join('');
+            const reconstructedOld = prevSpans.filter(s => s.type !== 'delete').map(s => s.text).join('');
             if (reconstructedOld !== oldClean) {
                 console.error(`[TRANSCRIPT AMEND] spans désynchronisés pour la réunion ${meetingId} — historique réinitialisé`);
                 prevSpans = initialSpans(oldClean);
