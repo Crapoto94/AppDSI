@@ -2616,9 +2616,13 @@ async function runSummarizeJob(meetingId, model, job, niveau = 'normal') {
         console.log(`[TranscriptManager] Prompt length: ${prompt.length} chars — source: ${source} — model: ${effectiveModel || '(défaut)'} — niveau: ${niveau}`);
         if (job) { job.status = `Envoi du prompt (${effectiveModel || 'défaut'})`; job.progress = 40; }
 
+        // Mode APM : appel asynchrone + polling de progression (queryApmWithProgress) plutôt
+        // qu'un seul long appel bloquant (queryAi) — remonte tokens/texte partiel en direct dans
+        // `job` pendant la génération, déjà pollé par le front toutes les ~2s via
+        // GET /summarize-status/:jobId (cf. "fenêtre noire" de génération, MeetingDetail.tsx).
         const fullText = source === 'local'
             ? await callLocalAi(prompt)
-            : await apmAi.queryAi(prompt, effectiveModel || undefined);
+            : await apmAi.queryApmWithProgress(prompt, effectiveModel || undefined, job);
         if (job) { job.status = 'enregistrement du résumé'; job.progress = 80; }
 
         const result = await processFullText(meetingId, fullText);

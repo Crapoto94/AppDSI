@@ -200,7 +200,7 @@ async function runContratAnalysePrompt({ fileName, content, requestedModel, job 
     // absent/vide — réglage jamais enregistré) utilise l'API Ville par défaut.
     const model = (requestedModel || '').trim() || cfg.contrat_analyse_apm_model || undefined;
     const raw = cfg.contrat_analyse_ai_source !== 'local'
-        ? await queryApmWithProgress(prompt, model, job)
+        ? await apmAi.queryApmWithProgress(prompt, model, job)
         : await callLocalAiProvider(prompt, cfg);
 
     const rawText = String(raw || '').trim();
@@ -228,39 +228,9 @@ async function runContratAnalysePrompt({ fileName, content, requestedModel, job 
     };
 }
 
-/**
- * Interroge l'API Ville en asynchrone (queryId + polling de la progression) plutôt qu'en un
- * seul appel bloquant — remonte le nombre de tokens reçus en temps réel dans `job`
- * (contratAiJobs, déjà suivi par le front via GET /jobs/:jobId) pendant que l'IA génère sa
- * réponse. `job` est optionnel : sans lui, on interroge quand même en asynchrone (toujours
- * préférable à un seul long appel HTTP), simplement sans rien à mettre à jour.
- */
-async function queryApmWithProgress(prompt, model, job) {
-    const queryId = await apmAi.queryAiAsync(prompt, model);
-    const POLL_MS = 1500;
-    const MAX_WAIT_MS = 20 * 60 * 1000; // même borne que l'appel synchrone (query_timeout_ms max côté APM)
-    const start = Date.now();
-    // eslint-disable-next-line no-constant-condition
-    while (true) {
-        await new Promise(resolve => setTimeout(resolve, POLL_MS));
-        const progress = await apmAi.getQueryProgress(queryId);
-        if (job) {
-            job.tokensReceived = progress.tokensReceived || 0;
-            job.charsReceived = progress.charsReceived || 0;
-            // Texte partiel de la réponse IA, mis à jour en direct pendant la génération
-            // (status='running') — permet au front d'afficher le résultat au fil de l'eau
-            // plutôt qu'attendre la fin (cf. GET /jobs/:jobId, déjà pollé par le front).
-            if (progress.status === 'running' && progress.response) job.partialText = progress.response;
-            job.aiProvider = progress.provider_label || null;
-            job.aiModel = progress.model || null;
-        }
-        if (progress.status === 'completed') return progress.response;
-        if (progress.status === 'error') throw new Error(progress.error || "Erreur lors de l'interrogation de l'IA");
-        if (Date.now() - start > MAX_WAIT_MS) {
-            throw new Error("Toujours aucune réponse de l'IA après un long délai — la génération a probablement échoué.");
-        }
-    }
-}
+// queryApmWithProgress (queryId + polling de progression, tokens/texte partiel remontés dans
+// `job`) vit désormais dans shared/apm_ai.js — factorisé avec le même besoin côté Transcript
+// Manager (cf. apmAi.queryApmWithProgress).
 
 /**
  * Libellé du modèle local unique actuellement configuré (pas de choix en mode

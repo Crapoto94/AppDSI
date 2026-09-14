@@ -195,4 +195,40 @@ async function getQueryProgress(queryId) {
     }
 }
 
-module.exports = { getConfig, listModels, queryAi, queryAiAsync, getQueryProgress };
+/**
+ * Interroge l'API Ville en asynchrone (queryAiAsync + polling de getQueryProgress) plutôt qu'en
+ * un seul appel bloquant (queryAi) — remonte en direct dans `job` (optionnel) le nombre de
+ * tokens/caractères reçus et le texte partiel pendant que l'IA génère sa réponse, pour qu'un
+ * endpoint de statut déjà pollé par le front (ex. GET /jobs/:jobId, /summarize-status/:jobId)
+ * puisse afficher une progression en temps réel plutôt qu'un seul état "en cours" statique.
+ * Partagé par l'analyse de contrats et la génération de résumé du Transcript Manager — mêmes
+ * deux appelants, mêmes deux besoins, d'où la factorisation ici plutôt que la duplication.
+ */
+async function queryApmWithProgress(prompt, model, job) {
+    const queryId = await queryAiAsync(prompt, model);
+    const POLL_MS = 1500;
+    const MAX_WAIT_MS = 20 * 60 * 1000; // même borne que l'appel synchrone (query_timeout_ms max côté APM)
+    const start = Date.now();
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+        await new Promise(resolve => setTimeout(resolve, POLL_MS));
+        const progress = await getQueryProgress(queryId);
+        if (job) {
+            job.tokensReceived = progress.tokensReceived || 0;
+            job.charsReceived = progress.charsReceived || 0;
+            // Texte partiel de la réponse IA, mis à jour en direct pendant la génération
+            // (status='running') — permet au front d'afficher le résultat au fil de l'eau
+            // plutôt qu'attendre la fin.
+            if (progress.status === 'running' && progress.response) job.partialText = progress.response;
+            job.aiProvider = progress.provider_label || null;
+            job.aiModel = progress.model || null;
+        }
+        if (progress.status === 'completed') return progress.response;
+        if (progress.status === 'error') throw new Error(progress.error || "Erreur lors de l'interrogation de l'IA");
+        if (Date.now() - start > MAX_WAIT_MS) {
+            throw new Error("Toujours aucune réponse de l'IA après un long délai — la génération a probablement échoué.");
+        }
+    }
+}
+
+module.exports = { getConfig, listModels, queryAi, queryAiAsync, getQueryProgress, queryApmWithProgress };

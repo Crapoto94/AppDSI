@@ -228,6 +228,12 @@ const MeetingDetail: React.FC = () => {
     const [isGenerating, setIsGenerating] = useState(false);
     const [genElapsed, setGenElapsed] = useState(0); // secondes écoulées depuis le clic sur "Générer"
     const genTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+    // Texte reçu au fil de l'eau pendant la génération (mode API Ville uniquement — polling de
+    // progression côté serveur, cf. queryApmWithProgress) et nombre de tokens reçus — affichés
+    // en direct dans la "fenêtre noire" de génération, comme pour l'analyse de contrats.
+    const [genPartialText, setGenPartialText] = useState('');
+    const [genTokensReceived, setGenTokensReceived] = useState(0);
+    const streamBoxRef = useRef<HTMLDivElement>(null);
     // Un proxy réseau intermédiaire peut couper la connexion avant que le
     // backend n'ait fini (constaté : le résumé finit par être enregistré
     // malgré l'erreur affichée au client). Dans ce cas, on vérifie
@@ -347,6 +353,12 @@ const MeetingDetail: React.FC = () => {
         if (genTimerRef.current) clearInterval(genTimerRef.current);
         if (pollTimeoutRef.current) clearTimeout(pollTimeoutRef.current);
     }, []);
+
+    // Défile automatiquement vers le bas de la "fenêtre noire" au fil de l'arrivée du texte —
+    // comme un terminal qui suit la sortie en direct plutôt que de rester bloqué en haut.
+    useEffect(() => {
+        if (streamBoxRef.current) streamBoxRef.current.scrollTop = streamBoxRef.current.scrollHeight;
+    }, [genPartialText]);
 
     useEffect(() => {
         if (!token) return;
@@ -512,6 +524,8 @@ const MeetingDetail: React.FC = () => {
                     timeout: 10000
                 });
                 const job = res.data;
+                if (typeof job?.partialText === 'string') setGenPartialText(job.partialText);
+                if (typeof job?.tokensReceived === 'number') setGenTokensReceived(job.tokensReceived);
                 if (job?.status === 'completed') {
                     await fetchData();
                     stopGenerating();
@@ -564,6 +578,8 @@ const MeetingDetail: React.FC = () => {
         setIsGenerating(true);
         setIsPollingAfterError(false);
         setGenElapsed(0);
+        setGenPartialText('');
+        setGenTokensReceived(0);
         const genStart = Date.now();
         const summaryBefore = meeting?.summary || '';
         if (genTimerRef.current) clearInterval(genTimerRef.current);
@@ -1642,9 +1658,14 @@ const MeetingDetail: React.FC = () => {
                                         </li>
                                     ))}
                                 </ul>
-                                <div className="stream-box-modal">
-                                    {getGenerationPhase(genElapsed, aiSource, selectedModel, isPollingAfterError)}
+                                <div className="stream-box-modal" ref={streamBoxRef}>
+                                    {genPartialText
+                                        ? <>{genPartialText}<span className="gen-cursor">▌</span></>
+                                        : getGenerationPhase(genElapsed, aiSource, selectedModel, isPollingAfterError)}
                                 </div>
+                                {genTokensReceived > 0 && (
+                                    <div className="gen-token-counter">{genTokensReceived.toLocaleString('fr-FR')} tokens reçus</div>
+                                )}
                                 {meeting?.summary_notice && (
                                     <div className="gen-notice">
                                         {(meeting.summary_notice || '').split('\n').map(l => l.trim()).filter(Boolean).map((line, i) => (
@@ -2494,9 +2515,22 @@ const MeetingDetail: React.FC = () => {
                     white-space: pre-wrap;
                     overflow-y: auto;
                     min-height: 64px;
-                    max-height: 130px;
+                    max-height: 280px;
                     box-shadow: inset 0 2px 4px rgba(0,0,0,0.5);
                     line-height: 1.6;
+                }
+                .gen-cursor {
+                    display: inline-block;
+                    animation: gen-cursor-blink 1s step-start infinite;
+                    color: #38BDF8;
+                }
+                @keyframes gen-cursor-blink { 50% { opacity: 0; } }
+                .gen-token-counter {
+                    margin-top: 0.4rem;
+                    font-size: 0.72rem;
+                    color: #94A3B8;
+                    text-align: right;
+                    font-family: 'Fira Code', monospace;
                 }
                 /* Avertissement (IA locale/souveraine, vérification, responsabilité)
                    affiché en gros et en couleur vive pendant la génération. */
