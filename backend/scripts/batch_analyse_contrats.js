@@ -29,12 +29,10 @@
  * n'interrompt PAS le traitement des suivants — le résumé final liste les échecs.
  */
 const db = require('../shared/database');
-const storage = require('../shared/storage');
 const ocrService = require('../shared/ocr');
 const contratsController = require('../modules/contrats/contrats.controller');
 const { runContratAnalysePrompt, readDocumentBuffer, runOcrJob, extractAnalyseScore } = contratsController._internal;
-
-const MODULE = 'contrats';
+const { saveAnalyseAsDocument } = require('../shared/contrat_analyse');
 
 function parseArgs(argv) {
     const args = { model: null, dryRun: false, limit: null, force: false, delay: 2000, ids: null };
@@ -53,72 +51,6 @@ function parseArgs(argv) {
 
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
-// ── Miroir des helpers Markdown côté front (buildAnalyseMarkdown, Contrats.tsx) ────────────
-// Dupliqué volontairement (pas de frontière de code partagée entre le frontend TS et les
-// scripts backend CommonJS) — garder en phase si la version front évolue.
-const KNOWN_ANALYSE_FIELDS = [
-    ['fournisseur', 'Fournisseur'],
-    ['date_debut', 'Date début'],
-    ['duree_annees', 'Durée (années)'],
-    ['nb_reconductions', 'Reconductions'],
-    ['reconduction', 'Type reconduction'],
-    ['date_fin', 'Date fin'],
-    ['montant_2022', 'Montant initial'],
-    ['gti', 'GTI'],
-    ['gtr', 'GTR'],
-    ['indice_revision', 'Indice révision'],
-];
-const KNOWN_ANALYSE_KEYS = new Set([...KNOWN_ANALYSE_FIELDS.map(([k]) => k), 'resume']);
-
-const humanizeJsonKey = (key) => key.replace(/_/g, ' ').replace(/^./, c => c.toUpperCase());
-
-function jsonValueToMarkdown(value, indent = 0) {
-    const pad = '  '.repeat(indent);
-    if (value === null || value === undefined || value === '') return '_—_';
-    if (Array.isArray(value)) {
-        return value.map(item => (typeof item === 'object' && item !== null)
-            ? `${pad}- ${jsonValueToMarkdown(item, indent + 1).trim()}`
-            : `${pad}- **${String(item)}**`
-        ).join('\n');
-    }
-    if (typeof value === 'object') {
-        return Object.entries(value).map(([k, v]) => {
-            const vMd = jsonValueToMarkdown(v, indent + 1);
-            return vMd.includes('\n') ? `${pad}- **${humanizeJsonKey(k)}** :\n${vMd}` : `${pad}- **${humanizeJsonKey(k)}** : ${vMd}`;
-        }).join('\n');
-    }
-    return `**${String(value)}**`;
-}
-
-function buildAnalyseMarkdown(documentName, rawText, parsedJson) {
-    const lines = [`# Analyse IA — ${documentName || 'document'}`, '', `_Générée le ${new Date().toLocaleString('fr-FR')}_`, ''];
-    if (parsedJson) {
-        lines.push('## Champs détectés', '');
-        for (const [key, label] of KNOWN_ANALYSE_FIELDS) {
-            const v = parsedJson[key];
-            lines.push(`- ${label} : ${(v === null || v === undefined || v === '') ? '—' : `**${String(v)}**`}`);
-        }
-        lines.push('');
-        if (parsedJson.resume) lines.push('## Résumé', '', String(parsedJson.resume), '');
-        const extraEntries = Object.entries(parsedJson).filter(([k]) => !KNOWN_ANALYSE_KEYS.has(k));
-        for (const [k, v] of extraEntries) lines.push(`## ${humanizeJsonKey(k)}`, '', jsonValueToMarkdown(v), '');
-    } else if (rawText) {
-        lines.push(rawText, '');
-    }
-    lines.push('---', '_Analyse générée automatiquement (traitement par lot) — conservée sur le contrat._');
-    return lines.join('\n');
-}
-// ── Fin miroir front ────────────────────────────────────────────────────────────────────
-
-/** Nom de fichier propre pour le document Markdown enregistré (sans préfixe technique, sans extension d'origine). */
-function safeDocName(fileName) {
-    return (fileName || 'document')
-        .replace(/^\d{10,}-\d{1,15}-/, '')
-        .replace(/\.pdf$/i, '')
-        .replace(/[\\/:*?"<>|]+/g, '_')
-        .trim() || 'document';
-}
-
 /** Choisit le document à analyser pour un contrat : le principal (est_principal=1), sinon le PDF non archivé le plus récent. */
 async function pickDocument(pgDb, contratId) {
     let doc = await pgDb.get(
@@ -134,38 +66,6 @@ async function pickDocument(pgDb, contratId) {
         );
     }
     return doc || null;
-}
-
-/** Enregistre le Markdown comme document du contrat (stockage unifié + dual-write hub_docs) — même circuit que "Enregistrer l'analyse" côté UI. */
-async function saveAnalyseAsDocument(pgDb, contratId, fileName, markdown) {
-    // Remplace une éventuelle analyse déjà enregistrée pour ce contrat (nature "Analyse IA")
-    // plutôt que d'empiler des doublons à chaque relance du batch (--force notamment).
-    const existing = await pgDb.all(
-        "SELECT id, file_path FROM hub_contrats.contrat_documents WHERE contrat_id = ? AND nature = 'Analyse IA'",
-        [contratId]
-    );
-    for (const old of existing) {
-        try {
-            if (storage.isStoragePath(old.file_path)) await storage.deleteFile(old.file_path);
-            await pgDb.run('DELETE FROM hub_contrats.contrat_documents WHERE id = ?', [old.id]);
-        } catch (e) { console.warn(`  [DOCS] suppression de l'ancienne analyse #${old.id} échouée :`, e.message); }
-    }
-
-    const buffer = Buffer.from(markdown, 'utf8');
-    const saved = await storage.saveFile(MODULE, contratId, { buffer, originalname: fileName });
-    await pgDb.run(
-        'INSERT INTO hub_contrats.contrat_documents (contrat_id, file_path, file_name, nature, est_principal) VALUES (?,?,?,?,0)',
-        [contratId, saved.dbPath, saved.filename, 'Analyse IA']
-    );
-    try {
-        const docsService = require('../shared/documents.service');
-        await docsService.registerExternalUpload({
-            module: MODULE, entityType: 'attachment', entityId: contratId,
-            title: 'Analyse IA', filename: saved.filename, originalName: fileName,
-            mimetype: 'text/markdown', size: buffer.length, storageRef: saved.dbPath,
-            metadata: { nature: 'Analyse IA', batch: true }, uploadedBy: 'batch_analyse_contrats',
-        });
-    } catch (e) { console.warn('  [DOCS] enregistrement hub_docs échoué (document quand même créé) :', e.message); }
 }
 
 (async () => {
@@ -248,8 +148,7 @@ async function saveAnalyseAsDocument(pgDb, contratId, fileName, markdown) {
                 [rawText, parsedJson ? JSON.stringify(parsedJson) : null, score, doc.id, c.id]
             );
 
-            const md = buildAnalyseMarkdown(doc.file_name, rawText, parsedJson);
-            await saveAnalyseAsDocument(pgDb, c.id, `Analyse IA - ${safeDocName(doc.file_name)}.md`, md);
+            await saveAnalyseAsDocument(pgDb, c.id, doc.file_name, rawText, parsedJson, 'batch_analyse_contrats');
 
             console.log(`${label} : OK${score != null ? ` (score ${score}/100)` : ''}.`);
             summary.ok++;

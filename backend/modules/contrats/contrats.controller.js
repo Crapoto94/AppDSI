@@ -6,6 +6,7 @@ const { pgDb, pool, getSqlite } = require('../../shared/database');
 const storage = require('../../shared/storage');
 const ocrService = require('../../shared/ocr');
 const apmAi = require('../../shared/apm_ai');
+const { saveAnalyseAsDocument: saveAnalyseAsGedDocument } = require('../../shared/contrat_analyse');
 
 const MODULE = 'contrats';
 
@@ -315,6 +316,67 @@ async function runAnalyseDocumentJob(doc, contratId, requestedModel, db, job) {
     } catch (error) {
         job.status = 'error';
         job.error = aiErrorMessage(error);
+    }
+}
+
+/**
+ * Déclenchée (sans attendre, "fire and forget") depuis addDocument à chaque ajout de document
+ * PDF sur un contrat : OCRise si besoin puis lance l'analyse IA avec le modèle par défaut
+ * configuré en admin, et enregistre le résultat (colonnes ai_analyse_* + document Markdown
+ * dans la GED), exactement comme le bouton "Analyser avec l'IA" / le script batch.
+ *
+ * Ne doit jamais faire planter l'ajout de document qui l'a déclenchée : toute erreur est
+ * seulement journalisée (console.error), il n'y a pas de réponse HTTP à ce stade.
+ */
+async function triggerAutoAnalyse(db, contratId, doc) {
+    try {
+        // Le document lui-même est le résultat d'une analyse précédente (enregistrée via
+        // "Enregistrer l'analyse" ou ce même mécanisme automatique) : ne pas ré-analyser une
+        // analyse, ça bouclerait indéfiniment (addDocument est aussi le endpoint utilisé pour
+        // sauvegarder les analyses en GED).
+        if ((doc.nature || '') === 'Analyse IA') return;
+        if (!/\.pdf$/i.test(doc.file_name || '')) return;
+
+        const contrat = await db.get('SELECT id, ai_analyse_at FROM contrats WHERE id = ?', [contratId]);
+        if (!contrat) return;
+        // Ne redéclenche pas automatiquement à chaque pièce jointe ultérieure une fois qu'une
+        // première analyse existe déjà — évite un re-traitement IA coûteux non sollicité.
+        if (contrat.ai_analyse_at) return;
+
+        let content = (doc.ocr_text || '').trim();
+        if (!content) {
+            const buffer = await readDocumentBuffer(doc);
+            const info = await ocrService.analyzePdf(buffer);
+            if (info.isRaster || !(info.text || '').trim()) {
+                const ocrJob = {};
+                await runOcrJob({ ...doc }, db, ocrJob);
+                if (ocrJob.status === 'error') throw new Error(`OCR échoué : ${ocrJob.error}`);
+                const refreshed = await db.get('SELECT ocr_text FROM contrat_documents WHERE id = ?', [doc.id]);
+                content = (refreshed?.ocr_text || '').trim();
+            } else {
+                content = info.text.trim();
+            }
+        }
+        if (!content) {
+            console.warn(`[Contrats] analyse auto sautée pour le contrat #${contratId} : aucun texte exploitable (document #${doc.id}).`);
+            return;
+        }
+
+        // Pas de requestedModel : utilise le modèle par défaut configuré en admin
+        // (contrat_analyse_apm_model), comme les autres points d'entrée d'analyse.
+        const { rawText, parsedJson } = await runContratAnalysePrompt({ fileName: doc.file_name, content, requestedModel: undefined, job: undefined });
+        const score = extractAnalyseScore(rawText, parsedJson);
+
+        await db.run(
+            'UPDATE contrats SET ai_analyse_raw = ?, ai_analyse_json = ?, ai_analyse_score = ?, ai_analyse_document_id = ?, ai_analyse_at = CURRENT_TIMESTAMP WHERE id = ?',
+            [rawText, parsedJson ? JSON.stringify(parsedJson) : null, score, doc.id, contratId]
+        );
+
+        await saveAnalyseAsGedDocument(db, contratId, doc.file_name, rawText, parsedJson, null);
+
+        console.log(`[Contrats] analyse IA automatique terminée pour le contrat #${contratId}${score != null ? ` (score ${score}/100)` : ''}.`);
+    } catch (error) {
+        console.error(`[Contrats] analyse IA automatique échouée pour le contrat #${contratId} :`, error.message);
     }
 }
 
@@ -991,6 +1053,11 @@ module.exports = {
 
             const doc = await db.get('SELECT * FROM contrat_documents WHERE id = ?', [result.lastID]);
             res.status(201).json(doc);
+
+            // Analyse IA automatique en arrière-plan (OCR si besoin + IA) — ne bloque pas la
+            // réponse HTTP ; triggerAutoAnalyse filtre elle-même les cas non pertinents
+            // (document non-PDF, document d'analyse IA lui-même, contrat déjà analysé).
+            triggerAutoAnalyse(db, req.params.id, doc);
         } catch (error) {
             res.status(500).json({ message: 'Erreur upload document', error: error.message });
         }
