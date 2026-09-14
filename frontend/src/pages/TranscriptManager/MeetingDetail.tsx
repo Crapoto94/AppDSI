@@ -1039,7 +1039,7 @@ const MeetingDetail: React.FC = () => {
                                     {aiModels.map(m => <option key={m} value={m}>{m}</option>)}
                                 </select>
                                 <select
-                                    className="md-generate-model"
+                                    className="md-generate-model md-generate-level"
                                     value={summaryLevel}
                                     onChange={e => setSummaryLevel(e.target.value as 'sommaire' | 'normal' | 'detaille')}
                                     disabled={isGenerating}
@@ -1441,7 +1441,7 @@ const MeetingDetail: React.FC = () => {
                     </div>
 
                     <div className="md-main">
-                        <div className="md-card transcript-card">
+                        <div className="md-card transcript-card" style={{ order: meeting.summary ? 2 : 1 }}>
                             <div className="card-head">
                                 <FileText size={18} />
                                 <h2>Transcription</h2>
@@ -1493,7 +1493,7 @@ const MeetingDetail: React.FC = () => {
                             </div>
                         </div>
 
-                        <div className="md-card summary-card">
+                        <div className="md-card summary-card" style={{ order: meeting.summary ? 1 : 2 }}>
                             <div className="card-head">
                                 <MessageSquare size={18} />
                                 <h2>Résumé Exécutif</h2>
@@ -2101,7 +2101,10 @@ const MeetingDetail: React.FC = () => {
                 .md-generate-model {
                     border: none;
                     border-left: 1px solid rgba(255,255,255,0.35);
-                    background: #DC2626;
+                    /* Rouge un ton plus profond que le bouton "Générer" (#DC2626) — distingue le
+                       sélecteur de modèle du bouton d'action tout en restant dans la même
+                       famille de couleur (aucun changement de teinte, juste de profondeur). */
+                    background: #B91C1C;
                     color: #fff;
                     font-size: 0.78rem;
                     font-weight: 600;
@@ -2115,9 +2118,14 @@ const MeetingDetail: React.FC = () => {
                     background-repeat: no-repeat;
                     background-position: right 0.5rem center;
                 }
-                .md-generate-model:hover:not(:disabled) { background: #B91C1C; }
+                .md-generate-model:hover:not(:disabled) { background: #991B1B; }
                 .md-generate-model:disabled { opacity: 0.75; cursor: default; }
                 .md-generate-model option { color: #1E293B; background: #fff; }
+                /* Sélecteur de niveau de détail : encore un ton plus profond (même famille de
+                   rouge) pour le distinguer du sélecteur de modèle juste à côté — les deux se
+                   confondaient sinon en un seul bloc rouge uni. */
+                .md-generate-level { background: #9F1239; }
+                .md-generate-level:hover:not(:disabled) { background: #881337; }
                 .md-actions {
                     display: flex;
                     align-items: center;
@@ -2233,6 +2241,12 @@ const MeetingDetail: React.FC = () => {
                    césure) — ça élargissait toute la page au lieu de faire retourner
                    le texte à la ligne. */
                 .md-sidebar, .md-main { min-width: 0; }
+                /* flex column (pas display:block par défaut) : permet à transcript-card et
+                   summary-card de se réordonner (style order, cf. JSX) — le résumé passe avant
+                   la transcription dès qu'il existe. Le flux visuel reste identique à un
+                   empilement classique (margin-bottom de .md-card conservé, pas de gap ajouté
+                   pour ne pas doubler l'espacement). */
+                .md-main { display: flex; flex-direction: column; }
 
                 .md-card {
                     background: white;
