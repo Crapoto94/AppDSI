@@ -1831,12 +1831,12 @@ export default function TicketDetail() {
                         )}
                         {editingCommentId === c.id ? (
                           <div>
-                            <textarea
-                              value={editingCommentText}
-                              onChange={e => setEditingCommentText(e.target.value)}
-                              rows={4}
-                              style={{ width: '100%', fontSize: 13, border: '1px solid #d4d4d8', borderRadius: 6, padding: '6px 10px', resize: 'vertical', boxSizing: 'border-box', fontFamily: 'inherit' }}
-                            />
+                            <div style={{ border: '1px solid #d4d4d8', borderRadius: 8, overflow: 'hidden', background: '#fff' }}>
+                              <ReactQuill value={editingCommentText} onChange={setEditingCommentText} placeholder="Contenu du commentaire..."
+                                modules={{ toolbar: [['bold', 'italic', 'underline'], [{ list: 'ordered' }, { list: 'bullet' }], ['link'], ['clean']] }}
+                                style={{ fontFamily: 'inherit', fontSize: 13 }}
+                              />
+                            </div>
                             <div style={{ display: 'flex', gap: 6, marginTop: 4 }}>
                               <button onClick={() => handleSaveCommentEdit(c.id)} style={{ fontSize: 12, padding: '3px 12px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: 5, cursor: 'pointer' }}>Enregistrer</button>
                               <button onClick={() => { setEditingCommentId(null); setEditingCommentText(''); }} style={{ fontSize: 12, padding: '3px 10px', background: '#f4f4f5', color: '#3f3f46', border: '1px solid #e4e4e7', borderRadius: 5, cursor: 'pointer' }}>Annuler</button>
