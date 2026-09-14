@@ -576,10 +576,22 @@ function buildSummaryEmailHtml({ summaryHtml, message, meetingTitle, meetingDate
  *  fait pas) — indispensable pour les clients mail qui ignorent les <style>
  *  externes (ex. tableau collé depuis Word via l'éditeur riche). */
 function inlineTableStyles(html) {
+    // word-break direct sur CHAQUE élément (pas seulement sur un conteneur
+    // englobant) : le moteur Word de l'ancien Outlook convertit <ul>/<li> en
+    // son propre système de listes internes lors du rendu, ce qui casse
+    // l'héritage CSS depuis un parent — un <div style="word-wrap:..."> autour
+    // ne suffit pas, chaque <li>/<p> doit porter la propriété lui-même.
+    const wrap = 'word-wrap:break-word;overflow-wrap:break-word;word-break:break-word;';
     return String(html || '')
-        .replace(/<table>/g, '<table style="border-collapse:collapse;width:100%;margin:10px 0;font-size:13px;">')
-        .replace(/<th>/g, '<th style="border:1px solid #cbd5e1;padding:6px 10px;background:#f1f5f9;text-align:left;font-weight:700;color:#334155;">')
-        .replace(/<td>/g, '<td style="border:1px solid #e2e8f0;padding:6px 10px;text-align:left;color:#334155;">');
+        .replace(/<table>/g, `<table style="border-collapse:collapse;width:100%;margin:10px 0;font-size:13px;${wrap}">`)
+        .replace(/<th>/g, `<th style="border:1px solid #cbd5e1;padding:6px 10px;background:#f1f5f9;text-align:left;font-weight:700;color:#334155;${wrap}">`)
+        .replace(/<td>/g, `<td style="border:1px solid #e2e8f0;padding:6px 10px;text-align:left;color:#334155;${wrap}">`)
+        .replace(/<p>/g, `<p style="${wrap}">`)
+        .replace(/<li>/g, `<li style="${wrap}">`)
+        .replace(/<h1>/g, `<h1 style="${wrap}">`)
+        .replace(/<h2>/g, `<h2 style="${wrap}">`)
+        .replace(/<h3>/g, `<h3 style="${wrap}">`)
+        .replace(/<blockquote>/g, `<blockquote style="${wrap}">`);
 }
 
 async function getAppBaseUrl(req) {
