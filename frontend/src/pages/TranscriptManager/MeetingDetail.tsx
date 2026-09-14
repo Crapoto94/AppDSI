@@ -317,6 +317,9 @@ const MeetingDetail: React.FC = () => {
     const [amendMessage, setAmendMessage] = useState('');
     const [showSendConfirmModal, setShowSendConfirmModal] = useState(false);
     const [showAmendedContent, setShowAmendedContent] = useState(false);
+    // Confirmation avant de régénérer un résumé IA déjà existant — la régénération repart de
+    // zéro (amendements + tâches déjà réalisés supprimés côté serveur), cf. runGenerateSummary.
+    const [showRegenerateConfirmModal, setShowRegenerateConfirmModal] = useState(false);
 
     // Sharing state
     const [orgDirections, setOrgDirections] = useState<{ code: string; label: string }[]>([]);
@@ -557,24 +560,26 @@ const MeetingDetail: React.FC = () => {
         pollTimeoutRef.current = setTimeout(poll, POLL_INTERVAL_MS);
     };
 
-    const handleSummarize = async () => {
+    // Point d'entrée du bouton "Générer résumé IA" : s'il existe déjà un résumé (première
+    // génération sinon, rien à perdre), affiche la modale de confirmation — la régénération
+    // repart de zéro comme la toute première analyse (cf. runGenerateSummary : suppression des
+    // amendements/tâches déjà réalisés, côté serveur, une fois la nouvelle génération réussie).
+    const handleSummarize = () => {
         if (!id || !token) return;
         if (!selectedModel) {
             alert("Choisissez un modèle IA avant de générer le résumé.");
             return;
         }
-        // Le résumé a déjà été corrigé à la main : on demande confirmation avant
-        // d'écraser cette modification par une regénération IA.
-        const alreadyModified = !!(meeting?.summary_edited_by || meeting?.summary_edited_at);
-        if (meeting?.summary && alreadyModified) {
-            const who = meeting.summary_edited_by ? ` par ${meeting.summary_edited_by}` : '';
-            const when = meeting.summary_edited_at ? ` le ${fmtDateTime(meeting.summary_edited_at)}` : '';
-            const ok = window.confirm(
-                `Le résumé de cette réunion a déjà fait l'objet d'une modification manuelle${who}${when}.\n\n` +
-                `Voulez-vous vraiment régénérer un résumé IA ? La modification existante sera écrasée.`
-            );
-            if (!ok) return;
+        if (meeting?.summary) {
+            setShowRegenerateConfirmModal(true);
+            return;
         }
+        runGenerateSummary();
+    };
+
+    const runGenerateSummary = async () => {
+        if (!id || !token) return;
+        setShowRegenerateConfirmModal(false);
         setIsGenerating(true);
         setIsPollingAfterError(false);
         setGenElapsed(0);
@@ -1962,6 +1967,46 @@ const MeetingDetail: React.FC = () => {
                                 style={{ background: 'none', color: '#94A3B8', border: 'none', padding: '0.4rem', fontWeight: 600, cursor: 'pointer', fontSize: '0.8rem' }}
                             >
                                 Retour à l'édition
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {showRegenerateConfirmModal && (
+                <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1200 }}>
+                    <div style={{ background: 'white', borderRadius: 16, width: '90%', maxWidth: 480, boxShadow: '0 20px 25px -5px rgba(0,0,0,0.15)' }}>
+                        <div style={{ padding: '1.5rem 1.5rem 0.5rem' }}>
+                            <h3 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 700, color: '#1E293B' }}>Régénérer le résumé IA ?</h3>
+                        </div>
+                        <div style={{ padding: '0.5rem 1.5rem 1.25rem', color: '#475569', fontSize: '0.85rem', lineHeight: 1.7 }}>
+                            En validant, la nouvelle génération repartira de zéro, comme s'il s'agissait de la toute première analyse. Seront supprimés :
+                            <ul style={{ margin: '0.6rem 0 0', paddingLeft: '1.2rem' }}>
+                                <li>le résumé actuel (remplacé par la nouvelle génération)</li>
+                                <li>
+                                    {tasks.length > 0
+                                        ? `les ${tasks.length} tâche${tasks.length > 1 ? 's' : ''} en attente d'affectation issue${tasks.length > 1 ? 's' : ''} de ce résumé`
+                                        : "les tâches en attente d'affectation issues de ce résumé (aucune actuellement)"}
+                                </li>
+                                <li>
+                                    {(meeting?.summary_amendments || []).length > 0
+                                        ? `les ${(meeting?.summary_amendments || []).length} amendement${(meeting?.summary_amendments || []).length > 1 ? 's' : ''} déjà réalisé${(meeting?.summary_amendments || []).length > 1 ? 's' : ''} (historique et couleurs par amendeur)`
+                                        : 'les amendements déjà réalisés (aucun actuellement)'}
+                                </li>
+                            </ul>
+                        </div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', padding: '0 1.5rem 1.5rem' }}>
+                            <button
+                                onClick={runGenerateSummary}
+                                style={{ background: '#DC2626', color: 'white', border: 'none', padding: '0.7rem 1.25rem', borderRadius: 8, fontWeight: 700, cursor: 'pointer' }}
+                            >
+                                Oui, régénérer (tout supprimer)
+                            </button>
+                            <button
+                                onClick={() => setShowRegenerateConfirmModal(false)}
+                                style={{ background: '#F1F5F9', color: '#334155', border: 'none', padding: '0.7rem 1.25rem', borderRadius: 8, fontWeight: 600, cursor: 'pointer' }}
+                            >
+                                Annuler
                             </button>
                         </div>
                     </div>

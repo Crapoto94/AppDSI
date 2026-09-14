@@ -453,7 +453,7 @@ function recentAmenders(spans, sinceAt) {
 
 /** Corps HTML du mail : META, participants, PJ, résumé, plan d'actions.
  *  L'encart « magasin d'applications » n'est ajouté QUE pour les internes. */
-function buildSummaryEmailHtml({ summaryHtml, message, meetingTitle, meetingDate, internal, magappUrl, amendUrl, participants, tasks, amendedHtml, meta, attachmentNames, noticeText, updateInfo }) {
+function buildSummaryEmailHtml({ summaryHtml, message, meetingTitle, meetingDate, internal, magappUrl, amendUrl, participants, tasks, amendedHtml, meta, attachmentNames, noticeText, updateInfo, isReplacementSend }) {
     const esc = (s) => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     const fmt = (d) => d ? new Date(d).toLocaleString('fr-FR', { timeZone: 'Europe/Paris' }) : '';
 
@@ -567,6 +567,16 @@ function buildSummaryEmailHtml({ summaryHtml, message, meetingTitle, meetingDate
             ${revisionLegendHtml}
         </div>` : '';
 
+    // Régénération IA depuis le dernier envoi (cf. runGenerateSummary côté app, qui repart de
+    // zéro à chaque régénération) : le contenu ci-dessous est différent de ce qui a déjà été
+    // envoyé — bandeau visible en tête de mail, distinct du "mode révision" d'updateHtml
+    // (mutuellement exclusifs : isReplacementSend n'est calculé que pour un envoi normal, pas
+    // pour la diffusion automatique déclenchée par un amendement).
+    const replacementHtml = isReplacementSend ? `
+        <div style="margin:12px 0;padding:12px 16px;border:2px solid #DC2626;background:#FEF2F2;border-radius:10px;color:#991B1B;font-size:13px;line-height:1.5;">
+            <strong>⚠️ ANNULE ET REMPLACE</strong> — ce compte rendu a été régénéré par l'IA depuis le dernier envoi et remplace celui précédemment reçu pour cette réunion. Merci de ne tenir compte que de cette nouvelle version.
+        </div>` : '';
+
     // PAS de tableau englobant supplémentaire ici (retiré — cf. commentaire de
     // forceBreakLongWords) : la largeur est déjà contrainte par le template
     // englobant (API Ville, width="750"/table-layout:fixed) — un wrapper de
@@ -578,8 +588,11 @@ function buildSummaryEmailHtml({ summaryHtml, message, meetingTitle, meetingDate
         <p>Bonjour,</p>
         <p>${updateInfo
             ? `Le compte rendu de la réunion <strong>${esc(meetingTitle)}</strong>${meetingDate ? ` du ${esc(meetingDate)}` : ''} vient d'être mis à jour.`
-            : `Vous recevez le résumé de la réunion <strong>${esc(meetingTitle)}</strong>${meetingDate ? ` du ${esc(meetingDate)}` : ''}.`}</p>
+            : isReplacementSend
+                ? `Ce compte rendu <strong>ANNULE ET REMPLACE</strong> l'envoi précédent pour la réunion <strong>${esc(meetingTitle)}</strong>${meetingDate ? ` du ${esc(meetingDate)}` : ''}.`
+                : `Vous recevez le résumé de la réunion <strong>${esc(meetingTitle)}</strong>${meetingDate ? ` du ${esc(meetingDate)}` : ''}.`}</p>
         ${updateHtml}
+        ${replacementHtml}
         ${metaLine}
         ${statusLine}
         ${message ? `<div style="background:#f8fafc;border-left:3px solid #6366f1;padding:10px 14px;margin:12px 0;border-radius:6px;white-space:pre-wrap;">${esc(message)}</div>` : ''}
@@ -692,6 +705,29 @@ async function buildAndSendSummary(req, meetingId, targets, message, updateInfo 
     if (!bodySummary) return { error: "Aucun résumé à envoyer. Générez d'abord un résumé IA.", status: 400 };
     if (!targets || targets.size === 0) return { error: 'Aucun destinataire sélectionné.', status: 400 };
 
+    // "Annule et remplace" : uniquement pour un envoi normal (updateInfo est réservé à la
+    // diffusion automatique déclenchée par un amendement, qui a déjà sa propre mention "mode
+    // révision" — pas le même cas). S'applique quand le résumé actuel a été (ré)généré par l'IA
+    // APRÈS le dernier envoi enregistré pour cette réunion (cf. runGenerateSummary côté app, qui
+    // repart de zéro à chaque régénération) : ce nouvel envoi présente un contenu différent de
+    // ce qui a déjà été envoyé, il faut le dire clairement plutôt que laisser croire à un simple
+    // rappel du même compte rendu.
+    let isReplacementSend = false;
+    if (!updateInfo) {
+        try {
+            const lastSend = await db.get(
+                'SELECT sent_at FROM transcript.summary_sends WHERE meeting_id = ? ORDER BY sent_at DESC, id DESC LIMIT 1',
+                [meetingId]
+            );
+            const lastSendAt = fixPgNaiveTimestamp(lastSend?.sent_at);
+            // summary_requested_at est une colonne TEXT (chaîne ISO écrite via
+            // new Date().toISOString()), pas TIMESTAMP — jamais affectée par le décalage de
+            // fixPgNaiveTimestamp, utilisable directement.
+            const generatedAt = meeting.summary_requested_at ? new Date(meeting.summary_requested_at) : null;
+            isReplacementSend = !!(lastSendAt && generatedAt && !Number.isNaN(generatedAt.getTime()) && generatedAt.getTime() > lastSendAt.getTime());
+        } catch (e) { console.error('[TRANSCRIPT MAIL] détection annule et remplace échouée:', e.message); }
+    }
+
     // URL du magasin d'applications + lien d'amendement (optionnels).
     let magappUrl = process.env.MAGAPP_URL || '';
     try {
@@ -785,11 +821,13 @@ async function buildAndSendSummary(req, meetingId, targets, message, updateInfo 
                 summaryHtml, message: message || '', meetingTitle: meeting.title || 'Réunion',
                 meetingDate, internal: t.internal, magappUrl, amendUrl,
                 participants, tasks, amendedHtml, meta, attachmentNames,
-                noticeText, updateInfo,
+                noticeText, updateInfo, isReplacementSend,
             }));
             const subject = (updateInfo
                 ? `Mise à jour du compte rendu de la réunion : ${meeting.title || ''}`
-                : `Résumé de la réunion : ${meeting.title || ''}`).trim();
+                : isReplacementSend
+                    ? `ANNULE ET REMPLACE — Résumé de la réunion : ${meeting.title || ''}`
+                    : `Résumé de la réunion : ${meeting.title || ''}`).trim();
             // Envoi via l'API Ville (APM) → template général de la Ville.
             // Repli sur le mailer local (template DSI Hub) si l'APM n'est
             // pas configurée ou est indisponible.
@@ -2513,6 +2551,22 @@ async function processFullText(meetingId, fullText) {
         displayText = fullText.replace(jsonMatch[0], "").split(/##\s*(?:Plan d'action|Tâches|Actions)/i)[0].trim();
     }
 
+    // Régénération : repart de zéro comme la toute première analyse (cf. modale de
+    // confirmation côté app, runGenerateSummary — annonce explicitement cette suppression avant
+    // validation). Supprime l'historique des amendements + couleurs attribuées, réinitialise
+    // summary_annotated_spans (sinon la prochaine fusion d'amendement comparerait à un
+    // historique périmé, désynchronisé du nouveau texte) et TOUTES les tâches liées à cette
+    // réunion (IA et manuelles — pas seulement 'ai' comme avant, une tâche ajoutée manuellement
+    // sur l'ancien résumé n'a plus de sens une fois celui-ci remplacé). Fait uniquement APRÈS
+    // que fullText soit obtenu (génération IA déjà réussie) : rien n'est perdu si l'appel IA
+    // échoue avant d'arriver ici.
+    try {
+        await db.run('DELETE FROM transcript.summary_amendments WHERE meeting_id = ?', [meetingId]);
+        await db.run('DELETE FROM transcript.amenders WHERE meeting_id = ?', [meetingId]);
+        await db.run('DELETE FROM transcript_tasks WHERE meeting_id = ?', [meetingId]);
+        await db.run('UPDATE transcript_meetings SET summary_annotated_spans = NULL, summary_edited_by = NULL, summary_edited_at = NULL WHERE id = ?', [meetingId]);
+    } catch (e) { console.error('[TranscriptManager] réinitialisation (régénération) échouée :', e.message); }
+
     await db.run('UPDATE transcript_meetings SET summary = ? WHERE id = ?', [displayText, meetingId]);
 
     const savedTasks = [];
@@ -2520,7 +2574,6 @@ async function processFullText(meetingId, fullText) {
         const tasks = JSON.parse(tasksJson);
         const agents = await listDsiAgents();
         const adSettings = await getAdSettingsSafe();
-        await db.run('DELETE FROM transcript_tasks WHERE meeting_id = ? AND origin = ?', [meetingId, 'ai']);
         for (const t of tasks) {
             const match = await matchTaskAssignee(t.who, agents, adSettings);
             const assigneeName = match?.displayName || match?.nom || t.who;
