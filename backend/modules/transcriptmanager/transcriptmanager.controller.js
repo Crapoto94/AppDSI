@@ -1127,10 +1127,18 @@ const transcriptController = {
             // Historique figé des amendements de texte (cf. amendSummary).
             let summaryAmendments = [];
             try {
-                summaryAmendments = await db.all(
-                    'SELECT id, username, name, color, created_at FROM transcript.summary_amendments WHERE meeting_id = ? ORDER BY created_at ASC',
+                const rows = await db.all(
+                    'SELECT id, username, name, color, created_at, recipients_json, recipients_internal_count, recipients_external_count FROM transcript.summary_amendments WHERE meeting_id = ? ORDER BY created_at ASC',
                     [meetingId]
                 );
+                // recipients_json : NULL pour un amendement antérieur à cette colonne, ou
+                // n'ayant déclenché aucune diffusion (aucun destinataire connu) — pas d'erreur,
+                // le front n'affiche alors simplement pas la mention "Envoyé à...".
+                summaryAmendments = rows.map(r => {
+                    let recipients = null;
+                    try { recipients = r.recipients_json ? JSON.parse(r.recipients_json) : null; } catch { /* ignore */ }
+                    return { ...r, recipients };
+                });
             } catch { /* table pas encore migrée */ }
             // Dernier envoi du compte rendu (date/heure, expéditeur, destinataires).
             let summaryLastSend = null;
@@ -1881,10 +1889,11 @@ const transcriptController = {
 
             // Trace légère (qui + quand) pour la timeline de l'app — le contenu
             // détaillé vit désormais dans summary_annotated_spans, pas ici.
-            await db.run(
+            const amendmentInsertRes = await db.run(
                 'INSERT INTO transcript.summary_amendments (meeting_id, username, name, email, color) VALUES (?, ?, ?, ?, ?)',
                 [meetingId, (req.user?.username || '').toLowerCase(), name, req.user?.email || null, color]
             );
+            const amendmentId = amendmentInsertRes.lastID;
 
             const editedBy = name;
             const editedAt = new Date().toISOString();
@@ -1940,6 +1949,19 @@ const transcriptController = {
                     const amenders = recentAmenders(newSpans, sentAt);
                     const sendRes = await buildAndSendSummary(req, meetingId, targets, '', { amenders, sinceSentAt: sentAt });
                     broadcastResult = { broadcast: !sendRes.error, ...sendRes };
+
+                    // Destinataires de CETTE diffusion, rattachés à l'amendement qui l'a
+                    // déclenchée (affiché sous forme "Envoyé à X en interne et Y en externe"
+                    // dans la timeline des amendements, noms/emails en infobulle).
+                    const recipientList = Array.from(targets.values());
+                    const internalCount = recipientList.filter(t => t.internal).length;
+                    const externalCount = recipientList.length - internalCount;
+                    try {
+                        await db.run(
+                            'UPDATE transcript.summary_amendments SET recipients_json = ?, recipients_internal_count = ?, recipients_external_count = ? WHERE id = ?',
+                            [JSON.stringify(recipientList.map(t => ({ email: t.email, name: t.name, internal: !!t.internal }))), internalCount, externalCount, amendmentId]
+                        );
+                    } catch (e) { console.error('[TRANSCRIPT AMEND] enregistrement destinataires échoué:', e.message); }
                 }
             } catch (e) {
                 console.error('[TRANSCRIPT AMEND] diffusion échouée:', e.message);

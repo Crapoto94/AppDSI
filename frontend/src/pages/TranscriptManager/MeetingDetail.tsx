@@ -147,12 +147,21 @@ interface Meeting {
     summary_amended_markdown?: string | null;
 }
 
+interface AmendmentRecipient {
+    email: string;
+    name: string;
+    internal: boolean;
+}
+
 interface Amendment {
     id: number;
     username: string;
     name: string;
     color: string;
     created_at: string;
+    recipients?: AmendmentRecipient[] | null;
+    recipients_internal_count?: number | null;
+    recipients_external_count?: number | null;
 }
 
 interface Task {
@@ -1522,14 +1531,26 @@ const MeetingDetail: React.FC = () => {
                                                 {meeting.summary_model ? ` — modèle ${meeting.summary_model}` : ''}
                                             </div>
                                         </div>
-                                        {(meeting.summary_amendments || []).map((a, i) => (
-                                            <div key={a.id} style={{ position: 'relative', marginBottom: i === (meeting.summary_amendments!.length - 1) ? 0 : 10 }}>
-                                                <span style={{ position: 'absolute', left: -22, top: 2, width: 12, height: 12, borderRadius: '50%', background: a.color, border: '2px solid white', boxShadow: `0 0 0 1px ${a.color}` }} />
-                                                <div style={{ fontSize: '0.78rem', color: '#64748B' }}>
-                                                    <strong style={{ color: a.color }}>{a.name || a.username}</strong> — {fmtDateTime(a.created_at)}
+                                        {(meeting.summary_amendments || []).map((a, i) => {
+                                            const internalN = a.recipients_internal_count ?? 0;
+                                            const externalN = a.recipients_external_count ?? 0;
+                                            // Pas de recipients_json (ancien amendement antérieur à cette
+                                            // colonne, ou n'ayant déclenché aucun envoi) : rien à afficher,
+                                            // plutôt qu'un "Envoyé à 0 en interne et 0 en externe" trompeur.
+                                            const sentInfo = a.recipients ? `Envoyé à ${internalN} personne${internalN !== 1 ? 's' : ''} en interne et ${externalN} en externe` : null;
+                                            const sentTooltip = a.recipients
+                                                ? a.recipients.map(r => `${r.name || r.email}${r.name && r.name !== r.email ? ` <${r.email}>` : ''} — ${r.internal ? 'interne' : 'externe'}`).join('\n')
+                                                : undefined;
+                                            return (
+                                                <div key={a.id} style={{ position: 'relative', marginBottom: i === (meeting.summary_amendments!.length - 1) ? 0 : 10 }}>
+                                                    <span style={{ position: 'absolute', left: -22, top: 2, width: 12, height: 12, borderRadius: '50%', background: a.color, border: '2px solid white', boxShadow: `0 0 0 1px ${a.color}` }} />
+                                                    <div style={{ fontSize: '0.78rem', color: '#64748B' }}>
+                                                        <strong style={{ color: a.color }}>{a.name || a.username}</strong> — {fmtDateTime(a.created_at)}
+                                                        {sentInfo && <span title={sentTooltip} style={{ cursor: 'help', borderBottom: '1px dotted #94A3B8' }}> - {sentInfo}</span>}
+                                                    </div>
                                                 </div>
-                                            </div>
-                                        ))}
+                                            );
+                                        })}
                                     </div>
 
                                     {/* Contenu de tous les amendements fusionnés en un seul rendu Markdown —

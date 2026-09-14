@@ -2447,6 +2447,21 @@ async function setupPgDb() {
       );
     `);
     await client.query(`CREATE INDEX IF NOT EXISTS idx_transcript_summary_amendments_meeting ON transcript.summary_amendments (meeting_id)`);
+    // Destinataires de la diffusion automatique déclenchée PAR cet amendement (distinct de
+    // transcript.summary_sends, qui journalise les envois sans lien vers l'amendement à
+    // l'origine) — alimente le méta affiché sous chaque amendement ("Envoyé à X en interne et Y
+    // en externe", noms/emails en infobulle). NULL pour les amendements antérieurs à cette
+    // colonne, ou n'ayant déclenché aucun envoi (aucun destinataire connu à ce moment).
+    try {
+      await client.query(`
+        ALTER TABLE transcript.summary_amendments
+          ADD COLUMN IF NOT EXISTS recipients_json TEXT,
+          ADD COLUMN IF NOT EXISTS recipients_internal_count INTEGER,
+          ADD COLUMN IF NOT EXISTS recipients_external_count INTEGER
+      `);
+    } catch (e) {
+      console.log('[PG DB] Migration transcript.summary_amendments recipients columns:', e.message);
+    }
     // Pièces jointes des réunions (Transcript Manager) — fichiers stockés via
     // shared/storage.js (racine GED `<root>/transcript/<meeting_id>/...`) et
     // double-écriture hub_docs (viewer central / GED).
