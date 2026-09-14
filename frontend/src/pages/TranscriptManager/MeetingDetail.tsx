@@ -1438,26 +1438,6 @@ const MeetingDetail: React.FC = () => {
                                         {getGenerationPhase(genElapsed, aiSource, selectedModel, isPollingAfterError)}
                                         <span className="gen-counter"> ({formatDuration(genElapsed)})</span>
                                     </div>
-                                ) : isEditingAmend ? (
-                                    <div>
-                                        <div style={{ border: `1.5px solid ${amendAccess.color || '#E2E8F0'}`, borderRadius: 8, overflow: 'hidden', background: '#fff' }}>
-                                            <ReactQuill
-                                                ref={amendQuillRef}
-                                                value={amendEditorHtml}
-                                                onChange={setAmendEditorHtml}
-                                                modules={AMEND_QUILL_MODULES}
-                                                placeholder="Corrigez ou complétez le compte rendu..."
-                                                style={{ fontFamily: 'inherit', fontSize: '0.9rem' }}
-                                            />
-                                        </div>
-                                        <div style={{ fontSize: '0.75rem', color: '#64748B', marginTop: '0.5rem' }}>
-                                            ℹ️ Vos ajouts/suppressions seront tracés (attribués à vous, en couleur) et le compte rendu mis à jour sera automatiquement renvoyé à tous les destinataires du dernier envoi.
-                                        </div>
-                                        <div style={{ display: 'flex', gap: '0.75rem', marginTop: '0.75rem' }}>
-                                            <button className="btn-save" onClick={handleAmendValidateClick} disabled={isAmending}>{isAmending ? 'Enregistrement...' : 'Valider mes amendements'}</button>
-                                            <button className="btn-cancel" onClick={() => setIsEditingAmend(false)}>Annuler</button>
-                                        </div>
-                                    </div>
                                 ) : isEditingSummary ? (
                                     <div>
                                         <div style={{ border: '1.5px solid #E2E8F0', borderRadius: 8, overflow: 'hidden', background: '#fff' }}>
@@ -1710,6 +1690,41 @@ const MeetingDetail: React.FC = () => {
                             <button onClick={sendSummaryEmail} disabled={emailSending} style={{ background: '#DC2626', color: 'white', border: 'none', padding: '0.6rem 1.25rem', borderRadius: 8, fontWeight: 600, cursor: emailSending ? 'default' : 'pointer', opacity: emailSending ? 0.7 : 1 }}>
                                 <Send size={14} style={{ verticalAlign: -2, marginRight: 6 }} />{emailSending ? 'Envoi…' : 'Envoyer'}
                             </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {isEditingAmend && (
+                <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1150 }}>
+                    <div style={{ background: 'white', borderRadius: 16, width: '90%', maxWidth: 720, maxHeight: '85vh', display: 'flex', flexDirection: 'column', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.15)', overflow: 'hidden' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '1.25rem 1.5rem 0.5rem' }}>
+                            <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 8 }}>
+                                ✏️ Amender le compte rendu
+                                {amendAccess.color && (
+                                    <span title={`Vous : ${amendAccess.name}`} style={{ width: 10, height: 10, borderRadius: '50%', background: amendAccess.color, display: 'inline-block' }} />
+                                )}
+                            </h3>
+                            <button onClick={() => setIsEditingAmend(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#64748B' }}><X size={18} /></button>
+                        </div>
+                        <div style={{ padding: '0.5rem 1.5rem', overflowY: 'auto', flex: 1 }}>
+                            <div style={{ border: `1.5px solid ${amendAccess.color || '#E2E8F0'}`, borderRadius: 8, overflow: 'hidden', background: '#fff' }}>
+                                <ReactQuill
+                                    ref={amendQuillRef}
+                                    value={amendEditorHtml}
+                                    onChange={setAmendEditorHtml}
+                                    modules={AMEND_QUILL_MODULES}
+                                    placeholder="Corrigez ou complétez le compte rendu..."
+                                    style={{ fontFamily: 'inherit', fontSize: '0.9rem' }}
+                                />
+                            </div>
+                            <div style={{ fontSize: '0.75rem', color: '#64748B', marginTop: '0.5rem' }}>
+                                ℹ️ Vos ajouts/suppressions seront tracés (attribués à vous, en couleur) et le compte rendu mis à jour sera automatiquement renvoyé à tous les destinataires du dernier envoi.
+                            </div>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem', padding: '1rem 1.5rem', borderTop: '1px solid #F1F5F9' }}>
+                            <button className="btn-cancel" onClick={() => setIsEditingAmend(false)}>Annuler</button>
+                            <button className="btn-save" onClick={handleAmendValidateClick} disabled={isAmending}>{isAmending ? 'Enregistrement...' : 'Valider mes amendements'}</button>
                         </div>
                     </div>
                 </div>
@@ -2044,6 +2059,14 @@ const MeetingDetail: React.FC = () => {
                 .md-formatted, .amended-content, .ql-editor { overflow-wrap: anywhere; }
                 .ql-editor table { border-collapse: collapse; width: 100%; }
                 .ql-editor table td { border: 1px solid #E2E8F0; padding: 0.3rem 0.5rem; }
+                /* Mêmes espacements que .md-formatted (affichage final) — sans
+                   ça l'éditeur montrait tout collé alors que le résultat envoyé
+                   a un vrai espacement entre paragraphes, ce qui ne correspond
+                   pas à ce que l'amendeur voit en train d'écrire. */
+                .ql-editor p { margin: 0 0 0.85rem; }
+                .ql-editor h1, .ql-editor h2, .ql-editor h3 { margin: 1.5rem 0 0.6rem; }
+                .ql-editor h1:first-child, .ql-editor h2:first-child, .ql-editor h3:first-child { margin-top: 0; }
+                .ql-editor li { margin-bottom: 0.3rem; }
                 .stream-box { white-space: pre-wrap; color: #1D4ED8; font-weight: 500; }
                 .md-formatted h1, .md-formatted h2, .md-formatted h3 {
                     color: #111827; font-weight: 700; line-height: 1.3;
