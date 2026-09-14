@@ -1707,18 +1707,18 @@ const MeetingDetail: React.FC = () => {
                             </h3>
                             <button onClick={() => setIsEditingAmend(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#64748B' }}><X size={18} /></button>
                         </div>
-                        <div style={{ padding: '0.5rem 1.5rem', overflowY: 'auto', flex: 1, display: 'flex', flexDirection: 'column' }}>
-                            <div className="amend-quill-wrap" style={{ border: `1.5px solid ${amendAccess.color || '#E2E8F0'}`, borderRadius: 8, overflow: 'hidden', background: '#fff', flex: 1, display: 'flex', flexDirection: 'column' }}>
+                        <div style={{ padding: '0.5rem 1.5rem', overflowY: 'auto', flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+                            <div className="amend-quill-wrap" style={{ border: `1.5px solid ${amendAccess.color || '#E2E8F0'}`, borderRadius: 8, overflow: 'hidden', background: '#fff', flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
                                 <ReactQuill
                                     ref={amendQuillRef}
                                     value={amendEditorHtml}
                                     onChange={setAmendEditorHtml}
                                     modules={AMEND_QUILL_MODULES}
                                     placeholder="Corrigez ou complétez le compte rendu..."
-                                    style={{ fontFamily: 'inherit', fontSize: '0.9rem', display: 'flex', flexDirection: 'column', flex: 1 }}
+                                    style={{ fontFamily: 'inherit', fontSize: '0.9rem', display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}
                                 />
                             </div>
-                            <div style={{ fontSize: '0.75rem', color: '#64748B', marginTop: '0.5rem' }}>
+                            <div style={{ fontSize: '0.75rem', color: '#64748B', marginTop: '0.5rem', flexShrink: 0 }}>
                                 ℹ️ Vos ajouts/suppressions seront tracés (attribués à vous, en couleur) et le compte rendu mis à jour sera automatiquement renvoyé à tous les destinataires du dernier envoi.
                             </div>
                         </div>
@@ -2070,8 +2070,9 @@ const MeetingDetail: React.FC = () => {
                 /* Modale d'amendement : la zone d'édition doit occuper tout
                    l'espace disponible dans la modale, pas seulement une
                    petite zone par défaut. */
-                .amend-quill-wrap .ql-container { flex: 1; display: flex; flex-direction: column; }
-                .amend-quill-wrap .ql-editor { flex: 1; min-height: 0; }
+                .amend-quill-wrap .ql-container { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+                .amend-quill-wrap .ql-toolbar { flex-shrink: 0; }
+                .amend-quill-wrap .ql-editor { flex: 1; min-height: 0; overflow-y: auto; }
                 .stream-box { white-space: pre-wrap; color: #1D4ED8; font-weight: 500; }
                 .md-formatted h1, .md-formatted h2, .md-formatted h3 {
                     color: #111827; font-weight: 700; line-height: 1.3;
