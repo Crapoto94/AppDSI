@@ -2298,6 +2298,13 @@ async function setupPgDb() {
           IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='transcript' AND table_name='meetings' AND column_name='summary_edited_at') THEN
             ALTER TABLE transcript.meetings ADD COLUMN summary_edited_at TEXT;
           END IF;
+          -- Historique fusionné des amendements (JSON : liste de spans {text,
+          -- type, color, author, at}) — permet d'afficher TOUS les amendements
+          -- en un seul contenu, chacun coloré par son auteur, plutôt qu'un
+          -- diff isolé par amendement (cf. transcriptmanager.controller.js).
+          IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='transcript' AND table_name='meetings' AND column_name='summary_annotated_spans') THEN
+            ALTER TABLE transcript.meetings ADD COLUMN summary_annotated_spans TEXT;
+          END IF;
         END $$;
       `);
     } catch (e) {
@@ -2383,9 +2390,63 @@ async function setupPgDb() {
       await client.query(`ALTER TABLE transcript.tasks ADD COLUMN IF NOT EXISTS assignee_username TEXT`);
       await client.query(`ALTER TABLE transcript.tasks ADD COLUMN IF NOT EXISTS assignee_match_score NUMERIC`);
       await client.query(`ALTER TABLE transcript.tasks ADD COLUMN IF NOT EXISTS app_task_id INTEGER`);
+      // Attribution + suppression douce (jamais de suppression définitive,
+      // cf. convention tickets) : qui a ajouté/retiré la tâche, et avec quelle
+      // couleur d'amendeur (cf. transcript.amenders).
+      await client.query(`ALTER TABLE transcript.tasks ADD COLUMN IF NOT EXISTS added_by_username TEXT`);
+      await client.query(`ALTER TABLE transcript.tasks ADD COLUMN IF NOT EXISTS added_by_name TEXT`);
+      await client.query(`ALTER TABLE transcript.tasks ADD COLUMN IF NOT EXISTS added_by_color TEXT`);
+      await client.query(`ALTER TABLE transcript.tasks ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP`);
+      await client.query(`ALTER TABLE transcript.tasks ADD COLUMN IF NOT EXISTS deleted_by_username TEXT`);
+      await client.query(`ALTER TABLE transcript.tasks ADD COLUMN IF NOT EXISTS deleted_by_name TEXT`);
+      await client.query(`ALTER TABLE transcript.tasks ADD COLUMN IF NOT EXISTS deleted_by_color TEXT`);
     } catch (e) {
         console.error('Error migrating transcript.tasks columns:', e.message);
     }
+
+    // Attribution de couleur stable par personne et par réunion (amendement du
+    // CR — tâches manuelles et modifications de texte). Une couleur assignée
+    // à la première intervention et réutilisée ensuite (cf.
+    // getOrAssignAmenderColor dans transcriptmanager.controller.js).
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS transcript.amenders (
+        id SERIAL PRIMARY KEY,
+        meeting_id INTEGER NOT NULL REFERENCES transcript.meetings(id) ON DELETE CASCADE,
+        username TEXT NOT NULL,
+        email TEXT,
+        name TEXT,
+        color TEXT NOT NULL,
+        first_seen_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE (meeting_id, username)
+      );
+    `);
+    try {
+      // Brouillon d'amendement du résumé, privé à l'amendeur : rempli par
+      // « Enregistrer en brouillon » (on annule l'envoi), vidé dès que ses
+      // amendements sont réellement validés (cf. amendSummary).
+      await client.query(`ALTER TABLE transcript.amenders ADD COLUMN IF NOT EXISTS draft_text TEXT`);
+      await client.query(`ALTER TABLE transcript.amenders ADD COLUMN IF NOT EXISTS draft_updated_at TIMESTAMP`);
+    } catch (e) {
+      console.error('Error migrating transcript.amenders columns:', e.message);
+    }
+
+    // Historique figé des amendements de texte du résumé : une ligne par
+    // validation, avec le fragment HTML (ins/del colorés) de CE changement
+    // précis — jamais recalculé après coup, donc toujours correct même si le
+    // texte a encore changé depuis.
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS transcript.summary_amendments (
+        id SERIAL PRIMARY KEY,
+        meeting_id INTEGER NOT NULL REFERENCES transcript.meetings(id) ON DELETE CASCADE,
+        username TEXT,
+        name TEXT,
+        email TEXT,
+        color TEXT,
+        diff_html TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_transcript_summary_amendments_meeting ON transcript.summary_amendments (meeting_id)`);
     // Pièces jointes des réunions (Transcript Manager) — fichiers stockés via
     // shared/storage.js (racine GED `<root>/transcript/<meeting_id>/...`) et
     // double-écriture hub_docs (viewer central / GED).

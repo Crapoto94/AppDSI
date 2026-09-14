@@ -62,9 +62,18 @@ router.post('/tasks', authenticateJWT, blockTranscriptGuest, transcriptControlle
 router.post('/task/:id/toggle', authenticateJWT, blockTranscriptGuest, transcriptController.toggleTask);
 router.put('/task/:id', authenticateJWT, blockTranscriptGuest, transcriptController.updateTask);
 router.patch('/task/:id/link-app-task', authenticateJWT, blockTranscriptGuest, transcriptController.linkAppTask);
+router.patch('/task/:id/restore', authenticateJWT, blockTranscriptGuest, transcriptController.restoreTask);
 router.delete('/task/:id', authenticateJWT, blockTranscriptGuest, transcriptController.deleteTask);
 router.put('/meeting/:id', authenticateJWT, blockTranscriptGuest, transcriptController.updateMeeting);
 router.delete('/meeting/:id', authenticateJWT, blockTranscriptGuest, transcriptController.deleteMeeting);
+
+// Amendement du CR par les destinataires internes (lien reçu par mail) : pas
+// de blockTranscriptGuest — réservé aux comptes réels authentifiés, jamais au
+// rôle transcript_guest du lien de partage (l'accès réel est vérifié dans le
+// contrôleur via canAmendMeeting).
+router.get('/meeting/:id/amend-access', authenticateJWT, transcriptController.getAmendAccess);
+router.post('/meeting/:id/amend-summary', authenticateJWT, transcriptController.amendSummary);
+router.put('/meeting/:id/amend-draft', authenticateJWT, transcriptController.saveAmendDraft);
 
 // Statut du job de génération IA asynchrone (POST /summarize renvoie un jobId, le
 // front poll ce endpoint pour le suivi).

@@ -13,6 +13,14 @@ const storage = require('../../shared/storage');
 const { listDsiAgents, matchDsiAgent } = require('./agent-match');
 const teamsTranscript = require('./teams_transcript.service');
 const { marked } = require('marked');
+// diffWordsWithSpace (et non diffWords) : diffWords réattribue parfois un
+// espace de fin de mot au « mauvais » côté (ex. ajout d'une phrase après un
+// point), ce qui casse l'invariant « equal+removed reconstruit exactement
+// l'ancien texte » dont dépend applyDiffToSpans — constaté en pratique
+// (bug de décalage/duplication après plusieurs amendements successifs).
+// diffWordsWithSpace traite les espaces comme des jetons à part entière et
+// reconstruit exactement les deux côtés dans tous les cas testés.
+const { diffWordsWithSpace: diffWords } = require('diff');
 
 // Envoi de mail : injecté depuis server.js (même pattern que /tickets, /live…)
 let _sendMail = null;
@@ -168,11 +176,264 @@ async function buildParticipantsList(db, meetingId) {
     return list;
 }
 
+/** Un utilisateur (compte interne authentifié) a-t-il accès à cette réunion
+ *  en tant que participant ? Même règle que celle utilisée par getMeeting /
+ *  searchTranscripts (owner, invité de la rencontre, intervenant du
+ *  transcript, partage par direction/service, ou invité importé de Teams). */
+async function isMeetingParticipant(db, meetingId, user) {
+    const username = String(user?.username || '').toLowerCase();
+    const email = String(user?.email || '').toLowerCase();
+    const emailLocal = (email || username || '').split('@')[0].toLowerCase();
+    const emailFull = (email || `${emailLocal}@${ORG_EMAIL_DOMAIN}`).toLowerCase();
+    const row = await db.get(`
+        SELECT 1 FROM transcript_meetings m
+        WHERE m.id = ?
+        AND (
+            LOWER(m.owner_username) = LOWER(?)
+            OR (
+                m.reunion_id IS NOT NULL
+                AND EXISTS (
+                    SELECT 1 FROM reunion_participants rp
+                    WHERE rp.reunion_id = m.reunion_id
+                    AND (LOWER(rp.email) = ? OR LOWER(rp.email) = ? OR LOWER(rp.ad_username) = ?)
+                    AND rp.statut_presence IN ('present', 'excuse', 'info')
+                )
+            )
+            OR EXISTS (
+                SELECT 1 FROM transcript_cues tc
+                WHERE tc.meeting_id = m.id
+                AND (LOWER(tc.speaker_email) = ? OR LOWER(tc.speaker_email) = ?)
+            )
+            OR (
+                m.shared_with_direction IS NOT NULL
+                AND EXISTS (
+                    SELECT 1 FROM hub_consommables.consumable_requests cr
+                    WHERE LOWER(cr.username) = LOWER(?)
+                    AND cr.direction = m.shared_with_direction
+                )
+            )
+            OR (
+                m.shared_with_service IS NOT NULL
+                AND EXISTS (
+                    SELECT 1 FROM hub_consommables.consumable_requests cr
+                    WHERE LOWER(cr.username) = LOWER(?)
+                    AND cr.service = m.shared_with_service
+                )
+            )
+            ${participantExistsSql()}
+        )
+    `, [meetingId, username, emailFull, emailLocal, emailLocal, emailFull, emailLocal, username, username, ...participantMatchParams(user)]);
+    return !!row;
+}
+
+/** A-t-il reçu le compte rendu de cette réunion par mail (dernier envoi ou un
+ *  envoi antérieur) ? Sert à autoriser l'amendement même pour un destinataire
+ *  ajouté « à la main » (adresse libre) lors de l'envoi, donc absent des
+ *  tables de participants. */
+async function hasReceivedMeetingSummary(db, meetingId, user) {
+    const username = String(user?.username || '').toLowerCase();
+    const email = String(user?.email || '').toLowerCase();
+    const emailLocal = (email || username || '').split('@')[0].toLowerCase();
+    const emailFull = (email || `${emailLocal}@${ORG_EMAIL_DOMAIN}`).toLowerCase();
+    try {
+        const rows = await db.all('SELECT recipients FROM transcript.summary_sends WHERE meeting_id = ?', [meetingId]);
+        return rows.some(r => String(r.recipients || '').toLowerCase().split(/[;,]/).map(s => s.trim()).some(r2 => r2 === emailFull || r2 === emailLocal || r2 === username));
+    } catch { return false; }
+}
+
+/** Un compte interne peut-il amender le CR de cette réunion (ajout/suppression
+ *  de tâches, correction du texte du résumé) ? Admin DSI, participant, ou
+ *  destinataire effectif d'un envoi précédent du CR. */
+async function canAmendMeeting(db, meetingId, user) {
+    if (isAdminLike(user)) return true;
+    if (await isMeetingParticipant(db, meetingId, user)) return true;
+    return await hasReceivedMeetingSummary(db, meetingId, user);
+}
+
+// Palette de couleurs distinctes attribuées aux amendeurs d'un CR (une par
+// personne et par réunion, dans l'ordre d'apparition) — volontairement à
+// l'écart du rouge/ambre déjà utilisés pour les alertes IA.
+const AMENDER_COLOR_PALETTE = [
+    '#2563EB', '#059669', '#7C3AED', '#DB2777', '#0891B2',
+    '#65A30D', '#EA580C', '#4338CA', '#0D9488', '#C026D3',
+];
+
+/** Renvoie (et crée si besoin) la couleur stable attribuée à cet utilisateur
+ *  pour cette réunion (transcript.amenders), avec son nom d'affichage. */
+async function getOrAssignAmenderColor(db, meetingId, user) {
+    const username = (user?.username || '').toLowerCase();
+    const name = user?.displayName || user?.username || username;
+    const email = user?.email || null;
+    if (!username) return { color: AMENDER_COLOR_PALETTE[0], name: name || 'Inconnu' };
+    const existing = await db.get('SELECT * FROM transcript.amenders WHERE meeting_id = ? AND username = ?', [meetingId, username]);
+    if (existing) return { color: existing.color, name: existing.name || name };
+    const countRow = await db.get('SELECT COUNT(*) AS n FROM transcript.amenders WHERE meeting_id = ?', [meetingId]);
+    const idx = Number(countRow?.n || 0) % AMENDER_COLOR_PALETTE.length;
+    const color = AMENDER_COLOR_PALETTE[idx];
+    try {
+        await db.run(
+            'INSERT INTO transcript.amenders (meeting_id, username, email, name, color) VALUES (?, ?, ?, ?, ?)',
+            [meetingId, username, email, name, color]
+        );
+    } catch (e) {
+        // Concurrence (double clic) : une autre requête a déjà créé la ligne — on la relit.
+        const row = await db.get('SELECT * FROM transcript.amenders WHERE meeting_id = ? AND username = ?', [meetingId, username]);
+        if (row) return { color: row.color, name: row.name || name };
+    }
+    return { color, name };
+}
+
+// ===== Amendements du résumé : un seul contenu fusionné, coloré par amendeur =====
+//
+// Plutôt que de stocker un diff isolé par amendement (redondant, texte brut
+// non interprété), on maintient un historique structuré de « spans »
+// ({text, type, color, author, at}) sur toute la vie du CR : chaque
+// validation ne fait que fusionner son propre diff dans cette structure, en
+// conservant l'attribution des amendements précédents. Le rendu (Markdown →
+// HTML) se fait à la volée à partir de cette structure, jamais pré-calculé.
+
+/** Spans initiaux (avant tout amendement) : le texte d'origine, neutre. */
+function initialSpans(text) {
+    return text ? [{ text, type: 'text', color: null, author: null, at: null }] : [];
+}
+
+/**
+ * Fusionne un nouvel amendement (diff entre oldClean et newClean) dans la
+ * structure de spans existante, en conservant l'attribution (couleur/auteur/
+ * date) des portions déjà amendées précédemment. Algorithme à deux curseurs :
+ * on parcourt les parts du diff dans l'ordre ; pour les parts 'equal'/
+ * 'removed' (qui consomment du texte de oldClean), on consomme les spans
+ * "vivants" (type !== 'delete') de prevSpans en les découpant si besoin — en
+ * conservant leur couleur/auteur d'origine pour les parts 'equal', ou en les
+ * recolorant pour l'amendeur courant pour les parts 'removed'. Les spans déjà
+ * 'delete' sont recopiés tels quels (ils ne font plus partie du texte vivant,
+ * donc n'interviennent pas dans le diff). Les parts 'added' deviennent de
+ * nouveaux spans 'insert'.
+ */
+function applyDiffToSpans(prevSpans, oldClean, newClean, amender) {
+    const parts = diffWords(oldClean, newClean);
+    const at = new Date().toISOString();
+    const result = [];
+    let prevIdx = 0;
+    let offsetInSpan = 0;
+
+    const flushLeadingDeletes = () => {
+        while (prevIdx < prevSpans.length && prevSpans[prevIdx].type === 'delete') {
+            result.push(prevSpans[prevIdx]);
+            prevIdx++;
+        }
+    };
+    flushLeadingDeletes();
+
+    for (const part of parts) {
+        if (part.added) {
+            if (part.value) result.push({ text: part.value, type: 'insert', color: amender.color, author: amender.name, at });
+            continue;
+        }
+        let need = part.value.length;
+        while (need > 0 && prevIdx < prevSpans.length) {
+            const span = prevSpans[prevIdx];
+            if (span.type === 'delete') { result.push(span); prevIdx++; flushLeadingDeletes(); continue; }
+            const available = span.text.length - offsetInSpan;
+            const take = Math.min(available, need);
+            const chunk = span.text.substr(offsetInSpan, take);
+            if (part.removed) {
+                result.push({ text: chunk, type: 'delete', color: amender.color, author: amender.name, at });
+            } else if (chunk) {
+                result.push({ text: chunk, type: span.type, color: span.color, author: span.author, at: span.at });
+            }
+            offsetInSpan += take;
+            need -= take;
+            if (offsetInSpan >= span.text.length) {
+                prevIdx++;
+                offsetInSpan = 0;
+                flushLeadingDeletes();
+            }
+        }
+    }
+    while (prevIdx < prevSpans.length) { result.push(prevSpans[prevIdx]); prevIdx++; }
+    return result;
+}
+
+/**
+ * Rend les spans en Markdown annoté (spans insert/delete entourés de
+ * <ins>/<del> colorés, à interpréter ensuite par un moteur Markdown — cf.
+ * marked.parse côté mail, ReactMarkdown+rehype-raw côté app). Avec `sinceAt`,
+ * seuls les spans postérieurs à cette date gardent leur couleur (les
+ * suppressions plus anciennes sont omises, les autres redeviennent du texte
+ * neutre) — sert à ne montrer, dans un mail de mise à jour, que ce qui a
+ * changé depuis le dernier envoi plutôt que tout l'historique.
+ */
+const AMENDED_IMAGE_PATTERN = /^!\[([^\]]*)\]\(([^)]+)\)$/;
+// Ligne séparatrice d'un tableau Markdown/GFM (ex. « | --- | --- | »).
+const TABLE_SEPARATOR_PATTERN = /^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)+\|?\s*$/m;
+
+function renderAnnotatedMarkdown(spans, { sinceAt = null } = {}) {
+    const esc = (s) => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const escAttr = (s) => esc(s).replace(/"/g, '&quot;');
+    return (spans || []).map(s => {
+        const isRecent = !sinceAt || (s.at && s.at > sinceAt);
+        const imgMatch = s.text.trim().match(AMENDED_IMAGE_PATTERN);
+        if (!isRecent) {
+            if (s.type === 'delete') return ''; // suppression déjà connue des destinataires — inutile de la rappeler
+            return esc(s.text); // déjà accepté par les destinataires précédents : texte neutre
+        }
+        // Image ajoutée/retirée : une bordure de la couleur de l'amendeur
+        // autour de l'image elle-même — un <ins>/<del> autour du Markdown ne
+        // se voit pas sur une image (color/background n'affectent que le texte).
+        if (imgMatch && s.type !== 'text') {
+            // Suppression : jamais le code de l'image (base64 potentiellement
+            // énorme) ni même l'image elle-même — un simple cadre l'indiquant.
+            if (s.type === 'delete') {
+                // <span> (pas <div>) : reste un élément « en ligne » comme
+                // l'image qu'il remplace, pour ne pas casser le paragraphe
+                // englobant quand marked.parse ré-interprète l'ensemble.
+                return `<span style="display:inline-block;border:2px dashed ${s.color};border-radius:6px;padding:10px 16px;margin:4px 0;color:${s.color};font-size:0.9em;font-style:italic;">🗑️ Image supprimée</span>`;
+            }
+            const [, alt, src] = imgMatch;
+            return `<img src="${escAttr(src)}" alt="${escAttr(alt)}" style="max-width:100%;border:4px solid ${s.color};border-radius:6px;padding:2px;" />`;
+        }
+        // Tableau ajouté/retiré (copié-collé Word/Excel inclus) : même logique
+        // — <ins>/<del> autour du Markdown brut casserait le tableau (il doit
+        // être interprété par marked AVANT d'être entouré), donc on le rend
+        // d'abord puis on entoure le HTML résultant d'un cadre coloré.
+        if (s.type !== 'text' && TABLE_SEPARATOR_PATTERN.test(s.text)) {
+            const tableHtml = marked.parse(s.text, { breaks: true });
+            // \n\n avant/après : un <div> est un élément de bloc — sans ligne
+            // vide, le marked.parse englobant (sur tout le texte annoté) le
+            // considère comme « en ligne » et le glisse (invalide) dans un
+            // <p>, brisant sa fermeture au lieu de le laisser passer tel quel.
+            return `\n\n<div style="border:4px solid ${s.color};border-radius:8px;padding:8px 4px;margin:6px 0;${s.type === 'delete' ? 'opacity:0.6;' : ''}">${tableHtml}</div>\n\n`;
+        }
+        const text = esc(s.text);
+        if (s.type === 'insert') return `<ins style="color:${s.color};background:${s.color}1A;text-decoration:none;font-weight:600;">${text}</ins>`;
+        if (s.type === 'delete') return `<del style="color:${s.color};opacity:0.75;">${text}</del>`;
+        return text;
+    }).join('');
+}
+
+/** Y a-t-il au moins un span coloré (insert/delete) postérieur à `sinceAt` ? */
+function hasRecentAmendments(spans, sinceAt) {
+    return (spans || []).some(s => s.type !== 'text' && (!sinceAt || (s.at && s.at > sinceAt)));
+}
+
+/** Liste (dédupliquée, dans l'ordre d'apparition) des {name,color} des
+ *  amendeurs ayant un span postérieur à `sinceAt`. */
+function recentAmenders(spans, sinceAt) {
+    const seen = new Map();
+    for (const s of (spans || [])) {
+        if (s.type === 'text' || !s.author) continue;
+        if (sinceAt && !(s.at && s.at > sinceAt)) continue;
+        if (!seen.has(s.author)) seen.set(s.author, s.color);
+    }
+    return Array.from(seen.entries()).map(([name, color]) => ({ name, color }));
+}
+
 /** Corps HTML du mail : META, participants, PJ, résumé, plan d'actions.
  *  L'encart « magasin d'applications » n'est ajouté QUE pour les internes. */
-function buildSummaryEmailHtml({ summaryHtml, message, meetingTitle, meetingDate, internal, magappUrl, participants, tasks, meta, attachmentNames, noticeText }) {
+function buildSummaryEmailHtml({ summaryHtml, message, meetingTitle, meetingDate, internal, magappUrl, amendUrl, participants, tasks, amendedHtml, meta, attachmentNames, noticeText, updateInfo }) {
     const esc = (s) => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    const fmt = (d) => d ? new Date(d).toLocaleString('fr-FR') : '';
+    const fmt = (d) => d ? new Date(d).toLocaleString('fr-FR', { timeZone: 'Europe/Paris' }) : '';
 
     const metaParts = [];
     if (meta?.requester) metaParts.push(`Résumé généré par <strong>${esc(meta.requester)}</strong>`);
@@ -200,8 +461,37 @@ function buildSummaryEmailHtml({ summaryHtml, message, meetingTitle, meetingDate
         <div style="margin:16px 0;">
             <div style="font-weight:700;color:#334155;margin-bottom:6px;">✅ Plan d'actions (${tasks.length})</div>
             <ul style="margin:0;padding-left:18px;color:#334155;font-size:14px;line-height:1.6;">
-                ${tasks.map(t => `<li>${esc(t.description)}${t.assignee ? ` — <strong>${esc(t.assignee)}</strong>` : ''}${t.deadline ? ` (échéance : ${esc(t.deadline)})` : ''}${t.requester ? ` · demandé par ${esc(t.requester)}` : ''}</li>`).join('')}
+                ${tasks.map(t => `<li>${esc(t.description)}${t.assignee ? ` — <strong>${esc(t.assignee)}</strong>` : ''}${t.deadline ? ` (échéance : ${esc(t.deadline)})` : ''}${t.requester ? ` · demandé par ${esc(t.requester)}` : ''}${t.added_by_name ? ` <span style="color:${esc(t.added_by_color || '#94a3b8')};">· ajoutée par ${esc(t.added_by_name)}</span>` : ''}</li>`).join('')}
             </ul>
+        </div>` : '';
+
+    // Amendements : un seul bloc fusionné (déjà rendu en HTML par
+    // renderAnnotatedMarkdown + marked.parse côté appelant), pas un par amendement.
+    const amendmentsHtml = amendedHtml ? `
+        <div style="margin:16px 0;">
+            <div style="font-weight:700;color:#334155;margin-bottom:6px;">📝 Amendements</div>
+            <div style="padding:10px 14px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;font-size:13px;color:#334155;line-height:1.6;">
+                ${amendedHtml}
+            </div>
+        </div>` : '';
+
+    // Bouton « bulletproof » (table + bgcolor en attribut, pas seulement en
+    // CSS) : un <a> avec juste padding/border-radius en style suffit pour la
+    // plupart des clients mais rendait un bouton plat/moche dans le nouvel
+    // Outlook — la construction en <table> est la seule qui s'affiche
+    // correctement de façon fiable sur tous les clients de messagerie.
+    const amendHtml = (internal && amendUrl) ? `
+        <div style="margin:16px 0;padding:14px 16px;border:1px solid #e2e8f0;background:#f8fafc;border-radius:10px;text-align:center;">
+            <table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center" style="margin:0 auto;">
+                <tr>
+                    <td align="center" bgcolor="#334155" style="background-color:#334155;border-radius:8px;">
+                        <a href="${esc(amendUrl)}" target="_blank" style="display:inline-block;padding:10px 20px;font-family:Arial,Helvetica,sans-serif;font-size:13px;font-weight:bold;color:#ffffff;text-decoration:none;border-radius:8px;white-space:nowrap;">
+                            ✏️ Amender ce compte rendu
+                        </a>
+                    </td>
+                </tr>
+            </table>
+            <div style="color:#64748b;font-size:12px;margin-top:8px;">Ajoutez une tâche oubliée ou corrigez le texte — vous devrez vous authentifier si vous ne l'êtes pas déjà.</div>
         </div>` : '';
 
     const attHtml = (attachmentNames || []).length ? `
@@ -218,19 +508,48 @@ function buildSummaryEmailHtml({ summaryHtml, message, meetingTitle, meetingDate
             </ol>
         </div>` : '';
 
+    // Diffusion déclenchée par un amendement : bandeau distinct de l'envoi
+    // initial, précisant qui a amendé (cette validation + tout l'historique
+    // des amendeurs successifs de ce CR).
+    const updateNamesHtml = (updateInfo?.amenders || [])
+        .map(a => `<strong style="color:${esc(a.color)};">${esc(a.name)}</strong>`)
+        .join(', ');
+    const updateHtml = updateInfo ? `
+        <div style="margin:12px 0;padding:12px 16px;border:1px solid #C7D2FE;background:#EEF2FF;border-radius:10px;color:#3730A3;font-size:13px;line-height:1.5;">
+            <strong>🔄 Mise à jour du compte rendu</strong> — ce compte rendu a été amendé${updateNamesHtml ? ` par ${updateNamesHtml}` : ''} depuis le dernier envoi.
+        </div>` : '';
+
+    // Conteneur largeur fixe + word-wrap explicite : sans ça, un paragraphe
+    // long (texte IA sans retour à la ligne) élargit tout le mail au lieu de
+    // passer à la ligne — certains clients mail (Outlook en tête) ne
+    // retournent pas le texte automatiquement à l'intérieur d'un tableau/bloc
+    // sans cette propriété posée explicitement. Auto-suffisant : fonctionne
+    // même si le template englobant (API Ville) ne contraint pas déjà la
+    // largeur.
     return `
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;">
+            <tr>
+                <td align="center">
+                    <table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" style="width:600px;max-width:600px;">
+                        <tr>
+                            <td style="word-wrap:break-word;overflow-wrap:break-word;word-break:break-word;">
         <p>Bonjour,</p>
-        <p>Vous recevez le résumé de la réunion <strong>${esc(meetingTitle)}</strong>${meetingDate ? ` du ${esc(meetingDate)}` : ''}.</p>
+        <p>${updateInfo
+            ? `Le compte rendu de la réunion <strong>${esc(meetingTitle)}</strong>${meetingDate ? ` du ${esc(meetingDate)}` : ''} vient d'être mis à jour.`
+            : `Vous recevez le résumé de la réunion <strong>${esc(meetingTitle)}</strong>${meetingDate ? ` du ${esc(meetingDate)}` : ''}.`}</p>
+        ${updateHtml}
         ${metaLine}
         ${statusLine}
         ${message ? `<div style="background:#f8fafc;border-left:3px solid #6366f1;padding:10px 14px;margin:12px 0;border-radius:6px;white-space:pre-wrap;">${esc(message)}</div>` : ''}
         ${noticeHtml}
         ${participantsHtml}
         ${attHtml}
-        <div style="margin:16px 0;padding:16px;border:1px solid #e2e8f0;border-radius:10px;background:#ffffff;">
+        <div style="margin:16px 0;padding:16px;border:1px solid #e2e8f0;border-radius:10px;background:#ffffff;word-wrap:break-word;overflow-wrap:break-word;word-break:break-word;">
             ${summaryHtml}
         </div>
         ${tasksHtml}
+        ${amendmentsHtml}
+        ${amendHtml}
         ${internal ? `
         <div style="margin:16px 0;padding:14px 16px;border:1px solid #bae6fd;background:#f0f9ff;border-radius:10px;">
             <div style="font-weight:700;color:#0369a1;margin-bottom:6px;">📁 Transcript complet &amp; résumé disponibles</div>
@@ -240,7 +559,227 @@ function buildSummaryEmailHtml({ summaryHtml, message, meetingTitle, meetingDate
                 ${magappUrl ? `<br/><a href="${esc(magappUrl)}" style="color:#0078a4;font-weight:600;">Ouvrir le magasin d'applications</a>` : ''}
             </div>
         </div>` : ''}
+                            </td>
+                        </tr>
+                    </table>
+                </td>
+            </tr>
+        </table>
     `;
+}
+
+/** URL de base de l'application (pour les liens dans les mails) : réglage
+ *  SQLite `app_base_url`, sinon variables d'environnement, sinon hôte de la
+ *  requête courante. */
+
+/** Ajoute du CSS en ligne aux tableaux Markdown rendus (marked.parse ne le
+ *  fait pas) — indispensable pour les clients mail qui ignorent les <style>
+ *  externes (ex. tableau collé depuis Word via l'éditeur riche). */
+function inlineTableStyles(html) {
+    return String(html || '')
+        .replace(/<table>/g, '<table style="border-collapse:collapse;width:100%;margin:10px 0;font-size:13px;">')
+        .replace(/<th>/g, '<th style="border:1px solid #cbd5e1;padding:6px 10px;background:#f1f5f9;text-align:left;font-weight:700;color:#334155;">')
+        .replace(/<td>/g, '<td style="border:1px solid #e2e8f0;padding:6px 10px;text-align:left;color:#334155;">');
+}
+
+async function getAppBaseUrl(req) {
+    let appBaseUrl = process.env.FRONTEND_URL || process.env.APP_BASE_URL || process.env.APP_URL || '';
+    try {
+        const baseRow = await getSqlite()?.get("SELECT setting_value FROM app_settings WHERE setting_key = 'app_base_url'");
+        appBaseUrl = (baseRow?.setting_value || '').trim() || appBaseUrl;
+    } catch { /* repli env */ }
+    if (!appBaseUrl && req) appBaseUrl = `${req.protocol}://${req.get('host')}`;
+    return (appBaseUrl || '').replace(/\/+$/, '');
+}
+
+/** Persiste les champs organisationnels (fonction/direction/service) des
+ *  participants éventuellement corrigés dans l'UI avant l'envoi (upsert sur
+ *  transcript.meeting_participants). Partagé par l'envoi initial et la
+ *  diffusion déclenchée par un amendement. */
+async function persistEditedParticipants(db, meetingId, bodyParticipants) {
+    for (const p of bodyParticipants) {
+        const email = String(p?.email || '').toLowerCase().trim();
+        if (!email.includes('@')) continue;
+        const fonction = p?.fonction || null, direction = p?.direction || null, service = p?.service || null;
+        try {
+            const upd = await db.run(
+                `UPDATE transcript.meeting_participants SET fonction = ?, direction = ?, service = ? WHERE meeting_id = ? AND LOWER(email) = ?`,
+                [fonction, direction, service, meetingId, email]
+            );
+            if (!upd || !upd.changes) {
+                await db.run(
+                    `INSERT INTO transcript.meeting_participants (meeting_id, email, username, name, fonction, direction, service) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+                    [meetingId, email, email.split('@')[0], p?.name || email, fonction, direction, service]
+                );
+            }
+        } catch (e) { console.error('[TRANSCRIPT MAIL] maj participant échouée:', e.message); }
+    }
+}
+
+/**
+ * Construit le mail (résumé + tâches + historique des amendements) et
+ * l'envoie à chaque destinataire de `targets` (Map<email, {email,name,internal}>),
+ * puis journalise l'envoi (transcript.summary_sends). Partagé par l'envoi
+ * manuel (sendMeetingSummary) et la diffusion automatique déclenchée par un
+ * amendement (amendSummary).
+ */
+async function buildAndSendSummary(req, meetingId, targets, message, updateInfo = null) {
+    const db = pgDb;
+    const meeting = await db.get('SELECT * FROM transcript_meetings WHERE id = ?', [meetingId]);
+    if (!meeting) return { error: 'Réunion non trouvée', status: 404 };
+    const bodySummary = meeting.summary ? stripSummaryMeta(meeting.summary).trim() : '';
+    if (!bodySummary) return { error: "Aucun résumé à envoyer. Générez d'abord un résumé IA.", status: 400 };
+    if (!targets || targets.size === 0) return { error: 'Aucun destinataire sélectionné.', status: 400 };
+
+    // URL du magasin d'applications + lien d'amendement (optionnels).
+    let magappUrl = process.env.MAGAPP_URL || '';
+    try {
+        const row = await getSqlite()?.get("SELECT setting_value FROM app_settings WHERE setting_key = 'magapp_base_url'");
+        magappUrl = (row?.setting_value || '').trim() || magappUrl;
+    } catch { /* optionnel */ }
+    const appBaseUrl = await getAppBaseUrl(req);
+    // Même logique d'accès que le lien de partage invité (?nomenu=1) : header
+    // identique (Login.tsx affiche <Header/> + le même message), mais avec le
+    // VRAI rôle du compte (via /api/login, pas /api/auth/ad-login-transcript)
+    // pour pouvoir amender — cf. le marqueur amend=1 distingué dans Login.tsx.
+    const amendUrl = appBaseUrl ? `${appBaseUrl}/transcriptmanager/meeting/${meetingId}?nomenu=1&amend=1` : '';
+
+    // breaks:true — cohérent avec remark-breaks côté app : un simple retour à
+    // la ligne (Enter) dans le texte amendé doit rester visible, sans exiger
+    // du Markdown valide (double saut de ligne) de la part de l'amendeur.
+    // inlineTableStyles : un tableau collé depuis Word (converti en Markdown
+    // par l'éditeur riche) n'a aucune bordure une fois rendu en HTML — les
+    // clients mail ignorant les feuilles de style externes, il faut du CSS
+    // en ligne sur chaque balise pour qu'il s'affiche correctement.
+    const summaryHtml = inlineTableStyles(marked.parse(bodySummary, { breaks: true }));
+    const meetingDate = meeting.meeting_date ? new Date(meeting.meeting_date).toLocaleString('fr-FR', { timeZone: 'Europe/Paris' }) : '';
+
+    const participants = await buildParticipantsList(db, meetingId);
+    const tasks = await db.all(
+        `SELECT description, assignee, requester, deadline, is_completed, added_by_name, added_by_color FROM transcript.tasks WHERE meeting_id = ? AND deleted_at IS NULL ORDER BY id`,
+        [meetingId]
+    );
+    // Amendements : un seul contenu fusionné (tous les auteurs, chacun dans
+    // sa couleur), Markdown correctement interprété. Mail de mise à jour
+    // (updateInfo présent) : seuls les changements depuis le dernier envoi
+    // restent colorés — le reste redevient du texte neutre (déjà connu des
+    // destinataires), pour ne pas répéter tout l'historique à chaque envoi.
+    let amendedHtml = '';
+    try {
+        const spans = JSON.parse(meeting.summary_annotated_spans || 'null') || [];
+        const sinceAt = updateInfo?.sinceSentAt || null;
+        if (spans.length && (!updateInfo || hasRecentAmendments(spans, sinceAt))) {
+            const annotatedMd = renderAnnotatedMarkdown(spans, { sinceAt });
+            amendedHtml = inlineTableStyles(marked.parse(annotatedMd, { breaks: true }));
+        }
+    } catch (e) { console.error('[TRANSCRIPT MAIL] rendu amendements échoué:', e.message); }
+    const meta = {
+        requester: meeting.summary_requester || null,
+        model: meeting.summary_model || null,
+        requestedAt: meeting.summary_requested_at || null,
+        durationMs: meeting.summary_duration_ms != null ? meeting.summary_duration_ms : null,
+        editedBy: meeting.summary_edited_by || null,
+        editedAt: meeting.summary_edited_at || null,
+    };
+    const noticeText = await getSummaryNoticeText();
+
+    // Pièces jointes de la réunion → envoyées en pièces jointes du mail.
+    const attRows = await db.all(
+        `SELECT * FROM transcript.meeting_attachments WHERE meeting_id = ? ORDER BY created_at`,
+        [meetingId]
+    );
+    const attachments = [];
+    const attachmentNames = [];
+    for (const att of attRows) {
+        const displayName = att.original_name || att.filename || 'fichier';
+        try {
+            const storagePath = att.file_path || (storage.isStoragePath(att.filename) ? att.filename : null);
+            let buf = null;
+            if (storagePath) {
+                const f = await storage.getFileForServe(storagePath);
+                if (f) buf = f.buffer || (f.absolutePath ? fs.readFileSync(f.absolutePath) : null);
+            } else {
+                const p = path.join(__dirname, '..', '..', 'file_reunions', att.filename);
+                if (fs.existsSync(p)) buf = fs.readFileSync(p);
+            }
+            if (buf) {
+                attachments.push({ filename: displayName, content: buf.toString('base64') });
+                attachmentNames.push(displayName);
+            }
+        } catch (e) {
+            console.error('[TRANSCRIPT MAIL] PJ non ajoutée:', displayName, e.message);
+        }
+    }
+
+    let sent = 0, failed = 0;
+    const errors = [];
+    for (const t of targets.values()) {
+        try {
+            const html = buildSummaryEmailHtml({
+                summaryHtml, message: message || '', meetingTitle: meeting.title || 'Réunion',
+                meetingDate, internal: t.internal, magappUrl, amendUrl,
+                participants, tasks, amendedHtml, meta, attachmentNames,
+                noticeText, updateInfo,
+            });
+            const subject = (updateInfo
+                ? `Mise à jour du compte rendu de la réunion : ${meeting.title || ''}`
+                : `Résumé de la réunion : ${meeting.title || ''}`).trim();
+            // Envoi via l'API Ville (APM) → template général de la Ville.
+            // Repli sur le mailer local (template DSI Hub) si l'APM n'est
+            // pas configurée ou est indisponible.
+            try {
+                await apmMail.sendMail({ to: t.email, subject, content: html, attachments });
+            } catch (apmErr) {
+                console.error('[TRANSCRIPT MAIL] API Ville indisponible, repli mailer local:', apmErr.message);
+                if (typeof _sendMail !== 'function') throw apmErr;
+                await _sendMail(t.email, subject, html, attachments, 'transcript');
+            }
+            sent++;
+        } catch (e) {
+            failed++;
+            errors.push(`${t.email}: ${e.message}`);
+            console.error('[TRANSCRIPT MAIL] échec pour', t.email, e.message);
+        }
+    }
+
+    // Journalise l'envoi (date/heure, expéditeur, destinataires).
+    let sentAt = null;
+    try {
+        const recipientList = Array.from(targets.values()).map(t => t.email).join('; ');
+        const logRes = await db.run(
+            `INSERT INTO transcript.summary_sends (meeting_id, sent_at, sent_by, recipients, sent_count, failed_count) VALUES (?, NOW(), ?, ?, ?, ?)`,
+            [meetingId, req?.user?.username || null, recipientList, sent, failed]
+        );
+        const row = await db.get(`SELECT sent_at FROM transcript.summary_sends WHERE id = ?`, [logRes.lastID]);
+        sentAt = row?.sent_at || null;
+    } catch (e) {
+        console.error('[TRANSCRIPT MAIL] journalisation échouée:', e.message);
+    }
+
+    return { sent, failed, total: targets.size, errors, sent_at: sentAt };
+}
+
+/** Reconstitue la Map de destinataires (email → {email,name,internal}) à
+ *  partir du dernier envoi journalisé (transcript.summary_sends) pour cette
+ *  réunion — sert à rediffuser automatiquement après un amendement, aux mêmes
+ *  destinataires que l'envoi initial. Renvoie aussi la date de ce dernier
+ *  envoi (sentAt), pour ne montrer dans le mail de mise à jour que les
+ *  amendements survenus depuis. */
+async function getLastSendTargets(db, meetingId) {
+    const last = await db.get(
+        'SELECT recipients, sent_at FROM transcript.summary_sends WHERE meeting_id = ? ORDER BY sent_at DESC, id DESC LIMIT 1',
+        [meetingId]
+    );
+    const emails = String(last?.recipients || '').split(/[;,]/).map(e => e.trim().toLowerCase()).filter(e => e.includes('@'));
+    if (!emails.length) return { targets: new Map(), sentAt: null };
+    const participants = await buildParticipantsList(db, meetingId);
+    const byEmail = new Map(participants.map(p => [p.email, p]));
+    const targets = new Map();
+    for (const email of emails) {
+        const p = byEmail.get(email);
+        targets.set(email, { email, name: p?.name || email, internal: p ? p.internal : await isInternalEmail(db, email) });
+    }
+    return { targets, sentAt: last?.sent_at || null };
 }
 
 const DEFAULT_PROMPT_TEMPLATE = `Tu es un assistant spécialisé dans la synthèse de réunions de direction d'un service informatique (DSI) municipal.
@@ -446,7 +985,7 @@ const transcriptController = {
                     importJobs[jobId].progress = 5;
                     const content = await teamsTranscript.fetchTranscriptContent(userEmail, meetingId, transcriptId, transcriptContentUrl);
 
-                    const title = (subject || `Réunion Teams ${new Date(startDateTime || Date.now()).toLocaleString('fr-FR')}`).trim();
+                    const title = (subject || `Réunion Teams ${new Date(startDateTime || Date.now()).toLocaleString('fr-FR', { timeZone: 'Europe/Paris' })}`).trim();
                     const meetingDate = startDateTime ? new Date(startDateTime) : null;
 
                     const result = await pgDb.run(
@@ -504,52 +1043,19 @@ const transcriptController = {
             if (!meeting) return res.status(404).json({ error: 'Réunion non trouvée' });
 
             if (!canSeeAll) {
-                const emailLocal = (email || username || '').split('@')[0].toLowerCase();
-                const emailFull = (email || `${emailLocal}@ivry94.fr`).toLowerCase();
-
-                const canAccess = await db.get(`
-                    SELECT 1 FROM transcript_meetings m
-                    WHERE m.id = ?
-                    AND (
-                        LOWER(m.owner_username) = LOWER(?)
-                        OR (
-                            m.reunion_id IS NOT NULL
-                            AND EXISTS (
-                                SELECT 1 FROM reunion_participants rp
-                                WHERE rp.reunion_id = m.reunion_id
-                                AND (LOWER(rp.email) = ? OR LOWER(rp.email) = ? OR LOWER(rp.ad_username) = ?)
-                                AND rp.statut_presence IN ('present', 'excuse', 'info')
-                            )
-                        )
-                        OR EXISTS (
-                            SELECT 1 FROM transcript_cues tc
-                            WHERE tc.meeting_id = m.id
-                            AND (LOWER(tc.speaker_email) = ? OR LOWER(tc.speaker_email) = ?)
-                        )
-                        OR (
-                            m.shared_with_direction IS NOT NULL
-                            AND EXISTS (
-                                SELECT 1 FROM hub_consommables.consumable_requests cr
-                                WHERE LOWER(cr.username) = LOWER(?)
-                                AND cr.direction = m.shared_with_direction
-                            )
-                        )
-                        OR (
-                            m.shared_with_service IS NOT NULL
-                            AND EXISTS (
-                                SELECT 1 FROM hub_consommables.consumable_requests cr
-                                WHERE LOWER(cr.username) = LOWER(?)
-                                AND cr.service = m.shared_with_service
-                            )
-                        )
-                        ${participantExistsSql()}
-                    )
-                `, [meetingId, username, emailFull, emailLocal, emailLocal, emailFull, emailLocal, username, username, ...participantMatchParams(req.user)]);
-
+                const canAccess = await isMeetingParticipant(db, meetingId, req.user);
                 if (!canAccess) return res.status(403).json({ error: 'Accès refusé' });
             }
 
             const cues = await db.all('SELECT * FROM transcript_cues WHERE meeting_id = ? ORDER BY start_seconds', [meetingId]);
+            // Historique figé des amendements de texte (cf. amendSummary).
+            let summaryAmendments = [];
+            try {
+                summaryAmendments = await db.all(
+                    'SELECT id, username, name, color, created_at FROM transcript.summary_amendments WHERE meeting_id = ? ORDER BY created_at ASC',
+                    [meetingId]
+                );
+            } catch { /* table pas encore migrée */ }
             // Dernier envoi du compte rendu (date/heure, expéditeur, destinataires).
             let summaryLastSend = null;
             try {
@@ -558,7 +1064,21 @@ const transcriptController = {
                     [meetingId]
                 ) || null;
             } catch { /* table pas encore migrée */ }
-            res.json({ ...meeting, cues, summary_last_send: summaryLastSend, summary_notice: await getSummaryNoticeText() });
+            // Contenu de tous les amendements fusionnés en un seul rendu Markdown
+            // (chaque portion colorée par son auteur) — affiché par l'app sous le
+            // résumé, cf. renderAnnotatedMarkdown.
+            let summaryAmendedMarkdown = null;
+            try {
+                const spans = JSON.parse(meeting.summary_annotated_spans || 'null') || [];
+                if (spans.some(s => s.type !== 'text')) summaryAmendedMarkdown = renderAnnotatedMarkdown(spans, {});
+            } catch { /* pas encore d'amendement */ }
+            res.json({
+                ...meeting, cues,
+                summary_last_send: summaryLastSend,
+                summary_amendments: summaryAmendments,
+                summary_amended_markdown: summaryAmendedMarkdown,
+                summary_notice: await getSummaryNoticeText(),
+            });
         } catch (error) {
             res.status(500).json({ error: error.message });
         }
@@ -597,13 +1117,6 @@ const transcriptController = {
             const meetingId = req.params.id;
             const { recipients, extraEmails, message, participants: bodyParticipants } = req.body || {};
 
-            const meeting = await db.get('SELECT * FROM transcript_meetings WHERE id = ?', [meetingId]);
-            if (!meeting) return res.status(404).json({ error: 'Réunion non trouvée' });
-            const bodySummary = meeting.summary ? stripSummaryMeta(meeting.summary).trim() : '';
-            if (!bodySummary) {
-                return res.status(400).json({ error: "Aucun résumé à envoyer. Générez d'abord un résumé IA." });
-            }
-
             // Destinataires : participants cochés + adresses libres.
             const targets = new Map();
             for (const r of (Array.isArray(recipients) ? recipients : [])) {
@@ -620,141 +1133,13 @@ const transcriptController = {
             }
             if (targets.size === 0) return res.status(400).json({ error: 'Aucun destinataire sélectionné.' });
 
-            // URL du magasin d'applications (optionnelle).
-            let magappUrl = process.env.MAGAPP_URL || '';
-            try {
-                const row = await getSqlite()?.get("SELECT setting_value FROM app_settings WHERE setting_key = 'magapp_base_url'");
-                magappUrl = (row?.setting_value || '').trim() || magappUrl;
-            } catch { /* optionnel */ }
-
-            const summaryHtml = marked.parse(bodySummary);
-            const meetingDate = meeting.meeting_date ? new Date(meeting.meeting_date).toLocaleString('fr-FR') : '';
-
-            // Infos complémentaires : participants, plan d'actions, PJ, META.
-            // Les participants éventuellement corrigés dans l'UI ont priorité :
-            // on les persiste (fonction/direction/service) et on les utilise
-            // dans le mail.
-            let participants = await buildParticipantsList(db, meetingId);
             if (Array.isArray(bodyParticipants) && bodyParticipants.length) {
-                const editedByEmail = new Map();
-                for (const p of bodyParticipants) {
-                    const email = String(p?.email || '').toLowerCase().trim();
-                    if (!email.includes('@')) continue;
-                    const rec = {
-                        email,
-                        name: p?.name || email,
-                        internal: !!p?.internal,
-                        fonction: p?.fonction || null,
-                        direction: p?.direction || null,
-                        service: p?.service || null,
-                    };
-                    editedByEmail.set(email, rec);
-                    // Persiste les champs org (upsert sur meeting_participants).
-                    try {
-                        const upd = await db.run(
-                            `UPDATE transcript.meeting_participants SET fonction = ?, direction = ?, service = ? WHERE meeting_id = ? AND LOWER(email) = ?`,
-                            [rec.fonction, rec.direction, rec.service, meetingId, email]
-                        );
-                        if (!upd || !upd.changes) {
-                            await db.run(
-                                `INSERT INTO transcript.meeting_participants (meeting_id, email, username, name, fonction, direction, service) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-                                [meetingId, email, email.split('@')[0], rec.name, rec.fonction, rec.direction, rec.service]
-                            );
-                        }
-                    } catch (e) { console.error('[TRANSCRIPT MAIL] maj participant échouée:', e.message); }
-                }
-                // Le mail reprend la liste corrigée (ordre interne/externe puis nom).
-                const base = new Map(participants.map(p => [p.email, p]));
-                participants = Array.from(editedByEmail.values())
-                    .map(rec => ({ ...(base.get(rec.email) || {}), ...rec }))
-                    .sort((a, b) => (Number(b.internal) - Number(a.internal)) || a.name.localeCompare(b.name, 'fr'));
-            }
-            const tasks = await db.all(
-                `SELECT description, assignee, requester, deadline, is_completed FROM transcript.tasks WHERE meeting_id = ? ORDER BY id`,
-                [meetingId]
-            );
-            const meta = {
-                requester: meeting.summary_requester || null,
-                model: meeting.summary_model || null,
-                requestedAt: meeting.summary_requested_at || null,
-                durationMs: meeting.summary_duration_ms != null ? meeting.summary_duration_ms : null,
-                editedBy: meeting.summary_edited_by || null,
-                editedAt: meeting.summary_edited_at || null,
-            };
-            const noticeText = await getSummaryNoticeText();
-
-            // Pièces jointes de la réunion → envoyées en pièces jointes du mail.
-            const attRows = await db.all(
-                `SELECT * FROM transcript.meeting_attachments WHERE meeting_id = ? ORDER BY created_at`,
-                [meetingId]
-            );
-            const attachments = [];
-            const attachmentNames = [];
-            for (const att of attRows) {
-                const displayName = att.original_name || att.filename || 'fichier';
-                try {
-                    const storagePath = att.file_path || (storage.isStoragePath(att.filename) ? att.filename : null);
-                    let buf = null;
-                    if (storagePath) {
-                        const f = await storage.getFileForServe(storagePath);
-                        if (f) buf = f.buffer || (f.absolutePath ? fs.readFileSync(f.absolutePath) : null);
-                    } else {
-                        const p = path.join(__dirname, '..', '..', 'file_reunions', att.filename);
-                        if (fs.existsSync(p)) buf = fs.readFileSync(p);
-                    }
-                    if (buf) {
-                        attachments.push({ filename: displayName, content: buf.toString('base64') });
-                        attachmentNames.push(displayName);
-                    }
-                } catch (e) {
-                    console.error('[TRANSCRIPT MAIL] PJ non ajoutée:', displayName, e.message);
-                }
+                await persistEditedParticipants(db, meetingId, bodyParticipants);
             }
 
-            let sent = 0, failed = 0;
-            const errors = [];
-            for (const t of targets.values()) {
-                try {
-                    const html = buildSummaryEmailHtml({
-                        summaryHtml, message: message || '', meetingTitle: meeting.title || 'Réunion',
-                        meetingDate, internal: t.internal, magappUrl,
-                        participants, tasks, meta, attachmentNames,
-                        noticeText,
-                    });
-                    const subject = `Résumé de la réunion : ${meeting.title || ''}`.trim();
-                    // Envoi via l'API Ville (APM) → template général de la Ville.
-                    // Repli sur le mailer local (template DSI Hub) si l'APM n'est
-                    // pas configurée ou est indisponible.
-                    try {
-                        await apmMail.sendMail({ to: t.email, subject, content: html, attachments });
-                    } catch (apmErr) {
-                        console.error('[TRANSCRIPT MAIL] API Ville indisponible, repli mailer local:', apmErr.message);
-                        if (typeof _sendMail !== 'function') throw apmErr;
-                        await _sendMail(t.email, subject, html, attachments, 'transcript');
-                    }
-                    sent++;
-                } catch (e) {
-                    failed++;
-                    errors.push(`${t.email}: ${e.message}`);
-                    console.error('[TRANSCRIPT MAIL] échec pour', t.email, e.message);
-                }
-            }
-
-            // Journalise l'envoi (date/heure, expéditeur, destinataires).
-            let sentAt = null;
-            try {
-                const recipientList = Array.from(targets.values()).map(t => t.email).join('; ');
-                const logRes = await db.run(
-                    `INSERT INTO transcript.summary_sends (meeting_id, sent_at, sent_by, recipients, sent_count, failed_count) VALUES (?, NOW(), ?, ?, ?, ?)`,
-                    [meetingId, req.user?.username || null, recipientList, sent, failed]
-                );
-                const row = await db.get(`SELECT sent_at FROM transcript.summary_sends WHERE id = ?`, [logRes.lastID]);
-                sentAt = row?.sent_at || null;
-            } catch (e) {
-                console.error('[TRANSCRIPT MAIL] journalisation échouée:', e.message);
-            }
-
-            res.json({ sent, failed, total: targets.size, errors, sent_at: sentAt });
+            const result = await buildAndSendSummary(req, meetingId, targets, message || '');
+            if (result.error) return res.status(result.status || 400).json({ error: result.error });
+            res.json(result);
         } catch (error) {
             res.status(500).json({ error: error.message });
         }
@@ -917,12 +1302,13 @@ const transcriptController = {
         try {
             const db = pgDb;
             const meetingId = req.query.meeting_id;
+            const includeDeleted = req.query.include_deleted === '1';
+            const conditions = [];
+            const params = [];
+            if (meetingId) { conditions.push('meeting_id = ?'); params.push(meetingId); }
+            if (!includeDeleted) conditions.push('deleted_at IS NULL');
             let query = 'SELECT * FROM transcript_tasks';
-            let params = [];
-            if (meetingId) {
-                query += ' WHERE meeting_id = ?';
-                params.push(meetingId);
-            }
+            if (conditions.length) query += ' WHERE ' + conditions.join(' AND ');
             query += ' ORDER BY is_completed ASC, created_at DESC';
             const tasks = await db.all(query, params);
             res.json(tasks);
@@ -938,8 +1324,11 @@ const transcriptController = {
         try {
             const db = pgDb;
             const taskId = req.params.id;
-            const task = await db.get('SELECT is_completed FROM transcript_tasks WHERE id = ?', [taskId]);
+            const task = await db.get('SELECT is_completed, meeting_id FROM transcript_tasks WHERE id = ?', [taskId]);
             if (!task) return res.status(404).json({ error: 'Tâche non trouvée' });
+            if (!(await canAmendMeeting(db, task.meeting_id, req.user))) {
+                return res.status(403).json({ error: 'Accès refusé' });
+            }
 
             const newVal = task.is_completed ? 0 : 1;
             await db.run('UPDATE transcript_tasks SET is_completed = ? WHERE id = ?', [newVal, taskId]);
@@ -956,11 +1345,15 @@ const transcriptController = {
         try {
             const db = pgDb;
             const { meeting_id, description, assignee, requester, deadline } = req.body;
+            if (!(await canAmendMeeting(db, meeting_id, req.user))) {
+                return res.status(403).json({ error: 'Accès refusé' });
+            }
+            const { color, name } = await getOrAssignAmenderColor(db, meeting_id, req.user);
             const result = await db.run(
-                'INSERT INTO transcript_tasks (meeting_id, description, assignee, requester, deadline, origin) VALUES (?, ?, ?, ?, ?, ?)',
-                [meeting_id, description, assignee, requester, deadline, 'manual']
+                'INSERT INTO transcript_tasks (meeting_id, description, assignee, requester, deadline, origin, added_by_username, added_by_name, added_by_color) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                [meeting_id, description, assignee, requester, deadline, 'manual', (req.user?.username || '').toLowerCase(), name, color]
             );
-            res.json({ id: result.lastID, description });
+            res.json({ id: result.lastID, description, added_by_name: name, added_by_color: color });
         } catch (error) {
             res.status(500).json({ error: error.message });
         }
@@ -1187,6 +1580,13 @@ const transcriptController = {
             const { title, meeting_date, summary, shared_with_direction, shared_with_service } = req.body;
 
             if (summary !== undefined) {
+                // Réécriture libre uniquement avant le premier envoi (la version
+                // envoyée devient la « V1 ») — au-delà, seul l'amendement tracé
+                // (amendSummary) peut modifier le texte.
+                const alreadySent = await db.get('SELECT 1 FROM transcript.summary_sends WHERE meeting_id = ? LIMIT 1', [meetingId]);
+                if (alreadySent) {
+                    return res.status(409).json({ error: "Ce compte rendu a déjà été envoyé : utilisez l'amendement pour le corriger." });
+                }
                 const existing = await db.get('SELECT * FROM transcript_meetings WHERE id = ?', [meetingId]);
                 // Le corps soumis est comparé hors bloc ## META : on préserve le
                 // META d'origine (demandeur/modèle/dates) et on ne marque une
@@ -1239,6 +1639,11 @@ const transcriptController = {
     updateTask: async (req, res) => {
         try {
             const db = pgDb;
+            const existing = await db.get('SELECT meeting_id FROM transcript_tasks WHERE id = ?', [req.params.id]);
+            if (!existing) return res.status(404).json({ error: 'Tâche non trouvée' });
+            if (!(await canAmendMeeting(db, existing.meeting_id, req.user))) {
+                return res.status(403).json({ error: 'Accès refusé' });
+            }
             const { description, assignee, requester, deadline } = req.body;
             await db.run(
                 'UPDATE transcript_tasks SET description = ?, assignee = ?, requester = ?, deadline = ? WHERE id = ?',
@@ -1251,17 +1656,184 @@ const transcriptController = {
     },
 
     /**
-     * Delete task
+     * Delete task — suppression douce (jamais définitive, cf. convention
+     * tickets) : conserve la ligne et trace qui a supprimé et quand.
      */
     deleteTask: async (req, res) => {
         try {
             const db = pgDb;
-            await db.run('DELETE FROM transcript_tasks WHERE id = ?', [req.params.id]);
+            const task = await db.get('SELECT meeting_id FROM transcript_tasks WHERE id = ?', [req.params.id]);
+            if (!task) return res.status(404).json({ error: 'Tâche non trouvée' });
+            if (!(await canAmendMeeting(db, task.meeting_id, req.user))) {
+                return res.status(403).json({ error: 'Accès refusé' });
+            }
+            const { color, name } = await getOrAssignAmenderColor(db, task.meeting_id, req.user);
+            await db.run(
+                'UPDATE transcript_tasks SET deleted_at = NOW(), deleted_by_username = ?, deleted_by_name = ?, deleted_by_color = ? WHERE id = ?',
+                [(req.user?.username || '').toLowerCase(), name, color, req.params.id]
+            );
             res.json({ success: true });
         } catch (error) {
             res.status(500).json({ error: error.message });
         }
-    }
+    },
+
+    /**
+     * Restore a soft-deleted task (admin/propriétaire).
+     */
+    restoreTask: async (req, res) => {
+        try {
+            if (!isAdminLike(req.user)) return res.status(403).json({ error: 'Admin requis' });
+            const db = pgDb;
+            await db.run(
+                'UPDATE transcript_tasks SET deleted_at = NULL, deleted_by_username = NULL, deleted_by_name = NULL, deleted_by_color = NULL WHERE id = ?',
+                [req.params.id]
+            );
+            res.json({ success: true });
+        } catch (error) {
+            res.status(500).json({ error: error.message });
+        }
+    },
+
+    /**
+     * Un compte interne authentifié peut-il amender ce CR (venant du lien
+     * « Amender ce compte rendu » du mail, ou directement depuis la fiche) ?
+     * Renvoie aussi la couleur d'attribution assignée à cet utilisateur.
+     */
+    getAmendAccess: async (req, res) => {
+        try {
+            const db = pgDb;
+            const meetingId = req.params.id;
+            const meeting = await db.get('SELECT id FROM transcript_meetings WHERE id = ?', [meetingId]);
+            if (!meeting) return res.status(404).json({ error: 'Réunion non trouvée' });
+            const allowed = await canAmendMeeting(db, meetingId, req.user);
+            if (!allowed) return res.json({ allowed: false });
+            const { color, name } = await getOrAssignAmenderColor(db, meetingId, req.user);
+            const row = await db.get(
+                'SELECT draft_text, draft_updated_at FROM transcript.amenders WHERE meeting_id = ? AND username = ?',
+                [meetingId, (req.user?.username || '').toLowerCase()]
+            );
+            res.json({
+                allowed: true, color, name,
+                draft: row?.draft_text || null,
+                draft_updated_at: row?.draft_updated_at || null,
+            });
+        } catch (error) {
+            res.status(500).json({ error: error.message });
+        }
+    },
+
+    /**
+     * Enregistre un brouillon d'amendement du résumé, privé à l'utilisateur
+     * (non visible par les autres, non diffusé) — utilisé quand l'amendeur
+     * répond « non » à « Voulez-vous envoyer vos amendements ? ».
+     */
+    saveAmendDraft: async (req, res) => {
+        try {
+            const db = pgDb;
+            const meetingId = req.params.id;
+            const { draftText } = req.body || {};
+            if (typeof draftText !== 'string') return res.status(400).json({ error: 'draftText requis' });
+            if (!(await canAmendMeeting(db, meetingId, req.user))) {
+                return res.status(403).json({ error: 'Accès refusé' });
+            }
+            await getOrAssignAmenderColor(db, meetingId, req.user); // garantit la ligne transcript.amenders
+            await db.run(
+                'UPDATE transcript.amenders SET draft_text = ?, draft_updated_at = NOW() WHERE meeting_id = ? AND username = ?',
+                [draftText, meetingId, (req.user?.username || '').toLowerCase()]
+            );
+            res.json({ success: true });
+        } catch (error) {
+            res.status(500).json({ error: error.message });
+        }
+    },
+
+    /**
+     * Amende le texte du résumé : calcule le diff mot-à-mot entre la version
+     * "propre" actuelle et le texte soumis, l'enregistre (figé, coloré à
+     * l'amendeur) dans l'historique, met à jour le résumé, puis rediffuse
+     * automatiquement le CR mis à jour aux destinataires du dernier envoi.
+     */
+    amendSummary: async (req, res) => {
+        try {
+            const db = pgDb;
+            const meetingId = req.params.id;
+            const { newText } = req.body || {};
+            if (typeof newText !== 'string') return res.status(400).json({ error: 'newText requis' });
+
+            const meeting = await db.get('SELECT * FROM transcript_meetings WHERE id = ?', [meetingId]);
+            if (!meeting) return res.status(404).json({ error: 'Réunion non trouvée' });
+            if (!(await canAmendMeeting(db, meetingId, req.user))) {
+                return res.status(403).json({ error: 'Accès refusé' });
+            }
+
+            const oldClean = meeting.summary ? stripSummaryMeta(meeting.summary).trim() : '';
+            const cleanNewText = newText.trim();
+            if (cleanNewText === oldClean) {
+                return res.json({ changed: false, broadcast: false });
+            }
+
+            const { color, name } = await getOrAssignAmenderColor(db, meetingId, req.user);
+
+            // Fusionne ce nouvel amendement dans l'historique structuré (spans) —
+            // un seul contenu cumulatif, chaque portion gardant l'attribution de
+            // son auteur d'origine (cf. applyDiffToSpans).
+            const prevSpans = JSON.parse(meeting.summary_annotated_spans || 'null') || initialSpans(oldClean);
+            const newSpans = applyDiffToSpans(prevSpans, oldClean, cleanNewText, { color, name });
+
+            // Trace légère (qui + quand) pour la timeline de l'app — le contenu
+            // détaillé vit désormais dans summary_annotated_spans, pas ici.
+            await db.run(
+                'INSERT INTO transcript.summary_amendments (meeting_id, username, name, email, color) VALUES (?, ?, ?, ?, ?)',
+                [meetingId, (req.user?.username || '').toLowerCase(), name, req.user?.email || null, color]
+            );
+
+            const editedBy = name;
+            const editedAt = new Date().toISOString();
+            const hasMeta = meeting.summary_requester || meeting.summary_model || meeting.summary_requested_at || meeting.summary_duration_ms;
+            const metaBlock = hasMeta ? buildSummaryMeta({
+                requester: meeting.summary_requester || null,
+                model: meeting.summary_model || null,
+                requestedAt: meeting.summary_requested_at || null,
+                durationMs: meeting.summary_duration_ms != null ? meeting.summary_duration_ms : null,
+                editedBy, editedAt,
+            }) : '';
+            const finalSummary = (cleanNewText + (metaBlock ? `\n\n${metaBlock}` : '')).trim();
+            await db.run(
+                'UPDATE transcript_meetings SET summary = ?, summary_edited_by = ?, summary_edited_at = ?, summary_annotated_spans = ? WHERE id = ?',
+                [finalSummary, editedBy, editedAt, JSON.stringify(newSpans), meetingId]
+            );
+
+            // Amendements validés : plus de brouillon en attente pour cet amendeur.
+            await db.run(
+                'UPDATE transcript.amenders SET draft_text = NULL, draft_updated_at = NULL WHERE meeting_id = ? AND username = ?',
+                [meetingId, (req.user?.username || '').toLowerCase()]
+            );
+
+            // Diffusion automatique aux destinataires du dernier envoi — présentée
+            // comme une mise à jour du CR, en précisant qui a amendé depuis cet envoi.
+            let broadcastResult = { broadcast: false };
+            try {
+                const { targets, sentAt } = await getLastSendTargets(db, meetingId);
+                if (targets.size > 0) {
+                    const amenders = recentAmenders(newSpans, sentAt);
+                    const sendRes = await buildAndSendSummary(req, meetingId, targets, '', { amenders, sinceSentAt: sentAt });
+                    broadcastResult = { broadcast: !sendRes.error, ...sendRes };
+                }
+            } catch (e) {
+                console.error('[TRANSCRIPT AMEND] diffusion échouée:', e.message);
+            }
+
+            const amendedMarkdown = renderAnnotatedMarkdown(newSpans, {});
+            res.json({
+                changed: true,
+                diff_html: marked.parse(amendedMarkdown, { breaks: true }),
+                ...broadcastResult,
+            });
+        } catch (error) {
+            res.status(500).json({ error: error.message });
+        }
+    },
 };
 
 /**
@@ -1493,7 +2065,7 @@ function buildSummaryMeta({ requester, model, requestedAt, durationMs, editedBy,
     const lines = ['## META', ''];
     if (requester) lines.push(`- **Demandeur** : ${requester}`);
     if (model) lines.push(`- **Modèle** : ${model}`);
-    if (requestedAt) lines.push(`- **Demande** : ${new Date(requestedAt).toLocaleString('fr-FR')}`);
+    if (requestedAt) lines.push(`- **Demande** : ${new Date(requestedAt).toLocaleString('fr-FR', { timeZone: 'Europe/Paris' })}`);
     if (durationMs != null && durationMs !== '') lines.push(`- **Temps de génération** : ${formatDurationLabel(Number(durationMs))}`);
     lines.push('');
     lines.push(
@@ -1502,7 +2074,7 @@ function buildSummaryMeta({ requester, model, requestedAt, durationMs, editedBy,
             : '> résumé généré automatiquement par Intelligence Artificielle locale et frugale'
     );
     if (editedBy) {
-        lines.push(`> corrigé par ${editedBy}${editedAt ? ` le ${new Date(editedAt).toLocaleString('fr-FR')}` : ''}`);
+        lines.push(`> corrigé par ${editedBy}${editedAt ? ` le ${new Date(editedAt).toLocaleString('fr-FR', { timeZone: 'Europe/Paris' })}` : ''}`);
     }
     return lines.join('\n');
 }

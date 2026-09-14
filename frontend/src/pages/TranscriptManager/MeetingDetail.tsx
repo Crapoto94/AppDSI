@@ -13,8 +13,94 @@ import type { DsiAgent } from '../../components/TaskValidationModal';
 import axios from 'axios';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
-import ReactMarkdown from 'react-markdown';
+import ReactMarkdown, { defaultUrlTransform } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import remarkBreaks from 'remark-breaks';
+import rehypeRaw from 'rehype-raw';
+import ReactQuill from 'react-quill-new';
+import 'react-quill-new/dist/quill.snow.css';
+import { marked } from 'marked';
+import TurndownService from 'turndown';
+import * as turndownGfm from 'turndown-plugin-gfm';
+
+// Édition de l'amendement en WYSIWYG (react-quill-new, comme l'éditeur de
+// commentaires des tickets) : l'amendeur ne doit jamais voir de Markdown brut.
+// On convertit Markdown -> HTML (marked) pour alimenter l'éditeur, puis
+// HTML -> Markdown (turndown) à la validation/au brouillon — le Markdown
+// reste le format de stockage côté backend (diff, rendu final, IA...).
+const turndownService = new TurndownService({ headingStyle: 'atx', bulletListMarker: '-' });
+turndownService.use(turndownGfm.gfm); // tableaux, ~~barré~~, listes à cocher
+// turndown-plugin-gfm ne convertit un <table> en tableau Markdown QUE si sa
+// première ligne est faite de <th> — jamais le cas pour un tableau collé
+// depuis Word (ni pour les tableaux Quill, qui n'utilisent que <td>) : il
+// reste alors en HTML brut, invisible une fois republié. On force donc la
+// première ligne en en-tête avant la conversion (cf. promoteTableHeaders).
+turndownService.addRule('emptyParagraph', {
+    // Une ligne vide dans l'éditeur (Entrée sans texte) doit rester une ligne
+    // vide visible à la republication — en Markdown, une ligne blanche est
+    // juste un séparateur de paragraphe (aucune ligne blanche « en trop »
+    // n'est représentable) : on la remplace donc par un espace insécable,
+    // qui forme un paragraphe à part entière (donc une ligne vide visible)
+    // aussi bien pour marked (mail) que pour ReactMarkdown (app).
+    filter: (node) => node.nodeName === 'P' && node.textContent.replace(/ /g, '').trim() === '',
+    replacement: () => '\n\n&nbsp;\n\n',
+});
+const promoteTableHeaders = (html: string) => {
+    const doc = new DOMParser().parseFromString(html, 'text/html');
+    doc.querySelectorAll('table').forEach(table => {
+        const firstRow = table.rows[0];
+        if (!firstRow || firstRow.cells.length === 0) return;
+        if (Array.from(firstRow.cells).every(c => c.tagName === 'TH')) return; // déjà un en-tête
+        Array.from(firstRow.cells).forEach(cell => {
+            const th = doc.createElement('th');
+            th.innerHTML = cell.innerHTML;
+            cell.replaceWith(th);
+        });
+    });
+    return doc.body.innerHTML;
+};
+// react-markdown filtre par défaut les URLs "data:" (protection XSS générique)
+// — ce qui supprimait silencieusement les images collées (data URI base64)
+// à l'affichage, alors qu'elles s'éditaient normalement dans Quill (qui ne
+// filtre rien). On laisse passer explicitement les data URI d'image.
+const markdownUrlTransform = (url: string) => /^data:image\//i.test(url) ? url : defaultUrlTransform(url);
+const mdToHtml = (md: string) => marked.parse(md || '', { breaks: true }) as string;
+const htmlToMd = (html: string) => turndownService.turndown(promoteTableHeaders(html || '')).trim();
+// `table: true` : sans ça, Quill ne reconnaît pas le <table> collé depuis Word/
+// Excel et le réduit à du texte en vrac — la mise en forme n'est pas éditable
+// via la barre d'outils (hors scope « fonctions de base ») mais le tableau
+// collé s'affiche et se convertit correctement en Markdown à la validation.
+const AMEND_QUILL_MODULES = { toolbar: [[{ header: [2, 3, false] }], ['bold', 'italic', 'underline'], [{ list: 'ordered' }, { list: 'bullet' }], ['clean']], table: true };
+
+// Quill ne gère nativement que le collage d'un <img> déjà présent dans le
+// HTML du presse-papiers — pas le collage d'une image « brute » (fichier)
+// comme lors d'un Ctrl+C d'une capture d'écran ou d'une image Word : on
+// l'intercepte nous-mêmes et on l'insère en data URI (base64).
+function attachImagePasteHandler(quill: { root: HTMLElement; getSelection: (focus?: boolean) => { index: number } | null; getLength: () => number; insertEmbed: (index: number, type: string, value: unknown) => void; setSelection: (index: number, length: number) => void }) {
+    const handler = (e: ClipboardEvent) => {
+        const items = e.clipboardData?.items;
+        if (!items) return;
+        for (let i = 0; i < items.length; i++) {
+            const item = items[i];
+            if (item.kind === 'file' && item.type.startsWith('image/')) {
+                const file = item.getAsFile();
+                if (!file) continue;
+                e.preventDefault();
+                const reader = new FileReader();
+                reader.onload = () => {
+                    const range = quill.getSelection(true);
+                    const index = range ? range.index : quill.getLength();
+                    quill.insertEmbed(index, 'image', reader.result);
+                    quill.setSelection(index + 1, 0);
+                };
+                reader.readAsDataURL(file);
+                break;
+            }
+        }
+    };
+    quill.root.addEventListener('paste', handler);
+    return () => quill.root.removeEventListener('paste', handler);
+}
 
 interface Cue {
     id: number;
@@ -36,6 +122,9 @@ interface Meeting {
     shared_with_service?: string | null;
     summary_edited_by?: string | null;
     summary_edited_at?: string | null;
+    summary_requester?: string | null;
+    summary_model?: string | null;
+    summary_requested_at?: string | null;
     summary_last_send?: {
         sent_at: string | null;
         sent_by: string | null;
@@ -44,6 +133,16 @@ interface Meeting {
         failed_count: number | null;
     } | null;
     summary_notice?: string;
+    summary_amendments?: Amendment[];
+    summary_amended_markdown?: string | null;
+}
+
+interface Amendment {
+    id: number;
+    username: string;
+    name: string;
+    color: string;
+    created_at: string;
 }
 
 interface Task {
@@ -58,6 +157,11 @@ interface Task {
     assignee_username?: string | null;
     assignee_match_score?: number | null;
     app_task_id?: number | null;
+    added_by_name?: string | null;
+    added_by_color?: string | null;
+    deleted_at?: string | null;
+    deleted_by_name?: string | null;
+    deleted_by_color?: string | null;
 }
 
 interface Attachment {
@@ -85,6 +189,14 @@ const participantInputStyle: React.CSSProperties = {
 // automatiquement par le backend à l'enregistrement.
 const stripSummaryMetaClient = (text: string) =>
     String(text || '').replace(/## META[\s\S]*$/m, '').replace(/\s+$/m, '');
+
+// Toujours convertir vers l'heure d'Ivry-sur-Seine explicitement plutôt que de
+// dépendre du fuseau horaire par défaut de l'environnement (navigateur mal
+// réglé, ou — côté mail — conteneur serveur en UTC) : sans cela, les horaires
+// affichés glissaient de 1h ou 2h (été/hiver) par rapport à l'heure locale réelle.
+const PARIS_TZ = 'Europe/Paris';
+const fmtDateTime = (d?: string | number | Date | null) => d ? new Date(d).toLocaleString('fr-FR', { timeZone: PARIS_TZ }) : '';
+const fmtDate = (d?: string | number | Date | null) => d ? new Date(d).toLocaleDateString('fr-FR', { timeZone: PARIS_TZ }) : '';
 
 const MeetingDetail: React.FC = () => {
     const { id } = useParams();
@@ -138,9 +250,26 @@ const MeetingDetail: React.FC = () => {
     const [emailError, setEmailError] = useState('');
     const [isEditingSummary, setIsEditingSummary] = useState(false);
     const [summaryDraft, setSummaryDraft] = useState("");
+    const summaryQuillRef = useRef<ReactQuill>(null);
     const [editingTaskId, setEditingTaskId] = useState<number | null>(null);
     const [taskDraft, setTaskDraft] = useState({ description: '', assignee: '', requester: '', deadline: '' });
     const transcriptRef = useRef<HTMLDivElement>(null);
+
+    // Amendement du CR (ajout/suppression de tâches + correction du texte,
+    // par tout destinataire interne du mail — pas seulement l'admin/owner).
+    const [amendAccess, setAmendAccess] = useState<{ allowed: boolean; color?: string; name?: string; draft?: string | null; draft_updated_at?: string | null }>({ allowed: false });
+    const [showAddTask, setShowAddTask] = useState(false);
+    const [newTaskDraft, setNewTaskDraft] = useState({ description: '', assignee: '', requester: '', deadline: '' });
+    const [isAddingTask, setIsAddingTask] = useState(false);
+    const [deletedTasks, setDeletedTasks] = useState<Task[] | null>(null);
+    const [showDeletedTasks, setShowDeletedTasks] = useState(false);
+    const [isEditingAmend, setIsEditingAmend] = useState(false);
+    const [amendEditorHtml, setAmendEditorHtml] = useState(''); // contenu WYSIWYG (HTML) — jamais de MD affiché
+    const amendQuillRef = useRef<ReactQuill>(null);
+    const [isAmending, setIsAmending] = useState(false);
+    const [amendMessage, setAmendMessage] = useState('');
+    const [showSendConfirmModal, setShowSendConfirmModal] = useState(false);
+    const [showAmendedContent, setShowAmendedContent] = useState(false);
 
     // Sharing state
     const [orgDirections, setOrgDirections] = useState<{ code: string; label: string }[]>([]);
@@ -154,6 +283,22 @@ const MeetingDetail: React.FC = () => {
     useEffect(() => {
         fetchData();
     }, [id, token]);
+
+    // Collage d'image (capture d'écran, image Word...) dans l'un ou l'autre
+    // éditeur riche — Quill ne le gère pas nativement (cf. attachImagePasteHandler).
+    useEffect(() => {
+        if (!isEditingAmend) return;
+        const editor = amendQuillRef.current?.getEditor();
+        if (!editor) return;
+        return attachImagePasteHandler(editor);
+    }, [isEditingAmend]);
+
+    useEffect(() => {
+        if (!isEditingSummary) return;
+        const editor = summaryQuillRef.current?.getEditor();
+        if (!editor) return;
+        return attachImagePasteHandler(editor);
+    }, [isEditingSummary]);
 
     // Sécurité : si on navigue hors de la page en pleine génération, on ne
     // laisse pas le compteur — ni le sondage post-erreur — tourner dans le vide.
@@ -189,10 +334,11 @@ const MeetingDetail: React.FC = () => {
     const fetchData = async () => {
         if (!token || !id) return;
         try {
-            const [mRes, tRes, aRes] = await Promise.all([
+            const [mRes, tRes, aRes, amendRes] = await Promise.all([
                 axios.get(`/api/transcriptmanager/meeting/${id}`, { headers: { Authorization: `Bearer ${token}` } }),
                 axios.get(`/api/transcriptmanager/tasks?meeting_id=${id}`, { headers: { Authorization: `Bearer ${token}` } }),
-                axios.get(`/api/transcriptmanager/meeting/${id}/attachments`, { headers: { Authorization: `Bearer ${token}` } })
+                axios.get(`/api/transcriptmanager/meeting/${id}/attachments`, { headers: { Authorization: `Bearer ${token}` } }),
+                axios.get(`/api/transcriptmanager/meeting/${id}/amend-access`, { headers: { Authorization: `Bearer ${token}` } }).catch(() => ({ data: { allowed: false } })),
             ]);
             setMeeting(mRes.data);
             setEditValues({
@@ -201,6 +347,7 @@ const MeetingDetail: React.FC = () => {
             });
             setTasks(tRes.data);
             setAttachments(aRes.data || []);
+            setAmendAccess(amendRes.data || { allowed: false });
             // Init sharing state from existing meeting data
             const existingDir = mRes.data.shared_with_direction || '';
             const existingService = mRes.data.shared_with_service || '';
@@ -366,7 +513,7 @@ const MeetingDetail: React.FC = () => {
         const alreadyModified = !!(meeting?.summary_edited_by || meeting?.summary_edited_at);
         if (meeting?.summary && alreadyModified) {
             const who = meeting.summary_edited_by ? ` par ${meeting.summary_edited_by}` : '';
-            const when = meeting.summary_edited_at ? ` le ${new Date(meeting.summary_edited_at).toLocaleString('fr-FR')}` : '';
+            const when = meeting.summary_edited_at ? ` le ${fmtDateTime(meeting.summary_edited_at)}` : '';
             const ok = window.confirm(
                 `Le résumé de cette réunion a déjà fait l'objet d'une modification manuelle${who}${when}.\n\n` +
                 `Voulez-vous vraiment régénérer un résumé IA ? La modification existante sera écrasée.`
@@ -446,14 +593,14 @@ const MeetingDetail: React.FC = () => {
         if (!id || !token || !meeting) return;
         setIsSaving(true);
         try {
+            const summaryMd = htmlToMd(summaryDraft);
             const res = await axios.put(`/api/transcriptmanager/meeting/${id}`, {
                 title: meeting.title,
                 meeting_date: meeting.meeting_date || meeting.created_at,
-                summary: summaryDraft
+                summary: summaryMd
             }, { headers: { Authorization: `Bearer ${token}` } });
-            const savedSummary = res.data?.summary || summaryDraft;
+            const savedSummary = res.data?.summary || summaryMd;
             setMeeting({ ...meeting, summary: savedSummary });
-            setSummaryDraft(savedSummary);
             setIsEditingSummary(false);
         } catch (err) { console.error(err); }
         finally { setIsSaving(false); }
@@ -538,7 +685,114 @@ const MeetingDetail: React.FC = () => {
                 headers: { Authorization: `Bearer ${token}` }
             });
             setTasks(tasks.filter(t => t.id !== taskId));
+            setDeletedTasks(null); // périmé — sera rechargé à la prochaine ouverture
         } catch (err) { console.error(err); }
+    };
+
+    // ===== Tâches manuelles (que l'IA n'aurait pas détectées) =====
+    const handleCreateTask = async () => {
+        if (!token || !id || !newTaskDraft.description.trim()) return;
+        setIsAddingTask(true);
+        try {
+            const res = await axios.post(`/api/transcriptmanager/tasks`, { meeting_id: id, ...newTaskDraft }, {
+                headers: { Authorization: `Bearer ${token}` }
+            });
+            setTasks(t => [...t, {
+                id: res.data.id, description: newTaskDraft.description, assignee: newTaskDraft.assignee,
+                requester: newTaskDraft.requester, deadline: newTaskDraft.deadline, is_completed: false,
+                origin: 'manual', added_by_name: res.data.added_by_name, added_by_color: res.data.added_by_color,
+            }]);
+            setNewTaskDraft({ description: '', assignee: '', requester: '', deadline: '' });
+            setShowAddTask(false);
+        } catch (err) {
+            console.error(err);
+            alert("Erreur lors de l'ajout de la tâche");
+        } finally { setIsAddingTask(false); }
+    };
+
+    const loadDeletedTasks = async () => {
+        if (!token || !id) return;
+        try {
+            const res = await axios.get(`/api/transcriptmanager/tasks?meeting_id=${id}&include_deleted=1`, {
+                headers: { Authorization: `Bearer ${token}` }
+            });
+            setDeletedTasks((res.data || []).filter((t: Task) => !!t.deleted_at));
+        } catch (err) { console.error(err); }
+    };
+
+    const handleToggleDeletedTasks = () => {
+        const next = !showDeletedTasks;
+        setShowDeletedTasks(next);
+        if (next && deletedTasks === null) loadDeletedTasks();
+    };
+
+    const handleRestoreTask = async (taskId: number) => {
+        if (!token) return;
+        try {
+            await axios.patch(`/api/transcriptmanager/task/${taskId}/restore`, {}, {
+                headers: { Authorization: `Bearer ${token}` }
+            });
+            setDeletedTasks(prev => (prev || []).filter(t => t.id !== taskId));
+            await fetchData();
+        } catch (err) { console.error(err); }
+    };
+
+    // ===== Amendement du texte du résumé (destinataires internes) =====
+    // Reprend le brouillon privé de l'utilisateur s'il en a laissé un (réponse
+    // "non" à la confirmation d'envoi), sinon le texte propre actuel.
+    const openAmendEditor = () => {
+        const md = amendAccess.draft || stripSummaryMetaClient(meeting?.summary || '');
+        setAmendEditorHtml(mdToHtml(md));
+        setAmendMessage(amendAccess.draft ? 'Vous reprenez votre brouillon non envoyé.' : '');
+        setIsEditingAmend(true);
+    };
+
+    const handleAmendValidateClick = () => {
+        setShowSendConfirmModal(true);
+    };
+
+    const submitAmendment = async () => {
+        if (!token || !id) return;
+        setShowSendConfirmModal(false);
+        setIsAmending(true);
+        setAmendMessage('');
+        try {
+            const res = await axios.post(`/api/transcriptmanager/meeting/${id}/amend-summary`,
+                { newText: htmlToMd(amendEditorHtml) },
+                { headers: { Authorization: `Bearer ${token}` } }
+            );
+            if (!res.data?.changed) {
+                setAmendMessage('Aucune modification détectée.');
+            } else {
+                setAmendMessage(res.data?.broadcast
+                    ? 'Vos amendements ont été validés et diffusés à tous les destinataires.'
+                    : 'Vos amendements ont été validés (aucun envoi précédent à rediffuser).');
+                await fetchData();
+            }
+            setIsEditingAmend(false);
+        } catch (err) {
+            const e = err as AxiosErrorLike;
+            alert(e?.response?.data?.error || "Erreur lors de l'enregistrement des amendements");
+        } finally { setIsAmending(false); }
+    };
+
+    const saveAmendDraft = async () => {
+        if (!token || !id) return;
+        setShowSendConfirmModal(false);
+        setIsAmending(true);
+        try {
+            const draftMd = htmlToMd(amendEditorHtml);
+            await axios.put(`/api/transcriptmanager/meeting/${id}/amend-draft`,
+                { draftText: draftMd },
+                { headers: { Authorization: `Bearer ${token}` } }
+            );
+            setAmendAccess(prev => ({ ...prev, draft: draftMd, draft_updated_at: new Date().toISOString() }));
+            setAmendMessage('Vos amendements sont enregistrés en brouillon — non validés, non visibles par les autres.');
+            setIsEditingAmend(false);
+        } catch (err) {
+            const e = err as AxiosErrorLike;
+            alert(e?.response?.data?.error || "Erreur lors de l'enregistrement du brouillon");
+        } finally { setIsAmending(false); }
     };
 
     // ===== Pièces jointes =====
@@ -721,7 +975,7 @@ const MeetingDetail: React.FC = () => {
                                 <button className="md-btn-edit" onClick={() => setIsEditing(true)}>Modifier</button>
                             </div>
                             <div className="md-meta">
-                                <span className="meta-item"><Calendar size={14} /> {new Date(meeting.meeting_date || meeting.created_at).toLocaleDateString('fr-FR')}</span>
+                                <span className="meta-item"><Calendar size={14} /> {fmtDate(meeting.meeting_date || meeting.created_at)}</span>
                                 <span className="meta-item"><Clock size={14} /> {formatTime(meeting.cues?.[(meeting.cues?.length || 1) - 1]?.start_seconds || 0)}</span>
                                 <span className="meta-item"><Users size={14} /> {speakers.length} Intervenants</span>
                             </div>
@@ -929,7 +1183,34 @@ const MeetingDetail: React.FC = () => {
                                 <ListTodo size={18} />
                                 <h2>Plan d'Action</h2>
                                 <span className="badge">{tasks.length}</span>
+                                {amendAccess.allowed && (
+                                    <button className="md-btn-add-att" onClick={() => setShowAddTask(v => !v)} title="Ajouter une tâche que l'IA n'aurait pas détectée">
+                                        + Ajouter
+                                    </button>
+                                )}
                             </div>
+                            {amendAccess.allowed && amendAccess.color && (
+                                <div style={{ padding: '0.5rem 1.5rem 0', display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.7rem', color: '#94A3B8' }}>
+                                    <span style={{ width: 9, height: 9, borderRadius: '50%', background: amendAccess.color, display: 'inline-block' }} />
+                                    Vous : {amendAccess.name}
+                                </div>
+                            )}
+                            {showAddTask && (
+                                <div style={{ padding: '0.75rem 1.5rem', borderBottom: '1px solid #F1F5F9', display: 'flex', flexDirection: 'column', gap: '0.5rem', background: '#F8FAFC' }}>
+                                    <input className="task-edit-input" value={newTaskDraft.description} onChange={e => setNewTaskDraft({ ...newTaskDraft, description: e.target.value })} placeholder="Description de la tâche" autoFocus />
+                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.5rem' }}>
+                                        <input className="task-edit-input" value={newTaskDraft.assignee} onChange={e => setNewTaskDraft({ ...newTaskDraft, assignee: e.target.value })} placeholder="Responsable" />
+                                        <input className="task-edit-input" value={newTaskDraft.requester} onChange={e => setNewTaskDraft({ ...newTaskDraft, requester: e.target.value })} placeholder="Demandeur" />
+                                        <input className="task-edit-input" value={newTaskDraft.deadline} onChange={e => setNewTaskDraft({ ...newTaskDraft, deadline: e.target.value })} placeholder="Échéance" />
+                                    </div>
+                                    <div style={{ display: 'flex', gap: '0.5rem' }}>
+                                        <button className="btn-save" style={{ fontSize: '0.78rem', padding: '0.3rem 0.7rem' }} disabled={isAddingTask || !newTaskDraft.description.trim()} onClick={handleCreateTask}>
+                                            {isAddingTask ? 'Ajout...' : 'Ajouter'}
+                                        </button>
+                                        <button className="btn-cancel" style={{ fontSize: '0.78rem', padding: '0.3rem 0.7rem' }} onClick={() => setShowAddTask(false)}>Annuler</button>
+                                    </div>
+                                </div>
+                            )}
                             {pendingAiTasks.length > 0 && (
                                 <div style={{ padding: '0.75rem 1.5rem', borderBottom: '1px solid #F1F5F9', background: '#FFFBEB' }}>
                                     <button className="md-btn-propose" onClick={() => setShowTaskValidation(true)}>
@@ -961,7 +1242,15 @@ const MeetingDetail: React.FC = () => {
                                                     {task.is_completed ? <CheckCircle2 size={18} /> : <Circle size={18} />}
                                                 </button>
                                                 <div className="task-body">
-                                                    <p>{task.description}</p>
+                                                    <p>
+                                                        {task.description}
+                                                        {task.added_by_color && (
+                                                            <span
+                                                                title={`Ajoutée par ${task.added_by_name}`}
+                                                                style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', background: task.added_by_color, marginLeft: 6, verticalAlign: 'middle' }}
+                                                            />
+                                                        )}
+                                                    </p>
                                                     <div className="task-foot">
                                                         {agent ? (
                                                             <span className="who" style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
@@ -996,6 +1285,35 @@ const MeetingDetail: React.FC = () => {
                                     );
                                 }) : <p className="no-tasks">Aucune tâche.</p>}
                             </div>
+                            {amendAccess.allowed && (
+                                <div style={{ borderTop: '1px solid #F1F5F9' }}>
+                                    <button
+                                        onClick={handleToggleDeletedTasks}
+                                        style={{ width: '100%', textAlign: 'left', background: 'none', border: 'none', padding: '0.6rem 1.5rem', fontSize: '0.75rem', fontWeight: 600, color: '#94A3B8', cursor: 'pointer' }}
+                                    >
+                                        {showDeletedTasks ? '▾' : '▸'} Tâches supprimées{deletedTasks ? ` (${deletedTasks.length})` : ''}
+                                    </button>
+                                    {showDeletedTasks && (
+                                        <div style={{ padding: '0 1.5rem 0.75rem' }}>
+                                            {deletedTasks === null ? (
+                                                <p style={{ fontSize: '0.75rem', color: '#94A3B8' }}>Chargement...</p>
+                                            ) : deletedTasks.length === 0 ? (
+                                                <p style={{ fontSize: '0.75rem', color: '#94A3B8' }}>Aucune tâche supprimée.</p>
+                                            ) : deletedTasks.map(t => (
+                                                <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '0.4rem 0', fontSize: '0.8rem', borderBottom: '1px solid #F8FAFC' }}>
+                                                    <span style={{ flex: 1, textDecoration: 'line-through', color: '#94A3B8' }}>{t.description}</span>
+                                                    <span style={{ fontSize: '0.68rem', color: t.deleted_by_color || '#94A3B8', fontWeight: 600, whiteSpace: 'nowrap' }}>
+                                                        {t.deleted_by_name ? `supprimée par ${t.deleted_by_name}` : ''}
+                                                    </span>
+                                                    {isAdmin && (
+                                                        <button className="task-action-btn" title="Restaurer" onClick={() => handleRestoreTask(t.id)}>↩️</button>
+                                                    )}
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+                            )}
                         </div>
                     </div>
 
@@ -1056,12 +1374,19 @@ const MeetingDetail: React.FC = () => {
                             <div className="card-head">
                                 <MessageSquare size={18} />
                                 <h2>Résumé Exécutif</h2>
-                                {!isGenerating && !isEditingSummary && (
+                                {!isGenerating && !isEditingSummary && !isEditingAmend && (
                                     <div style={{ display: 'flex', gap: '0.5rem' }}>
-                                        <button className="md-btn-edit" onClick={() => {
-                                            setSummaryDraft(stripSummaryMetaClient(meeting.summary || ''));
-                                            setIsEditingSummary(true);
-                                        }}>Modifier</button>
+                                        {amendAccess.allowed && (
+                                            <button className="md-btn-edit" onClick={openAmendEditor} title="Ajouter/retirer du texte — vos modifications seront tracées et diffusées à tous">
+                                                ✏️ Amender le texte
+                                            </button>
+                                        )}
+                                        {!meeting.summary_last_send && (
+                                            <button className="md-btn-edit" onClick={() => {
+                                                setSummaryDraft(mdToHtml(stripSummaryMetaClient(meeting.summary || '')));
+                                                setIsEditingSummary(true);
+                                            }} title="Réécriture libre — possible uniquement avant le premier envoi. Ensuite, les corrections passent par l'amendement (tracé).">Modifier</button>
+                                        )}
                                     </div>
                                 )}
                             </div>
@@ -1070,7 +1395,7 @@ const MeetingDetail: React.FC = () => {
                                     <Mail size={14} style={{ flexShrink: 0, marginTop: 1 }} />
                                     <span>
                                         Compte rendu envoyé
-                                        {meeting.summary_last_send.sent_at ? ` le ${new Date(meeting.summary_last_send.sent_at).toLocaleString('fr-FR')}` : ''}
+                                        {meeting.summary_last_send.sent_at ? ` le ${fmtDateTime(meeting.summary_last_send.sent_at)}` : ''}
                                         {meeting.summary_last_send.sent_by ? ` par ${meeting.summary_last_send.sent_by}` : ''}
                                         {' '}à {(meeting.summary_last_send.recipients || '').split(/[,;]/).map(r => r.trim()).filter(Boolean).join(' ; ') || '—'}
                                         {meeting.summary_last_send.failed_count ? ` (${meeting.summary_last_send.failed_count} échec(s))` : ''}.
@@ -1087,20 +1412,55 @@ const MeetingDetail: React.FC = () => {
                                     </ol>
                                 </div>
                             )}
+                            {amendMessage && (
+                                <div style={{ margin: '0 1.5rem 0.5rem', padding: '8px 12px', background: '#F0FDF4', border: '1px solid #BBF7D0', borderRadius: 8, fontSize: '0.78rem', color: '#15803D', fontWeight: 600 }}>
+                                    {amendMessage}
+                                </div>
+                            )}
+                            {!isEditingAmend && amendAccess.allowed && amendAccess.draft && (
+                                <div style={{ margin: '0 1.5rem 0.5rem', padding: '8px 12px', background: '#FFFBEB', border: '1px solid #FDE68A', borderRadius: 8, fontSize: '0.78rem', color: '#92400E', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                                    <span>📝 Vous avez un brouillon d'amendement non envoyé{amendAccess.draft_updated_at ? ` (${fmtDateTime(amendAccess.draft_updated_at)})` : ''} — non visible par les autres.</span>
+                                    <button className="md-btn-edit" onClick={openAmendEditor}>Reprendre</button>
+                                </div>
+                            )}
                             <div className="summary-content">
                                 {isGenerating ? (
                                     <div className="stream-box">
                                         {getGenerationPhase(genElapsed, aiSource, selectedModel, isPollingAfterError)}
                                         <span className="gen-counter"> ({formatDuration(genElapsed)})</span>
                                     </div>
+                                ) : isEditingAmend ? (
+                                    <div>
+                                        <div style={{ border: `1.5px solid ${amendAccess.color || '#E2E8F0'}`, borderRadius: 8, overflow: 'hidden', background: '#fff' }}>
+                                            <ReactQuill
+                                                ref={amendQuillRef}
+                                                value={amendEditorHtml}
+                                                onChange={setAmendEditorHtml}
+                                                modules={AMEND_QUILL_MODULES}
+                                                placeholder="Corrigez ou complétez le compte rendu..."
+                                                style={{ fontFamily: 'inherit', fontSize: '0.9rem' }}
+                                            />
+                                        </div>
+                                        <div style={{ fontSize: '0.75rem', color: '#64748B', marginTop: '0.5rem' }}>
+                                            ℹ️ Vos ajouts/suppressions seront tracés (attribués à vous, en couleur) et le compte rendu mis à jour sera automatiquement renvoyé à tous les destinataires du dernier envoi.
+                                        </div>
+                                        <div style={{ display: 'flex', gap: '0.75rem', marginTop: '0.75rem' }}>
+                                            <button className="btn-save" onClick={handleAmendValidateClick} disabled={isAmending}>{isAmending ? 'Enregistrement...' : 'Valider mes amendements'}</button>
+                                            <button className="btn-cancel" onClick={() => setIsEditingAmend(false)}>Annuler</button>
+                                        </div>
+                                    </div>
                                 ) : isEditingSummary ? (
                                     <div>
-                                        <textarea
-                                            style={{ width: '100%', minHeight: '220px', fontFamily: 'inherit', fontSize: '0.9rem', border: '1px solid #E2E8F0', borderRadius: '8px', padding: '0.75rem', resize: 'vertical', outline: 'none', lineHeight: 1.6 }}
-                                            value={summaryDraft}
-                                            onChange={e => setSummaryDraft(e.target.value)}
-                                            autoFocus
-                                        />
+                                        <div style={{ border: '1.5px solid #E2E8F0', borderRadius: 8, overflow: 'hidden', background: '#fff' }}>
+                                            <ReactQuill
+                                                ref={summaryQuillRef}
+                                                value={summaryDraft}
+                                                onChange={setSummaryDraft}
+                                                modules={AMEND_QUILL_MODULES}
+                                                placeholder="Résumé de la réunion..."
+                                                style={{ fontFamily: 'inherit', fontSize: '0.9rem' }}
+                                            />
+                                        </div>
                                         <div style={{ fontSize: '0.75rem', color: '#64748B', marginTop: '0.5rem' }}>
                                             ℹ️ Les informations META (demandeur, modèle, date, IA locale et frugale / statut de modification) sont appliquées automatiquement et ne se modifient pas ici.
                                         </div>
@@ -1111,12 +1471,67 @@ const MeetingDetail: React.FC = () => {
                                     </div>
                                 ) : (
                                     <div className="md-formatted">
-                                        <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                                        <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]} urlTransform={markdownUrlTransform}>
                                             {meeting.summary || "Aucun résumé généré."}
                                         </ReactMarkdown>
                                     </div>
                                 )}
                             </div>
+                            {!!meeting.summary && (
+                                <div style={{ margin: '0 1.5rem 1.5rem', paddingTop: '1rem', borderTop: '1px solid #F1F5F9' }}>
+                                    <div style={{ fontWeight: 700, fontSize: '0.85rem', color: '#334155', marginBottom: 14 }}>
+                                        🕘 Historique des amendements ({(meeting.summary_amendments || []).length})
+                                    </div>
+                                    <div style={{ position: 'relative', paddingLeft: 22 }}>
+                                        {((meeting.summary_amendments || []).length > 0) && (
+                                            <div style={{ position: 'absolute', left: 5, top: 8, bottom: 8, width: 2, background: '#E2E8F0' }} />
+                                        )}
+                                        {/* Version originale — point de départ de la timeline */}
+                                        <div style={{ position: 'relative', marginBottom: 16 }}>
+                                            <span style={{ position: 'absolute', left: -22, top: 2, width: 12, height: 12, borderRadius: '50%', background: '#CBD5E1', border: '2px solid white', boxShadow: '0 0 0 1px #CBD5E1' }} />
+                                            <div style={{ fontSize: '0.72rem', color: '#64748B', marginBottom: 2 }}>
+                                                <strong style={{ color: '#475569' }}>Version originale</strong>
+                                                {' — '}{fmtDateTime(meeting.summary_requested_at || meeting.created_at)}
+                                            </div>
+                                            <div style={{ fontSize: '0.78rem', color: '#94A3B8' }}>
+                                                {meeting.summary_requester ? `Générée par ${meeting.summary_requester}` : 'Résumé initial'}
+                                                {meeting.summary_model ? ` — modèle ${meeting.summary_model}` : ''}
+                                            </div>
+                                        </div>
+                                        {(meeting.summary_amendments || []).map((a, i) => (
+                                            <div key={a.id} style={{ position: 'relative', marginBottom: i === (meeting.summary_amendments!.length - 1) ? 0 : 10 }}>
+                                                <span style={{ position: 'absolute', left: -22, top: 2, width: 12, height: 12, borderRadius: '50%', background: a.color, border: '2px solid white', boxShadow: `0 0 0 1px ${a.color}` }} />
+                                                <div style={{ fontSize: '0.78rem', color: '#64748B' }}>
+                                                    <strong style={{ color: a.color }}>{a.name || a.username}</strong> — {fmtDateTime(a.created_at)}
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+
+                                    {/* Contenu de tous les amendements fusionnés en un seul rendu Markdown —
+                                        chaque portion garde la couleur de son auteur (cf. summary_amended_markdown).
+                                        Masqué par défaut : affiché uniquement sur demande. */}
+                                    {meeting.summary_amended_markdown && (
+                                        <div style={{ marginTop: 12 }}>
+                                            <button
+                                                className="md-btn-edit"
+                                                onClick={() => setShowAmendedContent(v => !v)}
+                                            >
+                                                {showAmendedContent ? 'Masquer' : 'Afficher'} le contenu des amendements
+                                            </button>
+                                            {showAmendedContent && (
+                                                <div style={{ marginTop: 10, background: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: 8, padding: '12px 14px' }}>
+                                                    <div className="md-formatted amended-content" style={{ fontSize: '0.8rem', color: '#334155', lineHeight: 1.6 }}>
+                                                        <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]} rehypePlugins={[rehypeRaw]} urlTransform={markdownUrlTransform}>
+                                                            {meeting.summary_amended_markdown}
+                                                        </ReactMarkdown>
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </div>
+                                    )}
+                                </div>
+                            )}
                         </div>
                     </div>
                 </div>
@@ -1285,6 +1700,42 @@ const MeetingDetail: React.FC = () => {
                             <button onClick={() => setShowEmailModal(false)} style={{ background: '#F1F5F9', color: '#64748B', border: 'none', padding: '0.6rem 1.25rem', borderRadius: 8, fontWeight: 600, cursor: 'pointer' }}>Fermer</button>
                             <button onClick={sendSummaryEmail} disabled={emailSending} style={{ background: '#DC2626', color: 'white', border: 'none', padding: '0.6rem 1.25rem', borderRadius: 8, fontWeight: 600, cursor: emailSending ? 'default' : 'pointer', opacity: emailSending ? 0.7 : 1 }}>
                                 <Send size={14} style={{ verticalAlign: -2, marginRight: 6 }} />{emailSending ? 'Envoi…' : 'Envoyer'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {showSendConfirmModal && (
+                <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1200 }}>
+                    <div style={{ background: 'white', borderRadius: 16, width: '90%', maxWidth: 440, boxShadow: '0 20px 25px -5px rgba(0,0,0,0.15)', overflow: 'hidden' }}>
+                        <div style={{ padding: '1.5rem 1.5rem 0.5rem' }}>
+                            <h3 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 700, color: '#1E293B' }}>Envoyer vos amendements ?</h3>
+                        </div>
+                        <div style={{ padding: '0.5rem 1.5rem 1.25rem', color: '#475569', fontSize: '0.85rem', lineHeight: 1.6 }}>
+                            Si vous ne les envoyez pas maintenant, ils resteront dans votre <strong>brouillon</strong> — non validés, non visibles par les autres.
+                        </div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', padding: '0 1.5rem 1.5rem' }}>
+                            <button
+                                onClick={submitAmendment}
+                                disabled={isAmending}
+                                style={{ background: '#0078A4', color: 'white', border: 'none', padding: '0.7rem 1.25rem', borderRadius: 8, fontWeight: 700, cursor: isAmending ? 'default' : 'pointer', opacity: isAmending ? 0.7 : 1 }}
+                            >
+                                {isAmending ? 'Envoi...' : 'Oui, envoyer mes amendements'}
+                            </button>
+                            <button
+                                onClick={saveAmendDraft}
+                                disabled={isAmending}
+                                style={{ background: '#F1F5F9', color: '#334155', border: 'none', padding: '0.7rem 1.25rem', borderRadius: 8, fontWeight: 600, cursor: isAmending ? 'default' : 'pointer' }}
+                            >
+                                Non, garder en brouillon
+                            </button>
+                            <button
+                                onClick={() => setShowSendConfirmModal(false)}
+                                disabled={isAmending}
+                                style={{ background: 'none', color: '#94A3B8', border: 'none', padding: '0.4rem', fontWeight: 600, cursor: 'pointer', fontSize: '0.8rem' }}
+                            >
+                                Retour à l'édition
                             </button>
                         </div>
                     </div>
@@ -1506,6 +1957,11 @@ const MeetingDetail: React.FC = () => {
                     grid-template-columns: 380px 1fr;
                     gap: 2rem;
                 }
+                /* Sans min-width:0, un enfant de grille ne peut jamais devenir plus
+                   étroit que son contenu le plus large (ex. une ligne de résumé sans
+                   césure) — ça élargissait toute la page au lieu de faire retourner
+                   le texte à la ligne. */
+                .md-sidebar, .md-main { min-width: 0; }
 
                 .md-card {
                     background: white;
@@ -1575,7 +2031,10 @@ const MeetingDetail: React.FC = () => {
                     border-color: #CBD5E1;
                 }
 
-                .summary-content { padding: 1.5rem; font-size: 0.9375rem; line-height: 1.7; color: #475569; }
+                .summary-content { padding: 1.5rem; font-size: 0.9375rem; line-height: 1.7; color: #475569; overflow-wrap: anywhere; }
+                .md-formatted, .amended-content, .ql-editor { overflow-wrap: anywhere; }
+                .ql-editor table { border-collapse: collapse; width: 100%; }
+                .ql-editor table td { border: 1px solid #E2E8F0; padding: 0.3rem 0.5rem; }
                 .stream-box { white-space: pre-wrap; color: #1D4ED8; font-weight: 500; }
                 .md-formatted h1, .md-formatted h2, .md-formatted h3 {
                     color: #111827; font-weight: 700; line-height: 1.3;
@@ -1590,6 +2049,9 @@ const MeetingDetail: React.FC = () => {
                 .md-formatted ul, .md-formatted ol { padding-left: 1.4rem; margin: 0 0 1rem; }
                 .md-formatted li { margin-bottom: 0.3rem; }
                 .md-formatted li > ul, .md-formatted li > ol { margin-top: 0.3rem; }
+                .md-formatted table { border-collapse: collapse; width: 100%; margin: 0 0 1rem; font-size: 0.85rem; display: block; overflow-x: auto; }
+                .md-formatted th, .md-formatted td { border: 1px solid #E2E8F0; padding: 0.4rem 0.6rem; text-align: left; }
+                .md-formatted th { background: #F8FAFC; font-weight: 700; color: #334155; }
                 .md-formatted strong { color: #1E293B; font-weight: 700; }
                 .md-formatted code {
                     background: #F1F5F9; color: #BE185D; padding: 0.1rem 0.35rem;
@@ -1793,6 +2255,7 @@ const MeetingDetail: React.FC = () => {
                     font-size: 0.9375rem;
                     line-height: 1.6;
                     color: #1E293B;
+                    overflow-wrap: anywhere;
                 }
 
                 .animate-spin { animation: spin 1s linear infinite; }

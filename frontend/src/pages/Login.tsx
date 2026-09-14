@@ -11,9 +11,16 @@ const Login: React.FC = () => {
   const navigate = useNavigate();
   const { setPendingApproval, login } = useAuth();
 
-  // Session restreinte venant du lien Transcript Manager (/transcriptmanager?nomenu=1) :
-  // l'agent s'authentifie via l'AD mais le jeton délivré n'ouvre QUE les comptes rendus.
-  const isTranscriptOnly = (localStorage.getItem('restrictedPath') || '').startsWith('/transcriptmanager');
+  // Session restreinte venant du Transcript Manager (/transcriptmanager?nomenu=1) :
+  // même écran (header, message) dans les deux cas, mais deux logiques d'accès :
+  // - lien de partage invité : jeton lecture-seule (transcript_guest), quel que
+  //   soit le compte AD saisi ;
+  // - lien d'amendement (?nomenu=1&amend=1) : compte réel (rôle habituel), pour
+  //   pouvoir amender le CR — authentification normale (/api/login).
+  const restrictedPath = localStorage.getItem('restrictedPath') || '';
+  const isTranscriptRestricted = restrictedPath.startsWith('/transcriptmanager');
+  const isAmendLink = restrictedPath.includes('amend=1');
+  const isTranscriptOnly = isTranscriptRestricted && !isAmendLink;
 
   useEffect(() => {
     const attemptAuth = async () => {
@@ -102,8 +109,8 @@ const Login: React.FC = () => {
       <div className="container login-container">
         <div className="login-box">
             <>
-              <h2>{isTranscriptOnly ? 'Connexion aux comptes rendus de réunions' : 'Connexion Hub DSI'}</h2>
-              <p>{isTranscriptOnly ? 'Authentifiez-vous avec votre compte de la Ville pour accéder aux comptes rendus.' : 'Connectez-vous pour accéder à vos services.'}</p>
+              <h2>{isTranscriptRestricted ? 'Connexion aux comptes rendus de réunions' : 'Connexion Hub DSI'}</h2>
+              <p>{isTranscriptRestricted ? 'Authentifiez-vous avec votre compte de la Ville pour accéder aux comptes rendus.' : 'Connectez-vous pour accéder à vos services.'}</p>
               
               <form onSubmit={handleSubmit}>
                 {error && <div className="error-msg">{error}</div>}

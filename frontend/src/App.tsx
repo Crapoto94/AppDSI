@@ -106,8 +106,15 @@ const PrivateRoute = ({ children, allowedRoles, allowPmo, path }: { children: Re
     const hasNomenu = window.location.search.includes('nomenu');
     if (hasNomenu) {
       localStorage.setItem('restrictedPath', window.location.pathname + window.location.search);
+      return <Navigate to="/login" />;
     }
-    return <Navigate to="/login" />;
+    // Cas général (ex. lien d'amendement de compte rendu reçu par mail) : on
+    // conserve la destination via ?redirect= plutôt que de la perdre — Login.tsx
+    // sait déjà la lire et y renvoyer après connexion, sans restreindre le
+    // compte à cette seule page (contrairement à restrictedPath, réservé aux
+    // liens de partage invité).
+    const target = window.location.pathname + window.location.search;
+    return <Navigate to={`/login?redirect=${encodeURIComponent(target)}`} />;
   }
 
   // Si un restrictedPath est en cours, on bloque l'accès au dashboard et aux autres pages
