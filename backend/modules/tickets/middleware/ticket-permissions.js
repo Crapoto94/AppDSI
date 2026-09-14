@@ -26,6 +26,7 @@ const DEFAULT_PERMISSIONS = {
     'rules:manage':           ['admin', 'superadmin'],
     'admin:access':           ['admin', 'superadmin'],
     'ticket:view_all':        ['supervisor', 'admin', 'superadmin'],
+    'ticket:change_type':     ['technician', 'supervisor', 'admin', 'superadmin'],
     'dashboard:view_stats':   ['technician', 'supervisor', 'admin', 'superadmin'],
     'dashboard:view_kpi':     ['technician', 'supervisor', 'admin', 'superadmin'],
     'ticket:ad_search':       ['user', 'technician', 'supervisor', 'admin', 'superadmin'],

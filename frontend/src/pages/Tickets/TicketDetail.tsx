@@ -316,6 +316,7 @@ export default function TicketDetail() {
   // Changement de type
   const [showTypeDropdown, setShowTypeDropdown] = useState(false);
   const [ticketModuleRole, setTicketModuleRole] = useState<string>('user');
+  const [canChangeTypePerm, setCanChangeTypePerm] = useState<boolean>(false);
 
   // Edition de commentaires
   const [editingCommentId, setEditingCommentId] = useState<number | null>(null);
@@ -343,6 +344,9 @@ export default function TicketDetail() {
       .catch(() => {});
     axios.get('/api/tickets/my-role', { headers: { Authorization: `Bearer ${token}` } })
       .then(r => setTicketModuleRole(r.data.role || 'user'))
+      .catch(() => {});
+    axios.get('/api/tickets/has-permission/ticket:change_type', { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => setCanChangeTypePerm(r.data.allowed !== false))
       .catch(() => {});
   }, [id]);
 
@@ -1423,11 +1427,9 @@ export default function TicketDetail() {
             }}>
               {ticket.priority?.label || 'Normale'}
             </span>
-            {/* Badge type — cliquable pour admin/superadmin si pas Problème */}
+            {/* Badge type — cliquable selon la permission ticket:change_type si pas Problème */}
             {(() => {
-              const canChangeType = String(ticket.type) !== '3' &&
-                (['superadmin', 'admin'].includes((user?.role ?? '').toLowerCase().trim()) ||
-                 ['superadmin', 'admin', 'supervisor'].includes(ticketModuleRole));
+              const canChangeType = String(ticket.type) !== '3' && canChangeTypePerm;
               const bg = String(ticket.type) === '3' ? '#ede9fe' : String(ticket.type) === '2' ? '#e0f2fe' : '#fef3c7';
               const color = String(ticket.type) === '3' ? '#7c3aed' : String(ticket.type) === '2' ? '#0369a1' : '#92400e';
               return (

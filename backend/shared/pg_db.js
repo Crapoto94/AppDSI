@@ -916,6 +916,7 @@ async function setupPgDb() {
                 ['admin','rules:manage'],['superadmin','rules:manage'],
                 ['admin','admin:access'],['superadmin','admin:access'],
                 ['supervisor','ticket:view_all'],['admin','ticket:view_all'],['superadmin','ticket:view_all'],
+                ['technician','ticket:change_type'],['supervisor','ticket:change_type'],['admin','ticket:change_type'],['superadmin','ticket:change_type'],
                 ['technician','dashboard:view_stats'],['supervisor','dashboard:view_stats'],['admin','dashboard:view_stats'],['superadmin','dashboard:view_stats'],
             ];
             for (const [role, perm] of defaults) {

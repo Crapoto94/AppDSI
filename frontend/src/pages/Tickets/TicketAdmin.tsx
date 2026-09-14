@@ -2932,6 +2932,7 @@ const PERMISSION_GROUPS = [
       { key: 'ticket:escalate',    label: 'Escalader' },
       { key: 'ticket:close',       label: 'Fermer' },
       { key: 'ticket:reopen',      label: 'Réouvrir' },
+      { key: 'ticket:change_type', label: 'Changer le type (Incident/Demande)' },
     ]
   },
   {
