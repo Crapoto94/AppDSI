@@ -3110,6 +3110,10 @@ async function setupPgDb() {
           gti VARCHAR(255) DEFAULT '',
           gtr VARCHAR(255) DEFAULT '',
           indice_revision VARCHAR(255) DEFAULT '',
+          formule_revision TEXT DEFAULT '',
+          penalites TEXT DEFAULT '',
+          clause_resiliation TEXT DEFAULT '',
+          rgpd TEXT DEFAULT '',
           resume TEXT DEFAULT '',
           points_de_vigilance JSONB DEFAULT '[]'::jsonb,
           recommandations JSONB DEFAULT '[]'::jsonb,
@@ -3127,6 +3131,16 @@ async function setupPgDb() {
       `);
       await client.query('CREATE INDEX IF NOT EXISTS idx_hub_contrats_analyses_ia_score ON hub_contrats.contrat_analyses_ia(score_global)');
       await client.query('CREATE INDEX IF NOT EXISTS idx_hub_contrats_analyses_ia_fournisseur ON hub_contrats.contrat_analyses_ia(fournisseur)');
+      // Colonnes supplémentaires (comparaison "tout" demandée en plus du fournisseur/dates/score
+      // déjà présents à la création de la table) — ajoutées après coup, ADD COLUMN IF NOT EXISTS
+      // pour rester sans danger sur une base où la table existe déjà.
+      await client.query(`
+        ALTER TABLE hub_contrats.contrat_analyses_ia
+          ADD COLUMN IF NOT EXISTS formule_revision TEXT DEFAULT '',
+          ADD COLUMN IF NOT EXISTS penalites TEXT DEFAULT '',
+          ADD COLUMN IF NOT EXISTS clause_resiliation TEXT DEFAULT '',
+          ADD COLUMN IF NOT EXISTS rgpd TEXT DEFAULT ''
+      `);
     } catch (e) {
       console.log('[PG DB] Migration contrat_analyses_ia table:', e.message);
     }

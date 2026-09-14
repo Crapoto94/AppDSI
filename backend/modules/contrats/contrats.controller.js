@@ -119,6 +119,47 @@ async function callLocalAiProvider(prompt, cfg) {
 }
 
 /**
+ * Prompt de "structuration" : ne fait PAS sa propre analyse du contrat, se contente
+ * d'extraire en JSON plat toutes les informations déjà présentes dans un rapport d'analyse
+ * Markdown existant (celui produit par le prompt admin, souvent en texte libre plutôt qu'en
+ * JSON). Sert à alimenter la table hub_contrats.contrat_analyses_ia (vue globale comparable
+ * colonne par colonne — fournisseur, formule de révision, aspects RGPD... quel que soit le
+ * libellé exact utilisé dans le rapport source) sans dépendre du format de réponse du prompt
+ * d'analyse principal. Le score n'est volontairement PAS redemandé ici : il est déjà extrait
+ * de façon fiable par extractAnalyseScore() (regex sur le texte brut, avec conversion
+ * d'échelle /5→/100) — le refaire dire à l'IA risquerait une échelle incohérente.
+ */
+const STRUCTURE_EXTRACTION_PROMPT = `Voici un rapport d'analyse de contrat déjà rédigé (en Markdown) par un autre assistant :
+---
+{RAPPORT}
+---
+Ta tâche : extraire TOUTES les informations distinctes de ce rapport sous la forme d'un unique objet JSON PLAT (une seule paire clé/valeur par information, pas d'imbrication sauf pour des listes de chaînes), sans aucun texte ni balise Markdown autour du JSON. Utilise des clés en snake_case français normalisées. Emploie ces clés quand l'information correspondante est présente dans le rapport :
+fournisseur, date_debut, date_fin, duree_annees, nb_reconductions, reconduction, montant_annuel,
+gti, gtr, formule_revision, penalites, clause_resiliation, rgpd, propriete_intellectuelle, exclusivite,
+points_de_vigilance (liste de chaînes), recommandations (liste de chaînes), notes, resume.
+Ajoute toute autre clé nécessaire pour ne perdre AUCUNE information distincte mentionnée dans le rapport (une clé par point identifiable — ex. garantie, assurance, sous_traitance, support, sla...). N'invente rien : si une information n'apparaît pas dans le rapport, omets simplement la clé correspondante plutôt que de mettre null partout. N'inclus PAS de clé "score_global" ou "score". Réponds UNIQUEMENT avec l'objet JSON.`;
+
+/**
+ * Ré-interroge l'IA pour structurer en JSON un rapport d'analyse déjà généré en Markdown
+ * libre (parsedJson introuvable dans la réponse d'origine). Best-effort : une erreur ici ne
+ * doit jamais faire échouer l'analyse principale — seules les colonnes structurées de la vue
+ * globale des analyses IA restent alors vides, comme avant cette extraction.
+ */
+async function extractStructuredAnalyseData(rawText, model, cfg) {
+    if (!rawText || !rawText.trim()) return null;
+    try {
+        const prompt = STRUCTURE_EXTRACTION_PROMPT.replaceAll('{RAPPORT}', () => rawText.slice(0, 20000));
+        const raw = cfg.contrat_analyse_ai_source !== 'local'
+            ? await apmAi.queryAi(prompt, model)
+            : await callLocalAiProvider(prompt, cfg);
+        return extractJsonFromAiResponse(String(raw || ''));
+    } catch (error) {
+        console.warn('[Contrats] extraction structurée post-analyse échouée (non bloquant) :', error.message);
+        return null;
+    }
+}
+
+/**
  * Lit le prompt/la config d'analyse de contrats, construit le prompt à partir du contenu
  * fourni, interroge l'IA (source + modèle configurés en admin, modèle éventuellement
  * surchargé à la volée par le front) et tente d'en extraire un objet JSON structuré.
@@ -163,9 +204,22 @@ async function runContratAnalysePrompt({ fileName, content, requestedModel, job 
         : await callLocalAiProvider(prompt, cfg);
 
     const rawText = String(raw || '').trim();
+    // `parsedJson` (extraction directe de la réponse) reste EXACTEMENT le comportement
+    // d'origine — c'est lui qui pilote l'affichage (modale, document Markdown en GED via
+    // buildAnalyseMarkdown) : le préserver tel quel évite de perdre le rendu du rapport
+    // Markdown original (rich text, tableaux...) produit par un prompt admin personnalisé.
+    const parsedJson = extractJsonFromAiResponse(rawText);
+    // `structuredData` : uniquement pour alimenter la table comparative contrat_analyses_ia
+    // (jamais pour l'affichage). Quand le prompt principal répond déjà en JSON, parsedJson
+    // sert directement de structuredData (pas de second appel IA nécessaire). Sinon (réponse
+    // en Markdown libre — cas réel en production avec le prompt admin personnalisé), une
+    // seconde passe IA "de structuration" extrait toutes les informations du rapport en JSON,
+    // sans jamais affecter rawText/parsedJson/score en cas d'échec (best-effort).
+    const structuredData = parsedJson || await extractStructuredAnalyseData(rawText, (job && job.aiModel) || model, cfg);
     return {
         rawText,
-        parsedJson: extractJsonFromAiResponse(rawText),
+        parsedJson,
+        structuredData,
         // Remontés pour traçabilité (table contrat_analyses_ia) — le modèle réellement utilisé
         // peut différer de `model` demandé en cas de repli fournisseur côté APM (job.aiModel,
         // renseigné pendant queryApmWithProgress, est alors plus précis quand un job est fourni).
@@ -311,11 +365,11 @@ async function runAnalyseDocumentJob(doc, contratId, requestedModel, db, job) {
             throw new Error("Aucun texte disponible pour ce document. S'il s'agit d'un scan, OCRisez-le d'abord.");
         }
 
-        const { rawText, parsedJson, model, source } = await runContratAnalysePrompt({ fileName: doc.file_name, content, requestedModel, job });
+        const { rawText, parsedJson, structuredData, model, source } = await runContratAnalysePrompt({ fileName: doc.file_name, content, requestedModel, job });
         const score = extractAnalyseScore(rawText, parsedJson);
 
         await persistAnalyseResult(db, {
-            contratId, documentId: doc.id, documentName: doc.file_name, rawText, parsedJson, score, model, source,
+            contratId, documentId: doc.id, documentName: doc.file_name, rawText, parsedJson, structuredData, score, model, source,
         });
 
         job.status = 'completed';
@@ -371,11 +425,11 @@ async function triggerAutoAnalyse(db, contratId, doc) {
 
         // Pas de requestedModel : utilise le modèle par défaut configuré en admin
         // (contrat_analyse_apm_model), comme les autres points d'entrée d'analyse.
-        const { rawText, parsedJson, model, source } = await runContratAnalysePrompt({ fileName: doc.file_name, content, requestedModel: undefined, job: undefined });
+        const { rawText, parsedJson, structuredData, model, source } = await runContratAnalysePrompt({ fileName: doc.file_name, content, requestedModel: undefined, job: undefined });
         const score = extractAnalyseScore(rawText, parsedJson);
 
         await persistAnalyseResult(db, {
-            contratId, documentId: doc.id, documentName: doc.file_name, rawText, parsedJson, score, model, source,
+            contratId, documentId: doc.id, documentName: doc.file_name, rawText, parsedJson, structuredData, score, model, source,
         });
 
         await saveAnalyseAsGedDocument(db, contratId, doc.file_name, rawText, parsedJson, null);
@@ -493,6 +547,7 @@ module.exports = {
         readDocumentBuffer,
         runOcrJob,
         extractAnalyseScore,
+        extractStructuredAnalyseData,
         DEFAULT_CONTRAT_ANALYSE_PROMPT,
     },
 

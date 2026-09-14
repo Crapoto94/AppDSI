@@ -149,25 +149,38 @@ function toJsonArray(v) {
     return JSON.stringify([v]);
 }
 
+/** Lit `key` à la racine de l'objet, ou à défaut sous `avis.key` (schéma imbriqué du prompt
+ * JSON par défaut : avis: {points_de_vigilance, recommandations, notes}) — la structuration
+ * secondaire (extractStructuredAnalyseData côté contrôleur) répond toujours à plat, sans
+ * imbrication, donc ne passe jamais par ce second cas. */
+function pick(obj, key) {
+    if (obj[key] !== undefined) return obj[key];
+    const avis = obj.avis;
+    if (avis && typeof avis === 'object' && avis[key] !== undefined) return avis[key];
+    return undefined;
+}
+
 /**
  * Met à jour (ou crée) la ligne "vue globale" d'un contrat dans hub_contrats.contrat_analyses_ia
- * à partir du résultat brut d'une analyse IA. Fonctionne aussi quand l'IA a répondu en Markdown
- * libre plutôt qu'en JSON (parsedJson null) : seuls score_global/raw_text/document restent
- * renseignés dans ce cas, le reste des colonnes structurées est laissé à null — c'est le
- * comportement attendu, pas une erreur (cf. extractAnalyseScore pour le même constat sur le
- * score).
+ * à partir des données structurées d'une analyse IA — `structuredData` couvre TOUTES les
+ * informations identifiables dans le rapport (y compris quand l'IA a répondu en Markdown libre :
+ * cf. extractStructuredAnalyseData côté contrôleur, une seconde passe IA de "structuration" qui
+ * reformule alors le rapport en JSON). Les colonnes dédiées ci-dessous couvrent les champs les
+ * plus demandés pour comparaison colonne par colonne ; TOUT le reste (y compris des clés
+ * imprévues, propres à un contrat particulier) est conservé dans json_data pour un affichage
+ * dynamique côté frontend (vue globale des analyses IA).
  */
-async function upsertAnalyseIaRow(pgDb, { contratId, documentId, documentName, rawText, parsedJson, score, model, source }) {
-    const j = parsedJson || {};
-    const avis = (j.avis && typeof j.avis === 'object') ? j.avis : {};
+async function upsertAnalyseIaRow(pgDb, { contratId, documentId, documentName, rawText, structuredData, score, model, source }) {
+    const j = structuredData || {};
 
     await pgDb.run(
         `INSERT INTO hub_contrats.contrat_analyses_ia (
             contrat_id, document_id, document_name, fournisseur, date_debut, date_fin,
             duree_annees, nb_reconductions, reconduction, montant_annuel, gti, gtr,
-            indice_revision, resume, points_de_vigilance, recommandations, notes,
+            indice_revision, formule_revision, penalites, clause_resiliation, rgpd,
+            resume, points_de_vigilance, recommandations, notes,
             score_global, raw_text, json_data, ai_model, ai_source, analysed_at, updated_at
-        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)
         ON CONFLICT (contrat_id) DO UPDATE SET
             document_id = EXCLUDED.document_id,
             document_name = EXCLUDED.document_name,
@@ -181,6 +194,10 @@ async function upsertAnalyseIaRow(pgDb, { contratId, documentId, documentName, r
             gti = EXCLUDED.gti,
             gtr = EXCLUDED.gtr,
             indice_revision = EXCLUDED.indice_revision,
+            formule_revision = EXCLUDED.formule_revision,
+            penalites = EXCLUDED.penalites,
+            clause_resiliation = EXCLUDED.clause_resiliation,
+            rgpd = EXCLUDED.rgpd,
             resume = EXCLUDED.resume,
             points_de_vigilance = EXCLUDED.points_de_vigilance,
             recommandations = EXCLUDED.recommandations,
@@ -193,10 +210,13 @@ async function upsertAnalyseIaRow(pgDb, { contratId, documentId, documentName, r
             analysed_at = CURRENT_TIMESTAMP,
             updated_at = CURRENT_TIMESTAMP`,
         [
-            contratId, documentId || null, toText(documentName), toText(j.fournisseur), toPgDate(j.date_debut), toPgDate(j.date_fin),
-            toPgInt(j.duree_annees), toPgInt(j.nb_reconductions), toText(j.reconduction), toPgNumber(j.montant_2022), toText(j.gti), toText(j.gtr),
-            toText(j.indice_revision), toText(j.resume), toJsonArray(avis.points_de_vigilance), toJsonArray(avis.recommandations), toText(avis.notes),
-            score != null ? score : null, rawText || null, parsedJson ? JSON.stringify(parsedJson) : null, toText(model), toText(source),
+            contratId, documentId || null, toText(documentName), toText(pick(j, 'fournisseur')), toPgDate(pick(j, 'date_debut')), toPgDate(pick(j, 'date_fin')),
+            toPgInt(pick(j, 'duree_annees')), toPgInt(pick(j, 'nb_reconductions')), toText(pick(j, 'reconduction')),
+            toPgNumber(pick(j, 'montant_annuel') ?? pick(j, 'montant_2022')), toText(pick(j, 'gti')), toText(pick(j, 'gtr')),
+            toText(pick(j, 'indice_revision')), toText(pick(j, 'formule_revision')), toText(pick(j, 'penalites')),
+            toText(pick(j, 'clause_resiliation')), toText(pick(j, 'rgpd')),
+            toText(pick(j, 'resume')), toJsonArray(pick(j, 'points_de_vigilance')), toJsonArray(pick(j, 'recommandations')), toText(pick(j, 'notes')),
+            score != null ? score : null, rawText || null, structuredData ? JSON.stringify(structuredData) : null, toText(model), toText(source),
         ]
     );
 }
@@ -205,15 +225,19 @@ async function upsertAnalyseIaRow(pgDb, { contratId, documentId, documentName, r
  * Point d'entrée unique appelé par les 3 endroits qui terminent une analyse IA de contrat
  * (analyseDocumentAi, le déclenchement automatique à l'ajout de document, et le script batch) :
  * persiste le résultat à la fois sur hub_contrats.contrats (colonnes ai_analyse_*, résumé
- * "dernier résultat") et sur la table structurée contrat_analyses_ia (vue globale
- * triable/filtrable). Centralisé ici pour ne pas dupliquer une troisième fois ces deux écritures.
+ * "dernier résultat" — alimentées par `parsedJson`, l'extraction DIRECTE de la réponse IA, pour
+ * ne jamais changer le rendu déjà affiché ailleurs — modale, document Markdown en GED) et sur la
+ * table structurée contrat_analyses_ia (vue globale triable/filtrable, alimentée par
+ * `structuredData` : `parsedJson` si déjà présent, sinon le résultat de la structuration
+ * secondaire du rapport Markdown — cf. runContratAnalysePrompt côté contrôleur). Centralisé ici
+ * pour ne pas dupliquer une troisième fois ces deux écritures.
  */
-async function persistAnalyseResult(pgDb, { contratId, documentId, documentName, rawText, parsedJson, score, model, source }) {
+async function persistAnalyseResult(pgDb, { contratId, documentId, documentName, rawText, parsedJson, structuredData, score, model, source }) {
     await pgDb.run(
         'UPDATE hub_contrats.contrats SET ai_analyse_raw = ?, ai_analyse_json = ?, ai_analyse_score = ?, ai_analyse_document_id = ?, ai_analyse_at = CURRENT_TIMESTAMP WHERE id = ?',
         [rawText || null, parsedJson ? JSON.stringify(parsedJson) : null, score != null ? score : null, documentId || null, contratId]
     );
-    await upsertAnalyseIaRow(pgDb, { contratId, documentId, documentName, rawText, parsedJson, score, model, source });
+    await upsertAnalyseIaRow(pgDb, { contratId, documentId, documentName, rawText, structuredData: structuredData || parsedJson || null, score, model, source });
 }
 
 module.exports = {

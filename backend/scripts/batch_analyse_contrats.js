@@ -138,13 +138,13 @@ async function pickDocument(pgDb, contratId) {
             if (!content) { console.log(`${label} : aucun texte exploitable même après OCR — sauté.`); summary.skipped++; continue; }
 
             console.log(`${label} : analyse IA en cours (${content.length} caractères, modèle "${args.model}")...`);
-            const { rawText, parsedJson, model, source } = await runContratAnalysePrompt({
+            const { rawText, parsedJson, structuredData, model, source } = await runContratAnalysePrompt({
                 fileName: doc.file_name, content, requestedModel: args.model, job: undefined,
             });
 
             const score = extractAnalyseScore(rawText, parsedJson);
             await persistAnalyseResult(pgDb, {
-                contratId: c.id, documentId: doc.id, documentName: doc.file_name, rawText, parsedJson, score, model, source,
+                contratId: c.id, documentId: doc.id, documentName: doc.file_name, rawText, parsedJson, structuredData, score, model, source,
             });
 
             await saveAnalyseAsDocument(pgDb, c.id, doc.file_name, rawText, parsedJson, 'batch_analyse_contrats');

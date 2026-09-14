@@ -1,11 +1,11 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import Header from '../components/Header';
 import {
   ArrowLeft, RefreshCw, Search, ChevronUp, ChevronDown, X as CloseIcon,
-  Sparkles, Loader2, AlertCircle, FileText,
+  Sparkles, Loader2, AlertCircle, FileText, Columns,
 } from 'lucide-react';
 import { authHeaders, cleanFileName } from './Contrats';
 
@@ -24,6 +24,10 @@ interface AnalyseIaRow {
   gti: string | null;
   gtr: string | null;
   indice_revision: string | null;
+  formule_revision: string | null;
+  penalites: string | null;
+  clause_resiliation: string | null;
+  rgpd: string | null;
   resume: string | null;
   points_de_vigilance: string[] | null;
   recommandations: string[] | null;
@@ -43,9 +47,43 @@ interface AnalyseIaRow {
   type_contrat: string;
   contrat_date_fin: string | null;
   app_nom: string | null;
+  [key: string]: unknown;
 }
 
-type SortKey = 'contrat_objet' | 'fournisseur' | 'score_global' | 'date_debut' | 'date_fin' | 'montant_annuel' | 'analysed_at' | 'svc';
+// Colonnes "à la carte" toujours proposées dans le panneau Colonnes, même si aucune ligne ne
+// les a (encore) renseignées — correspondent à des colonnes dédiées de la table (comparaison
+// rapide, sans dépendre du contenu de json_data).
+const SUGGESTED_EXTRA_COLS: { key: string; label: string }[] = [
+  { key: 'formule_revision', label: 'Formule de révision' },
+  { key: 'penalites', label: 'Pénalités' },
+  { key: 'clause_resiliation', label: 'Clause de résiliation' },
+  { key: 'rgpd', label: 'RGPD' },
+];
+
+// Champs déjà représentés par une colonne dédiée (fixe ou suggérée) — jamais reproposés comme
+// "autre champ détecté" dans json_data, même si l'IA les y a aussi mis.
+const KNOWN_FIELD_KEYS = new Set([
+  'fournisseur', 'date_debut', 'date_fin', 'duree_annees', 'nb_reconductions', 'reconduction',
+  'montant_annuel', 'montant_2022', 'gti', 'gtr', 'indice_revision', 'resume',
+  'points_de_vigilance', 'recommandations', 'notes', 'score_global', 'score',
+  ...SUGGESTED_EXTRA_COLS.map(c => c.key),
+]);
+
+const humanizeKey = (key: string) => key.replace(/_/g, ' ').replace(/^./, c => c.toUpperCase());
+
+/** Valeur d'une colonne "à la carte" : colonne dédiée de la table si elle existe (formule_revision,
+ * etc.), sinon clé quelconque détectée dans json_data (tout ce que l'IA a extrait du rapport, y
+ * compris des points propres à un seul contrat — ex. "garantie", "sous_traitance"...). */
+const getExtraCellValue = (row: AnalyseIaRow, key: string): string | null => {
+  const direct = row[key];
+  const value = direct !== undefined ? direct : row.json_data?.[key];
+  if (value === null || value === undefined || value === '') return null;
+  if (Array.isArray(value)) return value.map(String).join(' ; ');
+  if (typeof value === 'object') return JSON.stringify(value);
+  return String(value);
+};
+
+type SortKey = string;
 
 const fmtDate = (d: string | null | undefined) => {
   if (!d) return '—';
@@ -55,6 +93,8 @@ const fmtDate = (d: string | null | undefined) => {
 
 const fmtMontant = (n: number | null | undefined) =>
   n == null ? '—' : `${Number(n).toLocaleString('fr-FR', { maximumFractionDigits: 0 })} €`;
+
+const KNOWN_SORT_KEYS = new Set(['contrat_objet', 'fournisseur', 'score_global', 'date_debut', 'date_fin', 'montant_annuel', 'analysed_at', 'svc']);
 
 const scoreColor = (score: number | null) => score == null
   ? { bg: '#f3f4f6', fg: '#6b7280' }
@@ -74,6 +114,19 @@ const ContratsAnalysesIA: React.FC = () => {
   const [sortKey, setSortKey] = useState<SortKey>('analysed_at');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
   const [detailRow, setDetailRow] = useState<AnalyseIaRow | null>(null);
+  const [extraCols, setExtraCols] = useState<string[]>([]);
+  const [showColPanel, setShowColPanel] = useState(false);
+  const [colSearch, setColSearch] = useState('');
+  const colPanelRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!showColPanel) return;
+    const onClick = (e: MouseEvent) => {
+      if (colPanelRef.current && !colPanelRef.current.contains(e.target as Node)) setShowColPanel(false);
+    };
+    document.addEventListener('mousedown', onClick);
+    return () => document.removeEventListener('mousedown', onClick);
+  }, [showColPanel]);
 
   const fetchRows = () => {
     setLoading(true);
@@ -91,6 +144,22 @@ const ContratsAnalysesIA: React.FC = () => {
     () => Array.from(new Set(rows.map(r => r.direction).filter(Boolean))).sort(),
     [rows]
   );
+
+  // Toutes les clés vues dans json_data à travers les lignes, en plus des colonnes suggérées —
+  // c'est ce qui rend "comparable" n'importe quelle information extraite par l'IA (y compris des
+  // points propres à un seul type de contrat), sans avoir à prévoir chaque clé possible à l'avance.
+  const dynamicKeys = useMemo(() => {
+    const keys = new Set<string>();
+    for (const r of rows) {
+      if (!r.json_data) continue;
+      for (const k of Object.keys(r.json_data)) {
+        if (!KNOWN_FIELD_KEYS.has(k)) keys.add(k);
+      }
+    }
+    return Array.from(keys).sort();
+  }, [rows]);
+
+  const toggleExtraCol = (key: string) => setExtraCols(cols => cols.includes(key) ? cols.filter(c => c !== key) : [...cols, key]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -112,6 +181,15 @@ const ContratsAnalysesIA: React.FC = () => {
   const sorted = useMemo(() => {
     const arr = [...filtered];
     arr.sort((a, b) => {
+      // Colonne "à la carte" (suggérée ou détectée dans json_data) : comparaison texte générique
+      // via getExtraCellValue, qui sait lire aussi bien une colonne dédiée qu'une clé de json_data.
+      if (!KNOWN_SORT_KEYS.has(sortKey)) {
+        const av = String(getExtraCellValue(a, sortKey) ?? '').toLowerCase();
+        const bv = String(getExtraCellValue(b, sortKey) ?? '').toLowerCase();
+        if (av < bv) return sortDir === 'asc' ? -1 : 1;
+        if (av > bv) return sortDir === 'asc' ? 1 : -1;
+        return 0;
+      }
       let av: string | number = (a[sortKey] ?? '') as string | number;
       let bv: string | number = (b[sortKey] ?? '') as string | number;
       if (sortKey === 'score_global' || sortKey === 'montant_annuel') {
@@ -186,6 +264,58 @@ const ContratsAnalysesIA: React.FC = () => {
           </select>
           <input type="number" min={0} max={100} value={minScore} onChange={e => setMinScore(e.target.value)} placeholder="Score min" style={{ width: 78, padding: '6px 8px', borderRadius: 6, border: '1px solid #d1d5db', fontSize: 12 }} />
           <input type="number" min={0} max={100} value={maxScore} onChange={e => setMaxScore(e.target.value)} placeholder="Score max" style={{ width: 78, padding: '6px 8px', borderRadius: 6, border: '1px solid #d1d5db', fontSize: 12 }} />
+
+          <div style={{ position: 'relative' }} ref={colPanelRef}>
+            <button
+              onClick={() => setShowColPanel(p => !p)}
+              title="Ajouter des colonnes de comparaison (tout ce que l'IA a extrait des rapports — formule de révision, RGPD, pénalités...)"
+              style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '6px 10px', borderRadius: 6, border: 'none', background: showColPanel ? '#eef2ff' : '#f3f4f6', color: showColPanel ? '#4338ca' : '#374151', cursor: 'pointer', fontSize: 12, fontWeight: 600 }}
+            >
+              <Columns size={13} /> Colonnes {extraCols.length > 0 ? `(${extraCols.length})` : ''}
+            </button>
+            {showColPanel && (
+              <div style={{ position: 'absolute', top: '100%', right: 0, marginTop: 4, zIndex: 200, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 8, boxShadow: '0 4px 16px rgba(0,0,0,.12)', padding: 12, width: 300, maxHeight: 440, display: 'flex', flexDirection: 'column' }}>
+                <input
+                  value={colSearch}
+                  onChange={e => setColSearch(e.target.value)}
+                  placeholder={`Filtrer parmi ${SUGGESTED_EXTRA_COLS.length + dynamicKeys.length} champs...`}
+                  style={{ padding: '5px 8px', borderRadius: 5, border: '1px solid #d1d5db', fontSize: 12, marginBottom: 8, flexShrink: 0 }}
+                />
+                <div style={{ overflowY: 'auto' }}>
+                  {SUGGESTED_EXTRA_COLS.filter(c => c.label.toLowerCase().includes(colSearch.toLowerCase())).length > 0 && (
+                    <>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: '#1e3a5f', marginBottom: 6 }}>Colonnes suggérées</div>
+                      {SUGGESTED_EXTRA_COLS.filter(c => c.label.toLowerCase().includes(colSearch.toLowerCase())).map(c => (
+                        <label key={c.key} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 0', fontSize: 12, cursor: 'pointer', userSelect: 'none' }}>
+                          <input type="checkbox" checked={extraCols.includes(c.key)} onChange={() => toggleExtraCol(c.key)} style={{ width: 14, height: 14 }} />
+                          {c.label}
+                        </label>
+                      ))}
+                    </>
+                  )}
+                  {(() => {
+                    const filteredDynamic = dynamicKeys.filter(k => humanizeKey(k).toLowerCase().includes(colSearch.toLowerCase()));
+                    return (
+                      <>
+                        <div style={{ fontSize: 11, fontWeight: 700, color: '#1e3a5f', margin: '10px 0 6px' }}>
+                          Autres champs détectés dans les analyses ({dynamicKeys.length})
+                        </div>
+                        {filteredDynamic.length === 0 ? (
+                          <div style={{ fontSize: 11, color: '#9ca3af' }}>Aucun{colSearch ? ' résultat' : ' pour l\'instant'}.</div>
+                        ) : filteredDynamic.map(k => (
+                          <label key={k} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 0', fontSize: 12, cursor: 'pointer', userSelect: 'none' }}>
+                            <input type="checkbox" checked={extraCols.includes(k)} onChange={() => toggleExtraCol(k)} style={{ width: 14, height: 14 }} />
+                            {humanizeKey(k)}
+                          </label>
+                        ))}
+                      </>
+                    );
+                  })()}
+                </div>
+              </div>
+            )}
+          </div>
+
           <button onClick={fetchRows} style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '6px 10px', borderRadius: 6, border: '1px solid #d1d5db', background: '#fff', cursor: 'pointer', fontSize: 12 }}>
             {loading ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />} Actualiser
           </button>
@@ -221,6 +351,10 @@ const ContratsAnalysesIA: React.FC = () => {
                   <th style={{ padding: '7px 8px', background: '#1e3a5f', color: '#fff', fontWeight: 600, fontSize: 11 }}>GTI / GTR</th>
                   <th style={{ padding: '7px 8px', background: '#1e3a5f', color: '#fff', fontWeight: 600, fontSize: 11 }}>Résumé</th>
                   {th('Analysée le', 'analysed_at', { width: 100 })}
+                  {extraCols.map(key => {
+                    const label = SUGGESTED_EXTRA_COLS.find(c => c.key === key)?.label || humanizeKey(key);
+                    return th(label, key, { minWidth: 160 });
+                  })}
                   <th style={{ padding: '7px 8px', background: '#1e3a5f', color: '#fff', fontWeight: 600, fontSize: 11, width: 40 }} />
                 </tr>
               </thead>
@@ -247,6 +381,14 @@ const ContratsAnalysesIA: React.FC = () => {
                         {r.resume || <span style={{ color: '#9ca3af' }}>—</span>}
                       </td>
                       <td style={{ padding: '6px 8px', whiteSpace: 'nowrap' }}>{fmtDate(r.analysed_at)}</td>
+                      {extraCols.map(key => {
+                        const v = getExtraCellValue(r, key);
+                        return (
+                          <td key={key} style={{ padding: '6px 8px', maxWidth: 280, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: '#4b5563' }} title={v || ''}>
+                            {v || <span style={{ color: '#9ca3af' }}>—</span>}
+                          </td>
+                        );
+                      })}
                       <td style={{ padding: '6px 8px' }}>
                         <button onClick={() => setDetailRow(r)} title="Voir l'analyse complète" style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#4f46e5', display: 'inline-flex' }}>
                           <FileText size={14} />
