@@ -2362,6 +2362,12 @@ const MeetingDetail: React.FC = () => {
                 .md-formatted tr:nth-child(even) td { background: #FBFDFF; }
 
                 .tasks-list { padding: 0; }
+                /* Non stylé auparavant : héritait du <p> par défaut du navigateur (marge
+                   verticale, pas de padding horizontal) — flush contre le bord gauche de la
+                   carte, désaligné avec l'indicateur "Vous : ..." juste au-dessus (padding
+                   1.5rem) et avec .task-item (padding 1rem 1.5rem) quand la liste n'est pas
+                   vide. */
+                .no-tasks { padding: 1rem 1.5rem; margin: 0; color: #94A3B8; font-size: 0.85rem; }
                 .task-item {
                     display: flex;
                     gap: 1rem;
