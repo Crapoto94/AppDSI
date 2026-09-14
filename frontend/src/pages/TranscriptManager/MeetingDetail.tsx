@@ -254,6 +254,9 @@ const MeetingDetail: React.FC = () => {
     // pour cette génération.
     const [aiModels, setAiModels] = useState<string[]>([]);
     const [selectedModel, setSelectedModel] = useState<string>('');
+    // Niveau de détail du compte-rendu — ajuste le prompt envoyé à l'IA (cf.
+    // SUMMARY_LEVEL_INSTRUCTIONS côté serveur), pas un post-traitement du résultat.
+    const [summaryLevel, setSummaryLevel] = useState<'sommaire' | 'normal' | 'detaille'>('normal');
     const [modelsError, setModelsError] = useState('');
     const [aiSource, setAiSource] = useState<'apm' | 'local'>('apm');
     const [dsiAgents, setDsiAgents] = useState<DsiAgent[]>([]);
@@ -567,7 +570,7 @@ const MeetingDetail: React.FC = () => {
         genTimerRef.current = setInterval(() => setGenElapsed(Math.floor((Date.now() - genStart) / 1000)), 1000);
         try {
             const res = await axios.post(`/api/transcriptmanager/meeting/${id}/summarize`,
-                { model: selectedModel },
+                { model: selectedModel, niveau: summaryLevel },
                 { headers: { Authorization: `Bearer ${token}` } }
             );
             const jobId = res.data?.jobId;
@@ -1013,6 +1016,17 @@ const MeetingDetail: React.FC = () => {
                                 >
                                     {aiModels.length === 0 && <option value="">…</option>}
                                     {aiModels.map(m => <option key={m} value={m}>{m}</option>)}
+                                </select>
+                                <select
+                                    className="md-generate-model"
+                                    value={summaryLevel}
+                                    onChange={e => setSummaryLevel(e.target.value as 'sommaire' | 'normal' | 'detaille')}
+                                    disabled={isGenerating}
+                                    title="Niveau de détail du compte-rendu généré par l'IA"
+                                >
+                                    <option value="sommaire">Sommaire</option>
+                                    <option value="normal">Normal</option>
+                                    <option value="detaille">Détaillé</option>
                                 </select>
                             </div>
                         )}

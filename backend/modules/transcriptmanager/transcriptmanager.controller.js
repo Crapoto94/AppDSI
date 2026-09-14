@@ -921,6 +921,20 @@ FORMAT DU JSON :
 \`\`\``;
 
 /**
+ * Niveau de détail choisi par l'utilisateur au moment de la génération (au même titre que le
+ * modèle IA) — injecté en tête du prompt (avant le prompt d'analyse lui-même, admin par défaut
+ * ou personnalisé) pour que l'IA ajuste directement la longueur/le degré de détail de sa
+ * réponse, plutôt que de reformater a posteriori un résumé déjà généré à un niveau fixe.
+ * 'normal' n'ajoute aucune consigne : c'est le comportement déjà attendu du prompt existant
+ * (résumé exécutif 3-5 phrases, points abordés avec brève description).
+ */
+const SUMMARY_LEVEL_INSTRUCTIONS = {
+    sommaire: `CONSIGNE DE NIVEAU DE DÉTAIL — SOMMAIRE : produis un compte-rendu TRÈS CONCIS. Résumé exécutif en 1 à 2 phrases maximum. Points abordés : une ligne par sujet (titre + quelques mots, sans développement). Décisions prises : liste brève, une ligne par décision. Ne développe aucun sujet — vise la synthèse la plus courte possible tout en gardant toutes les décisions et tâches.\n\n`,
+    normal: '',
+    detaille: `CONSIGNE DE NIVEAU DE DÉTAIL — DÉTAILLÉ : produis un compte-rendu DÉTAILLÉ et EXHAUSTIF. Résumé exécutif développé (8 à 12 phrases couvrant le contexte, les enjeux discutés et les conclusions). Pour chaque point abordé, développe sur plusieurs phrases : contexte, arguments échangés, éventuels désaccords ou nuances, conclusion du point — ne te limite pas à une brève description. Décisions prises : indique aussi leur justification/motivation quand elle ressort de la transcription. Ne raccourcis aucun sujet abordé en réunion.\n\n`,
+};
+
+/**
  * Controller for Transcript Manager module
  */
 let importJobs = {};
@@ -1363,11 +1377,15 @@ const transcriptController = {
             if (!meeting) return res.status(404).json({ error: 'Réunion non trouvée' });
 
             const jobId = `sum_${Date.now()}_${meetingId}`;
+            // niveau : sommaire/normal/detaille — ajuste le prompt envoyé à l'IA (cf.
+            // SUMMARY_LEVEL_INSTRUCTIONS), au même titre que le modèle choisi par le front.
+            const niveau = ['sommaire', 'normal', 'detaille'].includes((req.body || {}).niveau) ? req.body.niveau : 'normal';
             summarizeJobs[jobId] = {
                 status: 'starting',
                 progress: 0,
                 meetingId: parseInt(meetingId, 10),
                 model: (req.body || {}).model || null,
+                niveau,
                 userName: req.user?.username || req.user?.email || null,
                 requestedAt: new Date().toISOString(),
                 createdAt: Date.now(),
@@ -1377,7 +1395,7 @@ const transcriptController = {
             // Réponse immédiate — le travail se poursuit en arrière-plan.
             res.json({ jobId });
 
-            runSummarizeJob(parseInt(meetingId, 10), summarizeJobs[jobId].model, summarizeJobs[jobId])
+            runSummarizeJob(parseInt(meetingId, 10), summarizeJobs[jobId].model, summarizeJobs[jobId], niveau)
                 .catch(err => console.error(`[TranscriptManager] Job résumé ${jobId} a échoué :`, err.message));
         } catch (error) {
             console.error('Summarize error:', error.message);
@@ -2537,7 +2555,7 @@ async function processFullText(meetingId, fullText) {
  * front puisse suivre l'avancement via /summarize-status/:jobId. Ne lève pas
  * d'exception non capturée : les erreurs sont reportées dans job.error.
  */
-async function runSummarizeJob(meetingId, model, job) {
+async function runSummarizeJob(meetingId, model, job, niveau = 'normal') {
     const db = pgDb;
     const sqlite = getSqlite();
     try {
@@ -2583,7 +2601,10 @@ async function runSummarizeJob(meetingId, model, job) {
         // séquences spéciales ($&, $`, $', $$...) DANS le texte de remplacement, même pour une
         // recherche de chaîne simple — un transcript contenant un "$" pourrait tronquer/dupliquer
         // des morceaux du prompt. Une fonction insère la valeur littéralement.
-        const prompt = promptTemplate
+        // Consigne de niveau de détail en tête de prompt — s'applique aussi bien au prompt par
+        // défaut qu'à un prompt personnalisé en admin (pas besoin d'y prévoir un placeholder).
+        const levelInstruction = SUMMARY_LEVEL_INSTRUCTIONS[niveau] || '';
+        const prompt = levelInstruction + promptTemplate
             .replaceAll('{REUNION}', () => meeting.title)
             .replaceAll('{TRANSCRIPTION}', () => transcriptText);
 
@@ -2592,7 +2613,7 @@ async function runSummarizeJob(meetingId, model, job) {
         // Manager — jamais sur le "défaut" propre à APM, qui est global à
         // toutes les applications qui l'appellent.
         const effectiveModel = model || (source === 'apm' ? await getTranscriptApmDefaultModel() : undefined);
-        console.log(`[TranscriptManager] Prompt length: ${prompt.length} chars — source: ${source} — model: ${effectiveModel || '(défaut)'}`);
+        console.log(`[TranscriptManager] Prompt length: ${prompt.length} chars — source: ${source} — model: ${effectiveModel || '(défaut)'} — niveau: ${niveau}`);
         if (job) { job.status = `Envoi du prompt (${effectiveModel || 'défaut'})`; job.progress = 40; }
 
         const fullText = source === 'local'
