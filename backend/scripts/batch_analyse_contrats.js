@@ -18,6 +18,10 @@
  *   --force        Retraite aussi les contrats ayant déjà une analyse IA (par défaut, ceux
  *                  avec ai_analyse_at déjà renseigné sont sautés — pas de re-traitement
  *                  accidentel/coûteux d'un lancement précédent).
+ *   --ids <ids>    Ne cible que ces contrats précis (ids séparés par des virgules, ex.
+ *                  "476,615") — implique --force pour ces ids (retraite même s'ils ont déjà
+ *                  une analyse). Pratique pour ne relancer que les échecs d'un lot précédent
+ *                  sans retraiter tout le reste.
  *   --delay <ms>   Pause entre deux contrats, défaut 2000 — évite de saturer l'IA/OCR.
  *
  * Un contrat sans document PDF exploitable, ou sans texte extractible, est sauté (compté
@@ -33,7 +37,7 @@ const { runContratAnalysePrompt, readDocumentBuffer, runOcrJob, extractAnalyseSc
 const MODULE = 'contrats';
 
 function parseArgs(argv) {
-    const args = { model: null, dryRun: false, limit: null, force: false, delay: 2000 };
+    const args = { model: null, dryRun: false, limit: null, force: false, delay: 2000, ids: null };
     for (let i = 0; i < argv.length; i++) {
         const a = argv[i];
         if (a === '--model') args.model = argv[++i];
@@ -41,7 +45,9 @@ function parseArgs(argv) {
         else if (a === '--limit') args.limit = parseInt(argv[++i], 10);
         else if (a === '--force') args.force = true;
         else if (a === '--delay') args.delay = parseInt(argv[++i], 10);
+        else if (a === '--ids') args.ids = argv[++i].split(',').map(s => parseInt(s.trim(), 10)).filter(n => Number.isFinite(n));
     }
+    if (args.ids && args.ids.length > 0) args.force = true; // --ids cible des contrats précis, y compris déjà analysés
     return args;
 }
 
@@ -188,7 +194,11 @@ async function saveAnalyseAsDocument(pgDb, contratId, fileName, markdown) {
         console.warn('⚠️  Impossible de vérifier la liste des modèles IA (API Ville injoignable ?) :', e.message);
     }
 
-    const where = args.force ? '' : 'WHERE ai_analyse_at IS NULL';
+    let where = args.force ? '' : 'WHERE ai_analyse_at IS NULL';
+    if (args.ids && args.ids.length > 0) {
+        const idList = args.ids.join(',');
+        where = `WHERE id IN (${idList})`;
+    }
     const allContrats = await pgDb.all(`SELECT id, objet FROM hub_contrats.contrats ${where} ORDER BY id`);
     const todo = args.limit ? allContrats.slice(0, args.limit) : allContrats;
 
