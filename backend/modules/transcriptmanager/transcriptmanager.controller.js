@@ -1844,7 +1844,22 @@ const transcriptController = {
             // Fusionne ce nouvel amendement dans l'historique structuré (spans) —
             // un seul contenu cumulatif, chaque portion gardant l'attribution de
             // son auteur d'origine (cf. applyDiffToSpans).
-            const prevSpans = JSON.parse(meeting.summary_annotated_spans || 'null') || initialSpans(oldClean);
+            let prevSpans = JSON.parse(meeting.summary_annotated_spans || 'null') || initialSpans(oldClean);
+            // Garde-fou d'intégrité : applyDiffToSpans marche caractère par
+            // caractère dans prevSpans en supposant que la concaténation de ses
+            // spans text+delete reconstruit exactement oldClean. Si ce n'est
+            // plus vrai (spans désynchronisés du résumé réel — ex. correction
+            // directe passée à côté du mécanisme d'amendement), le découpage se
+            // décale et corrompt le texte affiché (mots tronqués/dupliqués),
+            // même si le résumé stocké, lui, reste correct. On repart alors
+            // d'un historique vierge plutôt que de produire un rendu faux —
+            // l'attribution colorée des amendements passés est perdue, mais le
+            // texte reste toujours exact.
+            const reconstructedOld = prevSpans.filter(s => s.type !== 'insert').map(s => s.text).join('');
+            if (reconstructedOld !== oldClean) {
+                console.error(`[TRANSCRIPT AMEND] spans désynchronisés pour la réunion ${meetingId} — historique réinitialisé`);
+                prevSpans = initialSpans(oldClean);
+            }
             const newSpans = applyDiffToSpans(prevSpans, oldClean, cleanNewText, { color, name });
 
             // Trace légère (qui + quand) pour la timeline de l'app — le contenu

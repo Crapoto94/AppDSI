@@ -274,7 +274,7 @@ const MeetingDetail: React.FC = () => {
     // Modale de validation des amendements : ajout (tout amendeur) / retrait
     // (admin uniquement) de destinataires à la boucle de diffusion, avant
     // envoi effectif — cf. handleAmendValidateClick / submitAmendment.
-    const [pendingAddRecipients, setPendingAddRecipients] = useState<{ email: string; name: string }[]>([]);
+    const [pendingAddRecipients, setPendingAddRecipients] = useState<{ email: string; name: string; internal: boolean }[]>([]);
     const [pendingRemoveEmails, setPendingRemoveEmails] = useState<Set<string>>(new Set());
     const [manualRecipientEmail, setManualRecipientEmail] = useState('');
     const recipientAd = useADSearch(token);
@@ -786,13 +786,18 @@ const MeetingDetail: React.FC = () => {
 
     // Ajout d'un destinataire à la boucle (recherche AD ou email libre) —
     // ouvert à tout amendeur, juste en attente locale jusqu'à validation.
-    const addPendingRecipient = (email: string, name: string) => {
+    // `internal` : passé explicitement à true depuis la sélection AD (agent
+    // trouvé = forcément interne) ; sinon simple estimation par domaine pour
+    // l'affichage immédiat (le serveur retranchera l'appartenance réelle via
+    // isInternalEmail au moment de l'envoi — cf. amendSummary).
+    const addPendingRecipient = (email: string, name: string, internal?: boolean) => {
         const clean = email.trim().toLowerCase();
         if (!clean || !clean.includes('@')) return;
         const already = (amendAccess.recipients || []).some(r => r.email.toLowerCase() === clean)
             || pendingAddRecipients.some(r => r.email.toLowerCase() === clean);
         if (already) return;
-        setPendingAddRecipients(prev => [...prev, { email: clean, name: name || clean }]);
+        const isInternal = internal ?? clean.endsWith('@ivry94.fr');
+        setPendingAddRecipients(prev => [...prev, { email: clean, name: name || clean, internal: isInternal }]);
         setManualRecipientEmail('');
         recipientAd.setQuery('');
         recipientAd.clearResults();
@@ -1796,7 +1801,7 @@ const MeetingDetail: React.FC = () => {
                                     const removed = pendingRemoveEmails.has(r.email);
                                     return (
                                         <div key={r.email} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, fontSize: '0.78rem', color: removed ? '#94A3B8' : '#334155', textDecoration: removed ? 'line-through' : 'none' }}>
-                                            <span>{r.name || r.email} {r.name && r.name !== r.email ? <span style={{ color: '#94A3B8' }}>&lt;{r.email}&gt;</span> : null}{!r.internal && <span style={{ color: '#94A3B8' }}> (externe)</span>}</span>
+                                            <span>{r.name || r.email} {r.name && r.name !== r.email ? <span style={{ color: '#94A3B8' }}>&lt;{r.email}&gt;</span> : null}{!r.internal && <span style={{ color: '#94A3B8' }}> — externe : reçoit le mail, sans lien d'amendement</span>}</span>
                                             {amendAccess.isAdmin && (
                                                 <button onClick={() => toggleRemoveRecipient(r.email)} title={removed ? 'Annuler le retrait' : 'Retirer de la boucle'} style={{ background: 'none', border: 'none', cursor: 'pointer', color: removed ? '#0078A4' : '#DC2626', fontSize: '0.75rem', fontWeight: 600, flexShrink: 0 }}>
                                                     {removed ? 'Annuler' : '× Retirer'}
@@ -1807,7 +1812,7 @@ const MeetingDetail: React.FC = () => {
                                 })}
                                 {pendingAddRecipients.map(r => (
                                     <div key={r.email} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, fontSize: '0.78rem', color: '#15803D' }}>
-                                        <span>+ {r.name || r.email} {r.name && r.name !== r.email ? <span style={{ color: '#86EFAC' }}>&lt;{r.email}&gt;</span> : null}</span>
+                                        <span>+ {r.name || r.email} {r.name && r.name !== r.email ? <span style={{ color: '#86EFAC' }}>&lt;{r.email}&gt;</span> : null}{!r.internal && <span style={{ color: '#86EFAC' }}> — externe : reçoit le mail, sans lien d'amendement</span>}</span>
                                         <button onClick={() => setPendingAddRecipients(prev => prev.filter(p => p.email !== r.email))} title="Annuler l'ajout" style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94A3B8', fontSize: '0.75rem', fontWeight: 600, flexShrink: 0 }}>
                                         × Annuler
                                         </button>
@@ -1816,7 +1821,7 @@ const MeetingDetail: React.FC = () => {
                             </div>
                             {!amendAccess.isAdmin && (
                                 <div style={{ fontSize: '0.7rem', color: '#94A3B8', marginTop: 6 }}>
-                                    Vous pouvez ajouter des personnes à la boucle, mais pas en retirer — seul un administrateur le peut.
+                                    Vous pouvez ajouter des personnes à la boucle.
                                 </div>
                             )}
                             <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid #E2E8F0' }}>
@@ -1833,7 +1838,7 @@ const MeetingDetail: React.FC = () => {
                                     {recipientAd.results.length > 0 && (
                                         <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: 'white', border: '1px solid #CBD5E1', borderRadius: 6, boxShadow: '0 4px 12px rgba(0,0,0,0.1)', zIndex: 10, maxHeight: 140, overflowY: 'auto' }}>
                                             {recipientAd.results.map(u => (
-                                                <div key={u.username} onClick={() => addPendingRecipient(u.email, u.displayName)}
+                                                <div key={u.username} onClick={() => addPendingRecipient(u.email, u.displayName, true)}
                                                     style={{ padding: '6px 10px', cursor: 'pointer', borderBottom: '1px solid #F1F5F9', fontSize: '0.78rem' }}
                                                     onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = '#EFF6FF'}
                                                     onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = 'white'}
