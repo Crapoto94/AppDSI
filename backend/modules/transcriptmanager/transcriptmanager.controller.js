@@ -480,8 +480,21 @@ function buildSummaryEmailHtml({ summaryHtml, message, meetingTitle, meetingDate
     // plupart des clients mais rendait un bouton plat/moche dans le nouvel
     // Outlook — la construction en <table> est la seule qui s'affiche
     // correctement de façon fiable sur tous les clients de messagerie.
+    // Bouton « bulletproof » complet : VML (arcsize) pour l'ancien Outlook —
+    // seul moyen d'obtenir des coins arrondis sur son moteur Word, qui ignore
+    // border-radius — et <table>/<a> pour tous les autres clients (nouveau
+    // Outlook, webmail, Gmail...), qui eux gèrent déjà border-radius nativement.
+    // Les deux blocs sont mutuellement exclusifs via les commentaires
+    // conditionnels [if mso] : chaque client n'en voit qu'un seul.
     const amendHtml = (internal && amendUrl) ? `
         <div style="margin:16px 0;padding:14px 16px;border:1px solid #e2e8f0;background:#f8fafc;border-radius:10px;text-align:center;">
+            <!--[if mso]>
+            <v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" xmlns:w="urn:schemas-microsoft-com:office:word" href="${esc(amendUrl)}" style="height:42px;v-text-anchor:middle;width:250px;" arcsize="18%" stroke="f" fillcolor="#334155">
+            <w:anchorlock/>
+            <center style="color:#ffffff;font-family:Arial,sans-serif;font-size:13px;font-weight:bold;">✏️ Amender ce compte rendu</center>
+            </v:roundrect>
+            <![endif]-->
+            <!--[if !mso]><!-->
             <table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center" style="margin:0 auto;">
                 <tr>
                     <td align="center" bgcolor="#334155" style="background-color:#334155;border-radius:8px;">
@@ -491,6 +504,7 @@ function buildSummaryEmailHtml({ summaryHtml, message, meetingTitle, meetingDate
                     </td>
                 </tr>
             </table>
+            <!--<![endif]-->
             <div style="color:#64748b;font-size:12px;margin-top:8px;">Ajoutez une tâche oubliée ou corrigez le texte — vous devrez vous authentifier si vous ne l'êtes pas déjà.</div>
         </div>` : '';
 
