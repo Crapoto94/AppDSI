@@ -8,10 +8,18 @@ interface LoginProps {
 }
 
 const Login: React.FC<LoginProps> = () => {
-  const [username, setUsername] = useState('');
+  const [username, setUsername] = useState(() => {
+    try {
+      const saved = localStorage.getItem('magapp_user');
+      return saved ? (JSON.parse(saved).username || '') : '';
+    } catch {
+      return '';
+    }
+  });
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [rememberMe, setRememberMe] = useState(false);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -35,6 +43,16 @@ const Login: React.FC<LoginProps> = () => {
         displayName: user.displayName || user.username,
         email: resolvedEmail
       }));
+
+      // Si "Se souvenir de moi" est coché, mémoriser l'utilisateur dans
+      // localStorage afin de le reconnaître lors des prochaines visites
+      if (rememberMe) {
+        localStorage.setItem('magapp_user', JSON.stringify({
+          username: user.username,
+          displayName: user.displayName || user.username,
+          email: resolvedEmail
+        }));
+      }
 
       // Si un token JWT a été renvoyé (utilisateur reconnu localement)
       if (accessToken) {
@@ -116,6 +134,16 @@ const Login: React.FC<LoginProps> = () => {
               'Se connecter'
             )}
           </button>
+
+          <label className="remember-me">
+            <input
+              type="checkbox"
+              checked={rememberMe}
+              onChange={(e) => setRememberMe(e.target.checked)}
+              disabled={loading}
+            />
+            <span>Se souvenir de moi</span>
+          </label>
         </form>
 
         <div className="login-footer">
@@ -231,6 +259,22 @@ const Login: React.FC<LoginProps> = () => {
         .login-button:disabled {
           opacity: 0.7;
           cursor: not-allowed;
+        }
+        .remember-me {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          margin-top: 14px;
+          font-size: 0.85rem;
+          color: #475569;
+          cursor: pointer;
+          user-select: none;
+        }
+        .remember-me input[type='checkbox'] {
+          width: 16px;
+          height: 16px;
+          accent-color: #0078a4;
+          cursor: pointer;
         }
         .spinner-small {
           animation: spin 1s linear infinite;

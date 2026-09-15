@@ -181,7 +181,12 @@ function App() {
     const checkAuth = async () => {
       try {
         // Vérifier la session temporaire
-        const sessionUser = sessionStorage.getItem('magapp_user');
+        let sessionUser = sessionStorage.getItem('magapp_user');
+        // Session mémorisée ("Se souvenir de moi") : user conservé dans
+        // localStorage entre deux ouvertures du navigateur
+        if (!sessionUser) {
+          sessionUser = localStorage.getItem('magapp_user');
+        }
         if (sessionUser) {
           const user = JSON.parse(sessionUser);
           const resolvedEmail = user.email && user.email.trim() !== '' ? user.email : `${user.username}@ivry94.fr`;
@@ -485,6 +490,7 @@ function App() {
   const handleLogout = () => {
     localStorage.removeItem('token');
     localStorage.removeItem('user');
+    localStorage.removeItem('magapp_user');
     sessionStorage.removeItem('magapp_user');
     sessionStorage.removeItem('sso_attempted');
     setIsLoggedIn(false);
