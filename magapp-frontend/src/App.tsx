@@ -75,6 +75,14 @@ interface Ticket {
   requester_name?: string | null;
 }
 
+// Le contenu collé depuis Word dans l'éditeur (ReactQuill) remplace les espaces
+// normaux par des espaces insécables (&nbsp;), ce qui empêche le navigateur de
+// couper la ligne entre les mots et le force (via overflow-wrap) à couper en
+// plein milieu d'un mot. On les reconvertit en espaces normaux avant affichage.
+function normalizeReleaseNotesHtml(html: string): string {
+  return html ? html.replace(/&nbsp;/gi, ' ') : html;
+}
+
 function App() {
   const [categories, setCategories] = useState<Category[]>([]);
   const [apps, setApps] = useState<AppItem[]>([]);
@@ -1595,7 +1603,7 @@ function App() {
             <div style={{ padding: '30px 40px', maxHeight: '40vh', overflowY: 'auto' }}>
               <div
                 className="whatsnew-content"
-                dangerouslySetInnerHTML={{ __html: activeVersion.release_notes_html }}
+                dangerouslySetInnerHTML={{ __html: normalizeReleaseNotesHtml(activeVersion.release_notes_html) }}
                 style={{ fontSize: '0.95rem', lineHeight: 1.7, color: '#334155', overflowWrap: 'break-word' }}
               />
             </div>
@@ -1645,7 +1653,7 @@ function App() {
                   </div>
                   <div
                     className="whatsnew-content"
-                    dangerouslySetInnerHTML={{ __html: v.release_notes_html }}
+                    dangerouslySetInnerHTML={{ __html: normalizeReleaseNotesHtml(v.release_notes_html) }}
                     style={{ fontSize: '0.85rem', lineHeight: 1.6, color: '#64748b' }}
                   />
                 </div>
