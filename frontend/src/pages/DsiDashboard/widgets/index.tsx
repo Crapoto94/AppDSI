@@ -38,6 +38,7 @@ const TelecomCostWidget     = lazy(() => import('./TelecomCostWidget'));
 const TelecomOptimWidget    = lazy(() => import('./TelecomOptimWidget'));
 const MailAnalyseMapWorldWidget  = lazy(() => import('./MailAnalyseMapWorldWidget'));
 const MailAnalyseMapFranceWidget = lazy(() => import('./MailAnalyseMapFranceWidget'));
+const MailAnalyseFailedSigninsWidget = lazy(() => import('./MailAnalyseFailedSigninsWidget'));
 
 const ConsommablesWidget = lazy(() => import('./CounterWidget').then(m => ({ default: m.ConsommablesWidget })));
 const CertificatsWidget  = lazy(() => import('./CounterWidget').then(m => ({ default: m.CertificatsWidget })));
@@ -87,6 +88,7 @@ const WIDGET_MAP: Record<string, React.ComponentType> = {
   telecom_optim_kpi:  TelecomOptimWidget,
   mail_analyse_map_world:  MailAnalyseMapWorldWidget,
   mail_analyse_map_france: MailAnalyseMapFranceWidget,
+  mail_analyse_failed_signins: MailAnalyseFailedSigninsWidget,
   // Alias rétro-compatibilité : les tableaux existants enregistrés avec l'ancienne clé
   // unique (carte monde + carte pays empilées) affichent désormais la carte monde.
   mail_analyse_map:        MailAnalyseMapWorldWidget,

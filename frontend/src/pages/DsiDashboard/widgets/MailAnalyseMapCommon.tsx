@@ -5,6 +5,7 @@ import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { useAuth } from '../../../contexts/AuthContext';
 import WidgetWrapper from './WidgetWrapper';
+import { WINDOW_OPTIONS, DEFAULT_WINDOW_MINUTES, windowLabel } from './analyseMailWindows';
 
 /**
  * Carte « connexions suspectes » alimentée par l'application Analyse-mail (via le
@@ -40,27 +41,11 @@ interface Kpis {
 }
 
 export interface MapWidgetProps {
-  config?: { window_minutes?: number; zoom?: number } | null;
+  config?: { window_minutes?: number; zoom?: number; center?: { lat: number; lon: number } } | null;
   onConfigChange?: (patch: Record<string, unknown>) => void;
 }
 
-const WINDOW_OPTIONS: { value: number; label: string }[] = [
-  { value: 1, label: '1 min' },
-  { value: 10, label: '10 min' },
-  { value: 60, label: '1 heure' },
-  { value: 240, label: '4 heures' },
-  { value: 480, label: '8 heures' },
-  { value: 1440, label: '24 heures' },
-  { value: 2880, label: '2 jours' },
-  { value: 10080, label: '1 semaine' },
-];
-
-const DEFAULT_WINDOW_MINUTES = 1440;
 const REFRESH_MS = 5 * 60 * 1000;
-
-function windowLabel(minutes: number): string {
-  return WINDOW_OPTIONS.find(o => o.value === minutes)?.label || `${minutes} min`;
-}
 
 function buildMarkerIcon(p: GeoPoint): L.DivIcon {
   const acked = !!p.is_acknowledged;
@@ -96,10 +81,16 @@ function PointPopup({ p }: { p: GeoPoint }) {
   );
 }
 
-function ZoomTracker({ initialZoom, onZoom }: { initialZoom: number; onZoom: (z: number) => void }) {
-  // Ignore le zoomend initial (déclenché par le setView de montage) : sinon la carte se
-  // marquerait "modifiée" et persisterait son zoom par défaut dès l'ouverture.
+function ViewTracker({ initialZoom, initialCenter, onZoom, onCenter }: {
+  initialZoom: number;
+  initialCenter: [number, number];
+  onZoom: (z: number) => void;
+  onCenter: (c: { lat: number; lon: number }) => void;
+}) {
+  // Ignore les événements initiaux (setView de montage) : sinon la carte se marquerait
+  // "modifiée" et persisterait sa vue par défaut dès l'ouverture.
   const lastZoomRef = useRef(initialZoom);
+  const lastCenterRef = useRef(initialCenter);
   const map = useMapEvents({
     zoomend: () => {
       const z = map.getZoom();
@@ -108,12 +99,23 @@ function ZoomTracker({ initialZoom, onZoom }: { initialZoom: number; onZoom: (z:
         onZoom(z);
       }
     },
+    moveend: () => {
+      const c = map.getCenter();
+      if (c.lat !== lastCenterRef.current[0] || c.lng !== lastCenterRef.current[1]) {
+        lastCenterRef.current = [c.lat, c.lng];
+        onCenter({ lat: c.lat, lon: c.lng });
+      }
+    },
   });
   return null;
 }
 
-function ConnexionsMap({ points, center, zoom, onZoom }: {
-  points: GeoPoint[]; center: [number, number]; zoom: number; onZoom?: (z: number) => void;
+function ConnexionsMap({ points, center, zoom, onZoom, onCenter }: {
+  points: GeoPoint[];
+  center: [number, number];
+  zoom: number;
+  onZoom?: (z: number) => void;
+  onCenter?: (c: { lat: number; lon: number }) => void;
 }) {
   return (
     <MapContainer
@@ -121,6 +123,7 @@ function ConnexionsMap({ points, center, zoom, onZoom }: {
       zoom={zoom}
       attributionControl={false}
       scrollWheelZoom
+      wheelPxPerZoomLevel={150}
       style={{ height: '100%', width: '100%', background: '#05070c' }}
     >
       <TileLayer
@@ -129,7 +132,9 @@ function ConnexionsMap({ points, center, zoom, onZoom }: {
         className="mailmap-tiles-dark"
         opacity={0.9}
       />
-      {onZoom && <ZoomTracker initialZoom={zoom} onZoom={onZoom} />}
+      {onZoom && onCenter && (
+        <ViewTracker initialZoom={zoom} initialCenter={center} onZoom={onZoom} onCenter={onCenter} />
+      )}
       {points.map((p, i) => (
         <Marker key={`${p.city}|${p.country_code}|${i}`} position={[p.lat, p.lon] as [number, number]} icon={buildMarkerIcon(p)}>
           <Popup><PointPopup p={p} /></Popup>
@@ -186,6 +191,10 @@ export default function MailAnalyseMapCard({ scope, title, center, zoom, config,
   const homeCode = data?.home_country_code || 'FR';
   const points = scope === 'home' ? (data?.connections_geo_home || []) : (data?.connections_geo_world || []);
   const initialZoom = Number(config?.zoom) || zoom;
+  const initialCenter: [number, number] =
+    config?.center && Number.isFinite(config.center.lat) && Number.isFinite(config.center.lon)
+      ? [config.center.lat, config.center.lon]
+      : center;
 
   const selector = (
     <select
@@ -214,9 +223,10 @@ export default function MailAnalyseMapCard({ scope, title, center, zoom, config,
       <div style={{ height: '100%', minHeight: 0, position: 'relative', borderRadius: 8, overflow: 'hidden' }}>
         <ConnexionsMap
           points={points}
-          center={center}
+          center={initialCenter}
           zoom={initialZoom}
           onZoom={z => onConfigChange?.({ zoom: z })}
+          onCenter={c => onConfigChange?.({ center: c })}
         />
         {points.length === 0 && (
           <div style={{

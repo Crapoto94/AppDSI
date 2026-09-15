@@ -112,3 +112,6 @@ backend/file_reunions/*.vtt
 
 # Documents sensibles (plaintes, PV de police, données personnelles) — hors dépôt
 vol/
+
+# Fichiers joints du module service-fait (stockage local)
+backend/service-fait/

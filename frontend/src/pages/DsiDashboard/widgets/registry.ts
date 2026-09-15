@@ -349,6 +349,14 @@ export const WIDGET_REGISTRY: WidgetDef[] = [
     minSize: { w: 4, h: 4 },
   },
   {
+    key: 'mail_analyse_failed_signins',
+    label: 'Connexions en erreur — détail',
+    description: 'Dernières connexions en échec du tenant : utilisateur, IP/localisation, application, code et motif d\'échec, MFA, réputation IP',
+    module: 'Sécurité',
+    defaultSize: { w: 6, h: 6 },
+    minSize: { w: 4, h: 4 },
+  },
+  {
     // Ancienne clé (avant la séparation monde/pays) : conservée pour ne pas casser les
     // tableaux déjà enregistrés, masquée du catalogue.
     key: 'mail_analyse_map',

@@ -16,6 +16,20 @@ const ctrl = {
             res.status(502).json({ message: e.message });
         }
     },
+
+    // GET /api/analyse-mail/signins/failed?minutes=60&limit=50
+    // Dernières connexions en échec du tenant (utilisateur, IP, motif...).
+    async failedSignins(req, res) {
+        try {
+            const data = await analyseMail.getFailedSignins({
+                minutes: req.query.minutes,
+                limit: req.query.limit,
+            });
+            res.json(data);
+        } catch (e) {
+            res.status(502).json({ message: e.message });
+        }
+    },
 };
 
 module.exports = ctrl;
