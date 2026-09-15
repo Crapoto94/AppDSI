@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import { useAuth } from '../contexts/AuthContext';
-import { Search, ChevronUp, ChevronDown, ChevronRight, Columns, ExternalLink, Link2, AppWindow, Rocket, Eye } from 'lucide-react';
+import { Search, ChevronUp, ChevronDown, ChevronRight, Columns, ExternalLink, Link2, AppWindow, Rocket, Eye, CheckCircle } from 'lucide-react';
 import ServiceFaitModal from './ServiceFaitModal';
 import ServiceFaitProcessusModal from './ServiceFaitProcessusModal';
 
@@ -78,7 +78,7 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
   const [loadingChildren, setLoadingChildren] = useState<Record<string, boolean>>({});
   const [childVisibleCols, setChildVisibleCols] = useState<string[]>([]);
   const [pendingFilter, setPendingFilter] = useState(false);
-  const [sfModalRow, setSfModalRow] = useState<{ row: any; } | null>(null);
+  const [sfModalRow, setSfModalRow] = useState<{ row: any; mode: 'circuit' | 'self' } | null>(null);
   const [sfStatuses, setSfStatuses] = useState<Record<string, any>>({});
   const [sfProcessModal, setSfProcessModal] = useState<{ workflowId: number } | null>(null);
 
@@ -541,7 +541,7 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
                                   )}
                                   {sfInfo.relaunchable && (
                                     <button title="Relancer une nouvelle demande de validation"
-                                      onClick={() => setSfModalRow({ row })}
+                                      onClick={() => setSfModalRow({ row, mode: 'circuit' })}
                                       style={{ background: '#2563eb', color: 'white', border: 'none', borderRadius: '4px', padding: '3px 8px', fontSize: '11px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '3px' }}>
                                       <Rocket size={12} /> Relancer
                                     </button>
@@ -551,11 +551,18 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
                             </>
                           )}
                           {!sfInfo && (
-                            <button title="Lancer la validation du service fait"
-                              onClick={() => setSfModalRow({ row })}
-                              style={{ background: '#2563eb', color: 'white', border: 'none', borderRadius: '4px', padding: '3px 8px', fontSize: '11px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '3px' }}>
-                              <Rocket size={12} /> À lancer
-                            </button>
+                            <>
+                              <button title="Lancer la validation du service fait (avec un vérificateur)"
+                                onClick={() => setSfModalRow({ row, mode: 'circuit' })}
+                                style={{ background: '#2563eb', color: 'white', border: 'none', borderRadius: '4px', padding: '3px 8px', fontSize: '11px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '3px' }}>
+                                <Rocket size={12} /> Lancer
+                              </button>
+                              <button title="Déclarer moi-même le service fait (sans circuit de validation)"
+                                onClick={() => setSfModalRow({ row, mode: 'self' })}
+                                style={{ background: '#16a34a', color: 'white', border: 'none', borderRadius: '4px', padding: '3px 8px', fontSize: '11px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '3px' }}>
+                                <CheckCircle size={12} /> Faire
+                              </button>
+                            </>
                           )}
                         </div>
                       </td>
@@ -812,6 +819,7 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
         <ServiceFaitModal
           row={sfModalRow.row}
           columns={columns}
+          mode={sfModalRow.mode}
           onClose={() => setSfModalRow(null)}
           onCreated={() => fetchData(searchTerm, currentPage * effectivePageSize)}
         />
