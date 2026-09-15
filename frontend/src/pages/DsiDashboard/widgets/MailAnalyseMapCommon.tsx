@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import axios from 'axios';
-import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
+import { MapContainer, TileLayer, Marker, Popup, useMapEvents } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { useAuth } from '../../../contexts/AuthContext';
@@ -40,7 +40,7 @@ interface Kpis {
 }
 
 export interface MapWidgetProps {
-  config?: { window_minutes?: number } | null;
+  config?: { window_minutes?: number; zoom?: number } | null;
   onConfigChange?: (patch: Record<string, unknown>) => void;
 }
 
@@ -68,7 +68,7 @@ function buildMarkerIcon(p: GeoPoint): L.DivIcon {
     ? Math.max(6, Math.min(16, 4 + Math.sqrt(p.count) * 2.2))
     : Math.max(8, Math.min(28, 6 + Math.sqrt(p.count) * 4));
   const ringSize = acked ? coreSize : coreSize * 3.2;
-  const color = p.is_suspicious ? '#ff3b3b' : (p.fail_count > 0 ? '#fd9e02' : '#39ff88');
+  const color = p.is_suspicious ? '#ff3b3b' : (p.trust_score > 65 ? '#fd9e02' : '#39ff88');
   const cls = 'mailmap-marker' + (p.is_suspicious ? ' mailmap-suspicious' : '') + (acked ? ' mailmap-acked' : '');
   const side = acked ? coreSize : ringSize;
   const html =
@@ -96,7 +96,25 @@ function PointPopup({ p }: { p: GeoPoint }) {
   );
 }
 
-function ConnexionsMap({ points, center, zoom }: { points: GeoPoint[]; center: [number, number]; zoom: number }) {
+function ZoomTracker({ initialZoom, onZoom }: { initialZoom: number; onZoom: (z: number) => void }) {
+  // Ignore le zoomend initial (déclenché par le setView de montage) : sinon la carte se
+  // marquerait "modifiée" et persisterait son zoom par défaut dès l'ouverture.
+  const lastZoomRef = useRef(initialZoom);
+  const map = useMapEvents({
+    zoomend: () => {
+      const z = map.getZoom();
+      if (z !== lastZoomRef.current) {
+        lastZoomRef.current = z;
+        onZoom(z);
+      }
+    },
+  });
+  return null;
+}
+
+function ConnexionsMap({ points, center, zoom, onZoom }: {
+  points: GeoPoint[]; center: [number, number]; zoom: number; onZoom?: (z: number) => void;
+}) {
   return (
     <MapContainer
       center={center}
@@ -111,6 +129,7 @@ function ConnexionsMap({ points, center, zoom }: { points: GeoPoint[]; center: [
         className="mailmap-tiles-dark"
         opacity={0.9}
       />
+      {onZoom && <ZoomTracker initialZoom={zoom} onZoom={onZoom} />}
       {points.map((p, i) => (
         <Marker key={`${p.city}|${p.country_code}|${i}`} position={[p.lat, p.lon] as [number, number]} icon={buildMarkerIcon(p)}>
           <Popup><PointPopup p={p} /></Popup>
@@ -166,6 +185,7 @@ export default function MailAnalyseMapCard({ scope, title, center, zoom, config,
 
   const homeCode = data?.home_country_code || 'FR';
   const points = scope === 'home' ? (data?.connections_geo_home || []) : (data?.connections_geo_world || []);
+  const initialZoom = Number(config?.zoom) || zoom;
 
   const selector = (
     <select
@@ -191,16 +211,23 @@ export default function MailAnalyseMapCard({ scope, title, center, zoom, config,
         .mailmap-marker.mailmap-acked .mailmap-ring { display: none; }
         .mailmap-marker.mailmap-acked .mailmap-core { animation: none; opacity: 1; }
       `}</style>
-      {points.length === 0 ? (
-        <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#94a3b8', fontSize: 12, textAlign: 'center' }}>
-          Aucune connexion géolocalisable sur la fenêtre en cours
-          {scope === 'home' ? ` (${homeCode})` : ''}.
-        </div>
-      ) : (
-        <div style={{ height: '100%', minHeight: 0, position: 'relative', borderRadius: 8, overflow: 'hidden' }}>
-          <ConnexionsMap points={points} center={center} zoom={zoom} />
-        </div>
-      )}
+      <div style={{ height: '100%', minHeight: 0, position: 'relative', borderRadius: 8, overflow: 'hidden' }}>
+        <ConnexionsMap
+          points={points}
+          center={center}
+          zoom={initialZoom}
+          onZoom={z => onConfigChange?.({ zoom: z })}
+        />
+        {points.length === 0 && (
+          <div style={{
+            position: 'absolute', top: 8, left: '50%', transform: 'translateX(-50%)', zIndex: 500,
+            background: 'rgba(0,0,0,.65)', color: '#cbd5e1', fontSize: 12, padding: '4px 10px',
+            borderRadius: 6, pointerEvents: 'none', whiteSpace: 'nowrap',
+          }}>
+            Aucune connexion géolocalisable{scope === 'home' ? ` (${homeCode})` : ''} sur la fenêtre en cours.
+          </div>
+        )}
+      </div>
     </WidgetWrapper>
   );
 }
