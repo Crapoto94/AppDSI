@@ -10,9 +10,10 @@ const { pool } = require('../shared/database');
 
 // page (URL) → fichier guide
 const MAP = {
-  '/tickets':        'GUIDE-TECHNICIEN-TICKETS.md',
-  '/tickets/stats':  'GUIDE-STATISTIQUES-TICKETS.md',
-  '/tickets/admin':  'GUIDE-ADMIN-TICKETS.md',
+  '/tickets':          'GUIDE-TECHNICIEN-TICKETS.md',
+  '/tickets/stats':    'GUIDE-STATISTIQUES-TICKETS.md',
+  '/tickets/admin':    'GUIDE-ADMIN-TICKETS.md',
+  '/transcriptmanager': 'GUIDE-TRANSCRIPT-MANAGER.md',
 };
 
 (async () => {

@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
-import { Search, Loader2, Clock, Bell, User, Heart, X, LogOut, LifeBuoy, AlertTriangle, Activity, CheckCircle2, XCircle, Tag, Lightbulb, Paperclip, Eye, BarChart3, Briefcase, FileText, MessageSquare, GraduationCap, Star, ShoppingCart, FlaskConical, Send, MessageCircle, Plus, Ticket } from 'lucide-react';
+import { Search, Loader2, Clock, Bell, User, Heart, X, LogOut, LifeBuoy, AlertTriangle, Activity, CheckCircle2, XCircle, Tag, Lightbulb, Paperclip, Eye, BarChart3, Briefcase, FileText, MessageSquare, GraduationCap, Star, ShoppingCart, FlaskConical, Send, MessageCircle, Plus, Ticket, HelpCircle } from 'lucide-react';
 import './index.css';
 import logoDsiHub from './assets/DSI.png';
 import Login from './Login';
@@ -99,6 +99,9 @@ function App() {
   const [userEmail, setUserEmail] = useState<string>('');
   const [showSubs, setShowSubs] = useState(false);
   const [showTickets, setShowTickets] = useState(false);
+  const [showHelp, setShowHelp] = useState(false);
+  const [helpContentHtml, setHelpContentHtml] = useState<string | null>(null);
+  const [helpLoading, setHelpLoading] = useState(false);
   const [showClosedIncidents, setShowClosedIncidents] = useState(false);
   const [showClosedDemandes, setShowClosedDemandes] = useState(false);
   const [showClosedOthers, setShowClosedOthers] = useState(false);
@@ -564,6 +567,21 @@ function App() {
         message: "Impossible d'ouvrir votre Transcript Manager. Vérifiez votre session.",
         onConfirm: () => setModalConfig(prev => ({ ...prev, isOpen: false }))
       });
+    }
+  };
+
+  const handleOpenHelp = async () => {
+    setShowHelp(true);
+    if (helpContentHtml !== null || helpLoading) return;
+    setHelpLoading(true);
+    try {
+      const res = await axios.get(`/api/page-help/${encodeURIComponent('/transcriptmanager')}`);
+      setHelpContentHtml(res.data?.content_html || "<p>Aucune aide disponible pour l'instant.</p>");
+    } catch (error) {
+      console.error("Erreur de chargement de l'aide", error);
+      setHelpContentHtml("<p>Aide momentanément indisponible. Réessayez plus tard.</p>");
+    } finally {
+      setHelpLoading(false);
     }
   };
 
@@ -1379,6 +1397,22 @@ function App() {
             )}
 
             <button
+              onClick={handleOpenHelp}
+              style={{
+                background: '#f8fafc',
+                border: '1px solid #cbd5e1',
+                padding: '10px',
+                borderRadius: '10px',
+                color: '#475569',
+                cursor: 'pointer',
+                transition: 'all 0.2s',
+              }}
+              title="Aide"
+            >
+              <HelpCircle size={20} />
+            </button>
+
+            <button
               onClick={handleLogout}
               style={{
                 background: '#fff1f2',
@@ -1701,6 +1735,38 @@ function App() {
             >
               Fermer
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Aide */}
+      {showHelp && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(15, 23, 42, 0.6)', backdropFilter: 'blur(4px)', zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
+          <div style={{ background: 'white', maxWidth: '700px', width: '100%', borderRadius: '24px', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)', position: 'relative', maxHeight: '85vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+            <div style={{ padding: '24px 32px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid #f1f5f9' }}>
+              <h2 style={{ margin: 0, fontSize: '1.2rem', fontWeight: 800, color: '#1e293b', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <HelpCircle size={22} color="#0078a4" /> Aide
+              </h2>
+              <button
+                onClick={() => setShowHelp(false)}
+                style={{ background: '#f1f5f9', border: 'none', cursor: 'pointer', color: '#64748b', width: '36px', height: '36px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+              >
+                <X size={20} />
+              </button>
+            </div>
+            <div style={{ padding: '24px 32px 32px', overflowY: 'auto' }}>
+              {helpLoading ? (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', color: '#64748b', padding: '20px 0' }}>
+                  <Loader2 size={18} /> Chargement de l'aide...
+                </div>
+              ) : (
+                <div
+                  className="help-content"
+                  dangerouslySetInnerHTML={{ __html: normalizeReleaseNotesHtml(helpContentHtml || '') }}
+                  style={{ fontSize: '0.92rem', lineHeight: 1.7, color: '#334155', overflowWrap: 'break-word' }}
+                />
+              )}
+            </div>
           </div>
         </div>
       )}
