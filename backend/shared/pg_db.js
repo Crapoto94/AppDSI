@@ -4582,7 +4582,7 @@ async function setupPgDb() {
     try { await client.query(`ALTER TABLE hub.user_prefs ADD COLUMN IF NOT EXISTS task_assign_alert BOOLEAN DEFAULT FALSE`); } catch (e) {}
     try { await client.query(`ALTER TABLE hub.user_prefs ADD COLUMN IF NOT EXISTS dashboard_columns SMALLINT DEFAULT 3`); } catch (e) {}
 
-    // ─── Aide contextuelle par page (paramétrable dans /admin/hub > Aide) ────────
+    // ─── Aide contextuelle par page (paramétrable dans /admin/aides) ─────────────
     // id SERIAL pour rester compatible avec pgDb.run (qui ajoute RETURNING id),
     // page_path UNIQUE pour permettre l'upsert ON CONFLICT (page_path).
     await client.query(`

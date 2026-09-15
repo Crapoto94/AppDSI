@@ -28,8 +28,12 @@ const setSendMail = (fn) => { _sendMail = fn; };
 
 // Texte d'information affiché avec les comptes rendus (UI + mail) — modifiable
 // en admin (/admin/transcript, clé app_settings `summary_notice_text`).
+// Ne pas réintroduire d'affirmation générique « IA locale et souveraine /
+// conformité RGPD » ici : la source IA (APM interne, ou fournisseur externe en
+// mode local) est un réglage variable (cf. transcript_ai_restrict_local) — une
+// mention de conformité doit refléter la configuration réellement active,
+// pas être affichée par défaut indépendamment d'elle.
 const DEFAULT_SUMMARY_NOTICE_TEXT = [
-    "Ce compte rendu est généré par une IA locale et souveraine. Aucune donnée n'est transmise en dehors de la collectivité (conformité RGPD).",
     "La synthèse produite par l'IA peut comporter des erreurs : elle doit être vérifiée et corrigée si nécessaire avant toute utilisation.",
     "En cas de diffusion d'un compte rendu erroné, la responsabilité incombe à l'agent qui le diffuse, et non à l'IA.",
 ].join('\n');
@@ -1374,18 +1378,27 @@ const transcriptController = {
     getAiModels: async (req, res) => {
         try {
             const source = await getAiSource();
+            const restrictedToLocal = await isTranscriptRestrictedToLocal();
             if (source === 'local') {
                 const label = await describeLocalModel();
-                return res.json({ models: [label], source: 'local' });
+                return res.json({ models: [label], source: 'local', restrictedToLocal });
             }
             const allModels = await apmAi.listModels();
-            // On ne propose que les modèles LLAMA (internes) si le référentiel
-            // APM en expose ; sinon on affiche toute la liste pour ne jamais
-            // bloquer la génération (le choix final reste validé par l'admin).
-            const llamaModels = allModels.filter(m => /llama/i.test(m));
-            const models = llamaModels.length > 0 ? llamaModels : allModels;
+            let models;
+            if (restrictedToLocal) {
+                // Restriction active : liste stricte, pas de repli sur la liste
+                // complète — un module restreint ne doit jamais proposer un
+                // modèle non conforme, même en l'absence de modèle Llama trouvé.
+                models = allModels.filter(isLocalOnlyCompliantModel);
+            } else {
+                // On préfère les modèles LLAMA (internes) si le référentiel APM
+                // en expose ; sinon on affiche toute la liste pour ne jamais
+                // bloquer la génération (le choix final reste validé par l'admin).
+                const llamaModels = allModels.filter(m => /llama/i.test(m));
+                models = llamaModels.length > 0 ? llamaModels : allModels;
+            }
             const defaultModel = await getTranscriptApmDefaultModel();
-            res.json({ models, source: 'apm', defaultModel: defaultModel && models.includes(defaultModel) ? defaultModel : null });
+            res.json({ models, source: 'apm', defaultModel: defaultModel && models.includes(defaultModel) ? defaultModel : null, restrictedToLocal });
         } catch (error) {
             res.status(502).json({ error: error.message });
         }
@@ -2315,8 +2328,8 @@ function buildSummaryMeta({ requester, model, requestedAt, durationMs, editedBy,
     lines.push('');
     lines.push(
         editedBy
-            ? '> résumé généré automatiquement par Intelligence Artificielle locale et frugale, puis modifié'
-            : '> résumé généré automatiquement par Intelligence Artificielle locale et frugale'
+            ? '> résumé généré automatiquement par intelligence artificielle, puis modifié'
+            : '> résumé généré automatiquement par intelligence artificielle'
     );
     if (editedBy) {
         lines.push(`> corrigé par ${editedBy}${editedAt ? ` le ${new Date(editedAt).toLocaleString('fr-FR', { timeZone: 'Europe/Paris' })}` : ''}`);
@@ -2352,6 +2365,27 @@ async function getAiSource() {
     const sqlite = getSqlite();
     const s = await sqlite.get('SELECT setting_value FROM app_settings WHERE setting_key = ?', ['ai_summary_source']);
     return s?.setting_value === 'local' ? 'local' : 'apm';
+}
+
+// Un modèle « local » au sens conformité : de la famille Llama, et non hébergé
+// par un fournisseur cloud externe identifiable dans son nom (Groq, Nvidia NIM...).
+// Une variante Llama servie par Groq/Nvidia reste un aller-retour hors collectivité.
+const LOCAL_ONLY_MODEL_RE = /llama/i;
+const EXTERNAL_VENDOR_RE = /groq|nvidia/i;
+function isLocalOnlyCompliantModel(modelName) {
+    return !!modelName && LOCAL_ONLY_MODEL_RE.test(modelName) && !EXTERNAL_VENDOR_RE.test(modelName);
+}
+
+/**
+ * Restriction admin « modèles locaux uniquement » (transcript_ai_restrict_local,
+ * réglable dans /admin, section IA, Transcript Manager) : quand active, seuls
+ * les modèles Llama non hébergés par un fournisseur externe (Groq, Nvidia) sont
+ * proposés/acceptés pour ce module, quel que soit ai_summary_source.
+ */
+async function isTranscriptRestrictedToLocal() {
+    const sqlite = getSqlite();
+    const s = await sqlite.get('SELECT setting_value FROM app_settings WHERE setting_key = ?', ['transcript_ai_restrict_local']);
+    return s?.setting_value === 'true' || s?.setting_value === '1';
 }
 
 /**
@@ -2406,6 +2440,11 @@ async function callLocalAi(prompt) {
     }
 
     const provider = config.ai_provider || 'groq';
+
+    if (await isTranscriptRestrictedToLocal() && provider !== 'ollama') {
+        throw new Error(`Ce module est restreint aux modèles locaux (Llama interne, hors Groq/Nvidia) — le fournisseur IA configuré (${provider}) est externe. Choisissez Ollama dans /admin (section IA, Transcript Manager) ou désactivez la restriction.`);
+    }
+
     let apiKey = '', model = config.default_model || '', apiUrl = '';
 
     switch (provider) {
@@ -2666,6 +2705,14 @@ async function runSummarizeJob(meetingId, model, job, niveau = 'normal') {
         // Manager — jamais sur le "défaut" propre à APM, qui est global à
         // toutes les applications qui l'appellent.
         const effectiveModel = model || (source === 'apm' ? await getTranscriptApmDefaultModel() : undefined);
+
+        // Restriction admin « modèles locaux uniquement » : contrôle serveur, pas
+        // seulement côté liste proposée dans l'UI — refuse toute génération APM sur
+        // un modèle non conforme, même appelée directement (hors dropdown standard).
+        if (source === 'apm' && await isTranscriptRestrictedToLocal() && !isLocalOnlyCompliantModel(effectiveModel)) {
+            throw new Error("Ce module est restreint aux modèles locaux (Llama interne, hors Groq/Nvidia) — aucun modèle conforme n'est sélectionné. Choisissez un modèle Llama dans les réglages (section IA, Transcript Manager).");
+        }
+
         console.log(`[TranscriptManager] Prompt length: ${prompt.length} chars — source: ${source} — model: ${effectiveModel || '(défaut)'} — niveau: ${niveau}`);
         if (job) { job.status = `Envoi du prompt (${effectiveModel || 'défaut'})`; job.progress = 40; }
 

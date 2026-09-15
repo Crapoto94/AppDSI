@@ -78,7 +78,7 @@ L'amendement du compte rendu, la relance d'un résumé IA ou l'ajout d'une tâch
 
 Depuis la fiche réunion, un résumé peut être généré à tout moment au niveau **sommaire**, **normal** ou **détaillé**. La génération se fait en tâche de fond avec une barre de progression, pour ne pas bloquer l'interface sur une réunion longue.
 
-> **À vérifier avant diffusion** — Le compte rendu affiche par défaut la mention *« Ce compte rendu est généré par une IA locale et souveraine. Aucune donnée n'est transmise en dehors de la collectivité (conformité RGPD). »* Cette mention correspond à la configuration prévue en production (API IA interne de la Ville). Le réglage admin permet aussi de basculer vers des fournisseurs externes (Groq, Gemini, OpenRouter, Anthropic) ou vers un moteur local (Ollama) : avant de communiquer cette mention aux agents, vérifiez dans **Réglages → IA → Transcript Manager** quelle source est réellement active.
+La source IA (API Ville interne, ou un fournisseur externe en mode « IA locale AppDSI » — Groq, Gemini, OpenRouter, Anthropic, Ollama) est un réglage admin (**Réglages → IA → Transcript Manager**) ; aucune mention de conformité n'est affichée par défaut avec le compte rendu, puisqu'elle dépendrait de ce réglage. Un admin peut y activer la case **« Restreindre ce module aux modèles locaux (Llama, hors Groq/Nvidia) »** : dès lors, seuls les modèles Llama non hébergés par un fournisseur externe restent utilisables pour générer un résumé — toute tentative avec un modèle ou un fournisseur non conforme est refusée.
 
 ---
 

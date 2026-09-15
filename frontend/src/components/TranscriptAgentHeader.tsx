@@ -1,5 +1,6 @@
-import React from 'react';
-import { FileText, LogOut, X } from 'lucide-react';
+import React, { useState } from 'react';
+import axios from 'axios';
+import { FileText, LogOut, X, HelpCircle } from 'lucide-react';
 
 interface Props {
     user?: {
@@ -12,6 +13,24 @@ interface Props {
 
 const TranscriptAgentHeader: React.FC<Props> = ({ user }) => {
     const isGuest = user?.role !== 'transcript_agent';
+
+    const [showHelp, setShowHelp] = useState(false);
+    const [helpHtml, setHelpHtml] = useState<string | null>(null);
+    const [helpLoading, setHelpLoading] = useState(false);
+
+    const openHelp = async () => {
+        setShowHelp(true);
+        if (helpHtml !== null || helpLoading) return;
+        setHelpLoading(true);
+        try {
+            const res = await axios.get(`/api/page-help/${encodeURIComponent('/transcriptmanager')}`);
+            setHelpHtml(res.data?.content_html || "<p>Aucune aide disponible pour l'instant.</p>");
+        } catch {
+            setHelpHtml('<p>Aide momentanément indisponible. Réessayez plus tard.</p>');
+        } finally {
+            setHelpLoading(false);
+        }
+    };
 
     const clearSession = () => {
         localStorage.removeItem('token');
@@ -124,7 +143,7 @@ const TranscriptAgentHeader: React.FC<Props> = ({ user }) => {
                 overflow: hidden;
                 text-overflow: ellipsis;
             }
-            .trm-btn-close, .trm-btn-logout {
+            .trm-btn-help, .trm-btn-close, .trm-btn-logout {
                 display: flex;
                 align-items: center;
                 gap: 0.35rem;
@@ -153,6 +172,80 @@ const TranscriptAgentHeader: React.FC<Props> = ({ user }) => {
             .trm-btn-logout:hover {
                 background: #ffe4e6;
             }
+            .trm-btn-help {
+                background: #fff;
+                border: 1px solid #cbd5e1;
+                color: #475569;
+            }
+            .trm-btn-help:hover {
+                background: #f8fafc;
+            }
+            .trm-help-overlay {
+                position: fixed;
+                inset: 0;
+                background: rgba(15, 23, 42, 0.55);
+                backdrop-filter: blur(3px);
+                z-index: 3000;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                padding: 20px;
+            }
+            .trm-help-modal {
+                background: #fff;
+                width: 100%;
+                max-width: 700px;
+                max-height: 85vh;
+                border-radius: 16px;
+                box-shadow: 0 25px 50px -12px rgba(0,0,0,0.3);
+                display: flex;
+                flex-direction: column;
+                overflow: hidden;
+                font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            }
+            .trm-help-head {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                padding: 16px 20px;
+                border-bottom: 1px solid #f1f5f9;
+                font-weight: 800;
+                font-size: 1rem;
+                color: #0f172a;
+            }
+            .trm-help-head span { display: flex; align-items: center; gap: 8px; }
+            .trm-help-close {
+                background: #f1f5f9;
+                border: none;
+                cursor: pointer;
+                color: #64748b;
+                width: 32px;
+                height: 32px;
+                border-radius: 50%;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+            }
+            .trm-help-body { padding: 20px 24px 28px; overflow-y: auto; }
+            .trm-help-md { font-size: 14.5px; color: #334155; line-height: 1.7; }
+            .trm-help-md > *:first-child { margin-top: 0; }
+            .trm-help-md h1 { font-size: 1.5rem; font-weight: 800; color: #0f172a; margin: 0 0 6px; }
+            .trm-help-md h2 { font-size: 1.18rem; font-weight: 800; color: #1e293b; margin: 26px 0 10px; padding-bottom: 6px; border-bottom: 2px solid #eef2f7; }
+            .trm-help-md h3 { font-size: 1.02rem; font-weight: 700; color: #334155; margin: 18px 0 6px; }
+            .trm-help-md p { margin: 8px 0; }
+            .trm-help-md ul, .trm-help-md ol { margin: 8px 0; padding-left: 22px; }
+            .trm-help-md li { margin: 4px 0; }
+            .trm-help-md a { color: #0078a4; text-decoration: none; }
+            .trm-help-md a:hover { text-decoration: underline; }
+            .trm-help-md hr { border: none; border-top: 1px solid #e2e8f0; margin: 22px 0; }
+            .trm-help-md code { background: #f1f5f9; color: #be123c; padding: 1px 6px; border-radius: 5px;
+                font-family: "SFMono-Regular", Consolas, Menlo, monospace; font-size: 0.85em; }
+            .trm-help-md blockquote { margin: 12px 0; padding: 8px 14px; border-left: 4px solid #93c5fd; background: #eff6ff; color: #1e3a8a; border-radius: 0 8px 8px 0; }
+            .trm-help-md table { width: 100%; border-collapse: collapse; margin: 14px 0; font-size: 13.5px; border: 1px solid #e2e8f0; border-radius: 10px; overflow: hidden; }
+            .trm-help-md th, .trm-help-md td { border: 1px solid #e9eef5; padding: 9px 12px; text-align: left; vertical-align: top; }
+            .trm-help-md th { background: #f1f5f9; color: #334155; font-weight: 700; }
+            .trm-help-md tbody tr:nth-child(even) { background: #f8fafc; }
+            .trm-help-md strong { color: #0f172a; }
         `}</style>
         <div className="trm-header">
             <div className="trm-header-left">
@@ -168,6 +261,10 @@ const TranscriptAgentHeader: React.FC<Props> = ({ user }) => {
                         {user?.email && <span className="trm-identity-mail">{user.email}</span>}
                     </div>
                 </div>
+                <button className="trm-btn-help" onClick={openHelp} title="Aide">
+                    <HelpCircle size={16} />
+                    Aide
+                </button>
                 <button
                     className="trm-btn-close"
                     onClick={handleClose}
@@ -181,6 +278,24 @@ const TranscriptAgentHeader: React.FC<Props> = ({ user }) => {
                 </button>
             </div>
         </div>
+
+        {showHelp && (
+            <div className="trm-help-overlay" onClick={() => setShowHelp(false)}>
+                <div className="trm-help-modal" onClick={e => e.stopPropagation()}>
+                    <div className="trm-help-head">
+                        <span><HelpCircle size={18} color="#0078a4" /> Aide — Transcript Manager</span>
+                        <button className="trm-help-close" onClick={() => setShowHelp(false)}><X size={18} /></button>
+                    </div>
+                    <div className="trm-help-body">
+                        {helpLoading ? (
+                            <p style={{ color: '#64748b' }}>Chargement de l'aide...</p>
+                        ) : (
+                            <div className="trm-help-md" dangerouslySetInnerHTML={{ __html: helpHtml || '' }} />
+                        )}
+                    </div>
+                </div>
+            </div>
+        )}
         </>
     );
 };

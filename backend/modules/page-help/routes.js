@@ -25,7 +25,7 @@ router.get('/', authenticateJWT, async (req, res) => {
 });
 
 // GET /api/page-help/:page — retourne l'aide pour une page : d'abord hub.page_help
-// (source éditable depuis /admin/hub > Aide), puis en repli les guides Markdown
+// (source éditable depuis /admin/aides), puis en repli les guides Markdown
 // historiques livrés avec le dépôt (docs/*.md) pour les pages non encore migrées.
 router.get('/:page', async (req, res) => {
     try {
