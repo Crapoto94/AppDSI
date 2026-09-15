@@ -560,7 +560,7 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
                               <button title="Déclarer moi-même le service fait (sans circuit de validation)"
                                 onClick={() => setSfModalRow({ row, mode: 'self' })}
                                 style={{ background: '#16a34a', color: 'white', border: 'none', borderRadius: '4px', padding: '3px 8px', fontSize: '11px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '3px' }}>
-                                <CheckCircle size={12} /> Fait
+                                <CheckCircle size={12} /> Faire
                               </button>
                             </>
                           )}
