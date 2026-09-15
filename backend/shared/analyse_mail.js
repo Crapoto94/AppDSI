@@ -20,23 +20,32 @@ async function getConfig() {
     return cfg;
 }
 
-function buildUrl(cfg) {
+function buildUrl(cfg, minutes) {
     const base = (cfg.base_url || '').replace(/\/+$/, '');
     const endpoint = cfg.endpoint || '/api/v1/kpis';
-    return `${base}${endpoint.startsWith('/') ? '' : '/'}${endpoint}`;
+    const url = `${base}${endpoint.startsWith('/') ? '' : '/'}${endpoint}`;
+    if (minutes !== undefined && minutes !== null && minutes !== '') {
+        return `${url}${url.includes('?') ? '&' : '?'}minutes=${encodeURIComponent(minutes)}`;
+    }
+    return url;
 }
 
 /**
  * Récupère les KPI du tableau de bord Analyse-mail (mêmes chiffres que sa page
- * d'accueil : incidents, surveillance, connexions 24h, et les points
+ * d'accueil : incidents, surveillance, connexions, et les points
  * géographiques `connections_geo_world` / `connections_geo_home` utilisés par
  * les cartes).
- * @param {number} timeoutMs
+ * @param {object} [opts]
+ * @param {number|string} [opts.minutes] fenêtre glissante des statistiques de
+ *   connexions, en minutes (1, 10, 60, 240, 480, 1440, 2880, 10080). Omis =
+ *   fenêtre par défaut de l'API amont (24h).
+ * @param {number} [opts.timeoutMs]
  */
-async function getKpis(timeoutMs = 30000) {
+async function getKpis(opts = {}) {
+    const { minutes = null, timeoutMs = 30000 } = opts;
     const cfg = await getConfig();
     const headerName = cfg.header_name || 'X-API-Key';
-    const url = buildUrl(cfg);
+    const url = buildUrl(cfg, minutes);
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), timeoutMs);
     try {

@@ -5,6 +5,7 @@ export interface WidgetDef {
   module: string;
   defaultSize: { w: number; h: number };
   minSize: { w: number; h: number };
+  hidden?: boolean;
 }
 
 export const WIDGET_REGISTRY: WidgetDef[] = [
@@ -332,12 +333,31 @@ export const WIDGET_REGISTRY: WidgetDef[] = [
   },
   // ── Sécurité ──────────────────────────────────────────────────────────────
   {
-    key: 'mail_analyse_map',
-    label: 'Carte des connexions (Analyse-mail)',
-    description: 'Origine géographique des connexions suspectes (monde + pays), fenêtre 24h glissantes',
+    key: 'mail_analyse_map_world',
+    label: 'Connexions suspectes — Monde',
+    description: 'Origine géographique mondiale des connexions suspectes, durée au choix (1 min → 1 semaine)',
     module: 'Sécurité',
     defaultSize: { w: 6, h: 6 },
     minSize: { w: 4, h: 4 },
+  },
+  {
+    key: 'mail_analyse_map_france',
+    label: 'Connexions suspectes — France',
+    description: 'Origine géographique des connexions suspectes dans le pays de référence, durée au choix (1 min → 1 semaine)',
+    module: 'Sécurité',
+    defaultSize: { w: 6, h: 6 },
+    minSize: { w: 4, h: 4 },
+  },
+  {
+    // Ancienne clé (avant la séparation monde/pays) : conservée pour ne pas casser les
+    // tableaux déjà enregistrés, masquée du catalogue.
+    key: 'mail_analyse_map',
+    label: 'Connexions suspectes (ancien)',
+    description: 'Ancienne carte unique (monde + pays empilées) — remplacée par les deux cartes séparées',
+    module: 'Sécurité',
+    defaultSize: { w: 6, h: 6 },
+    minSize: { w: 4, h: 4 },
+    hidden: true,
   },
 ];
 

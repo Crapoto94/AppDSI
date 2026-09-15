@@ -7,15 +7,16 @@ import { useAuth } from '../../../contexts/AuthContext';
 import WidgetWrapper from './WidgetWrapper';
 
 /**
- * Widget « Carte des connexions » alimenté par l'application Analyse-mail
- * (via le relais /api/analyse-mail/kpis — la clé d'API reste côté serveur).
- * Reprend les deux cartes du tableau de bord Analyse-mail (monde + pays de
- * référence) avec les animations de marqueurs : halo pulsant pour une
- * connexion normale, clignotement pour un lieu suspect, point fixe réduit
- * lorsqu'un administrateur l'a acquitté.
+ * Carte « connexions suspectes » alimentée par l'application Analyse-mail (via le
+ * relais /api/analyse-mail/kpis — la clé d'API reste côté serveur).
+ *
+ * Deux déclinaisons : une carte monde et une carte du pays de référence (France),
+ * chacune étant un widget distinct avec son propre sélecteur de durée (fenêtre
+ * glissante transmise à l'API amont via ?minutes=). Fond de carte OpenStreetMap
+ * (libre, sans clé) assombri par filtre CSS pour rester lisible sur le thème.
  */
 
-interface GeoPoint {
+export interface GeoPoint {
   city: string;
   country: string;
   country_code: string;
@@ -34,10 +35,32 @@ interface Kpis {
   connections_geo_world?: GeoPoint[];
   connections_geo_home?: GeoPoint[];
   signins_window_hours?: number;
+  signins_window_minutes?: number;
   home_country_code?: string;
 }
 
+export interface MapWidgetProps {
+  config?: { window_minutes?: number } | null;
+  onConfigChange?: (patch: Record<string, unknown>) => void;
+}
+
+const WINDOW_OPTIONS: { value: number; label: string }[] = [
+  { value: 1, label: '1 min' },
+  { value: 10, label: '10 min' },
+  { value: 60, label: '1 heure' },
+  { value: 240, label: '4 heures' },
+  { value: 480, label: '8 heures' },
+  { value: 1440, label: '24 heures' },
+  { value: 2880, label: '2 jours' },
+  { value: 10080, label: '1 semaine' },
+];
+
+const DEFAULT_WINDOW_MINUTES = 1440;
 const REFRESH_MS = 5 * 60 * 1000;
+
+function windowLabel(minutes: number): string {
+  return WINDOW_OPTIONS.find(o => o.value === minutes)?.label || `${minutes} min`;
+}
 
 function buildMarkerIcon(p: GeoPoint): L.DivIcon {
   const acked = !!p.is_acknowledged;
@@ -83,9 +106,10 @@ function ConnexionsMap({ points, center, zoom }: { points: GeoPoint[]; center: [
       style={{ height: '100%', width: '100%', background: '#05070c' }}
     >
       <TileLayer
-        url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
-        attribution='&copy; OpenStreetMap &copy; CARTO'
-        opacity={0.85}
+        url="https://tile.openstreetmap.org/{z}/{x}/{y}.png"
+        attribution='&copy; OpenStreetMap'
+        className="mailmap-tiles-dark"
+        opacity={0.9}
       />
       {points.map((p, i) => (
         <Marker key={`${p.city}|${p.country_code}|${i}`} position={[p.lat, p.lon] as [number, number]} icon={buildMarkerIcon(p)}>
@@ -96,21 +120,31 @@ function ConnexionsMap({ points, center, zoom }: { points: GeoPoint[]; center: [
   );
 }
 
-const mapLabelStyle: React.CSSProperties = {
-  position: 'absolute', top: 6, left: 8, zIndex: 500,
-  background: 'rgba(0,0,0,.55)', color: '#cbd5e1', fontSize: 10,
-  padding: '1px 6px', borderRadius: 4, pointerEvents: 'none',
+const selectStyle: React.CSSProperties = {
+  fontSize: 11, padding: '2px 6px', borderRadius: 6, border: '1px solid #cbd5e1',
+  background: 'white', color: '#334155', cursor: 'pointer', outline: 'none',
 };
 
-export default function MailAnalyseMapWidget() {
+interface Props extends MapWidgetProps {
+  scope: 'world' | 'home';
+  title: string;
+  center: [number, number];
+  zoom: number;
+}
+
+export default function MailAnalyseMapCard({ scope, title, center, zoom, config, onConfigChange }: Props) {
   const { token } = useAuth();
+  const minutes = Number(config?.window_minutes) || DEFAULT_WINDOW_MINUTES;
   const [data, setData] = useState<Kpis | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const dataRef = useRef<Kpis | null>(null);
 
   const load = useCallback(() => {
-    return axios.get('/api/analyse-mail/kpis', { headers: { Authorization: `Bearer ${token}` } })
+    return axios.get('/api/analyse-mail/kpis', {
+      params: { minutes },
+      headers: { Authorization: `Bearer ${token}` },
+    })
       .then(r => {
         dataRef.current = r.data || {};
         setData(r.data || {});
@@ -122,7 +156,7 @@ export default function MailAnalyseMapWidget() {
         if (!dataRef.current) setError(msg || 'Analyse-mail injoignable');
       })
       .finally(() => setLoading(false));
-  }, [token]);
+  }, [token, minutes]);
 
   useEffect(() => {
     load();
@@ -130,14 +164,24 @@ export default function MailAnalyseMapWidget() {
     return () => clearInterval(id);
   }, [load]);
 
-  const world = data?.connections_geo_world || [];
-  const home = data?.connections_geo_home || [];
   const homeCode = data?.home_country_code || 'FR';
-  const hours = data?.signins_window_hours ?? 24;
+  const points = scope === 'home' ? (data?.connections_geo_home || []) : (data?.connections_geo_world || []);
+
+  const selector = (
+    <select
+      value={minutes}
+      onChange={e => onConfigChange?.({ window_minutes: Number(e.target.value) })}
+      style={selectStyle}
+      title="Durée de la fenêtre analysée"
+    >
+      {WINDOW_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+    </select>
+  );
 
   return (
-    <WidgetWrapper title={`Connexions suspectes — ${hours}h`} loading={loading} error={error}>
+    <WidgetWrapper title={`${title} — ${windowLabel(minutes)}`} loading={loading} error={error} actions={selector}>
       <style>{`
+        .mailmap-tiles-dark { filter: invert(1) hue-rotate(180deg) brightness(.85) contrast(.9) saturate(.75); }
         .mailmap-marker { position: relative; }
         .mailmap-core { position: absolute; top: 50%; left: 50%; border-radius: 50%; transform: translate(-50%, -50%); }
         .mailmap-ring { position: absolute; top: 50%; left: 50%; border-radius: 50%; transform: translate(-50%, -50%); animation: mailmap-ring 2.2s ease-out infinite; }
@@ -147,20 +191,14 @@ export default function MailAnalyseMapWidget() {
         .mailmap-marker.mailmap-acked .mailmap-ring { display: none; }
         .mailmap-marker.mailmap-acked .mailmap-core { animation: none; opacity: 1; }
       `}</style>
-      {world.length === 0 && home.length === 0 ? (
+      {points.length === 0 ? (
         <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#94a3b8', fontSize: 12, textAlign: 'center' }}>
-          Aucune connexion géolocalisable sur la fenêtre en cours.
+          Aucune connexion géolocalisable sur la fenêtre en cours
+          {scope === 'home' ? ` (${homeCode})` : ''}.
         </div>
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, height: '100%', minHeight: 0 }}>
-          <div className="mailmap-pane" style={{ flex: 1, minHeight: 0, position: 'relative', borderRadius: 8, overflow: 'hidden' }}>
-            <span style={mapLabelStyle}>Monde</span>
-            <ConnexionsMap points={world} center={[20, 0]} zoom={2} />
-          </div>
-          <div className="mailmap-pane" style={{ flex: 1, minHeight: 0, position: 'relative', borderRadius: 8, overflow: 'hidden' }}>
-            <span style={mapLabelStyle}>{homeCode}</span>
-            <ConnexionsMap points={home} center={[46.6, 2.2]} zoom={5} />
-          </div>
+        <div style={{ height: '100%', minHeight: 0, position: 'relative', borderRadius: 8, overflow: 'hidden' }}>
+          <ConnexionsMap points={points} center={center} zoom={zoom} />
         </div>
       )}
     </WidgetWrapper>

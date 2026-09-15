@@ -293,6 +293,14 @@ export default function DsiDashboard() {
     setIsDirty(true);
   }, []);
 
+  // Mise à jour de la config d'un widget (ex. durée sélectionnée sur une carte)
+  const updateWidgetConfig = useCallback((index: number, patch: Record<string, unknown>) => {
+    setWidgets(prev => prev.map((w, i) => (
+      i === index ? { ...w, config_json: { ...(w.config_json || {}), ...patch } } : w
+    )));
+    setIsDirty(true);
+  }, []);
+
   // ── Add / Remove widget ──────────────────────────────────────────────────
   const addWidget = (def: WidgetDef) => {
     const maxY = canvasItems.reduce((m, c) => Math.max(m, c.y + c.h), 0);
@@ -625,7 +633,7 @@ export default function DsiDashboard() {
                       onMouseDown={e => e.stopPropagation()}
                       style={{ flex: 1, overflow: 'auto', minHeight: 0 }}
                     >
-                      {renderWidget(w.widget_key)}
+                      {renderWidget(w.widget_key, w.config_json, patch => updateWidgetConfig(i, patch))}
                     </div>
                   </div>
                 );

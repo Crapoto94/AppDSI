@@ -15,6 +15,7 @@ export default function WidgetCatalog({ existingKeys, onAdd, onClose }: Props) {
   const [added, setAdded] = useState<string[]>([]);
 
   const filtered = WIDGET_REGISTRY.filter(w => {
+    if (w.hidden) return false;
     const matchSearch = w.label.toLowerCase().includes(search.toLowerCase()) ||
                         w.description.toLowerCase().includes(search.toLowerCase());
     const matchModule = activeModule === 'Tous' || w.module === activeModule;

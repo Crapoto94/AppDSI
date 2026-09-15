@@ -6,10 +6,11 @@
 const analyseMail = require('../../shared/analyse_mail');
 
 const ctrl = {
-    // GET /api/analyse-mail/kpis
+    // GET /api/analyse-mail/kpis?minutes=60
+    // minutes : fenêtre glissante des connexions (1, 10, 60, 240, 480, 1440, 2880, 10080).
     async kpis(req, res) {
         try {
-            const data = await analyseMail.getKpis();
+            const data = await analyseMail.getKpis({ minutes: req.query.minutes });
             res.json(data);
         } catch (e) {
             res.status(502).json({ message: e.message });

@@ -371,6 +371,8 @@ const WIDGET_LABELS = {
   contrats: 'Contrats expirant',
   taches: 'Tâches en cours',
   projets: 'Projets par statut',
+  mail_analyse_map_world: 'Connexions suspectes — Monde',
+  mail_analyse_map_france: 'Connexions suspectes — France',
   mail_analyse_map: 'Carte des connexions (Analyse-mail)',
 };
 
