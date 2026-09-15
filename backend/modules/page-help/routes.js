@@ -24,12 +24,17 @@ router.get('/', authenticateJWT, async (req, res) => {
     } catch (e) { res.status(500).json({ message: e.message }); }
 });
 
-// GET /api/page-help/:page — retourne l'aide pour une page (lecture directe depuis les fichiers Markdown)
+// GET /api/page-help/:page — retourne l'aide pour une page : d'abord hub.page_help
+// (source éditable depuis /admin/hub > Aide), puis en repli les guides Markdown
+// historiques livrés avec le dépôt (docs/*.md) pour les pages non encore migrées.
 router.get('/:page', async (req, res) => {
     try {
         const page = decodeURIComponent(req.params.page);
-        
-        // Mappage page -> fichier
+
+        const row = await pgDb.get('SELECT page_path, content, content_html FROM hub.page_help WHERE page_path = $1', [page]);
+        if (row) return res.json(row);
+
+        // Mappage page -> fichier (repli pour les pages non migrées vers hub.page_help)
         const MAP = {
             '/tickets':        'GUIDE-TECHNICIEN-TICKETS.md',
             '/tickets/stats':  'GUIDE-STATISTIQUES-TICKETS.md',
@@ -46,7 +51,7 @@ router.get('/:page', async (req, res) => {
         if (!fs.existsSync(filePath)) return res.json(null);
 
         const content = fs.readFileSync(filePath, 'utf8');
-        
+
         const mdParse = await getMarkedParse();
         const contentHtml = mdParse(content);
 

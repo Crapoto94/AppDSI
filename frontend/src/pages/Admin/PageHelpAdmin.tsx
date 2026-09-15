@@ -12,6 +12,7 @@ interface HelpEntry { id: number; page_path: string; content: string; content_ht
 const COMMON_PAGES = [
   '/tickets', '/tickets/stats', '/budget', '/parc', '/projets', '/copieurs',
   '/consommables', '/contrats', '/calendrier-dsi', '/rencontres-budgetaires', '/admin',
+  '/transcriptmanager',
 ];
 
 const PageHelpAdmin: React.FC = () => {
