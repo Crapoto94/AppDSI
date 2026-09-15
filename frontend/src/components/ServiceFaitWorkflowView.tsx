@@ -24,7 +24,8 @@ const ACTION_LABELS: Record<string, string> = {
   'non_validation': 'Non-validation',
   'ne_me_concerne_pas': 'Retour (ne me concerne pas)',
   'transfert': 'Transfert',
-  'annulation': 'Processus annulé'
+  'annulation': 'Processus annulé',
+  'declaration_directe': 'Service fait déclaré (hors circuit)'
 };
 
 function formatAmount(v: any) {

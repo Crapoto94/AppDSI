@@ -56,6 +56,18 @@ async function getRequesterEmail(username) {
     }
 }
 
+async function getAgentInfo(username) {
+    try {
+        const r = await pool.query(
+            `SELECT nom, email FROM hub_calendrier.agents_dsi WHERE LOWER(TRIM(username)) = LOWER(TRIM($1)) LIMIT 1`,
+            [username]
+        );
+        return r.rows[0] || null;
+    } catch {
+        return null;
+    }
+}
+
 // hub_telecom.invoices.invoice_number est alimenté avec le N° Fournisseur de la facture
 // (colonne FACTURE_FACTIERS dans oracle.gf_oracle_facture), PAS avec son N° Interne
 // (FACTURE_FACTURE) qui sert d'invoice_ref au workflow de service fait. Il faut donc
@@ -173,6 +185,78 @@ const controller = {
         } catch (error) {
             console.error('[ServiceFait] createWorkflow error:', error);
             res.status(500).json({ message: 'Erreur création workflow', error: error.message });
+        }
+    },
+
+    // Déclaration directe du service fait par l'utilisateur : pas de circuit de
+    // validation ni d'email au vérificateur. Le workflow est créé directement au
+    // statut 'valide', le déclarant étant à la fois demandeur et vérificateur.
+    // Un commentaire et/ou une pièce jointe est requis pour tracer la décision.
+    createSelfWorkflow: async (req, res) => {
+        try {
+            const {
+                invoice_ref, invoice_number, invoice_label, invoice_supplier,
+                invoice_amount, invoice_section, comment
+            } = req.body;
+
+            if (!invoice_ref) {
+                return res.status(400).json({ message: 'invoice_ref requis' });
+            }
+            if ((!comment || !comment.trim()) && !req.file) {
+                return res.status(400).json({ message: 'Un commentaire ou une pièce jointe est requis' });
+            }
+
+            if (await isTelecomIntegrated(invoice_ref)) {
+                return res.status(400).json({ message: 'Cette facture est intégrée au module Telecom et ne peut pas faire l\'objet d\'une validation de service fait.' });
+            }
+
+            const existing = await pool.query(
+                `SELECT id, status FROM finance.service_fait_workflows
+                 WHERE invoice_ref = $1 AND status NOT IN ('non_valide', 'ne_me_concerne_pas', 'annule')`,
+                [invoice_ref]
+            );
+            if (existing.rowCount > 0) {
+                return res.status(400).json({ message: 'Un workflow est déjà en cours ou validé pour cette facture', existing_id: existing.rows[0].id });
+            }
+
+            const agent = await getAgentInfo(req.user.username);
+            const requesterEmail = (agent && agent.email) || req.user.email || (await getRequesterEmail(req.user.username)) || '';
+            const requesterName = (agent && agent.nom) || req.user.displayName || req.user.username;
+
+            const insResult = await pool.query(
+                `INSERT INTO finance.service_fait_workflows
+                 (invoice_ref, invoice_number, invoice_label, invoice_supplier, invoice_amount, invoice_section,
+                  status, requested_by, verifier_username, verifier_name, verifier_email,
+                  decision_at, decision_comment)
+                 VALUES ($1,$2,$3,$4,$5,$6,'valide',$7,$8,$9,$10,CURRENT_TIMESTAMP,$11)
+                 RETURNING id`,
+                [invoice_ref, invoice_number || '', invoice_label || '', invoice_supplier || '',
+                 invoice_amount || null, invoice_section || '', req.user.username,
+                 req.user.username, requesterName, requesterEmail, comment || '']
+            );
+            const workflowId = insResult.rows[0].id;
+
+            if (req.file) {
+                const saved = await storage.saveFile('service-fait', String(workflowId), {
+                    buffer: req.file.buffer,
+                    originalname: req.file.originalname
+                });
+                await pool.query(
+                    `UPDATE finance.service_fait_workflows SET file_path = $1 WHERE id = $2`,
+                    [saved.dbPath, workflowId]
+                );
+            }
+
+            await pool.query(
+                `INSERT INTO finance.service_fait_historique (workflow_id, action, actor_username, actor_name, comment, actor_ip, actor_user_agent)
+                 VALUES ($1, 'declaration_directe', $2, $3, $4, $5, $6)`,
+                [workflowId, req.user.username, requesterName, comment || '', getClientIp(req), req.headers['user-agent'] || '']
+            );
+
+            res.status(201).json({ id: workflowId, status: 'valide' });
+        } catch (error) {
+            console.error('[ServiceFait] createSelfWorkflow error:', error);
+            res.status(500).json({ message: 'Erreur création service fait', error: error.message });
         }
     },
 

@@ -7,6 +7,8 @@ const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 
 
 // Internal API (requires JWT)
 router.post('/', authenticateJWT, upload.single('file'), controller.createWorkflow);
+// Déclaration directe du service fait (sans circuit de validation)
+router.post('/self', authenticateJWT, upload.single('file'), controller.createSelfWorkflow);
 router.post('/statuses', authenticateJWT, controller.getStatuses);
 router.get('/:id', authenticateJWT, controller.getWorkflow);
 router.post('/:id/cancel', authenticateJWT, controller.cancelWorkflow);

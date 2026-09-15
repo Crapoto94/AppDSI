@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import axios from 'axios';
 import { useAuth } from '../contexts/AuthContext';
-import { X, Upload, Loader, Send } from 'lucide-react';
+import { X, Upload, Loader, Send, CheckCircle2 } from 'lucide-react';
 
 interface MappingColumn {
   name: string;
@@ -12,6 +12,7 @@ interface MappingColumn {
 interface ServiceFaitModalProps {
   row: any;
   columns: MappingColumn[];
+  mode?: 'circuit' | 'self';
   onClose: () => void;
   onCreated: () => void;
 }
@@ -52,11 +53,13 @@ function pick(row: any, columns: MappingColumn[], field: string): any {
   return undefined;
 }
 
-export default function ServiceFaitModal({ row, columns, onClose, onCreated }: ServiceFaitModalProps) {
+export default function ServiceFaitModal({ row, columns, mode = 'circuit', onClose, onCreated }: ServiceFaitModalProps) {
   const { token } = useAuth();
   const headers = { Authorization: `Bearer ${token}` };
+  const isSelf = mode === 'self';
   const [agents, setAgents] = useState<any[]>([]);
   const [verifier, setVerifier] = useState('');
+  const [comment, setComment] = useState('');
   const [file, setFile] = useState<File | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
@@ -70,6 +73,7 @@ export default function ServiceFaitModal({ row, columns, onClose, onCreated }: S
   const invoice_section = pick(row, columns, 'invoice_section') || '';
 
   useEffect(() => {
+    if (isSelf) return;
     axios.get('/api/calendrier-dsi/agents', { headers })
       .then(r => setAgents(Array.isArray(r.data) ? r.data : []))
       .catch(() => setAgents([]));
@@ -93,9 +97,13 @@ export default function ServiceFaitModal({ row, columns, onClose, onCreated }: S
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!verifier) { setError('Veuillez choisir un vérificateur.'); return; }
-    if (!file) { setError('Veuillez joindre le document de la facture.'); return; }
     if (!invoice_ref) { setError('Référence de facture introuvable.'); return; }
+    if (isSelf) {
+      if (!comment.trim() && !file) { setError('Veuillez saisir un commentaire ou joindre un document.'); return; }
+    } else {
+      if (!verifier) { setError('Veuillez choisir un vérificateur.'); return; }
+      if (!file) { setError('Veuillez joindre le document de la facture.'); return; }
+    }
     setSubmitting(true);
     setError('');
     try {
@@ -106,11 +114,19 @@ export default function ServiceFaitModal({ row, columns, onClose, onCreated }: S
       formData.append('invoice_supplier', invoice_supplier || '');
       formData.append('invoice_amount', invoice_amount != null ? String(invoice_amount) : '');
       formData.append('invoice_section', invoice_section || '');
-      formData.append('verifier_username', verifier);
-      formData.append('file', file);
-      await axios.post('/api/finance/service-fait', formData, {
-        headers: { ...headers, 'Content-Type': 'multipart/form-data' }
-      });
+      if (isSelf) {
+        formData.append('comment', comment || '');
+        if (file) formData.append('file', file);
+        await axios.post('/api/finance/service-fait/self', formData, {
+          headers: { ...headers, 'Content-Type': 'multipart/form-data' }
+        });
+      } else {
+        formData.append('verifier_username', verifier);
+        formData.append('file', file as File);
+        await axios.post('/api/finance/service-fait', formData, {
+          headers: { ...headers, 'Content-Type': 'multipart/form-data' }
+        });
+      }
       onCreated();
       onClose();
     } catch (err: any) {
@@ -128,7 +144,7 @@ export default function ServiceFaitModal({ row, columns, onClose, onCreated }: S
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.5)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
       <div style={{ background: '#fff', borderRadius: 16, padding: 28, width: '100%', maxWidth: 560, maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,0.2)' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
-          <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: '#18181b' }}>Validation du service fait</h2>
+          <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: '#18181b' }}>{isSelf ? 'Service fait — déclaration directe' : 'Validation du service fait'}</h2>
           <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#64748b' }}><X size={20} /></button>
         </div>
 
@@ -152,6 +168,13 @@ export default function ServiceFaitModal({ row, columns, onClose, onCreated }: S
 
         {!telecomBlocked && (
           <form onSubmit={handleSubmit}>
+            {isSelf && (
+              <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 8, padding: '12px 14px', color: '#1e40af', fontSize: 13, marginBottom: 16 }}>
+                Aucun circuit de validation : vous déclarez vous-même que le service fait est réalisé. Renseignez un commentaire et/ou joignez un document.
+              </div>
+            )}
+
+            {!isSelf && (
             <div style={{ marginBottom: 16 }}>
               <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 6 }}>
                 Vérificateur <span style={{ color: '#dc2626' }}>*</span>
@@ -175,10 +198,22 @@ export default function ServiceFaitModal({ row, columns, onClose, onCreated }: S
                 </div>
               )}
             </div>
+            )}
+
+            {isSelf && (
+              <div style={{ marginBottom: 16 }}>
+                <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 6 }}>
+                  Commentaire
+                </label>
+                <textarea value={comment} onChange={e => setComment(e.target.value)} rows={4}
+                  placeholder="Précisez le service fait (prestation réalisée, date, référence...)"
+                  style={{ width: '100%', boxSizing: 'border-box', padding: '10px 12px', border: '1.5px solid #e2e8f0', borderRadius: 8, fontSize: 14, fontFamily: 'inherit', resize: 'vertical' }} />
+              </div>
+            )}
 
             <div style={{ marginBottom: 8 }}>
               <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 6 }}>
-                Document de la facture <span style={{ color: '#dc2626' }}>*</span>
+                {isSelf ? 'Pièce jointe' : 'Document de la facture'} {isSelf ? <span style={{ color: '#94a3b8', fontWeight: 400 }}>(optionnel)</span> : <span style={{ color: '#dc2626' }}>*</span>}
               </label>
               <label style={{
                 display: 'flex', alignItems: 'center', gap: 10, padding: '14px 16px',
@@ -186,7 +221,7 @@ export default function ServiceFaitModal({ row, columns, onClose, onCreated }: S
               }}>
                 <Upload size={18} color="#6366f1" />
                 <div style={{ fontSize: 13, color: file ? '#1e40af' : '#64748b' }}>
-                  {file ? file.name : 'Cliquez pour joindre la facture (PDF, image...)'}
+                  {file ? file.name : (isSelf ? 'Cliquez pour joindre un document (PDF, image...)' : 'Cliquez pour joindre la facture (PDF, image...)')}
                 </div>
                 <input type="file" style={{ display: 'none' }} onChange={e => setFile(e.target.files?.[0] || null)} />
               </label>
@@ -195,10 +230,10 @@ export default function ServiceFaitModal({ row, columns, onClose, onCreated }: S
             <button type="submit" disabled={submitting}
               style={{
                 marginTop: 20, width: '100%', padding: '13px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
-                background: submitting ? '#a5b4fc' : '#6366f1', color: '#fff', border: 'none', borderRadius: 10,
+                background: submitting ? '#a5b4fc' : (isSelf ? '#16a34a' : '#6366f1'), color: '#fff', border: 'none', borderRadius: 10,
                 fontSize: 15, fontWeight: 700, cursor: submitting ? 'default' : 'pointer', transition: 'background 0.15s'
               }}>
-              {submitting ? <><Loader size={16} className="sf-spinner" /> Création...</> : <><Send size={16} /> Lancer la validation</>}
+              {submitting ? <><Loader size={16} className="sf-spinner" /> Enregistrement...</> : (isSelf ? <><CheckCircle2 size={16} /> Valider le service fait</> : <><Send size={16} /> Lancer la validation</>)}
             </button>
           </form>
         )}
