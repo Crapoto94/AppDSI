@@ -7,6 +7,7 @@ import RequesterSearch from '../../components/RequesterSearch';
 import { Phone, Paperclip, X } from 'lucide-react';
 import { uploadInlineImages, QUILL_MODULES, isQuillEmpty } from './ticketEditor';
 import AgentPresenceBadge from '../../components/AgentPresenceBadge';
+import SiteSelectField from '../../components/SiteSelectField';
 
 const TYPES = [
   { value: 1, label: 'Incident', icon: '!' },
@@ -39,9 +40,6 @@ export default function TicketCreate() {
   const [softwareSearch, setSoftwareSearch] = useState('');
   const [softwareResults, setSoftwareResults] = useState<any[]>([]);
   const [selectedSoftware, setSelectedSoftware] = useState<any>(null);
-  const [sites, setSites] = useState<any[]>([]);
-  const [locationSearch, setLocationSearch] = useState('');
-  const [locationOpen, setLocationOpen] = useState(false);
   const [selectedSite, setSelectedSite] = useState<any>(null);
   // VIP : email(min) -> is_elu, pour signaler visuellement un demandeur prioritaire
   const [vipMap, setVipMap] = useState<Record<string, boolean>>({});
@@ -70,7 +68,6 @@ export default function TicketCreate() {
 
   useEffect(() => {
     loadCategoriesAndApps();
-    loadSites();
     loadVips();
     fetchSavedPhone();
   }, []);
@@ -112,16 +109,6 @@ export default function TicketCreate() {
       const res = await axios.get(`/api/tickets/my-phone?email=${encodeURIComponent(email)}`, { headers: { Authorization: `Bearer ${token}` } });
       setForm(f => ({ ...f, requester_phone: res.data?.phone || '' }));
     } catch (e) { setForm(f => ({ ...f, requester_phone: '' })); }
-  }
-
-  async function loadSites() {
-    try {
-      const token = localStorage.getItem('token');
-      const res = await axios.get('/api/ville/sites/list', { headers: { Authorization: `Bearer ${token}` } });
-      setSites(res.data || []);
-    } catch (e) {
-      console.error('Failed to load sites:', e);
-    }
   }
 
   async function loadCategoriesAndApps() {
@@ -209,23 +196,13 @@ export default function TicketCreate() {
 
   function selectSite(site: any) {
     setSelectedSite(site);
-    const label = site.code_bien ? `${site.code_bien} — ${site.nom}` : site.nom;
-    setLocationSearch(label);
-    setLocationOpen(false);
-    setForm(f => ({ ...f, location: label }));
+    setForm(f => ({ ...f, location: site.code_bien ? `${site.code_bien} — ${site.nom}` : site.nom }));
   }
 
   function clearSite() {
     setSelectedSite(null);
-    setLocationSearch('');
-    setLocationOpen(false);
     setForm(f => ({ ...f, location: '' }));
   }
-
-  const normalize = (s: string) => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
-  const filteredSites = locationSearch.trim()
-    ? sites.filter(s => normalize(`${s.code_bien || ''} ${s.nom}`).includes(normalize(locationSearch)))
-    : sites;
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -514,45 +491,18 @@ export default function TicketCreate() {
 
           <div>
             <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 6 }}>Lieu / Localisation</label>
-            <div style={{ position: 'relative' }}>
-              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                <input
-                  value={locationSearch}
-                  onChange={e => { setLocationSearch(e.target.value); setSelectedSite(null); setLocationOpen(true); setForm(f => ({ ...f, location: e.target.value })); }}
-                  onFocus={() => setLocationOpen(true)}
-                  onBlur={() => setTimeout(() => setLocationOpen(false), 150)}
-                  placeholder="Rechercher un site, bâtiment…"
-                  style={{ flex: 1, padding: '10px 14px', border: '1px solid #e2e8f0', borderRadius: 8, fontSize: 14, outline: 'none', boxSizing: 'border-box' }}
-                />
-                {selectedSite && (
-                  <button onClick={clearSite} type="button" style={{ padding: '6px 12px', background: '#ef4444', color: '#fff', border: 'none', borderRadius: 6, fontSize: 13, cursor: 'pointer', fontWeight: 500 }}>✕</button>
-                )}
+            <SiteSelectField
+              onSelect={selectSite}
+              onClear={clearSite}
+              onQueryChange={q => { setSelectedSite(null); setForm(f => ({ ...f, location: q })); }}
+              placeholder="Rechercher un site, bâtiment…"
+              showAbbreviation={false}
+            />
+            {selectedSite && (
+              <div style={{ marginTop: 8, padding: '7px 12px', background: '#e0e7ff', border: '1px solid #c7d2fe', borderRadius: 6, fontSize: 13, color: '#4f46e5' }}>
+                ✓ {selectedSite.code_bien} — {selectedSite.nom}
               </div>
-              {locationOpen && filteredSites.length > 0 && (
-                <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 20, marginTop: 4, border: '1px solid #e2e8f0', borderRadius: 8, background: '#fff', boxShadow: '0 4px 12px rgba(0,0,0,0.1)', maxHeight: 260, overflowY: 'auto' }}>
-                  {filteredSites.slice(0, 50).map(s => (
-                    <div key={s.id} onMouseDown={() => selectSite(s)}
-                      style={{ padding: '9px 12px', cursor: 'pointer', fontSize: 13, borderBottom: '1px solid #f1f5f9', display: 'flex', alignItems: 'center', gap: 8 }}
-                      onMouseEnter={e => e.currentTarget.style.background = '#f8fafc'}
-                      onMouseLeave={e => e.currentTarget.style.background = '#fff'}>
-                      <span style={{ fontFamily: 'monospace', fontSize: 11, color: '#6366f1', fontWeight: 600, flexShrink: 0 }}>{s.code_bien || '—'}</span>
-                      <span style={{ color: '#1e293b', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.nom}</span>
-                      {s.abbreviation && <span style={{ fontSize: 10, color: '#94a3b8', flexShrink: 0 }}>{s.abbreviation}</span>}
-                    </div>
-                  ))}
-                  {filteredSites.length > 50 && (
-                    <div style={{ padding: '8px 12px', fontSize: 12, color: '#94a3b8', textAlign: 'center' }}>
-                      {filteredSites.length - 50} autres — affinez la recherche
-                    </div>
-                  )}
-                </div>
-              )}
-              {selectedSite && (
-                <div style={{ marginTop: 8, padding: '7px 12px', background: '#e0e7ff', border: '1px solid #c7d2fe', borderRadius: 6, fontSize: 13, color: '#4f46e5' }}>
-                  ✓ {selectedSite.code_bien} — {selectedSite.nom}
-                </div>
-              )}
-            </div>
+            )}
           </div>
 
           <div>

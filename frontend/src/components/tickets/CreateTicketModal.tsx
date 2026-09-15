@@ -5,6 +5,7 @@ import 'react-quill-new/dist/quill.snow.css';
 import RequesterSearch from '../RequesterSearch';
 import { X, Ticket, HelpCircle, AlertCircle, PlusCircle, Search, MapPin, Star, Phone, Paperclip } from 'lucide-react';
 import { uploadInlineImages, QUILL_MODULES, isQuillEmpty } from '../../pages/Tickets/ticketEditor';
+import SiteSelectField from '../SiteSelectField';
 
 interface Props {
   onClose: () => void;
@@ -41,9 +42,6 @@ export default function CreateTicketModal({ onClose }: Props) {
   const [softwareSearch, setSoftwareSearch] = useState('');
   const [softwareResults, setSoftwareResults] = useState<any[]>([]);
   const [selectedSoftware, setSelectedSoftware] = useState<any>(null);
-  const [sites, setSites] = useState<any[]>([]);
-  const [locationSearch, setLocationSearch] = useState('');
-  const [locationOpen, setLocationOpen] = useState(false);
   const [selectedSite, setSelectedSite] = useState<any>(null);
   const [vipMap, setVipMap] = useState<Record<string, boolean>>({});
   const [requesterVip, setRequesterVip] = useState<{ vip: boolean; elu: boolean }>({ vip: false, elu: false });
@@ -71,7 +69,6 @@ export default function CreateTicketModal({ onClose }: Props) {
 
   useEffect(() => {
     loadCategoriesAndApps();
-    loadSites();
     loadVips();
     fetchSavedPhone();
   }, []);
@@ -113,16 +110,6 @@ export default function CreateTicketModal({ onClose }: Props) {
       const res = await axios.get(`/api/tickets/my-phone?email=${encodeURIComponent(email)}`, { headers: { Authorization: `Bearer ${token}` } });
       setForm(f => ({ ...f, requester_phone: res.data?.phone || '' }));
     } catch (e) { setForm(f => ({ ...f, requester_phone: '' })); }
-  }
-
-  async function loadSites() {
-    try {
-      const token = localStorage.getItem('token');
-      const res = await axios.get('/api/ville/sites/list', { headers: { Authorization: `Bearer ${token}` } });
-      setSites(res.data || []);
-    } catch (e) {
-      console.error('Failed to load sites:', e);
-    }
   }
 
   async function loadCategoriesAndApps() {
@@ -207,23 +194,13 @@ export default function CreateTicketModal({ onClose }: Props) {
 
   function selectSite(site: any) {
     setSelectedSite(site);
-    const label = site.code_bien ? `${site.code_bien} — ${site.nom}` : site.nom;
-    setLocationSearch(label);
-    setLocationOpen(false);
-    setForm(f => ({ ...f, location: label }));
+    setForm(f => ({ ...f, location: site.code_bien ? `${site.code_bien} — ${site.nom}` : site.nom }));
   }
 
   function clearSite() {
     setSelectedSite(null);
-    setLocationSearch('');
-    setLocationOpen(false);
     setForm(f => ({ ...f, location: '' }));
   }
-
-  const normalize = (s: string) => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
-  const filteredSites = locationSearch.trim()
-    ? sites.filter(s => normalize(`${s.code_bien || ''} ${s.nom}`).includes(normalize(locationSearch)))
-    : sites;
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -524,29 +501,17 @@ export default function CreateTicketModal({ onClose }: Props) {
             {/* Location */}
             <div>
               <label style={labelStyle}>Lieu / Localisation</label>
-              <div style={{ position: 'relative' }}>
-                <div style={{ position: 'relative' }}>
-                  <MapPin size={16} style={{ position: 'absolute', left: 12, top: 12, color: '#94a3b8' }} />
-                  <input value={locationSearch}
-                    onChange={e => { setLocationSearch(e.target.value); setSelectedSite(null); setLocationOpen(true); setForm(f => ({ ...f, location: e.target.value })); }}
-                    onFocus={() => setLocationOpen(true)}
-                    onBlur={() => setTimeout(() => setLocationOpen(false), 200)}
-                    placeholder="Chercher un site (ex: Ecole, Bureau...)"
-                    style={{ ...inputStyle, paddingLeft: 36 }} />
-                </div>
-                {locationOpen && filteredSites.length > 0 && (
-                  <div style={dropdownStyle}>
-                    {filteredSites.slice(0, 30).map(s => (
-                      <div key={s.id} onMouseDown={() => selectSite(s)} style={dropdownItemStyle}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                          <span style={{ fontWeight: 600 }}>{s.nom}</span>
-                          <span style={{ fontSize: 10, color: '#94a3b8', fontFamily: 'monospace' }}>{s.code_bien}</span>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
+              <SiteSelectField
+                onSelect={selectSite}
+                onClear={clearSite}
+                onQueryChange={q => { setSelectedSite(null); setForm(f => ({ ...f, location: q })); }}
+                placeholder="Chercher un site (ex: Ecole, Bureau...)"
+                icon={<MapPin size={16} />}
+                inputStyle={{ paddingLeft: 36 }}
+                dropdownStyle={{ borderRadius: 10, maxHeight: 250 }}
+                showAbbreviation={false}
+                maxResults={30}
+              />
               {selectedSite && (
                 <div style={{ marginTop: 8, padding: '8px 12px', background: '#ecfdf5', color: '#047857', borderRadius: 8, fontSize: 13, border: '1px solid #a7f3d0' }}>
                   ✓ Site : <strong>{selectedSite.nom}</strong> ({selectedSite.code_bien})
