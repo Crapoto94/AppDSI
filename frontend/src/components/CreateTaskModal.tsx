@@ -233,6 +233,7 @@ export default function CreateTaskModal({ ticketId, ticketTitle, onClose, onCrea
           <textarea
             value={description}
             onChange={e => setDescription(e.target.value)}
+            onKeyDown={e => { if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); handleSubmit(); } }}
             placeholder="Décrire la tâche à réaliser..."
             rows={4}
             style={{
