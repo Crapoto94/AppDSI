@@ -13,6 +13,7 @@ import ResponseSuggestions from './ResponseSuggestions';
 import DocumentSuggestions from './DocumentSuggestions';
 import type { AttachDoc } from './DocumentSuggestions';
 import { Phone, MessageSquare, Upload, X, Edit3 } from 'lucide-react';
+import SiteSelectField from '../../components/SiteSelectField';
 import { formatDateTime, formatDate as formatDateParis } from '../../utils/datetime';
 import UserHoverCard from '../../components/tickets/UserHoverCard';
 import AgentPresenceBadge from '../../components/AgentPresenceBadge';
@@ -260,9 +261,6 @@ export default function TicketDetail() {
   const [categories, setCategories] = useState<any[]>([]);
   const [apps, setApps] = useState<any[]>([]);
   const [editForm, setEditForm] = useState<any>({});
-  const [sites, setSites] = useState<any[]>([]);
-  const [locationSearch, setLocationSearch] = useState('');
-  const [locationOpen, setLocationOpen] = useState(false);
 
   // Resize panneau gauche/droite
   const [paneRatio, setPaneRatio] = useState<number>(() => {
@@ -337,7 +335,7 @@ export default function TicketDetail() {
   const [splitNewId, setSplitNewId] = useState<number | null>(null);
 
   useEffect(() => {
-    loadTicket(); loadGroup(); loadCategoriesAndApps(); loadSites();
+    loadTicket(); loadGroup(); loadCategoriesAndApps();
     const token = localStorage.getItem('token');
     axios.get('/api/tickets/config/public', { headers: { Authorization: `Bearer ${token}` } })
       .then(r => setAiReformulationEnabled(r.data.ai_reformulation_enabled !== false))
@@ -406,14 +404,6 @@ export default function TicketDetail() {
     } catch (e) { console.error('Failed to load categories/apps:', e); }
   }
 
-  async function loadSites() {
-    try {
-      const token = localStorage.getItem('token');
-      const res = await axios.get('/api/ville/sites/list', { headers: { Authorization: `Bearer ${token}` } });
-      setSites(res.data || []);
-    } catch (e) { console.error('Failed to load sites:', e); }
-  }
-
   async function loadRequesterEquip(email: string) {
     try {
       const token = localStorage.getItem('token');
@@ -473,7 +463,6 @@ export default function TicketDetail() {
         location: t.location || '',
         requester_name: t.requester?.name || t.requester_name || ''
       });
-      setLocationSearch(t.location || '');
       setRequesterSearch(t.requester?.name || t.requester_name || '');
       setComments(commentsRes.data);
       setHistory(historyRes.data);
@@ -2079,7 +2068,6 @@ export default function TicketDetail() {
                     location: ticket.location || '',
                     requester_name: ticket.requester?.name || ticket.requester_name || ''
                   });
-                  setLocationSearch(ticket.location || '');
                   requesterSearchSkipRef.current = true;
                   setRequesterSearch(ticket.requester?.name || ticket.requester_name || '');
                 }}
@@ -2357,22 +2345,18 @@ export default function TicketDetail() {
               <span style={SL}>Lieu</span>
               {editingInfo ? (
                 <div style={{ position: 'relative', width: '100%', maxWidth: 180 }}>
-                  <input value={locationSearch} 
-                    onChange={e => { setLocationSearch(e.target.value); setEditForm({...editForm, location: e.target.value}); setLocationOpen(true); }}
-                    onFocus={() => setLocationOpen(true)}
-                    onBlur={() => setTimeout(() => setLocationOpen(false), 200)}
+                  <SiteSelectField
+                    initialValue={editForm.location || ''}
+                    onSelect={s => { const l = s.code_bien ? `${s.code_bien} — ${s.nom}` : s.nom; setEditForm((f: any) => ({ ...f, location: l })); }}
+                    onClear={() => setEditForm((f: any) => ({ ...f, location: '' }))}
+                    onQueryChange={q => setEditForm((f: any) => ({ ...f, location: q }))}
                     placeholder="Chercher..."
-                    style={{ width: '100%', padding: '5px 8px', border: '1px solid #e4e4e7', borderRadius: 6, fontSize: 12, outline: 'none', boxSizing: 'border-box' }} />
-                  {locationOpen && sites.length > 0 && (
-                    <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 100, background: '#fff', border: '1px solid #e4e4e7', borderRadius: 6, boxShadow: '0 4px 6px rgba(0,0,0,0.1)', maxHeight: 200, overflowY: 'auto' }}>
-                      {sites.filter(s => (s.nom||'').toLowerCase().includes(locationSearch.toLowerCase()) || (s.code_bien||'').toLowerCase().includes(locationSearch.toLowerCase())).slice(0, 20).map(s => (
-                        <div key={s.id} onMouseDown={() => { const l = s.code_bien ? `${s.code_bien} — ${s.nom}` : s.nom; setEditForm({...editForm, location: l}); setLocationSearch(l); setLocationOpen(false); }}
-                          style={{ padding: '6px 10px', cursor: 'pointer', borderBottom: '1px solid #f4f4f5', fontSize: 11 }}>
-                          {s.code_bien} — {s.nom}
-                        </div>
-                      ))}
-                    </div>
-                  )}
+                    compact
+                    maxResults={20}
+                    showAbbreviation={false}
+                    dropdownStyle={{ borderRadius: 6, maxHeight: 200, background: '#fff', border: '1px solid #e4e4e7', boxShadow: '0 4px 6px rgba(0,0,0,0.1)' }}
+                    inputStyle={{ border: '1px solid #e4e4e7', borderRadius: 6, fontSize: 12, padding: '5px 8px' }}
+                  />
                 </div>
               ) : (
                 <span style={{ ...SV, display: 'flex', alignItems: 'center', gap: 4 }}>
