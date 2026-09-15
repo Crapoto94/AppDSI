@@ -371,6 +371,7 @@ const WIDGET_LABELS = {
   contrats: 'Contrats expirant',
   taches: 'Tâches en cours',
   projets: 'Projets par statut',
+  mail_analyse_map: 'Carte des connexions (Analyse-mail)',
 };
 
 function buildDashboardEmailHtml(dash, widgets, sub) {

@@ -2378,6 +2378,9 @@ app.use('/api/maps/dxf', require('./modules/dxf/dxf.routes'));
 // Infra Module (définitions d'API externes + synchronisations)
 app.use('/api/infra', require('./modules/infra/infra.routes'));
 
+// Analyse-mail Module (relais serveur vers l'API de sécurité des boîtes mail)
+app.use('/api/analyse-mail', require('./modules/analyse-mail/analyse-mail.routes'));
+
 // Finance & Tiers Module
 app.use('/api/budget', financeRouter);
 app.use('/api/finance/field-mapping', fieldMappingRouter);

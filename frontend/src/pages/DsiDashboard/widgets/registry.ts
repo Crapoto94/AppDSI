@@ -330,6 +330,15 @@ export const WIDGET_REGISTRY: WidgetDef[] = [
     defaultSize: { w: 3, h: 2 },
     minSize: { w: 2, h: 2 },
   },
+  // ── Sécurité ──────────────────────────────────────────────────────────────
+  {
+    key: 'mail_analyse_map',
+    label: 'Carte des connexions (Analyse-mail)',
+    description: 'Origine géographique des connexions suspectes (monde + pays), fenêtre 24h glissantes',
+    module: 'Sécurité',
+    defaultSize: { w: 6, h: 6 },
+    minSize: { w: 4, h: 4 },
+  },
 ];
 
 export const WIDGET_MODULES = [...new Set(WIDGET_REGISTRY.map(w => w.module))];

@@ -78,6 +78,13 @@ module.exports = {
                 return res.json({ ok: true, count: list.length, sample: list.slice(0, 3) });
             }
 
+            if (key === 'analyse_mail') {
+                const analyseMail = require('../../shared/analyse_mail');
+                const data = await analyseMail.getKpis();
+                const points = Array.isArray(data.connections_geo_world) ? data.connections_geo_world : [];
+                return res.json({ ok: true, count: points.length, sample: points.slice(0, 3) });
+            }
+
             const data = await fetchLinks(cfg);
             res.json({ ok: true, count: data.length, sample: data.slice(0, 3) });
         } catch (e) {
