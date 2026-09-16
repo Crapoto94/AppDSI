@@ -436,6 +436,22 @@ const controller = {
         } catch (e) { sendError(res, e, 'Dossier de preuves indisponible'); }
     },
 
+    verifySeal: async (req, res) => {
+        try {
+            const r = await service.verifyParapheurSeal(parseInt(req.params.id, 10));
+            if (!r) return res.status(404).json({ message: 'Parapheur introuvable' });
+            res.json(r);
+        } catch (e) { sendError(res, e, 'Vérification du sceau impossible'); }
+    },
+
+    verifyPublicSeal: async (req, res) => {
+        try {
+            const r = await service.verifyParapheurSealByToken(req.params.token);
+            if (!r) return res.status(404).json({ message: 'Parapheur introuvable' });
+            res.json(r);
+        } catch (e) { sendError(res, e, 'Vérification du sceau impossible'); }
+    },
+
     verifyEvidence: async (req, res) => {
         try {
             const r = await service.getEvidenceArchiveByToken(req.params.token);

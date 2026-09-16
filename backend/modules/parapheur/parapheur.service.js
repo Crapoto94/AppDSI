@@ -768,7 +768,11 @@ async function sealParapheur(parapheurId) {
             });
             const base = String(doc.original_name || 'document.pdf').replace(/\.pdf$/i, '');
             const saved = await storage.saveFile(MODULE, `${parapheurId}`, { buffer: sealedBuf, originalname: `${base}_signe.pdf` });
-            await pgDb.run(`UPDATE hub_parapheur.documents SET signed_path = ?, has_pades = TRUE WHERE id = ?`, [saved.dbPath, doc.id]);
+            const sealedHash = sha256(sealedBuf);
+            await pgDb.run(
+                `UPDATE hub_parapheur.documents SET signed_path = ?, has_pades = TRUE, seal_cert_pem = ?, seal_hash = ?, sealed_at = NOW() WHERE id = ?`,
+                [saved.dbPath, sealCert.certPem, sealedHash, doc.id]
+            );
             lastSerial = sealCert.serial;
             sealed++;
         } catch (e) {
@@ -780,6 +784,81 @@ async function sealParapheur(parapheurId) {
         await audit(parapheurId, 'plateforme', 'sceau', { documents: sealed, serial: lastSerial }, null);
     }
     return { sealed };
+}
+
+/**
+ * Vérification — par DSIHUB lui-même — du sceau de la plateforme :
+ *  - le certificat de sceau a bien été émis par notre AC interne (chaîne) ;
+ *  - le fichier scellé n'a pas été modifié depuis (empreinte SHA-256).
+ * (Le « signataire inconnu » affiché par Acrobat vient seulement du fait que
+ * l'AC interne n'est pas déployée dans le magasin de confiance du poste.)
+ */
+async function verifyParapheurSeal(parapheurId) {
+    const p = await pgDb.get(`SELECT id, reference, sealed_at, seal_serial FROM hub_parapheur.parapheurs WHERE id = ?`, [parapheurId]);
+    if (!p) return null;
+    const ca = await getPlatformCa();
+    let caCert = null;
+    try { if (ca && ca.certPem) caCert = forge.pki.certificateFromPem(ca.certPem); } catch { caCert = null; }
+
+    const docs = await pgDb.all(
+        `SELECT id, original_name, has_pades, signed_path, seal_cert_pem, seal_hash, sealed_at
+         FROM hub_parapheur.documents WHERE parapheur_id = ? AND COALESCE(is_annexe, FALSE) = FALSE ORDER BY sort_order, id`,
+        [parapheurId]
+    );
+
+    let allValid = docs.length > 0;
+    const documents = [];
+    for (const d of docs) {
+        let hashOk = null;
+        if (d.seal_hash && d.signed_path) {
+            try {
+                const buf = await readStorageFile(d.signed_path);
+                hashOk = sha256(buf) === d.seal_hash;
+            } catch { hashOk = null; }
+        }
+        let chainOk = null;
+        let certificate = null;
+        if (d.seal_cert_pem) {
+            try {
+                const cert = forge.pki.certificateFromPem(d.seal_cert_pem);
+                certificate = {
+                    subject: cert.subject.getField('CN')?.value || null,
+                    serial: cert.serialNumber || null,
+                    valid_to: cert.validity.notAfter ? cert.validity.notAfter.toISOString() : null,
+                    fingerprint: certFingerprintSha256(d.seal_cert_pem),
+                };
+                chainOk = caCert ? cert.verify(caCert) : null;
+            } catch { chainOk = null; }
+        }
+        const valid = !!(d.has_pades && hashOk === true && chainOk === true);
+        if (!valid) allValid = false;
+        documents.push({
+            id: d.id,
+            original_name: d.original_name,
+            has_seal: !!d.has_pades,
+            sealed_at: d.sealed_at,
+            hash_ok: hashOk,
+            chain_ok: chainOk,
+            valid,
+            certificate,
+        });
+    }
+
+    return {
+        reference: p.reference,
+        sealed_at: p.sealed_at,
+        seal_serial: p.seal_serial,
+        ca: ca ? { subject: ca.subject, serial: ca.serial, fingerprint: ca.fingerprint, valid_to: ca.valid_to } : null,
+        all_valid: allValid,
+        documents,
+    };
+}
+
+async function verifyParapheurSealByToken(token) {
+    if (!token) return null;
+    const p = await pgDb.get(`SELECT id FROM hub_parapheur.parapheurs WHERE public_token = ?`, [token]);
+    if (!p) return null;
+    return verifyParapheurSeal(p.id);
 }
 
 /** Extrait les données binaires d'une dataURL (data:image/png;base64,...). */
@@ -2642,5 +2721,7 @@ module.exports = {
     getEvidenceArchiveByToken,
     getPlatformCa,
     generatePlatformCa,
+    verifyParapheurSeal,
+    verifyParapheurSealByToken,
     runReminders,
 };

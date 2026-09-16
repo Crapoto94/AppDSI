@@ -6441,6 +6441,9 @@ async function setupPgDb() {
       await client.query(`CREATE INDEX IF NOT EXISTS idx_parapheur_documents_parapheur ON hub_parapheur.documents(parapheur_id)`);
       await client.query(`ALTER TABLE hub_parapheur.documents ADD COLUMN IF NOT EXISTS is_annexe BOOLEAN DEFAULT FALSE`);
       await client.query(`ALTER TABLE hub_parapheur.documents ADD COLUMN IF NOT EXISTS page_count INTEGER`);
+      await client.query(`ALTER TABLE hub_parapheur.documents ADD COLUMN IF NOT EXISTS seal_cert_pem TEXT`);
+      await client.query(`ALTER TABLE hub_parapheur.documents ADD COLUMN IF NOT EXISTS seal_hash TEXT`);
+      await client.query(`ALTER TABLE hub_parapheur.documents ADD COLUMN IF NOT EXISTS sealed_at TIMESTAMP`);
 
       await client.query(`
         CREATE TABLE IF NOT EXISTS hub_parapheur.signataires (

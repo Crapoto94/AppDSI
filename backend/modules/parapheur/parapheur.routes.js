@@ -20,6 +20,7 @@ router.post('/public/:token/reject', controller.requireSigner, controller.reject
 router.get('/verify/:token', controller.verifyPublic);
 router.get('/verify/:token/doc/:docId', controller.verifyPublicDocument);
 router.get('/verify/:token/preuves', controller.verifyEvidence);
+router.get('/verify/:token/seal', controller.verifyPublicSeal);
 
 // ─── API interne (JWT) ────────────────────────────────────────────────────────
 // Routes spécifiques déclarées AVANT /:id
@@ -62,6 +63,7 @@ router.get('/:id', authenticateJWT, controller.detail);
 router.get('/:id/my-token', authenticateJWT, controller.myToken);
 router.get('/:id/doc/:docId', authenticateJWT, controller.getDocument);
 router.get('/:id/preuves', authenticateJWT, controller.evidence);
+router.get('/:id/verify-seal', authenticateJWT, controller.verifySeal);
 router.post('/:id/relance', authenticateJWT, controller.relance);
 router.post('/:id/annuler', authenticateJWT, controller.cancel);
 router.delete('/:id', authenticateJWT, controller.remove);

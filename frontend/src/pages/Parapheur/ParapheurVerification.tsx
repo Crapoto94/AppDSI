@@ -13,6 +13,19 @@ interface VerifyInfo {
   signataires: { nom: string; service?: string; order_number: number; status: string; signature_mode: string; signed_at?: string | null; signed_by_name?: string | null; signature_note?: string | null; technique_certificate?: { serial?: string | null; issuer?: string | null; fingerprint?: string | null; signing_time?: string | null } | null; certificate?: { subject?: string | null; issuer?: string | null; serial?: string | null; valid_from?: string | null; valid_to?: string | null } | null }[];
 }
 
+interface SealVerify {
+  reference: string;
+  sealed_at?: string | null;
+  seal_serial?: string | null;
+  ca?: { subject?: string | null; serial?: string | null; fingerprint?: string | null; valid_to?: string | null } | null;
+  all_valid: boolean;
+  documents: {
+    id: number; original_name: string; has_seal: boolean; sealed_at?: string | null;
+    hash_ok?: boolean | null; chain_ok?: boolean | null; valid: boolean;
+    certificate?: { subject?: string | null; serial?: string | null; valid_to?: string | null; fingerprint?: string | null } | null;
+  }[];
+}
+
 const STATUS: Record<string, { label: string; color: string; bg: string; icon: React.ReactNode }> = {
   en_cours: { label: 'En cours', color: '#1d4ed8', bg: '#eff6ff', icon: <Clock size={15} /> },
   termine: { label: 'Terminé', color: '#15803d', bg: '#f0fdf4', icon: <CheckCircle2 size={15} /> },
@@ -37,16 +50,24 @@ export default function ParapheurVerification() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [viewer, setViewer] = useState<{ docId: number; name: string } | null>(null);
+  const [seal, setSeal] = useState<SealVerify | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
       setLoading(true); setError(null);
       try {
-        const r = await fetch(`/api/parapheur/verify/${token}`);
+        const [r, rs] = await Promise.all([
+          fetch(`/api/parapheur/verify/${token}`),
+          fetch(`/api/parapheur/verify/${token}/seal`).catch(() => null),
+        ]);
         const d = await r.json();
         if (!r.ok) throw new Error(d.message || 'Page de vérification introuvable');
         if (!cancelled) setInfo(d);
+        if (rs && rs.ok) {
+          const sd = await rs.json();
+          if (!cancelled) setSeal(sd);
+        }
       } catch (e: unknown) {
         if (!cancelled) setError(e instanceof Error ? e.message : 'Erreur');
       } finally {
@@ -126,6 +147,39 @@ export default function ParapheurVerification() {
             <p style={{ fontSize: 11, color: '#94a3b8', marginTop: 12 }}>Aucun document signé n'est encore disponible.</p>
           )}
         </section>
+
+        {seal && seal.documents.some(d => d.has_seal) && (
+          <section style={{ ...card, marginTop: 16, borderColor: seal.all_valid ? '#bbf7d0' : '#fde68a' }}>
+            <h3 style={{ ...cardTitle, color: seal.all_valid ? '#166534' : '#b45309' }}>
+              <ShieldCheck size={17} /> Vérification du sceau par DSIHUB {seal.all_valid ? '— valide' : '— à vérifier'}
+            </h3>
+            <p style={{ fontSize: 12, color: '#64748b', margin: '0 0 10px' }}>
+              Contrôle effectué par le Hub DSI : le certificat de sceau a bien été émis par l'autorité interne
+              {seal.ca?.subject ? ` (${seal.ca.subject})` : ''} et le document n'a pas été modifié depuis le scellement (empreinte SHA-256).
+            </p>
+            <div style={{ display: 'grid', gap: 8 }}>
+              {seal.documents.filter(d => d.has_seal).map(d => (
+                <div key={d.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 12px', border: '1px solid #f1f5f9', borderRadius: 9 }}>
+                  <FileText size={15} color="#ef4444" />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 13, color: '#1e293b', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.original_name}</div>
+                    <div style={{ fontSize: 11, color: '#94a3b8' }}>
+                      Intégrité : {d.hash_ok ? 'OK' : d.hash_ok === false ? 'altéré' : 'non vérifiable'} · Certificat : {d.chain_ok ? 'chaîne AC OK' : d.chain_ok === false ? 'chaîne invalide' : 'non vérifiable'}
+                      {d.certificate?.serial ? ` · n° ${d.certificate.serial}` : ''}
+                      {d.certificate?.valid_to ? ` · valide jusqu'au ${new Date(d.certificate.valid_to).toLocaleDateString('fr-FR')}` : ''}
+                    </div>
+                  </div>
+                  {d.valid
+                    ? <span style={{ fontSize: 11, fontWeight: 700, color: '#15803d', background: '#f0fdf4', padding: '3px 9px', borderRadius: 12 }}>Sceau valide</span>
+                    : <span style={{ fontSize: 11, fontWeight: 700, color: '#b45309', background: '#fffbeb', padding: '3px 9px', borderRadius: 12 }}>À vérifier</span>}
+                </div>
+              ))}
+            </div>
+            <p style={{ fontSize: 11, color: '#94a3b8', marginTop: 10 }}>
+              Remarque : Acrobat peut afficher « signataire inconnu » car l'autorité interne n'est pas déployée dans le magasin de confiance du poste — cela n'affecte pas l'intégrité du document.
+            </p>
+          </section>
+        )}
 
         <section style={{ ...card, marginTop: 16 }}>
           <h3 style={cardTitle}><PenLine size={17} /> Signatures ({info.signataires.length})</h3>

@@ -38,6 +38,7 @@ export default function ParapheurDetail() {
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const [viewer, setViewer] = useState<{ docId: number; signed: boolean; name: string } | null>(null);
+  const [sealVerify, setSealVerify] = useState<{ all_valid: boolean; sealed_at?: string | null; seal_serial?: string | null } | null>(null);
 
   const headers = { Authorization: `Bearer ${token}` };
 
@@ -49,6 +50,10 @@ export default function ParapheurDetail() {
       const d = await r.json();
       if (!r.ok) throw new Error(d.message || 'Introuvable');
       setDetail(d);
+      fetch(`/api/parapheur/${id}/verify-seal`, { headers: { Authorization: `Bearer ${token}` } })
+        .then(rr => (rr.ok ? rr.json() : null))
+        .then(sd => setSealVerify(sd))
+        .catch(() => setSealVerify(null));
       const rt = await fetch(`/api/parapheur/${id}/my-token`, { headers: { Authorization: `Bearer ${token}` } }).catch(() => null);
       if (rt && rt.ok) { const td = await rt.json(); setMyToken(td.status === 'en_cours' ? td.token : null); }
       else setMyToken(null);
@@ -148,6 +153,14 @@ export default function ParapheurDetail() {
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, fontWeight: 800, color: st.color, background: st.bg, padding: '6px 14px', borderRadius: 20 }}>
             {st.icon} {st.label}
           </span>
+          {sealVerify?.sealed_at && (
+            <span
+              title={sealVerify.all_valid ? 'Sceau de la plateforme vérifié par DSIHUB (intégrité + chaîne de l\'AC interne)' : 'Sceau présent mais à vérifier'}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 800, color: sealVerify.all_valid ? '#166534' : '#b45309', background: sealVerify.all_valid ? '#f0fdf4' : '#fffbeb', border: `1px solid ${sealVerify.all_valid ? '#bbf7d0' : '#fde68a'}`, padding: '6px 12px', borderRadius: 20 }}
+            >
+              <ShieldCheck size={14} /> {sealVerify.all_valid ? 'Sceau vérifié' : 'Sceau à vérifier'}
+            </span>
+          )}
         </div>
 
         <div style={{ display: 'flex', gap: 10, marginTop: 18, flexWrap: 'wrap' }}>
