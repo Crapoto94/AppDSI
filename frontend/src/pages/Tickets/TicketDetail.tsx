@@ -184,6 +184,18 @@ export default function TicketDetail() {
   const [pendingAssign, setPendingAssign] = useState<{ userId: number; agent: DsiAgentStatus } | null>(null);
   const [comments, setComments] = useState<any[]>([]);
   const [history, setHistory] = useState<any[]>([]);
+  // Fusion commentaires + événements de la timeline (assignation / statut) pour la
+  // section "Activité", triés du plus récent au plus ancien (même sens que les commentaires).
+  const activityItems = useMemo(() => {
+    const items: { kind: 'comment' | 'event'; ts: number; c?: any; h?: any }[] = [
+      ...comments.map((c: any) => ({ kind: 'comment' as const, ts: c.date_creation ? new Date(c.date_creation).getTime() : 0, c })),
+      ...history
+        .filter((h: any) => h.action === 'assigned' || h.action === 'assigned_group' || h.action === 'status_changed')
+        .map((h: any) => ({ kind: 'event' as const, ts: h.created_at ? new Date(h.created_at).getTime() : 0, h })),
+    ];
+    items.sort((a, b) => b.ts - a.ts);
+    return items;
+  }, [comments, history]);
   const [ticketTasks, setTicketTasks] = useState<any[]>([]);
   const [expandedTaskId, setExpandedTaskId] = useState<number | null>(null);
   const [taskNotes, setTaskNotes] = useState<Record<number, any[]>>({});
@@ -1744,7 +1756,26 @@ export default function TicketDetail() {
                 </span>
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                {[...comments].reverse().map((c: any, i: number) => {
+                {activityItems.map((item: any, i: number) => {
+                  if (item.kind === 'event') {
+                    const h = item.h;
+                    const label = h.action === 'status_changed'
+                      ? `🔄 Statut → ${STATUS_NAMES[parseInt(h.new_value)] || h.new_value}`
+                      : h.action === 'assigned'
+                        ? `👤 Assigné${h.new_value_label ? ' à ' + h.new_value_label : ''}`
+                        : `⬆️ Escaladé au groupe${h.new_value_label ? ' ' + h.new_value_label : ''}`;
+                    return (
+                      <div key={`ev-${h.id || i}`} style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '6px 0' }}>
+                        <div style={{ flex: 1, height: 1, background: '#e4e4e7' }} />
+                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1, background: '#fafafa', border: '1px solid #e4e4e7', borderRadius: 999, padding: '3px 12px', whiteSpace: 'nowrap' }}>
+                          <span style={{ fontSize: 11, color: '#71717a', fontWeight: 600, lineHeight: 1.2 }}>{label}</span>
+                          <span style={{ fontSize: 10, color: '#a1a1aa', lineHeight: 1.2 }}>{h.created_at ? formatDateTime(h.created_at) : ''}</span>
+                        </div>
+                        <div style={{ flex: 1, height: 1, background: '#e4e4e7' }} />
+                      </div>
+                    );
+                  }
+                  const c = item.c;
                   const requesterEmails = [
                     ticket?.requester?.email,
                     ticket?.email_alt,
@@ -1837,7 +1868,7 @@ export default function TicketDetail() {
                     </div>
                   );
                 })}
-                {comments.length === 0 && <p style={{ fontSize: 12, color: '#a1a1aa', fontStyle: 'italic', margin: 0 }}>Aucun commentaire</p>}
+                {activityItems.length === 0 && <p style={{ fontSize: 12, color: '#a1a1aa', fontStyle: 'italic', margin: 0 }}>Aucun commentaire</p>}
               </div>
             </div>
           </div>
