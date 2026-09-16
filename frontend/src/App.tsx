@@ -65,6 +65,7 @@ import ServiceFaitVerifier from './pages/ServiceFaitVerifier';
 import ServiceFaitProcessus from './pages/ServiceFaitProcessus';
 import ChatWidget from './components/LiveChat/ChatWidget';
 import ParamVille from './pages/Admin/ParamVille';
+import ParapheurCertificats from './pages/Admin/ParapheurCertificats';
 import HubSettings from './pages/Admin/HubSettings';
 import AidesAdmin from './pages/Admin/AidesAdmin';
 import SecurityMenu from './pages/Admin/SecurityMenu';
@@ -82,6 +83,10 @@ import StocksPrets from './pages/Stocks/Prets';
 import ParcInformatique from './pages/ParcInformatique';
 import RHPage from './pages/RH';
 import FastActions from './pages/FastActions';
+import ParapheurList from './pages/Parapheur/ParapheurList';
+import ParapheurCreate from './pages/Parapheur/ParapheurCreate';
+import ParapheurDetail from './pages/Parapheur/ParapheurDetail';
+import SignatureSignataire from './pages/Parapheur/SignatureSignataire';
 
 const ChatWidgetWrapper = () => {
   const location = useLocation();
@@ -158,6 +163,7 @@ function App() {
         <Route path="/service-fait/processus/:id" element={<PrivateRoute path="/budget"><ServiceFaitProcessus /></PrivateRoute>} />
         <Route path="/transcript/:token" element={<TranscriptShare />} />
         <Route path="/auto-resolution/keep-alive/:token" element={<AutoResolutionConfirm />} />
+        <Route path="/signature/:token" element={<SignatureSignataire />} />
         <Route path="/request-feature" element={<PrivateRoute path="/request-feature"><RequestFeature /></PrivateRoute>} />
         <Route path="/whats-new" element={<PrivateRoute path="/whats-new"><WhatsNew /></PrivateRoute>} />
         <Route path="/doctrines" element={<PrivateRoute path="/doctrines"><Doctrines /></PrivateRoute>} />
@@ -193,6 +199,9 @@ function App() {
         <Route path="/reseau" element={<PrivateRoute path="/reseau"><ReseauDashboard /></PrivateRoute>} />
         <Route path="/parc" element={<PrivateRoute path="/parc"><ParcInformatique /></PrivateRoute>} />
         <Route path="/rh" element={<PrivateRoute path="/rh"><RHPage /></PrivateRoute>} />
+        <Route path="/parapheur" element={<PrivateRoute path="/parapheur"><ParapheurList /></PrivateRoute>} />
+        <Route path="/parapheur/nouveau" element={<PrivateRoute path="/parapheur"><ParapheurCreate /></PrivateRoute>} />
+        <Route path="/parapheur/:id" element={<PrivateRoute path="/parapheur"><ParapheurDetail /></PrivateRoute>} />
         <Route path="/fast" element={<PrivateRoute path="/fast"><FastActions /></PrivateRoute>} />
         <Route path="/calendrier-dsi" element={<PrivateRoute path="/calendrier-dsi"><CalendrierDSI /></PrivateRoute>} />
         <Route path="/calendrier-dsi/agents" element={<PrivateRoute path="/calendrier-dsi"><AgentsDSI /></PrivateRoute>} />
@@ -245,6 +254,7 @@ function App() {
           <Route path="o365-mail" element={<AdminMail />} />
           {/* param-ville déplacé hors du parent admin → cf. route standalone ci-dessous */}
           <Route path="organisation" element={<AdminOrganisation />} />
+          <Route path="parapheur-certificats" element={<ParapheurCertificats />} />
           <Route path="tickets" element={<TicketAdmin />} />
           <Route path="ged" element={<AdminGED />} />
           <Route path="inventaire" element={<AdminInventaire />} />

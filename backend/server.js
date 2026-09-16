@@ -2390,6 +2390,12 @@ app.use('/api/finance/field-mapping', fieldMappingRouter);
 app.use('/api/finance/service-fait', require('./modules/finance/service-fait/service-fait.routes'));
 require('./modules/finance/service-fait/service-fait.controller').setSendMail(sendMail);
 app.use('/api/budget-prep', require('./modules/budget-prep/budget-prep.routes'));
+
+// Parapheur électronique (signature de documents PDF)
+const parapheurCtrl = require('./modules/parapheur/parapheur.controller');
+parapheurCtrl.setSendMail(sendMail);
+app.use('/api/parapheur', require('./modules/parapheur/parapheur.routes'));
+
 app.use('/api/tiers', tiersRouter);
 app.use('/api/contacts', contactsRouter);
 
@@ -3270,6 +3276,13 @@ setupDb().then(async database => {
         await bootstrapKnowledgeDocs();
     } catch (e) {
         console.error('[KB BOOTSTRAP] échec:', e.message);
+    }
+
+    // Relances automatiques du parapheur électronique
+    try {
+        require('./modules/parapheur/parapheur-cron').start();
+    } catch (e) {
+        console.error('[PARAPHEUR CRON] échec démarrage:', e.message);
     }
 
     // Deduplicate operations (keep the one with linked commands)

@@ -107,3 +107,11 @@ button {
   background-color: var(--primary-color);
   color: var(--white);
 }
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.spin {
+  animation: spin 1s linear infinite;
+}
