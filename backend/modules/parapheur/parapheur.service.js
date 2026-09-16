@@ -1640,14 +1640,9 @@ async function buildSignedPdf(originalPath, sigs, ctx = {}) {
         const h = Number(s.h_pt) || 60;
         const cx = (Number(s.x_pct) / 100) * width;
         const cy = height - (Number(s.y_pct) / 100) * height;
-        const { width: nw, height: nh } = image.scale(1);
-        const ratio = nw / nh;
-        const boxRatio = w / h;
-        let dw = w, dh = h;
-        if (ratio > boxRatio) dh = w / ratio; else dw = h * ratio;
-        const x = Math.max(0, cx - dw / 2);
-        const y = Math.max(0, cy - dh / 2);
-        page.drawImage(image, { x, y, width: dw, height: dh });
+        const boxLeft = Math.max(0, cx - w / 2);
+        const boxBottom = Math.max(0, cy - h / 2);
+        const boxTop = Math.min(height, cy + h / 2);
 
         // Libellé « signé (électroniquement) par … le … » sous la signature.
         const nom = s.nom || '';
@@ -1660,27 +1655,50 @@ async function buildSignedPdf(originalPath, sigs, ctx = {}) {
         } else if (s.signature_mode === 'securise') label = `Signé électroniquement par ${nom} le ${quand}`;
         else if (s.signature_mode === 'sms') label = `Signé électroniquement par ${nom} (vérifié par SMS) le ${quand}`;
         else label = `Signé par ${nom} le ${quand}`;
+
+        const LABEL_SIZE = 9;
+        const TITLE_SIZE = 8;
+        const hasTitle = !!s.signature_title;
+
+        // La signature (image) est réduite dans la partie haute du cadre afin que
+        // le nom et la fonction restent DANS le rectangle de positionnement.
+        const textBlockH = LABEL_SIZE + 3 + (hasTitle ? TITLE_SIZE + 3 : 0);
+        const imgAreaH = Math.max(10, h - textBlockH - 3);
+        const imgAreaW = w * 0.96;
+        const { width: nw, height: nh } = image.scale(1);
+        const ratio = nw / nh;
+        let dw = imgAreaW;
+        let dh = dw / ratio;
+        if (dh > imgAreaH) { dh = imgAreaH; dw = dh * ratio; }
+        if (dw > imgAreaW) { dw = imgAreaW; dh = dw / ratio; }
+        const imgX = boxLeft + (w - dw) / 2;
+        const imgY = boxTop - dh; // signature ancrée en haut du cadre
+        page.drawImage(image, { x: imgX, y: imgY, width: dw, height: dh });
+
+        // Base de la mention manuscrite = coin bas-gauche du cadre.
+        const x = boxLeft;
+        const y = boxBottom;
+
+        const textMaxW = Math.max(w, 260);
+        const labelY = boxBottom + (hasTitle ? TITLE_SIZE + 3 : 2);
         page.drawText(label, {
-            x: Math.max(2, x),
-            y: Math.max(2, y - 10),
-            size: 6.5,
+            x: Math.max(2, boxLeft),
+            y: Math.max(2, labelY),
+            size: LABEL_SIZE,
             font,
-            color: rgb(0.25, 0.25, 0.25),
-            maxWidth: Math.max(w, 180),
+            color: rgb(0.2, 0.2, 0.2),
+            maxWidth: textMaxW,
         });
 
-        // Intitulé de poste du signataire, nettement plus bas que le libellé
-        // « Signé par … » (ligne dédiée en dessous).
-        if (s.signature_title) {
-            const labelLines = Math.max(1, Math.ceil(font.widthOfTextAtSize(label, 6.5) / Math.max(w, 180)));
-            const titleY = y - 10 - 15 - (labelLines - 1) * 8;
+        // Intitulé de poste du signataire, sous le nom, dans le cadre.
+        if (hasTitle) {
             page.drawText(String(s.signature_title), {
-                x: Math.max(2, x),
-                y: Math.max(2, titleY),
-                size: 6,
+                x: Math.max(2, boxLeft),
+                y: Math.max(2, boxBottom + 1),
+                size: TITLE_SIZE,
                 font,
-                color: rgb(0.35, 0.35, 0.45),
-                maxWidth: Math.max(w, 180),
+                color: rgb(0.3, 0.3, 0.4),
+                maxWidth: textMaxW,
             });
         }
 
@@ -1689,7 +1707,7 @@ async function buildSignedPdf(originalPath, sigs, ctx = {}) {
         if (s.note_img || s.signature_note) {
             try {
                 const offX = Number.isFinite(Number(s.note_offset_x)) ? Number(s.note_offset_x) : 0;
-                const offY = Number.isFinite(Number(s.note_offset_y)) ? Number(s.note_offset_y) : (dh + 4);
+                const offY = Number.isFinite(Number(s.note_offset_y)) ? Number(s.note_offset_y) : (h + 6);
                 if (s.note_img) {
                     const noteBuf = await readStorageFile(s.note_img);
                     const lowerNote = String(s.note_img).toLowerCase();
@@ -1701,7 +1719,7 @@ async function buildSignedPdf(originalPath, sigs, ctx = {}) {
                     } catch {
                         noteImage = await pdfDoc.embedPng(noteBuf);
                     }
-                    const noteH = Number.isFinite(Number(s.note_size)) ? Math.max(8, Math.min(80, Number(s.note_size))) : 20;
+                    const noteH = Number.isFinite(Number(s.note_size)) ? Math.max(6, Math.min(40, Number(s.note_size))) : 12;
                     const ns = noteImage.scale(1);
                     const maxNoteW = Math.max(w * 1.5, 240);
                     let nh = noteH;
@@ -1711,7 +1729,7 @@ async function buildSignedPdf(originalPath, sigs, ctx = {}) {
                     const ny = Math.max(2, Math.min(y + offY, height - nh - 2));
                     page.drawImage(noteImage, { x: nx, y: ny, width: nw, height: nh });
                 } else {
-                    const noteH = Number.isFinite(Number(s.note_size)) ? Math.max(8, Math.min(80, Number(s.note_size))) : 20;
+                    const noteH = Number.isFinite(Number(s.note_size)) ? Math.max(6, Math.min(40, Number(s.note_size))) : 12;
                     page.drawText(String(s.signature_note), {
                         x: Math.max(2, Math.min(x + offX, width - 60)),
                         y: Math.max(2, Math.min(y + offY, height - 14)),
@@ -1942,7 +1960,7 @@ async function signWithToken(token, { signatureDataUrl, signatureNote, signature
     const noteOffsetYVal = noteValue ? clampOffset(noteOffsetY, 72) : null;
     // Taille de la mention (hauteur en points), réglable par le signataire.
     const noteSizeNum = Number(noteSize);
-    const noteSizeVal = noteValue ? Math.max(8, Math.min(80, Number.isFinite(noteSizeNum) ? Math.round(noteSizeNum) : 20)) : null;
+    const noteSizeVal = noteValue ? Math.max(6, Math.min(40, Number.isFinite(noteSizeNum) ? Math.round(noteSizeNum) : 12)) : null;
 
     // Filet de sécurité : garantir une ligne de position pour chaque document.
     // (Sans elle, un parapheur créé avec un mapping de positions incomplet ne

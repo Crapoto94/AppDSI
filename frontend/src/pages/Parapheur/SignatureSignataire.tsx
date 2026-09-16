@@ -147,8 +147,8 @@ function SignerView({ token, auth, onLogout }: { token: string; auth: SignerAuth
   const [otpCode, setOtpCode] = useState('');
   const [otpSending, setOtpSending] = useState(false);
   const [note, setNote] = useState('');
-  const [noteOffset, setNoteOffset] = useState<{ x: number; y: number }>({ x: 0, y: 72 });
-  const [noteSize, setNoteSize] = useState(20);
+  const [noteOffset, setNoteOffset] = useState<{ x: number; y: number }>({ x: 0, y: 66 });
+  const [noteSize, setNoteSize] = useState(12);
 
   const notePreview = useMemo(() => (note.trim() ? handwrittenTextDataUrl(note) : null), [note]);
 
@@ -647,9 +647,9 @@ function SignerView({ token, auth, onLogout }: { token: string; auth: SignerAuth
                   onChange={e => setNoteSize(Number(e.target.value))}
                   style={{ padding: '8px 10px', border: '1px solid #e2e8f0', borderRadius: 8, fontSize: 12, fontFamily: 'inherit' }}
                 >
-                  <option value={14}>Petite</option>
-                  <option value={20}>Moyenne</option>
-                  <option value={28}>Grande</option>
+                  <option value={9}>Petite</option>
+                  <option value={12}>Moyenne</option>
+                  <option value={16}>Grande</option>
                 </select>
               </label>
             </div>
@@ -759,7 +759,7 @@ function SignableDocumentView({ docId, url, authToken, position, signerName, onV
     e.preventDefault();
     e.stopPropagation();
     (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
-    noteDrag.current = { startX: e.clientX, startY: e.clientY, offX: noteOffset?.x ?? 0, offY: noteOffset?.y ?? 72 };
+    noteDrag.current = { startX: e.clientX, startY: e.clientY, offX: noteOffset?.x ?? 0, offY: noteOffset?.y ?? 66 };
   };
   const onNoteMove = (e: React.PointerEvent) => {
     if (!noteDrag.current) return;
