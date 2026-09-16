@@ -184,19 +184,79 @@ export default function TicketDetail() {
   const [pendingAssign, setPendingAssign] = useState<{ userId: number; agent: DsiAgentStatus } | null>(null);
   const [comments, setComments] = useState<any[]>([]);
   const [history, setHistory] = useState<any[]>([]);
+  const [ticketTasks, setTicketTasks] = useState<any[]>([]);
+  // Bascule d'affichage de la section "Activité" : tâches, changements de statut et
+  // assignations. Désactivées par défaut ; l'état est mémorisé par utilisateur.
+  const activityTogglesKey = `ticket_activity_toggles_${user?.username || 'anon'}`;
+  const [showActivityTasks, setShowActivityTasks] = useState(false);
+  const [showActivityStatus, setShowActivityStatus] = useState(false);
+  const [showActivityAssignments, setShowActivityAssignments] = useState(false);
+  const togglesLoadedRef = useRef<string | null>(null);
+  const togglesSkipSaveRef = useRef(false);
+  // Chargement initial + rechargement quand la clé utilisateur change (user charge async).
+  useEffect(() => {
+    if (togglesLoadedRef.current === activityTogglesKey) return;
+    togglesLoadedRef.current = activityTogglesKey;
+    togglesSkipSaveRef.current = true;
+    try {
+      const raw = localStorage.getItem(activityTogglesKey);
+      if (raw) {
+        const p = JSON.parse(raw);
+        setShowActivityTasks(p.tasks === true);
+        setShowActivityStatus(p.status === true);
+        setShowActivityAssignments(p.assignments === true);
+      } else {
+        setShowActivityTasks(false);
+        setShowActivityStatus(false);
+        setShowActivityAssignments(false);
+      }
+    } catch {
+      setShowActivityTasks(false);
+      setShowActivityStatus(false);
+      setShowActivityAssignments(false);
+    }
+  }, [activityTogglesKey]);
+  // Persistance par utilisateur : sauvegarde à chaque changement des toggles.
+  // Le flush qui suit immédiatement une hydratation est ignoré pour ne pas
+  // écraser avec les false par défaut ni croiser les valeurs d'un autre user.
+  useEffect(() => {
+    if (togglesLoadedRef.current !== activityTogglesKey) return;
+    if (togglesSkipSaveRef.current) {
+      togglesSkipSaveRef.current = false;
+      return;
+    }
+    try {
+      localStorage.setItem(activityTogglesKey, JSON.stringify({
+        tasks: showActivityTasks, status: showActivityStatus, assignments: showActivityAssignments,
+      }));
+    } catch { /* ignore */ }
+  }, [activityTogglesKey, showActivityTasks, showActivityStatus, showActivityAssignments]);
   // Fusion commentaires + événements de la timeline (assignation / statut) pour la
   // section "Activité", triés du plus récent au plus ancien (même sens que les commentaires).
   const activityItems = useMemo(() => {
-    const items: { kind: 'comment' | 'event'; ts: number; c?: any; h?: any }[] = [
+    const seen = new Map<string, any>();
+    const items: { kind: 'comment' | 'event' | 'task'; ts: number; c?: any; h?: any; t?: any }[] = [
       ...comments.map((c: any) => ({ kind: 'comment' as const, ts: c.date_creation ? new Date(c.date_creation).getTime() : 0, c })),
       ...history
-        .filter((h: any) => h.action === 'assigned' || h.action === 'assigned_group' || h.action === 'status_changed')
+        .filter((h: any) => (
+          (showActivityStatus && h.action === 'status_changed')
+          || (showActivityAssignments && (h.action === 'assigned' || h.action === 'assigned_group'))
+        ))
         .map((h: any) => ({ kind: 'event' as const, ts: h.created_at ? new Date(h.created_at).getTime() : 0, h })),
     ];
+    // Tâches : une tâche d'équipe a 1 ligne par membre dans user_tasks → on
+    // déduplique par team_group_id (même logique que displayTasks).
+    if (showActivityTasks) {
+      for (const task of ticketTasks) {
+        const key = task.is_team_task && task.team_group_id ? `team-${task.team_group_id}` : `id-${task.id}`;
+        if (seen.has(key)) continue;
+        seen.set(key, true);
+        items.push({ kind: 'task' as const, ts: task.created_at ? new Date(task.created_at).getTime() : 0, t: task });
+      }
+    }
     items.sort((a, b) => b.ts - a.ts);
     return items;
-  }, [comments, history]);
-  const [ticketTasks, setTicketTasks] = useState<any[]>([]);
+  }, [comments, history, ticketTasks, showActivityTasks, showActivityStatus, showActivityAssignments]);
   const [expandedTaskId, setExpandedTaskId] = useState<number | null>(null);
   const [taskNotes, setTaskNotes] = useState<Record<number, any[]>>({});
   const [taskNoteInput, setTaskNoteInput] = useState('');
@@ -1750,10 +1810,48 @@ export default function TicketDetail() {
 
             {/* ACTIVITÉ */}
             <div>
-              <div style={{ padding: '16px 0 8px' }}>
+              <div style={{ padding: '16px 0 8px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
                 <span style={{ fontSize: 11, fontWeight: 600, color: '#a1a1aa', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
                   Activité{comments.length > 0 ? ` (${comments.length})` : ''}
                 </span>
+                <div style={{ display: 'flex', gap: 5 }}>
+                  <button
+                    onClick={() => setShowActivityStatus(v => !v)}
+                    title={showActivityStatus ? 'Masquer les changements de statut' : 'Afficher les changements de statut'}
+                    style={{
+                      display: 'inline-flex', alignItems: 'center', gap: 4,
+                      padding: '3px 8px', borderRadius: 999, cursor: 'pointer',
+                      fontSize: 10, fontWeight: 600, border: '1px solid #e4e4e7',
+                      background: showActivityStatus ? '#eef2ff' : '#fafafa',
+                      color: showActivityStatus ? '#4f46e5' : '#a1a1aa',
+                    }}>
+                    <span style={{ fontSize: 11, lineHeight: 1 }}>🔄</span> Statut
+                  </button>
+                  <button
+                    onClick={() => setShowActivityTasks(v => !v)}
+                    title={showActivityTasks ? 'Masquer les tâches' : 'Afficher les tâches'}
+                    style={{
+                      display: 'inline-flex', alignItems: 'center', gap: 4,
+                      padding: '3px 8px', borderRadius: 999, cursor: 'pointer',
+                      fontSize: 10, fontWeight: 600, border: '1px solid #e4e4e7',
+                      background: showActivityTasks ? '#eef2ff' : '#fafafa',
+                      color: showActivityTasks ? '#4f46e5' : '#a1a1aa',
+                    }}>
+                    <span style={{ fontSize: 11, lineHeight: 1 }}>📋</span> Tâches
+                  </button>
+                  <button
+                    onClick={() => setShowActivityAssignments(v => !v)}
+                    title={showActivityAssignments ? 'Masquer les assignations' : 'Afficher les assignations'}
+                    style={{
+                      display: 'inline-flex', alignItems: 'center', gap: 4,
+                      padding: '3px 8px', borderRadius: 999, cursor: 'pointer',
+                      fontSize: 10, fontWeight: 600, border: '1px solid #e4e4e7',
+                      background: showActivityAssignments ? '#eef2ff' : '#fafafa',
+                      color: showActivityAssignments ? '#4f46e5' : '#a1a1aa',
+                    }}>
+                    <span style={{ fontSize: 11, lineHeight: 1 }}>👤</span> Assigné
+                  </button>
+                </div>
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                 {activityItems.map((item: any, i: number) => {
@@ -1772,6 +1870,21 @@ export default function TicketDetail() {
                           <span style={{ fontSize: 10, color: '#a1a1aa', lineHeight: 1.2 }}>{h.created_at ? formatDateTime(h.created_at) : ''}</span>
                         </div>
                         <div style={{ flex: 1, height: 1, background: '#e4e4e7' }} />
+                      </div>
+                    );
+                  }
+                  if (item.kind === 'task') {
+                    const task = item.t;
+                    const taskIcon = task.statut === 'terminé' ? '✅' : task.statut === 'en_cours' ? '🔄' : '📋';
+                    const desc = (task.description || '').slice(0, 80);
+                    return (
+                      <div key={`task-${task.id || i}`} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '3px 10px', background: '#f0f4ff', border: '1px solid #dbe4ff', borderRadius: 999, fontSize: 12, color: '#64748b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', margin: '2px 0' }}>
+                        <span style={{ fontSize: 11, flexShrink: 0 }}>{taskIcon}</span>
+                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{desc || 'Tâche'}</span>
+                        {task.created_by && (
+                          <span style={{ fontSize: 10, color: '#a1a1aa', flexShrink: 0 }}>· {task.created_by}</span>
+                        )}
+                        <span style={{ fontSize: 10, color: '#a1a1aa', flexShrink: 0 }}>{task.created_at ? formatDateTime(task.created_at) : ''}</span>
                       </div>
                     );
                   }
