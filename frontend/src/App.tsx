@@ -92,6 +92,9 @@ import ParapheurVerification from './pages/Parapheur/ParapheurVerification';
 const ChatWidgetWrapper = () => {
   const location = useLocation();
   if (location.pathname === '/fast') return null;
+  // Page publique de vérification (QR des PDF signés, éventuellement servie en
+  // DMZ) : on n'y affiche pas le widget de chat interne.
+  if (location.pathname.startsWith('/parapheur/verification')) return null;
   if (location.search.includes('nomenu') || localStorage.getItem('restrictedPath')) return null;
   return <ChatWidget />;
 };

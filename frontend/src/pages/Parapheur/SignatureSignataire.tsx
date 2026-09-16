@@ -147,6 +147,7 @@ function SignerView({ token, auth, onLogout }: { token: string; auth: SignerAuth
   const [otpCode, setOtpCode] = useState('');
   const [otpSending, setOtpSending] = useState(false);
   const [note, setNote] = useState('');
+  const [noteOffset, setNoteOffset] = useState<{ x: number; y: number }>({ x: 0, y: 72 });
 
   const notePreview = useMemo(() => (note.trim() ? handwrittenTextDataUrl(note) : null), [note]);
 
@@ -251,6 +252,8 @@ function SignerView({ token, auth, onLogout }: { token: string; auth: SignerAuth
       const body: Record<string, unknown> = { signatureDataUrl: drawnDataUrl, memorize: true };
       if (note.trim()) {
         body.signatureNote = note.trim().slice(0, 120);
+        body.noteOffsetX = noteOffset.x;
+        body.noteOffsetY = noteOffset.y;
         const noteImg = handwrittenTextDataUrl(note.trim());
         if (noteImg) body.signatureNoteDataUrl = noteImg;
       }
@@ -531,7 +534,7 @@ function SignerView({ token, auth, onLogout }: { token: string; auth: SignerAuth
                 </div>
                 <div style={{ padding: 16 }}>
                   {pos
-                    ? <SignableDocumentView docId={d.id} url={`/api/parapheur/public/${token}/doc/${d.id}`} authToken={auth.token} position={pos} signerName={info.signataire.nom} onViewed={markViewed} />
+                    ? <SignableDocumentView docId={d.id} url={`/api/parapheur/public/${token}/doc/${d.id}`} authToken={auth.token} position={pos} signerName={info.signataire.nom} onViewed={markViewed} noteImage={notePreview} noteOffset={noteOffset} onNoteOffsetChange={setNoteOffset} />
                     : <p style={{ fontSize: 12, color: '#94a3b8' }}>Aucune position définie.</p>}
                 </div>
               </div>
@@ -626,7 +629,7 @@ function SignerView({ token, auth, onLogout }: { token: string; auth: SignerAuth
 
           <div style={{ marginTop: 16, borderTop: '1px solid #f1f5f9', paddingTop: 14 }}>
             <label style={{ display: 'block', fontSize: 12, color: '#64748b', marginBottom: 6 }}>
-              Mention libre (optionnel) — ex. « Avis favorable » : elle apparaîtra en écriture manuscrite au-dessus de votre signature.
+              Mention libre (optionnel) — ex. « Avis favorable » : elle s'affiche en écriture manuscrite près de votre signature. Faites-la glisser sur le document pour la positionner.
             </label>
             <input
               value={note}
@@ -718,18 +721,37 @@ function SignerView({ token, auth, onLogout }: { token: string; auth: SignerAuth
  * la fin du document — le bas du défilement — pour que `onViewed(true)` soit
  * émis, ce qui débloque la signature.
  */
-function SignableDocumentView({ docId, url, authToken, position, signerName, onViewed }: {
+function SignableDocumentView({ docId, url, authToken, position, signerName, onViewed, noteImage, noteOffset, onNoteOffsetChange }: {
   docId: number;
   url: string;
   authToken: string;
   position: { page: number; x: number; y: number; w: number; h: number };
   signerName: string;
   onViewed: (id: number, viewed: boolean) => void;
+  noteImage?: string | null;
+  noteOffset?: { x: number; y: number };
+  onNoteOffsetChange?: (o: { x: number; y: number }) => void;
 }) {
   const { doc, loading, error } = usePdfDocument({ url }, authToken);
   const [size, setSize] = useState<PageSize | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const reported = useRef(false);
+  const noteDrag = useRef<{ startX: number; startY: number; offX: number; offY: number } | null>(null);
+
+  const onNoteDown = (e: React.PointerEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
+    noteDrag.current = { startX: e.clientX, startY: e.clientY, offX: noteOffset?.x ?? 0, offY: noteOffset?.y ?? 72 };
+  };
+  const onNoteMove = (e: React.PointerEvent) => {
+    if (!noteDrag.current) return;
+    const pxScale = size && size.baseWidth ? size.width / size.baseWidth : 1;
+    const dx = (e.clientX - noteDrag.current.startX) / pxScale;
+    const dy = (e.clientY - noteDrag.current.startY) / pxScale;
+    onNoteOffsetChange?.({ x: Math.round(noteDrag.current.offX + dx), y: Math.round(noteDrag.current.offY - dy) });
+  };
+  const onNoteUp = () => { noteDrag.current = null; };
 
   const evaluate = useCallback(() => {
     const el = scrollRef.current;
@@ -757,6 +779,11 @@ function SignableDocumentView({ docId, url, authToken, position, signerName, onV
   }, [evaluate]);
 
   const box = size ? { w: (position.w / size.baseWidth) * size.width, h: (position.h / size.baseHeight) * size.height } : { w: 120, h: 48 };
+  const pxScale = size && size.baseWidth ? size.width / size.baseWidth : 1;
+  const sigLeft = size ? (position.x / 100) * size.width - box.w / 2 : 0;
+  const sigBottom = size ? (position.y / 100) * size.height - box.h / 2 + box.h : 0;
+  const noteLeft = sigLeft + (noteOffset?.x ?? 0) * pxScale;
+  const noteTop = sigBottom - (noteOffset?.y ?? 72) * pxScale;
 
   if (loading) return <div style={{ textAlign: 'center', padding: 30, color: '#94a3b8' }}><Loader2 size={22} className="spin" /></div>;
   if (error) return <div style={{ padding: 14, background: '#fef2f2', color: '#b91c1c', borderRadius: 8, fontSize: 12 }}>{error}</div>;
@@ -772,17 +799,45 @@ function SignableDocumentView({ docId, url, authToken, position, signerName, onV
         <div key={p} style={{ position: 'relative', marginBottom: 12, boxShadow: '0 1px 3px rgba(0,0,0,0.15)' }}>
           <PdfPageCanvas doc={doc} page={p} onSize={p === position.page ? setSize : undefined}>
             {p === position.page && (
-              <div style={{
-                position: 'absolute',
-                left: `calc(${position.x}% - ${box.w / 2}px)`,
-                top: `calc(${position.y}% - ${box.h / 2}px)`,
-                width: box.w, height: box.h,
-                border: '2px solid #7c3aed', background: 'rgba(237,233,254,0.85)', borderRadius: 6,
-                display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', boxShadow: '0 4px 12px rgba(124,58,237,0.25)',
-              }}>
-                <PenLine size={13} color="#7c3aed" />
-                <span style={{ fontSize: 9, fontWeight: 800, color: '#6d28d9', textTransform: 'uppercase', textAlign: 'center', padding: '0 4px', lineHeight: 1.1 }}>{signerName}</span>
-              </div>
+              <>
+                <div style={{
+                  position: 'absolute',
+                  left: `calc(${position.x}% - ${box.w / 2}px)`,
+                  top: `calc(${position.y}% - ${box.h / 2}px)`,
+                  width: box.w, height: box.h,
+                  border: '2px solid #7c3aed', background: 'rgba(237,233,254,0.85)', borderRadius: 6,
+                  display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', boxShadow: '0 4px 12px rgba(124,58,237,0.25)',
+                }}>
+                  <PenLine size={13} color="#7c3aed" />
+                  <span style={{ fontSize: 9, fontWeight: 800, color: '#6d28d9', textTransform: 'uppercase', textAlign: 'center', padding: '0 4px', lineHeight: 1.1 }}>{signerName}</span>
+                </div>
+                {noteImage && size && (
+                  <img
+                    src={noteImage}
+                    alt="mention"
+                    onPointerDown={onNoteDown}
+                    onPointerMove={onNoteMove}
+                    onPointerUp={onNoteUp}
+                    title="Faites glisser pour positionner votre mention"
+                    style={{
+                      position: 'absolute',
+                      left: noteLeft,
+                      top: noteTop,
+                      height: 34 * pxScale,
+                      width: 'auto',
+                      maxWidth: Math.max(box.w, 200),
+                      objectFit: 'contain',
+                      cursor: 'grab',
+                      touchAction: 'none',
+                      border: '1px dashed #0e7490',
+                      background: 'rgba(236,254,255,0.7)',
+                      borderRadius: 4,
+                      zIndex: 6,
+                      userSelect: 'none',
+                    }}
+                  />
+                )}
+              </>
             )}
           </PdfPageCanvas>
           <div style={{ position: 'absolute', bottom: 4, right: 6, fontSize: 10, color: '#64748b', background: 'rgba(255,255,255,0.85)', borderRadius: 4, padding: '0 5px' }}>{p}/{doc.numPages}</div>

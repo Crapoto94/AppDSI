@@ -736,6 +736,12 @@ async function sealParapheur(parapheurId) {
     const ca = await ensurePlatformCa();
     if (!ca || !ca.keyPem) return { sealed: 0 };
 
+    // On reconstruit d'abord les PDF visuels à partir de toutes les signatures
+    // appliquées (mention incluse) avant d'y apposer le sceau cryptographique :
+    // garantit que rien n'est perdu, y compris la signature/mention du dernier
+    // signataire.
+    try { await regenerateSignedDocs(parapheurId); } catch (e) { console.warn('[PARAPHEUR] régénération avant sceau:', e.message); }
+
     const docs = await pgDb.all(
         `SELECT * FROM hub_parapheur.documents WHERE parapheur_id = ? AND COALESCE(is_annexe, FALSE) = FALSE ORDER BY sort_order, id`,
         [parapheurId]
@@ -1574,9 +1580,12 @@ async function buildSignedPdf(originalPath, sigs, ctx = {}) {
             });
         }
 
-        // Mention manuscrite libre (ex. « Avis favorable »), au-dessus de la signature.
+        // Mention manuscrite libre (ex. « Avis favorable »), positionnée par le
+        // signataire : décalage (points) depuis le coin bas-gauche de la signature.
         if (s.note_img || s.signature_note) {
             try {
+                const offX = Number.isFinite(Number(s.note_offset_x)) ? Number(s.note_offset_x) : 0;
+                const offY = Number.isFinite(Number(s.note_offset_y)) ? Number(s.note_offset_y) : (dh + 4);
                 if (s.note_img) {
                     const noteBuf = await readStorageFile(s.note_img);
                     const lowerNote = String(s.note_img).toLowerCase();
@@ -1589,22 +1598,21 @@ async function buildSignedPdf(originalPath, sigs, ctx = {}) {
                         noteImage = await pdfDoc.embedPng(noteBuf);
                     }
                     const ns = noteImage.scale(1);
-                    const maxNoteW = Math.max(w, 200);
+                    const maxNoteW = Math.max(w, 220);
                     let nw = Math.min(maxNoteW, ns.width);
                     let nh = ns.height * (nw / ns.width);
-                    if (nh > 56) { nh = 56; nw = ns.width * (nh / ns.height); }
-                    const nx = Math.max(2, Math.min(cx - nw / 2, width - nw - 2));
-                    let ny = y + dh + 4;
-                    if (ny + nh > height - 4) ny = Math.max(4, y - 28);
+                    if (nh > 60) { nh = 60; nw = ns.width * (nh / ns.height); }
+                    const nx = Math.max(2, Math.min(x + offX, width - nw - 2));
+                    const ny = Math.max(2, Math.min(y + offY, height - nh - 2));
                     page.drawImage(noteImage, { x: nx, y: ny, width: nw, height: nh });
                 } else {
                     page.drawText(String(s.signature_note), {
-                        x: Math.max(2, x),
-                        y: Math.max(2, y + dh + 3),
+                        x: Math.max(2, Math.min(x + offX, width - 60)),
+                        y: Math.max(2, Math.min(y + offY, height - 14)),
                         size: 10,
                         font,
                         color: rgb(0.12, 0.12, 0.15),
-                        maxWidth: Math.max(w, 200),
+                        maxWidth: Math.max(w, 220),
                     });
                 }
             } catch (e) {
@@ -1645,7 +1653,8 @@ async function regenerateSignedDocs(parapheurId, secureContext) {
             `SELECT s.page, s.x_pct, s.y_pct, s.w_pt, s.h_pt, s.signed_at,
                     sg.nom, sg.signature_mode, sg.signature_image_path AS img,
                     sg.signed_by_name, sg.signed_by_email, sg.signature_title,
-                    sg.signature_note, sg.signature_note_path AS note_img
+                    sg.signature_note, sg.signature_note_path AS note_img,
+                    sg.note_offset_x, sg.note_offset_y
              FROM hub_parapheur.signatures s
              JOIN hub_parapheur.signataires sg ON sg.id = s.signataire_id
              WHERE s.document_id = ? AND s.applied = TRUE
@@ -1750,7 +1759,7 @@ async function notifySignersCompleted(parapheur, signataires) {
     }
 }
 
-async function signWithToken(token, { signatureDataUrl, signatureNote, signatureNoteDataUrl, memorize, certificatePassword, otpCode, delegation, req }) {
+async function signWithToken(token, { signatureDataUrl, signatureNote, signatureNoteDataUrl, noteOffsetX, noteOffsetY, memorize, certificatePassword, otpCode, delegation, req }) {
     const signataire = await getSignerByToken(token);
     if (!signataire) throw { status: 404, message: 'Lien de signature introuvable.' };
     if (signataire.status === 'refuse') throw { status: 400, message: 'Vous avez déjà refusé de signer.' };
@@ -1816,6 +1825,15 @@ async function signWithToken(token, { signatureDataUrl, signatureNote, signature
             console.warn('[PARAPHEUR] enregistrement mention échoué:', e.message);
         }
     }
+    // Position de la mention, choisie par le signataire : décalage (en points)
+    // par rapport au coin inférieur gauche de sa signature.
+    const clampOffset = (v, def) => {
+        const n = Number(v);
+        if (!Number.isFinite(n)) return def;
+        return Math.max(-500, Math.min(500, Math.round(n * 100) / 100));
+    };
+    const noteOffsetXVal = noteValue ? clampOffset(noteOffsetX, 0) : null;
+    const noteOffsetYVal = noteValue ? clampOffset(noteOffsetY, 72) : null;
 
     // Filet de sécurité : garantir une ligne de position pour chaque document.
     // (Sans elle, un parapheur créé avec un mapping de positions incomplet ne
@@ -1903,9 +1921,9 @@ async function signWithToken(token, { signatureDataUrl, signatureNote, signature
         `UPDATE hub_parapheur.signataires
          SET status = 'a_signe', signed_at = ?, signature_image_path = ?, ip = ?, user_agent = ?,
              signed_by_email = ?, signed_by_name = ?, delegation_id = ?,
-             signature_note = ?, signature_note_path = ?
+             signature_note = ?, signature_note_path = ?, note_offset_x = ?, note_offset_y = ?
          WHERE id = ?`,
-        [nowIso, signaturePath, ip, ua, signedByEmail, signedByName, delegating ? (delegation.id || null) : null, noteValue, notePath, signataire.id]
+        [nowIso, signaturePath, ip, ua, signedByEmail, signedByName, delegating ? (delegation.id || null) : null, noteValue, notePath, noteOffsetXVal, noteOffsetYVal, signataire.id]
     );
     await pgDb.run(
         `UPDATE hub_parapheur.signatures SET applied = TRUE, signed_at = ?, ip = ?, user_agent = ? WHERE signataire_id = ?`,
@@ -1920,7 +1938,7 @@ async function signWithToken(token, { signatureDataUrl, signatureNote, signature
         console.error('[PARAPHEUR] génération du PDF signé échouée, rollback:', e && e.message);
         try {
             await pgDb.run(`UPDATE hub_parapheur.signatures SET applied = FALSE WHERE signataire_id = ?`, [signataire.id]);
-            await pgDb.run(`UPDATE hub_parapheur.signataires SET status = 'en_cours', signed_at = NULL, signature_image_path = NULL, signed_by_email = NULL, signed_by_name = NULL, delegation_id = NULL, signature_note = NULL, signature_note_path = NULL WHERE id = ?`, [signataire.id]);
+            await pgDb.run(`UPDATE hub_parapheur.signataires SET status = 'en_cours', signed_at = NULL, signature_image_path = NULL, signed_by_email = NULL, signed_by_name = NULL, delegation_id = NULL, signature_note = NULL, signature_note_path = NULL, note_offset_x = NULL, note_offset_y = NULL WHERE id = ?`, [signataire.id]);
         } catch (re) { console.error('[PARAPHEUR] rollback échoué:', re.message); }
         throw e;
     }

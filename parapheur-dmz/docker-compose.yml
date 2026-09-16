@@ -1,0 +1,33 @@
+services:
+  parapheur-dmz:
+    build:
+      # Contexte = racine du dépôt (le Dockerfile compile ../frontend).
+      context: ..
+      dockerfile: parapheur-dmz/Dockerfile
+    container_name: appdsi-parapheur-dmz
+    environment:
+      # Adresse LAN du backend, JOIGNABLE DEPUIS LA DMZ (pas "http://backend:3001",
+      # ce nom Docker n'existe que sur le réseau interne du serveur applicatif).
+      - BACKEND_URL=${BACKEND_URL}
+      - VERIFY_DOMAIN=${VERIFY_DOMAIN:-chat.ivry94.fr}
+    # Publié sur l'hôte Docker DMZ : le reverse proxy DMZ existant pointe vers
+    # <ip-hote-dmz>:5176 en HTTP (TLS terminé là-bas).
+    ports:
+      - "5176:5176"
+    restart: unless-stopped
+
+    # --- Si le reverse proxy DMZ route par réseau Docker (ex. Traefik provider
+    # docker), remplacer "ports" par le réseau externe + labels :
+    #
+    # networks:
+    #   - dmz-proxy
+    # labels:
+    #   - "traefik.enable=true"
+    #   - "traefik.http.routers.parapheur.rule=Host(`chat.ivry94.fr`)"
+    #   - "traefik.http.routers.parapheur.entrypoints=websecure"
+    #   - "traefik.http.routers.parapheur.tls.certresolver=letsencrypt"
+    #   - "traefik.http.services.parapheur.loadbalancer.server.port=5176"
+
+# networks:
+#   dmz-proxy:
+#     external: true
