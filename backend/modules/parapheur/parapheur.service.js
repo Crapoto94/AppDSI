@@ -109,6 +109,11 @@ async function requestOtp(token) {
     }
     if (signataire.signature_mode !== 'sms') throw { status: 400, message: "Ce signataire n'utilise pas la signature par SMS." };
     if (!signataire.sms_phone) throw { status: 400, message: 'Aucun numéro de portable renseigné pour cette signature.' };
+    const parapheur = await pgDb.get(`SELECT status FROM hub_parapheur.parapheurs WHERE id = ?`, [signataire.parapheur_id]);
+    if (!parapheur || parapheur.status !== 'en_cours') throw { status: 400, message: "Ce parapheur n'est plus ouvert." };
+    if (signataire.otp_code_hash && signataire.otp_expires_at && new Date(signataire.otp_expires_at).getTime() > Date.now() + 9.5 * 60 * 1000) {
+        throw { status: 429, message: 'Un code vient de vous être envoyé. Patientez quelques secondes avant de redemander.' };
+    }
 
     const code = String(Math.floor(100000 + Math.random() * 900000));
     const hash = sha256(Buffer.from(code, 'utf8'));

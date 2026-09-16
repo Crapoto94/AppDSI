@@ -6465,6 +6465,16 @@ async function setupPgDb() {
       await client.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_parapheur_signataires_token ON hub_parapheur.signataires(token)`);
       await client.query(`CREATE INDEX IF NOT EXISTS idx_parapheur_signataires_parapheur ON hub_parapheur.signataires(parapheur_id)`);
       await client.query(`CREATE INDEX IF NOT EXISTS idx_parapheur_signataires_email ON hub_parapheur.signataires(LOWER(email))`);
+      // Migrations non destructives (tables créées par une version antérieure)
+      for (const col of [
+        `signature_image_path TEXT`,
+        `sms_phone TEXT`,
+        `otp_code_hash TEXT`,
+        `otp_expires_at TIMESTAMP`,
+        `otp_attempts INTEGER DEFAULT 0`,
+      ]) {
+        try { await client.query(`ALTER TABLE hub_parapheur.signataires ADD COLUMN IF NOT EXISTS ${col}`); } catch (e) {}
+      }
 
       await client.query(`
         CREATE TABLE IF NOT EXISTS hub_parapheur.signatures (

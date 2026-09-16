@@ -285,6 +285,20 @@ function SignerView({ token, auth, onLogout }: { token: string; auth: SignerAuth
     await sign();
   };
 
+  const resendOtp = async () => {
+    setOtpSending(true); setError(null);
+    try {
+      const r = await fetch(`/api/parapheur/public/${token}/otp/request`, { method: 'POST', headers: h });
+      const raw = await r.text();
+      let d: { message?: string; phone_masked?: string } = {};
+      try { d = raw ? JSON.parse(raw) : {}; } catch { d = {}; }
+      if (!r.ok) throw new Error(d.message || 'Envoi impossible');
+      setOtpPhone(d.phone_masked || otpPhone);
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Envoi impossible');
+    } finally { setOtpSending(false); }
+  };
+
   const reject = async () => {
     setSubmitting(true); setError(null);
     try {
@@ -546,6 +560,11 @@ function SignerView({ token, auth, onLogout }: { token: string; auth: SignerAuth
               placeholder="000000"
               style={{ width: '100%', padding: 12, fontSize: 24, letterSpacing: 8, textAlign: 'center', border: '1px solid #e2e8f0', borderRadius: 10, boxSizing: 'border-box', fontFamily: 'monospace' }}
             />
+            <div style={{ textAlign: 'center', marginTop: 8 }}>
+              <button onClick={resendOtp} disabled={otpSending} style={{ border: 'none', background: 'none', color: '#0e7490', fontSize: 12, fontWeight: 700, cursor: otpSending ? 'default' : 'pointer', textDecoration: 'underline' }}>
+                {otpSending ? 'Envoi…' : 'Renvoyer un code'}
+              </button>
+            </div>
             <div style={{ display: 'flex', gap: 10, marginTop: 16 }}>
               <button onClick={() => setShowOtp(false)} style={{ ...btnGhost, flex: 1, justifyContent: 'center' }}>Annuler</button>
               <button
