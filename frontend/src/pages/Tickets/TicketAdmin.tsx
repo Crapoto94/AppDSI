@@ -1757,6 +1757,7 @@ function JournalTab() {
       case 'status_changed': return { label: 'Statut modifié', color: '#f59e0b', icon: '↻' };
       case 'assigned': return { label: 'Assigné', color: '#3b82f6', icon: '👤' };
       case 'assigned_group': return { label: 'Assigné (groupe)', color: '#3b82f6', icon: '👥' };
+      case 'requester_changed': return { label: 'Demandeur modifié', color: '#8b5cf6', icon: '👤' };
       case 'priority_changed': return { label: 'Priorité modifiée', color: '#ef4444', icon: '🔺' };
       case 'type_changed': return { label: 'Type modifié', color: '#8b5cf6', icon: '📋' };
       case 'category_changed': return { label: 'Catégorie modifiée', color: '#14b8a6', icon: '📁' };
@@ -1772,6 +1773,7 @@ function JournalTab() {
     const map: Record<string, string> = {
       status: 'Statut', priority: 'Priorité', type: 'Type', category_id: 'Catégorie',
       technician_id: 'Technicien', group_id: 'Groupe', is_vip: 'VIP', tag: 'Tag',
+      demandeur: 'Demandeur', email_demandeur: 'Email demandeur',
     };
     return map[field] || field;
   }

@@ -138,7 +138,31 @@ module.exports = {
 
         await ticketRepo.update(id, data);
 
+        // Les champs "demandeur" (nom + email) sont consolidés en un seul événement
+        // "requester_changed" au lieu de plusieurs lignes 'updated' séparées.
+        const REQUESTER_FIELDS = ['requester_name', 'email_alt', 'requester_email_22'];
+        const changedRequesterFields = REQUESTER_FIELDS.filter(
+            f => Object.prototype.hasOwnProperty.call(data, f) && oldValues[f] !== data[f]
+        );
+        if (changedRequesterFields.length > 0) {
+            const nameChanged = changedRequesterFields.includes('requester_name');
+            const emailChanged = changedRequesterFields.some(f => f !== 'requester_name');
+
+            const parts = [];
+            if (nameChanged) parts.push(`Nom : ${oldValues.requester_name || '—'} → ${data.requester_name || '—'}`);
+            if (emailChanged) parts.push(`Email : ${oldValues.email_alt || oldValues.requester_email_22 || '—'} → ${data.email_alt || data.requester_email_22 || '—'}`);
+
+            const oldPrimary = nameChanged ? String(oldValues.requester_name || '') : String(oldValues.email_alt || oldValues.requester_email_22 || '');
+            const newPrimary = nameChanged ? String(data.requester_name || '') : String(data.email_alt || data.requester_email_22 || '');
+
+            await historyRepo.log(
+                id, user.id, 'requester_changed', nameChanged ? 'demandeur' : 'email_demandeur',
+                oldPrimary, newPrimary, parts.join(' | '), user.username
+            );
+        }
+
         for (const key of Object.keys(data)) {
+            if (REQUESTER_FIELDS.includes(key)) continue;
             if (oldValues[key] !== data[key]) {
                 await historyRepo.log(id, user.id, 'updated', key, String(oldValues[key] || ''), String(data[key] || ''), null, user.username);
             }

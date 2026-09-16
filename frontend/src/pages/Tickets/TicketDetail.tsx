@@ -2596,8 +2596,8 @@ export default function TicketDetail() {
                     <div style={{ fontWeight: 500, color: '#3f3f46', lineHeight: 1.3 }}>
                       {h.action === 'created' && '🎫 Ticket créé'}
                       {h.action === 'status_changed' && `🔄 Statut → ${STATUS_NAMES[parseInt(h.new_value)] || h.new_value}`}
-{h.action === 'assigned' && `👤 Assigné${h.new_value_label ? ' à ' + h.new_value_label : ''}`}
-                       {h.action === 'assigned_group' && `⬆️ Escaladé au groupe${h.new_value_label ? ' ' + h.new_value_label : ''}`}
+                      {h.action === 'assigned' && `👤 Assigné${h.new_value_label ? ' à ' + h.new_value_label : ''}`}
+                      {h.action === 'assigned_group' && `⬆️ Escaladé au groupe${h.new_value_label ? ' ' + h.new_value_label : ''}`}
                       {h.action === 'comment_added' && '💬 Commentaire ajouté'}
                       {h.action === 'comment_sent_to_requester' && '✉️ Envoyé au demandeur'}
                       {h.action === 'task_created' && '📋 Tâche créée'}
@@ -2612,11 +2612,12 @@ export default function TicketDetail() {
                       {h.action === 'comment_propagated' && '💬 Commentaire propagé (groupe)'}
                       {h.action === 'solved' && '✅ Ticket résolu'}
                       {h.action === 'updated' && `✏️ ${h.field_name || 'Champ modifié'}`}
+                      {h.action === 'requester_changed' && '👤 Changement de demandeur'}
                       {h.action === 'arbitrage_task_created' && '⚖️ Arbitrage demandé'}
                       {h.action === 'arbitrage_decision' && (h.new_value === 'positif' ? '✅ Arbitrage favorable' : '❌ Arbitrage défavorable')}
                       {h.action === 'onboarding_rhstudio' && '📧 Email envoyé au manager (RH Studio)'}
                       {h.action === 'onboarding_rhstudio_failed' && '⚠️ Échec envoi onboarding RH Studio'}
-                      {!['created','status_changed','assigned','assigned_group','comment_added','comment_propagated','comment_sent_to_requester','task_created','task_status_changed','sla_breached','vip_set','vip_unset','deleted','grouped','ungrouped','problem_created','solved','updated','arbitrage_task_created','arbitrage_decision','onboarding_rhstudio','onboarding_rhstudio_failed'].includes(h.action) && h.action}
+                      {!['created','status_changed','assigned','assigned_group','comment_added','comment_propagated','comment_sent_to_requester','task_created','task_status_changed','sla_breached','vip_set','vip_unset','deleted','grouped','ungrouped','problem_created','solved','updated','requester_changed','arbitrage_task_created','arbitrage_decision','onboarding_rhstudio','onboarding_rhstudio_failed'].includes(h.action) && h.action}
                     </div>
                     {h.created_at && (
                       <div style={{ fontSize: 11, color: '#a1a1aa', marginTop: 2 }}>
