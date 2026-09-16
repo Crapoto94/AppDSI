@@ -2,6 +2,7 @@ const { pgDb } = require('../../../shared/database');
 const ticketRepo = require('../repositories/ticket.repository');
 const historyRepo = require('../repositories/history.repository');
 const slaRepo = require('../repositories/sla.repository');
+const groupRepo = require('../repositories/ticket-group.repository');
 const notificationService = require('./notification.service');
 const assignmentService = require('./assignment.service');
 const slaService = require('./sla.service');
@@ -221,18 +222,28 @@ module.exports = {
 
         // 2. Resolve linked tickets if requested
         if (autoResolveLinked) {
+            // Collect all tickets to resolve: group siblings + problem-linked tickets
+            const toResolve = new Set();
+
+            // 2a. Group siblings (same ticket_group_members group)
+            const siblingIds = await groupRepo.getSiblingIds(problemId);
+            for (const sid of siblingIds) toResolve.add(sid);
+
+            // 2b. Problem-linked tickets (via problem_ticket_id)
             const linkedTickets = await pgDb.all(`
                 SELECT tgm.ticket_id
                 FROM hub_tickets.ticket_group_members tgm
                 JOIN hub_tickets.ticket_groups tg ON tgm.group_id = tg.id
                 WHERE tg.problem_ticket_id = $1
             `, [problemId]);
+            for (const row of linkedTickets) toResolve.add(row.ticket_id);
 
-            for (const row of linkedTickets) {
+            // 2c. Resolve all collected tickets with the user's solution
+            for (const ticketId of toResolve) {
                 try {
-                    await this.setSolution(row.ticket_id, `Résolu automatiquement via problème #${problemId}`, user);
+                    await this.setSolution(ticketId, solution, user);
                 } catch (e) {
-                    console.error(`[PROBLEM-RESOLVE] Failed to resolve linked ticket #${row.ticket_id}:`, e.message);
+                    console.error(`[PROBLEM-RESOLVE] Failed to resolve linked ticket #${ticketId}:`, e.message);
                 }
             }
         }

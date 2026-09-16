@@ -20,23 +20,26 @@ async function getConfig() {
     return cfg;
 }
 
-function buildUrl(cfg) {
+function buildUrl(cfg, minutes) {
     const base = (cfg.base_url || '').replace(/\/+$/, '');
     const endpoint = cfg.endpoint || '/api/v1/kpis';
-    return `${base}${endpoint.startsWith('/') ? '' : '/'}${endpoint}`;
+    const url = `${base}${endpoint.startsWith('/') ? '' : '/'}${endpoint}`;
+    if (minutes !== undefined && minutes !== null && minutes !== '') {
+        return `${url}${url.includes('?') ? '&' : '?'}minutes=${encodeURIComponent(minutes)}`;
+    }
+    return url;
 }
 
-/**
- * Récupère les KPI du tableau de bord Analyse-mail (mêmes chiffres que sa page
- * d'accueil : incidents, surveillance, connexions 24h, et les points
- * géographiques `connections_geo_world` / `connections_geo_home` utilisés par
- * les cartes).
- * @param {number} timeoutMs
- */
-async function getKpis(timeoutMs = 30000) {
-    const cfg = await getConfig();
+function qs(params) {
+    const parts = [];
+    for (const [k, v] of Object.entries(params)) {
+        if (v !== undefined && v !== null && v !== '') parts.push(`${k}=${encodeURIComponent(v)}`);
+    }
+    return parts.length ? `?${parts.join('&')}` : '';
+}
+
+async function fetchJson(cfg, url, timeoutMs) {
     const headerName = cfg.header_name || 'X-API-Key';
-    const url = buildUrl(cfg);
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), timeoutMs);
     try {
@@ -58,4 +61,38 @@ async function getKpis(timeoutMs = 30000) {
     }
 }
 
-module.exports = { getConfig, getKpis };
+/**
+ * Récupère les KPI du tableau de bord Analyse-mail (mêmes chiffres que sa page
+ * d'accueil : incidents, surveillance, connexions, et les points
+ * géographiques `connections_geo_world` / `connections_geo_home` utilisés par
+ * les cartes).
+ * @param {object} [opts]
+ * @param {number|string} [opts.minutes] fenêtre glissante des statistiques de
+ *   connexions, en minutes (1, 10, 60, 240, 480, 1440, 2880, 10080). Omis =
+ *   fenêtre par défaut de l'API amont (24h).
+ * @param {number} [opts.timeoutMs]
+ */
+async function getKpis(opts = {}) {
+    const { minutes = null, timeoutMs = 30000 } = opts;
+    const cfg = await getConfig();
+    return fetchJson(cfg, buildUrl(cfg, minutes), timeoutMs);
+}
+
+/**
+ * Récupère les dernières connexions en échec du tenant (endpoint amont
+ * `GET /api/v1/signins/failed`), avec le détail complet : utilisateur, IP,
+ * localisation, application, code/raison d'échec, résultat MFA, réputation IP.
+ * @param {object} [opts]
+ * @param {number|string} [opts.minutes] fenêtre glissante, en minutes (même liste blanche).
+ * @param {number|string} [opts.limit] nombre maximum de lignes.
+ * @param {number} [opts.timeoutMs]
+ */
+async function getFailedSignins(opts = {}) {
+    const { minutes = null, limit = 50, timeoutMs = 30000 } = opts;
+    const cfg = await getConfig();
+    const base = (cfg.base_url || '').replace(/\/+$/, '');
+    const url = `${base}/api/v1/signins/failed${qs({ minutes, limit })}`;
+    return fetchJson(cfg, url, timeoutMs);
+}
+
+module.exports = { getConfig, getKpis, getFailedSignins };
