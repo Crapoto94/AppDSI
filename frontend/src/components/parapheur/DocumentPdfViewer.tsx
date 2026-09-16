@@ -16,6 +16,7 @@ export interface DocSignatureSigner {
   mode: string;
   signed_at?: string | null;
   delegated_by?: string | null;
+  note?: string | null;
   certificate?: DocSignatureCertificate | null;
 }
 
@@ -202,6 +203,7 @@ function SignatureBanner({ info }: { info: DocSignatureInfo }) {
                 {s.signed_at ? `Signé le ${new Date(s.signed_at).toLocaleString('fr-FR')}` : ''}
                 {s.delegated_by ? `${s.signed_at ? ' — ' : ''}par délégation de ${s.delegated_by}` : ''}
               </div>
+              {s.note && <div style={{ color: '#0f172a', marginTop: 3, fontStyle: 'italic' }}>Mention : « {s.note} »</div>}
               {s.certificate && (
                 <div style={{ marginTop: 6, color: '#475569', fontSize: 11, display: 'grid', gap: 2 }}>
                   {s.certificate.subject && <div><b>Titulaire :</b> {s.certificate.subject}</div>}

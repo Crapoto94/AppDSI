@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import SignatureCanvas from 'react-signature-canvas';
 import { AlertCircle, CheckCircle2, Clock, Download, Eraser, Eye, FileText, Loader2, Lock, LogOut, Paperclip, PenLine, ShieldCheck, Smartphone, User, Users, XCircle } from 'lucide-react';
@@ -6,7 +6,7 @@ import PdfPageCanvas from '../../components/parapheur/PdfPageCanvas';
 import DocumentPdfViewer from '../../components/parapheur/DocumentPdfViewer';
 import { usePdfDocument, type PageSize } from '../../components/parapheur/pdf';
 import SignaturePad from '../../components/parapheur/SignaturePad';
-import { signatureDataUrl } from '../../components/parapheur/signatureUtils';
+import { handwrittenTextDataUrl, signatureDataUrl } from '../../components/parapheur/signatureUtils';
 
 const AUTH_KEY = 'parapheur_sign_auth';
 
@@ -18,7 +18,7 @@ interface PublicInfo {
   documents: { id: number; original_name: string; mime_type: string; size?: number; page_count?: number | null }[];
   annexes?: { id: number; original_name: string; mime_type: string; size?: number; page_count?: number | null }[];
   delegation?: { delegant_nom: string; delegant_email: string; delegate_nom: string; delegate_email: string; date_start: string; date_end: string } | null;
-  signatures_summary?: { name: string; mode: string; signed_at?: string | null; delegated_by?: string | null; certificate?: { subject?: string | null; issuer?: string | null; serial?: string | null; valid_from?: string | null; valid_to?: string | null } | null }[];
+  signatures_summary?: { name: string; mode: string; signed_at?: string | null; delegated_by?: string | null; note?: string | null; certificate?: { subject?: string | null; issuer?: string | null; serial?: string | null; valid_from?: string | null; valid_to?: string | null } | null }[];
   positions: { document_id: number; page: number; x: number; y: number; w: number; h: number; applied: boolean }[];
 }
 
@@ -145,6 +145,9 @@ function SignerView({ token, auth, onLogout }: { token: string; auth: SignerAuth
   const [otpPhone, setOtpPhone] = useState('');
   const [otpCode, setOtpCode] = useState('');
   const [otpSending, setOtpSending] = useState(false);
+  const [note, setNote] = useState('');
+
+  const notePreview = useMemo(() => (note.trim() ? handwrittenTextDataUrl(note) : null), [note]);
 
   const h = { Authorization: `Bearer ${auth.token}` };
 
@@ -245,6 +248,11 @@ function SignerView({ token, auth, onLogout }: { token: string; auth: SignerAuth
       }
 
       const body: Record<string, unknown> = { signatureDataUrl: drawnDataUrl, memorize: true };
+      if (note.trim()) {
+        body.signatureNote = note.trim().slice(0, 120);
+        const noteImg = handwrittenTextDataUrl(note.trim());
+        if (noteImg) body.signatureNoteDataUrl = noteImg;
+      }
       if (isSecure) body.certificatePassword = password;
       if (otpCodeValue) body.otpCode = otpCodeValue;
 
@@ -614,6 +622,23 @@ function SignerView({ token, auth, onLogout }: { token: string; auth: SignerAuth
               </div>
             </>
           )}
+
+          <div style={{ marginTop: 16, borderTop: '1px solid #f1f5f9', paddingTop: 14 }}>
+            <label style={{ display: 'block', fontSize: 12, color: '#64748b', marginBottom: 6 }}>
+              Mention libre (optionnel) — ex. « Avis favorable » : elle apparaîtra en écriture manuscrite au-dessus de votre signature.
+            </label>
+            <input
+              value={note}
+              onChange={e => setNote(e.target.value.slice(0, 120))}
+              placeholder="Avis favorable"
+              style={{ width: '100%', maxWidth: 420, padding: '9px 12px', border: '1px solid #e2e8f0', borderRadius: 8, fontSize: 13, boxSizing: 'border-box', fontFamily: 'inherit' }}
+            />
+            {notePreview && (
+              <div style={{ marginTop: 10 }}>
+                <img src={notePreview} alt="mention manuscrite" style={{ maxHeight: 70, maxWidth: '100%' }} />
+              </div>
+            )}
+          </div>
         </div>
 
         {!allViewed && (

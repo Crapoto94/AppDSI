@@ -6483,6 +6483,8 @@ async function setupPgDb() {
         `signed_by_name TEXT`,
         `delegation_id INTEGER`,
         `signature_title TEXT`,
+        `signature_note TEXT`,
+        `signature_note_path TEXT`,
       ]) {
         try { await client.query(`ALTER TABLE hub_parapheur.signataires ADD COLUMN IF NOT EXISTS ${col}`); } catch (e) {}
       }

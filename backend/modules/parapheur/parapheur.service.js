@@ -357,7 +357,7 @@ async function deleteCertificateById(id) {
 async function listSignatureLogs() {
     const rows = await pgDb.all(
         `SELECT sg.nom, sg.email, sg.status, sg.signature_mode, sg.sms_phone, sg.signed_at, sg.rejected_at,
-                sg.rejection_comment, sg.ip, sg.user_agent, sg.signed_by_name, sg.signed_by_email,
+                sg.rejection_comment, sg.ip, sg.user_agent, sg.signed_by_name, sg.signed_by_email, sg.signature_note,
                 p.id AS parapheur_id, p.title, p.reference, p.mode,
                 (SELECT COUNT(*) FROM hub_parapheur.documents d WHERE d.parapheur_id = p.id) AS nb_documents,
                 (SELECT string_agg(d.original_name, ' | ' ORDER BY d.sort_order, d.id)
@@ -376,6 +376,7 @@ async function listSignatureLogs() {
         rejected_at: r.rejected_at,
         rejection_comment: r.rejection_comment,
         sms_phone: r.sms_phone || null,
+        signature_note: r.signature_note || null,
         ip: r.ip,
         user_agent: r.user_agent,
         signed_by_name: (r.signed_by_name && r.signed_by_name !== r.nom) ? r.signed_by_name : null,
@@ -1084,6 +1085,7 @@ async function getDetail(id) {
             has_signature: !!s.signature_image_path,
             signed_by_name: (s.signed_by_name && s.signed_by_name !== s.nom) ? s.signed_by_name : null,
             signed_by_email: s.signed_by_email || null,
+            signature_note: s.signature_note || null,
             certificate: (() => {
                 const c = certByEmail.get(String(s.email || '').toLowerCase());
                 if (!c) return null;
@@ -1148,7 +1150,7 @@ async function getPublicInfo(token, req) {
 
     // Détails des signatures déjà apposées (bandeau de type Acrobat dans la visionneuse).
     const signedRows = await pgDb.all(
-        `SELECT nom, email, signature_mode, signed_at, signed_by_name FROM hub_parapheur.signataires
+        `SELECT nom, email, signature_mode, signed_at, signed_by_name, signature_note FROM hub_parapheur.signataires
          WHERE parapheur_id = ? AND status = 'a_signe' ORDER BY order_number, id`,
         [p.id]
     );
@@ -1163,6 +1165,7 @@ async function getPublicInfo(token, req) {
             mode: s.signature_mode,
             signed_at: s.signed_at,
             delegated_by: (s.signed_by_name && s.signed_by_name !== s.nom) ? s.signed_by_name : null,
+            note: s.signature_note || null,
             certificate: s.signature_mode === 'securise' && c ? {
                 subject: c.subject || null,
                 issuer: c.issuer || null,
@@ -1303,6 +1306,44 @@ async function buildSignedPdf(originalPath, sigs, ctx = {}) {
             });
         }
 
+        // Mention manuscrite libre (ex. « Avis favorable »), au-dessus de la signature.
+        if (s.note_img || s.signature_note) {
+            try {
+                if (s.note_img) {
+                    const noteBuf = await readStorageFile(s.note_img);
+                    const lowerNote = String(s.note_img).toLowerCase();
+                    let noteImage;
+                    try {
+                        noteImage = (lowerNote.endsWith('.jpg') || lowerNote.endsWith('.jpeg'))
+                            ? await pdfDoc.embedJpg(noteBuf)
+                            : await pdfDoc.embedPng(noteBuf);
+                    } catch {
+                        noteImage = await pdfDoc.embedPng(noteBuf);
+                    }
+                    const ns = noteImage.scale(1);
+                    const maxNoteW = Math.max(w, 200);
+                    let nw = Math.min(maxNoteW, ns.width);
+                    let nh = ns.height * (nw / ns.width);
+                    if (nh > 56) { nh = 56; nw = ns.width * (nh / ns.height); }
+                    const nx = Math.max(2, Math.min(cx - nw / 2, width - nw - 2));
+                    let ny = y + dh + 4;
+                    if (ny + nh > height - 4) ny = Math.max(4, y - 28);
+                    page.drawImage(noteImage, { x: nx, y: ny, width: nw, height: nh });
+                } else {
+                    page.drawText(String(s.signature_note), {
+                        x: Math.max(2, x),
+                        y: Math.max(2, y + dh + 3),
+                        size: 10,
+                        font,
+                        color: rgb(0.12, 0.12, 0.15),
+                        maxWidth: Math.max(w, 200),
+                    });
+                }
+            } catch (e) {
+                console.warn('[PARAPHEUR] mention manuscrite non ajoutée:', e.message);
+            }
+        }
+
     }
 
     // QR code de vérification sur TOUTES les pages du document (bas gauche).
@@ -1335,7 +1376,8 @@ async function regenerateSignedDocs(parapheurId, secureContext) {
         const sigs = await pgDb.all(
             `SELECT s.page, s.x_pct, s.y_pct, s.w_pt, s.h_pt, s.signed_at,
                     sg.nom, sg.signature_mode, sg.signature_image_path AS img,
-                    sg.signed_by_name, sg.signed_by_email, sg.signature_title
+                    sg.signed_by_name, sg.signed_by_email, sg.signature_title,
+                    sg.signature_note, sg.signature_note_path AS note_img
              FROM hub_parapheur.signatures s
              JOIN hub_parapheur.signataires sg ON sg.id = s.signataire_id
              WHERE s.document_id = ? AND s.applied = TRUE
@@ -1438,7 +1480,7 @@ async function notifySignersCompleted(parapheur, signataires) {
     }
 }
 
-async function signWithToken(token, { signatureDataUrl, memorize, certificatePassword, otpCode, delegation, req }) {
+async function signWithToken(token, { signatureDataUrl, signatureNote, signatureNoteDataUrl, memorize, certificatePassword, otpCode, delegation, req }) {
     const signataire = await getSignerByToken(token);
     if (!signataire) throw { status: 404, message: 'Lien de signature introuvable.' };
     if (signataire.status === 'refuse') throw { status: 400, message: 'Vous avez déjà refusé de signer.' };
@@ -1490,6 +1532,20 @@ async function signWithToken(token, { signatureDataUrl, memorize, certificatePas
         if (memorized) signaturePath = memorized.storage_path;
     }
     if (!signaturePath) throw { status: 400, message: 'Aucune signature fournie.' };
+
+    // Mention manuscrite libre (ex. « Avis favorable ») : texte conservé pour le
+    // dossier de preuves + image « manuscrite » rendue côté client pour le PDF.
+    const noteValue = String(signatureNote || '').trim().slice(0, 120) || null;
+    let notePath = null;
+    const noteImg = decodeDataUrl(signatureNoteDataUrl);
+    if (noteValue && noteImg) {
+        try {
+            const savedNote = await storage.saveFile(SIGN_MODULE, signataire.id, { buffer: noteImg.buffer, originalname: 'mention.png' });
+            notePath = savedNote.dbPath;
+        } catch (e) {
+            console.warn('[PARAPHEUR] enregistrement mention échoué:', e.message);
+        }
+    }
 
     // Filet de sécurité : garantir une ligne de position pour chaque document.
     // (Sans elle, un parapheur créé avec un mapping de positions incomplet ne
@@ -1576,9 +1632,10 @@ async function signWithToken(token, { signatureDataUrl, memorize, certificatePas
     await pgDb.run(
         `UPDATE hub_parapheur.signataires
          SET status = 'a_signe', signed_at = ?, signature_image_path = ?, ip = ?, user_agent = ?,
-             signed_by_email = ?, signed_by_name = ?, delegation_id = ?
+             signed_by_email = ?, signed_by_name = ?, delegation_id = ?,
+             signature_note = ?, signature_note_path = ?
          WHERE id = ?`,
-        [nowIso, signaturePath, ip, ua, signedByEmail, signedByName, delegating ? (delegation.id || null) : null, signataire.id]
+        [nowIso, signaturePath, ip, ua, signedByEmail, signedByName, delegating ? (delegation.id || null) : null, noteValue, notePath, signataire.id]
     );
     await pgDb.run(
         `UPDATE hub_parapheur.signatures SET applied = TRUE, signed_at = ?, ip = ?, user_agent = ? WHERE signataire_id = ?`,
@@ -1593,7 +1650,7 @@ async function signWithToken(token, { signatureDataUrl, memorize, certificatePas
         console.error('[PARAPHEUR] génération du PDF signé échouée, rollback:', e && e.message);
         try {
             await pgDb.run(`UPDATE hub_parapheur.signatures SET applied = FALSE WHERE signataire_id = ?`, [signataire.id]);
-            await pgDb.run(`UPDATE hub_parapheur.signataires SET status = 'en_cours', signed_at = NULL, signature_image_path = NULL, signed_by_email = NULL, signed_by_name = NULL, delegation_id = NULL WHERE id = ?`, [signataire.id]);
+            await pgDb.run(`UPDATE hub_parapheur.signataires SET status = 'en_cours', signed_at = NULL, signature_image_path = NULL, signed_by_email = NULL, signed_by_name = NULL, delegation_id = NULL, signature_note = NULL, signature_note_path = NULL WHERE id = ?`, [signataire.id]);
         } catch (re) { console.error('[PARAPHEUR] rollback échoué:', re.message); }
         throw e;
     }
@@ -1784,7 +1841,7 @@ async function getVerificationInfo(token) {
         [p.id]
     );
     const signataires = await pgDb.all(
-        `SELECT nom, email, service, order_number, status, signature_mode, signed_at, signed_by_name, signed_by_email
+        `SELECT nom, email, service, order_number, status, signature_mode, signed_at, signed_by_name, signed_by_email, signature_note
          FROM hub_parapheur.signataires WHERE parapheur_id = ? ORDER BY order_number, id`,
         [p.id]
     );
@@ -1824,6 +1881,7 @@ async function getVerificationInfo(token) {
                 signature_mode: s.signature_mode,
                 signed_at: s.signed_at,
                 signed_by_name: (s.signed_by_name && s.signed_by_name !== s.nom) ? s.signed_by_name : null,
+                signature_note: s.signature_note || null,
                 certificate: s.signature_mode === 'securise' && c ? {
                     subject: c.subject || null,
                     issuer: c.issuer || null,
@@ -1963,6 +2021,7 @@ async function buildEvidenceReport(ctx) {
         kv('Statut', s.status === 'a_signe' ? 'A signé' : s.status === 'refuse' ? 'A refusé' : s.status === 'en_cours' ? 'Doit signer' : 'En attente');
         if (s.signed_at) kv('Signé le', fmtDateTime(s.signed_at));
         if (s.signed_by_name && s.signed_by_name !== s.nom) kv('Délégation', `signé par ${s.signed_by_name} par délégation`);
+        if (s.signature_note) kv('Mention manuscrite', `« ${s.signature_note} »`);
         if (s.signature_mode === 'sms' && s.sms_phone) kv('Téléphone (SMS)', maskPhone(s.sms_phone));
         if (s.ip) kv('Adresse IP', s.ip);
         if (s.user_agent) kv('Agent logiciel', s.user_agent);
