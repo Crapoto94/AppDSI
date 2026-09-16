@@ -87,7 +87,7 @@ export function handwrittenTextDataUrl(text: string, opts?: { fontSize?: number;
   if (!value) return null;
   const fontSize = opts?.fontSize || 56;
   const color = opts?.color || '#0f172a';
-  const fontFamily = 'cursive, "Segoe Script", "Comic Sans MS", "Brush Script MT", "Bradley Hand", serif';
+  const fontFamily = '"Segoe Script", "Bradley Hand", "Brush Script MT", "Lucida Handwriting", "Comic Sans MS", cursive, serif';
   const measure = document.createElement('canvas').getContext('2d');
   if (!measure) return null;
   measure.font = `${fontSize}px ${fontFamily}`;

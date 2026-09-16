@@ -6490,6 +6490,7 @@ async function setupPgDb() {
         `signature_note_path TEXT`,
         `note_offset_x NUMERIC`,
         `note_offset_y NUMERIC`,
+        `note_size NUMERIC`,
       ]) {
         try { await client.query(`ALTER TABLE hub_parapheur.signataires ADD COLUMN IF NOT EXISTS ${col}`); } catch (e) {}
       }

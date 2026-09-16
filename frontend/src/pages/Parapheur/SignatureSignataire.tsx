@@ -148,6 +148,7 @@ function SignerView({ token, auth, onLogout }: { token: string; auth: SignerAuth
   const [otpSending, setOtpSending] = useState(false);
   const [note, setNote] = useState('');
   const [noteOffset, setNoteOffset] = useState<{ x: number; y: number }>({ x: 0, y: 72 });
+  const [noteSize, setNoteSize] = useState(40);
 
   const notePreview = useMemo(() => (note.trim() ? handwrittenTextDataUrl(note) : null), [note]);
 
@@ -254,6 +255,7 @@ function SignerView({ token, auth, onLogout }: { token: string; auth: SignerAuth
         body.signatureNote = note.trim().slice(0, 120);
         body.noteOffsetX = noteOffset.x;
         body.noteOffsetY = noteOffset.y;
+        body.noteSize = noteSize;
         const noteImg = handwrittenTextDataUrl(note.trim());
         if (noteImg) body.signatureNoteDataUrl = noteImg;
       }
@@ -534,7 +536,7 @@ function SignerView({ token, auth, onLogout }: { token: string; auth: SignerAuth
                 </div>
                 <div style={{ padding: 16 }}>
                   {pos
-                    ? <SignableDocumentView docId={d.id} url={`/api/parapheur/public/${token}/doc/${d.id}`} authToken={auth.token} position={pos} signerName={info.signataire.nom} onViewed={markViewed} noteImage={notePreview} noteOffset={noteOffset} onNoteOffsetChange={setNoteOffset} />
+                    ? <SignableDocumentView docId={d.id} url={`/api/parapheur/public/${token}/doc/${d.id}`} authToken={auth.token} position={pos} signerName={info.signataire.nom} onViewed={markViewed} noteImage={notePreview} noteOffset={noteOffset} noteSize={noteSize} onNoteOffsetChange={setNoteOffset} />
                     : <p style={{ fontSize: 12, color: '#94a3b8' }}>Aucune position définie.</p>}
                 </div>
               </div>
@@ -631,15 +633,29 @@ function SignerView({ token, auth, onLogout }: { token: string; auth: SignerAuth
             <label style={{ display: 'block', fontSize: 12, color: '#64748b', marginBottom: 6 }}>
               Mention libre (optionnel) — ex. « Avis favorable » : elle s'affiche en écriture manuscrite près de votre signature. Faites-la glisser sur le document pour la positionner.
             </label>
-            <input
-              value={note}
-              onChange={e => setNote(e.target.value.slice(0, 120))}
-              placeholder="Avis favorable"
-              style={{ width: '100%', maxWidth: 420, padding: '9px 12px', border: '1px solid #e2e8f0', borderRadius: 8, fontSize: 13, boxSizing: 'border-box', fontFamily: 'inherit' }}
-            />
+            <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+              <input
+                value={note}
+                onChange={e => setNote(e.target.value.slice(0, 120))}
+                placeholder="Avis favorable"
+                style={{ flex: '1 1 260px', maxWidth: 420, padding: '9px 12px', border: '1px solid #e2e8f0', borderRadius: 8, fontSize: 13, boxSizing: 'border-box', fontFamily: 'inherit' }}
+              />
+              <label style={{ fontSize: 12, color: '#64748b', display: 'flex', alignItems: 'center', gap: 6 }}>
+                Taille
+                <select
+                  value={noteSize}
+                  onChange={e => setNoteSize(Number(e.target.value))}
+                  style={{ padding: '8px 10px', border: '1px solid #e2e8f0', borderRadius: 8, fontSize: 12, fontFamily: 'inherit' }}
+                >
+                  <option value={26}>Petite</option>
+                  <option value={40}>Moyenne</option>
+                  <option value={56}>Grande</option>
+                </select>
+              </label>
+            </div>
             {notePreview && (
               <div style={{ marginTop: 10 }}>
-                <img src={notePreview} alt="mention manuscrite" style={{ maxHeight: 70, maxWidth: '100%' }} />
+                <img src={notePreview} alt="mention manuscrite" style={{ height: noteSize, maxWidth: '100%' }} />
               </div>
             )}
           </div>
@@ -721,7 +737,7 @@ function SignerView({ token, auth, onLogout }: { token: string; auth: SignerAuth
  * la fin du document — le bas du défilement — pour que `onViewed(true)` soit
  * émis, ce qui débloque la signature.
  */
-function SignableDocumentView({ docId, url, authToken, position, signerName, onViewed, noteImage, noteOffset, onNoteOffsetChange }: {
+function SignableDocumentView({ docId, url, authToken, position, signerName, onViewed, noteImage, noteOffset, noteSize, onNoteOffsetChange }: {
   docId: number;
   url: string;
   authToken: string;
@@ -730,6 +746,7 @@ function SignableDocumentView({ docId, url, authToken, position, signerName, onV
   onViewed: (id: number, viewed: boolean) => void;
   noteImage?: string | null;
   noteOffset?: { x: number; y: number };
+  noteSize?: number;
   onNoteOffsetChange?: (o: { x: number; y: number }) => void;
 }) {
   const { doc, loading, error } = usePdfDocument({ url }, authToken);
@@ -823,9 +840,9 @@ function SignableDocumentView({ docId, url, authToken, position, signerName, onV
                       position: 'absolute',
                       left: noteLeft,
                       top: noteTop,
-                      height: 34 * pxScale,
+                      height: (noteSize || 40) * pxScale,
                       width: 'auto',
-                      maxWidth: Math.max(box.w, 200),
+                      maxWidth: Math.max(box.w, 240),
                       objectFit: 'contain',
                       cursor: 'grab',
                       touchAction: 'none',

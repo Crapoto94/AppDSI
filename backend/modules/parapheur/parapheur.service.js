@@ -1676,19 +1676,21 @@ async function buildSignedPdf(originalPath, sigs, ctx = {}) {
                     } catch {
                         noteImage = await pdfDoc.embedPng(noteBuf);
                     }
+                    const noteH = Number.isFinite(Number(s.note_size)) ? Math.max(10, Math.min(160, Number(s.note_size))) : 40;
                     const ns = noteImage.scale(1);
-                    const maxNoteW = Math.max(w, 220);
-                    let nw = Math.min(maxNoteW, ns.width);
-                    let nh = ns.height * (nw / ns.width);
-                    if (nh > 60) { nh = 60; nw = ns.width * (nh / ns.height); }
+                    const maxNoteW = Math.max(w * 1.5, 240);
+                    let nh = noteH;
+                    let nw = ns.width * (nh / ns.height);
+                    if (nw > maxNoteW) { nw = maxNoteW; nh = ns.height * (nw / ns.width); }
                     const nx = Math.max(2, Math.min(x + offX, width - nw - 2));
                     const ny = Math.max(2, Math.min(y + offY, height - nh - 2));
                     page.drawImage(noteImage, { x: nx, y: ny, width: nw, height: nh });
                 } else {
+                    const noteH = Number.isFinite(Number(s.note_size)) ? Math.max(10, Math.min(160, Number(s.note_size))) : 40;
                     page.drawText(String(s.signature_note), {
                         x: Math.max(2, Math.min(x + offX, width - 60)),
                         y: Math.max(2, Math.min(y + offY, height - 14)),
-                        size: 10,
+                        size: Math.max(8, noteH * 0.7),
                         font,
                         color: rgb(0.12, 0.12, 0.15),
                         maxWidth: Math.max(w, 220),
@@ -1733,7 +1735,7 @@ async function regenerateSignedDocs(parapheurId, secureContext) {
                     sg.nom, sg.signature_mode, sg.signature_image_path AS img,
                     sg.signed_by_name, sg.signed_by_email, sg.signature_title,
                     sg.signature_note, sg.signature_note_path AS note_img,
-                    sg.note_offset_x, sg.note_offset_y
+                    sg.note_offset_x, sg.note_offset_y, sg.note_size
              FROM hub_parapheur.signatures s
              JOIN hub_parapheur.signataires sg ON sg.id = s.signataire_id
              WHERE s.document_id = ? AND s.applied = TRUE
@@ -1838,7 +1840,7 @@ async function notifySignersCompleted(parapheur, signataires) {
     }
 }
 
-async function signWithToken(token, { signatureDataUrl, signatureNote, signatureNoteDataUrl, noteOffsetX, noteOffsetY, memorize, certificatePassword, otpCode, delegation, req }) {
+async function signWithToken(token, { signatureDataUrl, signatureNote, signatureNoteDataUrl, noteOffsetX, noteOffsetY, noteSize, memorize, certificatePassword, otpCode, delegation, req }) {
     const signataire = await getSignerByToken(token);
     if (!signataire) throw { status: 404, message: 'Lien de signature introuvable.' };
     if (signataire.status === 'refuse') throw { status: 400, message: 'Vous avez déjà refusé de signer.' };
@@ -1913,6 +1915,9 @@ async function signWithToken(token, { signatureDataUrl, signatureNote, signature
     };
     const noteOffsetXVal = noteValue ? clampOffset(noteOffsetX, 0) : null;
     const noteOffsetYVal = noteValue ? clampOffset(noteOffsetY, 72) : null;
+    // Taille de la mention (hauteur en points), réglable par le signataire.
+    const noteSizeNum = Number(noteSize);
+    const noteSizeVal = noteValue ? Math.max(10, Math.min(160, Number.isFinite(noteSizeNum) ? Math.round(noteSizeNum) : 40)) : null;
 
     // Filet de sécurité : garantir une ligne de position pour chaque document.
     // (Sans elle, un parapheur créé avec un mapping de positions incomplet ne
@@ -2000,9 +2005,9 @@ async function signWithToken(token, { signatureDataUrl, signatureNote, signature
         `UPDATE hub_parapheur.signataires
          SET status = 'a_signe', signed_at = ?, signature_image_path = ?, ip = ?, user_agent = ?,
              signed_by_email = ?, signed_by_name = ?, delegation_id = ?,
-             signature_note = ?, signature_note_path = ?, note_offset_x = ?, note_offset_y = ?
+             signature_note = ?, signature_note_path = ?, note_offset_x = ?, note_offset_y = ?, note_size = ?
          WHERE id = ?`,
-        [nowIso, signaturePath, ip, ua, signedByEmail, signedByName, delegating ? (delegation.id || null) : null, noteValue, notePath, noteOffsetXVal, noteOffsetYVal, signataire.id]
+        [nowIso, signaturePath, ip, ua, signedByEmail, signedByName, delegating ? (delegation.id || null) : null, noteValue, notePath, noteOffsetXVal, noteOffsetYVal, noteSizeVal, signataire.id]
     );
     await pgDb.run(
         `UPDATE hub_parapheur.signatures SET applied = TRUE, signed_at = ?, ip = ?, user_agent = ? WHERE signataire_id = ?`,

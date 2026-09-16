@@ -219,6 +219,11 @@ const controller = {
         try {
             const result = await service.signWithToken(req.params.token, {
                 signatureDataUrl: req.body && req.body.signatureDataUrl,
+                signatureNote: req.body && req.body.signatureNote,
+                signatureNoteDataUrl: req.body && req.body.signatureNoteDataUrl,
+                noteOffsetX: req.body && req.body.noteOffsetX,
+                noteOffsetY: req.body && req.body.noteOffsetY,
+                noteSize: req.body && req.body.noteSize,
                 memorize: req.body && req.body.memorize,
                 certificatePassword: req.body && req.body.certificatePassword,
                 otpCode: req.body && req.body.otpCode,
