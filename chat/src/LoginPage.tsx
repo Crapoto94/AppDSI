@@ -1,15 +1,16 @@
 import { useState, useRef, type FormEvent } from 'react'
 import axios from 'axios'
-import type { UserInfo, AppConfig } from './App'
+import type { UserInfo, AppConfig, ApiStatus } from './App'
 
 interface Props {
   onLogin: (token: string, user: UserInfo, remember: boolean) => void
   config: AppConfig
+  apiStatus: ApiStatus
 }
 
 type Tab = 'ad' | 'otp' | 'guest'
 
-export default function LoginPage({ onLogin, config }: Props) {
+export default function LoginPage({ onLogin, config, apiStatus }: Props) {
   const { chat_name, chat_logo, primary_color, secondary_color, ad_name, ad_default_username } = config
   const gradient = `linear-gradient(135deg, ${primary_color}, ${secondary_color})`
 
@@ -117,7 +118,41 @@ export default function LoginPage({ onLogin, config }: Props) {
         background: '#fff', borderRadius: 24,
         boxShadow: '0 20px 60px rgba(99,102,241,0.18)',
         padding: '40px 40px 36px',
+        position: 'relative',
       }}>
+        {/* Pastille de statut de connexion au serveur */}
+        <div
+          title={
+            apiStatus === 'online' ? 'Connexion au serveur : OK'
+              : apiStatus === 'offline' ? 'Connexion au serveur : indisponible'
+              : 'Connexion au serveur : vérification en cours…'
+          }
+          style={{
+            position: 'absolute', top: 16, right: 16,
+            display: 'flex', alignItems: 'center', gap: 6,
+            fontSize: 11, color: '#94a3b8',
+          }}
+        >
+          <span style={{
+            width: 9, height: 9, borderRadius: '50%',
+            background: apiStatus === 'online' ? '#22c55e' : apiStatus === 'offline' ? '#ef4444' : '#cbd5e1',
+            boxShadow: apiStatus === 'online' ? '0 0 6px #22c55e' : apiStatus === 'offline' ? '0 0 6px #ef4444' : 'none',
+            transition: 'background 0.2s',
+          }} />
+        </div>
+
+        {/* Avertissement si le backend est injoignable */}
+        {apiStatus === 'offline' && (
+          <div style={{
+            background: '#fef2f2', border: '1px solid #fecaca',
+            borderRadius: 10, padding: '10px 14px',
+            color: '#b91c1c', fontSize: 12.5, marginBottom: 20,
+            lineHeight: 1.5,
+          }}>
+            ⚠️ Le serveur du chat est actuellement injoignable. La connexion et l'envoi de messages ne fonctionneront pas tant que le service n'est pas rétabli. Réessayez dans quelques instants.
+          </div>
+        )}
+
         {/* Branding */}
         <div style={{ textAlign: 'center', marginBottom: 28 }}>
           <div style={{
