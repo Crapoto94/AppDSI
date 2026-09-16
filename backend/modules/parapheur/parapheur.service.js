@@ -1669,11 +1669,14 @@ async function buildSignedPdf(originalPath, sigs, ctx = {}) {
             maxWidth: Math.max(w, 180),
         });
 
-        // Intitulé de poste du signataire, sous la signature (si demandé).
+        // Intitulé de poste du signataire, nettement plus bas que le libellé
+        // « Signé par … » (ligne dédiée en dessous).
         if (s.signature_title) {
+            const labelLines = Math.max(1, Math.ceil(font.widthOfTextAtSize(label, 6.5) / Math.max(w, 180)));
+            const titleY = y - 10 - 15 - (labelLines - 1) * 8;
             page.drawText(String(s.signature_title), {
                 x: Math.max(2, x),
-                y: Math.max(2, y - 19),
+                y: Math.max(2, titleY),
                 size: 6,
                 font,
                 color: rgb(0.35, 0.35, 0.45),
