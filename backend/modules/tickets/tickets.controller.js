@@ -1317,7 +1317,8 @@ async assign(req, res) {
         try {
             // Le motif devient un commentaire public sur le ticket, visible des techniciens.
             await commentRepo.create(info.ticketId, { content: reason, is_private: 0 }, fakeUser);
-            await workflowService.changeStatus(info.ticketId, 2, null,
+            const targetStatus = (ticket.technician_id || ticket.group_id) ? 2 : 1;
+            await workflowService.changeStatus(info.ticketId, targetStatus, null,
                 `Réouvert par le demandeur via le lien reçu par email (${info.email}) — Motif : ${reason}`, fakeUser);
         } catch (e) {
             return res.status(400).json({ message: e.message });
