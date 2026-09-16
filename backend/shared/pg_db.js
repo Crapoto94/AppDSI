@@ -6560,6 +6560,41 @@ async function setupPgDb() {
       await client.query(`CREATE INDEX IF NOT EXISTS idx_parapheur_delegations_delegant ON hub_parapheur.delegations(LOWER(delegant_email))`);
       await client.query(`CREATE INDEX IF NOT EXISTS idx_parapheur_delegations_delegate ON hub_parapheur.delegations(LOWER(delegate_email))`);
 
+      // Autorité de certification interne (sceau de la plateforme) — clé privée chiffrée.
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS hub_parapheur.platform_ca (
+          id SERIAL PRIMARY KEY,
+          cert_pem TEXT NOT NULL,
+          key_enc TEXT NOT NULL,
+          subject TEXT,
+          serial TEXT,
+          fingerprint TEXT,
+          valid_from TIMESTAMP,
+          valid_to TIMESTAMP,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          rotated_at TIMESTAMP
+        )`);
+
+      // Certificats techniques émis « à la volée » pour chaque signature interne
+      // (simple/SMS) : preuve de l'événement, sans conservation de clé privée.
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS hub_parapheur.signature_certificates (
+          id SERIAL PRIMARY KEY,
+          parapheur_id INTEGER,
+          signataire_id INTEGER,
+          mode TEXT,
+          subject TEXT,
+          serial TEXT,
+          issuer TEXT,
+          fingerprint TEXT,
+          cert_pem TEXT,
+          signing_time TIMESTAMP,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )`);
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_parapheur_sig_certs_parapheur ON hub_parapheur.signature_certificates(parapheur_id)`);
+      await client.query(`ALTER TABLE hub_parapheur.parapheurs ADD COLUMN IF NOT EXISTS sealed_at TIMESTAMP`);
+      await client.query(`ALTER TABLE hub_parapheur.parapheurs ADD COLUMN IF NOT EXISTS seal_serial TEXT`);
+
       await client.query(`
         CREATE TABLE IF NOT EXISTS hub_parapheur.audit_log (
           id SERIAL PRIMARY KEY,

@@ -172,6 +172,42 @@ const controller = {
         } catch (e) { sendError(res, e, 'Enregistrement impossible'); }
     },
 
+    getCa: async (req, res) => {
+        try {
+            if (!isAdminLike(req.user)) return res.status(403).json({ message: 'Accès administrateur requis.' });
+            const ca = await service.getPlatformCa();
+            if (!ca) return res.json({ exists: false });
+            res.json({
+                exists: true,
+                subject: ca.subject,
+                serial: ca.serial,
+                fingerprint: ca.fingerprint,
+                valid_from: ca.valid_from,
+                valid_to: ca.valid_to,
+                cert_pem: ca.certPem,
+            });
+        } catch (e) { sendError(res, e, 'Erreur autorité de certification'); }
+    },
+
+    generateCa: async (req, res) => {
+        try {
+            if (!isAdminLike(req.user)) return res.status(403).json({ message: 'Accès administrateur requis.' });
+            const ca = await service.generatePlatformCa();
+            res.json({ exists: true, subject: ca.subject, serial: ca.serial, fingerprint: ca.fingerprint, valid_to: ca.valid_to });
+        } catch (e) { sendError(res, e, 'Génération impossible'); }
+    },
+
+    downloadCa: async (req, res) => {
+        try {
+            if (!isAdminLike(req.user)) return res.status(403).json({ message: 'Accès administrateur requis.' });
+            const ca = await service.getPlatformCa();
+            if (!ca || !ca.certPem) return res.status(404).send('Aucune autorité de certification');
+            res.setHeader('Content-Type', 'application/x-pem-file');
+            res.setHeader('Content-Disposition', 'attachment; filename="ac-parapheur.pem"');
+            res.send(ca.certPem);
+        } catch (e) { sendError(res, e, 'Téléchargement impossible'); }
+    },
+
     security: async (req, res) => {
         try {
             if (!isAdminLike(req.user)) return res.status(403).json({ message: 'Accès administrateur requis.' });

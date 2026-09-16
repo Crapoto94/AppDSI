@@ -46,6 +46,9 @@ router.get('/certificates', authenticateJWT, controller.listCertificates);
 router.delete('/certificates/:id', authenticateJWT, controller.deleteCertificateAdmin);
 router.get('/admin/settings', authenticateJWT, controller.getSettings);
 router.put('/admin/settings', authenticateJWT, controller.saveSettings);
+router.get('/admin/ca', authenticateJWT, controller.getCa);
+router.post('/admin/ca', authenticateJWT, controller.generateCa);
+router.get('/admin/ca/cert', authenticateJWT, controller.downloadCa);
 router.get('/signature-logs', authenticateJWT, controller.signatureLogs);
 router.get('/security', authenticateJWT, controller.security);
 

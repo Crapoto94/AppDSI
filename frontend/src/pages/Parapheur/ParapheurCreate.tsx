@@ -62,8 +62,24 @@ export default function ParapheurCreate() {
     });
     return list;
   };
-  const addFiles = (files: FileList | null) => setDocuments(prev => [...prev, ...toPdfList(files)]);
-  const addAnnexes = (files: FileList | null) => setAnnexes(prev => [...prev, ...toPdfList(files)]);
+  const docInputRef = React.useRef<HTMLInputElement | null>(null);
+  const annexeInputRef = React.useRef<HTMLInputElement | null>(null);
+  const handlePick = (target: 'docs' | 'annexes') => (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    const added = toPdfList(files);
+    if (files && files.length > 0 && added.length === 0) setError('Seuls les fichiers PDF sont acceptés.');
+    if (target === 'docs') setDocuments(prev => [...prev, ...added]);
+    else setAnnexes(prev => [...prev, ...added]);
+    e.target.value = '';
+  };
+  const handleDrop = (target: 'docs' | 'annexes') => (e: React.DragEvent) => {
+    e.preventDefault();
+    const list = e.dataTransfer?.files || null;
+    const added = toPdfList(list);
+    if (list && list.length > 0 && added.length === 0) setError('Seuls les fichiers PDF sont acceptés.');
+    if (target === 'docs') setDocuments(prev => [...prev, ...added]);
+    else setAnnexes(prev => [...prev, ...added]);
+  };
   const removeDoc = (idx: number) => setDocuments(prev => prev.filter((_, i) => i !== idx));
   const removeAnnexe = (idx: number) => setAnnexes(prev => prev.filter((_, i) => i !== idx));
   const setPageCount = (id: string, n: number) => setPages(prev => (prev[id] === n ? prev : { ...prev, [id]: n }));
@@ -74,13 +90,16 @@ export default function ParapheurCreate() {
       const k = s.email.toLowerCase();
       if (titleFetched.current.has(k)) return;
       titleFetched.current.add(k);
-      const prefill = (s.poste || '').trim();
-      if (prefill) {
-        setTitleMap(m => ({ ...m, [k]: prefill }));
-        setIncludeTitleMap(m => ({ ...m, [k]: true }));
+      // Toujours interroger le référentiel RH (le libellé `poste` du picker peut
+      // être la fonction générique, pas l'intitulé de fonction attendu).
+      if (!s.matricule) {
+        const prefill = (s.poste || '').trim();
+        if (prefill) {
+          setTitleMap(m => ({ ...m, [k]: prefill }));
+          setIncludeTitleMap(m => ({ ...m, [k]: true }));
+        }
         return;
       }
-      if (!s.matricule) return;
       setTitleLoading(m => ({ ...m, [k]: true }));
       fetch(`/api/parapheur/agent-titre?matricule=${encodeURIComponent(s.matricule)}`, { headers: { Authorization: `Bearer ${token}` } })
         .then(r => (r.ok ? r.json() : null))
@@ -190,11 +209,16 @@ export default function ParapheurCreate() {
 
         {/* 2. Documents à signer */}
         <Section icon={<Upload size={17} />} title={`Documents à signer (PDF) * (${documents.length})`}>
-          <label style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, padding: 22, border: '2px dashed #cbd5e1', borderRadius: 12, cursor: 'pointer', color: '#64748b', background: '#f8fafc' }}>
+          <div
+            onClick={() => docInputRef.current?.click()}
+            onDragOver={e => e.preventDefault()}
+            onDrop={handleDrop('docs')}
+            style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, padding: 22, border: '2px dashed #cbd5e1', borderRadius: 12, cursor: 'pointer', color: '#64748b', background: '#f8fafc' }}
+          >
             <Upload size={22} />
-            <span style={{ fontWeight: 700, fontSize: 13 }}>Cliquez pour ajouter des PDF à signer</span>
-            <input type="file" accept="application/pdf" multiple style={{ display: 'none' }} onChange={e => { addFiles(e.target.files); e.target.value = ''; }} />
-          </label>
+            <span style={{ fontWeight: 700, fontSize: 13 }}>Cliquez ou déposez des PDF à signer</span>
+            <input ref={docInputRef} type="file" accept="application/pdf,.pdf" multiple style={{ display: 'none' }} onChange={handlePick('docs')} />
+          </div>
           {documents.length > 0 && (
             <div style={{ display: 'grid', gap: 8, marginTop: 12 }}>
               {documents.map((d, i) => (
@@ -213,11 +237,16 @@ export default function ParapheurCreate() {
 
         {/* 2bis. Annexes (non signées) */}
         <Section icon={<Paperclip size={17} />} title={`Annexes — PDF complémentaires (${annexes.length})`}>
-          <label style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, padding: 18, border: '2px dashed #cbd5e1', borderRadius: 12, cursor: 'pointer', color: '#64748b', background: '#f8fafc' }}>
+          <div
+            onClick={() => annexeInputRef.current?.click()}
+            onDragOver={e => e.preventDefault()}
+            onDrop={handleDrop('annexes')}
+            style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, padding: 18, border: '2px dashed #cbd5e1', borderRadius: 12, cursor: 'pointer', color: '#64748b', background: '#f8fafc' }}
+          >
             <Paperclip size={20} />
-            <span style={{ fontWeight: 700, fontSize: 13 }}>Cliquez pour ajouter des annexes PDF</span>
-            <input type="file" accept="application/pdf" multiple style={{ display: 'none' }} onChange={e => { addAnnexes(e.target.files); e.target.value = ''; }} />
-          </label>
+            <span style={{ fontWeight: 700, fontSize: 13 }}>Cliquez ou déposez des annexes PDF</span>
+            <input ref={annexeInputRef} type="file" accept="application/pdf,.pdf" multiple style={{ display: 'none' }} onChange={handlePick('annexes')} />
+          </div>
           <p style={hint}>Les annexes sont proposées en consultation au signataire mais ne sont pas signées.</p>
           {annexes.length > 0 && (
             <div style={{ display: 'grid', gap: 8, marginTop: 12 }}>

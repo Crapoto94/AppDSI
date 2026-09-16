@@ -45,6 +45,7 @@ async function getAppBaseUrl() {
 }
 
 const PUBLIC_BASE_URL_KEY = 'parapheur.public_base_url';
+const SEAL_ENABLED_KEY = 'parapheur.seal_enabled';
 const VERIFY_PATH = '/parapheur/verification';
 
 /**
@@ -56,11 +57,14 @@ const VERIFY_PATH = '/parapheur/verification';
  */
 async function getParapheurSettings() {
     let publicBaseUrl = '';
+    let sealEnabled = true;
     try {
         const db = getSqlite();
         if (db) {
             const row = await db.get('SELECT setting_value FROM app_settings WHERE setting_key = ?', [PUBLIC_BASE_URL_KEY]);
             publicBaseUrl = (row && row.setting_value) ? String(row.setting_value).trim() : '';
+            const sealRow = await db.get('SELECT setting_value FROM app_settings WHERE setting_key = ?', [SEAL_ENABLED_KEY]);
+            if (sealRow && sealRow.setting_value != null) sealEnabled = String(sealRow.setting_value) !== 'false';
         }
     } catch { /* configuration non initialisée */ }
     const internal = await getAppBaseUrl();
@@ -69,20 +73,26 @@ async function getParapheurSettings() {
         internal_base_url: internal,
         effective_base_url: String(publicBaseUrl || internal || '').replace(/\/+$/, ''),
         verify_path: VERIFY_PATH,
+        seal_enabled: sealEnabled,
     };
 }
 
-async function saveParapheurSettings({ publicBaseUrl } = {}) {
+async function saveParapheurSettings({ publicBaseUrl, sealEnabled } = {}) {
     const db = getSqlite();
     if (!db) throw { status: 503, message: 'Configuration indisponible (base non initialisée).' };
-    const value = String(publicBaseUrl || '').trim().replace(/\/+$/, '');
-    if (value && !/^https?:\/\//i.test(value)) {
-        throw { status: 400, message: "L'URL publique doit commencer par http:// ou https://." };
-    }
     const upsert = `INSERT INTO app_settings (setting_key, setting_value, description)
         VALUES (?, ?, ?)
         ON CONFLICT(setting_key) DO UPDATE SET setting_value = excluded.setting_value, description = excluded.description`;
-    await db.run(upsert, [PUBLIC_BASE_URL_KEY, value, 'URL publique externe du parapheur (lien de vérification du QR code)']);
+    if (publicBaseUrl !== undefined) {
+        const value = String(publicBaseUrl || '').trim().replace(/\/+$/, '');
+        if (value && !/^https?:\/\//i.test(value)) {
+            throw { status: 400, message: "L'URL publique doit commencer par http:// ou https://." };
+        }
+        await db.run(upsert, [PUBLIC_BASE_URL_KEY, value, 'URL publique externe du parapheur (lien de vérification du QR code)']);
+    }
+    if (sealEnabled !== undefined) {
+        await db.run(upsert, [SEAL_ENABLED_KEY, sealEnabled === false ? 'false' : 'true', 'Sceau PAdES de fin de circuit (AC interne)']);
+    }
     return getParapheurSettings();
 }
 
@@ -548,6 +558,214 @@ async function applyPadesToBuffer(pdfBuffer, p12Buffer, password, { name, reason
     return signed;
 }
 
+// ─── Autorité de certification interne (sceau de la plateforme) ──────────────
+// Pour les signatures « internes » (simple / SMS), on émet un certificat
+// technique à la volée lié à l'événement de signature. En fin de circuit, un
+// sceau PAdES (certificat éphémère émis par l'AC interne) est apposé sur les
+// documents. Portée : usage interne (voir dossier de preuves).
+
+async function getPlatformCa() {
+    const row = await pgDb.get(`SELECT * FROM hub_parapheur.platform_ca ORDER BY id DESC LIMIT 1`);
+    if (!row) return null;
+    let keyPem = null;
+    try { keyPem = decryptBuffer(Buffer.from(row.key_enc, 'base64')).toString('utf8'); } catch { keyPem = null; }
+    return {
+        id: row.id,
+        certPem: row.cert_pem,
+        keyPem,
+        subject: row.subject,
+        serial: row.serial,
+        fingerprint: row.fingerprint,
+        valid_from: row.valid_from,
+        valid_to: row.valid_to,
+    };
+}
+
+async function generatePlatformCa() {
+    const keys = forge.pki.rsa.generateKeyPair(2048);
+    const cert = forge.pki.createCertificate();
+    cert.publicKey = keys.publicKey;
+    cert.serialNumber = '01' + forge.util.bytesToHex(forge.random.getBytesSync(8));
+    cert.validity.notBefore = new Date(Date.now() - 60 * 1000);
+    cert.validity.notAfter = new Date();
+    cert.validity.notAfter.setFullYear(cert.validity.notAfter.getFullYear() + 15);
+    const attrs = [
+        { name: 'commonName', value: "AC Parapheur - Ville d'Ivry-sur-Seine" },
+        { name: 'organizationName', value: "Ville d'Ivry-sur-Seine" },
+        { name: 'organizationalUnitName', value: 'DSI' },
+        { name: 'countryName', value: 'FR' },
+    ];
+    cert.setSubject(attrs);
+    cert.setIssuer(attrs);
+    cert.setExtensions([
+        { name: 'basicConstraints', cA: true, critical: true },
+        { name: 'keyUsage', keyCertSign: true, cRLSign: true, digitalSignature: true, critical: true },
+        { name: 'subjectKeyIdentifier' },
+    ]);
+    cert.sign(keys.privateKey, forge.md.sha256.create());
+    const certPem = forge.pki.certificateToPem(cert);
+    const keyPem = forge.pki.privateKeyToPem(keys.privateKey);
+    const enc = encryptBuffer(Buffer.from(keyPem, 'utf8')).toString('base64');
+    const fingerprint = forge.pki.getPublicKeyFingerprint(keys.publicKey, { type: 'SHA-256', encoding: 'hex' });
+    const serial = cert.serialNumber;
+
+    const existing = await pgDb.get(`SELECT id FROM hub_parapheur.platform_ca ORDER BY id DESC LIMIT 1`);
+    if (existing) {
+        await pgDb.run(
+            `UPDATE hub_parapheur.platform_ca
+             SET cert_pem = ?, key_enc = ?, subject = ?, serial = ?, fingerprint = ?,
+                 valid_from = ?, valid_to = ?, rotated_at = NOW()
+             WHERE id = ?`,
+            [certPem, enc, attrs[0].value, serial, fingerprint,
+                cert.validity.notBefore.toISOString(), cert.validity.notAfter.toISOString(), existing.id]
+        );
+    } else {
+        await pgDb.run(
+            `INSERT INTO hub_parapheur.platform_ca (cert_pem, key_enc, subject, serial, fingerprint, valid_from, valid_to)
+             VALUES (?, ?, ?, ?, ?, ?, ?)`,
+            [certPem, enc, attrs[0].value, serial, fingerprint,
+                cert.validity.notBefore.toISOString(), cert.validity.notAfter.toISOString()]
+        );
+    }
+    return getPlatformCa();
+}
+
+async function ensurePlatformCa() {
+    const ca = await getPlatformCa();
+    if (ca && ca.keyPem) return ca;
+    return generatePlatformCa();
+}
+
+function forgeSubjectAttributes(subject) {
+    const attrs = [{ name: 'commonName', value: String(subject.cn || 'Signataire').slice(0, 64) }];
+    if (subject.organizationName) attrs.push({ name: 'organizationName', value: subject.organizationName });
+    if (subject.organizationalUnitName) attrs.push({ name: 'organizationalUnitName', value: subject.organizationalUnitName });
+    attrs.push({ name: 'countryName', value: 'FR' });
+    return attrs;
+}
+
+/** Émet un certificat feuille signé par l'AC interne. */
+function issueLeafCertificate(ca, subject) {
+    const caCert = forge.pki.certificateFromPem(ca.certPem);
+    const caKey = forge.pki.privateKeyFromPem(ca.keyPem);
+    const keys = forge.pki.rsa.generateKeyPair(2048);
+    const cert = forge.pki.createCertificate();
+    cert.publicKey = keys.publicKey;
+    cert.serialNumber = '02' + forge.util.bytesToHex(forge.random.getBytesSync(8));
+    cert.validity.notBefore = new Date(Date.now() - 60 * 1000);
+    cert.validity.notAfter = new Date();
+    cert.validity.notAfter.setFullYear(cert.validity.notAfter.getFullYear() + 5);
+    const attrs = forgeSubjectAttributes(subject);
+    cert.setSubject(attrs);
+    cert.setIssuer(caCert.subject.attributes);
+    const extensions = [
+        { name: 'basicConstraints', cA: false, critical: true },
+        { name: 'keyUsage', digitalSignature: true, nonRepudiation: true, critical: true },
+        { name: 'extKeyUsage', emailProtection: true },
+        { name: 'subjectKeyIdentifier' },
+    ];
+    if (subject.email) extensions.push({ name: 'subjectAltName', altNames: [{ type: 1, value: subject.email }] });
+    cert.setExtensions(extensions);
+    cert.sign(caKey, forge.md.sha256.create());
+    return {
+        certPem: forge.pki.certificateToPem(cert),
+        keyPem: forge.pki.privateKeyToPem(keys.privateKey),
+        serial: cert.serialNumber,
+    };
+}
+
+function p12BufferFromKeyAndChain(keyPem, certPems, password) {
+    const key = forge.pki.privateKeyFromPem(keyPem);
+    const certs = certPems.map((p) => forge.pki.certificateFromPem(p));
+    const asn1 = forge.pkcs12.toPkcs12Asn1(key, certs, password);
+    return Buffer.from(forge.asn1.toDer(asn1).getBytes(), 'binary');
+}
+
+function certFingerprintSha256(certPem) {
+    try {
+        const cert = forge.pki.certificateFromPem(certPem);
+        return forge.pki.getPublicKeyFingerprint(cert.publicKey, { type: 'SHA-256', encoding: 'hex' });
+    } catch { return null; }
+}
+
+/** Émet et enregistre un certificat technique pour une signature interne. */
+async function recordSignatureCertificate(parapheurId, signataire, mode, signingTime) {
+    try {
+        const ca = await ensurePlatformCa();
+        if (!ca || !ca.keyPem) return null;
+        const leaf = issueLeafCertificate(ca, {
+            cn: `${signataire.nom || signataire.email} (${signataire.email})`,
+            email: signataire.email,
+            organizationName: "Ville d'Ivry-sur-Seine",
+            organizationalUnitName: 'DSI',
+        });
+        const issuer = forge.pki.certificateFromPem(ca.certPem).subject.getField('CN')?.value || ca.subject;
+        const fingerprint = certFingerprintSha256(leaf.certPem);
+        await pgDb.run(
+            `INSERT INTO hub_parapheur.signature_certificates
+                (parapheur_id, signataire_id, mode, subject, serial, issuer, fingerprint, cert_pem, signing_time)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [parapheurId, signataire.id, mode, signataire.nom || signataire.email, leaf.serial, issuer, fingerprint, leaf.certPem, signingTime]
+        );
+        return { serial: leaf.serial, fingerprint, issuer };
+    } catch (e) {
+        console.warn('[PARAPHEUR] certificat de signature non généré:', e.message);
+        return null;
+    }
+}
+
+/**
+ * Sceau de fin de circuit : appose une signature PAdES (certificat éphémère
+ * émis par l'AC interne) sur chaque document signable qui n'en porte pas déjà.
+ */
+async function sealParapheur(parapheurId) {
+    const settings = await getParapheurSettings();
+    if (settings && settings.seal_enabled === false) return { sealed: 0, skipped: true };
+    const p = await pgDb.get(`SELECT * FROM hub_parapheur.parapheurs WHERE id = ?`, [parapheurId]);
+    if (!p) return null;
+    const ca = await ensurePlatformCa();
+    if (!ca || !ca.keyPem) return { sealed: 0 };
+
+    const docs = await pgDb.all(
+        `SELECT * FROM hub_parapheur.documents WHERE parapheur_id = ? AND COALESCE(is_annexe, FALSE) = FALSE ORDER BY sort_order, id`,
+        [parapheurId]
+    );
+    let sealed = 0;
+    let lastSerial = null;
+    for (const doc of docs) {
+        if (doc.has_pades) continue;
+        const srcPath = doc.signed_path || doc.storage_path;
+        if (!srcPath) continue;
+        try {
+            const buf = await readStorageFile(srcPath);
+            const sealCert = issueLeafCertificate(ca, {
+                cn: `Sceau parapheur ${p.reference || p.id}`,
+                organizationName: "Ville d'Ivry-sur-Seine",
+                organizationalUnitName: 'DSI',
+            });
+            const password = crypto.randomBytes(16).toString('hex');
+            const p12 = p12BufferFromKeyAndChain(sealCert.keyPem, [sealCert.certPem, ca.certPem], password);
+            const sealedBuf = await applyPadesToBuffer(buf, p12, password, {
+                name: `Sceau plateforme — ${p.reference || p.id}`,
+                reason: `Sceau de fin de circuit — ${p.title || ''}`.trim(),
+                pos: { page: 1, xPct: 90, yPct: 96, w: 60, h: 18 },
+            });
+            const base = String(doc.original_name || 'document.pdf').replace(/\.pdf$/i, '');
+            const saved = await storage.saveFile(MODULE, `${parapheurId}`, { buffer: sealedBuf, originalname: `${base}_signe.pdf` });
+            await pgDb.run(`UPDATE hub_parapheur.documents SET signed_path = ?, has_pades = TRUE WHERE id = ?`, [saved.dbPath, doc.id]);
+            lastSerial = sealCert.serial;
+            sealed++;
+        } catch (e) {
+            console.error('[PARAPHEUR] sceau de fin de circuit échoué (document', doc.id, '):', e.message);
+        }
+    }
+    if (sealed > 0) {
+        await pgDb.run(`UPDATE hub_parapheur.parapheurs SET sealed_at = NOW(), seal_serial = ? WHERE id = ?`, [lastSerial, parapheurId]);
+        await audit(parapheurId, 'plateforme', 'sceau', { documents: sealed, serial: lastSerial }, null);
+    }
+    return { sealed };
+}
+
 /** Extrait les données binaires d'une dataURL (data:image/png;base64,...). */
 function decodeDataUrl(dataUrl) {
     if (!dataUrl || typeof dataUrl !== 'string') return null;
@@ -598,9 +816,24 @@ async function getEligibleEmails() {
 }
 
 /** Met un intitulé en casse « Titre » (Directeur Des Système D'Informations). */
+const FR_SMALL_WORDS = new Set(['de', 'des', 'du', 'd', 'la', 'le', 'les', 'l', 'et', 'a', 'au', 'aux', 'en', 'sur', 'sous', 'pour', 'par', 'dans', 'avec', 'sans', 'ou', 'ni', 'the', 'of', 'and']);
 function titleCaseFr(s) {
     if (!s) return s;
-    return String(s).toLowerCase().split(/\s+/).map(w => (w ? w[0].toUpperCase() + w.slice(1) : w)).join(' ');
+    const cleaned = String(s)
+        .replace(/\s*[·•]\s*trice\b/gi, '')
+        .replace(/[·•]/g, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+    const cap = (w) => (w ? w[0].toUpperCase() + w.slice(1) : w);
+    return cleaned.toLowerCase().split(' ').map((w, i) => {
+        if (i === 0) return cap(w);
+        const elision = w.match(/^([a-zà-ÿ]{1,3}')(.+)$/);
+        if (elision) {
+            return /^(d|l|qu|j|n|s|t|c|m)'$/.test(elision[1]) ? elision[1] + cap(elision[2]) : cap(w);
+        }
+        if (FR_SMALL_WORDS.has(w)) return w;
+        return cap(w);
+    }).join(' ');
 }
 
 /**
@@ -614,7 +847,9 @@ async function getAgentTitre({ matricule } = {}) {
             `SELECT "POSTE_L", "FONCTION_L" FROM oracle.rh_v_extract_dsi WHERE "MATRICULE" = ? LIMIT 1`,
             [String(matricule).trim()]
         );
-        const raw = row ? (row.POSTE_L || row.FONCTION_L || null) : null;
+        // Le libellé attendu (« Directeur des Systèmes d'Information ») est porté
+        // par FONCTION_L (POSTE_L = intitulé de poste administratif).
+        const raw = row ? (row.FONCTION_L || row.POSTE_L || null) : null;
         return { titre: raw ? titleCaseFr(raw) : null, raw: raw || null };
     } catch (e) {
         console.warn('[PARAPHEUR] titre agent indisponible:', e.message);
@@ -957,6 +1192,8 @@ function mapParapheur(p) {
         created_at: p.created_at,
         completed_at: p.completed_at,
         cancelled_at: p.cancelled_at,
+        sealed_at: p.sealed_at || null,
+        seal_serial: p.seal_serial || null,
     };
 }
 
@@ -1045,6 +1282,12 @@ async function getDetail(id) {
         `SELECT LOWER(email) AS email, subject, issuer, serial, valid_from, valid_to, filename FROM hub_parapheur.agent_certificates`
     );
     const certByEmail = new Map(certs.map(c => [c.email, c]));
+    const techCerts = await pgDb.all(
+        `SELECT signataire_id, serial, issuer, fingerprint, signing_time FROM hub_parapheur.signature_certificates WHERE parapheur_id = ? ORDER BY id DESC`,
+        [id]
+    );
+    const techBySigner = new Map();
+    for (const t of techCerts) if (!techBySigner.has(t.signataire_id)) techBySigner.set(t.signataire_id, t);
     const signatures = await pgDb.all(
         `SELECT s.* FROM hub_parapheur.signatures s
          JOIN hub_parapheur.signataires sg ON sg.id = s.signataire_id
@@ -1086,6 +1329,10 @@ async function getDetail(id) {
             signed_by_name: (s.signed_by_name && s.signed_by_name !== s.nom) ? s.signed_by_name : null,
             signed_by_email: s.signed_by_email || null,
             signature_note: s.signature_note || null,
+            technique_certificate: (() => {
+                const t = techBySigner.get(s.id);
+                return t ? { serial: t.serial, issuer: t.issuer, fingerprint: t.fingerprint, signing_time: t.signing_time } : null;
+            })(),
             certificate: (() => {
                 const c = certByEmail.get(String(s.email || '').toLowerCase());
                 if (!c) return null;
@@ -1150,7 +1397,7 @@ async function getPublicInfo(token, req) {
 
     // Détails des signatures déjà apposées (bandeau de type Acrobat dans la visionneuse).
     const signedRows = await pgDb.all(
-        `SELECT nom, email, signature_mode, signed_at, signed_by_name, signature_note FROM hub_parapheur.signataires
+        `SELECT id, nom, email, signature_mode, signed_at, signed_by_name, signature_note FROM hub_parapheur.signataires
          WHERE parapheur_id = ? AND status = 'a_signe' ORDER BY order_number, id`,
         [p.id]
     );
@@ -1158,14 +1405,22 @@ async function getPublicInfo(token, req) {
         `SELECT LOWER(email) AS email, subject, issuer, serial, valid_from, valid_to FROM hub_parapheur.agent_certificates`
     );
     const certByEmail = new Map(certRows.map(c => [c.email, c]));
+    const techCerts = await pgDb.all(
+        `SELECT signataire_id, serial, issuer, fingerprint, signing_time FROM hub_parapheur.signature_certificates WHERE parapheur_id = ? ORDER BY id DESC`,
+        [p.id]
+    );
+    const techBySigner = new Map();
+    for (const t of techCerts) if (!techBySigner.has(t.signataire_id)) techBySigner.set(t.signataire_id, t);
     const signaturesSummary = signedRows.map(s => {
         const c = certByEmail.get(String(s.email || '').toLowerCase());
+        const t = techBySigner.get(s.id);
         return {
             name: s.nom,
             mode: s.signature_mode,
             signed_at: s.signed_at,
             delegated_by: (s.signed_by_name && s.signed_by_name !== s.nom) ? s.signed_by_name : null,
             note: s.signature_note || null,
+            technique_certificate: t ? { serial: t.serial, issuer: t.issuer, fingerprint: t.fingerprint, signing_time: t.signing_time } : null,
             certificate: s.signature_mode === 'securise' && c ? {
                 subject: c.subject || null,
                 issuer: c.issuer || null,
@@ -1186,7 +1441,10 @@ async function getPublicInfo(token, req) {
             status: p.status,
             deadline: p.deadline,
             requester: p.created_by_name || p.created_by_username,
+            sealed_at: p.sealed_at || null,
+            seal_serial: p.seal_serial || null,
         },
+        seal: p.sealed_at ? { sealed_at: p.sealed_at, serial: p.seal_serial || null } : null,
         signataire: {
             nom: signataire.nom,
             email: signataire.email,
@@ -1440,6 +1698,8 @@ async function advanceAfterSign(parapheur) {
 
     if (done) {
         await pgDb.run(`UPDATE hub_parapheur.parapheurs SET status = 'termine', completed_at = NOW(), updated_at = NOW() WHERE id = ?`, [parapheur.id]);
+        // Sceau PAdES de fin de circuit (certificat éphémère de l'AC interne).
+        try { await sealParapheur(parapheur.id); } catch (e) { console.error('[PARAPHEUR] sceau de fin de circuit:', e.message); }
         await notifyRequester(parapheur, all[all.length - 1].nom, true);
         await notifySignersCompleted(parapheur, all);
         return { done: true };
@@ -1659,6 +1919,9 @@ async function signWithToken(token, { signatureDataUrl, signatureNote, signature
     // métadonnées (le mot de passe fourni valide la clé privée).
     if (secureContext) {
         await refreshCertificateMeta(signataire.email, secureContext.password);
+    } else if (signataire.signature_mode === 'simple' || signataire.signature_mode === 'sms') {
+        // Signature interne : émission d'un certificat technique lié à l'événement.
+        await recordSignatureCertificate(parapheur.id, signataire, signataire.signature_mode, nowIso);
     }
 
     // Certificat « à usage unique » : si le signataire n'a pas demandé à le
@@ -1849,6 +2112,12 @@ async function getVerificationInfo(token) {
         `SELECT LOWER(email) AS email, subject, issuer, serial, valid_from, valid_to FROM hub_parapheur.agent_certificates`
     );
     const certByEmail = new Map(certRows.map(c => [c.email, c]));
+    const techCerts = await pgDb.all(
+        `SELECT signataire_id, serial, issuer, fingerprint, signing_time FROM hub_parapheur.signature_certificates WHERE parapheur_id = ? ORDER BY id DESC`,
+        [p.id]
+    );
+    const techBySigner = new Map();
+    for (const t of techCerts) if (!techBySigner.has(t.signataire_id)) techBySigner.set(t.signataire_id, t);
     return {
         parapheur: {
             id: p.id,
@@ -1861,6 +2130,8 @@ async function getVerificationInfo(token) {
             requester: p.created_by_name || p.created_by_username,
             created_at: p.created_at,
             completed_at: p.completed_at,
+            sealed_at: p.sealed_at || null,
+            seal_serial: p.seal_serial || null,
         },
         documents: await Promise.all(documents.map(async d => ({
             id: d.id,
@@ -1882,6 +2153,10 @@ async function getVerificationInfo(token) {
                 signed_at: s.signed_at,
                 signed_by_name: (s.signed_by_name && s.signed_by_name !== s.nom) ? s.signed_by_name : null,
                 signature_note: s.signature_note || null,
+                technique_certificate: (() => {
+                    const t = techBySigner.get(s.id);
+                    return t ? { serial: t.serial, issuer: t.issuer, fingerprint: t.fingerprint, signing_time: t.signing_time } : null;
+                })(),
                 certificate: s.signature_mode === 'securise' && c ? {
                     subject: c.subject || null,
                     issuer: c.issuer || null,
@@ -1936,7 +2211,7 @@ const SIGN_MODE_PROCESS = {
 };
 
 async function buildEvidenceReport(ctx) {
-    const { parapheur, documents, signataires, audit, verifyUrl, hashes, generatedAt } = ctx;
+    const { parapheur, documents, signataires, audit, verifyUrl, hashes, generatedAt, seal } = ctx;
     const A4 = [595.28, 841.89];
     const margin = 48;
     const doc = await PDFDocument.create();
@@ -2027,6 +2302,9 @@ async function buildEvidenceReport(ctx) {
         if (s.user_agent) kv('Agent logiciel', s.user_agent);
         if (s.rejected_at) kv('Refusé le', fmtDateTime(s.rejected_at));
         if (s.rejection_comment) kv('Motif du refus', s.rejection_comment);
+        if (s.technique_certificate) {
+            kv('Certificat technique (plateforme)', `n° ${s.technique_certificate.serial} — émis par ${s.technique_certificate.issuer || 'AC interne'}`);
+        }
         if (s.certificate) {
             kv('Certificat — titulaire', s.certificate.subject);
             kv('Certificat — émetteur', s.certificate.issuer);
@@ -2041,7 +2319,16 @@ async function buildEvidenceReport(ctx) {
         text(`${fmtDateTime(a.created_at)} — ${a.actor || 'système'} — ${a.action}${a.ip ? ` (IP ${a.ip})` : ''}`, { size: 8.5, gap: 1.5 });
     }
 
-    heading('6. Vérification');
+    heading('6. Sceau de la plateforme');
+    if (seal) {
+        kv('Sceau apposé le', fmtDateTime(seal.sealed_at));
+        kv('N° de certificat de sceau', seal.serial);
+        text("En fin de circuit, un sceau électronique PAdES (signature cryptographique) est apposé sur chaque document signé. Il garantit l'intégrité du document et l'authenticité de la plateforme émettrice. Ce sceau relève d'un usage interne et ne constitue pas une signature qualifiée au sens du règlement eIDAS.", { size: 9 });
+    } else {
+        text("Aucun sceau de plateforme n'a été apposé (option désactivée ou circuit non terminé).", { size: 9 });
+    }
+
+    heading('7. Vérification');
     text("Ce dossier peut être vérifié en ligne, sans authentification, à l'adresse suivante (également encodée dans le code QR apposé sur les documents) :", { size: 9 });
     text(verifyUrl || '—', { size: 9, font: mono, indent: 6, color: rgb(0.15, 0.15, 0.55) });
     try {
@@ -2096,16 +2383,26 @@ async function getEvidenceArchive(parapheurId) {
         if (signed) filesToAdd.push({ name: `documents_signes/${sanitizeFilename(String(d.original_name || 'document.pdf').replace(/\.pdf$/i, '') + '_signe.pdf')}`, buffer: signed });
     }
 
+    const techCerts = await pgDb.all(
+        `SELECT signataire_id, serial, issuer, fingerprint, signing_time FROM hub_parapheur.signature_certificates WHERE parapheur_id = ? ORDER BY id`,
+        [p.id]
+    );
+    const techBySigner = new Map();
+    for (const t of techCerts) if (!techBySigner.has(t.signataire_id)) techBySigner.set(t.signataire_id, t);
+
     const signatairesReport = signataires.map(s => {
         const c = certByEmail.get(String(s.email || '').toLowerCase());
+        const t = techBySigner.get(s.id);
         return {
             ...s,
+            technique_certificate: t ? { serial: t.serial, issuer: t.issuer, fingerprint: t.fingerprint, signing_time: t.signing_time } : null,
             certificate: s.signature_mode === 'securise' && c ? {
                 subject: c.subject, issuer: c.issuer, serial: c.serial, valid_from: c.valid_from, valid_to: c.valid_to,
             } : null,
         };
     });
 
+    const seal = p.sealed_at ? { sealed_at: p.sealed_at, serial: p.seal_serial || null } : null;
     const generatedAt = new Date().toISOString();
     const report = await buildEvidenceReport({
         parapheur: p,
@@ -2115,6 +2412,7 @@ async function getEvidenceArchive(parapheurId) {
         verifyUrl,
         hashes,
         generatedAt,
+        seal,
     });
 
     const hashesText = hashes
@@ -2136,6 +2434,8 @@ async function getEvidenceArchive(parapheurId) {
         completed_at: p.completed_at,
         verify_url: verifyUrl,
         generated_at: generatedAt,
+        platform_seal: seal,
+        signature_certificates: techCerts.map(t => ({ signataire_id: t.signataire_id, serial: t.serial, issuer: t.issuer, fingerprint: t.fingerprint, signing_time: t.signing_time })),
         documents: hashes,
         signataires: signatairesReport.map(s => ({
             nom: s.nom, email: s.email, service: s.service, mode: s.signature_mode, status: s.status,
@@ -2312,5 +2612,7 @@ module.exports = {
     saveParapheurSettings,
     getEvidenceArchive,
     getEvidenceArchiveByToken,
+    getPlatformCa,
+    generatePlatformCa,
     runReminders,
 };
