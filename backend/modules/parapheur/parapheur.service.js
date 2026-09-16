@@ -911,7 +911,27 @@ async function getEligibleEmails() {
 }
 
 /** Met un intitulé en casse « Titre » (Directeur Des Système D'Informations). */
+// Le référentiel RH Oracle stocke les intitulés en majuscules SANS accents
+// (ex. « SYSTEMES D'INFORMATION »). On rétablit les accents des mots courants.
+const FR_ACCENTS = {
+    systemes: 'systèmes', systeme: 'système', numerique: 'numérique', numeriques: 'numériques',
+    reseau: 'réseau', reseaux: 'réseaux', telephonie: 'téléphonie', telecommunication: 'télécommunication',
+    telecommunications: 'télécommunications', general: 'général', generale: 'générale', generaux: 'généraux',
+    delegation: 'délégation', education: 'éducation', sante: 'santé', batiment: 'bâtiment',
+    marche: 'marché', marches: 'marchés', dechets: 'déchets', etat: 'état', medecin: 'médecin',
+    medico: 'médico', periscolaire: 'périscolaire', ingenierie: 'ingénierie', regie: 'régie',
+    referent: 'référent', referente: 'référente', evenementiel: 'événementiel', developpement: 'développement',
+    amenagement: 'aménagement', electromecanique: 'électromécanique', electricite: 'électricité',
+    electronique: 'électronique', mecanique: 'mécanique', genie: 'génie', accessibilite: 'accessibilité',
+    prefiguration: 'préfiguration', evaluation: 'évaluation', prevention: 'prévention', securite: 'sécurité',
+    surete: 'sûreté', hygiene: 'hygiène', financier: 'financier', financiere: 'financière',
+    financieres: 'financières', comptabilite: 'comptabilité', citoyennete: 'citoyenneté',
+    emploi: 'emploi', insertion: 'insertion', environnement: 'environnement', patrimoine: 'patrimoine',
+};
+
 const FR_SMALL_WORDS = new Set(['de', 'des', 'du', 'd', 'la', 'le', 'les', 'l', 'et', 'a', 'au', 'aux', 'en', 'sur', 'sous', 'pour', 'par', 'dans', 'avec', 'sans', 'ou', 'ni', 'the', 'of', 'and']);
+const frAccent = (w) => FR_ACCENTS[w] || w;
+
 function titleCaseFr(s) {
     if (!s) return s;
     const cleaned = String(s)
@@ -921,13 +941,14 @@ function titleCaseFr(s) {
         .trim();
     const cap = (w) => (w ? w[0].toUpperCase() + w.slice(1) : w);
     return cleaned.toLowerCase().split(' ').map((w, i) => {
-        if (i === 0) return cap(w);
-        const elision = w.match(/^([a-zà-ÿ]{1,3}')(.+)$/);
+        const acc = frAccent(w);
+        if (i === 0) return cap(acc);
+        const elision = acc.match(/^([a-zà-ÿ]{1,3}')(.+)$/);
         if (elision) {
-            return /^(d|l|qu|j|n|s|t|c|m)'$/.test(elision[1]) ? elision[1] + cap(elision[2]) : cap(w);
+            return /^(d|l|qu|j|n|s|t|c|m)'$/.test(elision[1]) ? elision[1] + cap(frAccent(elision[2])) : cap(acc);
         }
-        if (FR_SMALL_WORDS.has(w)) return w;
-        return cap(w);
+        if (FR_SMALL_WORDS.has(w)) return acc;
+        return cap(acc);
     }).join(' ');
 }
 
@@ -943,8 +964,9 @@ async function getAgentTitre({ matricule } = {}) {
             [String(matricule).trim()]
         );
         // Le libellé attendu (« Directeur des Systèmes d'Information ») est porté
-        // par FONCTION_L (POSTE_L = intitulé de poste administratif).
-        const raw = row ? (row.FONCTION_L || row.POSTE_L || null) : null;
+        // par POSTE_L. FONCTION_L contient la famille de métier générique
+        // (ex. « Directeur et expertise informatique » pour MARC CHEVALIER).
+        const raw = row ? (row.POSTE_L || row.FONCTION_L || null) : null;
         return { titre: raw ? titleCaseFr(raw) : null, raw: raw || null };
     } catch (e) {
         console.warn('[PARAPHEUR] titre agent indisponible:', e.message);
@@ -1676,7 +1698,7 @@ async function buildSignedPdf(originalPath, sigs, ctx = {}) {
                     } catch {
                         noteImage = await pdfDoc.embedPng(noteBuf);
                     }
-                    const noteH = Number.isFinite(Number(s.note_size)) ? Math.max(10, Math.min(160, Number(s.note_size))) : 40;
+                    const noteH = Number.isFinite(Number(s.note_size)) ? Math.max(8, Math.min(80, Number(s.note_size))) : 20;
                     const ns = noteImage.scale(1);
                     const maxNoteW = Math.max(w * 1.5, 240);
                     let nh = noteH;
@@ -1686,7 +1708,7 @@ async function buildSignedPdf(originalPath, sigs, ctx = {}) {
                     const ny = Math.max(2, Math.min(y + offY, height - nh - 2));
                     page.drawImage(noteImage, { x: nx, y: ny, width: nw, height: nh });
                 } else {
-                    const noteH = Number.isFinite(Number(s.note_size)) ? Math.max(10, Math.min(160, Number(s.note_size))) : 40;
+                    const noteH = Number.isFinite(Number(s.note_size)) ? Math.max(8, Math.min(80, Number(s.note_size))) : 20;
                     page.drawText(String(s.signature_note), {
                         x: Math.max(2, Math.min(x + offX, width - 60)),
                         y: Math.max(2, Math.min(y + offY, height - 14)),
@@ -1917,7 +1939,7 @@ async function signWithToken(token, { signatureDataUrl, signatureNote, signature
     const noteOffsetYVal = noteValue ? clampOffset(noteOffsetY, 72) : null;
     // Taille de la mention (hauteur en points), réglable par le signataire.
     const noteSizeNum = Number(noteSize);
-    const noteSizeVal = noteValue ? Math.max(10, Math.min(160, Number.isFinite(noteSizeNum) ? Math.round(noteSizeNum) : 40)) : null;
+    const noteSizeVal = noteValue ? Math.max(8, Math.min(80, Number.isFinite(noteSizeNum) ? Math.round(noteSizeNum) : 20)) : null;
 
     // Filet de sécurité : garantir une ligne de position pour chaque document.
     // (Sans elle, un parapheur créé avec un mapping de positions incomplet ne

@@ -148,7 +148,7 @@ function SignerView({ token, auth, onLogout }: { token: string; auth: SignerAuth
   const [otpSending, setOtpSending] = useState(false);
   const [note, setNote] = useState('');
   const [noteOffset, setNoteOffset] = useState<{ x: number; y: number }>({ x: 0, y: 72 });
-  const [noteSize, setNoteSize] = useState(40);
+  const [noteSize, setNoteSize] = useState(20);
 
   const notePreview = useMemo(() => (note.trim() ? handwrittenTextDataUrl(note) : null), [note]);
 
@@ -647,9 +647,9 @@ function SignerView({ token, auth, onLogout }: { token: string; auth: SignerAuth
                   onChange={e => setNoteSize(Number(e.target.value))}
                   style={{ padding: '8px 10px', border: '1px solid #e2e8f0', borderRadius: 8, fontSize: 12, fontFamily: 'inherit' }}
                 >
-                  <option value={26}>Petite</option>
-                  <option value={40}>Moyenne</option>
-                  <option value={56}>Grande</option>
+                  <option value={14}>Petite</option>
+                  <option value={20}>Moyenne</option>
+                  <option value={28}>Grande</option>
                 </select>
               </label>
             </div>

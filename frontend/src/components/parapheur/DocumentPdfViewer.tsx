@@ -50,6 +50,17 @@ function isMobileDevice() {
 }
 
 /**
+ * Safari (macOS) affiche bien les PDF en iframe mais ignore les paramètres
+ * d'ouverture `#zoom=` du lecteur PDFKit : le zoom externe n'y fonctionne pas.
+ * On rend donc les pages avec pdf.js (zoom géré par nous) sur Safari.
+ */
+function isSafariDesktop() {
+  if (typeof navigator === 'undefined') return false;
+  const ua = navigator.userAgent;
+  return /Safari/i.test(ua) && !/Chrome|Chromium|CriOS|Edg|OPR|Android/i.test(ua);
+}
+
+/**
  * Visionneuse PDF intégrée (modale) avec zoom et bandeau de signature.
  *
  * - Desktop : lecteur PDF natif du navigateur dans une iframe (gère tous les PDF,
@@ -64,9 +75,10 @@ export default function DocumentPdfViewer({ open, url, authToken, title, signatu
   const [error, setError] = useState<string | null>(null);
   const [zoom, setZoom] = useState<string>('page-width');
   const [isMobile, setIsMobile] = useState(isMobileDevice);
+  const [isSafari, setIsSafari] = useState(isSafariDesktop);
 
   useEffect(() => {
-    const onResize = () => setIsMobile(isMobileDevice());
+    const onResize = () => { setIsMobile(isMobileDevice()); setIsSafari(isSafariDesktop()); };
     window.addEventListener('resize', onResize);
     return () => window.removeEventListener('resize', onResize);
   }, []);
@@ -145,8 +157,8 @@ export default function DocumentPdfViewer({ open, url, authToken, title, signatu
           {loading && <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 1, minHeight: 320, color: '#64748b' }}><Loader2 className="spin" size={30} /></div>}
           {error && <div style={{ margin: 16, padding: 16, background: '#fef2f2', color: '#b91c1c', borderRadius: 8, fontSize: 13 }}>{error}</div>}
           {!loading && !error && blob && (
-            isMobile
-              ? <MobilePdfViewer source={blob} zoom={level} />
+            (isMobile || isSafari)
+              ? <CanvasPdfViewer source={blob} zoom={level} />
               : blobUrl && <iframe key={`${blobUrl}-${zoom}`} src={src} title={title || 'Document PDF'} style={{ width: '100%', height: '80vh', border: 'none', display: 'block' }} />
           )}
         </div>
@@ -155,8 +167,11 @@ export default function DocumentPdfViewer({ open, url, authToken, title, signatu
   );
 }
 
-/** Rendu pdf.js multi-pages pour mobile (les iframes PDF ne s'affichent pas). */
-function MobilePdfViewer({ source, zoom }: { source: Blob; zoom: number }) {
+/**
+ * Rendu pdf.js multi-pages (mobile : les iframes PDF ne s'affichent pas ;
+ * Safari macOS : le lecteur natif ignore nos paramètres de zoom).
+ */
+function CanvasPdfViewer({ source, zoom }: { source: Blob; zoom: number }) {
   const { doc, loading, error } = usePdfDocument(useMemo(() => ({ file: source }), [source]));
   const pages = doc ? Array.from({ length: doc.numPages }, (_, i) => i + 1) : [];
 
