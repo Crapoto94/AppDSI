@@ -157,6 +157,21 @@ const controller = {
         } catch (e) { sendError(res, e, 'Erreur journal'); }
     },
 
+    getSettings: async (req, res) => {
+        try {
+            if (!isAdminLike(req.user)) return res.status(403).json({ message: 'Accès administrateur requis.' });
+            res.json(await service.getParapheurSettings());
+        } catch (e) { sendError(res, e, 'Erreur paramètres'); }
+    },
+
+    saveSettings: async (req, res) => {
+        try {
+            if (!isAdminLike(req.user)) return res.status(403).json({ message: 'Accès administrateur requis.' });
+            const result = await service.saveParapheurSettings({ publicBaseUrl: req.body && req.body.public_base_url });
+            res.json(result);
+        } catch (e) { sendError(res, e, 'Enregistrement impossible'); }
+    },
+
     security: async (req, res) => {
         try {
             if (!isAdminLike(req.user)) return res.status(403).json({ message: 'Accès administrateur requis.' });
@@ -314,6 +329,13 @@ const controller = {
         } catch (e) { sendError(res, e, 'Erreur éligibilité'); }
     },
 
+    agentTitre: async (req, res) => {
+        try {
+            const result = await service.getAgentTitre({ matricule: req.query.matricule });
+            res.json(result);
+        } catch (e) { sendError(res, e, 'Titre indisponible'); }
+    },
+
     getMySignature: async (req, res) => {
         try {
             const row = await service.getMySignature(req.user.email);
@@ -360,6 +382,32 @@ const controller = {
             const download = req.query.download === '1';
             serveFile(res, f, { inline: !download });
         } catch (e) { sendError(res, e, 'Document introuvable'); }
+    },
+
+    evidence: async (req, res) => {
+        try {
+            const id = parseInt(req.params.id, 10);
+            const detail = await service.getDetail(id);
+            if (!detail) return res.status(404).json({ message: 'Parapheur introuvable' });
+            const owner = String(detail.created_by_username || '').toLowerCase() === String(req.user.username || '').toLowerCase();
+            if (!owner && !isAdminLike(req.user)) {
+                return res.status(403).json({ message: "Seul le demandeur (ou un administrateur) peut générer le dossier de preuves." });
+            }
+            const { buffer, filename } = await service.getEvidenceArchive(id);
+            res.setHeader('Content-Type', 'application/zip');
+            res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(filename)}"`);
+            res.send(buffer);
+        } catch (e) { sendError(res, e, 'Dossier de preuves indisponible'); }
+    },
+
+    verifyEvidence: async (req, res) => {
+        try {
+            const r = await service.getEvidenceArchiveByToken(req.params.token);
+            if (!r) return res.status(404).send('Dossier de preuves introuvable');
+            res.setHeader('Content-Type', 'application/zip');
+            res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(r.filename)}"`);
+            res.send(r.buffer);
+        } catch (e) { sendError(res, e, 'Dossier de preuves indisponible'); }
     },
 
     relance: async (req, res) => {

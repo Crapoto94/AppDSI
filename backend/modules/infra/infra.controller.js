@@ -225,6 +225,8 @@ module.exports = {
                 displayName: `${a.prenom || ''} ${a.nom || ''}`.trim(),
                 email: a.email || '',
                 service: a.service || '',
+                direction: a.direction_label || a.direction || '',
+                poste: a.poste || a.fonction || '',
                 matricule: a.matricule || '',
                 hasAd: !!a.has_ad,
             })));

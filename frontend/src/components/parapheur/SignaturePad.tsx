@@ -10,7 +10,7 @@ interface Props {
 }
 
 /** Zone de dessin de signature (souris / tactile). */
-export default function SignaturePad({ sigRef, height = 160, penColor = '#0f172a', maxWidth = 520 }: Props) {
+export default function SignaturePad({ sigRef, height = 240, penColor = '#0f172a', maxWidth = 520 }: Props) {
   return (
     <div style={{ border: '2px dashed #cbd5e1', borderRadius: 10, background: '#fff', padding: 4, maxWidth, width: '100%' }}>
       <SignatureCanvas

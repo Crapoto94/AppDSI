@@ -18,6 +18,7 @@ interface PublicInfo {
   documents: { id: number; original_name: string; mime_type: string; size?: number; page_count?: number | null }[];
   annexes?: { id: number; original_name: string; mime_type: string; size?: number; page_count?: number | null }[];
   delegation?: { delegant_nom: string; delegant_email: string; delegate_nom: string; delegate_email: string; date_start: string; date_end: string } | null;
+  signatures_summary?: { name: string; mode: string; signed_at?: string | null; delegated_by?: string | null; certificate?: { subject?: string | null; issuer?: string | null; serial?: string | null; valid_from?: string | null; valid_to?: string | null } | null }[];
   positions: { document_id: number; page: number; x: number; y: number; w: number; h: number; applied: boolean }[];
 }
 
@@ -434,6 +435,7 @@ function SignerView({ token, auth, onLogout }: { token: string; auth: SignerAuth
             url={`/api/parapheur/public/${token}/doc/${viewer.docId}?signed=${viewer.signed ? '1' : '0'}`}
             authToken={auth.token}
             title={viewer.name}
+            signatureInfo={(info.signatures_summary && info.signatures_summary.length) ? { signers: info.signatures_summary } : null}
             onClose={() => setViewer(null)}
           />
         )}

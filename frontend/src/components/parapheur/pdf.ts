@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
 import type { PDFDocumentLoadingTask, PDFDocumentProxy } from 'pdfjs-dist';
-import { pdfjsLib } from '../../utils/pdfjs';
+import { pdfjsLib, pdfDocumentOptions } from '../../utils/pdfjs';
 
-export type PdfSource = { file?: File; url?: string };
+export type PdfSource = { file?: File | Blob; url?: string };
 
 export interface PageSize {
   width: number;
@@ -38,14 +38,14 @@ export function usePdfDocument(source: PdfSource | null | undefined, authToken?:
         let task: PDFDocumentLoadingTask;
         if (file) {
           const buf = await file.arrayBuffer();
-          task = pdfjsLib.getDocument({ data: new Uint8Array(buf) });
+          task = pdfjsLib.getDocument({ data: new Uint8Array(buf), ...pdfDocumentOptions });
         } else {
           // Les ressources protégées exigent le JWT : on récupère le binaire
           // nous-mêmes puis on le passe à pdf.js (qui ne pose pas d'en-tête).
           const res = await fetch(url!, { headers: authToken ? { Authorization: `Bearer ${authToken}` } : {} });
           if (!res.ok) throw new Error(res.status === 403 ? 'Accès refusé' : `Erreur ${res.status}`);
           const buf = await res.arrayBuffer();
-          task = pdfjsLib.getDocument({ data: new Uint8Array(buf) });
+          task = pdfjsLib.getDocument({ data: new Uint8Array(buf), ...pdfDocumentOptions });
         }
         const d = await task.promise;
         if (!cancelled) setDoc(d);

@@ -22,6 +22,8 @@ interface ParapheurRow {
   nb_signes?: number;
   nb_documents?: number;
   signataires_text?: string;
+  created_by_name?: string;
+  created_by_username?: string;
 }
 
 type Tab = 'created' | 'toSign' | 'signed' | 'mySignature' | 'delegations' | 'all';
@@ -212,6 +214,12 @@ export default function ParapheurList() {
                           {r.nb_documents != null && <span>{r.nb_documents} document(s)</span>}
                           {r.nb_signataires != null && <span>{r.nb_signes}/{r.nb_signataires} signé(s)</span>}
                           {r.deadline && <span>Échéance : {new Date(r.deadline).toLocaleDateString('fr-FR')}</span>}
+                          {(tab === 'toSign' || tab === 'signed') && (
+                            <span>Demandeur : <strong style={{ color: '#334155' }}>{r.created_by_name || r.created_by_username || '—'}</strong></span>
+                          )}
+                          {(tab === 'created' || tab === 'all') && r.signataires_text && (
+                            <span>Signataires : <strong style={{ color: '#334155' }}>{r.signataires_text}</strong></span>
+                          )}
                         </div>
                       </div>
                       {tab === 'toSign' && <span style={{ fontSize: 11, color: '#b45309', background: '#fffbeb', border: '1px solid #fde68a', padding: '3px 9px', borderRadius: 12, fontWeight: 700 }}>À signer</span>}

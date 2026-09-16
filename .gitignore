@@ -8,6 +8,9 @@ frontend/dist/
 frontend/dist-ssr/
 *.local
 
+# Ressources runtime pdf.js copiées depuis node_modules (voir scripts/copy-pdfjs-assets.mjs)
+frontend/public/pdfjs/
+
 # Fichiers de base de données
 *.sqlite
 *.db

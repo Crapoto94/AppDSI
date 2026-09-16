@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, Clock, CheckCircle2, XCircle, Ban, FileText, Download, Eye, Paperclip, Send, PenLine, ShieldCheck, Smartphone, RefreshCw } from 'lucide-react';
+import { ArrowLeft, Archive, Clock, CheckCircle2, XCircle, Ban, FileText, Download, Eye, Paperclip, Send, PenLine, ShieldCheck, Smartphone, RefreshCw } from 'lucide-react';
 import Header from '../../components/Header';
 import AgentPresenceBadge from '../../components/AgentPresenceBadge';
 import DocumentPdfViewer from '../../components/parapheur/DocumentPdfViewer';
@@ -10,7 +10,7 @@ interface Detail {
   id: number; reference: string; title: string; message: string; status: string; mode: string;
   deadline?: string | null; created_by_name?: string; created_at: string; completed_at?: string | null;
   documents: { id: number; original_name: string; has_signed: boolean; has_crypto_signature?: boolean; has_pades?: boolean; size?: number; is_annexe?: boolean; page_count?: number | null }[];
-  signataires: { id: number; nom: string; email: string; service?: string; order_number: number; status: string; signature_mode: string; signed_at?: string | null; rejected_at?: string | null; rejection_comment?: string | null; signed_by_name?: string | null; signed_by_email?: string | null }[];
+  signataires: { id: number; nom: string; email: string; service?: string; order_number: number; status: string; signature_mode: string; signed_at?: string | null; rejected_at?: string | null; rejection_comment?: string | null; signed_by_name?: string | null; signed_by_email?: string | null; certificate?: { subject?: string | null; issuer?: string | null; serial?: string | null; valid_from?: string | null; valid_to?: string | null } | null }[];
 }
 
 const STATUS: Record<string, { label: string; color: string; bg: string; icon: React.ReactNode }> = {
@@ -64,6 +64,25 @@ export default function ParapheurDetail() {
       const d = await r.json();
       setMsg(r.ok ? `Relance envoyée à ${d.sent} signataire(s).` : (d.message || 'Erreur'));
     } finally { setBusy(false); }
+  };
+
+  const downloadEvidence = async () => {
+    setBusy(true); setMsg(null);
+    try {
+      const r = await fetch(`/api/parapheur/${id}/preuves`, { headers });
+      if (!r.ok) {
+        const d = await r.json().catch(() => ({}));
+        throw new Error((d as { message?: string }).message || 'Génération impossible');
+      }
+      const blob = await r.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `dossier-preuves-${detail?.reference || id}.zip`;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 10000);
+    } catch (e: unknown) { setMsg(e instanceof Error ? e.message : 'Erreur'); }
+    finally { setBusy(false); }
   };
 
   const cancel = async () => {
@@ -134,6 +153,7 @@ export default function ParapheurDetail() {
           {myToken && <button onClick={() => navigate(`/signature/${myToken}`)} style={signBtn}><PenLine size={16} /> Signer maintenant</button>}
           {detail.status === 'en_cours' && <button onClick={relance} disabled={busy} style={ghostBtn}><Send size={15} /> Relancer</button>}
           {detail.status === 'en_cours' && <button onClick={cancel} disabled={busy} style={{ ...ghostBtn, color: '#b91c1c', borderColor: '#fecaca' }}>Annuler</button>}
+          <button onClick={downloadEvidence} disabled={busy} title="Télécharger le dossier de preuves (PDF + pièces)" style={ghostBtn}><Archive size={15} /> Fichier de preuves</button>
           <button onClick={load} style={ghostBtn}><RefreshCw size={15} /> Actualiser</button>
         </div>
         {msg && <p style={{ fontSize: 12, color: '#475569', marginTop: 12 }}>{msg}</p>}
@@ -198,6 +218,11 @@ export default function ParapheurDetail() {
           url={`/api/parapheur/${id}/doc/${viewer.docId}?signed=${viewer.signed ? '1' : '0'}`}
           authToken={token}
           title={viewer.name}
+          signatureInfo={viewer.signed ? {
+            signers: detail.signataires
+              .filter(s => s.status === 'a_signe')
+              .map(s => ({ name: s.nom, mode: s.signature_mode, signed_at: s.signed_at, delegated_by: s.signed_by_name, certificate: s.certificate })),
+          } : null}
           onClose={() => setViewer(null)}
         />
       )}

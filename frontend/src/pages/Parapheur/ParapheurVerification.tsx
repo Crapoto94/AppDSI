@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
-import { AlertCircle, Ban, CheckCircle2, Clock, Download, Eye, FileSignature, FileText, Loader2, PenLine, ShieldCheck, Smartphone, XCircle } from 'lucide-react';
+import { AlertCircle, Archive, Ban, CheckCircle2, Clock, Download, Eye, FileSignature, FileText, Loader2, PenLine, ShieldCheck, Smartphone, XCircle } from 'lucide-react';
 import DocumentPdfViewer from '../../components/parapheur/DocumentPdfViewer';
 
 interface VerifyInfo {
@@ -9,7 +9,7 @@ interface VerifyInfo {
     deadline?: string | null; requester: string; created_at: string; completed_at?: string | null;
   };
   documents: { id: number; original_name: string; mime_type: string; size?: number; has_signed: boolean; has_pades: boolean; has_crypto_signature: boolean }[];
-  signataires: { nom: string; service?: string; order_number: number; status: string; signature_mode: string; signed_at?: string | null; signed_by_name?: string | null }[];
+  signataires: { nom: string; service?: string; order_number: number; status: string; signature_mode: string; signed_at?: string | null; signed_by_name?: string | null; certificate?: { subject?: string | null; issuer?: string | null; serial?: string | null; valid_from?: string | null; valid_to?: string | null } | null }[];
 }
 
 const STATUS: Record<string, { label: string; color: string; bg: string; icon: React.ReactNode }> = {
@@ -83,6 +83,13 @@ export default function ParapheurVerification() {
           <span>Cette page atteste du contenu et des signatures du parapheur. Le code QR apposé sur les documents y renvoie directement, sans authentification.</span>
         </div>
 
+        <a
+          href={`/api/parapheur/verify/${token}/preuves`}
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 8, marginBottom: 16, padding: '9px 16px', background: '#7c3aed', color: '#fff', borderRadius: 10, fontWeight: 700, fontSize: 13, textDecoration: 'none' }}
+        >
+          <Archive size={15} /> Télécharger le dossier de preuves
+        </a>
+
         <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 14, padding: 20, marginBottom: 16 }}>
           <div style={{ fontSize: 12, color: '#64748b', display: 'flex', gap: 16, flexWrap: 'wrap' }}>
             <span>Demandeur : {info.parapheur.requester}</span>
@@ -153,6 +160,11 @@ export default function ParapheurVerification() {
           open
           url={`/api/parapheur/verify/${token}/doc/${viewer.docId}?signed=1`}
           title={viewer.name}
+          signatureInfo={{
+            signers: info.signataires
+              .filter(s => s.status === 'a_signe')
+              .map(s => ({ name: s.nom, mode: s.signature_mode, signed_at: s.signed_at, delegated_by: s.signed_by_name, certificate: s.certificate })),
+          }}
           onClose={() => setViewer(null)}
         />
       )}

@@ -31,6 +31,10 @@ export default function ParapheurCreate() {
   const [signataires, setSignataires] = useState<AgentRef[]>([]);
   const [modeMap, setModeMap] = useState<Record<string, SignMode>>({});
   const [phoneMap, setPhoneMap] = useState<Record<string, string>>({});
+  const [titleMap, setTitleMap] = useState<Record<string, string>>({});
+  const [includeTitleMap, setIncludeTitleMap] = useState<Record<string, boolean>>({});
+  const [titleLoading, setTitleLoading] = useState<Record<string, boolean>>({});
+  const titleFetched = React.useRef<Set<string>>(new Set());
   const [eligible, setEligible] = useState<Set<string>>(new Set());
   const [positions, setPositions] = useState<Record<string, Placement>>({});
   const [editing, setEditing] = useState<{ email: string; di: number } | null>(null);
@@ -64,7 +68,35 @@ export default function ParapheurCreate() {
   const removeAnnexe = (idx: number) => setAnnexes(prev => prev.filter((_, i) => i !== idx));
   const setPageCount = (id: string, n: number) => setPages(prev => (prev[id] === n ? prev : { ...prev, [id]: n }));
 
+  // Récupère (une fois par agent) l'intitulé de poste par défaut depuis le référentiel RH.
+  const ensureTitles = (list: AgentRef[]) => {
+    list.forEach(s => {
+      const k = s.email.toLowerCase();
+      if (titleFetched.current.has(k)) return;
+      titleFetched.current.add(k);
+      const prefill = (s.poste || '').trim();
+      if (prefill) {
+        setTitleMap(m => ({ ...m, [k]: prefill }));
+        setIncludeTitleMap(m => ({ ...m, [k]: true }));
+        return;
+      }
+      if (!s.matricule) return;
+      setTitleLoading(m => ({ ...m, [k]: true }));
+      fetch(`/api/parapheur/agent-titre?matricule=${encodeURIComponent(s.matricule)}`, { headers: { Authorization: `Bearer ${token}` } })
+        .then(r => (r.ok ? r.json() : null))
+        .then((d: { titre?: string } | null) => {
+          if (d && d.titre) {
+            setTitleMap(m => ({ ...m, [k]: d.titre as string }));
+            setIncludeTitleMap(m => ({ ...m, [k]: true }));
+          }
+        })
+        .catch(() => { /* titre optionnel */ })
+        .finally(() => setTitleLoading(m => ({ ...m, [k]: false })));
+    });
+  };
+
   const handleSignatairesChange = (next: AgentRef[]) => {
+    ensureTitles(next);
     setSignataires(next);
     if (next.length < 2) {
       setModeChosen(false);
@@ -105,6 +137,9 @@ export default function ParapheurCreate() {
           service: s.service,
           signatureMode: signModeOf(s),
           smsPhone: isSms(s) ? (phoneMap[s.email.toLowerCase()] || null) : null,
+          title: (includeTitleMap[s.email.toLowerCase()] !== false && (titleMap[s.email.toLowerCase()] || '').trim())
+            ? titleMap[s.email.toLowerCase()].trim()
+            : null,
           positions: documents.map((doc, di) => {
             // Par défaut : dernière page du document.
             const p = positions[key(s.email, di)] || { page: pages[doc.id] || 1, x: 75, y: 85, w: 150, h: 60 };
@@ -213,9 +248,25 @@ export default function ParapheurCreate() {
                       <span style={{ fontWeight: 800, color: '#7c3aed', background: '#f5f3ff', border: '1px solid #ddd6fe', borderRadius: 8, minWidth: 26, textAlign: 'center', padding: '2px 0', fontSize: 13 }}>{i + 1}</span>
                     )}
                     <AgentPresenceBadge email={s.email} name={s.displayName} size={13} />
-                    <div style={{ flex: 1 }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ fontWeight: 700, fontSize: 13, color: '#1e293b' }}>{s.displayName}</div>
                       <div style={{ fontSize: 11, color: '#94a3b8' }}>{s.email}{s.service ? ` — ${s.service}` : ''}</div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 4, flexWrap: 'wrap' }}>
+                        <input
+                          value={titleMap[s.email.toLowerCase()] || ''}
+                          onChange={e => setTitleMap(m => ({ ...m, [s.email.toLowerCase()]: e.target.value }))}
+                          placeholder={titleLoading[s.email.toLowerCase()] ? 'Recherche du titre…' : 'Titre / fonction sous la signature'}
+                          style={{ flex: '1 1 220px', minWidth: 160, padding: '6px 8px', border: '1px solid #e2e8f0', borderRadius: 8, fontSize: 12 }}
+                        />
+                        <label style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, color: '#64748b', cursor: 'pointer' }}>
+                          <input
+                            type="checkbox"
+                            checked={includeTitleMap[s.email.toLowerCase()] !== false}
+                            onChange={e => setIncludeTitleMap(m => ({ ...m, [s.email.toLowerCase()]: e.target.checked }))}
+                          />
+                          Afficher le titre
+                        </label>
+                      </div>
                     </div>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                       <select

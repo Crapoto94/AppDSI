@@ -28,6 +28,7 @@ interface LogRow {
   email: string;
   status: string;
   signature_mode: string;
+  sms_phone?: string | null;
   signed_at?: string | null;
   rejected_at?: string | null;
   rejection_comment?: string | null;
@@ -73,17 +74,29 @@ export default function ParapheurCertificats() {
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<number | null>(null);
 
+  const [publicBaseUrl, setPublicBaseUrl] = useState('');
+  const [internalBaseUrl, setInternalBaseUrl] = useState('');
+  const [settingsInput, setSettingsInput] = useState('');
+  const [settingsMsg, setSettingsMsg] = useState<string | null>(null);
+  const [savingSettings, setSavingSettings] = useState(false);
+
   const headers = { Authorization: `Bearer ${token}` };
 
   const load = useCallback(async () => {
     if (!token) return;
     setLoading(true); setError(null);
     try {
-      const [c, l, s] = await Promise.all([
+      const [c, l, s, cfg] = await Promise.all([
         fetch('/api/parapheur/certificates', { headers: { Authorization: `Bearer ${token}` } }).then(r => r.json()),
         fetch('/api/parapheur/signature-logs', { headers: { Authorization: `Bearer ${token}` } }).then(r => r.json()),
         fetch('/api/parapheur/security', { headers: { Authorization: `Bearer ${token}` } }).then(r => r.json()),
+        fetch('/api/parapheur/admin/settings', { headers: { Authorization: `Bearer ${token}` } }).then(r => (r.ok ? r.json() : null)).catch(() => null),
       ]);
+      if (cfg && typeof cfg === 'object' && !cfg.message) {
+        setPublicBaseUrl(cfg.public_base_url || '');
+        setInternalBaseUrl(cfg.internal_base_url || '');
+        setSettingsInput(prev => (prev || cfg.public_base_url || ''));
+      }
       if (c.message || l.message || s.message) throw new Error(c.message || l.message || s.message);
       setCerts(Array.isArray(c) ? c : []);
       setLogs(Array.isArray(l) ? l : []);
@@ -94,6 +107,23 @@ export default function ParapheurCertificats() {
   }, [token]);
 
   useEffect(() => { load(); }, [load]);
+
+  const saveSettings = async () => {
+    setSavingSettings(true); setSettingsMsg(null);
+    try {
+      const r = await fetch('/api/parapheur/admin/settings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...headers },
+        body: JSON.stringify({ public_base_url: settingsInput }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.message || 'Erreur');
+      setPublicBaseUrl(d.public_base_url || '');
+      setInternalBaseUrl(d.internal_base_url || '');
+      setSettingsMsg('URL publique enregistrée. Elle sera utilisée pour les prochains QR codes générés.');
+    } catch (e: unknown) { setSettingsMsg(e instanceof Error ? e.message : 'Erreur'); }
+    finally { setSavingSettings(false); }
+  };
 
   const removeCert = async (row: CertRow) => {
     if (!confirm(`Supprimer le certificat de ${row.nom || row.email} ? L'agent devra le réimporter pour signer en mode sécurisé.`)) return;
@@ -128,6 +158,37 @@ export default function ParapheurCertificats() {
           </p>
         </div>
         <button onClick={load} style={ghostBtn}><RefreshCw size={15} /> Actualiser</button>
+      </div>
+
+      <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 12, padding: 16, marginBottom: 16 }}>
+        <div style={{ fontSize: 12, fontWeight: 800, color: '#64748b', textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 8 }}>
+          URL publique du parapheur (flashcode de vérification)
+        </div>
+        <p style={{ fontSize: 12, color: '#64748b', margin: '0 0 10px' }}>
+          Domaine externe utilisé pour construire le lien du flashcode apposé sur les PDF signés (ex. <code>https://chat.ivry94.fr</code>), afin qu'il soit joignable hors du réseau interne. Laisser vide pour utiliser l'URL interne.
+          {internalBaseUrl && <> URL interne actuelle : <code>{internalBaseUrl}</code>.</>}
+        </p>
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+          <input
+            value={settingsInput}
+            onChange={e => setSettingsInput(e.target.value)}
+            placeholder="https://chat.ivry94.fr"
+            style={{ flex: '1 1 280px', minWidth: 220, padding: '9px 12px', border: '1px solid #e2e8f0', borderRadius: 8, fontSize: 13, fontFamily: 'inherit' }}
+          />
+          <button
+            onClick={saveSettings}
+            disabled={savingSettings}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '9px 16px', background: '#7c3aed', color: '#fff', border: 'none', borderRadius: 9, fontWeight: 700, fontSize: 13, cursor: 'pointer', opacity: savingSettings ? 0.6 : 1 }}
+          >
+            {savingSettings ? 'Enregistrement…' : 'Enregistrer'}
+          </button>
+        </div>
+        {publicBaseUrl && (
+          <p style={{ fontSize: 12, color: '#15803d', margin: '10px 0 0' }}>
+            Lien généré : <code>{publicBaseUrl}/parapheur/verification/&lt;jeton&gt;</code>
+          </p>
+        )}
+        {settingsMsg && <p style={{ fontSize: 12, color: '#475569', margin: '8px 0 0' }}>{settingsMsg}</p>}
       </div>
 
       <div style={{ display: 'flex', gap: 6, marginBottom: 16, flexWrap: 'wrap' }}>
@@ -209,7 +270,7 @@ function Certificates({ certs, readyCount, busyId, onRemove }: { certs: CertRow[
         </table>
       </div>
       <p style={{ fontSize: 12, color: '#94a3b8', marginTop: 14, display: 'flex', alignItems: 'center', gap: 6 }}>
-        <KeyRound size={13} /> Le mot de passe du certificat n'est jamais stocké. <HelpCircle size={13} /> « Prêt à signer » = chiffré + clé privée + certificat vérifié et non expiré.
+        <KeyRound size={13} /> Le mot de passe du certificat n'est jamais stocké. <HelpCircle size={13} /> « Prêt à signer » = fichier déchiffrable + clé privée présente + certificat non expiré. La vérification du mot de passe se fait au moment de la signature.
       </p>
     </>
   );
@@ -222,7 +283,7 @@ function Logs({ logs }: { logs: LogRow[] }) {
       <table style={table}>
         <thead>
           <tr style={theadRow}>
-            {['Date', 'Signataire', 'Parapheur', 'Action', 'Mode', 'Documents', 'IP'].map((h, i) => <th key={i} style={th}>{h}</th>)}
+            {['Date', 'Signataire', 'Parapheur', 'Action', 'Mode', 'Téléphone SMS', 'Documents', 'IP'].map((h, i) => <th key={i} style={th}>{h}</th>)}
           </tr>
         </thead>
         <tbody>
@@ -257,6 +318,9 @@ function Logs({ logs }: { logs: LogRow[] }) {
                     : l.signature_mode === 'sms'
                       ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, color: '#0e7490', fontWeight: 700 }}><Smartphone size={13} /> SMS</span>
                       : <span style={{ color: '#64748b' }}>Simple</span>}
+                </td>
+                <td style={{ ...td, fontFamily: 'monospace', fontSize: 12, color: '#475569', whiteSpace: 'nowrap' }}>
+                  {l.signature_mode === 'sms' ? (l.sms_phone || '—') : '—'}
                 </td>
                 <td style={{ ...td, maxWidth: 240 }}>
                   <span title={l.documents} style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: '#475569', fontSize: 12 }}>{l.documents || '—'}</span>

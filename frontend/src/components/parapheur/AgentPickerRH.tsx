@@ -8,6 +8,8 @@ export interface AgentRef {
   displayName: string;
   email: string;
   service?: string;
+  poste?: string;
+  matricule?: string;
 }
 
 interface Props {
@@ -26,7 +28,7 @@ export default function AgentPickerRH({ value, onChange, token, placeholder }: P
   const ad = useADSearch(token, { endpoint: '/api/infra/rh-studio/agents/search' });
   const [input, setInput] = useState('');
 
-  const add = (u: { username: string; displayName: string; email: string; service?: string }) => {
+  const add = (u: { username: string; displayName: string; email: string; service?: string; poste?: string; matricule?: string }) => {
     const email = (u.email || '').toLowerCase();
     if (!email) return;
     if (value.some(v => v.email.toLowerCase() === email)) {
@@ -34,7 +36,7 @@ export default function AgentPickerRH({ value, onChange, token, placeholder }: P
       setInput('');
       return;
     }
-    onChange([...value, { id: Number(u.username) || undefined, displayName: u.displayName, email: u.email, service: u.service }]);
+    onChange([...value, { id: Number(u.username) || undefined, displayName: u.displayName, email: u.email, service: u.service, poste: u.poste, matricule: u.matricule }]);
     ad.clearResults();
     setInput('');
   };
