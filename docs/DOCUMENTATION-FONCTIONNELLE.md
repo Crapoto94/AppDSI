@@ -860,13 +860,35 @@ Toute nouvelle fiche doit suivre cette structure :
 
 | Fichier | Rendu sur la page | Via |
 |---|---|---|
-| `docs/GUIDE-TECHNICIEN-TICKETS.md` | `/tickets` | Bouton « ? » (fallback DB `hub.page_help`) |
+| `docs/GUIDE-TECHNICIEN-TICKETS.md` | `/tickets` | Bouton « ? » (DB `hub.page_help` + fallback) |
 | `docs/GUIDE-STATISTIQUES-TICKETS.md` | `/tickets/stats` | idem |
 | `docs/GUIDE-ADMIN-TICKETS.md` | `/tickets/admin` | idem |
+| `docs/GUIDE-TRANSCRIPT-MANAGER.md` | `/transcriptmanager` | idem |
+| `docs/GUIDE-STOCKS.md` | `/stocks`, `/prets` | idem |
+| `docs/GUIDE-CONSOMMABLES.md` | `/consommables` | idem |
+| `docs/GUIDE-CONTRATS.md` | `/contrats` | idem |
+| `docs/GUIDE-COPIEURS.md` | `/copieurs` | idem |
+| `docs/GUIDE-DOCUMENTS.md` | `/documents` | idem |
+| `docs/GUIDE-TELECOM.md` | `/telecom` | idem |
+| `docs/GUIDE-RENCONTRES-BUDGETAIRES.md` | `/rencontres-budgetaires` | idem |
+| `docs/GUIDE-PORTEFEUILLE-PROJETS.md` | `/portefeuille-projets`, `/revue-de-projets`, `/planning-general`, `/projets-log` | idem |
+| `docs/GUIDE-CERTIFICATS.md` | `/certif` | idem |
+| `docs/GUIDE-CALENDRIER-DSI.md` | `/calendrier-dsi` | idem |
+| `docs/GUIDE-BUDGET.md` | `/budget`, `/tiers` | idem |
+| `docs/GUIDE-DOCTRINES.md` | `/doctrines` | idem |
+| `docs/GUIDE-RESEAU.md` | `/reseau` | idem |
+| `docs/GUIDE-REUNIONS.md` | `/mes-reunions` | idem |
+| `docs/GUIDE-MAGAPP.md` | `/admin/magapp` | idem |
+| `docs/GUIDE-TACHES.md` | `/mes-taches` | idem |
+| `docs/GUIDE-PARC.md` | `/parc` | idem |
+| `docs/GUIDE-RH.md` | `/rh` | idem |
+| `docs/GUIDE-VOLS.md` | `/vols` | idem |
+| `docs/GUIDE-PARAM-VILLE.md` | `/admin/param-ville` | idem |
+| `docs/GUIDE-BOITES-PARTAGEES.md` | `/boites-partagees` | idem |
 | `docs/ARCHITECTURE-TICKETS.md` | — (documentation technique interne) | dépôt |
 | `docs/CAHIER-DES-CHARGES-TICKETS.md` | — (documentation technique interne) | dépôt |
 
-Pour ajouter une aide sur **n'importe quelle autre page** : Administration → onglet **Aide** (ou `PUT /api/page-help/<chemin_de_la_page>`), contenu Markdown ou fichier `.md`.
+Pour administrer ou modifier une aide : Administration → **Aides** (`/admin/aides`, ou `PUT /api/page-help/<chemin_de_la_page>`). Recharger la base depuis les fichiers Markdown : `node backend/scripts/seed_page_help.js`.
 
 ## Annexe C — Services frontends
 

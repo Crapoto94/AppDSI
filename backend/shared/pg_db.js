@@ -4582,7 +4582,7 @@ async function setupPgDb() {
     try { await client.query(`ALTER TABLE hub.user_prefs ADD COLUMN IF NOT EXISTS task_assign_alert BOOLEAN DEFAULT FALSE`); } catch (e) {}
     try { await client.query(`ALTER TABLE hub.user_prefs ADD COLUMN IF NOT EXISTS dashboard_columns SMALLINT DEFAULT 3`); } catch (e) {}
 
-    // ─── Aide contextuelle par page (paramétrable dans /admin/hub > Aide) ────────
+    // ─── Aide contextuelle par page (paramétrable dans /admin/aides) ─────────────
     // id SERIAL pour rester compatible avec pgDb.run (qui ajoute RETURNING id),
     // page_path UNIQUE pour permettre l'upsert ON CONFLICT (page_path).
     await client.query(`
@@ -5655,6 +5655,15 @@ async function setupPgDb() {
       await client.query(`
         INSERT INTO hub.infra_apis (key, label, base_url, endpoint, api_key, header_name, enabled)
         VALUES ('apm_ai', 'API IA Ville (APM)', '', '/api/v1/ai', '', 'X-API-KEY', FALSE)
+        ON CONFLICT (key) DO NOTHING
+      `);
+
+      // API externe "Analyse-mail" (tableau de bord de compromission des boîtes
+      // mail) — endpoint GET /api/v1/kpis, authentifié par l'en-tête X-API-Key.
+      // base_url/api_key à renseigner via /admin/infra une fois connus.
+      await client.query(`
+        INSERT INTO hub.infra_apis (key, label, base_url, endpoint, api_key, header_name, enabled)
+        VALUES ('analyse_mail', 'API Analyse-mail (sécurité boîtes mail)', '', '/api/v1/kpis', '', 'X-API-Key', FALSE)
         ON CONFLICT (key) DO NOTHING
       `);
 

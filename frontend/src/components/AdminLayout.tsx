@@ -6,7 +6,7 @@ import { useAuth } from '../contexts/AuthContext';
 import {
   LayoutDashboard, Users, MessageSquare,
   Mail, Settings, LayoutGrid, Activity,
-  Monitor, Database, Shield, ChevronRight, Bell, Lock, Sliders, Lightbulb, DollarSign, Wrench, Zap, Inbox, HardDrive, Server, AlertCircle, Network, Key
+  Monitor, Database, Shield, ChevronRight, Bell, Lock, Sliders, Lightbulb, DollarSign, Wrench, Zap, Inbox, HardDrive, Server, AlertCircle, Network, Key, HelpCircle
 } from 'lucide-react';
 
 const AdminLayout: React.FC = () => {
@@ -44,6 +44,7 @@ const AdminLayout: React.FC = () => {
   const menuItems = [
     { title: "Dashboard", icon: LayoutDashboard, path: "/admin", exact: true },
     { title: "Paramétrage Hub", icon: Sliders, path: "/admin/hub", badge: isSuperAdmin ? pendingCount : 0 },
+    { title: "Aides", icon: HelpCircle, path: "/admin/aides" },
     { title: "Param Ville", icon: LayoutGrid, path: "/admin/param-ville" },
     { title: "Backlog", icon: Inbox, path: "/admin/backlog" },
     { title: "Messagerie & Emails", icon: Mail, path: "/admin/mail" },

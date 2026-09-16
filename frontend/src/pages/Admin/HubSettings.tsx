@@ -1,14 +1,13 @@
 import React, { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import axios from 'axios';
-import { Users, LayoutGrid, Sliders, ShieldCheck, HelpCircle } from 'lucide-react';
+import { Users, LayoutGrid, Sliders, ShieldCheck } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import Admin from '../Admin';
 import AdminSettings from '../AdminSettings';
 import AdminAccessRequests from '../AdminAccessRequests';
-import PageHelpAdmin from './PageHelpAdmin';
 
-type TabKey = 'users' | 'tiles' | 'settings' | 'help' | 'access-requests';
+type TabKey = 'users' | 'tiles' | 'settings' | 'access-requests';
 
 interface TabDef {
   key: TabKey;
@@ -21,7 +20,6 @@ const TABS: TabDef[] = [
   { key: 'users', label: 'Utilisateurs', icon: Users },
   { key: 'tiles', label: 'Configuration Hub', icon: LayoutGrid },
   { key: 'settings', label: 'Paramètres', icon: Sliders },
-  { key: 'help', label: 'Aide', icon: HelpCircle },
   { key: 'access-requests', label: "Demandes d'accès", icon: ShieldCheck, superadminOnly: true },
 ];
 
@@ -92,7 +90,6 @@ const HubSettings: React.FC = () => {
         {activeTab === 'users' && <Admin section="users" />}
         {activeTab === 'tiles' && <Admin section="tiles" />}
         {activeTab === 'settings' && <AdminSettings />}
-        {activeTab === 'help' && <PageHelpAdmin />}
         {activeTab === 'access-requests' && isSuperAdmin && <AdminAccessRequests />}
       </div>
 

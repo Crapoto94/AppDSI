@@ -913,6 +913,9 @@ const TRANSCRIPT_SETTINGS_KEYS = [
     // (partagé par toutes les applications qui l'appellent), alors que DSIHUB a
     // besoin d'un défaut propre à chaque usage.
     'ai_summary_source', 'transcript_apm_default_model',
+    // Restreint le Transcript Manager aux modèles Llama locaux (hors Groq/Nvidia) —
+    // 'true' pour activer, quel que soit ai_summary_source (apm ou local).
+    'transcript_ai_restrict_local',
     'ticket_reformulate_ai_source', 'ticket_reformulate_apm_model',
     // Texte d'information affiché avec les comptes rendus générés par IA
     // (UI + mail) — modifiable en admin.
@@ -2377,6 +2380,9 @@ app.use('/api/maps/dxf', require('./modules/dxf/dxf.routes'));
 
 // Infra Module (définitions d'API externes + synchronisations)
 app.use('/api/infra', require('./modules/infra/infra.routes'));
+
+// Analyse-mail Module (relais serveur vers l'API de sécurité des boîtes mail)
+app.use('/api/analyse-mail', require('./modules/analyse-mail/analyse-mail.routes'));
 
 // Finance & Tiers Module
 app.use('/api/budget', financeRouter);

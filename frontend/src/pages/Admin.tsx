@@ -126,6 +126,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
     ai_reformulate_prompt: '',
     ai_summary_source: 'apm',
     transcript_apm_default_model: '',
+    transcript_ai_restrict_local: '',
     ticket_reformulate_ai_source: 'local',
     ticket_reformulate_apm_model: '',
     summary_notice_text: '',
@@ -147,7 +148,6 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
 
   const DEFAULT_PROMPT_TEMPLATE = DEFAULT_PROMPT_TEMPLATE_CONST;
   const DEFAULT_SUMMARY_NOTICE_TEXT = [
-    "Ce compte rendu est généré par une IA locale et souveraine. Aucune donnée n'est transmise en dehors de la collectivité (conformité RGPD).",
     "La synthèse produite par l'IA peut comporter des erreurs : elle doit être vérifiée et corrigée si nécessaire avant toute utilisation.",
     "En cas de diffusion d'un compte rendu erroné, la responsabilité incombe à l'agent qui le diffuse, et non à l'IA.",
   ].join('\n');
@@ -581,6 +581,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
           ai_reformulate_prompt: data.ai_reformulate_prompt || '',
           ai_summary_source: data.ai_summary_source === 'local' ? 'local' : 'apm',
           transcript_apm_default_model: data.transcript_apm_default_model || '',
+          transcript_ai_restrict_local: data.transcript_ai_restrict_local === 'true' ? 'true' : '',
           ticket_reformulate_ai_source: data.ticket_reformulate_ai_source === 'apm' ? 'apm' : 'local',
           ticket_reformulate_apm_model: data.ticket_reformulate_apm_model || '',
           summary_notice_text: data.summary_notice_text || '',
@@ -2786,6 +2787,19 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                           {apmModelsError && <p style={{ fontSize: '0.75rem', color: '#DC2626', marginTop: 4 }}>{apmModelsError}</p>}
                         </div>
                       )}
+                      <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, marginTop: 12, padding: '10px 12px', background: transcriptConfig.transcript_ai_restrict_local === 'true' ? '#F0FDF4' : '#F8FAFC', border: `1px solid ${transcriptConfig.transcript_ai_restrict_local === 'true' ? '#BBF7D0' : '#E2E8F0'}`, borderRadius: 8, cursor: 'pointer' }}>
+                        <input
+                          type="checkbox"
+                          checked={transcriptConfig.transcript_ai_restrict_local === 'true'}
+                          onChange={e => setTranscriptConfig({ ...transcriptConfig, transcript_ai_restrict_local: e.target.checked ? 'true' : '' })}
+                          style={{ marginTop: 2 }}
+                        />
+                        <span style={{ fontSize: '0.8rem', color: '#334155', lineHeight: 1.5 }}>
+                          <strong>Restreindre ce module aux modèles locaux (Llama, hors Groq/Nvidia)</strong>
+                          <br />
+                          Quel que soit le réglage ci-dessus : en mode API Ville, seuls les modèles Llama non hébergés par Groq/Nvidia restent proposés ; en mode « IA locale AppDSI », toute génération est refusée si le fournisseur configuré n'est pas Ollama.
+                        </span>
+                      </label>
                     </div>
 
                     <div className="form-field full-width" style={{ marginBottom: '1.25rem' }}>

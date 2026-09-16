@@ -1525,7 +1525,7 @@ const MeetingDetail: React.FC = () => {
                                     </span>
                                 </div>
                             )}
-                            {meeting.summary && (
+                            {meeting.summary && (meeting.summary_notice || '').trim() && (
                                 <div style={{ margin: '0 1.5rem 0.75rem', padding: '12px 14px', background: '#FFFBEB', border: '1px solid #FDE68A', borderRadius: 8, fontSize: '0.78rem', color: '#92400E', lineHeight: 1.5 }}>
                                     <strong>⚠️ À lire — compte rendu généré par Intelligence Artificielle</strong>
                                     <ol style={{ margin: '6px 0 0', paddingLeft: 18 }}>

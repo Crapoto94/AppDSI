@@ -393,6 +393,9 @@ const Header: React.FC<HeaderProps> = ({ columns, onColumnsChange }) => {
                         <Link to="/admin/hub" className="nav-tile-item" onClick={() => setShowAdminDropdown(false)}>
                           ⚙️ Hub
                         </Link>
+                        <Link to="/admin/aides" className="nav-tile-item" onClick={() => setShowAdminDropdown(false)}>
+                          🆘 Aides
+                        </Link>
                         <Link to="/admin/users" className="nav-tile-item" onClick={() => setShowAdminDropdown(false)}>
                           👥 Utilisateurs
                         </Link>

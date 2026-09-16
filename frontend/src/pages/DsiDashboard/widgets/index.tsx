@@ -1,5 +1,6 @@
 import React, { Suspense, lazy } from 'react';
 import { Loader2 } from 'lucide-react';
+import type { MapWidgetProps } from './MailAnalyseMapCommon';
 
 const TicketsKpiWidget      = lazy(() => import('./TicketsKpiWidget'));
 const TicketsTrendWidget    = lazy(() => import('./TicketsTrendWidget'));
@@ -35,6 +36,9 @@ const ReseauSitesWidget     = lazy(() => import('./ReseauSitesWidget'));
 const TelecomLinesWidget    = lazy(() => import('./TelecomLinesWidget'));
 const TelecomCostWidget     = lazy(() => import('./TelecomCostWidget'));
 const TelecomOptimWidget    = lazy(() => import('./TelecomOptimWidget'));
+const MailAnalyseMapWorldWidget  = lazy(() => import('./MailAnalyseMapWorldWidget'));
+const MailAnalyseMapFranceWidget = lazy(() => import('./MailAnalyseMapFranceWidget'));
+const MailAnalyseFailedSigninsWidget = lazy(() => import('./MailAnalyseFailedSigninsWidget'));
 
 const ConsommablesWidget = lazy(() => import('./CounterWidget').then(m => ({ default: m.ConsommablesWidget })));
 const CertificatsWidget  = lazy(() => import('./CounterWidget').then(m => ({ default: m.CertificatsWidget })));
@@ -82,6 +86,12 @@ const WIDGET_MAP: Record<string, React.ComponentType> = {
   telecom_lines_kpi:  TelecomLinesWidget,
   telecom_cost_kpi:   TelecomCostWidget,
   telecom_optim_kpi:  TelecomOptimWidget,
+  mail_analyse_map_world:  MailAnalyseMapWorldWidget,
+  mail_analyse_map_france: MailAnalyseMapFranceWidget,
+  mail_analyse_failed_signins: MailAnalyseFailedSigninsWidget,
+  // Alias rétro-compatibilité : les tableaux existants enregistrés avec l'ancienne clé
+  // unique (carte monde + carte pays empilées) affichent désormais la carte monde.
+  mail_analyse_map:        MailAnalyseMapWorldWidget,
 };
 
 const Fallback = () => (
@@ -90,12 +100,16 @@ const Fallback = () => (
   </div>
 );
 
-export function renderWidget(key: string) {
-  const Component = WIDGET_MAP[key];
+export function renderWidget(
+  key: string,
+  config?: MapWidgetProps['config'],
+  onConfigChange?: (patch: Record<string, unknown>) => void,
+) {
+  const Component = WIDGET_MAP[key] as React.ComponentType<MapWidgetProps>;
   if (!Component) return <div style={{ padding: 16, color: '#94a3b8', fontSize: 12 }}>Widget inconnu : {key}</div>;
   return (
     <Suspense fallback={<Fallback />}>
-      <Component />
+      <Component config={config} onConfigChange={onConfigChange} />
     </Suspense>
   );
 }

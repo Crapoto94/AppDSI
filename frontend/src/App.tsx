@@ -66,6 +66,7 @@ import ServiceFaitProcessus from './pages/ServiceFaitProcessus';
 import ChatWidget from './components/LiveChat/ChatWidget';
 import ParamVille from './pages/Admin/ParamVille';
 import HubSettings from './pages/Admin/HubSettings';
+import AidesAdmin from './pages/Admin/AidesAdmin';
 import SecurityMenu from './pages/Admin/SecurityMenu';
 import AutoResolution from './pages/Admin/AutoResolution';
 import ApiKeysAdmin from './pages/Admin/ApiKeys';
@@ -222,6 +223,7 @@ function App() {
         >
           <Route index element={<Admin section="main" />} />
           <Route path="hub" element={<HubSettings />} />
+          <Route path="aides" element={<AidesAdmin />} />
           <Route path="users" element={<Admin section="users" />} />
           <Route path="tiles" element={<Admin section="tiles" />} />
           <Route path="ad" element={<AdminSync />} />
