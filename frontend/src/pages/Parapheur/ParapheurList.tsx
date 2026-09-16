@@ -1,7 +1,8 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import SignatureCanvas from 'react-signature-canvas';
-import { FileSignature, PenSquare, Clock, CheckCircle2, XCircle, Ban, FileText, RefreshCw, Eraser, Save, Trash2, ShieldCheck } from 'lucide-react';
+import { FileSignature, PenSquare, Clock, CheckCircle2, XCircle, Ban, FileText, RefreshCw, Eraser, Save, Trash2, ShieldCheck, Search, Users, X } from 'lucide-react';
+import AgentPickerRH, { type AgentRef } from '../../components/parapheur/AgentPickerRH';
 import { isSuperAdmin } from '../../utils/roles';
 import Header from '../../components/Header';
 import SignaturePad from '../../components/parapheur/SignaturePad';
@@ -20,9 +21,10 @@ interface ParapheurRow {
   nb_signataires?: number;
   nb_signes?: number;
   nb_documents?: number;
+  signataires_text?: string;
 }
 
-type Tab = 'created' | 'toSign' | 'signed' | 'mySignature' | 'all';
+type Tab = 'created' | 'toSign' | 'signed' | 'mySignature' | 'delegations' | 'all';
 
 const STATUS: Record<string, { label: string; color: string; bg: string; icon: React.ReactNode }> = {
   en_cours: { label: 'En cours', color: '#1d4ed8', bg: '#eff6ff', icon: <Clock size={14} /> },
@@ -39,6 +41,13 @@ export default function ParapheurList() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [counts, setCounts] = useState<{ created: number; toSign: number; signed: number }>({ created: 0, toSign: 0, signed: 0 });
+
+  // Recherche / filtres (Mes parapheurs) : état, signataire, date, texte libre.
+  const [q, setQ] = useState('');
+  const [stateFilter, setStateFilter] = useState('');
+  const [signerFilter, setSignerFilter] = useState('');
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
 
   const headers = { Authorization: `Bearer ${token}` };
 
@@ -92,7 +101,21 @@ export default function ParapheurList() {
     ['signed', 'Historique', counts.signed],
   ];
   if (superAdmin) tabs.push(['all', 'Tous les parapheurs', 0]);
+  tabs.push(['delegations', 'Délégations', 0]);
   tabs.push(['mySignature', 'Ma signature', 0]);
+
+  const filtered = rows.filter(r => {
+    if (stateFilter && r.status !== stateFilter) return false;
+    if (signerFilter && !(r.signataires_text || '').toLowerCase().includes(signerFilter.toLowerCase())) return false;
+    if (dateFrom && new Date(r.created_at) < new Date(`${dateFrom}T00:00:00`)) return false;
+    if (dateTo && new Date(r.created_at) > new Date(`${dateTo}T23:59:59`)) return false;
+    if (q.trim()) {
+      const needle = q.trim().toLowerCase();
+      const hay = `${r.title || ''} ${r.reference || ''} ${r.signataires_text || ''}`.toLowerCase();
+      if (!hay.includes(needle)) return false;
+    }
+    return true;
+  });
 
   const removeParapheur = async (e: React.MouseEvent, row: ParapheurRow) => {
     e.stopPropagation();
@@ -135,22 +158,45 @@ export default function ParapheurList() {
 
         {tab === 'mySignature' ? (
           <MySignature token={token} email={user?.email} />
+        ) : tab === 'delegations' ? (
+          <MyDelegations token={token} email={user?.email} />
         ) : (
           <>
-            <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 10 }}>
-              <button onClick={() => load(tab)} style={ghostBtn}><RefreshCw size={14} /> Actualiser</button>
+            <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 12, padding: '12px 14px', marginBottom: 12, display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+              <div style={{ position: 'relative', flex: '1 1 220px', minWidth: 180 }}>
+                <Search size={15} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
+                <input value={q} onChange={e => setQ(e.target.value)} placeholder="Rechercher (titre, référence, signataire)…" style={{ width: '100%', padding: '9px 12px 9px 32px', border: '1px solid #e2e8f0', borderRadius: 8, fontSize: 13, boxSizing: 'border-box' }} />
+              </div>
+              <select value={stateFilter} onChange={e => setStateFilter(e.target.value)} style={filterInput}>
+                <option value="">Tous les états</option>
+                <option value="en_cours">En cours</option>
+                <option value="termine">Terminé</option>
+                <option value="refuse">Refusé</option>
+                <option value="annule">Annulé</option>
+              </select>
+              <input value={signerFilter} onChange={e => setSignerFilter(e.target.value)} placeholder="Signataire" style={{ ...filterInput, width: 150 }} />
+              <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#64748b' }}>
+                Du <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} style={filterInput} />
+              </label>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#64748b' }}>
+                Au <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} style={filterInput} />
+              </label>
+              {(q || stateFilter || signerFilter || dateFrom || dateTo) ? (
+                <button onClick={() => { setQ(''); setStateFilter(''); setSignerFilter(''); setDateFrom(''); setDateTo(''); }} style={{ ...ghostBtn, padding: '8px 12px' }}><X size={13} /> Effacer</button>
+              ) : null}
+              <button onClick={() => load(tab)} style={{ ...ghostBtn, marginLeft: 'auto' }}><RefreshCw size={14} /> Actualiser</button>
             </div>
             {error && <div style={errBox}>{error}</div>}
             {loading ? (
               <div style={{ textAlign: 'center', padding: 50, color: '#64748b' }}>Chargement…</div>
-            ) : rows.length === 0 ? (
+            ) : filtered.length === 0 ? (
               <div style={{ textAlign: 'center', padding: 60, color: '#94a3b8', background: '#fff', borderRadius: 14, border: '1px dashed #e2e8f0' }}>
                 <FileText size={36} style={{ opacity: 0.5 }} />
-                <p style={{ marginTop: 10 }}>Aucun parapheur dans cette vue.</p>
+                <p style={{ marginTop: 10 }}>{(q || stateFilter || signerFilter || dateFrom || dateTo) ? 'Aucun parapheur ne correspond à votre recherche.' : 'Aucun parapheur dans cette vue.'}</p>
               </div>
             ) : (
               <div style={{ display: 'grid', gap: 10 }}>
-                {rows.map(r => {
+                {filtered.map(r => {
                   const st = STATUS[r.status] || STATUS.en_cours;
                   return (
                     <div key={`${r.id}-${r.signataire_status || ''}`} onClick={() => openParapheur(r)}
@@ -331,6 +377,169 @@ function MySignature({ token, email }: { token: string | null; email?: string })
   );
 }
 
+interface Delegation {
+  id: number;
+  delegant_email: string;
+  delegant_name?: string;
+  delegate_email: string;
+  delegate_name?: string;
+  date_start: string;
+  date_end: string;
+  active: boolean;
+}
+
+function MyDelegations({ token, email }: { token: string | null; email?: string }) {
+  const [items, setItems] = useState<Delegation[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [picker, setPicker] = useState<AgentRef[]>([]);
+  const [dateStart, setDateStart] = useState('');
+  const [dateEnd, setDateEnd] = useState('');
+  const [msg, setMsg] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  const headers = { Authorization: `Bearer ${token}` };
+  const myEmail = (email || '').toLowerCase();
+
+  const load = useCallback(async () => {
+    if (!token) return;
+    setLoading(true);
+    try {
+      const r = await fetch('/api/parapheur/delegations', { headers: { Authorization: `Bearer ${token}` } });
+      const d = await r.json();
+      if (r.ok) {
+        setItems(Array.isArray(d) ? d : []);
+        const mine = (Array.isArray(d) ? d : []).find((x: Delegation) => (x.delegant_email || '').toLowerCase() === myEmail);
+        if (mine) { setDateStart(mine.date_start || ''); setDateEnd(mine.date_end || ''); }
+      }
+    } catch { /* ignore */ } finally { setLoading(false); }
+  }, [token, myEmail]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const save = async () => {
+    if (picker.length === 0) { setMsg('Choisissez un délégataire.'); return; }
+    setSaving(true); setMsg(null);
+    try {
+      const r = await fetch('/api/parapheur/delegations', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...headers },
+        body: JSON.stringify({
+          delegateEmail: picker[0].email,
+          delegateName: picker[0].displayName,
+          delegateAgentId: picker[0].id,
+          dateStart, dateEnd,
+        }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.message || 'Erreur');
+      setMsg('Délégation enregistrée.');
+      setPicker([]);
+      load();
+    } catch (e: unknown) { setMsg(e instanceof Error ? e.message : 'Erreur'); }
+    finally { setSaving(false); }
+  };
+
+  const remove = async (id: number) => {
+    if (!confirm('Supprimer cette délégation ?')) return;
+    try {
+      const r = await fetch(`/api/parapheur/delegations/${id}`, { method: 'DELETE', headers });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.message || 'Erreur');
+      load();
+    } catch (e: unknown) { setMsg(e instanceof Error ? e.message : 'Erreur'); }
+  };
+
+  const fmt = (s: string) => (s ? new Date(`${s}T00:00:00`).toLocaleDateString('fr-FR') : '');
+  const mine = items.filter(i => (i.delegant_email || '').toLowerCase() === myEmail);
+  const forMe = items.filter(i => (i.delegate_email || '').toLowerCase() === myEmail);
+
+  return (
+    <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 14, padding: 24, maxWidth: 720 }}>
+      <h3 style={{ margin: '0 0 6px', fontSize: 17, fontWeight: 800, color: '#0f172a', display: 'flex', alignItems: 'center', gap: 8 }}>
+        <Users size={17} /> Délégations de signature
+      </h3>
+      <p style={{ margin: '0 0 18px', fontSize: 13, color: '#64748b' }}>
+        Désignez un agent pour signer à votre place sur une période donnée. La signature portera la mention
+        « signé le délégataire par délégation de vous-même ». La délégation ne s'applique pas aux signatures
+        sécurisées (certificat P12).
+      </p>
+
+      <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 12, padding: 16 }}>
+        <div style={{ fontSize: 11, fontWeight: 800, color: '#64748b', textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 8 }}>Délégataire</div>
+        {picker.length === 0 ? (
+          <AgentPickerRH value={picker} onChange={setPicker} token={token} placeholder="Rechercher l'agent délégataire…" />
+        ) : (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <strong style={{ fontSize: 14, color: '#1e293b' }}>{picker[0].displayName}</strong>
+            <span style={{ fontSize: 12, color: '#64748b' }}>{picker[0].email}</span>
+            <button onClick={() => setPicker([])} style={{ ...ghostBtn, padding: '5px 10px' }}><X size={13} /> Changer</button>
+          </div>
+        )}
+        <div style={{ display: 'flex', gap: 12, marginTop: 14, flexWrap: 'wrap' }}>
+          <label style={{ fontSize: 12, color: '#64748b', display: 'flex', alignItems: 'center', gap: 6 }}>
+            Du <input type="date" value={dateStart} onChange={e => setDateStart(e.target.value)} style={filterInput} />
+          </label>
+          <label style={{ fontSize: 12, color: '#64748b', display: 'flex', alignItems: 'center', gap: 6 }}>
+            Au <input type="date" value={dateEnd} onChange={e => setDateEnd(e.target.value)} style={filterInput} />
+          </label>
+          <button onClick={save} disabled={saving || picker.length === 0 || !dateStart || !dateEnd} style={{ ...primaryBtn, opacity: (saving || picker.length === 0 || !dateStart || !dateEnd) ? 0.5 : 1 }}>
+            <Save size={15} /> {saving ? 'Enregistrement…' : 'Enregistrer la délégation'}
+          </button>
+        </div>
+        {msg && <p style={{ fontSize: 12, color: '#475569', marginTop: 12 }}>{msg}</p>}
+      </div>
+
+      {loading ? (
+        <p style={{ fontSize: 13, color: '#64748b', marginTop: 18 }}>Chargement…</p>
+      ) : (
+        <>
+          {mine.length > 0 && (
+            <div style={{ marginTop: 20 }}>
+              <div style={{ fontSize: 11, fontWeight: 800, color: '#64748b', textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 8 }}>Mes délégations accordées</div>
+              <div style={{ display: 'grid', gap: 8 }}>
+                {mine.map(d => (
+                  <div key={d.id} style={{ display: 'flex', alignItems: 'center', gap: 10, border: '1px solid #f1f5f9', borderRadius: 9, padding: '9px 12px' }}>
+                    <span style={{ flex: 1, fontSize: 13, color: '#1e293b' }}>
+                      <strong>{d.delegate_name || d.delegate_email}</strong> signe à ma place
+                      <span style={{ color: '#64748b' }}> du {fmt(d.date_start)} au {fmt(d.date_end)}</span>
+                    </span>
+                    {d.active
+                      ? <span style={{ fontSize: 11, fontWeight: 700, color: '#15803d', background: '#f0fdf4', padding: '3px 9px', borderRadius: 12 }}>Active</span>
+                      : <span style={{ fontSize: 11, fontWeight: 700, color: '#64748b', background: '#f1f5f9', padding: '3px 9px', borderRadius: 12 }}>Inactive</span>}
+                    <button onClick={() => remove(d.id)} title="Supprimer" style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#cbd5e1', display: 'flex', padding: 4 }}><Trash2 size={15} /></button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          {forMe.length > 0 && (
+            <div style={{ marginTop: 20 }}>
+              <div style={{ fontSize: 11, fontWeight: 800, color: '#64748b', textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 8 }}>Délégations reçues</div>
+              <div style={{ display: 'grid', gap: 8 }}>
+                {forMe.map(d => (
+                  <div key={d.id} style={{ display: 'flex', alignItems: 'center', gap: 10, border: '1px solid #f1f5f9', borderRadius: 9, padding: '9px 12px' }}>
+                    <span style={{ flex: 1, fontSize: 13, color: '#1e293b' }}>
+                      Je peux signer pour <strong>{d.delegant_name || d.delegant_email}</strong>
+                      <span style={{ color: '#64748b' }}> du {fmt(d.date_start)} au {fmt(d.date_end)}</span>
+                    </span>
+                    {d.active
+                      ? <span style={{ fontSize: 11, fontWeight: 700, color: '#15803d', background: '#f0fdf4', padding: '3px 9px', borderRadius: 12 }}>Active</span>
+                      : <span style={{ fontSize: 11, fontWeight: 700, color: '#64748b', background: '#f1f5f9', padding: '3px 9px', borderRadius: 12 }}>Inactive</span>}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          {mine.length === 0 && forMe.length === 0 && (
+            <p style={{ fontSize: 13, color: '#94a3b8', marginTop: 18 }}>Aucune délégation enregistrée.</p>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+const filterInput: React.CSSProperties = { padding: '8px 10px', border: '1px solid #e2e8f0', borderRadius: 8, fontSize: 13, color: '#334155', background: '#fff', fontFamily: 'inherit' };
 const primaryBtn: React.CSSProperties = { display: 'inline-flex', alignItems: 'center', gap: 7, padding: '10px 18px', background: '#7c3aed', color: '#fff', border: 'none', borderRadius: 10, fontWeight: 800, fontSize: 13, cursor: 'pointer' };
 const ghostBtn: React.CSSProperties = { display: 'inline-flex', alignItems: 'center', gap: 6, padding: '9px 14px', background: '#f1f5f9', color: '#475569', border: '1px solid #e2e8f0', borderRadius: 9, fontWeight: 700, fontSize: 13, cursor: 'pointer' };
 const errBox: React.CSSProperties = { padding: '10px 14px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 8, color: '#b91c1c', fontSize: 13, marginBottom: 14 };

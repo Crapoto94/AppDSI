@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import SignatureCanvas from 'react-signature-canvas';
-import { AlertCircle, CheckCircle2, Clock, Download, Eraser, Eye, FileText, Loader2, Lock, LogOut, PenLine, ShieldCheck, Smartphone, User, XCircle } from 'lucide-react';
+import { AlertCircle, CheckCircle2, Clock, Download, Eraser, Eye, FileText, Loader2, Lock, LogOut, Paperclip, PenLine, ShieldCheck, Smartphone, User, Users, XCircle } from 'lucide-react';
 import PdfPageCanvas from '../../components/parapheur/PdfPageCanvas';
 import DocumentPdfViewer from '../../components/parapheur/DocumentPdfViewer';
 import { usePdfDocument, type PageSize } from '../../components/parapheur/pdf';
@@ -15,7 +15,9 @@ interface SignerAuth { token: string; username: string; displayName: string; ema
 interface PublicInfo {
   parapheur: { id: number; title: string; reference: string; message: string; mode: string; status: string; deadline?: string | null; requester: string };
   signataire: { nom: string; email: string; status: string; signature_mode: string; has_memorized_signature: boolean };
-  documents: { id: number; original_name: string; mime_type: string; size?: number }[];
+  documents: { id: number; original_name: string; mime_type: string; size?: number; page_count?: number | null }[];
+  annexes?: { id: number; original_name: string; mime_type: string; size?: number; page_count?: number | null }[];
+  delegation?: { delegant_nom: string; delegant_email: string; delegate_nom: string; delegate_email: string; date_start: string; date_end: string } | null;
   positions: { document_id: number; page: number; x: number; y: number; w: number; h: number; applied: boolean }[];
 }
 
@@ -126,7 +128,8 @@ function SignerView({ token, auth, onLogout }: { token: string; auth: SignerAuth
   const [error, setError] = useState<string | null>(null);
   const [identityError, setIdentityError] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const [success, setSuccess] = useState<{ done: boolean } | null>(null);
+  const [success, setSuccess] = useState<{ done: boolean; rejected?: boolean } | null>(null);
+  const [viewedDocs, setViewedDocs] = useState<Set<number>>(new Set());
   const [redraw, setRedraw] = useState(false);
   const [showReject, setShowReject] = useState(false);
   const [comment, setComment] = useState('');
@@ -143,6 +146,16 @@ function SignerView({ token, auth, onLogout }: { token: string; auth: SignerAuth
   const [otpSending, setOtpSending] = useState(false);
 
   const h = { Authorization: `Bearer ${auth.token}` };
+
+  // Le signataire ne peut signer qu'après avoir fait défiler chaque document
+  // jusqu'à sa dernière page.
+  const markViewed = useCallback((id: number, v: boolean) => {
+    setViewedDocs(prev => {
+      const next = new Set(prev);
+      if (v) next.add(id); else next.delete(id);
+      return next;
+    });
+  }, []);
 
   useEffect(() => {
     if (!info?.signataire.has_memorized_signature || redraw) { setMemorizedUrl(null); return; }
@@ -205,6 +218,12 @@ function SignerView({ token, auth, onLogout }: { token: string; auth: SignerAuth
     setError(null);
     try {
       if (!info) return;
+      const docs = info.documents || [];
+      const viewedAll = docs.length > 0 && docs.every(d => viewedDocs.has(d.id));
+      if (!viewedAll) {
+        setError('Veuillez consulter chaque document jusqu\'à sa dernière page avant de signer.');
+        return;
+      }
       const isSecure = info.signataire.signature_mode === 'securise';
 
       const needDraw = redraw || !info.signataire.has_memorized_signature;
@@ -260,6 +279,12 @@ function SignerView({ token, auth, onLogout }: { token: string; auth: SignerAuth
   const handleSignClick = async () => {
     if (!info) return;
     setError(null);
+    const docs = info.documents || [];
+    const viewedAll = docs.length > 0 && docs.every(d => viewedDocs.has(d.id));
+    if (!viewedAll) {
+      setError('Veuillez consulter chaque document jusqu\'à sa dernière page avant de signer.');
+      return;
+    }
     if (info.signataire.signature_mode === 'sms') {
       // Valider la signature visuelle avant d'envoyer le code.
       const needDraw = redraw || !info.signataire.has_memorized_signature;
@@ -309,7 +334,7 @@ function SignerView({ token, auth, onLogout }: { token: string; auth: SignerAuth
       });
       const d = await r.json();
       if (!r.ok) throw new Error(d.message || 'Refus impossible');
-      setSuccess({ done: false });
+      setSuccess({ done: false, rejected: true });
       setShowReject(false);
     } catch (e: unknown) { setError(e instanceof Error ? e.message : 'Erreur'); }
     finally { setSubmitting(false); }
@@ -336,6 +361,7 @@ function SignerView({ token, auth, onLogout }: { token: string; auth: SignerAuth
 
   if (!info) return null;
 
+  const allViewed = info.documents.length > 0 && info.documents.every(d => viewedDocs.has(d.id));
   const sStatus = info.signataire.status;
   const downloadSigned = async (docId: number) => {
     try {
@@ -350,6 +376,19 @@ function SignerView({ token, auth, onLogout }: { token: string; auth: SignerAuth
       setTimeout(() => URL.revokeObjectURL(url), 10000);
     } catch { /* ignore */ }
   };
+
+  if (success?.rejected) {
+    return (
+      <Center>
+        <XCircle size={56} color="#dc2626" />
+        <h2 style={{ color: '#0f172a', margin: '14px 0 6px' }}>Refus enregistré</h2>
+        <p style={{ color: '#64748b', maxWidth: 460, textAlign: 'center' }}>
+          Votre refus de signer a bien été enregistré. Le demandeur en a été informé.
+        </p>
+        <p style={{ fontSize: 12, color: '#94a3b8' }}>Réf. {info.parapheur.reference}</p>
+      </Center>
+    );
+  }
 
   if ((sStatus === 'a_signe' || success) && !resign) {
     return (
@@ -448,23 +487,66 @@ function SignerView({ token, auth, onLogout }: { token: string; auth: SignerAuth
           </div>
         )}
 
-        <h2 style={{ fontSize: 15, fontWeight: 800, color: '#0f172a', margin: '0 0 12px' }}>Documents à signer ({info.documents.length})</h2>
+        {info.delegation && (
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 10, padding: '12px 16px', fontSize: 13, color: '#92400e', marginBottom: 18 }}>
+            <Users size={16} style={{ marginTop: 1, flexShrink: 0 }} />
+            <div>
+              Vous signez <strong>par délégation</strong> de <strong>{info.delegation.delegant_nom}</strong>
+              {` (du ${new Date(info.delegation.date_start).toLocaleDateString('fr-FR')} au ${new Date(info.delegation.date_end).toLocaleDateString('fr-FR')})`}.
+              La signature portera la mention « signé {info.delegation.delegate_nom} par délégation de {info.delegation.delegant_nom} ».
+            </div>
+          </div>
+        )}
+
+        <h2 style={{ fontSize: 15, fontWeight: 800, color: '#0f172a', margin: '0 0 6px' }}>Documents à signer ({info.documents.length})</h2>
+        <p style={{ fontSize: 12, color: '#64748b', margin: '0 0 12px' }}>
+          Consultez chaque document jusqu'à sa dernière page : la signature n'est débloquée qu'après lecture complète.
+        </p>
         <div style={{ display: 'grid', gap: 18 }}>
           {info.documents.map(d => {
             const pos = info.positions.find(p => p.document_id === d.id);
+            const seen = viewedDocs.has(d.id);
             return (
               <div key={d.id} style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 12, overflow: 'hidden' }}>
                 <div style={{ padding: '10px 16px', background: '#f8fafc', borderBottom: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, fontWeight: 700, color: '#334155' }}>
                   <FileText size={15} color="#ef4444" /> {d.original_name}
-                  {pos?.applied && <span style={{ marginLeft: 'auto', fontSize: 11, color: '#15803d', display: 'flex', alignItems: 'center', gap: 4 }}><CheckCircle2 size={12} /> signé</span>}
+                  {d.page_count ? <span style={{ fontSize: 11, color: '#94a3b8', fontWeight: 600 }}>{d.page_count} page(s)</span> : null}
+                  <span style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 10 }}>
+                    {pos?.applied && <span style={{ fontSize: 11, color: '#15803d', display: 'flex', alignItems: 'center', gap: 4 }}><CheckCircle2 size={12} /> signé</span>}
+                    {seen
+                      ? <span style={{ fontSize: 11, color: '#15803d', display: 'flex', alignItems: 'center', gap: 4 }}><Eye size={12} /> lu</span>
+                      : <span style={{ fontSize: 11, color: '#b45309', display: 'flex', alignItems: 'center', gap: 4 }}><Clock size={12} /> à lire</span>}
+                  </span>
                 </div>
                 <div style={{ padding: 16 }}>
-                  {pos ? <PositionedDoc url={`/api/parapheur/public/${token}/doc/${d.id}`} authToken={auth.token} position={pos} signerName={info.signataire.nom} /> : <p style={{ fontSize: 12, color: '#94a3b8' }}>Aucune position définie.</p>}
+                  {pos
+                    ? <SignableDocumentView docId={d.id} url={`/api/parapheur/public/${token}/doc/${d.id}`} authToken={auth.token} position={pos} signerName={info.signataire.nom} onViewed={markViewed} />
+                    : <p style={{ fontSize: 12, color: '#94a3b8' }}>Aucune position définie.</p>}
                 </div>
               </div>
             );
           })}
         </div>
+
+        {info.annexes && info.annexes.length > 0 && (
+          <>
+            <h2 style={{ fontSize: 15, fontWeight: 800, color: '#0f172a', margin: '28px 0 6px', display: 'flex', alignItems: 'center', gap: 6 }}>
+              <Paperclip size={15} /> Annexes ({info.annexes.length})
+            </h2>
+            <p style={{ fontSize: 12, color: '#64748b', margin: '0 0 12px' }}>Documents complémentaires fournis pour information : ils ne sont pas signés.</p>
+            <div style={{ display: 'grid', gap: 10 }}>
+              {info.annexes.map(a => (
+                <div key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 10, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 10, padding: '10px 14px' }}>
+                  <FileText size={16} color="#64748b" />
+                  <span style={{ flex: 1, fontSize: 13, color: '#1e293b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {a.original_name}{a.page_count ? <span style={{ color: '#94a3b8' }}> · {a.page_count} page(s)</span> : null}
+                  </span>
+                  <button onClick={() => setViewer({ docId: a.id, signed: false, name: a.original_name })} style={btnGhost}><Eye size={14} /> Consulter</button>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
 
         {info.signataire.signature_mode === 'securise' && (
           <div style={{ background: '#faf5ff', border: '1px solid #e9d5ff', borderRadius: 12, padding: 20, marginTop: 24 }}>
@@ -532,10 +614,16 @@ function SignerView({ token, auth, onLogout }: { token: string; auth: SignerAuth
           )}
         </div>
 
+        {!allViewed && (
+          <p style={{ fontSize: 12, color: '#b45309', marginTop: 18, textAlign: 'center' }}>
+            Consultez chaque document jusqu'à sa dernière page (faites défiler) pour débloquer la signature.
+          </p>
+        )}
+
         <div style={{ display: 'flex', gap: 12, marginTop: 22 }}>
-          <button onClick={handleSignClick} disabled={submitting || otpSending} style={{ ...btnPrimary, flex: 2, justifyContent: 'center', padding: '14px 0', fontSize: 15, opacity: (submitting || otpSending) ? 0.6 : 1 }}>
-            {(submitting || otpSending) ? <Loader2 size={18} className="spin" /> : <CheckCircle2 size={18} />}
-            {otpSending ? 'Envoi du SMS…' : 'Signer le(s) document(s)'}
+          <button onClick={handleSignClick} disabled={submitting || otpSending || !allViewed} style={{ ...btnPrimary, flex: 2, justifyContent: 'center', padding: '14px 0', fontSize: 15, opacity: (submitting || otpSending || !allViewed) ? 0.5 : 1, cursor: (submitting || otpSending || !allViewed) ? 'not-allowed' : 'pointer' }}>
+            {(submitting || otpSending) ? <Loader2 size={18} className="spin" /> : (allViewed ? <CheckCircle2 size={18} /> : <Eye size={18} />)}
+            {otpSending ? 'Envoi du SMS…' : (allViewed ? 'Signer le(s) document(s)' : 'Lecture en cours…')}
           </button>
           <button onClick={() => setShowReject(true)} disabled={submitting} style={{ ...btnGhost, flex: 1, justifyContent: 'center', padding: '14px 0' }}>
             <XCircle size={16} /> Refuser
@@ -596,9 +684,50 @@ function SignerView({ token, auth, onLogout }: { token: string; auth: SignerAuth
   );
 }
 
-function PositionedDoc({ url, authToken, position, signerName }: { url: string; authToken: string; position: { page: number; x: number; y: number; w: number; h: number }; signerName: string }) {
+/**
+ * Affiche un document signable en intégralité (toutes les pages) dans une zone
+ * défilante, en commençant par la première page. Le signataire doit atteindre
+ * la fin du document — le bas du défilement — pour que `onViewed(true)` soit
+ * émis, ce qui débloque la signature.
+ */
+function SignableDocumentView({ docId, url, authToken, position, signerName, onViewed }: {
+  docId: number;
+  url: string;
+  authToken: string;
+  position: { page: number; x: number; y: number; w: number; h: number };
+  signerName: string;
+  onViewed: (id: number, viewed: boolean) => void;
+}) {
   const { doc, loading, error } = usePdfDocument({ url }, authToken);
   const [size, setSize] = useState<PageSize | null>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const reported = useRef(false);
+
+  const evaluate = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el || reported.current) return;
+    const noScroll = el.scrollHeight <= el.clientHeight + 8;
+    const atBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 24;
+    if (noScroll || atBottom) {
+      reported.current = true;
+      onViewed(docId, true);
+    }
+  }, [onViewed, docId]);
+
+  useEffect(() => {
+    reported.current = false;
+    onViewed(docId, false);
+    if (!doc) return;
+    const t = setTimeout(evaluate, 80);
+    return () => clearTimeout(t);
+  }, [doc, docId, evaluate, onViewed]);
+
+  useEffect(() => {
+    const onResize = () => evaluate();
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, [evaluate]);
+
   const box = size ? { w: (position.w / size.baseWidth) * size.width, h: (position.h / size.baseHeight) * size.height } : { w: 120, h: 48 };
 
   if (loading) return <div style={{ textAlign: 'center', padding: 30, color: '#94a3b8' }}><Loader2 size={22} className="spin" /></div>;
@@ -606,19 +735,33 @@ function PositionedDoc({ url, authToken, position, signerName }: { url: string; 
   if (!doc) return null;
 
   return (
-    <PdfPageCanvas doc={doc} page={position.page} onSize={setSize}>
-      <div style={{
-        position: 'absolute',
-        left: `calc(${position.x}% - ${box.w / 2}px)`,
-        top: `calc(${position.y}% - ${box.h / 2}px)`,
-        width: box.w, height: box.h,
-        border: '2px solid #7c3aed', background: 'rgba(237,233,254,0.85)', borderRadius: 6,
-        display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', boxShadow: '0 4px 12px rgba(124,58,237,0.25)',
-      }}>
-        <PenLine size={13} color="#7c3aed" />
-        <span style={{ fontSize: 9, fontWeight: 800, color: '#6d28d9', textTransform: 'uppercase', textAlign: 'center', padding: '0 4px', lineHeight: 1.1 }}>{signerName}</span>
-      </div>
-    </PdfPageCanvas>
+    <div
+      ref={scrollRef}
+      onScroll={evaluate}
+      style={{ maxHeight: 560, overflowY: 'auto', background: '#e2e8f0', borderRadius: 8, padding: 12 }}
+    >
+      {Array.from({ length: doc.numPages }, (_, i) => i + 1).map((p) => (
+        <div key={p} style={{ position: 'relative', marginBottom: 12, boxShadow: '0 1px 3px rgba(0,0,0,0.15)' }}>
+          <PdfPageCanvas doc={doc} page={p} onSize={p === position.page ? setSize : undefined}>
+            {p === position.page && (
+              <div style={{
+                position: 'absolute',
+                left: `calc(${position.x}% - ${box.w / 2}px)`,
+                top: `calc(${position.y}% - ${box.h / 2}px)`,
+                width: box.w, height: box.h,
+                border: '2px solid #7c3aed', background: 'rgba(237,233,254,0.85)', borderRadius: 6,
+                display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', boxShadow: '0 4px 12px rgba(124,58,237,0.25)',
+              }}>
+                <PenLine size={13} color="#7c3aed" />
+                <span style={{ fontSize: 9, fontWeight: 800, color: '#6d28d9', textTransform: 'uppercase', textAlign: 'center', padding: '0 4px', lineHeight: 1.1 }}>{signerName}</span>
+              </div>
+            )}
+          </PdfPageCanvas>
+          <div style={{ position: 'absolute', bottom: 4, right: 6, fontSize: 10, color: '#64748b', background: 'rgba(255,255,255,0.85)', borderRadius: 4, padding: '0 5px' }}>{p}/{doc.numPages}</div>
+        </div>
+      ))}
+      <p style={{ textAlign: 'center', fontSize: 11, color: '#64748b', margin: '4px 0 0' }}>— Fin du document —</p>
+    </div>
   );
 }
 

@@ -111,7 +111,16 @@ async function requestOtp(token) {
     if (!signataire.sms_phone) throw { status: 400, message: 'Aucun numéro de portable renseigné pour cette signature.' };
     const parapheur = await pgDb.get(`SELECT status FROM hub_parapheur.parapheurs WHERE id = ?`, [signataire.parapheur_id]);
     if (!parapheur || parapheur.status !== 'en_cours') throw { status: 400, message: "Ce parapheur n'est plus ouvert." };
-    if (signataire.otp_code_hash && signataire.otp_expires_at && new Date(signataire.otp_expires_at).getTime() > Date.now() + 9.5 * 60 * 1000) {
+    // Comparaison faite côté base : évite tout décalage de fuseau entre Postgres
+    // (session UTC) et le processus Node (heure locale) qui ferait apparaître un
+    // code tout juste envoyé comme déjà expiré.
+    const otpState = await pgDb.get(
+        `SELECT (otp_code_hash IS NOT NULL AND otp_expires_at IS NOT NULL
+                 AND otp_expires_at > NOW() + INTERVAL '9 minutes 30 seconds') AS too_soon
+         FROM hub_parapheur.signataires WHERE id = ?`,
+        [signataire.id]
+    );
+    if (otpState && otpState.too_soon) {
         throw { status: 429, message: 'Un code vient de vous être envoyé. Patientez quelques secondes avant de redemander.' };
     }
 
@@ -300,7 +309,7 @@ async function deleteCertificateById(id) {
 async function listSignatureLogs() {
     const rows = await pgDb.all(
         `SELECT sg.nom, sg.email, sg.status, sg.signature_mode, sg.signed_at, sg.rejected_at,
-                sg.rejection_comment, sg.ip, sg.user_agent,
+                sg.rejection_comment, sg.ip, sg.user_agent, sg.signed_by_name, sg.signed_by_email,
                 p.id AS parapheur_id, p.title, p.reference, p.mode,
                 (SELECT COUNT(*) FROM hub_parapheur.documents d WHERE d.parapheur_id = p.id) AS nb_documents,
                 (SELECT string_agg(d.original_name, ' | ' ORDER BY d.sort_order, d.id)
@@ -320,6 +329,8 @@ async function listSignatureLogs() {
         rejection_comment: r.rejection_comment,
         ip: r.ip,
         user_agent: r.user_agent,
+        signed_by_name: (r.signed_by_name && r.signed_by_name !== r.nom) ? r.signed_by_name : null,
+        signed_by_email: r.signed_by_email || null,
         parapheur_id: r.parapheur_id,
         title: r.title,
         reference: r.reference,
@@ -503,6 +514,121 @@ async function getEligibleEmails() {
     return out;
 }
 
+// ─── Délégations de signature (de date à date) ───────────────────────────────
+// Un agent (délégant) peut désigner un autre agent (délégataire) qui signera en
+// son nom sur la période choisie. Interdit pour la signature sécurisée P12 : le
+// certificat appartient en propre au signataire.
+
+function pad2(n) { return String(n).padStart(2, '0'); }
+
+/** Normalise une valeur DATE en 'YYYY-MM-DD' (fuseau local). */
+function dateOnly(value) {
+    if (!value) return null;
+    if (typeof value === 'string') return value.slice(0, 10);
+    const d = new Date(value);
+    if (Number.isNaN(d.getTime())) return null;
+    return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+}
+
+function isValidDateStr(s) { return /^\d{4}-\d{2}-\d{2}$/.test(String(s || '')); }
+
+function mapDelegation(r) {
+    if (!r) return null;
+    const start = dateOnly(r.date_start);
+    const end = dateOnly(r.date_end);
+    const today = dateOnly(new Date());
+    return {
+        id: r.id,
+        delegant_email: r.delegant_email,
+        delegant_name: r.delegant_name,
+        delegate_email: r.delegate_email,
+        delegate_name: r.delegate_name,
+        delegate_agent_id: r.delegate_agent_id,
+        date_start: start,
+        date_end: end,
+        created_at: r.created_at,
+        active: !!(start && end && today >= start && today <= end),
+    };
+}
+
+async function listDelegations(email) {
+    if (!email) return [];
+    const rows = await pgDb.all(
+        `SELECT * FROM hub_parapheur.delegations
+         WHERE LOWER(delegant_email) = LOWER(?) OR LOWER(delegate_email) = LOWER(?)
+         ORDER BY date_start DESC, id DESC`,
+        [email, email]
+    );
+    return rows.map(mapDelegation);
+}
+
+async function saveDelegation(email, name, payload = {}) {
+    const delegantEmail = String(email || '').toLowerCase().trim();
+    if (!delegantEmail) throw { status: 400, message: 'Utilisateur non identifié.' };
+    const delegateEmail = String(payload.delegateEmail || '').toLowerCase().trim();
+    if (!delegateEmail) throw { status: 400, message: 'Choisissez un délégataire.' };
+    if (delegateEmail === delegantEmail) throw { status: 400, message: 'Vous ne pouvez pas vous déléguer à vous-même.' };
+    const dateStart = String(payload.dateStart || '').slice(0, 10);
+    const dateEnd = String(payload.dateEnd || '').slice(0, 10);
+    if (!isValidDateStr(dateStart) || !isValidDateStr(dateEnd)) {
+        throw { status: 400, message: 'Indiquez une date de début et une date de fin.' };
+    }
+    if (dateEnd < dateStart) throw { status: 400, message: 'La date de fin doit être postérieure à la date de début.' };
+
+    const delegateName = String(payload.delegateName || '').slice(0, 200) || delegateEmail;
+    const delegateAgentId = Number.isFinite(Number(payload.delegateAgentId)) ? Number(payload.delegateAgentId) : null;
+
+    const existing = await pgDb.get(
+        `SELECT id FROM hub_parapheur.delegations WHERE LOWER(delegant_email) = LOWER(?) ORDER BY id DESC LIMIT 1`,
+        [delegantEmail]
+    );
+    if (existing) {
+        await pgDb.run(
+            `UPDATE hub_parapheur.delegations
+             SET delegant_name = ?, delegate_email = ?, delegate_name = ?, delegate_agent_id = ?,
+                 date_start = ?, date_end = ?, updated_at = NOW()
+             WHERE id = ?`,
+            [name || null, delegateEmail, delegateName, delegateAgentId, dateStart, dateEnd, existing.id]
+        );
+    } else {
+        await pgDb.run(
+            `INSERT INTO hub_parapheur.delegations
+                (delegant_email, delegant_name, delegate_email, delegate_name, delegate_agent_id, date_start, date_end, created_by)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+            [delegantEmail, name || null, delegateEmail, delegateName, delegateAgentId, dateStart, dateEnd, delegantEmail]
+        );
+    }
+    return { success: true };
+}
+
+async function deleteDelegation(id, email, admin = false) {
+    const row = await pgDb.get(`SELECT * FROM hub_parapheur.delegations WHERE id = ?`, [id]);
+    if (!row) throw { status: 404, message: 'Délégation introuvable.' };
+    if (!admin && String(row.delegant_email || '').toLowerCase() !== String(email || '').toLowerCase()) {
+        throw { status: 403, message: 'Vous ne pouvez supprimer que vos propres délégations.' };
+    }
+    await pgDb.run(`DELETE FROM hub_parapheur.delegations WHERE id = ?`, [id]);
+    return { success: true };
+}
+
+/** Délégation active autorisant delegateEmail à signer pour delegantEmail. */
+async function getActiveDelegation(delegantEmail, delegateEmail) {
+    if (!delegantEmail || !delegateEmail) return null;
+    const rows = await pgDb.all(
+        `SELECT * FROM hub_parapheur.delegations
+         WHERE LOWER(delegant_email) = LOWER(?) AND LOWER(delegate_email) = LOWER(?)
+         ORDER BY date_start DESC`,
+        [delegantEmail, delegateEmail]
+    );
+    const today = dateOnly(new Date());
+    for (const r of rows) {
+        const start = dateOnly(r.date_start);
+        const end = dateOnly(r.date_end);
+        if (start && end && today >= start && today <= end) return mapDelegation(r);
+    }
+    return null;
+}
+
 // ─── Création ────────────────────────────────────────────────────────────────
 
 async function activateSignataires(parapheur, signataires, ip) {
@@ -549,11 +675,23 @@ async function sendSignerMail(parapheur, signataire) {
     }
 }
 
-async function createParapheur({ files, payload, user, req }) {
+/** Compte les pages d'un PDF (best effort : null si le fichier est illisible). */
+async function countPdfPages(buffer) {
+    try {
+        const d = await PDFDocument.load(buffer, { ignoreEncryption: true });
+        return d.getPageCount();
+    } catch {
+        return null;
+    }
+}
+
+async function createParapheur({ files, annexes, payload, user, req }) {
     const title = String(payload.title || '').trim();
     if (!title) throw { status: 400, message: 'Titre requis' };
-    if (!files || files.length === 0) throw { status: 400, message: 'Au moins un document PDF est requis' };
-    for (const f of files) {
+    files = Array.isArray(files) ? files : [];
+    annexes = Array.isArray(annexes) ? annexes : [];
+    if (files.length === 0) throw { status: 400, message: 'Au moins un document PDF à signer est requis' };
+    for (const f of [...files, ...annexes]) {
         const ok = (f.mimetype === 'application/pdf') || /\.pdf$/i.test(f.originalname || '');
         if (!ok) throw { status: 400, message: `Seuls les PDF sont acceptés (${f.originalname})` };
     }
@@ -566,15 +704,17 @@ async function createParapheur({ files, payload, user, req }) {
     const ip = getClientIp(req);
     const year = new Date().getFullYear();
 
+    const publicToken = generateToken();
     const pRes = await pgDb.run(
         `INSERT INTO hub_parapheur.parapheurs
-            (title, message, status, mode, deadline, created_by_username, created_by_name, created_by_email)
-         VALUES (?, ?, 'en_cours', ?, ?, ?, ?, ?)`,
+            (title, message, status, mode, deadline, public_token, created_by_username, created_by_name, created_by_email)
+         VALUES (?, ?, 'en_cours', ?, ?, ?, ?, ?, ?)`,
         [
             title,
             payload.message || '',
             mode,
             payload.deadline || null,
+            publicToken,
             user.username || null,
             user.displayName || user.username || null,
             user.email || null,
@@ -584,25 +724,36 @@ async function createParapheur({ files, payload, user, req }) {
     const reference = `PARA-${year}-${String(parapheurId).padStart(4, '0')}`;
     await pgDb.run(`UPDATE hub_parapheur.parapheurs SET reference = ? WHERE id = ?`, [reference, parapheurId]);
 
-    // Documents
+    // Documents (à signer) puis annexes (PDF complémentaires, non signés).
     const docIds = [];
     let order = 0;
-    for (const file of files) {
+    const persistDocument = async (file, isAnnexe) => {
         if (file.originalname) file.originalname = storage.fixUploadName(file.originalname);
         const saved = await storage.saveFile(MODULE, parapheurId, file);
         const hash = sha256(file.buffer);
+        const pageCount = await countPdfPages(file.buffer);
         const dRes = await pgDb.run(
             `INSERT INTO hub_parapheur.documents
-                (parapheur_id, original_name, storage_path, mime_type, size, doc_hash, sort_order)
-             VALUES (?, ?, ?, ?, ?, ?, ?)`,
-            [parapheurId, file.originalname || 'document.pdf', saved.dbPath, file.mimetype || 'application/pdf', file.size || null, hash, order++]
+                (parapheur_id, original_name, storage_path, mime_type, size, doc_hash, sort_order, is_annexe, page_count)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [
+                parapheurId,
+                file.originalname || 'document.pdf',
+                saved.dbPath,
+                file.mimetype || 'application/pdf',
+                file.size || null,
+                hash,
+                order++,
+                isAnnexe,
+                pageCount,
+            ]
         );
         const docId = dRes.lastID;
-        docIds.push(docId);
+        if (!isAnnexe) docIds.push(docId);
         try {
             await docsService.registerExternalUpload({
                 module: 'parapheur',
-                entityType: 'document',
+                entityType: isAnnexe ? 'annexe' : 'document',
                 entityId: docId,
                 title: file.originalname,
                 filename: saved.filename,
@@ -611,12 +762,14 @@ async function createParapheur({ files, payload, user, req }) {
                 size: file.size,
                 storageRef: saved.dbPath,
                 uploadedBy: user.username || null,
-                metadata: { parapheur_id: parapheurId, reference },
+                metadata: { parapheur_id: parapheurId, reference, is_annexe: isAnnexe, page_count: pageCount },
             });
         } catch (e) {
             console.warn('[PARAPHEUR] register GED échoué:', e.message);
         }
-    }
+    };
+    for (const file of files) await persistDocument(file, false);
+    for (const file of annexes) await persistDocument(file, true);
 
     // Signataires + positions
     const inserted = [];
@@ -672,7 +825,7 @@ async function createParapheur({ files, payload, user, req }) {
     }
     if (initial.length) await activateSignataires(parapheur, initial, ip);
 
-    await audit(parapheurId, user.username, 'creation', { documents: files.length, signataires: inserted.length, mode }, ip);
+    await audit(parapheurId, user.username, 'creation', { documents: files.length, annexes: annexes.length, signataires: inserted.length, mode }, ip);
 
     return { id: parapheurId, reference };
 }
@@ -703,13 +856,14 @@ async function listCreated(username) {
         `SELECT p.*,
             (SELECT COUNT(*) FROM hub_parapheur.signataires s WHERE s.parapheur_id = p.id) AS nb_signataires,
             (SELECT COUNT(*) FROM hub_parapheur.signataires s WHERE s.parapheur_id = p.id AND s.status = 'a_signe') AS nb_signes,
-            (SELECT COUNT(*) FROM hub_parapheur.documents d WHERE d.parapheur_id = p.id) AS nb_documents
+            (SELECT COUNT(*) FROM hub_parapheur.documents d WHERE d.parapheur_id = p.id) AS nb_documents,
+            (SELECT string_agg(s.nom, ', ' ORDER BY s.order_number, s.id) FROM hub_parapheur.signataires s WHERE s.parapheur_id = p.id) AS signataires_text
          FROM hub_parapheur.parapheurs p
          WHERE p.created_by_username = ?
          ORDER BY p.created_at DESC`,
         [username]
     );
-    return rows.map(r => ({ ...mapParapheur(r), nb_signataires: Number(r.nb_signataires), nb_signes: Number(r.nb_signes), nb_documents: Number(r.nb_documents) }));
+    return rows.map(r => ({ ...mapParapheur(r), nb_signataires: Number(r.nb_signataires), nb_signes: Number(r.nb_signes), nb_documents: Number(r.nb_documents), signataires_text: r.signataires_text || '' }));
 }
 
 async function listAll() {
@@ -717,11 +871,12 @@ async function listAll() {
         `SELECT p.*,
             (SELECT COUNT(*) FROM hub_parapheur.signataires s WHERE s.parapheur_id = p.id) AS nb_signataires,
             (SELECT COUNT(*) FROM hub_parapheur.signataires s WHERE s.parapheur_id = p.id AND s.status = 'a_signe') AS nb_signes,
-            (SELECT COUNT(*) FROM hub_parapheur.documents d WHERE d.parapheur_id = p.id) AS nb_documents
+            (SELECT COUNT(*) FROM hub_parapheur.documents d WHERE d.parapheur_id = p.id) AS nb_documents,
+            (SELECT string_agg(s.nom, ', ' ORDER BY s.order_number, s.id) FROM hub_parapheur.signataires s WHERE s.parapheur_id = p.id) AS signataires_text
          FROM hub_parapheur.parapheurs p
          ORDER BY p.created_at DESC`
     );
-    return rows.map(r => ({ ...mapParapheur(r), nb_signataires: Number(r.nb_signataires), nb_signes: Number(r.nb_signes), nb_documents: Number(r.nb_documents) }));
+    return rows.map(r => ({ ...mapParapheur(r), nb_signataires: Number(r.nb_signataires), nb_signes: Number(r.nb_signes), nb_documents: Number(r.nb_documents), signataires_text: r.signataires_text || '' }));
 }
 
 async function deleteParapheur(id) {
@@ -751,7 +906,8 @@ async function listForEmail(email, { signed }) {
     const rows = await pgDb.all(
         `SELECT p.*, s.id AS signataire_id, s.status AS signataire_status, s.order_number,
                 (SELECT COUNT(*) FROM hub_parapheur.signataires x WHERE x.parapheur_id = p.id) AS nb_signataires,
-                (SELECT COUNT(*) FROM hub_parapheur.signataires x WHERE x.parapheur_id = p.id AND x.status = 'a_signe') AS nb_signes
+                (SELECT COUNT(*) FROM hub_parapheur.signataires x WHERE x.parapheur_id = p.id AND x.status = 'a_signe') AS nb_signes,
+                (SELECT string_agg(x.nom, ', ' ORDER BY x.order_number, x.id) FROM hub_parapheur.signataires x WHERE x.parapheur_id = p.id) AS signataires_text
          FROM hub_parapheur.signataires s
          JOIN hub_parapheur.parapheurs p ON p.id = s.parapheur_id
          WHERE LOWER(s.email) = LOWER(?)
@@ -767,6 +923,7 @@ async function listForEmail(email, { signed }) {
         order_number: r.order_number,
         nb_signataires: Number(r.nb_signataires),
         nb_signes: Number(r.nb_signes),
+        signataires_text: r.signataires_text || '',
     }));
 }
 
@@ -793,6 +950,8 @@ async function getDetail(id) {
             mime_type: d.mime_type,
             size: d.size,
             sort_order: d.sort_order,
+            is_annexe: !!d.is_annexe,
+            page_count: d.page_count,
             has_signed: !!d.signed_path,
             has_pades: !!d.has_pades,
             has_crypto_signature: d.signed_path ? await pdfHasSignature(d.signed_path) : false,
@@ -811,6 +970,8 @@ async function getDetail(id) {
             rejected_at: s.rejected_at,
             rejection_comment: s.rejection_comment,
             has_signature: !!s.signature_image_path,
+            signed_by_name: (s.signed_by_name && s.signed_by_name !== s.nom) ? s.signed_by_name : null,
+            signed_by_email: s.signed_by_email || null,
         })),
         signatures: signatures.map(s => ({
             signataire_id: s.signataire_id,
@@ -841,12 +1002,25 @@ async function getPublicInfo(token, req) {
         throw { status: 410, message: 'Ce lien de signature a expiré. Contactez le demandeur.' };
     }
 
-    const documents = await pgDb.all(`SELECT id, original_name, mime_type, size FROM hub_parapheur.documents WHERE parapheur_id = ? ORDER BY sort_order, id`, [p.id]);
+    const documents = await pgDb.all(
+        `SELECT id, original_name, mime_type, size, is_annexe, page_count FROM hub_parapheur.documents WHERE parapheur_id = ? ORDER BY sort_order, id`,
+        [p.id]
+    );
     const signatures = await pgDb.all(
         `SELECT document_id, page, x_pct, y_pct, w_pt, h_pt, applied FROM hub_parapheur.signatures WHERE signataire_id = ?`,
         [signataire.id]
     );
-    const memorized = await pgDb.get(`SELECT storage_path FROM hub_parapheur.agent_signatures WHERE LOWER(email) = LOWER(?)`, [signataire.email]);
+
+    // Délégation éventuelle : le délégataire agit pour le compte du délégant.
+    const delegation = (req && req.delegation
+        && String(req.delegation.delegant_email || '').toLowerCase() === String(signataire.email || '').toLowerCase())
+        ? req.delegation : null;
+    const actingAsDelegate = !!delegation;
+    const signatureOwnerEmail = actingAsDelegate ? delegation.delegate_email : signataire.email;
+    const memorized = await pgDb.get(
+        `SELECT storage_path FROM hub_parapheur.agent_signatures WHERE LOWER(email) = LOWER(?)`,
+        [signatureOwnerEmail]
+    );
 
     return {
         parapheur: {
@@ -866,7 +1040,16 @@ async function getPublicInfo(token, req) {
             signature_mode: signataire.signature_mode,
             has_memorized_signature: !!memorized,
         },
-        documents: documents.map(d => ({ id: d.id, original_name: d.original_name, mime_type: d.mime_type, size: d.size })),
+        delegation: actingAsDelegate ? {
+            delegant_nom: signataire.nom,
+            delegant_email: signataire.email,
+            delegate_nom: delegation.delegate_name || delegation.delegate_email,
+            delegate_email: delegation.delegate_email,
+            date_start: delegation.date_start,
+            date_end: delegation.date_end,
+        } : null,
+        documents: documents.filter(d => !d.is_annexe).map(d => ({ id: d.id, original_name: d.original_name, mime_type: d.mime_type, size: d.size, page_count: d.page_count })),
+        annexes: documents.filter(d => d.is_annexe).map(d => ({ id: d.id, original_name: d.original_name, mime_type: d.mime_type, size: d.size, page_count: d.page_count })),
         positions: signatures.map(s => ({
             document_id: s.document_id,
             page: s.page,
@@ -895,11 +1078,12 @@ async function buildSignedPdf(originalPath, sigs, ctx = {}) {
     const pages = pdfDoc.getPages();
     const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
 
-    // QR code « vérifier sur le Hub » (généré une fois) — bas gauche de la page.
+    // QR code de vérification — pointe vers une page PUBLIQUE (aucune
+    // authentification) accessible à toute personne disposant du lien.
     let qrImage = null;
-    if (ctx.appBaseUrl && ctx.parapheurId) {
+    if (ctx.appBaseUrl && ctx.publicToken) {
         try {
-            const url = `${String(ctx.appBaseUrl).replace(/\/$/, '')}/parapheur/${ctx.parapheurId}`;
+            const url = `${String(ctx.appBaseUrl).replace(/\/$/, '')}/parapheur/verification/${ctx.publicToken}`;
             const qrBuf = await QRCode.toBuffer(url, { type: 'png', width: 260, margin: 1 });
             qrImage = await pdfDoc.embedPng(qrBuf);
         } catch (e) {
@@ -937,9 +1121,13 @@ async function buildSignedPdf(originalPath, sigs, ctx = {}) {
 
         // Libellé « signé (électroniquement) par … le … » sous la signature.
         const nom = s.nom || '';
+        const delegataire = (s.signed_by_name && s.signed_by_name !== s.nom) ? s.signed_by_name : null;
         const quand = formatSignedAt(s.signed_at);
         let label;
-        if (s.signature_mode === 'securise') label = `Signé électroniquement par ${nom} le ${quand}`;
+        if (delegataire) {
+            const suffix = s.signature_mode === 'sms' ? ' (vérifié par SMS)' : '';
+            label = `Signé ${delegataire} par délégation de ${nom}${suffix} le ${quand}`;
+        } else if (s.signature_mode === 'securise') label = `Signé électroniquement par ${nom} le ${quand}`;
         else if (s.signature_mode === 'sms') label = `Signé électroniquement par ${nom} (vérifié par SMS) le ${quand}`;
         else label = `Signé par ${nom} le ${quand}`;
         page.drawText(label, {
@@ -958,7 +1146,7 @@ async function buildSignedPdf(originalPath, sigs, ctx = {}) {
             const qx = 24;
             const qy = 24;
             page.drawImage(qrImage, { x: qx, y: qy, width: size, height: size });
-            page.drawText('Vérifier sur le Hub DSI', {
+            page.drawText('Vérifier le document', {
                 x: qx,
                 y: qy + size + 3,
                 size: 6,
@@ -972,13 +1160,15 @@ async function buildSignedPdf(originalPath, sigs, ctx = {}) {
 
 async function regenerateSignedDocs(parapheurId, secureContext) {
     const documents = await pgDb.all(`SELECT * FROM hub_parapheur.documents WHERE parapheur_id = ? ORDER BY sort_order, id`, [parapheurId]);
+    const publicToken = await ensurePublicToken(parapheurId);
     for (const doc of documents) {
         // Ne jamais écraser un PDF déjà porteur d'une signature cryptographique.
         if (doc.has_pades) continue;
 
         const sigs = await pgDb.all(
             `SELECT s.page, s.x_pct, s.y_pct, s.w_pt, s.h_pt, s.signed_at,
-                    sg.nom, sg.signature_mode, sg.signature_image_path AS img
+                    sg.nom, sg.signature_mode, sg.signature_image_path AS img,
+                    sg.signed_by_name, sg.signed_by_email
              FROM hub_parapheur.signatures s
              JOIN hub_parapheur.signataires sg ON sg.id = s.signataire_id
              WHERE s.document_id = ? AND s.applied = TRUE
@@ -987,7 +1177,7 @@ async function regenerateSignedDocs(parapheurId, secureContext) {
         );
         if (sigs.length === 0) continue;
 
-        let buffer = await buildSignedPdf(doc.storage_path, sigs, { appBaseUrl: await getAppBaseUrl(), parapheurId });
+        let buffer = await buildSignedPdf(doc.storage_path, sigs, { appBaseUrl: await getAppBaseUrl(), parapheurId, publicToken });
         let hasPades = false;
         if (secureContext) {
             try {
@@ -1081,10 +1271,18 @@ async function notifySignersCompleted(parapheur, signataires) {
     }
 }
 
-async function signWithToken(token, { signatureDataUrl, memorize, certificatePassword, otpCode, req }) {
+async function signWithToken(token, { signatureDataUrl, memorize, certificatePassword, otpCode, delegation, req }) {
     const signataire = await getSignerByToken(token);
     if (!signataire) throw { status: 404, message: 'Lien de signature introuvable.' };
     if (signataire.status === 'refuse') throw { status: 400, message: 'Vous avez déjà refusé de signer.' };
+    // La délégation n'est jamais admise pour la signature sécurisée P12.
+    if (delegation && signataire.signature_mode === 'securise') {
+        throw { status: 403, message: 'La signature sécurisée (certificat P12) ne peut pas être déléguée.' };
+    }
+    const delegating = !!delegation;
+    const signatureOwnerEmail = delegating ? delegation.delegate_email : signataire.email;
+    const signedByName = delegating ? (delegation.delegate_name || delegation.delegate_email) : null;
+    const signedByEmail = delegating ? delegation.delegate_email : null;
     if (signataire.token_expires_at && new Date(signataire.token_expires_at) < new Date()) {
         throw { status: 410, message: 'Ce lien de signature a expiré.' };
     }
@@ -1110,18 +1308,18 @@ async function signWithToken(token, { signatureDataUrl, memorize, certificatePas
         signaturePath = saved.dbPath;
         if (memorize !== false) {
             try {
-                const existing = await pgDb.get(`SELECT id FROM hub_parapheur.agent_signatures WHERE LOWER(email) = LOWER(?)`, [signataire.email]);
+                const existing = await pgDb.get(`SELECT id FROM hub_parapheur.agent_signatures WHERE LOWER(email) = LOWER(?)`, [signatureOwnerEmail]);
                 if (existing) {
                     await pgDb.run(`UPDATE hub_parapheur.agent_signatures SET storage_path = ?, agent_id = ?, updated_at = NOW() WHERE id = ?`, [saved.dbPath, signataire.agent_id, existing.id]);
                 } else {
-                    await pgDb.run(`INSERT INTO hub_parapheur.agent_signatures (email, agent_id, storage_path) VALUES (?, ?, ?)`, [signataire.email, signataire.agent_id, saved.dbPath]);
+                    await pgDb.run(`INSERT INTO hub_parapheur.agent_signatures (email, agent_id, storage_path) VALUES (?, ?, ?)`, [signatureOwnerEmail, signataire.agent_id, saved.dbPath]);
                 }
             } catch (e) {
                 console.warn('[PARAPHEUR] mémorisation signature échouée:', e.message);
             }
         }
     } else if (!signaturePath) {
-        const memorized = await pgDb.get(`SELECT storage_path FROM hub_parapheur.agent_signatures WHERE LOWER(email) = LOWER(?)`, [signataire.email]);
+        const memorized = await pgDb.get(`SELECT storage_path FROM hub_parapheur.agent_signatures WHERE LOWER(email) = LOWER(?)`, [signatureOwnerEmail]);
         if (memorized) signaturePath = memorized.storage_path;
     }
     if (!signaturePath) throw { status: 400, message: 'Aucune signature fournie.' };
@@ -1129,15 +1327,20 @@ async function signWithToken(token, { signatureDataUrl, memorize, certificatePas
     // Filet de sécurité : garantir une ligne de position pour chaque document.
     // (Sans elle, un parapheur créé avec un mapping de positions incomplet ne
     // produirait aucun PDF signé alors que la signature serait « acceptée ».)
-    const allDocs = await pgDb.all(`SELECT id FROM hub_parapheur.documents WHERE parapheur_id = ?`, [parapheur.id]);
+    const allDocs = await pgDb.all(
+        `SELECT id, page_count FROM hub_parapheur.documents WHERE parapheur_id = ? AND COALESCE(is_annexe, FALSE) = FALSE`,
+        [parapheur.id]
+    );
     const existingSigs = await pgDb.all(`SELECT document_id FROM hub_parapheur.signatures WHERE signataire_id = ?`, [signataire.id]);
     const haveSigs = new Set(existingSigs.map((r) => r.document_id));
     for (const d of allDocs) {
         if (!haveSigs.has(d.id)) {
+            // Par défaut : dernière page du document.
+            const defaultPage = Math.max(1, Number(d.page_count) || 1);
             await pgDb.run(
                 `INSERT INTO hub_parapheur.signatures (signataire_id, document_id, page, x_pct, y_pct, w_pt, h_pt)
-                 VALUES (?, ?, 1, 75, 85, 150, 60)`,
-                [signataire.id, d.id]
+                 VALUES (?, ?, ?, 75, 85, 150, 60)`,
+                [signataire.id, d.id, defaultPage]
             );
         }
     }
@@ -1146,10 +1349,18 @@ async function signWithToken(token, { signatureDataUrl, memorize, certificatePas
     if (signataire.signature_mode === 'sms') {
         if (!otpCode) throw { status: 400, message: 'Code SMS requis.' };
         if (!signataire.otp_code_hash) throw { status: 400, message: 'Aucun code SMS envoyé. Cliquez de nouveau sur Signer.' };
-        if (signataire.otp_expires_at && new Date(signataire.otp_expires_at) < new Date()) {
+        // Expiration et compteur de tentatives évalués en base (même fuseau que
+        // l'émission du code) pour ne pas déclarer expiré un code tout juste reçu.
+        const otpCheck = await pgDb.get(
+            `SELECT (otp_expires_at IS NULL OR otp_expires_at < NOW()) AS expired,
+                    COALESCE(otp_attempts, 0) AS attempts
+             FROM hub_parapheur.signataires WHERE id = ?`,
+            [signataire.id]
+        );
+        if (otpCheck && otpCheck.expired) {
             throw { status: 400, message: 'Code SMS expiré. Demandez-en un nouveau.' };
         }
-        if (Number(signataire.otp_attempts || 0) >= 5) {
+        if (Number(otpCheck?.attempts || 0) >= 5) {
             throw { status: 429, message: 'Trop de tentatives. Demandez un nouveau code.' };
         }
         const ok = signataire.otp_code_hash === sha256(Buffer.from(String(otpCode).trim(), 'utf8'));
@@ -1197,9 +1408,10 @@ async function signWithToken(token, { signatureDataUrl, memorize, certificatePas
 
     await pgDb.run(
         `UPDATE hub_parapheur.signataires
-         SET status = 'a_signe', signed_at = ?, signature_image_path = ?, ip = ?, user_agent = ?
+         SET status = 'a_signe', signed_at = ?, signature_image_path = ?, ip = ?, user_agent = ?,
+             signed_by_email = ?, signed_by_name = ?, delegation_id = ?
          WHERE id = ?`,
-        [nowIso, signaturePath, ip, ua, signataire.id]
+        [nowIso, signaturePath, ip, ua, signedByEmail, signedByName, delegating ? (delegation.id || null) : null, signataire.id]
     );
     await pgDb.run(
         `UPDATE hub_parapheur.signatures SET applied = TRUE, signed_at = ?, ip = ?, user_agent = ? WHERE signataire_id = ?`,
@@ -1214,7 +1426,7 @@ async function signWithToken(token, { signatureDataUrl, memorize, certificatePas
         console.error('[PARAPHEUR] génération du PDF signé échouée, rollback:', e && e.message);
         try {
             await pgDb.run(`UPDATE hub_parapheur.signatures SET applied = FALSE WHERE signataire_id = ?`, [signataire.id]);
-            await pgDb.run(`UPDATE hub_parapheur.signataires SET status = 'en_cours', signed_at = NULL, signature_image_path = NULL WHERE id = ?`, [signataire.id]);
+            await pgDb.run(`UPDATE hub_parapheur.signataires SET status = 'en_cours', signed_at = NULL, signature_image_path = NULL, signed_by_email = NULL, signed_by_name = NULL, delegation_id = NULL WHERE id = ?`, [signataire.id]);
         } catch (re) { console.error('[PARAPHEUR] rollback échoué:', re.message); }
         throw e;
     }
@@ -1231,13 +1443,21 @@ async function signWithToken(token, { signatureDataUrl, memorize, certificatePas
         } catch (e) { /* ignore */ }
     }
 
-    await audit(parapheur.id, signataire.nom, 'signature', { signataire_id: signataire.id, mode: signataire.signature_mode, ip }, ip);
+    await audit(
+        parapheur.id,
+        delegating ? (delegation.delegate_name || delegation.delegate_email) : signataire.nom,
+        delegating ? 'signature_delegation' : 'signature',
+        delegating
+            ? { signataire_id: signataire.id, delegant: signataire.nom, delegataire: delegation.delegate_email, mode: signataire.signature_mode, ip }
+            : { signataire_id: signataire.id, mode: signataire.signature_mode, ip },
+        ip
+    );
 
     const result = await advanceAfterSign(parapheur);
     return { success: true, done: result.done, next: result.next || null };
 }
 
-async function rejectWithToken(token, { comment, req }) {
+async function rejectWithToken(token, { comment, delegation, req }) {
     const signataire = await getSignerByToken(token);
     if (!signataire) throw { status: 404, message: 'Lien de signature introuvable.' };
     if (signataire.status === 'a_signe') throw { status: 400, message: 'Document déjà signé.' };
@@ -1253,7 +1473,16 @@ async function rejectWithToken(token, { comment, req }) {
         [cleanComment, ip, getUserAgent(req), signataire.id]
     );
     await pgDb.run(`UPDATE hub_parapheur.parapheurs SET status = 'refuse', updated_at = NOW() WHERE id = ?`, [parapheur.id]);
-    await audit(parapheur.id, signataire.nom, 'refus', { signataire_id: signataire.id, comment: cleanComment, ip }, ip);
+    const rejectActor = delegation ? (delegation.delegate_name || delegation.delegate_email) : signataire.nom;
+    await audit(
+        parapheur.id,
+        rejectActor,
+        delegation ? 'refus_delegation' : 'refus',
+        delegation
+            ? { signataire_id: signataire.id, delegant: signataire.nom, delegataire: delegation.delegate_email, comment: cleanComment, ip }
+            : { signataire_id: signataire.id, comment: cleanComment, ip },
+        ip
+    );
 
     if (sendMailFn && parapheur.created_by_email) {
         try {
@@ -1351,6 +1580,77 @@ async function getMySignerToken(parapheurId, email) {
         [parapheurId, email]
     );
     return row || null;
+}
+
+/** Jeton public de vérification (QR code) : créé à la demande si absent. */
+async function ensurePublicToken(parapheurId) {
+    const row = await pgDb.get(`SELECT public_token FROM hub_parapheur.parapheurs WHERE id = ?`, [parapheurId]);
+    if (!row) return null;
+    if (row.public_token) return row.public_token;
+    const token = generateToken();
+    await pgDb.run(`UPDATE hub_parapheur.parapheurs SET public_token = ? WHERE id = ?`, [token, parapheurId]);
+    return token;
+}
+
+/**
+ * Informations de vérification publiques (aucune authentification) : expose le
+ * contenu du parapheur et ses signatures à toute personne disposant du lien.
+ * On n'y expose ni emails ni chemins de stockage.
+ */
+async function getVerificationInfo(token) {
+    if (!token) return null;
+    const p = await pgDb.get(`SELECT * FROM hub_parapheur.parapheurs WHERE public_token = ?`, [token]);
+    if (!p) return null;
+    const documents = await pgDb.all(
+        `SELECT id, original_name, mime_type, size, signed_path, has_pades
+         FROM hub_parapheur.documents WHERE parapheur_id = ? ORDER BY sort_order, id`,
+        [p.id]
+    );
+    const signataires = await pgDb.all(
+        `SELECT nom, service, order_number, status, signature_mode, signed_at, signed_by_name, signed_by_email
+         FROM hub_parapheur.signataires WHERE parapheur_id = ? ORDER BY order_number, id`,
+        [p.id]
+    );
+    return {
+        parapheur: {
+            id: p.id,
+            reference: p.reference,
+            title: p.title,
+            message: p.message,
+            status: p.status,
+            mode: p.mode,
+            deadline: p.deadline,
+            requester: p.created_by_name || p.created_by_username,
+            created_at: p.created_at,
+            completed_at: p.completed_at,
+        },
+        documents: await Promise.all(documents.map(async d => ({
+            id: d.id,
+            original_name: d.original_name,
+            mime_type: d.mime_type,
+            size: d.size,
+            has_signed: !!d.signed_path,
+            has_pades: !!d.has_pades,
+            has_crypto_signature: d.signed_path ? await pdfHasSignature(d.signed_path) : false,
+        }))),
+        signataires: signataires.map(s => ({
+            nom: s.nom,
+            service: s.service,
+            order_number: s.order_number,
+            status: s.status,
+            signature_mode: s.signature_mode,
+            signed_at: s.signed_at,
+            signed_by_name: (s.signed_by_name && s.signed_by_name !== s.nom) ? s.signed_by_name : null,
+        })),
+    };
+}
+
+/** Téléchargement public (jeton de vérification) d'un document signé. */
+async function getVerificationDocument(token, documentId, { signed }) {
+    if (!token) return null;
+    const p = await pgDb.get(`SELECT id FROM hub_parapheur.parapheurs WHERE public_token = ?`, [token]);
+    if (!p) return null;
+    return getSignedDocument(p.id, documentId, { signed });
 }
 
 async function getSignedDocument(parapheurId, documentId, { signed }) {
@@ -1467,6 +1767,13 @@ module.exports = {
     relance,
     cancel,
     getSignedDocument,
+    getVerificationInfo,
+    getVerificationDocument,
+    ensurePublicToken,
+    listDelegations,
+    saveDelegation,
+    deleteDelegation,
+    getActiveDelegation,
     getCounts,
     getMySignerToken,
     getMySignature,

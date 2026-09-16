@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, Clock, CheckCircle2, XCircle, Ban, FileText, Download, Eye, Send, PenLine, ShieldCheck, Smartphone, RefreshCw } from 'lucide-react';
+import { ArrowLeft, Clock, CheckCircle2, XCircle, Ban, FileText, Download, Eye, Paperclip, Send, PenLine, ShieldCheck, Smartphone, RefreshCw } from 'lucide-react';
 import Header from '../../components/Header';
 import AgentPresenceBadge from '../../components/AgentPresenceBadge';
 import DocumentPdfViewer from '../../components/parapheur/DocumentPdfViewer';
@@ -9,8 +9,8 @@ import { useAuth } from '../../contexts/AuthContext';
 interface Detail {
   id: number; reference: string; title: string; message: string; status: string; mode: string;
   deadline?: string | null; created_by_name?: string; created_at: string; completed_at?: string | null;
-  documents: { id: number; original_name: string; has_signed: boolean; has_crypto_signature?: boolean; has_pades?: boolean; size?: number }[];
-  signataires: { id: number; nom: string; email: string; service?: string; order_number: number; status: string; signature_mode: string; signed_at?: string | null; rejected_at?: string | null; rejection_comment?: string | null }[];
+  documents: { id: number; original_name: string; has_signed: boolean; has_crypto_signature?: boolean; has_pades?: boolean; size?: number; is_annexe?: boolean; page_count?: number | null }[];
+  signataires: { id: number; nom: string; email: string; service?: string; order_number: number; status: string; signature_mode: string; signed_at?: string | null; rejected_at?: string | null; rejection_comment?: string | null; signed_by_name?: string | null; signed_by_email?: string | null }[];
 }
 
 const STATUS: Record<string, { label: string; color: string; bg: string; icon: React.ReactNode }> = {
@@ -84,6 +84,29 @@ export default function ParapheurDetail() {
   if (error || !detail) return <Shell><div style={errBox}>{error || 'Parapheur introuvable'}</div></Shell>;
 
   const st = STATUS[detail.status] || STATUS.en_cours;
+  const signableDocs = detail.documents.filter(d => !d.is_annexe);
+  const annexeDocs = detail.documents.filter(d => d.is_annexe);
+
+  const renderDocRow = (d: Detail['documents'][number], isAnnexe: boolean) => (
+    <div key={d.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 12px', border: '1px solid #f1f5f9', borderRadius: 9 }}>
+      <FileText size={15} color={isAnnexe ? '#64748b' : '#ef4444'} />
+      <span style={{ flex: 1, fontSize: 13, color: '#1e293b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+        {d.original_name}{d.page_count ? <span style={{ color: '#94a3b8' }}> · {d.page_count} page(s)</span> : null}
+      </span>
+      {!isAnnexe && d.has_crypto_signature && (
+        <span title="Signature cryptographique P12 (PAdES)" style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 10, fontWeight: 700, color: '#15803d', background: '#f0fdf4', border: '1px solid #bbf7d0', padding: '2px 7px', borderRadius: 10, flexShrink: 0 }}>
+          <ShieldCheck size={11} /> P12
+        </span>
+      )}
+      <button onClick={() => setViewer({ docId: d.id, signed: !isAnnexe && d.has_signed, name: d.original_name })} title={!isAnnexe && d.has_signed ? 'Voir le PDF signé' : 'Voir le PDF'} style={iconLink}><Eye size={15} /></button>
+      {detail.status === 'termine' && (
+        <a href={docUrl(d.id, { download: true })} title="Télécharger l'original" style={iconLink}><Download size={15} /></a>
+      )}
+      {detail.status === 'termine' && !isAnnexe && d.has_signed && (
+        <a href={docUrl(d.id, { signed: true, download: true })} title="Télécharger le PDF signé" style={{ ...iconLink, color: '#15803d' }}><Download size={15} /></a>
+      )}
+    </div>
+  );
 
   return (
     <Shell>
@@ -118,27 +141,19 @@ export default function ParapheurDetail() {
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: 16, marginTop: 16 }}>
         <section style={card}>
-          <h3 style={cardTitle}><FileText size={17} /> Documents ({detail.documents.length})</h3>
+          <h3 style={cardTitle}><FileText size={17} /> Documents à signer ({signableDocs.length})</h3>
           <div style={{ display: 'grid', gap: 8 }}>
-            {detail.documents.map(d => (
-              <div key={d.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 12px', border: '1px solid #f1f5f9', borderRadius: 9 }}>
-                <FileText size={15} color="#ef4444" />
-                <span style={{ flex: 1, fontSize: 13, color: '#1e293b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.original_name}</span>
-                {d.has_crypto_signature && (
-                  <span title="Signature cryptographique P12 (PAdES)" style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 10, fontWeight: 700, color: '#15803d', background: '#f0fdf4', border: '1px solid #bbf7d0', padding: '2px 7px', borderRadius: 10, flexShrink: 0 }}>
-                    <ShieldCheck size={11} /> P12
-                  </span>
-                )}
-                <button onClick={() => setViewer({ docId: d.id, signed: d.has_signed, name: d.original_name })} title={d.has_signed ? 'Voir le PDF signé' : 'Voir le PDF'} style={iconLink}><Eye size={15} /></button>
-                {detail.status === 'termine' && (
-                  <a href={docUrl(d.id, { download: true })} title="Télécharger l'original" style={iconLink}><Download size={15} /></a>
-                )}
-                {detail.status === 'termine' && d.has_signed && (
-                  <a href={docUrl(d.id, { signed: true, download: true })} title="Télécharger le PDF signé" style={{ ...iconLink, color: '#15803d' }}><Download size={15} /></a>
-                )}
-              </div>
-            ))}
+            {signableDocs.map(d => renderDocRow(d, false))}
           </div>
+          {annexeDocs.length > 0 && (
+            <>
+              <h3 style={{ ...cardTitle, marginTop: 18 }}><Paperclip size={17} /> Annexes ({annexeDocs.length})</h3>
+              <p style={{ fontSize: 11, color: '#94a3b8', margin: '-8px 0 10px' }}>Documents complémentaires consultables, non signés.</p>
+              <div style={{ display: 'grid', gap: 8 }}>
+                {annexeDocs.map(d => renderDocRow(d, true))}
+              </div>
+            </>
+          )}
           {detail.status !== 'termine' && (
             <p style={{ fontSize: 11, color: '#94a3b8', marginTop: 12 }}>
               Le téléchargement sera disponible une fois toutes les signatures recueillies.
@@ -161,7 +176,12 @@ export default function ParapheurDetail() {
                       {s.signature_mode === 'securise' && <span title="Signature sécurisée (P12)"><ShieldCheck size={13} color="#7c3aed" /></span>}
                       {s.signature_mode === 'sms' && <span title="Signature vérifiée par SMS"><Smartphone size={13} color="#0e7490" /></span>}
                     </div>
-                    <div style={{ fontSize: 11, color: '#94a3b8' }}>{s.email}{s.signed_at ? ` — signé le ${new Date(s.signed_at).toLocaleDateString('fr-FR')}` : ''}</div>
+                    <div style={{ fontSize: 11, color: '#94a3b8' }}>
+                      {s.email}
+                      {s.signed_by_name
+                        ? ` — signé par ${s.signed_by_name} par délégation${s.signed_at ? ` le ${new Date(s.signed_at).toLocaleDateString('fr-FR')}` : ''}`
+                        : (s.signed_at ? ` — signé le ${new Date(s.signed_at).toLocaleDateString('fr-FR')}` : '')}
+                    </div>
                     {s.status === 'refuse' && s.rejection_comment && <div style={{ fontSize: 11, color: '#b91c1c', fontStyle: 'italic', marginTop: 2 }}>« {s.rejection_comment} »</div>}
                   </div>
                   <span style={{ fontSize: 11, fontWeight: 700, color: ss.color, background: ss.bg, padding: '3px 9px', borderRadius: 12 }}>{ss.label}</span>

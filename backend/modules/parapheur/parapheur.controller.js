@@ -42,11 +42,22 @@ const controller = {
                 const match = (jwtEmail && jwtEmail === sigEmail)
                     || (jwtUser && (jwtUser === sigLogin || jwtUser === sigEmail))
                     || (jwtLogin && sigLogin && jwtLogin === sigLogin);
-                if (!match) {
-                    return res.status(403).json({ message: "Votre identité ne correspond pas au signataire attendu pour ce document." });
+                if (match) {
+                    req.signataire = signataire;
+                    return next();
                 }
-                req.signataire = signataire;
-                next();
+                // Pas le signataire lui-même : on autorise un délégataire disposant
+                // d'une délégation active de sa part. Jamais pour la signature
+                // sécurisée P12 (le certificat appartient en propre au signataire).
+                if (signataire.signature_mode !== 'securise' && jwtEmail) {
+                    const delegation = await service.getActiveDelegation(signataire.email, jwtEmail);
+                    if (delegation) {
+                        req.signataire = signataire;
+                        req.delegation = delegation;
+                        return next();
+                    }
+                }
+                return res.status(403).json({ message: "Votre identité ne correspond pas au signataire attendu pour ce document." });
             } catch (e) {
                 console.error('[PARAPHEUR] vérification signataire:', e);
                 res.status(500).json({ message: 'Erreur de vérification de l\'identité' });
@@ -74,7 +85,8 @@ const controller = {
 
     getPublicSignatureImage: async (req, res) => {
         try {
-            const f = await service.getSignatureImageByEmail(req.signataire.email);
+            const email = req.delegation ? req.delegation.delegate_email : req.signataire.email;
+            const f = await service.getSignatureImageByEmail(email);
             if (!f) return res.status(404).send('Pas de signature');
             serveFile(res, { ...f, mimetype: 'image/png' }, { inline: true, filename: 'signature.png' });
         } catch (e) { sendError(res, e, 'Signature introuvable'); }
@@ -159,6 +171,7 @@ const controller = {
                 memorize: req.body && req.body.memorize,
                 certificatePassword: req.body && req.body.certificatePassword,
                 otpCode: req.body && req.body.otpCode,
+                delegation: req.delegation || null,
                 req,
             });
             res.json(result);
@@ -176,10 +189,62 @@ const controller = {
         try {
             const result = await service.rejectWithToken(req.params.token, {
                 comment: req.body && req.body.comment,
+                delegation: req.delegation || null,
                 req,
             });
             res.json(result);
         } catch (e) { sendError(res, e, 'Refus impossible'); }
+    },
+
+    // ─── Vérification publique (QR code, sans authentification) ──────────────
+    verifyPublic: async (req, res) => {
+        try {
+            const info = await service.getVerificationInfo(req.params.token);
+            if (!info) return res.status(404).json({ message: 'Page de vérification introuvable.' });
+            res.json(info);
+        } catch (e) { sendError(res, e, 'Vérification impossible'); }
+    },
+
+    verifyPublicDocument: async (req, res) => {
+        try {
+            const signed = req.query.signed === '1' || req.query.signed === 'true';
+            const download = req.query.download === '1';
+            const f = await service.getVerificationDocument(req.params.token, parseInt(req.params.docId, 10), { signed });
+            if (!f) return res.status(404).send('Document introuvable');
+            serveFile(res, f, { inline: !download });
+        } catch (e) { sendError(res, e, 'Document introuvable'); }
+    },
+
+    // ─── Délégations (agent connecté) ────────────────────────────────────────
+    listDelegations: async (req, res) => {
+        try {
+            res.json(await service.listDelegations(req.user.email));
+        } catch (e) { sendError(res, e, 'Erreur délégations'); }
+    },
+
+    saveDelegation: async (req, res) => {
+        try {
+            const b = req.body || {};
+            const result = await service.saveDelegation(req.user.email, req.user.displayName || req.user.username, {
+                delegateEmail: b.delegateEmail,
+                delegateName: b.delegateName,
+                delegateAgentId: b.delegateAgentId,
+                dateStart: b.dateStart,
+                dateEnd: b.dateEnd,
+            });
+            res.json(result);
+        } catch (e) { sendError(res, e, 'Enregistrement impossible'); }
+    },
+
+    deleteDelegation: async (req, res) => {
+        try {
+            const result = await service.deleteDelegation(
+                parseInt(req.params.id, 10),
+                req.user.email,
+                isAdminLike(req.user)
+            );
+            res.json(result);
+        } catch (e) { sendError(res, e, 'Suppression impossible'); }
     },
 
     // ─── Authentifié ─────────────────────────────────────────────────────────
@@ -187,8 +252,10 @@ const controller = {
         try {
             let payload = {};
             try { payload = req.body && req.body.payload ? JSON.parse(req.body.payload) : (req.body || {}); } catch { payload = {}; }
+            const uploaded = req.files || {};
             const result = await service.createParapheur({
-                files: req.files || [],
+                files: Array.isArray(uploaded) ? uploaded : (uploaded.documents || []),
+                annexes: Array.isArray(uploaded) ? [] : (uploaded.annexes || []),
                 payload,
                 user: req.user || {},
                 req,

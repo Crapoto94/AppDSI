@@ -87,6 +87,7 @@ import ParapheurList from './pages/Parapheur/ParapheurList';
 import ParapheurCreate from './pages/Parapheur/ParapheurCreate';
 import ParapheurDetail from './pages/Parapheur/ParapheurDetail';
 import SignatureSignataire from './pages/Parapheur/SignatureSignataire';
+import ParapheurVerification from './pages/Parapheur/ParapheurVerification';
 
 const ChatWidgetWrapper = () => {
   const location = useLocation();
@@ -164,6 +165,7 @@ function App() {
         <Route path="/transcript/:token" element={<TranscriptShare />} />
         <Route path="/auto-resolution/keep-alive/:token" element={<AutoResolutionConfirm />} />
         <Route path="/signature/:token" element={<SignatureSignataire />} />
+        <Route path="/parapheur/verification/:token" element={<ParapheurVerification />} />
         <Route path="/request-feature" element={<PrivateRoute path="/request-feature"><RequestFeature /></PrivateRoute>} />
         <Route path="/whats-new" element={<PrivateRoute path="/whats-new"><WhatsNew /></PrivateRoute>} />
         <Route path="/doctrines" element={<PrivateRoute path="/doctrines"><Doctrines /></PrivateRoute>} />

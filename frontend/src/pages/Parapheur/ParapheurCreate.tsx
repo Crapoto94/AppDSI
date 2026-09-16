@@ -1,15 +1,19 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, ArrowRight, Check, ChevronUp, ChevronDown, FileText, GitBranch, Loader2, MapPin, Send, ShieldCheck, Smartphone, Trash2, Upload, Users, X } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Check, ChevronUp, ChevronDown, FileText, GitBranch, Loader2, MapPin, Paperclip, Send, ShieldCheck, Smartphone, Trash2, Upload, Users, X } from 'lucide-react';
 import Header from '../../components/Header';
 import AgentPickerRH, { type AgentRef } from '../../components/parapheur/AgentPickerRH';
+import PdfThumb from '../../components/parapheur/PdfThumb';
 import SignaturePlacementEditor, { type Placement } from '../../components/parapheur/SignaturePlacementEditor';
 import AgentPresenceBadge from '../../components/AgentPresenceBadge';
 import { useAuth } from '../../contexts/AuthContext';
 
-interface DocFile { file: File; name: string; }
+interface DocFile { id: string; file: File; name: string; }
 type Mode = 'sequentiel' | 'parallele';
 type SignMode = 'simple' | 'securise' | 'sms';
+
+let fileSeq = 0;
+const nextFileId = () => `f${Date.now()}_${fileSeq++}`;
 
 export default function ParapheurCreate() {
   const { token } = useAuth();
@@ -22,6 +26,8 @@ export default function ParapheurCreate() {
   const [modeChosen, setModeChosen] = useState(false);
   const [showModeModal, setShowModeModal] = useState(false);
   const [documents, setDocuments] = useState<DocFile[]>([]);
+  const [annexes, setAnnexes] = useState<DocFile[]>([]);
+  const [pages, setPages] = useState<Record<string, number>>({});
   const [signataires, setSignataires] = useState<AgentRef[]>([]);
   const [modeMap, setModeMap] = useState<Record<string, SignMode>>({});
   const [phoneMap, setPhoneMap] = useState<Record<string, string>>({});
@@ -44,15 +50,19 @@ export default function ParapheurCreate() {
   const isSecure = (s: AgentRef) => signModeOf(s) === 'securise';
   const isSms = (s: AgentRef) => signModeOf(s) === 'sms';
 
-  const addFiles = (files: FileList | null) => {
-    if (!files) return;
+  const toPdfList = (files: FileList | null): DocFile[] => {
+    if (!files) return [];
     const list: DocFile[] = [];
     Array.from(files).forEach(f => {
-      if (f.type === 'application/pdf' || /\.pdf$/i.test(f.name)) list.push({ file: f, name: f.name });
+      if (f.type === 'application/pdf' || /\.pdf$/i.test(f.name)) list.push({ id: nextFileId(), file: f, name: f.name });
     });
-    setDocuments(prev => [...prev, ...list]);
+    return list;
   };
+  const addFiles = (files: FileList | null) => setDocuments(prev => [...prev, ...toPdfList(files)]);
+  const addAnnexes = (files: FileList | null) => setAnnexes(prev => [...prev, ...toPdfList(files)]);
   const removeDoc = (idx: number) => setDocuments(prev => prev.filter((_, i) => i !== idx));
+  const removeAnnexe = (idx: number) => setAnnexes(prev => prev.filter((_, i) => i !== idx));
+  const setPageCount = (id: string, n: number) => setPages(prev => (prev[id] === n ? prev : { ...prev, [id]: n }));
 
   const handleSignatairesChange = (next: AgentRef[]) => {
     setSignataires(next);
@@ -84,6 +94,7 @@ export default function ParapheurCreate() {
     try {
       const fd = new FormData();
       documents.forEach(d => fd.append('documents', d.file, d.name));
+      annexes.forEach(a => fd.append('annexes', a.file, a.name));
       const effectiveMode: Mode = signataires.length >= 2 ? mode : 'parallele';
       const payload = {
         title, message, mode: effectiveMode, deadline: deadline || null,
@@ -94,8 +105,9 @@ export default function ParapheurCreate() {
           service: s.service,
           signatureMode: signModeOf(s),
           smsPhone: isSms(s) ? (phoneMap[s.email.toLowerCase()] || null) : null,
-          positions: documents.map((_, di) => {
-            const p = positions[key(s.email, di)] || { page: 1, x: 75, y: 85, w: 150, h: 60 };
+          positions: documents.map((doc, di) => {
+            // Par défaut : dernière page du document.
+            const p = positions[key(s.email, di)] || { page: pages[doc.id] || 1, x: 75, y: 85, w: 150, h: 60 };
             return { documentIndex: di, page: p.page, x: p.x, y: p.y, w: p.w, h: p.h };
           }),
         })),
@@ -131,7 +143,7 @@ export default function ParapheurCreate() {
         {/* 1. Informations */}
         <Section icon={<FileText size={17} />} title="Informations">
           <Field label="Titre du parapheur *">
-            <input value={title} onChange={e => setTitle(e.target.value)} placeholder="Ex. AOT 2026 — 12 rue Raspail" style={input} />
+            <input value={title} onChange={e => setTitle(e.target.value)} style={input} />
           </Field>
           <Field label="Message aux signataires (optionnel)">
             <textarea value={message} onChange={e => setMessage(e.target.value)} rows={3} style={{ ...input, resize: 'vertical' }} placeholder="Consigne ou contexte…" />
@@ -141,20 +153,47 @@ export default function ParapheurCreate() {
           </Field>
         </Section>
 
-        {/* 2. Documents */}
-        <Section icon={<Upload size={17} />} title={`Documents PDF * (${documents.length})`}>
+        {/* 2. Documents à signer */}
+        <Section icon={<Upload size={17} />} title={`Documents à signer (PDF) * (${documents.length})`}>
           <label style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, padding: 22, border: '2px dashed #cbd5e1', borderRadius: 12, cursor: 'pointer', color: '#64748b', background: '#f8fafc' }}>
             <Upload size={22} />
-            <span style={{ fontWeight: 700, fontSize: 13 }}>Cliquez pour ajouter des PDF</span>
+            <span style={{ fontWeight: 700, fontSize: 13 }}>Cliquez pour ajouter des PDF à signer</span>
             <input type="file" accept="application/pdf" multiple style={{ display: 'none' }} onChange={e => { addFiles(e.target.files); e.target.value = ''; }} />
           </label>
           {documents.length > 0 && (
             <div style={{ display: 'grid', gap: 8, marginTop: 12 }}>
               {documents.map((d, i) => (
-                <div key={i} style={row}>
-                  <FileText size={16} color="#ef4444" />
-                  <span style={{ flex: 1, fontSize: 13, color: '#1e293b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.name}</span>
+                <div key={d.id} style={{ ...row, padding: '10px 14px' }}>
+                  <PdfThumb file={d.file} width={64} onPages={(n) => setPageCount(d.id, n)} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 13, color: '#1e293b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 600 }}>{d.name}</div>
+                    <div style={{ fontSize: 11, color: '#94a3b8' }}>{pages[d.id] ? `${pages[d.id]} page(s)` : 'Lecture…'}</div>
+                  </div>
                   <button onClick={() => removeDoc(i)} style={iconBtn}><Trash2 size={15} /></button>
+                </div>
+              ))}
+            </div>
+          )}
+        </Section>
+
+        {/* 2bis. Annexes (non signées) */}
+        <Section icon={<Paperclip size={17} />} title={`Annexes — PDF complémentaires (${annexes.length})`}>
+          <label style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, padding: 18, border: '2px dashed #cbd5e1', borderRadius: 12, cursor: 'pointer', color: '#64748b', background: '#f8fafc' }}>
+            <Paperclip size={20} />
+            <span style={{ fontWeight: 700, fontSize: 13 }}>Cliquez pour ajouter des annexes PDF</span>
+            <input type="file" accept="application/pdf" multiple style={{ display: 'none' }} onChange={e => { addAnnexes(e.target.files); e.target.value = ''; }} />
+          </label>
+          <p style={hint}>Les annexes sont proposées en consultation au signataire mais ne sont pas signées.</p>
+          {annexes.length > 0 && (
+            <div style={{ display: 'grid', gap: 8, marginTop: 12 }}>
+              {annexes.map((a, i) => (
+                <div key={a.id} style={{ ...row, padding: '10px 14px' }}>
+                  <PdfThumb file={a.file} width={64} onPages={(n) => setPageCount(a.id, n)} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 13, color: '#1e293b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 600 }}>{a.name}</div>
+                    <div style={{ fontSize: 11, color: '#94a3b8' }}>{pages[a.id] ? `${pages[a.id]} page(s)` : 'Lecture…'} — non signé</div>
+                  </div>
+                  <button onClick={() => removeAnnexe(i)} style={iconBtn}><Trash2 size={15} /></button>
                 </div>
               ))}
             </div>
@@ -297,7 +336,7 @@ export default function ParapheurCreate() {
           source={{ file: documents[editing.di]?.file }}
           signataireName={editingSignataire.displayName}
           documentName={documents[editing.di]?.name}
-          initial={positions[key(editing.email, editing.di)]}
+          initial={positions[key(editing.email, editing.di)] || { page: pages[documents[editing.di]?.id] || 1, x: 75, y: 85, w: 150, h: 60 }}
           others={editingOthers}
           onClose={() => setEditing(null)}
           onValidate={(p) => { setPositions(prev => ({ ...prev, [key(editing.email, editing.di)]: p })); setEditing(null); }}

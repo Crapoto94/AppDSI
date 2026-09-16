@@ -6408,6 +6408,7 @@ async function setupPgDb() {
           status TEXT NOT NULL DEFAULT 'en_cours',
           mode TEXT NOT NULL DEFAULT 'parallele',
           deadline DATE,
+          public_token TEXT,
           created_by_username TEXT,
           created_by_name TEXT,
           created_by_email TEXT,
@@ -6419,6 +6420,8 @@ async function setupPgDb() {
         )`);
       await client.query(`CREATE INDEX IF NOT EXISTS idx_parapheurs_status ON hub_parapheur.parapheurs(status)`);
       await client.query(`CREATE INDEX IF NOT EXISTS idx_parapheurs_creator ON hub_parapheur.parapheurs(created_by_username)`);
+      await client.query(`ALTER TABLE hub_parapheur.parapheurs ADD COLUMN IF NOT EXISTS public_token TEXT`);
+      await client.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_parapheurs_public_token ON hub_parapheur.parapheurs(public_token)`);
 
       await client.query(`
         CREATE TABLE IF NOT EXISTS hub_parapheur.documents (
@@ -6431,9 +6434,13 @@ async function setupPgDb() {
           size BIGINT,
           doc_hash TEXT,
           sort_order INTEGER DEFAULT 0,
+          is_annexe BOOLEAN DEFAULT FALSE,
+          page_count INTEGER,
           created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )`);
       await client.query(`CREATE INDEX IF NOT EXISTS idx_parapheur_documents_parapheur ON hub_parapheur.documents(parapheur_id)`);
+      await client.query(`ALTER TABLE hub_parapheur.documents ADD COLUMN IF NOT EXISTS is_annexe BOOLEAN DEFAULT FALSE`);
+      await client.query(`ALTER TABLE hub_parapheur.documents ADD COLUMN IF NOT EXISTS page_count INTEGER`);
 
       await client.query(`
         CREATE TABLE IF NOT EXISTS hub_parapheur.signataires (
@@ -6472,6 +6479,9 @@ async function setupPgDb() {
         `otp_code_hash TEXT`,
         `otp_expires_at TIMESTAMP`,
         `otp_attempts INTEGER DEFAULT 0`,
+        `signed_by_email TEXT`,
+        `signed_by_name TEXT`,
+        `delegation_id INTEGER`,
       ]) {
         try { await client.query(`ALTER TABLE hub_parapheur.signataires ADD COLUMN IF NOT EXISTS ${col}`); } catch (e) {}
       }
@@ -6529,6 +6539,23 @@ async function setupPgDb() {
         try { await client.query(`ALTER TABLE hub_parapheur.agent_certificates ADD COLUMN IF NOT EXISTS ${col}`); } catch (e) {}
       }
       await client.query(`ALTER TABLE hub_parapheur.documents ADD COLUMN IF NOT EXISTS has_pades BOOLEAN DEFAULT FALSE`);
+
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS hub_parapheur.delegations (
+          id SERIAL PRIMARY KEY,
+          delegant_email TEXT NOT NULL,
+          delegant_name TEXT,
+          delegate_email TEXT NOT NULL,
+          delegate_name TEXT,
+          delegate_agent_id INTEGER,
+          date_start DATE NOT NULL,
+          date_end DATE NOT NULL,
+          created_by TEXT,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )`);
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_parapheur_delegations_delegant ON hub_parapheur.delegations(LOWER(delegant_email))`);
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_parapheur_delegations_delegate ON hub_parapheur.delegations(LOWER(delegate_email))`);
 
       await client.query(`
         CREATE TABLE IF NOT EXISTS hub_parapheur.audit_log (

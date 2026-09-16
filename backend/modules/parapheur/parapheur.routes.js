@@ -16,6 +16,10 @@ router.post('/public/:token/otp/request', controller.requireSigner, controller.r
 router.post('/public/:token/sign', controller.requireSigner, controller.sign);
 router.post('/public/:token/reject', controller.requireSigner, controller.reject);
 
+// ─── Vérification publique (QR code intégré aux PDF signés, sans auth) ────────
+router.get('/verify/:token', controller.verifyPublic);
+router.get('/verify/:token/doc/:docId', controller.verifyPublicDocument);
+
 // ─── API interne (JWT) ────────────────────────────────────────────────────────
 // Routes spécifiques déclarées AVANT /:id
 router.get('/all', authenticateJWT, controller.listAll);
@@ -26,6 +30,10 @@ router.get('/eligible-secure', authenticateJWT, controller.eligibleSecure);
 router.get('/my-signature', authenticateJWT, controller.getMySignature);
 router.get('/my-signature/image', authenticateJWT, controller.getMySignatureImage);
 router.put('/my-signature', authenticateJWT, controller.saveMySignature);
+
+router.get('/delegations', authenticateJWT, controller.listDelegations);
+router.post('/delegations', authenticateJWT, controller.saveDelegation);
+router.delete('/delegations/:id', authenticateJWT, controller.deleteDelegation);
 
 router.get('/my-certificate', authenticateJWT, controller.getMyCertificate);
 router.post('/my-certificate', authenticateJWT, upload.single('file'), controller.saveMyCertificate);
@@ -38,7 +46,10 @@ router.get('/signature-logs', authenticateJWT, controller.signatureLogs);
 router.get('/security', authenticateJWT, controller.security);
 
 router.get('/', authenticateJWT, controller.listCreated);
-router.post('/', authenticateJWT, upload.array('documents', 20), controller.create);
+router.post('/', authenticateJWT, upload.fields([
+    { name: 'documents', maxCount: 20 },
+    { name: 'annexes', maxCount: 20 },
+]), controller.create);
 
 router.get('/:id', authenticateJWT, controller.detail);
 router.get('/:id/my-token', authenticateJWT, controller.myToken);
