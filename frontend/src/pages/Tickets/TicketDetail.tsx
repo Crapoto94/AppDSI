@@ -12,7 +12,7 @@ import ProblemModal from './ProblemModal';
 import ResponseSuggestions from './ResponseSuggestions';
 import DocumentSuggestions from './DocumentSuggestions';
 import type { AttachDoc } from './DocumentSuggestions';
-import { Phone, MessageSquare, Upload, X, Edit3 } from 'lucide-react';
+import { Phone, MessageSquare, Upload, X, Edit3, Columns } from 'lucide-react';
 import SiteSelectField from '../../components/SiteSelectField';
 import { formatDateTime, formatDate as formatDateParis } from '../../utils/datetime';
 import UserHoverCard from '../../components/tickets/UserHoverCard';
@@ -343,6 +343,21 @@ export default function TicketDetail() {
   const dragStartX = useRef(0);
   const dragStartRatio = useRef(0);
   const bodyRef = useRef<HTMLDivElement>(null);
+
+  // Mode fractionné description (gauche) | tâches+activité (droite), avec séparateur ajustable.
+  const [splitMode, setSplitMode] = useState<boolean>(() => {
+    const v = localStorage.getItem('ticket-split-mode');
+    return v ? v === '1' : false;
+  });
+  const [splitRatio, setSplitRatio] = useState<number>(() => {
+    const v = localStorage.getItem('ticket-split-ratio');
+    return v ? Math.min(0.75, Math.max(0.25, parseFloat(v))) : 0.5;
+  });
+  const splitBoxRef = useRef<HTMLDivElement>(null);
+  const splitDragging = useRef(false);
+  const splitStartX = useRef(0);
+  const splitStartRatio = useRef(0);
+  const activeSplitMode = splitMode && !isMobile;
 
   // Reformule
   const [reformulating, setReformulating] = useState(false);
@@ -1253,6 +1268,41 @@ export default function TicketDetail() {
     document.addEventListener('mouseup', onUp);
   }
 
+  function startSplitDrag(e: React.MouseEvent) {
+    if (!activeSplitMode) return;
+    splitDragging.current = true;
+    splitStartX.current = e.clientX;
+    splitStartRatio.current = splitRatio;
+    const onMove = (ev: MouseEvent) => {
+      if (!splitDragging.current || !splitBoxRef.current) return;
+      const totalW = splitBoxRef.current.offsetWidth;
+      if (!totalW) return;
+      const dx = ev.clientX - splitStartX.current;
+      const newRatio = Math.min(0.75, Math.max(0.25, splitStartRatio.current + dx / totalW));
+      setSplitRatio(newRatio);
+    };
+    const onUp = (ev: MouseEvent) => {
+      if (!splitDragging.current) return;
+      splitDragging.current = false;
+      const totalW = splitBoxRef.current?.offsetWidth || 1;
+      const dx = ev.clientX - splitStartX.current;
+      const newRatio = Math.min(0.75, Math.max(0.25, splitStartRatio.current + dx / totalW));
+      localStorage.setItem('ticket-split-ratio', String(newRatio));
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+    };
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  }
+
+  function toggleSplitMode() {
+    setSplitMode(v => {
+      const nv = !v;
+      localStorage.setItem('ticket-split-mode', nv ? '1' : '0');
+      return nv;
+    });
+  }
+
   function toggleCommentDictation() {
     if (listenComment) {
       commentRecognitionRef.current?.stop();
@@ -1384,6 +1434,163 @@ export default function TicketDetail() {
    const SF: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: 12, borderBottom: '1px solid #f4f4f5', padding: '6px 0' };
    const SV: React.CSSProperties = { fontSize: 12, color: '#18181b', fontWeight: 600 };
 
+  // Styles du conteneur de contenu gauche : empilé (défaut) ou fractionné
+  // description (gauche) | tâches+activité (droite) selon le mode.
+  const splitWrapStyle: React.CSSProperties = activeSplitMode
+    ? { flex: 1, display: 'flex', flexDirection: 'row', overflow: 'hidden', minWidth: 0 }
+    : { flex: 1, overflowY: 'auto', padding: '0 20px 20px' };
+  const splitLeftStyle: React.CSSProperties = activeSplitMode
+    ? { width: `${splitRatio * 100}%`, flexShrink: 0, minWidth: 0, overflowY: 'auto', padding: '0 16px 20px 20px' }
+    : {};
+  const splitRightStyle: React.CSSProperties = activeSplitMode
+    ? { flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }
+    : {};
+  const splitRightScrollStyle: React.CSSProperties = activeSplitMode
+    ? { flex: 1, overflowY: 'auto', padding: '0 20px 20px 16px' }
+    : {};
+
+  const replyBarJSX = (
+    <div style={{ flexShrink: 0, borderTop: '1px solid #f4f4f5', background: '#fff' }}>
+      <div style={{ display: 'flex', alignItems: 'stretch' }}>
+
+        {/* Sélecteur de mode — dossiers à onglets, vertical */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 3, padding: '10px 0 10px 10px', flexShrink: 0 }}>
+          {REPLY_MODES.map(m => {
+            const active = replyMode === m.key;
+            return (
+              <button key={m.key} type="button" onClick={() => setReplyMode(m.key)} title={m.label}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 6,
+                  padding: isMobile ? '8px 9px' : '8px 12px 8px 10px',
+                  border: `1px solid ${active ? m.border : 'transparent'}`,
+                  borderRight: active ? '1px solid ' + m.bg : '1px solid transparent',
+                  borderRadius: '8px 0 0 8px',
+                  background: active ? m.bg : 'transparent',
+                  color: active ? m.color : '#a1a1aa',
+                  fontWeight: active ? 700 : 500, fontSize: 12,
+                  cursor: 'pointer', whiteSpace: 'nowrap', textAlign: 'left',
+                  marginRight: active ? -1 : 0, position: 'relative', zIndex: active ? 1 : 0,
+                }}>
+                <span>{m.icon}</span>{!isMobile && m.label}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Contenu du mode actif */}
+        <div style={{
+          flex: 1, minWidth: 0, padding: '10px 20px 10px 14px',
+          border: `1px solid ${activeReplyMode.border}`, borderBottom: 'none', borderRight: 'none',
+          borderTopLeftRadius: 8, background: activeReplyMode.bg,
+        }}>
+          {/* Reformulation proposal */}
+          {reformulationProposal !== null && (
+            <div style={{ marginBottom: 8, background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 8, padding: '10px 14px' }}>
+              <div style={{ fontSize: 11, fontWeight: 600, color: '#15803d', marginBottom: 6 }}>✨ Proposition de reformulation :</div>
+              <div style={{ fontSize: 13, color: '#166534', lineHeight: 1.5, whiteSpace: 'pre-wrap', marginBottom: 8 }}>{reformulationProposal}</div>
+              <div style={{ display: 'flex', gap: 6 }}>
+                <button onClick={() => { setNewComment(reformulationProposal); setReformulationProposal(null); }}
+                  style={{ padding: '4px 12px', background: '#16a34a', color: '#fff', border: 'none', borderRadius: 5, cursor: 'pointer', fontSize: 11, fontWeight: 600 }}>
+                  ✓ Accepter
+                </button>
+                <button onClick={() => setReformulationProposal(null)}
+                  style={{ padding: '4px 12px', background: 'transparent', color: '#6b7280', border: '1px solid #e4e4e7', borderRadius: 5, cursor: 'pointer', fontSize: 11 }}>
+                  ✕ Ignorer
+                </button>
+              </div>
+            </div>
+          )}
+          <div
+            onKeyDown={e => { if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); if (!submitDisabled) handleSubmitReply(); } }}
+            style={{ border: `1px solid ${activeReplyMode.border}`, borderRadius: 8, overflow: 'hidden', marginBottom: 8, background: '#fff' }}>
+            <ReactQuill value={newComment} onChange={setNewComment} placeholder="Ajouter un commentaire... (Ctrl+Entrée pour publier)"
+              modules={{ toolbar: [['bold', 'italic', 'underline'], [{ list: 'ordered' }, { list: 'bullet' }], ['link'], ['clean']] }}
+              style={{ fontFamily: 'inherit', fontSize: 13 }}
+            />
+          </div>
+          {(commentFile || pendingDocs.length > 0) && (
+            <div style={{ marginBottom: 8, display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+              {commentFile && (
+                <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11, color: '#71717a', background: '#f9f9fb', padding: '3px 8px', borderRadius: 5, border: '1px solid #f4f4f5' }}>
+                  <span>📎 {commentFile.name}</span>
+                  <button onClick={() => setCommentFile(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#a1a1aa', padding: 0, fontSize: 13 }}>✕</button>
+                </div>
+              )}
+              {pendingDocs.map(d => (
+                <div key={`${d.source}-${d.id}`} title="Sera envoyé en pièce jointe"
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11, color: '#047857', background: '#ecfdf5', padding: '3px 8px', borderRadius: 5, border: '1px solid #d1fae5' }}>
+                  <span>📎 {d.name}</span>
+                  <button onClick={() => setPendingDocs(prev => prev.filter(p => !(p.source === d.source && p.id === d.id)))}
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#10b981', padding: 0, fontSize: 13 }}>✕</button>
+                </div>
+              ))}
+            </div>
+          )}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              <button onClick={() => fileInputRef.current?.click()} title="Joindre un fichier"
+                style={{ background: 'none', border: '1px solid #e4e4e7', borderRadius: 5, padding: '3px 8px', cursor: 'pointer', fontSize: 11, color: '#71717a', display: 'flex', alignItems: 'center', gap: 3 }}>
+                📎 Fichier
+              </button>
+              <input ref={fileInputRef} type="file" style={{ display: 'none' }}
+                onChange={e => setCommentFile(e.target.files?.[0] || null)}
+                accept=".pdf,.png,.jpg,.jpeg,.doc,.docx,.xls,.xlsx,.zip,.txt" />
+              <button onClick={toggleCommentDictation}
+                title={listenComment ? 'Arrêter la dictée' : 'Dictée vocale'}
+                style={{ background: listenComment ? '#fef2f2' : 'none', border: `1px solid ${listenComment ? '#fca5a5' : '#e4e4e7'}`, borderRadius: 5, padding: '3px 8px', cursor: 'pointer', fontSize: 11, color: listenComment ? '#dc2626' : '#71717a', display: 'flex', alignItems: 'center', gap: 3 }}>
+                🎤 {listenComment ? 'Arrêter' : 'Dicter'}
+              </button>
+              {aiReformulationEnabled && (
+                <button onClick={handleReformulate} disabled={isCommentEmpty(newComment) || reformulating}
+                  title="Reformuler avec l'IA"
+                  style={{ background: 'none', border: '1px solid #e4e4e7', borderRadius: 5, padding: '3px 8px', cursor: isCommentEmpty(newComment) ? 'default' : 'pointer', fontSize: 11, color: '#8b5cf6', display: 'flex', alignItems: 'center', gap: 3, opacity: isCommentEmpty(newComment) ? 0.4 : 1 }}>
+                  {reformulating ? '⏳' : '✨'} Reformuler
+                </button>
+              )}
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+              {(replyMode === 'email' || replyMode === 'resolution') && (
+                <div ref={recipientsMenuRef} style={{ position: 'relative' }}>
+                  <button type="button" onClick={() => setRecipientsMenuOpen(o => !o)}
+                    style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '6px 10px', background: '#fff', border: '1px solid #e4e4e7', borderRadius: 7, fontSize: 11, cursor: 'pointer', color: '#71717a', whiteSpace: 'nowrap' }}>
+                    <span>Destinataires :</span>
+                    <span style={{ fontWeight: 700, color: '#1d4ed8' }}>Demandeur</span>
+                    <span>-</span>
+                    <span style={{ fontWeight: ccTechnicians ? 700 : 400, color: ccTechnicians ? '#1d4ed8' : '#a1a1aa' }}>Techniciens : {techCount}</span>
+                    <span>-</span>
+                    <span style={{ fontWeight: ccObservers ? 700 : 400, color: ccObservers ? '#1d4ed8' : '#a1a1aa' }}>Observateurs : {observers.length}</span>
+                    <span style={{ fontSize: 9 }}>▾</span>
+                  </button>
+                  {recipientsMenuOpen && (
+                    <div style={{ position: 'absolute', bottom: 'calc(100% + 6px)', right: 0, zIndex: 60, background: '#fff', border: '1px solid #e4e4e7', borderRadius: 8, boxShadow: '0 8px 24px rgba(0,0,0,0.12)', padding: 6, minWidth: 240 }}>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, padding: '5px 6px', color: '#71717a' }}>
+                        <input type="checkbox" checked disabled />
+                        Demandeur {ticket.requester?.email ? <span style={{ fontSize: 10, color: '#a1a1aa' }}>({ticket.requester.email})</span> : <span style={{ fontSize: 10, color: '#dc2626' }}>(aucun email)</span>}
+                      </label>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, padding: '5px 6px', color: techCount ? '#3f3f46' : '#c4c4c8', cursor: techCount ? 'pointer' : 'default' }}>
+                        <input type="checkbox" disabled={!techCount} checked={ccTechnicians} onChange={e => setCcTechnicians(e.target.checked)} />
+                        Techniciens assignés ({techCount})
+                      </label>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, padding: '5px 6px', color: observers.length ? '#3f3f46' : '#c4c4c8', cursor: observers.length ? 'pointer' : 'default' }}>
+                        <input type="checkbox" disabled={!observers.length} checked={ccObservers} onChange={e => setCcObservers(e.target.checked)} />
+                        Observateurs ({observers.length})
+                      </label>
+                    </div>
+                  )}
+                </div>
+              )}
+              <button onClick={handleSubmitReply} disabled={submitDisabled}
+                title={replyMode === 'resolution' ? 'Valider ce commentaire comme solution et passer le ticket à Résolu' : replyMode === 'email' ? `Envoyer par email à ${ticket.requester?.email || ''}` : undefined}
+                style={{ padding: '6px 18px', background: activeReplyMode.color, color: '#fff', border: 'none', borderRadius: 7, fontWeight: 700, fontSize: 12, cursor: 'pointer', opacity: submitDisabled ? 0.5 : 1 }}>
+                {submitLabel}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+
   return (
     <>
       {!isEmbedded && !isMobile && <Header />}
@@ -1424,6 +1631,13 @@ export default function TicketDetail() {
           </button>
           <button onClick={() => loadTicket()} title="Rafraîchir"
             style={{ padding: '4px 8px', borderRadius: 6, cursor: 'pointer', fontSize: 14, border: '1px solid #e4e4e7', background: 'transparent', color: '#71717a' }}>↻</button>
+          {!isMobile && (
+            <button onClick={toggleSplitMode}
+              title={splitMode ? 'Revenir à l\'affichage empilé' : 'Afficher la description et les tâches/activités côte à côte'}
+              style={{ padding: '4px 8px', borderRadius: 6, cursor: 'pointer', border: splitMode ? '1px solid #a5b4fc' : '1px solid #e4e4e7', background: splitMode ? '#eef2ff' : 'transparent', color: splitMode ? '#4f46e5' : '#71717a', display: 'flex', alignItems: 'center', gap: 4 }}>
+              <Columns size={14} />
+            </button>
+          )}
           <button onClick={openAssignModal}
             style={{ padding: '5px 12px', borderRadius: 6, border: '1px solid #e4e4e7', background: '#fff', cursor: 'pointer', fontSize: 12, fontWeight: 500, color: '#18181b' }}>
             Assigner
@@ -1525,14 +1739,15 @@ export default function TicketDetail() {
 
           {/* ── LEFT PANE ── */}
           <div style={{ flexDirection: 'column', overflow: 'hidden', width: isMobile ? '100%' : `${paneRatio * 100}%`, flexShrink: 0, background: '#fff', display: isMobile && mobileTab !== 'discussion' ? 'none' : 'flex' }}>
-          <div style={{ flex: 1, overflowY: 'auto', padding: '0 20px 20px' }}>
+          <div ref={splitBoxRef} style={splitWrapStyle}>
+          <div style={splitLeftStyle}>
 
             {/* DESCRIPTION */}
             <div style={{ borderBottom: '1px solid #f4f4f5', paddingBottom: 20 }}>
               <span style={{ fontSize: 11, fontWeight: 600, color: '#a1a1aa', textTransform: 'uppercase', letterSpacing: '0.06em', display: 'block', padding: '16px 0 8px' }}>Description</span>
               <div style={{ background: '#fafafa', border: '1px solid #e4e4e7', borderRadius: 8, padding: '12px 14px' }}>
                 {ticket.content
-                  ? <div className="ticket-html-content" style={{ fontSize: 13, color: '#3f3f46', lineHeight: 1.6, maxHeight: 320, overflowY: 'auto', paddingRight: 4 }} dangerouslySetInnerHTML={{ __html: rewriteGlpiImages(decodeHtml(ticket.content), cidDocs) }} />
+                  ? <div className="ticket-html-content" style={{ fontSize: 13, color: '#3f3f46', lineHeight: 1.6, maxHeight: activeSplitMode ? 'none' : 320, overflowY: activeSplitMode ? 'visible' : 'auto', paddingRight: 4 }} dangerouslySetInnerHTML={{ __html: rewriteGlpiImages(decodeHtml(ticket.content), cidDocs) }} />
                   : <p style={{ fontSize: 13, color: '#a1a1aa', margin: 0, fontStyle: 'italic' }}>Aucune description</p>
                 }
               </div>
@@ -1568,6 +1783,15 @@ export default function TicketDetail() {
               </div>
             )}
 
+          </div>
+          {activeSplitMode && (
+            <div onMouseDown={startSplitDrag} style={{
+              width: 5, flexShrink: 0, cursor: 'col-resize', background: 'transparent',
+              borderLeft: '1px solid #f4f4f5', borderRight: '1px solid #f4f4f5'
+            }} />
+          )}
+          <div style={splitRightStyle}>
+          <div style={splitRightScrollStyle}>
 
             {/* TÂCHES */}
             <div style={{ borderBottom: '1px solid #f4f4f5', paddingBottom: 16 }}>
@@ -1985,148 +2209,12 @@ export default function TicketDetail() {
               </div>
             </div>
           </div>
+          {activeSplitMode && replyBarJSX}
+          </div>
+          </div>
           {/* end scrollable content */}
 
-          {/* ── REPLY BAR (inside left pane) ── */}
-          <div style={{ flexShrink: 0, borderTop: '1px solid #f4f4f5', background: '#fff' }}>
-            <div style={{ display: 'flex', alignItems: 'stretch' }}>
-
-              {/* Sélecteur de mode — dossiers à onglets, vertical */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 3, padding: '10px 0 10px 10px', flexShrink: 0 }}>
-                {REPLY_MODES.map(m => {
-                  const active = replyMode === m.key;
-                  return (
-                    <button key={m.key} type="button" onClick={() => setReplyMode(m.key)} title={m.label}
-                      style={{
-                        display: 'flex', alignItems: 'center', gap: 6,
-                        padding: isMobile ? '8px 9px' : '8px 12px 8px 10px',
-                        border: `1px solid ${active ? m.border : 'transparent'}`,
-                        borderRight: active ? '1px solid ' + m.bg : '1px solid transparent',
-                        borderRadius: '8px 0 0 8px',
-                        background: active ? m.bg : 'transparent',
-                        color: active ? m.color : '#a1a1aa',
-                        fontWeight: active ? 700 : 500, fontSize: 12,
-                        cursor: 'pointer', whiteSpace: 'nowrap', textAlign: 'left',
-                        marginRight: active ? -1 : 0, position: 'relative', zIndex: active ? 1 : 0,
-                      }}>
-                      <span>{m.icon}</span>{!isMobile && m.label}
-                    </button>
-                  );
-                })}
-              </div>
-
-              {/* Contenu du mode actif */}
-              <div style={{
-                flex: 1, minWidth: 0, padding: '10px 20px 10px 14px',
-                border: `1px solid ${activeReplyMode.border}`, borderBottom: 'none', borderRight: 'none',
-                borderTopLeftRadius: 8, background: activeReplyMode.bg,
-              }}>
-                {/* Reformulation proposal */}
-                {reformulationProposal !== null && (
-                  <div style={{ marginBottom: 8, background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 8, padding: '10px 14px' }}>
-                    <div style={{ fontSize: 11, fontWeight: 600, color: '#15803d', marginBottom: 6 }}>✨ Proposition de reformulation :</div>
-                    <div style={{ fontSize: 13, color: '#166534', lineHeight: 1.5, whiteSpace: 'pre-wrap', marginBottom: 8 }}>{reformulationProposal}</div>
-                    <div style={{ display: 'flex', gap: 6 }}>
-                      <button onClick={() => { setNewComment(reformulationProposal); setReformulationProposal(null); }}
-                        style={{ padding: '4px 12px', background: '#16a34a', color: '#fff', border: 'none', borderRadius: 5, cursor: 'pointer', fontSize: 11, fontWeight: 600 }}>
-                        ✓ Accepter
-                      </button>
-                      <button onClick={() => setReformulationProposal(null)}
-                        style={{ padding: '4px 12px', background: 'transparent', color: '#6b7280', border: '1px solid #e4e4e7', borderRadius: 5, cursor: 'pointer', fontSize: 11 }}>
-                        ✕ Ignorer
-                      </button>
-                    </div>
-                  </div>
-                )}
-                <div
-                  onKeyDown={e => { if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); if (!submitDisabled) handleSubmitReply(); } }}
-                  style={{ border: `1px solid ${activeReplyMode.border}`, borderRadius: 8, overflow: 'hidden', marginBottom: 8, background: '#fff' }}>
-                  <ReactQuill value={newComment} onChange={setNewComment} placeholder="Ajouter un commentaire... (Ctrl+Entrée pour publier)"
-                    modules={{ toolbar: [['bold', 'italic', 'underline'], [{ list: 'ordered' }, { list: 'bullet' }], ['link'], ['clean']] }}
-                    style={{ fontFamily: 'inherit', fontSize: 13 }}
-                  />
-                </div>
-                {(commentFile || pendingDocs.length > 0) && (
-                  <div style={{ marginBottom: 8, display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                    {commentFile && (
-                      <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11, color: '#71717a', background: '#f9f9fb', padding: '3px 8px', borderRadius: 5, border: '1px solid #f4f4f5' }}>
-                        <span>📎 {commentFile.name}</span>
-                        <button onClick={() => setCommentFile(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#a1a1aa', padding: 0, fontSize: 13 }}>✕</button>
-                      </div>
-                    )}
-                    {pendingDocs.map(d => (
-                      <div key={`${d.source}-${d.id}`} title="Sera envoyé en pièce jointe"
-                        style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11, color: '#047857', background: '#ecfdf5', padding: '3px 8px', borderRadius: 5, border: '1px solid #d1fae5' }}>
-                        <span>📎 {d.name}</span>
-                        <button onClick={() => setPendingDocs(prev => prev.filter(p => !(p.source === d.source && p.id === d.id)))}
-                          style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#10b981', padding: 0, fontSize: 13 }}>✕</button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                    <button onClick={() => fileInputRef.current?.click()} title="Joindre un fichier"
-                      style={{ background: 'none', border: '1px solid #e4e4e7', borderRadius: 5, padding: '3px 8px', cursor: 'pointer', fontSize: 11, color: '#71717a', display: 'flex', alignItems: 'center', gap: 3 }}>
-                      📎 Fichier
-                    </button>
-                    <input ref={fileInputRef} type="file" style={{ display: 'none' }}
-                      onChange={e => setCommentFile(e.target.files?.[0] || null)}
-                      accept=".pdf,.png,.jpg,.jpeg,.doc,.docx,.xls,.xlsx,.zip,.txt" />
-                    <button onClick={toggleCommentDictation}
-                      title={listenComment ? 'Arrêter la dictée' : 'Dictée vocale'}
-                      style={{ background: listenComment ? '#fef2f2' : 'none', border: `1px solid ${listenComment ? '#fca5a5' : '#e4e4e7'}`, borderRadius: 5, padding: '3px 8px', cursor: 'pointer', fontSize: 11, color: listenComment ? '#dc2626' : '#71717a', display: 'flex', alignItems: 'center', gap: 3 }}>
-                      🎤 {listenComment ? 'Arrêter' : 'Dicter'}
-                    </button>
-                    {aiReformulationEnabled && (
-                      <button onClick={handleReformulate} disabled={isCommentEmpty(newComment) || reformulating}
-                        title="Reformuler avec l'IA"
-                        style={{ background: 'none', border: '1px solid #e4e4e7', borderRadius: 5, padding: '3px 8px', cursor: isCommentEmpty(newComment) ? 'default' : 'pointer', fontSize: 11, color: '#8b5cf6', display: 'flex', alignItems: 'center', gap: 3, opacity: isCommentEmpty(newComment) ? 0.4 : 1 }}>
-                        {reformulating ? '⏳' : '✨'} Reformuler
-                      </button>
-                    )}
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
-                    {(replyMode === 'email' || replyMode === 'resolution') && (
-                      <div ref={recipientsMenuRef} style={{ position: 'relative' }}>
-                        <button type="button" onClick={() => setRecipientsMenuOpen(o => !o)}
-                          style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '6px 10px', background: '#fff', border: '1px solid #e4e4e7', borderRadius: 7, fontSize: 11, cursor: 'pointer', color: '#71717a', whiteSpace: 'nowrap' }}>
-                          <span>Destinataires :</span>
-                          <span style={{ fontWeight: 700, color: '#1d4ed8' }}>Demandeur</span>
-                          <span>-</span>
-                          <span style={{ fontWeight: ccTechnicians ? 700 : 400, color: ccTechnicians ? '#1d4ed8' : '#a1a1aa' }}>Techniciens : {techCount}</span>
-                          <span>-</span>
-                          <span style={{ fontWeight: ccObservers ? 700 : 400, color: ccObservers ? '#1d4ed8' : '#a1a1aa' }}>Observateurs : {observers.length}</span>
-                          <span style={{ fontSize: 9 }}>▾</span>
-                        </button>
-                        {recipientsMenuOpen && (
-                          <div style={{ position: 'absolute', bottom: 'calc(100% + 6px)', right: 0, zIndex: 60, background: '#fff', border: '1px solid #e4e4e7', borderRadius: 8, boxShadow: '0 8px 24px rgba(0,0,0,0.12)', padding: 6, minWidth: 240 }}>
-                            <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, padding: '5px 6px', color: '#71717a' }}>
-                              <input type="checkbox" checked disabled />
-                              Demandeur {ticket.requester?.email ? <span style={{ fontSize: 10, color: '#a1a1aa' }}>({ticket.requester.email})</span> : <span style={{ fontSize: 10, color: '#dc2626' }}>(aucun email)</span>}
-                            </label>
-                            <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, padding: '5px 6px', color: techCount ? '#3f3f46' : '#c4c4c8', cursor: techCount ? 'pointer' : 'default' }}>
-                              <input type="checkbox" disabled={!techCount} checked={ccTechnicians} onChange={e => setCcTechnicians(e.target.checked)} />
-                              Techniciens assignés ({techCount})
-                            </label>
-                            <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, padding: '5px 6px', color: observers.length ? '#3f3f46' : '#c4c4c8', cursor: observers.length ? 'pointer' : 'default' }}>
-                              <input type="checkbox" disabled={!observers.length} checked={ccObservers} onChange={e => setCcObservers(e.target.checked)} />
-                              Observateurs ({observers.length})
-                            </label>
-                          </div>
-                        )}
-                      </div>
-                    )}
-                    <button onClick={handleSubmitReply} disabled={submitDisabled}
-                      title={replyMode === 'resolution' ? 'Valider ce commentaire comme solution et passer le ticket à Résolu' : replyMode === 'email' ? `Envoyer par email à ${ticket.requester?.email || ''}` : undefined}
-                      style={{ padding: '6px 18px', background: activeReplyMode.color, color: '#fff', border: 'none', borderRadius: 7, fontWeight: 700, fontSize: 12, cursor: 'pointer', opacity: submitDisabled ? 0.5 : 1 }}>
-                      {submitLabel}
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
+          {!activeSplitMode && replyBarJSX}
           </div>
           {/* end left pane */}
 
