@@ -18,10 +18,12 @@ export interface DocSignatureSigner {
   delegated_by?: string | null;
   note?: string | null;
   certificate?: DocSignatureCertificate | null;
+  technique_certificate?: { serial?: string | null; issuer?: string | null; fingerprint?: string | null; signing_time?: string | null } | null;
 }
 
 export interface DocSignatureInfo {
   signers: DocSignatureSigner[];
+  seal?: { sealed_at?: string | null; serial?: string | null } | null;
 }
 
 interface Props {
@@ -137,7 +139,7 @@ export default function DocumentPdfViewer({ open, url, authToken, title, signatu
           <button onClick={onClose} style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#94a3b8', display: 'flex' }}><X size={20} /></button>
         </div>
 
-        {signers.length > 0 && <SignatureBanner info={{ signers }} />}
+        {signers.length > 0 && <SignatureBanner info={{ signers, seal: signatureInfo?.seal || null }} />}
 
         <div style={{ flex: 1, minHeight: 0, background: '#f1f5f9', display: 'flex', flexDirection: 'column' }}>
           {loading && <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 1, minHeight: 320, color: '#64748b' }}><Loader2 className="spin" size={30} /></div>}
@@ -204,6 +206,13 @@ function SignatureBanner({ info }: { info: DocSignatureInfo }) {
                 {s.delegated_by ? `${s.signed_at ? ' — ' : ''}par délégation de ${s.delegated_by}` : ''}
               </div>
               {s.note && <div style={{ color: '#0f172a', marginTop: 3, fontStyle: 'italic' }}>Mention : « {s.note} »</div>}
+              {s.technique_certificate && (
+                <div style={{ marginTop: 4, color: '#475569', fontSize: 11 }}>
+                  <b>Certificat technique (plateforme) :</b> n° {s.technique_certificate.serial || '—'}
+                  {s.technique_certificate.issuer ? ` — émis par ${s.technique_certificate.issuer}` : ''}
+                  {s.technique_certificate.signing_time ? ` (${new Date(s.technique_certificate.signing_time).toLocaleString('fr-FR')})` : ''}
+                </div>
+              )}
               {s.certificate && (
                 <div style={{ marginTop: 6, color: '#475569', fontSize: 11, display: 'grid', gap: 2 }}>
                   {s.certificate.subject && <div><b>Titulaire :</b> {s.certificate.subject}</div>}
@@ -214,6 +223,12 @@ function SignatureBanner({ info }: { info: DocSignatureInfo }) {
               )}
             </div>
           ))}
+          {info.seal && (
+            <div style={{ fontSize: 11, color: '#166534', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 8, padding: '6px 10px' }}>
+              <b>Sceau de la plateforme</b> — apposé le {info.seal.sealed_at ? new Date(info.seal.sealed_at).toLocaleString('fr-FR') : '—'}
+              {info.seal.serial ? ` (n° ${info.seal.serial})` : ''}
+            </div>
+          )}
         </div>
       )}
     </div>

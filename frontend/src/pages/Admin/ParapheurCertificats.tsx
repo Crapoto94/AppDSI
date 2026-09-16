@@ -79,6 +79,10 @@ export default function ParapheurCertificats() {
   const [settingsInput, setSettingsInput] = useState('');
   const [settingsMsg, setSettingsMsg] = useState<string | null>(null);
   const [savingSettings, setSavingSettings] = useState(false);
+  const [sealEnabled, setSealEnabled] = useState(true);
+  const [ca, setCa] = useState<{ exists: boolean; subject?: string | null; serial?: string | null; fingerprint?: string | null; valid_to?: string | null } | null>(null);
+  const [caMsg, setCaMsg] = useState<string | null>(null);
+  const [caBusy, setCaBusy] = useState(false);
 
   const headers = { Authorization: `Bearer ${token}` };
 
@@ -86,17 +90,20 @@ export default function ParapheurCertificats() {
     if (!token) return;
     setLoading(true); setError(null);
     try {
-      const [c, l, s, cfg] = await Promise.all([
+      const [c, l, s, cfg, caInfo] = await Promise.all([
         fetch('/api/parapheur/certificates', { headers: { Authorization: `Bearer ${token}` } }).then(r => r.json()),
         fetch('/api/parapheur/signature-logs', { headers: { Authorization: `Bearer ${token}` } }).then(r => r.json()),
         fetch('/api/parapheur/security', { headers: { Authorization: `Bearer ${token}` } }).then(r => r.json()),
         fetch('/api/parapheur/admin/settings', { headers: { Authorization: `Bearer ${token}` } }).then(r => (r.ok ? r.json() : null)).catch(() => null),
+        fetch('/api/parapheur/admin/ca', { headers: { Authorization: `Bearer ${token}` } }).then(r => (r.ok ? r.json() : null)).catch(() => null),
       ]);
       if (cfg && typeof cfg === 'object' && !cfg.message) {
         setPublicBaseUrl(cfg.public_base_url || '');
         setInternalBaseUrl(cfg.internal_base_url || '');
         setSettingsInput(prev => (prev || cfg.public_base_url || ''));
+        setSealEnabled(cfg.seal_enabled !== false);
       }
+      if (caInfo && typeof caInfo === 'object') setCa(caInfo);
       if (c.message || l.message || s.message) throw new Error(c.message || l.message || s.message);
       setCerts(Array.isArray(c) ? c : []);
       setLogs(Array.isArray(l) ? l : []);
@@ -114,15 +121,43 @@ export default function ParapheurCertificats() {
       const r = await fetch('/api/parapheur/admin/settings', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...headers },
-        body: JSON.stringify({ public_base_url: settingsInput }),
+        body: JSON.stringify({ public_base_url: settingsInput, seal_enabled: sealEnabled }),
       });
       const d = await r.json();
       if (!r.ok) throw new Error(d.message || 'Erreur');
       setPublicBaseUrl(d.public_base_url || '');
       setInternalBaseUrl(d.internal_base_url || '');
-      setSettingsMsg('URL publique enregistrée. Elle sera utilisée pour les prochains QR codes générés.');
+      setSealEnabled(d.seal_enabled !== false);
+      setSettingsMsg('Paramètres enregistrés.');
     } catch (e: unknown) { setSettingsMsg(e instanceof Error ? e.message : 'Erreur'); }
     finally { setSavingSettings(false); }
+  };
+
+  const generateCa = async () => {
+    if (!confirm("Générer (ou régénérer) l'autorité de certification interne ? Les documents déjà scellés conservent leur certificat.")) return;
+    setCaBusy(true); setCaMsg(null);
+    try {
+      const r = await fetch('/api/parapheur/admin/ca', { method: 'POST', headers });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.message || 'Erreur');
+      setCa({ exists: true, subject: d.subject, serial: d.serial, fingerprint: d.fingerprint, valid_to: d.valid_to });
+      setCaMsg("Autorité de certification générée. Les prochains documents scellés l'utiliseront.");
+    } catch (e: unknown) { setCaMsg(e instanceof Error ? e.message : 'Erreur'); }
+    finally { setCaBusy(false); }
+  };
+
+  const downloadCa = async () => {
+    try {
+      const r = await fetch('/api/parapheur/admin/ca/cert', { headers });
+      if (!r.ok) throw new Error('Certificat indisponible');
+      const blob = await r.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'ac-parapheur.pem';
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 10000);
+    } catch (e: unknown) { setCaMsg(e instanceof Error ? e.message : 'Erreur'); }
   };
 
   const removeCert = async (row: CertRow) => {
@@ -188,6 +223,47 @@ export default function ParapheurCertificats() {
             Lien généré : <code>{publicBaseUrl}/parapheur/verification/&lt;jeton&gt;</code>
           </p>
         )}
+
+        <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: '#475569', marginTop: 14, cursor: 'pointer' }}>
+          <input type="checkbox" checked={sealEnabled} onChange={e => setSealEnabled(e.target.checked)} />
+          Apposer un <b>sceau PAdES de fin de circuit</b> (signature cryptographique de la plateforme) sur les documents signés.
+        </label>
+
+        <div style={{ marginTop: 16, paddingTop: 14, borderTop: '1px solid #f1f5f9' }}>
+          <div style={{ fontSize: 12, fontWeight: 800, color: '#64748b', textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 8 }}>
+            Autorité de certification interne (sceau de la plateforme)
+          </div>
+          {ca?.exists ? (
+            <div style={{ fontSize: 12, color: '#475569', display: 'grid', gap: 3 }}>
+              <div><b>Sujet :</b> {ca.subject}</div>
+              <div><b>N° de série :</b> {ca.serial}</div>
+              {ca.valid_to && <div><b>Valide jusqu'au :</b> {new Date(ca.valid_to).toLocaleDateString('fr-FR')}</div>}
+            </div>
+          ) : (
+            <div style={{ fontSize: 12, color: '#b45309' }}>
+              Aucune autorité de certification générée : elle sera créée automatiquement au premier scellement.
+            </div>
+          )}
+          <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
+            <button
+              onClick={generateCa}
+              disabled={caBusy}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '9px 14px', background: '#f1f5f9', color: '#475569', border: '1px solid #e2e8f0', borderRadius: 9, fontWeight: 700, fontSize: 13, cursor: caBusy ? 'default' : 'pointer', opacity: caBusy ? 0.6 : 1 }}
+            >
+              {caBusy ? 'Génération…' : (ca?.exists ? "Régénérer l'AC" : "Générer l'AC")}
+            </button>
+            {ca?.exists && (
+              <button
+                onClick={downloadCa}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '9px 14px', background: '#fff', color: '#475569', border: '1px solid #e2e8f0', borderRadius: 9, fontWeight: 700, fontSize: 13, cursor: 'pointer' }}
+              >
+                Télécharger le certificat
+              </button>
+            )}
+          </div>
+          {caMsg && <p style={{ fontSize: 12, color: '#475569', margin: '8px 0 0' }}>{caMsg}</p>}
+        </div>
+
         {settingsMsg && <p style={{ fontSize: 12, color: '#475569', margin: '8px 0 0' }}>{settingsMsg}</p>}
       </div>
 

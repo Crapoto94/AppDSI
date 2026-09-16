@@ -606,7 +606,7 @@ async function generatePlatformCa() {
     const certPem = forge.pki.certificateToPem(cert);
     const keyPem = forge.pki.privateKeyToPem(keys.privateKey);
     const enc = encryptBuffer(Buffer.from(keyPem, 'utf8')).toString('base64');
-    const fingerprint = forge.pki.getPublicKeyFingerprint(keys.publicKey, { type: 'SHA-256', encoding: 'hex' });
+    const fingerprint = publicKeyFingerprintSha256(keys.publicKey);
     const serial = cert.serialNumber;
 
     const existing = await pgDb.get(`SELECT id FROM hub_parapheur.platform_ca ORDER BY id DESC LIMIT 1`);
@@ -681,10 +681,20 @@ function p12BufferFromKeyAndChain(keyPem, certPems, password) {
     return Buffer.from(forge.asn1.toDer(asn1).getBytes(), 'binary');
 }
 
+/** Empreinte SHA-256 (hex) de la clé publique (DER SubjectPublicKeyInfo). */
+function publicKeyFingerprintSha256(publicKey) {
+    try {
+        const der = forge.asn1.toDer(forge.pki.publicKeyToAsn1(publicKey)).getBytes();
+        const md = forge.md.sha256.create();
+        md.update(der);
+        return md.digest().toHex();
+    } catch { return null; }
+}
+
 function certFingerprintSha256(certPem) {
     try {
         const cert = forge.pki.certificateFromPem(certPem);
-        return forge.pki.getPublicKeyFingerprint(cert.publicKey, { type: 'SHA-256', encoding: 'hex' });
+        return publicKeyFingerprintSha256(cert.publicKey);
     } catch { return null; }
 }
 

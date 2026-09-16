@@ -7,9 +7,10 @@ interface VerifyInfo {
   parapheur: {
     id: number; reference: string; title: string; message: string; status: string; mode: string;
     deadline?: string | null; requester: string; created_at: string; completed_at?: string | null;
+    sealed_at?: string | null; seal_serial?: string | null;
   };
   documents: { id: number; original_name: string; mime_type: string; size?: number; has_signed: boolean; has_pades: boolean; has_crypto_signature: boolean }[];
-  signataires: { nom: string; service?: string; order_number: number; status: string; signature_mode: string; signed_at?: string | null; signed_by_name?: string | null; signature_note?: string | null; certificate?: { subject?: string | null; issuer?: string | null; serial?: string | null; valid_from?: string | null; valid_to?: string | null } | null }[];
+  signataires: { nom: string; service?: string; order_number: number; status: string; signature_mode: string; signed_at?: string | null; signed_by_name?: string | null; signature_note?: string | null; technique_certificate?: { serial?: string | null; issuer?: string | null; fingerprint?: string | null; signing_time?: string | null } | null; certificate?: { subject?: string | null; issuer?: string | null; serial?: string | null; valid_from?: string | null; valid_to?: string | null } | null }[];
 }
 
 const STATUS: Record<string, { label: string; color: string; bg: string; icon: React.ReactNode }> = {
@@ -163,7 +164,8 @@ export default function ParapheurVerification() {
           signatureInfo={{
             signers: info.signataires
               .filter(s => s.status === 'a_signe')
-              .map(s => ({ name: s.nom, mode: s.signature_mode, signed_at: s.signed_at, delegated_by: s.signed_by_name, note: s.signature_note, certificate: s.certificate })),
+              .map(s => ({ name: s.nom, mode: s.signature_mode, signed_at: s.signed_at, delegated_by: s.signed_by_name, note: s.signature_note, technique_certificate: s.technique_certificate, certificate: s.certificate })),
+            seal: info.parapheur.sealed_at ? { sealed_at: info.parapheur.sealed_at, serial: info.parapheur.seal_serial } : null,
           }}
           onClose={() => setViewer(null)}
         />
