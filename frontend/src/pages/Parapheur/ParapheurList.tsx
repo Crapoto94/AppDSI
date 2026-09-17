@@ -5,6 +5,7 @@ import { FileSignature, PenSquare, Clock, CheckCircle2, XCircle, Ban, FileText, 
 import AgentPickerRH, { type AgentRef } from '../../components/parapheur/AgentPickerRH';
 import { isSuperAdmin } from '../../utils/roles';
 import Header from '../../components/Header';
+import ParapheurAgentHeader from '../../components/parapheur/ParapheurAgentHeader';
 import SignaturePad from '../../components/parapheur/SignaturePad';
 import { signatureDataUrl } from '../../components/parapheur/signatureUtils';
 import { useAuth } from '../../contexts/AuthContext';
@@ -140,7 +141,7 @@ export default function ParapheurList() {
 
   return (
     <div style={{ minHeight: '100vh', background: '#f8fafc' }}>
-      <Header />
+      {user?.role === 'parapheur_agent' ? <ParapheurAgentHeader user={user} /> : <Header />}
       <div style={{ maxWidth: 1080, margin: '0 auto', padding: '24px 20px 60px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20, flexWrap: 'wrap' }}>
           <FileSignature size={28} color="#7c3aed" />

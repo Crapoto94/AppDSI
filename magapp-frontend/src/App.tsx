@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
-import { Search, Loader2, Clock, Bell, User, Heart, X, LogOut, LifeBuoy, AlertTriangle, Activity, CheckCircle2, XCircle, Tag, Lightbulb, Paperclip, Eye, BarChart3, Briefcase, FileText, MessageSquare, GraduationCap, Star, ShoppingCart, FlaskConical, Send, MessageCircle, Plus, Ticket, HelpCircle } from 'lucide-react';
+import { Search, Loader2, Clock, Bell, User, Heart, X, LogOut, LifeBuoy, AlertTriangle, Activity, CheckCircle2, XCircle, Tag, Lightbulb, Paperclip, Eye, BarChart3, Briefcase, FileText, MessageSquare, GraduationCap, Star, ShoppingCart, FlaskConical, Send, MessageCircle, Plus, Ticket, HelpCircle, FileSignature, Wrench, ChevronRight } from 'lucide-react';
 import './index.css';
 import logoDsiHub from './assets/DSI.png';
 import Login from './Login';
@@ -83,6 +83,28 @@ function normalizeReleaseNotesHtml(html: string): string {
   return html ? html.replace(/&nbsp;/gi, ' ') : html;
 }
 
+/** Carte d'outil de la modale « Mes outils DSI ». */
+function ToolCard({ icon, bg, title, description, beta, onClick }: { icon: React.ReactNode; bg: string; title: string; description: string; beta?: boolean; onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      style={{ display: 'flex', alignItems: 'center', gap: '14px', textAlign: 'left', background: '#fff', border: '1px solid #e2e8f0', borderRadius: '14px', padding: '16px', cursor: 'pointer', transition: 'all 0.2s', position: 'relative' }}
+      onMouseOver={(e) => { e.currentTarget.style.borderColor = '#0078a455'; e.currentTarget.style.boxShadow = '0 6px 16px -6px rgba(0,120,164,0.25)'; }}
+      onMouseOut={(e) => { e.currentTarget.style.borderColor = '#e2e8f0'; e.currentTarget.style.boxShadow = 'none'; }}
+    >
+      <div style={{ width: 44, height: 44, minWidth: 44, borderRadius: '12px', background: bg, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{icon}</div>
+      <div style={{ minWidth: 0 }}>
+        <div style={{ fontSize: '0.95rem', fontWeight: 700, color: '#1e293b', display: 'flex', alignItems: 'center', gap: 6 }}>
+          {title}
+          {beta && <span style={{ background: '#f59e0b', color: '#1e293b', fontSize: '0.55rem', fontWeight: 800, padding: '1px 5px', borderRadius: '6px', letterSpacing: '0.05em' }}>BETA</span>}
+        </div>
+        <div style={{ fontSize: '0.8rem', color: '#64748b', marginTop: 2 }}>{description}</div>
+      </div>
+      <ChevronRight size={18} color="#cbd5e1" style={{ marginLeft: 'auto', flexShrink: 0 }} />
+    </button>
+  );
+}
+
 function App() {
   const [categories, setCategories] = useState<Category[]>([]);
   const [apps, setApps] = useState<AppItem[]>([]);
@@ -133,6 +155,7 @@ function App() {
   const [observedTickets, setObservedTickets] = useState<{glpi_id: number, title: string, status_label: string, date_creation: string, type: string, status: string, solution: string, content: string, requester_name: string, requester_email: string, source: string}[]>([]);
   const [showClosedObserved, setShowClosedObserved] = useState(false);
   const [showRencontres, setShowRencontres] = useState(false);
+  const [showTools, setShowTools] = useState(false);
   const [rencontres] = useState<any[]>([]);
   const [myDemandes, setMyDemandes] = useState<any[]>([]);
   const [rencontreSuiviIdx, setRencontreSuiviIdx] = useState<number | null>(null);
@@ -565,6 +588,27 @@ function App() {
         type: 'error',
         title: 'Transcript Manager',
         message: "Impossible d'ouvrir votre Transcript Manager. Vérifiez votre session.",
+        onConfirm: () => setModalConfig(prev => ({ ...prev, isOpen: false }))
+      });
+    }
+  };
+
+  const handleOpenParapheur = async () => {
+    try {
+      const token = localStorage.getItem('token') || '';
+      const res = await axios.post('/api/auth/magapp-parapheur-access', {}, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const url = res.data?.url;
+      if (!url) throw new Error('URL manquante');
+      window.open(url, '_blank', 'noopener');
+    } catch (error) {
+      console.error("Erreur d'ouverture du Parapheur", error);
+      setModalConfig({
+        isOpen: true,
+        type: 'error',
+        title: 'Parapheur',
+        message: "Impossible d'ouvrir le parapheur électronique. Vérifiez votre session.",
         onConfirm: () => setModalConfig(prev => ({ ...prev, isOpen: false }))
       });
     }
@@ -1290,32 +1334,28 @@ function App() {
               </div>
             </div>
 
-            {((settings.show_rencontres && hasRencontresAccess) || settings.is_beta_user) && (
-              <button
-                onClick={() => setShowRencontres(true)}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '8px',
-                  background: 'white',
-                  border: '1px solid #cbd5e1',
-                  padding: '10px 18px',
-                  borderRadius: '10px',
-                  fontSize: '0.9rem',
-                  fontWeight: 600,
-                  color: '#475569',
-                  cursor: 'pointer',
-                  transition: 'all 0.2s',
-                  boxShadow: '0 1px 2px rgba(0,0,0,0.05)',
-                  position: 'relative'
-                }}
-                title="Mes demandes budgétaires"
-              >
-                <BarChart3 size={18} />
-                Rencontres
-                {settings.is_beta_user && !settings.show_rencontres_original && <span style={{ position: 'absolute', top: '-4px', right: '-4px', background: '#f59e0b', color: '#1e293b', fontSize: '0.55rem', fontWeight: 800, padding: '1px 4px', borderRadius: '6px', letterSpacing: '0.05em' }}>BETA</span>}
-              </button>
-            )}
+            <button
+              onClick={() => setShowTools(true)}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                background: 'white',
+                border: '1px solid #cbd5e1',
+                padding: '10px 18px',
+                borderRadius: '10px',
+                fontSize: '0.9rem',
+                fontWeight: 600,
+                color: '#475569',
+                cursor: 'pointer',
+                transition: 'all 0.2s',
+                boxShadow: '0 1px 2px rgba(0,0,0,0.05)'
+              }}
+              title="Mes outils DSI (rencontres, transcript, parapheur, demandes, incidents)"
+            >
+              <Wrench size={18} />
+              Mes outils DSI
+            </button>
 
             {(settings.show_tickets || settings.is_beta_user) && (
               <button
@@ -1340,33 +1380,6 @@ function App() {
                 <LifeBuoy size={18} />
                 Mes tickets ({ticketCount})
                 {settings.is_beta_user && !settings.show_tickets_original && <span style={{ position: 'absolute', top: '-4px', right: '-4px', background: '#f59e0b', color: '#1e293b', fontSize: '0.55rem', fontWeight: 800, padding: '1px 4px', borderRadius: '6px', letterSpacing: '0.05em' }}>BETA</span>}
-              </button>
-            )}
-
-            {windowLogin && (settings.show_transcript_manager || settings.is_beta_user) && (
-              <button
-                onClick={handleOpenTranscript}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '8px',
-                  background: 'white',
-                  border: '1px solid #cbd5e1',
-                  padding: '10px 18px',
-                  borderRadius: '10px',
-                  fontSize: '0.9rem',
-                  fontWeight: 600,
-                  color: '#475569',
-                  cursor: 'pointer',
-                  transition: 'all 0.2s',
-                  boxShadow: '0 1px 2px rgba(0,0,0,0.05)',
-                  position: 'relative'
-                }}
-                title="Ouvrir mon Transcript Manager (réunions, résumés IA)"
-              >
-                <FileText size={18} />
-                Mon Transcript Manager
-                {settings.is_beta_user && !settings.show_transcript_manager_original && <span style={{ marginLeft: 8, background: '#f59e0b', color: '#1e293b', fontSize: '0.55rem', fontWeight: 800, padding: '1px 4px', borderRadius: '6px', letterSpacing: '0.05em' }}>BETA</span>}
               </button>
             )}
 
@@ -1430,6 +1443,84 @@ function App() {
           </div>
         </div>
       </header>
+
+      {/* Modal « Mes outils DSI » */}
+      {showTools && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(15, 23, 42, 0.6)', backdropFilter: 'blur(4px)', zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
+          <div style={{ background: 'white', maxWidth: '660px', width: '100%', borderRadius: '24px', padding: '32px', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)', position: 'relative', maxHeight: '90vh', overflowY: 'auto' }}>
+            <button
+              onClick={() => setShowTools(false)}
+              style={{ position: 'absolute', top: '20px', right: '20px', background: '#f1f5f9', border: 'none', cursor: 'pointer', color: '#64748b', width: '36px', height: '36px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+            >
+              <X size={20} />
+            </button>
+
+            <div style={{ textAlign: 'center', marginBottom: '24px' }}>
+              <div style={{ width: '60px', height: '60px', background: '#e0f2fe', borderRadius: '16px', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px' }}>
+                <Wrench size={30} color="#0369a1" />
+              </div>
+              <h2 style={{ margin: 0, fontSize: '1.5rem', fontWeight: 800, color: '#1e293b' }}>Mes outils DSI</h2>
+              <p style={{ color: '#64748b', fontSize: '0.95rem', marginTop: '8px' }}>Accédez rapidement à vos services et outils DSI</p>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '12px' }}>
+              {((settings.show_rencontres && hasRencontresAccess) || settings.is_beta_user) && (
+                <ToolCard
+                  icon={<BarChart3 size={22} color="#0284c7" />}
+                  bg="#dbeafe"
+                  title="Rencontres annuelles"
+                  description="Réunions et demandes budgétaires"
+                  beta={settings.is_beta_user && !settings.show_rencontres_original}
+                  onClick={() => { setShowTools(false); setShowRencontres(true); }}
+                />
+              )}
+
+              {windowLogin && (settings.show_transcript_manager || settings.is_beta_user) && (
+                <ToolCard
+                  icon={<FileText size={22} color="#7c3aed" />}
+                  bg="#ede9fe"
+                  title="Transcript manager"
+                  description="Réunions, comptes rendus et résumés IA"
+                  beta={settings.is_beta_user && !settings.show_transcript_manager_original}
+                  onClick={() => { setShowTools(false); handleOpenTranscript(); }}
+                />
+              )}
+
+              <ToolCard
+                icon={<FileSignature size={22} color="#0e7490" />}
+                bg="#cffafe"
+                title="Parapheur"
+                description="Signer et suivre vos documents"
+                onClick={() => { setShowTools(false); handleOpenParapheur(); }}
+              />
+
+              {(settings.show_create_buttons || settings.is_beta_user) && (
+                <>
+                  <ToolCard
+                    icon={<AlertTriangle size={22} color="#dc2626" />}
+                    bg="#fee2e2"
+                    title="Déclarer un incident"
+                    description="Signaler un problème à la DSI"
+                    beta={settings.is_beta_user && !settings.show_create_buttons_original}
+                    onClick={() => { setShowTools(false); handleIncidentClick(); }}
+                  />
+                  <ToolCard
+                    icon={<Clock size={22} color="#2563eb" />}
+                    bg="#dbeafe"
+                    title="Faire une demande"
+                    description="Demander un service à la DSI"
+                    beta={settings.is_beta_user && !settings.show_create_buttons_original}
+                    onClick={() => {
+                      setShowTools(false);
+                      if (publishedForms.length > 0 || hasConsommablesAccess) { setShowFormChooser(true); } else { setTicketType('demande'); setShowCreateTicket(true); }
+                    }}
+                  />
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Modal Rencontres */}
       {showRencontres && (

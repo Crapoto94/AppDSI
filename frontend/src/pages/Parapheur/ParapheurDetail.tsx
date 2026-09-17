@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, Archive, Clock, CheckCircle2, XCircle, Ban, FileText, Download, Eye, Paperclip, Send, PenLine, ShieldCheck, Smartphone, RefreshCw } from 'lucide-react';
 import Header from '../../components/Header';
+import ParapheurAgentHeader from '../../components/parapheur/ParapheurAgentHeader';
 import AgentPresenceBadge from '../../components/AgentPresenceBadge';
 import DocumentPdfViewer from '../../components/parapheur/DocumentPdfViewer';
 import { useAuth } from '../../contexts/AuthContext';
@@ -258,7 +259,8 @@ export default function ParapheurDetail() {
 }
 
 function Shell({ children }: { children: React.ReactNode }) {
-  return <div style={{ minHeight: '100vh', background: '#f8fafc' }}><Header /><div style={{ maxWidth: 1000, margin: '0 auto', padding: '24px 20px 60px' }}>{children}</div></div>;
+  const { user } = useAuth();
+  return <div style={{ minHeight: '100vh', background: '#f8fafc' }}>{user?.role === 'parapheur_agent' ? <ParapheurAgentHeader user={user} /> : <Header />}<div style={{ maxWidth: 1000, margin: '0 auto', padding: '24px 20px 60px' }}>{children}</div></div>;
 }
 
 const card: React.CSSProperties = { background: '#fff', border: '1px solid #e2e8f0', borderRadius: 14, padding: 20 };

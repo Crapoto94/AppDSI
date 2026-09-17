@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, ArrowRight, Check, ChevronUp, ChevronDown, FileText, GitBranch, Loader2, MapPin, Paperclip, Send, ShieldCheck, Smartphone, Trash2, Upload, Users, X } from 'lucide-react';
 import Header from '../../components/Header';
+import ParapheurAgentHeader from '../../components/parapheur/ParapheurAgentHeader';
 import AgentPickerRH, { type AgentRef } from '../../components/parapheur/AgentPickerRH';
 import PdfThumb from '../../components/parapheur/PdfThumb';
 import SignaturePlacementEditor, { type Placement } from '../../components/parapheur/SignaturePlacementEditor';
@@ -22,7 +23,7 @@ let fileSeq = 0;
 const nextFileId = () => `f${Date.now()}_${fileSeq++}`;
 
 export default function ParapheurCreate() {
-  const { token } = useAuth();
+  const { token, user } = useAuth();
   const navigate = useNavigate();
 
   const [title, setTitle] = useState('');
@@ -193,7 +194,7 @@ export default function ParapheurCreate() {
 
   return (
     <div style={{ minHeight: '100vh', background: '#f8fafc' }}>
-      <Header />
+      {user?.role === 'parapheur_agent' ? <ParapheurAgentHeader user={user} /> : <Header />}
       <div style={{ maxWidth: 960, margin: '0 auto', padding: '24px 20px 120px' }}>
         <button onClick={() => navigate('/parapheur')} style={ghostBtn}><ArrowLeft size={15} /> Retour</button>
         <h1 style={{ fontSize: 24, fontWeight: 800, color: '#0f172a', margin: '16px 0 20px' }}>Nouveau parapheur</h1>

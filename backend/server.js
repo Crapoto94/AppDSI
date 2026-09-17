@@ -516,6 +516,22 @@ app.get('/api/auth/me', authenticateJWT, async (req, res) => {
             });
         }
 
+        // Accès « module seul » au Parapheur depuis le Magasin d'applications :
+        // profil restreint au parapheur, sans exposer les autres modules du Hub.
+        if (req.user.scope === 'parapheur') {
+            return res.json({
+                id: req.user.id || 0,
+                username: req.user.username,
+                displayName: req.user.displayName || 'Parapheur',
+                role: 'parapheur_agent',
+                is_approved: 1,
+                email: req.user.email || undefined,
+                service_code: req.user.service_code || null,
+                service_complement: req.user.service_complement || null,
+                authorized_urls: ['/parapheur'],
+            });
+        }
+
         let user = null;
         let source = '';
 
@@ -4357,6 +4373,41 @@ app.post('/api/auth/magapp-transcript-access', authenticateJWT, async (req, res)
     } catch (error) {
         console.error('[Transcript access error]', error.message);
         res.status(500).json({ message: 'Erreur lors de la génération de l\'accès au Transcript Manager' });
+    }
+});
+
+// Accès « module seul » au Parapheur, depuis le Magasin d'applications : on
+// re-signe l'identité de l'agent avec un champ d'action restreint au Parapheur
+// (scope 'parapheur', rôle 'parapheur_agent'). Il gère alors SES parapheurs,
+// sans accès aux autres modules du DSI Hub.
+app.post('/api/auth/magapp-parapheur-access', authenticateJWT, async (req, res) => {
+    try {
+        const username = String(req.user.username || '').toLowerCase();
+        if (!username) {
+            return res.status(400).json({ message: 'Utilisateur non identifié' });
+        }
+        const accessToken = jwt.sign({
+            id: req.user.id || 0,
+            username,
+            displayName: req.user.displayName || username,
+            role: 'parapheur_agent',
+            is_approved: 1,
+            service_code: req.user.service_code || null,
+            service_complement: req.user.service_complement || null,
+            email: req.user.email || null,
+            source: req.user.source || 'magapp',
+            scope: 'parapheur',
+        }, SECRET_KEY);
+        let appBaseUrl = process.env.FRONTEND_URL || process.env.APP_BASE_URL || process.env.APP_URL || '';
+        try {
+            const baseRow = await db.get("SELECT setting_value FROM app_settings WHERE setting_key = 'app_base_url'");
+            appBaseUrl = (baseRow?.setting_value || '').trim() || appBaseUrl;
+        } catch { /* repli env */ }
+        appBaseUrl = (appBaseUrl || `${req.protocol}://${req.get('host')}`).replace(/\/+$/, '');
+        res.json({ url: `${appBaseUrl}/parapheur/partage/${accessToken}` });
+    } catch (error) {
+        console.error('[Parapheur access error]', error.message);
+        res.status(500).json({ message: 'Erreur lors de la génération de l\'accès au Parapheur' });
     }
 });
 
