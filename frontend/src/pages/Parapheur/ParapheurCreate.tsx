@@ -182,6 +182,7 @@ export default function ParapheurCreate() {
           nom: s.displayName,
           email: s.email,
           service: s.service,
+          external: !!s.external,
           signatureMode: signModeOf(s),
           smsPhone: isSms(s) ? (phoneMap[s.email.toLowerCase()] || null) : null,
           title: (includeTitleMap[s.email.toLowerCase()] !== false && (titleMap[s.email.toLowerCase()] || '').trim())

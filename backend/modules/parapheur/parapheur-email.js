@@ -1,6 +1,10 @@
 /**
  * Templates email du module Parapheur électronique.
- * Chaque fonction renvoie { subject, html }.
+ * Chaque fonction renvoie { subject, html, content } :
+ *  - `content` : fragment HTML destiné à l'API Ville (APM), qui applique son
+ *    template général ;
+ *  - `html` : document HTML complet (template DSI Hub), utilisé en repli par le
+ *    mailer local lorsque l'API Ville n'est pas disponible.
  */
 
 function esc(s) {
@@ -10,6 +14,8 @@ function esc(s) {
         .replace(/>/g, '&gt;')
         .replace(/"/g, '&quot;');
 }
+
+const DEFAULT_FOOTER = 'Ce message a été généré automatiquement par le Hub DSI. Merci de ne pas y répondre.';
 
 function wrap({ color, title, intro, bodyHtml, footer }) {
     return `
@@ -24,11 +30,34 @@ function wrap({ color, title, intro, bodyHtml, footer }) {
       <p style="margin:0 0 16px;font-size:15px;">${intro}</p>
       ${bodyHtml}
       <p style="margin:24px 0 0;font-size:12px;color:#94a3b8;border-top:1px solid #e2e8f0;padding-top:16px;">
-        ${footer || 'Ce message a été généré automatiquement par le Hub DSI. Merci de ne pas y répondre.'}
+        ${footer || DEFAULT_FOOTER}
       </p>
     </div>
   </div>
 </body></html>`;
+}
+
+/**
+ * Contenu « nu » (fragment HTML) destiné à l'API Ville (APM), qui applique son
+ * propre template général. Utilisé en priorité ; `wrap()` sert de repli au
+ * mailer local du DSI Hub.
+ */
+function buildContent({ intro, bodyHtml, footer }) {
+    return `<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;color:#334155;font-size:15px;line-height:1.6;">
+  <p style="margin:0 0 16px;">${intro}</p>
+  ${bodyHtml}
+  <p style="margin:24px 0 0;font-size:12px;color:#94a3b8;border-top:1px solid #e2e8f0;padding-top:16px;">
+    ${footer || DEFAULT_FOOTER}
+  </p>
+</div>`;
+}
+
+/** Construit le couple { html, content } à partir des mêmes blocs. */
+function render(color, title, intro, bodyHtml, footer) {
+    return {
+        html: wrap({ color, title, intro, bodyHtml, footer }),
+        content: buildContent({ intro, bodyHtml, footer }),
+    };
 }
 
 function docListHtml(documents) {
@@ -57,52 +86,41 @@ function signatureRequest({ signataireNom, requesterName, title, reference, docu
     const deadlineHtml = deadline
         ? `<p style="font-size:13px;color:#b45309;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:10px 14px;">⏰ Merci de signer avant le <strong>${esc(new Date(deadline).toLocaleDateString('fr-FR'))}</strong>.</p>`
         : '';
+    const intro = `Bonjour <strong>${esc(signataireNom)}</strong>,<br><br><strong>${esc(requesterName)}</strong> vous invite à signer électroniquement le parapheur <strong>${esc(title)}</strong>${reference ? ` (réf. ${esc(reference)})` : ''}.`;
+    const bodyHtml = `${docListHtml(documents)}<p style="font-size:13px;color:#64748b;">${esc(modeTxt)}</p>${deadlineHtml}${button(link, 'Consulter et signer', '#2563eb')}`;
+    const footer = frontUrl ? `Hub DSI — ${esc(frontUrl)}` : undefined;
     return {
         subject: `✍️ Document à signer — ${title}`,
-        html: wrap({
-            color: '#2563eb',
-            title: '✍️ Signature requise',
-            intro: `Bonjour <strong>${esc(signataireNom)}</strong>,<br><br><strong>${esc(requesterName)}</strong> vous invite à signer électroniquement le parapheur <strong>${esc(title)}</strong>${reference ? ` (réf. ${esc(reference)})` : ''}.`,
-            bodyHtml: `${docListHtml(documents)}<p style="font-size:13px;color:#64748b;">${esc(modeTxt)}</p>${deadlineHtml}${button(link, 'Consulter et signer', '#2563eb')}`,
-            footer: frontUrl ? `Hub DSI — ${esc(frontUrl)}` : undefined,
-        }),
+        ...render('#2563eb', '✍️ Signature requise', intro, bodyHtml, footer),
     };
 }
 
 function signatureProgress({ requesterName, signataireNom, title, reference, signedCount, totalCount, done, mode, link }) {
     const alternative = mode === 'alternative';
-    return {
-        subject: done
-            ? `✅ Parapheur signé — ${title}`
-            : `✍️ Signature reçue — ${title}`,
-        html: wrap({
-            color: done ? '#16a34a' : '#0d9488',
-            title: done ? '✅ Parapheur entièrement signé' : '✍️ Signature enregistrée',
-            intro: `Bonjour <strong>${esc(requesterName)}</strong>,`,
-            bodyHtml: `
+    const intro = `Bonjour <strong>${esc(requesterName)}</strong>,`;
+    const bodyHtml = `
               <p style="font-size:15px;"><strong>${esc(signataireNom)}</strong> a signé le parapheur <strong>${esc(title)}</strong>${reference ? ` (réf. ${esc(reference)})` : ''}.</p>
               <p style="font-size:15px;">Progression : <strong>${signedCount}/${totalCount}</strong> signataire(s).</p>
               ${done ? (alternative
                   ? '<p style="font-size:15px;color:#16a34a;font-weight:700;">Le circuit alternatif est validé : la signature d\'un seul signataire suffisait.</p>'
                   : '<p style="font-size:15px;color:#16a34a;font-weight:700;">Toutes les signatures ont été recueillies. Le parcours est terminé.</p>') : ''}
-              ${button(link, 'Ouvrir le parapheur', done ? '#16a34a' : '#0d9488')}`,
-        }),
+              ${button(link, 'Ouvrir le parapheur', done ? '#16a34a' : '#0d9488')}`;
+    return {
+        subject: done ? `✅ Parapheur signé — ${title}` : `✍️ Signature reçue — ${title}`,
+        ...render(done ? '#16a34a' : '#0d9488', done ? '✅ Parapheur entièrement signé' : '✍️ Signature enregistrée', intro, bodyHtml),
     };
 }
 
 function signatureRejected({ requesterName, signataireNom, title, reference, comment, link }) {
-    return {
-        subject: `❌ Signature refusée — ${title}`,
-        html: wrap({
-            color: '#dc2626',
-            title: '❌ Signature refusée',
-            intro: `Bonjour <strong>${esc(requesterName)}</strong>,`,
-            bodyHtml: `
+    const intro = `Bonjour <strong>${esc(requesterName)}</strong>,`;
+    const bodyHtml = `
               <p style="font-size:15px;"><strong>${esc(signataireNom)}</strong> a refusé de signer le parapheur <strong>${esc(title)}</strong>${reference ? ` (réf. ${esc(reference)})` : ''}.</p>
               ${comment ? `<div style="background:#fef2f2;border-left:4px solid #ef4444;border-radius:6px;padding:12px 16px;margin:16px 0;font-style:italic;color:#7f1d1d;">"${esc(comment)}"</div>` : ''}
               <p style="font-size:15px;color:#dc2626;font-weight:700;">Le parcours de signature est interrompu.</p>
-              ${button(link, 'Ouvrir le parapheur', '#dc2626')}`,
-        }),
+              ${button(link, 'Ouvrir le parapheur', '#dc2626')}`;
+    return {
+        subject: `❌ Signature refusée — ${title}`,
+        ...render('#dc2626', '❌ Signature refusée', intro, bodyHtml),
     };
 }
 
@@ -110,14 +128,11 @@ function signatureReminder({ signataireNom, requesterName, title, reference, doc
     const deadlineHtml = deadline
         ? `<p style="font-size:13px;color:#b45309;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:10px 14px;">⏰ Échéance : <strong>${esc(new Date(deadline).toLocaleDateString('fr-FR'))}</strong>.</p>`
         : '';
+    const intro = `Bonjour <strong>${esc(signataireNom)}</strong>,<br><br>Un document transmis par <strong>${esc(requesterName)}</strong> attend toujours votre signature : <strong>${esc(title)}</strong>${reference ? ` (réf. ${esc(reference)})` : ''}.`;
+    const bodyHtml = `${docListHtml(documents)}${deadlineHtml}${button(link, 'Signer maintenant', '#d97706')}`;
     return {
         subject: `🔔 Rappel — document en attente de votre signature (${title})`,
-        html: wrap({
-            color: '#d97706',
-            title: '🔔 Rappel de signature',
-            intro: `Bonjour <strong>${esc(signataireNom)}</strong>,<br><br>Un document transmis par <strong>${esc(requesterName)}</strong> attend toujours votre signature : <strong>${esc(title)}</strong>${reference ? ` (réf. ${esc(reference)})` : ''}.`,
-            bodyHtml: `${docListHtml(documents)}${deadlineHtml}${button(link, 'Signer maintenant', '#d97706')}`,
-        }),
+        ...render('#d97706', '🔔 Rappel de signature', intro, bodyHtml),
     };
 }
 
@@ -144,35 +159,29 @@ function signatureDigest({ signataireNom, parapheurs, totalPending, globalLink, 
           ${button(p.link, 'Signer ce parapheur', '#2563eb')}
         </div>`;
     }).join('');
+    const intro = `Bonjour <strong>${esc(signataireNom)}</strong>,<br><br><strong>${esc(requesterName || 'La DSI')}</strong> vous invite à signer. ` +
+        (total > 1
+            ? `Vous avez <strong>${total} parapheurs</strong> en attente de votre signature.`
+            : `Vous avez <strong>1 parapheur</strong> en attente de votre signature.`);
+    const bodyHtml = `${itemsHtml}${globalLink ? `<p style="text-align:center;margin:20px 0 0;">
+              <a href="${globalLink}" style="display:inline-block;background:#f1f5f9;color:#334155;text-decoration:none;font-weight:700;padding:11px 24px;border-radius:8px;font-size:14px;border:1px solid #e2e8f0;">Voir tous mes parapheurs à signer</a>
+            </p>` : ''}`;
     return {
         subject,
-        html: wrap({
-            color: '#2563eb',
-            title: '✍️ Signature requise',
-            intro: `Bonjour <strong>${esc(signataireNom)}</strong>,<br><br><strong>${esc(requesterName || 'La DSI')}</strong> vous invite à signer. ` +
-                (total > 1
-                    ? `Vous avez <strong>${total} parapheurs</strong> en attente de votre signature.`
-                    : `Vous avez <strong>1 parapheur</strong> en attente de votre signature.`),
-            bodyHtml: `${itemsHtml}${globalLink ? `<p style="text-align:center;margin:20px 0 0;">
-              <a href="${globalLink}" style="display:inline-block;background:#f1f5f9;color:#334155;text-decoration:none;font-weight:700;padding:11px 24px;border-radius:8px;font-size:14px;border:1px solid #e2e8f0;">Voir tous mes parapheurs à signer</a>
-            </p>` : ''}`,
-        }),
+        ...render('#2563eb', '✍️ Signature requise', intro, bodyHtml),
     };
 }
 
 /** Code de vérification pour un signataire extérieur (sans compte AD). */
 function signatureOtp({ signataireNom, code, title }) {
-    return {
-        subject: `🔐 Code de signature — ${title || 'Parapheur'}`,
-        html: wrap({
-            color: '#0e7490',
-            title: '🔐 Votre code de signature',
-            intro: `Bonjour <strong>${esc(signataireNom)}</strong>,`,
-            bodyHtml: `
+    const intro = `Bonjour <strong>${esc(signataireNom)}</strong>,`;
+    const bodyHtml = `
               <p style="font-size:15px;">Voici votre code de vérification pour signer le parapheur <strong>${esc(title || '')}</strong> :</p>
               <p style="text-align:center;font-size:30px;font-weight:800;letter-spacing:8px;color:#0e7490;margin:18px 0;">${esc(code)}</p>
-              <p style="font-size:13px;color:#64748b;">Ce code est valable 10 minutes. Si vous n'êtes pas à l'origine de cette demande, ignorez ce message.</p>`,
-        }),
+              <p style="font-size:13px;color:#64748b;">Ce code est valable 10 minutes. Si vous n'êtes pas à l'origine de cette demande, ignorez ce message.</p>`;
+    return {
+        subject: `🔐 Code de signature — ${title || 'Parapheur'}`,
+        ...render('#0e7490', '🔐 Votre code de signature', intro, bodyHtml),
     };
 }
 

@@ -23,6 +23,7 @@ const { SignPdf } = require('@signpdf/signpdf');
 const { P12Signer } = require('@signpdf/signer-p12');
 const { pdflibAddPlaceholder } = require('@signpdf/placeholder-pdf-lib');
 const emailTemplates = require('./parapheur-email');
+const apmMail = require('../../shared/apm_mail');
 
 const MODULE = 'parapheur';
 const SIGN_MODULE = 'parapheur-signatures';
@@ -33,6 +34,28 @@ const REMINDER_INTERVAL_DAYS = 2;
 
 let sendMailFn = null;
 const setSendMail = (fn) => { sendMailFn = fn; };
+
+/**
+ * Envoie un e-mail du parapheur via l'API Ville (APM) si elle est configurée :
+ * le template général de la Ville est alors appliqué. Repli sur le mailer local
+ * du Hub DSI (template DSI Hub) si l'API Ville est indisponible.
+ * @param {string} to
+ * @param {{ subject:string, content?:string, html?:string }} tpl
+ */
+async function sendParapheurEmail(to, tpl) {
+    if (!to || !tpl) return;
+    const { subject, content, html } = tpl;
+    let apmErr = null;
+    try {
+        await apmMail.sendMail({ to, subject, content: content || html });
+        return;
+    } catch (e) {
+        apmErr = e;
+        console.warn('[PARAPHEUR] API Ville indisponible, repli mailer local:', e.message);
+    }
+    if (!sendMailFn) throw apmErr || new Error("Aucun service d'envoi d'e-mails disponible.");
+    await sendMailFn(to, subject, html, [], 'parapheur');
+}
 
 async function getAppBaseUrl() {
     try {
@@ -334,14 +357,13 @@ async function requestEmailOtp(token) {
          WHERE id = ?`,
         [hash, signataire.id]
     );
-    if (!sendMailFn) throw { status: 503, message: "Service d'envoi d'e-mails indisponible." };
     try {
-        const { subject, html } = emailTemplates.signatureOtp({
+        const tpl = emailTemplates.signatureOtp({
             signataireNom: signataire.nom,
             code,
             title: parapheur.title,
         });
-        await sendMailFn(signataire.email, subject, html, [], 'parapheur');
+        await sendParapheurEmail(signataire.email, tpl);
     } catch (e) {
         console.error('[PARAPHEUR] envoi code e-mail échoué:', e.message);
         throw { status: 502, message: "L'envoi du code par e-mail a échoué. Réessayez." };
@@ -1316,7 +1338,7 @@ async function activateSignataires(parapheur, signataires, ip) {
 }
 
 async function sendSignerMail(parapheur, signataire) {
-    if (!sendMailFn || !signataire.email) return;
+    if (!signataire.email) return;
     try {
         // Lien de signature via l'URL publique externe (mobilité) si configurée.
         const base = await getSignatureBaseUrl();
@@ -1325,7 +1347,7 @@ async function sendSignerMail(parapheur, signataire) {
             `SELECT original_name FROM hub_parapheur.documents WHERE parapheur_id = ? ORDER BY sort_order, id`,
             [parapheur.id]
         );
-        const { subject, html } = emailTemplates.signatureRequest({
+        const tpl = emailTemplates.signatureRequest({
             signataireNom: signataire.nom,
             requesterName: parapheur.created_by_name || parapheur.created_by_username || 'La DSI',
             title: parapheur.title,
@@ -1336,7 +1358,7 @@ async function sendSignerMail(parapheur, signataire) {
             mode: parapheur.mode,
             frontUrl: base,
         });
-        await sendMailFn(signataire.email, subject, html, [], 'parapheur');
+        await sendParapheurEmail(signataire.email, tpl);
     } catch (e) {
         console.warn('[PARAPHEUR] envoi mail signataire échoué:', e.message);
     }
@@ -2058,7 +2080,7 @@ async function regenerateSignedDocs(parapheurId, secureContext) {
 }
 
 async function notifyRequester(parapheur, signataireNom, done) {
-    if (!sendMailFn || !parapheur.created_by_email) return;
+    if (!parapheur.created_by_email) return;
     try {
         const base = await getAppBaseUrl();
         const counts = await pgDb.get(
@@ -2066,7 +2088,7 @@ async function notifyRequester(parapheur, signataireNom, done) {
              FROM hub_parapheur.signataires WHERE parapheur_id = ?`,
             [parapheur.id]
         );
-        const { subject, html } = emailTemplates.signatureProgress({
+        const tpl = emailTemplates.signatureProgress({
             requesterName: parapheur.created_by_name || parapheur.created_by_username || 'vous',
             signataireNom,
             title: parapheur.title,
@@ -2077,7 +2099,7 @@ async function notifyRequester(parapheur, signataireNom, done) {
             mode: parapheur.mode,
             link: `${base}/parapheur/${parapheur.id}`,
         });
-        await sendMailFn(parapheur.created_by_email, subject, html, [], 'parapheur');
+        await sendParapheurEmail(parapheur.created_by_email, tpl);
     } catch (e) {
         console.warn('[PARAPHEUR] notification demandeur échouée:', e.message);
     }
@@ -2124,12 +2146,11 @@ async function advanceAfterSign(parapheur) {
 }
 
 async function notifySignersCompleted(parapheur, signataires) {
-    if (!sendMailFn) return;
     try {
         const base = await getAppBaseUrl();
         for (const s of signataires) {
             if (!s.email) continue;
-            const { subject, html } = emailTemplates.signatureProgress({
+            const tpl = emailTemplates.signatureProgress({
                 requesterName: s.nom,
                 signataireNom: 'Tous les signataires',
                 title: parapheur.title,
@@ -2140,7 +2161,7 @@ async function notifySignersCompleted(parapheur, signataires) {
                 mode: parapheur.mode,
                 link: `${base}/parapheur/${parapheur.id}`,
             });
-            await sendMailFn(s.email, subject.replace('Parapheur signé', 'Parapheur finalisé'), html, [], 'parapheur');
+            await sendParapheurEmail(s.email, { ...tpl, subject: tpl.subject.replace('Parapheur signé', 'Parapheur finalisé') });
         }
     } catch (e) {
         console.warn('[PARAPHEUR] notification signataires terminé échouée:', e.message);
@@ -2424,10 +2445,10 @@ async function rejectWithToken(token, { comment, delegation, req }) {
         ip
     );
 
-    if (sendMailFn && parapheur.created_by_email) {
+    if (parapheur.created_by_email) {
         try {
             const base = await getAppBaseUrl();
-            const { subject, html } = emailTemplates.signatureRejected({
+            const tpl = emailTemplates.signatureRejected({
                 requesterName: parapheur.created_by_name || parapheur.created_by_username,
                 signataireNom: signataire.nom,
                 title: parapheur.title,
@@ -2435,7 +2456,7 @@ async function rejectWithToken(token, { comment, delegation, req }) {
                 comment: cleanComment,
                 link: `${base}/parapheur/${parapheur.id}`,
             });
-            await sendMailFn(parapheur.created_by_email, subject, html, [], 'parapheur');
+            await sendParapheurEmail(parapheur.created_by_email, tpl);
         } catch (e) {
             console.warn('[PARAPHEUR] notification refus échouée:', e.message);
         }
@@ -2460,7 +2481,7 @@ async function relance(parapheurId, { manual, req }) {
         const docs = await pgDb.all(`SELECT original_name FROM hub_parapheur.documents WHERE parapheur_id = ? ORDER BY sort_order, id`, [parapheurId]);
         try {
             const base = await getSignatureBaseUrl();
-            const { subject, html } = emailTemplates.signatureReminder({
+            const tpl = emailTemplates.signatureReminder({
                 signataireNom: s.nom,
                 requesterName: parapheur.created_by_name || parapheur.created_by_username,
                 title: parapheur.title,
@@ -2469,7 +2490,7 @@ async function relance(parapheurId, { manual, req }) {
                 link: `${base}/signature/${s.token}`,
                 deadline: parapheur.deadline,
             });
-            if (sendMailFn) await sendMailFn(s.email, subject, html, [], 'parapheur');
+            await sendParapheurEmail(s.email, tpl);
             await pgDb.run(`UPDATE hub_parapheur.signataires SET reminder_count = reminder_count + 1, last_reminder_at = NOW() WHERE id = ?`, [s.id]);
             sent++;
         } catch (e) {
@@ -3017,7 +3038,7 @@ async function runReminders() {
         try {
             const base = await getSignatureBaseUrl();
             const docs = await pgDb.all(`SELECT original_name FROM hub_parapheur.documents WHERE parapheur_id = ? ORDER BY sort_order, id`, [s.p_id]);
-            const { subject, html } = emailTemplates.signatureReminder({
+            const tpl = emailTemplates.signatureReminder({
                 signataireNom: s.nom,
                 requesterName: s.created_by_name || s.created_by_username,
                 title: s.title,
@@ -3026,7 +3047,7 @@ async function runReminders() {
                 link: `${base}/signature/${s.token}`,
                 deadline: s.deadline,
             });
-            if (sendMailFn) await sendMailFn(s.email, subject, html, [], 'parapheur');
+            await sendParapheurEmail(s.email, tpl);
             await pgDb.run(`UPDATE hub_parapheur.signataires SET reminder_count = reminder_count + 1, last_reminder_at = NOW() WHERE id = ?`, [s.id]);
             sent++;
         } catch (e) {
@@ -3101,7 +3122,7 @@ async function runSignatureDigest({ force } = {}) {
 
         const isExternal = items[0].is_external === true;
         try {
-            const { subject, html } = emailTemplates.signatureDigest({
+            const tpl = emailTemplates.signatureDigest({
                 signataireNom: items[0].nom,
                 requesterName: items[0].created_by_name || items[0].created_by_username || 'La DSI',
                 totalPending,
@@ -3115,7 +3136,7 @@ async function runSignatureDigest({ force } = {}) {
                     link: `${base}/signature/${i.token}`,
                 })),
             });
-            if (sendMailFn) await sendMailFn(email, subject, html, [], 'parapheur');
+            await sendParapheurEmail(email, tpl);
             const ids = items.map(i => i.id);
             await pgDb.run(
                 `UPDATE hub_parapheur.signataires SET activation_notified_at = NOW() WHERE id IN (${ids.map(() => '?').join(',')})`,
