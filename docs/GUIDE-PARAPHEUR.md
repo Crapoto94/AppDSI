@@ -134,7 +134,7 @@ Quand c'est votre tour de signer, vous recevez un e-mail contenant un **lien per
 
 > 🗂️ **Signer plusieurs documents, ou seulement une partie.** Si le parapheur contient plusieurs documents, ils sont **tous cochés par défaut** : vous pouvez en **décocher un ou plusieurs** pour ne signer qu'une partie de la liasse, ou utiliser **« Tout cocher »** pour signer l'ensemble **en masse** sans faire défiler chaque document. Dans ce cas (documents non lus), une **modale d'engagement** vous rappelle — avec la formule juridique configurée par la DSI — que la signature en masse vous engage, avant de valider.
 
-> 🌐 **Signataires extérieurs (hors collectivité).** Un signataire extérieur n'a pas de compte Active Directory : il s'authentifie par un **code à 6 chiffres envoyé à son adresse e-mail** (valable 10 minutes), puis signe de la même manière (tracé manuscrit ; le SMS renforce l'identité si un numéro a été fourni).
+> 🌐 **Signataires extérieurs (hors collectivité).** Un signataire extérieur n'a pas de compte Active Directory : il s'authentifie par un **code à 6 chiffres envoyé à son adresse e-mail** (valable 10 minutes), puis signe de la même manière (tracé manuscrit ; le SMS renforce l'identité si un numéro a été fourni). À la clôture du circuit, le lien de l'e-mail de confirmation les renvoie vers la **page publique de vérification** (accessible sans compte, comme le QR code).
 
 > 💡 Le lien de signature n'est utilisable qu'une fois et vous est personnel : ne le transférez pas à quelqu'un d'autre.
 

@@ -2158,8 +2158,14 @@ async function advanceAfterSign(parapheur) {
 async function notifySignersCompleted(parapheur, signataires) {
     try {
         const base = await getAppBaseUrl();
+        // Les signataires extérieurs n'ont pas accès au Hub interne : on les
+        // renvoie vers la page publique de vérification (même cible que le QR code).
+        const verifyBase = await getVerifyBaseUrl();
+        const publicToken = await ensurePublicToken(parapheur.id);
+        const verifyLink = publicToken ? `${verifyBase}${VERIFY_PATH}/${publicToken}` : null;
         for (const s of signataires) {
             if (!s.email) continue;
+            const link = (isExternalSigner(s) && verifyLink) ? verifyLink : `${base}/parapheur/${parapheur.id}`;
             const tpl = emailTemplates.signatureProgress({
                 requesterName: s.nom,
                 signataireNom: 'Tous les signataires',
@@ -2169,7 +2175,7 @@ async function notifySignersCompleted(parapheur, signataires) {
                 totalCount: signataires.length,
                 done: true,
                 mode: parapheur.mode,
-                link: `${base}/parapheur/${parapheur.id}`,
+                link,
             });
             await sendParapheurEmail(s.email, { ...tpl, subject: tpl.subject.replace('Parapheur signé', 'Parapheur finalisé') });
         }
