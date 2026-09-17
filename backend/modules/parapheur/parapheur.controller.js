@@ -50,7 +50,7 @@ const controller = {
                 // du code envoyé par e-mail (aucun compte AD requis).
                 if (req.user && req.user.scope === 'parapheur_external'
                     && Number(req.user.signataire_id) === Number(signataire.id)
-                    && signataire.is_external === true) {
+                    && service.isExternalSigner(signataire)) {
                     req.signataire = signataire;
                     return next();
                 }

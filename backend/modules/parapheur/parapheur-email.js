@@ -141,13 +141,18 @@ function signatureReminder({ signataireNom, requesterName, title, reference, doc
  * direct par parapheur et, pour les agents internes, un lien vers le parapheur
  * global du Hub. Indique le nombre total de parapheurs en attente.
  */
-function signatureDigest({ signataireNom, parapheurs, totalPending, globalLink, requesterName }) {
+function signatureDigest({ signataireNom, parapheurs, totalPending, globalLink, requesterName, internal = true }) {
     const list = Array.isArray(parapheurs) ? parapheurs : [];
     const multi = list.length > 1;
     const total = totalPending || list.length;
-    const subject = multi
+    const title0 = list[0] ? list[0].title : '';
+    // Le nombre de parapheurs et le lien vers le parapheur global sont réservés
+    // aux agents internes (les signataires extérieurs n'ont pas de compte).
+    const subject = (internal && multi)
         ? `✍️ ${list.length} parapheurs à signer`
-        : `✍️ Parapheur à signer — ${list[0] ? list[0].title : ''}`;
+        : multi
+            ? '✍️ Parapheurs à signer'
+            : `✍️ Parapheur à signer — ${title0}`;
     const itemsHtml = list.map(p => {
         const deadlineHtml = p.deadline
             ? `<div style="font-size:12px;color:#b45309;margin-top:4px;">⏰ Échéance : ${esc(new Date(p.deadline).toLocaleDateString('fr-FR'))}</div>`
@@ -159,11 +164,13 @@ function signatureDigest({ signataireNom, parapheurs, totalPending, globalLink, 
           ${button(p.link, 'Signer ce parapheur', '#2563eb')}
         </div>`;
     }).join('');
-    const intro = `Bonjour <strong>${esc(signataireNom)}</strong>,<br><br><strong>${esc(requesterName || 'La DSI')}</strong> vous invite à signer. ` +
-        (total > 1
-            ? `Vous avez <strong>${total} parapheurs</strong> en attente de votre signature.`
-            : `Vous avez <strong>1 parapheur</strong> en attente de votre signature.`);
-    const bodyHtml = `${itemsHtml}${globalLink ? `<p style="text-align:center;margin:20px 0 0;">
+    const intro = `Bonjour <strong>${esc(signataireNom)}</strong>,<br><br><strong>${esc(requesterName || 'La DSI')}</strong> vous invite à signer.` +
+        (internal
+            ? ' ' + (total > 1
+                ? `Vous avez <strong>${total} parapheurs</strong> en attente de votre signature.`
+                : `Vous avez <strong>1 parapheur</strong> en attente de votre signature.`)
+            : '');
+    const bodyHtml = `${itemsHtml}${(internal && globalLink) ? `<p style="text-align:center;margin:20px 0 0;">
               <a href="${globalLink}" style="display:inline-block;background:#f1f5f9;color:#334155;text-decoration:none;font-weight:700;padding:11px 24px;border-radius:8px;font-size:14px;border:1px solid #e2e8f0;">Voir tous mes parapheurs à signer</a>
             </p>` : ''}`;
     return {

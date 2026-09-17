@@ -224,9 +224,10 @@ Sur la fiche d'un parapheur (`/parapheur/:id`) :
 - Une fois **terminé**, vous pouvez télécharger le **dossier de preuves** (ZIP contenant les documents scellés et leur journal de signature) et voir le badge **« Sceau vérifié »**.
 
 > 📬 **Regroupement des e-mails de signature.** Les e-mails invitant à signer ne partent pas un par un à l'instant où le parapheur est lancé : ils sont **regroupés et envoyés à intervalle régulier** (par défaut **toutes les 2 minutes**, paramétrable par la DSI). Ainsi, si plusieurs parapheurs vous sont adressés en même temps, vous ne recevez **qu'un seul e-mail** listant l'ensemble, avec :
-> - le **nombre total de parapheurs** en attente de votre signature ;
 > - un bouton **« Signer ce parapheur »** (lien direct) pour chacun ;
-> - et, pour les agents internes, un bouton **« Voir tous mes parapheurs à signer »** menant au parapheur global du Hub.
+> - pour les **agents internes** uniquement : le **nombre total de parapheurs** en attente et un bouton **« Voir tous mes parapheurs à signer »** menant au parapheur global du Hub.
+>
+> Les **signataires extérieurs** reçoivent le même e-mail regroupé, mais sans le compteur ni le lien vers le parapheur global (ils n'ont pas de compte).
 
 ---
 

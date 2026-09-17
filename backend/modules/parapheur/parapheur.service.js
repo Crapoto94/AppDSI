@@ -304,6 +304,16 @@ function maskEmail(email) {
 }
 
 /**
+ * Un signataire est « extérieur » s'il a été déclaré comme tel, ou s'il n'a
+ * aucun agent associé (agent_id absent) — cas des parapheurs créés avant
+ * l'introduction du drapeau explicite.
+ */
+function isExternalSigner(signataire) {
+    if (!signataire) return false;
+    return signataire.is_external === true || signataire.agent_id == null;
+}
+
+/**
  * Informations d'accès publiques (aucune authentification) : permet à la page
  * de signature de savoir si le signataire est interne (auth AD) ou extérieur
  * (code par e-mail) avant de proposer le bon mode de connexion.
@@ -314,7 +324,7 @@ async function getSignerAccessInfo(token) {
     const p = await pgDb.get(`SELECT status, title, reference FROM hub_parapheur.parapheurs WHERE id = ?`, [signataire.parapheur_id]);
     return {
         exists: true,
-        is_external: signataire.is_external === true,
+        is_external: isExternalSigner(signataire),
         nom: signataire.nom,
         email_masked: maskEmail(signataire.email),
         status: signataire.status,
@@ -328,7 +338,7 @@ async function getSignerAccessInfo(token) {
 async function requestEmailOtp(token) {
     const signataire = await getSignerByToken(token);
     if (!signataire) throw { status: 404, message: 'Lien de signature introuvable.' };
-    if (signataire.is_external !== true) {
+    if (!isExternalSigner(signataire)) {
         throw { status: 400, message: "Cette signature utilise l'authentification de la collectivité." };
     }
     if (signataire.status === 'refuse') throw { status: 400, message: 'Vous avez déjà refusé de signer.' };
@@ -378,7 +388,7 @@ async function requestEmailOtp(token) {
 async function verifyEmailOtp(token, code) {
     const signataire = await getSignerByToken(token);
     if (!signataire) throw { status: 404, message: 'Lien de signature introuvable.' };
-    if (signataire.is_external !== true) throw { status: 400, message: 'Authentification non applicable.' };
+    if (!isExternalSigner(signataire)) throw { status: 400, message: 'Authentification non applicable.' };
     if (!code) throw { status: 400, message: 'Code de vérification requis.' };
     if (!signataire.otp_code_hash) throw { status: 400, message: 'Aucun code envoyé. Demandez un nouveau code.' };
 
@@ -3079,7 +3089,7 @@ async function runSignatureDigest({ force } = {}) {
     let rows;
     try {
         rows = await pgDb.all(
-            `SELECT sg.id, sg.parapheur_id, sg.nom, sg.email, sg.token, sg.is_external,
+            `SELECT sg.id, sg.parapheur_id, sg.nom, sg.email, sg.token, sg.is_external, sg.agent_id,
                     p.title, p.reference, p.deadline, p.created_by_name, p.created_by_username
              FROM hub_parapheur.signataires sg
              JOIN hub_parapheur.parapheurs p ON p.id = sg.parapheur_id
@@ -3120,13 +3130,15 @@ async function runSignatureDigest({ force } = {}) {
             totalPending = Number(t?.n || items.length);
         } catch { /* garde items.length */ }
 
-        const isExternal = items[0].is_external === true;
+        const isExternal = items[0].is_external === true || items[0].agent_id == null;
         try {
             const tpl = emailTemplates.signatureDigest({
                 signataireNom: items[0].nom,
                 requesterName: items[0].created_by_name || items[0].created_by_username || 'La DSI',
                 totalPending,
-                // Les signataires extérieurs n'ont pas accès au Hub interne.
+                // Nombre de parapheurs et lien vers le parapheur global : réservés
+                // aux agents internes (les extérieurs n'ont pas de compte).
+                internal: !isExternal,
                 globalLink: isExternal ? null : `${appBase}/parapheur`,
                 parapheurs: items.map(i => ({
                     title: i.title,
@@ -3161,6 +3173,7 @@ module.exports = {
     listForEmail,
     getDetail,
     getSignerByToken,
+    isExternalSigner,
     getPublicInfo,
     requestOtp,
     signWithToken,
