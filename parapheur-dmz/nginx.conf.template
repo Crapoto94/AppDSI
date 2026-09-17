@@ -1,29 +1,128 @@
-server {
-    listen 5176;
-    server_name ${VERIFY_DOMAIN};
-    client_max_body_size 10M;
+# ═══════════════════════════════════════════════════════════════════════════════
+# Durcissement + WAF nginx (contexte http : ce fichier est inclus via conf.d)
+# ═══════════════════════════════════════════════════════════════════════════════
+server_tokens off;
 
+# Limitation de débit et de connexions par IP (anti-abus / brute force / DoS).
+limit_req_zone  $binary_remote_addr zone=ph_general:10m rate=20r/s;
+limit_req_zone  $binary_remote_addr zone=ph_auth:10m    rate=5r/m;
+limit_conn_zone $binary_remote_addr zone=ph_conn:10m;
+
+# WAF — motifs d'attaque dans l'URI (traversée de chemin, injection, scanners).
+# Volontairement conservateur pour ne pas gêner les jetons base64url légitimes.
+map $request_uri $waf_uri {
+    default 0;
+    ~*(\.\./|\.\.%2f|%2e%2e%2f|%00|/etc/passwd|/proc/self|win\.ini)                        1;
+    ~*(<script|%3cscript|%3c%2fscript|javascript%3a|vbscript%3a|onerror%3d|onload%3d)     1;
+    ~*(union.*select|information_schema|sleep\(|benchmark\(|load_file\()                  1;
+    ~*(/\.git|/\.env|/\.svn|/\.htaccess|/\.aws|/\.ssh|wp-login|wp-admin|phpmyadmin|xmlrpc\.php|cgi-bin|phpunit) 1;
+}
+
+# WAF — user-agents d'outils offensifs / scanners.
+map $http_user_agent $waf_ua {
+    default 0;
+    ~*(sqlmap|nikto|nmap|masscan|acunetix|nessus|dirbuster|gobuster|wpscan|hydra|zgrab|nuclei|wfuzz|xray|qualys|openvas) 1;
+}
+
+# WAF — méthodes HTTP autorisées (bloque TRACE/TRACK/CONNECT…).
+map $request_method $waf_method {
+    default 1;
+    GET 0; HEAD 0; POST 0; PUT 0; PATCH 0; DELETE 0; OPTIONS 0;
+}
+
+server {
+    listen 5177;
+    server_name ${PARAPHEUR_DOMAIN};
     root /usr/share/nginx/html;
     index index.html;
 
-    # En-têtes de base pour un service exposé en DMZ. (TLS/HSTS terminés par le
-    # reverse proxy DMZ en amont.)
-    add_header X-Content-Type-Options nosniff;
-    add_header X-Frame-Options SAMEORIGIN;
-    add_header Referrer-Policy strict-origin-when-cross-origin;
+    # ── Limites réseau (anti-abus, anti-slowloris) ────────────────────────────
+    client_max_body_size 10M;
+    client_body_timeout 10s;
+    client_header_timeout 10s;
+    send_timeout 15s;
+    keepalive_timeout 20s;
+    reset_timedout_connection on;
+    large_client_header_buffers 4 8k;
 
-    # SPA du Hub : seule la route /parapheur/verification/:token est réellement
-    # fonctionnelle (les autres routes s'affichent mais leurs appels /api/* ne
-    # sont pas proxifiés et échouent).
+    limit_req  zone=ph_general burst=40 nodelay;
+    limit_conn ph_conn 30;
+    limit_req_status  429;
+    limit_conn_status 429;
+
+    # ── WAF (méthode / URI / user-agent) ──────────────────────────────────────
+    if ($waf_method) { return 405; }
+    if ($waf_uri)    { return 403; }
+    if ($waf_ua)     { return 444; }
+
+    # ── En-têtes de sécurité (TLS/HSTS terminés par le reverse proxy DMZ) ─────
+    # Ne pas divulguer la techno du backend proxifié.
+    proxy_hide_header X-Powered-By;
+    proxy_hide_header Server;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-Frame-Options "SAMEORIGIN" always;
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+    add_header Permissions-Policy "geolocation=(), microphone=(), camera=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()" always;
+    add_header Cross-Origin-Opener-Policy "same-origin" always;
+    add_header Cross-Origin-Resource-Policy "same-origin" always;
+    add_header X-Permitted-Cross-Domain-Policies "none" always;
+    # HSTS : pertinent si le service est bien toujours servi en HTTPS via le
+    # reverse proxy. Retirer si un accès HTTP public doit rester possible.
+    add_header Strict-Transport-Security "max-age=31536000" always;
+    # CSP adaptée au front : styles inline (React), images data:/blob: (signature,
+    # PDF), worker/wasm de pdf.js, iframe blob pour la visionneuse PDF.
+    add_header Content-Security-Policy "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob: data:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; frame-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'" always;
+
+    # SPA minimale du parapheur : état du service, signature et vérification.
+    # Le reste n'est pas servi (oublis d'URL retombent sur l'accueil).
     location / {
         try_files $uri $uri/ /index.html;
     }
 
-    # SEUL point d'entrée backend exposé : l'API PUBLIQUE de vérification du
-    # parapheur (jeton aléatoire non devinable, lecture seule). On ne proxy
-    # JAMAIS /api/ dans son ensemble : le backend est un monolithe qui sert
-    # aussi les tickets, la finance, la RH et l'admin.
+    # IMPORTANT (sécurité DMZ) : le backend est un monolithe qui sert aussi les
+    # tickets, la finance, la RH, l'admin, etc. sous /api/*. On ne proxy ici QUE
+    # les points strictement nécessaires, jamais /api/ dans son ensemble.
+
+    # 0) Santé du backend (page d'accueil publique, sans donnée sensible).
+    location = /api/health {
+        proxy_pass ${BACKEND_URL}/api/health;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_connect_timeout 5s;
+        proxy_read_timeout 10s;
+    }
+
+    # 1) Connexion du signataire (mécanisme « magasin d'applications »).
+    #    Endpoint unique, en POST, avec limite de débit renforcée (anti brute force).
+    location = /api/auth/magapp-login {
+        limit_except POST { deny all; }
+        limit_req zone=ph_auth burst=5 nodelay;
+        proxy_pass ${BACKEND_URL}/api/auth/magapp-login;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # 2) API PUBLIQUE de signature (jeton personnel du signataire, lecture +
+    #    signature/refus). Le jeton (32 octets aléatoires) n'est pas devinable.
+    location /api/parapheur/public/ {
+        proxy_pass ${BACKEND_URL}/api/parapheur/public/;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 300s;
+    }
+
+    # 3) API PUBLIQUE de vérification (QR code des PDF signés) — LECTURE SEULE.
     location /api/parapheur/verify/ {
+        limit_except GET HEAD { deny all; }
         proxy_pass ${BACKEND_URL}/api/parapheur/verify/;
         proxy_http_version 1.1;
         proxy_set_header Host $host;
@@ -31,5 +130,13 @@ server {
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
         proxy_read_timeout 300s;
+    }
+
+    # Ne jamais servir de fichiers cachés / de sauvegarde.
+    location ~ /\.(?!well-known) {
+        deny all;
+    }
+    location ~* ~$ {
+        deny all;
     }
 }

@@ -1744,6 +1744,27 @@ app.get('/api/frizbi-test-public', (req, res) => {
     res.json({ message: 'Public Frizbi Route Reachable' });
 });
 
+// Santé publique du backend — utilisée par la page d'accueil du front DMZ du
+// parapheur (et éventuellement par un sondage de supervision). Ne révèle aucune
+// information sensible : vérifie seulement que l'API répond et que la base
+// PostgreSQL est joignable.
+app.get('/api/health', async (req, res) => {
+    let database = 'ok';
+    try {
+        await pgDb.get('SELECT 1 AS ok');
+    } catch (e) {
+        database = 'error';
+    }
+    const healthy = database === 'ok';
+    res.status(healthy ? 200 : 503).json({
+        status: healthy ? 'ok' : 'degraded',
+        service: 'AppDSI Backend',
+        time: new Date().toISOString(),
+        uptime_seconds: Math.round(process.uptime()),
+        database,
+    });
+});
+
 app.get('/api/admin/frizbi/sms-logs', authenticateAdmin, async (req, res) => {
     try {
         const logs = await pgDb.all('SELECT * FROM hub.sms_logs ORDER BY sent_at DESC LIMIT 200');

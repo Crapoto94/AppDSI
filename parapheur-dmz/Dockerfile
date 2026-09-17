@@ -1,31 +1,33 @@
-# Image DMZ : sert la page PUBLIQUE de vérification du parapheur (QR des PDF
-# signés) depuis le front du Hub DSI, avec un nginx restreint qui n'expose QUE
-# l'API de vérification publique (/api/parapheur/verify/), jamais le reste du
-# backend monolithique (tickets, finance, RH, admin...).
+# Image DMZ autonome : construit le front MINIMAL du parapheur (signature +
+# vérification publique) à partir de ce dossier seul — aucun besoin du front
+# complet du Hub DSI ni de la racine du dépôt (contexte de build = "."
+# dans docker-compose.yml).
 #
-# Le contexte de build est la RACINE du dépôt (voir docker-compose.yml :
-# context: ..) afin de compiler le dossier ../frontend.
+# Un nginx restreint n'expose que les points d'API publics nécessaires :
+#   - /api/health             (état de santé du backend, page d'accueil)
+#   - /api/auth/magapp-login  (connexion du signataire, en POST uniquement)
+#   - /api/parapheur/public/  (signature via jeton personnel)
+#   - /api/parapheur/verify/  (vérification publique via jeton QR)
 
-# ── Stage 1 : build du front Hub ─────────────────────────────────────────────
+# ── Stage 1 : build du front minimal ─────────────────────────────────────────
 FROM node:lts-alpine AS builder
 WORKDIR /app
 
 RUN apk add --no-cache make gcc g++ python3
 
-COPY frontend/package*.json ./
-# npm install (et non npm ci) : le lockfile n'est pas versionné dans ce dépôt,
-# ce qui rendrait npm ci inutilisable sur un checkout Git propre.
+COPY package*.json ./
+# npm install (et non npm ci) : le lockfile n'est pas versionné pour ce module.
 RUN npm install --no-audit --no-fund
 
-COPY frontend/ ./
+COPY . .
 RUN npm run build
 
 # ── Stage 2 : nginx restreint ────────────────────────────────────────────────
 FROM nginx:alpine
 COPY --from=builder /app/dist /usr/share/nginx/html
-COPY parapheur-dmz/nginx.conf.template /etc/nginx/templates/default.conf.template
-COPY parapheur-dmz/entrypoint.sh /entrypoint.sh
+COPY nginx.conf.template /etc/nginx/templates/default.conf.template
+COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
-EXPOSE 5176
+EXPOSE 5177
 ENTRYPOINT ["/entrypoint.sh"]
