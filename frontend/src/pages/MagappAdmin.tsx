@@ -2343,18 +2343,6 @@ const MagappAdmin: React.FC = () => {
                 </div>
                 <div className="form-group-v2 full-width" style={{ padding: '15px', background: 'white', border: '1px solid #e2e8f0', borderRadius: '16px' }}>
                   <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', margin: 0 }}>
-                    <span style={{ fontWeight: 600, fontSize: '1rem' }}>Afficher les abonnements Push</span>
-                    <input 
-                      type="checkbox" 
-                      checked={magappSettings.show_subscriptions} 
-                      onChange={e => setMagappSettings({...magappSettings, show_subscriptions: e.target.checked})} 
-                      style={{ width: '22px', height: '22px', cursor: 'pointer', accentColor: '#4f46e5' }}
-                    />
-                  </label>
-                  <p style={{ margin: '5px 0 0 0', fontSize: '0.85rem', color: '#64748b' }}>Permet aux utilisateurs de s'abonner aux notifications d'état d'un service (abonnement Push).</p>
-                </div>
-                <div className="form-group-v2 full-width" style={{ padding: '15px', background: 'white', border: '1px solid #e2e8f0', borderRadius: '16px' }}>
-                  <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', margin: 0 }}>
                     <span style={{ fontWeight: 600, fontSize: '1rem' }}>Afficher le Health Check global</span>
                     <input 
                       type="checkbox" 
@@ -2403,18 +2391,6 @@ const MagappAdmin: React.FC = () => {
                 </div>
                 <div className="form-group-v2 full-width" style={{ padding: '15px', background: 'white', border: '1px solid #e2e8f0', borderRadius: '16px' }}>
                   <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', margin: 0 }}>
-                    <span style={{ fontWeight: 600, fontSize: '1rem' }}>Afficher les Rencontres Budgétaires</span>
-                    <input
-                      type="checkbox"
-                      checked={magappSettings.show_rencontres}
-                      onChange={e => setMagappSettings({...magappSettings, show_rencontres: e.target.checked})}
-                      style={{ width: '22px', height: '22px', cursor: 'pointer', accentColor: '#4f46e5' }}
-                    />
-                  </label>
-                  <p style={{ margin: '5px 0 0 0', fontSize: '0.85rem', color: '#64748b' }}>Affiche le bouton "Rencontres Budgétaires" pour consulter les demandes de directions.</p>
-                </div>
-                <div className="form-group-v2 full-width" style={{ padding: '15px', background: 'white', border: '1px solid #e2e8f0', borderRadius: '16px' }}>
-                  <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', margin: 0 }}>
                     <span style={{ fontWeight: 600, fontSize: '1rem' }}>Afficher les demandes de consommables</span>
                     <input
                       type="checkbox"
@@ -2444,10 +2420,30 @@ const MagappAdmin: React.FC = () => {
                     Affiche la bulle de chat en direct sur MagApp. Les utilisateurs peuvent contacter un technicien en temps réel.
                   </p>
                 </div>
+                <div className="form-group-v2 full-width" style={{ padding: '15px', background: '#f8fafc', border: '1px dashed #cbd5e1', borderRadius: '16px' }}>
+                  <span style={{ fontWeight: 800, fontSize: '1rem', color: '#0f172a', display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <Wrench size={16} color="#0369a1" /> Mes outils DSI
+                  </span>
+                  <p style={{ margin: '5px 0 0 0', fontSize: '0.85rem', color: '#64748b' }}>
+                    Boutons de la modale « Mes outils DSI » du MagApp. Non publié, un outil reste disponible en beta pour les utilisateurs ayant la tuile d'administration (/admin/magapp).
+                  </p>
+                </div>
+                <div className="form-group-v2 full-width" style={{ padding: '15px', background: 'white', border: '1px solid #e2e8f0', borderRadius: '16px' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', margin: 0 }}>
+                    <span style={{ fontWeight: 600, fontSize: '1rem' }}>Rencontres annuelles</span>
+                    <input
+                      type="checkbox"
+                      checked={magappSettings.show_rencontres}
+                      onChange={e => setMagappSettings({...magappSettings, show_rencontres: e.target.checked})}
+                      style={{ width: '22px', height: '22px', cursor: 'pointer', accentColor: '#0284c7' }}
+                    />
+                  </label>
+                  <p style={{ margin: '5px 0 0 0', fontSize: '0.85rem', color: '#64748b' }}>Affiche l'outil "Rencontres annuelles" (demandes budgétaires des directions).</p>
+                </div>
                 <div className="form-group-v2 full-width" style={{ padding: '15px', background: 'white', border: '1px solid #e2e8f0', borderRadius: '16px' }}>
                   <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', margin: 0 }}>
                     <span style={{ fontWeight: 600, fontSize: '1rem' }}>
-                      Transcript Manager
+                      Transcript manager
                       <span style={{ marginLeft: 8, background: '#0078a4', color: 'white', fontSize: '0.6rem', fontWeight: 800, padding: '2px 6px', borderRadius: '6px', letterSpacing: '0.05em', verticalAlign: 'middle' }}>BETA</span>
                     </span>
                     <input
@@ -2457,17 +2453,7 @@ const MagappAdmin: React.FC = () => {
                       style={{ width: '22px', height: '22px', cursor: 'pointer', accentColor: '#0078a4' }}
                     />
                   </label>
-                  <p style={{ margin: '5px 0 0 0', fontSize: '0.85rem', color: '#64748b' }}>
-                    Affiche le bouton "Mon Transcript Manager" dans le magapp (mode beta).
-                  </p>
-                </div>
-                <div className="form-group-v2 full-width" style={{ padding: '15px', background: '#f8fafc', border: '1px dashed #cbd5e1', borderRadius: '16px' }}>
-                  <span style={{ fontWeight: 800, fontSize: '0.95rem', color: '#0f172a', display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <Wrench size={16} color="#0369a1" /> Mes outils DSI
-                  </span>
-                  <p style={{ margin: '5px 0 0 0', fontSize: '0.85rem', color: '#64748b' }}>
-                    Boutons de la modale « Mes outils DSI » du MagApp. Non publié, un outil reste disponible en beta pour les utilisateurs ayant la tuile d'administration (/admin/magapp).
-                  </p>
+                  <p style={{ margin: '5px 0 0 0', fontSize: '0.85rem', color: '#64748b' }}>Affiche l'outil "Transcript manager" (réunions, comptes rendus, résumés IA).</p>
                 </div>
                 <div className="form-group-v2 full-width" style={{ padding: '15px', background: 'white', border: '1px solid #e2e8f0', borderRadius: '16px' }}>
                   <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', margin: 0 }}>
@@ -2483,6 +2469,18 @@ const MagappAdmin: React.FC = () => {
                     />
                   </label>
                   <p style={{ margin: '5px 0 0 0', fontSize: '0.85rem', color: '#64748b' }}>Ouvre le parapheur électronique du DSI Hub avec l'en-tête du Magasin d'applications.</p>
+                </div>
+                <div className="form-group-v2 full-width" style={{ padding: '15px', background: 'white', border: '1px solid #e2e8f0', borderRadius: '16px' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', margin: 0 }}>
+                    <span style={{ fontWeight: 600, fontSize: '1rem' }}>Mes abonnements</span>
+                    <input
+                      type="checkbox"
+                      checked={magappSettings.show_subscriptions}
+                      onChange={e => setMagappSettings({...magappSettings, show_subscriptions: e.target.checked})}
+                      style={{ width: '22px', height: '22px', cursor: 'pointer', accentColor: '#4f46e5' }}
+                    />
+                  </label>
+                  <p style={{ margin: '5px 0 0 0', fontSize: '0.85rem', color: '#64748b' }}>Affiche l'outil "Mes abonnements" (abonnement aux notifications d'état d'un service).</p>
                 </div>
                 <div className="form-group-v2 full-width" style={{ padding: '15px', background: 'white', border: '1px solid #e2e8f0', borderRadius: '16px' }}>
                   <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', margin: 0 }}>

@@ -1383,32 +1383,6 @@ function App() {
               </button>
             )}
 
-            {(settings.show_subscriptions || settings.is_beta_user) && (
-              <button 
-                onClick={() => setShowSubs(true)}
-                style={{ 
-                  display: 'flex', 
-                  alignItems: 'center', 
-                  gap: '8px', 
-                  background: 'white', 
-                  border: '1px solid #cbd5e1', 
-                  padding: '10px 18px', 
-                  borderRadius: '10px',
-                  fontSize: '0.9rem',
-                  fontWeight: 600,
-                  color: '#475569',
-                  cursor: 'pointer',
-                  transition: 'all 0.2s',
-                  boxShadow: '0 1px 2px rgba(0,0,0,0.05)',
-                  position: 'relative'
-                }}
-              >
-                <Heart size={18} />
-                Mes abonnements
-                {settings.is_beta_user && !settings.show_subscriptions_original && <span style={{ position: 'absolute', top: '-4px', right: '-4px', background: '#f59e0b', color: '#1e293b', fontSize: '0.55rem', fontWeight: 800, padding: '1px 4px', borderRadius: '6px', letterSpacing: '0.05em' }}>BETA</span>}
-              </button>
-            )}
-
             <button
               onClick={handleOpenHelp}
               style={{
@@ -1494,6 +1468,17 @@ function App() {
                   description="Signer et suivre vos documents"
                   beta={settings.is_beta_user && !settings.show_parapheur_original}
                   onClick={() => { setShowTools(false); handleOpenParapheur(); }}
+                />
+              )}
+
+              {(settings.show_subscriptions || settings.is_beta_user) && (
+                <ToolCard
+                  icon={<Heart size={22} color="#4f46e5" />}
+                  bg="#e0e7ff"
+                  title="Mes abonnements"
+                  description="Suivre l'état des services"
+                  beta={settings.is_beta_user && !settings.show_subscriptions_original}
+                  onClick={() => { setShowTools(false); setShowSubs(true); }}
                 />
               )}
 
