@@ -130,7 +130,7 @@ function App() {
   const [showEmail, setShowEmail] = useState(false);
   const [healthResults, setHealthResults] = useState<Record<number, 'ok' | 'fail'>>({});
   const [isTesting, setIsTesting] = useState(false);
-  const [settings, setSettings] = useState({ show_tickets: true, show_subscriptions: true, show_health_check: true, show_create_buttons: true, show_ideas: true, show_rencontres: true, show_library: false, is_beta_user: false, show_tickets_original: true, show_subscriptions_original: true, show_health_check_original: true, show_create_buttons_original: true, show_ideas_original: true, show_library_original: false, show_rencontres_original: false, show_consommables: true, show_consommables_original: true, show_chat_live: false, show_transcript_manager: false, show_transcript_manager_original: false });
+  const [settings, setSettings] = useState({ show_tickets: true, show_subscriptions: true, show_health_check: true, show_create_buttons: true, show_ideas: true, show_rencontres: true, show_library: false, is_beta_user: false, show_tickets_original: true, show_subscriptions_original: true, show_health_check_original: true, show_create_buttons_original: true, show_ideas_original: true, show_library_original: false, show_rencontres_original: false, show_consommables: true, show_consommables_original: true, show_chat_live: false, show_transcript_manager: false, show_transcript_manager_original: false, show_parapheur: false, show_parapheur_original: false, show_tool_incident: true, show_tool_incident_original: true, show_tool_demande: true, show_tool_demande_original: true });
   const [hasRencontresAccess, setHasRencontresAccess] = useState(false);
   const [hasConsommablesAccess, setHasConsommablesAccess] = useState(false);
   const [activeVersion, setActiveVersion] = useState<{ id: number; version_number: string; release_notes_html: string; release_date: string } | null>(null);
@@ -388,14 +388,14 @@ function App() {
         fetchSafe(`${apiBase}/magapp/categories`, []),
         fetchSafe(`${apiBase}/magapp/apps`, []),
         fetchSafe(`${apiBase}/magapp/favorites?username=${username}`, []),
-        fetchSafe(`${apiBase}/magapp/settings?username=${encodeURIComponent(username)}${email ? '&email=' + encodeURIComponent(email) : ''}`, { show_tickets: true, show_subscriptions: true, show_health_check: true, show_create_buttons: true, show_ideas: true, show_rencontres: true, is_beta_user: false, show_tickets_original: true, show_subscriptions_original: true, show_health_check_original: true, show_create_buttons_original: true, show_ideas_original: true, show_chat_live: false, show_transcript_manager: false, show_transcript_manager_original: false }),
+        fetchSafe(`${apiBase}/magapp/settings?username=${encodeURIComponent(username)}${email ? '&email=' + encodeURIComponent(email) : ''}`, { show_tickets: true, show_subscriptions: true, show_health_check: true, show_create_buttons: true, show_ideas: true, show_rencontres: true, is_beta_user: false, show_tickets_original: true, show_subscriptions_original: true, show_health_check_original: true, show_create_buttons_original: true, show_ideas_original: true, show_chat_live: false, show_transcript_manager: false, show_transcript_manager_original: false, show_parapheur: false, show_parapheur_original: false, show_tool_incident: true, show_tool_incident_original: true, show_tool_demande: true, show_tool_demande_original: true }),
         fetchSafe(`${apiBase}/tiles`, [])
       ]);
 
       setCategories((cats || []).sort((a: Category, b: Category) => (a.display_order || 0) - (b.display_order || 0)));
       setApps((appsData || []).sort((a: AppItem, b: AppItem) => a.name.localeCompare(b.name, 'fr', { sensitivity: 'base' })));
       setFavorites(favs);
-      setSettings({...settingsData, is_beta_user: settingsData.is_beta_user || false, show_tickets_original: settingsData.show_tickets_original ?? settingsData.show_tickets, show_subscriptions_original: settingsData.show_subscriptions_original ?? settingsData.show_subscriptions, show_health_check_original: settingsData.show_health_check_original ?? settingsData.show_health_check, show_create_buttons_original: settingsData.show_create_buttons_original ?? settingsData.show_create_buttons, show_ideas_original: settingsData.show_ideas_original ?? settingsData.show_ideas, show_rencontres_original: settingsData.show_rencontres_original ?? settingsData.show_rencontres, show_consommables_original: settingsData.show_consommables_original ?? settingsData.show_consommables ?? true, show_chat_live: settingsData.show_chat_live ?? false, show_transcript_manager: settingsData.show_transcript_manager ?? false, show_transcript_manager_original: settingsData.show_transcript_manager_original ?? false});
+      setSettings({...settingsData, is_beta_user: settingsData.is_beta_user || false, show_tickets_original: settingsData.show_tickets_original ?? settingsData.show_tickets, show_subscriptions_original: settingsData.show_subscriptions_original ?? settingsData.show_subscriptions, show_health_check_original: settingsData.show_health_check_original ?? settingsData.show_health_check, show_create_buttons_original: settingsData.show_create_buttons_original ?? settingsData.show_create_buttons, show_ideas_original: settingsData.show_ideas_original ?? settingsData.show_ideas, show_rencontres_original: settingsData.show_rencontres_original ?? settingsData.show_rencontres, show_consommables_original: settingsData.show_consommables_original ?? settingsData.show_consommables ?? true, show_chat_live: settingsData.show_chat_live ?? false, show_transcript_manager: settingsData.show_transcript_manager ?? false, show_transcript_manager_original: settingsData.show_transcript_manager_original ?? false, show_parapheur: settingsData.show_parapheur ?? false, show_parapheur_original: settingsData.show_parapheur_original ?? false, show_tool_incident: settingsData.show_tool_incident ?? true, show_tool_incident_original: settingsData.show_tool_incident_original ?? true, show_tool_demande: settingsData.show_tool_demande ?? true, show_tool_demande_original: settingsData.show_tool_demande_original ?? true});
       setHasRencontresAccess(settingsData.has_rencontres_access || false);
       setHasConsommablesAccess(settingsData.has_consumables_access || false);
       setTiles((tilesData || []).sort((a: any, b: any) => (a.sort_order || 0) - (b.sort_order || 0)));
@@ -1486,36 +1486,40 @@ function App() {
                 />
               )}
 
-              <ToolCard
-                icon={<FileSignature size={22} color="#0e7490" />}
-                bg="#cffafe"
-                title="Parapheur"
-                description="Signer et suivre vos documents"
-                onClick={() => { setShowTools(false); handleOpenParapheur(); }}
-              />
+              {(settings.show_parapheur || settings.is_beta_user) && (
+                <ToolCard
+                  icon={<FileSignature size={22} color="#0e7490" />}
+                  bg="#cffafe"
+                  title="Parapheur"
+                  description="Signer et suivre vos documents"
+                  beta={settings.is_beta_user && !settings.show_parapheur_original}
+                  onClick={() => { setShowTools(false); handleOpenParapheur(); }}
+                />
+              )}
 
-              {(settings.show_create_buttons || settings.is_beta_user) && (
-                <>
-                  <ToolCard
-                    icon={<AlertTriangle size={22} color="#dc2626" />}
-                    bg="#fee2e2"
-                    title="Déclarer un incident"
-                    description="Signaler un problème à la DSI"
-                    beta={settings.is_beta_user && !settings.show_create_buttons_original}
-                    onClick={() => { setShowTools(false); handleIncidentClick(); }}
-                  />
-                  <ToolCard
-                    icon={<Clock size={22} color="#2563eb" />}
-                    bg="#dbeafe"
-                    title="Faire une demande"
-                    description="Demander un service à la DSI"
-                    beta={settings.is_beta_user && !settings.show_create_buttons_original}
-                    onClick={() => {
-                      setShowTools(false);
-                      if (publishedForms.length > 0 || hasConsommablesAccess) { setShowFormChooser(true); } else { setTicketType('demande'); setShowCreateTicket(true); }
-                    }}
-                  />
-                </>
+              {(settings.show_tool_incident || settings.is_beta_user) && (
+                <ToolCard
+                  icon={<AlertTriangle size={22} color="#dc2626" />}
+                  bg="#fee2e2"
+                  title="Déclarer un incident"
+                  description="Signaler un problème à la DSI"
+                  beta={settings.is_beta_user && !settings.show_tool_incident_original}
+                  onClick={() => { setShowTools(false); handleIncidentClick(); }}
+                />
+              )}
+
+              {(settings.show_tool_demande || settings.is_beta_user) && (
+                <ToolCard
+                  icon={<Clock size={22} color="#2563eb" />}
+                  bg="#dbeafe"
+                  title="Faire une demande"
+                  description="Demander un service à la DSI"
+                  beta={settings.is_beta_user && !settings.show_tool_demande_original}
+                  onClick={() => {
+                    setShowTools(false);
+                    if (publishedForms.length > 0 || hasConsommablesAccess) { setShowFormChooser(true); } else { setTicketType('demande'); setShowCreateTicket(true); }
+                  }}
+                />
               )}
             </div>
           </div>

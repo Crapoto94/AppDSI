@@ -181,7 +181,7 @@ const MagappAdmin: React.FC = () => {
     is_technical: false,
     is_obsolete: false
   });
-  const [magappSettings, setMagappSettings] = useState<{show_tickets: boolean, show_subscriptions: boolean, show_health_check: boolean, show_create_buttons: boolean, show_ideas: boolean, show_rencontres: boolean, show_library: boolean, show_consommables: boolean, show_chat_live: boolean, show_transcript_manager: boolean}>({
+  const [magappSettings, setMagappSettings] = useState<{show_tickets: boolean, show_subscriptions: boolean, show_health_check: boolean, show_create_buttons: boolean, show_ideas: boolean, show_rencontres: boolean, show_library: boolean, show_consommables: boolean, show_chat_live: boolean, show_transcript_manager: boolean, show_parapheur: boolean, show_tool_incident: boolean, show_tool_demande: boolean}>({
     show_tickets: true,
     show_subscriptions: true,
     show_health_check: true,
@@ -192,6 +192,9 @@ const MagappAdmin: React.FC = () => {
     show_consommables: true,
     show_chat_live: false,
     show_transcript_manager: false,
+    show_parapheur: false,
+    show_tool_incident: true,
+    show_tool_demande: true,
   });
   const [showDocModal, setShowDocModal] = useState(false);
   const [docFile, setDocFile] = useState<File | null>(null);
@@ -305,6 +308,9 @@ const MagappAdmin: React.FC = () => {
           show_consommables: data.show_consommables_original ?? data.show_consommables ?? true,
           show_chat_live: data.show_chat_live ?? false,
           show_transcript_manager: data.show_transcript_manager_original ?? data.show_transcript_manager ?? false,
+          show_parapheur: data.show_parapheur_original ?? data.show_parapheur ?? false,
+          show_tool_incident: data.show_tool_incident_original ?? data.show_tool_incident ?? true,
+          show_tool_demande: data.show_tool_demande_original ?? data.show_tool_demande ?? true,
         });
       }
       if (mercatorRes.ok) setMercatorApps(await mercatorRes.json());
@@ -2454,6 +2460,53 @@ const MagappAdmin: React.FC = () => {
                   <p style={{ margin: '5px 0 0 0', fontSize: '0.85rem', color: '#64748b' }}>
                     Affiche le bouton "Mon Transcript Manager" dans le magapp (mode beta).
                   </p>
+                </div>
+                <div className="form-group-v2 full-width" style={{ padding: '15px', background: '#f8fafc', border: '1px dashed #cbd5e1', borderRadius: '16px' }}>
+                  <span style={{ fontWeight: 800, fontSize: '0.95rem', color: '#0f172a', display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <Wrench size={16} color="#0369a1" /> Mes outils DSI
+                  </span>
+                  <p style={{ margin: '5px 0 0 0', fontSize: '0.85rem', color: '#64748b' }}>
+                    Boutons de la modale « Mes outils DSI » du MagApp. Non publié, un outil reste disponible en beta pour les utilisateurs ayant la tuile d'administration (/admin/magapp).
+                  </p>
+                </div>
+                <div className="form-group-v2 full-width" style={{ padding: '15px', background: 'white', border: '1px solid #e2e8f0', borderRadius: '16px' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', margin: 0 }}>
+                    <span style={{ fontWeight: 600, fontSize: '1rem' }}>
+                      Parapheur
+                      <span style={{ marginLeft: 8, background: '#0e7490', color: 'white', fontSize: '0.6rem', fontWeight: 800, padding: '2px 6px', borderRadius: '6px', letterSpacing: '0.05em', verticalAlign: 'middle' }}>BETA</span>
+                    </span>
+                    <input
+                      type="checkbox"
+                      checked={magappSettings.show_parapheur}
+                      onChange={e => setMagappSettings({...magappSettings, show_parapheur: e.target.checked})}
+                      style={{ width: '22px', height: '22px', cursor: 'pointer', accentColor: '#0e7490' }}
+                    />
+                  </label>
+                  <p style={{ margin: '5px 0 0 0', fontSize: '0.85rem', color: '#64748b' }}>Ouvre le parapheur électronique du DSI Hub avec l'en-tête du Magasin d'applications.</p>
+                </div>
+                <div className="form-group-v2 full-width" style={{ padding: '15px', background: 'white', border: '1px solid #e2e8f0', borderRadius: '16px' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', margin: 0 }}>
+                    <span style={{ fontWeight: 600, fontSize: '1rem' }}>Déclarer un incident</span>
+                    <input
+                      type="checkbox"
+                      checked={magappSettings.show_tool_incident}
+                      onChange={e => setMagappSettings({...magappSettings, show_tool_incident: e.target.checked})}
+                      style={{ width: '22px', height: '22px', cursor: 'pointer', accentColor: '#dc2626' }}
+                    />
+                  </label>
+                  <p style={{ margin: '5px 0 0 0', fontSize: '0.85rem', color: '#64748b' }}>Affiche le bouton « Déclarer un incident » dans « Mes outils DSI » (indépendant du toggle « boutons de création » de Mes tickets).</p>
+                </div>
+                <div className="form-group-v2 full-width" style={{ padding: '15px', background: 'white', border: '1px solid #e2e8f0', borderRadius: '16px' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', margin: 0 }}>
+                    <span style={{ fontWeight: 600, fontSize: '1rem' }}>Faire une demande</span>
+                    <input
+                      type="checkbox"
+                      checked={magappSettings.show_tool_demande}
+                      onChange={e => setMagappSettings({...magappSettings, show_tool_demande: e.target.checked})}
+                      style={{ width: '22px', height: '22px', cursor: 'pointer', accentColor: '#2563eb' }}
+                    />
+                  </label>
+                  <p style={{ margin: '5px 0 0 0', fontSize: '0.85rem', color: '#64748b' }}>Affiche le bouton « Faire une demande » dans « Mes outils DSI » (indépendant du toggle « boutons de création » de Mes tickets).</p>
                 </div>
                 <button className="primary-btn-v2 full-width" style={{ marginTop: '10px' }} onClick={handleSaveMagappSettings}>
                   <Save size={18} /> Mettre à jour les paramètres

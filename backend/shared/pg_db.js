@@ -1234,7 +1234,10 @@ async function setupPgDb() {
         show_library BOOLEAN DEFAULT false,
         show_consommables BOOLEAN DEFAULT true,
         show_chat_live BOOLEAN DEFAULT false,
-        show_transcript_manager BOOLEAN DEFAULT false
+        show_transcript_manager BOOLEAN DEFAULT false,
+        show_parapheur BOOLEAN DEFAULT false,
+        show_tool_incident BOOLEAN DEFAULT true,
+        show_tool_demande BOOLEAN DEFAULT true
       );
     `);
 
@@ -1629,6 +1632,15 @@ async function setupPgDb() {
     } catch (e) {}
     try {
       await client.query(`ALTER TABLE magapp.settings ADD COLUMN IF NOT EXISTS show_transcript_manager BOOLEAN DEFAULT false`);
+    } catch (e) {}
+    try {
+      await client.query(`ALTER TABLE magapp.settings ADD COLUMN IF NOT EXISTS show_parapheur BOOLEAN DEFAULT false`);
+    } catch (e) {}
+    try {
+      await client.query(`ALTER TABLE magapp.settings ADD COLUMN IF NOT EXISTS show_tool_incident BOOLEAN DEFAULT true`);
+    } catch (e) {}
+    try {
+      await client.query(`ALTER TABLE magapp.settings ADD COLUMN IF NOT EXISTS show_tool_demande BOOLEAN DEFAULT true`);
     } catch (e) {}
 
     await client.query(`
