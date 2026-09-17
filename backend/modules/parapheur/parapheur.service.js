@@ -9,6 +9,7 @@
  */
 const fs = require('fs');
 const crypto = require('crypto');
+const jwt = require('jsonwebtoken');
 const { pgDb, getSqlite } = require('../../shared/database');
 const storage = require('../../shared/storage');
 const docsService = require('../../shared/documents.service');
@@ -44,9 +45,67 @@ async function getAppBaseUrl() {
     }
 }
 
+/**
+ * Résout le nom d'affichage (« Prénom Nom ») d'un agent à partir de son
+ * username, en interrogeant hub.users puis magapp.users. Repli sur la valeur
+ * fournie (ou le username) si introuvable.
+ */
+async function resolveAgentDisplayName(username, fallback) {
+    const u = String(username || '').trim();
+    if (!u) return fallback || null;
+    try {
+        const row = await pgDb.get(`SELECT displayname FROM hub.users WHERE LOWER(username) = LOWER(?) LIMIT 1`, [u]);
+        if (row && row.displayname) return row.displayname;
+    } catch { /* ignore */ }
+    try {
+        const row = await pgDb.get(`SELECT displayname FROM magapp.users WHERE LOWER(username) = LOWER(?) LIMIT 1`, [u]);
+        if (row && row.displayname) return row.displayname;
+    } catch { /* ignore */ }
+    return fallback || u;
+}
+
+/** Complète `created_by_name` de chaque élément depuis `created_by_username`. */
+async function attachCreatorDisplayNames(list) {
+    const cache = new Map();
+    for (const item of list) {
+        const username = item && item.created_by_username;
+        if (!username) continue;
+        const key = String(username).toLowerCase();
+        if (!cache.has(key)) {
+            try { cache.set(key, await resolveAgentDisplayName(username, null)); }
+            catch { cache.set(key, null); }
+        }
+        const name = cache.get(key);
+        if (name) item.created_by_name = name;
+    }
+    return list;
+}
+
+/**
+ * URL de base utilisée pour les liens de signature envoyés par e-mail : l'URL
+ * publique externe du parapheur (ex. https://parapheur.ivry94.fr) si elle est
+ * configurée, afin de permettre la signature en mobilité ; sinon l'URL interne.
+ */
+async function getSignatureBaseUrl() {
+    const s = await getParapheurSettings();
+    return s.effective_base_url || await getAppBaseUrl();
+}
+
 const PUBLIC_BASE_URL_KEY = 'parapheur.public_base_url';
 const SEAL_ENABLED_KEY = 'parapheur.seal_enabled';
+const BULK_SIGN_MENTION_KEY = 'parapheur.bulk_sign_mention';
+const NOTIFY_INTERVAL_KEY = 'parapheur.notify_interval_minutes';
 const VERIFY_PATH = '/parapheur/verification';
+
+/**
+ * Formule juridique affichée avant une signature « en masse » (sans lecture
+ * intégrale). Modifiable dans /admin/parapheur-certificats.
+ */
+const DEFAULT_BULK_SIGN_MENTION =
+    "En cochant les documents et en validant, je reconnais avoir eu connaissance des documents listés " +
+    "et je consens à leur signature électronique en masse. Cette signature vaut acceptation pleine et " +
+    "entière des documents concernés et emporte les mêmes effets que ma signature manuscrite. Je renonce " +
+    "expressément à toute contestation tirée de l'absence de lecture intégrale de chaque document.";
 
 /**
  * Paramétrage du parapheur (SQLite app_settings) :
@@ -58,6 +117,8 @@ const VERIFY_PATH = '/parapheur/verification';
 async function getParapheurSettings() {
     let publicBaseUrl = '';
     let sealEnabled = true;
+    let bulkSignMention = '';
+    let notifyIntervalMinutes = 2;
     try {
         const db = getSqlite();
         if (db) {
@@ -65,6 +126,11 @@ async function getParapheurSettings() {
             publicBaseUrl = (row && row.setting_value) ? String(row.setting_value).trim() : '';
             const sealRow = await db.get('SELECT setting_value FROM app_settings WHERE setting_key = ?', [SEAL_ENABLED_KEY]);
             if (sealRow && sealRow.setting_value != null) sealEnabled = String(sealRow.setting_value) !== 'false';
+            const bulkRow = await db.get('SELECT setting_value FROM app_settings WHERE setting_key = ?', [BULK_SIGN_MENTION_KEY]);
+            bulkSignMention = (bulkRow && bulkRow.setting_value) ? String(bulkRow.setting_value).trim() : '';
+            const notifyRow = await db.get('SELECT setting_value FROM app_settings WHERE setting_key = ?', [NOTIFY_INTERVAL_KEY]);
+            const notifyVal = notifyRow && notifyRow.setting_value != null ? Number(notifyRow.setting_value) : NaN;
+            if (Number.isFinite(notifyVal) && notifyVal > 0) notifyIntervalMinutes = Math.min(240, Math.round(notifyVal));
         }
     } catch { /* configuration non initialisée */ }
     const internal = await getAppBaseUrl();
@@ -74,10 +140,12 @@ async function getParapheurSettings() {
         effective_base_url: String(publicBaseUrl || internal || '').replace(/\/+$/, ''),
         verify_path: VERIFY_PATH,
         seal_enabled: sealEnabled,
+        bulk_sign_mention: bulkSignMention || DEFAULT_BULK_SIGN_MENTION,
+        notify_interval_minutes: notifyIntervalMinutes,
     };
 }
 
-async function saveParapheurSettings({ publicBaseUrl, sealEnabled } = {}) {
+async function saveParapheurSettings({ publicBaseUrl, sealEnabled, bulkSignMention, notifyIntervalMinutes } = {}) {
     const db = getSqlite();
     if (!db) throw { status: 503, message: 'Configuration indisponible (base non initialisée).' };
     const upsert = `INSERT INTO app_settings (setting_key, setting_value, description)
@@ -92,6 +160,15 @@ async function saveParapheurSettings({ publicBaseUrl, sealEnabled } = {}) {
     }
     if (sealEnabled !== undefined) {
         await db.run(upsert, [SEAL_ENABLED_KEY, sealEnabled === false ? 'false' : 'true', 'Sceau PAdES de fin de circuit (AC interne)']);
+    }
+    if (bulkSignMention !== undefined) {
+        const value = String(bulkSignMention || '').trim().slice(0, 2000);
+        await db.run(upsert, [BULK_SIGN_MENTION_KEY, value, 'Formule juridique affichée avant une signature en masse']);
+    }
+    if (notifyIntervalMinutes !== undefined) {
+        const n = Number(notifyIntervalMinutes);
+        const value = Number.isFinite(n) && n > 0 ? String(Math.min(240, Math.round(n))) : '2';
+        await db.run(upsert, [NOTIFY_INTERVAL_KEY, value, "Intervalle d'envoi des e-mails de signature (minutes)"]);
     }
     return getParapheurSettings();
 }
@@ -192,6 +269,133 @@ async function requestOtp(token) {
     );
     await sendSms(signataire.sms_phone, `Code de signature : ${code}. Valable 10 minutes.`, 'parapheur_otp');
     return { sent: true, phone_masked: maskPhone(signataire.sms_phone) };
+}
+
+/** Masque une adresse e-mail : « ma•••••@domaine.fr ». */
+function maskEmail(email) {
+    const e = String(email || '');
+    const at = e.indexOf('@');
+    if (at <= 0) return '••••';
+    const name = e.slice(0, at);
+    return `${name.slice(0, 2)}${'•'.repeat(Math.max(1, name.length - 2))}${e.slice(at)}`;
+}
+
+/**
+ * Informations d'accès publiques (aucune authentification) : permet à la page
+ * de signature de savoir si le signataire est interne (auth AD) ou extérieur
+ * (code par e-mail) avant de proposer le bon mode de connexion.
+ */
+async function getSignerAccessInfo(token) {
+    const signataire = await getSignerByToken(token);
+    if (!signataire) return null;
+    const p = await pgDb.get(`SELECT status, title, reference FROM hub_parapheur.parapheurs WHERE id = ?`, [signataire.parapheur_id]);
+    return {
+        exists: true,
+        is_external: signataire.is_external === true,
+        nom: signataire.nom,
+        email_masked: maskEmail(signataire.email),
+        status: signataire.status,
+        parapheur_status: p ? p.status : null,
+        title: p ? p.title : null,
+        reference: p ? p.reference : null,
+    };
+}
+
+/** Envoie un code de vérification par e-mail à un signataire extérieur. */
+async function requestEmailOtp(token) {
+    const signataire = await getSignerByToken(token);
+    if (!signataire) throw { status: 404, message: 'Lien de signature introuvable.' };
+    if (signataire.is_external !== true) {
+        throw { status: 400, message: "Cette signature utilise l'authentification de la collectivité." };
+    }
+    if (signataire.status === 'refuse') throw { status: 400, message: 'Vous avez déjà refusé de signer.' };
+    if (signataire.status !== 'en_cours' && signataire.status !== 'a_signe') {
+        throw { status: 409, message: "Ce n'est pas encore votre tour de signer." };
+    }
+    if (!signataire.email) throw { status: 400, message: 'Aucune adresse e-mail renseignée.' };
+    const parapheur = await pgDb.get(`SELECT status, title, reference FROM hub_parapheur.parapheurs WHERE id = ?`, [signataire.parapheur_id]);
+    if (!parapheur || parapheur.status !== 'en_cours') throw { status: 400, message: "Ce parapheur n'est plus ouvert." };
+
+    const otpState = await pgDb.get(
+        `SELECT (otp_code_hash IS NOT NULL AND otp_expires_at IS NOT NULL
+                 AND otp_expires_at > NOW() + INTERVAL '9 minutes 30 seconds') AS too_soon
+         FROM hub_parapheur.signataires WHERE id = ?`,
+        [signataire.id]
+    );
+    if (otpState && otpState.too_soon) {
+        throw { status: 429, message: 'Un code vient de vous être envoyé. Patientez quelques secondes avant de redemander.' };
+    }
+
+    const code = String(Math.floor(100000 + Math.random() * 900000));
+    const hash = sha256(Buffer.from(code, 'utf8'));
+    await pgDb.run(
+        `UPDATE hub_parapheur.signataires
+         SET otp_code_hash = ?, otp_expires_at = NOW() + INTERVAL '10 minutes', otp_attempts = 0
+         WHERE id = ?`,
+        [hash, signataire.id]
+    );
+    if (!sendMailFn) throw { status: 503, message: "Service d'envoi d'e-mails indisponible." };
+    try {
+        const { subject, html } = emailTemplates.signatureOtp({
+            signataireNom: signataire.nom,
+            code,
+            title: parapheur.title,
+        });
+        await sendMailFn(signataire.email, subject, html, [], 'parapheur');
+    } catch (e) {
+        console.error('[PARAPHEUR] envoi code e-mail échoué:', e.message);
+        throw { status: 502, message: "L'envoi du code par e-mail a échoué. Réessayez." };
+    }
+    return { sent: true, email_masked: maskEmail(signataire.email) };
+}
+
+/**
+ * Vérifie le code e-mail d'un signataire extérieur et délivre un jeton d'accès
+ * restreint (scope 'parapheur_external') permettant de signer sans compte AD.
+ */
+async function verifyEmailOtp(token, code) {
+    const signataire = await getSignerByToken(token);
+    if (!signataire) throw { status: 404, message: 'Lien de signature introuvable.' };
+    if (signataire.is_external !== true) throw { status: 400, message: 'Authentification non applicable.' };
+    if (!code) throw { status: 400, message: 'Code de vérification requis.' };
+    if (!signataire.otp_code_hash) throw { status: 400, message: 'Aucun code envoyé. Demandez un nouveau code.' };
+
+    const otpCheck = await pgDb.get(
+        `SELECT (otp_expires_at IS NULL OR otp_expires_at < NOW()) AS expired,
+                COALESCE(otp_attempts, 0) AS attempts
+         FROM hub_parapheur.signataires WHERE id = ?`,
+        [signataire.id]
+    );
+    if (otpCheck && otpCheck.expired) throw { status: 400, message: 'Code expiré. Demandez-en un nouveau.' };
+    if (Number(otpCheck?.attempts || 0) >= 5) throw { status: 429, message: 'Trop de tentatives. Demandez un nouveau code.' };
+
+    const ok = signataire.otp_code_hash === sha256(Buffer.from(String(code).trim(), 'utf8'));
+    if (!ok) {
+        await pgDb.run(`UPDATE hub_parapheur.signataires SET otp_attempts = otp_attempts + 1 WHERE id = ?`, [signataire.id]);
+        throw { status: 400, message: 'Code de vérification incorrect.' };
+    }
+    await pgDb.run(
+        `UPDATE hub_parapheur.signataires SET otp_code_hash = NULL, otp_expires_at = NULL, otp_attempts = 0 WHERE id = ?`,
+        [signataire.id]
+    );
+    const accessToken = jwt.sign({
+        scope: 'parapheur_external',
+        signataire_id: signataire.id,
+        username: 'signataire-externe',
+        displayName: signataire.nom,
+        email: signataire.email,
+        role: 'external',
+    }, SECRET_KEY, { expiresIn: '12h' });
+    return {
+        accessToken,
+        user: {
+            id: signataire.id,
+            username: 'signataire-externe',
+            displayName: signataire.nom,
+            email: signataire.email,
+            role: 'external',
+        },
+    };
 }
 
 function sha256(buffer) {
@@ -1098,13 +1302,15 @@ async function activateSignataires(parapheur, signataires, ip) {
         const token = s.token || generateToken();
         await pgDb.run(
             `UPDATE hub_parapheur.signataires
-             SET status = 'en_cours', token = ?, token_expires_at = ?, last_reminder_at = ?
+             SET status = 'en_cours', token = ?, token_expires_at = ?, last_reminder_at = ?, activation_notified_at = NULL
              WHERE id = ?`,
             [token, expires.toISOString(), now.toISOString(), s.id]
         );
         s.token = token;
         s.status = 'en_cours';
-        await sendSignerMail(parapheur, s);
+        // L'e-mail n'est pas envoyé immédiatement : il est regroupé par le
+        // digest périodique (intervalle paramétrable), afin de combiner
+        // plusieurs nouveaux parapheurs en un seul message.
     }
     await audit(parapheur.id, 'système', 'activation', { signataires: signataires.map(s => s.id) }, ip);
 }
@@ -1112,7 +1318,8 @@ async function activateSignataires(parapheur, signataires, ip) {
 async function sendSignerMail(parapheur, signataire) {
     if (!sendMailFn || !signataire.email) return;
     try {
-        const base = await getAppBaseUrl();
+        // Lien de signature via l'URL publique externe (mobilité) si configurée.
+        const base = await getSignatureBaseUrl();
         const link = `${base}/signature/${signataire.token}`;
         const docs = await pgDb.all(
             `SELECT original_name FROM hub_parapheur.documents WHERE parapheur_id = ? ORDER BY sort_order, id`,
@@ -1164,6 +1371,9 @@ async function createParapheur({ files, annexes, payload, user, req }) {
     const mode = ['sequentiel', 'parallele', 'alternative'].includes(payload.mode) ? payload.mode : 'parallele';
     const ip = getClientIp(req);
     const year = new Date().getFullYear();
+    // Nom d'affichage « Prénom Nom » du demandeur (le JWT peut ne porter que le
+    // username) : on le résout depuis hub.users/magapp.users.
+    const createdByName = user.displayName || await resolveAgentDisplayName(user.username, user.username);
 
     const publicToken = generateToken();
     const pRes = await pgDb.run(
@@ -1177,7 +1387,7 @@ async function createParapheur({ files, annexes, payload, user, req }) {
             payload.deadline || null,
             publicToken,
             user.username || null,
-            user.displayName || user.username || null,
+            createdByName || null,
             user.email || null,
         ]
     );
@@ -1238,8 +1448,8 @@ async function createParapheur({ files, annexes, payload, user, req }) {
     for (const s of signataires) {
         const sRes = await pgDb.run(
             `INSERT INTO hub_parapheur.signataires
-                (parapheur_id, agent_id, nom, email, service, order_number, status, signature_mode, sms_phone, signature_title)
-             VALUES (?, ?, ?, ?, ?, ?, 'en_attente', ?, ?, ?)`,
+                (parapheur_id, agent_id, nom, email, service, order_number, status, signature_mode, sms_phone, signature_title, is_external)
+             VALUES (?, ?, ?, ?, ?, ?, 'en_attente', ?, ?, ?, ?)`,
             [
                 parapheurId,
                 Number.isFinite(Number(s.agentId)) ? Number(s.agentId) : null,
@@ -1250,6 +1460,7 @@ async function createParapheur({ files, annexes, payload, user, req }) {
                 ['securise', 'sms'].includes(s.signatureMode) ? s.signatureMode : 'simple',
                 s.smsPhone ? String(s.smsPhone).replace(/\s/g, '') : null,
                 s.title ? String(s.title).trim().slice(0, 200) : null,
+                s.external === true,
             ]
         );
         const sid = sRes.lastID;
@@ -1276,7 +1487,7 @@ async function createParapheur({ files, annexes, payload, user, req }) {
         idx++;
     }
 
-    const parapheur = { id: parapheurId, title, reference, mode, deadline: payload.deadline || null, created_by_name: user.displayName || user.username, created_by_username: user.username };
+    const parapheur = { id: parapheurId, title, reference, mode, deadline: payload.deadline || null, created_by_name: createdByName, created_by_username: user.username };
 
     // Activation initiale : tous les signataires en « et » et en « ou »
     // (n'importe lequel peut signer), le premier seulement en « puis ».
@@ -1328,7 +1539,8 @@ async function listCreated(username) {
          ORDER BY p.created_at DESC`,
         [username]
     );
-    return rows.map(r => ({ ...mapParapheur(r), nb_signataires: Number(r.nb_signataires), nb_signes: Number(r.nb_signes), nb_documents: Number(r.nb_documents), signataires_text: r.signataires_text || '' }));
+    const out = rows.map(r => ({ ...mapParapheur(r), nb_signataires: Number(r.nb_signataires), nb_signes: Number(r.nb_signes), nb_documents: Number(r.nb_documents), signataires_text: r.signataires_text || '' }));
+    return attachCreatorDisplayNames(out);
 }
 
 async function listAll() {
@@ -1341,7 +1553,8 @@ async function listAll() {
          FROM hub_parapheur.parapheurs p
          ORDER BY p.created_at DESC`
     );
-    return rows.map(r => ({ ...mapParapheur(r), nb_signataires: Number(r.nb_signataires), nb_signes: Number(r.nb_signes), nb_documents: Number(r.nb_documents), signataires_text: r.signataires_text || '' }));
+    const out = rows.map(r => ({ ...mapParapheur(r), nb_signataires: Number(r.nb_signataires), nb_signes: Number(r.nb_signes), nb_documents: Number(r.nb_documents), signataires_text: r.signataires_text || '' }));
+    return attachCreatorDisplayNames(out);
 }
 
 async function deleteParapheur(id) {
@@ -1381,7 +1594,7 @@ async function listForEmail(email, { signed }) {
          ORDER BY p.created_at DESC`,
         [email, ...statuses]
     );
-    return rows.map(r => ({
+    const out = rows.map(r => ({
         ...mapParapheur(r),
         signataire_id: r.signataire_id,
         signataire_status: r.signataire_status,
@@ -1390,6 +1603,7 @@ async function listForEmail(email, { signed }) {
         nb_signes: Number(r.nb_signes),
         signataires_text: r.signataires_text || '',
     }));
+    return attachCreatorDisplayNames(out);
 }
 
 async function getDetail(id) {
@@ -1428,8 +1642,10 @@ async function getDetail(id) {
         `SELECT * FROM hub_parapheur.audit_log WHERE parapheur_id = ? ORDER BY created_at DESC LIMIT 100`,
         [id]
     );
+    const createdByName = await resolveAgentDisplayName(p.created_by_username, p.created_by_name);
     return {
         ...mapParapheur(p),
+        created_by_name: createdByName || p.created_by_name || p.created_by_username,
         documents: await Promise.all(documents.map(async d => ({
             id: d.id,
             original_name: d.original_name,
@@ -1575,7 +1791,8 @@ async function getPublicInfo(token, req) {
             mode: p.mode,
             status: p.status,
             deadline: p.deadline,
-            requester: p.created_by_name || p.created_by_username,
+            requester: (await resolveAgentDisplayName(p.created_by_username, p.created_by_name)) || p.created_by_username,
+            bulk_sign_mention: (await getParapheurSettings()).bulk_sign_mention,
             sealed_at: p.sealed_at || null,
             seal_serial: p.seal_serial || null,
         },
@@ -1930,7 +2147,7 @@ async function notifySignersCompleted(parapheur, signataires) {
     }
 }
 
-async function signWithToken(token, { signatureDataUrl, signatureNote, signatureNoteDataUrl, noteOffsetX, noteOffsetY, noteSize, memorize, certificatePassword, otpCode, delegation, req }) {
+async function signWithToken(token, { signatureDataUrl, signatureNote, signatureNoteDataUrl, noteOffsetX, noteOffsetY, noteSize, memorize, certificatePassword, otpCode, documentIds, delegation, req }) {
     const signataire = await getSignerByToken(token);
     if (!signataire) throw { status: 404, message: 'Lien de signature introuvable.' };
     if (signataire.status === 'refuse') throw { status: 400, message: 'Vous avez déjà refusé de signer.' };
@@ -2030,6 +2247,15 @@ async function signWithToken(token, { signatureDataUrl, signatureNote, signature
         }
     }
 
+    // Signature partielle : le signataire peut ne signer qu'une partie des
+    // documents. On ne marque « appliquées » que les signatures des documents
+    // sélectionnés (tous par défaut si aucune sélection n'est transmise).
+    const allDocIds = allDocs.map(d => Number(d.id));
+    let selectedDocIds = Array.isArray(documentIds)
+        ? documentIds.map(n => Number(n)).filter(n => allDocIds.includes(n))
+        : [];
+    if (!selectedDocIds.length) selectedDocIds = allDocIds;
+
     // Vérification du code SMS (OTP) pour les parapheurs sécurisés par SMS.
     if (signataire.signature_mode === 'sms') {
         if (!otpCode) throw { status: 400, message: 'Code SMS requis.' };
@@ -2100,8 +2326,8 @@ async function signWithToken(token, { signatureDataUrl, signatureNote, signature
         [nowIso, signaturePath, ip, ua, signedByEmail, signedByName, delegating ? (delegation.id || null) : null, noteValue, notePath, noteOffsetXVal, noteOffsetYVal, noteSizeVal, signataire.id]
     );
     await pgDb.run(
-        `UPDATE hub_parapheur.signatures SET applied = TRUE, signed_at = ?, ip = ?, user_agent = ? WHERE signataire_id = ?`,
-        [nowIso, ip, ua, signataire.id]
+        `UPDATE hub_parapheur.signatures SET applied = TRUE, signed_at = ?, ip = ?, user_agent = ? WHERE signataire_id = ? AND document_id IN (${selectedDocIds.map(() => '?').join(',')})`,
+        [nowIso, ip, ua, signataire.id, ...selectedDocIds]
     );
 
     try {
@@ -2111,7 +2337,7 @@ async function signWithToken(token, { signatureDataUrl, signatureNote, signature
         // signataire en état de signer (l'image mémorisée est conservée).
         console.error('[PARAPHEUR] génération du PDF signé échouée, rollback:', e && e.message);
         try {
-            await pgDb.run(`UPDATE hub_parapheur.signatures SET applied = FALSE WHERE signataire_id = ?`, [signataire.id]);
+            await pgDb.run(`UPDATE hub_parapheur.signatures SET applied = FALSE WHERE signataire_id = ? AND document_id IN (${selectedDocIds.map(() => '?').join(',')})`, [signataire.id, ...selectedDocIds]);
             await pgDb.run(`UPDATE hub_parapheur.signataires SET status = 'en_cours', signed_at = NULL, signature_image_path = NULL, signed_by_email = NULL, signed_by_name = NULL, delegation_id = NULL, signature_note = NULL, signature_note_path = NULL, note_offset_x = NULL, note_offset_y = NULL WHERE id = ?`, [signataire.id]);
         } catch (re) { console.error('[PARAPHEUR] rollback échoué:', re.message); }
         throw e;
@@ -2233,7 +2459,7 @@ async function relance(parapheurId, { manual, req }) {
         if (!s.token || !s.email) continue;
         const docs = await pgDb.all(`SELECT original_name FROM hub_parapheur.documents WHERE parapheur_id = ? ORDER BY sort_order, id`, [parapheurId]);
         try {
-            const base = await getAppBaseUrl();
+            const base = await getSignatureBaseUrl();
             const { subject, html } = emailTemplates.signatureReminder({
                 signataireNom: s.nom,
                 requesterName: parapheur.created_by_name || parapheur.created_by_username,
@@ -2352,7 +2578,7 @@ async function getVerificationInfo(token) {
             status: p.status,
             mode: p.mode,
             deadline: p.deadline,
-            requester: p.created_by_name || p.created_by_username,
+            requester: (await resolveAgentDisplayName(p.created_by_username, p.created_by_name)) || p.created_by_username,
             created_at: p.created_at,
             completed_at: p.completed_at,
             sealed_at: p.sealed_at || null,
@@ -2789,7 +3015,7 @@ async function runReminders() {
     let sent = 0;
     for (const s of rows) {
         try {
-            const base = await getAppBaseUrl();
+            const base = await getSignatureBaseUrl();
             const docs = await pgDb.all(`SELECT original_name FROM hub_parapheur.documents WHERE parapheur_id = ? ORDER BY sort_order, id`, [s.p_id]);
             const { subject, html } = emailTemplates.signatureReminder({
                 signataireNom: s.nom,
@@ -2808,6 +3034,99 @@ async function runReminders() {
         }
     }
     if (sent > 0) console.log(`[PARAPHEUR] ${sent} relance(s) automatique(s) envoyée(s)`);
+    return { sent };
+}
+
+/**
+ * Digest périodique des parapheurs à signer.
+ *
+ * Regroupe, pour chaque signataire, tous les parapheurs activés depuis le
+ * dernier envoi (`activation_notified_at IS NULL`), afin de n'envoyer qu'un
+ * seul e-mail — utile quand plusieurs parapheurs sont lancés en même temps.
+ * L'e-mail indique le nombre total de parapheurs en attente, un lien direct par
+ * parapheur et, pour les agents internes, un lien vers le parapheur global.
+ * L'intervalle est paramétrable (`parapheur.notify_interval_minutes`).
+ */
+let lastDigestAt = 0;
+async function runSignatureDigest({ force } = {}) {
+    const settings = await getParapheurSettings();
+    const intervalMs = Math.max(1, Number(settings.notify_interval_minutes) || 2) * 60 * 1000;
+    const now = Date.now();
+    if (!force && now - lastDigestAt < intervalMs) return { sent: 0, skipped: true };
+    lastDigestAt = now;
+
+    let rows;
+    try {
+        rows = await pgDb.all(
+            `SELECT sg.id, sg.parapheur_id, sg.nom, sg.email, sg.token, sg.is_external,
+                    p.title, p.reference, p.deadline, p.created_by_name, p.created_by_username
+             FROM hub_parapheur.signataires sg
+             JOIN hub_parapheur.parapheurs p ON p.id = sg.parapheur_id
+             WHERE sg.status = 'en_cours'
+               AND p.status = 'en_cours'
+               AND sg.token IS NOT NULL
+               AND sg.activation_notified_at IS NULL
+             ORDER BY p.created_at`
+        );
+    } catch (e) {
+        console.error('[PARAPHEUR] digest: lecture échouée:', e.message);
+        return { sent: 0 };
+    }
+    if (!rows.length) return { sent: 0 };
+
+    const byEmail = new Map();
+    for (const r of rows) {
+        const email = String(r.email || '').toLowerCase();
+        if (!email) continue;
+        if (!byEmail.has(email)) byEmail.set(email, []);
+        byEmail.get(email).push(r);
+    }
+
+    const base = await getSignatureBaseUrl();
+    const appBase = await getAppBaseUrl();
+    let sent = 0;
+    for (const [email, items] of byEmail) {
+        // Nombre total de parapheurs en attente pour ce signataire.
+        let totalPending = items.length;
+        try {
+            const t = await pgDb.get(
+                `SELECT COUNT(DISTINCT sg.parapheur_id) AS n
+                 FROM hub_parapheur.signataires sg
+                 JOIN hub_parapheur.parapheurs p ON p.id = sg.parapheur_id
+                 WHERE LOWER(sg.email) = LOWER(?) AND sg.status = 'en_cours' AND p.status = 'en_cours'`,
+                [email]
+            );
+            totalPending = Number(t?.n || items.length);
+        } catch { /* garde items.length */ }
+
+        const isExternal = items[0].is_external === true;
+        try {
+            const { subject, html } = emailTemplates.signatureDigest({
+                signataireNom: items[0].nom,
+                requesterName: items[0].created_by_name || items[0].created_by_username || 'La DSI',
+                totalPending,
+                // Les signataires extérieurs n'ont pas accès au Hub interne.
+                globalLink: isExternal ? null : `${appBase}/parapheur`,
+                parapheurs: items.map(i => ({
+                    title: i.title,
+                    reference: i.reference,
+                    requester: i.created_by_name || i.created_by_username,
+                    deadline: i.deadline,
+                    link: `${base}/signature/${i.token}`,
+                })),
+            });
+            if (sendMailFn) await sendMailFn(email, subject, html, [], 'parapheur');
+            const ids = items.map(i => i.id);
+            await pgDb.run(
+                `UPDATE hub_parapheur.signataires SET activation_notified_at = NOW() WHERE id IN (${ids.map(() => '?').join(',')})`,
+                ids
+            );
+            sent++;
+        } catch (e) {
+            console.warn('[PARAPHEUR] digest: envoi échoué:', e.message);
+        }
+    }
+    if (sent > 0) console.log(`[PARAPHEUR] digest: ${sent} e-mail(s) de signature envoyé(s)`);
     return { sent };
 }
 
@@ -2858,4 +3177,5 @@ module.exports = {
     verifyParapheurSeal,
     verifyParapheurSealByToken,
     runReminders,
+    runSignatureDigest,
 };

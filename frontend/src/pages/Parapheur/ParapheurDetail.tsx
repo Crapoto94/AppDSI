@@ -123,7 +123,7 @@ export default function ParapheurDetail() {
   const renderDocRow = (d: Detail['documents'][number], isAnnexe: boolean) => (
     <div key={d.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 12px', border: '1px solid #f1f5f9', borderRadius: 9 }}>
       <FileText size={15} color={isAnnexe ? '#64748b' : '#ef4444'} />
-      <span style={{ flex: 1, fontSize: 13, color: '#1e293b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+      <span style={{ flex: 1, minWidth: 0, fontSize: 13, color: '#1e293b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
         {d.original_name}{d.page_count ? <span style={{ color: '#94a3b8' }}> · {d.page_count} page(s)</span> : null}
       </span>
       {!isAnnexe && d.has_p12_signature && (

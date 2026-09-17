@@ -46,6 +46,14 @@ const controller = {
                     req.signataire = signataire;
                     return next();
                 }
+                // Signataire extérieur : jeton restreint délivré après vérification
+                // du code envoyé par e-mail (aucun compte AD requis).
+                if (req.user && req.user.scope === 'parapheur_external'
+                    && Number(req.user.signataire_id) === Number(signataire.id)
+                    && signataire.is_external === true) {
+                    req.signataire = signataire;
+                    return next();
+                }
                 // Pas le signataire lui-même : on autorise un délégataire disposant
                 // d'une délégation active de sa part. Jamais pour la signature
                 // sécurisée P12 (le certificat appartient en propre au signataire).
@@ -167,7 +175,11 @@ const controller = {
     saveSettings: async (req, res) => {
         try {
             if (!isAdminLike(req.user)) return res.status(403).json({ message: 'Accès administrateur requis.' });
-            const result = await service.saveParapheurSettings({ publicBaseUrl: req.body && req.body.public_base_url });
+            const result = await service.saveParapheurSettings({
+                publicBaseUrl: req.body && req.body.public_base_url,
+                bulkSignMention: req.body && req.body.bulk_sign_mention,
+                notifyIntervalMinutes: req.body && req.body.notify_interval_minutes,
+            });
             res.json(result);
         } catch (e) { sendError(res, e, 'Enregistrement impossible'); }
     },
@@ -227,6 +239,7 @@ const controller = {
                 memorize: req.body && req.body.memorize,
                 certificatePassword: req.body && req.body.certificatePassword,
                 otpCode: req.body && req.body.otpCode,
+                documentIds: req.body && req.body.documentIds,
                 delegation: req.delegation || null,
                 req,
             });
@@ -239,6 +252,29 @@ const controller = {
             const r = await service.requestOtp(req.params.token);
             res.json(r);
         } catch (e) { sendError(res, e, 'Envoi du code SMS impossible'); }
+    },
+
+    // ─── Signataires extérieurs (sans compte AD) : code par e-mail ───────────
+    accessInfo: async (req, res) => {
+        try {
+            const info = await service.getSignerAccessInfo(req.params.token);
+            if (!info) return res.status(404).json({ message: 'Lien de signature introuvable.' });
+            res.json(info);
+        } catch (e) { sendError(res, e, 'Lien de signature introuvable'); }
+    },
+
+    requestEmailOtp: async (req, res) => {
+        try {
+            const r = await service.requestEmailOtp(req.params.token);
+            res.json(r);
+        } catch (e) { sendError(res, e, "Envoi du code par e-mail impossible"); }
+    },
+
+    verifyEmailOtp: async (req, res) => {
+        try {
+            const r = await service.verifyEmailOtp(req.params.token, req.body && req.body.code);
+            res.json(r);
+        } catch (e) { sendError(res, e, 'Vérification impossible'); }
     },
 
     reject: async (req, res) => {

@@ -1,8 +1,12 @@
-import * as pdfjsLib from 'pdfjs-dist';
+import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf.mjs';
 // Worker pdf.js inliné dans le bundle : évite le chargement d'un asset séparé,
 // qui échoue en production derrière certains reverse-proxies / builds partiels
 // (« Setting up fake worker failed »).
-import PdfWorker from 'pdfjs-dist/build/pdf.worker.min.mjs?worker&inline';
+//
+// Build « legacy » : inclut les polyfills nécessaires aux navigateurs plus
+// anciens (ex. Android) — notamment `Uint8Array.prototype.toHex`, utilisé par
+// pdf.js pour calculer les empreintes, sinon erreur « a.toHex is not a function ».
+import PdfWorker from 'pdfjs-dist/legacy/build/pdf.worker.min.mjs?worker&inline';
 
 pdfjsLib.GlobalWorkerOptions.workerPort = new PdfWorker();
 

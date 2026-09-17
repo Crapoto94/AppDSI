@@ -6503,6 +6503,8 @@ async function setupPgDb() {
         `note_offset_x NUMERIC`,
         `note_offset_y NUMERIC`,
         `note_size NUMERIC`,
+        `is_external BOOLEAN DEFAULT FALSE`,
+        `activation_notified_at TIMESTAMP`,
       ]) {
         try { await client.query(`ALTER TABLE hub_parapheur.signataires ADD COLUMN IF NOT EXISTS ${col}`); } catch (e) {}
       }

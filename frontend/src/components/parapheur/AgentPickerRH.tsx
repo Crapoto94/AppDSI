@@ -10,6 +10,8 @@ export interface AgentRef {
   service?: string;
   poste?: string;
   matricule?: string;
+  /** Signataire extérieur (hors collectivité) : pas de compte AD/RH Studio. */
+  external?: boolean;
 }
 
 interface Props {

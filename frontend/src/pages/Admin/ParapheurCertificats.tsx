@@ -80,6 +80,8 @@ export default function ParapheurCertificats() {
   const [settingsMsg, setSettingsMsg] = useState<string | null>(null);
   const [savingSettings, setSavingSettings] = useState(false);
   const [sealEnabled, setSealEnabled] = useState(true);
+  const [bulkSignMention, setBulkSignMention] = useState('');
+  const [notifyInterval, setNotifyInterval] = useState(2);
   const [ca, setCa] = useState<{ exists: boolean; subject?: string | null; serial?: string | null; fingerprint?: string | null; valid_to?: string | null } | null>(null);
   const [caMsg, setCaMsg] = useState<string | null>(null);
   const [caBusy, setCaBusy] = useState(false);
@@ -102,6 +104,8 @@ export default function ParapheurCertificats() {
         setInternalBaseUrl(cfg.internal_base_url || '');
         setSettingsInput(prev => (prev || cfg.public_base_url || ''));
         setSealEnabled(cfg.seal_enabled !== false);
+        setBulkSignMention(cfg.bulk_sign_mention || '');
+        setNotifyInterval(Number(cfg.notify_interval_minutes) || 2);
       }
       if (caInfo && typeof caInfo === 'object') setCa(caInfo);
       if (c.message || l.message || s.message) throw new Error(c.message || l.message || s.message);
@@ -121,13 +125,15 @@ export default function ParapheurCertificats() {
       const r = await fetch('/api/parapheur/admin/settings', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...headers },
-        body: JSON.stringify({ public_base_url: settingsInput, seal_enabled: sealEnabled }),
+        body: JSON.stringify({ public_base_url: settingsInput, seal_enabled: sealEnabled, bulk_sign_mention: bulkSignMention, notify_interval_minutes: notifyInterval }),
       });
       const d = await r.json();
       if (!r.ok) throw new Error(d.message || 'Erreur');
       setPublicBaseUrl(d.public_base_url || '');
       setInternalBaseUrl(d.internal_base_url || '');
       setSealEnabled(d.seal_enabled !== false);
+      setBulkSignMention(d.bulk_sign_mention || '');
+      setNotifyInterval(Number(d.notify_interval_minutes) || 2);
       setSettingsMsg('Paramètres enregistrés.');
     } catch (e: unknown) { setSettingsMsg(e instanceof Error ? e.message : 'Erreur'); }
     finally { setSavingSettings(false); }
@@ -224,10 +230,44 @@ export default function ParapheurCertificats() {
           </p>
         )}
 
+        <div style={{ marginTop: 14 }}>
+          <div style={{ fontSize: 12, fontWeight: 800, color: '#64748b', textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 6 }}>
+            Fréquence d'envoi des e-mails de signature
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            <input
+              type="number"
+              min={1}
+              max={240}
+              value={notifyInterval}
+              onChange={e => setNotifyInterval(Math.max(1, Math.min(240, Number(e.target.value) || 2)))}
+              style={{ width: 90, padding: '9px 12px', border: '1px solid #e2e8f0', borderRadius: 8, fontSize: 13 }}
+            />
+            <span style={{ fontSize: 12, color: '#64748b' }}>minutes — les parapheurs activés sont regroupés en un seul e-mail.</span>
+          </div>
+        </div>
+
         <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: '#475569', marginTop: 14, cursor: 'pointer' }}>
           <input type="checkbox" checked={sealEnabled} onChange={e => setSealEnabled(e.target.checked)} />
           Apposer un <b>sceau PAdES de fin de circuit</b> (signature cryptographique de la plateforme) sur les documents signés.
         </label>
+
+        <div style={{ marginTop: 16, paddingTop: 14, borderTop: '1px solid #f1f5f9' }}>
+          <div style={{ fontSize: 12, fontWeight: 800, color: '#64748b', textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 8 }}>
+            Formule de signature en masse
+          </div>
+          <p style={{ fontSize: 12, color: '#64748b', margin: '0 0 8px' }}>
+            Texte affiché au signataire pour l'engager lorsqu'il signe plusieurs documents en masse (sans lecture
+            intégrale). Laisser vide pour utiliser la formule par défaut.
+          </p>
+          <textarea
+            value={bulkSignMention}
+            onChange={e => setBulkSignMention(e.target.value.slice(0, 2000))}
+            rows={4}
+            placeholder="Formule juridique…"
+            style={{ width: '100%', padding: '9px 12px', border: '1px solid #e2e8f0', borderRadius: 8, fontSize: 13, fontFamily: 'inherit', resize: 'vertical', boxSizing: 'border-box' }}
+          />
+        </div>
 
         <div style={{ marginTop: 16, paddingTop: 14, borderTop: '1px solid #f1f5f9' }}>
           <div style={{ fontSize: 12, fontWeight: 800, color: '#64748b', textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 8 }}>

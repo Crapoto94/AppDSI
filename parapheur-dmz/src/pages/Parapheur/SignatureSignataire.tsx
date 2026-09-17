@@ -19,7 +19,7 @@ const MODE_LABEL: Record<string, string> = {
 interface SignerAuth { token: string; username: string; displayName: string; email: string; }
 
 interface PublicInfo {
-  parapheur: { id: number; title: string; reference: string; message: string; mode: string; status: string; deadline?: string | null; requester: string };
+  parapheur: { id: number; title: string; reference: string; message: string; mode: string; status: string; deadline?: string | null; requester: string; bulk_sign_mention?: string };
   signataire: { nom: string; email: string; status: string; signature_mode: string; has_memorized_signature: boolean };
   documents: { id: number; original_name: string; mime_type: string; size?: number; page_count?: number | null }[];
   annexes?: { id: number; original_name: string; mime_type: string; size?: number; page_count?: number | null }[];
@@ -59,15 +59,117 @@ export default function SignatureSignataire() {
   const { token } = useParams();
   const [forceLogin, setForceLogin] = useState(false);
   const [auth, setAuth] = useState<SignerAuth | null>(() => resolveInitialAuth());
+  const [access, setAccess] = useState<{ is_external?: boolean; nom?: string; email_masked?: string } | null>(null);
+  const [accessLoaded, setAccessLoaded] = useState(false);
+
+  useEffect(() => {
+    if (auth || forceLogin) return;
+    let cancelled = false;
+    fetch(`/api/parapheur/public/${token}/access`)
+      .then(r => (r.ok ? r.json() : null))
+      .then(d => { if (!cancelled) { setAccess(d); setAccessLoaded(true); } })
+      .catch(() => { if (!cancelled) setAccessLoaded(true); });
+    return () => { cancelled = true; };
+  }, [auth, forceLogin, token]);
+
+  const onLogged = (a: SignerAuth) => { sessionStorage.setItem(AUTH_KEY, JSON.stringify(a)); setAuth(a); setForceLogin(false); };
 
   if (forceLogin || !auth) {
-    return <SignerLogin onLogged={(a) => { sessionStorage.setItem(AUTH_KEY, JSON.stringify(a)); setAuth(a); setForceLogin(false); }} />;
+    if (!accessLoaded) return <Center><Loader2 size={40} className="spin" color="#7c3aed" /><p style={{ color: '#64748b', marginTop: 12 }}>Chargement…</p></Center>;
+    if (access?.is_external) {
+      return <ExternalSignerLogin token={token || ''} nom={access.nom || ''} emailMasked={access.email_masked || ''} onLogged={onLogged} />;
+    }
+    return <SignerLogin onLogged={onLogged} />;
   }
   return <SignerView
     token={token || ''}
     auth={auth}
     onLogout={() => { sessionStorage.removeItem(AUTH_KEY); setAuth(null); setForceLogin(true); }}
   />;
+}
+
+// ─── Écran de connexion d'un signataire extérieur (code par e-mail, sans AD) ──
+function ExternalSignerLogin({ token, nom, emailMasked, onLogged }: { token: string; nom: string; emailMasked: string; onLogged: (a: SignerAuth) => void }) {
+  const [step, setStep] = useState<'request' | 'verify'>('request');
+  const [code, setCode] = useState('');
+  const [sentTo, setSentTo] = useState(emailMasked);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  const request = async () => {
+    setLoading(true); setError(null);
+    try {
+      const r = await fetch(`/api/parapheur/public/${token}/email-otp/request`, { method: 'POST' });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d.message || 'Envoi impossible');
+      setSentTo(d.email_masked || emailMasked);
+      setStep('verify');
+    } catch (e: unknown) { setError(e instanceof Error ? e.message : 'Erreur'); }
+    finally { setLoading(false); }
+  };
+
+  const verify = async () => {
+    setLoading(true); setError(null);
+    try {
+      const r = await fetch(`/api/parapheur/public/${token}/email-otp/verify`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok || !d.accessToken) throw new Error(d.message || 'Code de vérification invalide');
+      onLogged({ token: d.accessToken, username: d.user?.username || 'signataire-externe', displayName: d.user?.displayName || nom, email: d.user?.email || '' });
+    } catch (e: unknown) { setError(e instanceof Error ? e.message : 'Erreur'); }
+    finally { setLoading(false); }
+  };
+
+  return (
+    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'linear-gradient(135deg,#f0f4f8,#d9e2ec)', padding: 20, fontFamily: "'Inter',-apple-system,sans-serif" }}>
+      <div style={{ background: '#fff', borderRadius: 20, boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1)', padding: 36, width: '100%', maxWidth: 420 }}>
+        <div style={{ textAlign: 'center', marginBottom: 24 }}>
+          <div style={{ width: 54, height: 54, borderRadius: 14, background: '#ecfeff', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 12px' }}>
+            <ShieldCheck size={26} color="#0e7490" />
+          </div>
+          <h1 style={{ fontSize: 20, fontWeight: 800, color: '#0f172a', margin: 0 }}>Signature — signataire extérieur</h1>
+          <p style={{ fontSize: 13, color: '#64748b', marginTop: 6 }}>
+            {nom ? `Bonjour ${nom}, ` : ''}la vérification se fait par un code envoyé à votre adresse e-mail.
+          </p>
+        </div>
+
+        {error && <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: '#fff1f2', color: '#e11d48', border: '1px solid #fecdd3', padding: 12, borderRadius: 10, fontSize: 13, marginBottom: 16 }}><AlertCircle size={16} /> {error}</div>}
+
+        {step === 'request' ? (
+          <button onClick={request} disabled={loading} style={{ width: '100%', padding: 13, background: '#0e7490', color: '#fff', border: 'none', borderRadius: 11, fontWeight: 800, fontSize: 15, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, opacity: loading ? 0.6 : 1 }}>
+            {loading ? <Loader2 size={18} className="spin" /> : <Lock size={16} />} Recevoir un code par e-mail
+          </button>
+        ) : (
+          <>
+            <p style={{ fontSize: 13, color: '#64748b', marginTop: 0 }}>
+              Un code à 6 chiffres a été envoyé à <strong>{sentTo}</strong>. Saisissez-le pour continuer.
+            </p>
+            <input
+              value={code}
+              onChange={e => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+              inputMode="numeric"
+              autoFocus
+              placeholder="000000"
+              style={{ width: '100%', padding: 12, fontSize: 24, letterSpacing: 8, textAlign: 'center', border: '1px solid #e2e8f0', borderRadius: 10, boxSizing: 'border-box', fontFamily: 'monospace' }}
+            />
+            <button onClick={verify} disabled={code.length !== 6 || loading} style={{ width: '100%', marginTop: 14, padding: 13, background: '#0e7490', color: '#fff', border: 'none', borderRadius: 11, fontWeight: 800, fontSize: 15, cursor: 'pointer', opacity: (code.length === 6 && !loading) ? 1 : 0.5 }}>
+              {loading ? <Loader2 size={18} className="spin" /> : 'Vérifier et continuer'}
+            </button>
+            <div style={{ textAlign: 'center', marginTop: 10 }}>
+              <button onClick={request} disabled={loading} style={{ border: 'none', background: 'none', color: '#0e7490', fontSize: 12, fontWeight: 700, cursor: loading ? 'default' : 'pointer', textDecoration: 'underline' }}>
+                Renvoyer un code
+              </button>
+            </div>
+          </>
+        )}
+
+        <p style={{ textAlign: 'center', fontSize: 11, color: '#94a3b8', marginTop: 22, borderTop: '1px solid #f1f5f9', paddingTop: 16 }}>DSI Ville d'Ivry-sur-Seine — Parapheur électronique</p>
+      </div>
+    </div>
+  );
 }
 
 // ─── Écran de connexion (mécanisme magasin d'applications) ────────────────────
@@ -155,6 +257,24 @@ function SignerView({ token, auth, onLogout }: { token: string; auth: SignerAuth
   const [note, setNote] = useState('');
   const [noteOffset, setNoteOffset] = useState<{ x: number; y: number }>({ x: 0, y: 66 });
   const [noteSize, setNoteSize] = useState(12);
+  // Signature « en masse » : documents cochés sans lecture intégrale.
+  const [ackDocs, setAckDocs] = useState<Set<number>>(new Set());
+  const [showBulkConfirm, setShowBulkConfirm] = useState(false);
+  const bulkSigningRef = useRef(false);
+
+  const toggleAck = (id: number) => setAckDocs(prev => {
+    const next = new Set(prev);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    return next;
+  });
+  const toggleAckAll = () => setAckDocs(prev => {
+    const docs = info?.documents || [];
+    if (docs.length && docs.every(d => prev.has(d.id))) return new Set();
+    return new Set(docs.map(d => d.id));
+  });
+  const bulkAllChecked = !!info && info.documents.length > 0 && info.documents.every(d => ackDocs.has(d.id));
+
+  const DEFAULT_BULK_MENTION = "En cochant les documents et en validant, je reconnais avoir eu connaissance des documents listés et je consens à leur signature électronique en masse. Cette signature vaut acceptation pleine et entière des documents concernés et emporte les mêmes effets que ma signature manuscrite. Je renonce expressément à toute contestation tirée de l'absence de lecture intégrale de chaque document.";
 
   const notePreview = useMemo(() => (note.trim() ? handwrittenTextDataUrl(note) : null), [note]);
 
@@ -226,15 +346,23 @@ function SignerView({ token, auth, onLogout }: { token: string; auth: SignerAuth
 
   useEffect(() => { load(); }, [load]);
 
+  // Sélection des documents à signer : tous cochés par défaut, le signataire
+  // peut en décocher un ou plusieurs pour n'en signer qu'une partie.
+  useEffect(() => {
+    if (info) setAckDocs(new Set((info.documents || []).map(d => d.id)));
+  }, [info]);
+
   const sign = async (otpCodeValue?: string) => {
     setSubmitting(true);
     setError(null);
     try {
       if (!info) return;
-      const docs = info.documents || [];
-      const viewedAll = docs.length > 0 && docs.every(d => viewedDocs.has(d.id));
+      // Signature en masse/partielle : seuls les documents cochés sont signés.
+      const docs = (info.documents || []).filter(d => ackDocs.has(d.id));
+      const bulk = bulkSigningRef.current;
+      const viewedAll = bulk || (docs.length > 0 && docs.every(d => viewedDocs.has(d.id)));
       if (!viewedAll) {
-        setError('Veuillez consulter chaque document jusqu\'à sa dernière page avant de signer.');
+        setError('Veuillez consulter chaque document jusqu\'à sa dernière page, ou cocher les documents à signer.');
         return;
       }
       const isSecure = info.signataire.signature_mode === 'securise';
@@ -266,6 +394,7 @@ function SignerView({ token, auth, onLogout }: { token: string; auth: SignerAuth
         if (noteImg) body.signatureNoteDataUrl = noteImg;
       }
       if (isSecure) body.certificatePassword = password;
+      body.documentIds = Array.from(ackDocs);
       if (otpCodeValue) body.otpCode = otpCodeValue;
 
       const ctrl = new AbortController();
@@ -293,19 +422,15 @@ function SignerView({ token, auth, onLogout }: { token: string; auth: SignerAuth
       console.error('[signature] échec:', e);
       setError(msg);
     } finally {
+      bulkSigningRef.current = false;
       setSubmitting(false);
     }
   };
 
-  const handleSignClick = async () => {
+  // Parcours de signature (SMS ou direct) — appelé après validation de l'engagement
+  // éventuel de signature en masse.
+  const startSignFlow = async () => {
     if (!info) return;
-    setError(null);
-    const docs = info.documents || [];
-    const viewedAll = docs.length > 0 && docs.every(d => viewedDocs.has(d.id));
-    if (!viewedAll) {
-      setError('Veuillez consulter chaque document jusqu\'à sa dernière page avant de signer.');
-      return;
-    }
     if (info.signataire.signature_mode === 'sms') {
       // Valider la signature visuelle avant d'envoyer le code.
       const needDraw = redraw || !info.signataire.has_memorized_signature;
@@ -329,6 +454,24 @@ function SignerView({ token, auth, onLogout }: { token: string; auth: SignerAuth
       return;
     }
     await sign();
+  };
+
+  const confirmBulkSign = async () => {
+    setShowBulkConfirm(false);
+    bulkSigningRef.current = true;
+    await startSignFlow();
+  };
+
+  const handleSignClick = async () => {
+    if (!info) return;
+    setError(null);
+    const selected = (info.documents || []).filter(d => ackDocs.has(d.id));
+    if (selected.length === 0) { setError('Sélectionnez au moins un document à signer.'); return; }
+    const selectedAllViewed = selected.every(d => viewedDocs.has(d.id));
+    // Documents cochés sans lecture intégrale : engagement via la modale.
+    if (!selectedAllViewed) { setShowBulkConfirm(true); return; }
+    bulkSigningRef.current = false;
+    await startSignFlow();
   };
 
   const resendOtp = async () => {
@@ -430,7 +573,7 @@ function SignerView({ token, auth, onLogout }: { token: string; auth: SignerAuth
           {info.documents.map(d => (
             <div key={d.id} style={{ display: 'flex', alignItems: 'center', gap: 10, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 10, padding: '10px 14px' }}>
               <FileText size={16} color="#ef4444" />
-              <span style={{ flex: 1, fontSize: 13, color: '#1e293b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.original_name}</span>
+              <span style={{ flex: 1, minWidth: 0, fontSize: 13, color: '#1e293b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.original_name}</span>
               <button onClick={() => setViewer({ docId: d.id, signed: true, name: d.original_name })} style={btnGhost}><Eye size={14} /> Voir</button>
               {info.parapheur.status === 'termine' && (
                 <button onClick={() => downloadSigned(d.id)} title="Télécharger le PDF signé" style={btnGhost}><Download size={14} /></button>
@@ -543,6 +686,12 @@ function SignerView({ token, auth, onLogout }: { token: string; auth: SignerAuth
         <p style={{ fontSize: 12, color: '#64748b', margin: '0 0 12px' }}>
           Consultez chaque document jusqu'à sa dernière page : la signature n'est débloquée qu'après lecture complète.
         </p>
+        {info.documents.length > 1 && (
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: '#475569', margin: '0 0 12px', cursor: 'pointer', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 9, padding: '9px 12px' }}>
+            <input type="checkbox" checked={bulkAllChecked} onChange={toggleAckAll} style={{ width: 16, height: 16, cursor: 'pointer' }} />
+            <span><b>Tout cocher</b> — signer en masse sans lecture intégrale (une confirmation vous sera demandée).</span>
+          </label>
+        )}
         <div style={{ display: 'grid', gap: 18 }}>
           {info.documents.map(d => {
             const pos = info.positions.find(p => p.document_id === d.id);
@@ -550,6 +699,7 @@ function SignerView({ token, auth, onLogout }: { token: string; auth: SignerAuth
             return (
               <div key={d.id} style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 12, overflow: 'hidden' }}>
                 <div style={{ padding: '10px 16px', background: '#f8fafc', borderBottom: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, fontWeight: 700, color: '#334155' }}>
+                  <input type="checkbox" checked={ackDocs.has(d.id)} onChange={() => toggleAck(d.id)} title="Cocher pour signer en masse" style={{ width: 16, height: 16, cursor: 'pointer', flexShrink: 0 }} />
                   <FileText size={15} color="#ef4444" /> {d.original_name}
                   {d.page_count ? <span style={{ fontSize: 11, color: '#94a3b8', fontWeight: 600 }}>{d.page_count} page(s)</span> : null}
                   <span style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -579,7 +729,7 @@ function SignerView({ token, auth, onLogout }: { token: string; auth: SignerAuth
               {info.annexes.map(a => (
                 <div key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 10, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 10, padding: '10px 14px' }}>
                   <FileText size={16} color="#64748b" />
-                  <span style={{ flex: 1, fontSize: 13, color: '#1e293b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  <span style={{ flex: 1, minWidth: 0, fontSize: 13, color: '#1e293b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {a.original_name}{a.page_count ? <span style={{ color: '#94a3b8' }}> · {a.page_count} page(s)</span> : null}
                   </span>
                   <button onClick={() => setViewer({ docId: a.id, signed: false, name: a.original_name })} style={btnGhost}><Eye size={14} /> Consulter</button>
@@ -688,20 +838,52 @@ function SignerView({ token, auth, onLogout }: { token: string; auth: SignerAuth
 
         {!allViewed && (
           <p style={{ fontSize: 12, color: '#b45309', marginTop: 18, textAlign: 'center' }}>
-            Consultez chaque document jusqu'à sa dernière page (faites défiler) pour débloquer la signature.
+            Consultez chaque document jusqu'à sa dernière page (faites défiler), ou cochez les documents à signer pour débloquer la signature.
           </p>
         )}
 
         <div style={{ display: 'flex', gap: 12, marginTop: 22 }}>
-          <button onClick={handleSignClick} disabled={submitting || otpSending || !allViewed} style={{ ...btnPrimary, flex: 2, justifyContent: 'center', padding: '14px 0', fontSize: 15, opacity: (submitting || otpSending || !allViewed) ? 0.5 : 1, cursor: (submitting || otpSending || !allViewed) ? 'not-allowed' : 'pointer' }}>
-            {(submitting || otpSending) ? <Loader2 size={18} className="spin" /> : (allViewed ? <CheckCircle2 size={18} /> : <Eye size={18} />)}
-            {otpSending ? 'Envoi du SMS…' : (allViewed ? 'Signer le(s) document(s)' : 'Lecture en cours…')}
+          <button onClick={() => handleSignClick()} disabled={submitting || otpSending || ackDocs.size === 0} style={{ ...btnPrimary, flex: 2, justifyContent: 'center', padding: '14px 0', fontSize: 15, opacity: (submitting || otpSending || ackDocs.size === 0) ? 0.5 : 1, cursor: (submitting || otpSending || ackDocs.size === 0) ? 'not-allowed' : 'pointer' }}>
+            {(submitting || otpSending) ? <Loader2 size={18} className="spin" /> : <CheckCircle2 size={18} />}
+            {otpSending
+              ? 'Envoi du SMS…'
+              : ackDocs.size === 0
+                ? 'Sélectionnez un document'
+                : (ackDocs.size < info.documents.length
+                  ? `Signer la sélection (${ackDocs.size}/${info.documents.length})`
+                  : (bulkAllChecked && !allViewed ? 'Signer en masse' : 'Signer le(s) document(s)'))}
           </button>
           <button onClick={() => setShowReject(true)} disabled={submitting} style={{ ...btnGhost, flex: 1, justifyContent: 'center', padding: '14px 0' }}>
             <XCircle size={16} /> Refuser
           </button>
         </div>
       </div>
+
+      {showBulkConfirm && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 3000, padding: 16 }}>
+          <div style={{ background: '#fff', borderRadius: 14, padding: 24, width: '100%', maxWidth: 540 }}>
+            <h3 style={{ margin: '0 0 8px', fontSize: 17, fontWeight: 800, color: '#0f172a', display: 'flex', alignItems: 'center', gap: 8 }}>
+              <ShieldCheck size={18} color="#7c3aed" /> Signature en masse
+            </h3>
+            <p style={{ fontSize: 13, color: '#64748b', marginTop: 0 }}>
+              Vous allez signer <strong>{ackDocs.size} document(s)</strong>{ackDocs.size < info.documents.length ? ' (sélection partielle)' : ''} sans en avoir nécessairement pris connaissance de façon intégrale. Cette signature vous engage.
+            </p>
+            <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 10, padding: '12px 14px', fontSize: 13, color: '#92400e', lineHeight: 1.6 }}>
+              {info.parapheur.bulk_sign_mention || DEFAULT_BULK_MENTION}
+            </div>
+            <div style={{ display: 'flex', gap: 10, marginTop: 16 }}>
+              <button onClick={() => setShowBulkConfirm(false)} style={{ ...btnGhost, flex: 1, justifyContent: 'center' }}>Annuler</button>
+              <button
+                onClick={confirmBulkSign}
+                disabled={submitting || otpSending}
+                style={{ flex: 1, padding: '11px 0', background: '#16a34a', color: '#fff', border: 'none', borderRadius: 10, fontWeight: 800, cursor: 'pointer', opacity: (submitting || otpSending) ? 0.6 : 1 }}
+              >
+                Je confirme et je signe
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {showOtp && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 3000, padding: 16 }}>

@@ -133,7 +133,7 @@ export default function DocumentPdfViewer({ open, url, authToken, title, signatu
       <div style={{ background: '#fff', borderRadius: 14, width: '100%', maxWidth: 960, maxHeight: '95vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
         <div style={{ padding: '10px 14px', borderBottom: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', gap: 8 }}>
           <FileText size={18} color="#ef4444" />
-          <span style={{ flex: 1, fontWeight: 700, fontSize: 14, color: '#1e293b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{title || 'Document'}</span>
+          <span style={{ flex: 1, minWidth: 0, fontWeight: 700, fontSize: 14, color: '#1e293b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{title || 'Document'}</span>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: 2, border: '1px solid #e2e8f0', borderRadius: 8, padding: 2 }}>
             <button onClick={zoomOut} disabled={level <= 50} title="Réduire" style={zoomBtn(level <= 50)}><ZoomOut size={15} /></button>

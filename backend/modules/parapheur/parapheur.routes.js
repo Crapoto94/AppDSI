@@ -7,6 +7,12 @@ const { authenticateJWT } = require('../../shared/middleware');
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
 
 // ─── API signature (jeton + identité vérifiée via le mécanisme magapp) ────────
+// Accès public minimal + authentification des signataires extérieurs (OTP e-mail),
+// déclarés AVANT la route paramétrée /public/:token.
+router.get('/public/:token/access', controller.accessInfo);
+router.post('/public/:token/email-otp/request', controller.requestEmailOtp);
+router.post('/public/:token/email-otp/verify', controller.verifyEmailOtp);
+
 router.get('/public/:token', controller.requireSigner, controller.getPublic);
 router.get('/public/:token/signature-image', controller.requireSigner, controller.getPublicSignatureImage);
 router.get('/public/:token/certificate', controller.requireSigner, controller.getPublicCertificate);

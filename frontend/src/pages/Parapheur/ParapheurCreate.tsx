@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, ArrowRight, Check, ChevronUp, ChevronDown, FileText, GitBranch, Loader2, MapPin, Paperclip, Send, ShieldCheck, Smartphone, Trash2, Upload, Users, X } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Check, ChevronUp, ChevronDown, FileText, GitBranch, Loader2, MapPin, Paperclip, Send, ShieldCheck, Smartphone, Trash2, Upload, Users, X, UserPlus } from 'lucide-react';
 import Header from '../../components/Header';
 import ParapheurAgentHeader from '../../components/parapheur/ParapheurAgentHeader';
 import AgentPickerRH, { type AgentRef } from '../../components/parapheur/AgentPickerRH';
@@ -36,6 +36,10 @@ export default function ParapheurCreate() {
   const [annexes, setAnnexes] = useState<DocFile[]>([]);
   const [pages, setPages] = useState<Record<string, number>>({});
   const [signataires, setSignataires] = useState<AgentRef[]>([]);
+  const [signerKind, setSignerKind] = useState<'agent' | 'externe'>('agent');
+  const [extName, setExtName] = useState('');
+  const [extEmail, setExtEmail] = useState('');
+  const [extPhone, setExtPhone] = useState('');
   const [modeMap, setModeMap] = useState<Record<string, SignMode>>({});
   const [phoneMap, setPhoneMap] = useState<Record<string, string>>({});
   const [titleMap, setTitleMap] = useState<Record<string, string>>({});
@@ -128,6 +132,23 @@ export default function ParapheurCreate() {
       setModeChosen(false);
       setMode('parallele');
       setShowModeModal(false);
+    } else if (next.length === 2 && !modeChosen) {
+      setShowModeModal(true);
+    }
+  };
+
+  /** Ajoute un signataire extérieur (hors collectivité) : e-mail + téléphone. */
+  const addExternalSigner = () => {
+    const email = extEmail.trim().toLowerCase();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { setError('Adresse e-mail invalide pour le signataire extérieur.'); return; }
+    if (signataires.some(s => s.email.toLowerCase() === email)) { setError('Ce signataire est déjà ajouté.'); return; }
+    const name = extName.trim() || email;
+    const next = [...signataires, { displayName: name, email, external: true } as AgentRef];
+    setSignataires(next);
+    if (extPhone.trim()) setPhoneMap(m => ({ ...m, [email]: extPhone.trim() }));
+    setExtName(''); setExtEmail(''); setExtPhone(''); setError(null);
+    if (next.length < 2) {
+      setModeChosen(false); setMode('parallele'); setShowModeModal(false);
     } else if (next.length === 2 && !modeChosen) {
       setShowModeModal(true);
     }
@@ -273,7 +294,37 @@ export default function ParapheurCreate() {
 
         {/* 3. Signataires */}
         <Section icon={<Users size={17} />} title={`Signataires * (${signataires.length})`}>
-          <AgentPickerRH value={signataires} onChange={handleSignatairesChange} token={token} />
+          <div style={{ display: 'flex', gap: 6, marginBottom: 12 }}>
+            {([['agent', 'Agent / élu'], ['externe', 'Extérieur']] as ['agent' | 'externe', string][]).map(([k, label]) => (
+              <button
+                key={k}
+                type="button"
+                onClick={() => setSignerKind(k)}
+                style={{
+                  padding: '8px 16px', borderRadius: 9, fontSize: 13, fontWeight: 700, cursor: 'pointer',
+                  border: `1px solid ${signerKind === k ? '#7c3aed' : '#e2e8f0'}`,
+                  background: signerKind === k ? '#f5f3ff' : '#fff',
+                  color: signerKind === k ? '#6d28d9' : '#475569',
+                }}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
+          {signerKind === 'agent' ? (
+            <AgentPickerRH value={signataires.filter(s => !s.external)} onChange={(list) => handleSignatairesChange([...signataires.filter(s => s.external), ...list])} token={token} />
+          ) : (
+            <div style={{ display: 'grid', gap: 8, background: '#f8fafc', border: '1px dashed #cbd5e1', borderRadius: 10, padding: 14 }}>
+              <p style={{ ...hint, marginTop: 0 }}>Signataire hors collectivité : renseignez au minimum l'adresse e-mail ; le numéro de portable est requis pour une signature sécurisée par SMS.</p>
+              <input value={extName} onChange={e => setExtName(e.target.value)} placeholder="Nom et prénom" style={input} />
+              <input value={extEmail} onChange={e => setExtEmail(e.target.value)} placeholder="Adresse e-mail *" style={input} />
+              <input value={extPhone} onChange={e => setExtPhone(e.target.value)} placeholder="N° de portable (06…)" style={input} />
+              <div>
+                <button type="button" onClick={addExternalSigner} style={primaryBtn}><UserPlus size={15} /> Ajouter ce signataire extérieur</button>
+              </div>
+            </div>
+          )}
           {signataires.length > 0 && (
             <div style={{ display: 'grid', gap: 8, marginTop: 12 }}>
               {signataires.map((s, i) => {
@@ -283,7 +334,9 @@ export default function ParapheurCreate() {
                     {signataires.length >= 2 && mode === 'sequentiel' && (
                       <span style={{ fontWeight: 800, color: '#7c3aed', background: '#f5f3ff', border: '1px solid #ddd6fe', borderRadius: 8, minWidth: 26, textAlign: 'center', padding: '2px 0', fontSize: 13 }}>{i + 1}</span>
                     )}
-                    <AgentPresenceBadge email={s.email} name={s.displayName} size={13} />
+                    {s.external
+                      ? <span title="Signataire extérieur (hors collectivité)" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10, fontWeight: 700, color: '#92400e', background: '#fffbeb', border: '1px solid #fde68a', padding: '2px 7px', borderRadius: 10, flexShrink: 0 }}>Extérieur</span>
+                      : <AgentPresenceBadge email={s.email} name={s.displayName} size={13} />}
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ fontWeight: 700, fontSize: 13, color: '#1e293b' }}>{s.displayName}</div>
                       <div style={{ fontSize: 11, color: '#94a3b8' }}>{s.email}{s.service ? ` — ${s.service}` : ''}</div>
@@ -385,7 +438,9 @@ export default function ParapheurCreate() {
                   <div style={{ padding: '8px 14px', background: '#f8fafc', fontWeight: 700, fontSize: 13, color: '#1e293b', display: 'flex', alignItems: 'center', gap: 8 }}>
                     {mode === 'sequentiel' && signataires.length >= 2 && <span style={{ color: '#7c3aed' }}>{signataires.indexOf(s) + 1}.</span>}
                     {s.displayName}
-                    <AgentPresenceBadge email={s.email} name={s.displayName} size={12} />
+                    {s.external
+                      ? <span title="Signataire extérieur (hors collectivité)" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10, fontWeight: 700, color: '#92400e', background: '#fffbeb', border: '1px solid #fde68a', padding: '2px 7px', borderRadius: 10, flexShrink: 0 }}>Extérieur</span>
+                      : <AgentPresenceBadge email={s.email} name={s.displayName} size={12} />}
                     {isSecure(s) && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, color: '#6d28d9', fontWeight: 700 }}><ShieldCheck size={12} /> P12</span>}
                     {isSms(s) && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, color: '#0e7490', fontWeight: 700 }}><Smartphone size={12} /> SMS</span>}
                   </div>
@@ -394,7 +449,7 @@ export default function ParapheurCreate() {
                     return (
                       <div key={di} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 14px', borderTop: '1px solid #f1f5f9' }}>
                         <FileText size={15} color="#ef4444" />
-                        <span style={{ flex: 1, fontSize: 12, color: '#334155', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.name}</span>
+                        <span style={{ flex: 1, minWidth: 0, fontSize: 12, color: '#334155', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.name}</span>
                         <span style={{ fontSize: 11, color: p ? '#64748b' : '#f59e0b' }}>{p ? `p.${p.page} · ${p.x.toFixed(0)}% / ${p.y.toFixed(0)}%` : 'position par défaut'}</span>
                         <button onClick={() => setEditing({ email: s.email, di })} style={{ ...ghostBtn, padding: '6px 12px' }}><MapPin size={13} /> Positionner</button>
                       </div>

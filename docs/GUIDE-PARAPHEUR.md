@@ -113,7 +113,7 @@ Depuis `/parapheur`, cliquez sur **« Nouveau »**.
 1. **Informations générales** — donnez un titre clair (ex. *« Convention de partenariat — Association Sportive 2026 »*), un message d'accompagnement optionnel, et une échéance si le document est urgent.
 2. **Documents à signer** — glissez-déposez le ou les PDF qui doivent porter une signature.
 3. **Annexes** *(optionnel)* — des PDF consultables par les signataires mais qui ne seront pas signés (ex. un rapport de présentation joint à une délibération).
-4. **Signataires** — recherchez chaque agent via l'annuaire RH, choisissez son mode de signature (voir [§5](#5-les-3-façons-de-signer)) et, si besoin, le titre affiché sous son nom (ex. *« Directeur des Systèmes d'Information »*).
+4. **Signataires** — choisissez le type de signataire : **Agent / élu** (recherche dans l'annuaire) ou **Extérieur** (hors collectivité : renseignez au minimum l'e-mail, et le **numéro de portable** si vous utilisez la signature vérifiée par SMS). Choisissez ensuite le mode de signature (voir [§5](#5-les-3-façons-de-signer)) et, si besoin, le titre affiché sous le nom (ex. *« Directeur des Systèmes d'Information »*).
 5. **Positionnement** — si plusieurs documents ou signataires, placez le cadre de chaque signature à l'endroit voulu sur la page (glisser-déposer sur l'aperçu).
 6. Dès le **2ᵉ signataire** ajouté, une fenêtre vous demande de choisir le **circuit** : *puis* (séquentiel), *et* (parallèle) ou *ou* (alternatif) ([§6](#6-le-circuit-puis-et-ou)).
 7. Validez : le parapheur passe en statut **« en cours »**, et le ou les premiers signataires reçoivent leur lien par e-mail.
@@ -131,6 +131,10 @@ Quand c'est votre tour de signer, vous recevez un e-mail contenant un **lien per
 3. Vous dessinez votre signature au doigt/à la souris (ou vous réutilisez celle déjà enregistrée), et vous pouvez ajouter une **mention manuscrite libre** (ex. *« Bon pour accord »*, *« Avis favorable »*) que vous positionnez où vous voulez près de votre signature.
 4. Selon le mode choisi pour vous par le créateur, vous confirmez avec votre certificat P12, un code reçu par SMS, ou simplement en validant.
 5. Vous pouvez aussi **refuser** de signer, en indiquant un motif — le circuit s'arrête alors et le créateur est prévenu.
+
+> 🗂️ **Signer plusieurs documents, ou seulement une partie.** Si le parapheur contient plusieurs documents, ils sont **tous cochés par défaut** : vous pouvez en **décocher un ou plusieurs** pour ne signer qu'une partie de la liasse, ou utiliser **« Tout cocher »** pour signer l'ensemble **en masse** sans faire défiler chaque document. Dans ce cas (documents non lus), une **modale d'engagement** vous rappelle — avec la formule juridique configurée par la DSI — que la signature en masse vous engage, avant de valider.
+
+> 🌐 **Signataires extérieurs (hors collectivité).** Un signataire extérieur n'a pas de compte Active Directory : il s'authentifie par un **code à 6 chiffres envoyé à son adresse e-mail** (valable 10 minutes), puis signe de la même manière (tracé manuscrit ; le SMS renforce l'identité si un numéro a été fourni).
 
 > 💡 Le lien de signature n'est utilisable qu'une fois et vous est personnel : ne le transférez pas à quelqu'un d'autre.
 
@@ -218,6 +222,22 @@ Sur la fiche d'un parapheur (`/parapheur/:id`) :
 - **Relancer** renvoie l'e-mail de signature à un signataire qui tarde.
 - **Annuler** stoppe définitivement le circuit (utile en cas d'erreur de document ou de signataire).
 - Une fois **terminé**, vous pouvez télécharger le **dossier de preuves** (ZIP contenant les documents scellés et leur journal de signature) et voir le badge **« Sceau vérifié »**.
+
+> 📬 **Regroupement des e-mails de signature.** Les e-mails invitant à signer ne partent pas un par un à l'instant où le parapheur est lancé : ils sont **regroupés et envoyés à intervalle régulier** (par défaut **toutes les 2 minutes**, paramétrable par la DSI). Ainsi, si plusieurs parapheurs vous sont adressés en même temps, vous ne recevez **qu'un seul e-mail** listant l'ensemble, avec :
+> - le **nombre total de parapheurs** en attente de votre signature ;
+> - un bouton **« Signer ce parapheur »** (lien direct) pour chacun ;
+> - et, pour les agents internes, un bouton **« Voir tous mes parapheurs à signer »** menant au parapheur global du Hub.
+
+---
+
+## 7 bis. Paramétrage (DSI)
+
+Dans **Admin → Certificats & parapheur** (`/admin/parapheur-certificats`) :
+
+- **URL publique du parapheur** — domaine externe (ex. `https://parapheur.ivry94.fr`) utilisé pour les liens de signature (mobilité) et le QR code de vérification.
+- **Fréquence d'envoi des e-mails de signature** — intervalle de regroupement, en minutes (défaut **2**).
+- **Formule de signature en masse** — texte d'engagement affiché dans la modale de signature en masse (une formule juridique par défaut est fournie).
+- **Sceau PAdES de fin de circuit** et **autorité de certification interne**.
 
 ---
 
