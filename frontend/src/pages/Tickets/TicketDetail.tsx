@@ -41,7 +41,21 @@ function rewriteGlpiImages(html: string, cidMap?: Record<string, number>): strin
   // la même raison (redirection auto de la page entière).
   out = out
     .replace(/<base\b[^>]*>/gi, '')
-    .replace(/<meta\b(?=[^>]*http-equiv\s*=\s*["']?refresh)[^>]*>/gi, '');
+    .replace(/<meta\b(?=[^>]*http-equiv\s*=\s*["']?refresh)[^>]*>/gi, '')
+    // Un <style>/<link> injecté via dangerouslySetInnerHTML devient global et peut
+    // imposer white-space:nowrap (ou autre) à TOUTE la page. On les retire, ainsi que
+    // le <head>/<title> ambiants des imports Outlook/Word.
+    .replace(/<head\b[^>]*>[\s\S]*?<\/head>/gi, '')
+    .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, '')
+    .replace(/<link\b[^>]*rel\s*=\s*["']stylesheet["'][^>]*>/gi, '')
+    .replace(/<title\b[^>]*>[\s\S]*?<\/title>/gi, '')
+    // Les emails Outlook/Word utilisent des espaces insécables (&nbsp; / &#160; /
+    // U+00A0). Contrairement aux espaces normales, elles n'offrent AUCUN point de
+    // rupture : le texte devient une ligne unique qui ne se coupe pas « mot à mot ».
+    // On les remplace par des espaces normales pour rétablir le retour à la ligne.
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&#160;/gi, ' ')
+    .replace(/\u00A0/g, ' ');
 
   // Réécriture des cid: (images inline d'email : cid:image001.png@XXXXX)
   if (cidMap && Object.keys(cidMap).length > 0) {
@@ -161,12 +175,37 @@ function SoftwareSelect({ apps, value, onChange }: { apps: any[]; value: string;
 
 // Modes de réponse du ticket : sélecteur vertical façon "dossiers à onglets" (cf. zone de réponse).
 type ReplyMode = 'comment' | 'internal' | 'email' | 'resolution';
-const REPLY_MODES: { key: ReplyMode; label: string; icon: string; color: string; bg: string; border: string }[] = [
-  { key: 'comment', label: 'Commentaire simple', icon: '💬', color: '#52525b', bg: '#f4f4f5', border: '#d4d4d8' },
-  { key: 'internal', label: 'Note interne', icon: '🔒', color: '#c2410c', bg: '#fff7ed', border: '#fdba74' },
-  { key: 'email', label: 'Réponse e-mail', icon: '✉️', color: '#1d4ed8', bg: '#eff6ff', border: '#93c5fd' },
-  { key: 'resolution', label: 'Résolution', icon: '✅', color: '#15803d', bg: '#f0fdf4', border: '#86efac' },
+const REPLY_MODES: { key: ReplyMode; label: string; icon: string; color: string; bg: string; border: string; accent: string }[] = [
+  { key: 'comment', label: 'Commentaire simple', icon: '💬', color: '#52525b', bg: '#f4f4f5', border: '#d4d4d8', accent: '#94a3b8' },
+  { key: 'internal', label: 'Note interne', icon: '🔒', color: '#c2410c', bg: '#fff7ed', border: '#fdba74', accent: '#fb923c' },
+  { key: 'email', label: 'Réponse e-mail', icon: '✉️', color: '#1d4ed8', bg: '#eff6ff', border: '#93c5fd', accent: '#38bdf8' },
+  { key: 'resolution', label: 'Résolution', icon: '✅', color: '#15803d', bg: '#f0fdf4', border: '#86efac', accent: '#10b981' },
 ];
+
+// Teinte "à peine visible" : mélange ~6% de la couleur (hex) dans du blanc.
+const faintTintOf = (hex: string) => {
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+  const t = (v: number) => Math.round(255 - (255 - v) * 0.06);
+  return `rgb(${t(r)}, ${t(g)}, ${t(b)})`;
+};
+
+// Séparateur de panneaux réutilisable (drag pour redimensionner). Identique partout.
+function PaneDivider({ onMouseDown }: { onMouseDown: (e: React.MouseEvent) => void }) {
+  return (
+    <div
+      onMouseDown={onMouseDown}
+      style={{
+        width: 5, flexShrink: 0, cursor: 'col-resize', background: 'transparent',
+        borderLeft: '1px solid #e4e4e7', borderRight: '1px solid #e4e4e7',
+        transition: 'background 0.15s',
+      }}
+      onMouseEnter={e => (e.currentTarget.style.background = '#e0e7ff')}
+      onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+    />
+  );
+}
 
 export default function TicketDetail() {
   const { id } = useParams();
@@ -277,10 +316,36 @@ export default function TicketDetail() {
   const taskNoteTargetId = useRef<number | null>(null);
   const [newComment, setNewComment] = useState('');
   const [replyMode, setReplyMode] = useState<ReplyMode>('comment');
+  const [replyModeHover, setReplyModeHover] = useState<ReplyMode | null>(null);
   const [ccTechnicians, setCcTechnicians] = useState(false);
   const [recipientsMenuOpen, setRecipientsMenuOpen] = useState(false);
   const recipientsMenuRef = useRef<HTMLDivElement>(null);
   const [loading, setLoading] = useState(true);
+  const [actionsWidth, setActionsWidth] = useState(0);
+  const actionsRowRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = actionsRowRef.current;
+    if (!el) return;
+    const update = () => setActionsWidth(el.clientWidth);
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    update();
+    return () => ro.disconnect();
+  }, [loading]);
+  const compactRecipients = actionsWidth < 760;
+  const compactLeftActions = actionsWidth < 560;
+  const [replyBarWidth, setReplyBarWidth] = useState(0);
+  const replyBarRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = replyBarRef.current;
+    if (!el) return;
+    const update = () => setReplyBarWidth(el.clientWidth);
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    update();
+    return () => ro.disconnect();
+  }, [loading]);
+  const compactReplyModes = replyBarWidth > 0 && replyBarWidth < 660;
   const [requesterTickets, setRequesterTickets] = useState<any>(null);
   const [showRequesterTickets, setShowRequesterTickets] = useState(false);
   const [requesterEquip, setRequesterEquip] = useState<{ total: number; contact: string | null; rows: any[] } | null>(null);
@@ -443,11 +508,17 @@ export default function TicketDetail() {
 
   useEffect(() => {
     const id = 'ticket-html-content-styles';
-    if (document.getElementById(id)) return;
-    const style = document.createElement('style');
-    style.id = id;
+    let style = document.getElementById(id) as HTMLStyleElement | null;
+    if (!style) {
+      style = document.createElement('style');
+      style.id = id;
+      document.head.appendChild(style);
+    }
     style.textContent = `
-      .ticket-html-content { word-break: break-word; }
+      .ticket-html-content { max-width: 100%; overflow: hidden; word-break: break-word; overflow-wrap: break-word; }
+      .ticket-html-content *, .ticket-html-content p, .ticket-html-content div, .ticket-html-content span, .ticket-html-content li, .ticket-html-content td, .ticket-html-content a { word-break: break-word !important; overflow-wrap: break-word !important; max-width: 100% !important; min-width: 0 !important; }
+      .ticket-html-content p, .ticket-html-content div, .ticket-html-content span, .ticket-html-content li, .ticket-html-content td, .ticket-html-content h1, .ticket-html-content h2, .ticket-html-content h3, .ticket-html-content h4, .ticket-html-content blockquote, .ticket-html-content ul, .ticket-html-content ol { white-space: normal !important; }
+      .ticket-html-content table { display: block; max-width: 100% !important; overflow-x: auto; }
       .ticket-html-content p { margin: 0 0 8px 0; }
       .ticket-html-content p:last-child { margin-bottom: 0; }
       .ticket-html-content ul, .ticket-html-content ol { margin: 0 0 8px 16px; padding: 0; }
@@ -1246,6 +1317,9 @@ export default function TicketDetail() {
     isDragging.current = true;
     dragStartX.current = e.clientX;
     dragStartRatio.current = paneRatio;
+    e.preventDefault();
+    document.body.style.userSelect = 'none';
+    document.body.style.cursor = 'col-resize';
     const onMove = (ev: MouseEvent) => {
       if (!isDragging.current || !bodyRef.current) return;
       const totalW = bodyRef.current.offsetWidth;
@@ -1257,6 +1331,8 @@ export default function TicketDetail() {
     const onUp = (ev: MouseEvent) => {
       if (!isDragging.current) return;
       isDragging.current = false;
+      document.body.style.userSelect = '';
+      document.body.style.cursor = '';
       const totalW = bodyRef.current?.offsetWidth || 1;
       const dx = ev.clientX - dragStartX.current;
       const newRatio = Math.min(0.85, Math.max(0.3, dragStartRatio.current + dx / totalW));
@@ -1273,6 +1349,9 @@ export default function TicketDetail() {
     splitDragging.current = true;
     splitStartX.current = e.clientX;
     splitStartRatio.current = splitRatio;
+    e.preventDefault();
+    document.body.style.userSelect = 'none';
+    document.body.style.cursor = 'col-resize';
     const onMove = (ev: MouseEvent) => {
       if (!splitDragging.current || !splitBoxRef.current) return;
       const totalW = splitBoxRef.current.offsetWidth;
@@ -1284,6 +1363,8 @@ export default function TicketDetail() {
     const onUp = (ev: MouseEvent) => {
       if (!splitDragging.current) return;
       splitDragging.current = false;
+      document.body.style.userSelect = '';
+      document.body.style.cursor = '';
       const totalW = splitBoxRef.current?.offsetWidth || 1;
       const dx = ev.clientX - splitStartX.current;
       const newRatio = Math.min(0.75, Math.max(0.25, splitStartRatio.current + dx / totalW));
@@ -1450,28 +1531,48 @@ export default function TicketDetail() {
     : {};
 
   const replyBarJSX = (
-    <div style={{ flexShrink: 0, borderTop: '1px solid #f4f4f5', background: '#fff' }}>
+    <div ref={replyBarRef} style={{ flexShrink: 0, borderTop: '1px solid #f4f4f5', background: '#fff' }}>
       <div style={{ display: 'flex', alignItems: 'stretch' }}>
 
-        {/* Sélecteur de mode — dossiers à onglets, vertical */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 3, padding: '10px 0 10px 10px', flexShrink: 0 }}>
-          {REPLY_MODES.map(m => {
+        {/* Sélecteur de mode — colonne verticale avec barre d'accent */}
+        <div style={{ display: 'flex', flexDirection: 'column', background: '#fafafa', flexShrink: 0, borderRight: '1px solid #d4d4d8' }}>
+          {REPLY_MODES.map((m, idx) => {
             const active = replyMode === m.key;
+            const hovered = replyModeHover === m.key && !active;
+            const isLast = idx === REPLY_MODES.length - 1;
+            const belowActive = REPLY_MODES[idx + 1]?.key === replyMode;
             return (
               <button key={m.key} type="button" onClick={() => setReplyMode(m.key)} title={m.label}
+                onMouseEnter={() => setReplyModeHover(m.key)}
+                onMouseLeave={() => setReplyModeHover(null)}
                 style={{
-                  display: 'flex', alignItems: 'center', gap: 6,
-                  padding: isMobile ? '8px 9px' : '8px 12px 8px 10px',
-                  border: `1px solid ${active ? m.border : 'transparent'}`,
-                  borderRight: active ? '1px solid ' + m.bg : '1px solid transparent',
-                  borderRadius: '8px 0 0 8px',
-                  background: active ? m.bg : 'transparent',
-                  color: active ? m.color : '#a1a1aa',
-                  fontWeight: active ? 700 : 500, fontSize: 12,
-                  cursor: 'pointer', whiteSpace: 'nowrap', textAlign: 'left',
-                  marginRight: active ? -1 : 0, position: 'relative', zIndex: active ? 1 : 0,
+                  position: 'relative',
+                  display: 'flex', alignItems: 'center', gap: 8,
+                  padding: isMobile ? '9px 10px' : compactReplyModes ? '10px 8px' : '10px 11px',
+                  fontSize: 11, fontWeight: 600,
+                  textAlign: 'left', cursor: 'pointer', whiteSpace: 'nowrap',
+                  border: 'none',
+                  borderTop: active ? '1px solid #d4d4d8' : 'none',
+                  borderBottom: isLast
+                    ? '1px solid #d4d4d8'
+                    : (active
+                      ? '1px solid #d4d4d8'
+                      : (belowActive ? 'none' : '1px solid #f1f1f3')),
+                  marginRight: active ? -1 : 0,
+                  zIndex: active ? 1 : 0,
+                  background: active ? m.bg : hovered ? '#f1f5f9' : 'transparent',
+                  color: active ? m.color : hovered ? '#3f3f46' : '#a1a1aa',
+                  transition: 'background 0.15s, color 0.15s',
                 }}>
-                <span>{m.icon}</span>{!isMobile && m.label}
+                <span style={{
+                  position: 'absolute', left: 0, top: 0, bottom: 0, width: 3,
+                  borderRadius: '0 3px 3px 0',
+                  background: m.accent,
+                  opacity: active ? 1 : 0.3,
+                  transition: 'opacity 0.15s',
+                }} />
+                <span style={{ fontSize: 13, lineHeight: 1 }}>{m.icon}</span>
+                {!isMobile && !compactReplyModes && <span style={{ lineHeight: 1 }}>{m.label}</span>}
               </button>
             );
           })}
@@ -1480,14 +1581,14 @@ export default function TicketDetail() {
         {/* Contenu du mode actif */}
         <div style={{
           flex: 1, minWidth: 0, padding: '10px 20px 10px 14px',
-          border: `1px solid ${activeReplyMode.border}`, borderBottom: 'none', borderRight: 'none',
-          borderTopLeftRadius: 8, background: activeReplyMode.bg,
+          borderTop: '1px solid #d4d4d8',
+          background: activeReplyMode.bg,
         }}>
           {/* Reformulation proposal */}
           {reformulationProposal !== null && (
             <div style={{ marginBottom: 8, background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 8, padding: '10px 14px' }}>
               <div style={{ fontSize: 11, fontWeight: 600, color: '#15803d', marginBottom: 6 }}>✨ Proposition de reformulation :</div>
-              <div style={{ fontSize: 13, color: '#166534', lineHeight: 1.5, whiteSpace: 'pre-wrap', marginBottom: 8 }}>{reformulationProposal}</div>
+              <div style={{ fontSize: 13, color: '#166534', lineHeight: 1.5, whiteSpace: 'pre-wrap', wordBreak: 'break-word', overflowWrap: 'break-word', marginBottom: 8 }}>{reformulationProposal}</div>
               <div style={{ display: 'flex', gap: 6 }}>
                 <button onClick={() => { setNewComment(reformulationProposal); setReformulationProposal(null); }}
                   style={{ padding: '4px 12px', background: '#16a34a', color: '#fff', border: 'none', borderRadius: 5, cursor: 'pointer', fontSize: 11, fontWeight: 600 }}>
@@ -1502,7 +1603,7 @@ export default function TicketDetail() {
           )}
           <div
             onKeyDown={e => { if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); if (!submitDisabled) handleSubmitReply(); } }}
-            style={{ border: `1px solid ${activeReplyMode.border}`, borderRadius: 8, overflow: 'hidden', marginBottom: 8, background: '#fff' }}>
+            style={{ border: '1px solid #d4d4d8', borderRadius: 8, overflow: 'hidden', marginBottom: 8, background: faintTintOf(activeReplyMode.accent) }}>
             <ReactQuill value={newComment} onChange={setNewComment} placeholder="Ajouter un commentaire... (Ctrl+Entrée pour publier)"
               modules={{ toolbar: [['bold', 'italic', 'underline'], [{ list: 'ordered' }, { list: 'bullet' }], ['link'], ['clean']] }}
               style={{ fontFamily: 'inherit', fontSize: 13 }}
@@ -1526,39 +1627,41 @@ export default function TicketDetail() {
               ))}
             </div>
           )}
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          <div ref={actionsRowRef} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'nowrap' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 1, minWidth: 0 }}>
               <button onClick={() => fileInputRef.current?.click()} title="Joindre un fichier"
-                style={{ background: 'none', border: '1px solid #e4e4e7', borderRadius: 5, padding: '3px 8px', cursor: 'pointer', fontSize: 11, color: '#71717a', display: 'flex', alignItems: 'center', gap: 3 }}>
-                📎 Fichier
+                style={{ background: 'none', border: '1px solid #e4e4e7', borderRadius: 5, padding: '3px 8px', cursor: 'pointer', fontSize: 11, color: '#71717a', display: 'flex', alignItems: 'center', gap: 3, flexShrink: 0, whiteSpace: 'nowrap' }}>
+                📎{!compactLeftActions && ' Fichier'}
               </button>
               <input ref={fileInputRef} type="file" style={{ display: 'none' }}
                 onChange={e => setCommentFile(e.target.files?.[0] || null)}
                 accept=".pdf,.png,.jpg,.jpeg,.doc,.docx,.xls,.xlsx,.zip,.txt" />
               <button onClick={toggleCommentDictation}
                 title={listenComment ? 'Arrêter la dictée' : 'Dictée vocale'}
-                style={{ background: listenComment ? '#fef2f2' : 'none', border: `1px solid ${listenComment ? '#fca5a5' : '#e4e4e7'}`, borderRadius: 5, padding: '3px 8px', cursor: 'pointer', fontSize: 11, color: listenComment ? '#dc2626' : '#71717a', display: 'flex', alignItems: 'center', gap: 3 }}>
-                🎤 {listenComment ? 'Arrêter' : 'Dicter'}
+                style={{ background: listenComment ? '#fef2f2' : 'none', border: `1px solid ${listenComment ? '#fca5a5' : '#e4e4e7'}`, borderRadius: 5, padding: '3px 8px', cursor: 'pointer', fontSize: 11, color: listenComment ? '#dc2626' : '#71717a', display: 'flex', alignItems: 'center', gap: 3, flexShrink: 0, whiteSpace: 'nowrap' }}>
+                🎤{!compactLeftActions && (listenComment ? ' Arrêter' : ' Dicter')}
               </button>
               {aiReformulationEnabled && (
                 <button onClick={handleReformulate} disabled={isCommentEmpty(newComment) || reformulating}
                   title="Reformuler avec l'IA"
-                  style={{ background: 'none', border: '1px solid #e4e4e7', borderRadius: 5, padding: '3px 8px', cursor: isCommentEmpty(newComment) ? 'default' : 'pointer', fontSize: 11, color: '#8b5cf6', display: 'flex', alignItems: 'center', gap: 3, opacity: isCommentEmpty(newComment) ? 0.4 : 1 }}>
-                  {reformulating ? '⏳' : '✨'} Reformuler
+                  style={{ background: 'none', border: '1px solid #e4e4e7', borderRadius: 5, padding: '3px 8px', cursor: isCommentEmpty(newComment) ? 'default' : 'pointer', fontSize: 11, color: '#8b5cf6', display: 'flex', alignItems: 'center', gap: 3, opacity: isCommentEmpty(newComment) ? 0.4 : 1, flexShrink: 0, whiteSpace: 'nowrap' }}>
+                  {reformulating ? '⏳' : '✨'}{!compactLeftActions && ' Reformuler'}
                 </button>
               )}
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 7, flexShrink: 0 }}>
               {(replyMode === 'email' || replyMode === 'resolution') && (
                 <div ref={recipientsMenuRef} style={{ position: 'relative' }}>
                   <button type="button" onClick={() => setRecipientsMenuOpen(o => !o)}
                     style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '6px 10px', background: '#fff', border: '1px solid #e4e4e7', borderRadius: 7, fontSize: 11, cursor: 'pointer', color: '#71717a', whiteSpace: 'nowrap' }}>
-                    <span>Destinataires :</span>
-                    <span style={{ fontWeight: 700, color: '#1d4ed8' }}>Demandeur</span>
-                    <span>-</span>
-                    <span style={{ fontWeight: ccTechnicians ? 700 : 400, color: ccTechnicians ? '#1d4ed8' : '#a1a1aa' }}>Techniciens : {techCount}</span>
-                    <span>-</span>
-                    <span style={{ fontWeight: ccObservers ? 700 : 400, color: ccObservers ? '#1d4ed8' : '#a1a1aa' }}>Observateurs : {observers.length}</span>
+                    <span>{compactRecipients ? 'Destinataires' : 'Destinataires :'}</span>
+                    {!compactRecipients && (<>
+                      <span style={{ fontWeight: 700, color: '#1d4ed8' }}>Demandeur</span>
+                      <span>-</span>
+                      <span style={{ fontWeight: ccTechnicians ? 700 : 400, color: ccTechnicians ? '#1d4ed8' : '#a1a1aa' }}>Techniciens : {techCount}</span>
+                      <span>-</span>
+                      <span style={{ fontWeight: ccObservers ? 700 : 400, color: ccObservers ? '#1d4ed8' : '#a1a1aa' }}>Observateurs : {observers.length}</span>
+                    </>)}
                     <span style={{ fontSize: 9 }}>▾</span>
                   </button>
                   {recipientsMenuOpen && (
@@ -1747,7 +1850,8 @@ export default function TicketDetail() {
               <span style={{ fontSize: 11, fontWeight: 600, color: '#a1a1aa', textTransform: 'uppercase', letterSpacing: '0.06em', display: 'block', padding: '16px 0 8px' }}>Description</span>
               <div style={{ background: '#fafafa', border: '1px solid #e4e4e7', borderRadius: 8, padding: '12px 14px' }}>
                 {ticket.content
-                  ? <div className="ticket-html-content" style={{ fontSize: 13, color: '#3f3f46', lineHeight: 1.6, maxHeight: activeSplitMode ? 'none' : 320, overflowY: activeSplitMode ? 'visible' : 'auto', paddingRight: 4 }} dangerouslySetInnerHTML={{ __html: rewriteGlpiImages(decodeHtml(ticket.content), cidDocs) }} />
+                  ? <div className="ticket-html-content" style={{ fontSize: 13, color: '#3f3f46', lineHeight: 1.6, maxHeight: activeSplitMode ? 'none' : 320, overflowY: activeSplitMode ? 'visible' : 'auto', paddingRight: 4, wordBreak: 'break-word', overflowWrap: 'break-word', maxWidth: '100%',
+                    minWidth: 0 }} dangerouslySetInnerHTML={{ __html: rewriteGlpiImages(decodeHtml(ticket.content), cidDocs) }} />
                   : <p style={{ fontSize: 13, color: '#a1a1aa', margin: 0, fontStyle: 'italic' }}>Aucune description</p>
                 }
               </div>
@@ -1760,13 +1864,13 @@ export default function TicketDetail() {
                 <div style={{ background: '#faf5ff', border: '1px solid #ddd6fe', borderRadius: 8, padding: 14 }}>
                   <h4 style={{ fontSize: 12, fontWeight: 600, color: '#7c3aed', margin: '0 0 6px' }}>Méthode de résolution</h4>
                   {ticket.resolution_method
-                    ? <p style={{ fontSize: 13, color: '#374151', margin: 0, lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{ticket.resolution_method}</p>
+                    ? <p style={{ fontSize: 13, color: '#374151', margin: 0, lineHeight: 1.6, whiteSpace: 'pre-wrap', wordBreak: 'break-word', overflowWrap: 'break-word' }}>{ticket.resolution_method}</p>
                     : <p style={{ fontSize: 12, color: '#a1a1aa', margin: 0, fontStyle: 'italic' }}>Non définie</p>
                   }
                   {ticket.knowledge_article && (
                     <div style={{ marginTop: 12 }}>
                       <h4 style={{ fontSize: 12, fontWeight: 600, color: '#7c3aed', margin: '0 0 6px' }}>Article de connaissance</h4>
-                      <p style={{ fontSize: 13, color: '#374151', margin: 0, lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{ticket.knowledge_article}</p>
+                      <p style={{ fontSize: 13, color: '#374151', margin: 0, lineHeight: 1.6, whiteSpace: 'pre-wrap', wordBreak: 'break-word', overflowWrap: 'break-word' }}>{ticket.knowledge_article}</p>
                     </div>
                   )}
                 </div>
@@ -1778,17 +1882,14 @@ export default function TicketDetail() {
               <div style={{ borderBottom: '1px solid #f4f4f5', paddingBottom: 20 }}>
                 <span style={{ fontSize: 11, fontWeight: 600, color: '#a1a1aa', textTransform: 'uppercase', letterSpacing: '0.06em', display: 'block', padding: '16px 0 8px' }}>Solution</span>
                 <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 8, padding: '12px 14px' }}>
-                  <div style={{ fontSize: 13, color: '#166534', lineHeight: 1.6 }} dangerouslySetInnerHTML={{ __html: rewriteGlpiImages(decodeHtml(ticket.solution), cidDocs) }} />
+                  <div style={{ fontSize: 13, color: '#166534', lineHeight: 1.6, wordBreak: 'break-word', overflowWrap: 'break-word' }} dangerouslySetInnerHTML={{ __html: rewriteGlpiImages(decodeHtml(ticket.solution), cidDocs) }} />
                 </div>
               </div>
             )}
 
           </div>
           {activeSplitMode && (
-            <div onMouseDown={startSplitDrag} style={{
-              width: 5, flexShrink: 0, cursor: 'col-resize', background: 'transparent',
-              borderLeft: '1px solid #f4f4f5', borderRight: '1px solid #f4f4f5'
-            }} />
+            <PaneDivider onMouseDown={startSplitDrag} />
           )}
           <div style={splitRightStyle}>
           <div style={splitRightScrollStyle}>
@@ -1858,7 +1959,7 @@ export default function TicketDetail() {
                             </button>
                           </div>
                         ) : (
-                          <span style={{ flex: 1, fontSize: 13, color: done ? '#94a3b8' : '#18181b', textDecoration: done ? 'line-through' : 'none', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          <span style={{ flex: 1, fontSize: 13, color: done ? '#94a3b8' : '#18181b', textDecoration: done ? 'line-through' : 'none', wordBreak: 'break-word', overflowWrap: 'break-word' }}>
                             {task.description}
                           </span>
                         )}
@@ -2035,9 +2136,61 @@ export default function TicketDetail() {
             {/* ACTIVITÉ */}
             <div>
               <div style={{ padding: '16px 0 8px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-                <span style={{ fontSize: 11, fontWeight: 600, color: '#a1a1aa', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-                  Activité{comments.length > 0 ? ` (${comments.length})` : ''}
-                </span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span style={{ fontSize: 11, fontWeight: 600, color: '#a1a1aa', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                    Activité
+                  </span>
+                  {(() => {
+                    const commentCount = comments.length;
+                    const taskCount = showActivityTasks ? activityItems.filter((it: any) => it.kind === 'task').length : 0;
+                    const statusCount = showActivityStatus ? history.filter((h: any) => h.action === 'status_changed').length : 0;
+                    const assignmentCount = showActivityAssignments ? history.filter((h: any) => h.action === 'assigned' || h.action === 'assigned_group').length : 0;
+                    return (
+                      <div style={{ display: 'flex', gap: 3, alignItems: 'center' }}>
+                        {commentCount > 0 && (
+                          <span style={{
+                            display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                            minWidth: 18, height: 18, borderRadius: 9, padding: '0 5px',
+                            fontSize: 10, fontWeight: 600, gap: 2,
+                            background: '#e0f2fe', color: '#0284c7'
+                          }} title={`${commentCount} commentaire${commentCount > 1 ? 's' : ''}`}>
+                            💬{commentCount}
+                          </span>
+                        )}
+                        {showActivityTasks && taskCount > 0 && (
+                          <span style={{
+                            display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                            minWidth: 18, height: 18, borderRadius: 9, padding: '0 5px',
+                            fontSize: 10, fontWeight: 600, gap: 2,
+                            background: '#fef3c7', color: '#d97706'
+                          }} title={`${taskCount} tâche${taskCount > 1 ? 's' : ''}`}>
+                            📋{taskCount}
+                          </span>
+                        )}
+                        {showActivityStatus && statusCount > 0 && (
+                          <span style={{
+                            display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                            minWidth: 18, height: 18, borderRadius: 9, padding: '0 5px',
+                            fontSize: 10, fontWeight: 600, gap: 2,
+                            background: '#f0f4ff', color: '#4f46e5'
+                          }} title={`${statusCount} changement${statusCount > 1 ? 's' : ''} de statut`}>
+                            🔄{statusCount}
+                          </span>
+                        )}
+                        {showActivityAssignments && assignmentCount > 0 && (
+                          <span style={{
+                            display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                            minWidth: 18, height: 18, borderRadius: 9, padding: '0 5px',
+                            fontSize: 10, fontWeight: 600, gap: 2,
+                            background: '#ede9fe', color: '#7c3aed'
+                          }} title={`${assignmentCount} assignation${assignmentCount > 1 ? 's' : ''}`}>
+                            👤{assignmentCount}
+                          </span>
+                        )}
+                      </div>
+                    );
+                  })()}
+                </div>
                 <div style={{ display: 'flex', gap: 5 }}>
                   <button
                     onClick={() => setShowActivityStatus(v => !v)}
@@ -2102,9 +2255,9 @@ export default function TicketDetail() {
                     const taskIcon = task.statut === 'terminé' ? '✅' : task.statut === 'en_cours' ? '🔄' : '📋';
                     const desc = (task.description || '').slice(0, 80);
                     return (
-                      <div key={`task-${task.id || i}`} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '3px 10px', background: '#f0f4ff', border: '1px solid #dbe4ff', borderRadius: 999, fontSize: 12, color: '#64748b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', margin: '2px 0' }}>
+                      <div key={`task-${task.id || i}`} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '3px 10px', background: '#f0f4ff', border: '1px solid #dbe4ff', borderRadius: 8, fontSize: 12, color: '#64748b', margin: '2px 0' }}>
                         <span style={{ fontSize: 11, flexShrink: 0 }}>{taskIcon}</span>
-                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{desc || 'Tâche'}</span>
+                        <span style={{ wordBreak: 'break-word', overflowWrap: 'break-word' }}>{desc || 'Tâche'}</span>
                         {task.created_by && (
                           <span style={{ fontSize: 10, color: '#a1a1aa', flexShrink: 0 }}>· {task.created_by}</span>
                         )}
@@ -2220,14 +2373,7 @@ export default function TicketDetail() {
 
           {/* ── DRAG HANDLE ── */}
           {!isMobile && (
-          <div onMouseDown={startDrag} style={{
-            width: 5, flexShrink: 0, cursor: 'col-resize', background: 'transparent',
-            borderLeft: '1px solid #f4f4f5', borderRight: '1px solid #f4f4f5',
-            transition: 'background 0.15s'
-          }}
-            onMouseEnter={e => (e.currentTarget.style.background = '#e0e7ff')}
-            onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
-          />
+          <PaneDivider onMouseDown={startDrag} />
           )}
 
           {/* ── RIGHT SIDEBAR ── */}

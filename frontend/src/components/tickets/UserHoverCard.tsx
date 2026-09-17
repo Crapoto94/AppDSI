@@ -76,7 +76,7 @@ export default function UserHoverCard({ email, name, children, style }: Props) {
           position: 'fixed', left: pos.x, top: pos.y, zIndex: 4000, width: 300, boxSizing: 'border-box',
           background: '#fff', border: '1px solid #e2e8f0', borderRadius: 12,
           boxShadow: '0 12px 30px -8px rgba(15,23,42,0.28)', padding: 14, fontSize: 13, color: '#1e293b',
-          cursor: 'default', textDecoration: 'none', overflowWrap: 'anywhere', whiteSpace: 'normal',
+          cursor: 'default', textDecoration: 'none', overflowWrap: 'break-word', whiteSpace: 'normal',
         }}>
           {loading && !info ? (
             <div style={{ color: '#94a3b8' }}>Chargement…</div>
@@ -84,7 +84,7 @@ export default function UserHoverCard({ email, name, children, style }: Props) {
             <div style={{ color: '#94a3b8' }}>Aucune information.</div>
           ) : (
             <>
-              <div style={{ fontWeight: 800, fontSize: 14, marginBottom: 8, color: '#0f172a', overflowWrap: 'anywhere' }}>
+              <div style={{ fontWeight: 800, fontSize: 14, marginBottom: 8, color: '#0f172a', overflowWrap: 'break-word' }}>
                 {info.displayName || name || email}
               </div>
               <Row label="Fonction" value={info.title} />
@@ -123,7 +123,7 @@ function Row({ label, value, mono }: { label: string; value?: string; mono?: boo
   return (
     <div style={{ display: 'flex', gap: 8, padding: '2px 0' }}>
       <span style={{ color: '#64748b', minWidth: 64, flexShrink: 0 }}>{label}</span>
-      <span style={{ fontWeight: 600, fontFamily: mono ? 'monospace' : undefined, flex: 1, minWidth: 0, overflowWrap: 'anywhere', wordBreak: 'break-word' }}>{value}</span>
+      <span style={{ fontWeight: 600, fontFamily: mono ? 'monospace' : undefined, flex: 1, minWidth: 0, overflowWrap: 'break-word', wordBreak: 'break-word' }}>{value}</span>
     </div>
   );
 }

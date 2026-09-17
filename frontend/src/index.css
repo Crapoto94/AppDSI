@@ -49,6 +49,8 @@ button {
   overflow-y: auto;
   padding: 10px 14px !important;
   line-height: 1.5;
+  word-break: break-word;
+  overflow-wrap: break-word;
 }
 .ql-editor.ql-blank::before {
   color: #94a3b8;

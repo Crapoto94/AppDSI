@@ -753,7 +753,7 @@ function MessageBubble({ msg, isSelf }: { msg: LiveMessage; isSelf: boolean }) {
           <a href={msg.attachment_url} target="_blank" rel="noreferrer"
             style={{ display: 'flex', alignItems: 'center', gap: 6, color: isSelf ? '#fff' : '#6366f1', textDecoration: 'none' }}>
             <span style={{ fontSize: 18 }}>{getFileIconWidget(msg.attachment_name || '')}</span>
-            <span style={{ textDecoration: 'underline', wordBreak: 'break-all', fontSize: 13 }}>{msg.attachment_name || msg.content}</span>
+            <span style={{ textDecoration: 'underline', wordBreak: 'break-word', fontSize: 13 }}>{msg.attachment_name || msg.content}</span>
           </a>
         ) : (
           <div style={{ whiteSpace: 'pre-wrap' }}>{msg.content}</div>

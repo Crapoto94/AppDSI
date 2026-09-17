@@ -1322,7 +1322,7 @@ export default function LiveSessionsPanel() {
                             textDecoration: 'none', fontSize: 13,
                           }}>
                           <span style={{ fontSize: 16 }}>{getFileIcon(msg.attachment_name || '')}</span>
-                          <span style={{ textDecoration: 'underline', wordBreak: 'break-all' }}>{msg.attachment_name || msg.content}</span>
+                          <span style={{ textDecoration: 'underline', wordBreak: 'break-word' }}>{msg.attachment_name || msg.content}</span>
                         </a>
                       ) : (
                         <div style={{ whiteSpace: 'pre-wrap' }}>{msg.content}</div>
