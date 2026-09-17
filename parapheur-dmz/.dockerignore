@@ -1,0 +1,8 @@
+# Contexte de build local (dossier parapheur-dmz uniquement).
+node_modules
+dist
+dist-ssr
+.env
+*.log
+# Régénéré par scripts/copy-pdfjs-assets.mjs pendant le build.
+public/pdfjs

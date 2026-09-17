@@ -66,6 +66,7 @@ router.get('/:page', async (req, res) => {
             '/vols':                   'GUIDE-VOLS.md',
             '/admin/param-ville':      'GUIDE-PARAM-VILLE.md',
             '/boites-partagees':       'GUIDE-BOITES-PARTAGEES.md',
+            '/parapheur':              'GUIDE-PARAPHEUR.md',
         };
 
         const fileName = MAP[page];

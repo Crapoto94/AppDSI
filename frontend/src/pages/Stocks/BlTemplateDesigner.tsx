@@ -4,12 +4,9 @@
 // moteur de génération (bl-pdf.service.js).
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import axios from 'axios';
-import * as pdfjsLib from 'pdfjs-dist';
-import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
+import { pdfjsLib } from '../../utils/pdfjs';
 import { X, Plus, Trash2, Type, PenLine, Save } from 'lucide-react';
 import { stocksApi, type BlTemplate } from './api';
-
-pdfjsLib.GlobalWorkerOptions.workerSrc = workerUrl;
 
 const C = { indigo: '#6366f1', red: '#ef4444', green: '#22c55e', slate: '#64748b', border: '#e2e8f0', text: '#1e293b', bg: '#f8fafc' };
 const authHeaders = () => ({ Authorization: `Bearer ${localStorage.getItem('token')}` });

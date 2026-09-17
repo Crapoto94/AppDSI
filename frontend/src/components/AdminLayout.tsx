@@ -46,6 +46,7 @@ const AdminLayout: React.FC = () => {
     { title: "Paramétrage Hub", icon: Sliders, path: "/admin/hub", badge: isSuperAdmin ? pendingCount : 0 },
     { title: "Aides", icon: HelpCircle, path: "/admin/aides" },
     { title: "Param Ville", icon: LayoutGrid, path: "/admin/param-ville" },
+    { title: "Parapheur", icon: Key, path: "/admin/parapheur-certificats" },
     { title: "Backlog", icon: Inbox, path: "/admin/backlog" },
     { title: "Messagerie & Emails", icon: Mail, path: "/admin/mail" },
     { title: "AD et Entra", icon: Users, path: "/admin/ad" },

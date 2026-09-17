@@ -1234,7 +1234,10 @@ async function setupPgDb() {
         show_library BOOLEAN DEFAULT false,
         show_consommables BOOLEAN DEFAULT true,
         show_chat_live BOOLEAN DEFAULT false,
-        show_transcript_manager BOOLEAN DEFAULT false
+        show_transcript_manager BOOLEAN DEFAULT false,
+        show_parapheur BOOLEAN DEFAULT false,
+        show_tool_incident BOOLEAN DEFAULT true,
+        show_tool_demande BOOLEAN DEFAULT true
       );
     `);
 
@@ -1629,6 +1632,15 @@ async function setupPgDb() {
     } catch (e) {}
     try {
       await client.query(`ALTER TABLE magapp.settings ADD COLUMN IF NOT EXISTS show_transcript_manager BOOLEAN DEFAULT false`);
+    } catch (e) {}
+    try {
+      await client.query(`ALTER TABLE magapp.settings ADD COLUMN IF NOT EXISTS show_parapheur BOOLEAN DEFAULT false`);
+    } catch (e) {}
+    try {
+      await client.query(`ALTER TABLE magapp.settings ADD COLUMN IF NOT EXISTS show_tool_incident BOOLEAN DEFAULT true`);
+    } catch (e) {}
+    try {
+      await client.query(`ALTER TABLE magapp.settings ADD COLUMN IF NOT EXISTS show_tool_demande BOOLEAN DEFAULT true`);
     } catch (e) {}
 
     await client.query(`
@@ -6391,6 +6403,228 @@ async function setupPgDb() {
       await client.query(`CREATE INDEX IF NOT EXISTS idx_contract_renewals_relance ON hub.contract_renewals(date_relance)`);
       await client.query(`CREATE INDEX IF NOT EXISTS idx_contract_renewals_statut ON hub.contract_renewals(statut)`);
     } catch (e) { console.error('[PG DB] hub.contract_renewals:', e.message); }
+
+    // ─── Parapheur électronique ─────────────────────────────────────────────
+    // Workflow de signature de documents PDF : un parapheur contient N documents,
+    // N signataires (en mode séquentiel ou parallèle) et le positionnement de la
+    // signature de chaque signataire sur chaque document.
+    try {
+      await client.query('CREATE SCHEMA IF NOT EXISTS hub_parapheur;');
+
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS hub_parapheur.parapheurs (
+          id SERIAL PRIMARY KEY,
+          reference TEXT,
+          title TEXT NOT NULL,
+          message TEXT DEFAULT '',
+          status TEXT NOT NULL DEFAULT 'en_cours',
+          mode TEXT NOT NULL DEFAULT 'parallele',
+          deadline DATE,
+          public_token TEXT,
+          created_by_username TEXT,
+          created_by_name TEXT,
+          created_by_email TEXT,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          completed_at TIMESTAMP,
+          cancelled_at TIMESTAMP,
+          cancelled_by TEXT
+        )`);
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_parapheurs_status ON hub_parapheur.parapheurs(status)`);
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_parapheurs_creator ON hub_parapheur.parapheurs(created_by_username)`);
+      await client.query(`ALTER TABLE hub_parapheur.parapheurs ADD COLUMN IF NOT EXISTS public_token TEXT`);
+      await client.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_parapheurs_public_token ON hub_parapheur.parapheurs(public_token)`);
+
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS hub_parapheur.documents (
+          id SERIAL PRIMARY KEY,
+          parapheur_id INTEGER NOT NULL REFERENCES hub_parapheur.parapheurs(id) ON DELETE CASCADE,
+          original_name TEXT NOT NULL,
+          storage_path TEXT NOT NULL,
+          signed_path TEXT,
+          mime_type TEXT,
+          size BIGINT,
+          doc_hash TEXT,
+          sort_order INTEGER DEFAULT 0,
+          is_annexe BOOLEAN DEFAULT FALSE,
+          page_count INTEGER,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )`);
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_parapheur_documents_parapheur ON hub_parapheur.documents(parapheur_id)`);
+      await client.query(`ALTER TABLE hub_parapheur.documents ADD COLUMN IF NOT EXISTS is_annexe BOOLEAN DEFAULT FALSE`);
+      await client.query(`ALTER TABLE hub_parapheur.documents ADD COLUMN IF NOT EXISTS page_count INTEGER`);
+      await client.query(`ALTER TABLE hub_parapheur.documents ADD COLUMN IF NOT EXISTS seal_cert_pem TEXT`);
+      await client.query(`ALTER TABLE hub_parapheur.documents ADD COLUMN IF NOT EXISTS seal_hash TEXT`);
+      await client.query(`ALTER TABLE hub_parapheur.documents ADD COLUMN IF NOT EXISTS sealed_at TIMESTAMP`);
+
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS hub_parapheur.signataires (
+          id SERIAL PRIMARY KEY,
+          parapheur_id INTEGER NOT NULL REFERENCES hub_parapheur.parapheurs(id) ON DELETE CASCADE,
+          agent_id INTEGER,
+          nom TEXT NOT NULL,
+          email TEXT NOT NULL,
+          service TEXT,
+          order_number INTEGER DEFAULT 0,
+          status TEXT NOT NULL DEFAULT 'en_attente',
+          signature_mode TEXT NOT NULL DEFAULT 'simple',
+          sms_phone TEXT,
+          otp_code_hash TEXT,
+          otp_expires_at TIMESTAMP,
+          otp_attempts INTEGER DEFAULT 0,
+          signature_image_path TEXT,
+          token TEXT,
+          token_expires_at TIMESTAMP,
+          signed_at TIMESTAMP,
+          rejected_at TIMESTAMP,
+          rejection_comment TEXT,
+          reminder_count INTEGER DEFAULT 0,
+          last_reminder_at TIMESTAMP,
+          ip TEXT,
+          user_agent TEXT,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )`);
+      await client.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_parapheur_signataires_token ON hub_parapheur.signataires(token)`);
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_parapheur_signataires_parapheur ON hub_parapheur.signataires(parapheur_id)`);
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_parapheur_signataires_email ON hub_parapheur.signataires(LOWER(email))`);
+      // Migrations non destructives (tables créées par une version antérieure)
+      for (const col of [
+        `signature_image_path TEXT`,
+        `sms_phone TEXT`,
+        `otp_code_hash TEXT`,
+        `otp_expires_at TIMESTAMP`,
+        `otp_attempts INTEGER DEFAULT 0`,
+        `signed_by_email TEXT`,
+        `signed_by_name TEXT`,
+        `delegation_id INTEGER`,
+        `signature_title TEXT`,
+        `signature_note TEXT`,
+        `signature_note_path TEXT`,
+        `note_offset_x NUMERIC`,
+        `note_offset_y NUMERIC`,
+        `note_size NUMERIC`,
+      ]) {
+        try { await client.query(`ALTER TABLE hub_parapheur.signataires ADD COLUMN IF NOT EXISTS ${col}`); } catch (e) {}
+      }
+
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS hub_parapheur.signatures (
+          id SERIAL PRIMARY KEY,
+          signataire_id INTEGER NOT NULL REFERENCES hub_parapheur.signataires(id) ON DELETE CASCADE,
+          document_id INTEGER NOT NULL REFERENCES hub_parapheur.documents(id) ON DELETE CASCADE,
+          page INTEGER NOT NULL DEFAULT 1,
+          x_pct NUMERIC NOT NULL DEFAULT 75,
+          y_pct NUMERIC NOT NULL DEFAULT 85,
+          w_pt INTEGER NOT NULL DEFAULT 150,
+          h_pt INTEGER NOT NULL DEFAULT 60,
+          applied BOOLEAN DEFAULT FALSE,
+          signed_at TIMESTAMP,
+          ip TEXT,
+          user_agent TEXT
+        )`);
+      await client.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_parapheur_signatures_pair ON hub_parapheur.signatures(signataire_id, document_id)`);
+
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS hub_parapheur.agent_signatures (
+          id SERIAL PRIMARY KEY,
+          email TEXT NOT NULL,
+          agent_id INTEGER,
+          storage_path TEXT NOT NULL,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )`);
+      await client.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_parapheur_agent_signatures_email ON hub_parapheur.agent_signatures(LOWER(email))`);
+
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS hub_parapheur.agent_certificates (
+          id SERIAL PRIMARY KEY,
+          email TEXT NOT NULL,
+          agent_id INTEGER,
+          p12_path TEXT NOT NULL,
+          filename TEXT,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )`);
+      await client.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_parapheur_agent_certificates_email ON hub_parapheur.agent_certificates(LOWER(email))`);
+      for (const col of [
+        `nom TEXT`,
+        `subject TEXT`,
+        `issuer TEXT`,
+        `serial TEXT`,
+        `valid_from TIMESTAMP`,
+        `valid_to TIMESTAMP`,
+        `has_private_key BOOLEAN`,
+        `is_verified BOOLEAN DEFAULT FALSE`,
+        `validation_error TEXT`,
+        `validated_at TIMESTAMP`,
+        `remember BOOLEAN DEFAULT TRUE`,
+      ]) {
+        try { await client.query(`ALTER TABLE hub_parapheur.agent_certificates ADD COLUMN IF NOT EXISTS ${col}`); } catch (e) {}
+      }
+      await client.query(`ALTER TABLE hub_parapheur.documents ADD COLUMN IF NOT EXISTS has_pades BOOLEAN DEFAULT FALSE`);
+
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS hub_parapheur.delegations (
+          id SERIAL PRIMARY KEY,
+          delegant_email TEXT NOT NULL,
+          delegant_name TEXT,
+          delegate_email TEXT NOT NULL,
+          delegate_name TEXT,
+          delegate_agent_id INTEGER,
+          date_start DATE NOT NULL,
+          date_end DATE NOT NULL,
+          created_by TEXT,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )`);
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_parapheur_delegations_delegant ON hub_parapheur.delegations(LOWER(delegant_email))`);
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_parapheur_delegations_delegate ON hub_parapheur.delegations(LOWER(delegate_email))`);
+
+      // Autorité de certification interne (sceau de la plateforme) — clé privée chiffrée.
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS hub_parapheur.platform_ca (
+          id SERIAL PRIMARY KEY,
+          cert_pem TEXT NOT NULL,
+          key_enc TEXT NOT NULL,
+          subject TEXT,
+          serial TEXT,
+          fingerprint TEXT,
+          valid_from TIMESTAMP,
+          valid_to TIMESTAMP,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          rotated_at TIMESTAMP
+        )`);
+
+      // Certificats techniques émis « à la volée » pour chaque signature interne
+      // (simple/SMS) : preuve de l'événement, sans conservation de clé privée.
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS hub_parapheur.signature_certificates (
+          id SERIAL PRIMARY KEY,
+          parapheur_id INTEGER,
+          signataire_id INTEGER,
+          mode TEXT,
+          subject TEXT,
+          serial TEXT,
+          issuer TEXT,
+          fingerprint TEXT,
+          cert_pem TEXT,
+          signing_time TIMESTAMP,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )`);
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_parapheur_sig_certs_parapheur ON hub_parapheur.signature_certificates(parapheur_id)`);
+      await client.query(`ALTER TABLE hub_parapheur.parapheurs ADD COLUMN IF NOT EXISTS sealed_at TIMESTAMP`);
+      await client.query(`ALTER TABLE hub_parapheur.parapheurs ADD COLUMN IF NOT EXISTS seal_serial TEXT`);
+
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS hub_parapheur.audit_log (
+          id SERIAL PRIMARY KEY,
+          parapheur_id INTEGER,
+          actor TEXT,
+          action TEXT NOT NULL,
+          details TEXT,
+          ip TEXT,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )`);
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_parapheur_audit_parapheur ON hub_parapheur.audit_log(parapheur_id)`);
+    } catch (e) { console.error('[PG DB] hub_parapheur:', e.message); }
 
     console.log('[PG DB] Schema and tables initialized successfully');
   } catch (error) {

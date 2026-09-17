@@ -1,19 +1,96 @@
+# ═══════════════════════════════════════════════════════════════════════════════
+# Durcissement + WAF nginx (contexte http : ce fichier est inclus via conf.d)
+# ═══════════════════════════════════════════════════════════════════════════════
+server_tokens off;
+
+# Limitation de débit et de connexions par IP (anti-abus / brute force / DoS).
+limit_req_zone  $binary_remote_addr zone=ch_general:10m rate=30r/s;
+limit_req_zone  $binary_remote_addr zone=ch_auth:10m    rate=5r/m;
+limit_conn_zone $binary_remote_addr zone=ch_conn:10m;
+
+# WAF — motifs d'attaque dans l'URI (traversée de chemin, injection, scanners).
+map $request_uri $waf_uri {
+    default 0;
+    ~*(\.\./|\.\.%2f|%2e%2e%2f|%00|/etc/passwd|/proc/self|win\.ini)                        1;
+    ~*(<script|%3cscript|%3c%2fscript|javascript%3a|vbscript%3a|onerror%3d|onload%3d)     1;
+    ~*(union.*select|information_schema|sleep\(|benchmark\(|load_file\()                  1;
+    ~*(/\.git|/\.env|/\.svn|/\.htaccess|/\.aws|/\.ssh|wp-login|wp-admin|phpmyadmin|xmlrpc\.php|cgi-bin|phpunit) 1;
+}
+
+# WAF — user-agents d'outils offensifs / scanners.
+map $http_user_agent $waf_ua {
+    default 0;
+    ~*(sqlmap|nikto|nmap|masscan|acunetix|nessus|dirbuster|gobuster|wpscan|hydra|zgrab|nuclei|wfuzz|xray|qualys|openvas) 1;
+}
+
+# WAF — méthodes HTTP autorisées (bloque TRACE/TRACK/CONNECT…).
+map $request_method $waf_method {
+    default 1;
+    GET 0; HEAD 0; POST 0; PUT 0; PATCH 0; DELETE 0; OPTIONS 0;
+}
+
 server {
     listen 5175;
     server_name ${CHAT_DOMAIN};
-    client_max_body_size 10M;
-
     root /usr/share/nginx/html;
     index index.html;
 
-    # En-têtes de base recommandés pour un service exposé en DMZ.
-    # (Le TLS/HSTS réel est terminé par le reverse proxy DMZ en amont.)
-    add_header X-Content-Type-Options nosniff;
-    add_header X-Frame-Options SAMEORIGIN;
-    add_header Referrer-Policy strict-origin-when-cross-origin;
+    # ── Limites réseau (anti-abus, anti-slowloris) ────────────────────────────
+    client_max_body_size 10M;
+    client_body_timeout 10s;
+    client_header_timeout 10s;
+    send_timeout 15s;
+    keepalive_timeout 20s;
+    reset_timedout_connection on;
+    large_client_header_buffers 4 8k;
+
+    limit_req  zone=ch_general burst=60 nodelay;
+    limit_conn ch_conn 40;
+    limit_req_status  429;
+    limit_conn_status 429;
+
+    # ── WAF (méthode / URI / user-agent) ──────────────────────────────────────
+    if ($waf_method) { return 405; }
+    if ($waf_uri)    { return 403; }
+    if ($waf_ua)     { return 444; }
+
+    # ── En-têtes de sécurité (TLS/HSTS terminés par le reverse proxy DMZ) ─────
+    # Ne pas divulguer la techno du backend proxifié.
+    proxy_hide_header X-Powered-By;
+    proxy_hide_header Server;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-Frame-Options "SAMEORIGIN" always;
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+    add_header Permissions-Policy "geolocation=(), microphone=(), camera=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()" always;
+    add_header Cross-Origin-Opener-Policy "same-origin" always;
+    add_header Cross-Origin-Resource-Policy "same-origin" always;
+    add_header X-Permitted-Cross-Domain-Policies "none" always;
+    # HSTS : pertinent si le service est bien toujours servi en HTTPS via le
+    # reverse proxy. Retirer si un accès HTTP public doit rester possible.
+    add_header Strict-Transport-Security "max-age=31536000" always;
+    # CSP adaptée au front : styles inline (React), WebSocket same-origin,
+    # images data:/blob:.
+    add_header Content-Security-Policy "default-src 'self'; script-src 'self'; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' ws: wss:; media-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'" always;
 
     location / {
         try_files $uri $uri/ /index.html;
+    }
+
+    # IMPORTANT (sécurité DMZ) : le backend est un monolithe qui sert aussi
+    # les tickets, la finance, la RH, l'admin, etc. sous /api/*. On ne proxy
+    # ici QUE ce dont le chat a besoin, jamais /api/ dans son ensemble, pour
+    # ne pas exposer publiquement le reste de l'API interne.
+
+    # Endpoints d'authentification publics du chat : limite de débit renforcée
+    # (anti brute force sur les mots de passe AD / codes OTP).
+    location ~ ^/api/live/(guest-login|auth/ad|auth/otp/request|auth/otp/verify|auth/sms-token)$ {
+        limit_req zone=ch_auth burst=5 nodelay;
+        proxy_pass ${BACKEND_URL};
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
     }
 
     # Socket.io WebSocket proxy — doit être avant /api/
@@ -29,12 +106,7 @@ server {
         proxy_read_timeout 86400;
     }
 
-    # IMPORTANT (sécurité DMZ) : le backend est un monolithe qui sert aussi
-    # les tickets, la finance, la RH, l'admin, etc. sous /api/*. On ne proxy
-    # ici QUE ce dont le chat a besoin, jamais /api/ dans son ensemble, pour
-    # ne pas exposer publiquement le reste de l'API interne.
-
-    # Routes fonctionnelles du chat (auth, sessions, messages...)
+    # Routes fonctionnelles du chat (sessions, messages...)
     location /api/live/ {
         proxy_pass ${BACKEND_URL}/api/live/;
         proxy_http_version 1.1;
@@ -48,12 +120,22 @@ server {
     }
 
     # Pièces jointes du chat (servies par shared/storage.js sous /api/storage/...)
+    # LECTURE SEULE : les uploads passent par /api/live/sessions/:id/upload.
     location /api/storage/ {
+        limit_except GET HEAD { deny all; }
         proxy_pass ${BACKEND_URL}/api/storage/;
         proxy_http_version 1.1;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # Ne jamais servir de fichiers cachés / de sauvegarde.
+    location ~ /\.(?!well-known) {
+        deny all;
+    }
+    location ~* ~$ {
+        deny all;
     }
 }

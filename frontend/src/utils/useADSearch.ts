@@ -6,6 +6,8 @@ export interface ADUser {
   email: string;
   service?: string;
   direction?: string;
+  poste?: string;
+  matricule?: string;
 }
 
 interface UseADSearchOptions {

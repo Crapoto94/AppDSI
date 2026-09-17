@@ -2,6 +2,7 @@ const axios = require('axios');
 const https = require('https');
 const { HttpsProxyAgent } = require('https-proxy-agent');
 const { pgDb, getSqlite } = require('../../shared/database');
+const localEnabled = require('./local_enabled');
 const MailRulesService = require('./mail_rules.service');
 const observerRepo = require('../tickets/repositories/observer.repository');
 const commentRepo = require('../tickets/repositories/comment.repository');
@@ -574,7 +575,8 @@ class MailCollectorService {
 
   static async performCollection(collectorId) {
     const collector = await pgDb.get('SELECT * FROM hub_tickets.mail_collectors WHERE id = ?', [collectorId]);
-    if (!collector || !collector.is_enabled) {
+    if (!collector) return null;
+    if (!(await localEnabled.isEnabledLocally(getSqlite(), collectorId))) {
       return null;
     }
 
@@ -630,12 +632,22 @@ class MailCollectorService {
       ]
     );
 
-    // Mettre à jour last_run et next_run
+    // Mettre à jour last_run et next_run.
+    // IMPORTANT : on recule le curseur de quelques minutes (au lieu de last_run = NOW())
+    // car Microsoft Graph indexe parfois un email reçu avec un léger retard — un email dont
+    // receivedDateTime est déjà passé peut ne pas encore apparaître dans la recherche au
+    // moment exact du run. Avec last_run = NOW(), le prochain $filter (receivedDateTime ge
+    // last_run) exclut alors définitivement cet email, même une fois indexé (perte silencieuse
+    // constatée en prod le 16/09/2026 — cf. ticket 45115 ressaisi manuellement).
+    // Cette marge est sans risque : les emails déjà importés sont ignorés via la
+    // déduplication par internetMessageId (ticket_email_mapping) juste au-dessus.
+    const LAST_RUN_SAFETY_BUFFER_MS = 5 * 60 * 1000;
     const now = new Date();
     const nextRun = this.getNextRunTime(collector.frequency, now);
+    const safeLastRun = new Date(now.getTime() - LAST_RUN_SAFETY_BUFFER_MS);
     await pgDb.run(
-      'UPDATE hub_tickets.mail_collectors SET last_run = NOW(), next_run = ?, updated_at = NOW() WHERE id = ?',
-      [nextRun.toISOString(), collectorId]
+      'UPDATE hub_tickets.mail_collectors SET last_run = ?, next_run = ?, updated_at = NOW() WHERE id = ?',
+      [safeLastRun.toISOString(), nextRun.toISOString(), collectorId]
     );
 
     return log;
