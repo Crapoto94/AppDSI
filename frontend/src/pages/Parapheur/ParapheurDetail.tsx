@@ -10,7 +10,7 @@ interface Detail {
   id: number; reference: string; title: string; message: string; status: string; mode: string;
   deadline?: string | null; created_by_name?: string; created_at: string; completed_at?: string | null;
   sealed_at?: string | null; seal_serial?: string | null;
-  documents: { id: number; original_name: string; has_signed: boolean; has_crypto_signature?: boolean; has_pades?: boolean; size?: number; is_annexe?: boolean; page_count?: number | null }[];
+  documents: { id: number; original_name: string; has_signed: boolean; has_crypto_signature?: boolean; has_pades?: boolean; has_p12_signature?: boolean; size?: number; is_annexe?: boolean; page_count?: number | null }[];
   signataires: { id: number; nom: string; email: string; service?: string; order_number: number; status: string; signature_mode: string; signed_at?: string | null; rejected_at?: string | null; rejection_comment?: string | null; signed_by_name?: string | null; signed_by_email?: string | null; signature_note?: string | null; technique_certificate?: { serial?: string | null; issuer?: string | null; fingerprint?: string | null; signing_time?: string | null } | null; certificate?: { subject?: string | null; issuer?: string | null; serial?: string | null; valid_from?: string | null; valid_to?: string | null } | null }[];
 }
 
@@ -25,6 +25,13 @@ const SIG: Record<string, { label: string; color: string; bg: string }> = {
   en_cours: { label: 'Doit signer', color: '#b45309', bg: '#fffbeb' },
   a_signe: { label: 'A signé', color: '#15803d', bg: '#f0fdf4' },
   refuse: { label: 'A refusé', color: '#b91c1c', bg: '#fef2f2' },
+  sans_objet: { label: 'Sans objet', color: '#64748b', bg: '#f1f5f9' },
+};
+
+const MODE_LABEL: Record<string, string> = {
+  sequentiel: 'Séquentiel (puis)',
+  parallele: 'Parallèle (et)',
+  alternative: 'Alternatif (ou)',
 };
 
 export default function ParapheurDetail() {
@@ -118,8 +125,8 @@ export default function ParapheurDetail() {
       <span style={{ flex: 1, fontSize: 13, color: '#1e293b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
         {d.original_name}{d.page_count ? <span style={{ color: '#94a3b8' }}> · {d.page_count} page(s)</span> : null}
       </span>
-      {!isAnnexe && d.has_crypto_signature && (
-        <span title="Signature cryptographique P12 (PAdES)" style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 10, fontWeight: 700, color: '#15803d', background: '#f0fdf4', border: '1px solid #bbf7d0', padding: '2px 7px', borderRadius: 10, flexShrink: 0 }}>
+      {!isAnnexe && d.has_p12_signature && (
+        <span title="Signé par un certificat personnel P12 (PAdES)" style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 10, fontWeight: 700, color: '#15803d', background: '#f0fdf4', border: '1px solid #bbf7d0', padding: '2px 7px', borderRadius: 10, flexShrink: 0 }}>
           <ShieldCheck size={11} /> P12
         </span>
       )}
@@ -146,7 +153,7 @@ export default function ParapheurDetail() {
             <div style={{ fontSize: 12, color: '#64748b', marginTop: 10, display: 'flex', gap: 14, flexWrap: 'wrap' }}>
               <span>Créé le {new Date(detail.created_at).toLocaleDateString('fr-FR')}</span>
               <span>Par {detail.created_by_name}</span>
-              <span>{detail.mode === 'sequentiel' ? 'Séquentiel' : 'Parallèle'}</span>
+              <span>{MODE_LABEL[detail.mode] || 'Parallèle'}</span>
               {detail.deadline && <span>Échéance : {new Date(detail.deadline).toLocaleDateString('fr-FR')}</span>}
             </div>
           </div>
@@ -216,6 +223,11 @@ export default function ParapheurDetail() {
                         ? ` — signé par ${s.signed_by_name} par délégation${s.signed_at ? ` le ${new Date(s.signed_at).toLocaleDateString('fr-FR')}` : ''}`
                         : (s.signed_at ? ` — signé le ${new Date(s.signed_at).toLocaleDateString('fr-FR')}` : '')}
                     </div>
+                    {s.signature_mode === 'securise' && s.certificate && (
+                      <div style={{ fontSize: 11, color: '#6d28d9', marginTop: 2 }}>
+                        Certificat P12 — {s.certificate.subject || s.nom}{s.certificate.issuer ? ` · émetteur : ${s.certificate.issuer}` : ''}
+                      </div>
+                    )}
                     {s.status === 'refuse' && s.rejection_comment && <div style={{ fontSize: 11, color: '#b91c1c', fontStyle: 'italic', marginTop: 2 }}>« {s.rejection_comment} »</div>}
                   </div>
                   <span style={{ fontSize: 11, fontWeight: 700, color: ss.color, background: ss.bg, padding: '3px 9px', borderRadius: 12 }}>{ss.label}</span>

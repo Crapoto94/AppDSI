@@ -10,6 +10,12 @@ import { handwrittenTextDataUrl, signatureDataUrl } from '../../components/parap
 
 const AUTH_KEY = 'parapheur_sign_auth';
 
+const MODE_LABEL: Record<string, string> = {
+  sequentiel: 'Séquentiel (puis)',
+  parallele: 'Parallèle (et)',
+  alternative: 'Alternatif (ou)',
+};
+
 interface SignerAuth { token: string; username: string; displayName: string; email: string; }
 
 interface PublicInfo {
@@ -409,10 +415,12 @@ function SignerView({ token, auth, onLogout }: { token: string; auth: SignerAuth
     return (
       <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', background: '#f8fafc', padding: '60px 24px' }}>
         <CheckCircle2 size={56} color="#16a34a" />
-        <h2 style={{ color: '#0f172a', margin: '14px 0 6px' }}>{success?.done ? 'Parapheur entièrement signé' : 'Signature enregistrée'}</h2>
+        <h2 style={{ color: '#0f172a', margin: '14px 0 6px' }}>{success?.done ? (info.parapheur.mode === 'alternative' ? 'Parapheur validé' : 'Parapheur entièrement signé') : 'Signature enregistrée'}</h2>
         <p style={{ color: '#64748b', maxWidth: 460, textAlign: 'center', margin: '0 0 4px' }}>
           {success?.done
-            ? 'Toutes les signatures ont été recueillies. Le demandeur a été notifié.'
+            ? (info.parapheur.mode === 'alternative'
+              ? 'Le circuit alternatif est validé : la signature d\'un seul signataire suffisait. Le demandeur a été notifié.'
+              : 'Toutes les signatures ont été recueillies. Le demandeur a été notifié.')
             : 'Votre signature a bien été apposée sur le(s) document(s). Le demandeur a été notifié.'}
         </p>
         <p style={{ fontSize: 12, color: '#94a3b8', marginBottom: 22 }}>Réf. {info.parapheur.reference}</p>
@@ -469,6 +477,23 @@ function SignerView({ token, auth, onLogout }: { token: string; auth: SignerAuth
     return <Center><XCircle size={56} color="#64748b" /><h2 style={{ color: '#0f172a', margin: '14px 0 6px' }}>Parapheur annulé</h2><p style={{ color: '#64748b' }}>Ce parapheur n'est plus disponible.</p></Center>;
   }
 
+  // Circuit « ou » clôturé par un autre signataire, ou parapheur finalisé sans
+  // que ce signataire ait eu à signer : plus rien à faire ici.
+  if (info.parapheur.status === 'termine' && sStatus !== 'a_signe') {
+    return (
+      <Center>
+        <CheckCircle2 size={56} color="#16a34a" />
+        <h2 style={{ color: '#0f172a', margin: '14px 0 6px' }}>Parapheur déjà validé</h2>
+        <p style={{ color: '#64748b', maxWidth: 460, textAlign: 'center' }}>
+          {info.parapheur.mode === 'alternative'
+            ? "Ce document a été validé par un autre signataire : dans un circuit « ou », une seule signature suffit."
+            : 'Ce parapheur a déjà été finalisé. Votre signature n\'est plus requise.'}
+        </p>
+        <p style={{ fontSize: 12, color: '#94a3b8' }}>Réf. {info.parapheur.reference}</p>
+      </Center>
+    );
+  }
+
   return (
     <div style={{ minHeight: '100vh', background: '#f8fafc' }}>
       <div style={{ background: '#fff', borderBottom: '1px solid #e2e8f0' }}>
@@ -477,7 +502,7 @@ function SignerView({ token, auth, onLogout }: { token: string; auth: SignerAuth
           <div style={{ flex: 1 }}>
             <h1 style={{ margin: 0, fontSize: 20, fontWeight: 800, color: '#0f172a' }}>{info.parapheur.title}</h1>
             <p style={{ margin: '2px 0 0', fontSize: 12, color: '#64748b' }}>
-              Réf. {info.parapheur.reference} · Demandeur : {info.parapheur.requester} · {info.parapheur.mode === 'sequentiel' ? 'Séquentiel' : 'Parallèle'}
+              Réf. {info.parapheur.reference} · Demandeur : {info.parapheur.requester} · {MODE_LABEL[info.parapheur.mode] || 'Parallèle'}
             </p>
           </div>
           <div style={{ textAlign: 'right' }}>

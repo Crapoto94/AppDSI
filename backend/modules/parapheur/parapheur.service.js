@@ -1160,7 +1160,8 @@ async function createParapheur({ files, annexes, payload, user, req }) {
     for (const s of signataires) {
         if (!s.email) throw { status: 400, message: 'Chaque signataire doit avoir un email' };
     }
-    const mode = payload.mode === 'sequentiel' ? 'sequentiel' : 'parallele';
+    // Circuits : « puis » (sequentiel), « et » (parallele) et « ou » (alternative).
+    const mode = ['sequentiel', 'parallele', 'alternative'].includes(payload.mode) ? payload.mode : 'parallele';
     const ip = getClientIp(req);
     const year = new Date().getFullYear();
 
@@ -1277,12 +1278,13 @@ async function createParapheur({ files, annexes, payload, user, req }) {
 
     const parapheur = { id: parapheurId, title, reference, mode, deadline: payload.deadline || null, created_by_name: user.displayName || user.username, created_by_username: user.username };
 
-    // Activation initiale
+    // Activation initiale : tous les signataires en « et » et en « ou »
+    // (n'importe lequel peut signer), le premier seulement en « puis ».
     let initial;
-    if (mode === 'parallele') {
-        initial = inserted;
-    } else {
+    if (mode === 'sequentiel') {
         initial = inserted.length ? [inserted[0]] : [];
+    } else {
+        initial = inserted;
     }
     if (initial.length) await activateSignataires(parapheur, initial, ip);
 
@@ -1411,6 +1413,17 @@ async function getDetail(id) {
          WHERE sg.parapheur_id = ?`,
         [id]
     );
+    // Signatures P12 (certificat personnel du signataire) réellement apposées, par
+    // document : permet de distinguer une signature P12 d'un simple sceau de
+    // plateforme (les deux produisent une signature cryptographique dans le PDF).
+    const p12Rows = await pgDb.all(
+        `SELECT DISTINCT s.document_id
+         FROM hub_parapheur.signatures s
+         JOIN hub_parapheur.signataires sg ON sg.id = s.signataire_id
+         WHERE sg.parapheur_id = ? AND sg.signature_mode = 'securise' AND sg.status = 'a_signe'`,
+        [id]
+    );
+    const p12Docs = new Set(p12Rows.map(r => Number(r.document_id)));
     const auditLog = await pgDb.all(
         `SELECT * FROM hub_parapheur.audit_log WHERE parapheur_id = ? ORDER BY created_at DESC LIMIT 100`,
         [id]
@@ -1427,6 +1440,7 @@ async function getDetail(id) {
             page_count: d.page_count,
             has_signed: !!d.signed_path,
             has_pades: !!d.has_pades,
+            has_p12_signature: p12Docs.has(d.id),
             has_crypto_signature: d.signed_path ? await pdfHasSignature(d.signed_path) : false,
             doc_hash: d.doc_hash,
         }))),
@@ -1451,6 +1465,10 @@ async function getDetail(id) {
                 return t ? { serial: t.serial, issuer: t.issuer, fingerprint: t.fingerprint, signing_time: t.signing_time } : null;
             })(),
             certificate: (() => {
+                // Le certificat personnel n'est exposé que pour une signature
+                // réellement sécurisée (P12), jamais pour une signature simple/SMS
+                // (même si un certificat est enregistré par ailleurs pour l'agent).
+                if (s.signature_mode !== 'securise') return null;
                 const c = certByEmail.get(String(s.email || '').toLowerCase());
                 if (!c) return null;
                 return {
@@ -1623,15 +1641,25 @@ async function buildSignedPdf(originalPath, sigs, ctx = {}) {
     }
 
     for (const s of sigs) {
-        if (!s.img) continue;
-        const imgBuf = await readStorageFile(s.img);
-        let image;
-        const lower = String(s.img).toLowerCase();
-        try {
-            if (lower.endsWith('.jpg') || lower.endsWith('.jpeg')) image = await pdfDoc.embedJpg(imgBuf);
-            else image = await pdfDoc.embedPng(imgBuf);
-        } catch (e) {
-            try { image = await pdfDoc.embedPng(imgBuf); } catch { continue; }
+        // Une image de signature manquante (fichier supprimé ou déplacé sur le
+        // stockage) ne doit jamais bloquer tout le circuit : on appose alors la
+        // mention (nom, date) sans le tracé, au lieu d'échouer la génération.
+        let image = null;
+        if (s.img) {
+            try {
+                const imgBuf = await readStorageFile(s.img);
+                const lower = String(s.img).toLowerCase();
+                try {
+                    image = (lower.endsWith('.jpg') || lower.endsWith('.jpeg'))
+                        ? await pdfDoc.embedJpg(imgBuf)
+                        : await pdfDoc.embedPng(imgBuf);
+                } catch {
+                    image = await pdfDoc.embedPng(imgBuf);
+                }
+            } catch (e) {
+                console.warn('[PARAPHEUR] image de signature introuvable, tracé ignoré:', s.img);
+                image = null;
+            }
         }
         const idx = Math.max(0, Math.min((parseInt(s.page, 10) || 1) - 1, pages.length - 1));
         const page = pages[idx];
@@ -1662,18 +1690,20 @@ async function buildSignedPdf(originalPath, sigs, ctx = {}) {
 
         // La signature (image) est réduite dans la partie haute du cadre afin que
         // le nom et la fonction restent DANS le rectangle de positionnement.
-        const textBlockH = LABEL_SIZE + 3 + (hasTitle ? TITLE_SIZE + 3 : 0);
-        const imgAreaH = Math.max(10, h - textBlockH - 3);
-        const imgAreaW = w * 0.96;
-        const { width: nw, height: nh } = image.scale(1);
-        const ratio = nw / nh;
-        let dw = imgAreaW;
-        let dh = dw / ratio;
-        if (dh > imgAreaH) { dh = imgAreaH; dw = dh * ratio; }
-        if (dw > imgAreaW) { dw = imgAreaW; dh = dw / ratio; }
-        const imgX = boxLeft + (w - dw) / 2;
-        const imgY = boxTop - dh; // signature ancrée en haut du cadre
-        page.drawImage(image, { x: imgX, y: imgY, width: dw, height: dh });
+        if (image) {
+            const textBlockH = LABEL_SIZE + 3 + (hasTitle ? TITLE_SIZE + 3 : 0);
+            const imgAreaH = Math.max(10, h - textBlockH - 3);
+            const imgAreaW = w * 0.96;
+            const { width: nw, height: nh } = image.scale(1);
+            const ratio = nw / nh;
+            let dw = imgAreaW;
+            let dh = dw / ratio;
+            if (dh > imgAreaH) { dh = imgAreaH; dw = dh * ratio; }
+            if (dw > imgAreaW) { dw = imgAreaW; dh = dw / ratio; }
+            const imgX = boxLeft + (w - dw) / 2;
+            const imgY = boxTop - dh; // signature ancrée en haut du cadre
+            page.drawImage(image, { x: imgX, y: imgY, width: dw, height: dh });
+        }
 
         // Base de la mention manuscrite = coin bas-gauche du cadre.
         const x = boxLeft;
@@ -1827,6 +1857,7 @@ async function notifyRequester(parapheur, signataireNom, done) {
             signedCount: Number(counts.signed),
             totalCount: Number(counts.total),
             done: !!done,
+            mode: parapheur.mode,
             link: `${base}/parapheur/${parapheur.id}`,
         });
         await sendMailFn(parapheur.created_by_email, subject, html, [], 'parapheur');
@@ -1837,14 +1868,29 @@ async function notifyRequester(parapheur, signataireNom, done) {
 
 async function advanceAfterSign(parapheur) {
     const all = await pgDb.all(`SELECT * FROM hub_parapheur.signataires WHERE parapheur_id = ? ORDER BY order_number, id`, [parapheur.id]);
-    const done = all.length > 0 && all.every(s => s.status === 'a_signe');
+    const signed = all.filter(s => s.status === 'a_signe');
+    // « ou » (alternative) : la signature d'un seul signataire suffit à clore le
+    // circuit. « puis » (séquentiel) / « et » (parallèle) : tous doivent signer.
+    const done = parapheur.mode === 'alternative'
+        ? signed.length > 0
+        : (all.length > 0 && all.every(s => s.status === 'a_signe'));
 
     if (done) {
         await pgDb.run(`UPDATE hub_parapheur.parapheurs SET status = 'termine', completed_at = NOW(), updated_at = NOW() WHERE id = ?`, [parapheur.id]);
+        // En circuit « ou », les signataires devenus inutiles sont marqués
+        // « sans objet » : le circuit est déjà validé par une signature.
+        if (parapheur.mode === 'alternative') {
+            await pgDb.run(
+                `UPDATE hub_parapheur.signataires SET status = 'sans_objet'
+                 WHERE parapheur_id = ? AND status IN ('en_attente', 'en_cours')`,
+                [parapheur.id]
+            );
+        }
         // Sceau PAdES de fin de circuit (certificat éphémère de l'AC interne).
         try { await sealParapheur(parapheur.id); } catch (e) { console.error('[PARAPHEUR] sceau de fin de circuit:', e.message); }
-        await notifyRequester(parapheur, all[all.length - 1].nom, true);
-        await notifySignersCompleted(parapheur, all);
+        const lastSigned = signed.length ? signed[signed.length - 1].nom : (all[all.length - 1] || {}).nom;
+        await notifyRequester(parapheur, lastSigned, true);
+        await notifySignersCompleted(parapheur, signed);
         return { done: true };
     }
 
@@ -1874,6 +1920,7 @@ async function notifySignersCompleted(parapheur, signataires) {
                 signedCount: signataires.length,
                 totalCount: signataires.length,
                 done: true,
+                mode: parapheur.mode,
                 link: `${base}/parapheur/${parapheur.id}`,
             });
             await sendMailFn(s.email, subject.replace('Parapheur signé', 'Parapheur finalisé'), html, [], 'parapheur');
@@ -2124,7 +2171,22 @@ async function rejectWithToken(token, { comment, delegation, req }) {
         `UPDATE hub_parapheur.signataires SET status = 'refuse', rejected_at = NOW(), rejection_comment = ?, ip = ?, user_agent = ? WHERE id = ?`,
         [cleanComment, ip, getUserAgent(req), signataire.id]
     );
-    await pgDb.run(`UPDATE hub_parapheur.parapheurs SET status = 'refuse', updated_at = NOW() WHERE id = ?`, [parapheur.id]);
+    // Circuit « ou » : le refus d'un signataire n'interrompt pas le circuit tant
+    // qu'un autre peut encore signer. Le parapheur n'est refusé que lorsque plus
+    // personne n'est en mesure de le valider.
+    let markRefused = true;
+    if (parapheur.mode === 'alternative') {
+        const remaining = await pgDb.get(
+            `SELECT COUNT(*) AS n FROM hub_parapheur.signataires WHERE parapheur_id = ? AND status IN ('en_attente', 'en_cours')`,
+            [parapheur.id]
+        );
+        markRefused = Number(remaining?.n || 0) === 0;
+    }
+    if (markRefused) {
+        await pgDb.run(`UPDATE hub_parapheur.parapheurs SET status = 'refuse', updated_at = NOW() WHERE id = ?`, [parapheur.id]);
+    } else {
+        await pgDb.run(`UPDATE hub_parapheur.parapheurs SET updated_at = NOW() WHERE id = ?`, [parapheur.id]);
+    }
     const rejectActor = delegation ? (delegation.delegate_name || delegation.delegate_email) : signataire.nom;
     await audit(
         parapheur.id,
@@ -2273,6 +2335,14 @@ async function getVerificationInfo(token) {
     );
     const techBySigner = new Map();
     for (const t of techCerts) if (!techBySigner.has(t.signataire_id)) techBySigner.set(t.signataire_id, t);
+    const p12Rows = await pgDb.all(
+        `SELECT DISTINCT s.document_id
+         FROM hub_parapheur.signatures s
+         JOIN hub_parapheur.signataires sg ON sg.id = s.signataire_id
+         WHERE sg.parapheur_id = ? AND sg.signature_mode = 'securise' AND sg.status = 'a_signe'`,
+        [p.id]
+    );
+    const p12Docs = new Set(p12Rows.map(r => Number(r.document_id)));
     return {
         parapheur: {
             id: p.id,
@@ -2295,6 +2365,7 @@ async function getVerificationInfo(token) {
             size: d.size,
             has_signed: !!d.signed_path,
             has_pades: !!d.has_pades,
+            has_p12_signature: p12Docs.has(d.id),
             has_crypto_signature: d.signed_path ? await pdfHasSignature(d.signed_path) : false,
         }))),
         signataires: signataires.map(s => {
@@ -2360,9 +2431,9 @@ function wrapText(text, font, size, maxWidth) {
 }
 
 const SIGN_MODE_PROCESS = {
-    simple: "Signature simple : le signataire s'authentifie auprès du Hub DSI avec son compte de l'annuaire Active Directory de la collectivité, puis appose sa signature manuscrite numérisée. L'opération est horodatée et journalisée (adresse IP, agent logiciel).",
-    sms: "Signature vérifiée par SMS : le signataire s'authentifie avec son compte Active Directory, puis un code à 6 chiffres lui est adressé par SMS sur le numéro de téléphone enregistré (validité 10 minutes, tentatives limitées). La signature n'est apposée qu'après vérification du code.",
-    securise: "Signature sécurisée (certificat P12) : le signataire utilise un certificat X.509 personnel. Une signature cryptographique détachée PKCS#7 (format PAdES-BES) est intégrée au PDF, garantissant l'authenticité du signataire et l'intégrité du document (toute modification ultérieure invalide la signature).",
+    simple: "Signature simple : le signataire s'authentifie auprès du Hub DSI avec son compte de l'annuaire Active Directory de la collectivité, puis appose sa signature manuscrite numérisée. L'opération est horodatée et journalisée (adresse IP, agent logiciel). Portée : documents dont la validité juridique est interne à la collectivité.",
+    sms: "Signature vérifiée par SMS : le signataire s'authentifie avec son compte Active Directory, puis un code à 6 chiffres lui est adressé par SMS sur le numéro de téléphone enregistré (validité 10 minutes, tentatives limitées). La signature n'est apposée qu'après vérification du code. Portée : documents dont la validité juridique est interne à la collectivité.",
+    securise: "Signature sécurisée (certificat P12) : le signataire utilise un certificat X.509 personnel. Une signature cryptographique détachée PKCS#7 (format PAdES-BES) est intégrée au PDF, garantissant l'authenticité du signataire et l'intégrité du document (toute modification ultérieure invalide la signature). À utiliser lorsque la signature doit avoir une valeur probante externe à la collectivité.",
 };
 
 async function buildEvidenceReport(ctx) {
@@ -2413,7 +2484,7 @@ async function buildEvidenceReport(ctx) {
     kv('Référence', parapheur.reference);
     kv('Titre', parapheur.title);
     kv('Statut', parapheur.status);
-    kv('Circuit', parapheur.mode === 'sequentiel' ? 'Séquentiel' : 'Parallèle');
+    kv('Circuit', parapheur.mode === 'sequentiel' ? 'Séquentiel (« puis »)' : parapheur.mode === 'alternative' ? 'Alternatif (« ou »)' : 'Parallèle (« et »)');
     kv('Demandeur', parapheur.created_by_name || parapheur.created_by_username);
     kv('Créé le', fmtDateTime(parapheur.created_at));
     if (parapheur.deadline) kv('Échéance', fmtDateTime(parapheur.deadline));
@@ -2429,6 +2500,9 @@ async function buildEvidenceReport(ctx) {
     for (const m of ['simple', 'sms', 'securise']) {
         if (modesUsed.has(m)) text(SIGN_MODE_PROCESS[m], { size: 9, indent: 6 });
     }
+    if (modesUsed.has('simple') || modesUsed.has('sms')) {
+        text("Périmètre des signatures sans certificat : la signature simple et la signature vérifiée par SMS s'adressent à des documents dont la validité juridique est interne à la collectivité. Si la signature doit avoir une valeur probante externe, le signataire doit disposer d'un certificat personnel et utiliser la signature sécurisée (certificat P12).", { size: 8.5, color: rgb(0.35, 0.35, 0.42) });
+    }
     text("Chaque PDF signé comporte, sur toutes ses pages, une mention indiquant le signataire, la date et, le cas échéant, la mention « par délégation de … », ainsi qu'un code QR renvoyant vers la page de vérification publique.", { size: 9 });
 
     heading('3. Documents et empreintes (SHA-256)');
@@ -2437,7 +2511,10 @@ async function buildEvidenceReport(ctx) {
         space(40);
         text(`• ${h.name}${h.is_annexe ? ' (annexe, non signée)' : ''} — ${h.page_count ? h.page_count + ' page(s)' : 'pages non renseignées'}`, { size: 9.5, font: bold, gap: 2 });
         text(`Original : ${h.orig_hash || '—'}`, { size: 7.5, font: mono, indent: 10, gap: 2, color: rgb(0.3, 0.3, 0.4) });
-        if (h.signed_hash) text(`PDF signé : ${h.signed_hash}${h.has_pades ? '  [signature PAdES]' : ''}`, { size: 7.5, font: mono, indent: 10, gap: 2, color: rgb(0.3, 0.3, 0.4) });
+        if (h.signed_hash) {
+            const cryptoLabel = h.has_p12 ? '  [signature P12 du signataire]' : (h.has_pades ? '  [sceau de la plateforme]' : '');
+            text(`PDF signé : ${h.signed_hash}${cryptoLabel}`, { size: 7.5, font: mono, indent: 10, gap: 2, color: rgb(0.3, 0.3, 0.4) });
+        }
         y -= 2;
     }
 
@@ -2522,6 +2599,15 @@ async function getEvidenceArchive(parapheurId) {
     const certRows = await pgDb.all(`SELECT LOWER(email) AS email, subject, issuer, serial, valid_from, valid_to FROM hub_parapheur.agent_certificates`);
     const certByEmail = new Map(certRows.map(c => [c.email, c]));
 
+    const p12Rows = await pgDb.all(
+        `SELECT DISTINCT s.document_id
+         FROM hub_parapheur.signatures s
+         JOIN hub_parapheur.signataires sg ON sg.id = s.signataire_id
+         WHERE sg.parapheur_id = ? AND sg.signature_mode = 'securise' AND sg.status = 'a_signe'`,
+        [p.id]
+    );
+    const p12Docs = new Set(p12Rows.map(r => Number(r.document_id)));
+
     const settings = await getParapheurSettings();
     const verifyUrl = p.public_token ? `${settings.effective_base_url}${VERIFY_PATH}/${p.public_token}` : '';
 
@@ -2533,7 +2619,7 @@ async function getEvidenceArchive(parapheurId) {
         let orig = null, signed = null;
         try { orig = await readStorageFile(d.storage_path); if (!origHash && orig) origHash = sha256(orig); } catch { /* ignore */ }
         if (d.signed_path) { try { signed = await readStorageFile(d.signed_path); if (signed) signedHash = sha256(signed); } catch { /* ignore */ } }
-        hashes.push({ name: d.original_name, is_annexe: !!d.is_annexe, page_count: d.page_count, orig_hash: origHash, signed_hash: signedHash, has_pades: !!d.has_pades });
+        hashes.push({ name: d.original_name, is_annexe: !!d.is_annexe, page_count: d.page_count, orig_hash: origHash, signed_hash: signedHash, has_pades: !!d.has_pades, has_p12: p12Docs.has(d.id) });
         if (orig) filesToAdd.push({ name: `documents_originaux/${sanitizeFilename(d.original_name)}`, buffer: orig });
         if (signed) filesToAdd.push({ name: `documents_signes/${sanitizeFilename(String(d.original_name || 'document.pdf').replace(/\.pdf$/i, '') + '_signe.pdf')}`, buffer: signed });
     }
@@ -2575,7 +2661,7 @@ async function getEvidenceArchive(parapheurId) {
             `${h.name}${h.is_annexe ? ' (annexe)' : ''}`,
             `  pages      : ${h.page_count ?? '—'}`,
             `  SHA-256    : ${h.orig_hash || '—'}`,
-            `  signé      : ${h.signed_hash || '—'}${h.has_pades ? ' (PAdES)' : ''}`,
+            `  signé      : ${h.signed_hash || '—'}${h.has_p12 ? ' (signature P12)' : (h.has_pades ? ' (sceau plateforme)' : '')}`,
         ].join('\n'))
         .join('\n\n');
 

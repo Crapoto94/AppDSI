@@ -216,6 +216,11 @@ function SignatureBanner({ info }: { info: DocSignatureInfo }) {
                   {MODE_LABEL[s.mode] || s.mode}
                 </span>
               </div>
+              {s.mode === 'securise' && s.certificate && (
+                <div style={{ color: '#5b21b6', fontSize: 11, marginTop: 2 }}>
+                  Certificat P12 — {s.certificate.subject || s.name}{s.certificate.issuer ? ` · émetteur : ${s.certificate.issuer}` : ''}
+                </div>
+              )}
               <div style={{ color: '#64748b', marginTop: 2 }}>
                 {s.signed_at ? `Signé le ${new Date(s.signed_at).toLocaleString('fr-FR')}` : ''}
                 {s.delegated_by ? `${s.signed_at ? ' — ' : ''}par délégation de ${s.delegated_by}` : ''}

@@ -9,7 +9,7 @@ interface VerifyInfo {
     deadline?: string | null; requester: string; created_at: string; completed_at?: string | null;
     sealed_at?: string | null; seal_serial?: string | null;
   };
-  documents: { id: number; original_name: string; mime_type: string; size?: number; has_signed: boolean; has_pades: boolean; has_crypto_signature: boolean }[];
+  documents: { id: number; original_name: string; mime_type: string; size?: number; has_signed: boolean; has_pades: boolean; has_p12_signature?: boolean; has_crypto_signature: boolean }[];
   signataires: { nom: string; service?: string; order_number: number; status: string; signature_mode: string; signed_at?: string | null; signed_by_name?: string | null; signature_note?: string | null; technique_certificate?: { serial?: string | null; issuer?: string | null; fingerprint?: string | null; signing_time?: string | null } | null; certificate?: { subject?: string | null; issuer?: string | null; serial?: string | null; valid_from?: string | null; valid_to?: string | null } | null }[];
 }
 
@@ -37,6 +37,7 @@ const SIG: Record<string, { label: string; color: string; bg: string }> = {
   en_cours: { label: 'Doit signer', color: '#b45309', bg: '#fffbeb' },
   a_signe: { label: 'A signé', color: '#15803d', bg: '#f0fdf4' },
   refuse: { label: 'A refusé', color: '#b91c1c', bg: '#fef2f2' },
+  sans_objet: { label: 'Sans objet', color: '#64748b', bg: '#f1f5f9' },
 };
 
 /**
@@ -129,8 +130,8 @@ export default function ParapheurVerification() {
               <div key={d.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 12px', border: '1px solid #f1f5f9', borderRadius: 9 }}>
                 <FileText size={15} color="#ef4444" />
                 <span style={{ flex: 1, fontSize: 13, color: '#1e293b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.original_name}</span>
-                {d.has_crypto_signature && (
-                  <span title="Signature cryptographique P12 (PAdES)" style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 10, fontWeight: 700, color: '#15803d', background: '#f0fdf4', border: '1px solid #bbf7d0', padding: '2px 7px', borderRadius: 10, flexShrink: 0 }}>
+                {d.has_p12_signature && (
+                  <span title="Signé par un certificat personnel P12 (PAdES)" style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 10, fontWeight: 700, color: '#15803d', background: '#f0fdf4', border: '1px solid #bbf7d0', padding: '2px 7px', borderRadius: 10, flexShrink: 0 }}>
                     <ShieldCheck size={11} /> P12
                   </span>
                 )}
@@ -201,6 +202,11 @@ export default function ParapheurVerification() {
                         ? `signé par ${s.signed_by_name} par délégation${s.signed_at ? ` le ${new Date(s.signed_at).toLocaleDateString('fr-FR')}` : ''}`
                         : (s.signed_at ? `signé le ${new Date(s.signed_at).toLocaleDateString('fr-FR')}` : 'en attente de signature')}
                     </div>
+                    {s.signature_mode === 'securise' && s.certificate && (
+                      <div style={{ fontSize: 11, color: '#6d28d9', marginTop: 2 }}>
+                        Certificat P12 — {s.certificate.subject || s.nom}{s.certificate.issuer ? ` · émetteur : ${s.certificate.issuer}` : ''}
+                      </div>
+                    )}
                   </div>
                   <span style={{ fontSize: 11, fontWeight: 700, color: ss.color, background: ss.bg, padding: '3px 9px', borderRadius: 12 }}>{ss.label}</span>
                 </div>

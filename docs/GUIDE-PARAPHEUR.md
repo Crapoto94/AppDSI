@@ -12,7 +12,7 @@
 3. [Créer un parapheur (pas à pas)](#3-créer-un-parapheur-pas-à-pas)
 4. [Signer un document reçu par e-mail](#4-signer-un-document-reçu-par-e-mail-côté-signataire)
 5. [Les 3 façons de signer](#5-les-3-façons-de-signer)
-6. [Circuit séquentiel ou circuit parallèle ?](#6-circuit-séquentiel-ou-circuit-parallèle)
+6. [Le circuit puis, et ou](#6-le-circuit-puis-et-ou)
 7. [Suivre, relancer, annuler un parapheur](#7-suivre-relancer-annuler-un-parapheur)
 8. [Déléguer sa signature](#8-déléguer-sa-signature)
 9. [Vérifier l'authenticité d'un document signé](#9-vérifier-lauthenticité-dun-document-signé-qr-code)
@@ -115,10 +115,10 @@ Depuis `/parapheur`, cliquez sur **« Nouveau »**.
 3. **Annexes** *(optionnel)* — des PDF consultables par les signataires mais qui ne seront pas signés (ex. un rapport de présentation joint à une délibération).
 4. **Signataires** — recherchez chaque agent via l'annuaire RH, choisissez son mode de signature (voir [§5](#5-les-3-façons-de-signer)) et, si besoin, le titre affiché sous son nom (ex. *« Directeur des Systèmes d'Information »*).
 5. **Positionnement** — si plusieurs documents ou signataires, placez le cadre de chaque signature à l'endroit voulu sur la page (glisser-déposer sur l'aperçu).
-6. Dès le **2ᵉ signataire** ajouté, une fenêtre vous demande de choisir le **circuit** : séquentiel ou parallèle ([§6](#6-circuit-séquentiel-ou-circuit-parallèle)).
+6. Dès le **2ᵉ signataire** ajouté, une fenêtre vous demande de choisir le **circuit** : *puis* (séquentiel), *et* (parallèle) ou *ou* (alternatif) ([§6](#6-le-circuit-puis-et-ou)).
 7. Validez : le parapheur passe en statut **« en cours »**, et le ou les premiers signataires reçoivent leur lien par e-mail.
 
-> **Exemple concret** — Un arrêté municipal à faire signer par le DGS puis par le Maire : vous créez un parapheur avec le PDF de l'arrêté, vous ajoutez les deux signataires dans cet ordre, vous choisissez **séquentiel**. Le DGS signe en premier ; le Maire n'est sollicité qu'une fois la signature du DGS enregistrée.
+> **Exemple concret** — Un arrêté municipal à faire signer par le DGS puis par le Maire : vous créez un parapheur avec le PDF de l'arrêté, vous ajoutez les deux signataires dans cet ordre, vous choisissez **« puis » (séquentiel)**. Le DGS signe en premier ; le Maire n'est sollicité qu'une fois la signature du DGS enregistrée.
 
 ---
 
@@ -144,9 +144,17 @@ Quand c'est votre tour de signer, vous recevez un e-mail contenant un **lien per
 | **Sécurisée (certificat P12)** | En plus de la signature manuscrite, un certificat personnel protégé par mot de passe vient authentifier cryptographiquement l'acte. | Réservé aux directions générales et directeurs, pour les actes à forte valeur juridique. Non délégable. |
 | **SMS (code à usage unique)** | Un code à 6 chiffres est envoyé par SMS et doit être saisi pour valider la signature, en plus du tracé manuscrit. | Renforce la preuve d'identité sans nécessiter de certificat personnel. |
 
+> ⚖️ **Périmètre des signatures sans certificat** — La signature **simple** et la signature **SMS** s'adressent à des documents dont la **validité juridique est interne à la collectivité** (courriers, notes, validations de service…). Elles reposent sur l'identification de l'agent dans l'annuaire Active Directory et sur la journalisation de l'opération, mais **ne s'appuient pas sur un certificat personnel** : leur force probante est donc limitée au périmètre interne.
+> Si la signature doit avoir une **valeur probante externe** (à l'égard d'un tiers, d'une administration, d'un partenaire…), le signataire **doit disposer d'un certificat personnel** et utiliser la **signature sécurisée (certificat P12)**, seule à produire une signature cryptographique rattachée à son identité.
+
 ---
 
-## 6. Circuit séquentiel ou circuit parallèle ?
+## 6. Le circuit puis, et ou
+
+Le circuit décide **qui doit signer pour que le parapheur soit validé**. Trois modes sont proposés :
+- **Puis** (séquentiel) : les signataires signent **l'un après l'autre**, dans l'ordre défini.
+- **Et** (parallèle) : **tous** les signataires doivent signer.
+- **Ou** (alternatif) : **une seule signature suffit** — le parapheur est validé dès que **l'un ou l'autre** des signataires a signé ; les autres n'ont plus à signer.
 
 <svg viewBox="0 0 900 300" xmlns="http://www.w3.org/2000/svg" style="width:100%;max-width:860px;height:auto;">
   <text x="20" y="24" font-size="13" font-weight="700" fill="#1e293b">Séquentiel — un signataire à la fois</text>
@@ -195,8 +203,10 @@ Quand c'est votre tour de signer, vous recevez un e-mail contenant un **lien per
   </defs>
 </svg>
 
-- **Séquentiel** : utile quand l'ordre compte (ex. *avis technique → validation hiérarchique → signature du Maire*). Chaque signataire ne voit le document que quand c'est son tour.
-- **Parallèle** : utile quand l'ordre n'a pas d'importance (ex. plusieurs élus qui co-signent une même délibération) — tout le monde reçoit son lien immédiatement, et le parapheur se termine dès que **tous** ont signé, quel que soit l'ordre.
+- **Puis (séquentiel)** : utile quand l'ordre compte (ex. *avis technique → validation hiérarchique → signature du Maire*). Chaque signataire ne voit le document que quand c'est son tour.
+- **Et (parallèle)** : utile quand l'ordre n'a pas d'importance (ex. plusieurs élus qui co-signent une même délibération) — tout le monde reçoit son lien immédiatement, et le parapheur se termine dès que **tous** ont signé, quel que soit l'ordre.
+- **Ou (alternatif)** : utile quand **une seule** signature est requise parmi plusieurs personnes possibles (ex. un acte pouvant être signé indifféremment par le Maire **ou** par un adjoint délégué) — chacun reçoit son lien immédiatement et le parapheur se termine dès que **l'un d'eux** a signé. Les signataires qui n'ont plus à signer sont alors marqués « sans objet ».
+  - En mode « ou », un refus n'interrompt pas le circuit tant qu'un autre signataire peut encore le valider : le parapheur n'est déclaré refusé que si plus personne n'est en mesure de signer.
 
 ---
 
@@ -254,7 +264,7 @@ Oui, la page de signature fonctionne sur mobile (y compris pour dessiner sa sign
 
 ### 11.1 Architecture générale du scellement
 
-Quand le **dernier signataire** valide sa signature, le parapheur passe au statut `terminé` et un processus de **scellement** se déclenche automatiquement côté serveur :
+Quand le circuit est validé — **tous** les signataires en circuit « et », le signataire attendu en circuit « puis », ou **une seule** signature en circuit « ou » — le parapheur passe au statut `terminé` et un processus de **scellement** se déclenche automatiquement côté serveur :
 
 <svg viewBox="0 0 900 460" xmlns="http://www.w3.org/2000/svg" style="width:100%;max-width:820px;height:auto;">
   <defs>
@@ -356,6 +366,20 @@ Pour les équipes techniques amenées à déboguer ou faire évoluer le module (
 | `GET /api/parapheur/:id/verify-seal` | Recalcule et renvoie le résultat des vérifications d'intégrité et de chaîne de confiance. |
 | `GET /api/parapheur/verify/:token` | Point d'entrée public (QR code), sans authentification. |
 | `GET /api/parapheur/admin/ca` | Émission/consultation de l'autorité de certification interne (réservé admin). |
+
+Valeurs du champ `mode` d'un parapheur : `sequentiel` (« puis »), `parallele` (« et »), `alternative` (« ou »).
+
+### 11.8 Portée juridique et distinction des signatures
+
+| Élément | Nature | Portée |
+|---|---|---|
+| **Signature simple / SMS** | Identification AD + tracé manuscrit + horodatage/journalisation ; un **certificat technique** éphémère (AC interne) est associé à l'événement de signature. | **Validité interne à la collectivité.** Ne confère pas, à elle seule, une valeur probante externe. |
+| **Signature sécurisée (P12)** | Signature cryptographique **PAdES-BES** intégrée au PDF avec le **certificat personnel X.509** du signataire. | Authentifie le signataire et garantit l'intégrité du document ; appropriée lorsque la signature doit avoir une **valeur probante externe**. |
+| **Sceau de fin de circuit** | Signature **PAdES** de la **plateforme** (certificat éphémère émis par l'AC interne) apposée sur chaque document signé à la clôture du parapheur. | Scelle l'intégrité du document et atteste de son origine (la plateforme). Ce **n'est pas** une signature au nom d'un agent : il ne doit pas être présenté comme une signature P12. |
+
+> ℹ️ Le sceau de plateforme produit, comme la signature P12, un objet cryptographique dans le PDF. C'est pourquoi l'interface ne réserve le badge **« P12 »** qu'aux documents ayant réellement été signés par un certificat personnel : la présence d'une signature cryptographique seule ne suffit pas à conclure à une signature P12.
+
+Lorsqu'une signature P12 est apposée, le **titulaire du certificat** (nom) et son **émetteur** sont affichés sous le nom du signataire (et repris dans le bandeau de signature de la visionneuse). Ces éléments ne sont jamais affichés pour une signature simple ou SMS, même si l'agent possède par ailleurs un certificat enregistré.
 
 ---
 

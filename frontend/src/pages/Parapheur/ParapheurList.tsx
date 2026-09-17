@@ -35,6 +35,12 @@ const STATUS: Record<string, { label: string; color: string; bg: string; icon: R
   annule: { label: 'Annulé', color: '#64748b', bg: '#f1f5f9', icon: <Ban size={14} /> },
 };
 
+const MODE_LABEL: Record<string, string> = {
+  sequentiel: 'Séquentiel (puis)',
+  parallele: 'Parallèle (et)',
+  alternative: 'Alternatif (ou)',
+};
+
 export default function ParapheurList() {
   const { token, user } = useAuth();
   const navigate = useNavigate();
@@ -140,7 +146,7 @@ export default function ParapheurList() {
           <FileSignature size={28} color="#7c3aed" />
           <div style={{ flex: 1 }}>
             <h1 style={{ margin: 0, fontSize: 24, fontWeight: 800, color: '#0f172a' }}>Parapheur électronique</h1>
-            <p style={{ margin: '2px 0 0', fontSize: 13, color: '#64748b' }}>Signature de documents PDF (circuit séquentiel ou parallèle)</p>
+            <p style={{ margin: '2px 0 0', fontSize: 13, color: '#64748b' }}>Signature de documents PDF (circuits puis, et ou)</p>
           </div>
           <button onClick={() => navigate('/parapheur/nouveau')} style={primaryBtn}>
             <PenSquare size={16} /> Nouveau parapheur
@@ -210,7 +216,7 @@ export default function ParapheurList() {
                         </div>
                         <div style={{ fontSize: 12, color: '#64748b', marginTop: 4, display: 'flex', gap: 14, flexWrap: 'wrap' }}>
                           <span>{new Date(r.created_at).toLocaleDateString('fr-FR')}</span>
-                          <span>{r.mode === 'sequentiel' ? 'Séquentiel' : 'Parallèle'}</span>
+                          <span>{MODE_LABEL[r.mode] || 'Parallèle'}</span>
                           {r.nb_documents != null && <span>{r.nb_documents} document(s)</span>}
                           {r.nb_signataires != null && <span>{r.nb_signes}/{r.nb_signataires} signé(s)</span>}
                           {r.deadline && <span>Échéance : {new Date(r.deadline).toLocaleDateString('fr-FR')}</span>}

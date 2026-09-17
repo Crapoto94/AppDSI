@@ -9,8 +9,14 @@ import AgentPresenceBadge from '../../components/AgentPresenceBadge';
 import { useAuth } from '../../contexts/AuthContext';
 
 interface DocFile { id: string; file: File; name: string; }
-type Mode = 'sequentiel' | 'parallele';
+type Mode = 'sequentiel' | 'parallele' | 'alternative';
 type SignMode = 'simple' | 'securise' | 'sms';
+
+const MODE_LABEL: Record<Mode, string> = {
+  sequentiel: 'Séquentiel',
+  parallele: 'Parallèle',
+  alternative: 'Alternatif',
+};
 
 let fileSeq = 0;
 const nextFileId = () => `f${Date.now()}_${fileSeq++}`;
@@ -329,13 +335,19 @@ export default function ParapheurCreate() {
             </div>
           )}
 
+          <p style={hint}>
+            Signature simple ou SMS : pour des documents dont la validité juridique est interne à la collectivité.
+            Si la signature doit avoir une valeur probante externe, le signataire doit disposer d'un certificat personnel
+            et utiliser le mode « Sécurisée (P12) ».
+          </p>
+
           {/* Workflow — uniquement à partir de 2 signataires */}
           {signataires.length >= 2 && (
             <div style={{ marginTop: 16, background: '#faf5ff', border: '1px solid #e9d5ff', borderRadius: 10, padding: 14 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
                 <GitBranch size={15} color="#7c3aed" />
                 <span style={{ fontSize: 12, fontWeight: 800, color: '#6d28d9', textTransform: 'uppercase', letterSpacing: '.05em' }}>
-                  Circuit {mode === 'sequentiel' ? 'séquentiel' : 'parallèle'}
+                  Circuit {MODE_LABEL[mode]}
                 </span>
                 <button onClick={() => setShowModeModal(true)} style={{ marginLeft: 'auto', border: 'none', background: 'none', color: '#7c3aed', fontSize: 12, fontWeight: 700, cursor: 'pointer', textDecoration: 'underline' }}>
                   Modifier
@@ -346,13 +358,14 @@ export default function ParapheurCreate() {
                   <React.Fragment key={s.email}>
                     {i > 0 && (mode === 'sequentiel'
                       ? <ArrowRight size={16} color="#a78bfa" />
-                      : <span style={{ color: '#a78bfa', fontWeight: 800 }}>+</span>)}
+                      : <span style={{ color: '#a78bfa', fontWeight: 800 }}>{mode === 'alternative' ? 'ou' : '+'}</span>)}
                     <span style={{ padding: '5px 12px', borderRadius: 16, background: '#fff', border: '1px solid #ddd6fe', fontSize: 12, fontWeight: 700, color: '#5b21b6' }}>
                       {mode === 'sequentiel' ? `${i + 1}. ` : ''}{s.displayName}
                     </span>
                   </React.Fragment>
                 ))}
-                {mode === 'parallele' && <span style={{ fontSize: 11, color: '#7c3aed', fontStyle: 'italic' }}>tous en parallèle</span>}
+                {mode === 'parallele' && <span style={{ fontSize: 11, color: '#7c3aed', fontStyle: 'italic' }}>tous doivent signer</span>}
+                {mode === 'alternative' && <span style={{ fontSize: 11, color: '#7c3aed', fontStyle: 'italic' }}>l'un ou l'autre suffit</span>}
               </div>
             </div>
           )}
@@ -437,8 +450,10 @@ function ModeModal({ value, count, onCancel, onConfirm }: { value: Mode; count: 
           <button onClick={onCancel} style={{ marginLeft: 'auto', border: 'none', background: 'none', cursor: 'pointer', color: '#94a3b8', display: 'flex' }}><X size={18} /></button>
         </div>
         <p style={{ fontSize: 13, color: '#64748b', margin: '4px 0 16px' }}>Vous avez {count} signataires. Comment doivent-ils signer ?</p>
-        {([['parallele', 'En parallèle', 'Tous signent en même temps, peu importe l\'ordre.'],
-           ['sequentiel', 'Séquentiel', 'L\'un après l\'autre, dans l\'ordre défini.']
+        {([
+           ['sequentiel', 'Puis', 'Circuit séquentiel : l\'un après l\'autre, dans l\'ordre défini.'],
+           ['parallele', 'Et', 'Circuit parallèle : tous les signataires doivent signer, peu importe l\'ordre.'],
+           ['alternative', 'Ou', 'Circuit alternatif : la signature d\'un seul signataire suffit à valider le document.'],
         ] as [Mode, string, string][]).map(([m, label, desc]) => (
           <button key={m} onClick={() => setChoice(m)} style={{
             display: 'flex', alignItems: 'flex-start', gap: 10, width: '100%', textAlign: 'left',

@@ -51,7 +51,9 @@ function button(url, label, color) {
 function signatureRequest({ signataireNom, requesterName, title, reference, documents, link, deadline, mode, frontUrl }) {
     const modeTxt = mode === 'sequentiel'
         ? 'Diffusion séquentielle : vous êtes invité(e) à signer à votre tour.'
-        : 'Diffusion parallèle : vous pouvez signer dès maintenant.';
+        : mode === 'alternative'
+            ? "Circuit alternatif : la signature de l'un des signataires suffit à valider le document. Vous pouvez signer dès maintenant."
+            : 'Diffusion parallèle : vous pouvez signer dès maintenant.';
     const deadlineHtml = deadline
         ? `<p style="font-size:13px;color:#b45309;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:10px 14px;">⏰ Merci de signer avant le <strong>${esc(new Date(deadline).toLocaleDateString('fr-FR'))}</strong>.</p>`
         : '';
@@ -67,7 +69,8 @@ function signatureRequest({ signataireNom, requesterName, title, reference, docu
     };
 }
 
-function signatureProgress({ requesterName, signataireNom, title, reference, signedCount, totalCount, done, link }) {
+function signatureProgress({ requesterName, signataireNom, title, reference, signedCount, totalCount, done, mode, link }) {
+    const alternative = mode === 'alternative';
     return {
         subject: done
             ? `✅ Parapheur signé — ${title}`
@@ -79,7 +82,9 @@ function signatureProgress({ requesterName, signataireNom, title, reference, sig
             bodyHtml: `
               <p style="font-size:15px;"><strong>${esc(signataireNom)}</strong> a signé le parapheur <strong>${esc(title)}</strong>${reference ? ` (réf. ${esc(reference)})` : ''}.</p>
               <p style="font-size:15px;">Progression : <strong>${signedCount}/${totalCount}</strong> signataire(s).</p>
-              ${done ? '<p style="font-size:15px;color:#16a34a;font-weight:700;">Toutes les signatures ont été recueillies. Le parcours est terminé.</p>' : ''}
+              ${done ? (alternative
+                  ? '<p style="font-size:15px;color:#16a34a;font-weight:700;">Le circuit alternatif est validé : la signature d\'un seul signataire suffisait.</p>'
+                  : '<p style="font-size:15px;color:#16a34a;font-weight:700;">Toutes les signatures ont été recueillies. Le parcours est terminé.</p>') : ''}
               ${button(link, 'Ouvrir le parapheur', done ? '#16a34a' : '#0d9488')}`,
         }),
     };
