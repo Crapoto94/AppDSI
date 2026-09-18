@@ -1613,6 +1613,24 @@ async function setupPgDb() {
     } catch (e) { console.error('[MIGRATION magapp.users]', e.message); }
     try { await client.query('CREATE INDEX IF NOT EXISTS idx_magapp_users_lower_email ON magapp.users(LOWER(email))'); } catch (e) {}
 
+    // ─── Agents BETA ────────────────────────────────────────────────────────
+    // Liste d'agents (recherche AD) qui accèdent en avance aux fonctionnalités
+    // pas encore activées pour tout le monde (équivalent « utilisateur beta »).
+    try {
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS magapp.beta_users (
+          id SERIAL PRIMARY KEY,
+          username TEXT,
+          email TEXT,
+          display_name TEXT,
+          added_by TEXT,
+          created_at TIMESTAMPTZ DEFAULT NOW()
+        )
+      `);
+      await client.query(`CREATE UNIQUE INDEX IF NOT EXISTS uq_magapp_beta_users_email ON magapp.beta_users(LOWER(email)) WHERE email IS NOT NULL AND email <> ''`);
+      await client.query(`CREATE UNIQUE INDEX IF NOT EXISTS uq_magapp_beta_users_username ON magapp.beta_users(LOWER(username)) WHERE username IS NOT NULL AND username <> ''`);
+    } catch (e) { console.error('[PG DB] magapp.beta_users:', e.message); }
+
     try {
       await client.query(`ALTER TABLE magapp.settings ADD COLUMN IF NOT EXISTS show_create_buttons BOOLEAN DEFAULT true`);
     } catch (e) {}

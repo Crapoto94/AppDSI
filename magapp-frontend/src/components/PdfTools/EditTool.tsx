@@ -293,7 +293,7 @@ export default function EditTool({ onClose }: EditToolProps) {
 
   const pageAdds = additions.filter((a) => a.page === activePage + 1);
   const selectedOne = selected.size === 1 ? additions.find((a) => selected.has(a.id)) : undefined;
-  const selectedText = selectedOne && selectedOne.type === 'text' ? selectedOne : undefined;
+  const updSel = (patch: Partial<Addition>) => setAdds((prev: Addition[]) => prev.map((x) => (x.id === selectedOne?.id ? { ...x, ...patch } : x)));
 
   const tools: { key: Tool; icon: React.ReactNode; label: string }[] = [
     { key: 'select', icon: <PenLine size={15} />, label: 'Sélection' },
@@ -443,27 +443,46 @@ export default function EditTool({ onClose }: EditToolProps) {
 
             <div style={{ border: '1px solid #e2e8f0', borderRadius: 12, padding: 12, background: '#f8fafc' }}>
               <div style={{ fontSize: '0.72rem', fontWeight: 800, color: '#64748b', textTransform: 'uppercase', marginBottom: 8 }}>Options</div>
-              {selectedText ? (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                  <div style={{ fontSize: '0.75rem', color: '#64748b' }}>Texte :</div>
-                  <textarea rows={3} value={selectedText.text || ''} onChange={(e) => setAdds((prev: Addition[]) => prev.map((x) => x.id === selectedText.id ? { ...x, text: e.target.value } : x))} style={{ width: '100%', padding: '8px 10px', border: '1px solid #e2e8f0', borderRadius: 8, fontSize: '0.82rem', fontFamily: 'inherit', boxSizing: 'border-box' }} />
-                  <label style={lbl}>Taille<input type="number" min={6} max={72} value={selectedText.fontSize || 14} onChange={(e) => setAdds((prev: Addition[]) => prev.map((x) => x.id === selectedText.id ? { ...x, fontSize: Number(e.target.value) || 14 } : x))} style={numInput} /></label>
-                  <div style={{ display: 'flex', gap: 6 }}>
-                    <button style={toggle(!!selectedText.bold)} onClick={() => setAdds((prev: Addition[]) => prev.map((x) => x.id === selectedText.id ? { ...x, bold: !x.bold } : x))}><Bold size={14} /></button>
-                    <button style={toggle(!!selectedText.italic)} onClick={() => setAdds((prev: Addition[]) => prev.map((x) => x.id === selectedText.id ? { ...x, italic: !x.italic } : x))}><Italic size={14} /></button>
-                    <button style={toggle(!!selectedText.underline)} onClick={() => setAdds((prev: Addition[]) => prev.map((x) => x.id === selectedText.id ? { ...x, underline: !x.underline } : x))}><Underline size={14} /></button>
+              {selectedOne ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  <div style={{ fontSize: '0.75rem', color: '#64748b' }}>
+                    {selectedOne.type === 'text' ? 'Texte' : selectedOne.type === 'image' ? 'Image' : selectedOne.type === 'line' ? 'Ligne' : selectedOne.type === 'rect' ? 'Rectangle' : selectedOne.type === 'highlight' ? 'Surlignage' : selectedOne.type === 'polygon' ? 'Masque polygonal' : selectedOne.type === 'freehand' ? 'Gomme' : 'Masque'} sélectionné
                   </div>
+                  {selectedOne.type === 'text' && (
+                    <textarea rows={3} value={selectedOne.text || ''} onChange={(e) => updSel({ text: e.target.value })} style={{ width: '100%', padding: '8px 10px', border: '1px solid #e2e8f0', borderRadius: 8, fontSize: '0.82rem', fontFamily: 'inherit', boxSizing: 'border-box' }} />
+                  )}
+                  {(selectedOne.type === 'text' || selectedOne.type === 'rect' || selectedOne.type === 'line' || selectedOne.type === 'highlight') && (
+                    <label style={lbl}>Couleur<input type="color" value={selectedOne.color || '#dc2626'} onChange={(e) => updSel({ color: e.target.value })} style={colorInput} /></label>
+                  )}
+                  {selectedOne.type === 'text' && (
+                    <>
+                      <label style={lbl}>Taille<input type="number" min={6} max={72} value={selectedOne.fontSize || 14} onChange={(e) => updSel({ fontSize: Number(e.target.value) || 14 })} style={numInput} /></label>
+                      <div style={{ display: 'flex', gap: 6 }}>
+                        <button style={toggle(!!selectedOne.bold)} onClick={() => updSel({ bold: !selectedOne.bold })}><Bold size={14} /></button>
+                        <button style={toggle(!!selectedOne.italic)} onClick={() => updSel({ italic: !selectedOne.italic })}><Italic size={14} /></button>
+                        <button style={toggle(!!selectedOne.underline)} onClick={() => updSel({ underline: !selectedOne.underline })}><Underline size={14} /></button>
+                      </div>
+                    </>
+                  )}
+                  {(selectedOne.type === 'line' || selectedOne.type === 'freehand') && (
+                    <label style={lbl}>Épaisseur<input type="number" min={1} max={40} value={selectedOne.thickness || 2} onChange={(e) => updSel({ thickness: Number(e.target.value) || 2 })} style={numInput} /></label>
+                  )}
+                  <label style={lbl}>Rotation (°)<input type="number" value={selectedOne.rotation || 0} onChange={(e) => updSel({ rotation: Number(e.target.value) || 0 })} style={numInput} /></label>
+                  {(selectedOne.type === 'whiteout' || selectedOne.type === 'polygon' || selectedOne.type === 'freehand') && (
+                    <div style={{ fontSize: '0.72rem', color: '#94a3b8' }}>Masque / gomme : rendu en blanc à l'aplatissage.</div>
+                  )}
+                  <button style={{ ...btnSecondary, justifyContent: 'center' }} onClick={deleteSelected}><Trash2 size={14} /> Supprimer</button>
                 </div>
               ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                  <label style={lbl}>Couleur<input type="color" value={color} onChange={(e) => setColor(e.target.value)} style={{ width: 40, height: 28, border: '1px solid #e2e8f0', borderRadius: 6, background: '#fff' }} /></label>
+                  <label style={lbl}>Couleur (prochains éléments)<input type="color" value={color} onChange={(e) => setColor(e.target.value)} style={colorInput} /></label>
                   <label style={lbl}>Taille texte<input type="number" min={6} max={72} value={fontSize} onChange={(e) => setFontSize(Number(e.target.value) || 14)} style={numInput} /></label>
                   <div style={{ display: 'flex', gap: 6 }}>
                     <button style={toggle(bold)} onClick={() => setBold((v) => !v)}><Bold size={14} /></button>
                     <button style={toggle(italic)} onClick={() => setItalic((v) => !v)}><Italic size={14} /></button>
                     <button style={toggle(underline)} onClick={() => setUnderline((v) => !v)}><Underline size={14} /></button>
                   </div>
-                  <div style={{ fontSize: '0.72rem', color: '#94a3b8' }}>Sélectionnez un élément pour afficher ses poignées (redimensionner) et sa poignée de rotation.</div>
+                  <div style={{ fontSize: '0.72rem', color: '#94a3b8' }}>Cliquez un élément pour modifier sa couleur/taille/rotation ; sinon ces réglages s'appliquent aux prochains éléments ajoutés.</div>
                 </div>
               )}
             </div>
@@ -504,4 +523,5 @@ const toolBtn = (active: boolean): React.CSSProperties => ({ display: 'flex', al
 const miniBtn: React.CSSProperties = { display: 'inline-flex', alignItems: 'center', justifyContent: 'center', border: '1px solid #e2e8f0', background: '#fff', borderRadius: 7, padding: 4, cursor: 'pointer', color: '#475569' };
 const lbl: React.CSSProperties = { fontSize: '0.72rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 };
 const numInput: React.CSSProperties = { width: 70, padding: '6px 8px', border: '1px solid #e2e8f0', borderRadius: 7, fontSize: '0.82rem' };
+const colorInput: React.CSSProperties = { width: 40, height: 28, border: '1px solid #e2e8f0', borderRadius: 6, background: '#fff' };
 const toggle = (active: boolean): React.CSSProperties => ({ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '6px 10px', borderRadius: 7, cursor: 'pointer', border: `1px solid ${active ? '#0369a1' : '#e2e8f0'}`, background: active ? '#dbeafe' : '#fff', color: active ? '#0369a1' : '#475569', fontWeight: 700 });

@@ -446,7 +446,10 @@ async function drawAdditions(pdfDoc, additions) {
         const h = Math.max(1, ((Number(a.hPct) || 0) / 100) * ph);
         const color = hex(a.color || '#111827');
         const deg = Number(a.rotation) || 0;
-        const rad = deg * D2R;
+        // CSS rotate() est horaire (axe y vers le bas) ; pdf-lib degrees() est
+        // anti-horaire (axe y vers le haut) → on inverse pour que le rendu
+        // aplati corresponde exactement à l'aperçu.
+        const rad = -deg * D2R;
         const center = { x: x + w / 2, y: ph - yTop - h / 2 };
 
         if (a.type === 'text') {
@@ -468,14 +471,14 @@ async function drawAdditions(pdfDoc, additions) {
             lines.forEach((ln, i) => {
                 const anchor = { x, y: ph - yTop - size - i * lineH };
                 const ra = rot(center.x, center.y, anchor.x, anchor.y, rad);
-                if (ln) page.drawText(ln, { x: ra.x, y: ra.y, size, font, color: rgb(color.r, color.g, color.b), rotate: degrees(deg) });
+                if (ln) page.drawText(ln, { x: ra.x, y: ra.y, size, font, color: rgb(color.r, color.g, color.b), rotate: degrees(-deg) });
             });
         } else if (a.type === 'rect' || a.type === 'highlight' || a.type === 'whiteout') {
             const fill = a.type === 'highlight' ? rgb(1, 0.92, 0.2) : a.type === 'whiteout' ? rgb(1, 1, 1) : rgb(color.r, color.g, color.b);
             const opacity = a.type === 'highlight' ? 0.4 : (a.opacity != null ? Number(a.opacity) : 1);
             const anchor = { x, y: ph - yTop - h };
             const ra = rot(center.x, center.y, anchor.x, anchor.y, rad);
-            page.drawRectangle({ x: ra.x, y: ra.y, width: w, height: h, color: fill, opacity, rotate: degrees(deg) });
+            page.drawRectangle({ x: ra.x, y: ra.y, width: w, height: h, color: fill, opacity, rotate: degrees(-deg) });
         } else if (a.type === 'line') {
             const p0 = { x, y: ph - yTop };
             const p1 = { x: x + w, y: ph - yTop - h };
@@ -493,7 +496,7 @@ async function drawAdditions(pdfDoc, additions) {
                 // Image ÉTIRÉE selon la boîte (largeur/hauteur choisies), rotation autour du centre.
                 const anchor = { x, y: ph - yTop - h };
                 const ra = rot(center.x, center.y, anchor.x, anchor.y, rad);
-                page.drawImage(img, { x: ra.x, y: ra.y, width: w, height: h, rotate: degrees(deg) });
+                page.drawImage(img, { x: ra.x, y: ra.y, width: w, height: h, rotate: degrees(-deg) });
             }
         } else if (a.type === 'freehand' && Array.isArray(a.points)) {
             const xs = a.points.map((p) => Number(p.xPct)), ys = a.points.map((p) => Number(p.yPct));

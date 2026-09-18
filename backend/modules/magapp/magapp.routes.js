@@ -66,6 +66,11 @@ magappAdminRouter.delete('/maintenances/:id', authenticateMagappControl, MagAppC
 magappAdminRouter.get('/maintenances/:maintenanceId/attachments', authenticateMagappControl, MagAppController.getMaintenanceAttachments);
 magappAdminRouter.post('/migrate-uploads', authenticateMagappControl, MagAppController.migrateUploads);
 
+// Agents BETA (accès anticipé)
+magappAdminRouter.get('/beta-users', authenticateMagappControl, MagAppController.listBetaUsers);
+magappAdminRouter.post('/beta-users', authenticateMagappControl, MagAppController.addBetaUser);
+magappAdminRouter.delete('/beta-users/:id', authenticateMagappControl, MagAppController.removeBetaUser);
+
 // Exporting both or a main router that handles both
 const mainRouter = express.Router();
 

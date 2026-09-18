@@ -3,6 +3,7 @@ import * as XLSX from 'xlsx';
 import Header from '../components/Header';
 import { stripDangerousHtmlTags } from '../utils/sanitizeHtml';
 import { Plus, Edit2, Trash2, Save, X, Globe, LayoutGrid, BarChart2, Bell, Tag, Code, CheckCircle, Settings, Users, Lightbulb, GraduationCap, Star, FileText, Wrench, Calendar, Paperclip, Download, Search, ChevronRight, Layers, Banknote, ShieldAlert, ExternalLink } from 'lucide-react';
+import BetaUsersAdmin from '../components/BetaUsersAdmin';
 import { ResponsiveContainer, LineChart, Line, ReferenceLine, CartesianGrid, XAxis, YAxis, Tooltip as RTooltip } from 'recharts';
 import ReactQuill from 'react-quill-new';
 import 'react-quill-new/dist/quill.snow.css';
@@ -2526,6 +2527,8 @@ const MagappAdmin: React.FC = () => {
                 <button className="primary-btn-v2 full-width" style={{ marginTop: '10px' }} onClick={handleSaveMagappSettings}>
                   <Save size={18} /> Mettre à jour les paramètres
                 </button>
+
+                <BetaUsersAdmin token={token} />
               </div>
             </section>
           )}

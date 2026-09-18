@@ -637,7 +637,26 @@ const MagAppController = {
                     }
                 } catch (e) { console.error('[MAGAPP SETTINGS] Beta check error:', e.message); }
             }
-                        
+
+            // Agents BETA (liste gérée dans /admin/magapp) : accès anticipé aux
+            // fonctionnalités pas encore publiées pour tout le monde.
+            if (!isSpecialUser) {
+                try {
+                    const uname = (req.user && req.user.username) || req.query.username || '';
+                    const email = (req.user && req.user.email) || req.query.email || '';
+                    if (uname || email) {
+                        const beta = await pgDb.get(
+                            `SELECT 1 FROM magapp.beta_users
+                             WHERE (email IS NOT NULL AND email <> '' AND LOWER(email) = LOWER(?))
+                                OR (username IS NOT NULL AND username <> '' AND LOWER(username) = LOWER(?))
+                             LIMIT 1`,
+                            [email, uname]
+                        );
+                        if (beta) { isSpecialUser = true; console.log(`[MAGAPP SETTINGS] User ${uname} is BETA (liste)`); }
+                    }
+                } catch (e) { console.error('[MAGAPP SETTINGS] beta list check:', e.message); }
+            }
+
             if (isSpecialUser) {
                 result.is_beta_user = true;
                 // Save originals before forcing them to true
@@ -955,6 +974,36 @@ const MagAppController = {
             console.error('[MAGAPP] Error searching AD users:', error.message);
             res.status(500).json({ message: 'Erreur lors de la recherche AD', error: error.message });
         }
+    },
+
+    // ─── Agents BETA (accès anticipé aux fonctionnalités non publiées) ──────
+    listBetaUsers: async (req, res) => {
+        try {
+            const rows = await pgDb.all(
+                'SELECT id, username, email, display_name, added_by, created_at FROM magapp.beta_users ORDER BY created_at DESC'
+            );
+            res.json(rows);
+        } catch (e) { res.status(500).json({ message: e.message }); }
+    },
+
+    addBetaUser: async (req, res) => {
+        try {
+            const { username, email, displayName } = req.body || {};
+            if (!username && !email) return res.status(400).json({ message: 'username ou email requis' });
+            await pgDb.run(
+                `INSERT INTO magapp.beta_users (username, email, display_name, added_by)
+                 VALUES (?, ?, ?, ?) ON CONFLICT DO NOTHING`,
+                [username || null, email || null, displayName || null, (req.user && req.user.username) || null]
+            );
+            res.json({ ok: true });
+        } catch (e) { res.status(500).json({ message: e.message }); }
+    },
+
+    removeBetaUser: async (req, res) => {
+        try {
+            await pgDb.run('DELETE FROM magapp.beta_users WHERE id = ?', [req.params.id]);
+            res.json({ ok: true });
+        } catch (e) { res.status(500).json({ message: e.message }); }
     },
 
     // Statistics
