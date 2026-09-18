@@ -51,7 +51,7 @@ export default function PdfToolsHub({ onClose }: PdfToolsHubProps) {
     { key: 'compare', icon: <GitCompare size={22} color="#be185d" />, bg: '#fce7f3', title: 'Comparer deux PDF', description: 'Visualiser les différences page à page' },
     { key: 'repair', icon: <Wrench size={22} color="#b45309" />, bg: '#fef3c7', title: 'Réparer un PDF', description: 'Tenter de recharger un fichier corrompu' },
     { key: 'protect', icon: <Lock size={22} color="#b45309" />, bg: '#fef3c7', title: 'Protéger par mot de passe', description: 'Chiffrer le PDF (AES-256), lecture protégée' },
-    { key: 'edit', icon: <PenLine size={22} color="#0369a1" />, bg: '#dbeafe', title: 'Modifier un PDF', description: 'Sélectionner, supprimer, déplacer, éditer textes et objets' },
+    { key: 'edit', icon: <PenLine size={22} color="#0369a1" />, bg: '#dbeafe', title: 'Annoter / masquer un PDF', description: 'Masquer des zones, gommer, ajouter texte/lignes/images (non destructif)' },
     { key: 'mailmerge', icon: <FileSpreadsheet size={22} color="#0e7490" />, bg: '#cffafe', title: 'Publipostage PDF', description: 'Fusionner un PDF modèle avec un tableur Excel' },
   ];
 

@@ -18,6 +18,7 @@
 const zlib = require('zlib');
 const {
     PDFDocument, StandardFonts, rgb, degrees, PDFName, PDFRawStream,
+    moveTo, lineTo, closePath, fill,
 } = require('pdf-lib');
 
 // ─── Matrices (PDF : [a b c d e f]) ─────────────────────────────────────────
@@ -482,6 +483,16 @@ async function drawAdditions(pdfDoc, additions) {
             }
         } else if (a.type === 'whiteout') {
             page.drawRectangle({ x, y: yTop - h, width: w, height: h, color: rgb(1, 1, 1) });
+        } else if (a.type === 'polygon' && Array.isArray(a.points) && a.points.length >= 3) {
+            const c = hex(a.color || '#ffffff');
+            const ops = [];
+            a.points.forEach((p, i) => {
+                const px = (Number(p.xPct) / 100) * pw;
+                const py = ph - (Number(p.yPct) / 100) * ph;
+                ops.push(i === 0 ? moveTo(px, py) : lineTo(px, py));
+            });
+            ops.push(closePath(), fill(rgb(c.r, c.g, c.b)));
+            page.pushOperators(...ops);
         }
     }
 }
