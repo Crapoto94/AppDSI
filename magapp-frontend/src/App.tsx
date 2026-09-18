@@ -655,26 +655,35 @@ function App() {
     
     setIsCreatingTicket(true);
     try {
-      let content = ticketDescription;
-      if (ticketPhone) {
-        content += `\n\nNuméro de téléphone pour contact: ${ticketPhone}`;
-      }
-      content += `\n\nDemandeur: ${userEmail}`;
-      content += `\nDate: ${new Date().toLocaleString('fr-FR')}`;
-      
       const token = localStorage.getItem('token');
       const isGeneral = ticketType === 'incident' && isIncidentGeneral;
       const blocked = isBlocked;
-      
+
       let urgency = ticketType === 'incident' ? 3 : 2;
       let impact = ticketType === 'incident' ? 2 : 2;
       let priority = 3;
       if (blocked) { urgency = 4; priority = 4; }
       if (isGeneral) { impact = 4; priority = Math.max(priority, 4); }
-      
+
+      // Le champ "content" est affiché en HTML dans la vue ticket (et dans les
+      // emails {{ticket_content}}) : chaque champ est placé sur sa propre ligne,
+      // son intitulé en gras (mêmes conventions que les formulaires de demande).
+      const escHtml = (s: string | null | undefined) => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+      const metaRows: [string, string][] = [];
+      if (ticketPhone) metaRows.push(['Numéro de téléphone pour contact', escHtml(ticketPhone)]);
+      metaRows.push(['Demandeur', escHtml(userEmail)]);
+      metaRows.push(['Date', escHtml(new Date().toLocaleString('fr-FR'))]);
+      const content = (isGeneral ? '<p><strong>[INCIDENT GENERAL]</strong></p>' : '')
+        + `<p>${escHtml(ticketDescription).replace(/\n/g, '<br>')}</p>`
+        + (metaRows.length > 0
+          ? `<div style="margin-top:10px;">${metaRows.map(([label, value]) =>
+              `<div style="padding:6px 0;border-bottom:1px solid #e2e8f0;"><strong>${label} :</strong> ${value}</div>`
+            ).join('')}</div>`
+          : '');
+
       const response = await axios.post('/api/tickets/', {
         title: ticketTitle,
-        content: isGeneral ? `[INCIDENT GENERAL] ${content}` : content,
+        content,
         type: ticketType === 'incident' ? 1 : 2,
         urgency,
         impact,
