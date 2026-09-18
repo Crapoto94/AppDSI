@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Download, Eye, Save, CheckCircle2, Loader2 } from 'lucide-react';
 import { btnPrimary, btnSecondary, errorBox } from './PdfToolShell';
 import { downloadBlob, saveResultToGed } from './pdfToolsApi';
@@ -13,7 +13,8 @@ interface ResultActionsProps {
 
 /**
  * Bloc d'actions affiché une fois un résultat produit : télécharger, aperçu,
- * et sauvegarde dans le dossier GED personnel de l'agent (storage/pdf-tools/<username>/).
+ * et sauvegarde dans la PDFothèque. Fait défiler automatiquement la page vers
+ * le bas pour rendre ces actions immédiatement visibles.
  */
 export default function ResultActions({ blob, filename, info }: ResultActionsProps) {
   const [saveState, setSaveState] = useState<'idle' | 'asking' | 'saving' | 'saved' | 'error' | 'duplicate'>('idle');
@@ -21,6 +22,13 @@ export default function ResultActions({ blob, filename, info }: ResultActionsPro
   const [error, setError] = useState<string | null>(null);
   const [showPreview, setShowPreview] = useState(false);
   const isPreviewable = blob.type === 'application/pdf';
+  const rootRef = useRef<HTMLDivElement>(null);
+
+  // Amène la zone de résultat (télécharger / aperçu / PDFothèque) sous les yeux.
+  useEffect(() => {
+    const t = setTimeout(() => rootRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' }), 150);
+    return () => clearTimeout(t);
+  }, [blob]);
 
   const handleSave = async (overwrite = false) => {
     setSaveState('saving');
@@ -36,7 +44,7 @@ export default function ResultActions({ blob, filename, info }: ResultActionsPro
   };
 
   return (
-    <div style={{ marginTop: '20px', padding: '18px', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '14px' }}>
+    <div ref={rootRef} style={{ marginTop: '20px', padding: '18px', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '14px' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#166534', fontWeight: 700, fontSize: '0.9rem', marginBottom: info ? 6 : 12 }}>
         <CheckCircle2 size={18} /> Traitement terminé
       </div>

@@ -9,7 +9,7 @@ import { postFormForBlob, postFormForJson } from './pdfToolsApi';
 
 interface EditToolProps { onClose: () => void }
 
-interface EditObject { id: string; kind: 'text' | 'path'; bbox: [number, number, number, number]; text?: string; }
+interface EditObject { id: string; kind: 'text' | 'path'; bbox: [number, number, number, number]; text?: string; fontSize?: number; }
 interface PageData { index: number; widthPt: number; heightPt: number; objects: EditObject[] }
 interface Addition {
   id: string; type: 'text' | 'rect' | 'line' | 'highlight' | 'whiteout' | 'image' | 'freehand';
@@ -53,15 +53,21 @@ export default function EditTool({ onClose }: EditToolProps) {
   const imgRef = useRef<HTMLImageElement>(null);
   const canvasRef = useRef<HTMLDivElement>(null);
   const [scale, setScale] = useState(1);
+  const [viewMode, setViewMode] = useState<'objets' | 'document'>('objets');
   const dragRef = useRef<any>(null);
 
   const page = pages[activePage];
   const pageThumb = thumbs[activePage];
 
   const recompute = useCallback(() => {
-    if (imgRef.current && page && page.widthPt) setScale(imgRef.current.clientWidth / page.widthPt);
+    const el = canvasRef.current;
+    if (el && page && page.widthPt) setScale(el.clientWidth / page.widthPt);
   }, [page]);
-  useEffect(() => { recompute(); window.addEventListener('resize', recompute); return () => window.removeEventListener('resize', recompute); }, [recompute, pageThumb]);
+  useEffect(() => {
+    recompute();
+    window.addEventListener('resize', recompute);
+    return () => window.removeEventListener('resize', recompute);
+  }, [recompute, pageThumb, viewMode, activePage]);
 
   const loadThumb = useCallback(async (f: File, idx: number) => {
     setThumbLoading(true);
@@ -308,6 +314,11 @@ export default function EditTool({ onClose }: EditToolProps) {
                 <button style={miniBtn} disabled={activePage === 0} onClick={() => { setActivePage((p) => p - 1); setSelected(new Set()); }}><ChevronLeft size={14} /></button>
                 <button style={miniBtn} disabled={activePage >= pages.length - 1} onClick={() => { setActivePage((p) => p + 1); setSelected(new Set()); }}><ChevronRight size={14} /></button>
               </>)}
+              {viewMode === 'document' && thumbLoading && <Loader2 size={14} className="animate-spin" color="#94a3b8" />}
+              <div style={{ display: 'inline-flex', border: '1px solid #e2e8f0', borderRadius: 8, overflow: 'hidden' }}>
+                <button onClick={() => setViewMode('objets')} style={segBtn(viewMode === 'objets')}>Objets</button>
+                <button onClick={() => setViewMode('document')} style={segBtn(viewMode === 'document')}>Document</button>
+              </div>
               <span style={{ marginLeft: 'auto', fontSize: '0.72rem', color: '#94a3b8' }}>{page.objects.length} objet(s) · {selected.size} sélectionné(s)</span>
             </div>
             <div className="edit-scroll" style={{ maxHeight: '64vh', overflow: 'auto', border: '1px solid #e2e8f0', borderRadius: 10, background: '#e2e8f0', padding: 8 }}>
@@ -318,33 +329,63 @@ export default function EditTool({ onClose }: EditToolProps) {
                 onPointerLeave={onCanvasUp}
                 onContextMenu={(e) => e.preventDefault()}
                 style={{ position: 'relative', width: '100%', userSelect: 'none', touchAction: 'none', background: '#fff', boxShadow: '0 1px 4px rgba(0,0,0,.15)' }}>
-                {pageThumb ? (
-                  <img ref={imgRef} src={pageThumb} alt={`Page ${activePage + 1}`} onLoad={recompute} draggable={false} style={{ display: 'block', width: '100%' }} />
+                {viewMode === 'document' ? (
+                  pageThumb ? (
+                    <img ref={imgRef} src={pageThumb} alt={`Page ${activePage + 1}`} onLoad={recompute} draggable={false} style={{ display: 'block', width: '100%' }} />
+                  ) : (
+                    <div style={{ aspectRatio: `${page.widthPt} / ${page.heightPt}`, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#94a3b8' }}>
+                      {thumbLoading ? <Loader2 size={24} className="animate-spin" /> : 'Aperçu indisponible'}
+                    </div>
+                  )
                 ) : (
-                  <div style={{ aspectRatio: `${page.widthPt} / ${page.heightPt}`, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#94a3b8' }}>
-                    {thumbLoading ? <Loader2 size={24} className="animate-spin" /> : 'Aperçu indisponible'}
-                  </div>
+                  <div style={{ width: '100%', aspectRatio: `${page.widthPt} / ${page.heightPt}`, background: '#fff' }} />
                 )}
 
-                {/* Objets réels (autocad-like) */}
+                {/* Objets réels — rendus concrètement (texte réel / tracé) en vue « Objets » */}
                 {page.objects.map((o) => {
                   if (isDeleted(o.id)) return null;
                   const b = bboxToPx(o);
                   const on = selected.has(o.id);
+                  const common = {
+                    position: 'absolute' as const, left: b.left, top: b.top, cursor: 'move' as const,
+                    onPointerDown: (e: React.PointerEvent) => onObjectDown(e, o.id),
+                    onClick: (e: React.MouseEvent) => { if (tool === 'select' && e.button === 0) { e.stopPropagation(); if (e.shiftKey) toggleSelect(o.id); } },
+                    title: o.kind === 'text' ? (o.text || 'texte') : 'graphique',
+                  };
+                  if (viewMode === 'objets' && o.kind === 'text') {
+                    const fs = Math.max(6, (o.fontSize || 11) * scale);
+                    return (
+                      <div key={o.id} {...common} style={{
+                        ...common, width: Math.max(b.width, 8), height: Math.max(b.height, 8),
+                        background: on ? 'rgba(3,105,161,.16)' : 'transparent',
+                        outline: on ? '2px solid #0369a1' : '1px dotted rgba(37,99,235,.35)',
+                        color: '#111827', fontWeight: 500, lineHeight: 1, whiteSpace: 'nowrap', fontFamily: 'Helvetica, Arial, sans-serif',
+                        fontSize: fs,
+                      }}>
+                        <span style={{ pointerEvents: 'none' }}>{o.text || ' '}</span>
+                        {on && grips(b).map((g) => (<span key={g.key} style={{ position: 'absolute', left: g.left - b.left, top: g.top - b.top, width: 6, height: 6, background: '#fff', border: '1.5px solid #0369a1', borderRadius: 1 }} />))}
+                      </div>
+                    );
+                  }
+                  if (viewMode === 'objets' && o.kind === 'path') {
+                    return (
+                      <div key={o.id} {...common} style={{
+                        ...common, width: Math.max(b.width, 4), height: Math.max(b.height, 4),
+                        background: on ? 'rgba(3,105,161,.18)' : 'rgba(148,163,184,.18)',
+                        outline: on ? '2px solid #0369a1' : '1px solid rgba(100,116,139,.4)',
+                      }}>
+                        {on && grips(b).map((g) => (<span key={g.key} style={{ position: 'absolute', left: g.left - b.left, top: g.top - b.top, width: 6, height: 6, background: '#fff', border: '1.5px solid #0369a1', borderRadius: 1 }} />))}
+                      </div>
+                    );
+                  }
+                  // Vue « Document » : contour discret des objets sélectionnables.
                   return (
-                    <div key={o.id}
-                      title={o.kind === 'text' ? (o.text || 'texte') : 'graphique'}
-                      onPointerDown={(e) => onObjectDown(e, o.id)}
-                      onClick={(e) => { if (tool === 'select' && e.button === 0) { e.stopPropagation(); if (e.shiftKey) toggleSelect(o.id); } }}
-                      style={{
-                        position: 'absolute', left: b.left, top: b.top, width: b.width, height: b.height,
-                        border: `${on ? 2 : 1}px ${on ? 'solid' : 'dashed'} ${on ? '#0369a1' : 'rgba(37,99,235,.5)'}`,
-                        background: on ? 'rgba(3,105,161,.10)' : 'transparent', cursor: 'move', boxSizing: 'border-box',
-                      }}
-                    >
-                      {on && grips(b).map((g) => (
-                        <span key={g.key} style={{ position: 'absolute', left: g.left - b.left, top: g.top - b.top, width: 6, height: 6, background: '#fff', border: '1.5px solid #0369a1', borderRadius: 1 }} />
-                      ))}
+                    <div key={o.id} {...common} style={{
+                      ...common, width: b.width, height: b.height,
+                      border: `${on ? 2 : 1}px ${on ? 'solid' : 'dashed'} ${on ? '#0369a1' : 'rgba(37,99,235,.5)'}`,
+                      background: on ? 'rgba(3,105,161,.10)' : 'transparent', boxSizing: 'border-box',
+                    }}>
+                      {on && grips(b).map((g) => (<span key={g.key} style={{ position: 'absolute', left: g.left - b.left, top: g.top - b.top, width: 6, height: 6, background: '#fff', border: '1.5px solid #0369a1', borderRadius: 1 }} />))}
                     </div>
                   );
                 })}
@@ -438,6 +479,7 @@ export default function EditTool({ onClose }: EditToolProps) {
 }
 
 const toolBtn = (active: boolean): React.CSSProperties => ({ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 10px', borderRadius: 8, cursor: 'pointer', border: `1px solid ${active ? '#0369a1' : '#e2e8f0'}`, background: active ? '#dbeafe' : '#fff', color: active ? '#0369a1' : '#475569', fontWeight: 700, fontSize: '0.78rem' });
+const segBtn = (active: boolean): React.CSSProperties => ({ border: 'none', cursor: 'pointer', padding: '5px 10px', fontSize: '0.74rem', fontWeight: 700, background: active ? '#0369a1' : '#f8fafc', color: active ? '#fff' : '#475569' });
 const miniBtn: React.CSSProperties = { display: 'inline-flex', alignItems: 'center', justifyContent: 'center', border: '1px solid #e2e8f0', background: '#fff', borderRadius: 7, padding: 4, cursor: 'pointer', color: '#475569' };
 const lbl: React.CSSProperties = { fontSize: '0.72rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 };
 const numInput: React.CSSProperties = { width: 70, padding: '6px 8px', border: '1px solid #e2e8f0', borderRadius: 7, fontSize: '0.82rem' };

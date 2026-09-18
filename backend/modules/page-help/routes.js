@@ -62,6 +62,7 @@ router.get('/:page', async (req, res) => {
             '/reseau':                 'GUIDE-RESEAU.md',
             '/mes-reunions':           'GUIDE-REUNIONS.md',
             '/admin/magapp':           'GUIDE-MAGAPP.md',
+            '/magapp':                 'GUIDE-MAGAPP-PORTAIL.md',
             '/mes-taches':             'GUIDE-TACHES.md',
             '/parc':                   'GUIDE-PARC.md',
             '/rh':                     'GUIDE-RH.md',
