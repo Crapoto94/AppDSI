@@ -668,7 +668,7 @@ function App() {
       // Le champ "content" est affiché en HTML dans la vue ticket (et dans les
       // emails {{ticket_content}}) : chaque champ est placé sur sa propre ligne,
       // son intitulé en gras (mêmes conventions que les formulaires de demande).
-      const escHtml = (s: string | null | undefined) => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+      const escHtml = (s: string | null | undefined) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' } as Record<string, string>)[c] ?? c);
       const metaRows: [string, string][] = [];
       if (ticketPhone) metaRows.push(['Numéro de téléphone pour contact', escHtml(ticketPhone)]);
       metaRows.push(['Demandeur', escHtml(userEmail)]);
