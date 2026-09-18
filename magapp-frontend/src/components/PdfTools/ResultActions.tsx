@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { Download, Eye, Save, CheckCircle2, Loader2 } from 'lucide-react';
 import { btnPrimary, btnSecondary, errorBox } from './PdfToolShell';
-import { downloadBlob, openBlob, saveResultToGed } from './pdfToolsApi';
+import { downloadBlob, saveResultToGed } from './pdfToolsApi';
+import PdfViewerModal from './PdfViewerModal';
 
 interface ResultActionsProps {
   blob: Blob;
@@ -18,6 +19,8 @@ export default function ResultActions({ blob, filename, info }: ResultActionsPro
   const [saveState, setSaveState] = useState<'idle' | 'asking' | 'saving' | 'saved' | 'error'>('idle');
   const [saveName, setSaveName] = useState(filename);
   const [error, setError] = useState<string | null>(null);
+  const [showPreview, setShowPreview] = useState(false);
+  const isPreviewable = blob.type === 'application/pdf';
 
   const handleSave = async () => {
     setSaveState('saving');
@@ -42,9 +45,11 @@ export default function ResultActions({ blob, filename, info }: ResultActionsPro
         <button style={btnPrimary} onClick={() => downloadBlob(blob, filename)}>
           <Download size={16} /> Télécharger
         </button>
-        <button style={btnSecondary} onClick={() => openBlob(blob)}>
-          <Eye size={16} /> Aperçu
-        </button>
+        {isPreviewable && (
+          <button style={btnSecondary} onClick={() => setShowPreview(true)}>
+            <Eye size={16} /> Aperçu
+          </button>
+        )}
         {saveState === 'idle' && (
           <button style={btnSecondary} onClick={() => setSaveState('asking')}>
             <Save size={16} /> Enregistrer dans la GED
@@ -74,6 +79,8 @@ export default function ResultActions({ blob, filename, info }: ResultActionsPro
         </div>
       )}
       {saveState === 'error' && error && <div style={errorBox}>{error}</div>}
+
+      {showPreview && <PdfViewerModal blob={blob} title={filename} onClose={() => setShowPreview(false)} />}
     </div>
   );
 }
