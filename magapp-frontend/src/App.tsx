@@ -11,6 +11,7 @@ import ChatWidget from './components/ChatWidget';
 import RequestFormFieldRenderer from './components/RequestFormFieldRenderer';
 import type { FormFieldDef, ServiceDirectionDef } from './components/requestFormTypes';
 import DynamicIcon from './components/DynamicIcon';
+import PdfToolsHub from './components/PdfTools/PdfToolsHub';
 
 interface RequestForm {
   id: number;
@@ -156,6 +157,7 @@ function App() {
   const [showClosedObserved, setShowClosedObserved] = useState(false);
   const [showRencontres, setShowRencontres] = useState(false);
   const [showTools, setShowTools] = useState(false);
+  const [showPdfTools, setShowPdfTools] = useState(false);
   const [rencontres] = useState<any[]>([]);
   const [myDemandes, setMyDemandes] = useState<any[]>([]);
   const [rencontreSuiviIdx, setRencontreSuiviIdx] = useState<number | null>(null);
@@ -619,7 +621,7 @@ function App() {
     if (helpContentHtml !== null || helpLoading) return;
     setHelpLoading(true);
     try {
-      const res = await axios.get(`/api/page-help/${encodeURIComponent('/transcriptmanager')}`);
+      const res = await axios.get(`/api/page-help/${encodeURIComponent('/magapp')}`);
       setHelpContentHtml(res.data?.content_html || "<p>Aucune aide disponible pour l'instant.</p>");
     } catch (error) {
       console.error("Erreur de chargement de l'aide", error);
@@ -1471,6 +1473,14 @@ function App() {
                 />
               )}
 
+              <ToolCard
+                icon={<FileText size={22} color="#0369a1" />}
+                bg="#dbeafe"
+                title="Outils PDF"
+                description="Fusionner, découper, compresser vos PDF"
+                onClick={() => { setShowTools(false); setShowPdfTools(true); }}
+              />
+
               {(settings.show_subscriptions || settings.is_beta_user) && (
                 <ToolCard
                   icon={<Heart size={22} color="#4f46e5" />}
@@ -1510,6 +1520,8 @@ function App() {
           </div>
         </div>
       )}
+
+      {showPdfTools && <PdfToolsHub onClose={() => setShowPdfTools(false)} />}
 
       {/* Modal Rencontres */}
       {showRencontres && (
