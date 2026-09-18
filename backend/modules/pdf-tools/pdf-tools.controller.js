@@ -6,9 +6,53 @@
  * dossier GED personnel.
  */
 const storage = require('../../shared/storage');
+const { pgDb } = require('../../shared/database');
+const docsService = require('../../shared/documents.service');
 const svc = require('./pdf-tools.service');
+const editSvc = require('./pdf-edit.service');
+const apmMail = require('../../shared/apm_mail');
+const fs = require('fs');
+
+let sendMailFn = null;
+function setSendMail(fn) { sendMailFn = fn; }
+
+function escapeHtml(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+function buildLibraryMailHtml(message) {
+    const safe = escapeHtml(message).replace(/\n/g, '<br>');
+    return `<div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#1e293b;line-height:1.6">
+  <p>${safe}</p>
+  <p style="color:#64748b;font-size:12px;margin-top:20px">Document transmis depuis la PDFothèque des outils PDF.</p>
+</div>`;
+}
 
 const MODULE = 'pdf-tools';
+const LIBRARY_ENTITY = 'pdf-tools-output';
+
+/** URL publique (mount /api/storage) d'un chemin BD "storage/...". */
+function publicStorageUrl(storageRef) {
+    const rel = String(storageRef || '').replace(/\\/g, '/');
+    return rel.startsWith('storage/') ? `/api/storage/${rel.slice('storage/'.length)}` : null;
+}
+
+function mapLibraryDoc(doc) {
+    const cv = doc.current_version_row || {};
+    return {
+        id: doc.id,
+        title: doc.title,
+        filename: cv.filename || null,
+        originalName: cv.original_name || doc.title,
+        mimetype: cv.mimetype || 'application/pdf',
+        size: cv.size || null,
+        created_at: doc.created_at,
+        updated_at: doc.updated_at,
+        uploaded_by: cv.uploaded_by || doc.created_by || null,
+        version: doc.current_version,
+        url: publicStorageUrl(cv.storage_ref),
+    };
+}
 
 function sendPdf(res, buffer, filename) {
     res.set({
@@ -104,8 +148,11 @@ async function toImages(req, res) {
     try {
         if (!req.file) return res.status(400).json({ message: 'Aucun fichier fourni.' });
         const format = req.body.format === 'jpeg' ? 'jpeg' : 'png';
-        const scale = Math.min(4, Math.max(0.5, parseFloat(req.body.scale) || 2));
-        const images = await svc.pdfToImages(req.file.buffer, { format, scale });
+        // Résolution : DPI (défaut 300) ; repli sur l'ancien paramètre `scale`.
+        const dpi = parseInt(req.body.dpi, 10) || (req.body.scale ? Math.round(parseFloat(req.body.scale) * 72) : 300);
+        const scale = Math.min(8, Math.max(0.5, dpi / 72));
+        const transparent = format === 'png' && req.body.transparent === 'true';
+        const images = await svc.pdfToImages(req.file.buffer, { format, scale, transparent });
         if (images.length === 1) {
             sendImage(res, images[0].buffer, `page-1.${images[0].ext}`, format === 'jpeg' ? 'image/jpeg' : 'image/png');
         } else {
@@ -184,21 +231,73 @@ async function repair(req, res) {
     } catch (e) { handleError(res, e, 'Échec de la réparation du PDF.'); }
 }
 
-// ─── Sauvegarde vers la GED (dossier personnel de l'agent) ──────────────────
+// ─── Protection par mot de passe (chiffrement AES-256) ──────────────────────
+async function protect(req, res) {
+    try {
+        if (!req.file) return res.status(400).json({ message: 'Aucun fichier fourni.' });
+        const userPassword = String(req.body.userPassword || '').trim();
+        const ownerPassword = String(req.body.ownerPassword || '').trim();
+        if (!userPassword && !ownerPassword) {
+            return res.status(400).json({ message: 'Saisissez un mot de passe pour protéger le document.' });
+        }
+        const buffer = await svc.protectPdf(req.file.buffer, {
+            userPassword,
+            ownerPassword,
+            currentPassword: req.body.currentPassword,
+        });
+        sendPdf(res, buffer, 'protege.pdf');
+    } catch (e) { handleError(res, e, 'Échec de la protection du PDF.'); }
+}
+
+// ─── Éditeur PDF (contenu) : analyse des objets + application des modifs ────
+async function editObjects(req, res) {
+    try {
+        if (!req.file) return res.status(400).json({ message: 'Aucun fichier fourni.' });
+        const data = await editSvc.listObjects(req.file.buffer);
+        res.json(data);
+    } catch (e) { handleError(res, e, "Échec de l'analyse du PDF."); }
+}
+
+async function editApply(req, res) {
+    try {
+        if (!req.file) return res.status(400).json({ message: 'Aucun fichier fourni.' });
+        let plan;
+        try { plan = JSON.parse(req.body.plan); } catch (e) { return res.status(400).json({ message: 'Plan de modification invalide.' }); }
+        const buffer = await editSvc.editPdf(req.file.buffer, plan);
+        sendPdf(res, buffer, 'modifie.pdf');
+    } catch (e) { handleError(res, e, "Échec de l'application des modifications."); }
+}
+
+// ─── Sauvegarde dans la PDFothèque (dossier personnel de l'agent) ───────────
 async function saveToGed(req, res) {
     try {
         if (!req.file) return res.status(400).json({ message: 'Aucun fichier fourni.' });
         const username = req.user && req.user.username;
         if (!username) return res.status(401).json({ message: 'Utilisateur non identifié.' });
 
-        const file = { buffer: req.file.buffer, originalname: storage.fixUploadName(req.body.filename || req.file.originalname || 'document.pdf') };
+        const title = storage.fixUploadName(req.body.filename || req.file.originalname || 'document.pdf');
+        const overwrite = req.body.overwrite === 'true' || req.body.overwrite === true;
+
+        // Un document du même nom existe-t-il déjà ? (sinon on écraserait silencieusement)
+        const existing = await docsService.findByTitle(MODULE, LIBRARY_ENTITY, username, title).catch(() => null);
+        if (existing && !overwrite) {
+            return res.status(409).json({
+                code: 'DUPLICATE',
+                message: `Un document nommé « ${title} » existe déjà dans votre PDFothèque.`,
+                existing: { id: existing.id, title },
+            });
+        }
+
+        const file = { buffer: req.file.buffer, originalname: title };
         const saved = await storage.saveFile(MODULE, username, file);
 
+        let documentId = null;
         try {
-            const docsService = require('../../shared/documents.service');
-            await docsService.registerExternalUpload({
+            // registerExternalUpload crée un nouveau document, ou ajoute une
+            // nouvelle version si le titre existe déjà (comportement « écraser »).
+            const result = await docsService.registerExternalUpload({
                 module: MODULE,
-                entityType: 'pdf-tools-output',
+                entityType: LIBRARY_ENTITY,
                 entityId: username,
                 title: file.originalname,
                 filename: saved.filename,
@@ -208,10 +307,176 @@ async function saveToGed(req, res) {
                 storageRef: saved.dbPath,
                 uploadedBy: username,
             });
+            documentId = result && result.document ? result.document.id : null;
         } catch (e) { console.warn('[DOCS] register failed:', e.message); }
 
-        res.json({ dbPath: saved.dbPath, filename: saved.filename, url: `/api/storage/${saved.relativePath}` });
-    } catch (e) { handleError(res, e, 'Échec de la sauvegarde dans la GED.'); }
+        res.json({
+            documentId,
+            overwritten: !!(existing && overwrite),
+            dbPath: saved.dbPath,
+            filename: saved.filename,
+            name: file.originalname,
+            url: `/api/storage/${saved.relativePath}`,
+        });
+    } catch (e) { handleError(res, e, 'Échec de la sauvegarde dans la PDFothèque.'); }
+}
+
+// ─── PDFothèque : liste, téléchargement, suppression ────────────────────────
+async function listLibrary(req, res) {
+    try {
+        const username = req.user && req.user.username;
+        if (!username) return res.status(401).json({ message: 'Utilisateur non identifié.' });
+        const docs = await docsService.listByEntity(MODULE, LIBRARY_ENTITY, username);
+        res.json(docs.map(mapLibraryDoc));
+    } catch (e) { handleError(res, e, 'Échec du chargement de la PDFothèque.'); }
+}
+
+async function downloadLibrary(req, res) {
+    try {
+        const username = req.user && req.user.username;
+        const id = parseInt(req.params.id, 10);
+        const doc = await docsService.getDocument(id);
+        if (!doc || doc.module !== MODULE || String(doc.entity_id) !== String(username)) {
+            return res.status(404).json({ message: 'Document introuvable.' });
+        }
+        const v = await docsService.readVersion(id);
+        if (!v) return res.status(404).json({ message: 'Fichier introuvable sur le stockage.' });
+        const name = v.originalName || doc.title || 'document.pdf';
+        const disposition = req.query.inline === '1' ? 'inline' : 'attachment';
+        res.setHeader('Content-Disposition', `${disposition}; filename*=UTF-8''${encodeURIComponent(name)}`);
+        res.type(v.mimetype || 'application/pdf');
+        if (v.absolutePath) return res.sendFile(v.absolutePath);
+        return res.send(v.buffer);
+    } catch (e) { handleError(res, e, 'Échec du téléchargement.'); }
+}
+
+async function deleteLibrary(req, res) {
+    try {
+        const username = req.user && req.user.username;
+        const id = parseInt(req.params.id, 10);
+        const doc = await docsService.getDocument(id);
+        if (!doc || doc.module !== MODULE || String(doc.entity_id) !== String(username)) {
+            return res.status(404).json({ message: 'Document introuvable.' });
+        }
+        await docsService.purgeDocument(id);
+        res.json({ ok: true });
+    } catch (e) { handleError(res, e, 'Échec de la suppression.'); }
+}
+
+// ─── PDFothèque : envoi d'un document par e-mail ────────────────────────────
+async function sendLibraryMail(req, res) {
+    try {
+        const username = req.user && req.user.username;
+        const id = parseInt(req.params.id, 10);
+        const doc = await docsService.getDocument(id);
+        if (!doc || doc.module !== MODULE || String(doc.entity_id) !== String(username)) {
+            return res.status(404).json({ message: 'Document introuvable.' });
+        }
+        const rawTo = req.body.to;
+        const to = (Array.isArray(rawTo) ? rawTo : String(rawTo || '').split(/[;,]/))
+            .map((s) => String(s).trim())
+            .filter((s) => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(s));
+        if (!to.length) return res.status(400).json({ message: 'Indiquez au moins un destinataire valide.' });
+
+        const v = await docsService.readVersion(id);
+        if (!v) return res.status(404).json({ message: 'Fichier introuvable sur le stockage.' });
+        const buffer = v.absolutePath ? fs.readFileSync(v.absolutePath) : v.buffer;
+        const attName = v.originalName || doc.title || 'document.pdf';
+
+        const subject = String(req.body.subject || '').trim() || `Document : ${doc.title || attName}`;
+        const message = String(req.body.message || '').trim()
+            || `Bonjour,\n\nVous trouverez ci-joint le document « ${doc.title || attName} ».\n\nCordialement,`;
+        const content = buildLibraryMailHtml(message);
+
+        const attachment = { filename: attName, content: Buffer.from(buffer).toString('base64') };
+        let sent = 0;
+        let usedFallback = false;
+        for (const email of to) {
+            try {
+                // API Ville (APM) : elle applique SON template général au `content`.
+                await apmMail.sendMail({ to: email, subject, content, attachments: [attachment] });
+            } catch (apiErr) {
+                if (!sendMailFn) throw apiErr;
+                console.warn('[PDF-TOOLS] API Ville mail indisponible, repli mailer local:', apiErr.message);
+                await sendMailFn(email, subject, content, [attachment], 'pdf-library', { rawHtml: true });
+                usedFallback = true;
+            }
+            sent++;
+        }
+        res.json({ ok: true, sent, via: usedFallback ? 'local' : 'apm' });
+    } catch (e) { handleError(res, e, "Échec de l'envoi du document par mail."); }
+}
+
+// ─── Rétention PDFothèque : suppression automatique après 6 mois ─────────────
+const RETENTION_MONTHS = 6;
+
+async function cleanupExpiredLibrary() {
+    const rows = await pgDb.all(
+        `SELECT id FROM hub_docs.documents
+         WHERE module = $1 AND entity_type = $2
+           AND created_at < NOW() - INTERVAL '${RETENTION_MONTHS} months'`,
+        [MODULE, LIBRARY_ENTITY]
+    );
+    let removed = 0;
+    for (const r of rows) {
+        try { await docsService.purgeDocument(r.id); removed++; }
+        catch (e) { console.warn('[PDF-TOOLS] purge échouée', r.id, e.message); }
+    }
+    if (removed) console.log(`[PDF-TOOLS] PDFothèque : ${removed} document(s) supprimé(s) (rétention ${RETENTION_MONTHS} mois)`);
+    return removed;
+}
+
+// ─── 11. Publipostage : analyse du modèle + du fichier Excel ────────────────
+async function mailMergeAnalyze(req, res) {
+    try {
+        const pdf = req.files && req.files.pdf && req.files.pdf[0];
+        const excel = req.files && req.files.excel && req.files.excel[0];
+        if (!pdf) return res.status(400).json({ message: 'Aucun PDF modèle fourni.' });
+        if (!excel) return res.status(400).json({ message: 'Aucun fichier Excel fourni.' });
+
+        const data = svc.parseExcel(excel.buffer, req.body.sheet);
+        if (!data.records.length) return res.status(400).json({ message: 'Le fichier Excel ne contient aucune donnée.' });
+        const { records, ...meta } = data;
+        const info = await svc.getPagesInfo(pdf.buffer, { scale: 1, maxPages: 20 });
+
+        res.json({
+            ...meta,
+            rowCount: records.length,
+            firstRecord: records[0],
+            sample: records.slice(0, 3),
+            ...info,
+        });
+    } catch (e) { handleError(res, e, "Échec de l'analyse du publipostage."); }
+}
+
+// ─── 12. Publipostage : génération ──────────────────────────────────────────
+async function mailMergeGenerate(req, res) {
+    try {
+        const pdf = req.files && req.files.pdf && req.files.pdf[0];
+        const excel = req.files && req.files.excel && req.files.excel[0];
+        if (!pdf) return res.status(400).json({ message: 'Aucun PDF modèle fourni.' });
+        if (!excel) return res.status(400).json({ message: 'Aucun fichier Excel fourni.' });
+
+        let plan;
+        try { plan = JSON.parse(req.body.plan); } catch (e) { return res.status(400).json({ message: 'Plan de publipostage invalide.' }); }
+        const fields = (plan && Array.isArray(plan.fields)) ? plan.fields : [];
+        if (!fields.length) return res.status(400).json({ message: 'Placez au moins une variable sur le document.' });
+
+        const mode = req.body.mode === 'separate' ? 'separate' : 'single';
+        const { records } = svc.parseExcel(excel.buffer, plan.sheet);
+        if (!records.length) return res.status(400).json({ message: 'Le fichier Excel ne contient aucune donnée.' });
+
+        const result = await svc.generateMailMerge(pdf.buffer, records, fields, {
+            mode,
+            baseName: (plan.baseName || 'publipostage').replace(/[\\/:*?"<>|]/g, '_'),
+        });
+
+        if (result.zip) {
+            sendZip(res, result.zip, `${plan.baseName || 'publipostage'}.zip`);
+        } else {
+            sendPdf(res, result.buffer, `${plan.baseName || 'publipostage'}.pdf`);
+        }
+    } catch (e) { handleError(res, e, 'Échec de la génération du publipostage.'); }
 }
 
 module.exports = {
@@ -225,5 +490,17 @@ module.exports = {
     ocr,
     compare,
     repair,
+    protect,
+    editObjects,
+    editApply,
     saveToGed,
+    mailMergeAnalyze,
+    mailMergeGenerate,
+    listLibrary,
+    downloadLibrary,
+    deleteLibrary,
+    sendLibraryMail,
+    setSendMail,
+    cleanupExpiredLibrary,
+    RETENTION_MONTHS,
 };

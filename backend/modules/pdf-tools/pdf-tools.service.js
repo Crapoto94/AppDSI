@@ -11,6 +11,7 @@
  */
 const path = require('path');
 const archiver = require('archiver');
+const XLSX = require('xlsx');
 const {
     PDFDocument, StandardFonts, rgb, degrees, PDFName, PDFArray, PDFRawStream,
 } = require('pdf-lib');
@@ -68,6 +69,38 @@ function hexToRgbFractions(hex) {
     const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex || '94a3b8');
     if (!m) return { r: 0.58, g: 0.64, b: 0.72 };
     return { r: parseInt(m[1], 16) / 255, g: parseInt(m[2], 16) / 255, b: parseInt(m[3], 16) / 255 };
+}
+
+// ─── Nettoyage WinAnsi (polices standard pdf-lib) ───────────────────────────
+// Les polices StandardFonts (Helvetica…) utilisent l'encodage WinAnsi
+// (Windows-1252) : tout caractère hors de cet ensemble fait échouer drawText
+// (« WinAnsi cannot encode … »). On retire donc les emojis/symboles exotiques
+// et on mappe les caractères typographiques courants avant tout dessin.
+const WINANSI_EXTRAS = new Set([
+    0x20AC, 0x201A, 0x0192, 0x201E, 0x2026, 0x2020, 0x2021, 0x02C6, 0x2030, 0x0160,
+    0x2039, 0x0152, 0x017D, 0x2018, 0x2019, 0x201C, 0x201D, 0x2022, 0x2013, 0x2014,
+    0x02DC, 0x2122, 0x0161, 0x203A, 0x0153, 0x017E, 0x0178,
+]);
+
+function isWinAnsiCode(cp) {
+    if (cp === 0x09 || cp === 0x0A || cp === 0x0D) return true;
+    if (cp >= 0x20 && cp <= 0x7E) return true;
+    if (cp >= 0xA0 && cp <= 0xFF) return true;
+    return WINANSI_EXTRAS.has(cp);
+}
+
+/** Remplace les caractères non encodables (emoji, symboles) pour éviter tout crash pdf-lib. */
+function sanitizeForWinAnsi(value) {
+    const text = value === null || value === undefined ? '' : String(value);
+    let out = '';
+    for (const ch of text) {
+        const cp = ch.codePointAt(0);
+        if (isWinAnsiCode(cp)) out += ch;
+        else if (cp === 0xFEFF || cp === 0x200B || cp === 0x200D || (cp >= 0xFE00 && cp <= 0xFE0F)) { /* invisible */ }
+        else if (cp >= 0x1F000) { /* emoji */ out += ''; }
+        else out += '?';
+    }
+    return out;
 }
 
 async function getPageCount(buffer) {
@@ -251,13 +284,33 @@ async function compressPdf(buffer, level) {
 }
 
 // ─── 5. Export PDF -> images ─────────────────────────────────────────────────
-async function pdfToImages(buffer, { format = 'png', scale = 2 } = {}) {
+const MAX_RENDER_SCALE = 8; // ~576 DPI
+
+/** Rend le blanc (proche de #fff) transparent — pour les PNG à détourer. */
+async function makeWhiteTransparent(pngBuffer) {
+    const img = await loadImage(pngBuffer);
+    const canvas = createCanvas(img.width, img.height);
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(img, 0, 0);
+    const data = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const THRESHOLD = 245;
+    for (let p = 0; p < data.data.length; p += 4) {
+        if (data.data[p] >= THRESHOLD && data.data[p + 1] >= THRESHOLD && data.data[p + 2] >= THRESHOLD) {
+            data.data[p + 3] = 0;
+        }
+    }
+    ctx.putImageData(data, 0, 0);
+    return canvas.toBuffer('image/png');
+}
+
+async function pdfToImages(buffer, { format = 'png', scale = 4, transparent = false } = {}) {
+    const safeScale = Math.min(MAX_RENDER_SCALE, Math.max(0.5, Number(scale) || 2));
     const doc = await getPdfjsDocument(buffer);
     const total = doc.numPages;
     const images = [];
     try {
         for (let i = 1; i <= total; i++) {
-            const { buffer: png } = await renderPageToPng(doc, i, scale);
+            const { buffer: png } = await renderPageToPng(doc, i, safeScale);
             if (format === 'jpeg') {
                 const img = await loadImage(png);
                 const canvas = createCanvas(img.width, img.height);
@@ -265,9 +318,10 @@ async function pdfToImages(buffer, { format = 'png', scale = 2 } = {}) {
                 ctx.fillStyle = '#ffffff';
                 ctx.fillRect(0, 0, canvas.width, canvas.height);
                 ctx.drawImage(img, 0, 0);
-                images.push({ index: i - 1, buffer: canvas.toBuffer('image/jpeg', 0.9), ext: 'jpg' });
+                images.push({ index: i - 1, buffer: canvas.toBuffer('image/jpeg', 0.92), ext: 'jpg' });
             } else {
-                images.push({ index: i - 1, buffer: png, ext: 'png' });
+                const out = transparent ? await makeWhiteTransparent(png) : png;
+                images.push({ index: i - 1, buffer: out, ext: 'png' });
             }
         }
     } finally {
@@ -293,6 +347,7 @@ async function addWatermark(buffer, opts = {}) {
         font = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
     }
     const color = hexToRgbFractions(colorHex);
+    const safeText = sanitizeForWinAnsi(text);
 
     for (const page of pdfDoc.getPages()) {
         const { width, height } = page.getSize();
@@ -301,9 +356,9 @@ async function addWatermark(buffer, opts = {}) {
             const w = embeddedImage.width * scale;
             const h = embeddedImage.height * scale;
             page.drawImage(embeddedImage, { x: (width - w) / 2, y: (height - h) / 2, width: w, height: h, opacity });
-        } else if (text) {
-            const textWidth = font.widthOfTextAtSize(text, fontSize);
-            page.drawText(text, {
+        } else if (safeText) {
+            const textWidth = font.widthOfTextAtSize(safeText, fontSize);
+            page.drawText(safeText, {
                 x: (width - textWidth) / 2,
                 y: height / 2,
                 size: fontSize,
@@ -324,7 +379,7 @@ async function addPageNumbers(buffer, { position = 'bottom-center', startAt = 1,
     const pages = pdfDoc.getPages();
     pages.forEach((page, idx) => {
         const n = startAt + idx;
-        const label = format.replace('{page}', String(n)).replace('{total}', String(pages.length));
+        const label = sanitizeForWinAnsi(format.replace('{page}', String(n)).replace('{total}', String(pages.length)));
         const { width, height } = page.getSize();
         const fontSize = 10;
         const textWidth = font.widthOfTextAtSize(label, fontSize);
@@ -373,13 +428,15 @@ async function makeSearchable(buffer, { lang = 'fra', maxPages = 30 } = {}) {
             const words = (data && data.words) || [];
             for (const w of words) {
                 if (!w.text || !w.text.trim()) continue;
+                const word = sanitizeForWinAnsi(w.text);
+                if (!word) continue;
                 const bbox = w.bbox;
                 const x = bbox.x0 / scale;
                 const yTop = bbox.y0 / scale;
                 const boxHeight = (bbox.y1 - bbox.y0) / scale;
                 const y = pdfHeight - yTop - boxHeight;
                 const fontSize = Math.max(4, boxHeight * 0.85);
-                pdfPage.drawText(w.text, {
+                pdfPage.drawText(word, {
                     x, y, size: fontSize, font, opacity: 0, color: rgb(0, 0, 0),
                 });
             }
@@ -475,6 +532,215 @@ async function repairPdf(buffer) {
     return Buffer.from(await pdfDoc.save());
 }
 
+// ─── 11. Publipostage (mail merge PDF + Excel) ───────────────────────────────
+
+const FONT_BY_STYLE = {
+    '0_0': StandardFonts.Helvetica,
+    '1_0': StandardFonts.HelveticaBold,
+    '0_1': StandardFonts.HelveticaOblique,
+    '1_1': StandardFonts.HelveticaBoldOblique,
+};
+
+async function embedFontCached(pdfDoc, cache, bold, italic) {
+    const key = `${bold ? 1 : 0}_${italic ? 1 : 0}`;
+    if (!cache[key]) cache[key] = await pdfDoc.embedFont(FONT_BY_STYLE[key]);
+    return cache[key];
+}
+
+/** Découpe un texte en lignes tenant dans maxWidth (mesure avec la police choisie). */
+function wrapText(text, font, size, maxWidth) {
+    const words = String(text == null ? '' : text).split(/\s+/).filter(Boolean);
+    if (!words.length) return [''];
+    const lines = [];
+    let current = '';
+    for (const word of words) {
+        const test = current ? `${current} ${word}` : word;
+        if (font.widthOfTextAtSize(test, size) <= maxWidth || !current) {
+            current = test;
+        } else {
+            lines.push(current);
+            current = word;
+        }
+    }
+    if (current) lines.push(current);
+    return lines;
+}
+
+/**
+ * Lit un classeur Excel/CSV et renvoie les colonnes + les enregistrements.
+ * La première ligne non vide sert d'en-tête ; les colonnes vides/homonymes sont
+ * renommées pour rester uniques.
+ */
+function parseExcel(buffer, sheetName) {
+    const wb = XLSX.read(buffer, { type: 'buffer', cellDates: true });
+    if (!wb.SheetNames || !wb.SheetNames.length) throw new Error('Classeur Excel vide.');
+    const sheet = (sheetName && wb.SheetNames.includes(sheetName)) ? sheetName : wb.SheetNames[0];
+    const ws = wb.Sheets[sheet];
+    const matrix = XLSX.utils.sheet_to_json(ws, { header: 1, blankrows: false, defval: '' });
+    if (!matrix.length) throw new Error('Feuille Excel vide.');
+
+    const rawHeader = matrix[0] || [];
+    const used = new Set();
+    const columns = rawHeader.map((h, i) => {
+        let name = String(h == null ? '' : h).trim() || `Colonne ${i + 1}`;
+        let candidate = name;
+        let n = 2;
+        while (used.has(candidate)) candidate = `${name} (${n++})`;
+        used.add(candidate);
+        return candidate;
+    });
+
+    const records = matrix.slice(1).map((row) => {
+        const obj = {};
+        columns.forEach((col, i) => { obj[col] = row[i] === undefined || row[i] === null ? '' : row[i]; });
+        return obj;
+    }).filter((rec) => Object.values(rec).some((v) => String(v).trim() !== ''));
+
+    return { sheetNames: wb.SheetNames, sheet, columns, records };
+}
+
+/** Renvoie la taille (points) + un aperçu image (dataUrl) de chaque page du PDF. */
+async function getPagesInfo(buffer, { scale = 1, maxPages = 20 } = {}) {
+    const pdfDoc = await PDFDocument.load(buffer, { ignoreEncryption: true });
+    const sizes = pdfDoc.getPages().map((p) => p.getSize());
+    const doc = await getPdfjsDocument(buffer);
+    const pages = [];
+    try {
+        const limit = Math.min(doc.numPages, maxPages, sizes.length);
+        for (let i = 1; i <= limit; i++) {
+            const { buffer: png, width, height } = await renderPageToPng(doc, i, scale);
+            pages.push({
+                index: i - 1,
+                width, height,
+                widthPt: sizes[i - 1].width,
+                heightPt: sizes[i - 1].height,
+                dataUrl: `data:image/png;base64,${png.toString('base64')}`,
+            });
+        }
+    } finally {
+        try { await doc.destroy(); } catch (e) { /* ignore */ }
+    }
+    return { pageCount: sizes.length, pages, truncated: sizes.length > maxPages };
+}
+
+/**
+ * Génère le publipostage : dessine, pour chaque enregistrement, les variables
+ * (fields) sur le PDF modèle, puis renvoie soit un PDF unique (toutes les
+ * copies à la suite), soit un ZIP d'autant de PDF que d'enregistrements.
+ *
+ * field: {
+ *   column, page (1-based), xPct, yPct (coin haut-gauche, % de la page),
+ *   wPt, hPt (points), fontSize, bold, italic, underline, color, align, wrap
+ * }
+ */
+async function generateMailMerge(templateBuffer, records, fields, { mode = 'single', baseName = 'publipostage' } = {}) {
+    const template = await PDFDocument.load(templateBuffer, { ignoreEncryption: true });
+    const totalPages = template.getPageCount();
+    const safeFields = (Array.isArray(fields) ? fields : []).filter(
+        (f) => f && f.column && Number(f.page) >= 1 && Number(f.page) <= totalPages
+    );
+
+    const applyRecord = async (outDoc, fontCache, record) => {
+        // Les pages de l'exemplaire sont ajoutées à la suite dans outDoc : on
+        // mémorise leur index de départ pour dessiner sur les bonnes pages
+        // (sinon, en PDF unique, toutes les variables atterrissent sur les pages
+        // du PREMIER exemplaire).
+        const base = outDoc.getPageCount();
+        const copied = await outDoc.copyPages(template, template.getPageIndices());
+        copied.forEach((p) => outDoc.addPage(p));
+
+        for (const f of safeFields) {
+            const text = sanitizeForWinAnsi(record[f.column]);
+            if (!text) continue;
+
+            const page = outDoc.getPage(base + Number(f.page) - 1);
+            const { width, height } = page.getSize();
+            const size = Math.max(4, Number(f.fontSize) || 11);
+            const font = await embedFontCached(outDoc, fontCache, !!f.bold, !!f.italic);
+            const color = hexToRgbFractions(f.color || '#111827');
+            const x = Math.max(0, (Number(f.xPct) || 0) / 100 * width);
+            const yTop = Math.max(0, (Number(f.yPct) || 0) / 100 * height);
+            const maxW = Math.max(10, Number(f.wPt) || (width - x));
+            const maxH = Number(f.hPt) || 0;
+            const lineH = size * 1.2;
+
+            const lines = f.wrap
+                ? wrapText(text, font, size, maxW)
+                : [text.replace(/\s+/g, ' ').trim()];
+            const maxLines = f.wrap && maxH > 0 ? Math.max(1, Math.floor(maxH / lineH)) : lines.length;
+
+            lines.slice(0, maxLines).forEach((line, i) => {
+                if (!line) return;
+                const w = font.widthOfTextAtSize(line, size);
+                let lx = x;
+                if (f.align === 'center') lx = x + (maxW - w) / 2;
+                else if (f.align === 'right') lx = x + maxW - w;
+                const ly = height - yTop - size - i * lineH;
+                page.drawText(line, { x: lx, y: ly, size, font, color: rgb(color.r, color.g, color.b) });
+                if (f.underline) {
+                    page.drawLine({
+                        start: { x: lx, y: ly - 1.6 },
+                        end: { x: lx + w, y: ly - 1.6 },
+                        thickness: 0.7,
+                        color: rgb(color.r, color.g, color.b),
+                    });
+                }
+            });
+        }
+    };
+
+    if (mode === 'separate') {
+        const files = [];
+        for (let i = 0; i < records.length; i++) {
+            const out = await PDFDocument.create();
+            await applyRecord(out, {}, records[i]);
+            files.push({
+                name: `${baseName}-${String(i + 1).padStart(3, '0')}.pdf`,
+                buffer: Buffer.from(await out.save()),
+            });
+        }
+        return { zip: await zipBuffers(files), count: files.length, mode };
+    }
+
+    const out = await PDFDocument.create();
+    const cache = {};
+    for (const record of records) await applyRecord(out, cache, record);
+    return { buffer: Buffer.from(await out.save()), count: records.length, mode };
+}
+
+// ─── 13. Protection par mot de passe (chiffrement AES-256) ─────────────────
+// pdf-lib ne chiffre pas ; on utilise @cantoo/pdf-lib (fork pur JS) pour
+// produire un PDF ouvert uniquement avec le mot de passe « utilisateur ».
+async function protectPdf(buffer, opts = {}) {
+    const { PDFDocument: SecurePDFDocument } = require('@cantoo/pdf-lib');
+    const userPassword = String(opts.userPassword || '').trim();
+    const ownerPassword = String(opts.ownerPassword || '').trim();
+    if (!userPassword && !ownerPassword) {
+        throw new Error('Un mot de passe est requis pour protéger le document.');
+    }
+
+    let doc;
+    try {
+        doc = await SecurePDFDocument.load(buffer, {
+            ignoreEncryption: false,
+            password: opts.currentPassword || undefined,
+        });
+    } catch (e) {
+        if (/encrypt/i.test(e && e.message || '')) {
+            throw new Error('Ce PDF est déjà protégé par mot de passe : renseignez le mot de passe actuel pour le modifier.');
+        }
+        throw e;
+    }
+
+    doc.encrypt({
+        userPassword: userPassword || undefined,
+        ownerPassword: ownerPassword || userPassword || undefined,
+        cipher: 'AES-256',
+    });
+
+    return Buffer.from(await doc.save());
+}
+
 module.exports = {
     A4,
     getPageCount,
@@ -489,4 +755,9 @@ module.exports = {
     comparePdfs,
     repairPdf,
     zipBuffers,
+    parseExcel,
+    getPagesInfo,
+    generateMailMerge,
+    sanitizeForWinAnsi,
+    protectPdf,
 };

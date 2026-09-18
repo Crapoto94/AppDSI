@@ -12,6 +12,7 @@
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
+    "@cantoo/pdf-lib": "^2.11.1",
     "@kenjiuno/msgreader": "^1.28.0",
     "@napi-rs/canvas": "^0.1.65",
     "@signpdf/placeholder-pdf-lib": "^3.3.0",

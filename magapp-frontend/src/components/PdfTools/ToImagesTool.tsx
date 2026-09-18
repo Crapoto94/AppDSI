@@ -9,6 +9,8 @@ interface ToImagesToolProps { onClose: () => void }
 export default function ToImagesTool({ onClose }: ToImagesToolProps) {
   const [file, setFile] = useState<File | null>(null);
   const [format, setFormat] = useState<'png' | 'jpeg'>('png');
+  const [dpi, setDpi] = useState(300);
+  const [transparent, setTransparent] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<{ blob: Blob; filename: string } | null>(null);
@@ -21,7 +23,8 @@ export default function ToImagesTool({ onClose }: ToImagesToolProps) {
       const formData = new FormData();
       formData.append('file', file);
       formData.append('format', format);
-      formData.append('scale', '2');
+      formData.append('dpi', String(dpi));
+      formData.append('transparent', transparent ? 'true' : 'false');
       const { blob, filename } = await postFormForBlob('/to-images', formData, "Échec de l'export en images.");
       setResult({ blob, filename: blob.type === 'application/zip' ? 'pages.zip' : filename });
     } catch (e: any) {
@@ -52,7 +55,24 @@ export default function ToImagesTool({ onClose }: ToImagesToolProps) {
           </label>
         ))}
       </div>
-      <p style={{ fontSize: '0.78rem', color: '#94a3b8', marginTop: 6 }}>PNG conserve la qualité (fichiers plus lourds) ; JPEG est plus compact (fond blanc, léger flou).</p>
+      <div style={{ marginTop: '16px', display: 'flex', gap: 20, flexWrap: 'wrap', alignItems: 'center' }}>
+        <label style={{ fontSize: '0.86rem', color: '#334155', display: 'flex', alignItems: 'center', gap: 8 }}>
+          Qualité / résolution
+          <select value={dpi} onChange={(e) => setDpi(Number(e.target.value))} style={{ padding: '7px 10px', border: '1px solid #e2e8f0', borderRadius: 8, fontSize: '0.85rem', background: '#fff' }}>
+            <option value={150}>Web — 150 dpi (léger)</option>
+            <option value={300}>Standard — 300 dpi (recommandé)</option>
+            <option value={450}>Haute — 450 dpi</option>
+            <option value={600}>Impression — 600 dpi (lourd)</option>
+          </select>
+        </label>
+        {format === 'png' && (
+          <label style={{ fontSize: '0.86rem', color: '#334155', display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+            <input type="checkbox" checked={transparent} onChange={(e) => setTransparent(e.target.checked)} />
+            Rendre le blanc transparent
+          </label>
+        )}
+      </div>
+      <p style={{ fontSize: '0.78rem', color: '#94a3b8', marginTop: 8 }}>PNG : qualité (fichiers plus lourds), transparence possible. JPEG : plus compact, fond blanc.</p>
 
       {error && <div style={errorBox}>{error}</div>}
 

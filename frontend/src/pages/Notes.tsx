@@ -4,7 +4,7 @@ import {
   Plus, Search, Trash2, Save, Sparkles, RefreshCw, Pin, PinOff, Eye, Pencil, X,
   NotebookPen, Folder, ChevronRight, ChevronDown, FileText, Tag,
   Cloud, Check, AlertCircle, Loader2, History, Wand2, LayoutList,
-  Paperclip, Upload, Download,
+  Paperclip, Upload, Download, Mail, Send, UserPlus, Users, Share2,
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import Header from '../components/Header';
@@ -21,6 +21,15 @@ function stripHtml(html?: string | null): string {
     .replace(/&nbsp;/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
+}
+
+/** Le modèle IA renvoie parfois du texte brut : on rétablit les retours à la ligne en HTML. */
+function ensureHtml(html?: string | null): string {
+  const s = String(html || '');
+  if (!s) return '';
+  if (/<\/?[a-z][\s\S]*>/i.test(s)) return s;
+  const esc = s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  return esc.split(/\n{2,}/).map(p => `<p>${p.replace(/\n/g, '<br>')}</p>`).join('');
 }
 
 const escapeRegex = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -114,6 +123,25 @@ const Notes: React.FC = () => {
   const [tasksLoading, setTasksLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
 
+  const [mailOpen, setMailOpen] = useState(false);
+  const [mailRecipients, setMailRecipients] = useState<string[]>([]);
+  const [mailInput, setMailInput] = useState('');
+  const [mailAgents, setMailAgents] = useState<any[]>([]);
+  const [mailSubject, setMailSubject] = useState('');
+  const [mailMessage, setMailMessage] = useState('');
+  const [mailSending, setMailSending] = useState(false);
+  const [mailOk, setMailOk] = useState<string | null>(null);
+  const mailTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const [sharedNotes, setSharedNotes] = useState<any[]>([]);
+  const [showShared, setShowShared] = useState(false);
+  const [shareOpen, setShareOpen] = useState(false);
+  const [shares, setShares] = useState<any[]>([]);
+  const [shareInput, setShareInput] = useState('');
+  const [shareAgents, setShareAgents] = useState<any[]>([]);
+  const [sharing, setSharing] = useState(false);
+  const shareTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const loadedRef = useRef<{ title: string; content: string; contentAi: string }>({ title: '', content: '', contentAi: '' });
   const contentAiRef = useRef('');
   useEffect(() => { contentAiRef.current = contentAi; }, [contentAi]);
@@ -152,7 +180,7 @@ const Notes: React.FC = () => {
   useEffect(() => {
     (async () => {
       setLoading(true);
-      await Promise.all([loadTree(), loadNotes()]);
+      await Promise.all([loadTree(), loadNotes(), loadShared()]);
       try {
         const r = await api('get', '/api/notes/settings');
         setSettings(r.data);
@@ -185,7 +213,8 @@ const Notes: React.FC = () => {
       setMentions((n.mentions || []).map((m: any) => ({ name: m.agent_name || '', email: m.agent_email || '' })));
       loadedRef.current = { title: n.title || '', content: n.content || '', contentAi: n.content_ai || '' };
       analyzedRef.current = n.content || '';
-      setMode(hasAi ? 'preview' : 'edit');
+      // Note partagée (non propriétaire) : ouverture en lecture seule.
+      setMode(n.is_owner === false || hasAi ? 'preview' : 'edit');
       if (pollRef.current) { window.clearInterval(pollRef.current); pollRef.current = null; }
       if (n.ai_status === 'pending' || n.ai_status === 'running' || n.processing) pollAi(id);
     } catch (e: any) { flash('error', e.response?.data?.message || 'Erreur chargement note'); }
@@ -402,6 +431,110 @@ const Notes: React.FC = () => {
     } catch (e: any) { flash('error', e.response?.data?.message || 'Erreur déplacement'); }
   };
 
+  // ── Envoi par mail ───────────────────────────────────────────────────────
+  const openMail = () => {
+    setMailOpen(true);
+    setMailRecipients([]);
+    setMailInput('');
+    setMailAgents([]);
+    setMailSubject(`Note : ${title || note?.title || ''}`);
+    setMailMessage('');
+    setMailOk(null);
+  };
+
+  const searchMailAgents = (q: string) => {
+    setMailInput(q);
+    if (mailTimer.current) clearTimeout(mailTimer.current);
+    if (q.trim().length < 2 || q.includes('@')) { setMailAgents([]); return; }
+    mailTimer.current = setTimeout(async () => {
+      try {
+        const r = await api('get', `/api/notes/agents?q=${encodeURIComponent(q)}`);
+        setMailAgents(Array.isArray(r.data) ? r.data.slice(0, 8) : []);
+      } catch { setMailAgents([]); }
+    }, 300);
+  };
+
+  const addMailRecipient = (email: string) => {
+    const e = String(email || '').trim();
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e)) return;
+    setMailRecipients((prev) => (prev.includes(e) ? prev : [...prev, e]));
+    setMailInput('');
+    setMailAgents([]);
+  };
+
+  const doSendMail = async () => {
+    if (!note) return;
+    const to = [...mailRecipients];
+    const pending = mailInput.trim();
+    if (/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(pending)) to.push(pending);
+    if (!to.length) { flash('error', 'Indiquez au moins un destinataire.'); return; }
+    setMailSending(true);
+    setMailOk(null);
+    try {
+      const r = await api('post', `/api/notes/${note.id}/send-mail`, { to, subject: mailSubject, message: mailMessage });
+      setMailOk(`Mail envoyé à ${r.data.sent} destinataire(s).`);
+      setMailRecipients([]);
+      setMailInput('');
+    } catch (e: any) {
+      flash('error', e.response?.data?.message || "Échec de l'envoi du mail");
+    } finally { setMailSending(false); }
+  };
+
+  // ── Partage interne ──────────────────────────────────────────────────────
+  const loadShared = useCallback(async () => {
+    try {
+      const r = await api('get', '/api/notes/shared');
+      setSharedNotes(Array.isArray(r.data) ? r.data : []);
+    } catch { /* ignore */ }
+  }, [api]);
+
+  const openShare = async () => {
+    if (!note) return;
+    setShareOpen(true);
+    setShareInput('');
+    setShareAgents([]);
+    try {
+      const r = await api('get', `/api/notes/${note.id}/shares`);
+      setShares(Array.isArray(r.data) ? r.data : []);
+    } catch { setShares([]); }
+  };
+
+  const searchShareAgents = (q: string) => {
+    setShareInput(q);
+    if (shareTimer.current) clearTimeout(shareTimer.current);
+    if (q.trim().length < 2 || q.includes('@')) { setShareAgents([]); return; }
+    shareTimer.current = setTimeout(async () => {
+      try {
+        const r = await api('get', `/api/notes/agents?q=${encodeURIComponent(q)}`);
+        setShareAgents(Array.isArray(r.data) ? r.data.slice(0, 8) : []);
+      } catch { setShareAgents([]); }
+    }, 300);
+  };
+
+  const addShare = async (agent: any) => {
+    if (!note) return;
+    const username = String(agent?.username || '').trim();
+    if (!username) return;
+    setSharing(true);
+    try {
+      const r = await api('post', `/api/notes/${note.id}/share`, { shared_with: username, shared_with_email: agent?.email || null });
+      setShares(Array.isArray(r.data) ? r.data : []);
+      setShareInput(''); setShareAgents([]);
+      flash('success', 'Note partagée');
+      loadShared();
+    } catch (e: any) { flash('error', e.response?.data?.message || 'Erreur partage'); }
+    finally { setSharing(false); }
+  };
+
+  const removeShare = async (shareId: number) => {
+    if (!note) return;
+    try {
+      await api('delete', `/api/notes/${note.id}/shares/${shareId}`);
+      setShares((prev) => prev.filter((s) => s.id !== shareId));
+      loadShared();
+    } catch (e: any) { flash('error', e.response?.data?.message || 'Erreur'); }
+  };
+
   // ── Nuage de mots ────────────────────────────────────────────────────────
   const openCloud = async () => {
     setCloudOpen(true); setCloudLoading(true);
@@ -467,6 +600,7 @@ const Notes: React.FC = () => {
     if (viewVersion === 'ia') setContentAi(html); else setContent(html);
   }, [viewVersion]);
   const proposedTasks = ((note?.task_suggestions || []) as any[]).filter((t: any) => t.status === 'proposed');
+  const isOwner = note ? note.is_owner !== false : true;
 
   if (loading) {
     return (
@@ -508,7 +642,8 @@ const Notes: React.FC = () => {
           </div>
 
           <div style={{ flex: 1, overflowY: 'auto', padding: '8px 8px' }}>
-            <TreeRow active={!selectedNotebook && !selectedTag && !searchQuery} onClick={() => { setSelectedNotebook(null); setSelectedSection(null); setSelectedTag(null); }} icon={<LayoutList size={15} />} label="Toutes les notes" />
+            <TreeRow active={!selectedNotebook && !selectedTag && !searchQuery && !showShared} onClick={() => { setSelectedNotebook(null); setSelectedSection(null); setSelectedTag(null); setShowShared(false); }} icon={<LayoutList size={15} />} label="Toutes les notes" />
+            <TreeRow active={showShared} onClick={() => { setShowShared(true); setSelectedNotebook(null); setSelectedSection(null); setSelectedTag(null); setSearchQuery(''); }} icon={<Users size={15} />} label="Partagées avec moi" count={sharedNotes.length} />
             {sortedNotebooks.map(nb => {
               const isOpen = expanded[nb.id] !== false;
               return (
@@ -519,7 +654,7 @@ const Notes: React.FC = () => {
                     </button>
                     <TreeRow
                       active={selectedNotebook === nb.id && !selectedSection}
-                      onClick={() => { setSelectedNotebook(nb.id); setSelectedSection(null); setSelectedTag(null); setExpanded(e => ({ ...e, [nb.id]: true })); }}
+                      onClick={() => { setSelectedNotebook(nb.id); setSelectedSection(null); setSelectedTag(null); setShowShared(false); setExpanded(e => ({ ...e, [nb.id]: true })); }}
                       icon={nb.is_inbox ? <Folder size={15} color="#2563eb" /> : <Folder size={15} />}
                       label={nb.title}
                       count={nb.note_count}
@@ -533,7 +668,7 @@ const Notes: React.FC = () => {
                       key={sec.id}
                       indent
                       active={selectedSection === sec.id}
-                      onClick={() => { setSelectedNotebook(nb.id); setSelectedSection(sec.id); setSelectedTag(null); }}
+                      onClick={() => { setSelectedNotebook(nb.id); setSelectedSection(sec.id); setSelectedTag(null); setShowShared(false); }}
                       icon={<FileText size={14} />}
                       label={sec.title}
                       count={sec.note_count}
@@ -550,7 +685,7 @@ const Notes: React.FC = () => {
                 </div>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
                   {tags.map(t => (
-                    <button key={t.tag} onClick={() => { setSelectedTag(selectedTag === t.tag ? null : t.tag); setSelectedNotebook(null); setSelectedSection(null); }}
+                    <button key={t.tag} onClick={() => { setSelectedTag(selectedTag === t.tag ? null : t.tag); setSelectedNotebook(null); setSelectedSection(null); setShowShared(false); }}
                       style={{ border: 'none', cursor: 'pointer', borderRadius: 20, padding: '3px 10px', fontSize: 11.5, fontWeight: 600, background: selectedTag === t.tag ? '#2563eb' : '#f1f5f9', color: selectedTag === t.tag ? 'white' : '#475569' }}>
                       #{t.tag} <span style={{ opacity: .7 }}>{t.count}</span>
                     </button>
@@ -570,13 +705,13 @@ const Notes: React.FC = () => {
         {/* ── Colonne médiane : liste des notes ── */}
         <section style={{ width: 330, flexShrink: 0, background: 'white', borderRadius: 12, border: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
           <div style={{ padding: '12px 14px', borderBottom: '1px solid #f1f5f9', fontSize: 13, fontWeight: 800, color: '#334155' }}>
-            {searchQuery ? `Recherche « ${searchQuery} »` : selectedTag ? `#${selectedTag}` : activeNotebook ? activeNotebook.title : 'Toutes les notes'}
-            <span style={{ color: '#94a3b8', fontWeight: 600 }}> · {notes.length}</span>
+            {showShared ? 'Partagées avec moi' : searchQuery ? `Recherche « ${searchQuery} »` : selectedTag ? `#${selectedTag}` : activeNotebook ? activeNotebook.title : 'Toutes les notes'}
+            <span style={{ color: '#94a3b8', fontWeight: 600 }}> · {(showShared ? sharedNotes : notes).length}</span>
           </div>
           <div style={{ flex: 1, overflowY: 'auto' }}>
-            {notes.length === 0 ? (
-              <div style={{ padding: 30, textAlign: 'center', color: '#94a3b8', fontSize: 13 }}>Aucune note</div>
-            ) : notes.map(n => (
+            {(showShared ? sharedNotes : notes).length === 0 ? (
+              <div style={{ padding: 30, textAlign: 'center', color: '#94a3b8', fontSize: 13 }}>{showShared ? 'Aucune note partagée avec vous' : 'Aucune note'}</div>
+            ) : (showShared ? sharedNotes : notes).map(n => (
               <div key={n.id} onClick={() => openNote(n.id)}
                 style={{ padding: '12px 14px', cursor: 'pointer', borderBottom: '1px solid #f8fafc', background: note?.id === n.id ? '#eff6ff' : 'white', borderLeft: note?.id === n.id ? '3px solid #2563eb' : '3px solid transparent' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
@@ -587,6 +722,7 @@ const Notes: React.FC = () => {
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6, flexWrap: 'wrap' }}>
                   <AiBadge status={n.ai_status} size={10} />
                   <span style={{ fontSize: 10.5, color: '#94a3b8' }}>{new Date(n.updated_at).toLocaleDateString('fr-FR')}</span>
+                  {showShared && n.shared_by_name && <span style={{ fontSize: 10.5, color: '#6366f1' }}>· de {n.shared_by_name}</span>}
                 </div>
               </div>
             ))}
@@ -605,15 +741,16 @@ const Notes: React.FC = () => {
             <>
               {/* Barre d'outils */}
               <div style={{ padding: '10px 14px', borderBottom: '1px solid #f1f5f9', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                <select value={note.notebook_id || ''} onChange={e => moveNote(e.target.value ? parseInt(e.target.value, 10) : null, null)} style={miniSelect}>
+                <select value={note.notebook_id || ''} disabled={!isOwner} onChange={e => moveNote(e.target.value ? parseInt(e.target.value, 10) : null, null)} style={{ ...miniSelect, opacity: isOwner ? 1 : 0.6 }}>
                   {sortedNotebooks.map(nb => <option key={nb.id} value={nb.id}>{nb.title}</option>)}
                 </select>
-                <select value={note.section_id || ''} onChange={e => moveNote(note.notebook_id, e.target.value ? parseInt(e.target.value, 10) : null)} style={miniSelect}>
+                <select value={note.section_id || ''} disabled={!isOwner} onChange={e => moveNote(note.notebook_id, e.target.value ? parseInt(e.target.value, 10) : null)} style={{ ...miniSelect, opacity: isOwner ? 1 : 0.6 }}>
                   <option value="">— Section —</option>
                   {(sortedNotebooks.find(nb => nb.id === note.notebook_id)?.sections || []).map(s => <option key={s.id} value={s.id}>{s.title}</option>)}
                 </select>
                 <AiBadge status={note.ai_status} />
                 {note.processing ? <span style={{ fontSize: 11, color: '#1e40af' }}>en file…</span> : null}
+                {!isOwner && <span style={{ fontSize: 11, color: '#6366f1', fontWeight: 700 }}><Users size={12} style={{ verticalAlign: -2, marginRight: 4 }} />Partagée par {note.shared_by_name || note.shared_by} — lecture seule</span>}
                 <div style={{ display: 'inline-flex', border: '1px solid #e2e8f0', borderRadius: 8, overflow: 'hidden' }} title="Version affichée">
                   <button onClick={() => setViewVersion('ia')} disabled={!contentAi}
                     style={{ border: 'none', cursor: contentAi ? 'pointer' : 'not-allowed', padding: '5px 10px', fontSize: 11.5, fontWeight: 700, background: viewVersion === 'ia' ? '#7c3aed' : '#f8fafc', color: viewVersion === 'ia' ? 'white' : (contentAi ? '#475569' : '#cbd5e1') }}>
@@ -625,11 +762,19 @@ const Notes: React.FC = () => {
                   </button>
                 </div>
                 <div style={{ flex: 1 }} />
-                <button onClick={togglePin} title={note.is_pinned ? 'Désépingler' : 'Épingler'} style={iconBtn}>{note.is_pinned ? <PinOff size={15} /> : <Pin size={15} />}</button>
-                <button onClick={() => setMode(m => m === 'edit' ? 'preview' : 'edit')} title="Aperçu" style={iconBtn}>{mode === 'edit' ? <Eye size={15} /> : <Pencil size={15} />}</button>
-                <button onClick={() => requestAnalysis(note.id)} title="Relancer l'analyse IA" style={iconBtn}><Sparkles size={15} /></button>
-                <button onClick={() => saveNote(true)} disabled={saving} style={{ ...primaryBtn, padding: '7px 14px' }}><Save size={15} /> {saving ? '…' : 'Enregistrer'}</button>
-                <button onClick={deleteNote} title="Supprimer" style={{ ...iconBtn, color: '#dc2626' }}><Trash2 size={15} /></button>
+                {isOwner ? (
+                  <>
+                    <button onClick={togglePin} title={note.is_pinned ? 'Désépingler' : 'Épingler'} style={iconBtn}>{note.is_pinned ? <PinOff size={15} /> : <Pin size={15} />}</button>
+                    <button onClick={() => setMode(m => m === 'edit' ? 'preview' : 'edit')} title="Aperçu / Édition" style={iconBtn}>{mode === 'edit' ? <Eye size={15} /> : <Pencil size={15} />}</button>
+                    <button onClick={() => requestAnalysis(note.id)} title="Relancer l'analyse IA" style={iconBtn}><Sparkles size={15} /></button>
+                    <button onClick={openMail} title="Envoyer la note par mail" style={iconBtn}><Mail size={15} /></button>
+                    <button onClick={openShare} title="Partager la note" style={iconBtn}><Share2 size={15} /></button>
+                    <button onClick={() => saveNote(true)} disabled={saving} style={{ ...primaryBtn, padding: '7px 14px' }}><Save size={15} /> {saving ? '…' : 'Enregistrer'}</button>
+                    <button onClick={deleteNote} title="Supprimer" style={{ ...iconBtn, color: '#dc2626' }}><Trash2 size={15} /></button>
+                  </>
+                ) : (
+                  <button onClick={() => setMode('preview')} title="Lecture seule" style={iconBtn}><Eye size={15} /></button>
+                )}
               </div>
 
               {/* Contenu */}
@@ -715,7 +860,7 @@ const Notes: React.FC = () => {
                     placeholder={viewVersion === 'ia' ? 'Note reformulée par IA (vous pouvez la corriger)…' : undefined}
                   />
                 ) : (
-                  <div className="note-html" style={previewBox} dangerouslySetInnerHTML={{ __html: decorateMentions(editorValue, mentions) }} />
+                  <div className="note-html" style={previewBox} dangerouslySetInnerHTML={{ __html: decorateMentions(ensureHtml(editorValue), mentions) }} />
                 )}
                 {mode === 'preview' && viewVersion === 'ia' && (
                   <div style={{ marginTop: 8, fontSize: 12, color: '#7c3aed', display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -802,6 +947,120 @@ const Notes: React.FC = () => {
         />
       )}
 
+      {mailOpen && note && (
+        <Modal title="Envoyer la note par mail" icon={<Mail size={18} color="#0e7490" />} onClose={() => setMailOpen(false)} width={620}>
+          <div style={{ fontSize: 12.5, color: '#64748b', marginBottom: 12 }}>
+            Note : <strong>{title || note.title}</strong> — contenu envoyé : version IA si disponible, sinon la note d'origine.
+          </div>
+
+          <label style={mailLbl}>Destinataires (recherche d'agent ou adresse libre)</label>
+          {mailRecipients.length > 0 && (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 6 }}>
+              {mailRecipients.map((r) => (
+                <span key={r} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: '#eef2ff', color: '#4338ca', border: '1px solid #c7d2fe', borderRadius: 20, padding: '3px 10px', fontSize: 12, fontWeight: 600 }}>
+                  {r}
+                  <button onClick={() => setMailRecipients((prev) => prev.filter((x) => x !== r))} style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#6366f1', display: 'flex' }}><X size={11} /></button>
+                </span>
+              ))}
+            </div>
+          )}
+          <div style={{ position: 'relative' }}>
+            <input
+              value={mailInput}
+              onChange={(e) => searchMailAgents(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ',' || e.key === ';') { e.preventDefault(); addMailRecipient(mailAgents[0]?.email || mailInput); } }}
+              placeholder="Nom, prénom ou adresse e-mail…"
+              style={mailInputStyle}
+            />
+            {mailAgents.length > 0 && (
+              <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: '#fff', border: '1px solid #c7d2fe', borderRadius: 8, boxShadow: '0 8px 24px rgba(0,0,0,.12)', zIndex: 10, maxHeight: 200, overflowY: 'auto', marginTop: 2 }}>
+                {mailAgents.map((u, i) => (
+                  <div key={u.email || u.username || i} onClick={() => addMailRecipient(u.email || '')}
+                    style={{ padding: '8px 12px', cursor: 'pointer', borderBottom: '1px solid #f1f5f9', fontSize: 13, display: 'flex', alignItems: 'center', gap: 8 }}
+                    onMouseEnter={(e) => (e.currentTarget.style.background = '#eef2ff')} onMouseLeave={(e) => (e.currentTarget.style.background = '#fff')}>
+                    <UserPlus size={13} color="#4338ca" />
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontWeight: 600, color: '#1e293b' }}>{u.displayName || u.email}</div>
+                      {u.email && <div style={{ fontSize: 11, color: '#94a3b8' }}>{u.email}</div>}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <label style={{ ...mailLbl, marginTop: 14 }}>Objet</label>
+          <input value={mailSubject} onChange={(e) => setMailSubject(e.target.value)} style={mailInputStyle} />
+
+          <label style={{ ...mailLbl, marginTop: 14 }}>Message</label>
+          <textarea value={mailMessage} onChange={(e) => setMailMessage(e.target.value)} rows={4}
+            placeholder="Message (facultatif)…"
+            style={{ ...mailInputStyle, resize: 'vertical', lineHeight: 1.5, fontFamily: 'inherit' }} />
+
+          {mailOk && <div style={{ marginTop: 12, color: '#166534', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 8, padding: '10px 12px', fontSize: 13, fontWeight: 600 }}>{mailOk}</div>}
+
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 16 }}>
+            <button onClick={() => setMailOpen(false)} style={ghostBtn}>Fermer</button>
+            <button onClick={doSendMail} disabled={mailSending} style={primaryBtn}>
+              {mailSending ? <Loader2 size={15} style={{ animation: 'spin 1s linear infinite' }} /> : <Send size={15} />} {mailSending ? 'Envoi…' : 'Envoyer'}
+            </button>
+          </div>
+        </Modal>
+      )}
+
+      {shareOpen && note && (
+        <Modal title="Partager la note" icon={<Share2 size={18} color="#4338ca" />} onClose={() => setShareOpen(false)} width={560}>
+          <div style={{ fontSize: 12.5, color: '#64748b', marginBottom: 12 }}>
+            Partage interne à la collectivité. La note apparaîtra chez l'agent dans « Partagées avec moi » (lecture seule).
+          </div>
+          <label style={mailLbl}>Ajouter un agent</label>
+          <div style={{ position: 'relative' }}>
+            <input
+              value={shareInput}
+              onChange={(e) => searchShareAgents(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addShare(shareAgents[0]); } }}
+              placeholder="Nom ou prénom de l'agent…"
+              style={mailInputStyle}
+            />
+            {shareAgents.length > 0 && (
+              <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: '#fff', border: '1px solid #c7d2fe', borderRadius: 8, boxShadow: '0 8px 24px rgba(0,0,0,.12)', zIndex: 10, maxHeight: 200, overflowY: 'auto', marginTop: 2 }}>
+                {shareAgents.map((u, i) => (
+                  <div key={u.username || u.email || i} onClick={() => addShare(u)}
+                    style={{ padding: '8px 12px', cursor: 'pointer', borderBottom: '1px solid #f1f5f9', fontSize: 13, display: 'flex', alignItems: 'center', gap: 8 }}
+                    onMouseEnter={(e) => (e.currentTarget.style.background = '#eef2ff')} onMouseLeave={(e) => (e.currentTarget.style.background = '#fff')}>
+                    <UserPlus size={13} color="#4338ca" />
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontWeight: 600, color: '#1e293b' }}>{u.displayName || u.email}</div>
+                      {u.email && <div style={{ fontSize: 11, color: '#94a3b8' }}>{u.email}</div>}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {shares.length > 0 && (
+            <div style={{ marginTop: 16 }}>
+              <div style={mailLbl}>Partagée avec ({shares.length})</div>
+              {shares.map((s: any) => (
+                <div key={s.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', border: '1px solid #e2e8f0', borderRadius: 8, marginBottom: 6 }}>
+                  <Users size={14} color="#6366f1" />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: '#334155', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.shared_with_email || s.shared_with}</div>
+                    <div style={{ fontSize: 11, color: '#94a3b8' }}>{s.shared_with}</div>
+                  </div>
+                  <button onClick={() => removeShare(s.id)} style={{ ...iconBtn, color: '#dc2626' }} title="Retirer le partage"><Trash2 size={14} /></button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 16 }}>
+            <button onClick={() => setShareOpen(false)} style={ghostBtn}>Fermer</button>
+          </div>
+        </Modal>
+      )}
+
       <style>{`
         .note-html { font-size: 14px; color: #334155; line-height: 1.6; }
         .note-html ul, .note-html ol { padding-left: 1.5em; margin: .4em 0; }
@@ -822,6 +1081,8 @@ const ghostBtn: React.CSSProperties = { display: 'inline-flex', alignItems: 'cen
 const iconBtn: React.CSSProperties = { display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 32, height: 32, background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, cursor: 'pointer', color: '#475569' };
 const miniSelect: React.CSSProperties = { padding: '6px 8px', border: '1px solid #e2e8f0', borderRadius: 8, fontSize: 12.5, color: '#334155', background: 'white', maxWidth: 160 };
 const previewBox: React.CSSProperties = { background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 10, padding: 16, minHeight: 280 };
+const mailLbl: React.CSSProperties = { display: 'block', fontSize: 11.5, fontWeight: 800, color: '#64748b', textTransform: 'uppercase', marginBottom: 6 };
+const mailInputStyle: React.CSSProperties = { width: '100%', padding: '9px 11px', border: '1px solid #e2e8f0', borderRadius: 9, fontSize: 13.5, boxSizing: 'border-box', outline: 'none' };
 
 function TreeRow({ label, icon, active, onClick, count, indent, color, onDelete, onAdd }: { label: string; icon: React.ReactNode; active?: boolean; onClick: () => void; count?: number; indent?: boolean; color?: string; onDelete?: () => void; onAdd?: () => void }) {
   const [hover, setHover] = useState(false);
@@ -859,7 +1120,7 @@ function AiPanel({ note, aiTab, setAiTab, onApply, onUseVersion, onRetry, onRest
   const tabs: [string, string, string | null][] = [
     ['reformule', 'Reformulée', note?.content_ai],
     ['corrige', 'Corrigée', s?.corrige],
-    ['original', 'Originale', note?.content],
+    ['original', "Note d'origine", note?.content_original || note?.content],
   ];
   const current = tabs.find(t => t[0] === aiTab)?.[2];
   return (
@@ -895,7 +1156,7 @@ function AiPanel({ note, aiTab, setAiTab, onApply, onUseVersion, onRetry, onRest
         </div>
         {current ? (
           <>
-            <div className="note-html" style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, padding: 12, maxHeight: 260, overflowY: 'auto' }} dangerouslySetInnerHTML={{ __html: decorate(String(current), (note?.mentions || []).map((m: any) => ({ name: m.agent_name, email: m.agent_email }))) }} />
+            <div className="note-html" style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, padding: 12, maxHeight: 260, overflowY: 'auto' }} dangerouslySetInnerHTML={{ __html: decorate(ensureHtml(String(current)), (note?.mentions || []).map((m: any) => ({ name: m.agent_name, email: m.agent_email }))) }} />
             {aiTab !== 'original' && (
               <button onClick={() => onUseVersion(String(current))} style={{ ...ghostBtn, marginTop: 8 }}><Check size={13} /> Utiliser cette version</button>
             )}

@@ -5689,7 +5689,7 @@ app.delete('/api/attachments/:id', authenticateJWT, async (req, res) => {
 });
 
 // Helper Mail
-async function sendMail(to, subject, content, extraAttachments = [], source = 'system') {
+async function sendMail(to, subject, content, extraAttachments = [], source = 'system', options = {}) {
     let _logStatus = 'sent';
     let _logError = null;
     let _skipped = false;
@@ -5709,13 +5709,19 @@ async function sendMail(to, subject, content, extraAttachments = [], source = 's
         throw new Error("L'adresse email de l'expéditeur n'est pas configurée (Paramètres > Mail)");
     }
 
-    let htmlTemplate = (s.template_html || '{{content}}');
-    let html = htmlTemplate
-        .replaceAll('{{content}}', content)
-        .replaceAll('{{footerColor}}', s.footer_color || '#2563eb')
-        .replaceAll('{{footer1}}', s.footer1 || "VILLE D'IVRY-SUR-SEINE")
-        .replaceAll('{{footer2}}', s.footer2 || "Hôtel de Ville — Esplanade Georges Marrane")
-        .replaceAll('{{footer3}}', s.footer3 || '94200 Ivry-sur-Seine');
+    let html;
+    if (options && options.rawHtml) {
+        // HTML fourni tel quel (pas de gabarit DSI Hub) — utilisé par la PDFothèque.
+        html = content;
+    } else {
+        let htmlTemplate = (s.template_html || '{{content}}');
+        html = htmlTemplate
+            .replaceAll('{{content}}', content)
+            .replaceAll('{{footerColor}}', s.footer_color || '#2563eb')
+            .replaceAll('{{footer1}}', s.footer1 || "VILLE D'IVRY-SUR-SEINE")
+            .replaceAll('{{footer2}}', s.footer2 || "Hôtel de Ville — Esplanade Georges Marrane")
+            .replaceAll('{{footer3}}', s.footer3 || '94200 Ivry-sur-Seine');
+    }
 
     const attachments = [];
 
@@ -6291,6 +6297,8 @@ app.use('/api/mail-collector', require('./modules/mail_collector/mail_collector.
 app.use('/api/ville', require('./modules/ville/ville.routes'));
 
 // Mes Notes — notes personnelles assistées par IA (API IA Ville / APM)
+const notesController = require('./modules/notes/notes.controller');
+notesController.setSendMail(sendMail);
 app.use('/api/notes', require('./modules/notes/notes.routes'));
 
 // Backup & Security
@@ -6306,6 +6314,9 @@ app.use('/api/backup', require('./modules/backup/backup.routes'));
 app.use('/api/dsi-dashboard', require('./modules/dsi-dashboard/dsi-dashboard.routes'));
 
 // Outils PDF (magasin d'applications) : fusion, découpe/pages, compression, etc.
+// Outils PDF (injection du service mail pour l'envoi depuis la PDFothèque)
+const pdfToolsController = require('./modules/pdf-tools/pdf-tools.controller');
+pdfToolsController.setSendMail(sendMail);
 app.use('/api/pdf-tools', require('./modules/pdf-tools/pdf-tools.routes'));
 
 // Public reply routes (no auth)
@@ -6398,6 +6409,14 @@ cron.schedule('0 7 * * *', () => {
     console.log('[CRON] Vérification des relances contrats...');
     contractsCtrl.checkUpcomingRenewals().catch(e => console.error('[CRON contracts]', e.message));
 }, { timezone: 'Europe/Paris' });
+
+// ─── PDFothèque : suppression auto des documents > 6 mois (quotidien à 3h30) ─
+cron.schedule('30 3 * * *', () => {
+    require('./modules/pdf-tools/pdf-tools.controller')
+        .cleanupExpiredLibrary()
+        .catch(e => console.error('[CRON pdf-tools]', e.message));
+}, { timezone: 'Europe/Paris' });
+console.log('[PDF-TOOLS CRON] Purge PDFothèque (> 6 mois) enregistrée');
 
 // Helper for flexible column lookup across different naming conventions
 function findVal(obj, keys) {

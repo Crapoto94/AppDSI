@@ -14,6 +14,7 @@ router.get('/tags', authenticateJWT, ctrl.listTags);
 router.get('/wordcloud', authenticateJWT, ctrl.wordCloud);
 router.get('/search', authenticateJWT, ctrl.searchNotes);
 router.get('/agents', authenticateJWT, ctrl.searchAgents);
+router.get('/shared', authenticateJWT, ctrl.listSharedWithMe);
 
 router.post('/analyze-all', authenticateJWT, ctrl.analyzeAll);
 router.post('/classify', authenticateJWT, ctrl.classify);
@@ -47,6 +48,12 @@ router.post('/:id/apply-suggestion', authenticateJWT, ctrl.applySuggestion);
 router.get('/:id/task-suggestions', authenticateJWT, ctrl.listTaskSuggestions);
 router.post('/:id/propose-tasks', authenticateJWT, ctrl.proposeTasks);
 router.patch('/:id/task-suggestions/:sid', authenticateJWT, ctrl.updateTaskSuggestion);
+router.post('/:id/send-mail', authenticateJWT, ctrl.sendNoteMail);
+
+// Partage interne
+router.get('/:id/shares', authenticateJWT, ctrl.listShares);
+router.post('/:id/share', authenticateJWT, ctrl.shareNote);
+router.delete('/:id/shares/:shareId', authenticateJWT, ctrl.deleteShare);
 
 // Pièces jointes
 router.get('/:id/attachments', authenticateJWT, ctrl.listAttachments);

@@ -8,7 +8,7 @@
  */
 const { pgDb } = require('../../shared/database');
 
-const INBOX_TITLE = 'Boîte de réception';
+const INBOX_TITLE = 'Mes notes';
 const INBOX_SECTION = 'Non classé';
 
 // ── Reprise des jobs interrompus par un redémarrage ────────────────────────
@@ -178,9 +178,9 @@ async function getNote(id, username) {
 
 async function createNote({ username, notebook_id, section_id, title = 'Sans titre', content = '', content_origin = 'manual' }) {
     const r = await pgDb.run(
-        `INSERT INTO hub_notes.notes (username, notebook_id, section_id, title, content, content_origin, word_count)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`,
-        [username, notebook_id || null, section_id || null, title, content, content_origin, countWords(content)]
+        `INSERT INTO hub_notes.notes (username, notebook_id, section_id, title, content, content_original, content_origin, word_count)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        [username, notebook_id || null, section_id || null, title, content, content, content_origin, countWords(content)]
     );
     return r.lastID;
 }
@@ -519,6 +519,69 @@ async function getNotesForClassify(username, { notebookId, limit = 300 } = {}) {
     return notes.map(n => ({ ...n, tags: tagsByNote[n.id] || [] }));
 }
 
+// ── Partages internes ──────────────────────────────────────────────────────
+async function shareNote({ noteId, sharedBy, sharedWith, sharedWithEmail, permission = 'read' }) {
+    const r = await pgDb.run(
+        `INSERT INTO hub_notes.note_shares (note_id, shared_by, shared_with, shared_with_email, permission)
+         VALUES (?, ?, ?, ?, ?)
+         ON CONFLICT (note_id, shared_with) DO UPDATE SET
+           permission = EXCLUDED.permission, shared_with_email = EXCLUDED.shared_with_email`,
+        [noteId, sharedBy, sharedWith, sharedWithEmail || null, permission]
+    );
+    return r.lastID;
+}
+
+async function listShares(noteId) {
+    return pgDb.all(
+        `SELECT id, note_id, shared_by, shared_with, shared_with_email, permission, created_at
+         FROM hub_notes.note_shares WHERE note_id = ? ORDER BY created_at`,
+        [noteId]
+    );
+}
+
+async function getShare(noteId, shareId) {
+    return pgDb.get('SELECT * FROM hub_notes.note_shares WHERE id = ? AND note_id = ?', [shareId, noteId]);
+}
+
+async function deleteShare(noteId, shareId) {
+    const r = await pgDb.run('DELETE FROM hub_notes.note_shares WHERE id = ? AND note_id = ?', [shareId, noteId]);
+    return r.changes;
+}
+
+async function isSharedWith(noteId, username) {
+    return pgDb.get(
+        'SELECT id, permission FROM hub_notes.note_shares WHERE note_id = ? AND LOWER(shared_with) = LOWER(?)',
+        [noteId, username]
+    );
+}
+
+/** Notes partagées avec un agent (hors les siennes), avec le nom du partageur. */
+async function listSharedWithMe(username) {
+    return pgDb.all(
+        `SELECT n.id, n.title, n.summary_ai, n.ai_status, n.updated_at, n.word_count,
+                s.id AS share_id, s.shared_by, s.permission,
+                COALESCE(u."displayName", s.shared_by) AS shared_by_name
+         FROM hub_notes.note_shares s
+         JOIN hub_notes.notes n ON n.id = s.note_id
+         LEFT JOIN hub.users u ON LOWER(u.username) = LOWER(s.shared_by)
+         WHERE LOWER(s.shared_with) = LOWER(?) AND COALESCE(n.is_archived, FALSE) = FALSE
+         ORDER BY n.updated_at DESC`,
+        [username]
+    );
+}
+
+/** Note accessible par l'utilisateur : propriétaire OU partagée (lecture). */
+async function getNoteAccessible(id, username) {
+    const own = await pgDb.get('SELECT * FROM hub_notes.notes WHERE id = ? AND username = ?', [id, username]);
+    if (own) return { note: own, is_owner: true, permission: 'write', shared_by: null, shared_by_name: null };
+    const share = await isSharedWith(id, username);
+    if (!share) return null;
+    const note = await pgDb.get('SELECT * FROM hub_notes.notes WHERE id = ?', [id]);
+    if (!note) return null;
+    const owner = await pgDb.get('SELECT "displayName" AS name, username FROM hub.users WHERE LOWER(username) = LOWER(?) LIMIT 1', [note.username]);
+    return { note, is_owner: false, permission: share.permission || 'read', shared_by: note.username, shared_by_name: owner?.name || note.username };
+}
+
 function countWords(content) {
     if (!content) return 0;
     const text = String(content).replace(/<[^>]*>/g, ' ').replace(/&nbsp;/g, ' ');
@@ -539,6 +602,7 @@ module.exports = {
     addAttachment, listAttachments, getAttachment, deleteAttachment,
     replaceMentions, listMentions,
     replaceProposedTasks, listTaskSuggestions, getTaskSuggestion, updateTaskSuggestion,
+    shareNote, listShares, getShare, deleteShare, isSharedWith, listSharedWithMe, getNoteAccessible,
     createJob, setJobStatus, getPendingJobs,
     getStats, getWordCloudSource, getNotesForClassify,
     countWords,

@@ -43,11 +43,28 @@ export async function postFormForJson<T = any>(
   return res.json();
 }
 
-export async function saveResultToGed(blob: Blob, filename: string): Promise<{ dbPath: string; url: string }> {
+export interface SaveResult { documentId: number | null; overwritten?: boolean; dbPath: string; url: string; name?: string; filename?: string }
+
+/**
+ * Enregistre le résultat dans la PDFothèque. Lance une erreur portant
+ * `.code === 'DUPLICATE'` si un document du même nom existe déjà et que
+ * `overwrite` est faux (l'appelant propose alors d'écraser ou de renommer).
+ */
+export async function saveResultToGed(blob: Blob, filename: string, { overwrite = false } = {}): Promise<SaveResult> {
   const formData = new FormData();
   formData.append('file', blob, filename);
   formData.append('filename', filename);
-  return postFormForJson('/save', formData, "Échec de la sauvegarde dans la GED.");
+  if (overwrite) formData.append('overwrite', 'true');
+  const res = await fetch(`${API_BASE}/save`, { method: 'POST', headers: authHeaders(), body: formData });
+  if (!res.ok) {
+    let code: string | undefined;
+    let message = "Échec de la sauvegarde dans la PDFothèque.";
+    try { const data = await res.json(); code = data.code; if (data.message) message = data.message; } catch { /* ignore */ }
+    const err: any = new Error(message);
+    err.code = code;
+    throw err;
+  }
+  return res.json();
 }
 
 export function downloadBlob(blob: Blob, filename: string) {
@@ -59,4 +76,55 @@ export function downloadBlob(blob: Blob, filename: string) {
   a.click();
   document.body.removeChild(a);
   setTimeout(() => URL.revokeObjectURL(url), 10000);
+}
+
+// ─── PDFothèque ──────────────────────────────────────────────────────────────
+
+export interface LibraryDoc {
+  id: number;
+  title: string;
+  filename: string | null;
+  originalName: string;
+  mimetype: string;
+  size: number | null;
+  created_at: string;
+  updated_at: string;
+  uploaded_by: string | null;
+  version: number;
+  url: string | null;
+}
+
+export async function getLibrary(): Promise<LibraryDoc[]> {
+  const res = await fetch(`${API_BASE}/library`, { headers: authHeaders() });
+  if (!res.ok) throw new Error(await extractErrorMessage(res, 'Échec du chargement de la PDFothèque.'));
+  return res.json();
+}
+
+export async function deleteLibraryItem(id: number): Promise<void> {
+  const res = await fetch(`${API_BASE}/library/${id}`, { method: 'DELETE', headers: authHeaders() });
+  if (!res.ok) throw new Error(await extractErrorMessage(res, 'Échec de la suppression.'));
+}
+
+export async function sendLibraryItem(
+  id: number,
+  payload: { to: string[]; subject?: string; message?: string },
+): Promise<{ ok: boolean; sent: number }> {
+  const res = await fetch(`${API_BASE}/library/${id}/send`, {
+    method: 'POST',
+    headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) throw new Error(await extractErrorMessage(res, "Échec de l'envoi du mail."));
+  return res.json();
+}
+
+export async function getLibraryBlob(id: number, inline = false): Promise<Blob> {
+  const res = await fetch(`${API_BASE}/library/${id}/download${inline ? '?inline=1' : ''}`, { headers: authHeaders() });
+  if (!res.ok) throw new Error(await extractErrorMessage(res, 'Échec du téléchargement.'));
+  return res.blob();
+}
+
+export async function downloadLibraryItem(id: number, filename: string): Promise<void> {
+  const blob = await getLibraryBlob(id, false);
+  downloadBlob(blob, filename);
 }

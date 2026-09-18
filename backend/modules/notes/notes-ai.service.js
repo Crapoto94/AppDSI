@@ -155,6 +155,19 @@ function normalizeForCompare(s) {
         .replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim();
 }
 
+/**
+ * Le modèle local renvoie souvent du texte brut (avec des \n). Une fois injecté
+ * en HTML, les retours à la ligne disparaissent. On convertit donc le texte brut
+ * en HTML simple (paragraphes + <br>), ou on laisse le HTML tel quel s'il y en a.
+ */
+function plainToHtml(text) {
+    const s = String(text == null ? '' : text).trim();
+    if (!s) return '';
+    if (/<\/?[a-z][\s\S]*>/i.test(s)) return s;
+    const escaped = s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    return escaped.split(/\n{2,}/).map((p) => `<p>${p.replace(/\n/g, '<br>')}</p>`).join('\n');
+}
+
 /** Fusionne actions explicites + actions IA, sans doublon (comparaison normalisée). */
 function dedupeTasks(tasks) {
     const out = [];
@@ -267,8 +280,8 @@ async function analyzeNote(noteId, username, { jobId = null } = {}) {
         suggestion = {
             titre: parsed.titre || '',
             resume: parsed.resume || '',
-            corrige: parsed.corrige || '',
-            reformule: parsed.reformule || '',
+            corrige: plainToHtml(parsed.corrige || ''),
+            reformule: plainToHtml(parsed.reformule || ''),
             tags: sanitizeTags(parsed.tags, tagBudget(contentText)),
             carnet: parsed.carnet || '',
             section: parsed.section || '',
@@ -278,7 +291,7 @@ async function analyzeNote(noteId, username, { jobId = null } = {}) {
         fields.content_ai = suggestion.reformule || suggestion.corrige || null;
         fields.ai_suggestion = suggestion;
     } else {
-        fields.content_ai = String(raw || '').trim() || null;
+        fields.content_ai = plainToHtml(raw) || null;
         fields.ai_error = "Réponse IA non structurée : la correction/reformulation brute est conservée.";
     }
 

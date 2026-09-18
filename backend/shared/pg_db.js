@@ -6780,6 +6780,22 @@ async function setupPgDb() {
       `);
       await client.query(`CREATE INDEX IF NOT EXISTS idx_notes_attachments_note ON hub_notes.note_attachments(note_id)`);
 
+      // Partage interne d'une note avec un agent (par username).
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS hub_notes.note_shares (
+          id SERIAL PRIMARY KEY,
+          note_id INTEGER NOT NULL REFERENCES hub_notes.notes(id) ON DELETE CASCADE,
+          shared_by TEXT NOT NULL,
+          shared_with TEXT NOT NULL,
+          shared_with_email TEXT,
+          permission TEXT DEFAULT 'read',
+          created_at TIMESTAMPTZ DEFAULT NOW(),
+          UNIQUE (note_id, shared_with)
+        )
+      `);
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_notes_shares_with ON hub_notes.note_shares(shared_with)`);
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_notes_shares_note ON hub_notes.note_shares(note_id)`);
+
       // File d'attente persistante des analyses IA (reprise après redémarrage).
       await client.query(`
         CREATE TABLE IF NOT EXISTS hub_notes.ai_jobs (
@@ -6801,6 +6817,19 @@ async function setupPgDb() {
       try { await client.query(`ALTER TABLE hub_notes.notes ADD COLUMN IF NOT EXISTS last_analyzed_hash TEXT`); } catch (e) {}
       try { await client.query(`ALTER TABLE hub_notes.notes ADD COLUMN IF NOT EXISTS is_archived BOOLEAN DEFAULT FALSE`); } catch (e) {}
       try { await client.query(`CREATE INDEX IF NOT EXISTS idx_notes_notes_archived ON hub_notes.notes(is_archived)`); } catch (e) {}
+      // Texte d'origine de la prise de note, JAMAIS écrasé (ni par la version IA,
+      // ni par l'édition) — permet de retrouver la note initiale à tout moment.
+      try { await client.query(`ALTER TABLE hub_notes.notes ADD COLUMN IF NOT EXISTS content_original TEXT`); } catch (e) {}
+      try {
+        await client.query(`
+          UPDATE hub_notes.notes n SET content_original = COALESCE(
+            (SELECT v.content FROM hub_notes.note_versions v WHERE v.note_id = n.id ORDER BY v.created_at ASC LIMIT 1),
+            n.content
+          ) WHERE content_original IS NULL
+        `);
+      } catch (e) {}
+      // Renommage : « Boîte de réception » → « Mes notes ».
+      try { await client.query(`UPDATE hub_notes.notebooks SET title = 'Mes notes' WHERE is_inbox = TRUE AND title = 'Boîte de réception'`); } catch (e) {}
     } catch (e) { console.error('[PG DB] hub_notes:', e.message); }
 
     console.log('[PG DB] Schema and tables initialized successfully');

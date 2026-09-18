@@ -6,10 +6,19 @@
  */
 const { pgDb, getSqlite } = require('../../shared/database');
 const path = require('path');
+const fs = require('fs');
 const storage = require('../../shared/storage');
+const apmMail = require('../../shared/apm_mail');
 const repo = require('./notes.repository');
 const ai = require('./notes-ai.service');
 const { NOTES_SETTING_KEYS, SETTING_DEFAULTS } = require('./notes-prompts');
+
+let sendMailFn = null;
+function setSendMail(fn) { sendMailFn = fn; }
+
+function escapeHtml(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
 
 const NOTES_MODULE = 'notes';
 let docsService = null;
@@ -217,8 +226,9 @@ const ctrl = {
     async getNote(req, res) {
         try {
             const id = parseInt(req.params.id, 10);
-            const note = await repo.getNote(id, req.user.username);
-            if (!note) return res.status(404).json({ message: 'Note introuvable' });
+            const access = await repo.getNoteAccessible(id, req.user.username);
+            if (!access) return res.status(404).json({ message: 'Note introuvable' });
+            const note = access.note;
             const [tags, mentions, versions, notebook, section, taskSuggestions, attachments] = await Promise.all([
                 repo.listTags(id),
                 repo.listMentions(id),
@@ -228,7 +238,13 @@ const ctrl = {
                 repo.listTaskSuggestions(id),
                 repo.listAttachments(id),
             ]);
-            res.json({ ...note, tags, mentions, versions, notebook, section, task_suggestions: taskSuggestions, attachments: attachments.map(decorateAttachment), processing: ai.isProcessing(id) });
+            res.json({
+                ...note, tags, mentions, versions, notebook, section,
+                task_suggestions: taskSuggestions, attachments: attachments.map(decorateAttachment),
+                processing: ai.isProcessing(id),
+                is_owner: access.is_owner, permission: access.permission,
+                shared_by: access.shared_by, shared_by_name: access.shared_by_name,
+            });
         } catch (e) {
             res.status(500).json({ message: e.message });
         }
@@ -588,6 +604,114 @@ const ctrl = {
         }
     },
 
+    // ── Partage interne ────────────────────────────────────────────────────
+    async listSharedWithMe(req, res) {
+        try {
+            res.json(await repo.listSharedWithMe(req.user.username));
+        } catch (e) {
+            res.status(500).json({ message: e.message });
+        }
+    },
+
+    async listShares(req, res) {
+        try {
+            const id = parseInt(req.params.id, 10);
+            const note = await repo.getNote(id, req.user.username);
+            if (!note) return res.status(404).json({ message: 'Note introuvable' });
+            res.json(await repo.listShares(id));
+        } catch (e) {
+            res.status(500).json({ message: e.message });
+        }
+    },
+
+    async shareNote(req, res) {
+        try {
+            const id = parseInt(req.params.id, 10);
+            const note = await repo.getNote(id, req.user.username); // propriétaire uniquement
+            if (!note) return res.status(404).json({ message: 'Note introuvable' });
+            const sharedWith = String(req.body?.shared_with || '').trim();
+            if (!sharedWith) return res.status(400).json({ message: 'Sélectionnez un agent à qui partager la note.' });
+            await repo.shareNote({
+                noteId: id,
+                sharedBy: req.user.username,
+                sharedWith,
+                sharedWithEmail: String(req.body?.shared_with_email || '').trim() || null,
+                permission: req.body?.permission === 'write' ? 'write' : 'read',
+            });
+            res.json(await repo.listShares(id));
+        } catch (e) {
+            res.status(500).json({ message: e.message });
+        }
+    },
+
+    async deleteShare(req, res) {
+        try {
+            const id = parseInt(req.params.id, 10);
+            const shareId = parseInt(req.params.shareId, 10);
+            const note = await repo.getNote(id, req.user.username);
+            if (!note) return res.status(404).json({ message: 'Note introuvable' });
+            const share = await repo.getShare(id, shareId);
+            if (!share) return res.status(404).json({ message: 'Partage introuvable' });
+            await repo.deleteShare(id, shareId);
+            res.json({ ok: true });
+        } catch (e) {
+            res.status(500).json({ message: e.message });
+        }
+    },
+
+    // ── Envoi d'une note par e-mail ────────────────────────────────────────
+    async sendNoteMail(req, res) {
+        try {
+            const username = req.user.username;
+            const id = parseInt(req.params.id, 10);
+            const note = await repo.getNote(id, username);
+            if (!note) return res.status(404).json({ message: 'Note introuvable' });
+
+            const rawTo = req.body.to;
+            const to = (Array.isArray(rawTo) ? rawTo : String(rawTo || '').split(/[;,]/))
+                .map((s) => String(s).trim())
+                .filter((s) => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(s));
+            if (!to.length) return res.status(400).json({ message: 'Indiquez au moins un destinataire valide.' });
+
+            const subject = String(req.body.subject || '').trim() || `Note : ${note.title || 'Sans titre'}`;
+            const message = String(req.body.message || '').trim();
+            const noteHtml = note.content_ai || note.content || '';
+            const content = `<div style="font-family:-apple-system,'Segoe UI',Roboto,Arial,sans-serif;color:#334155;font-size:15px;line-height:1.6;">
+  ${message ? `<p>${escapeHtml(message).replace(/\n/g, '<br>')}</p>` : ''}
+  <div style="border:1px solid #e2e8f0;border-radius:10px;padding:16px;margin-top:12px;">
+    <div style="font-size:12px;color:#64748b;text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px;">${escapeHtml(note.title || 'Note')}</div>
+    <div>${noteHtml}</div>
+  </div>
+</div>`;
+
+            // Pièces jointes de la note (si présentes).
+            const attachments = [];
+            for (const att of await repo.listAttachments(id)) {
+                try {
+                    const f = await storage.getFileForServe(att.storage_ref);
+                    if (!f) continue;
+                    const buf = f.absolutePath ? fs.readFileSync(f.absolutePath) : f.buffer;
+                    attachments.push({ filename: att.original_name || att.filename || 'fichier', content: Buffer.from(buf).toString('base64') });
+                } catch { /* PJ illisible : on l'ignore */ }
+            }
+
+            let usedFallback = false;
+            for (const email of to) {
+                try {
+                    await apmMail.sendMail({ to: email, subject, content, attachments });
+                } catch (apiErr) {
+                    if (!sendMailFn) throw apiErr;
+                    console.warn('[NOTES] API Ville mail indisponible, repli mailer local:', apiErr.message);
+                    await sendMailFn(email, subject, content, attachments, 'notes', { rawHtml: true });
+                    usedFallback = true;
+                }
+            }
+            res.json({ ok: true, sent: to.length, via: usedFallback ? 'local' : 'apm' });
+        } catch (e) {
+            res.status(500).json({ message: e.message });
+        }
+    },
+
     // ── Recherche d'agents pour @mentions ──────────────────────────────────
     async searchAgents(req, res) {
         try {
@@ -684,4 +808,5 @@ const ctrl = {
     },
 };
 
+ctrl.setSendMail = setSendMail;
 module.exports = ctrl;
