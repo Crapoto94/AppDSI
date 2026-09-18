@@ -1,7 +1,8 @@
 import { useState } from 'react';
-import { GitCompare, Paperclip, Loader2 } from 'lucide-react';
+import { GitCompare, Paperclip, Loader2, Eye } from 'lucide-react';
 import PdfToolShell, { btnPrimary, btnDisabled, btnSecondary, errorBox } from './PdfToolShell';
 import { postFormForJson } from './pdfToolsApi';
+import PdfViewerModal from './PdfViewerModal';
 
 interface CompareToolProps { onClose: () => void }
 
@@ -21,6 +22,7 @@ export default function CompareTool({ onClose }: CompareToolProps) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<{ pages: ComparePage[]; truncated: boolean } | null>(null);
+  const [viewing, setViewing] = useState<'A' | 'B' | null>(null);
 
   const handleCompare = async () => {
     if (!fileA || !fileB) return;
@@ -72,6 +74,14 @@ export default function CompareTool({ onClose }: CompareToolProps) {
 
       {result && (
         <div style={{ marginTop: '20px' }}>
+          <div style={{ display: 'flex', gap: '10px', marginBottom: '14px' }}>
+            <button style={btnSecondary} onClick={() => setViewing('A')}>
+              <Eye size={16} /> Voir la version A
+            </button>
+            <button style={btnSecondary} onClick={() => setViewing('B')}>
+              <Eye size={16} /> Voir la version B
+            </button>
+          </div>
           {result.truncated && <p style={{ fontSize: '0.78rem', color: '#b45309' }}>Comparaison limitée aux 40 premières pages.</p>}
           {result.pages.map((p) => (
             <div key={p.index} style={{ display: 'flex', gap: '12px', alignItems: 'flex-start', padding: '12px 0', borderBottom: '1px solid #f1f5f9' }}>
@@ -94,6 +104,9 @@ export default function CompareTool({ onClose }: CompareToolProps) {
           ))}
         </div>
       )}
+
+      {viewing === 'A' && fileA && <PdfViewerModal blob={fileA} title={`Version A — ${fileA.name}`} onClose={() => setViewing(null)} />}
+      {viewing === 'B' && fileB && <PdfViewerModal blob={fileB} title={`Version B — ${fileB.name}`} onClose={() => setViewing(null)} />}
     </PdfToolShell>
   );
 }

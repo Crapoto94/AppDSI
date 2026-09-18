@@ -131,13 +131,16 @@ async function mergeFiles(files) {
     return Buffer.from(await out.save());
 }
 
-// ─── 2. Miniatures (pour l'éditeur de pages) ────────────────────────────────
-async function getThumbnails(buffer, { scale = 0.35 } = {}) {
+// ─── 2. Miniatures (pour l'éditeur de pages, et l'aperçu de fusion) ─────────
+// maxPages limite le nombre de pages rendues (ex: 1 pour un simple aperçu de
+// couverture) sans changer pageCount, qui reste le nombre réel de pages.
+async function getThumbnails(buffer, { scale = 0.35, maxPages } = {}) {
     const doc = await getPdfjsDocument(buffer);
     const total = doc.numPages;
+    const limit = maxPages ? Math.min(maxPages, total) : total;
     const pages = [];
     try {
-        for (let i = 1; i <= total; i++) {
+        for (let i = 1; i <= limit; i++) {
             const { buffer: png, width, height } = await renderPageToPng(doc, i, scale);
             pages.push({ index: i - 1, width, height, dataUrl: `data:image/png;base64,${png.toString('base64')}` });
         }
