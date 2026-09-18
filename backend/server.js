@@ -6290,6 +6290,9 @@ app.use('/api/ged', require('./modules/ged/ged.routes'));
 app.use('/api/mail-collector', require('./modules/mail_collector/mail_collector.routes'));
 app.use('/api/ville', require('./modules/ville/ville.routes'));
 
+// Mes Notes — notes personnelles assistées par IA (API IA Ville / APM)
+app.use('/api/notes', require('./modules/notes/notes.routes'));
+
 // Backup & Security
 const backupCtrl = require('./modules/backup/backup.controller');
 backupCtrl.setSendMail(sendMail);
@@ -6301,6 +6304,9 @@ app.use('/api/backup', require('./modules/backup/backup.routes'));
 
 // DSI Dashboard module (le contrôleur est déjà requis plus haut pour l'injection mail/cron)
 app.use('/api/dsi-dashboard', require('./modules/dsi-dashboard/dsi-dashboard.routes'));
+
+// Outils PDF (magasin d'applications) : fusion, découpe/pages, compression, etc.
+app.use('/api/pdf-tools', require('./modules/pdf-tools/pdf-tools.routes'));
 
 // Public reply routes (no auth)
 app.get('/api/public/reply/:token', (req, res) => ticketsCtrl.getReplyFormInfo(req, res));

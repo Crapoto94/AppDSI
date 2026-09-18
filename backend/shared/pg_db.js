@@ -1236,6 +1236,7 @@ async function setupPgDb() {
         show_chat_live BOOLEAN DEFAULT false,
         show_transcript_manager BOOLEAN DEFAULT false,
         show_parapheur BOOLEAN DEFAULT false,
+        show_pdf_tools BOOLEAN DEFAULT false,
         show_tool_incident BOOLEAN DEFAULT true,
         show_tool_demande BOOLEAN DEFAULT true
       );
@@ -1635,6 +1636,9 @@ async function setupPgDb() {
     } catch (e) {}
     try {
       await client.query(`ALTER TABLE magapp.settings ADD COLUMN IF NOT EXISTS show_parapheur BOOLEAN DEFAULT false`);
+    } catch (e) {}
+    try {
+      await client.query(`ALTER TABLE magapp.settings ADD COLUMN IF NOT EXISTS show_pdf_tools BOOLEAN DEFAULT false`);
     } catch (e) {}
     try {
       await client.query(`ALTER TABLE magapp.settings ADD COLUMN IF NOT EXISTS show_tool_incident BOOLEAN DEFAULT true`);
@@ -6627,6 +6631,177 @@ async function setupPgDb() {
         )`);
       await client.query(`CREATE INDEX IF NOT EXISTS idx_parapheur_audit_parapheur ON hub_parapheur.audit_log(parapheur_id)`);
     } catch (e) { console.error('[PG DB] hub_parapheur:', e.message); }
+
+    // ─── hub_notes — Notes personnelles assistées par IA ───────────────────
+    // Module « Mes Notes » : carnets > sections > notes, avec versions,
+    // tags, mentions d'agents (@prénom nom) et suggestions de classement
+    // générées en arrière-plan par l'API IA Ville (APM).
+    try {
+      await client.query('CREATE SCHEMA IF NOT EXISTS hub_notes;');
+
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS hub_notes.notebooks (
+          id SERIAL PRIMARY KEY,
+          username TEXT NOT NULL,
+          title TEXT NOT NULL,
+          description TEXT DEFAULT '',
+          color TEXT DEFAULT '#3b82f6',
+          icon TEXT DEFAULT 'NotebookPen',
+          position INTEGER DEFAULT 0,
+          is_inbox BOOLEAN DEFAULT FALSE,
+          ai_generated BOOLEAN DEFAULT FALSE,
+          created_at TIMESTAMPTZ DEFAULT NOW(),
+          updated_at TIMESTAMPTZ DEFAULT NOW()
+        )
+      `);
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_notes_notebooks_user ON hub_notes.notebooks(username)`);
+
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS hub_notes.sections (
+          id SERIAL PRIMARY KEY,
+          notebook_id INTEGER NOT NULL REFERENCES hub_notes.notebooks(id) ON DELETE CASCADE,
+          username TEXT NOT NULL,
+          title TEXT NOT NULL,
+          description TEXT DEFAULT '',
+          position INTEGER DEFAULT 0,
+          ai_generated BOOLEAN DEFAULT FALSE,
+          created_at TIMESTAMPTZ DEFAULT NOW(),
+          updated_at TIMESTAMPTZ DEFAULT NOW()
+        )
+      `);
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_notes_sections_notebook ON hub_notes.sections(notebook_id)`);
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_notes_sections_user ON hub_notes.sections(username)`);
+
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS hub_notes.notes (
+          id SERIAL PRIMARY KEY,
+          username TEXT NOT NULL,
+          notebook_id INTEGER REFERENCES hub_notes.notebooks(id) ON DELETE SET NULL,
+          section_id INTEGER REFERENCES hub_notes.sections(id) ON DELETE SET NULL,
+          title TEXT DEFAULT 'Sans titre',
+          content TEXT DEFAULT '',
+          content_ai TEXT,
+          summary_ai TEXT,
+          ai_suggestion JSONB DEFAULT '{}'::jsonb,
+          ai_raw TEXT,
+          ai_status TEXT DEFAULT 'idle',
+          ai_error TEXT,
+          ai_model TEXT,
+          ai_source TEXT DEFAULT 'apm',
+          ai_processed_at TIMESTAMPTZ,
+          content_origin TEXT DEFAULT 'manual',
+          is_pinned BOOLEAN DEFAULT FALSE,
+          position INTEGER DEFAULT 0,
+          word_count INTEGER DEFAULT 0,
+          created_at TIMESTAMPTZ DEFAULT NOW(),
+          updated_at TIMESTAMPTZ DEFAULT NOW()
+        )
+      `);
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_notes_notes_user ON hub_notes.notes(username)`);
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_notes_notes_section ON hub_notes.notes(section_id)`);
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_notes_notes_notebook ON hub_notes.notes(notebook_id)`);
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_notes_notes_ai_status ON hub_notes.notes(ai_status)`);
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_notes_notes_updated ON hub_notes.notes(updated_at DESC)`);
+
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS hub_notes.note_versions (
+          id SERIAL PRIMARY KEY,
+          note_id INTEGER NOT NULL REFERENCES hub_notes.notes(id) ON DELETE CASCADE,
+          content TEXT NOT NULL,
+          title TEXT,
+          origin TEXT DEFAULT 'manual',
+          created_by TEXT,
+          created_at TIMESTAMPTZ DEFAULT NOW()
+        )
+      `);
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_notes_versions_note ON hub_notes.note_versions(note_id, created_at DESC)`);
+
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS hub_notes.note_tags (
+          id SERIAL PRIMARY KEY,
+          note_id INTEGER NOT NULL REFERENCES hub_notes.notes(id) ON DELETE CASCADE,
+          tag TEXT NOT NULL,
+          origin TEXT DEFAULT 'manual',
+          created_at TIMESTAMPTZ DEFAULT NOW()
+        )
+      `);
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_notes_tags_note ON hub_notes.note_tags(note_id)`);
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_notes_tags_tag ON hub_notes.note_tags(tag)`);
+
+      // Unicité (note_id, tag) : plusieurs analyses successives pouvaient créer
+      // des doublons. On normalise puis on supprime les doublons historiques
+      // avant de poser l'index unique (idempotent).
+      try { await client.query(`UPDATE hub_notes.note_tags SET tag = unaccent(LOWER(TRIM(tag)))`); } catch (e) {}
+      try { await client.query(`DELETE FROM hub_notes.note_tags a USING hub_notes.note_tags b WHERE a.id > b.id AND a.note_id = b.note_id AND a.tag = b.tag`); } catch (e) {}
+      try { await client.query(`CREATE UNIQUE INDEX IF NOT EXISTS uq_notes_tags_note_tag ON hub_notes.note_tags(note_id, tag)`); } catch (e) {}
+
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS hub_notes.note_mentions (
+          id SERIAL PRIMARY KEY,
+          note_id INTEGER NOT NULL REFERENCES hub_notes.notes(id) ON DELETE CASCADE,
+          agent_name TEXT,
+          agent_email TEXT,
+          created_at TIMESTAMPTZ DEFAULT NOW()
+        )
+      `);
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_notes_mentions_note ON hub_notes.note_mentions(note_id)`);
+
+      // Tâches proposées par l'IA à partir du contenu d'une note — validées
+      // ensuite par l'utilisateur vers le module Tâches (hub.user_tasks).
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS hub_notes.note_task_suggestions (
+          id SERIAL PRIMARY KEY,
+          note_id INTEGER NOT NULL REFERENCES hub_notes.notes(id) ON DELETE CASCADE,
+          description TEXT NOT NULL,
+          assignee TEXT,
+          requester TEXT,
+          deadline TEXT,
+          status TEXT DEFAULT 'proposed',
+          app_task_id INTEGER,
+          created_at TIMESTAMPTZ DEFAULT NOW(),
+          updated_at TIMESTAMPTZ DEFAULT NOW()
+        )
+      `);
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_notes_task_sugg_note ON hub_notes.note_task_suggestions(note_id, status)`);
+
+      // Pièces jointes d'une note (stockage unifié shared/storage.js + hub_docs).
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS hub_notes.note_attachments (
+          id SERIAL PRIMARY KEY,
+          note_id INTEGER NOT NULL REFERENCES hub_notes.notes(id) ON DELETE CASCADE,
+          filename TEXT,
+          original_name TEXT,
+          mimetype TEXT,
+          size BIGINT,
+          storage_ref TEXT,
+          uploaded_by TEXT,
+          created_at TIMESTAMPTZ DEFAULT NOW()
+        )
+      `);
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_notes_attachments_note ON hub_notes.note_attachments(note_id)`);
+
+      // File d'attente persistante des analyses IA (reprise après redémarrage).
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS hub_notes.ai_jobs (
+          id SERIAL PRIMARY KEY,
+          note_id INTEGER REFERENCES hub_notes.notes(id) ON DELETE CASCADE,
+          username TEXT,
+          kind TEXT DEFAULT 'analyze',
+          status TEXT DEFAULT 'pending',
+          error TEXT,
+          created_at TIMESTAMPTZ DEFAULT NOW(),
+          started_at TIMESTAMPTZ,
+          finished_at TIMESTAMPTZ
+        )
+      `);
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_notes_ai_jobs_status ON hub_notes.ai_jobs(status, created_at)`);
+
+      // Non destructif : colonnes ajoutées au fil de l'eau.
+      try { await client.query(`ALTER TABLE hub_notes.notes ADD COLUMN IF NOT EXISTS ai_suggestion JSONB DEFAULT '{}'::jsonb`); } catch (e) {}
+      try { await client.query(`ALTER TABLE hub_notes.notes ADD COLUMN IF NOT EXISTS last_analyzed_hash TEXT`); } catch (e) {}
+      try { await client.query(`ALTER TABLE hub_notes.notes ADD COLUMN IF NOT EXISTS is_archived BOOLEAN DEFAULT FALSE`); } catch (e) {}
+      try { await client.query(`CREATE INDEX IF NOT EXISTS idx_notes_notes_archived ON hub_notes.notes(is_archived)`); } catch (e) {}
+    } catch (e) { console.error('[PG DB] hub_notes:', e.message); }
 
     console.log('[PG DB] Schema and tables initialized successfully');
   } catch (error) {

@@ -34,6 +34,7 @@ const MODULES_REGISTRY = [
     { key: 'calendrier',   title: 'Calendrier DSI',        icon: 'Calendar',     description: 'Calendrier et agents de la DSI.', url: '/calendrier-dsi' },
     { key: 'budget',       title: 'Budget',                icon: 'DollarSign',   description: 'Gestion budgétaire.', url: '/budget' },
     { key: 'doctrines',    title: 'Notes & doctrines',     icon: 'Book',         description: 'Notes de service et doctrines.', url: '/doctrines' },
+    { key: 'notes',        title: 'Mes Notes IA',          icon: 'NotebookPen',  description: 'Prise de notes assistée par IA : correction, reformulation et classement automatiques.', url: '/notes', is_public: true },
     { key: 'reseau',       title: 'Réseau Ville',          icon: 'Network',      description: 'Cartographie du réseau inter-sites (fibre, WAN, opérateurs, fourreaux).', url: '/reseau' },
     { key: 'reunions',     title: 'Réunions',              icon: 'Calendar',     description: 'Réunions et comptes-rendus.', url: '/mes-reunions' },
     { key: 'magapp',       title: 'Magasin d\'applications',icon: 'AppWindow',    description: 'Galerie d\'applications et logiciels métiers.', url: '/admin/magapp' },

@@ -6,7 +6,7 @@ import { useAuth } from '../contexts/AuthContext';
 import {
   LayoutDashboard, Users, MessageSquare,
   Mail, Settings, LayoutGrid, Activity,
-  Monitor, Database, Shield, ChevronRight, Bell, Lock, Sliders, Lightbulb, DollarSign, Wrench, Zap, Inbox, HardDrive, Server, AlertCircle, Network, Key, HelpCircle
+  Monitor, Database, Shield, ChevronRight, Bell, Lock, Sliders, Lightbulb, DollarSign, Wrench, Zap, Inbox, HardDrive, Server, AlertCircle, Network, Key, HelpCircle, NotebookPen
 } from 'lucide-react';
 
 const AdminLayout: React.FC = () => {
@@ -54,6 +54,7 @@ const AdminLayout: React.FC = () => {
     { title: "API externes", icon: Network, path: "/admin/infra" },
     { title: "SMS Frizbi", icon: MessageSquare, path: "/admin/frizbi" },
     { title: "Intelligence Artificielle", icon: MessageSquare, path: "/admin/transcript" },
+    { title: "Notes IA (Mes Notes)", icon: NotebookPen, path: "/admin/notes" },
     { title: "Tickets", icon: Inbox, path: "/admin/tickets" },
     { title: "Synchronisations", icon: Database, path: "/admin/glpi" },
     { title: "SQL", icon: Database, path: "/admin/sql" },
