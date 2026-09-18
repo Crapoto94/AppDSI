@@ -18,6 +18,7 @@ router.get('/shared', authenticateJWT, ctrl.listSharedWithMe);
 
 router.post('/analyze-all', authenticateJWT, ctrl.analyzeAll);
 router.post('/classify', authenticateJWT, ctrl.classify);
+router.post('/classify-now', authenticateJWT, ctrl.classifyNow);
 router.post('/reorganize', authenticateJWT, ctrl.reorganize);
 router.post('/apply-classification', authenticateJWT, ctrl.applyClassification);
 

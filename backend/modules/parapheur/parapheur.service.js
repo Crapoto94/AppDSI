@@ -31,6 +31,42 @@ const CERT_MODULE = 'parapheur-certificats';
 const TOKEN_EXPIRY_DAYS = 30;
 const REMINDER_MAX = 3;
 const REMINDER_INTERVAL_DAYS = 2;
+// Durée de validité du lien (minutes) et seuil au-delà duquel un code e-mail est
+// exigé pour confirmer l'identité du signataire extérieur.
+const LINK_VALIDITY_CHOICES = [10, 30, 60, 1440, 10080];
+const OTP_THRESHOLD_MINUTES = 60;
+
+function normalizeLinkValidity(value) {
+    const n = Number(value);
+    return LINK_VALIDITY_CHOICES.includes(n) ? n : 10;
+}
+function linkValidityOf(parapheur) {
+    return Number(parapheur && parapheur.link_validity_minutes) || 10;
+}
+/** Code e-mail requis uniquement si le lien est valable plus d'une heure. */
+function otpRequiredFor(parapheur) {
+    return linkValidityOf(parapheur) > OTP_THRESHOLD_MINUTES;
+}
+function isLinkExpired(signataire) {
+    if (!signataire || !signataire.token_expires_at) return false;
+    return new Date(signataire.token_expires_at).getTime() < Date.now();
+}
+function assertLinkValid(signataire) {
+    if (isLinkExpired(signataire)) {
+        throw { status: 410, message: 'Lien de signature expiré. Demandez un nouveau lien au demandeur.' };
+    }
+}
+/** Jeton d'accès restreint d'un signataire extérieur (aucun compte requis). */
+function externalAccessToken(signataire) {
+    return jwt.sign({
+        scope: 'parapheur_external',
+        signataire_id: signataire.id,
+        username: 'signataire-externe',
+        displayName: signataire.nom,
+        email: signataire.email,
+        role: 'external',
+    }, SECRET_KEY, { expiresIn: '12h' });
+}
 
 let sendMailFn = null;
 const setSendMail = (fn) => { sendMailFn = fn; };
@@ -321,10 +357,21 @@ function isExternalSigner(signataire) {
 async function getSignerAccessInfo(token) {
     const signataire = await getSignerByToken(token);
     if (!signataire) return null;
-    const p = await pgDb.get(`SELECT status, title, reference FROM hub_parapheur.parapheurs WHERE id = ?`, [signataire.parapheur_id]);
-    return {
+    const p = await pgDb.get(`SELECT status, title, reference, link_validity_minutes FROM hub_parapheur.parapheurs WHERE id = ?`, [signataire.parapheur_id]);
+    const isExternal = isExternalSigner(signataire);
+    const otpRequired = otpRequiredFor(p);
+    const expired = isLinkExpired(signataire);
+    // Lien court (≤ 1 h) : accès DIRECT au parapheur, sans code e-mail.
+    const canSignDirectly = isExternal && !otpRequired && !expired
+        && (signataire.status === 'en_cours' || signataire.status === 'a_signe')
+        && p && p.status === 'en_cours';
+
+    const info = {
         exists: true,
-        is_external: isExternalSigner(signataire),
+        is_external: isExternal,
+        otp_required: otpRequired,
+        link_expires_at: signataire.token_expires_at,
+        expired,
         nom: signataire.nom,
         email_masked: maskEmail(signataire.email),
         status: signataire.status,
@@ -332,12 +379,18 @@ async function getSignerAccessInfo(token) {
         title: p ? p.title : null,
         reference: p ? p.reference : null,
     };
+    if (canSignDirectly) {
+        info.accessToken = externalAccessToken(signataire);
+        info.user = { id: signataire.id, username: 'signataire-externe', displayName: signataire.nom, email: signataire.email, role: 'external' };
+    }
+    return info;
 }
 
 /** Envoie un code de vérification par e-mail à un signataire extérieur. */
 async function requestEmailOtp(token) {
     const signataire = await getSignerByToken(token);
     if (!signataire) throw { status: 404, message: 'Lien de signature introuvable.' };
+    assertLinkValid(signataire);
     if (!isExternalSigner(signataire)) {
         throw { status: 400, message: "Cette signature utilise l'authentification de la collectivité." };
     }
@@ -388,6 +441,7 @@ async function requestEmailOtp(token) {
 async function verifyEmailOtp(token, code) {
     const signataire = await getSignerByToken(token);
     if (!signataire) throw { status: 404, message: 'Lien de signature introuvable.' };
+    assertLinkValid(signataire);
     if (!isExternalSigner(signataire)) throw { status: 400, message: 'Authentification non applicable.' };
     if (!code) throw { status: 400, message: 'Code de vérification requis.' };
     if (!signataire.otp_code_hash) throw { status: 400, message: 'Aucun code envoyé. Demandez un nouveau code.' };
@@ -410,14 +464,7 @@ async function verifyEmailOtp(token, code) {
         `UPDATE hub_parapheur.signataires SET otp_code_hash = NULL, otp_expires_at = NULL, otp_attempts = 0 WHERE id = ?`,
         [signataire.id]
     );
-    const accessToken = jwt.sign({
-        scope: 'parapheur_external',
-        signataire_id: signataire.id,
-        username: 'signataire-externe',
-        displayName: signataire.nom,
-        email: signataire.email,
-        role: 'external',
-    }, SECRET_KEY, { expiresIn: '12h' });
+    const accessToken = externalAccessToken(signataire);
     return {
         accessToken,
         user: {
@@ -1329,8 +1376,14 @@ async function getActiveDelegation(delegantEmail, delegateEmail) {
 
 async function activateSignataires(parapheur, signataires, ip) {
     const now = new Date();
-    const expires = new Date(now.getTime() + TOKEN_EXPIRY_DAYS * 24 * 3600 * 1000);
+    // Validité du lien : durée choisie pour les signataires extérieurs ; les
+    // signataires internes conservent une validité longue (30 jours).
+    const p = await pgDb.get('SELECT link_validity_minutes FROM hub_parapheur.parapheurs WHERE id = ?', [parapheur.id]).catch(() => null);
+    const linkMin = Number(parapheur.link_validity_minutes || (p && p.link_validity_minutes)) || 10;
     for (const s of signataires) {
+        const isExternal = s.is_external === true;
+        const ms = isExternal ? linkMin * 60 * 1000 : TOKEN_EXPIRY_DAYS * 24 * 3600 * 1000;
+        const expires = new Date(now.getTime() + ms);
         const token = s.token || generateToken();
         await pgDb.run(
             `UPDATE hub_parapheur.signataires
@@ -1407,17 +1460,19 @@ async function createParapheur({ files, annexes, payload, user, req }) {
     // username) : on le résout depuis hub.users/magapp.users.
     const createdByName = user.displayName || await resolveAgentDisplayName(user.username, user.username);
 
+    const linkValidity = normalizeLinkValidity(payload.link_validity_minutes);
     const publicToken = generateToken();
     const pRes = await pgDb.run(
         `INSERT INTO hub_parapheur.parapheurs
-            (title, message, status, mode, deadline, public_token, created_by_username, created_by_name, created_by_email)
-         VALUES (?, ?, 'en_cours', ?, ?, ?, ?, ?, ?)`,
+            (title, message, status, mode, deadline, public_token, link_validity_minutes, created_by_username, created_by_name, created_by_email)
+         VALUES (?, ?, 'en_cours', ?, ?, ?, ?, ?, ?, ?)`,
         [
             title,
             payload.message || '',
             mode,
             payload.deadline || null,
             publicToken,
+            linkValidity,
             user.username || null,
             createdByName || null,
             user.email || null,
@@ -1515,7 +1570,7 @@ async function createParapheur({ files, annexes, payload, user, req }) {
                 ]
             );
         }
-        inserted.push({ id: sid, nom: s.nom || s.email, email: String(s.email).toLowerCase(), token: null, status: 'en_attente' });
+        inserted.push({ id: sid, nom: s.nom || s.email, email: String(s.email).toLowerCase(), token: null, status: 'en_attente', is_external: s.external === true });
         idx++;
     }
 
@@ -3180,6 +3235,10 @@ module.exports = {
     getDetail,
     getSignerByToken,
     isExternalSigner,
+    assertLinkValid,
+    otpRequiredFor,
+    linkValidityOf,
+    LINK_VALIDITY_CHOICES,
     getSignerAccessInfo,
     requestEmailOtp,
     verifyEmailOtp,

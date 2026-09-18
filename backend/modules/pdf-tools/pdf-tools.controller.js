@@ -105,7 +105,11 @@ async function thumbnails(req, res) {
     try {
         if (!req.file) return res.status(400).json({ message: 'Aucun fichier fourni.' });
         const maxPages = req.body.maxPages ? parseInt(req.body.maxPages, 10) : undefined;
-        const result = await svc.getThumbnails(req.file.buffer, { scale: 0.35, maxPages });
+        // Échelle de rendu (0.35 par défaut pour les couvertures ; ~2 pour l'éditeur).
+        const scale = Math.min(3, Math.max(0.2, parseFloat(req.body.scale) || 0.35));
+        // Page unique (1-based) : rendu à la demande pour l'éditeur.
+        const page = req.body.page ? parseInt(req.body.page, 10) : undefined;
+        const result = await svc.getThumbnails(req.file.buffer, { scale, maxPages, page });
         res.json(result);
     } catch (e) { handleError(res, e, 'Impossible de générer les aperçus de pages.'); }
 }

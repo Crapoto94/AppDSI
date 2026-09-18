@@ -59,7 +59,7 @@ export default function SignatureSignataire() {
   const { token } = useParams();
   const [forceLogin, setForceLogin] = useState(false);
   const [auth, setAuth] = useState<SignerAuth | null>(() => resolveInitialAuth());
-  const [access, setAccess] = useState<{ is_external?: boolean; nom?: string; email_masked?: string } | null>(null);
+  const [access, setAccess] = useState<{ is_external?: boolean; nom?: string; email_masked?: string; otp_required?: boolean; accessToken?: string; user?: any; expired?: boolean } | null>(null);
   const [accessLoaded, setAccessLoaded] = useState(false);
 
   useEffect(() => {
@@ -76,8 +76,27 @@ export default function SignatureSignataire() {
 
   if (forceLogin || !auth) {
     if (!accessLoaded) return <Center><Loader2 size={40} className="spin" color="#7c3aed" /><p style={{ color: '#64748b', marginTop: 12 }}>Chargement…</p></Center>;
+    if (access?.expired) {
+      return (
+        <Center>
+          <AlertCircle size={40} color="#e11d48" />
+          <h1 style={{ fontSize: 20, fontWeight: 800, color: '#0f172a', margin: '14px 0 6px' }}>Lien de signature expiré</h1>
+          <p style={{ color: '#64748b', maxWidth: 420, textAlign: 'center' }}>Ce lien n'est plus valable. Demandez au demandeur de vous transmettre un nouveau lien de signature.</p>
+        </Center>
+      );
+    }
     if (access?.is_external) {
-      return <ExternalSignerLogin token={token || ''} nom={access.nom || ''} emailMasked={access.email_masked || ''} onLogged={onLogged} />;
+      return (
+        <ExternalSignerLogin
+          token={token || ''}
+          nom={access.nom || ''}
+          emailMasked={access.email_masked || ''}
+          otpRequired={access.otp_required !== false}
+          accessToken={access.accessToken}
+          user={access.user}
+          onLogged={onLogged}
+        />
+      );
     }
     return <SignerLogin onLogged={onLogged} />;
   }
@@ -89,12 +108,20 @@ export default function SignatureSignataire() {
 }
 
 // ─── Écran de connexion d'un signataire extérieur (code par e-mail, sans AD) ──
-function ExternalSignerLogin({ token, nom, emailMasked, onLogged }: { token: string; nom: string; emailMasked: string; onLogged: (a: SignerAuth) => void }) {
+function ExternalSignerLogin({ token, nom, emailMasked, otpRequired, accessToken, user, onLogged }: { token: string; nom: string; emailMasked: string; otpRequired: boolean; accessToken?: string; user?: any; onLogged: (a: SignerAuth) => void }) {
   const [step, setStep] = useState<'request' | 'verify'>('request');
   const [code, setCode] = useState('');
   const [sentTo, setSentTo] = useState(emailMasked);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+
+  // Lien court (≤ 1 heure) : accès DIRECT au parapheur, aucun code demandé.
+  useEffect(() => {
+    if (accessToken) {
+      onLogged({ token: accessToken, username: (user && user.username) || 'signataire-externe', displayName: (user && user.displayName) || nom, email: (user && user.email) || '' });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [accessToken]);
 
   const request = async () => {
     setLoading(true); setError(null);
@@ -132,11 +159,21 @@ function ExternalSignerLogin({ token, nom, emailMasked, onLogged }: { token: str
           </div>
           <h1 style={{ fontSize: 20, fontWeight: 800, color: '#0f172a', margin: 0 }}>Signature — signataire extérieur</h1>
           <p style={{ fontSize: 13, color: '#64748b', marginTop: 6 }}>
-            {nom ? `Bonjour ${nom}, ` : ''}la vérification se fait par un code envoyé à votre adresse e-mail.
+            {nom ? `Bonjour ${nom}.` : ''} {otpRequired ? 'Confirmez votre identité pour accéder au parapheur.' : 'Vous allez accéder directement au parapheur.'}
           </p>
         </div>
 
         {error && <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: '#fff1f2', color: '#e11d48', border: '1px solid #fecdd3', padding: 12, borderRadius: 10, fontSize: 13, marginBottom: 16 }}><AlertCircle size={16} /> {error}</div>}
+
+        {otpRequired && (
+          <div style={{ display: 'flex', gap: 10, background: '#eff6ff', border: '1px solid #bfdbfe', color: '#1e3a8a', padding: 12, borderRadius: 10, fontSize: 12.5, marginBottom: 16, lineHeight: 1.5 }}>
+            <ShieldCheck size={16} style={{ flexShrink: 0, marginTop: 1 }} />
+            <span>
+              Cette demande de signature est valable <strong>plus d'une heure</strong>. Pour confirmer que vous êtes bien le destinataire,
+              un code à 6 chiffres vous sera envoyé par e-mail à <strong>{sentTo}</strong> : saisissez-le pour accéder au parapheur.
+            </span>
+          </div>
+        )}
 
         {step === 'request' ? (
           <button onClick={request} disabled={loading} style={{ width: '100%', padding: 13, background: '#0e7490', color: '#fff', border: 'none', borderRadius: 11, fontWeight: 800, fontSize: 15, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, opacity: loading ? 0.6 : 1 }}>

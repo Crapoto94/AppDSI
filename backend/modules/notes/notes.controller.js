@@ -267,6 +267,7 @@ const ctrl = {
             if (content) await repo.addVersion(id, { content, title: title || 'Sans titre', origin: 'original', createdBy: username });
             if (Array.isArray(req.body?.tags)) await repo.setTags(id, req.body.tags, 'manual');
             if (Array.isArray(req.body?.mentions)) await repo.replaceMentions(id, req.body.mentions);
+            ai.scheduleForSave(id, username).catch(() => {});
             const note = await repo.getNote(id, username);
             res.json({ ...note, tags: await repo.listTags(id), mentions: await repo.listMentions(id) });
         } catch (e) {
@@ -301,6 +302,10 @@ const ctrl = {
             await repo.updateNote(id, username, fields);
             if (Array.isArray(body.tags)) await repo.setTags(id, body.tags, 'manual');
             if (Array.isArray(body.mentions)) await repo.replaceMentions(id, body.mentions);
+            // Modification réelle (contenu ou titre) → programme analyse unitaire (3 min) + classement global (1 h).
+            const changed = (fields.content !== undefined && fields.content !== existing.content)
+                || (fields.title !== undefined && fields.title !== existing.title);
+            if (changed) ai.scheduleForSave(id, username).catch(() => {});
             const note = await repo.getNote(id, username);
             res.json({ ...note, tags: await repo.listTags(id), mentions: await repo.listMentions(id) });
         } catch (e) {
@@ -457,7 +462,7 @@ const ctrl = {
             const note = await repo.getNote(id, req.user.username);
             if (!note) return res.status(404).json({ message: 'Note introuvable' });
             await repo.updateNote(id, req.user.username, { ai_status: 'pending', ai_error: null });
-            ai.enqueueAnalyze(id, req.user.username);
+            ai.enqueueAnalyze(id, req.user.username, { force: true });
             res.status(202).json({ queued: true, status: 'pending' });
         } catch (e) {
             res.status(500).json({ message: e.message });
@@ -472,7 +477,7 @@ const ctrl = {
             const targets = notes.filter(n => force || n.ai_status !== 'done');
             for (const n of targets) {
                 await repo.updateNote(n.id, username, { ai_status: 'pending', ai_error: null });
-                ai.enqueueAnalyze(n.id, username);
+                ai.enqueueAnalyze(n.id, username, { force: true });
             }
             res.status(202).json({ queued: targets.length, total: notes.length });
         } catch (e) {
@@ -601,6 +606,16 @@ const ctrl = {
             res.json(result);
         } catch (e) {
             res.status(400).json({ message: e.message });
+        }
+    },
+
+    // Classement IA immédiat de l'ensemble des notes (bouton « Classement IA »).
+    async classifyNow(req, res) {
+        try {
+            const result = await ai.runGlobalClassification(req.user.username);
+            res.json({ ok: true, ...result });
+        } catch (e) {
+            res.status(502).json({ message: e.message });
         }
     },
 

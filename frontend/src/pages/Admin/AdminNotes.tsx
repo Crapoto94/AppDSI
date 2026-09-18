@@ -129,13 +129,29 @@ const AdminNotes: React.FC = () => {
         <h3 style={{ margin: '0 0 14px', fontSize: 16, color: '#0f172a', fontWeight: 800 }}>Modèle & comportement</h3>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 18 }}>
           <div>
-            <label style={label}>Modèle IA (API Ville / APM)</label>
+            <label style={label}>Modèle par défaut (API Ville / APM)</label>
             <select style={input} value={config.notes_apm_model} onChange={e => set('notes_apm_model', e.target.value)}>
               <option value="">Modèle par défaut de l'APM</option>
               {models.map(m => <option key={m} value={m}>{m}</option>)}
             </select>
             {modelsError && <div style={{ fontSize: 12, color: '#b45309', marginTop: 6 }}>⚠ {modelsError}</div>}
             {!modelsError && <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 6 }}>{models.length} modèle(s) actif(s) détecté(s)</div>}
+          </div>
+          <div>
+            <label style={label}>Modèle — analyse unitaire (par note)</label>
+            <select style={input} value={config.notes_analysis_model} onChange={e => set('notes_analysis_model', e.target.value)}>
+              <option value="">Modèle par défaut</option>
+              {models.map(m => <option key={m} value={m}>{m}</option>)}
+            </select>
+            <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 6 }}>Correction, reformulation, résumé, tags, tâches.</div>
+          </div>
+          <div>
+            <label style={label}>Modèle — classement global (toutes les notes)</label>
+            <select style={input} value={config.notes_classify_model} onChange={e => set('notes_classify_model', e.target.value)}>
+              <option value="">Modèle par défaut</option>
+              {models.map(m => <option key={m} value={m}>{m}</option>)}
+            </select>
+            <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 6 }}>Classement / réorganisation de l'arborescence.</div>
           </div>
           <div>
             <label style={label}>Taille maximale du texte analysé (caractères)</label>
@@ -146,11 +162,11 @@ const AdminNotes: React.FC = () => {
         <div style={{ display: 'flex', gap: 24, marginTop: 18, flexWrap: 'wrap' }}>
           <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13.5, fontWeight: 600, color: '#334155' }}>
             <input type="checkbox" checked={config.notes_auto_analyze !== 'false'} onChange={e => set('notes_auto_analyze', e.target.checked ? 'true' : 'false')} />
-            Analyse automatique après sauvegarde
+            Analyse unitaire automatique (3 min après la dernière modification)
           </label>
           <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13.5, fontWeight: 600, color: '#334155' }}>
             <input type="checkbox" checked={config.notes_auto_classify !== 'false'} onChange={e => set('notes_auto_classify', e.target.checked ? 'true' : 'false')} />
-            Classement automatique par l'IA (carnet + section appliqués après chaque analyse)
+            Classement global automatique (1 h après la dernière modification)
           </label>
         </div>
       </div>

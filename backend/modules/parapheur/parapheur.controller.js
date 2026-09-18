@@ -34,6 +34,8 @@ const controller = {
             try {
                 const signataire = await service.getSignerByToken(req.params.token);
                 if (!signataire) return res.status(404).json({ message: 'Lien de signature introuvable.' });
+                try { service.assertLinkValid(signataire); }
+                catch (e) { return res.status(e.status || 410).json({ message: e.message }); }
                 const jwtEmail = String((req.user && req.user.email) || '').toLowerCase().trim();
                 const jwtUser = String((req.user && req.user.username) || '').toLowerCase().trim();
                 const sigEmail = String(signataire.email || '').toLowerCase().trim();
