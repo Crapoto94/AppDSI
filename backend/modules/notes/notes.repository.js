@@ -244,25 +244,63 @@ async function getVersion(id, noteId) {
 }
 
 // ── Tags ───────────────────────────────────────────────────────────────────
+/** Normalise un tag (minuscules, sans accent, sans dièse) pour un stockage canonique. */
+function normalizeTag(tag) {
+    return String(tag || '')
+        .trim().toLowerCase()
+        .replace(/^#+/, '')
+        .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+        .replace(/[^a-z0-9\s-]/g, ' ')
+        .replace(/\s+/g, ' ').trim();
+}
+
+function cleanTags(tags, max = 8) {
+    const out = [];
+    const seen = new Set();
+    for (const raw of (tags || [])) {
+        const t = normalizeTag(raw);
+        if (!t || t.length < 2 || t.length > 40) continue;
+        const key = t.replace(/s$/, '');
+        if (seen.has(key)) continue;
+        seen.add(key);
+        out.push(t);
+        if (out.length >= max) break;
+    }
+    return out;
+}
+
 async function replaceTags(noteId, tags, origin = 'ia') {
     await pgDb.run('DELETE FROM hub_notes.note_tags WHERE note_id = ? AND origin = ?', [noteId, origin]);
-    const clean = [...new Set((tags || []).map(t => String(t).trim().toLowerCase()).filter(Boolean))].slice(0, 20);
+    const clean = cleanTags(tags);
     for (const tag of clean) {
-        await pgDb.run('INSERT INTO hub_notes.note_tags (note_id, tag, origin) VALUES (?, ?, ?)', [noteId, tag, origin]);
+        // ON CONFLICT : un tag identique saisi manuellement n'est pas dupliqué.
+        await pgDb.run(
+            `INSERT INTO hub_notes.note_tags (note_id, tag, origin) VALUES (?, ?, ?)
+             ON CONFLICT (note_id, tag) DO UPDATE SET origin = hub_notes.note_tags.origin`,
+            [noteId, tag, origin]
+        );
     }
     return clean;
 }
 
 async function listTags(noteId) {
-    return pgDb.all('SELECT id, tag, origin FROM hub_notes.note_tags WHERE note_id = ? ORDER BY tag', [noteId]);
+    return pgDb.all(
+        `SELECT MIN(id) AS id, tag, MAX(origin) AS origin
+         FROM hub_notes.note_tags WHERE note_id = ? GROUP BY tag ORDER BY tag`,
+        [noteId]
+    );
 }
 
 /** Remplace l'intégralité des tags d'une note (utilisé pour l'édition manuelle). */
 async function setTags(noteId, tags, origin = 'manual') {
     await pgDb.run('DELETE FROM hub_notes.note_tags WHERE note_id = ?', [noteId]);
-    const clean = [...new Set((tags || []).map(t => String(t).trim().toLowerCase()).filter(Boolean))].slice(0, 20);
+    const clean = cleanTags(tags);
     for (const tag of clean) {
-        await pgDb.run('INSERT INTO hub_notes.note_tags (note_id, tag, origin) VALUES (?, ?, ?)', [noteId, tag, origin]);
+        await pgDb.run(
+            `INSERT INTO hub_notes.note_tags (note_id, tag, origin) VALUES (?, ?, ?)
+             ON CONFLICT (note_id, tag) DO UPDATE SET origin = EXCLUDED.origin`,
+            [noteId, tag, origin]
+        );
     }
     return clean;
 }

@@ -29,7 +29,7 @@ Analyse la note ci-dessous et réponds UNIQUEMENT par un objet JSON valide, sans
   "resume": "résumé en 1 à 3 phrases",
   "corrige": "le texte d'origine corrigé des fautes d'orthographe, de grammaire et de ponctuation, SANS reformuler et SANS retirer d'information",
   "reformule": "une version reformulée, claire, professionnelle et structurée (paragraphes, listes, titres si pertinent)",
-  "tags": ["3 à 6 mots-clés en minuscules, sans accent, sans dièse"],
+  "tags": ["mots-clés classés du PLUS important au MOINS important (maximum 8)"],
   "carnet": "nom du carnet le plus pertinent",
   "section": "nom de la section la plus pertinente à l'intérieur de ce carnet",
   "mentions": ["noms des personnes explicitement citées dans la note"],
@@ -44,7 +44,8 @@ Règles impératives :
 - Si la note est déjà correcte, "corrige" doit rester très proche de l'original.
 - Réutilise en priorité les carnets et sections existants listés ci-dessous ; ne crée un nouveau nom que si aucun ne convient.
 - "mentions" ne contient que des personnes (pas d'organisations).
-- "taches" : uniquement les actions RÉELLEMENT exprimées ou clairement implicites dans la note (décisions à appliquer, relances, vérifications, échéances). Ne pas inventer d'action ; laisser la liste vide si la note n'appelle aucune action. Regrouper une même action en une seule entrée.
+- "tags" : au maximum 8, triés par importance décroissante (les 1-2 premiers doivent être les thèmes les plus significatifs). Chaque tag = 1 à 3 mots, en minuscules, sans accent, sans dièse. INTERDIT : tags génériques ou inutiles (note, info, divers, général, important, urgent, à faire, tâche, réunion, sujet, divers…), et tags redondants entre eux. Un bon tag permet de retrouver la note par la recherche ; ne mets que des termes réellement distinctifs du contenu (projet, technologie, fournisseur, lieu, personne-clé, thématique métier). S'il n'y a rien de distinctif, renvoie moins de tags (2 ou 3) plutôt que de remplir.
+- "taches" : uniquement les actions RÉELLEMENT exprimées ou clairement implicites dans la note (décisions à appliquer, relances, vérifications, échéances). Ne pas inventer d'action ; laisser la liste vide si la note n'appelle aucune action. Regrouper une même action en une seule entrée. IMPORTANT : toute ligne introduite par un marqueur d'action (« Action à mener », « À faire », « Todo », « Prochaine étape », « À prévoir », « À vérifier », « Rappel », puce d'une liste d'actions…) DOIT produire exactement une tâche, avec le texte qui suit le marqueur comme description — n'en omets aucune.
 
 Arborescence existante (carnet > sections) :
 {{NOTEBOOKS}}
@@ -74,6 +75,7 @@ Réponds UNIQUEMENT par un objet JSON valide, sans texte autour :
 
 Règles :
 - Ne crée AUCUNE tâche qui ne soit pas réellement exprimée ou clairement implicite dans la note. Une note purement informative → { "taches": [] }.
+- IMPORTANT : chaque ligne introduite par un marqueur d'action (« Action à mener », « Actions : », « À faire », « Todo », « Prochaine étape », « À prévoir », « À vérifier », « Rappel », ou une puce d'une liste d'actions) est OBLIGATOIREMENT une tâche : prends le texte qui suit le marqueur comme description. N'en omets aucune.
 - Regroupe une même action en une seule tâche ; n'invente ni responsable ni échéance.
 - 0 à 15 tâches maximum.
 

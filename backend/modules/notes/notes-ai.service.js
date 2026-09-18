@@ -34,6 +34,39 @@ async function getNotesSettings() {
     return out;
 }
 
+// ── Tags ───────────────────────────────────────────────────────────────────
+// Tags génériques sans valeur de recherche : filtrés même si l'IA les propose.
+const USELESS_TAGS = new Set([
+    'note', 'notes', 'info', 'infos', 'information', 'informations', 'divers', 'diverse', 'diverses',
+    'general', 'generale', 'generales', 'important', 'importante', 'importantes', 'urgent', 'urgente',
+    'tache', 'taches', 'reunion', 'reunions', 'sujet', 'sujets', 'point', 'points', 'action', 'actions',
+    'suivi', 'dossier', 'dossiers', 'idee', 'idees', 'detail', 'details', 'resume', 'synthese',
+    'discussion', 'conversation', 'echange', 'echanges', 'message', 'messages', 'mail', 'mails',
+    'email', 'emails', 'courriel', 'courriels', 'appel', 'appels', 'telephone', 'demande', 'demandes',
+    'question', 'questions', 'probleme', 'problemes', 'solution', 'solutions', 'retour', 'point',
+]);
+
+/** Normalise, dédoublonne (singulier/pluriel), écarte les tags inutiles et garde les 8 premiers (par importance). */
+function sanitizeTags(tags, max = 8) {
+    const out = [];
+    const seen = new Set();
+    for (const raw of (tags || [])) {
+        const t = String(raw || '')
+            .trim().toLowerCase()
+            .replace(/^#+/, '')
+            .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+            .replace(/[^a-z0-9\s-]/g, ' ')
+            .replace(/\s+/g, ' ').trim();
+        if (!t || t.length < 3 || t.length > 40) continue;
+        const key = t.replace(/s$/, '');
+        if (USELESS_TAGS.has(t) || USELESS_TAGS.has(key) || seen.has(key)) continue;
+        seen.add(key);
+        out.push(t);
+        if (out.length >= max) break;
+    }
+    return out;
+}
+
 // ── Utilitaires texte ──────────────────────────────────────────────────────
 function decodeEntities(s) {
     return String(s)
@@ -82,6 +115,46 @@ function extractJson(text) {
     return null;
 }
 
+// ── Détection déterministe des actions explicites ──────────────────────────
+// Filet de sécurité indépendant de l'IA : une ligne « Action à mener : … »,
+// « À faire : … », « Todo : … », « Prochaine étape : … » EST une tâche, même
+// si le modèle local l'oublie. On la détecte par expression régulière.
+const ACTION_MARKER_RE = /(?:^|[\s\-•*>])(?:action[s]?\s*[àa]\s*mener|actions?\s*[àa]\s*(?:faire|mener|prévoir|prevoir|traiter)|[àa]\s*faire|[àa]\s*prévoir|[àa]\s*prevoir|[àa]\s*traiter|[àa]\s*suivre|todo|to\s*do|prochaine[s]?\s*[ée]tape[s]?|next\s*step[s]?|rappel|suivi\s*[àa]\s*faire)\s*[:\-–—]\s*/i;
+
+function extractActionItems(text) {
+    if (!text) return [];
+    const items = [];
+    for (const rawLine of String(text).split(/\n+/)) {
+        const line = rawLine.replace(/^\s*(?:[-•*>]|\d+[.)])\s*/, '').trim();
+        if (!line) continue;
+        const m = ACTION_MARKER_RE.exec(line);
+        if (!m) continue;
+        const desc = line.slice(m.index + m[0].length).trim().replace(/^[-–—:.\s]+/, '').replace(/[.;\s]+$/, '');
+        if (desc.length >= 4) items.push({ description: desc });
+    }
+    return items;
+}
+
+function normalizeForCompare(s) {
+    return String(s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+        .replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+/** Fusionne actions explicites + actions IA, sans doublon (comparaison normalisée). */
+function dedupeTasks(tasks) {
+    const out = [];
+    const seen = new Set();
+    for (const t of (tasks || [])) {
+        const description = String(t?.description || '').trim();
+        if (!description) continue;
+        const key = normalizeForCompare(description).slice(0, 70);
+        if (!key || seen.has(key)) continue;
+        seen.add(key);
+        out.push({ ...t, description });
+    }
+    return out.slice(0, 20);
+}
+
 // ── Arborescence ───────────────────────────────────────────────────────────
 async function buildTreeText(username) {
     const notebooks = await repo.listNotebooks(username);
@@ -128,7 +201,7 @@ async function applySuggestion(note, username, suggestion) {
         if (suggestion.titre) fields.title = String(suggestion.titre).slice(0, 200);
     }
     if (Array.isArray(suggestion.tags) && suggestion.tags.length) {
-        await repo.replaceTags(note.id, suggestion.tags, 'ia');
+        await repo.replaceTags(note.id, sanitizeTags(suggestion.tags), 'ia');
     }
     if (Object.keys(fields).length) await repo.updateNote(note.id, username, fields);
 }
@@ -181,7 +254,7 @@ async function analyzeNote(noteId, username, { jobId = null } = {}) {
             resume: parsed.resume || '',
             corrige: parsed.corrige || '',
             reformule: parsed.reformule || '',
-            tags: Array.isArray(parsed.tags) ? parsed.tags : [],
+            tags: sanitizeTags(parsed.tags),
             carnet: parsed.carnet || '',
             section: parsed.section || '',
             mentions: Array.isArray(parsed.mentions) ? parsed.mentions : [],
@@ -196,13 +269,22 @@ async function analyzeNote(noteId, username, { jobId = null } = {}) {
 
     await repo.updateNote(noteId, username, fields);
 
-    if (suggestion && suggestion.tags.length) await repo.replaceTags(noteId, suggestion.tags, 'ia');
+    if (suggestion && suggestion.tags.length) await repo.replaceTags(noteId, sanitizeTags(suggestion.tags), 'ia');
 
-    // Tâches proposées par l'IA (mêmes données que le module Tâches, à valider
-    // par l'utilisateur). On rafraîchit les propositions encore en attente.
-    if (parsed && typeof parsed === 'object') {
-        const tasks = Array.isArray(parsed.taches) ? parsed.taches : [];
-        await repo.replaceProposedTasks(noteId, tasks);
+    // Tâches proposées : on fusionne TOUJOURS les actions explicites détectées
+    // dans le texte (« Action à mener : … ») avec celles renvoyées par l'IA.
+    // Filet de sécurité si le modèle local oublie une action évidente.
+    const aiTasks = (parsed && typeof parsed === 'object' && Array.isArray(parsed.taches)) ? parsed.taches : null;
+    const explicitTasks = extractActionItems(contentText);
+    const mergedTasks = dedupeTasks([...explicitTasks, ...(aiTasks || [])]);
+    if (mergedTasks.length) {
+        await repo.replaceProposedTasks(noteId, mergedTasks);
+    } else if (aiTasks === null) {
+        // Le prompt d'analyse n'a rien dit sur les tâches → détection dédiée, en arrière-plan.
+        try { await proposeTasks(noteId, username); }
+        catch (e) { console.error(`[NOTES] détection des tâches #${noteId} échouée :`, e.message); }
+    } else {
+        await repo.replaceProposedTasks(noteId, []);
     }
 
     // Classement automatique : l'IA propose carnet + section, et l'application
@@ -272,8 +354,10 @@ async function proposeTasks(noteId, username) {
     });
     const raw = await apmAi.queryAi(prompt, settings.notes_apm_model || undefined);
     const parsed = extractJson(raw);
-    const tasks = Array.isArray(parsed?.taches) ? parsed.taches : [];
-    await repo.replaceProposedTasks(noteId, tasks);
+    const aiTasks = Array.isArray(parsed?.taches) ? parsed.taches : [];
+    const explicitTasks = extractActionItems(htmlToText(note.content).slice(0, maxChars));
+    const merged = dedupeTasks([...explicitTasks, ...aiTasks]);
+    await repo.replaceProposedTasks(noteId, merged);
     return { tasks: await repo.listTaskSuggestions(noteId), raw };
 }
 
@@ -382,6 +466,8 @@ module.exports = {
     getNotesSettings,
     htmlToText,
     extractJson,
+    extractActionItems,
+    dedupeTasks,
     buildTreeText,
     analyzeNote,
     enqueueAnalyze,

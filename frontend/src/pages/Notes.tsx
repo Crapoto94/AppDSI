@@ -83,6 +83,8 @@ const Notes: React.FC = () => {
   const [note, setNote] = useState<any>(null);
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
+  const [contentAi, setContentAi] = useState('');
+  const [viewVersion, setViewVersion] = useState<'original' | 'ia'>('original');
   const [tagList, setTagList] = useState<string[]>([]);
   const [tagInput, setTagInput] = useState('');
   const [mentions, setMentions] = useState<Mention[]>([]);
@@ -103,7 +105,9 @@ const Notes: React.FC = () => {
   const [tasksOpen, setTasksOpen] = useState(false);
   const [tasksLoading, setTasksLoading] = useState(false);
 
-  const loadedRef = useRef<{ title: string; content: string }>({ title: '', content: '' });
+  const loadedRef = useRef<{ title: string; content: string; contentAi: string }>({ title: '', content: '', contentAi: '' });
+  const contentAiRef = useRef('');
+  useEffect(() => { contentAiRef.current = contentAi; }, [contentAi]);
   const analyzedRef = useRef<string>('');
   const pollRef = useRef<number | null>(null);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -162,29 +166,38 @@ const Notes: React.FC = () => {
       setNote(n);
       setTitle(n.title || '');
       setContent(n.content || '');
+      setContentAi(n.content_ai || '');
+      // Par défaut : on présente la note REFAITE PAR L'IA si elle existe.
+      // Une note encore en cours de rédaction (pas de version IA) s'ouvre
+      // directement en édition sur l'originale.
+      const hasAi = !!n.content_ai;
+      setViewVersion(hasAi ? 'ia' : 'original');
       setTagList((n.tags || []).map((t: any) => t.tag));
       setMentions((n.mentions || []).map((m: any) => ({ name: m.agent_name || '', email: m.agent_email || '' })));
-      loadedRef.current = { title: n.title || '', content: n.content || '' };
+      loadedRef.current = { title: n.title || '', content: n.content || '', contentAi: n.content_ai || '' };
       analyzedRef.current = n.content || '';
-      setMode('edit');
+      setMode(hasAi ? 'preview' : 'edit');
       if (pollRef.current) { window.clearInterval(pollRef.current); pollRef.current = null; }
       if (n.ai_status === 'pending' || n.ai_status === 'running' || n.processing) pollAi(id);
     } catch (e: any) { flash('error', e.response?.data?.message || 'Erreur chargement note'); }
   }, [api]);
 
   // ── Sauvegarde ───────────────────────────────────────────────────────────
-  const saveNote = useCallback(async (explicit: boolean) => {
+  const saveNote = useCallback(async (explicit: boolean, override?: { title?: string; content?: string; contentAi?: string }) => {
     if (!note) return;
+    const t = override?.title !== undefined ? override.title : title;
+    const c = override?.content !== undefined ? override.content : content;
+    const cAi = override?.contentAi !== undefined ? override.contentAi : contentAi;
     setSaving(true);
     try {
-      const r = await api('put', `/api/notes/${note.id}`, { title, content, tags: tagList, mentions, notebook_id: note.notebook_id, section_id: note.section_id });
-      loadedRef.current = { title, content };
+      const r = await api('put', `/api/notes/${note.id}`, { title: t, content: c, content_ai: cAi, tags: tagList, mentions, notebook_id: note.notebook_id, section_id: note.section_id });
+      loadedRef.current = { title: t, content: c, contentAi: cAi };
       setNote((prev: any) => ({ ...prev, ...r.data, tags: r.data.tags, mentions: r.data.mentions }));
       if (explicit) flash('success', 'Note enregistrée');
       loadTree();
       loadNotes();
-      if (settings.auto_analyze && analyzedRef.current !== content && stripHtml(content).length > 3) {
-        analyzedRef.current = content;
+      if (settings.auto_analyze && analyzedRef.current !== c && stripHtml(c).length > 3) {
+        analyzedRef.current = c;
         requestAnalysis(note.id);
       }
     } catch (e: any) {
@@ -192,16 +205,16 @@ const Notes: React.FC = () => {
     } finally {
       setSaving(false);
     }
-  }, [api, note, title, content, tagList, mentions, settings.auto_analyze, loadTree, loadNotes]);
+  }, [api, note, title, content, contentAi, tagList, mentions, settings.auto_analyze, loadTree, loadNotes]);
 
   // Auto-save (débounce) quand le contenu change après chargement.
   useEffect(() => {
     if (!note) return;
-    if (title === loadedRef.current.title && content === loadedRef.current.content) return;
+    if (title === loadedRef.current.title && content === loadedRef.current.content && contentAi === loadedRef.current.contentAi) return;
     if (saveTimer.current) clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(() => { saveNote(false); }, 2500);
     return () => { if (saveTimer.current) clearTimeout(saveTimer.current); };
-  }, [title, content, note, saveNote]);
+  }, [title, content, contentAi, note, saveNote]);
 
   // ── Analyse IA ───────────────────────────────────────────────────────────
   const requestAnalysis = async (id: number) => {
@@ -225,6 +238,13 @@ const Notes: React.FC = () => {
         const { title: _serverTitle, ...fields } = d;
         setNote((prev: any) => (prev && prev.id === id ? { ...prev, ...fields, tags: d.tags } : prev));
         if (d.tags) setTagList((d.tags as any[]).map(t => t.tag));
+        // Récupère la version IA sans écraser une éventuelle modification
+        // utilisateur en cours sur cette version.
+        if (d.content_ai !== undefined && contentAiRef.current === loadedRef.current.contentAi) {
+          const nextAi = d.content_ai || '';
+          setContentAi(nextAi);
+          loadedRef.current = { ...loadedRef.current, contentAi: nextAi };
+        }
         if (d.ai_status !== 'pending' && d.ai_status !== 'running') {
           window.clearInterval(pollRef.current!); pollRef.current = null;
           loadTree(); loadNotes();
@@ -247,9 +267,10 @@ const Notes: React.FC = () => {
 
   const useAiVersion = (html: string) => {
     setContent(html);
+    setViewVersion('original');
     setMode('edit');
     setNote((prev: any) => ({ ...prev, content_origin: 'ia' }));
-    setTimeout(() => saveNote(true), 50);
+    saveNote(true, { content: html });
   };
 
   // ── Tâches proposées par l'IA ────────────────────────────────────────────
@@ -390,6 +411,11 @@ const Notes: React.FC = () => {
 
   const sortedNotebooks = React.useMemo(() => [...notebooks].sort((a, b) => (b.is_inbox ? 1 : 0) - (a.is_inbox ? 1 : 0)), [notebooks]);
   const activeNotebook = sortedNotebooks.find(n => n.id === selectedNotebook);
+  const editorValue = viewVersion === 'ia' ? contentAi : content;
+  const handleEditorChange = useCallback((html: string) => {
+    if (viewVersion === 'ia') setContentAi(html); else setContent(html);
+  }, [viewVersion]);
+  const proposedTasks = ((note?.task_suggestions || []) as any[]).filter((t: any) => t.status === 'proposed');
 
   if (loading) {
     return (
@@ -537,6 +563,16 @@ const Notes: React.FC = () => {
                 </select>
                 <AiBadge status={note.ai_status} />
                 {note.processing ? <span style={{ fontSize: 11, color: '#1e40af' }}>en file…</span> : null}
+                <div style={{ display: 'inline-flex', border: '1px solid #e2e8f0', borderRadius: 8, overflow: 'hidden' }} title="Version affichée">
+                  <button onClick={() => setViewVersion('ia')} disabled={!contentAi}
+                    style={{ border: 'none', cursor: contentAi ? 'pointer' : 'not-allowed', padding: '5px 10px', fontSize: 11.5, fontWeight: 700, background: viewVersion === 'ia' ? '#7c3aed' : '#f8fafc', color: viewVersion === 'ia' ? 'white' : (contentAi ? '#475569' : '#cbd5e1') }}>
+                    <Sparkles size={12} style={{ verticalAlign: -2, marginRight: 4 }} />Version IA
+                  </button>
+                  <button onClick={() => setViewVersion('original')}
+                    style={{ border: 'none', cursor: 'pointer', padding: '5px 10px', fontSize: 11.5, fontWeight: 700, background: viewVersion === 'original' ? '#334155' : '#f8fafc', color: viewVersion === 'original' ? 'white' : '#475569' }}>
+                    Originale
+                  </button>
+                </div>
                 <div style={{ flex: 1 }} />
                 <button onClick={togglePin} title={note.is_pinned ? 'Désépingler' : 'Épingler'} style={iconBtn}>{note.is_pinned ? <PinOff size={15} /> : <Pin size={15} />}</button>
                 <button onClick={() => setMode(m => m === 'edit' ? 'preview' : 'edit')} title="Aperçu" style={iconBtn}>{mode === 'edit' ? <Eye size={15} /> : <Pencil size={15} />}</button>
@@ -547,6 +583,18 @@ const Notes: React.FC = () => {
 
               {/* Contenu */}
               <div style={{ flex: 1, overflowY: 'auto', padding: '16px 18px' }}>
+                {proposedTasks.length > 0 && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 10, padding: '10px 14px', marginBottom: 14, flexWrap: 'wrap' }}>
+                    <Sparkles size={17} color="#2563eb" />
+                    <span style={{ fontSize: 13.5, color: '#1e40af', fontWeight: 700 }}>
+                      {proposedTasks.length} action{proposedTasks.length > 1 ? 's' : ''} à mener identifiée{proposedTasks.length > 1 ? 's' : ''} par l'IA
+                    </span>
+                    <div style={{ flex: 1 }} />
+                    <button onClick={() => setTasksOpen(true)} style={{ ...primaryBtn, padding: '7px 14px' }}>
+                      <Check size={15} /> Proposer {proposedTasks.length} tâche{proposedTasks.length > 1 ? 's' : ''} à l'application
+                    </button>
+                  </div>
+                )}
                 <input value={title} onChange={e => setTitle(e.target.value)} placeholder="Titre de la note"
                   style={{ width: '100%', border: 'none', outline: 'none', fontSize: 24, fontWeight: 900, color: '#0f172a', marginBottom: 12, fontFamily: 'inherit', boxSizing: 'border-box' }} />
 
@@ -574,9 +622,21 @@ const Notes: React.FC = () => {
                 )}
 
                 {mode === 'edit' ? (
-                  <NoteEditor value={content} onChange={setContent} mentions={mentions} onMentionsChange={setMentions} token={token} />
+                  <NoteEditor
+                    value={editorValue}
+                    onChange={handleEditorChange}
+                    mentions={mentions}
+                    onMentionsChange={setMentions}
+                    token={token}
+                    placeholder={viewVersion === 'ia' ? 'Note reformulée par IA (vous pouvez la corriger)…' : undefined}
+                  />
                 ) : (
-                  <div className="note-html" style={previewBox} dangerouslySetInnerHTML={{ __html: decorateMentions(content, mentions) }} />
+                  <div className="note-html" style={previewBox} dangerouslySetInnerHTML={{ __html: decorateMentions(editorValue, mentions) }} />
+                )}
+                {mode === 'preview' && viewVersion === 'ia' && (
+                  <div style={{ marginTop: 8, fontSize: 12, color: '#7c3aed', display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <Sparkles size={13} /> Version reformulée par l'IA — la note originale reste intégralement conservée.
+                  </div>
                 )}
 
                 {/* Panneau IA */}
@@ -666,6 +726,7 @@ const Notes: React.FC = () => {
         .note-html a { color: #2563eb; }
         .note-mention { color: #1d4ed8; background: #dbeafe; border-radius: 4px; padding: 0 4px; font-weight: 600; }
         @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+        @keyframes noteRecPulse { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: .35; transform: scale(1.35); } }
       `}</style>
     </div>
   );

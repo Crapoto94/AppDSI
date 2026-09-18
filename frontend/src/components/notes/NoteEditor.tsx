@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import ReactQuill from 'react-quill-new';
 import 'react-quill-new/dist/quill.snow.css';
 import axios from 'axios';
+import { Mic, MicOff, Loader2 } from 'lucide-react';
 
 export interface Mention {
   name: string;
@@ -50,6 +51,16 @@ function NoteEditor({ value, onChange, mentions, onMentionsChange, token, placeh
   const [results, setResults] = useState<AgentResult[]>([]);
   const [anchor, setAnchor] = useState<{ left: number; top: number } | null>(null);
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // ── Dictée vocale (Web Speech API) ───────────────────────────────────────
+  const [listening, setListening] = useState(false);
+  const [starting, setStarting] = useState(false);
+  const [interim, setInterim] = useState('');
+  const [dictError, setDictError] = useState<string | null>(null);
+  const recognitionRef = useRef<any>(null);
+  const listeningRef = useRef(false);
+  useEffect(() => { listeningRef.current = listening; }, [listening]);
+  const speechSupported = typeof window !== 'undefined' && !!((window as any).SpeechRecognition || (window as any).webkitSpeechRecognition);
   const tokenRef = useRef(token);
   const mentionsRef = useRef(mentions);
   const openRef = useRef(false);
@@ -105,6 +116,89 @@ function NoteEditor({ value, onChange, mentions, onMentionsChange, token, placeh
     };
   }, []);
 
+  const insertDictatedText = (text: string) => {
+    const quill = quillRef.current?.getEditor() as any;
+    if (!quill || !text) return;
+    const selection = quill.getSelection(true);
+    const index = selection ? selection.index : quill.getLength();
+    quill.insertText(index, text, 'user');
+    quill.setSelection(index + text.length, 0);
+  };
+
+  const startDictation = () => {
+    if (!speechSupported) {
+      setDictError("La dictée vocale n'est pas supportée par ce navigateur (utilisez Chrome ou Edge).");
+      return;
+    }
+    setDictError(null);
+    setStarting(true);
+    const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    const rec = new SR();
+    rec.lang = 'fr-FR';
+    rec.continuous = true;
+    rec.interimResults = true;
+    rec.maxAlternatives = 1;
+
+    rec.onresult = (event: any) => {
+      let interimText = '';
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        const result = event.results[i];
+        const transcript = (result[0]?.transcript || '').trim();
+        if (!transcript) continue;
+        if (result.isFinal) {
+          insertDictatedText(transcript + ' ');
+        } else {
+          interimText += (interimText ? ' ' : '') + transcript;
+        }
+      }
+      setInterim(interimText);
+    };
+    rec.onerror = (e: any) => {
+      if (e.error === 'not-allowed' || e.error === 'service-not-allowed') {
+        setDictError('Accès au microphone refusé. Autorisez le micro dans votre navigateur.');
+        listeningRef.current = false;
+        setListening(false);
+      } else if (e.error !== 'no-speech' && e.error !== 'aborted') {
+        setDictError(`Erreur dictée : ${e.error}`);
+      }
+    };
+    rec.onend = () => {
+      setInterim('');
+      // Chrome/Edge coupent la reconnaissance après un silence : on relance
+      // automatiquement tant que l'utilisateur n'a pas arrêté la dictée.
+      if (listeningRef.current) {
+        try { rec.start(); return; } catch { /* ignore */ }
+      }
+      setStarting(false);
+    };
+
+    recognitionRef.current = rec;
+    try {
+      rec.start();
+      listeningRef.current = true;
+      setListening(true);
+    } catch (e: any) {
+      setDictError(e?.message || 'Impossible de démarrer le microphone.');
+    } finally {
+      setStarting(false);
+    }
+  };
+
+  const stopDictation = () => {
+    listeningRef.current = false;
+    setListening(false);
+    setInterim('');
+    const rec = recognitionRef.current;
+    recognitionRef.current = null;
+    if (rec) { try { rec.stop(); } catch { /* ignore */ } }
+  };
+
+  useEffect(() => () => {
+    listeningRef.current = false;
+    const rec = recognitionRef.current;
+    if (rec) { try { rec.stop(); } catch { /* ignore */ } }
+  }, []);
+
   const selectAgent = (agent: AgentResult) => {
     const quill = quillRef.current?.getEditor() as any;
     if (!quill) return;
@@ -129,6 +223,33 @@ function NoteEditor({ value, onChange, mentions, onMentionsChange, token, placeh
 
   return (
     <div ref={wrapperRef} style={{ position: 'relative' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8, flexWrap: 'wrap' }}>
+        <button
+          type="button"
+          onClick={listening ? stopDictation : startDictation}
+          disabled={starting}
+          title={speechSupported ? 'Dicter la note à la voix (micro)' : 'Dictée vocale non supportée par ce navigateur'}
+          style={{
+            display: 'inline-flex', alignItems: 'center', gap: 7, padding: '7px 14px', borderRadius: 20,
+            border: 'none', cursor: starting ? 'wait' : 'pointer', fontWeight: 700, fontSize: 12.5,
+            background: listening ? '#dc2626' : '#eef2ff', color: listening ? 'white' : '#4338ca',
+            boxShadow: listening ? '0 0 0 4px rgba(220,38,38,.15)' : 'none', transition: 'all .15s',
+          }}
+        >
+          {listening ? <MicOff size={15} /> : <Mic size={15} />}
+          {listening ? 'Arrêter la dictée' : 'Dicter à la voix'}
+        </button>
+        {listening && (
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 7, fontSize: 12.5, color: '#b91c1c', fontWeight: 600 }}>
+            <span style={{ width: 9, height: 9, borderRadius: '50%', background: '#dc2626', display: 'inline-block', animation: 'noteRecPulse 1s infinite' }} />
+            Écoute… parlez
+            {interim && <em style={{ color: '#64748b', fontStyle: 'italic', maxWidth: 320, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>« {interim} »</em>}
+          </span>
+        )}
+        {starting && !listening && <Loader2 size={15} color="#6366f1" style={{ animation: 'spin 1s linear infinite' }} />}
+        {dictError && <span style={{ fontSize: 12, color: '#b91c1c' }}>{dictError}</span>}
+        <span style={{ fontSize: 11.5, color: '#94a3b8', marginLeft: 'auto' }}>Le texte est inséré à l'endroit du curseur.</span>
+      </div>
       <ReactQuill
         ref={quillRef}
         theme="snow"

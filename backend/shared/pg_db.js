@@ -6724,6 +6724,13 @@ async function setupPgDb() {
       await client.query(`CREATE INDEX IF NOT EXISTS idx_notes_tags_note ON hub_notes.note_tags(note_id)`);
       await client.query(`CREATE INDEX IF NOT EXISTS idx_notes_tags_tag ON hub_notes.note_tags(tag)`);
 
+      // Unicité (note_id, tag) : plusieurs analyses successives pouvaient créer
+      // des doublons. On normalise puis on supprime les doublons historiques
+      // avant de poser l'index unique (idempotent).
+      try { await client.query(`UPDATE hub_notes.note_tags SET tag = unaccent(LOWER(TRIM(tag)))`); } catch (e) {}
+      try { await client.query(`DELETE FROM hub_notes.note_tags a USING hub_notes.note_tags b WHERE a.id > b.id AND a.note_id = b.note_id AND a.tag = b.tag`); } catch (e) {}
+      try { await client.query(`CREATE UNIQUE INDEX IF NOT EXISTS uq_notes_tags_note_tag ON hub_notes.note_tags(note_id, tag)`); } catch (e) {}
+
       await client.query(`
         CREATE TABLE IF NOT EXISTS hub_notes.note_mentions (
           id SERIAL PRIMARY KEY,
