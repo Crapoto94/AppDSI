@@ -1,7 +1,10 @@
 const express = require('express');
 const router = express.Router();
+const multer = require('multer');
 const { authenticateJWT, authenticateAdmin } = require('../../shared/middleware');
 const ctrl = require('./notes.controller');
+
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
 
 // ── Routes spécifiques (AVANT /:id) ────────────────────────────────────────
 router.get('/tree', authenticateJWT, ctrl.getTree);
@@ -44,6 +47,12 @@ router.post('/:id/apply-suggestion', authenticateJWT, ctrl.applySuggestion);
 router.get('/:id/task-suggestions', authenticateJWT, ctrl.listTaskSuggestions);
 router.post('/:id/propose-tasks', authenticateJWT, ctrl.proposeTasks);
 router.patch('/:id/task-suggestions/:sid', authenticateJWT, ctrl.updateTaskSuggestion);
+
+// Pièces jointes
+router.get('/:id/attachments', authenticateJWT, ctrl.listAttachments);
+router.post('/:id/attachments', authenticateJWT, upload.single('file'), ctrl.uploadAttachment);
+router.get('/:id/attachments/:attId/download', authenticateJWT, ctrl.downloadAttachment);
+router.delete('/:id/attachments/:attId', authenticateJWT, ctrl.deleteAttachment);
 router.get('/:id/versions', authenticateJWT, ctrl.listVersions);
 router.post('/:id/versions/:versionId/restore', authenticateJWT, ctrl.restoreVersion);
 

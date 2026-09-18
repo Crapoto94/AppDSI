@@ -5,9 +5,28 @@
  * réservés aux administrateurs.
  */
 const { pgDb, getSqlite } = require('../../shared/database');
+const path = require('path');
+const storage = require('../../shared/storage');
 const repo = require('./notes.repository');
 const ai = require('./notes-ai.service');
 const { NOTES_SETTING_KEYS, SETTING_DEFAULTS } = require('./notes-prompts');
+
+const NOTES_MODULE = 'notes';
+let docsService = null;
+try { docsService = require('../../shared/documents.service'); } catch { docsService = null; }
+
+function attachmentUrl(row) {
+    return `/api/notes/${row.note_id}/attachments/${row.id}/download`;
+}
+/** URL servie sans JWT (mount /api/storage du serveur) — pratique pour <img>/<a download>. */
+function attachmentPublicUrl(row) {
+    const ref = String(row.storage_ref || '').replace(/\\/g, '/');
+    const rel = ref.startsWith('storage/') ? ref.slice('storage/'.length) : ref;
+    return rel ? `/api/storage/${rel}` : null;
+}
+function decorateAttachment(row) {
+    return { ...row, url: attachmentUrl(row), public_url: attachmentPublicUrl(row) };
+}
 
 async function getAdSettings() {
     try {
@@ -200,15 +219,16 @@ const ctrl = {
             const id = parseInt(req.params.id, 10);
             const note = await repo.getNote(id, req.user.username);
             if (!note) return res.status(404).json({ message: 'Note introuvable' });
-            const [tags, mentions, versions, notebook, section, taskSuggestions] = await Promise.all([
+            const [tags, mentions, versions, notebook, section, taskSuggestions, attachments] = await Promise.all([
                 repo.listTags(id),
                 repo.listMentions(id),
                 repo.listVersions(id, 30),
                 note.notebook_id ? repo.getNotebook(note.notebook_id, req.user.username) : null,
                 note.section_id ? repo.getSection(note.section_id, req.user.username) : null,
                 repo.listTaskSuggestions(id),
+                repo.listAttachments(id),
             ]);
-            res.json({ ...note, tags, mentions, versions, notebook, section, task_suggestions: taskSuggestions, processing: ai.isProcessing(id) });
+            res.json({ ...note, tags, mentions, versions, notebook, section, task_suggestions: taskSuggestions, attachments: attachments.map(decorateAttachment), processing: ai.isProcessing(id) });
         } catch (e) {
             res.status(500).json({ message: e.message });
         }
@@ -308,6 +328,107 @@ const ctrl = {
             await repo.addVersion(id, { content: note.content, title: note.title, origin: 'manual', createdBy: username });
             await repo.updateNote(id, username, { content: version.content, title: version.title || note.title, word_count: repo.countWords(version.content), content_origin: 'manual' });
             res.json(await repo.getNote(id, username));
+        } catch (e) {
+            res.status(500).json({ message: e.message });
+        }
+    },
+
+    // ── Pièces jointes ─────────────────────────────────────────────────────
+    async listAttachments(req, res) {
+        try {
+            const id = parseInt(req.params.id, 10);
+            const note = await repo.getNote(id, req.user.username);
+            if (!note) return res.status(404).json({ message: 'Note introuvable' });
+            const rows = await repo.listAttachments(id);
+            res.json(rows.map(decorateAttachment));
+        } catch (e) {
+            res.status(500).json({ message: e.message });
+        }
+    },
+
+    async uploadAttachment(req, res) {
+        try {
+            const id = parseInt(req.params.id, 10);
+            const note = await repo.getNote(id, req.user.username);
+            if (!note) return res.status(404).json({ message: 'Note introuvable' });
+            if (!req.file || !req.file.buffer) return res.status(400).json({ message: 'Aucun fichier reçu' });
+
+            req.file.originalname = storage.fixUploadName(req.file.originalname);
+            const saved = await storage.saveFile(NOTES_MODULE, id, req.file);
+
+            const attId = await repo.addAttachment({
+                noteId: id,
+                filename: saved.filename,
+                originalName: req.file.originalname,
+                mimetype: req.file.mimetype,
+                size: req.file.size,
+                storageRef: saved.dbPath,
+                uploadedBy: req.user.username,
+            });
+
+            if (docsService) {
+                try {
+                    await docsService.registerExternalUpload({
+                        module: NOTES_MODULE,
+                        entityType: 'note_attachment',
+                        entityId: id,
+                        title: req.file.originalname,
+                        filename: saved.filename,
+                        originalName: req.file.originalname,
+                        mimetype: req.file.mimetype,
+                        size: req.file.size,
+                        storageRef: saved.dbPath,
+                        uploadedBy: req.user.username,
+                    });
+                } catch (e) {
+                    console.error('[NOTES] hub_docs register:', e.message);
+                }
+            }
+
+            const row = await repo.getAttachment(attId, id);
+            res.json(decorateAttachment(row));
+        } catch (e) {
+            res.status(500).json({ message: e.message });
+        }
+    },
+
+    async downloadAttachment(req, res) {
+        try {
+            const id = parseInt(req.params.id, 10);
+            const attId = parseInt(req.params.attId, 10);
+            const note = await repo.getNote(id, req.user.username);
+            if (!note) return res.status(404).json({ message: 'Note introuvable' });
+            const att = await repo.getAttachment(attId, id);
+            if (!att) return res.status(404).json({ message: 'Pièce jointe introuvable' });
+
+            const f = await storage.getFileForServe(att.storage_ref);
+            if (!f) return res.status(404).json({ message: 'Fichier introuvable sur le stockage' });
+
+            const disposition = req.query.inline === '1' ? 'inline' : 'attachment';
+            const name = att.original_name || att.filename || 'fichier';
+            res.setHeader('Content-Disposition', `${disposition}; filename*=UTF-8''${encodeURIComponent(name)}`);
+            res.type(att.mimetype || path.extname(name) || 'application/octet-stream');
+            if (f.absolutePath) return res.sendFile(f.absolutePath);
+            return res.send(f.buffer);
+        } catch (e) {
+            res.status(500).json({ message: e.message });
+        }
+    },
+
+    async deleteAttachment(req, res) {
+        try {
+            const id = parseInt(req.params.id, 10);
+            const attId = parseInt(req.params.attId, 10);
+            const note = await repo.getNote(id, req.user.username);
+            if (!note) return res.status(404).json({ message: 'Note introuvable' });
+            const att = await repo.getAttachment(attId, id);
+            if (!att) return res.status(404).json({ message: 'Pièce jointe introuvable' });
+
+            if (storage.isStoragePath(att.storage_ref)) {
+                try { await storage.deleteFile(att.storage_ref); } catch { /* ignore */ }
+            }
+            await repo.deleteAttachment(attId, id);
+            res.json({ ok: true });
         } catch (e) {
             res.status(500).json({ message: e.message });
         }

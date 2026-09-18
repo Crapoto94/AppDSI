@@ -57,6 +57,8 @@ router.get('/:page', async (req, res) => {
             '/budget':                 'GUIDE-BUDGET.md',
             '/tiers':                  'GUIDE-BUDGET.md',
             '/doctrines':              'GUIDE-DOCTRINES.md',
+            '/notes':                  'GUIDE-NOTES-IA.md',
+            '/admin/notes':            'GUIDE-NOTES-IA.md',
             '/reseau':                 'GUIDE-RESEAU.md',
             '/mes-reunions':           'GUIDE-REUNIONS.md',
             '/admin/magapp':           'GUIDE-MAGAPP.md',

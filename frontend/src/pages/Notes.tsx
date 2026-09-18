@@ -4,6 +4,7 @@ import {
   Plus, Search, Trash2, Save, Sparkles, RefreshCw, Pin, PinOff, Eye, Pencil, X,
   NotebookPen, Folder, ChevronRight, ChevronDown, FileText, Tag,
   Cloud, Check, AlertCircle, Loader2, History, Wand2, LayoutList,
+  Paperclip, Upload, Download,
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import Header from '../components/Header';
@@ -23,6 +24,13 @@ function stripHtml(html?: string | null): string {
 }
 
 const escapeRegex = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+function formatSize(bytes?: number | null): string {
+  if (!bytes || bytes <= 0) return '';
+  if (bytes < 1024) return `${bytes} o`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} Ko`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} Mo`;
+}
 
 /** Encadre les mentions d'un <span> stylé dans le HTML rendu. */
 function decorateMentions(html: string, mentions: Mention[]): string {
@@ -104,6 +112,7 @@ const Notes: React.FC = () => {
   const [reorgRaw, setReorgRaw] = useState('');
   const [tasksOpen, setTasksOpen] = useState(false);
   const [tasksLoading, setTasksLoading] = useState(false);
+  const [uploading, setUploading] = useState(false);
 
   const loadedRef = useRef<{ title: string; content: string; contentAi: string }>({ title: '', content: '', contentAi: '' });
   const contentAiRef = useRef('');
@@ -292,6 +301,46 @@ const Notes: React.FC = () => {
       setNote(r.data);
       loadTree();
     } catch { /* ignore */ }
+  };
+
+  // ── Pièces jointes ───────────────────────────────────────────────────────
+  const refreshAttachments = async () => {
+    if (!note) return;
+    try {
+      const r = await api('get', `/api/notes/${note.id}/attachments`);
+      setNote((prev: any) => (prev && prev.id === note.id ? { ...prev, attachments: r.data } : prev));
+    } catch { /* ignore */ }
+  };
+
+  const uploadFiles = async (fileList: FileList | null) => {
+    if (!note || !fileList || fileList.length === 0) return;
+    const files = Array.from(fileList);
+    setUploading(true);
+    try {
+      for (const file of files) {
+        const fd = new FormData();
+        fd.append('file', file);
+        await api('post', `/api/notes/${note.id}/attachments`, fd);
+      }
+      await refreshAttachments();
+      flash('success', `${files.length} pièce(s) jointe(s) ajoutée(s)`);
+    } catch (e: any) {
+      flash('error', e.response?.data?.message || "Erreur lors de l'ajout de la pièce jointe");
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const removeAttachment = async (att: any) => {
+    if (!note) return;
+    if (!window.confirm(`Supprimer la pièce jointe « ${att.original_name || att.filename} » ?`)) return;
+    try {
+      await api('delete', `/api/notes/${note.id}/attachments/${att.id}`);
+      await refreshAttachments();
+      flash('success', 'Pièce jointe supprimée');
+    } catch (e: any) {
+      flash('error', e.response?.data?.message || 'Erreur suppression');
+    }
   };
 
   // ── Créations / suppressions ─────────────────────────────────────────────
@@ -622,6 +671,39 @@ const Notes: React.FC = () => {
                     ))}
                   </div>
                 )}
+
+                {/* Pièces jointes */}
+                <div style={{ marginBottom: 14, border: '1px solid #e2e8f0', borderRadius: 10, padding: '10px 12px', background: '#f8fafc' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: (note.attachments || []).length ? 8 : 0 }}>
+                    <Paperclip size={15} color="#64748b" />
+                    <span style={{ fontSize: 11.5, fontWeight: 800, color: '#64748b', textTransform: 'uppercase' }}>Pièces jointes</span>
+                    <span style={{ fontSize: 11, fontWeight: 800, background: '#e2e8f0', color: '#475569', borderRadius: 20, padding: '1px 8px' }}>{(note.attachments || []).length}</span>
+                    <div style={{ flex: 1 }} />
+                    <label style={{ ...ghostBtn, cursor: uploading ? 'wait' : 'pointer', opacity: uploading ? 0.7 : 1 }}>
+                      {uploading ? <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <Upload size={13} />}
+                      {uploading ? 'Envoi…' : 'Ajouter'}
+                      <input type="file" multiple style={{ display: 'none' }} disabled={uploading}
+                        onChange={e => { uploadFiles(e.target.files); e.currentTarget.value = ''; }} />
+                    </label>
+                  </div>
+                  {(note.attachments || []).length > 0 && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                      {(note.attachments || []).map((a: any) => (
+                        <div key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 10, background: 'white', border: '1px solid #e2e8f0', borderRadius: 8, padding: '6px 10px' }}>
+                          {String(a.mimetype || '').startsWith('image/') && a.public_url
+                            ? <img src={a.public_url} alt="" style={{ width: 34, height: 34, objectFit: 'cover', borderRadius: 6, flexShrink: 0 }} />
+                            : <FileText size={18} color="#64748b" style={{ flexShrink: 0 }} />}
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontSize: 12.5, fontWeight: 600, color: '#334155', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.original_name || a.filename}</div>
+                            <div style={{ fontSize: 11, color: '#94a3b8' }}>{formatSize(a.size)}{a.mimetype ? ` · ${a.mimetype}` : ''}</div>
+                          </div>
+                          <a href={a.public_url || a.url} download={a.original_name || a.filename} title="Télécharger" style={{ ...iconBtn, textDecoration: 'none' }}><Download size={14} /></a>
+                          <button onClick={() => removeAttachment(a)} title="Supprimer" style={{ ...iconBtn, color: '#dc2626' }}><Trash2 size={14} /></button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
 
                 {mode === 'edit' ? (
                   <NoteEditor

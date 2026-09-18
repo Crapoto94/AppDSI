@@ -6764,6 +6764,22 @@ async function setupPgDb() {
       `);
       await client.query(`CREATE INDEX IF NOT EXISTS idx_notes_task_sugg_note ON hub_notes.note_task_suggestions(note_id, status)`);
 
+      // Pièces jointes d'une note (stockage unifié shared/storage.js + hub_docs).
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS hub_notes.note_attachments (
+          id SERIAL PRIMARY KEY,
+          note_id INTEGER NOT NULL REFERENCES hub_notes.notes(id) ON DELETE CASCADE,
+          filename TEXT,
+          original_name TEXT,
+          mimetype TEXT,
+          size BIGINT,
+          storage_ref TEXT,
+          uploaded_by TEXT,
+          created_at TIMESTAMPTZ DEFAULT NOW()
+        )
+      `);
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_notes_attachments_note ON hub_notes.note_attachments(note_id)`);
+
       // File d'attente persistante des analyses IA (reprise après redémarrage).
       await client.query(`
         CREATE TABLE IF NOT EXISTS hub_notes.ai_jobs (

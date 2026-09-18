@@ -316,6 +316,33 @@ async function getCounts(username) {
     );
 }
 
+// ── Pièces jointes ─────────────────────────────────────────────────────────
+async function addAttachment({ noteId, filename, originalName, mimetype, size, storageRef, uploadedBy }) {
+    const r = await pgDb.run(
+        `INSERT INTO hub_notes.note_attachments (note_id, filename, original_name, mimetype, size, storage_ref, uploaded_by)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        [noteId, filename, originalName, mimetype || null, size || null, storageRef, uploadedBy || null]
+    );
+    return r.lastID;
+}
+
+async function listAttachments(noteId) {
+    return pgDb.all(
+        `SELECT id, note_id, filename, original_name, mimetype, size, storage_ref, uploaded_by, created_at
+         FROM hub_notes.note_attachments WHERE note_id = ? ORDER BY created_at`,
+        [noteId]
+    );
+}
+
+async function getAttachment(id, noteId) {
+    return pgDb.get('SELECT * FROM hub_notes.note_attachments WHERE id = ? AND note_id = ?', [id, noteId]);
+}
+
+async function deleteAttachment(id, noteId) {
+    const r = await pgDb.run('DELETE FROM hub_notes.note_attachments WHERE id = ? AND note_id = ?', [id, noteId]);
+    return r.changes;
+}
+
 async function listAllTags(username, limit = 100) {
     return pgDb.all(
         `SELECT t.tag, COUNT(*)::int AS count
@@ -509,6 +536,7 @@ module.exports = {
     addVersion, listVersions, getVersion,
     replaceTags, listTags, listAllTags,
     setTags, getCounts,
+    addAttachment, listAttachments, getAttachment, deleteAttachment,
     replaceMentions, listMentions,
     replaceProposedTasks, listTaskSuggestions, getTaskSuggestion, updateTaskSuggestion,
     createJob, setJobStatus, getPendingJobs,
