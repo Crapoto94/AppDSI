@@ -43,10 +43,25 @@ const USELESS_TAGS = new Set([
     'suivi', 'dossier', 'dossiers', 'idee', 'idees', 'detail', 'details', 'resume', 'synthese',
     'discussion', 'conversation', 'echange', 'echanges', 'message', 'messages', 'mail', 'mails',
     'email', 'emails', 'courriel', 'courriels', 'appel', 'appels', 'telephone', 'demande', 'demandes',
-    'question', 'questions', 'probleme', 'problemes', 'solution', 'solutions', 'retour', 'point',
+    'question', 'questions', 'probleme', 'problemes', 'solution', 'solutions', 'retour',
+    'rdv', 'rendez-vous', 'rendezvous', 'rendez vous', 'organisation', 'organisations',
+    'direction', 'directions', 'usage', 'usages', 'evenement', 'evenements', 'interne', 'externe',
+    'equipe', 'equipes', 'service', 'services', 'agent', 'agents', 'site', 'sites', 'dsi', 'hub',
 ]);
 
-/** Normalise, dédoublonne (singulier/pluriel), écarte les tags inutiles et garde les 8 premiers (par importance). */
+/**
+ * Nombre de tags autorisé, proportionnel à la richesse du contenu : une note de
+ * 3 lignes ne doit pas générer 8 tags.
+ */
+function tagBudget(text) {
+    const words = String(text || '').trim() ? String(text).trim().split(/\s+/).length : 0;
+    if (words < 40) return 2;
+    if (words < 120) return 3;
+    if (words < 400) return 5;
+    return 8;
+}
+
+/** Normalise, dédoublonne (singulier/pluriel), écarte les tags inutiles et garde les plus importants. */
 function sanitizeTags(tags, max = 8) {
     const out = [];
     const seen = new Set();
@@ -58,8 +73,8 @@ function sanitizeTags(tags, max = 8) {
             .replace(/[^a-z0-9\s-]/g, ' ')
             .replace(/\s+/g, ' ').trim();
         if (!t || t.length < 3 || t.length > 40) continue;
-        const key = t.replace(/s$/, '');
-        if (USELESS_TAGS.has(t) || USELESS_TAGS.has(key) || seen.has(key)) continue;
+        const key = t.replace(/[^a-z0-9]/g, '').replace(/s$/, '');
+        if (USELESS_TAGS.has(t) || USELESS_TAGS.has(t.replace(/s$/, '')) || seen.has(key)) continue;
         seen.add(key);
         out.push(t);
         if (out.length >= max) break;
@@ -201,7 +216,7 @@ async function applySuggestion(note, username, suggestion) {
         if (suggestion.titre) fields.title = String(suggestion.titre).slice(0, 200);
     }
     if (Array.isArray(suggestion.tags) && suggestion.tags.length) {
-        await repo.replaceTags(note.id, sanitizeTags(suggestion.tags), 'ia');
+        await repo.replaceTags(note.id, sanitizeTags(suggestion.tags, tagBudget(htmlToText(note.content))), 'ia');
     }
     if (Object.keys(fields).length) await repo.updateNote(note.id, username, fields);
 }
@@ -254,7 +269,7 @@ async function analyzeNote(noteId, username, { jobId = null } = {}) {
             resume: parsed.resume || '',
             corrige: parsed.corrige || '',
             reformule: parsed.reformule || '',
-            tags: sanitizeTags(parsed.tags),
+            tags: sanitizeTags(parsed.tags, tagBudget(contentText)),
             carnet: parsed.carnet || '',
             section: parsed.section || '',
             mentions: Array.isArray(parsed.mentions) ? parsed.mentions : [],
@@ -269,7 +284,7 @@ async function analyzeNote(noteId, username, { jobId = null } = {}) {
 
     await repo.updateNote(noteId, username, fields);
 
-    if (suggestion && suggestion.tags.length) await repo.replaceTags(noteId, sanitizeTags(suggestion.tags), 'ia');
+    if (suggestion && suggestion.tags.length) await repo.replaceTags(noteId, sanitizeTags(suggestion.tags, tagBudget(contentText)), 'ia');
 
     // Tâches proposées : on fusionne TOUJOURS les actions explicites détectées
     // dans le texte (« Action à mener : … ») avec celles renvoyées par l'IA.
@@ -468,6 +483,8 @@ module.exports = {
     extractJson,
     extractActionItems,
     dedupeTasks,
+    sanitizeTags,
+    tagBudget,
     buildTreeText,
     analyzeNote,
     enqueueAnalyze,

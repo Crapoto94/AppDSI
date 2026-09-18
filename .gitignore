@@ -13,6 +13,7 @@ frontend/public/pdfjs/
 
 # Fichiers de base de données
 *.sqlite
+*.sqlite.old
 *.db
 *.db-journal
 

@@ -29,7 +29,7 @@ Analyse la note ci-dessous et réponds UNIQUEMENT par un objet JSON valide, sans
   "resume": "résumé en 1 à 3 phrases",
   "corrige": "le texte d'origine corrigé des fautes d'orthographe, de grammaire et de ponctuation, SANS reformuler et SANS retirer d'information",
   "reformule": "une version reformulée, claire, professionnelle et structurée (paragraphes, listes, titres si pertinent)",
-  "tags": ["mots-clés classés du PLUS important au MOINS important (maximum 8)"],
+  "tags": ["mots-clés classés du PLUS important au MOINS important (1 à 3 pour une note courte, 8 maximum)"],
   "carnet": "nom du carnet le plus pertinent",
   "section": "nom de la section la plus pertinente à l'intérieur de ce carnet",
   "mentions": ["noms des personnes explicitement citées dans la note"],
@@ -44,7 +44,7 @@ Règles impératives :
 - Si la note est déjà correcte, "corrige" doit rester très proche de l'original.
 - Réutilise en priorité les carnets et sections existants listés ci-dessous ; ne crée un nouveau nom que si aucun ne convient.
 - "mentions" ne contient que des personnes (pas d'organisations).
-- "tags" : au maximum 8, triés par importance décroissante (les 1-2 premiers doivent être les thèmes les plus significatifs). Chaque tag = 1 à 3 mots, en minuscules, sans accent, sans dièse. INTERDIT : tags génériques ou inutiles (note, info, divers, général, important, urgent, à faire, tâche, réunion, sujet, divers…), et tags redondants entre eux. Un bon tag permet de retrouver la note par la recherche ; ne mets que des termes réellement distinctifs du contenu (projet, technologie, fournisseur, lieu, personne-clé, thématique métier). S'il n'y a rien de distinctif, renvoie moins de tags (2 ou 3) plutôt que de remplir.
+- "tags" : ADAPTE LE NOMBRE À LA LONGUEUR — note de quelques lignes : 1 à 3 tags ; note moyenne : 3 à 5 ; note longue : 8 maximum. Triés par importance décroissante (les 1-2 premiers = thèmes les plus significatifs). Chaque tag = 1 à 2 mots, en minuscules, sans accent, sans dièse. INTERDIT : tags génériques ou inutiles (note, info, divers, général, important, urgent, à faire, tâche, réunion, rdv, organisation, direction, usages, événement, sujet…), et tags redondants entre eux. Un bon tag permet de retrouver la note par la recherche ; ne mets que des termes réellement distinctifs (nom de projet/produit, technologie, fournisseur, lieu, thématique métier). S'il n'y a rien de distinctif, renvoie moins de tags plutôt que de remplir.
 - "taches" : uniquement les actions RÉELLEMENT exprimées ou clairement implicites dans la note (décisions à appliquer, relances, vérifications, échéances). Ne pas inventer d'action ; laisser la liste vide si la note n'appelle aucune action. Regrouper une même action en une seule entrée. IMPORTANT : toute ligne introduite par un marqueur d'action (« Action à mener », « À faire », « Todo », « Prochaine étape », « À prévoir », « À vérifier », « Rappel », puce d'une liste d'actions…) DOIT produire exactement une tâche, avec le texte qui suit le marqueur comme description — n'en omets aucune.
 
 Arborescence existante (carnet > sections) :

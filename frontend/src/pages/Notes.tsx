@@ -405,8 +405,10 @@ const Notes: React.FC = () => {
 
   const addTag = () => {
     const t = tagInput.trim().toLowerCase().replace(/^#/, '');
-    if (t && !tagList.includes(t)) setTagList([...tagList, t]);
     setTagInput('');
+    if (!t) return;
+    if (tagList.length >= 8) { flash('error', 'Maximum 8 tags par note'); return; }
+    if (!tagList.includes(t)) setTagList([...tagList, t]);
   };
 
   const sortedNotebooks = React.useMemo(() => [...notebooks].sort((a, b) => (b.is_inbox ? 1 : 0) - (a.is_inbox ? 1 : 0)), [notebooks]);
