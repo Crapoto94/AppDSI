@@ -6290,6 +6290,9 @@ app.use('/api/ged', require('./modules/ged/ged.routes'));
 app.use('/api/mail-collector', require('./modules/mail_collector/mail_collector.routes'));
 app.use('/api/ville', require('./modules/ville/ville.routes'));
 
+// Mes Notes — notes personnelles assistées par IA (API IA Ville / APM)
+app.use('/api/notes', require('./modules/notes/notes.routes'));
+
 // Backup & Security
 const backupCtrl = require('./modules/backup/backup.controller');
 backupCtrl.setSendMail(sendMail);

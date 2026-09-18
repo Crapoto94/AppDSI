@@ -51,6 +51,7 @@ import AdminDatabases from './pages/AdminDatabases';
 import AdminSync from './pages/AdminSync';
 import WhatsNew from './pages/WhatsNew';
 import Doctrines from './pages/Doctrines';
+import Notes from './pages/Notes';
 import TicketsDashboard from './pages/Tickets/TicketsDashboard';
 import TicketDetail from './pages/Tickets/TicketDetail';
 import TicketCreate from './pages/Tickets/TicketCreate';
@@ -71,6 +72,7 @@ import AidesAdmin from './pages/Admin/AidesAdmin';
 import SecurityMenu from './pages/Admin/SecurityMenu';
 import AutoResolution from './pages/Admin/AutoResolution';
 import ApiKeysAdmin from './pages/Admin/ApiKeys';
+import AdminNotes from './pages/Admin/AdminNotes';
 import AutoResolutionConfirm from './pages/AutoResolutionConfirm';
 import StocksDashboard from './pages/Stocks/StocksDashboard';
 import ReseauDashboard from './pages/Reseau/ReseauDashboard';
@@ -174,6 +176,7 @@ function App() {
         <Route path="/request-feature" element={<PrivateRoute path="/request-feature"><RequestFeature /></PrivateRoute>} />
         <Route path="/whats-new" element={<PrivateRoute path="/whats-new"><WhatsNew /></PrivateRoute>} />
         <Route path="/doctrines" element={<PrivateRoute path="/doctrines"><Doctrines /></PrivateRoute>} />
+        <Route path="/notes" element={<PrivateRoute path="/notes"><Notes /></PrivateRoute>} />
 
         <Route path="/" element={<PrivateRoute path="/"><Dashboard /></PrivateRoute>} />
         <Route path="/budget" element={<PrivateRoute path="/budget"><Budget /></PrivateRoute>} />
@@ -255,6 +258,7 @@ function App() {
           <Route path="ideas" element={<AdminBacklogMerged />} />
           <Route path="frizbi" element={<FrizbiSettings />} />
           <Route path="transcript" element={<Admin section="transcript" />} />
+          <Route path="notes" element={<AdminNotes />} />
           <Route path="finance" element={<AdminDatabases />} />
           <Route path="email-automation" element={<AdminMail />} />
           <Route path="backlog" element={<AdminBacklogMerged />} />

@@ -239,6 +239,23 @@ export const WIDGET_REGISTRY: WidgetDef[] = [
     defaultSize: { w: 6, h: 4 },
     minSize: { w: 4, h: 3 },
   },
+  // ── Notes IA (Mes Notes) ──────────────────────────────────────────────────
+  {
+    key: 'notes_kpi',
+    label: 'Mes Notes — indicateurs',
+    description: 'Notes, analysées par IA, carnets, sections, tags, mots',
+    module: 'Notes',
+    defaultSize: { w: 6, h: 2 },
+    minSize: { w: 4, h: 2 },
+  },
+  {
+    key: 'notes_wordcloud',
+    label: 'Mes Notes — nuage de mots',
+    description: 'Mots-clés les plus fréquents des notes (contenu + tags IA)',
+    module: 'Notes',
+    defaultSize: { w: 6, h: 4 },
+    minSize: { w: 4, h: 3 },
+  },
   // ── Divers compteurs ──────────────────────────────────────────────────────
   {
     key: 'consommables',
