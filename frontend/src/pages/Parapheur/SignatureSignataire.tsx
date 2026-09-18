@@ -692,17 +692,20 @@ function SignerView({ token, auth, onLogout }: { token: string; auth: SignerAuth
             <span><b>Tout cocher</b> — signer en masse sans lecture intégrale (une confirmation vous sera demandée).</span>
           </label>
         )}
-        <div style={{ display: 'grid', gap: 18 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 18 }}>
           {info.documents.map(d => {
             const pos = info.positions.find(p => p.document_id === d.id);
             const seen = viewedDocs.has(d.id);
             return (
               <div key={d.id} style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 12, overflow: 'hidden' }}>
-                <div style={{ padding: '10px 16px', background: '#f8fafc', borderBottom: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, fontWeight: 700, color: '#334155' }}>
+                <div style={{ padding: '10px 16px', background: '#f8fafc', borderBottom: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, fontWeight: 700, color: '#334155', minWidth: 0 }}>
                   <input type="checkbox" checked={ackDocs.has(d.id)} onChange={() => toggleAck(d.id)} title="Cocher pour signer en masse" style={{ width: 16, height: 16, cursor: 'pointer', flexShrink: 0 }} />
-                  <FileText size={15} color="#ef4444" /> {d.original_name}
-                  {d.page_count ? <span style={{ fontSize: 11, color: '#94a3b8', fontWeight: 600 }}>{d.page_count} page(s)</span> : null}
-                  <span style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <FileText size={15} color="#ef4444" style={{ flexShrink: 0 }} />
+                  <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {d.original_name}
+                    {d.page_count ? <span style={{ fontSize: 11, color: '#94a3b8', fontWeight: 600 }}> · {d.page_count} page(s)</span> : null}
+                  </span>
+                  <span style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
                     {pos?.applied && <span style={{ fontSize: 11, color: '#15803d', display: 'flex', alignItems: 'center', gap: 4 }}><CheckCircle2 size={12} /> signé</span>}
                     {seen
                       ? <span style={{ fontSize: 11, color: '#15803d', display: 'flex', alignItems: 'center', gap: 4 }}><Eye size={12} /> lu</span>
@@ -725,10 +728,10 @@ function SignerView({ token, auth, onLogout }: { token: string; auth: SignerAuth
               <Paperclip size={15} /> Annexes ({info.annexes.length})
             </h2>
             <p style={{ fontSize: 12, color: '#64748b', margin: '0 0 12px' }}>Documents complémentaires fournis pour information : ils ne sont pas signés.</p>
-            <div style={{ display: 'grid', gap: 10 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 10 }}>
               {info.annexes.map(a => (
-                <div key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 10, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 10, padding: '10px 14px' }}>
-                  <FileText size={16} color="#64748b" />
+                <div key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 10, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 10, padding: '10px 14px', minWidth: 0 }}>
+                  <FileText size={16} color="#64748b" style={{ flexShrink: 0 }} />
                   <span style={{ flex: 1, minWidth: 0, fontSize: 13, color: '#1e293b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {a.original_name}{a.page_count ? <span style={{ color: '#94a3b8' }}> · {a.page_count} page(s)</span> : null}
                   </span>
