@@ -9,6 +9,7 @@ import {
 import { useAuth } from '../contexts/AuthContext';
 import Header from '../components/Header';
 import AgentPresenceBadge from '../components/AgentPresenceBadge';
+import DocumentPdfViewer from '../components/parapheur/DocumentPdfViewer';
 import NoteEditor, { type Mention } from '../components/notes/NoteEditor';
 import NoteTasksModal from '../components/notes/NoteTasksModal';
 import WordCloud, { type CloudWord } from '../components/notes/WordCloud';
@@ -122,6 +123,7 @@ const Notes: React.FC = () => {
   const [tasksOpen, setTasksOpen] = useState(false);
   const [tasksLoading, setTasksLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [attPreview, setAttPreview] = useState<any>(null);
 
   const [mailOpen, setMailOpen] = useState(false);
   const [mailRecipients, setMailRecipients] = useState<string[]>([]);
@@ -213,8 +215,9 @@ const Notes: React.FC = () => {
       setMentions((n.mentions || []).map((m: any) => ({ name: m.agent_name || '', email: m.agent_email || '' })));
       loadedRef.current = { title: n.title || '', content: n.content || '', contentAi: n.content_ai || '' };
       analyzedRef.current = n.content || '';
-      // Note partagée (non propriétaire) : ouverture en lecture seule.
-      setMode(n.is_owner === false || hasAi ? 'preview' : 'edit');
+      // La note (version courante : prise de note ou version IA) reste toujours
+      // éditable ; seule une note PARTAGÉE (non propriétaire) est en lecture seule.
+      setMode(n.is_owner === false ? 'preview' : 'edit');
       if (pollRef.current) { window.clearInterval(pollRef.current); pollRef.current = null; }
       if (n.ai_status === 'pending' || n.ai_status === 'running' || n.processing) pollAi(id);
     } catch (e: any) { flash('error', e.response?.data?.message || 'Erreur chargement note'); }
@@ -304,11 +307,12 @@ const Notes: React.FC = () => {
   };
 
   const useAiVersion = (html: string) => {
-    setContent(html);
-    setViewVersion('original');
+    // La version choisie (reformulée/corrigée) devient la version COURANTE
+    // (content_ai), éditable. La note d'origine (content) n'est JAMAIS modifiée.
+    setContentAi(html);
+    setViewVersion('ia');
     setMode('edit');
-    setNote((prev: any) => ({ ...prev, content_origin: 'ia' }));
-    saveNote(true, { content: html });
+    saveNote(true, { contentAi: html });
   };
 
   // ── Tâches proposées par l'IA ────────────────────────────────────────────
@@ -842,6 +846,9 @@ const Notes: React.FC = () => {
                             <div style={{ fontSize: 12.5, fontWeight: 600, color: '#334155', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.original_name || a.filename}</div>
                             <div style={{ fontSize: 11, color: '#94a3b8' }}>{formatSize(a.size)}{a.mimetype ? ` · ${a.mimetype}` : ''}</div>
                           </div>
+                          {(String(a.mimetype || '').includes('pdf') || String(a.mimetype || '').startsWith('image/')) && (
+                            <button onClick={() => setAttPreview(a)} title="Prévisualiser" style={iconBtn}><Eye size={14} /></button>
+                          )}
                           <a href={a.public_url || a.url} download={a.original_name || a.filename} title="Télécharger" style={{ ...iconBtn, textDecoration: 'none' }}><Download size={14} /></a>
                           <button onClick={() => removeAttachment(a)} title="Supprimer" style={{ ...iconBtn, color: '#dc2626' }}><Trash2 size={14} /></button>
                         </div>
@@ -1058,6 +1065,21 @@ const Notes: React.FC = () => {
           <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 16 }}>
             <button onClick={() => setShareOpen(false)} style={ghostBtn}>Fermer</button>
           </div>
+        </Modal>
+      )}
+
+      {attPreview && note && String(attPreview.mimetype || '').includes('pdf') && (
+        <DocumentPdfViewer
+          open
+          url={`/api/notes/${note.id}/attachments/${attPreview.id}/download?inline=1`}
+          authToken={token}
+          title={attPreview.original_name || attPreview.filename}
+          onClose={() => setAttPreview(null)}
+        />
+      )}
+      {attPreview && String(attPreview.mimetype || '').startsWith('image/') && (
+        <Modal title={attPreview.original_name || attPreview.filename} icon={<Paperclip size={18} />} onClose={() => setAttPreview(null)} width={840}>
+          <img src={attPreview.public_url || attPreview.url} alt="" style={{ maxWidth: '100%', maxHeight: '75vh', display: 'block', margin: '0 auto', borderRadius: 8 }} />
         </Modal>
       )}
 
