@@ -60,7 +60,8 @@ async function merge(req, res) {
 async function thumbnails(req, res) {
     try {
         if (!req.file) return res.status(400).json({ message: 'Aucun fichier fourni.' });
-        const result = await svc.getThumbnails(req.file.buffer, { scale: 0.35 });
+        const maxPages = req.body.maxPages ? parseInt(req.body.maxPages, 10) : undefined;
+        const result = await svc.getThumbnails(req.file.buffer, { scale: 0.35, maxPages });
         res.json(result);
     } catch (e) { handleError(res, e, 'Impossible de générer les aperçus de pages.'); }
 }

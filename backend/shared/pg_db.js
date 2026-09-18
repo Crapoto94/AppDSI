@@ -1236,6 +1236,7 @@ async function setupPgDb() {
         show_chat_live BOOLEAN DEFAULT false,
         show_transcript_manager BOOLEAN DEFAULT false,
         show_parapheur BOOLEAN DEFAULT false,
+        show_pdf_tools BOOLEAN DEFAULT false,
         show_tool_incident BOOLEAN DEFAULT true,
         show_tool_demande BOOLEAN DEFAULT true
       );
@@ -1635,6 +1636,9 @@ async function setupPgDb() {
     } catch (e) {}
     try {
       await client.query(`ALTER TABLE magapp.settings ADD COLUMN IF NOT EXISTS show_parapheur BOOLEAN DEFAULT false`);
+    } catch (e) {}
+    try {
+      await client.query(`ALTER TABLE magapp.settings ADD COLUMN IF NOT EXISTS show_pdf_tools BOOLEAN DEFAULT false`);
     } catch (e) {}
     try {
       await client.query(`ALTER TABLE magapp.settings ADD COLUMN IF NOT EXISTS show_tool_incident BOOLEAN DEFAULT true`);

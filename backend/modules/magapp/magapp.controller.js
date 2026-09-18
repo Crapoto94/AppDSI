@@ -652,6 +652,7 @@ const MagAppController = {
                 result.show_chat_live_original = result.show_chat_live;
                 result.show_transcript_manager_original = result.show_transcript_manager;
                 result.show_parapheur_original = result.show_parapheur;
+                result.show_pdf_tools_original = result.show_pdf_tools;
                 result.show_tool_incident_original = result.show_tool_incident;
                 result.show_tool_demande_original = result.show_tool_demande;
 
@@ -672,6 +673,7 @@ const MagAppController = {
                 // (tuile /admin/magapp) avec un badge BETA ; le toggle admin les
                 // publie pour tout le monde.
                 result.show_parapheur = true;
+                result.show_pdf_tools = true;
                 result.show_tool_incident = true;
                 result.show_tool_demande = true;
                 // show_chat_live reste un toggle admin strict (jamais forcé).
@@ -687,6 +689,7 @@ const MagAppController = {
                 result.show_chat_live_original = result.show_chat_live;
                 result.show_transcript_manager_original = result.show_transcript_manager;
                 result.show_parapheur_original = result.show_parapheur;
+                result.show_pdf_tools_original = result.show_pdf_tools;
                 result.show_tool_incident_original = result.show_tool_incident;
                 result.show_tool_demande_original = result.show_tool_demande;
             }
@@ -750,10 +753,10 @@ const MagAppController = {
     },
 
     updateSettings: async (req, res) => {
-        const { show_tickets, show_subscriptions, show_health_check, show_create_buttons, show_ideas, show_rencontres, show_library, show_consommables, show_chat_live, show_transcript_manager, show_parapheur, show_tool_incident, show_tool_demande } = req.body;
+        const { show_tickets, show_subscriptions, show_health_check, show_create_buttons, show_ideas, show_rencontres, show_library, show_consommables, show_chat_live, show_transcript_manager, show_parapheur, show_pdf_tools, show_tool_incident, show_tool_demande } = req.body;
         try {
-            await pgDb.run('UPDATE magapp.settings SET show_tickets = ?, show_subscriptions = ?, show_health_check = ?, show_create_buttons = ?, show_ideas = ?, show_rencontres = ?, show_library = ?, show_consommables = ?, show_chat_live = ?, show_transcript_manager = ?, show_parapheur = ?, show_tool_incident = ?, show_tool_demande = ? WHERE id = 1',
-                [!!show_tickets, !!show_subscriptions, !!show_health_check, !!show_create_buttons, !!show_ideas, !!show_rencontres, !!show_library, !!show_consommables, !!show_chat_live, !!show_transcript_manager, !!show_parapheur, !!show_tool_incident, !!show_tool_demande]);
+            await pgDb.run('UPDATE magapp.settings SET show_tickets = ?, show_subscriptions = ?, show_health_check = ?, show_create_buttons = ?, show_ideas = ?, show_rencontres = ?, show_library = ?, show_consommables = ?, show_chat_live = ?, show_transcript_manager = ?, show_parapheur = ?, show_pdf_tools = ?, show_tool_incident = ?, show_tool_demande = ? WHERE id = 1',
+                [!!show_tickets, !!show_subscriptions, !!show_health_check, !!show_create_buttons, !!show_ideas, !!show_rencontres, !!show_library, !!show_consommables, !!show_chat_live, !!show_transcript_manager, !!show_parapheur, !!show_pdf_tools, !!show_tool_incident, !!show_tool_demande]);
             res.json({ message: 'Settings updated' });
         } catch (error) {
             console.error('[MAGAPP] Error updating settings:', error.message);
