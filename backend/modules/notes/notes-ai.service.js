@@ -34,6 +34,22 @@ async function getNotesSettings() {
     return out;
 }
 
+/** Modèle APM pour l'analyse unitaire (repli sur le défaut global). */
+function analysisModel(settings) {
+    return (settings.notes_analysis_model || settings.notes_apm_model || '').trim() || undefined;
+}
+/** Modèle APM pour le classement global (repli sur le défaut global). */
+function classifyModel(settings) {
+    return (settings.notes_classify_model || settings.notes_apm_model || '').trim() || undefined;
+}
+
+const crypto = require('crypto');
+/** Empreinte du contenu (pour ne pas réanalyser une note inchangée). */
+function contentHash(content) {
+    const text = htmlToText(content).replace(/\s+/g, ' ').trim();
+    return crypto.createHash('sha1').update(text).digest('hex');
+}
+
 // ── Tags ───────────────────────────────────────────────────────────────────
 // Tags génériques sans valeur de recherche : filtrés même si l'IA les propose.
 const USELESS_TAGS = new Set([
@@ -235,12 +251,18 @@ async function applySuggestion(note, username, suggestion) {
 }
 
 // ── Analyse d'une note ─────────────────────────────────────────────────────
-async function analyzeNote(noteId, username, { jobId = null } = {}) {
+async function analyzeNote(noteId, username, { jobId = null, force = false } = {}) {
     const note = await repo.getNote(noteId, username);
     if (!note) throw new Error('Note introuvable');
 
+    // Pas de nouvelle analyse si le contenu n'a pas changé depuis la dernière fois.
+    const hash = contentHash(note.content);
+    if (!force && note.ai_status === 'done' && note.last_analyzed_hash === hash) {
+        return { skipped: true };
+    }
+
     const settings = await getNotesSettings();
-    const model = settings.notes_apm_model || undefined;
+    const model = analysisModel(settings);
     const maxChars = parseInt(settings.notes_analysis_max_chars, 10) || 12000;
 
     const contentText = htmlToText(note.content).slice(0, maxChars);
@@ -273,6 +295,7 @@ async function analyzeNote(noteId, username, { jobId = null } = {}) {
         word_count: repo.countWords(note.content),
         ai_status: 'done',
         ai_error: null,
+        last_analyzed_hash: hash,
     };
 
     let suggestion = null;
@@ -332,10 +355,10 @@ const queue = [];
 const queuedIds = new Set();
 let running = false;
 
-function enqueueAnalyze(noteId, username) {
+function enqueueAnalyze(noteId, username, { force = false } = {}) {
     if (queuedIds.has(noteId)) return false;
     queuedIds.add(noteId);
-    queue.push({ noteId, username });
+    queue.push({ noteId, username, force });
     processQueue();
     return true;
 }
@@ -345,12 +368,12 @@ async function processQueue() {
     running = true;
     try {
         while (queue.length) {
-            const { noteId, username } = queue.shift();
+            const { noteId, username, force } = queue.shift();
             queuedIds.delete(noteId);
             let jobId = null;
             try {
                 jobId = await repo.createJob({ noteId, username, kind: 'analyze' });
-                await analyzeNote(noteId, username, { jobId });
+                await analyzeNote(noteId, username, { jobId, force });
             } catch (e) {
                 console.error(`[NOTES] analyse #${noteId} échouée :`, e.message);
                 try { await repo.updateNote(noteId, username, { ai_status: 'error', ai_error: e.message }); } catch { /* ignore */ }
@@ -364,6 +387,55 @@ async function processQueue() {
 
 function isProcessing(noteId) {
     return queuedIds.has(noteId);
+}
+
+// ── Planification différée (anti-surcharge IA) ─────────────────────────────
+// Analyse unitaire : 3 min après la DERNIÈRE modification de la note.
+// Classement global : 1 h après la dernière modification de l'une des notes.
+const NOTE_ANALYSIS_DELAY_MS = 3 * 60 * 1000;
+const GLOBAL_CLASSIFY_DELAY_MS = 60 * 60 * 1000;
+
+const noteTimers = new Map();   // `${username}:${noteId}` -> timer
+const globalTimers = new Map(); // username -> timer
+
+/** (Re)programme l'analyse unitaire d'une note 3 min après sa dernière modif. */
+function scheduleNoteAnalysis(noteId, username, delay = NOTE_ANALYSIS_DELAY_MS) {
+    const key = `${username}:${noteId}`;
+    const prev = noteTimers.get(key);
+    if (prev) clearTimeout(prev);
+    const timer = setTimeout(() => {
+        noteTimers.delete(key);
+        enqueueAnalyze(noteId, username);
+    }, delay);
+    noteTimers.set(key, timer);
+}
+
+/** (Re)programme le classement global d'un utilisateur 1 h après sa dernière modif. */
+function scheduleGlobalClassification(username, delay = GLOBAL_CLASSIFY_DELAY_MS) {
+    if (globalTimers.has(username)) clearTimeout(globalTimers.get(username));
+    const timer = setTimeout(() => {
+        globalTimers.delete(username);
+        runGlobalClassification(username).catch((e) => console.error('[NOTES] classement global:', e.message));
+    }, delay);
+    globalTimers.set(username, timer);
+}
+
+/** Appelé après une modification de note : programme analyse unitaire + classement global selon les réglages. */
+async function scheduleForSave(noteId, username) {
+    const s = await getNotesSettings();
+    if (String(s.notes_auto_analyze) !== 'false') scheduleNoteAnalysis(noteId, username);
+    if (String(s.notes_auto_classify) !== 'false') scheduleGlobalClassification(username);
+}
+
+/** Classement global immédiat : propose une organisation de TOUTES les notes et l'applique. */
+async function runGlobalClassification(username) {
+    const result = await proposeReorganization(username, {});
+    const proposal = result && result.proposal;
+    if (!proposal || !Array.isArray(proposal.carnets) || !proposal.carnets.length) {
+        return { moved: 0, createdNotebooks: 0, createdSections: 0, count: 0 };
+    }
+    const applied = await applyClassification(username, proposal);
+    return { ...applied, count: result.count || 0 };
 }
 
 // ── Extraction de tâches ───────────────────────────────────────────────────
@@ -380,7 +452,7 @@ async function proposeTasks(noteId, username) {
     const prompt = renderTemplate(settings.notes_task_prompt, {
         CONTENT: htmlToText(note.content).slice(0, maxChars),
     });
-    const raw = await apmAi.queryAi(prompt, settings.notes_apm_model || undefined);
+    const raw = await apmAi.queryAi(prompt, analysisModel(settings));
     const parsed = extractJson(raw);
     const aiTasks = Array.isArray(parsed?.taches) ? parsed.taches : [];
     const explicitTasks = extractActionItems(htmlToText(note.content).slice(0, maxChars));
@@ -403,7 +475,7 @@ async function proposeClassification(username, { notebookId } = {}) {
     if (!notes.length) return { proposal: { carnets: [] }, raw: '', count: 0 };
     const settings = await getNotesSettings();
     const prompt = renderTemplate(settings.notes_classify_prompt, { NOTES: notesToLines(notes) });
-    const raw = await apmAi.queryAi(prompt, settings.notes_apm_model || undefined);
+    const raw = await apmAi.queryAi(prompt, classifyModel(settings));
     return { proposal: extractJson(raw) || { carnets: [] }, raw, count: notes.length };
 }
 
@@ -413,7 +485,7 @@ async function proposeReorganization(username, { notebookId } = {}) {
     const settings = await getNotesSettings();
     const tree = await buildTreeText(username);
     const prompt = renderTemplate(settings.notes_reorganize_prompt, { TREE: tree, NOTES: notesToLines(notes) });
-    const raw = await apmAi.queryAi(prompt, settings.notes_apm_model || undefined);
+    const raw = await apmAi.queryAi(prompt, classifyModel(settings));
     return { proposal: extractJson(raw) || { carnets: [] }, raw, count: notes.length };
 }
 
@@ -502,6 +574,10 @@ module.exports = {
     analyzeNote,
     enqueueAnalyze,
     isProcessing,
+    scheduleNoteAnalysis,
+    scheduleGlobalClassification,
+    scheduleForSave,
+    runGlobalClassification,
     proposeTasks,
     proposeClassification,
     proposeReorganization,

@@ -6438,6 +6438,9 @@ async function setupPgDb() {
       await client.query(`CREATE INDEX IF NOT EXISTS idx_parapheurs_creator ON hub_parapheur.parapheurs(created_by_username)`);
       await client.query(`ALTER TABLE hub_parapheur.parapheurs ADD COLUMN IF NOT EXISTS public_token TEXT`);
       await client.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_parapheurs_public_token ON hub_parapheur.parapheurs(public_token)`);
+      // Durée de validité du lien de signature (minutes). ≤ 60 → accès direct au
+      // parapheur sans code ; > 60 → confirmation d'identité par code e-mail.
+      await client.query(`ALTER TABLE hub_parapheur.parapheurs ADD COLUMN IF NOT EXISTS link_validity_minutes INTEGER DEFAULT 10`);
 
       await client.query(`
         CREATE TABLE IF NOT EXISTS hub_parapheur.documents (

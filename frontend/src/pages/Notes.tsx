@@ -4,7 +4,7 @@ import {
   Plus, Search, Trash2, Save, Sparkles, RefreshCw, Pin, PinOff, Eye, Pencil, X,
   NotebookPen, Folder, ChevronRight, ChevronDown, FileText, Tag,
   Cloud, Check, AlertCircle, Loader2, History, Wand2, LayoutList,
-  Paperclip, Upload, Download, Mail, Send, UserPlus, Users, Share2,
+  Paperclip, Upload, Download, Mail, Send, UserPlus, Users, Share2, ListTree,
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import Header from '../components/Header';
@@ -89,7 +89,6 @@ const Notes: React.FC = () => {
   const [notebooks, setNotebooks] = useState<Notebook[]>([]);
   const [tags, setTags] = useState<{ tag: string; count: number }[]>([]);
   const [notes, setNotes] = useState<any[]>([]);
-  const [settings, setSettings] = useState<{ auto_analyze: boolean; auto_classify: boolean; model: string }>({ auto_analyze: true, auto_classify: true, model: '' });
   const [loading, setLoading] = useState(true);
 
   const [selectedNotebook, setSelectedNotebook] = useState<number | null>(null);
@@ -124,6 +123,7 @@ const Notes: React.FC = () => {
   const [tasksLoading, setTasksLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [attPreview, setAttPreview] = useState<any>(null);
+  const [classifying, setClassifying] = useState(false);
 
   const [mailOpen, setMailOpen] = useState(false);
   const [mailRecipients, setMailRecipients] = useState<string[]>([]);
@@ -183,10 +183,6 @@ const Notes: React.FC = () => {
     (async () => {
       setLoading(true);
       await Promise.all([loadTree(), loadNotes(), loadShared()]);
-      try {
-        const r = await api('get', '/api/notes/settings');
-        setSettings(r.data);
-      } catch { /* défauts */ }
       setLoading(false);
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -237,16 +233,14 @@ const Notes: React.FC = () => {
       if (explicit) flash('success', 'Note enregistrée');
       loadTree();
       loadNotes();
-      if (settings.auto_analyze && analyzedRef.current !== c && stripHtml(c).length > 3) {
-        analyzedRef.current = c;
-        requestAnalysis(note.id);
-      }
+      // L'analyse IA est programmée côté serveur (3 min après la dernière modif) ;
+      // pas de nouvelle interrogation IA si la note n'a pas changé.
     } catch (e: any) {
       flash('error', e.response?.data?.message || 'Erreur enregistrement');
     } finally {
       setSaving(false);
     }
-  }, [api, note, title, content, contentAi, tagList, mentions, settings.auto_analyze, loadTree, loadNotes]);
+  }, [api, note, title, content, contentAi, tagList, mentions, loadTree, loadNotes]);
 
   // Auto-save (débounce) quand le contenu change après chargement.
   useEffect(() => {
@@ -584,6 +578,17 @@ const Notes: React.FC = () => {
     } catch (e: any) { flash('error', e.response?.data?.message || 'Erreur'); }
   };
 
+  const classifyNow = async () => {
+    if (!window.confirm("Demander à l'IA de classer TOUTES vos notes maintenant ?\n(peut prendre un moment)")) return;
+    setClassifying(true);
+    try {
+      const r = await api('post', '/api/notes/classify-now', {});
+      loadTree(); loadNotes();
+      flash('success', `Classement IA appliqué : ${r.data.moved || 0} note(s) déplacée(s), ${r.data.createdNotebooks || 0} carnet(s) créé(s)`);
+    } catch (e: any) { flash('error', e.response?.data?.message || 'Erreur classement IA'); }
+    finally { setClassifying(false); }
+  };
+
   const restoreVersion = async (versionId: number) => {
     if (!note || !window.confirm('Restaurer cette version ? Le contenu actuel sera conservé dans l\'historique.')) return;
     try { await api('post', `/api/notes/${note.id}/versions/${versionId}/restore`); await openNote(note.id); flash('success', 'Version restaurée'); } catch (e: any) { flash('error', e.response?.data?.message || 'Erreur restauration'); }
@@ -699,10 +704,13 @@ const Notes: React.FC = () => {
             )}
           </div>
 
-          <div style={{ padding: 10, borderTop: '1px solid #f1f5f9', display: 'flex', gap: 8 }}>
-            <button onClick={openCloud} style={{ ...ghostBtn, flex: 1, justifyContent: 'center' }}><Cloud size={14} /> Nuage</button>
-            <button onClick={analyzeAll} style={{ ...ghostBtn, flex: 1, justifyContent: 'center' }} title="Analyser toutes les notes non analysées"><Sparkles size={14} /> Analyser</button>
-            <button onClick={runReorganize} style={{ ...ghostBtn, flex: 1, justifyContent: 'center' }} title="Proposer une réorganisation par l'IA"><Wand2 size={14} /> Réorganiser</button>
+          <div style={{ padding: 10, borderTop: '1px solid #f1f5f9', display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            <button onClick={openCloud} style={{ ...ghostBtn, flex: '1 1 30%', justifyContent: 'center' }}><Cloud size={14} /> Nuage</button>
+            <button onClick={analyzeAll} style={{ ...ghostBtn, flex: '1 1 30%', justifyContent: 'center' }} title="Analyser toutes les notes non analysées"><Sparkles size={14} /> Analyser</button>
+            <button onClick={classifyNow} disabled={classifying} style={{ ...ghostBtn, flex: '1 1 30%', justifyContent: 'center' }} title="Demander à l'IA de classer toutes les notes">
+              {classifying ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <ListTree size={14} />} {classifying ? 'Classement…' : 'Classement IA'}
+            </button>
+            <button onClick={runReorganize} style={{ ...ghostBtn, flex: '1 1 100%', justifyContent: 'center' }} title="Proposer une réorganisation par l'IA"><Wand2 size={14} /> Réorganiser (aperçu)</button>
           </div>
         </aside>
 

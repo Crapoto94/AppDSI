@@ -29,6 +29,7 @@ export default function ParapheurCreate() {
   const [title, setTitle] = useState('');
   const [message, setMessage] = useState('');
   const [deadline, setDeadline] = useState('');
+  const [linkValidity, setLinkValidity] = useState(10);
   const [mode, setMode] = useState<Mode>('parallele');
   const [modeChosen, setModeChosen] = useState(false);
   const [showModeModal, setShowModeModal] = useState(false);
@@ -177,6 +178,7 @@ export default function ParapheurCreate() {
       const effectiveMode: Mode = signataires.length >= 2 ? mode : 'parallele';
       const payload = {
         title, message, mode: effectiveMode, deadline: deadline || null,
+        link_validity_minutes: linkValidity,
         signataires: signataires.map((s) => ({
           agentId: s.id,
           nom: s.displayName,
@@ -234,6 +236,22 @@ export default function ParapheurCreate() {
           <Field label="Échéance (optionnel)">
             <input type="date" value={deadline} onChange={e => setDeadline(e.target.value)} style={{ ...input, maxWidth: 240 }} />
           </Field>
+          {signataires.some(s => s.external) && (
+            <Field label="Durée de validité du lien de signature (signataires extérieurs)">
+              <select value={linkValidity} onChange={e => setLinkValidity(Number(e.target.value))} style={{ ...input, maxWidth: 320 }}>
+                <option value={10}>10 minutes</option>
+                <option value={30}>30 minutes</option>
+                <option value={60}>1 heure</option>
+                <option value={1440}>1 jour</option>
+                <option value={10080}>1 semaine</option>
+              </select>
+              <div style={{ fontSize: '0.75rem', color: '#94a3b8', marginTop: 6 }}>
+                {linkValidity <= 60
+                  ? 'Lien court : ouverture directe du parapheur, sans code de vérification.'
+                  : "Au-delà d'une heure, le signataire confirmera son identité par un code envoyé par e-mail."}
+              </div>
+            </Field>
+          )}
         </Section>
 
         {/* 2. Documents à signer */}
