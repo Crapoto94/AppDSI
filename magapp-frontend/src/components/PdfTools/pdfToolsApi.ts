@@ -128,3 +128,56 @@ export async function downloadLibraryItem(id: number, filename: string): Promise
   const blob = await getLibraryBlob(id, false);
   downloadBlob(blob, filename);
 }
+
+// ─── Éditeur PDF : fichiers de travail (projets) ─────────────────────────────
+export interface EditProject { id: number; title: string; page_count?: number; pageCount?: number; updated_at?: string }
+export interface EditPlan { additions: any[] }
+
+export async function createEditProject(file: File, title?: string): Promise<{ id: number; title: string; pageCount: number }> {
+  const fd = new FormData();
+  fd.append('file', file);
+  if (title) fd.append('title', title);
+  return postFormForJson('/edit/projects', fd, 'Échec de la création du fichier de travail.');
+}
+
+export async function listEditProjects(): Promise<EditProject[]> {
+  const res = await fetch(`${API_BASE}/edit/projects`, { headers: authHeaders() });
+  if (!res.ok) throw new Error(await extractErrorMessage(res, 'Échec du chargement des fichiers de travail.'));
+  return res.json();
+}
+
+export async function getEditProject(id: number): Promise<{ id: number; title: string; pageCount: number; plan: EditPlan }> {
+  const res = await fetch(`${API_BASE}/edit/projects/${id}`, { headers: authHeaders() });
+  if (!res.ok) throw new Error(await extractErrorMessage(res, 'Échec du chargement.'));
+  return res.json();
+}
+
+export async function saveEditProject(id: number, plan: EditPlan, title?: string): Promise<void> {
+  const res = await fetch(`${API_BASE}/edit/projects/${id}`, {
+    method: 'PUT',
+    headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+    body: JSON.stringify({ plan, title }),
+  });
+  if (!res.ok) throw new Error(await extractErrorMessage(res, "Échec de l'enregistrement."));
+}
+
+export async function deleteEditProject(id: number): Promise<void> {
+  const res = await fetch(`${API_BASE}/edit/projects/${id}`, { method: 'DELETE', headers: authHeaders() });
+  if (!res.ok) throw new Error(await extractErrorMessage(res, 'Échec de la suppression.'));
+}
+
+export async function renderEditProjectPage(id: number, page: number, scale = 2): Promise<{ pageCount: number; pages: { dataUrl: string; width: number; height: number }[] }> {
+  const res = await fetch(`${API_BASE}/edit/projects/${id}/render?page=${page}&scale=${scale}`, { headers: authHeaders() });
+  if (!res.ok) throw new Error(await extractErrorMessage(res, "Échec du rendu de la page."));
+  return res.json();
+}
+
+export async function flattenEditProject(id: number): Promise<{ blob: Blob; filename: string }> {
+  const res = await fetch(`${API_BASE}/edit/projects/${id}/flatten`, { method: 'POST', headers: authHeaders() });
+  if (!res.ok) throw new Error(await extractErrorMessage(res, 'Échec de la génération du PDF.'));
+  const blob = await res.blob();
+  const disposition = res.headers.get('content-disposition') || '';
+  const match = /filename\*=UTF-8''([^;]+)|filename="?([^";]+)"?/i.exec(disposition);
+  const filename = match ? decodeURIComponent(match[1] || match[2] || '') : 'document-annote.pdf';
+  return { blob, filename };
+}

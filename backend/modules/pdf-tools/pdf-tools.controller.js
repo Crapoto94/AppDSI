@@ -253,7 +253,7 @@ async function protect(req, res) {
     } catch (e) { handleError(res, e, 'Échec de la protection du PDF.'); }
 }
 
-// ─── Éditeur PDF (contenu) : analyse des objets + application des modifs ────
+// ─── Éditeur PDF : analyse des objets (legacy) ──────────────────────────────
 async function editObjects(req, res) {
     try {
         if (!req.file) return res.status(400).json({ message: 'Aucun fichier fourni.' });
@@ -270,6 +270,122 @@ async function editApply(req, res) {
         const buffer = await editSvc.editPdf(req.file.buffer, plan);
         sendPdf(res, buffer, 'modifie.pdf');
     } catch (e) { handleError(res, e, "Échec de l'application des modifications."); }
+}
+
+// ─── Éditeur PDF : fichiers de travail (projets re-modifiables) ─────────────
+const EDIT_MODULE = 'pdf-edit';
+
+async function readStoredBuffer(ref) {
+    const f = await storage.getFileForServe(ref);
+    if (!f) return null;
+    return f.absolutePath ? fs.readFileSync(f.absolutePath) : f.buffer;
+}
+
+async function createEditProject(req, res) {
+    try {
+        const username = req.user.username;
+        if (!req.file) return res.status(400).json({ message: 'Aucun fichier fourni.' });
+        req.file.originalname = storage.fixUploadName(req.file.originalname);
+        const title = String(req.body.title || req.file.originalname || 'Document').slice(0, 200);
+        const saved = await storage.saveFile(EDIT_MODULE, username, req.file);
+        const pageCount = await svc.getPageCount(req.file.buffer).catch(() => 0);
+        const r = await pgDb.run(
+            `INSERT INTO hub.pdf_edit_projects (username, title, source_ref, page_count, plan) VALUES (?, ?, ?, ?, '{}'::jsonb)`,
+            [username, title, saved.dbPath, pageCount]
+        );
+        res.json({ id: r.lastID, title, pageCount });
+    } catch (e) { handleError(res, e, "Échec de la création du fichier de travail."); }
+}
+
+async function listEditProjects(req, res) {
+    try {
+        const rows = await pgDb.all(
+            `SELECT id, title, page_count, updated_at FROM hub.pdf_edit_projects WHERE username = ? ORDER BY updated_at DESC`,
+            [req.user.username]
+        );
+        res.json(rows);
+    } catch (e) { handleError(res, e, 'Échec du chargement des fichiers de travail.'); }
+}
+
+async function getEditProject(req, res) {
+    try {
+        const id = parseInt(req.params.id, 10);
+        const row = await pgDb.get('SELECT * FROM hub.pdf_edit_projects WHERE id = ? AND username = ?', [id, req.user.username]);
+        if (!row) return res.status(404).json({ message: 'Fichier de travail introuvable.' });
+        res.json({
+            id: row.id, title: row.title, pageCount: row.page_count,
+            plan: row.plan || {},
+            sourceUrl: `/api/pdf-tools/edit/projects/${row.id}/source`,
+        });
+    } catch (e) { handleError(res, e, 'Échec du chargement.'); }
+}
+
+async function updateEditProject(req, res) {
+    try {
+        const id = parseInt(req.params.id, 10);
+        const row = await pgDb.get('SELECT id FROM hub.pdf_edit_projects WHERE id = ? AND username = ?', [id, req.user.username]);
+        if (!row) return res.status(404).json({ message: 'Fichier de travail introuvable.' });
+        const plan = req.body && req.body.plan ? req.body.plan : {};
+        const title = req.body && req.body.title !== undefined ? String(req.body.title).slice(0, 200) : null;
+        await pgDb.run(
+            `UPDATE hub.pdf_edit_projects SET plan = ?::jsonb, title = COALESCE(?, title), updated_at = NOW() WHERE id = ?`,
+            [JSON.stringify(plan), title, id]
+        );
+        res.json({ ok: true });
+    } catch (e) { handleError(res, e, "Échec de l'enregistrement."); }
+}
+
+async function deleteEditProject(req, res) {
+    try {
+        const id = parseInt(req.params.id, 10);
+        const row = await pgDb.get('SELECT * FROM hub.pdf_edit_projects WHERE id = ? AND username = ?', [id, req.user.username]);
+        if (!row) return res.status(404).json({ message: 'Fichier de travail introuvable.' });
+        if (storage.isStoragePath(row.source_ref)) { try { await storage.deleteFile(row.source_ref); } catch { /* ignore */ } }
+        await pgDb.run('DELETE FROM hub.pdf_edit_projects WHERE id = ?', [id]);
+        res.json({ ok: true });
+    } catch (e) { handleError(res, e, 'Échec de la suppression.'); }
+}
+
+async function getEditProjectSource(req, res) {
+    try {
+        const id = parseInt(req.params.id, 10);
+        const row = await pgDb.get('SELECT source_ref FROM hub.pdf_edit_projects WHERE id = ? AND username = ?', [id, req.user.username]);
+        if (!row) return res.status(404).json({ message: 'Fichier introuvable.' });
+        const buf = await readStoredBuffer(row.source_ref);
+        if (!buf) return res.status(404).json({ message: 'Fichier introuvable sur le stockage.' });
+        res.setHeader('Content-Type', 'application/pdf');
+        res.setHeader('Content-Disposition', 'inline; filename="document.pdf"');
+        return res.send(buf);
+    } catch (e) { handleError(res, e, 'Échec de la lecture.'); }
+}
+
+async function renderEditProjectPage(req, res) {
+    try {
+        const id = parseInt(req.params.id, 10);
+        const row = await pgDb.get('SELECT source_ref, page_count FROM hub.pdf_edit_projects WHERE id = ? AND username = ?', [id, req.user.username]);
+        if (!row) return res.status(404).json({ message: 'Fichier introuvable.' });
+        const buf = await readStoredBuffer(row.source_ref);
+        if (!buf) return res.status(404).json({ message: 'Fichier introuvable sur le stockage.' });
+        const scale = Math.min(3, Math.max(0.2, parseFloat(req.query.scale) || 2));
+        const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+        const result = await svc.getThumbnails(buf, { scale, page });
+        res.json(result);
+    } catch (e) { handleError(res, e, 'Échec du rendu de la page.'); }
+}
+
+/** « Aplatit » le fichier de travail : fige les masques/annotations dans un nouveau PDF. */
+async function flattenEditProject(req, res) {
+    try {
+        const id = parseInt(req.params.id, 10);
+        const row = await pgDb.get('SELECT source_ref, title, plan FROM hub.pdf_edit_projects WHERE id = ? AND username = ?', [id, req.user.username]);
+        if (!row) return res.status(404).json({ message: 'Fichier de travail introuvable.' });
+        const buf = await readStoredBuffer(row.source_ref);
+        if (!buf) return res.status(404).json({ message: 'Fichier introuvable sur le stockage.' });
+        const additions = (row.plan && Array.isArray(row.plan.additions)) ? row.plan.additions : [];
+        const out = await editSvc.editPdf(buf, { pages: [], additions });
+        const name = `${String(row.title || 'document').replace(/\.[^.]+$/, '')}-annote.pdf`;
+        sendPdf(res, out, name);
+    } catch (e) { handleError(res, e, 'Échec de la génération du PDF.'); }
 }
 
 // ─── Sauvegarde dans la PDFothèque (dossier personnel de l'agent) ───────────
@@ -497,6 +613,14 @@ module.exports = {
     protect,
     editObjects,
     editApply,
+    createEditProject,
+    listEditProjects,
+    getEditProject,
+    updateEditProject,
+    deleteEditProject,
+    getEditProjectSource,
+    renderEditProjectPage,
+    flattenEditProject,
     saveToGed,
     mailMergeAnalyze,
     mailMergeGenerate,

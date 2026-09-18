@@ -21,7 +21,17 @@ router.post('/compare', upload.fields([{ name: 'fileA', maxCount: 1 }, { name: '
 router.post('/repair', upload.single('file'), controller.repair);
 router.post('/protect', upload.single('file'), controller.protect);
 
-// Éditeur PDF (contenu)
+// Éditeur PDF (annotation non destructive) — fichiers de travail
+router.post('/edit/projects', upload.single('file'), controller.createEditProject);
+router.get('/edit/projects', controller.listEditProjects);
+router.get('/edit/projects/:id', controller.getEditProject);
+router.put('/edit/projects/:id', controller.updateEditProject);
+router.delete('/edit/projects/:id', controller.deleteEditProject);
+router.get('/edit/projects/:id/source', controller.getEditProjectSource);
+router.get('/edit/projects/:id/render', controller.renderEditProjectPage);
+router.post('/edit/projects/:id/flatten', controller.flattenEditProject);
+
+// Éditeur PDF (legacy : analyse/édition du contenu)
 router.post('/edit/objects', upload.single('file'), controller.editObjects);
 router.post('/edit/apply', upload.single('file'), controller.editApply);
 

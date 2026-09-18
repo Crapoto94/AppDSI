@@ -6835,6 +6835,25 @@ async function setupPgDb() {
       try { await client.query(`UPDATE hub_notes.notebooks SET title = 'Mes notes' WHERE is_inbox = TRUE AND title = 'Boîte de réception'`); } catch (e) {}
     } catch (e) { console.error('[PG DB] hub_notes:', e.message); }
 
+    // ─── hub.pdf_edit_projects — fichiers de travail de l'éditeur PDF ────────
+    // Conserve le PDF d'origine + le plan des masques/annotations (éditable et
+    // re-modifiable), distinct du PDF « aplati » généré à la demande.
+    try {
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS hub.pdf_edit_projects (
+          id SERIAL PRIMARY KEY,
+          username TEXT NOT NULL,
+          title TEXT DEFAULT '',
+          source_ref TEXT NOT NULL,
+          page_count INTEGER DEFAULT 0,
+          plan JSONB DEFAULT '{}'::jsonb,
+          created_at TIMESTAMPTZ DEFAULT NOW(),
+          updated_at TIMESTAMPTZ DEFAULT NOW()
+        )
+      `);
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_pdf_edit_projects_user ON hub.pdf_edit_projects(username)`);
+    } catch (e) { console.error('[PG DB] hub.pdf_edit_projects:', e.message); }
+
     console.log('[PG DB] Schema and tables initialized successfully');
   } catch (error) {
     console.error('[PG DB] Initialization error:', error.message);

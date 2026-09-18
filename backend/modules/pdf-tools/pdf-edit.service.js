@@ -430,66 +430,88 @@ async function drawAdditions(pdfDoc, additions) {
         return fontCache[key];
     };
     const pages = pdfDoc.getPages();
+    const D2R = Math.PI / 180;
+    const rot = (cx, cy, px, py, rad) => {
+        const dx = px - cx, dy = py - cy, c = Math.cos(rad), s = Math.sin(rad);
+        return { x: cx + dx * c - dy * s, y: cy + dx * s + dy * c };
+    };
 
     for (const a of additions) {
         const page = pages[a.page - 1];
         if (!page) continue;
         const { width: pw, height: ph } = page.getSize();
-        const x = (a.xPct / 100) * pw;
-        const yTop = (a.yPct / 100) * ph;
-        const w = (a.wPct / 100) * pw;
-        const h = (a.hPct / 100) * ph;
+        const x = ((Number(a.xPct) || 0) / 100) * pw;
+        const yTop = ((Number(a.yPct) || 0) / 100) * ph;
+        const w = Math.max(1, ((Number(a.wPct) || 0) / 100) * pw);
+        const h = Math.max(1, ((Number(a.hPct) || 0) / 100) * ph);
         const color = hex(a.color || '#111827');
-        const topToBottom = (y) => ph - y;
+        const deg = Number(a.rotation) || 0;
+        const rad = deg * D2R;
+        const center = { x: x + w / 2, y: ph - yTop - h / 2 };
 
         if (a.type === 'text') {
             const font = await getFont(!!a.bold, !!a.italic);
-            const size = Number(a.fontSize) || 12;
-            const lines = String(a.text || '').split('\n');
+            const size = Math.max(4, Number(a.fontSize) || 12);
+            const lineH = size * 1.2;
+            const lines = [];
+            for (const rl of String(a.text || '').split('\n')) {
+                const words = rl.split(/\s+/).filter(Boolean);
+                let cur = '';
+                if (!words.length) { lines.push(''); continue; }
+                for (const word of words) {
+                    const test = cur ? `${cur} ${word}` : word;
+                    if (font.widthOfTextAtSize(test, size) <= w || !cur) cur = test;
+                    else { lines.push(cur); cur = word; }
+                }
+                if (cur) lines.push(cur);
+            }
             lines.forEach((ln, i) => {
-                page.drawText(ln, { x, y: yTop - size - i * size * 1.2, size, font, color: rgb(color.r, color.g, color.b) });
+                const anchor = { x, y: ph - yTop - size - i * lineH };
+                const ra = rot(center.x, center.y, anchor.x, anchor.y, rad);
+                if (ln) page.drawText(ln, { x: ra.x, y: ra.y, size, font, color: rgb(color.r, color.g, color.b), rotate: degrees(deg) });
             });
-        } else if (a.type === 'rect') {
-            page.drawRectangle({
-                x, y: yTop - h, width: w, height: h,
-                color: a.filled === false ? undefined : rgb(color.r, color.g, color.b),
-                borderColor: a.borderColor ? rgb(...Object.values(hex(a.borderColor))) : undefined,
-                borderWidth: a.borderWidth || 0,
-                opacity: a.opacity != null ? a.opacity : 1,
-            });
-        } else if (a.type === 'highlight') {
-            page.drawRectangle({ x, y: yTop - h, width: w, height: h, color: rgb(1, 0.92, 0.2), opacity: 0.4 });
+        } else if (a.type === 'rect' || a.type === 'highlight' || a.type === 'whiteout') {
+            const fill = a.type === 'highlight' ? rgb(1, 0.92, 0.2) : a.type === 'whiteout' ? rgb(1, 1, 1) : rgb(color.r, color.g, color.b);
+            const opacity = a.type === 'highlight' ? 0.4 : (a.opacity != null ? Number(a.opacity) : 1);
+            const anchor = { x, y: ph - yTop - h };
+            const ra = rot(center.x, center.y, anchor.x, anchor.y, rad);
+            page.drawRectangle({ x: ra.x, y: ra.y, width: w, height: h, color: fill, opacity, rotate: degrees(deg) });
         } else if (a.type === 'line') {
+            const p0 = { x, y: ph - yTop };
+            const p1 = { x: x + w, y: ph - yTop - h };
             page.drawLine({
-                start: { x, y: topToBottom(yTop) }, end: { x: x + w, y: topToBottom(yTop + h) },
-                thickness: a.thickness || 1.5, color: rgb(color.r, color.g, color.b),
+                start: rot(center.x, center.y, p0.x, p0.y, rad),
+                end: rot(center.x, center.y, p1.x, p1.y, rad),
+                thickness: Number(a.thickness) || 2,
+                color: rgb(color.r, color.g, color.b),
             });
         } else if (a.type === 'image' && a.dataUrl) {
             const m = /^data:(image\/[a-z+]+);base64,(.*)$/i.exec(a.dataUrl);
             if (m) {
                 const bytes = Buffer.from(m[2], 'base64');
                 const img = /png/i.test(m[1]) ? await pdfDoc.embedPng(bytes) : await pdfDoc.embedJpg(bytes);
-                const ratio = Math.min(w / img.width, h / img.height);
-                page.drawImage(img, { x, y: yTop - img.height * ratio, width: img.width * ratio, height: img.height * ratio });
+                // Image ÉTIRÉE selon la boîte (largeur/hauteur choisies), rotation autour du centre.
+                const anchor = { x, y: ph - yTop - h };
+                const ra = rot(center.x, center.y, anchor.x, anchor.y, rad);
+                page.drawImage(img, { x: ra.x, y: ra.y, width: w, height: h, rotate: degrees(deg) });
             }
         } else if (a.type === 'freehand' && Array.isArray(a.points)) {
-            for (let k = 1; k < a.points.length; k++) {
-                const p0 = a.points[k - 1], p1 = a.points[k];
-                page.drawLine({
-                    start: { x: (p0.xPct / 100) * pw, y: topToBottom((p0.yPct / 100) * ph) },
-                    end: { x: (p1.xPct / 100) * pw, y: topToBottom((p1.yPct / 100) * ph) },
-                    thickness: a.thickness || 8, color: rgb(1, 1, 1), opacity: 1,
-                });
+            const xs = a.points.map((p) => Number(p.xPct)), ys = a.points.map((p) => Number(p.yPct));
+            const ccx = ((Math.min(...xs) + Math.max(...xs)) / 2 / 100) * pw;
+            const ccy = ph - ((Math.min(...ys) + Math.max(...ys)) / 2 / 100) * ph;
+            const pts = a.points.map((p) => rot(ccx, ccy, (Number(p.xPct) / 100) * pw, ph - (Number(p.yPct) / 100) * ph, rad));
+            for (let k = 1; k < pts.length; k++) {
+                page.drawLine({ start: pts[k - 1], end: pts[k], thickness: Number(a.thickness) || 8, color: rgb(1, 1, 1), opacity: 1 });
             }
-        } else if (a.type === 'whiteout') {
-            page.drawRectangle({ x, y: yTop - h, width: w, height: h, color: rgb(1, 1, 1) });
         } else if (a.type === 'polygon' && Array.isArray(a.points) && a.points.length >= 3) {
             const c = hex(a.color || '#ffffff');
+            const xs = a.points.map((p) => Number(p.xPct)), ys = a.points.map((p) => Number(p.yPct));
+            const ccx = ((Math.min(...xs) + Math.max(...xs)) / 2 / 100) * pw;
+            const ccy = ph - ((Math.min(...ys) + Math.max(...ys)) / 2 / 100) * ph;
             const ops = [];
             a.points.forEach((p, i) => {
-                const px = (Number(p.xPct) / 100) * pw;
-                const py = ph - (Number(p.yPct) / 100) * ph;
-                ops.push(i === 0 ? moveTo(px, py) : lineTo(px, py));
+                const r = rot(ccx, ccy, (Number(p.xPct) / 100) * pw, ph - (Number(p.yPct) / 100) * ph, rad);
+                ops.push(i === 0 ? moveTo(r.x, r.y) : lineTo(r.x, r.y));
             });
             ops.push(closePath(), fill(rgb(c.r, c.g, c.b)));
             page.pushOperators(...ops);
