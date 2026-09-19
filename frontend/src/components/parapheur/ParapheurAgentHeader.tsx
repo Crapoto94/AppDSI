@@ -14,8 +14,7 @@ interface Props {
 /**
  * En-tête « magasin d'applications » affiché à la place du header complet du
  * Hub DSI lorsque le parapheur est ouvert depuis le MagApp (accès restreint au
- * seul module, rôle 'parapheur_agent'). Même principe que
- * `TranscriptAgentHeader`.
+ * seul module, rôle 'parapheur_agent'). Même principe que `ModuleAgentHeader`.
  */
 const ParapheurAgentHeader: React.FC<Props> = ({ user }) => {
     const [showHelp, setShowHelp] = useState(false);

@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef } from 'react';
 import Header from '../../components/Header';
-import TranscriptAgentHeader from '../../components/TranscriptAgentHeader';
+import ModuleAgentHeader from '../../components/ModuleAgentHeader';
 import {
     ArrowLeft, Calendar, Clock,
     CheckCircle2, Circle, RefreshCw,
@@ -947,7 +947,15 @@ const MeetingDetail: React.FC = () => {
 
     if (loading) return (
         <div className="tm-loading-page">
-            {user?.role === 'transcript_agent' || user?.role === 'transcript_guest' ? <TranscriptAgentHeader user={user} /> : <Header />}
+            {user?.role === 'transcript_agent' || user?.role === 'transcript_guest' ? (
+                <ModuleAgentHeader
+                    title="Transcript Manager"
+                    helpPath="/transcriptmanager"
+                    icon={<FileText size={20} />}
+                    isGuest={user?.role === 'transcript_guest'}
+                    user={user}
+                />
+            ) : <Header />}
             <div className="loading-content">
                 <div className="spinner-orbit">
                     <div className="orbit-dot"></div>
@@ -1009,7 +1017,14 @@ const MeetingDetail: React.FC = () => {
 
     return (
         <div className="md-page">
-            {user?.role === 'transcript_agent' ? <TranscriptAgentHeader user={user} /> : <Header />}
+            {user?.role === 'transcript_agent' ? (
+                <ModuleAgentHeader
+                    title="Transcript Manager"
+                    helpPath="/transcriptmanager"
+                    icon={<FileText size={20} />}
+                    user={user}
+                />
+            ) : <Header />}
             <div className="md-container">
                 <div className="md-top-nav">
                     <button className="md-btn-back" onClick={() => navigate('/transcriptmanager')}>

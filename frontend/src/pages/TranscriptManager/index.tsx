@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef } from 'react';
 import Header from '../../components/Header';
-import TranscriptAgentHeader from '../../components/TranscriptAgentHeader';
+import ModuleAgentHeader from '../../components/ModuleAgentHeader';
 import {
     Calendar, FileText, Plus, Search, Trash2,
     ArrowRight, Users, RefreshCw, UserCheck, Clock, Sparkles,
@@ -348,7 +348,15 @@ const TranscriptManager: React.FC = () => {
 
     return (
         <div className="tm-page">
-            {user?.role === 'transcript_agent' || user?.role === 'transcript_guest' ? <TranscriptAgentHeader user={user} /> : <Header />}
+            {user?.role === 'transcript_agent' || user?.role === 'transcript_guest' ? (
+                <ModuleAgentHeader
+                    title="Transcript Manager"
+                    helpPath="/transcriptmanager"
+                    icon={<FileText size={20} />}
+                    isGuest={user?.role === 'transcript_guest'}
+                    user={user}
+                />
+            ) : <Header />}
             <div className="tm-container">
                 <div className="tm-top-bar">
                     <div className="tm-title-section">

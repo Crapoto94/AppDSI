@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import Header from '../components/Header';
+import ModuleAgentHeader from '../components/ModuleAgentHeader';
 import AgentPresenceBadge from '../components/AgentPresenceBadge';
 import DocumentPdfViewer from '../components/parapheur/DocumentPdfViewer';
 import NoteEditor, { type Mention } from '../components/notes/NoteEditor';
@@ -79,7 +80,7 @@ interface Section { id: number; notebook_id: number; title: string; note_count?:
 
 // ── Page ───────────────────────────────────────────────────────────────────
 const Notes: React.FC = () => {
-  const { token } = useAuth();
+  const { token, user } = useAuth();
   const api = useCallback((method: string, url: string, payload?: any) => {
     const cfg: any = { headers: { Authorization: `Bearer ${token}` } };
     if (method.toLowerCase() === 'get') cfg.params = payload; else cfg.data = payload;
@@ -611,10 +612,17 @@ const Notes: React.FC = () => {
   const proposedTasks = ((note?.task_suggestions || []) as any[]).filter((t: any) => t.status === 'proposed');
   const isOwner = note ? note.is_owner !== false : true;
 
+  // Accès « module seul » depuis le Magasin d'applications (jeton restreint) :
+  // on affiche l'en-tête DSI « lite » au lieu du header complet.
+  const isMagappAccess = (localStorage.getItem('restrictedPath') || '').startsWith('/notes');
+  const headerNode = isMagappAccess
+    ? <ModuleAgentHeader title="Mes notes IA" helpPath="/notes" icon={<NotebookPen size={20} />} user={user} />
+    : <Header />;
+
   if (loading) {
     return (
       <div style={{ minHeight: '100vh', background: 'var(--bg-color)' }}>
-        <Header />
+        {headerNode}
         <div style={{ padding: 60, textAlign: 'center', color: '#94a3b8' }}>Chargement…</div>
       </div>
     );
@@ -622,7 +630,7 @@ const Notes: React.FC = () => {
 
   return (
     <div style={{ minHeight: '100vh', background: 'var(--bg-color)', display: 'flex', flexDirection: 'column' }}>
-      <Header />
+      {headerNode}
 
       {message && (
         <div style={{ position: 'fixed', top: 70, right: 20, zIndex: 5000, padding: '10px 16px', borderRadius: 10, fontSize: 13, fontWeight: 700, background: message.type === 'success' ? '#dcfce7' : '#fee2e2', color: message.type === 'success' ? '#166534' : '#991b1b', display: 'flex', alignItems: 'center', gap: 8, boxShadow: '0 10px 30px rgba(15,23,42,.15)' }}>
