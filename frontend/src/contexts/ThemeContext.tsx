@@ -6,11 +6,10 @@ export type Theme = 'light' | 'dark';
 const STORAGE_KEY = 'ui-theme';
 
 function applyTheme(theme: Theme) {
-    const root = document.documentElement;
-    root.setAttribute('data-theme', theme);
-    // Indique au navigateur le schéma à utiliser pour les widgets natifs
-    // (scrollbars, champs de saisie, select...).
-    root.style.colorScheme = theme;
+    // Volontairement PAS de `color-scheme: dark` : le mode sombre est obtenu par
+    // une inversion globale (cf. index.css). Laisser les contrôles natifs en
+    // schéma clair garantit qu'ils s'inversent correctement eux aussi.
+    document.documentElement.setAttribute('data-theme', theme);
 }
 
 function initialTheme(): Theme {
