@@ -331,6 +331,35 @@ async function setupDb() {
         }
     } catch (e) {}
 
+    // Migration oracle_settings : l'ancienne table était verrouillée par
+    // CHECK (id IN (1, 2)) — impossible d'y ajouter une 3ᵉ connexion (DELIB).
+    // SQLite ne sait pas retirer une contrainte CHECK : on reconstruit la table
+    // (idempotent : ne fait rien si la contrainte a déjà disparu).
+    try {
+        const tbl = await db.get("SELECT sql FROM sqlite_master WHERE type='table' AND name='oracle_settings'");
+        if (tbl && /CHECK\s*\(\s*id\s+IN\s*\(\s*1\s*,\s*2\s*\)\s*\)/i.test(tbl.sql)) {
+            await db.exec(`
+                CREATE TABLE oracle_settings_new (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    type TEXT UNIQUE,
+                    host TEXT,
+                    port INTEGER,
+                    service_name TEXT,
+                    username TEXT,
+                    password TEXT,
+                    is_enabled INTEGER DEFAULT 0
+                );
+                INSERT INTO oracle_settings_new (id, type, host, port, service_name, username, password, is_enabled)
+                    SELECT id, type, host, port, service_name, username, password, is_enabled FROM oracle_settings;
+                DROP TABLE oracle_settings;
+                ALTER TABLE oracle_settings_new RENAME TO oracle_settings;
+            `);
+            console.log('[DB Migration] oracle_settings : contrainte CHECK (id IN (1,2)) supprimée');
+        }
+    } catch (e) {
+        console.warn('[DB Migration] oracle_settings rebuild:', e.message);
+    }
+
     // Seed des tuiles module depuis le registre
     try {
         const { MODULES_REGISTRY } = require('./modules-registry');

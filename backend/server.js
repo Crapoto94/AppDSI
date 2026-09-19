@@ -1525,15 +1525,24 @@ app.get('/api/oracle-settings', authenticateAdmin, async (req, res) => {
 app.post('/api/oracle-settings', authenticateAdmin, async (req, res) => {
     const { type, host, port, service_name, username, password, is_enabled } = req.body;
     try {
+        // UPSERT : crée la ligne si le type n'existe pas encore (ex. DELIB), sinon met à jour.
         if (!password || password === '********') {
             await db.run(
-                'UPDATE oracle_settings SET host = ?, port = ?, service_name = ?, username = ?, is_enabled = ? WHERE type = ?',
-                [host, port, service_name, username, is_enabled ? 1 : 0, type]
+                `INSERT INTO oracle_settings (type, host, port, service_name, username, is_enabled)
+                 VALUES (?, ?, ?, ?, ?, ?)
+                 ON CONFLICT(type) DO UPDATE SET
+                    host = excluded.host, port = excluded.port, service_name = excluded.service_name,
+                    username = excluded.username, is_enabled = excluded.is_enabled`,
+                [type, host, port, service_name, username, is_enabled ? 1 : 0]
             );
         } else {
             await db.run(
-                'UPDATE oracle_settings SET host = ?, port = ?, service_name = ?, username = ?, password = ?, is_enabled = ? WHERE type = ?',
-                [host, port, service_name, username, password, is_enabled ? 1 : 0, type]
+                `INSERT INTO oracle_settings (type, host, port, service_name, username, password, is_enabled)
+                 VALUES (?, ?, ?, ?, ?, ?, ?)
+                 ON CONFLICT(type) DO UPDATE SET
+                    host = excluded.host, port = excluded.port, service_name = excluded.service_name,
+                    username = excluded.username, password = excluded.password, is_enabled = excluded.is_enabled`,
+                [type, host, port, service_name, username, password, is_enabled ? 1 : 0]
             );
         }
         res.json({ success: true, message: 'Paramètres Oracle enregistrés' });
