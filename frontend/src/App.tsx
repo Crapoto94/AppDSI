@@ -35,6 +35,8 @@ import ProjetDetail from './pages/ProjetDetail';
 import TranscriptManager from './pages/TranscriptManager';
 import TranscriptMeetingDetail from './pages/TranscriptManager/MeetingDetail';
 import TranscriptShare from './pages/TranscriptShare';
+import TasksShare from './pages/TasksShare';
+import NotesShare from './pages/NotesShare';
 import Contrats from './pages/Contrats';
 import ContratsAnalysesIA from './pages/ContratsAnalysesIA';
 import Vols from './pages/Vols';
@@ -169,6 +171,8 @@ function App() {
         <Route path="/service-fait-verifier/:token" element={<ServiceFaitVerifier />} />
         <Route path="/service-fait/processus/:id" element={<PrivateRoute path="/budget"><ServiceFaitProcessus /></PrivateRoute>} />
         <Route path="/transcript/:token" element={<TranscriptShare />} />
+        <Route path="/mes-taches/:token" element={<TasksShare />} />
+        <Route path="/notes/:token" element={<NotesShare />} />
         <Route path="/auto-resolution/keep-alive/:token" element={<AutoResolutionConfirm />} />
         <Route path="/signature/:token" element={<SignatureSignataire />} />
         <Route path="/parapheur/verification/:token" element={<ParapheurVerification />} />
