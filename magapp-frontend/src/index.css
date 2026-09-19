@@ -364,3 +364,45 @@ body {
   z-index: 100;
 }
 
+/* ────────────────────────────────────────────────────────────────
+   Mode sombre
+   L'interface étant stylée en large partie en inline (couleurs en
+   dur), une bascule par variables CSS ne couvrirait pas tous les
+   écrans. On applique donc une inversion intelligente sur la racine :
+   invert(1) + hue-rotate(180deg) inverse clair/sombre en préservant
+   les teintes. Les médias sont ré-inversés pour garder leurs couleurs.
+   ──────────────────────────────────────────────────────────────── */
+html[data-theme="dark"] {
+  filter: invert(1) hue-rotate(180deg);
+  background-color: #ffffff;
+}
+
+html[data-theme="dark"] img,
+html[data-theme="dark"] picture,
+html[data-theme="dark"] video,
+html[data-theme="dark"] iframe,
+html[data-theme="dark"] embed,
+html[data-theme="dark"] object,
+html[data-theme="dark"] canvas,
+html[data-theme="dark"] .theme-no-invert {
+  filter: invert(1) hue-rotate(180deg);
+}
+
+/* Bouton de bascule du thème. */
+.theme-toggle-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #f8fafc;
+  border: 1px solid #cbd5e1;
+  padding: 10px;
+  border-radius: 10px;
+  color: #475569;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.theme-toggle-btn:hover {
+  color: var(--primary-blue);
+  border-color: var(--primary-blue);
+}
+

@@ -115,3 +115,45 @@ button {
 .spin {
   animation: spin 1s linear infinite;
 }
+
+/* ────────────────────────────────────────────────────────────────
+   Mode sombre
+   La quasi-totalité de l'UI est stylée en inline (couleurs en dur),
+   une bascule par variables CSS ne couvrirait pas tous les écrans.
+   On applique donc une inversion intelligente sur la racine :
+   invert(1) + hue-rotate(180deg) conserve les teintes (rouge Ivry,
+   bleus, verts...) tout en inversant clair/sombre. Les médias et les
+   images sont ré-inversés pour rester dans leurs couleurs d'origine.
+   ──────────────────────────────────────────────────────────────── */
+html[data-theme="dark"] {
+  filter: invert(1) hue-rotate(180deg);
+  background-color: #ffffff;
+}
+
+html[data-theme="dark"] img,
+html[data-theme="dark"] picture,
+html[data-theme="dark"] video,
+html[data-theme="dark"] iframe,
+html[data-theme="dark"] embed,
+html[data-theme="dark"] object,
+html[data-theme="dark"] canvas,
+html[data-theme="dark"] .theme-no-invert {
+  filter: invert(1) hue-rotate(180deg);
+}
+
+/* Bouton de bascule du thème (header). */
+.theme-toggle-btn {
+  background: none;
+  border: none;
+  color: #64748b;
+  cursor: pointer;
+  padding: 8px;
+  border-radius: 8px;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+}
+.theme-toggle-btn:hover {
+  background: #f1f5f9;
+  color: var(--primary-color);
+}

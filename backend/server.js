@@ -5026,6 +5026,38 @@ app.patch('/api/user-prefs/dashboard-columns', authenticateJWT, async (req, res)
     }
 });
 
+// Thème visuel (mode sombre) — préférence retenue par utilisateur, partagée
+// entre le DSI Hub et le Magasin d'Applications (même clé `username`).
+app.get('/api/user-prefs/theme', authenticateJWT, async (req, res) => {
+    try {
+        const row = await pgDb.get(
+            'SELECT theme FROM hub.user_prefs WHERE username = $1',
+            [req.user.username]
+        );
+        res.json({ theme: row?.theme ?? null });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.patch('/api/user-prefs/theme', authenticateJWT, async (req, res) => {
+    try {
+        const { theme } = req.body;
+        if (!['light', 'dark'].includes(theme)) {
+            return res.status(400).json({ error: "Le thème doit être 'light' ou 'dark'" });
+        }
+        await pool.query(
+            `INSERT INTO hub.user_prefs (username, theme, updated_at)
+             VALUES ($1, $2, NOW())
+             ON CONFLICT (username) DO UPDATE SET theme = EXCLUDED.theme, updated_at = NOW()`,
+            [req.user.username, theme]
+        );
+        res.json({ theme });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
 // Import Budget Lines from Excel
 
 // Import Invoices from Excel

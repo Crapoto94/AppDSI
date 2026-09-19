@@ -3,6 +3,7 @@ import { useNavigate, Link, useLocation } from 'react-router-dom';
 import { User, LogOut, Info, X, Settings, Plus, Trash2, CheckCircle2, Clock, AlertTriangle, Github, Loader2, LayoutGrid, HelpCircle, LayoutDashboard } from 'lucide-react';
 import * as LucideIcons from 'lucide-react';
 import { isAdminLike } from '../utils/roles';
+import ThemeToggle from './ThemeToggle';
 import axios from 'axios';
 
 interface Todo {
@@ -469,6 +470,7 @@ const Header: React.FC<HeaderProps> = ({ columns, onColumnsChange }) => {
                   ))}
                 </span>
               )}
+              <ThemeToggle />
               <button onClick={handleLogout} className="btn-logout" title="Déconnexion">
                 <LogOut size={20} />
               </button>

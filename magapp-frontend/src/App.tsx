@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
-import { Search, Loader2, Clock, Bell, User, Heart, X, LogOut, LifeBuoy, AlertTriangle, Activity, CheckCircle2, XCircle, Tag, Lightbulb, Paperclip, Eye, BarChart3, Briefcase, FileText, MessageSquare, GraduationCap, Star, ShoppingCart, FlaskConical, Send, MessageCircle, Plus, Ticket, HelpCircle, FileSignature, Wrench, ChevronRight, ListTodo, NotebookPen } from 'lucide-react';
+import { Search, Loader2, Clock, Bell, User, Heart, X, LogOut, LifeBuoy, AlertTriangle, Activity, CheckCircle2, XCircle, Tag, Lightbulb, Paperclip, Eye, BarChart3, Briefcase, FileText, MessageSquare, GraduationCap, Star, ShoppingCart, FlaskConical, Send, MessageCircle, Plus, Ticket, HelpCircle, FileSignature, Wrench, ChevronRight, ListTodo, NotebookPen, Sun, Moon } from 'lucide-react';
 import './index.css';
 import logoDsiHub from './assets/DSI.png';
 import Login from './Login';
@@ -12,6 +12,7 @@ import RequestFormFieldRenderer from './components/RequestFormFieldRenderer';
 import type { FormFieldDef, ServiceDirectionDef } from './components/requestFormTypes';
 import DynamicIcon from './components/DynamicIcon';
 import PdfToolsHub from './components/PdfTools/PdfToolsHub';
+import { useTheme } from './contexts/ThemeContext';
 
 interface RequestForm {
   id: number;
@@ -211,6 +212,7 @@ function App() {
   const [isAddingComment, setIsAddingComment] = useState(false);
   const [isClosingTicket, setIsClosingTicket] = useState(false);
 
+  const { isDark, toggleTheme } = useTheme();
   const apiBase = `/api`; // Utiliser le proxy Vite pour les données
 
   useEffect(() => {
@@ -1435,6 +1437,16 @@ function App() {
                 {settings.is_beta_user && !settings.show_tickets_original && <span style={{ position: 'absolute', top: '-4px', right: '-4px', background: '#f59e0b', color: '#1e293b', fontSize: '0.55rem', fontWeight: 800, padding: '1px 4px', borderRadius: '6px', letterSpacing: '0.05em' }}>BETA</span>}
               </button>
             )}
+
+            <button
+              onClick={toggleTheme}
+              className="theme-toggle-btn"
+              title={isDark ? 'Passer en mode clair' : 'Passer en mode sombre'}
+              aria-label={isDark ? 'Activer le mode clair' : 'Activer le mode sombre'}
+              aria-pressed={isDark}
+            >
+              {isDark ? <Sun size={20} /> : <Moon size={20} />}
+            </button>
 
             <button
               onClick={handleOpenHelp}
