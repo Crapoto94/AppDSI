@@ -250,7 +250,7 @@ function App() {
           <Route path="users" element={<Admin section="users" />} />
           <Route path="tiles" element={<Admin section="tiles" />} />
           <Route path="ad" element={<AdminSync />} />
-          <Route path="glpi" element={<AdminDatabases />} />
+          <Route path="databases" element={<AdminDatabases />} />
           <Route path="oracle" element={<AdminDatabases />} />
           <Route path="mariadb" element={<AdminDatabases />} />
           <Route path="messages" element={<AdminMessages />} />

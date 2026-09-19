@@ -403,8 +403,8 @@ const Header: React.FC<HeaderProps> = ({ columns, onColumnsChange }) => {
                         <Link to="/admin/tickets" className="nav-tile-item" onClick={() => setShowAdminDropdown(false)}>
                           🎫 Tickets
                         </Link>
-                        <Link to="/admin/glpi" className="nav-tile-item" onClick={() => setShowAdminDropdown(false)}>
-                          🔄 GLPI
+                        <Link to="/admin/databases" className="nav-tile-item" onClick={() => setShowAdminDropdown(false)}>
+                          🗄️ Bases de données
                         </Link>
                         <Link to="/parc" className="nav-tile-item" onClick={() => setShowAdminDropdown(false)}>
                           🖥️ Parc informatique

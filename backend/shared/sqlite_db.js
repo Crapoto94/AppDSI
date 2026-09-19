@@ -125,11 +125,12 @@ async function setupDb() {
             type TEXT UNIQUE,
             host TEXT,
             port TEXT,
-            sid TEXT,
-            user TEXT,
+            service_name TEXT,
+            username TEXT,
             password TEXT,
             is_enabled INTEGER DEFAULT 0
         );
+
 
         CREATE TABLE IF NOT EXISTS oracle_sync_config (
             id INTEGER PRIMARY KEY AUTOINCREMENT,

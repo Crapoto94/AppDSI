@@ -2914,6 +2914,39 @@ async function setupPgDb() {
       console.log('[PG DB] SQLite data migration skipped:', e.message);
     }
 
+    // Automatisation Oracle : garantit l'existence de la table et de la ligne
+    // DELIB (les lignes RH/FINANCES proviennent de la migration 010).
+    try {
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS oracle_automation_config (
+          id SERIAL PRIMARY KEY,
+          sync_type VARCHAR(50) NOT NULL UNIQUE,
+          enabled BOOLEAN DEFAULT FALSE,
+          frequency VARCHAR(50) DEFAULT 'daily',
+          last_sync_at TIMESTAMP,
+          next_sync_at TIMESTAMP,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+      `);
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS oracle_sync_logs (
+          id SERIAL PRIMARY KEY,
+          sync_type VARCHAR(50) NOT NULL,
+          status VARCHAR(20) NOT NULL,
+          records_synced INTEGER DEFAULT 0,
+          duration_ms INTEGER,
+          error_message TEXT,
+          started_at TIMESTAMP NOT NULL,
+          completed_at TIMESTAMP,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+      `);
+      await client.query(`INSERT INTO oracle_automation_config (sync_type, enabled, frequency) VALUES ('DELIB', FALSE, 'daily') ON CONFLICT (sync_type) DO NOTHING`);
+    } catch (e) {
+      console.log('[PG DB] oracle_automation_config skipped:', e.message);
+    }
+
     // hub_contrats tables
     await client.query(`
       CREATE TABLE IF NOT EXISTS hub_contrats.contrats (

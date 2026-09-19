@@ -56,7 +56,7 @@ const AdminLayout: React.FC = () => {
     { title: "Intelligence Artificielle", icon: MessageSquare, path: "/admin/transcript" },
     { title: "Notes IA (Mes Notes)", icon: NotebookPen, path: "/admin/notes" },
     { title: "Tickets", icon: Inbox, path: "/admin/tickets" },
-    { title: "Synchronisations", icon: Database, path: "/admin/glpi" },
+    { title: "Databases", icon: Database, path: "/admin/databases" },
     { title: "SQL", icon: Database, path: "/admin/sql" },
     { title: "GED / Alfresco", icon: HardDrive, path: "/admin/ged" },
     ...(isSuperAdmin ? [{ title: "Sécurité & Sauvegarde", icon: AlertCircle, path: "/admin/security" }] : []),
