@@ -2841,79 +2841,6 @@ async function setupPgDb() {
     // correspondant à son service et sa nature (C. Nature).
     try { await client.query(`ALTER TABLE oracle.operations ADD COLUMN IF NOT EXISTS "prev" BOOLEAN DEFAULT false`); } catch (e) {}
 
-    // Migrate data from SQLite
-    try {
-      const sqlite = require('../shared/database').getSqlite();
-      if (sqlite) {
-        // oracle_links: try from main db, then from gf attached db
-        try {
-          const links = await sqlite.all("SELECT target_table, target_id, operation_id FROM oracle_links").catch(() => sqlite.all("SELECT target_table, target_id, operation_id FROM gf.oracle_links"));
-          if (links && links.length > 0) {
-            let migrated = 0;
-            for (const l of links) {
-              await client.query(
-                `INSERT INTO oracle.oracle_links (target_table, target_id, operation_id) VALUES ($1, $2, $3) ON CONFLICT (target_table, target_id) DO UPDATE SET operation_id = EXCLUDED.operation_id`,
-                [l.target_table, String(l.target_id).trim(), l.operation_id]
-              );
-              migrated++;
-            }
-            console.log(`[PG DB] Migrated ${migrated} oracle_links → oracle.oracle_links`);
-          }
-        } catch (e) {
-          console.log('[PG DB] oracle_links migration skipped:', e.message);
-        }
-
-        try {
-          const existing = await client.query('SELECT COUNT(*) as cnt FROM oracle.operations');
-          if (parseInt(existing.rows[0].cnt) === 0) {
-            const ops = await sqlite.all("SELECT * FROM operations");
-            if (ops && ops.length > 0) {
-              // Deduplicate by business key (LIBELLE, Section, exercice)
-              const seen = new Map();
-              for (const o of ops) {
-                const key = ((o.LIBELLE || '').trim().toLowerCase() + '|' + (o.Section || '') + '|' + (o.exercice || ''));
-                if (!seen.has(key)) {
-                  seen.set(key, o);
-                } else {
-                  console.log(`[PG DB] Skipping duplicate operation in SQLite: "${o.LIBELLE}"`);
-                }
-              }
-              const uniqueOps = Array.from(seen.values());
-              let migrated = 0;
-              for (const o of uniqueOps) {
-                const allCols = Object.keys(o).filter(k => k !== 'id');
-                const cols = [];
-                const vals = [];
-                for (const k of allCols) {
-                  if (o[k] !== undefined && o[k] !== null) {
-                    cols.push(`"${k}"`);
-                    vals.push(o[k]);
-                  }
-                }
-                const placeholders = cols.map((_, i) => `$${i + 1}`).join(',');
-                try {
-                  await client.query(
-                    `INSERT INTO oracle.operations (${cols.join(',')}) VALUES (${placeholders})`,
-                    vals
-                  );
-                  migrated++;
-                } catch (insertErr) {
-                  console.log(`[PG DB] operations migration row skipped: ${insertErr.message}`);
-                }
-              }
-              console.log(`[PG DB] Migrated ${migrated} operations → oracle.operations`);
-            }
-          } else {
-            console.log(`[PG DB] oracle.operations already has ${existing.rows[0].cnt} rows, skipping import`);
-          }
-    } catch (e) {
-      console.log('[PG DB] operations migration skipped:', e.message);
-    }
-      }
-    } catch (e) {
-      console.log('[PG DB] SQLite data migration skipped:', e.message);
-    }
-
     // Automatisation Oracle : garantit l'existence de la table et de la ligne
     // DELIB (les lignes RH/FINANCES proviennent de la migration 010).
     try {
@@ -2945,6 +2872,88 @@ async function setupPgDb() {
       await client.query(`INSERT INTO oracle_automation_config (sync_type, enabled, frequency) VALUES ('DELIB', FALSE, 'daily') ON CONFLICT (sync_type) DO NOTHING`);
     } catch (e) {
       console.log('[PG DB] oracle_automation_config skipped:', e.message);
+    }
+
+    // ─── Données applicatives migrées depuis SQLite (hors paramétrage) ─────────
+    // Tables locales gérées par l'application (pas issues d'Oracle) : contacts
+    // tiers, budgets/M57, demandes d'accès, todos, journaux d'import, pièces
+    // jointes legacy (budget). Voir scripts/migrate-non-config-sqlite.js.
+    try {
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS hub.contacts (
+          id SERIAL PRIMARY KEY,
+          tier_code TEXT,
+          nom TEXT,
+          prenom TEXT,
+          role TEXT,
+          telephone TEXT,
+          email TEXT,
+          commentaire TEXT,
+          is_order_recipient BOOLEAN DEFAULT FALSE,
+          created_at TIMESTAMPTZ DEFAULT NOW()
+        );
+        CREATE INDEX IF NOT EXISTS idx_hub_contacts_tier_code ON hub.contacts(tier_code);
+      `);
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS finance.budgets (
+          id SERIAL PRIMARY KEY,
+          "Annee" INTEGER,
+          numero INTEGER,
+          "Libelle" TEXT
+        );
+      `);
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS finance.m57_plan (
+          id SERIAL PRIMARY KEY,
+          code TEXT UNIQUE,
+          label TEXT,
+          section TEXT,
+          type TEXT
+        );
+      `);
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS hub.access_requests (
+          id SERIAL PRIMARY KEY,
+          username TEXT,
+          user_id INTEGER,
+          requested_tiles TEXT,
+          status TEXT DEFAULT 'pending',
+          created_at TIMESTAMPTZ DEFAULT NOW()
+        );
+      `);
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS hub.todos (
+          id SERIAL PRIMARY KEY,
+          task TEXT,
+          status TEXT DEFAULT 'à faire',
+          priority INTEGER DEFAULT 0,
+          created_at TIMESTAMPTZ DEFAULT NOW()
+        );
+      `);
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS hub.import_logs (
+          id SERIAL PRIMARY KEY,
+          type TEXT,
+          imported_at TIMESTAMPTZ DEFAULT NOW(),
+          username TEXT
+        );
+      `);
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS hub.attachments (
+          id SERIAL PRIMARY KEY,
+          target_type TEXT,
+          target_id TEXT,
+          file_path TEXT,
+          original_name TEXT,
+          mimetype TEXT,
+          size BIGINT,
+          uploaded_at TIMESTAMPTZ DEFAULT NOW(),
+          username TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_hub_attachments_target ON hub.attachments(target_type, target_id);
+      `);
+    } catch (e) {
+      console.log('[PG DB] tables applicatives SQLite→PG skipped:', e.message);
     }
 
     // hub_contrats tables

@@ -17,6 +17,11 @@ frontend/public/pdfjs/
 *.db
 *.db-journal
 
+# Sauvegardes de bases SQLite (données personnelles) — hors dépôt
+backend/data/
+*.sqlite.bak
+*.sqlite.*.bak
+
 # Fichiers uploadés par les utilisateurs
 backend/uploads/
 !backend/uploads/.gitkeep

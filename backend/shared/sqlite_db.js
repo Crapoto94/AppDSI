@@ -13,21 +13,6 @@ async function setupDb() {
 
     await db.exec('PRAGMA busy_timeout = 30000');
 
-    const gfDbPath = path.join(dbDir, 'oracle_gf.sqlite');
-    const rhDbPath = path.join(dbDir, 'oracle_rh.sqlite');
-
-    try {
-        await db.exec(`ATTACH DATABASE '${gfDbPath}' AS gf`);
-    } catch (e) {
-        console.warn('[DB] Could not attach gf database:', e.message);
-    }
-
-    try {
-        await db.exec(`ATTACH DATABASE '${rhDbPath}' AS rh`);
-    } catch (e) {
-        console.warn('[DB] Could not attach rh database:', e.message);
-    }
-
     await db.exec(`
         CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -47,40 +32,6 @@ async function setupDb() {
             code TEXT UNIQUE,
             libelle TEXT,
             content TEXT
-        );
-
-        CREATE TABLE IF NOT EXISTS import_logs (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            type TEXT,
-            imported_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            username TEXT
-        );
-
-        CREATE TABLE IF NOT EXISTS attachments (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            target_type TEXT,
-            target_id TEXT,
-            file_path TEXT,
-            original_name TEXT,
-            uploaded_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            username TEXT
-        );
-
-        CREATE TABLE IF NOT EXISTS m57_plan (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            code TEXT UNIQUE,
-            label TEXT,
-            section TEXT,
-            type TEXT
-        );
-
-        CREATE TABLE IF NOT EXISTS access_requests (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER,
-            requested_tiles TEXT,
-            status TEXT DEFAULT 'pending',
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (user_id) REFERENCES users (id)
         );
 
         CREATE TABLE IF NOT EXISTS user_tiles (
@@ -111,15 +62,6 @@ async function setupDb() {
             sort_order INTEGER DEFAULT 0
         );
 
-        CREATE TABLE IF NOT EXISTS budget_lines (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            "C. Fonction" TEXT, "C. Nature" TEXT, "Libellé Fonction" TEXT, "Libellé Nature" TEXT,
-            "JE" TEXT, "Budget voté" REAL, "Disponible" REAL, "Mt. prévision" REAL,
-            "Mt. pré-engagé" REAL, "Mt. engagé" REAL, "Mt. facturé" REAL,
-            "Mt. pré-mandaté" REAL, "Mt. mandaté" REAL, "Mt. payé" REAL,
-            year INTEGER, allocated_amount REAL
-        );
-
         CREATE TABLE IF NOT EXISTS oracle_settings (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             type TEXT UNIQUE,
@@ -141,24 +83,6 @@ async function setupDb() {
             UNIQUE(type, table_name)
         );
 
-        CREATE TABLE IF NOT EXISTS budgets (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            Annee INTEGER,
-            numero INTEGER,
-            Libelle TEXT
-        );
-
-        CREATE TABLE IF NOT EXISTS operations (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            budget_id INTEGER,
-            CODE_FONCTION TEXT,
-            LIBELLE TEXT,
-            montant_prevu REAL DEFAULT 0,
-            used_amount REAL DEFAULT 0,
-            Section TEXT,
-            FOREIGN KEY (budget_id) REFERENCES budgets (id)
-        );
-
         CREATE TABLE IF NOT EXISTS column_settings (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             page TEXT,
@@ -170,31 +94,6 @@ async function setupDb() {
             is_bold INTEGER DEFAULT 0,
             is_italic INTEGER DEFAULT 0,
             UNIQUE(page, column_key)
-        );
-
-        CREATE TABLE IF NOT EXISTS tiers (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            code TEXT UNIQUE,
-            nom TEXT,
-            activite TEXT,
-            siret TEXT,
-            adresse TEXT,
-            banque TEXT,
-            guichet TEXT,
-            compte TEXT,
-            cle_rib TEXT,
-            is_dsi INTEGER DEFAULT 0
-        );
-
-        CREATE TABLE IF NOT EXISTS contacts (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            tier_id INTEGER,
-            name TEXT,
-            role TEXT,
-            email TEXT,
-            phone TEXT,
-            is_order_recipient INTEGER DEFAULT 0,
-            FOREIGN KEY (tier_id) REFERENCES tiers (id) ON DELETE CASCADE
         );
 
         CREATE TABLE IF NOT EXISTS glpi_settings (
@@ -216,18 +115,6 @@ async function setupDb() {
             is_enabled INTEGER DEFAULT 0
         );
 
-        CREATE TABLE IF NOT EXISTS glpi_observers (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            ticket_id INTEGER NOT NULL,
-            user_id INTEGER NOT NULL,
-            name TEXT,
-            login TEXT,
-            email TEXT,
-            is_active INTEGER DEFAULT 1,
-            last_sync DATETIME DEFAULT CURRENT_TIMESTAMP,
-            UNIQUE(ticket_id, user_id)
-        );
-
         CREATE TABLE IF NOT EXISTS email_templates (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             slug TEXT UNIQUE,
@@ -237,42 +124,6 @@ async function setupDb() {
             body TEXT
         );
 
-        CREATE TABLE IF NOT EXISTS certificates (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            order_number TEXT,
-            request_date DATE,
-            beneficiary_name TEXT,
-            beneficiary_email TEXT,
-            product_code TEXT,
-            product_label TEXT,
-            file_path TEXT,
-            expiry_date DATE,
-            sedit_number TEXT DEFAULT '',
-            is_provisional INTEGER,
-            observations TEXT DEFAULT '',
-            renewal_status TEXT DEFAULT NULL,
-            renewal_comment TEXT DEFAULT '',
-            uploaded_at DATETIME DEFAULT CURRENT_TIMESTAMP
-        );
-
-        CREATE TABLE IF NOT EXISTS tier_stats (
-            tier_id INTEGER PRIMARY KEY,
-            order_count INTEGER DEFAULT 0,
-            invoice_count INTEGER DEFAULT 0,
-            FOREIGN KEY(tier_id) REFERENCES tiers(id) ON DELETE CASCADE
-        );
-
-        CREATE TABLE IF NOT EXISTS invoices (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            "Collectivité" TEXT, "Budget" TEXT, "Exercice" TEXT, 
-            "N° Facture interne" TEXT, "N° Facture fournisseur" TEXT,
-            "Fournisseur" TEXT, "Libellé" TEXT, "Emission" DATE,
-            "Montant HT" REAL, "Montant TVA" REAL, "Montant TTC" REAL,
-            "Date Paiement" DATE, "N° Mandat" TEXT, "N° Bordereau" TEXT,
-            "Statut" TEXT, "Article par nature" TEXT, "Article par fonction" TEXT,
-            operation_id INTEGER, budgetId INTEGER, COMMANDE_ROO_IMA_REF TEXT,
-            FOREIGN KEY (operation_id) REFERENCES operations (id)
-        );
         CREATE TABLE IF NOT EXISTS app_settings (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             setting_key TEXT UNIQUE,
@@ -294,15 +145,6 @@ async function setupDb() {
         ('app_base_url', '', 'URL de base de l''application (ex: https://dsihub.ivry.local)'),
         ('inventaire_ip', '10.103.130.95', 'Adresse IP du serveur d''inventaire'),
         ('inventaire_key', 'irs_hjThyQcvBMYvkWqvkA5NVapTB4EZctrOeUI1eoaE-dU', 'Clé API pour l''inventaire');
-
-        CREATE TABLE IF NOT EXISTS rh.ad_proposals (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            matricule TEXT,
-            ad_username TEXT,
-            score INTEGER,
-            status TEXT DEFAULT 'pending',
-            date_creation DATETIME DEFAULT CURRENT_TIMESTAMP
-        );
 
         CREATE TABLE IF NOT EXISTS ad_settings (
             id INTEGER PRIMARY KEY,
@@ -354,16 +196,6 @@ async function setupDb() {
         );
 
         INSERT OR IGNORE INTO o365_settings (id) VALUES (1);
-
-        CREATE TABLE IF NOT EXISTS rh_sync_logs (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            sync_type TEXT,
-            status TEXT,
-            message TEXT,
-            details TEXT,
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            username TEXT
-        );
 
         CREATE TABLE IF NOT EXISTS mail_settings (
             id INTEGER PRIMARY KEY,
@@ -468,205 +300,7 @@ async function setupDb() {
         VALUES
         ('MAIN', '', 3306, '', '', '', 0);
 
-        CREATE TABLE IF NOT EXISTS rencontres_budgetaires (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            titre TEXT NOT NULL,
-            direction TEXT NOT NULL,
-            service TEXT,
-            date_reunion DATETIME,
-            annee INTEGER,
-            type TEXT,
-            description TEXT,
-            cout_ttc REAL,
-            arbitrage TEXT,
-            responsable_dsi TEXT,
-            ticket_glpi TEXT,
-            lien_reference TEXT,
-            statut TEXT DEFAULT 'planifiée',
-            commentaires TEXT,
-            reunion_id INTEGER,
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (reunion_id) REFERENCES rencontres_reunions(id) ON DELETE SET NULL
-        );
-
-        CREATE TABLE IF NOT EXISTS rencontres_participants (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            rencontre_id INTEGER NOT NULL,
-            nom TEXT,
-            role TEXT,
-            email TEXT,
-            statut TEXT DEFAULT 'en attente',
-            FOREIGN KEY (rencontre_id) REFERENCES rencontres_budgetaires (id) ON DELETE CASCADE
-        );
-
-        CREATE TABLE IF NOT EXISTS rencontres_suivi (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            rencontre_id INTEGER NOT NULL,
-            action_item TEXT,
-            responsable TEXT,
-            date_echeance DATE,
-            statut TEXT DEFAULT 'en cours',
-            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (rencontre_id) REFERENCES rencontres_budgetaires (id) ON DELETE CASCADE
-        );
-
-        CREATE TABLE IF NOT EXISTS direction_emails (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            direction TEXT NOT NULL,
-            service TEXT,
-            email TEXT NOT NULL,
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            UNIQUE(direction, service, email)
-        );
-
-        CREATE TABLE IF NOT EXISTS rencontres_reunions (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            titre TEXT NOT NULL,
-            date_reunion DATETIME,
-            annee INTEGER,
-            lieu TEXT,
-            description TEXT,
-            releve_decision TEXT,
-            liste_taches TEXT,
-            statut TEXT DEFAULT 'planifiée',
-            created_by TEXT,
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-        );
-
-        CREATE TABLE IF NOT EXISTS reunion_participants (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            reunion_id INTEGER NOT NULL,
-            nom TEXT NOT NULL,
-            prenom TEXT,
-            email TEXT,
-            service TEXT,
-            direction TEXT,
-            type_presence TEXT DEFAULT 'metier',
-            statut_presence TEXT DEFAULT 'present',
-            ad_username TEXT,
-            commentaire TEXT,
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (reunion_id) REFERENCES rencontres_reunions(id) ON DELETE CASCADE
-        );
-
-        CREATE TABLE IF NOT EXISTS transcript_meetings (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            title TEXT,
-            summary TEXT,
-            meeting_date DATETIME,
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-        );
-
-        CREATE TABLE IF NOT EXISTS transcript_cues (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            meeting_id INTEGER,
-            speaker_name TEXT,
-            start_seconds REAL,
-            text TEXT,
-            FOREIGN KEY (meeting_id) REFERENCES transcript_meetings(id) ON DELETE CASCADE
-        );
-
-        CREATE TABLE IF NOT EXISTS contrats (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            svc TEXT DEFAULT '',
-            objet TEXT DEFAULT '',
-            budget TEXT DEFAULT '',
-            raison_sociale TEXT DEFAULT '',
-            type_contrat TEXT DEFAULT '',
-            annee_initiale INTEGER,
-            direction TEXT DEFAULT '',
-            service TEXT DEFAULT '',
-            perimetre TEXT DEFAULT '',
-            nature TEXT DEFAULT '',
-            fonction TEXT DEFAULT '',
-            date_debut DATE,
-            duree_annees REAL,
-            nb_reconductions INTEGER,
-            date_fin DATE,
-            marche_contrat TEXT DEFAULT '',
-            piece TEXT DEFAULT '',
-            date_reconduction TEXT DEFAULT '',
-            reconduction TEXT DEFAULT '',
-            montant_2022 REAL,
-            montant_2023 REAL,
-            montant_2024 REAL,
-            montant_2025 REAL,
-            montant_2026 REAL,
-            prevision_2026 REAL,
-            prevision_2027 REAL,
-            prevision_2028 REAL,
-            commentaires TEXT DEFAULT '',
-            gti TEXT DEFAULT '',
-            gtr TEXT DEFAULT '',
-            penalite TEXT DEFAULT '',
-            indice_revision TEXT DEFAULT '',
-            numero_facture TEXT DEFAULT '',
-            statut TEXT DEFAULT 'actif',
-            renouvellement_statut TEXT DEFAULT NULL,
-            renouvellement_commentaire TEXT DEFAULT '',
-            doc_principal_path TEXT DEFAULT '',
-            doc_principal_nom TEXT DEFAULT '',
-            contrat_renouvellement_id INTEGER DEFAULT NULL,
-            imported_at DATETIME DEFAULT CURRENT_TIMESTAMP
-        );
-
-        CREATE TABLE IF NOT EXISTS contrat_documents (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            contrat_id INTEGER NOT NULL,
-            file_path TEXT NOT NULL,
-            file_name TEXT NOT NULL,
-            nature TEXT DEFAULT '',
-            est_principal INTEGER DEFAULT 0,
-            uploaded_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (contrat_id) REFERENCES contrats(id) ON DELETE CASCADE
-        );
-
-        CREATE TABLE IF NOT EXISTS transcript_tasks (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            meeting_id INTEGER,
-            description TEXT,
-            assignee TEXT,
-            requester TEXT,
-            deadline TEXT,
-            is_completed INTEGER DEFAULT 0,
-            origin TEXT,
-            start_seconds REAL,
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (meeting_id) REFERENCES transcript_meetings(id) ON DELETE CASCADE
-        );
-
-        CREATE INDEX IF NOT EXISTS idx_transcript_cues_meeting ON transcript_cues(meeting_id);
-        CREATE INDEX IF NOT EXISTS idx_transcript_tasks_meeting ON transcript_tasks(meeting_id);
-
-        CREATE INDEX IF NOT EXISTS idx_rencontres_direction ON rencontres_budgetaires(direction);
-        CREATE INDEX IF NOT EXISTS idx_rencontres_annee ON rencontres_budgetaires(annee);
-        CREATE INDEX IF NOT EXISTS idx_rencontres_statut ON rencontres_budgetaires(statut);
-        CREATE INDEX IF NOT EXISTS idx_direction_emails ON direction_emails(direction);
-        CREATE INDEX IF NOT EXISTS idx_direction_emails_email ON direction_emails(email);
-
-        CREATE INDEX IF NOT EXISTS idx_contrats_statut ON contrats(statut);
-        CREATE INDEX IF NOT EXISTS idx_contrats_direction ON contrats(direction);
-        CREATE INDEX IF NOT EXISTS idx_contrats_date_fin ON contrats(date_fin);
-        CREATE INDEX IF NOT EXISTS idx_contrat_documents_contrat_id ON contrat_documents(contrat_id);
     `);
-
-    try {
-        await db.exec(`
-            CREATE TABLE IF NOT EXISTS reunion_attachments (
-              id INTEGER PRIMARY KEY AUTOINCREMENT,
-              reunion_id INTEGER NOT NULL,
-              filename TEXT NOT NULL,
-              original_name TEXT NOT NULL,
-              mimetype TEXT,
-              size INTEGER,
-              uploaded_by TEXT,
-              created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-              FOREIGN KEY (reunion_id) REFERENCES rencontres_reunions(id) ON DELETE CASCADE
-            )
-        `);
-    } catch (e) {}
 
     try {
         const result = await db.all("PRAGMA table_info(users)");
@@ -675,55 +309,6 @@ async function setupDb() {
             await db.exec('ALTER TABLE users ADD COLUMN email TEXT');
         }
     } catch (e) {}
-
-    try {
-        const result = await db.all("PRAGMA table_info(direction_emails)");
-        const hasServiceColumn = result.some(col => col.name === 'service');
-        if (!hasServiceColumn) {
-            await db.exec('ALTER TABLE direction_emails ADD COLUMN service TEXT');
-        }
-    } catch (e) {}
-
-    try {
-        const result = await db.all("PRAGMA table_info(rencontres_budgetaires)");
-        const hasServiceColumn = result.some(col => col.name === 'service');
-        if (!hasServiceColumn) {
-            await db.exec('ALTER TABLE rencontres_budgetaires ADD COLUMN service TEXT');
-        }
-    } catch (e) {}
-
-    try {
-        const result = await db.all("PRAGMA table_info(rencontres_budgetaires)");
-        const hasSuiviColumn = result.some(col => col.name === 'suivi');
-        if (!hasSuiviColumn) {
-            await db.exec('ALTER TABLE rencontres_budgetaires ADD COLUMN suivi TEXT');
-        }
-    } catch (e) {}
-
-    try {
-        const result = await db.all("PRAGMA table_info(rencontres_budgetaires)");
-        const hasReunionIdColumn = result.some(col => col.name === 'reunion_id');
-        if (!hasReunionIdColumn) {
-            await db.exec('ALTER TABLE rencontres_budgetaires ADD COLUMN reunion_id INTEGER');
-        }
-    } catch (e) {}
-
-    try {
-        const result = await db.all("PRAGMA table_info(reunion_participants)");
-        const hasColumn = result.some(col => col.name === 'commentaire');
-        if (!hasColumn) {
-            await db.exec('ALTER TABLE reunion_participants ADD COLUMN commentaire TEXT');
-        }
-    } catch (e) {}
-
-    try {
-        const result = await db.all("PRAGMA table_info(transcript_meetings)");
-        const hasReunionIdColumn = result.some(col => col.name === 'reunion_id');
-        if (!hasReunionIdColumn) {
-            await db.exec('ALTER TABLE transcript_meetings ADD COLUMN reunion_id INTEGER');
-        }
-    } catch (e) {}
-
 
     try {
         const result = await db.all("PRAGMA table_info(tiles)");
@@ -768,25 +353,6 @@ async function setupDb() {
         console.warn('[DB Migration] Erreur seed tuiles module:', e.message);
     }
 
-    // Migrations table certificates
-    try { await db.run("ALTER TABLE certificates ADD COLUMN sedit_number TEXT DEFAULT ''"); } catch (e) {}
-    try { await db.run("ALTER TABLE certificates ADD COLUMN observations TEXT DEFAULT ''"); } catch (e) {}
-    try { await db.run("ALTER TABLE certificates ADD COLUMN renewal_status TEXT DEFAULT NULL"); } catch (e) {}
-    try { await db.run("ALTER TABLE certificates ADD COLUMN renewal_comment TEXT DEFAULT ''"); } catch (e) {}
-
-    // Migrations table contrats
-    try { await db.run("ALTER TABLE contrats ADD COLUMN gti TEXT DEFAULT ''"); } catch (e) {}
-    try { await db.run("ALTER TABLE contrats ADD COLUMN gtr TEXT DEFAULT ''"); } catch (e) {}
-    try { await db.run("ALTER TABLE contrats ADD COLUMN penalite TEXT DEFAULT ''"); } catch (e) {}
-    try { await db.run("ALTER TABLE contrats ADD COLUMN indice_revision TEXT DEFAULT ''"); } catch (e) {}
-    try { await db.run("ALTER TABLE contrats ADD COLUMN numero_facture TEXT DEFAULT ''"); } catch (e) {}
-    try { await db.run("ALTER TABLE contrats ADD COLUMN statut TEXT DEFAULT 'actif'"); } catch (e) {}
-    try { await db.run("ALTER TABLE contrats ADD COLUMN renouvellement_statut TEXT DEFAULT NULL"); } catch (e) {}
-    try { await db.run("ALTER TABLE contrats ADD COLUMN renouvellement_commentaire TEXT DEFAULT ''"); } catch (e) {}
-    try { await db.run("ALTER TABLE contrats ADD COLUMN doc_principal_path TEXT DEFAULT ''"); } catch (e) {}
-    try { await db.run("ALTER TABLE contrats ADD COLUMN doc_principal_nom TEXT DEFAULT ''"); } catch (e) {}
-    try { await db.run("ALTER TABLE contrats ADD COLUMN contrat_renouvellement_id INTEGER DEFAULT NULL"); } catch (e) {}
-
     // GLPI Settings migrations
         try { await db.exec("ALTER TABLE glpi_settings ADD COLUMN login TEXT"); } catch (e) {}
     try { await db.run("ALTER TABLE glpi_settings ADD COLUMN password TEXT"); } catch (e) {}
@@ -810,71 +376,6 @@ async function setupDb() {
         await db.run("UPDATE mail_settings SET template_html = REPLACE(template_html, 'word-break: break-word', 'word-break: break-all') WHERE template_html LIKE '%word-break: break-word%'");
     } catch (e) {}
 
-
-    try {
-        try { await db.exec(`DROP VIEW IF EXISTS main.v_orders`); } catch(e) {}
-        await db.exec(`DROP VIEW IF EXISTS temp.v_orders`);
-        await db.exec(`
-            CREATE TEMP VIEW v_orders AS
-            SELECT oc.*, l.operation_id, l.budgetId,
-            oc.COMMANDE_COMMANDE as id,
-            oc.COMMANDE_COMMANDE as "N° Commande",
-            TRIM(COALESCE(oc.COMMANDE_LIBELLE, '') || ' ' || COALESCE(oc.COMMANDE_CMD_LIBELLE2, '')) as "Libellé",
-            oc.COMMANDE_CMD_DATECOMMANDE as "Date de la commande",
-            ob.BUDGET_LIBELLE as "Budget",
-            oc.SERVICEFI_LIBELLE as "Service émetteur",
-            oc.SERVICEFI_LIBELLE as "Fournisseur",
-            oc.COMMANDE_MONTANT_HT as "Montant HT",
-            oc.COMMANDE_MONTANT_TTC as "Montant TTC",
-            oc.COMMANDE_COMMANDE as order_number,
-            oc.COMMANDE_LIBELLE as description,
-            oc.SERVICEFI_LIBELLE as provider,
-            oc.COMMANDE_MONTANT_HT as amount_ht,
-            oc.COMMANDE_CMD_DATECOMMANDE as date,
-            TRIM(ob.BUDGET_ROO_IMA_REF) as BUDGET_ROO_IMA_REF
-            FROM gf.oracle_commande oc
-            LEFT JOIN (
-                SELECT BUDGET_BUDGET, MIN(BUDGET_ROO_IMA_REF) as BUDGET_ROO_IMA_REF, MIN(BUDGET_LIBELLE) as BUDGET_LIBELLE 
-                FROM gf.oracle_budget 
-                GROUP BY BUDGET_BUDGET
-            ) ob ON oc.BUDGET_BUDGET = ob.BUDGET_BUDGET
-            LEFT JOIN gf.oracle_links l ON l.target_id = oc.COMMANDE_COMMANDE AND l.target_table = 'orders'
-        `);
-    } catch (e) {}
-    
-    try {
-        try { await db.exec(`DROP VIEW IF EXISTS main.v_invoices`); } catch(e) {}
-        await db.exec(`DROP VIEW IF EXISTS temp.v_invoices`);
-        await db.exec(`
-            CREATE TEMP VIEW v_invoices AS
-            SELECT f.*, l.operation_id, l.budgetId,
-            f.FACTURE_FACTURE as id,
-            f.FACTURE_FACTURE as "N° Facture interne",
-            f.FACTURE_REFERENCE as "N° Facture fournisseur",
-            f.FACTURE_LIBELLE2 as "Fournisseur",
-            f.FACTURE_LIBELLE1 as "Libellé",
-            f.FACTURE_MONTANTTC_E as "Montant TTC",
-            'Non spécifié' as "Service",
-            ob.BUDGET_LIBELLE as "Budget",
-            f.FACETAT_LIBELLE as "Etat",
-            f.FACTURE_DATENTREE as "Arrivée",
-            substr(f.FACTURE_DATENTREE, 1, 4) as "Exercice",
-            f.FACTURE_DATPAIPREV as FACTURE_DATPAIPREV_RAW,
-            CASE 
-                WHEN f.FACTURE_DATPAIPREV LIKE '____-__-__%' 
-                THEN substr(f.FACTURE_DATPAIPREV, 9, 2) || '/' || substr(f.FACTURE_DATPAIPREV, 6, 2) || '/' || substr(f.FACTURE_DATPAIPREV, 1, 4)
-                ELSE f.FACTURE_DATPAIPREV 
-            END as "Échéance",
-            TRIM(ob.BUDGET_ROO_IMA_REF) as BUDGET_CODE
-            FROM gf.oracle_facture f
-            LEFT JOIN (
-                SELECT BUDGET_BUDGET, MIN(BUDGET_ROO_IMA_REF) as BUDGET_ROO_IMA_REF, MIN(BUDGET_LIBELLE) as BUDGET_LIBELLE 
-                FROM gf.oracle_budget 
-                GROUP BY BUDGET_BUDGET
-            ) ob ON f.FACTURE_POBJ_EXTRACT_1 = ob.BUDGET_BUDGET
-            LEFT JOIN gf.oracle_links l ON l.target_id = f.FACTURE_FACTURE AND l.target_table = 'invoices'
-        `);
-    } catch (e) {}
 
     try {
         // Migrate old 'admin' role → 'superadmin' (the new 'admin' role is a limited admin)
