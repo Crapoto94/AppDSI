@@ -1240,7 +1240,8 @@ async function setupPgDb() {
         show_tool_incident BOOLEAN DEFAULT true,
         show_tool_demande BOOLEAN DEFAULT true,
         show_tasks BOOLEAN DEFAULT false,
-        show_notes BOOLEAN DEFAULT false
+        show_notes BOOLEAN DEFAULT false,
+        show_reunions BOOLEAN DEFAULT false
       );
     `);
 
@@ -1671,6 +1672,9 @@ async function setupPgDb() {
     } catch (e) {}
     try {
       await client.query(`ALTER TABLE magapp.settings ADD COLUMN IF NOT EXISTS show_notes BOOLEAN DEFAULT false`);
+    } catch (e) {}
+    try {
+      await client.query(`ALTER TABLE magapp.settings ADD COLUMN IF NOT EXISTS show_reunions BOOLEAN DEFAULT false`);
     } catch (e) {}
 
     await client.query(`

@@ -562,6 +562,21 @@ app.get('/api/auth/me', authenticateJWT, async (req, res) => {
             });
         }
 
+        // Accès « module seul » à Mes réunions depuis le Magasin d'applications.
+        if (req.user.scope === 'reunions') {
+            return res.json({
+                id: req.user.id || 0,
+                username: req.user.username,
+                displayName: req.user.displayName || req.user.username,
+                role: req.user.role || 'user',
+                is_approved: 1,
+                email: req.user.email || undefined,
+                service_code: req.user.service_code || null,
+                service_complement: req.user.service_complement || null,
+                authorized_urls: ['/mes-reunions'],
+            });
+        }
+
         let user = null;
         let source = '';
 
@@ -4048,6 +4063,40 @@ app.post('/api/auth/magapp-notes-access', authenticateJWT, async (req, res) => {
     } catch (error) {
         console.error('[Notes access error]', error.message);
         res.status(500).json({ message: 'Erreur lors de la génération de l\'accès à Mes notes IA' });
+    }
+});
+
+// Accès « module seul » à Mes réunions depuis le Magasin d'applications : on
+// re-signe l'identité de l'agent avec un champ d'action restreint aux réunions
+// (scope 'reunions'), sans accès aux autres modules du DSI Hub.
+app.post('/api/auth/magapp-reunions-access', authenticateJWT, async (req, res) => {
+    try {
+        const username = String(req.user.username || '').toLowerCase();
+        if (!username) {
+            return res.status(400).json({ message: 'Utilisateur non identifié' });
+        }
+        const accessToken = jwt.sign({
+            id: req.user.id || 0,
+            username,
+            displayName: req.user.displayName || username,
+            role: req.user.role || 'user',
+            is_approved: 1,
+            service_code: req.user.service_code || null,
+            service_complement: req.user.service_complement || null,
+            email: req.user.email || null,
+            source: req.user.source || 'magapp',
+            scope: 'reunions',
+        }, SECRET_KEY);
+        let appBaseUrl = process.env.FRONTEND_URL || process.env.APP_BASE_URL || process.env.APP_URL || '';
+        try {
+            const baseRow = await db.get("SELECT setting_value FROM app_settings WHERE setting_key = 'app_base_url'");
+            appBaseUrl = (baseRow?.setting_value || '').trim() || appBaseUrl;
+        } catch { /* repli env */ }
+        appBaseUrl = (appBaseUrl || `${req.protocol}://${req.get('host')}`).replace(/\/+$/, '');
+        res.json({ url: `${appBaseUrl}/mes-reunions/${accessToken}` });
+    } catch (error) {
+        console.error('[Reunions access error]', error.message);
+        res.status(500).json({ message: 'Erreur lors de la génération de l\'accès à Mes réunions' });
     }
 });
 

@@ -37,6 +37,7 @@ import TranscriptMeetingDetail from './pages/TranscriptManager/MeetingDetail';
 import TranscriptShare from './pages/TranscriptShare';
 import TasksShare from './pages/TasksShare';
 import NotesShare from './pages/NotesShare';
+import ReunionsShare from './pages/ReunionsShare';
 import Contrats from './pages/Contrats';
 import ContratsAnalysesIA from './pages/ContratsAnalysesIA';
 import Vols from './pages/Vols';
@@ -173,6 +174,7 @@ function App() {
         <Route path="/transcript/:token" element={<TranscriptShare />} />
         <Route path="/mes-taches/:token" element={<TasksShare />} />
         <Route path="/notes/:token" element={<NotesShare />} />
+        <Route path="/mes-reunions/:token" element={<ReunionsShare />} />
         <Route path="/auto-resolution/keep-alive/:token" element={<AutoResolutionConfirm />} />
         <Route path="/signature/:token" element={<SignatureSignataire />} />
         <Route path="/parapheur/verification/:token" element={<ParapheurVerification />} />
