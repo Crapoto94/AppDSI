@@ -580,18 +580,18 @@ const ReunionDetailModal: React.FC<Props> = ({ isOpen, reunionId, token, userRol
             </div>
             {linkedProjet ? (
               <div style={{display: 'flex', alignItems: 'center', gap: '10px'}}>
-                <span style={{padding: '4px 12px', background: '#eff6ff', color: '#1d4ed8', borderRadius: '20px', fontSize: '13px', fontWeight: '600', border: '1px solid #bfdbfe'}}>
+                <span style={{padding: '4px 12px', background: '#eff6ff', color: '#1d4ed8', borderRadius: '20px', fontSize: '13px', fontWeight: '600', border: '1px solid #bfdbfe', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap'}}>
                   📁 {linkedProjet.code} — {linkedProjet.titre}
                 </span>
-                <button onClick={handleUnlinkProjet} style={{padding: '4px 10px', background: 'white', color: '#dc2626', border: '1px solid #fecaca', borderRadius: '6px', cursor: 'pointer', fontWeight: '600', fontSize: '12px'}}>Délier</button>
+                <button onClick={handleUnlinkProjet} style={{padding: '4px 10px', background: 'white', color: '#dc2626', border: '1px solid #fecaca', borderRadius: '6px', cursor: 'pointer', fontWeight: '600', fontSize: '12px', flexShrink: 0}}>Délier</button>
               </div>
             ) : (
-              <div style={{display: 'flex', gap: '8px', alignItems: 'center'}}>
-                <select value={selectedProjetId} onChange={e => setSelectedProjetId(e.target.value)} style={{flex: 1, padding: '7px 10px', border: '1px solid #cbd5e1', borderRadius: '6px', fontSize: '13px', background: 'white', color: selectedProjetId ? '#1e293b' : '#94a3b8'}}>
+              <div style={{display: 'flex', gap: '8px', alignItems: 'center', minWidth: 0}}>
+                <select value={selectedProjetId} onChange={e => setSelectedProjetId(e.target.value)} style={{flex: '1 1 0', minWidth: 0, padding: '7px 10px', border: '1px solid #cbd5e1', borderRadius: '6px', fontSize: '13px', background: 'white', color: selectedProjetId ? '#1e293b' : '#94a3b8'}}>
                   <option value="">— Aucun projet associé —</option>
                   {projects.map(p => <option key={p.id} value={p.id}>{p.code} — {p.titre}</option>)}
                 </select>
-                <button onClick={handleLinkProjet} disabled={!selectedProjetId || isLinkingProjet} style={{padding: '7px 14px', background: selectedProjetId ? '#2563eb' : '#e2e8f0', color: selectedProjetId ? 'white' : '#94a3b8', border: 'none', borderRadius: '6px', cursor: selectedProjetId ? 'pointer' : 'default', fontWeight: '600', fontSize: '13px', whiteSpace: 'nowrap'}}>
+                <button onClick={handleLinkProjet} disabled={!selectedProjetId || isLinkingProjet} style={{padding: '7px 14px', background: selectedProjetId ? '#2563eb' : '#e2e8f0', color: selectedProjetId ? 'white' : '#94a3b8', border: 'none', borderRadius: '6px', cursor: selectedProjetId ? 'pointer' : 'default', fontWeight: '600', fontSize: '13px', whiteSpace: 'nowrap', flexShrink: 0}}>
                   {isLinkingProjet ? '...' : 'Associer'}
                 </button>
               </div>

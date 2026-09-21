@@ -793,15 +793,29 @@ app.get('/api/agents/search', authenticateJWT, async (req, res) => {
         const q = String(req.query.q || '').trim();
         if (q.length < 2) return res.json([]);
 
-        let adResults = [];
-        try {
-            const adSettings = await getEnabledAdSettings();
-            if (adSettings) adResults = await searchADUsersByQuery(q, adSettings);
-        } catch (e) { /* repli RH */ }
+        // Recherche simultanée dans l'AD ET dans RH Studio : un agent peut n'être
+        // référencé que dans l'un des deux (saisie prédictive → on fusionne).
+        const [adResults, rhRaw] = await Promise.all([
+            (async () => {
+                try {
+                    const adSettings = await getEnabledAdSettings();
+                    if (!adSettings) return [];
+                    return await searchADUsersByQuery(q, adSettings);
+                } catch (e) { return []; }
+            })(),
+            (async () => { try { return await rhStudio.searchAgents(q); } catch (e) { return []; } })(),
+        ]);
 
-        const mapped = (adResults || []).map(u => {
+        const seenEmails = new Set();
+        const seenNames = new Set();
+        const merged = [];
+
+        for (const u of (adResults || [])) {
             const { prenom, nom } = splitDisplayName(u.displayName, u.username);
-            return {
+            const email = (u.email || '').toLowerCase();
+            if (email) seenEmails.add(email);
+            if (nom) seenNames.add(`${prenom} ${nom}`.trim().toLowerCase());
+            merged.push({
                 username: u.username || '',
                 displayName: u.displayName || u.username || '',
                 prenom, nom,
@@ -810,27 +824,30 @@ app.get('/api/agents/search', authenticateJWT, async (req, res) => {
                 direction: u.direction || '',
                 source: 'ad',
                 emailMissing: !u.email,
-            };
-        });
-        if (mapped.length > 0) return res.json(mapped);
+            });
+        }
 
-        // Aucun agent trouvé dans l'AD : on interroge RH Studio (source de vérité).
-        let rh = [];
-        try { rh = await rhStudio.searchAgents(q); } catch (e) { /* ignore */ }
-        const rhMapped = (rh || []).map(a => {
+        // Ajoute les agents RH Studio absents de l'AD (dédoublonnage email puis nom).
+        for (const a of (rhRaw || [])) {
+            const email = (a.email || '').toLowerCase();
             const displayName = [a.prenom, a.nom].filter(Boolean).join(' ') || a.email || a.matricule || 'Agent';
-            const email = a.email || '';
+            const nameKey = [a.prenom, a.nom].filter(Boolean).join(' ').trim().toLowerCase();
+            if (email && seenEmails.has(email)) continue;
+            if (nameKey && seenNames.has(nameKey)) continue;
+            if (email) seenEmails.add(email);
+            if (nameKey) seenNames.add(nameKey);
             const username = email ? email.split('@')[0].toLowerCase() : (a.matricule ? `rh_${a.matricule}` : '');
-            return {
+            merged.push({
                 username, displayName,
                 prenom: a.prenom || '', nom: a.nom || '',
-                email,
+                email: a.email || '',
                 service: a.service || '', direction: a.direction || '', fonction: a.fonction || '',
                 source: 'rh',
-                emailMissing: !email,
-            };
-        });
-        res.json(rhMapped);
+                emailMissing: !a.email,
+            });
+        }
+
+        res.json(merged.slice(0, 20));
     } catch (error) {
         console.error('Erreur recherche agents:', error);
         res.status(500).json({ error: error.message });
