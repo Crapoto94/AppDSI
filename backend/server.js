@@ -5865,6 +5865,7 @@ const rencontresCtrl = require('./modules/rencontres/rencontres.controller');
 const reunionsCtrl = require('./modules/rencontres/reunions.controller');
 // Inject sendMail into reunions controller
 reunionsCtrl.setSendMail(sendMail);
+require('./shared/magapp_alerts').setSendMail(sendMail);
 
 app.use('/api/rencontres-budgetaires', rencontresRouter);
 app.use('/api/rencontres-reunions', reunionRouter);

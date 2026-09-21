@@ -1275,8 +1275,38 @@ async function setupPgDb() {
         app_id INTEGER NOT NULL,
         email VARCHAR(255) NOT NULL,
         subscribed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        email_alerts BOOLEAN DEFAULT true,
         CONSTRAINT fk_app_sub FOREIGN KEY(app_id) REFERENCES magapp.apps(id) ON DELETE CASCADE,
         UNIQUE(email, app_id)
+      );
+    `);
+    // Préférence d'alerte mail par abonnement (maintenance + nouveautés).
+    try { await client.query(`ALTER TABLE magapp.subscriptions ADD COLUMN IF NOT EXISTS email_alerts BOOLEAN DEFAULT true`); } catch (e) {}
+
+    // Versions publiées du Magasin d'applications (notes de version = « quoi de
+    // neuf » rédigées par les chefs de projet) + document joint éventuel.
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS magapp.versions (
+        id SERIAL PRIMARY KEY,
+        version_number VARCHAR(50) NOT NULL,
+        release_notes_html TEXT,
+        release_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        is_active BOOLEAN DEFAULT FALSE,
+        document_path TEXT,
+        document_name TEXT,
+        notified_at TIMESTAMP
+      );
+    `);
+    try { await client.query(`ALTER TABLE magapp.versions ADD COLUMN IF NOT EXISTS document_path TEXT`); } catch (e) {}
+    try { await client.query(`ALTER TABLE magapp.versions ADD COLUMN IF NOT EXISTS document_name TEXT`); } catch (e) {}
+    try { await client.query(`ALTER TABLE magapp.versions ADD COLUMN IF NOT EXISTS notified_at TIMESTAMP`); } catch (e) {}
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS magapp.user_versions (
+        username VARCHAR(255) PRIMARY KEY,
+        last_seen_version_id INTEGER,
+        seen_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT fk_version FOREIGN KEY(last_seen_version_id) REFERENCES magapp.versions(id) ON DELETE CASCADE
       );
     `);
 

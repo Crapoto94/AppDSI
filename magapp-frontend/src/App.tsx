@@ -122,6 +122,8 @@ function App() {
   const [displayName, setDisplayName] = useState<string>('bel.le inconnu.e');
   const [userEmail, setUserEmail] = useState<string>('');
   const [showSubs, setShowSubs] = useState(false);
+  const [mySubs, setMySubs] = useState<{ is_admin: boolean; email: string; subscriptions: { app_id: number; app_name: string; icon?: string; is_maintenance?: boolean; email_alerts: boolean; forced: boolean }[] }>({ is_admin: false, email: '', subscriptions: [] });
+  const [loadingSubs, setLoadingSubs] = useState(false);
   const [showTickets, setShowTickets] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
   const [helpContentHtml, setHelpContentHtml] = useState<string | null>(null);
@@ -1105,6 +1107,37 @@ function App() {
       .replace(/<meta\b(?=[^>]*http-equiv\s*=\s*["']?refresh)[^>]*>/gi, '');
   };
 
+  useEffect(() => {
+    if (!showSubs) return;
+    const load = async () => {
+      setLoadingSubs(true);
+      try {
+        const token = localStorage.getItem('token') || '';
+        const res = await axios.get(`${apiBase}/magapp/my-subscriptions?email=${encodeURIComponent(userEmail || '')}`, {
+          headers: token ? { Authorization: `Bearer ${token}` } : {}
+        });
+        setMySubs(res.data || { is_admin: false, email: '', subscriptions: [] });
+      } catch (e) {
+        console.error('Erreur chargement abonnements', e);
+        setMySubs({ is_admin: false, email: userEmail, subscriptions: [] });
+      } finally { setLoadingSubs(false); }
+    };
+    load();
+  }, [showSubs, userEmail]);
+
+  const handleToggleSubAlert = async (appId: number, emailAlerts: boolean) => {
+    try {
+      const token = localStorage.getItem('token') || '';
+      await axios.put(`${apiBase}/magapp/subscriptions/${appId}/preferences`, { email: userEmail, email_alerts: emailAlerts }, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setMySubs(prev => ({ ...prev, subscriptions: prev.subscriptions.map(s => s.app_id === appId ? { ...s, email_alerts: emailAlerts } : s) }));
+    } catch (e) {
+      const msg = (axios.isAxiosError(e) && e.response?.data?.message) || "Impossible d'enregistrer la préférence.";
+      setModalConfig({ isOpen: true, type: 'error', title: 'Erreur', message: msg, onConfirm: () => setModalConfig(prev => ({ ...prev, isOpen: false })) });
+    }
+  };
+
   const handleSubscribe = async (e: React.MouseEvent, app: AppItem) => {
     e.preventDefault();
     e.stopPropagation();
@@ -1935,29 +1968,66 @@ function App() {
               <X size={20} />
             </button>
 
-            <div style={{ textAlign: 'center', marginBottom: '30px' }}>
+            <div style={{ textAlign: 'center', marginBottom: '24px' }}>
               <div style={{ width: '60px', height: '60px', background: '#fff1f2', borderRadius: '16px', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 20px' }}>
                 <Heart size={32} color="#e11d48" fill="#e11d48" />
               </div>
               <h2 style={{ margin: 0, fontSize: '1.5rem', fontWeight: 800, color: '#1e293b' }}>Mes abonnements</h2>
               <p style={{ color: '#64748b', fontSize: '1rem', marginTop: '10px', lineHeight: '1.5' }}>
-                Gérez vos alertes de maintenance pour vos applications favorites.
+                Alertes de maintenance et de nouveautés pour vos applications.
+              </p>
+              <p style={{ color: '#94a3b8', fontSize: '0.85rem', marginTop: '6px' }}>
+                {mySubs.email || userEmail ? `Alertes envoyées à : ${mySubs.email || userEmail}` : 'Aucun email configuré.'}
               </p>
             </div>
 
-            <div style={{ padding: '30px', background: '#f8fafc', borderRadius: '20px', textAlign: 'center', border: '1px dashed #cbd5e1' }}>
-              <Bell size={40} color="#94a3b8" style={{ marginBottom: '15px', opacity: 0.5 }} />
-              <div style={{ fontSize: '1rem', color: '#64748b', fontWeight: 500 }}>
-                {userEmail ? `Les alertes sont envoyées à : ${userEmail}` : "Aucun email configuré."}
+            {mySubs.is_admin && (
+              <div style={{ marginBottom: '16px', padding: '10px 14px', background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: '10px', fontSize: '0.85rem', color: '#1d4ed8', fontWeight: 600 }}>
+                En tant qu'administrateur du Magasin d'applications, vous êtes abonné d'office à toutes les applications.
               </div>
-              <p style={{ fontSize: '0.85rem', color: '#94a3b8', marginTop: '8px' }}>
-                Cliquez sur l'icône <Bell size={14} style={{ display: 'inline', verticalAlign: 'middle' }} /> d'une application pour vous abonner.
-              </p>
-            </div>
+            )}
+
+            {loadingSubs ? (
+              <div style={{ padding: '30px', textAlign: 'center', color: '#94a3b8', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px' }}>
+                <Loader2 size={20} className="spinner-small" /> Chargement...
+              </div>
+            ) : mySubs.subscriptions.length === 0 ? (
+              <div style={{ padding: '30px', background: '#f8fafc', borderRadius: '20px', textAlign: 'center', border: '1px dashed #cbd5e1' }}>
+                <Bell size={40} color="#94a3b8" style={{ marginBottom: '15px', opacity: 0.5 }} />
+                <div style={{ fontSize: '1rem', color: '#64748b', fontWeight: 500 }}>Aucun abonnement pour l'instant.</div>
+                <p style={{ fontSize: '0.85rem', color: '#94a3b8', marginTop: '8px' }}>
+                  Cliquez sur l'icône <Bell size={14} style={{ display: 'inline', verticalAlign: 'middle' }} /> d'une application pour vous abonner.
+                </p>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '45vh', overflowY: 'auto' }}>
+                {mySubs.subscriptions.map(s => (
+                  <div key={s.app_id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', padding: '12px 14px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '12px' }}>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontWeight: 700, fontSize: '0.95rem', color: '#1e293b', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        {s.app_name}
+                        {s.is_maintenance ? <span style={{ fontSize: '0.65rem', fontWeight: 800, background: '#fef3c7', color: '#92400e', padding: '1px 6px', borderRadius: '6px' }}>MAINTENANCE</span> : null}
+                      </div>
+                      <div style={{ fontSize: '0.78rem', color: '#64748b' }}>{s.forced ? "Abonné d'office (administrateur)" : 'Alerte mail en cas de maintenance et de nouveauté'}</div>
+                    </div>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: s.forced ? 'not-allowed' : 'pointer', flexShrink: 0 }}>
+                      <input
+                        type="checkbox"
+                        checked={s.email_alerts}
+                        disabled={s.forced}
+                        onChange={e => handleToggleSubAlert(s.app_id, e.target.checked)}
+                        style={{ width: '18px', height: '18px', accentColor: '#0078a4', cursor: s.forced ? 'not-allowed' : 'pointer' }}
+                      />
+                      <span style={{ fontSize: '0.8rem', fontWeight: 600, color: s.email_alerts ? '#0078a4' : '#94a3b8' }}>Mail</span>
+                    </label>
+                  </div>
+                ))}
+              </div>
+            )}
 
             <button 
               onClick={() => setShowSubs(false)} 
-              style={{ width: '100%', marginTop: '30px', padding: '14px', background: '#0078a4', color: 'white', border: 'none', borderRadius: '12px', fontSize: '1rem', fontWeight: 700, cursor: 'pointer', boxShadow: '0 4px 6px -1px rgba(0,120,164,0.2)' }}
+              style={{ width: '100%', marginTop: '24px', padding: '14px', background: '#0078a4', color: 'white', border: 'none', borderRadius: '12px', fontSize: '1rem', fontWeight: 700, cursor: 'pointer', boxShadow: '0 4px 6px -1px rgba(0,120,164,0.2)' }}
             >
               Fermer
             </button>

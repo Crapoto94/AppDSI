@@ -6,6 +6,8 @@ const path = require('path');
 const fs = require('fs');
 const mariadb = require('mariadb');
 const ldap = require('ldapjs');
+const magappAlerts = require('../../shared/magapp_alerts');
+const storage = require('../../shared/storage');
 
 function formatLocal(d) {
     const y = d.getFullYear();
@@ -20,6 +22,25 @@ function formatLocal(d) {
 /**
  * MagApp Controller
  */
+// Un administrateur du Magasin d'applications (rôle admin/superadmin ou accès à
+// la tuile /admin/magapp) est abonné d'office à toutes les applications.
+async function isMagappAdmin(req) {
+    if (isAdminLike(req.user)) return true;
+    try {
+        const db = getSqlite();
+        if (db && req.user?.id) {
+            const row = await db.get(
+                `SELECT 1 FROM user_tiles ut
+                 JOIN tile_links tl ON ut.tile_id = tl.tile_id
+                 WHERE ut.user_id = ? AND tl.url = '/admin/magapp'`,
+                [req.user.id]
+            );
+            if (row) return true;
+        }
+    } catch (e) { /* ignore */ }
+    return false;
+}
+
 const MagAppController = {
     // Categories
     getCategories: async (req, res) => {
@@ -395,11 +416,81 @@ const MagAppController = {
         const { email, app_id } = req.query;
         if (!email || !app_id) return res.status(400).json({ message: 'Données manquantes' });
         try {
+            if (await isMagappAdmin(req)) {
+                return res.status(403).json({ message: "En tant qu'administrateur du Magasin d'applications, vous êtes abonné d'office à toutes les applications." });
+            }
             await pgDb.run('DELETE FROM magapp_subscriptions WHERE email = ? AND app_id = ?', [email, app_id]);
             res.json({ message: 'Désabonné avec succès' });
         } catch (err) {
             console.error('[MAGAPP] Error unsubscribing:', err.message);
             res.status(500).json({ message: 'Erreur désabonnement' });
+        }
+    },
+
+    // Liste détaillée des abonnements de l'agent (avec préférence d'alerte mail).
+    // Les administrateurs du Magasin sont abonnés d'office à TOUTES les applications.
+    getMySubscriptions: async (req, res) => {
+        try {
+            const email = String(req.query.email || req.user?.email || '').toLowerCase();
+            const isAdmin = await isMagappAdmin(req);
+
+            if (isAdmin) {
+                const apps = await pgDb.all(
+                    `SELECT id, name, icon, app_type, is_maintenance FROM magapp.apps ORDER BY name`
+                );
+                return res.json({
+                    is_admin: true,
+                    email,
+                    subscriptions: apps.map(a => ({
+                        app_id: a.id, app_name: a.name, icon: a.icon,
+                        is_maintenance: a.is_maintenance, email_alerts: true, forced: true,
+                    })),
+                });
+            }
+
+            if (!email) return res.json({ is_admin: false, email: '', subscriptions: [] });
+
+            const rows = await pgDb.all(
+                `SELECT s.app_id, s.email_alerts, a.name AS app_name, a.icon, a.is_maintenance
+                 FROM magapp.subscriptions s
+                 JOIN magapp.apps a ON a.id = s.app_id
+                 WHERE LOWER(s.email) = ?
+                 ORDER BY a.name`,
+                [email]
+            );
+            res.json({
+                is_admin: false,
+                email,
+                subscriptions: rows.map(r => ({
+                    app_id: r.app_id, app_name: r.app_name, icon: r.icon,
+                    is_maintenance: r.is_maintenance, email_alerts: r.email_alerts !== false, forced: false,
+                })),
+            });
+        } catch (error) {
+            console.error('[MAGAPP] Error fetching my subscriptions:', error.message);
+            res.status(500).json({ message: 'Erreur lecture abonnements', error: error.message });
+        }
+    },
+
+    // Active/désactive l'alerte mail pour une application donnée.
+    updateSubscriptionPrefs: async (req, res) => {
+        try {
+            const appId = parseInt(req.params.app_id, 10);
+            const email = String(req.body.email || req.query.email || req.user?.email || '').toLowerCase();
+            if (!email || !appId) return res.status(400).json({ message: 'Données manquantes' });
+            if (await isMagappAdmin(req)) {
+                return res.status(403).json({ message: "En tant qu'administrateur du Magasin d'applications, vous êtes abonné d'office à toutes les applications." });
+            }
+            const emailAlerts = req.body.email_alerts !== false;
+            await pool.query(
+                `INSERT INTO magapp.subscriptions (app_id, email, email_alerts) VALUES ($1, $2, $3)
+                 ON CONFLICT (email, app_id) DO UPDATE SET email_alerts = EXCLUDED.email_alerts`,
+                [appId, email, emailAlerts]
+            );
+            res.json({ message: 'Préférence enregistrée', email_alerts: emailAlerts });
+        } catch (error) {
+            console.error('[MAGAPP] Error updating subscription prefs:', error.message);
+            res.status(500).json({ message: 'Erreur enregistrement préférence', error: error.message });
         }
     },
 
@@ -918,6 +1009,41 @@ const MagAppController = {
         }
     },
 
+    // Envoie l'alerte « quoi de neuf » aux abonnés + administrateurs.
+    notifyVersion: async (req, res) => {
+        try {
+            const id = parseInt(req.params.id, 10);
+            const version = await pgDb.get('SELECT * FROM magapp.versions WHERE id = ?', [id]);
+            if (!version) return res.status(404).json({ message: 'Version non trouvée' });
+            const sent = await magappAlerts.sendVersionAlert(id);
+            await pgDb.run('UPDATE magapp.versions SET notified_at = CURRENT_TIMESTAMP WHERE id = ?', [id]);
+            res.json({ message: `Alerte envoyée à ${sent} destinataire(s)`, sent });
+        } catch (error) {
+            console.error('[MAGAPP] Error notifying version:', error.message);
+            res.status(500).json({ message: "Erreur lors de l'envoi de l'alerte", error: error.message });
+        }
+    },
+
+    // Joint un document (PDF, etc.) à une version (lien dans le mail de nouveauté).
+    uploadVersionDocument: async (req, res) => {
+        try {
+            const id = parseInt(req.params.id, 10);
+            if (!req.file) return res.status(400).json({ message: 'Aucun fichier reçu' });
+            const version = await pgDb.get('SELECT * FROM magapp.versions WHERE id = ?', [id]);
+            if (!version) return res.status(404).json({ message: 'Version non trouvée' });
+            if (version.document_path) { try { await storage.deleteFile(version.document_path); } catch (e) { /* ignore */ } }
+            const saved = await storage.saveFile('magapp_versions', id, req.file);
+            await pgDb.run(
+                'UPDATE magapp.versions SET document_path = ?, document_name = ? WHERE id = ?',
+                [saved.dbPath, req.file.originalname, id]
+            );
+            res.json({ message: 'Document ajouté', document_path: saved.dbPath, document_name: req.file.originalname });
+        } catch (error) {
+            console.error('[MAGAPP] Error uploading version document:', error.message);
+            res.status(500).json({ message: "Erreur lors de l'ajout du document", error: error.message });
+        }
+    },
+
     getUserVersion: async (req, res) => {
         try {
             const username = req.user.username;
@@ -1281,6 +1407,8 @@ const MagAppController = {
                  VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`,
                 [app_id, name, description, severity, has_interruption, startUTC, endUTC, username]
             );
+            // Alerte mail aux abonnés de l'application + administrateurs (best-effort).
+            magappAlerts.sendMaintenanceAlert(result.rows[0].id).catch(() => {});
             res.json(result.rows[0]);
         } catch (error) {
             console.error('[MAGAPP] Error creating maintenance:', error.message);

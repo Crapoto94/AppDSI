@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import * as XLSX from 'xlsx';
 import Header from '../components/Header';
 import { stripDangerousHtmlTags } from '../utils/sanitizeHtml';
-import { Plus, Edit2, Trash2, Save, X, Globe, LayoutGrid, BarChart2, Bell, Tag, Code, CheckCircle, Settings, Users, Lightbulb, GraduationCap, Star, FileText, Wrench, Calendar, Paperclip, Download, Search, ChevronRight, Layers, Banknote, ShieldAlert, ExternalLink } from 'lucide-react';
+import { Plus, Edit2, Trash2, Save, X, Globe, LayoutGrid, BarChart2, Bell, Tag, Code, CheckCircle, Settings, Users, Lightbulb, GraduationCap, Star, FileText, Wrench, Calendar, Paperclip, Download, Search, ChevronRight, Layers, Banknote, ShieldAlert, ExternalLink, Send } from 'lucide-react';
 import BetaUsersAdmin from '../components/BetaUsersAdmin';
 import { ResponsiveContainer, LineChart, Line, ReferenceLine, CartesianGrid, XAxis, YAxis, Tooltip as RTooltip } from 'recharts';
 import ReactQuill from 'react-quill-new';
@@ -107,6 +107,9 @@ interface AppVersion {
   release_notes_html: string;
   release_date: string;
   is_active: boolean;
+  document_path?: string | null;
+  document_name?: string | null;
+  notified_at?: string | null;
 }
 
 interface PostgresSettings {
@@ -209,6 +212,7 @@ const MagappAdmin: React.FC = () => {
   const [versions, setVersions] = useState<AppVersion[]>([]);
   const [mercatorApps, setMercatorApps] = useState<{id: number, name: string, description?: string}[]>([]);
   const [editingVersion, setEditingVersion] = useState<AppVersion | null>(null);
+  const [versionNotifying, setVersionNotifying] = useState<number | null>(null);
   const [newVersion, setNewVersion] = useState({ version_number: '', release_notes_html: '' });
   const [showAppModal, setShowAppModal] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
@@ -871,6 +875,33 @@ const MagappAdmin: React.FC = () => {
   const handleActivateVersion = async (id: number) => {
     await fetch(`/api/admin/magapp/versions/${id}/activate`, { method: 'PUT', headers: { 'Authorization': `Bearer ${token}` } });
     fetchVersions();
+  };
+
+  const handleNotifyVersion = async (id: number) => {
+    if (!window.confirm("Envoyer l'alerte « nouveauté » aux abonnés et administrateurs ?")) return;
+    setVersionNotifying(id);
+    try {
+      const res = await fetch(`/api/admin/magapp/versions/${id}/notify`, { method: 'POST', headers: { 'Authorization': `Bearer ${token}` } });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) alert(data.message || 'Alerte envoyée');
+      else alert(`Erreur : ${data.message || 'échec'}`);
+      fetchVersions();
+    } catch { alert('Erreur réseau'); }
+    finally { setVersionNotifying(null); }
+  };
+
+  const handleUploadVersionDoc = async (id: number, file: File | null) => {
+    if (!file) return;
+    const fd = new FormData();
+    fd.append('file', file);
+    try {
+      const res = await fetch(`/api/admin/magapp/versions/${id}/document`, {
+        method: 'POST', headers: { 'Authorization': `Bearer ${token}` }, body: fd
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) { alert('Document ajouté'); fetchVersions(); }
+      else alert(`Erreur : ${data.message || 'échec'}`);
+    } catch { alert('Erreur réseau'); }
   };
 
   const handleSavePostgresSettings = async () => {
@@ -2144,9 +2175,20 @@ const MagappAdmin: React.FC = () => {
                         </h4>
                         <span style={{ fontSize: '0.75rem', color: '#94a3b8' }}>{new Date(v.release_date).toLocaleDateString()}</span>
                         <div style={{ marginTop: '8px', fontSize: '0.85rem', color: '#64748b', maxHeight: '40px', overflow: 'hidden', textOverflow: 'ellipsis', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }} dangerouslySetInnerHTML={{ __html: v.release_notes_html }}></div>
+                        {(v.document_name || v.notified_at) && (
+                          <div style={{ marginTop: '6px', fontSize: '0.72rem', color: '#94a3b8', display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+                            {v.document_name && <span>📄 {v.document_name}</span>}
+                            {v.notified_at && <span>✅ Alerte envoyée le {new Date(v.notified_at).toLocaleDateString('fr-FR')}</span>}
+                          </div>
+                        )}
                       </div>
                       <div className="app-actions-v2">
                         {!v.is_active && <button onClick={() => handleActivateVersion(v.id)} style={{ color: '#10b981' }} title="Activer"><CheckCircle size={16} /></button>}
+                        <label title="Joindre un document à cette version" style={{ cursor: 'pointer', color: '#0369a1', display: 'inline-flex' }}>
+                          <Paperclip size={16} />
+                          <input type="file" style={{ display: 'none' }} onChange={e => { handleUploadVersionDoc(v.id, e.target.files?.[0] || null); e.currentTarget.value = ''; }} />
+                        </label>
+                        <button onClick={() => handleNotifyVersion(v.id)} disabled={versionNotifying === v.id} style={{ color: '#2563eb', opacity: versionNotifying === v.id ? 0.5 : 1 }} title="Notifier les abonnés (quoi de neuf)"><Send size={16} /></button>
                         <button onClick={() => setEditingVersion(v)} title="Modifier"><Edit2 size={16} /></button>
                         <button onClick={() => handleDeleteVersion(v.id)} className="delete" title="Supprimer"><Trash2 size={16} /></button>
                       </div>

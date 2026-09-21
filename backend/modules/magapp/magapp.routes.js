@@ -1,8 +1,12 @@
 const express = require('express');
 const router = express.Router();
+const multer = require('multer');
 const MagAppController = require('./magapp.controller');
 const { authenticateJWT, tryAuthenticateJWT, authenticateMagappControl, authenticateAdmin } = require('../../shared/middleware');
 const { getSqlite } = require('../../shared/database');
+
+// Upload en mémoire (sauvegarde via le service de stockage partagé).
+const uploadMemory = multer({ storage: multer.memoryStorage() });
 
 // Routes mounted at /api/magapp
 const magappBaseRouter = express.Router();
@@ -25,6 +29,8 @@ magappBaseRouter.post('/clicks', MagAppController.recordClick);
 magappBaseRouter.post('/subscribe', MagAppController.subscribe);
 magappBaseRouter.get('/user-subscriptions', MagAppController.getUserSubscriptions);
 magappBaseRouter.delete('/user-subscriptions', MagAppController.unsubscribe);
+magappBaseRouter.get('/my-subscriptions', authenticateJWT, MagAppController.getMySubscriptions);
+magappBaseRouter.put('/subscriptions/:app_id/preferences', authenticateJWT, MagAppController.updateSubscriptionPrefs);
 magappBaseRouter.get('/tickets', MagAppController.getUserTickets);
 magappBaseRouter.get('/tickets-count', MagAppController.getTicketsCount);
 magappBaseRouter.get('/high-priority-incidents', MagAppController.getHighPriorityIncidents);
@@ -53,6 +59,8 @@ magappAdminRouter.post('/versions', authenticateMagappControl, MagAppController.
 magappAdminRouter.put('/versions/:id', authenticateMagappControl, MagAppController.updateVersion);
 magappAdminRouter.delete('/versions/:id', authenticateMagappControl, MagAppController.deleteVersion);
 magappAdminRouter.put('/versions/:id/activate', authenticateMagappControl, MagAppController.activateVersion);
+magappAdminRouter.post('/versions/:id/notify', authenticateMagappControl, MagAppController.notifyVersion);
+magappAdminRouter.post('/versions/:id/document', authenticateMagappControl, uploadMemory.single('file'), MagAppController.uploadVersionDocument);
 magappAdminRouter.get('/docs', authenticateMagappControl, MagAppController.getAllDocs);
 magappAdminRouter.post('/docs', authenticateMagappControl, MagAppController.createDoc);
 magappAdminRouter.put('/docs/:id', authenticateMagappControl, MagAppController.updateDoc);
