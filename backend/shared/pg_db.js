@@ -5096,6 +5096,7 @@ async function setupPgDb() {
     await client.query(`
       CREATE TABLE IF NOT EXISTS hub.elus (
         id SERIAL PRIMARY KEY,
+        civilite VARCHAR(10),
         nom VARCHAR(255) NOT NULL,
         prenom VARCHAR(255) NOT NULL,
         email VARCHAR(255),
@@ -5106,6 +5107,8 @@ async function setupPgDb() {
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     `);
+    // Civilité (M. / Mme) ajoutée après coup pour les bases existantes.
+    try { await client.query('ALTER TABLE hub.elus ADD COLUMN IF NOT EXISTS civilite VARCHAR(10)'); } catch (e) {}
 
     // ─── hub.sites ────────────────────────────────────────────────
     await client.query(`

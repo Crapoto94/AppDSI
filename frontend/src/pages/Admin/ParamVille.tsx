@@ -18,7 +18,7 @@ L.Icon.Default.mergeOptions({
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface VilleConfig { id?: number; nom: string; code_postal: string; }
-interface Elu { id?: number; nom: string; prenom: string; email?: string; telephone?: string; role: string; delegation?: string; }
+interface Elu { id?: number; civilite?: string; nom: string; prenom: string; email?: string; telephone?: string; role: string; delegation?: string; }
 interface Site {
   id?: number; code_bien?: string; nom: string; categorie?: string;
   adresse?: string; is_active: boolean; lat?: number; lng?: number;
@@ -1517,7 +1517,7 @@ export default function ParamVille() {
 
   const [elus, setElus] = useState<Elu[]>([]);
   const [editingElu, setEditingElu] = useState<Elu | null>(null);
-  const [eluForm, setEluForm] = useState<Elu>({ nom: '', prenom: '', role: 'Conseiller municipal' });
+  const [eluForm, setEluForm] = useState<Elu>({ civilite: 'M.', nom: '', prenom: '', role: 'Conseiller municipal' });
   const [eluUploadFile, setEluUploadFile] = useState<File | null>(null);
   const [eluImporting, setEluImporting] = useState(false);
   const [eluImportResult, setEluImportResult] = useState<any>(null);
@@ -1610,8 +1610,8 @@ export default function ParamVille() {
       if (editingElu?.id) await axios.put(`/api/ville/elus/${editingElu.id}`, eluForm, { headers: getHeaders() });
       else await axios.post('/api/ville/elus', eluForm, { headers: getHeaders() });
       setEditingElu(null);
-      setEluForm({ nom: '', prenom: '', role: 'Conseiller municipal' });
-      loadElus();
+    setEluForm({ civilite: 'M.', nom: '', prenom: '', role: 'Conseiller municipal' });
+    loadElus();
     } catch (error: any) { alert('Erreur: ' + (error.response?.data?.message || error.message)); }
   };
 
@@ -1624,8 +1624,8 @@ export default function ParamVille() {
   const exportElusCSV = () => {
     exportToCSV(
       `elus_${new Date().toISOString().slice(0, 10)}.csv`,
-      ['Prénom', 'Nom', 'Rôle', 'Email', 'Téléphone', 'Délégation'],
-      elus.map(e => [e.prenom, e.nom, e.role, e.email || '', e.telephone || '', e.delegation || ''])
+      ['Civilité', 'Prénom', 'Nom', 'Rôle', 'Email', 'Téléphone', 'Délégation'],
+      elus.map(e => [e.civilite || '', e.prenom, e.nom, e.role, e.email || '', e.telephone || '', e.delegation || ''])
     );
   };
 
@@ -2013,7 +2013,7 @@ export default function ParamVille() {
           </div>
 
           <button style={s.btn(editingElu ? 'success' : 'primary')} onClick={() => {
-            if (editingElu) { setEditingElu(null); setEluForm({ nom: '', prenom: '', role: 'Conseiller municipal' }); }
+            if (editingElu) { setEditingElu(null); setEluForm({ civilite: 'M.', nom: '', prenom: '', role: 'Conseiller municipal' }); }
             else setEditingElu({} as Elu);
           }}>
             {editingElu ? <><X size={16} /> Annuler</> : <><Plus size={16} /> Ajouter un élu</>}
@@ -2021,6 +2021,13 @@ export default function ParamVille() {
 
           {editingElu !== null && (
             <div style={s.form}>
+              <div style={s.row}>
+                <span style={s.label}>Civilité</span>
+                <select style={s.input} value={eluForm.civilite || 'M.'} onChange={e => setEluForm({ ...eluForm, civilite: e.target.value })}>
+                  <option value="M.">M.</option>
+                  <option value="Mme">Mme</option>
+                </select>
+              </div>
               {([['Prénom', 'prenom'], ['Nom', 'nom'], ['Email', 'email'], ['Téléphone', 'telephone'], ['Délégation', 'delegation']] as [string, string][]).map(([lbl, key]) => (
                 <div key={key} style={s.row}>
                   <span style={s.label}>{lbl}</span>
@@ -2044,7 +2051,7 @@ export default function ParamVille() {
             <tbody>
               {elus.map(e => (
                 <tr key={e.id}>
-                  <td style={s.td}><strong>{e.prenom} {e.nom}</strong></td>
+                  <td style={s.td}><strong>{e.civilite ? `${e.civilite} ` : ''}{e.prenom} {e.nom}</strong></td>
                   <td style={s.td}><span style={s.badge('#8b5cf6')}>{e.role}</span></td>
                   <td style={s.td}><code style={{ fontSize: '12px' }}>{e.email || '—'}</code></td>
                   <td style={s.td}>{e.telephone || '—'}</td>
