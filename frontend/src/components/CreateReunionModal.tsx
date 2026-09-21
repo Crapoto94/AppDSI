@@ -13,6 +13,8 @@ interface Participant {
   email?: string;
   service?: string;
   direction?: string;
+  organisme?: string;
+  fonction?: string;
   type_presence: 'metier' | 'dsi' | 'externe';
   statut_presence: 'present' | 'excuse' | 'info';
   ad_username?: string;
@@ -62,13 +64,13 @@ const CreateReunionModal: React.FC<CreateReunionModalProps> = ({ isOpen, onClose
         email: user.email || '',
         service: user.service_complement || user.service_code || '',
         direction: '',
-        type_presence: 'dsi',
+        type_presence: 'metier',
         statut_presence: 'present',
         ad_username: user.username
       }, ...prev];
     });
   }, [isOpen, user]);
-  const [newParticipant, setNewParticipant] = useState({ nom: '', prenom: '', email: '', service: '', direction: '', type_presence: 'externe' as 'metier' | 'dsi' | 'externe', statut_presence: 'present' as 'present' | 'excuse' | 'info' });
+  const [newParticipant, setNewParticipant] = useState({ nom: '', prenom: '', email: '', organisme: '', fonction: '', type_presence: 'externe' as 'metier' | 'dsi' | 'externe', statut_presence: 'present' as 'present' | 'excuse' | 'info' });
   const ad = useADSearch(token);
   const [isCreating, setIsCreating] = useState(false);
   const [loadingMembers, setLoadingMembers] = useState(false);
@@ -107,7 +109,7 @@ const CreateReunionModal: React.FC<CreateReunionModalProps> = ({ isOpen, onClose
       email: user.email,
       service: user.service || '',
       direction: user.direction || '',
-      type_presence: 'dsi',
+      type_presence: 'metier',
       statut_presence: 'present',
       ad_username: user.username
     }]);
@@ -118,7 +120,7 @@ const CreateReunionModal: React.FC<CreateReunionModalProps> = ({ isOpen, onClose
   const addParticipantManuel = () => {
     if (!newParticipant.nom) return;
     setParticipants(prev => [...prev, { ...newParticipant, id: Date.now(), reunion_id: 0 }]);
-    setNewParticipant({ nom: '', prenom: '', email: '', service: '', direction: '', type_presence: 'externe', statut_presence: 'present' });
+    setNewParticipant({ nom: '', prenom: '', email: '', organisme: '', fonction: '', type_presence: 'externe', statut_presence: 'present' });
   };
 
   const fetchSlots = async (withAfterHours: boolean) => {
@@ -241,7 +243,7 @@ const CreateReunionModal: React.FC<CreateReunionModalProps> = ({ isOpen, onClose
             </div>
             <div>
               <label style={{display: 'block', fontSize: '12px', fontWeight: '600', color: '#64748b', marginBottom: '6px'}}>DATE & HEURE *</label>
-              <input type="datetime-local" style={{width: '100%', padding: '10px 12px', border: '1px solid #cbd5e1', borderRadius: '8px', fontSize: '14px'}} value={newReunion.date_reunion} onChange={e => setNewReunion(v => ({...v, date_reunion: e.target.value}))} />
+              <input type="datetime-local" step={300} style={{width: '100%', padding: '10px 12px', border: '1px solid #cbd5e1', borderRadius: '8px', fontSize: '14px'}} value={newReunion.date_reunion} onChange={e => setNewReunion(v => ({...v, date_reunion: e.target.value}))} />
             </div>
             <div>
               <label style={{display: 'block', fontSize: '12px', fontWeight: '600', color: '#64748b', marginBottom: '6px'}}>LIEU</label>
@@ -394,7 +396,7 @@ const CreateReunionModal: React.FC<CreateReunionModalProps> = ({ isOpen, onClose
           <h3 style={{margin: '0 0 14px', fontSize: '14px', fontWeight: '700', color: '#1e293b', borderTop: '1px solid #e2e8f0', paddingTop: '16px'}}>Participants ({participants.length})</h3>
 
           <div style={{background: '#eff6ff', borderRadius: '10px', padding: '14px', marginBottom: '14px'}}>
-            <div style={{fontSize: '12px', fontWeight: '700', color: '#1d4ed8', marginBottom: '8px'}}>🔍 Ajouter un agent DSI (Active Directory)</div>
+            <div style={{fontSize: '12px', fontWeight: '700', color: '#1d4ed8', marginBottom: '8px'}}>🔍 Ajouter un agent</div>
             <div style={{position: 'relative'}}>
               <input type="text" placeholder="Rechercher par nom..." style={{width: '100%', padding: '9px 12px', border: '1px solid #bfdbfe', borderRadius: '8px', fontSize: '14px'}} value={ad.query} onChange={e => ad.setQuery(e.target.value)} />
               {ad.searching && <span style={{position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', fontSize: '12px', color: '#64748b'}}>...</span>}
@@ -417,73 +419,59 @@ const CreateReunionModal: React.FC<CreateReunionModalProps> = ({ isOpen, onClose
           </div>
 
           <div style={{background: '#f0fdf4', borderRadius: '10px', padding: '14px', marginBottom: '14px'}}>
-            <div style={{fontSize: '12px', fontWeight: '700', color: '#16a34a', marginBottom: '8px'}}>➕ Ajouter un participant</div>
+            <div style={{fontSize: '12px', fontWeight: '700', color: '#16a34a', marginBottom: '8px'}}>➕ Ajouter un participant externe</div>
             <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr 1.2fr 1fr 1fr auto', gap: '8px', alignItems: 'end'}}>
               <div><label style={{display: 'block', fontSize: '11px', fontWeight: '600', color: '#64748b', marginBottom: '4px'}}>NOM *</label><input type="text" placeholder="Nom" style={{width: '100%', padding: '8px 10px', border: '1px solid #bbf7d0', borderRadius: '6px', fontSize: '13px'}} value={newParticipant.nom} onChange={e => setNewParticipant(v => ({...v, nom: e.target.value}))} /></div>
               <div><label style={{display: 'block', fontSize: '11px', fontWeight: '600', color: '#64748b', marginBottom: '4px'}}>PRÉNOM</label><input type="text" placeholder="Prénom" style={{width: '100%', padding: '8px 10px', border: '1px solid #bbf7d0', borderRadius: '6px', fontSize: '13px'}} value={newParticipant.prenom} onChange={e => setNewParticipant(v => ({...v, prenom: e.target.value}))} /></div>
               <div><label style={{display: 'block', fontSize: '11px', fontWeight: '600', color: '#64748b', marginBottom: '4px'}}>EMAIL</label><input type="email" placeholder="Email" style={{width: '100%', padding: '8px 10px', border: '1px solid #bbf7d0', borderRadius: '6px', fontSize: '13px'}} value={newParticipant.email} onChange={e => setNewParticipant(v => ({...v, email: e.target.value}))} /></div>
               <div>
-                <label style={{display: 'block', fontSize: '11px', fontWeight: '600', color: '#64748b', marginBottom: '4px'}}>DIRECTION</label>
-                <input type="text" placeholder='Direction' list="suggest-dir" style={{width: '100%', padding: '8px 10px', border: '1px solid #bbf7d0', borderRadius: '6px', fontSize: '13px'}} value={newParticipant.direction} onChange={e => setNewParticipant(v => ({...v, direction: e.target.value}))} />
-                <datalist id="suggest-dir">{directions.map(d => <option key={d} value={d} />)}</datalist>
+                <label style={{display: 'block', fontSize: '11px', fontWeight: '600', color: '#64748b', marginBottom: '4px'}}>ORGANISME</label>
+                <input type="text" placeholder='Organisme' style={{width: '100%', padding: '8px 10px', border: '1px solid #bbf7d0', borderRadius: '6px', fontSize: '13px'}} value={newParticipant.organisme} onChange={e => setNewParticipant(v => ({...v, organisme: e.target.value}))} />
             </div>
             <div>
-                <label style={{display: 'block', fontSize: '11px', fontWeight: '600', color: '#64748b', marginBottom: '4px'}}>SERVICE</label>
-                <input type="text" placeholder='Service' list="suggest-svc" style={{width: '100%', padding: '8px 10px', border: '1px solid #bbf7d0', borderRadius: '6px', fontSize: '13px'}} value={newParticipant.service} onChange={e => setNewParticipant(v => ({...v, service: e.target.value}))} />
-                <datalist id="suggest-svc">{services.map(s => <option key={s} value={s} />)}</datalist>
+                <label style={{display: 'block', fontSize: '11px', fontWeight: '600', color: '#64748b', marginBottom: '4px'}}>FONCTION</label>
+                <input type="text" placeholder='Fonction' style={{width: '100%', padding: '8px 10px', border: '1px solid #bbf7d0', borderRadius: '6px', fontSize: '13px'}} value={newParticipant.fonction} onChange={e => setNewParticipant(v => ({...v, fonction: e.target.value}))} />
               </div>
               <button onClick={addParticipantManuel} style={{padding: '8px 14px', background: '#16a34a', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: '600', fontSize: '13px', whiteSpace: 'nowrap'}}>+ Ajouter</button>
             </div>
           </div>
 
           {participants.length > 0 && (() => {
-            const dsi = participants.filter(p => p.type_presence === 'dsi');
-            const metiers = participants.filter(p => p.type_presence !== 'dsi');
+            const internes = participants.filter(p => p.type_presence !== 'externe');
+            const externes = participants.filter(p => p.type_presence === 'externe');
+            const renderRow = (p: Participant, list: Participant[], i: number) => (
+              <div key={p.id} style={{display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 14px', borderBottom: i < list.length - 1 ? '1px solid #e2e8f0' : 'none'}}>
+                <select value={p.statut_presence} onChange={e => setParticipants(prev => prev.map(x => x.id === p.id ? {...x, statut_presence: e.target.value as 'present' | 'excuse' | 'info'} : x))} style={{fontSize: '11px', padding: '4px 6px', border: '1px solid #cbd5e1', borderRadius: '4px', background: 'white'}}>
+                  <option value="present">Présent</option>
+                  <option value="excuse">Excusé</option>
+                  <option value="info">Convié</option>
+                </select>
+                <div style={{flex: 1, display: 'flex', flexDirection: 'column', gap: '2px'}}>
+                  <span style={{fontSize: '13px', fontWeight: '700', color: '#1e293b'}}>{p.prenom ? `${p.prenom} ` : ''}{p.nom}</span>
+                  <div style={{display: 'flex', gap: '6px', flexWrap: 'wrap'}}>
+                    {p.service && <span style={{fontSize: '11px', fontWeight: '500', background: 'rgba(0,0,0,0.05)', padding: '2px 7px', borderRadius: '3px', color: '#475569'}}>{p.service}</span>}
+                    {p.organisme && <span style={{fontSize: '11px', fontWeight: '500', background: 'rgba(0,0,0,0.05)', padding: '2px 7px', borderRadius: '3px', color: '#475569'}}>🏢 {p.organisme}</span>}
+                    {p.fonction && <span style={{fontSize: '11px', fontWeight: '500', background: 'rgba(0,0,0,0.05)', padding: '2px 7px', borderRadius: '3px', color: '#475569'}}>{p.fonction}</span>}
+                  </div>
+                </div>
+                <button onClick={() => setParticipants(prev => prev.filter(x => x.id !== p.id))} style={{background: 'none', border: 'none', cursor: 'pointer', color: '#ef4444', padding: '2px', flexShrink: 0}}><X size={14} /></button>
+              </div>
+            );
             return (
               <div style={{display: 'flex', flexDirection: 'column', gap: '16px'}}>
-                {dsi.length > 0 && (
+                {internes.length > 0 && (
                   <div>
-                    <h4 style={{margin: '0 0 10px', fontSize: '12px', fontWeight: '700', color: '#1d4ed8', textTransform: 'uppercase', letterSpacing: '0.05em'}}>👨‍💼 DSI ({dsi.length})</h4>
+                    <h4 style={{margin: '0 0 10px', fontSize: '12px', fontWeight: '700', color: '#1d4ed8', textTransform: 'uppercase', letterSpacing: '0.05em'}}>👥 Agents ({internes.length})</h4>
                     <div style={{border: '1px solid #dbeafe', borderRadius: '8px', overflow: 'hidden', background: '#f0f9ff'}}>
-                      {dsi.map((p, i) => (
-                        <div key={p.id} style={{display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 14px', borderBottom: i < dsi.length - 1 ? '1px solid #bfdbfe' : 'none'}}>
-                          <select value={p.statut_presence} onChange={e => setParticipants(prev => prev.map(x => x.id === p.id ? {...x, statut_presence: e.target.value as 'present' | 'excuse' | 'info'} : x))} style={{fontSize: '11px', padding: '4px 6px', border: '1px solid #bfdbfe', borderRadius: '4px', background: 'white'}}>
-                            <option value="present">Présent</option>
-                            <option value="excuse">Excusé</option>
-                            <option value="info">Pour information</option>
-                          </select>
-                          <div style={{flex: 1, display: 'flex', flexDirection: 'column', gap: '2px'}}>
-                            <span style={{fontSize: '13px', fontWeight: '700', color: '#1e293b'}}>{p.prenom ? `${p.prenom} ` : ''}{p.nom}</span>
-                            <div style={{display: 'flex', gap: '6px', flexWrap: 'wrap'}}>
-                              {p.service && <span style={{fontSize: '11px', fontWeight: '500', background: 'rgba(0,0,0,0.05)', padding: '2px 7px', borderRadius: '3px', color: '#475569'}}>{p.service}</span>}
-                            </div>
-                          </div>
-                          <button onClick={() => setParticipants(prev => prev.filter(x => x.id !== p.id))} style={{background: 'none', border: 'none', cursor: 'pointer', color: '#ef4444', padding: '2px', flexShrink: 0}}><X size={14} /></button>
-                        </div>
-                      ))}
+                      {internes.map((p, i) => renderRow(p, internes, i))}
                     </div>
                   </div>
                 )}
-                {metiers.length > 0 && (
+                {externes.length > 0 && (
                   <div>
-                    <h4 style={{margin: '0 0 10px', fontSize: '12px', fontWeight: '700', color: '#16a34a', textTransform: 'uppercase', letterSpacing: '0.05em'}}>👥 Autres ({metiers.length})</h4>
+                    <h4 style={{margin: '0 0 10px', fontSize: '12px', fontWeight: '700', color: '#16a34a', textTransform: 'uppercase', letterSpacing: '0.05em'}}>🏢 Participants externes ({externes.length})</h4>
                     <div style={{border: '1px solid #bbf7d0', borderRadius: '8px', overflow: 'hidden', background: '#f0fdf4'}}>
-                      {metiers.map((p, i) => (
-                        <div key={p.id} style={{display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 14px', borderBottom: i < metiers.length - 1 ? '1px solid #86efac' : 'none'}}>
-                          <select value={p.statut_presence} onChange={e => setParticipants(prev => prev.map(x => x.id === p.id ? {...x, statut_presence: e.target.value as 'present' | 'excuse' | 'info'} : x))} style={{fontSize: '11px', padding: '4px 6px', border: '1px solid #86efac', borderRadius: '4px', background: 'white'}}>
-                            <option value="present">Présent</option>
-                            <option value="excuse">Excusé</option>
-                            <option value="info">Pour information</option>
-                          </select>
-                          <div style={{flex: 1, display: 'flex', flexDirection: 'column', gap: '2px'}}>
-                            <span style={{fontSize: '13px', fontWeight: '700', color: '#1e293b'}}>{p.prenom ? `${p.prenom} ` : ''}{p.nom}</span>
-                            <div style={{display: 'flex', gap: '6px', flexWrap: 'wrap'}}>
-                              {p.service && <span style={{fontSize: '11px', fontWeight: '500', background: 'rgba(0,0,0,0.05)', padding: '2px 7px', borderRadius: '3px', color: '#475569'}}>{p.service}</span>}
-                            </div>
-                          </div>
-                          <button onClick={() => setParticipants(prev => prev.filter(x => x.id !== p.id))} style={{background: 'none', border: 'none', cursor: 'pointer', color: '#ef4444', padding: '2px', flexShrink: 0}}><X size={14} /></button>
-                        </div>
-                      ))}
+                      {externes.map((p, i) => renderRow(p, externes, i))}
                     </div>
                   </div>
                 )}

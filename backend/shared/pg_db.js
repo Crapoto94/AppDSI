@@ -1863,6 +1863,8 @@ async function setupPgDb() {
 
     try { await client.query(`ALTER TABLE hub_rencontres.rencontres_reunions ADD COLUMN IF NOT EXISTS source TEXT DEFAULT 'rencontres_budgetaires'`); } catch (e) {}
     try { await client.query(`ALTER TABLE hub_rencontres.reunion_participants ADD COLUMN IF NOT EXISTS commentaire TEXT`); } catch (e) {}
+    try { await client.query(`ALTER TABLE hub_rencontres.reunion_participants ADD COLUMN IF NOT EXISTS organisme TEXT`); } catch (e) {}
+    try { await client.query(`ALTER TABLE hub_rencontres.reunion_participants ADD COLUMN IF NOT EXISTS fonction TEXT`); } catch (e) {}
     try { await client.query(`ALTER TABLE hub_rencontres.rencontres_reunions ADD COLUMN IF NOT EXISTS duree_minutes INTEGER DEFAULT 60`); } catch (e) {}
     try { await client.query(`ALTER TABLE hub_rencontres.rencontres_reunions ADD COLUMN IF NOT EXISTS ordre_du_jour TEXT`); } catch (e) {}
     try { await client.query(`ALTER TABLE hub_rencontres.rencontres_reunions ADD COLUMN IF NOT EXISTS outlook_event_id TEXT`); } catch (e) {}
@@ -1943,6 +1945,8 @@ async function setupPgDb() {
         statut_presence TEXT DEFAULT 'present',
         ad_username TEXT,
         commentaire TEXT,
+        organisme TEXT,
+        fonction TEXT,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
     `);
