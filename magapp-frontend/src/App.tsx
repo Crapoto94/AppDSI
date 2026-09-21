@@ -524,6 +524,26 @@ function App() {
     }
   }, [rencontreSuiviIdx]);
 
+  // Chargement des abonnements détaillés à l'ouverture de « Mes abonnements »
+  // (déclaré AVANT les retours anticipés pour respecter les règles des hooks).
+  useEffect(() => {
+    if (!showSubs) return;
+    const load = async () => {
+      setLoadingSubs(true);
+      try {
+        const token = localStorage.getItem('token') || '';
+        const res = await axios.get(`${apiBase}/magapp/my-subscriptions?email=${encodeURIComponent(userEmail || '')}`, {
+          headers: token ? { Authorization: `Bearer ${token}` } : {}
+        });
+        setMySubs(res.data || { is_admin: false, email: '', subscriptions: [] });
+      } catch (e) {
+        console.error('Erreur chargement abonnements', e);
+        setMySubs({ is_admin: false, email: userEmail, subscriptions: [] });
+      } finally { setLoadingSubs(false); }
+    };
+    load();
+  }, [showSubs, userEmail]);
+
   const toggleFavorite = async (e: React.MouseEvent, appId: number) => {
     e.preventDefault();
     e.stopPropagation();
@@ -1106,24 +1126,6 @@ function App() {
       .replace(/<base\b[^>]*>/gi, '')
       .replace(/<meta\b(?=[^>]*http-equiv\s*=\s*["']?refresh)[^>]*>/gi, '');
   };
-
-  useEffect(() => {
-    if (!showSubs) return;
-    const load = async () => {
-      setLoadingSubs(true);
-      try {
-        const token = localStorage.getItem('token') || '';
-        const res = await axios.get(`${apiBase}/magapp/my-subscriptions?email=${encodeURIComponent(userEmail || '')}`, {
-          headers: token ? { Authorization: `Bearer ${token}` } : {}
-        });
-        setMySubs(res.data || { is_admin: false, email: '', subscriptions: [] });
-      } catch (e) {
-        console.error('Erreur chargement abonnements', e);
-        setMySubs({ is_admin: false, email: userEmail, subscriptions: [] });
-      } finally { setLoadingSubs(false); }
-    };
-    load();
-  }, [showSubs, userEmail]);
 
   const handleToggleSubAlert = async (appId: number, emailAlerts: boolean) => {
     try {
