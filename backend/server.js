@@ -773,6 +773,11 @@ app.get('/api/ad/search', authenticateJWT, async (req, res) => {
 // ─── Résolution d'identité agent (AD → RH Studio → hub.users) ────────────────
 // Sert au module Réunions (module générique) : recherche d'un agent avec repli
 // RH Studio si absent de l'AD, et identité de l'agent connecté (nom + service).
+// « CHEVALIER », « BILLAUD-BOUAMRANI », « Marc » → « Chevalier », « Billaud-Bouamrani », « Marc »
+function titleCaseName(s) {
+    return String(s || '').toLowerCase().replace(/(^|[\s'-])(\p{L})/gu, (m, sep, ch) => sep + ch.toUpperCase());
+}
+
 function splitDisplayName(displayName, fallback) {
     const parts = String(displayName || '').trim().split(/\s+/).filter(Boolean);
     if (parts.length === 0) return { prenom: '', nom: fallback || '' };
@@ -820,24 +825,34 @@ async function resolveAgentIdentity(username, email) {
         }
     } catch { /* repli RH */ }
 
-    if (out.source !== 'ad' || !out.email) {
-        try {
-            let agent = out.email ? await rhStudio.findAgentByEmail(out.email) : null;
-            if (!agent) {
-                const q = (out.displayName && out.displayName !== uname) ? out.displayName : uname;
-                const list = await rhStudio.searchAgents(q);
-                agent = (list || [])[0] || null;
-            }
-            if (agent) {
-                if (agent.prenom) out.prenom = agent.prenom;
-                if (agent.nom) out.nom = agent.nom;
-                if (agent.prenom || agent.nom) out.displayName = [agent.prenom, agent.nom].filter(Boolean).join(' ');
-                if (agent.email && !out.email) out.email = agent.email;
-                if (agent.service) out.service = agent.service;
-                if (agent.direction && !out.direction) out.direction = agent.direction;
-                if (out.source !== 'ad') out.source = 'rh';
-            }
-        } catch { /* ignore */ }
+    // RH Studio = source de vérité pour le prénom/nom : interrogé même quand l'AD
+    // a répondu (l'AD expose souvent « NOM Prénom », on veut un ordre fiable).
+    let rhAgent = null;
+    try {
+        let agent = out.email ? await rhStudio.findAgentByEmail(out.email) : null;
+        if (!agent) {
+            const q = (out.displayName && out.displayName !== uname) ? out.displayName : uname;
+            const list = await rhStudio.searchAgents(q);
+            agent = (list || [])[0] || null;
+        }
+        rhAgent = agent;
+    } catch { /* ignore */ }
+
+    if (rhAgent) {
+        if (rhAgent.prenom) out.prenom = rhAgent.prenom;
+        if (rhAgent.nom) out.nom = rhAgent.nom;
+        if (rhAgent.email && !out.email) out.email = rhAgent.email;
+        if (rhAgent.service) out.service = rhAgent.service;
+        if (rhAgent.direction && !out.direction) out.direction = rhAgent.direction;
+        if (out.source !== 'ad') out.source = 'rh';
+    }
+
+    // Nom affiché : « Nom Prénom » (ex. "Chevalier Marc") quand prénom/nom RH
+    // connus ; sinon on normalise simplement la casse du displayName existant.
+    if (rhAgent && (rhAgent.prenom || rhAgent.nom)) {
+        out.displayName = `${titleCaseName(out.nom)} ${titleCaseName(out.prenom)}`.trim() || out.displayName;
+    } else if (out.displayName) {
+        out.displayName = titleCaseName(out.displayName);
     }
 
     if (!out.prenom && !out.nom) {
@@ -850,7 +865,7 @@ async function resolveAgentIdentity(username, email) {
 // Nom affichable pour un jeton « module seul » : displayName du jeton, sinon
 // résolu via AD/RH Studio (évite d'afficher le simple login dans l'en-tête).
 async function accessDisplayName(user, username) {
-    if (user?.displayName) return user.displayName;
+    if (user?.displayName && user.displayName.toLowerCase() !== String(username || '').toLowerCase()) return user.displayName;
     try {
         const ident = await resolveAgentIdentity(username, user?.email);
         return ident.displayName || username;
