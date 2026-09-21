@@ -7,6 +7,7 @@ import TranscriptViewModal from './TranscriptViewModal';
 import AddTaskModal from './AddTaskModal';
 import { useADSearch } from '../utils/useADSearch';
 import type { ADUser } from '../utils/useADSearch';
+import { createAgentLinkTicket } from '../utils/createAgentLinkTicket';
 import { stripDangerousHtmlTags } from '../utils/sanitizeHtml';
 
 const QUILL_MODULES_RICH = {
@@ -57,7 +58,7 @@ const ReunionDetailModal: React.FC<Props> = ({ isOpen, reunionId, token, userRol
   const [reunionAttachments, setReunionAttachments] = useState<Attachment[]>([]);
   const [newDecision, setNewDecision] = useState('');
   const [showAddParticipantDetail, setShowAddParticipantDetail] = useState(false);
-  const detailAd = useADSearch(token);
+  const detailAd = useADSearch(token, { endpoint: '/api/agents/search' });
   const [detailNewParticipant, setDetailNewParticipant] = useState({ nom: '', prenom: '', email: '', organisme: '', fonction: '', service: '', direction: '', type_presence: 'externe' as 'metier' | 'dsi' | 'externe', statut_presence: 'present' as 'present' | 'excuse' | 'info', commentaire: '' });
   const [isAddingDetailParticipant, setIsAddingDetailParticipant] = useState(false);
   const [editingParticipantId, setEditingParticipantId] = useState<number | null>(null);
@@ -353,10 +354,10 @@ const ReunionDetailModal: React.FC<Props> = ({ isOpen, reunionId, token, userRol
         method: 'POST',
         headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          nom: user.displayName.split(' ').slice(1).join(' ') || user.displayName,
-          prenom: user.displayName.split(' ')[0], email: user.email,
+          nom: user.nom || user.displayName.split(' ').slice(1).join(' ') || user.displayName,
+          prenom: user.prenom || user.displayName.split(' ')[0], email: user.email,
           service: user.service || '', direction: user.direction || '',
-          type_presence: 'metier', statut_presence: detailNewParticipant.statut_presence, ad_username: user.username,
+          type_presence: 'metier', statut_presence: detailNewParticipant.statut_presence, ad_username: user.username || null,
           commentaire: detailNewParticipant.commentaire
         })
       });
@@ -383,6 +384,12 @@ const ReunionDetailModal: React.FC<Props> = ({ isOpen, reunionId, token, userRol
       } else { const err = await res.json(); alert(`Erreur : ${err.error}`); }
     } catch (e) { alert('Erreur ajout participant'); }
     finally { setIsAddingDetailParticipant(false); }
+  };
+
+  const handleCreateRhTicket = async (agentName: string) => {
+    const id = await createAgentLinkTicket(token, agentName);
+    if (id) alert(`Ticket DSI créé (n° ${id}) : refaire le lien RH/AD pour ${agentName}.`);
+    else alert("Impossible de créer le ticket automatiquement. Merci de le signaler manuellement à la DSI.");
   };
 
   const handleUploadAttachment = async (files: FileList | null) => {
@@ -607,14 +614,24 @@ const ReunionDetailModal: React.FC<Props> = ({ isOpen, reunionId, token, userRol
                     {detailAd.searching && <span style={{position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', fontSize: '11px', color: '#64748b'}}>...</span>}
                   </div>
                   {detailAd.results.length > 0 && (
-                    <div style={{marginTop: '6px', border: '1px solid #bfdbfe', borderRadius: '6px', background: 'white', maxHeight: '120px', overflowY: 'auto'}}>
+                    <div style={{marginTop: '6px', border: '1px solid #bfdbfe', borderRadius: '6px', background: 'white', maxHeight: '200px', overflowY: 'auto'}}>
                       {detailAd.results.map(u => (
-                        <div key={u.username} style={{padding: '6px 10px', cursor: 'pointer', borderBottom: '1px solid #f1f5f9', fontSize: '12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center'}} onClick={() => addParticipantFromADDetail(u)} onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = '#eff6ff'} onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = 'white'}>
-                          <div>
-                            <div style={{fontWeight: '600'}}>{u.displayName}</div>
-                            <div style={{fontSize: '10px', color: '#64748b'}}>{u.email}{u.service ? ` — ${u.service}` : ''}</div>
+                        <div key={u.username || u.email || u.displayName} style={{padding: '6px 10px', cursor: 'pointer', borderBottom: '1px solid #f1f5f9', fontSize: '12px', display: 'flex', flexDirection: 'column', gap: '4px'}} onClick={() => addParticipantFromADDetail(u)} onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = '#eff6ff'} onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = 'white'}>
+                          <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px'}}>
+                            <div style={{minWidth: 0}}>
+                              <div style={{fontWeight: '600', display: 'flex', alignItems: 'center', gap: '6px'}}>
+                                {u.displayName}
+                                {u.source === 'rh' && <span style={{fontSize: '9px', fontWeight: 800, background: '#ede9fe', color: '#6d28d9', padding: '1px 5px', borderRadius: '5px'}}>RH</span>}
+                              </div>
+                              <div style={{fontSize: '10px', color: '#64748b'}}>{u.email || 'Aucun email'}{u.service ? ` — ${u.service}` : ''}</div>
+                            </div>
+                            <Plus size={12} color="#2563eb" />
                           </div>
-                          <Plus size={12} color="#2563eb" />
+                          {u.emailMissing && (
+                            <div style={{fontSize: '11px', color: '#b45309', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: '6px', padding: '4px 7px'}} onClick={e => e.stopPropagation()}>
+                              ⚠️ Adresse mail non trouvée pour cet agent. Si vous pensez que c'est une erreur, <span onClick={() => handleCreateRhTicket(u.displayName)} style={{textDecoration: 'underline', cursor: 'pointer', fontWeight: 700}}>cliquez ici</span>.
+                            </div>
+                          )}
                         </div>
                       ))}
                     </div>

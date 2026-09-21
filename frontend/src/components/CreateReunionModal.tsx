@@ -3,6 +3,7 @@ import { X, Plus, Paperclip, Calendar as CalendarIcon, CalendarSearch, AlertTria
 import ReactQuill from 'react-quill-new';
 import 'react-quill-new/dist/quill.snow.css';
 import { useADSearch } from '../utils/useADSearch';
+import { createAgentLinkTicket } from '../utils/createAgentLinkTicket';
 import { useAuth } from '../contexts/AuthContext';
 
 interface Participant {
@@ -48,30 +49,44 @@ const CreateReunionModal: React.FC<CreateReunionModalProps> = ({ isOpen, onClose
   const [slotsOpen, setSlotsOpen] = useState(false);
   const [participants, setParticipants] = useState<Participant[]>([]);
 
-  // À l'ouverture, ajoute automatiquement l'utilisateur connecté comme participant (depuis son profil)
+  // À l'ouverture, ajoute automatiquement l'agent connecté comme participant, avec
+  // son prénom, son nom et son service résolus via AD → RH Studio (/api/agents/me).
   useEffect(() => {
-    if (!isOpen || !user?.username) return;
-    setParticipants(prev => {
-      if (prev.some(p => p.ad_username && p.ad_username.toLowerCase() === user.username.toLowerCase())) return prev;
-      const parts = (user.displayName || user.username).trim().split(' ');
-      const prenom = parts.length > 1 ? parts[0] : '';
-      const nom = parts.length > 1 ? parts.slice(1).join(' ') : (user.displayName || user.username);
-      return [{
-        id: Date.now(),
-        reunion_id: 0,
-        nom,
-        prenom,
-        email: user.email || '',
-        service: user.service_complement || user.service_code || '',
-        direction: '',
-        type_presence: 'metier',
-        statut_presence: 'present',
-        ad_username: user.username
-      }, ...prev];
-    });
-  }, [isOpen, user]);
+    if (!isOpen) return;
+    let cancelled = false;
+    (async () => {
+      let ident: any = null;
+      try {
+        const res = await fetch('/api/agents/me', { headers: { Authorization: `Bearer ${token}` } });
+        if (res.ok) ident = await res.json();
+      } catch { /* repli sur le profil de session */ }
+      if (cancelled) return;
+      const username = ident?.username || user?.username || '';
+      if (!username) return;
+      setParticipants(prev => {
+        if (prev.some(p => p.ad_username && p.ad_username.toLowerCase() === username.toLowerCase())) return prev;
+        const display = ident?.displayName || user?.displayName || username;
+        const parts = String(display).trim().split(/\s+/);
+        const prenom = ident?.prenom || (parts.length > 1 ? parts[0] : '');
+        const nom = ident?.nom || (parts.length > 1 ? parts.slice(1).join(' ') : display);
+        return [{
+          id: Date.now(),
+          reunion_id: 0,
+          nom,
+          prenom,
+          email: ident?.email || user?.email || '',
+          service: ident?.service || user?.service_complement || user?.service_code || '',
+          direction: ident?.direction || '',
+          type_presence: 'metier',
+          statut_presence: 'present',
+          ad_username: username
+        }, ...prev];
+      });
+    })();
+    return () => { cancelled = true; };
+  }, [isOpen, user, token]);
   const [newParticipant, setNewParticipant] = useState({ nom: '', prenom: '', email: '', organisme: '', fonction: '', type_presence: 'externe' as 'metier' | 'dsi' | 'externe', statut_presence: 'present' as 'present' | 'excuse' | 'info' });
-  const ad = useADSearch(token);
+  const ad = useADSearch(token, { endpoint: '/api/agents/search' });
   const [isCreating, setIsCreating] = useState(false);
   const [loadingMembers, setLoadingMembers] = useState(false);
 
@@ -101,20 +116,27 @@ const CreateReunionModal: React.FC<CreateReunionModalProps> = ({ isOpen, onClose
     setLoadingMembers(false);
   };
 
-  const addParticipantFromAD = (user: { username: string; displayName: string; email: string; service?: string; direction?: string }) => {
+  const addParticipantFromAD = (user: { username: string; displayName: string; email: string; service?: string; direction?: string; prenom?: string; nom?: string }) => {
+    const parts = String(user.displayName || '').trim().split(/\s+/);
     setParticipants(prev => [...prev, {
       id: Date.now(), reunion_id: 0,
-      nom: user.displayName.split(' ').slice(1).join(' ') || user.displayName,
-      prenom: user.displayName.split(' ')[0],
+      nom: user.nom || (parts.length > 1 ? parts.slice(1).join(' ') : (user.displayName || user.username)),
+      prenom: user.prenom || (parts.length > 1 ? parts[0] : ''),
       email: user.email,
       service: user.service || '',
       direction: user.direction || '',
       type_presence: 'metier',
       statut_presence: 'present',
-      ad_username: user.username
+      ad_username: user.username || undefined
     }]);
     ad.setQuery('');
     ad.clearResults();
+  };
+
+  const handleCreateRhTicket = async (agentName: string) => {
+    const id = await createAgentLinkTicket(token, agentName, { name: user?.displayName, email: user?.email });
+    if (id) alert(`Ticket DSI créé (n° ${id}) : refaire le lien RH/AD pour ${agentName}.`);
+    else alert("Impossible de créer le ticket automatiquement. Merci de le signaler manuellement à la DSI.");
   };
 
   const addParticipantManuel = () => {
@@ -402,16 +424,26 @@ const CreateReunionModal: React.FC<CreateReunionModalProps> = ({ isOpen, onClose
               {ad.searching && <span style={{position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', fontSize: '12px', color: '#64748b'}}>...</span>}
             </div>
             {ad.results.length > 0 && (
-              <div style={{marginTop: '8px', border: '1px solid #bfdbfe', borderRadius: '8px', background: 'white', maxHeight: '160px', overflowY: 'auto'}}>
+              <div style={{marginTop: '8px', border: '1px solid #bfdbfe', borderRadius: '8px', background: 'white', maxHeight: '240px', overflowY: 'auto'}}>
                 {ad.results.map(u => (
-                  <div key={u.username} style={{padding: '8px 12px', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #f1f5f9'}} onClick={() => addParticipantFromAD(u)}
+                  <div key={u.username || u.email || u.displayName} style={{padding: '8px 12px', cursor: 'pointer', display: 'flex', flexDirection: 'column', gap: '4px', borderBottom: '1px solid #f1f5f9'}} onClick={() => addParticipantFromAD(u)}
                     onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = '#eff6ff'}
                     onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = 'white'}>
-                    <div>
-                      <div style={{fontWeight: '600', fontSize: '13px'}}>{u.displayName}</div>
-                      <div style={{fontSize: '11px', color: '#64748b'}}>{u.email}{u.service ? ` — ${u.service}` : ''}{u.direction ? ` / ${u.direction}` : ''}</div>
+                    <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px'}}>
+                      <div style={{minWidth: 0}}>
+                        <div style={{fontWeight: '600', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px'}}>
+                          {u.displayName}
+                          {u.source === 'rh' && <span style={{fontSize: '9px', fontWeight: 800, background: '#ede9fe', color: '#6d28d9', padding: '1px 5px', borderRadius: '5px'}}>RH</span>}
+                        </div>
+                        <div style={{fontSize: '11px', color: '#64748b'}}>{u.email || 'Aucun email'}{u.service ? ` — ${u.service}` : ''}{u.direction ? ` / ${u.direction}` : ''}</div>
+                      </div>
+                      <Plus size={14} color="#2563eb" />
                     </div>
-                    <Plus size={14} color="#2563eb" />
+                    {u.emailMissing && (
+                      <div style={{fontSize: '11px', color: '#b45309', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: '6px', padding: '5px 8px'}} onClick={e => e.stopPropagation()}>
+                        ⚠️ Adresse mail non trouvée pour cet agent. Si vous pensez que c'est une erreur, <span onClick={() => handleCreateRhTicket(u.displayName)} style={{textDecoration: 'underline', cursor: 'pointer', fontWeight: 700}}>cliquez ici</span>.
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>

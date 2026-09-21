@@ -17,6 +17,7 @@ const bcrypt = require('bcryptjs');
 const { setupDb, pgDb, pool, setupPgDb } = require('./shared/database');
 const { logMouchard, flattenLDAPEntry, decodeLDAPString, excelDateToISO } = require('./shared/utils');
 const { searchADUsersByQuery } = require('./shared/ad_helper');
+const rhStudio = require('./shared/rh_studio');
 const { SECRET_KEY, PORT, FOLDERS } = require('./shared/config');
 const { MODULES_REGISTRY } = require('./shared/modules-registry');
 const { authenticateJWT, authenticateAdmin, authenticateAdminUI, authenticateInternalOrAdmin, authenticateAdminOrFinances, authenticateMagappControl, isSuperAdmin, isAdminLike } = require('./shared/middleware');
@@ -767,6 +768,139 @@ app.get('/api/ad/search', authenticateJWT, async (req, res) => {
         console.error('Erreur recherche AD:', error);
         res.status(500).json({ error: error.message });
     }
+});
+
+// ─── Résolution d'identité agent (AD → RH Studio → hub.users) ────────────────
+// Sert au module Réunions (module générique) : recherche d'un agent avec repli
+// RH Studio si absent de l'AD, et identité de l'agent connecté (nom + service).
+function splitDisplayName(displayName, fallback) {
+    const parts = String(displayName || '').trim().split(/\s+/).filter(Boolean);
+    if (parts.length === 0) return { prenom: '', nom: fallback || '' };
+    if (parts.length === 1) return { prenom: '', nom: parts[0] };
+    return { prenom: parts[0], nom: parts.slice(1).join(' ') };
+}
+
+async function getEnabledAdSettings() {
+    try {
+        const adSettings = await db.get('SELECT * FROM ad_settings WHERE id = 1');
+        return (adSettings && adSettings.is_enabled) ? adSettings : null;
+    } catch { return null; }
+}
+
+// GET /api/agents/search?q= — recherche AD, repli RH Studio si aucun résultat.
+app.get('/api/agents/search', authenticateJWT, async (req, res) => {
+    try {
+        const q = String(req.query.q || '').trim();
+        if (q.length < 2) return res.json([]);
+
+        let adResults = [];
+        try {
+            const adSettings = await getEnabledAdSettings();
+            if (adSettings) adResults = await searchADUsersByQuery(q, adSettings);
+        } catch (e) { /* repli RH */ }
+
+        const mapped = (adResults || []).map(u => {
+            const { prenom, nom } = splitDisplayName(u.displayName, u.username);
+            return {
+                username: u.username || '',
+                displayName: u.displayName || u.username || '',
+                prenom, nom,
+                email: u.email || '',
+                service: u.service || '',
+                direction: u.direction || '',
+                source: 'ad',
+                emailMissing: !u.email,
+            };
+        });
+        if (mapped.length > 0) return res.json(mapped);
+
+        // Aucun agent trouvé dans l'AD : on interroge RH Studio (source de vérité).
+        let rh = [];
+        try { rh = await rhStudio.searchAgents(q); } catch (e) { /* ignore */ }
+        const rhMapped = (rh || []).map(a => {
+            const displayName = [a.prenom, a.nom].filter(Boolean).join(' ') || a.email || a.matricule || 'Agent';
+            const email = a.email || '';
+            const username = email ? email.split('@')[0].toLowerCase() : (a.matricule ? `rh_${a.matricule}` : '');
+            return {
+                username, displayName,
+                prenom: a.prenom || '', nom: a.nom || '',
+                email,
+                service: a.service || '', direction: a.direction || '', fonction: a.fonction || '',
+                source: 'rh',
+                emailMissing: !email,
+            };
+        });
+        res.json(rhMapped);
+    } catch (error) {
+        console.error('Erreur recherche agents:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// GET /api/agents/me — identité de l'agent connecté (nom, prénom, service, email),
+// enrichie AD puis RH Studio (repli) pour préremplir un participant par défaut.
+app.get('/api/agents/me', authenticateJWT, async (req, res) => {
+    const username = String(req.user?.username || '').toLowerCase();
+    const result = {
+        username,
+        displayName: req.user?.displayName || username,
+        prenom: '', nom: '',
+        email: req.user?.email || '',
+        service: '', direction: '',
+        source: 'token',
+    };
+    try {
+        const u = await db.get('SELECT displayName, email, service_code, service_complement FROM users WHERE LOWER(username)=?', [username]);
+        if (u) {
+            if (u.displayName) result.displayName = u.displayName;
+            if (u.email) result.email = u.email;
+            result.service = u.service_complement || u.service_code || '';
+            result.source = 'hub';
+        }
+    } catch { /* ignore */ }
+
+    try {
+        const adSettings = await getEnabledAdSettings();
+        if (adSettings) {
+            const matches = await searchADUsersByQuery(username, adSettings);
+            const hit = (matches || []).find(m => (m.username || '').toLowerCase() === username) || (matches || [])[0];
+            if (hit) {
+                result.displayName = hit.displayName || result.displayName;
+                if (hit.email) result.email = hit.email;
+                if (hit.service) result.service = hit.service;
+                if (hit.direction) result.direction = hit.direction;
+                result.source = 'ad';
+            }
+        }
+    } catch { /* repli RH */ }
+
+    // Repli RH Studio : nom/prénom fiables + service + email.
+    if (result.source !== 'ad' || !result.email) {
+        try {
+            let agent = result.email ? await rhStudio.findAgentByEmail(result.email) : null;
+            if (!agent) {
+                const q = (result.displayName && result.displayName !== username) ? result.displayName : username;
+                const list = await rhStudio.searchAgents(q);
+                agent = (list || [])[0] || null;
+            }
+            if (agent) {
+                if (agent.prenom) result.prenom = agent.prenom;
+                if (agent.nom) result.nom = agent.nom;
+                if (agent.prenom || agent.nom) result.displayName = [agent.prenom, agent.nom].filter(Boolean).join(' ');
+                if (agent.email) result.email = agent.email;
+                if (agent.service) result.service = agent.service;
+                if (agent.direction && !result.direction) result.direction = agent.direction;
+                if (result.source !== 'ad') result.source = 'rh';
+            }
+        } catch { /* ignore */ }
+    }
+
+    if (!result.prenom && !result.nom) {
+        const { prenom, nom } = splitDisplayName(result.displayName, username);
+        result.prenom = prenom; result.nom = nom;
+    }
+    result.emailMissing = !result.email;
+    res.json(result);
 });
 
 // Récupérer les infos AD de l'utilisateur connecté (service, direction)

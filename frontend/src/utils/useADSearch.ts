@@ -4,10 +4,17 @@ export interface ADUser {
   username: string;
   displayName: string;
   email: string;
+  prenom?: string;
+  nom?: string;
   service?: string;
   direction?: string;
   poste?: string;
   matricule?: string;
+  fonction?: string;
+  // 'ad' = trouvé dans l'Active Directory ; 'rh' = repli RH Studio.
+  source?: 'ad' | 'rh';
+  // true si l'agent est connu mais sans adresse email exploitable.
+  emailMissing?: boolean;
 }
 
 interface UseADSearchOptions {
