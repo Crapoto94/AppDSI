@@ -233,6 +233,20 @@ function App() {
           setUserEmail(resolvedEmail);
           setIsLoggedIn(true);
           setIsAutoLogging(false);
+          // Ancienne session (ou profil sans nom) : on résout le vrai nom
+          // (prénom nom) via AD / RH Studio pour l'en-tête « Bienvenue, … ».
+          if (!user.displayName || user.displayName === user.username) {
+            try {
+              const token = localStorage.getItem('token') || '';
+              const r = await axios.get('/api/agents/me', { headers: { Authorization: `Bearer ${token}` } });
+              if (r.data?.displayName) {
+                setDisplayName(r.data.displayName);
+                user.displayName = r.data.displayName;
+                sessionStorage.setItem('magapp_user', JSON.stringify(user));
+                if (localStorage.getItem('magapp_user')) localStorage.setItem('magapp_user', JSON.stringify(user));
+              }
+            } catch { /* on garde le login */ }
+          }
           await loadAppData(user.username, resolvedEmail);
           await checkVersions();
           return;

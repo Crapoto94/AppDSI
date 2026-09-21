@@ -787,6 +787,76 @@ async function getEnabledAdSettings() {
     } catch { return null; }
 }
 
+// Résout l'identité d'un agent : hub.users → Active Directory → RH Studio.
+// Renvoie toujours un objet (jamais null) : { username, displayName, prenom, nom,
+// email, service, direction, source }. Utilisé pour l'agent connecté et pour
+// renseigner un displayName exploitable (ex. "Marc CHEVALIER") à la connexion.
+async function resolveAgentIdentity(username, email) {
+    const uname = String(username || '').toLowerCase();
+    const out = { username: uname, displayName: '', prenom: '', nom: '', email: email || '', service: '', direction: '', source: 'none' };
+
+    try {
+        const u = await db.get('SELECT displayName, email, service_code, service_complement FROM users WHERE LOWER(username)=?', [uname]);
+        if (u) {
+            if (u.displayName) out.displayName = u.displayName;
+            if (u.email && !out.email) out.email = u.email;
+            out.service = u.service_complement || u.service_code || '';
+            out.source = 'hub';
+        }
+    } catch { /* ignore */ }
+
+    try {
+        const adSettings = await getEnabledAdSettings();
+        if (adSettings) {
+            const matches = await searchADUsersByQuery(uname, adSettings);
+            const hit = (matches || []).find(m => (m.username || '').toLowerCase() === uname) || (matches || [])[0];
+            if (hit) {
+                if (hit.displayName) out.displayName = hit.displayName;
+                if (hit.email && !out.email) out.email = hit.email;
+                if (hit.service) out.service = hit.service;
+                if (hit.direction) out.direction = hit.direction;
+                out.source = 'ad';
+            }
+        }
+    } catch { /* repli RH */ }
+
+    if (out.source !== 'ad' || !out.email) {
+        try {
+            let agent = out.email ? await rhStudio.findAgentByEmail(out.email) : null;
+            if (!agent) {
+                const q = (out.displayName && out.displayName !== uname) ? out.displayName : uname;
+                const list = await rhStudio.searchAgents(q);
+                agent = (list || [])[0] || null;
+            }
+            if (agent) {
+                if (agent.prenom) out.prenom = agent.prenom;
+                if (agent.nom) out.nom = agent.nom;
+                if (agent.prenom || agent.nom) out.displayName = [agent.prenom, agent.nom].filter(Boolean).join(' ');
+                if (agent.email && !out.email) out.email = agent.email;
+                if (agent.service) out.service = agent.service;
+                if (agent.direction && !out.direction) out.direction = agent.direction;
+                if (out.source !== 'ad') out.source = 'rh';
+            }
+        } catch { /* ignore */ }
+    }
+
+    if (!out.prenom && !out.nom) {
+        const { prenom, nom } = splitDisplayName(out.displayName, uname);
+        out.prenom = prenom; out.nom = nom;
+    }
+    return out;
+}
+
+// Nom affichable pour un jeton « module seul » : displayName du jeton, sinon
+// résolu via AD/RH Studio (évite d'afficher le simple login dans l'en-tête).
+async function accessDisplayName(user, username) {
+    if (user?.displayName) return user.displayName;
+    try {
+        const ident = await resolveAgentIdentity(username, user?.email);
+        return ident.displayName || username;
+    } catch { return username; }
+}
+
 // GET /api/agents/search?q= — recherche AD, repli RH Studio si aucun résultat.
 app.get('/api/agents/search', authenticateJWT, async (req, res) => {
     try {
@@ -858,66 +928,25 @@ app.get('/api/agents/search', authenticateJWT, async (req, res) => {
 // enrichie AD puis RH Studio (repli) pour préremplir un participant par défaut.
 app.get('/api/agents/me', authenticateJWT, async (req, res) => {
     const username = String(req.user?.username || '').toLowerCase();
-    const result = {
-        username,
-        displayName: req.user?.displayName || username,
-        prenom: '', nom: '',
-        email: req.user?.email || '',
-        service: '', direction: '',
-        source: 'token',
-    };
     try {
-        const u = await db.get('SELECT displayName, email, service_code, service_complement FROM users WHERE LOWER(username)=?', [username]);
-        if (u) {
-            if (u.displayName) result.displayName = u.displayName;
-            if (u.email) result.email = u.email;
-            result.service = u.service_complement || u.service_code || '';
-            result.source = 'hub';
-        }
-    } catch { /* ignore */ }
-
-    try {
-        const adSettings = await getEnabledAdSettings();
-        if (adSettings) {
-            const matches = await searchADUsersByQuery(username, adSettings);
-            const hit = (matches || []).find(m => (m.username || '').toLowerCase() === username) || (matches || [])[0];
-            if (hit) {
-                result.displayName = hit.displayName || result.displayName;
-                if (hit.email) result.email = hit.email;
-                if (hit.service) result.service = hit.service;
-                if (hit.direction) result.direction = hit.direction;
-                result.source = 'ad';
-            }
-        }
-    } catch { /* repli RH */ }
-
-    // Repli RH Studio : nom/prénom fiables + service + email.
-    if (result.source !== 'ad' || !result.email) {
-        try {
-            let agent = result.email ? await rhStudio.findAgentByEmail(result.email) : null;
-            if (!agent) {
-                const q = (result.displayName && result.displayName !== username) ? result.displayName : username;
-                const list = await rhStudio.searchAgents(q);
-                agent = (list || [])[0] || null;
-            }
-            if (agent) {
-                if (agent.prenom) result.prenom = agent.prenom;
-                if (agent.nom) result.nom = agent.nom;
-                if (agent.prenom || agent.nom) result.displayName = [agent.prenom, agent.nom].filter(Boolean).join(' ');
-                if (agent.email) result.email = agent.email;
-                if (agent.service) result.service = agent.service;
-                if (agent.direction && !result.direction) result.direction = agent.direction;
-                if (result.source !== 'ad') result.source = 'rh';
-            }
-        } catch { /* ignore */ }
+        const ident = await resolveAgentIdentity(username, req.user?.email);
+        res.json({
+            ...ident,
+            displayName: ident.displayName || req.user?.displayName || username,
+            email: ident.email || req.user?.email || '',
+            emailMissing: !(ident.email || req.user?.email),
+        });
+    } catch (error) {
+        res.json({
+            username,
+            displayName: req.user?.displayName || username,
+            prenom: '', nom: '',
+            email: req.user?.email || '',
+            service: '', direction: '',
+            source: 'token',
+            emailMissing: !req.user?.email,
+        });
     }
-
-    if (!result.prenom && !result.nom) {
-        const { prenom, nom } = splitDisplayName(result.displayName, username);
-        result.prenom = prenom; result.nom = nom;
-    }
-    result.emailMissing = !result.email;
-    res.json(result);
 });
 
 // Récupérer les infos AD de l'utilisateur connecté (service, direction)
@@ -4092,7 +4121,7 @@ app.post('/api/auth/magapp-transcript-access', authenticateJWT, async (req, res)
         const accessToken = jwt.sign({
             id: req.user.id || 0,
             username,
-            displayName: req.user.displayName || username,
+            displayName: await accessDisplayName(req.user, username),
             role: 'transcript_agent',
             is_approved: 1,
             service_code: req.user.service_code || null,
@@ -4127,7 +4156,7 @@ app.post('/api/auth/magapp-parapheur-access', authenticateJWT, async (req, res) 
         const accessToken = jwt.sign({
             id: req.user.id || 0,
             username,
-            displayName: req.user.displayName || username,
+            displayName: await accessDisplayName(req.user, username),
             role: 'parapheur_agent',
             is_approved: 1,
             service_code: req.user.service_code || null,
@@ -4161,7 +4190,7 @@ app.post('/api/auth/magapp-tasks-access', authenticateJWT, async (req, res) => {
         const accessToken = jwt.sign({
             id: req.user.id || 0,
             username,
-            displayName: req.user.displayName || username,
+            displayName: await accessDisplayName(req.user, username),
             role: req.user.role || 'user',
             is_approved: 1,
             service_code: req.user.service_code || null,
@@ -4195,7 +4224,7 @@ app.post('/api/auth/magapp-notes-access', authenticateJWT, async (req, res) => {
         const accessToken = jwt.sign({
             id: req.user.id || 0,
             username,
-            displayName: req.user.displayName || username,
+            displayName: await accessDisplayName(req.user, username),
             role: req.user.role || 'user',
             is_approved: 1,
             service_code: req.user.service_code || null,
@@ -4229,7 +4258,7 @@ app.post('/api/auth/magapp-reunions-access', authenticateJWT, async (req, res) =
         const accessToken = jwt.sign({
             id: req.user.id || 0,
             username,
-            displayName: req.user.displayName || username,
+            displayName: await accessDisplayName(req.user, username),
             role: req.user.role || 'user',
             is_approved: 1,
             service_code: req.user.service_code || null,
@@ -4291,10 +4320,11 @@ app.post(['/api/login', '/api/auth/magapp-login'], async (req, res) => {
             const userEmail = u.email && u.email.trim() !== ''
                 ? u.email
                 : `${username.toLowerCase()}@ivry94.fr`;
+            const resolvedDisplayName = u.displayName || (await resolveAgentIdentity(u.username, userEmail)).displayName || null;
             const accessToken = jwt.sign({
                 id: u.id || 0,
                 username: u.username,
-                displayName: u.displayName || null,
+                displayName: resolvedDisplayName,
                 role: u.role,
                 is_approved: u.is_approved,
                 service_code: u.service_code,
@@ -4307,7 +4337,7 @@ app.post(['/api/login', '/api/auth/magapp-login'], async (req, res) => {
                 user: {
                     id: u.id || 0,
                     username: u.username,
-                    displayName: u.displayName || null,
+                    displayName: resolvedDisplayName,
                     role: u.role,
                     is_approved: u.is_approved,
                     service_code: u.service_code,
@@ -4377,10 +4407,11 @@ app.post(['/api/login', '/api/auth/magapp-login'], async (req, res) => {
                         } catch (e) { /* non-fatal */ }
                     }
                     console.log(`[DEBUG LOGIN] Generating token for user ${u.username} (source: ${source}, role: ${u.role})`);
+                    const resolvedDisplayName = u.displayName || adUser.displayName || (await resolveAgentIdentity(u.username, adUser.email)).displayName || null;
                     const accessToken = jwt.sign({
                         id: u.id || 0,
                         username: u.username,
-                        displayName: u.displayName || adUser.displayName || null,
+                        displayName: resolvedDisplayName,
                         role: u.role,
                         is_approved: u.is_approved,
                         service_code: u.service_code || null,
@@ -4394,7 +4425,7 @@ app.post(['/api/login', '/api/auth/magapp-login'], async (req, res) => {
                         user: {
                             id: u.id || 0,
                             username: u.username,
-                            displayName: u.displayName || adUser.displayName || null,
+                            displayName: resolvedDisplayName,
                             role: u.role,
                             is_approved: u.is_approved,
                             service_code: u.service_code || null,
@@ -4427,11 +4458,12 @@ app.post(['/api/login', '/api/auth/magapp-login'], async (req, res) => {
                 // Règle de sécurité : Les admins sont TOUJOURS approuvés
                 const isApproved = isAdminLike(user) ? 1 : user.is_approved;
                 const userEmail = user.email && user.email.trim() ? user.email : `${user.username.toLowerCase()}@ivry94.fr`;
+                const resolvedDisplayName = user.displayName || (await resolveAgentIdentity(user.username, userEmail)).displayName || null;
 
                 const accessToken = jwt.sign({
                     id: user.id,
                     username: user.username,
-                    displayName: user.displayName || null,
+                    displayName: resolvedDisplayName,
                     role: user.role,
                     is_approved: isApproved,
                     service_code: user.service_code,
@@ -4445,7 +4477,7 @@ app.post(['/api/login', '/api/auth/magapp-login'], async (req, res) => {
                     user: {
                         id: user.id,
                         username: user.username,
-                        displayName: user.displayName || null,
+                        displayName: resolvedDisplayName,
                         role: user.role,
                         is_approved: isApproved,
                         service_code: user.service_code,
