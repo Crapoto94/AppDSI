@@ -166,8 +166,8 @@ const VibeCoding: React.FC = () => {
   return (
     <div style={{ minHeight: '100vh', backgroundColor: 'var(--bg-color)' }}>
       <Header />
-      <main style={{ padding: '60px 20px' }}>
-        <div style={{ maxWidth: '1300px', margin: '0 auto' }}>
+      <main style={{ padding: '60px 100px 120px 20px' }}>
+        <div style={{ maxWidth: '1200px', margin: '0 auto' }}>
           <div style={{ marginBottom: '32px' }}>
             <h1 style={{ fontSize: '2rem', fontWeight: '900', color: '#0f172a', margin: 0, marginBottom: '8px' }}>
               VibeCoding
