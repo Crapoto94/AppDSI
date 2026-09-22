@@ -166,8 +166,8 @@ const VibeCoding: React.FC = () => {
   return (
     <div style={{ minHeight: '100vh', backgroundColor: 'var(--bg-color)' }}>
       <Header />
-      <main style={{ padding: '60px 100px 120px 20px' }}>
-        <div style={{ maxWidth: '1200px', margin: '0 auto' }}>
+      <main style={{ padding: '60px 24px 140px' }}>
+        <div style={{ maxWidth: '1150px', margin: '0 auto' }}>
           <div style={{ marginBottom: '32px' }}>
             <h1 style={{ fontSize: '2rem', fontWeight: '900', color: '#0f172a', margin: 0, marginBottom: '8px' }}>
               VibeCoding
@@ -235,7 +235,7 @@ const VibeCoding: React.FC = () => {
           {activeTab === 'applications' && <ApplicationsCatalog />}
 
           {activeTab === 'documents' && (
-          <div style={{ display: 'grid', gridTemplateColumns: '280px 1fr', gap: '20px', alignItems: 'start' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '280px minmax(0, 1fr)', gap: '20px', alignItems: 'start' }}>
             {/* Sidebar : liste des documents */}
             <div style={{
               background: 'white',
@@ -343,7 +343,9 @@ const VibeCoding: React.FC = () => {
               borderRadius: '12px',
               padding: '32px',
               boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
-              minHeight: '300px'
+              minHeight: '300px',
+              minWidth: 0,
+              overflowX: 'auto'
             }}>
               {selectedDoc && (
                 <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '16px' }}>
