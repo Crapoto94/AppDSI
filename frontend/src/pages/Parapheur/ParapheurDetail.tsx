@@ -121,8 +121,8 @@ export default function ParapheurDetail() {
   const annexeDocs = detail.documents.filter(d => d.is_annexe);
 
   const renderDocRow = (d: Detail['documents'][number], isAnnexe: boolean) => (
-    <div key={d.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 12px', border: '1px solid #f1f5f9', borderRadius: 9 }}>
-      <FileText size={15} color={isAnnexe ? '#64748b' : '#ef4444'} />
+    <div key={d.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 12px', border: '1px solid #f1f5f9', borderRadius: 9, minWidth: 0 }}>
+      <FileText size={15} color={isAnnexe ? '#64748b' : '#ef4444'} style={{ flexShrink: 0 }} />
       <span style={{ flex: 1, minWidth: 0, fontSize: 13, color: '#1e293b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
         {d.original_name}{d.page_count ? <span style={{ color: '#94a3b8' }}> · {d.page_count} page(s)</span> : null}
       </span>
@@ -184,14 +184,14 @@ export default function ParapheurDetail() {
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: 16, marginTop: 16 }}>
         <section style={card}>
           <h3 style={cardTitle}><FileText size={17} /> Documents à signer ({signableDocs.length})</h3>
-          <div style={{ display: 'grid', gap: 8 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 8 }}>
             {signableDocs.map(d => renderDocRow(d, false))}
           </div>
           {annexeDocs.length > 0 && (
             <>
               <h3 style={{ ...cardTitle, marginTop: 18 }}><Paperclip size={17} /> Annexes ({annexeDocs.length})</h3>
               <p style={{ fontSize: 11, color: '#94a3b8', margin: '-8px 0 10px' }}>Documents complémentaires consultables, non signés.</p>
-              <div style={{ display: 'grid', gap: 8 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 8 }}>
                 {annexeDocs.map(d => renderDocRow(d, true))}
               </div>
             </>
@@ -205,7 +205,7 @@ export default function ParapheurDetail() {
 
         <section style={card}>
           <h3 style={cardTitle}><PenLine size={17} /> Signataires ({detail.signataires.length})</h3>
-          <div style={{ display: 'grid', gap: 8 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 8 }}>
             {detail.signataires.map((s, i) => {
               const ss = SIG[s.status] || SIG.en_attente;
               return (
@@ -263,9 +263,9 @@ function Shell({ children }: { children: React.ReactNode }) {
   return <div style={{ minHeight: '100vh', background: '#f8fafc' }}>{user?.role === 'parapheur_agent' ? <ParapheurAgentHeader user={user} /> : <Header />}<div style={{ maxWidth: 1000, margin: '0 auto', padding: '24px 20px 60px' }}>{children}</div></div>;
 }
 
-const card: React.CSSProperties = { background: '#fff', border: '1px solid #e2e8f0', borderRadius: 14, padding: 20 };
+const card: React.CSSProperties = { background: '#fff', border: '1px solid #e2e8f0', borderRadius: 14, padding: 20, minWidth: 0 };
 const cardTitle: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: 8, margin: '0 0 14px', fontSize: 15, fontWeight: 800, color: '#0f172a' };
 const ghostBtn: React.CSSProperties = { display: 'inline-flex', alignItems: 'center', gap: 6, padding: '10px 16px', background: '#fff', color: '#475569', border: '1px solid #e2e8f0', borderRadius: 9, fontWeight: 700, fontSize: 13, cursor: 'pointer' };
 const signBtn: React.CSSProperties = { display: 'inline-flex', alignItems: 'center', gap: 7, padding: '11px 20px', background: '#16a34a', color: '#fff', border: 'none', borderRadius: 10, fontWeight: 800, fontSize: 13, cursor: 'pointer' };
-const iconLink: React.CSSProperties = { display: 'flex', color: '#64748b', padding: 4 };
+const iconLink: React.CSSProperties = { display: 'flex', color: '#64748b', padding: 4, flexShrink: 0 };
 const errBox: React.CSSProperties = { padding: '10px 14px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 8, color: '#b91c1c', fontSize: 13 };

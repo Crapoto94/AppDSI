@@ -29,6 +29,7 @@ export default function ParapheurCreate() {
   const [title, setTitle] = useState('');
   const [message, setMessage] = useState('');
   const [deadline, setDeadline] = useState('');
+  const [linkValidity, setLinkValidity] = useState(10);
   const [mode, setMode] = useState<Mode>('parallele');
   const [modeChosen, setModeChosen] = useState(false);
   const [showModeModal, setShowModeModal] = useState(false);
@@ -177,6 +178,7 @@ export default function ParapheurCreate() {
       const effectiveMode: Mode = signataires.length >= 2 ? mode : 'parallele';
       const payload = {
         title, message, mode: effectiveMode, deadline: deadline || null,
+        link_validity_minutes: linkValidity,
         signataires: signataires.map((s) => ({
           agentId: s.id,
           nom: s.displayName,
@@ -234,6 +236,22 @@ export default function ParapheurCreate() {
           <Field label="Échéance (optionnel)">
             <input type="date" value={deadline} onChange={e => setDeadline(e.target.value)} style={{ ...input, maxWidth: 240 }} />
           </Field>
+          {signataires.some(s => s.external) && (
+            <Field label="Durée de validité du lien de signature (signataires extérieurs)">
+              <select value={linkValidity} onChange={e => setLinkValidity(Number(e.target.value))} style={{ ...input, maxWidth: 320 }}>
+                <option value={10}>10 minutes</option>
+                <option value={30}>30 minutes</option>
+                <option value={60}>1 heure</option>
+                <option value={1440}>1 jour</option>
+                <option value={10080}>1 semaine</option>
+              </select>
+              <div style={{ fontSize: '0.75rem', color: '#94a3b8', marginTop: 6 }}>
+                {linkValidity <= 60
+                  ? 'Lien court : ouverture directe du parapheur, sans code de vérification.'
+                  : "Au-delà d'une heure, le signataire confirmera son identité par un code envoyé par e-mail."}
+              </div>
+            </Field>
+          )}
         </Section>
 
         {/* 2. Documents à signer */}
@@ -249,7 +267,7 @@ export default function ParapheurCreate() {
             <input ref={docInputRef} type="file" accept="application/pdf,.pdf" multiple style={{ display: 'none' }} onChange={handlePick('docs')} />
           </div>
           {documents.length > 0 && (
-            <div style={{ display: 'grid', gap: 8, marginTop: 12 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 8, marginTop: 12 }}>
               {documents.map((d, i) => (
                 <div key={d.id} style={{ ...row, padding: '10px 14px' }}>
                   <PdfThumb file={d.file} width={64} onPages={(n) => setPageCount(d.id, n)} />
@@ -278,7 +296,7 @@ export default function ParapheurCreate() {
           </div>
           <p style={hint}>Les annexes sont proposées en consultation au signataire mais ne sont pas signées.</p>
           {annexes.length > 0 && (
-            <div style={{ display: 'grid', gap: 8, marginTop: 12 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 8, marginTop: 12 }}>
               {annexes.map((a, i) => (
                 <div key={a.id} style={{ ...row, padding: '10px 14px' }}>
                   <PdfThumb file={a.file} width={64} onPages={(n) => setPageCount(a.id, n)} />
@@ -558,8 +576,8 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 const input: React.CSSProperties = { width: '100%', padding: '10px 12px', border: '1px solid #e2e8f0', borderRadius: 8, fontSize: 13, outline: 'none', boxSizing: 'border-box', fontFamily: 'inherit' };
 const primaryBtn: React.CSSProperties = { display: 'inline-flex', alignItems: 'center', gap: 7, padding: '11px 20px', background: '#7c3aed', color: '#fff', border: 'none', borderRadius: 10, fontWeight: 800, fontSize: 13, cursor: 'pointer' };
 const ghostBtn: React.CSSProperties = { display: 'inline-flex', alignItems: 'center', gap: 6, padding: '10px 16px', background: '#fff', color: '#475569', border: '1px solid #e2e8f0', borderRadius: 9, fontWeight: 700, fontSize: 13, cursor: 'pointer' };
-const row: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: 10, padding: '9px 12px', border: '1px solid #e2e8f0', borderRadius: 9, background: '#fff' };
-const iconBtn: React.CSSProperties = { display: 'flex', border: 'none', background: 'none', cursor: 'pointer', color: '#94a3b8', padding: 4 };
+const row: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: 10, padding: '9px 12px', border: '1px solid #e2e8f0', borderRadius: 9, background: '#fff', minWidth: 0 };
+const iconBtn: React.CSSProperties = { display: 'flex', border: 'none', background: 'none', cursor: 'pointer', color: '#94a3b8', padding: 4, flexShrink: 0 };
 const miniBtn: React.CSSProperties = { display: 'flex', border: '1px solid #e2e8f0', background: '#fff', cursor: 'pointer', color: '#64748b', padding: 1, borderRadius: 4, lineHeight: 1 };
 const errBox: React.CSSProperties = { padding: '10px 14px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 8, color: '#b91c1c', fontSize: 13, marginBottom: 14 };
 const hint: React.CSSProperties = { fontSize: 12, color: '#94a3b8', marginTop: 8 };

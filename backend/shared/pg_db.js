@@ -1236,8 +1236,12 @@ async function setupPgDb() {
         show_chat_live BOOLEAN DEFAULT false,
         show_transcript_manager BOOLEAN DEFAULT false,
         show_parapheur BOOLEAN DEFAULT false,
+        show_pdf_tools BOOLEAN DEFAULT false,
         show_tool_incident BOOLEAN DEFAULT true,
-        show_tool_demande BOOLEAN DEFAULT true
+        show_tool_demande BOOLEAN DEFAULT true,
+        show_tasks BOOLEAN DEFAULT false,
+        show_notes BOOLEAN DEFAULT false,
+        show_reunions BOOLEAN DEFAULT false
       );
     `);
 
@@ -1271,8 +1275,38 @@ async function setupPgDb() {
         app_id INTEGER NOT NULL,
         email VARCHAR(255) NOT NULL,
         subscribed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        email_alerts BOOLEAN DEFAULT true,
         CONSTRAINT fk_app_sub FOREIGN KEY(app_id) REFERENCES magapp.apps(id) ON DELETE CASCADE,
         UNIQUE(email, app_id)
+      );
+    `);
+    // Préférence d'alerte mail par abonnement (maintenance + nouveautés).
+    try { await client.query(`ALTER TABLE magapp.subscriptions ADD COLUMN IF NOT EXISTS email_alerts BOOLEAN DEFAULT true`); } catch (e) {}
+
+    // Versions publiées du Magasin d'applications (notes de version = « quoi de
+    // neuf » rédigées par les chefs de projet) + document joint éventuel.
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS magapp.versions (
+        id SERIAL PRIMARY KEY,
+        version_number VARCHAR(50) NOT NULL,
+        release_notes_html TEXT,
+        release_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        is_active BOOLEAN DEFAULT FALSE,
+        document_path TEXT,
+        document_name TEXT,
+        notified_at TIMESTAMP
+      );
+    `);
+    try { await client.query(`ALTER TABLE magapp.versions ADD COLUMN IF NOT EXISTS document_path TEXT`); } catch (e) {}
+    try { await client.query(`ALTER TABLE magapp.versions ADD COLUMN IF NOT EXISTS document_name TEXT`); } catch (e) {}
+    try { await client.query(`ALTER TABLE magapp.versions ADD COLUMN IF NOT EXISTS notified_at TIMESTAMP`); } catch (e) {}
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS magapp.user_versions (
+        username VARCHAR(255) PRIMARY KEY,
+        last_seen_version_id INTEGER,
+        seen_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT fk_version FOREIGN KEY(last_seen_version_id) REFERENCES magapp.versions(id) ON DELETE CASCADE
       );
     `);
 
@@ -1612,6 +1646,24 @@ async function setupPgDb() {
     } catch (e) { console.error('[MIGRATION magapp.users]', e.message); }
     try { await client.query('CREATE INDEX IF NOT EXISTS idx_magapp_users_lower_email ON magapp.users(LOWER(email))'); } catch (e) {}
 
+    // ─── Agents BETA ────────────────────────────────────────────────────────
+    // Liste d'agents (recherche AD) qui accèdent en avance aux fonctionnalités
+    // pas encore activées pour tout le monde (équivalent « utilisateur beta »).
+    try {
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS magapp.beta_users (
+          id SERIAL PRIMARY KEY,
+          username TEXT,
+          email TEXT,
+          display_name TEXT,
+          added_by TEXT,
+          created_at TIMESTAMPTZ DEFAULT NOW()
+        )
+      `);
+      await client.query(`CREATE UNIQUE INDEX IF NOT EXISTS uq_magapp_beta_users_email ON magapp.beta_users(LOWER(email)) WHERE email IS NOT NULL AND email <> ''`);
+      await client.query(`CREATE UNIQUE INDEX IF NOT EXISTS uq_magapp_beta_users_username ON magapp.beta_users(LOWER(username)) WHERE username IS NOT NULL AND username <> ''`);
+    } catch (e) { console.error('[PG DB] magapp.beta_users:', e.message); }
+
     try {
       await client.query(`ALTER TABLE magapp.settings ADD COLUMN IF NOT EXISTS show_create_buttons BOOLEAN DEFAULT true`);
     } catch (e) {}
@@ -1637,10 +1689,22 @@ async function setupPgDb() {
       await client.query(`ALTER TABLE magapp.settings ADD COLUMN IF NOT EXISTS show_parapheur BOOLEAN DEFAULT false`);
     } catch (e) {}
     try {
+      await client.query(`ALTER TABLE magapp.settings ADD COLUMN IF NOT EXISTS show_pdf_tools BOOLEAN DEFAULT false`);
+    } catch (e) {}
+    try {
       await client.query(`ALTER TABLE magapp.settings ADD COLUMN IF NOT EXISTS show_tool_incident BOOLEAN DEFAULT true`);
     } catch (e) {}
     try {
       await client.query(`ALTER TABLE magapp.settings ADD COLUMN IF NOT EXISTS show_tool_demande BOOLEAN DEFAULT true`);
+    } catch (e) {}
+    try {
+      await client.query(`ALTER TABLE magapp.settings ADD COLUMN IF NOT EXISTS show_tasks BOOLEAN DEFAULT false`);
+    } catch (e) {}
+    try {
+      await client.query(`ALTER TABLE magapp.settings ADD COLUMN IF NOT EXISTS show_notes BOOLEAN DEFAULT false`);
+    } catch (e) {}
+    try {
+      await client.query(`ALTER TABLE magapp.settings ADD COLUMN IF NOT EXISTS show_reunions BOOLEAN DEFAULT false`);
     } catch (e) {}
 
     await client.query(`
@@ -1829,6 +1893,8 @@ async function setupPgDb() {
 
     try { await client.query(`ALTER TABLE hub_rencontres.rencontres_reunions ADD COLUMN IF NOT EXISTS source TEXT DEFAULT 'rencontres_budgetaires'`); } catch (e) {}
     try { await client.query(`ALTER TABLE hub_rencontres.reunion_participants ADD COLUMN IF NOT EXISTS commentaire TEXT`); } catch (e) {}
+    try { await client.query(`ALTER TABLE hub_rencontres.reunion_participants ADD COLUMN IF NOT EXISTS organisme TEXT`); } catch (e) {}
+    try { await client.query(`ALTER TABLE hub_rencontres.reunion_participants ADD COLUMN IF NOT EXISTS fonction TEXT`); } catch (e) {}
     try { await client.query(`ALTER TABLE hub_rencontres.rencontres_reunions ADD COLUMN IF NOT EXISTS duree_minutes INTEGER DEFAULT 60`); } catch (e) {}
     try { await client.query(`ALTER TABLE hub_rencontres.rencontres_reunions ADD COLUMN IF NOT EXISTS ordre_du_jour TEXT`); } catch (e) {}
     try { await client.query(`ALTER TABLE hub_rencontres.rencontres_reunions ADD COLUMN IF NOT EXISTS outlook_event_id TEXT`); } catch (e) {}
@@ -1909,6 +1975,8 @@ async function setupPgDb() {
         statut_presence TEXT DEFAULT 'present',
         ad_username TEXT,
         commentaire TEXT,
+        organisme TEXT,
+        fonction TEXT,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
     `);
@@ -2811,77 +2879,119 @@ async function setupPgDb() {
     // correspondant à son service et sa nature (C. Nature).
     try { await client.query(`ALTER TABLE oracle.operations ADD COLUMN IF NOT EXISTS "prev" BOOLEAN DEFAULT false`); } catch (e) {}
 
-    // Migrate data from SQLite
+    // Automatisation Oracle : garantit l'existence de la table et de la ligne
+    // DELIB (les lignes RH/FINANCES proviennent de la migration 010).
     try {
-      const sqlite = require('../shared/database').getSqlite();
-      if (sqlite) {
-        // oracle_links: try from main db, then from gf attached db
-        try {
-          const links = await sqlite.all("SELECT target_table, target_id, operation_id FROM oracle_links").catch(() => sqlite.all("SELECT target_table, target_id, operation_id FROM gf.oracle_links"));
-          if (links && links.length > 0) {
-            let migrated = 0;
-            for (const l of links) {
-              await client.query(
-                `INSERT INTO oracle.oracle_links (target_table, target_id, operation_id) VALUES ($1, $2, $3) ON CONFLICT (target_table, target_id) DO UPDATE SET operation_id = EXCLUDED.operation_id`,
-                [l.target_table, String(l.target_id).trim(), l.operation_id]
-              );
-              migrated++;
-            }
-            console.log(`[PG DB] Migrated ${migrated} oracle_links → oracle.oracle_links`);
-          }
-        } catch (e) {
-          console.log('[PG DB] oracle_links migration skipped:', e.message);
-        }
-
-        try {
-          const existing = await client.query('SELECT COUNT(*) as cnt FROM oracle.operations');
-          if (parseInt(existing.rows[0].cnt) === 0) {
-            const ops = await sqlite.all("SELECT * FROM operations");
-            if (ops && ops.length > 0) {
-              // Deduplicate by business key (LIBELLE, Section, exercice)
-              const seen = new Map();
-              for (const o of ops) {
-                const key = ((o.LIBELLE || '').trim().toLowerCase() + '|' + (o.Section || '') + '|' + (o.exercice || ''));
-                if (!seen.has(key)) {
-                  seen.set(key, o);
-                } else {
-                  console.log(`[PG DB] Skipping duplicate operation in SQLite: "${o.LIBELLE}"`);
-                }
-              }
-              const uniqueOps = Array.from(seen.values());
-              let migrated = 0;
-              for (const o of uniqueOps) {
-                const allCols = Object.keys(o).filter(k => k !== 'id');
-                const cols = [];
-                const vals = [];
-                for (const k of allCols) {
-                  if (o[k] !== undefined && o[k] !== null) {
-                    cols.push(`"${k}"`);
-                    vals.push(o[k]);
-                  }
-                }
-                const placeholders = cols.map((_, i) => `$${i + 1}`).join(',');
-                try {
-                  await client.query(
-                    `INSERT INTO oracle.operations (${cols.join(',')}) VALUES (${placeholders})`,
-                    vals
-                  );
-                  migrated++;
-                } catch (insertErr) {
-                  console.log(`[PG DB] operations migration row skipped: ${insertErr.message}`);
-                }
-              }
-              console.log(`[PG DB] Migrated ${migrated} operations → oracle.operations`);
-            }
-          } else {
-            console.log(`[PG DB] oracle.operations already has ${existing.rows[0].cnt} rows, skipping import`);
-          }
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS oracle_automation_config (
+          id SERIAL PRIMARY KEY,
+          sync_type VARCHAR(50) NOT NULL UNIQUE,
+          enabled BOOLEAN DEFAULT FALSE,
+          frequency VARCHAR(50) DEFAULT 'daily',
+          last_sync_at TIMESTAMP,
+          next_sync_at TIMESTAMP,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+      `);
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS oracle_sync_logs (
+          id SERIAL PRIMARY KEY,
+          sync_type VARCHAR(50) NOT NULL,
+          status VARCHAR(20) NOT NULL,
+          records_synced INTEGER DEFAULT 0,
+          duration_ms INTEGER,
+          error_message TEXT,
+          started_at TIMESTAMP NOT NULL,
+          completed_at TIMESTAMP,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+      `);
+      await client.query(`INSERT INTO oracle_automation_config (sync_type, enabled, frequency) VALUES ('DELIB', FALSE, 'daily') ON CONFLICT (sync_type) DO NOTHING`);
     } catch (e) {
-      console.log('[PG DB] operations migration skipped:', e.message);
+      console.log('[PG DB] oracle_automation_config skipped:', e.message);
     }
-      }
+
+    // ─── Données applicatives migrées depuis SQLite (hors paramétrage) ─────────
+    // Tables locales gérées par l'application (pas issues d'Oracle) : contacts
+    // tiers, budgets/M57, demandes d'accès, todos, journaux d'import, pièces
+    // jointes legacy (budget). Voir scripts/migrate-non-config-sqlite.js.
+    try {
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS hub.contacts (
+          id SERIAL PRIMARY KEY,
+          tier_code TEXT,
+          nom TEXT,
+          prenom TEXT,
+          role TEXT,
+          telephone TEXT,
+          email TEXT,
+          commentaire TEXT,
+          is_order_recipient BOOLEAN DEFAULT FALSE,
+          created_at TIMESTAMPTZ DEFAULT NOW()
+        );
+        CREATE INDEX IF NOT EXISTS idx_hub_contacts_tier_code ON hub.contacts(tier_code);
+      `);
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS finance.budgets (
+          id SERIAL PRIMARY KEY,
+          "Annee" INTEGER,
+          numero INTEGER,
+          "Libelle" TEXT
+        );
+      `);
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS finance.m57_plan (
+          id SERIAL PRIMARY KEY,
+          code TEXT UNIQUE,
+          label TEXT,
+          section TEXT,
+          type TEXT
+        );
+      `);
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS hub.access_requests (
+          id SERIAL PRIMARY KEY,
+          username TEXT,
+          user_id INTEGER,
+          requested_tiles TEXT,
+          status TEXT DEFAULT 'pending',
+          created_at TIMESTAMPTZ DEFAULT NOW()
+        );
+      `);
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS hub.todos (
+          id SERIAL PRIMARY KEY,
+          task TEXT,
+          status TEXT DEFAULT 'à faire',
+          priority INTEGER DEFAULT 0,
+          created_at TIMESTAMPTZ DEFAULT NOW()
+        );
+      `);
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS hub.import_logs (
+          id SERIAL PRIMARY KEY,
+          type TEXT,
+          imported_at TIMESTAMPTZ DEFAULT NOW(),
+          username TEXT
+        );
+      `);
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS hub.attachments (
+          id SERIAL PRIMARY KEY,
+          target_type TEXT,
+          target_id TEXT,
+          file_path TEXT,
+          original_name TEXT,
+          mimetype TEXT,
+          size BIGINT,
+          uploaded_at TIMESTAMPTZ DEFAULT NOW(),
+          username TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_hub_attachments_target ON hub.attachments(target_type, target_id);
+      `);
     } catch (e) {
-      console.log('[PG DB] SQLite data migration skipped:', e.message);
+      console.log('[PG DB] tables applicatives SQLite→PG skipped:', e.message);
     }
 
     // hub_contrats tables
@@ -4593,6 +4703,8 @@ async function setupPgDb() {
 
     try { await client.query(`ALTER TABLE hub.user_prefs ADD COLUMN IF NOT EXISTS task_assign_alert BOOLEAN DEFAULT FALSE`); } catch (e) {}
     try { await client.query(`ALTER TABLE hub.user_prefs ADD COLUMN IF NOT EXISTS dashboard_columns SMALLINT DEFAULT 3`); } catch (e) {}
+    // Thème visuel (mode sombre) : NULL = valeur par défaut du navigateur.
+    try { await client.query(`ALTER TABLE hub.user_prefs ADD COLUMN IF NOT EXISTS theme VARCHAR(10) DEFAULT NULL`); } catch (e) {}
 
     // ─── Aide contextuelle par page (paramétrable dans /admin/aides) ─────────────
     // id SERIAL pour rester compatible avec pgDb.run (qui ajoute RETURNING id),
@@ -4984,6 +5096,7 @@ async function setupPgDb() {
     await client.query(`
       CREATE TABLE IF NOT EXISTS hub.elus (
         id SERIAL PRIMARY KEY,
+        civilite VARCHAR(10),
         nom VARCHAR(255) NOT NULL,
         prenom VARCHAR(255) NOT NULL,
         email VARCHAR(255),
@@ -4994,6 +5107,8 @@ async function setupPgDb() {
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     `);
+    // Civilité (M. / Mme) ajoutée après coup pour les bases existantes.
+    try { await client.query('ALTER TABLE hub.elus ADD COLUMN IF NOT EXISTS civilite VARCHAR(10)'); } catch (e) {}
 
     // ─── hub.sites ────────────────────────────────────────────────
     await client.query(`
@@ -6434,6 +6549,9 @@ async function setupPgDb() {
       await client.query(`CREATE INDEX IF NOT EXISTS idx_parapheurs_creator ON hub_parapheur.parapheurs(created_by_username)`);
       await client.query(`ALTER TABLE hub_parapheur.parapheurs ADD COLUMN IF NOT EXISTS public_token TEXT`);
       await client.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_parapheurs_public_token ON hub_parapheur.parapheurs(public_token)`);
+      // Durée de validité du lien de signature (minutes). ≤ 60 → accès direct au
+      // parapheur sans code ; > 60 → confirmation d'identité par code e-mail.
+      await client.query(`ALTER TABLE hub_parapheur.parapheurs ADD COLUMN IF NOT EXISTS link_validity_minutes INTEGER DEFAULT 10`);
 
       await client.query(`
         CREATE TABLE IF NOT EXISTS hub_parapheur.documents (
@@ -6627,6 +6745,225 @@ async function setupPgDb() {
         )`);
       await client.query(`CREATE INDEX IF NOT EXISTS idx_parapheur_audit_parapheur ON hub_parapheur.audit_log(parapheur_id)`);
     } catch (e) { console.error('[PG DB] hub_parapheur:', e.message); }
+
+    // ─── hub_notes — Notes personnelles assistées par IA ───────────────────
+    // Module « Mes Notes » : carnets > sections > notes, avec versions,
+    // tags, mentions d'agents (@prénom nom) et suggestions de classement
+    // générées en arrière-plan par l'API IA Ville (APM).
+    try {
+      await client.query('CREATE SCHEMA IF NOT EXISTS hub_notes;');
+
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS hub_notes.notebooks (
+          id SERIAL PRIMARY KEY,
+          username TEXT NOT NULL,
+          title TEXT NOT NULL,
+          description TEXT DEFAULT '',
+          color TEXT DEFAULT '#3b82f6',
+          icon TEXT DEFAULT 'NotebookPen',
+          position INTEGER DEFAULT 0,
+          is_inbox BOOLEAN DEFAULT FALSE,
+          ai_generated BOOLEAN DEFAULT FALSE,
+          created_at TIMESTAMPTZ DEFAULT NOW(),
+          updated_at TIMESTAMPTZ DEFAULT NOW()
+        )
+      `);
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_notes_notebooks_user ON hub_notes.notebooks(username)`);
+
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS hub_notes.sections (
+          id SERIAL PRIMARY KEY,
+          notebook_id INTEGER NOT NULL REFERENCES hub_notes.notebooks(id) ON DELETE CASCADE,
+          username TEXT NOT NULL,
+          title TEXT NOT NULL,
+          description TEXT DEFAULT '',
+          position INTEGER DEFAULT 0,
+          ai_generated BOOLEAN DEFAULT FALSE,
+          created_at TIMESTAMPTZ DEFAULT NOW(),
+          updated_at TIMESTAMPTZ DEFAULT NOW()
+        )
+      `);
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_notes_sections_notebook ON hub_notes.sections(notebook_id)`);
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_notes_sections_user ON hub_notes.sections(username)`);
+
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS hub_notes.notes (
+          id SERIAL PRIMARY KEY,
+          username TEXT NOT NULL,
+          notebook_id INTEGER REFERENCES hub_notes.notebooks(id) ON DELETE SET NULL,
+          section_id INTEGER REFERENCES hub_notes.sections(id) ON DELETE SET NULL,
+          title TEXT DEFAULT 'Sans titre',
+          content TEXT DEFAULT '',
+          content_ai TEXT,
+          summary_ai TEXT,
+          ai_suggestion JSONB DEFAULT '{}'::jsonb,
+          ai_raw TEXT,
+          ai_status TEXT DEFAULT 'idle',
+          ai_error TEXT,
+          ai_model TEXT,
+          ai_source TEXT DEFAULT 'apm',
+          ai_processed_at TIMESTAMPTZ,
+          content_origin TEXT DEFAULT 'manual',
+          is_pinned BOOLEAN DEFAULT FALSE,
+          position INTEGER DEFAULT 0,
+          word_count INTEGER DEFAULT 0,
+          created_at TIMESTAMPTZ DEFAULT NOW(),
+          updated_at TIMESTAMPTZ DEFAULT NOW()
+        )
+      `);
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_notes_notes_user ON hub_notes.notes(username)`);
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_notes_notes_section ON hub_notes.notes(section_id)`);
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_notes_notes_notebook ON hub_notes.notes(notebook_id)`);
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_notes_notes_ai_status ON hub_notes.notes(ai_status)`);
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_notes_notes_updated ON hub_notes.notes(updated_at DESC)`);
+
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS hub_notes.note_versions (
+          id SERIAL PRIMARY KEY,
+          note_id INTEGER NOT NULL REFERENCES hub_notes.notes(id) ON DELETE CASCADE,
+          content TEXT NOT NULL,
+          title TEXT,
+          origin TEXT DEFAULT 'manual',
+          created_by TEXT,
+          created_at TIMESTAMPTZ DEFAULT NOW()
+        )
+      `);
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_notes_versions_note ON hub_notes.note_versions(note_id, created_at DESC)`);
+
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS hub_notes.note_tags (
+          id SERIAL PRIMARY KEY,
+          note_id INTEGER NOT NULL REFERENCES hub_notes.notes(id) ON DELETE CASCADE,
+          tag TEXT NOT NULL,
+          origin TEXT DEFAULT 'manual',
+          created_at TIMESTAMPTZ DEFAULT NOW()
+        )
+      `);
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_notes_tags_note ON hub_notes.note_tags(note_id)`);
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_notes_tags_tag ON hub_notes.note_tags(tag)`);
+
+      // Unicité (note_id, tag) : plusieurs analyses successives pouvaient créer
+      // des doublons. On normalise puis on supprime les doublons historiques
+      // avant de poser l'index unique (idempotent).
+      try { await client.query(`UPDATE hub_notes.note_tags SET tag = unaccent(LOWER(TRIM(tag)))`); } catch (e) {}
+      try { await client.query(`DELETE FROM hub_notes.note_tags a USING hub_notes.note_tags b WHERE a.id > b.id AND a.note_id = b.note_id AND a.tag = b.tag`); } catch (e) {}
+      try { await client.query(`CREATE UNIQUE INDEX IF NOT EXISTS uq_notes_tags_note_tag ON hub_notes.note_tags(note_id, tag)`); } catch (e) {}
+
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS hub_notes.note_mentions (
+          id SERIAL PRIMARY KEY,
+          note_id INTEGER NOT NULL REFERENCES hub_notes.notes(id) ON DELETE CASCADE,
+          agent_name TEXT,
+          agent_email TEXT,
+          created_at TIMESTAMPTZ DEFAULT NOW()
+        )
+      `);
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_notes_mentions_note ON hub_notes.note_mentions(note_id)`);
+
+      // Tâches proposées par l'IA à partir du contenu d'une note — validées
+      // ensuite par l'utilisateur vers le module Tâches (hub.user_tasks).
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS hub_notes.note_task_suggestions (
+          id SERIAL PRIMARY KEY,
+          note_id INTEGER NOT NULL REFERENCES hub_notes.notes(id) ON DELETE CASCADE,
+          description TEXT NOT NULL,
+          assignee TEXT,
+          requester TEXT,
+          deadline TEXT,
+          status TEXT DEFAULT 'proposed',
+          app_task_id INTEGER,
+          created_at TIMESTAMPTZ DEFAULT NOW(),
+          updated_at TIMESTAMPTZ DEFAULT NOW()
+        )
+      `);
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_notes_task_sugg_note ON hub_notes.note_task_suggestions(note_id, status)`);
+
+      // Pièces jointes d'une note (stockage unifié shared/storage.js + hub_docs).
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS hub_notes.note_attachments (
+          id SERIAL PRIMARY KEY,
+          note_id INTEGER NOT NULL REFERENCES hub_notes.notes(id) ON DELETE CASCADE,
+          filename TEXT,
+          original_name TEXT,
+          mimetype TEXT,
+          size BIGINT,
+          storage_ref TEXT,
+          uploaded_by TEXT,
+          created_at TIMESTAMPTZ DEFAULT NOW()
+        )
+      `);
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_notes_attachments_note ON hub_notes.note_attachments(note_id)`);
+
+      // Partage interne d'une note avec un agent (par username).
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS hub_notes.note_shares (
+          id SERIAL PRIMARY KEY,
+          note_id INTEGER NOT NULL REFERENCES hub_notes.notes(id) ON DELETE CASCADE,
+          shared_by TEXT NOT NULL,
+          shared_with TEXT NOT NULL,
+          shared_with_email TEXT,
+          permission TEXT DEFAULT 'read',
+          created_at TIMESTAMPTZ DEFAULT NOW(),
+          UNIQUE (note_id, shared_with)
+        )
+      `);
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_notes_shares_with ON hub_notes.note_shares(shared_with)`);
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_notes_shares_note ON hub_notes.note_shares(note_id)`);
+
+      // File d'attente persistante des analyses IA (reprise après redémarrage).
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS hub_notes.ai_jobs (
+          id SERIAL PRIMARY KEY,
+          note_id INTEGER REFERENCES hub_notes.notes(id) ON DELETE CASCADE,
+          username TEXT,
+          kind TEXT DEFAULT 'analyze',
+          status TEXT DEFAULT 'pending',
+          error TEXT,
+          created_at TIMESTAMPTZ DEFAULT NOW(),
+          started_at TIMESTAMPTZ,
+          finished_at TIMESTAMPTZ
+        )
+      `);
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_notes_ai_jobs_status ON hub_notes.ai_jobs(status, created_at)`);
+
+      // Non destructif : colonnes ajoutées au fil de l'eau.
+      try { await client.query(`ALTER TABLE hub_notes.notes ADD COLUMN IF NOT EXISTS ai_suggestion JSONB DEFAULT '{}'::jsonb`); } catch (e) {}
+      try { await client.query(`ALTER TABLE hub_notes.notes ADD COLUMN IF NOT EXISTS last_analyzed_hash TEXT`); } catch (e) {}
+      try { await client.query(`ALTER TABLE hub_notes.notes ADD COLUMN IF NOT EXISTS is_archived BOOLEAN DEFAULT FALSE`); } catch (e) {}
+      try { await client.query(`CREATE INDEX IF NOT EXISTS idx_notes_notes_archived ON hub_notes.notes(is_archived)`); } catch (e) {}
+      // Texte d'origine de la prise de note, JAMAIS écrasé (ni par la version IA,
+      // ni par l'édition) — permet de retrouver la note initiale à tout moment.
+      try { await client.query(`ALTER TABLE hub_notes.notes ADD COLUMN IF NOT EXISTS content_original TEXT`); } catch (e) {}
+      try {
+        await client.query(`
+          UPDATE hub_notes.notes n SET content_original = COALESCE(
+            (SELECT v.content FROM hub_notes.note_versions v WHERE v.note_id = n.id ORDER BY v.created_at ASC LIMIT 1),
+            n.content
+          ) WHERE content_original IS NULL
+        `);
+      } catch (e) {}
+      // Renommage : « Boîte de réception » → « Mes notes ».
+      try { await client.query(`UPDATE hub_notes.notebooks SET title = 'Mes notes' WHERE is_inbox = TRUE AND title = 'Boîte de réception'`); } catch (e) {}
+    } catch (e) { console.error('[PG DB] hub_notes:', e.message); }
+
+    // ─── hub.pdf_edit_projects — fichiers de travail de l'éditeur PDF ────────
+    // Conserve le PDF d'origine + le plan des masques/annotations (éditable et
+    // re-modifiable), distinct du PDF « aplati » généré à la demande.
+    try {
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS hub.pdf_edit_projects (
+          id SERIAL PRIMARY KEY,
+          username TEXT NOT NULL,
+          title TEXT DEFAULT '',
+          source_ref TEXT NOT NULL,
+          page_count INTEGER DEFAULT 0,
+          plan JSONB DEFAULT '{}'::jsonb,
+          created_at TIMESTAMPTZ DEFAULT NOW(),
+          updated_at TIMESTAMPTZ DEFAULT NOW()
+        )
+      `);
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_pdf_edit_projects_user ON hub.pdf_edit_projects(username)`);
+    } catch (e) { console.error('[PG DB] hub.pdf_edit_projects:', e.message); }
 
     console.log('[PG DB] Schema and tables initialized successfully');
   } catch (error) {

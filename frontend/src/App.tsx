@@ -35,6 +35,9 @@ import ProjetDetail from './pages/ProjetDetail';
 import TranscriptManager from './pages/TranscriptManager';
 import TranscriptMeetingDetail from './pages/TranscriptManager/MeetingDetail';
 import TranscriptShare from './pages/TranscriptShare';
+import TasksShare from './pages/TasksShare';
+import NotesShare from './pages/NotesShare';
+import ReunionsShare from './pages/ReunionsShare';
 import Contrats from './pages/Contrats';
 import ContratsAnalysesIA from './pages/ContratsAnalysesIA';
 import Vols from './pages/Vols';
@@ -52,6 +55,7 @@ import AdminSync from './pages/AdminSync';
 import WhatsNew from './pages/WhatsNew';
 import Doctrines from './pages/Doctrines';
 import VibeCoding from './pages/VibeCoding';
+import Notes from './pages/Notes';
 import TicketsDashboard from './pages/Tickets/TicketsDashboard';
 import TicketDetail from './pages/Tickets/TicketDetail';
 import TicketCreate from './pages/Tickets/TicketCreate';
@@ -72,6 +76,7 @@ import AidesAdmin from './pages/Admin/AidesAdmin';
 import SecurityMenu from './pages/Admin/SecurityMenu';
 import AutoResolution from './pages/Admin/AutoResolution';
 import ApiKeysAdmin from './pages/Admin/ApiKeys';
+import AdminNotes from './pages/Admin/AdminNotes';
 import AutoResolutionConfirm from './pages/AutoResolutionConfirm';
 import StocksDashboard from './pages/Stocks/StocksDashboard';
 import ReseauDashboard from './pages/Reseau/ReseauDashboard';
@@ -168,6 +173,9 @@ function App() {
         <Route path="/service-fait-verifier/:token" element={<ServiceFaitVerifier />} />
         <Route path="/service-fait/processus/:id" element={<PrivateRoute path="/budget"><ServiceFaitProcessus /></PrivateRoute>} />
         <Route path="/transcript/:token" element={<TranscriptShare />} />
+        <Route path="/mes-taches/:token" element={<TasksShare />} />
+        <Route path="/notes/:token" element={<NotesShare />} />
+        <Route path="/mes-reunions/:token" element={<ReunionsShare />} />
         <Route path="/auto-resolution/keep-alive/:token" element={<AutoResolutionConfirm />} />
         <Route path="/signature/:token" element={<SignatureSignataire />} />
         <Route path="/parapheur/verification/:token" element={<ParapheurVerification />} />
@@ -176,6 +184,7 @@ function App() {
         <Route path="/whats-new" element={<PrivateRoute path="/whats-new"><WhatsNew /></PrivateRoute>} />
         <Route path="/doctrines" element={<PrivateRoute path="/doctrines"><Doctrines /></PrivateRoute>} />
         <Route path="/vibecoding" element={<PrivateRoute path="/vibecoding"><VibeCoding /></PrivateRoute>} />
+        <Route path="/notes" element={<PrivateRoute path="/notes"><Notes /></PrivateRoute>} />
 
         <Route path="/" element={<PrivateRoute path="/"><Dashboard /></PrivateRoute>} />
         <Route path="/budget" element={<PrivateRoute path="/budget"><Budget /></PrivateRoute>} />
@@ -245,7 +254,7 @@ function App() {
           <Route path="users" element={<Admin section="users" />} />
           <Route path="tiles" element={<Admin section="tiles" />} />
           <Route path="ad" element={<AdminSync />} />
-          <Route path="glpi" element={<AdminDatabases />} />
+          <Route path="databases" element={<AdminDatabases />} />
           <Route path="oracle" element={<AdminDatabases />} />
           <Route path="mariadb" element={<AdminDatabases />} />
           <Route path="messages" element={<AdminMessages />} />
@@ -257,6 +266,7 @@ function App() {
           <Route path="ideas" element={<AdminBacklogMerged />} />
           <Route path="frizbi" element={<FrizbiSettings />} />
           <Route path="transcript" element={<Admin section="transcript" />} />
+          <Route path="notes" element={<AdminNotes />} />
           <Route path="finance" element={<AdminDatabases />} />
           <Route path="email-automation" element={<AdminMail />} />
           <Route path="backlog" element={<AdminBacklogMerged />} />

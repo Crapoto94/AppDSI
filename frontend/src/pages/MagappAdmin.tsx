@@ -2,7 +2,8 @@ import React, { useState, useEffect } from 'react';
 import * as XLSX from 'xlsx';
 import Header from '../components/Header';
 import { stripDangerousHtmlTags } from '../utils/sanitizeHtml';
-import { Plus, Edit2, Trash2, Save, X, Globe, LayoutGrid, BarChart2, Bell, Tag, Code, CheckCircle, Settings, Users, Lightbulb, GraduationCap, Star, FileText, Wrench, Calendar, Paperclip, Download, Search, ChevronRight, Layers, Banknote, ShieldAlert, ExternalLink } from 'lucide-react';
+import { Plus, Edit2, Trash2, Save, X, Globe, LayoutGrid, BarChart2, Bell, Tag, Code, CheckCircle, Settings, Users, Lightbulb, GraduationCap, Star, FileText, Wrench, Calendar, Paperclip, Download, Search, ChevronRight, Layers, Banknote, ShieldAlert, ExternalLink, Send } from 'lucide-react';
+import BetaUsersAdmin from '../components/BetaUsersAdmin';
 import { ResponsiveContainer, LineChart, Line, ReferenceLine, CartesianGrid, XAxis, YAxis, Tooltip as RTooltip } from 'recharts';
 import ReactQuill from 'react-quill-new';
 import 'react-quill-new/dist/quill.snow.css';
@@ -106,6 +107,9 @@ interface AppVersion {
   release_notes_html: string;
   release_date: string;
   is_active: boolean;
+  document_path?: string | null;
+  document_name?: string | null;
+  notified_at?: string | null;
 }
 
 interface PostgresSettings {
@@ -181,7 +185,7 @@ const MagappAdmin: React.FC = () => {
     is_technical: false,
     is_obsolete: false
   });
-  const [magappSettings, setMagappSettings] = useState<{show_tickets: boolean, show_subscriptions: boolean, show_health_check: boolean, show_create_buttons: boolean, show_ideas: boolean, show_rencontres: boolean, show_library: boolean, show_consommables: boolean, show_chat_live: boolean, show_transcript_manager: boolean, show_parapheur: boolean, show_tool_incident: boolean, show_tool_demande: boolean}>({
+  const [magappSettings, setMagappSettings] = useState<{show_tickets: boolean, show_subscriptions: boolean, show_health_check: boolean, show_create_buttons: boolean, show_ideas: boolean, show_rencontres: boolean, show_library: boolean, show_consommables: boolean, show_chat_live: boolean, show_transcript_manager: boolean, show_parapheur: boolean, show_pdf_tools: boolean, show_tool_incident: boolean, show_tool_demande: boolean, show_tasks: boolean, show_notes: boolean, show_reunions: boolean}>({
     show_tickets: true,
     show_subscriptions: true,
     show_health_check: true,
@@ -193,8 +197,12 @@ const MagappAdmin: React.FC = () => {
     show_chat_live: false,
     show_transcript_manager: false,
     show_parapheur: false,
+    show_pdf_tools: false,
     show_tool_incident: true,
     show_tool_demande: true,
+    show_tasks: false,
+    show_notes: false,
+    show_reunions: false,
   });
   const [showDocModal, setShowDocModal] = useState(false);
   const [docFile, setDocFile] = useState<File | null>(null);
@@ -204,6 +212,7 @@ const MagappAdmin: React.FC = () => {
   const [versions, setVersions] = useState<AppVersion[]>([]);
   const [mercatorApps, setMercatorApps] = useState<{id: number, name: string, description?: string}[]>([]);
   const [editingVersion, setEditingVersion] = useState<AppVersion | null>(null);
+  const [versionNotifying, setVersionNotifying] = useState<number | null>(null);
   const [newVersion, setNewVersion] = useState({ version_number: '', release_notes_html: '' });
   const [showAppModal, setShowAppModal] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
@@ -309,8 +318,12 @@ const MagappAdmin: React.FC = () => {
           show_chat_live: data.show_chat_live ?? false,
           show_transcript_manager: data.show_transcript_manager_original ?? data.show_transcript_manager ?? false,
           show_parapheur: data.show_parapheur_original ?? data.show_parapheur ?? false,
+          show_pdf_tools: data.show_pdf_tools_original ?? data.show_pdf_tools ?? false,
           show_tool_incident: data.show_tool_incident_original ?? data.show_tool_incident ?? true,
           show_tool_demande: data.show_tool_demande_original ?? data.show_tool_demande ?? true,
+          show_tasks: data.show_tasks_original ?? data.show_tasks ?? false,
+          show_notes: data.show_notes_original ?? data.show_notes ?? false,
+          show_reunions: data.show_reunions_original ?? data.show_reunions ?? false,
         });
       }
       if (mercatorRes.ok) setMercatorApps(await mercatorRes.json());
@@ -862,6 +875,33 @@ const MagappAdmin: React.FC = () => {
   const handleActivateVersion = async (id: number) => {
     await fetch(`/api/admin/magapp/versions/${id}/activate`, { method: 'PUT', headers: { 'Authorization': `Bearer ${token}` } });
     fetchVersions();
+  };
+
+  const handleNotifyVersion = async (id: number) => {
+    if (!window.confirm("Envoyer l'alerte « nouveauté » aux abonnés et administrateurs ?")) return;
+    setVersionNotifying(id);
+    try {
+      const res = await fetch(`/api/admin/magapp/versions/${id}/notify`, { method: 'POST', headers: { 'Authorization': `Bearer ${token}` } });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) alert(data.message || 'Alerte envoyée');
+      else alert(`Erreur : ${data.message || 'échec'}`);
+      fetchVersions();
+    } catch { alert('Erreur réseau'); }
+    finally { setVersionNotifying(null); }
+  };
+
+  const handleUploadVersionDoc = async (id: number, file: File | null) => {
+    if (!file) return;
+    const fd = new FormData();
+    fd.append('file', file);
+    try {
+      const res = await fetch(`/api/admin/magapp/versions/${id}/document`, {
+        method: 'POST', headers: { 'Authorization': `Bearer ${token}` }, body: fd
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) { alert('Document ajouté'); fetchVersions(); }
+      else alert(`Erreur : ${data.message || 'échec'}`);
+    } catch { alert('Erreur réseau'); }
   };
 
   const handleSavePostgresSettings = async () => {
@@ -2135,9 +2175,20 @@ const MagappAdmin: React.FC = () => {
                         </h4>
                         <span style={{ fontSize: '0.75rem', color: '#94a3b8' }}>{new Date(v.release_date).toLocaleDateString()}</span>
                         <div style={{ marginTop: '8px', fontSize: '0.85rem', color: '#64748b', maxHeight: '40px', overflow: 'hidden', textOverflow: 'ellipsis', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }} dangerouslySetInnerHTML={{ __html: v.release_notes_html }}></div>
+                        {(v.document_name || v.notified_at) && (
+                          <div style={{ marginTop: '6px', fontSize: '0.72rem', color: '#94a3b8', display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+                            {v.document_name && <span>📄 {v.document_name}</span>}
+                            {v.notified_at && <span>✅ Alerte envoyée le {new Date(v.notified_at).toLocaleDateString('fr-FR')}</span>}
+                          </div>
+                        )}
                       </div>
                       <div className="app-actions-v2">
                         {!v.is_active && <button onClick={() => handleActivateVersion(v.id)} style={{ color: '#10b981' }} title="Activer"><CheckCircle size={16} /></button>}
+                        <label title="Joindre un document à cette version" style={{ cursor: 'pointer', color: '#0369a1', display: 'inline-flex' }}>
+                          <Paperclip size={16} />
+                          <input type="file" style={{ display: 'none' }} onChange={e => { handleUploadVersionDoc(v.id, e.target.files?.[0] || null); e.currentTarget.value = ''; }} />
+                        </label>
+                        <button onClick={() => handleNotifyVersion(v.id)} disabled={versionNotifying === v.id} style={{ color: '#2563eb', opacity: versionNotifying === v.id ? 0.5 : 1 }} title="Notifier les abonnés (quoi de neuf)"><Send size={16} /></button>
                         <button onClick={() => setEditingVersion(v)} title="Modifier"><Edit2 size={16} /></button>
                         <button onClick={() => handleDeleteVersion(v.id)} className="delete" title="Supprimer"><Trash2 size={16} /></button>
                       </div>
@@ -2472,6 +2523,21 @@ const MagappAdmin: React.FC = () => {
                 </div>
                 <div className="form-group-v2 full-width" style={{ padding: '15px', background: 'white', border: '1px solid #e2e8f0', borderRadius: '16px' }}>
                   <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', margin: 0 }}>
+                    <span style={{ fontWeight: 600, fontSize: '1rem' }}>
+                      Outils PDF
+                      <span style={{ marginLeft: 8, background: '#0369a1', color: 'white', fontSize: '0.6rem', fontWeight: 800, padding: '2px 6px', borderRadius: '6px', letterSpacing: '0.05em', verticalAlign: 'middle' }}>BETA</span>
+                    </span>
+                    <input
+                      type="checkbox"
+                      checked={magappSettings.show_pdf_tools}
+                      onChange={e => setMagappSettings({...magappSettings, show_pdf_tools: e.target.checked})}
+                      style={{ width: '22px', height: '22px', cursor: 'pointer', accentColor: '#0369a1' }}
+                    />
+                  </label>
+                  <p style={{ margin: '5px 0 0 0', fontSize: '0.85rem', color: '#64748b' }}>Fusionner, découper, compresser, filigraner, comparer et réparer des PDF directement en ligne.</p>
+                </div>
+                <div className="form-group-v2 full-width" style={{ padding: '15px', background: 'white', border: '1px solid #e2e8f0', borderRadius: '16px' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', margin: 0 }}>
                     <span style={{ fontWeight: 600, fontSize: '1rem' }}>Mes abonnements</span>
                     <input
                       type="checkbox"
@@ -2506,9 +2572,56 @@ const MagappAdmin: React.FC = () => {
                   </label>
                   <p style={{ margin: '5px 0 0 0', fontSize: '0.85rem', color: '#64748b' }}>Affiche le bouton « Faire une demande » dans « Mes outils DSI » (indépendant du toggle « boutons de création » de Mes tickets).</p>
                 </div>
+                <div className="form-group-v2 full-width" style={{ padding: '15px', background: 'white', border: '1px solid #e2e8f0', borderRadius: '16px' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', margin: 0 }}>
+                    <span style={{ fontWeight: 600, fontSize: '1rem' }}>
+                      Mes tâches
+                      <span style={{ marginLeft: 8, background: '#2563eb', color: 'white', fontSize: '0.6rem', fontWeight: 800, padding: '2px 6px', borderRadius: '6px', letterSpacing: '0.05em', verticalAlign: 'middle' }}>BETA</span>
+                    </span>
+                    <input
+                      type="checkbox"
+                      checked={magappSettings.show_tasks}
+                      onChange={e => setMagappSettings({...magappSettings, show_tasks: e.target.checked})}
+                      style={{ width: '22px', height: '22px', cursor: 'pointer', accentColor: '#2563eb' }}
+                    />
+                  </label>
+                  <p style={{ margin: '5px 0 0 0', fontSize: '0.85rem', color: '#64748b' }}>Ouvre « Mes tâches » du DSI Hub depuis le Magasin d'applications (suivi et organisation des tâches personnelles).</p>
+                </div>
+                <div className="form-group-v2 full-width" style={{ padding: '15px', background: 'white', border: '1px solid #e2e8f0', borderRadius: '16px' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', margin: 0 }}>
+                    <span style={{ fontWeight: 600, fontSize: '1rem' }}>
+                      Mes notes IA
+                      <span style={{ marginLeft: 8, background: '#059669', color: 'white', fontSize: '0.6rem', fontWeight: 800, padding: '2px 6px', borderRadius: '6px', letterSpacing: '0.05em', verticalAlign: 'middle' }}>BETA</span>
+                    </span>
+                    <input
+                      type="checkbox"
+                      checked={magappSettings.show_notes}
+                      onChange={e => setMagappSettings({...magappSettings, show_notes: e.target.checked})}
+                      style={{ width: '22px', height: '22px', cursor: 'pointer', accentColor: '#059669' }}
+                    />
+                  </label>
+                  <p style={{ margin: '5px 0 0 0', fontSize: '0.85rem', color: '#64748b' }}>Ouvre « Mes notes IA » du DSI Hub depuis le Magasin d'applications (notes personnelles assistées par IA).</p>
+                </div>
+                <div className="form-group-v2 full-width" style={{ padding: '15px', background: 'white', border: '1px solid #e2e8f0', borderRadius: '16px' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', margin: 0 }}>
+                    <span style={{ fontWeight: 600, fontSize: '1rem' }}>
+                      Mes réunions
+                      <span style={{ marginLeft: 8, background: '#0369a1', color: 'white', fontSize: '0.6rem', fontWeight: 800, padding: '2px 6px', borderRadius: '6px', letterSpacing: '0.05em', verticalAlign: 'middle' }}>BETA</span>
+                    </span>
+                    <input
+                      type="checkbox"
+                      checked={magappSettings.show_reunions}
+                      onChange={e => setMagappSettings({...magappSettings, show_reunions: e.target.checked})}
+                      style={{ width: '22px', height: '22px', cursor: 'pointer', accentColor: '#0369a1' }}
+                    />
+                  </label>
+                  <p style={{ margin: '5px 0 0 0', fontSize: '0.85rem', color: '#64748b' }}>Ouvre « Mes réunions » du DSI Hub depuis le Magasin d'applications (réunions de l'agent et comptes-rendus).</p>
+                </div>
                 <button className="primary-btn-v2 full-width" style={{ marginTop: '10px' }} onClick={handleSaveMagappSettings}>
                   <Save size={18} /> Mettre à jour les paramètres
                 </button>
+
+                <BetaUsersAdmin token={token} />
               </div>
             </section>
           )}

@@ -17,6 +17,7 @@ const bcrypt = require('bcryptjs');
 const { setupDb, pgDb, pool, setupPgDb } = require('./shared/database');
 const { logMouchard, flattenLDAPEntry, decodeLDAPString, excelDateToISO } = require('./shared/utils');
 const { searchADUsersByQuery } = require('./shared/ad_helper');
+const rhStudio = require('./shared/rh_studio');
 const { SECRET_KEY, PORT, FOLDERS } = require('./shared/config');
 const { MODULES_REGISTRY } = require('./shared/modules-registry');
 const { authenticateJWT, authenticateAdmin, authenticateAdminUI, authenticateInternalOrAdmin, authenticateAdminOrFinances, authenticateMagappControl, isSuperAdmin, isAdminLike } = require('./shared/middleware');
@@ -532,6 +533,51 @@ app.get('/api/auth/me', authenticateJWT, async (req, res) => {
             });
         }
 
+        // Accès « module seul » à Mes tâches depuis le Magasin d'applications.
+        if (req.user.scope === 'tasks') {
+            return res.json({
+                id: req.user.id || 0,
+                username: req.user.username,
+                displayName: req.user.displayName || req.user.username,
+                role: req.user.role || 'user',
+                is_approved: 1,
+                email: req.user.email || undefined,
+                service_code: req.user.service_code || null,
+                service_complement: req.user.service_complement || null,
+                authorized_urls: ['/mes-taches'],
+            });
+        }
+
+        // Accès « module seul » à Mes notes IA depuis le Magasin d'applications.
+        if (req.user.scope === 'notes') {
+            return res.json({
+                id: req.user.id || 0,
+                username: req.user.username,
+                displayName: req.user.displayName || req.user.username,
+                role: req.user.role || 'user',
+                is_approved: 1,
+                email: req.user.email || undefined,
+                service_code: req.user.service_code || null,
+                service_complement: req.user.service_complement || null,
+                authorized_urls: ['/notes'],
+            });
+        }
+
+        // Accès « module seul » à Mes réunions depuis le Magasin d'applications.
+        if (req.user.scope === 'reunions') {
+            return res.json({
+                id: req.user.id || 0,
+                username: req.user.username,
+                displayName: req.user.displayName || req.user.username,
+                role: req.user.role || 'user',
+                is_approved: 1,
+                email: req.user.email || undefined,
+                service_code: req.user.service_code || null,
+                service_complement: req.user.service_complement || null,
+                authorized_urls: ['/mes-reunions'],
+            });
+        }
+
         let user = null;
         let source = '';
 
@@ -721,6 +767,200 @@ app.get('/api/ad/search', authenticateJWT, async (req, res) => {
     } catch (error) {
         console.error('Erreur recherche AD:', error);
         res.status(500).json({ error: error.message });
+    }
+});
+
+// ─── Résolution d'identité agent (AD → RH Studio → hub.users) ────────────────
+// Sert au module Réunions (module générique) : recherche d'un agent avec repli
+// RH Studio si absent de l'AD, et identité de l'agent connecté (nom + service).
+// « CHEVALIER », « BILLAUD-BOUAMRANI », « Marc » → « Chevalier », « Billaud-Bouamrani », « Marc »
+function titleCaseName(s) {
+    return String(s || '').toLowerCase().replace(/(^|[\s'-])(\p{L})/gu, (m, sep, ch) => sep + ch.toUpperCase());
+}
+
+function splitDisplayName(displayName, fallback) {
+    const parts = String(displayName || '').trim().split(/\s+/).filter(Boolean);
+    if (parts.length === 0) return { prenom: '', nom: fallback || '' };
+    if (parts.length === 1) return { prenom: '', nom: parts[0] };
+    return { prenom: parts[0], nom: parts.slice(1).join(' ') };
+}
+
+async function getEnabledAdSettings() {
+    try {
+        const adSettings = await db.get('SELECT * FROM ad_settings WHERE id = 1');
+        return (adSettings && adSettings.is_enabled) ? adSettings : null;
+    } catch { return null; }
+}
+
+// Résout l'identité d'un agent : hub.users → Active Directory → RH Studio.
+// Renvoie toujours un objet (jamais null) : { username, displayName, prenom, nom,
+// email, service, direction, source }. Utilisé pour l'agent connecté et pour
+// renseigner un displayName exploitable (ex. "Marc CHEVALIER") à la connexion.
+async function resolveAgentIdentity(username, email) {
+    const uname = String(username || '').toLowerCase();
+    const out = { username: uname, displayName: '', prenom: '', nom: '', email: email || '', service: '', direction: '', source: 'none' };
+
+    try {
+        const u = await db.get('SELECT displayName, email, service_code, service_complement FROM users WHERE LOWER(username)=?', [uname]);
+        if (u) {
+            if (u.displayName) out.displayName = u.displayName;
+            if (u.email && !out.email) out.email = u.email;
+            out.service = u.service_complement || u.service_code || '';
+            out.source = 'hub';
+        }
+    } catch { /* ignore */ }
+
+    try {
+        const adSettings = await getEnabledAdSettings();
+        if (adSettings) {
+            const matches = await searchADUsersByQuery(uname, adSettings);
+            const hit = (matches || []).find(m => (m.username || '').toLowerCase() === uname) || (matches || [])[0];
+            if (hit) {
+                if (hit.displayName) out.displayName = hit.displayName;
+                if (hit.email && !out.email) out.email = hit.email;
+                if (hit.service) out.service = hit.service;
+                if (hit.direction) out.direction = hit.direction;
+                out.source = 'ad';
+            }
+        }
+    } catch { /* repli RH */ }
+
+    // RH Studio = source de vérité pour le prénom/nom : interrogé même quand l'AD
+    // a répondu (l'AD expose souvent « NOM Prénom », on veut un ordre fiable).
+    let rhAgent = null;
+    try {
+        let agent = out.email ? await rhStudio.findAgentByEmail(out.email) : null;
+        if (!agent) {
+            const q = (out.displayName && out.displayName !== uname) ? out.displayName : uname;
+            const list = await rhStudio.searchAgents(q);
+            agent = (list || [])[0] || null;
+        }
+        rhAgent = agent;
+    } catch { /* ignore */ }
+
+    if (rhAgent) {
+        if (rhAgent.prenom) out.prenom = rhAgent.prenom;
+        if (rhAgent.nom) out.nom = rhAgent.nom;
+        if (rhAgent.email && !out.email) out.email = rhAgent.email;
+        if (rhAgent.service) out.service = rhAgent.service;
+        if (rhAgent.direction && !out.direction) out.direction = rhAgent.direction;
+        if (out.source !== 'ad') out.source = 'rh';
+    }
+
+    // Nom affiché : « Nom Prénom » (ex. "Chevalier Marc") quand prénom/nom RH
+    // connus ; sinon on normalise simplement la casse du displayName existant.
+    if (rhAgent && (rhAgent.prenom || rhAgent.nom)) {
+        out.displayName = `${titleCaseName(out.nom)} ${titleCaseName(out.prenom)}`.trim() || out.displayName;
+    } else if (out.displayName) {
+        out.displayName = titleCaseName(out.displayName);
+    }
+
+    if (!out.prenom && !out.nom) {
+        const { prenom, nom } = splitDisplayName(out.displayName, uname);
+        out.prenom = prenom; out.nom = nom;
+    }
+    return out;
+}
+
+// Nom affichable pour un jeton « module seul » : displayName du jeton, sinon
+// résolu via AD/RH Studio (évite d'afficher le simple login dans l'en-tête).
+async function accessDisplayName(user, username) {
+    if (user?.displayName && user.displayName.toLowerCase() !== String(username || '').toLowerCase()) return user.displayName;
+    try {
+        const ident = await resolveAgentIdentity(username, user?.email);
+        return ident.displayName || username;
+    } catch { return username; }
+}
+
+// GET /api/agents/search?q= — recherche AD, repli RH Studio si aucun résultat.
+app.get('/api/agents/search', authenticateJWT, async (req, res) => {
+    try {
+        const q = String(req.query.q || '').trim();
+        if (q.length < 2) return res.json([]);
+
+        // Recherche simultanée dans l'AD ET dans RH Studio : un agent peut n'être
+        // référencé que dans l'un des deux (saisie prédictive → on fusionne).
+        const [adResults, rhRaw] = await Promise.all([
+            (async () => {
+                try {
+                    const adSettings = await getEnabledAdSettings();
+                    if (!adSettings) return [];
+                    return await searchADUsersByQuery(q, adSettings);
+                } catch (e) { return []; }
+            })(),
+            (async () => { try { return await rhStudio.searchAgents(q); } catch (e) { return []; } })(),
+        ]);
+
+        const seenEmails = new Set();
+        const seenNames = new Set();
+        const merged = [];
+
+        for (const u of (adResults || [])) {
+            const { prenom, nom } = splitDisplayName(u.displayName, u.username);
+            const email = (u.email || '').toLowerCase();
+            if (email) seenEmails.add(email);
+            if (nom) seenNames.add(`${prenom} ${nom}`.trim().toLowerCase());
+            merged.push({
+                username: u.username || '',
+                displayName: u.displayName || u.username || '',
+                prenom, nom,
+                email: u.email || '',
+                service: u.service || '',
+                direction: u.direction || '',
+                source: 'ad',
+                emailMissing: !u.email,
+            });
+        }
+
+        // Ajoute les agents RH Studio absents de l'AD (dédoublonnage email puis nom).
+        for (const a of (rhRaw || [])) {
+            const email = (a.email || '').toLowerCase();
+            const displayName = [a.prenom, a.nom].filter(Boolean).join(' ') || a.email || a.matricule || 'Agent';
+            const nameKey = [a.prenom, a.nom].filter(Boolean).join(' ').trim().toLowerCase();
+            if (email && seenEmails.has(email)) continue;
+            if (nameKey && seenNames.has(nameKey)) continue;
+            if (email) seenEmails.add(email);
+            if (nameKey) seenNames.add(nameKey);
+            const username = email ? email.split('@')[0].toLowerCase() : (a.matricule ? `rh_${a.matricule}` : '');
+            merged.push({
+                username, displayName,
+                prenom: a.prenom || '', nom: a.nom || '',
+                email: a.email || '',
+                service: a.service || '', direction: a.direction || '', fonction: a.fonction || '',
+                source: 'rh',
+                emailMissing: !a.email,
+            });
+        }
+
+        res.json(merged.slice(0, 20));
+    } catch (error) {
+        console.error('Erreur recherche agents:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// GET /api/agents/me — identité de l'agent connecté (nom, prénom, service, email),
+// enrichie AD puis RH Studio (repli) pour préremplir un participant par défaut.
+app.get('/api/agents/me', authenticateJWT, async (req, res) => {
+    const username = String(req.user?.username || '').toLowerCase();
+    try {
+        const ident = await resolveAgentIdentity(username, req.user?.email);
+        res.json({
+            ...ident,
+            displayName: ident.displayName || req.user?.displayName || username,
+            email: ident.email || req.user?.email || '',
+            emailMissing: !(ident.email || req.user?.email),
+        });
+    } catch (error) {
+        res.json({
+            username,
+            displayName: req.user?.displayName || username,
+            prenom: '', nom: '',
+            email: req.user?.email || '',
+            service: '', direction: '',
+            source: 'token',
+            emailMissing: !req.user?.email,
+        });
     }
 });
 
@@ -1275,472 +1515,6 @@ async function getOracleConnection(settings) {
 }
 
 
-// --- Système de Correspondance AD Automatisée ---
-
-let adSyncProgress = { current: 0, total: 0, status: 'idle', currentName: '', associations: 0 };
-
-function getLevenshteinDistance(a, b) {
-    if (a.length === 0) return b.length;
-    if (b.length === 0) return a.length;
-    const matrix = [];
-    for (let i = 0; i <= b.length; i++) matrix[i] = [i];
-    for (let j = 0; j <= a.length; j++) matrix[0][j] = j;
-    for (let i = 1; i <= b.length; i++) {
-        for (let j = 1; j <= a.length; j++) {
-            if (b.charAt(i - 1) === a.charAt(j - 1)) matrix[i][j] = matrix[i - 1][j - 1];
-            else matrix[i][j] = Math.min(matrix[i - 1][j - 1] + 1, matrix[i][j - 1] + 1, matrix[i - 1][j] + 1);
-        }
-    }
-    return matrix[b.length][a.length];
-}
-
-function calculateMatchScore(rhNom, rhPrenom, adDisplay) {
-    // Normalise l'affichage LDAP pour gérer les encodages type \c3\a9 (UTF-8)
-    const normalizedAD = adDisplay.replace(/\\([0-9a-fA-F]{2})/g, (match, hex) => String.fromCharCode(parseInt(hex, 16)));
-    const s1 = `${rhNom} ${rhPrenom}`.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-    const s2 = normalizedAD.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-    const dist = getLevenshteinDistance(s1, s2);
-    const maxLen = Math.max(s1.length, s2.length);
-    return maxLen === 0 ? 100 : Math.round((1 - dist / maxLen) * 100);
-}
-
-// Fonction pour parser les dates LDAP (filetime)
-function parseLDAPDate(val) {
-    if (!val) return null;
-    try {
-        const timestamp = parseInt(val);
-        if (timestamp <= 0 || isNaN(timestamp)) return null;
-        // LDAP filetime est en 100-nanosecondes depuis le 1er Janvier 1601
-        return new Date((timestamp / 10000) - 11644473600000);
-    } catch (e) {
-        return null;
-    }
-}
-
-
-
-function formatDateToFrench(dateString) {
-    if (!dateString) return null;
-    try {
-        // Remove 'Z' if it already exists, then add it to ensure UTC interpretation
-        let isoString = typeof dateString === 'string' ? dateString.replace('Z', '') : dateString.toString();
-        const date = new Date(isoString + 'Z');
-
-        // Format in French timezone
-        const formatter = new Intl.DateTimeFormat('fr-FR', {
-            year: 'numeric',
-            month: '2-digit',
-            day: '2-digit',
-            hour: '2-digit',
-            minute: '2-digit',
-            timeZone: 'Europe/Paris'
-        });
-
-        const formatted = formatter.format(date);
-        // formatter.format returns something like "15/04/2026 10:34"
-        return formatted;
-    } catch (e) {
-        console.error('Error formatting date:', e.message);
-        return dateString;
-    }
-}
-
-app.get('/api/admin/rh/sync-ad/progress', authenticateAdmin, (req, res) => {
-    res.json(adSyncProgress);
-});
-
-app.post('/api/admin/rh/sync-ad', authenticateAdmin, async (req, res) => {
-    const username = req.user?.username || 'system';
-    if (adSyncProgress.status === 'running') return res.status(400).json({ message: "Synchro déjà en cours" });
-
-    adSyncProgress = { current: 0, total: 0, status: 'running', associations: 0, currentName: 'Synchronisation en cours...' };
-    res.json({ message: "Synchronisation AD lancée" });
-
-    (async () => {
-        try {
-            const today = new Date().toISOString().substring(0, 10);
-
-            // On calcule le total tout de suite pour la barre de progression
-            const countRes = await db.get(`
-                SELECT COUNT(*) as total FROM rh.referentiel_agents 
-                WHERE date_plusvu IS NULL 
-                AND (DATE_DEPART IS NULL OR DATE_DEPART = '' OR DATE_DEPART > ?)
-            `, [today]);
-            adSyncProgress.total = countRes.total;
-
-            const adSettings = await db.get('SELECT * FROM ad_settings WHERE id = 1');
-            if (!adSettings || !adSettings.is_enabled) {
-                adSyncProgress.status = 'error';
-                return;
-            }
-
-            // 1. Charger tous les utilisateurs AD avec pagination
-            const allADUsers = await new Promise((resolve, reject) => {
-                const client = ldap.createClient({ url: `ldap://${adSettings.host}:${adSettings.port}` });
-                client.bind(adSettings.bind_dn, adSettings.bind_password, (err) => {
-                    if (err) { client.destroy(); return reject(err); }
-                    const users = [];
-                    const searchOptions = {
-                        filter: '(objectClass=user)',
-                        scope: 'sub',
-                        attributes: ['*', 'lastLogonTimestamp', 'lastLogon'],
-                        paged: true,
-                        sizeLimit: 10000
-                    };
-
-                    client.search(adSettings.base_dn, searchOptions, (err, searchRes) => {
-                        if (err) { client.destroy(); return reject(err); }
-                        searchRes.on('searchEntry', (entry) => { users.push(flattenLDAPEntry(entry)); });
-                        searchRes.on('end', () => { client.destroy(); resolve(users); });
-                        searchRes.on('error', (err) => { client.destroy(); reject(err); });
-                    });
-                });
-            });
-
-            // 2. Indexer les utilisateurs AD pour une recherche rapide
-            const adMatriculeMap = new Map();
-            const adNameMap = new Map();
-
-            allADUsers.forEach(u => {
-                if (!u.sAMAccountName) return;
-
-                // Index par matricule (sAMAccountName ou employeeID ou description)
-                const sam = u.sAMAccountName.toString().toLowerCase();
-                adMatriculeMap.set(sam, u);
-
-                if (u.employeeID) {
-                    adMatriculeMap.set(u.employeeID.toString().toLowerCase(), u);
-                }
-
-                // Si le matricule est caché dans la description (cas fréquent)
-                if (u.description && typeof u.description === 'string') {
-                    const match = u.description.match(/\d{5,8}/); // Recherche un nombre de 5 à 8 chiffres
-                    if (match) adMatriculeMap.set(match[0], u);
-                }
-
-                // Index par nom normalisé
-                const displayName = decodeLDAPString(u.displayName);
-                const cn = decodeLDAPString(u.cn);
-                
-                if (displayName) {
-                    const norm = displayName.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z]/g, "");
-                    if (norm.length > 5) adNameMap.set(norm, u);
-                } else if (cn) {
-                    const norm = cn.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z]/g, "");
-                    if (norm.length > 5) adNameMap.set(norm, u);
-                }
-            });
-
-            // 3. Charger TOUS les agents actifs (pour pouvoir mettre à jour le statut des déjà liés aussi)
-            const agentsToSync = await db.all(`
-                SELECT MATRICULE, NOM, PRENOM, ad_username FROM rh.referentiel_agents 
-                WHERE date_plusvu IS NULL 
-                AND (DATE_DEPART IS NULL OR DATE_DEPART = '' OR DATE_DEPART > ?)
-            `, [today]);
-            // adSyncProgress.total = agentsToSync.length; // Déjà mis à jour à l'init
-
-            for (let i = 0; i < agentsToSync.length; i++) {
-                const agent = agentsToSync[i];
-                adSyncProgress.current = i + 1;
-                adSyncProgress.currentName = `Traitement: ${i+1}/${agentsToSync.length}`; 
-                
-                // Petit délai pour la visibilité de la barre de progression si c'est trop rapide
-                if (i % 5 === 0) await new Promise(resolve => setTimeout(resolve, 30));
-
-                const agentMatricule = agent.MATRICULE || agent.matricule || '';
-                const matricule = String(agentMatricule).toLowerCase().trim();
-                const nom = (agent.NOM || '').toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z]/g, "");
-                const prenom = (agent.PRENOM || '').toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z]/g, "");
-                const fullNameNorm = nom + prenom;
-                const fullNameNormReverse = prenom + nom;
-
-                let match = null;
-
-                // Si l'agent a déjà un lien AD (manuel ou auto), on NE re-matche PAS par nom/matricule
-                // pour ne pas écraser un lien donné manuellement
-                if (agent.ad_username) {
-                    // Cherche directement par le username connu (peut être domain\user ou juste user)
-                    const samLookup = agent.ad_username.includes('\\') 
-                        ? agent.ad_username.split('\\').pop().toLowerCase()
-                        : agent.ad_username.toLowerCase();
-                    const existingAD = adMatriculeMap.get(samLookup);
-                    if (existingAD) {
-                        const uac = parseInt(existingAD.userAccountControl);
-                        const enabled = isNaN(uac) ? 1 : (!(uac & 2) ? 1 : 0);
-                        
-                        // Fusion de lastLogon et lastLogonTimestamp
-                        const d1 = parseLDAPDate(existingAD.lastLogonTimestamp);
-                        const d2 = parseLDAPDate(existingAD.lastLogon);
-                        let bestLogon = null;
-                        if (d1 && d2) bestLogon = d1 > d2 ? d1 : d2;
-                        else bestLogon = d1 || d2 || null;
-
-                        const lastLogonIso = bestLogon ? bestLogon.toISOString() : null;
-                        
-                        await db.run('UPDATE rh.referentiel_agents SET ad_account_enabled = ?, ad_last_logon = ? WHERE MATRICULE = ?', [enabled, lastLogonIso, agentMatricule]);
-                        adSyncProgress.associations++;
-                    } else {
-                        // Le compte AD connu a disparu ou n'est pas indexé (mauvais format?)
-                        console.log(`[AD Sync] Compte AD '${agent.ad_username}' non trouvé dans l'index pour ${agent.NOM}`);
-                        await db.run('UPDATE rh.referentiel_agents SET ad_account_enabled = 0 WHERE MATRICULE = ?', [agentMatricule]);
-                    }
-                    continue; // Passe à l'agent suivant sans re-matcher
-                }
-
-                // 1. Agent sans lien AD: Recherche par matricule (Haute priorité)
-                if (matricule) {
-                    match = adMatriculeMap.get(matricule);
-                }
-
-                // 2. Si non trouvé, recherche par nom/prénom (ne s'applique qu'aux agents sans lien)
-                if (!match && fullNameNorm.length > 3) {
-                    match = adNameMap.get(fullNameNorm) || adNameMap.get(fullNameNormReverse);
-                }
-
-                // 3. Traitement du match (nouveau lien)
-                if (match) {
-                    const uac = parseInt(match.userAccountControl);
-                    const enabled = isNaN(uac) ? 1 : (!(uac & 2) ? 1 : 0);
-
-                    // Fusion de lastLogon et lastLogonTimestamp
-                    const d1 = parseLDAPDate(match.lastLogonTimestamp);
-                    const d2 = parseLDAPDate(match.lastLogon);
-                    let bestLogon = null;
-                    if (d1 && d2) bestLogon = d1 > d2 ? d1 : d2;
-                    else bestLogon = d1 || d2 || null;
-
-                    const lastLogonIso = bestLogon ? bestLogon.toISOString() : null;
-
-                    const email = Array.isArray(match.mail) ? match.mail[0] : (match.mail || null);
-                    await db.run(
-                        `UPDATE rh.referentiel_agents 
-                         SET ad_username = ?, ad_account_enabled = ?, ad_last_logon = ?, mail = ?, date_fin_association_ad = NULL 
-                         WHERE MATRICULE = ?`,
-                        [match.sAMAccountName, enabled, lastLogonIso, email, agentMatricule]
-                    );
-                    adSyncProgress.associations++;
-                }
-            }
-
-            adSyncProgress.status = 'done';
-
-            await db.run(
-                'INSERT INTO rh_sync_logs (sync_type, status, message, details, username) VALUES (?, ?, ?, ?, ?)',
-                ['Active Directory', 'success', `Sync AD terminée: ${adSyncProgress.associations} associations`, JSON.stringify(adSyncProgress), username]
-            );
-            console.log(`[SYNC LOG] Succès pour Active Directory`);
-        } catch (err) {
-            console.error("Erreur Synchro AD:", err);
-            adSyncProgress.status = 'error';
-            await db.run(
-                'INSERT INTO rh_sync_logs (sync_type, status, message, details, username) VALUES (?, ?, ?, ?, ?)',
-                ['Active Directory', 'error', `Erreur: ${err.message}`, JSON.stringify(adSyncProgress), username]
-            );
-            console.log(`[SYNC LOG] Erreur pour Active Directory: ${err.message}`);
-        }
-    })();
-});
-
-// --- Système de Correspondance Azure AD (Entra ID) ---
-
-let azureSyncProgress = { current: 0, total: 0, status: 'idle' };
-
-app.get('/api/admin/rh/sync-azure/progress', authenticateAdmin, (req, res) => {
-    res.json(azureSyncProgress);
-});
-
-app.post('/api/admin/rh/sync-azure', authenticateAdmin, async (req, res) => {
-    const username = req.user?.username || 'system';
-    if (azureSyncProgress.status === 'running') return res.status(400).json({ message: "Synchro Azure déjà en cours" });
-
-    azureSyncProgress = { current: 0, total: 0, status: 'running' };
-    res.json({ message: "Synchronisation Azure AD lancée" });
-
-    (async () => {
-        try {
-            const today = new Date().toISOString().substring(0, 10);
-            const countRes = await db.get(`
-                SELECT COUNT(*) as total FROM rh.referentiel_agents 
-                WHERE date_plusvu IS NULL 
-                AND (DATE_DEPART IS NULL OR DATE_DEPART = '' OR DATE_DEPART > ?)
-            `, [today]);
-            azureSyncProgress.total = countRes.total;
-
-            const settings = await db.get('SELECT * FROM azure_ad_settings WHERE id = 1');
-            if (!settings || !settings.is_enabled) {
-                azureSyncProgress.status = 'error';
-                return;
-            }
-
-            // 1. Obtenir Token Graph
-            const tokenRes = await axios.post(`https://login.microsoftonline.com/${settings.tenant_id}/oauth2/v2.0/token`,
-                new URLSearchParams({
-                    client_id: settings.client_id,
-                    client_secret: settings.client_secret,
-                    grant_type: 'client_credentials',
-                    scope: 'https://graph.microsoft.com/.default'
-                }).toString(),
-                { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }
-            );
-            const accessToken = tokenRes.data.access_token;
-
-            // 2. Récupérer les correspondances SKU (ID -> Nom de licence)
-            const skuMap = new Map();
-            try {
-                const skuRes = await axios.get('https://graph.microsoft.com/v1.0/subscribedSkus', {
-                    headers: { Authorization: `Bearer ${accessToken}` }
-                });
-                skuRes.data.value.forEach(sku => {
-                    skuMap.set(sku.skuId, sku.skuPartNumber);
-                });
-                console.log(`[Azure Sync] ${skuMap.size} SKUs récupérés: ${[...skuMap.values()].join(', ')}`);
-            } catch (e) { console.error("[Azure Sync] ERREUR lors de la récupération des SKUs:", e.message); }
-
-            // 3. Récupérer tous les utilisateurs Azure avec licences
-            let allAzureUsers = [];
-            let nextLink = 'https://graph.microsoft.com/v1.0/users?$select=id,displayName,userPrincipalName,mail,assignedLicenses,accountEnabled';
-            while (nextLink) {
-                const graphRes = await axios.get(nextLink, { headers: { Authorization: `Bearer ${accessToken}` } });
-                allAzureUsers = allAzureUsers.concat(graphRes.data.value);
-                nextLink = graphRes.data['@odata.nextLink'];
-            }
-            console.log(`[Azure Sync] ${allAzureUsers.length} utilisateurs récupérés dans Azure`);
-
-            // 3. Charger les agents actifs sans Azure ID
-            const agents = await db.all(`
-                SELECT MATRICULE, NOM, PRENOM, mail, azure_id FROM rh.referentiel_agents 
-                WHERE date_plusvu IS NULL 
-                AND (DATE_DEPART IS NULL OR DATE_DEPART = '' OR DATE_DEPART > ?)
-            `, [today]);
-            console.log(`[Azure Sync] ${agents.length} agents RH actifs trouvés`);
-
-            azureSyncProgress.total = agents.length;
-
-            const azNameMap = new Map();
-            const azEmailMap = new Map();
-            allAzureUsers.forEach(u => {
-                if (u.displayName) {
-                    // Normalisation avec suppression des accents pour meilleur matching
-                    const normalized = u.displayName.toLowerCase()
-                        .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
-                        .replace(/[^a-z]/g, "");
-                    azNameMap.set(normalized, u);
-                    // Aussi indexer par prénom+nom
-                    const parts = u.displayName.trim().split(/\s+/);
-                    if (parts.length >= 2) {
-                        const reversed = (parts.slice(1).join('') + parts[0]).toLowerCase()
-                            .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
-                            .replace(/[^a-z]/g, "");
-                        if (!azNameMap.has(reversed)) azNameMap.set(reversed, u);
-                    }
-                }
-                if (u.mail) azEmailMap.set(u.mail.toLowerCase(), u);
-                if (u.userPrincipalName) azEmailMap.set(u.userPrincipalName.toLowerCase(), u);
-            });
-
-            // Afficher les SKUs disponibles pour diagnostic
-            console.log(`[Azure Sync] SKUs disponibles: ${[...skuMap.values()].join(', ')}`);
-
-            for (let i = 0; i < agents.length; i++) {
-                const agent = agents[i];
-                azureSyncProgress.current = i + 1;
-
-                // Délai pour la visibilité de la barre
-                if (i % 5 === 0) await new Promise(resolve => setTimeout(resolve, 30));
-
-                const agentNom = agent.NOM || agent.nom || '';
-                const agentPrenom = agent.PRENOM || agent.prenom || '';
-                const agentMail = agent.MAIL || agent.mail || agent.EMAIL || agent.email || '';
-
-                const normalizedRH = (agentNom + agentPrenom).toLowerCase()
-                    .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
-                    .replace(/[^a-z]/g, "");
-                const normalizedRHReverse = (agentPrenom + agentNom).toLowerCase()
-                    .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
-                    .replace(/[^a-z]/g, "");
-
-                let match = null;
-                if (agentMail) match = azEmailMap.get(agentMail.toLowerCase());
-                if (!match) match = azNameMap.get(normalizedRH) || azNameMap.get(normalizedRHReverse);
-                // Essai aussi par mail si le sAMAccountName@domaine est connu
-                if (!match && agent.ad_username) {
-                    const possibleUpn = agent.ad_username.toLowerCase();
-                    match = azEmailMap.get(possibleUpn) || [...azEmailMap.keys()].reduce((best, key) => {
-                        if (key.startsWith(possibleUpn + '@')) return azEmailMap.get(key);
-                        return best;
-                    }, null);
-                }
-                if (match) {
-                    let mainLicense = null;
-                    if (match.assignedLicenses && match.assignedLicenses.length > 0) {
-                        // Récupère le nom de la SKU ou le skuId brut comme fallback
-                        const userSkus = match.assignedLicenses.map(l => skuMap.get(l.skuId) || l.skuId);
-                        console.log(`[Azure Sync] ${agentNom}: SKUs = [${userSkus.join(', ')}]`);
-
-                        const priorities = [
-                            'SPE_E5', 'SPE_E3', 'SPE_E1',
-                            'ENTERPRISEPREMIUM', 'ENTERPRISEPACK', 'ENTERPRISE_THREAT_DETECTION',
-                            'M365_BUSINESS_PREMIUM', 'O365_BUSINESS_PREMIUM',
-                            'M365_BUSINESS_STANDARD', 'O365_BUSINESS_STANDARD',
-                            'M365_BUSINESS_BASIC', 'O365_BUSINESS_ESSENTIALS',
-                            'DEVELOPER_PACK', 'DEVELOPERPACK_E5',
-                            'MICROSOFT_365_COPILOT', 'TEAMS_EXPLORATORY', 'FLOW_FREE',
-                            'ET1', 'E1', 'E3', 'E5'
-                        ];
-
-                        for (const p of priorities) {
-                            if (userSkus.includes(p)) { mainLicense = p; break; }
-                        }
-                        // Si aucune prioritaire, prendre la première disponible (même si c'est un skuId brut)
-                        if (!mainLicense) mainLicense = userSkus[0] || null;
-                    }
-
-                    await db.run(
-                        'UPDATE rh.referentiel_agents SET azure_id = ?, azure_license = ?, azure_account_enabled = ? WHERE MATRICULE = ?',
-                        [match.id, mainLicense, match.accountEnabled ? 1 : 0, agent.MATRICULE]
-                    );
-                    if (mainLicense) {
-                        console.log(`[Azure Sync] MATCH trouvé pour ${agentNom}: ${match.userPrincipalName} (Licence: ${mainLicense})`);
-                    } else {
-                        // Log plus précis si pas de licence
-                        const skus = match.assignedLicenses?.map(l => skuMap.get(l.skuId) || l.skuId) || [];
-                        console.log(`[Azure Sync] MATCH trouvé pour ${agentNom}: ${match.userPrincipalName} (Pas de licence connue. SKUs bruts: ${skus.join(', ')})`);
-                    }
-                } else {
-                    // console.log(`[Azure Sync] Aucun match pour ${agentNom} (${agentMail || 'pas de mail'})`);
-                }
-            }
-            console.log(`[Azure Sync] Synchronisation terminée`);
-
-            azureSyncProgress.status = 'done';
-            await db.run(
-                'INSERT INTO rh_sync_logs (sync_type, status, message, details, username) VALUES (?, ?, ?, ?, ?)',
-                ['Azure AD', 'success', `Sync Azure terminée.`, JSON.stringify(azureSyncProgress), username]
-            );
-            console.log(`[SYNC LOG] Succès pour Azure AD`);
-        } catch (err) {
-            console.error("Erreur Synchro Azure:", err);
-            azureSyncProgress.status = 'error';
-            await db.run(
-                'INSERT INTO rh_sync_logs (sync_type, status, message, details, username) VALUES (?, ?, ?, ?, ?)',
-                ['Azure AD', 'error', `Erreur: ${err.message}`, JSON.stringify(azureSyncProgress), username]
-            );
-            console.log(`[SYNC LOG] Erreur pour Azure AD: ${err.message}`);
-        }
-    })();
-});
-
-console.log('[DEBUG] Registering Frizbi and RH Log routes...');
-
-app.get('/api/admin/rh/logs', authenticateAdmin, async (req, res) => {
-    try {
-        const logs = await db.all('SELECT * FROM rh_sync_logs ORDER BY created_at DESC LIMIT 100');
-        res.json(logs);
-    } catch (err) {
-        console.error("Erreur lecture logs:", err);
-        res.status(500).json({ message: 'Erreur lecture logs', error: err.message });
-    }
-});
 
 // ── Helper: log SMS to hub.sms_logs ──────────────────────────────────
 async function logSmsSend({ recipient, message, sender_id, status, error_message, source, created_by }) {
@@ -1961,15 +1735,24 @@ app.get('/api/oracle-settings', authenticateAdmin, async (req, res) => {
 app.post('/api/oracle-settings', authenticateAdmin, async (req, res) => {
     const { type, host, port, service_name, username, password, is_enabled } = req.body;
     try {
+        // UPSERT : crée la ligne si le type n'existe pas encore (ex. DELIB), sinon met à jour.
         if (!password || password === '********') {
             await db.run(
-                'UPDATE oracle_settings SET host = ?, port = ?, service_name = ?, username = ?, is_enabled = ? WHERE type = ?',
-                [host, port, service_name, username, is_enabled ? 1 : 0, type]
+                `INSERT INTO oracle_settings (type, host, port, service_name, username, is_enabled)
+                 VALUES (?, ?, ?, ?, ?, ?)
+                 ON CONFLICT(type) DO UPDATE SET
+                    host = excluded.host, port = excluded.port, service_name = excluded.service_name,
+                    username = excluded.username, is_enabled = excluded.is_enabled`,
+                [type, host, port, service_name, username, is_enabled ? 1 : 0]
             );
         } else {
             await db.run(
-                'UPDATE oracle_settings SET host = ?, port = ?, service_name = ?, username = ?, password = ?, is_enabled = ? WHERE type = ?',
-                [host, port, service_name, username, password, is_enabled ? 1 : 0, type]
+                `INSERT INTO oracle_settings (type, host, port, service_name, username, password, is_enabled)
+                 VALUES (?, ?, ?, ?, ?, ?, ?)
+                 ON CONFLICT(type) DO UPDATE SET
+                    host = excluded.host, port = excluded.port, service_name = excluded.service_name,
+                    username = excluded.username, password = excluded.password, is_enabled = excluded.is_enabled`,
+                [type, host, port, service_name, username, password, is_enabled ? 1 : 0]
             );
         }
         res.json({ success: true, message: 'Paramètres Oracle enregistrés' });
@@ -2349,7 +2132,7 @@ app.post('/api/oracle/test-join', authenticateAdmin, async (req, res) => {
 app.post('/api/oracle/import-tables', authenticateAdmin, async (req, res) => {
     const { type } = req.body;
 
-    if (!type || !['RH', 'FINANCES'].includes(type)) {
+    if (!type || !['RH', 'FINANCES', 'DELIB'].includes(type)) {
         return res.status(400).json({ error: 'Invalid sync type' });
     }
 
@@ -2965,7 +2748,7 @@ app.get('/api/changelog', async (req, res) => {
 // Todo List API
 app.get('/api/todos', authenticateJWT, async (req, res) => {
     try {
-        const todos = await db.all('SELECT * FROM todos ORDER BY priority DESC, created_at DESC');
+        const todos = await pgDb.all('SELECT * FROM hub.todos ORDER BY priority DESC, created_at DESC');
         res.json(todos);
     } catch (error) {
         res.status(500).json({ message: 'Erreur lecture todos', error: error.message });
@@ -2975,8 +2758,8 @@ app.get('/api/todos', authenticateJWT, async (req, res) => {
 app.post('/api/todos', authenticateJWT, async (req, res) => {
     const { task, priority, status } = req.body;
     try {
-        const result = await db.run(
-            'INSERT INTO todos (task, priority, status) VALUES (?, ?, ?)',
+        const result = await pgDb.run(
+            'INSERT INTO hub.todos (task, priority, status) VALUES (?, ?, ?)',
             [task, priority || 0, status || 'à faire']
         );
         res.json({ id: result.lastID, message: 'Todo créé' });
@@ -2988,8 +2771,8 @@ app.post('/api/todos', authenticateJWT, async (req, res) => {
 app.put('/api/todos/:id', authenticateJWT, async (req, res) => {
     const { task, priority, status } = req.body;
     try {
-        await db.run(
-            'UPDATE todos SET task = ?, priority = ?, status = ? WHERE id = ?',
+        await pgDb.run(
+            'UPDATE hub.todos SET task = ?, priority = ?, status = ? WHERE id = ?',
             [task, priority, status, req.params.id]
         );
         res.json({ message: 'Todo mis à jour' });
@@ -3000,7 +2783,7 @@ app.put('/api/todos/:id', authenticateJWT, async (req, res) => {
 
 app.delete('/api/todos/:id', authenticateJWT, async (req, res) => {
     try {
-        await db.run('DELETE FROM todos WHERE id = ?', [req.params.id]);
+        await pgDb.run('DELETE FROM hub.todos WHERE id = ?', [req.params.id]);
         res.json({ message: 'Todo supprimé' });
     } catch (error) {
         res.status(500).json({ message: 'Erreur suppression todo', error: error.message });
@@ -3015,7 +2798,7 @@ app.post('/api/release', authenticateAdmin, async (req, res) => {
         const currentVersion = latestRow ? latestRow.version : '0.1.0';
 
         // 2. Récupérer les todos terminés (statut 'ok')
-        const finishedTodos = await db.all("SELECT task FROM todos WHERE status = 'ok'");
+        const finishedTodos = await pgDb.all("SELECT task FROM hub.todos WHERE status = 'ok'");
         if (finishedTodos.length === 0) {
             return res.status(400).json({ message: "Aucun todo terminé ('ok') pour documenter la release." });
         }
@@ -3034,7 +2817,7 @@ app.post('/api/release', authenticateAdmin, async (req, res) => {
         );
 
         // 5. Supprimer les todos terminés
-        await db.run("DELETE FROM todos WHERE status = 'ok'");
+        await pgDb.run("DELETE FROM hub.todos WHERE status = 'ok'");
 
         // 6. Git commit
         exec(`git add . && git commit -m "Release v${newVersion}"`, (error, stdout, stderr) => {
@@ -3213,6 +2996,11 @@ let db;
 setupDb().then(async database => {
     db = database;
 
+    // Connexion Oracle DELIB : ligne créée si absente (au même titre que RH et FINANCES).
+    try {
+        await db.run("INSERT OR IGNORE INTO oracle_settings (type, is_enabled) VALUES ('DELIB', 0)");
+    } catch (e) { console.warn('[ORACLE] Initialisation connexion DELIB:', e.message); }
+
     // Initialize backlog controller with database for AD lookups
     try { backlogController.setDb(db); } catch (e) { console.warn('[BACKLOG] Controller pas encore chargé, injection DB reportée'); }
 
@@ -3226,12 +3014,6 @@ setupDb().then(async database => {
     try { await db.run('ALTER TABLE users ADD COLUMN email TEXT'); } catch (e) { /* colonne déjà présente */ }
     // Renseigner displayName depuis le nom AD si null (pour les comptes existants)
     try { await db.run(`UPDATE users SET displayName = username WHERE displayName IS NULL OR displayName = ''`); } catch (e) { }
-
-    // Ajout physique du champ montant utilisé
-    try {
-        await db.run('ALTER TABLE operations ADD COLUMN used_amount REAL DEFAULT 0');
-        console.log('Colonne used_amount OK');
-    } catch (e) { }
 
     // Initialisation table ad_settings
     try {
@@ -3736,7 +3518,7 @@ process.on('uncaughtException', (err) => {
 // Budgets API
 app.get('/api/budgets', authenticateJWT, async (req, res) => {
     try {
-        const budgets = await db.all('SELECT * FROM budgets ORDER BY Annee, numero');
+        const budgets = await pgDb.all('SELECT * FROM finance.budgets ORDER BY "Annee", numero');
         res.json(budgets);
     } catch (error) {
         res.status(500).json({ message: 'Erreur lors de la récupération des budgets', error: error.message });
@@ -3746,7 +3528,7 @@ app.get('/api/budgets', authenticateJWT, async (req, res) => {
 app.post('/api/budgets', authenticateAdmin, async (req, res) => {
     const { Annee, numero, Libelle } = req.body;
     try {
-        const result = await db.run('INSERT INTO budgets (Annee, numero, Libelle) VALUES (?, ?, ?)', [Annee, numero, Libelle]);
+        const result = await pgDb.run('INSERT INTO finance.budgets ("Annee", numero, "Libelle") VALUES (?, ?, ?)', [Annee, numero, Libelle]);
         res.json({ id: result.lastID, message: 'Budget créé' });
     } catch (error) {
         res.status(500).json({ message: 'Erreur création budget', error: error.message });
@@ -3756,7 +3538,7 @@ app.post('/api/budgets', authenticateAdmin, async (req, res) => {
 app.put('/api/budgets/:id', authenticateAdmin, async (req, res) => {
     const { Annee, numero, Libelle } = req.body;
     try {
-        await db.run('UPDATE budgets SET Annee = ?, numero = ?, Libelle = ? WHERE id = ?', [Annee, numero, Libelle, req.params.id]);
+        await pgDb.run('UPDATE finance.budgets SET "Annee" = ?, numero = ?, "Libelle" = ? WHERE id = ?', [Annee, numero, Libelle, req.params.id]);
         res.json({ message: 'Budget mis à jour' });
     } catch (error) {
         res.status(500).json({ message: 'Erreur mise à jour budget', error: error.message });
@@ -3765,7 +3547,7 @@ app.put('/api/budgets/:id', authenticateAdmin, async (req, res) => {
 
 app.delete('/api/budgets/:id', authenticateAdmin, async (req, res) => {
     try {
-        await db.run('DELETE FROM budgets WHERE id = ?', [req.params.id]);
+        await pgDb.run('DELETE FROM finance.budgets WHERE id = ?', [req.params.id]);
         res.json({ message: 'Budget supprimé' });
     } catch (error) {
         res.status(500).json({ message: 'Erreur suppression budget', error: error.message });
@@ -4354,7 +4136,7 @@ app.post('/api/auth/magapp-transcript-access', authenticateJWT, async (req, res)
         const accessToken = jwt.sign({
             id: req.user.id || 0,
             username,
-            displayName: req.user.displayName || username,
+            displayName: await accessDisplayName(req.user, username),
             role: 'transcript_agent',
             is_approved: 1,
             service_code: req.user.service_code || null,
@@ -4389,7 +4171,7 @@ app.post('/api/auth/magapp-parapheur-access', authenticateJWT, async (req, res) 
         const accessToken = jwt.sign({
             id: req.user.id || 0,
             username,
-            displayName: req.user.displayName || username,
+            displayName: await accessDisplayName(req.user, username),
             role: 'parapheur_agent',
             is_approved: 1,
             service_code: req.user.service_code || null,
@@ -4408,6 +4190,108 @@ app.post('/api/auth/magapp-parapheur-access', authenticateJWT, async (req, res) 
     } catch (error) {
         console.error('[Parapheur access error]', error.message);
         res.status(500).json({ message: 'Erreur lors de la génération de l\'accès au Parapheur' });
+    }
+});
+
+// Accès « module seul » à Mes tâches depuis le Magasin d'applications : on
+// re-signe l'identité de l'agent avec un champ d'action restreint aux tâches
+// (scope 'tasks'), sans accès aux autres modules du DSI Hub.
+app.post('/api/auth/magapp-tasks-access', authenticateJWT, async (req, res) => {
+    try {
+        const username = String(req.user.username || '').toLowerCase();
+        if (!username) {
+            return res.status(400).json({ message: 'Utilisateur non identifié' });
+        }
+        const accessToken = jwt.sign({
+            id: req.user.id || 0,
+            username,
+            displayName: await accessDisplayName(req.user, username),
+            role: req.user.role || 'user',
+            is_approved: 1,
+            service_code: req.user.service_code || null,
+            service_complement: req.user.service_complement || null,
+            email: req.user.email || null,
+            source: req.user.source || 'magapp',
+            scope: 'tasks',
+        }, SECRET_KEY);
+        let appBaseUrl = process.env.FRONTEND_URL || process.env.APP_BASE_URL || process.env.APP_URL || '';
+        try {
+            const baseRow = await db.get("SELECT setting_value FROM app_settings WHERE setting_key = 'app_base_url'");
+            appBaseUrl = (baseRow?.setting_value || '').trim() || appBaseUrl;
+        } catch { /* repli env */ }
+        appBaseUrl = (appBaseUrl || `${req.protocol}://${req.get('host')}`).replace(/\/+$/, '');
+        res.json({ url: `${appBaseUrl}/mes-taches/${accessToken}` });
+    } catch (error) {
+        console.error('[Tasks access error]', error.message);
+        res.status(500).json({ message: 'Erreur lors de la génération de l\'accès à Mes tâches' });
+    }
+});
+
+// Accès « module seul » à Mes notes IA depuis le Magasin d'applications : on
+// re-signe l'identité de l'agent avec un champ d'action restreint aux notes
+// (scope 'notes'), sans accès aux autres modules du DSI Hub.
+app.post('/api/auth/magapp-notes-access', authenticateJWT, async (req, res) => {
+    try {
+        const username = String(req.user.username || '').toLowerCase();
+        if (!username) {
+            return res.status(400).json({ message: 'Utilisateur non identifié' });
+        }
+        const accessToken = jwt.sign({
+            id: req.user.id || 0,
+            username,
+            displayName: await accessDisplayName(req.user, username),
+            role: req.user.role || 'user',
+            is_approved: 1,
+            service_code: req.user.service_code || null,
+            service_complement: req.user.service_complement || null,
+            email: req.user.email || null,
+            source: req.user.source || 'magapp',
+            scope: 'notes',
+        }, SECRET_KEY);
+        let appBaseUrl = process.env.FRONTEND_URL || process.env.APP_BASE_URL || process.env.APP_URL || '';
+        try {
+            const baseRow = await db.get("SELECT setting_value FROM app_settings WHERE setting_key = 'app_base_url'");
+            appBaseUrl = (baseRow?.setting_value || '').trim() || appBaseUrl;
+        } catch { /* repli env */ }
+        appBaseUrl = (appBaseUrl || `${req.protocol}://${req.get('host')}`).replace(/\/+$/, '');
+        res.json({ url: `${appBaseUrl}/notes/${accessToken}` });
+    } catch (error) {
+        console.error('[Notes access error]', error.message);
+        res.status(500).json({ message: 'Erreur lors de la génération de l\'accès à Mes notes IA' });
+    }
+});
+
+// Accès « module seul » à Mes réunions depuis le Magasin d'applications : on
+// re-signe l'identité de l'agent avec un champ d'action restreint aux réunions
+// (scope 'reunions'), sans accès aux autres modules du DSI Hub.
+app.post('/api/auth/magapp-reunions-access', authenticateJWT, async (req, res) => {
+    try {
+        const username = String(req.user.username || '').toLowerCase();
+        if (!username) {
+            return res.status(400).json({ message: 'Utilisateur non identifié' });
+        }
+        const accessToken = jwt.sign({
+            id: req.user.id || 0,
+            username,
+            displayName: await accessDisplayName(req.user, username),
+            role: req.user.role || 'user',
+            is_approved: 1,
+            service_code: req.user.service_code || null,
+            service_complement: req.user.service_complement || null,
+            email: req.user.email || null,
+            source: req.user.source || 'magapp',
+            scope: 'reunions',
+        }, SECRET_KEY);
+        let appBaseUrl = process.env.FRONTEND_URL || process.env.APP_BASE_URL || process.env.APP_URL || '';
+        try {
+            const baseRow = await db.get("SELECT setting_value FROM app_settings WHERE setting_key = 'app_base_url'");
+            appBaseUrl = (baseRow?.setting_value || '').trim() || appBaseUrl;
+        } catch { /* repli env */ }
+        appBaseUrl = (appBaseUrl || `${req.protocol}://${req.get('host')}`).replace(/\/+$/, '');
+        res.json({ url: `${appBaseUrl}/mes-reunions/${accessToken}` });
+    } catch (error) {
+        console.error('[Reunions access error]', error.message);
+        res.status(500).json({ message: 'Erreur lors de la génération de l\'accès à Mes réunions' });
     }
 });
 
@@ -4451,10 +4335,11 @@ app.post(['/api/login', '/api/auth/magapp-login'], async (req, res) => {
             const userEmail = u.email && u.email.trim() !== ''
                 ? u.email
                 : `${username.toLowerCase()}@ivry94.fr`;
+            const resolvedDisplayName = u.displayName || (await resolveAgentIdentity(u.username, userEmail)).displayName || null;
             const accessToken = jwt.sign({
                 id: u.id || 0,
                 username: u.username,
-                displayName: u.displayName || null,
+                displayName: resolvedDisplayName,
                 role: u.role,
                 is_approved: u.is_approved,
                 service_code: u.service_code,
@@ -4467,7 +4352,7 @@ app.post(['/api/login', '/api/auth/magapp-login'], async (req, res) => {
                 user: {
                     id: u.id || 0,
                     username: u.username,
-                    displayName: u.displayName || null,
+                    displayName: resolvedDisplayName,
                     role: u.role,
                     is_approved: u.is_approved,
                     service_code: u.service_code,
@@ -4537,10 +4422,11 @@ app.post(['/api/login', '/api/auth/magapp-login'], async (req, res) => {
                         } catch (e) { /* non-fatal */ }
                     }
                     console.log(`[DEBUG LOGIN] Generating token for user ${u.username} (source: ${source}, role: ${u.role})`);
+                    const resolvedDisplayName = u.displayName || adUser.displayName || (await resolveAgentIdentity(u.username, adUser.email)).displayName || null;
                     const accessToken = jwt.sign({
                         id: u.id || 0,
                         username: u.username,
-                        displayName: u.displayName || adUser.displayName || null,
+                        displayName: resolvedDisplayName,
                         role: u.role,
                         is_approved: u.is_approved,
                         service_code: u.service_code || null,
@@ -4554,7 +4440,7 @@ app.post(['/api/login', '/api/auth/magapp-login'], async (req, res) => {
                         user: {
                             id: u.id || 0,
                             username: u.username,
-                            displayName: u.displayName || adUser.displayName || null,
+                            displayName: resolvedDisplayName,
                             role: u.role,
                             is_approved: u.is_approved,
                             service_code: u.service_code || null,
@@ -4587,11 +4473,12 @@ app.post(['/api/login', '/api/auth/magapp-login'], async (req, res) => {
                 // Règle de sécurité : Les admins sont TOUJOURS approuvés
                 const isApproved = isAdminLike(user) ? 1 : user.is_approved;
                 const userEmail = user.email && user.email.trim() ? user.email : `${user.username.toLowerCase()}@ivry94.fr`;
+                const resolvedDisplayName = user.displayName || (await resolveAgentIdentity(user.username, userEmail)).displayName || null;
 
                 const accessToken = jwt.sign({
                     id: user.id,
                     username: user.username,
-                    displayName: user.displayName || null,
+                    displayName: resolvedDisplayName,
                     role: user.role,
                     is_approved: isApproved,
                     service_code: user.service_code,
@@ -4605,7 +4492,7 @@ app.post(['/api/login', '/api/auth/magapp-login'], async (req, res) => {
                     user: {
                         id: user.id,
                         username: user.username,
-                        displayName: user.displayName || null,
+                        displayName: resolvedDisplayName,
                         role: user.role,
                         is_approved: isApproved,
                         service_code: user.service_code,
@@ -4923,6 +4810,38 @@ app.patch('/api/user-prefs/dashboard-columns', authenticateJWT, async (req, res)
             [req.user.username, c]
         );
         res.json({ columns: c });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Thème visuel (mode sombre) — préférence retenue par utilisateur, partagée
+// entre le DSI Hub et le Magasin d'Applications (même clé `username`).
+app.get('/api/user-prefs/theme', authenticateJWT, async (req, res) => {
+    try {
+        const row = await pgDb.get(
+            'SELECT theme FROM hub.user_prefs WHERE username = $1',
+            [req.user.username]
+        );
+        res.json({ theme: row?.theme ?? null });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.patch('/api/user-prefs/theme', authenticateJWT, async (req, res) => {
+    try {
+        const { theme } = req.body;
+        if (!['light', 'dark'].includes(theme)) {
+            return res.status(400).json({ error: "Le thème doit être 'light' ou 'dark'" });
+        }
+        await pool.query(
+            `INSERT INTO hub.user_prefs (username, theme, updated_at)
+             VALUES ($1, $2, NOW())
+             ON CONFLICT (username) DO UPDATE SET theme = EXCLUDED.theme, updated_at = NOW()`,
+            [req.user.username, theme]
+        );
+        res.json({ theme });
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
@@ -5251,7 +5170,7 @@ app.post('/api/access-requests', async (req, res) => {
     try {
         let user = await db.get('SELECT id FROM users WHERE LOWER(username) = LOWER(?)', [username]);
 
-        // Créer l'utilisateur s'il n'existe pas
+        // Créer l'utilisateur s'il n'existe pas (authentification : reste en SQLite)
         if (!user) {
             await db.run(
                 'INSERT INTO users (username, role, is_approved) VALUES (?, ?, ?)',
@@ -5260,9 +5179,9 @@ app.post('/api/access-requests', async (req, res) => {
             user = await db.get('SELECT id FROM users WHERE LOWER(username) = LOWER(?)', [username]);
         }
 
-        await db.run(
-            'INSERT INTO access_requests (user_id, requested_tiles, status) VALUES (?, ?, ?)',
-            [user.id, Array.isArray(requested_tiles) ? requested_tiles.join(',') : requested_tiles, 'pending']
+        await pgDb.run(
+            'INSERT INTO hub.access_requests (username, user_id, requested_tiles, status) VALUES (?, ?, ?, ?)',
+            [username, user ? user.id : null, Array.isArray(requested_tiles) ? requested_tiles.join(',') : requested_tiles, 'pending']
         );
         res.json({ message: 'Demande d\'accès soumise avec succès' });
     } catch (error) {
@@ -5272,12 +5191,10 @@ app.post('/api/access-requests', async (req, res) => {
 
 app.get('/api/admin/access-requests', authenticateAdmin, async (req, res) => {
     try {
-        const requests = await db.all(`
-            SELECT ar.*, u.username 
-            FROM access_requests ar
-            JOIN users u ON ar.user_id = u.id
-            WHERE ar.status = 'pending'
-            ORDER BY ar.created_at DESC
+        const requests = await pgDb.all(`
+            SELECT * FROM hub.access_requests
+            WHERE status = 'pending'
+            ORDER BY created_at DESC
         `);
         res.json(requests);
     } catch (error) {
@@ -5287,14 +5204,21 @@ app.get('/api/admin/access-requests', authenticateAdmin, async (req, res) => {
 
 app.post('/api/admin/access-requests/:id/approve', authenticateAdmin, async (req, res) => {
     try {
-        const request = await db.get('SELECT * FROM access_requests WHERE id = ?', [req.params.id]);
+        const request = await pgDb.get('SELECT * FROM hub.access_requests WHERE id = ?', [req.params.id]);
         if (!request) return res.status(404).json({ message: 'Demande non trouvée' });
 
-        await db.run('UPDATE access_requests SET status = "approved" WHERE id = ?', [req.params.id]);
-        await db.run('UPDATE users SET is_approved = 1 WHERE id = ?', [request.user_id]);
+        await pgDb.run('UPDATE hub.access_requests SET status = ? WHERE id = ?', ['approved', req.params.id]);
+
+        // L'authentification (users) et les autorisations (user_tiles) restent en SQLite.
+        const user = request.username
+            ? await db.get('SELECT id FROM users WHERE LOWER(username) = LOWER(?)', [request.username])
+            : null;
+        if (user) {
+            await db.run('UPDATE users SET is_approved = 1 WHERE id = ?', [user.id]);
+        }
 
         // Grant access to the specifically requested tiles
-        if (request.requested_tiles) {
+        if (request.requested_tiles && user) {
             let parsed;
             try {
                 parsed = JSON.parse(request.requested_tiles);
@@ -5303,7 +5227,7 @@ app.post('/api/admin/access-requests/:id/approve', authenticateAdmin, async (req
             }
             const tileIds = Array.isArray(parsed) ? parsed : [parsed];
             for (const tileId of tileIds) {
-                await db.run('INSERT OR IGNORE INTO user_tiles (user_id, tile_id) VALUES (?, ?)', [request.user_id, tileId]);
+                await db.run('INSERT OR IGNORE INTO user_tiles (user_id, tile_id) VALUES (?, ?)', [user.id, tileId]);
             }
         }
 
@@ -5316,7 +5240,7 @@ app.post('/api/admin/access-requests/:id/approve', authenticateAdmin, async (req
 
 app.post('/api/admin/access-requests/:id/reject', authenticateAdmin, async (req, res) => {
     try {
-        await db.run('UPDATE access_requests SET status = "rejected" WHERE id = ?', [req.params.id]);
+        await pgDb.run('UPDATE hub.access_requests SET status = ? WHERE id = ?', ['rejected', req.params.id]);
         res.json({ message: 'Demande rejetée' });
     } catch (error) {
         res.status(500).json({ message: 'Erreur lors du rejet', error: error.message });
@@ -5324,21 +5248,21 @@ app.post('/api/admin/access-requests/:id/reject', authenticateAdmin, async (req,
 });
 
 app.get('/api/import-logs', authenticateJWT, async (req, res) => {
-    const logs = await db.all('SELECT * FROM import_logs ORDER BY imported_at DESC');
+    const logs = await pgDb.all('SELECT * FROM hub.import_logs ORDER BY imported_at DESC');
     res.json(logs);
 });
 
 // M57 Plan API
 app.get('/api/m57-plan', authenticateJWT, async (req, res) => {
-    const plan = await db.all('SELECT * FROM m57_plan ORDER BY code');
+    const plan = await pgDb.all('SELECT * FROM finance.m57_plan ORDER BY code');
     res.json(plan);
 });
 
 app.post('/api/m57-plan', authenticateAdminOrFinances, async (req, res) => {
     const { code, label, section, type } = req.body;
     try {
-        const result = await db.run(
-            'INSERT INTO m57_plan (code, label, section, type) VALUES (?, ?, ?, ?)',
+        const result = await pgDb.run(
+            'INSERT INTO finance.m57_plan (code, label, section, type) VALUES (?, ?, ?, ?)',
             [code, label, section, type]
         );
         res.json({ id: result.lastID, message: 'Code ajouté au référentiel' });
@@ -5350,8 +5274,8 @@ app.post('/api/m57-plan', authenticateAdminOrFinances, async (req, res) => {
 app.put('/api/m57-plan/:id', authenticateAdminOrFinances, async (req, res) => {
     const { code, label, section } = req.body;
     try {
-        await db.run(
-            'UPDATE m57_plan SET code = ?, label = ?, section = ? WHERE id = ?',
+        await pgDb.run(
+            'UPDATE finance.m57_plan SET code = ?, label = ?, section = ? WHERE id = ?',
             [code, label, section, req.params.id]
         );
         res.json({ message: 'Référentiel mis à jour' });
@@ -5369,16 +5293,6 @@ app.use('/api/telecom', telecomRouter);
 app.get('/api/column-settings/:page', authenticateJWT, async (req, res) => {
     try {
         const page = req.params.page;
-        let dbPage = page;
-        if (page === 'lines') dbPage = 'budget_lines';
-
-        let sourceTable = dbPage;
-        let pragmaSql = `PRAGMA table_info(${sourceTable})`;
-        if (page === 'invoices') pragmaSql = `PRAGMA table_info(v_invoices)`;
-        if (page === 'services') pragmaSql = `PRAGMA gf.table_info(oracle_servicefi)`;
-        if (page === 'factures') pragmaSql = `PRAGMA gf.table_info(oracle_facture)`;
-        if (page === 'rh_extract') pragmaSql = `PRAGMA rh.table_info(oracle_v_extract_dsi)`;
-        if (page === 'rh') pragmaSql = `PRAGMA rh.table_info(referentiel_agents)`;
 
         // 1. Récupérer les colonnes réelles de la source
         let realCols = [];
@@ -5386,20 +5300,18 @@ app.get('/api/column-settings/:page', authenticateJWT, async (req, res) => {
             try {
                 const pgCols = await pool.query("SELECT column_name FROM information_schema.columns WHERE table_schema = 'oracle' AND table_name = 'gf_oracle_commande' ORDER BY ordinal_position");
                 realCols = pgCols.rows.map(r => r.column_name);
-            } catch (e) {
-                try {
-                    const info = await db.all(`PRAGMA table_info(v_orders)`);
-                    realCols = info.map(c => c.name);
-                } catch (e2) { }
-            }
+            } catch (e) { realCols = []; }
         } else if (page === 'tiers') {
             try {
                 const pgCols = await pool.query("SELECT column_name FROM information_schema.columns WHERE table_schema = 'oracle' AND table_name = 'gf_oracle_tiers' ORDER BY ordinal_position");
                 realCols = pgCols.rows.map(r => r.column_name);
             } catch (e) { realCols = []; }
         } else {
+            // Pages historiques éventuelles : liste des colonnes depuis SQLite si la
+            // table existe encore (les tables migrées vers Postgres ne sont plus là,
+            // l'erreur est simplement ignorée).
             try {
-                const info = await db.all(pragmaSql);
+                const info = await db.all(`PRAGMA table_info(${page})`);
                 realCols = info.map(c => c.name);
             } catch (e) { }
         }
@@ -5487,8 +5399,8 @@ app.post('/api/column-settings/:page/bulk', authenticateAdminOrFinances, async (
 app.get('/api/attachments/:type/:id', authenticateJWT, async (req, res) => {
     const { type, id } = req.params;
     try {
-        const attachments = await db.all(
-            'SELECT * FROM attachments WHERE target_type = ? AND target_id = ? ORDER BY uploaded_at DESC',
+        const attachments = await pgDb.all(
+            'SELECT * FROM hub.attachments WHERE target_type = ? AND target_id = ? ORDER BY uploaded_at DESC',
             [type, id]
         );
         res.json(attachments);
@@ -5507,7 +5419,7 @@ app.post('/api/attachments/upload', authenticateJWT, upload.single('file'), asyn
         if (relativePath.startsWith('/')) relativePath = relativePath.substring(1);
 
         // Supprimer l'ancien fichier s'il existe (remplacement)
-        const existing = await db.get('SELECT file_path FROM attachments WHERE target_type = ? AND target_id = ?', [target_type, target_id]);
+        const existing = await pgDb.get('SELECT file_path FROM hub.attachments WHERE target_type = ? AND target_id = ?', [target_type, target_id]);
         if (existing) {
             const oldPath = path.join(__dirname, existing.file_path);
             if (fs.existsSync(oldPath)) {
@@ -5517,12 +5429,12 @@ app.post('/api/attachments/upload', authenticateJWT, upload.single('file'), asyn
                     console.error('Failed to delete old attachment file:', e.message);
                 }
             }
-            await db.run('DELETE FROM attachments WHERE target_type = ? AND target_id = ?', [target_type, target_id]);
+            await pgDb.run('DELETE FROM hub.attachments WHERE target_type = ? AND target_id = ?', [target_type, target_id]);
         }
 
-        await db.run(
-            'INSERT INTO attachments (target_type, target_id, file_path, original_name, mimetype, size) VALUES (?, ?, ?, ?, ?, ?)',
-            [target_type, target_id, relativePath, req.file.originalname, req.file.mimetype, req.file.size]
+        await pgDb.run(
+            'INSERT INTO hub.attachments (target_type, target_id, file_path, original_name, mimetype, size, username) VALUES (?, ?, ?, ?, ?, ?, ?)',
+            [target_type, target_id, relativePath, req.file.originalname, req.file.mimetype, req.file.size, req.user?.username || null]
         );
         res.json({ message: 'Upload réussi' });
     } catch (error) {
@@ -5554,7 +5466,7 @@ app.post('/api/magapp/upload-icon', authenticateMagappControl, (req, res, next) 
 
 app.get('/api/attachments/:id/recipients', authenticateJWT, async (req, res) => {
     try {
-        const attachment = await db.get('SELECT * FROM attachments WHERE id = ?', [req.params.id]);
+        const attachment = await pgDb.get('SELECT * FROM hub.attachments WHERE id = ?', [req.params.id]);
         if (!attachment) return res.status(404).json({ message: 'Pièce jointe non trouvée' });
 
         if (attachment.target_type !== 'order') {
@@ -5569,9 +5481,7 @@ app.get('/api/attachments/:id/recipients', authenticateJWT, async (req, res) => 
                 tierNom = findVal(pgOrder.rows[0], ['servicefi_libelle', 'SERVICEFI_LIBELLE', 'fournisseur', 'provider']);
             }
         } catch (e) {
-            // Fallback: try SQLite v_orders
-            const order = await db.get('SELECT "Fournisseur" FROM v_orders WHERE "N° Commande" = ? LIMIT 1', [attachment.target_id]);
-            if (order && order.Fournisseur) tierNom = order.Fournisseur.trim();
+            console.error('Order lookup failed:', e.message);
         }
         if (!tierNom) {
             return res.status(404).json({ message: 'Commande non trouvée ou fournisseur inconnu' });
@@ -5584,8 +5494,8 @@ app.get('/api/attachments/:id/recipients', authenticateJWT, async (req, res) => 
             return res.status(404).json({ message: `Le tiers "${tierNom}" n'existe pas dans la base des tiers.` });
         }
 
-        // Trouver les contacts destinataires
-        const contacts = await db.all('SELECT * FROM contacts WHERE tier_code = ? AND is_order_recipient = 1', [tierCode]);
+        // Trouver les contacts destinataires (table locale Postgres)
+        const contacts = await pgDb.all('SELECT * FROM hub.contacts WHERE tier_code = ? AND is_order_recipient = TRUE', [tierCode]);
         res.json(contacts);
     } catch (error) {
         res.status(500).json({ message: 'Error fetching recipients', error: error.message });
@@ -5594,7 +5504,7 @@ app.get('/api/attachments/:id/recipients', authenticateJWT, async (req, res) => 
 
 app.post('/api/attachments/:id/send-order', authenticateJWT, async (req, res) => {
     try {
-        const attachment = await db.get('SELECT * FROM attachments WHERE id = ?', [req.params.id]);
+        const attachment = await pgDb.get('SELECT * FROM hub.attachments WHERE id = ?', [req.params.id]);
         if (!attachment) return res.status(404).json({ message: 'Pièce jointe non trouvée' });
 
         const filePath = path.join(__dirname, attachment.file_path);
@@ -5610,8 +5520,7 @@ app.post('/api/attachments/:id/send-order', authenticateJWT, async (req, res) =>
                 tierNom = findVal(pgOrder.rows[0], ['servicefi_libelle', 'SERVICEFI_LIBELLE', 'fournisseur', 'provider']);
             }
         } catch (e) {
-            const order = await db.get('SELECT "Fournisseur" FROM v_orders WHERE "N° Commande" = ? LIMIT 1', [attachment.target_id]);
-            if (order && order.Fournisseur) tierNom = order.Fournisseur.trim();
+            console.error('Order lookup failed:', e.message);
         }
         if (!tierNom) return res.status(404).json({ message: 'Fournisseur introuvable' });
 
@@ -5619,7 +5528,7 @@ app.post('/api/attachments/:id/send-order', authenticateJWT, async (req, res) =>
         const tierCode = pgTier.rows.length > 0 ? pgTier.rows[0].TIERS_TIERS.trim() : null;
         if (!tierCode) return res.status(404).json({ message: 'Tiers introuvable' });
 
-        const contacts = await db.all('SELECT * FROM contacts WHERE tier_code = ? AND is_order_recipient = 1', [tierCode]);
+        const contacts = await pgDb.all('SELECT * FROM hub.contacts WHERE tier_code = ? AND is_order_recipient = TRUE', [tierCode]);
         const validEmails = contacts.map(c => c.email).filter(e => e && e.includes('@'));
 
         if (validEmails.length === 0) {
@@ -5669,7 +5578,7 @@ app.post('/api/attachments/:id/send-order', authenticateJWT, async (req, res) =>
 
 app.delete('/api/attachments/:id', authenticateJWT, async (req, res) => {
     try {
-        const attachment = await db.get('SELECT * FROM attachments WHERE id = ?', [req.params.id]);
+        const attachment = await pgDb.get('SELECT * FROM hub.attachments WHERE id = ?', [req.params.id]);
         if (!attachment) return res.status(404).json({ message: 'Pièce jointe non trouvée' });
 
         const filePath = path.join(__dirname, attachment.file_path);
@@ -5681,7 +5590,7 @@ app.delete('/api/attachments/:id', authenticateJWT, async (req, res) => {
             }
         }
 
-        await db.run('DELETE FROM attachments WHERE id = ?', [req.params.id]);
+        await pgDb.run('DELETE FROM hub.attachments WHERE id = ?', [req.params.id]);
         res.json({ message: 'Pièce jointe supprimée' });
     } catch (error) {
         res.status(500).json({ message: 'Error deleting attachment', error: error.message });
@@ -5689,7 +5598,7 @@ app.delete('/api/attachments/:id', authenticateJWT, async (req, res) => {
 });
 
 // Helper Mail
-async function sendMail(to, subject, content, extraAttachments = [], source = 'system') {
+async function sendMail(to, subject, content, extraAttachments = [], source = 'system', options = {}) {
     let _logStatus = 'sent';
     let _logError = null;
     let _skipped = false;
@@ -5709,13 +5618,19 @@ async function sendMail(to, subject, content, extraAttachments = [], source = 's
         throw new Error("L'adresse email de l'expéditeur n'est pas configurée (Paramètres > Mail)");
     }
 
-    let htmlTemplate = (s.template_html || '{{content}}');
-    let html = htmlTemplate
-        .replaceAll('{{content}}', content)
-        .replaceAll('{{footerColor}}', s.footer_color || '#2563eb')
-        .replaceAll('{{footer1}}', s.footer1 || "VILLE D'IVRY-SUR-SEINE")
-        .replaceAll('{{footer2}}', s.footer2 || "Hôtel de Ville — Esplanade Georges Marrane")
-        .replaceAll('{{footer3}}', s.footer3 || '94200 Ivry-sur-Seine');
+    let html;
+    if (options && options.rawHtml) {
+        // HTML fourni tel quel (pas de gabarit DSI Hub) — utilisé par la PDFothèque.
+        html = content;
+    } else {
+        let htmlTemplate = (s.template_html || '{{content}}');
+        html = htmlTemplate
+            .replaceAll('{{content}}', content)
+            .replaceAll('{{footerColor}}', s.footer_color || '#2563eb')
+            .replaceAll('{{footer1}}', s.footer1 || "VILLE D'IVRY-SUR-SEINE")
+            .replaceAll('{{footer2}}', s.footer2 || "Hôtel de Ville — Esplanade Georges Marrane")
+            .replaceAll('{{footer3}}', s.footer3 || '94200 Ivry-sur-Seine');
+    }
 
     const attachments = [];
 
@@ -5950,6 +5865,7 @@ const rencontresCtrl = require('./modules/rencontres/rencontres.controller');
 const reunionsCtrl = require('./modules/rencontres/reunions.controller');
 // Inject sendMail into reunions controller
 reunionsCtrl.setSendMail(sendMail);
+require('./shared/magapp_alerts').setSendMail(sendMail);
 
 app.use('/api/rencontres-budgetaires', rencontresRouter);
 app.use('/api/rencontres-reunions', reunionRouter);
@@ -6290,6 +6206,11 @@ app.use('/api/ged', require('./modules/ged/ged.routes'));
 app.use('/api/mail-collector', require('./modules/mail_collector/mail_collector.routes'));
 app.use('/api/ville', require('./modules/ville/ville.routes'));
 
+// Mes Notes — notes personnelles assistées par IA (API IA Ville / APM)
+const notesController = require('./modules/notes/notes.controller');
+notesController.setSendMail(sendMail);
+app.use('/api/notes', require('./modules/notes/notes.routes'));
+
 // Backup & Security
 const backupCtrl = require('./modules/backup/backup.controller');
 backupCtrl.setSendMail(sendMail);
@@ -6301,6 +6222,12 @@ app.use('/api/backup', require('./modules/backup/backup.routes'));
 
 // DSI Dashboard module (le contrôleur est déjà requis plus haut pour l'injection mail/cron)
 app.use('/api/dsi-dashboard', require('./modules/dsi-dashboard/dsi-dashboard.routes'));
+
+// Outils PDF (magasin d'applications) : fusion, découpe/pages, compression, etc.
+// Outils PDF (injection du service mail pour l'envoi depuis la PDFothèque)
+const pdfToolsController = require('./modules/pdf-tools/pdf-tools.controller');
+pdfToolsController.setSendMail(sendMail);
+app.use('/api/pdf-tools', require('./modules/pdf-tools/pdf-tools.routes'));
 
 // Public reply routes (no auth)
 app.get('/api/public/reply/:token', (req, res) => ticketsCtrl.getReplyFormInfo(req, res));
@@ -6392,6 +6319,14 @@ cron.schedule('0 7 * * *', () => {
     console.log('[CRON] Vérification des relances contrats...');
     contractsCtrl.checkUpcomingRenewals().catch(e => console.error('[CRON contracts]', e.message));
 }, { timezone: 'Europe/Paris' });
+
+// ─── PDFothèque : suppression auto des documents > 6 mois (quotidien à 3h30) ─
+cron.schedule('30 3 * * *', () => {
+    require('./modules/pdf-tools/pdf-tools.controller')
+        .cleanupExpiredLibrary()
+        .catch(e => console.error('[CRON pdf-tools]', e.message));
+}, { timezone: 'Europe/Paris' });
+console.log('[PDF-TOOLS CRON] Purge PDFothèque (> 6 mois) enregistrée');
 
 // Helper for flexible column lookup across different naming conventions
 function findVal(obj, keys) {

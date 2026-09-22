@@ -517,6 +517,7 @@ const SEG_TO_SCOPE = {
   'dsi-dashboard': 'dashboard',
   maps: 'dxf',
   'oracle-automation': 'oracle',
+  notes: 'notes',
 };
 
 // Déduit le périmètre (scope) attendu depuis le chemin relatif à /api.

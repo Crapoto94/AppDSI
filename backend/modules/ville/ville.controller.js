@@ -48,17 +48,17 @@ module.exports = {
 
   createElu: async (req, res) => {
     try {
-      const { nom, prenom, email, telephone, role, delegation } = req.body;
+      const { civilite, nom, prenom, email, telephone, role, delegation } = req.body;
       if (!nom || !prenom || !role) {
         return res.status(400).json({ message: 'Champs requis: nom, prenom, role' });
       }
 
       const result = await pgDb.run(
-        'INSERT INTO hub.elus (nom, prenom, email, telephone, role, delegation) VALUES (?, ?, ?, ?, ?, ?)',
-        [nom, prenom, email || null, telephone || null, role, delegation || null]
+        'INSERT INTO hub.elus (civilite, nom, prenom, email, telephone, role, delegation) VALUES (?, ?, ?, ?, ?, ?, ?)',
+        [civilite || null, nom, prenom, email || null, telephone || null, role, delegation || null]
       );
       logMouchard(`Élu créé: ${prenom} ${nom}`);
-      res.status(201).json({ id: result.lastID, nom, prenom, email, telephone, role, delegation });
+      res.status(201).json({ id: result.lastID, civilite: civilite || null, nom, prenom, email, telephone, role, delegation });
     } catch (error) {
       res.status(500).json({ message: 'Erreur création élu', error: error.message });
     }
@@ -67,10 +67,10 @@ module.exports = {
   updateElu: async (req, res) => {
     try {
       const { id } = req.params;
-      const { nom, prenom, email, telephone, role, delegation } = req.body;
+      const { civilite, nom, prenom, email, telephone, role, delegation } = req.body;
       await pgDb.run(
-        'UPDATE hub.elus SET nom = ?, prenom = ?, email = ?, telephone = ?, role = ?, delegation = ?, updated_at = NOW() WHERE id = ?',
-        [nom, prenom, email || null, telephone || null, role, delegation || null, id]
+        'UPDATE hub.elus SET civilite = ?, nom = ?, prenom = ?, email = ?, telephone = ?, role = ?, delegation = ?, updated_at = NOW() WHERE id = ?',
+        [civilite || null, nom, prenom, email || null, telephone || null, role, delegation || null, id]
       );
       logMouchard(`Élu modifié: ${prenom} ${nom}`);
       res.json({ message: 'Élu mis à jour' });
@@ -130,9 +130,12 @@ module.exports = {
         if (fonction.toLowerCase().includes('maire')) role = 'Maire';
         else if (fonction.toLowerCase().includes('adjoint')) role = 'Adjoint';
 
+        // Civilité déduite du prénom (M./Mme), à corriger dans l'écran si besoin.
+        const civilite = /(?:e|a|ie|ine|ette|elle|enne)$/i.test(prenom.trim()) ? 'Mme' : 'M.';
+
         await pgDb.run(
-          'INSERT INTO hub.elus (nom, prenom, email, telephone, role, delegation) VALUES (?, ?, ?, ?, ?, ?)',
-          [nom.toUpperCase(), prenom, email || null, telephone || null, role, liste || null]
+          'INSERT INTO hub.elus (civilite, nom, prenom, email, telephone, role, delegation) VALUES (?, ?, ?, ?, ?, ?, ?)',
+          [civilite, nom.toUpperCase(), prenom, email || null, telephone || null, role, liste || null]
         );
         imported++;
       }

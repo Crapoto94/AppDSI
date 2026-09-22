@@ -59,7 +59,7 @@ export default function SignatureSignataire() {
   const { token } = useParams();
   const [forceLogin, setForceLogin] = useState(false);
   const [auth, setAuth] = useState<SignerAuth | null>(() => resolveInitialAuth());
-  const [access, setAccess] = useState<{ is_external?: boolean; nom?: string; email_masked?: string } | null>(null);
+  const [access, setAccess] = useState<{ is_external?: boolean; nom?: string; email_masked?: string; otp_required?: boolean; accessToken?: string; user?: any; expired?: boolean } | null>(null);
   const [accessLoaded, setAccessLoaded] = useState(false);
 
   useEffect(() => {
@@ -76,8 +76,27 @@ export default function SignatureSignataire() {
 
   if (forceLogin || !auth) {
     if (!accessLoaded) return <Center><Loader2 size={40} className="spin" color="#7c3aed" /><p style={{ color: '#64748b', marginTop: 12 }}>Chargement…</p></Center>;
+    if (access?.expired) {
+      return (
+        <Center>
+          <AlertCircle size={40} color="#e11d48" />
+          <h1 style={{ fontSize: 20, fontWeight: 800, color: '#0f172a', margin: '14px 0 6px' }}>Lien de signature expiré</h1>
+          <p style={{ color: '#64748b', maxWidth: 420, textAlign: 'center' }}>Ce lien n'est plus valable. Demandez au demandeur de vous transmettre un nouveau lien de signature.</p>
+        </Center>
+      );
+    }
     if (access?.is_external) {
-      return <ExternalSignerLogin token={token || ''} nom={access.nom || ''} emailMasked={access.email_masked || ''} onLogged={onLogged} />;
+      return (
+        <ExternalSignerLogin
+          token={token || ''}
+          nom={access.nom || ''}
+          emailMasked={access.email_masked || ''}
+          otpRequired={access.otp_required !== false}
+          accessToken={access.accessToken}
+          user={access.user}
+          onLogged={onLogged}
+        />
+      );
     }
     return <SignerLogin onLogged={onLogged} />;
   }
@@ -89,12 +108,20 @@ export default function SignatureSignataire() {
 }
 
 // ─── Écran de connexion d'un signataire extérieur (code par e-mail, sans AD) ──
-function ExternalSignerLogin({ token, nom, emailMasked, onLogged }: { token: string; nom: string; emailMasked: string; onLogged: (a: SignerAuth) => void }) {
+function ExternalSignerLogin({ token, nom, emailMasked, otpRequired, accessToken, user, onLogged }: { token: string; nom: string; emailMasked: string; otpRequired: boolean; accessToken?: string; user?: any; onLogged: (a: SignerAuth) => void }) {
   const [step, setStep] = useState<'request' | 'verify'>('request');
   const [code, setCode] = useState('');
   const [sentTo, setSentTo] = useState(emailMasked);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+
+  // Lien court (≤ 1 heure) : accès DIRECT au parapheur, aucun code demandé.
+  useEffect(() => {
+    if (accessToken) {
+      onLogged({ token: accessToken, username: (user && user.username) || 'signataire-externe', displayName: (user && user.displayName) || nom, email: (user && user.email) || '' });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [accessToken]);
 
   const request = async () => {
     setLoading(true); setError(null);
@@ -132,11 +159,21 @@ function ExternalSignerLogin({ token, nom, emailMasked, onLogged }: { token: str
           </div>
           <h1 style={{ fontSize: 20, fontWeight: 800, color: '#0f172a', margin: 0 }}>Signature — signataire extérieur</h1>
           <p style={{ fontSize: 13, color: '#64748b', marginTop: 6 }}>
-            {nom ? `Bonjour ${nom}, ` : ''}la vérification se fait par un code envoyé à votre adresse e-mail.
+            {nom ? `Bonjour ${nom}.` : ''} {otpRequired ? 'Confirmez votre identité pour accéder au parapheur.' : 'Vous allez accéder directement au parapheur.'}
           </p>
         </div>
 
         {error && <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: '#fff1f2', color: '#e11d48', border: '1px solid #fecdd3', padding: 12, borderRadius: 10, fontSize: 13, marginBottom: 16 }}><AlertCircle size={16} /> {error}</div>}
+
+        {otpRequired && (
+          <div style={{ display: 'flex', gap: 10, background: '#eff6ff', border: '1px solid #bfdbfe', color: '#1e3a8a', padding: 12, borderRadius: 10, fontSize: 12.5, marginBottom: 16, lineHeight: 1.5 }}>
+            <ShieldCheck size={16} style={{ flexShrink: 0, marginTop: 1 }} />
+            <span>
+              Cette demande de signature est valable <strong>plus d'une heure</strong>. Pour confirmer que vous êtes bien le destinataire,
+              un code à 6 chiffres vous sera envoyé par e-mail à <strong>{sentTo}</strong> : saisissez-le pour accéder au parapheur.
+            </span>
+          </div>
+        )}
 
         {step === 'request' ? (
           <button onClick={request} disabled={loading} style={{ width: '100%', padding: 13, background: '#0e7490', color: '#fff', border: 'none', borderRadius: 11, fontWeight: 800, fontSize: 15, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, opacity: loading ? 0.6 : 1 }}>
@@ -692,17 +729,20 @@ function SignerView({ token, auth, onLogout }: { token: string; auth: SignerAuth
             <span><b>Tout cocher</b> — signer en masse sans lecture intégrale (une confirmation vous sera demandée).</span>
           </label>
         )}
-        <div style={{ display: 'grid', gap: 18 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 18 }}>
           {info.documents.map(d => {
             const pos = info.positions.find(p => p.document_id === d.id);
             const seen = viewedDocs.has(d.id);
             return (
               <div key={d.id} style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 12, overflow: 'hidden' }}>
-                <div style={{ padding: '10px 16px', background: '#f8fafc', borderBottom: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, fontWeight: 700, color: '#334155' }}>
+                <div style={{ padding: '10px 16px', background: '#f8fafc', borderBottom: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, fontWeight: 700, color: '#334155', minWidth: 0 }}>
                   <input type="checkbox" checked={ackDocs.has(d.id)} onChange={() => toggleAck(d.id)} title="Cocher pour signer en masse" style={{ width: 16, height: 16, cursor: 'pointer', flexShrink: 0 }} />
-                  <FileText size={15} color="#ef4444" /> {d.original_name}
-                  {d.page_count ? <span style={{ fontSize: 11, color: '#94a3b8', fontWeight: 600 }}>{d.page_count} page(s)</span> : null}
-                  <span style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <FileText size={15} color="#ef4444" style={{ flexShrink: 0 }} />
+                  <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {d.original_name}
+                    {d.page_count ? <span style={{ fontSize: 11, color: '#94a3b8', fontWeight: 600 }}> · {d.page_count} page(s)</span> : null}
+                  </span>
+                  <span style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
                     {pos?.applied && <span style={{ fontSize: 11, color: '#15803d', display: 'flex', alignItems: 'center', gap: 4 }}><CheckCircle2 size={12} /> signé</span>}
                     {seen
                       ? <span style={{ fontSize: 11, color: '#15803d', display: 'flex', alignItems: 'center', gap: 4 }}><Eye size={12} /> lu</span>
@@ -725,10 +765,10 @@ function SignerView({ token, auth, onLogout }: { token: string; auth: SignerAuth
               <Paperclip size={15} /> Annexes ({info.annexes.length})
             </h2>
             <p style={{ fontSize: 12, color: '#64748b', margin: '0 0 12px' }}>Documents complémentaires fournis pour information : ils ne sont pas signés.</p>
-            <div style={{ display: 'grid', gap: 10 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 10 }}>
               {info.annexes.map(a => (
-                <div key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 10, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 10, padding: '10px 14px' }}>
-                  <FileText size={16} color="#64748b" />
+                <div key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 10, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 10, padding: '10px 14px', minWidth: 0 }}>
+                  <FileText size={16} color="#64748b" style={{ flexShrink: 0 }} />
                   <span style={{ flex: 1, minWidth: 0, fontSize: 13, color: '#1e293b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {a.original_name}{a.page_count ? <span style={{ color: '#94a3b8' }}> · {a.page_count} page(s)</span> : null}
                   </span>

@@ -54,7 +54,7 @@ module.exports = {
 
     getContacts: async (req, res) => {
         try {
-            const result = await pool.query('SELECT * FROM oracle.contacts WHERE tier_code = $1', [req.params.code]);
+            const result = await pool.query('SELECT * FROM hub.contacts WHERE tier_code = $1', [req.params.code]);
             res.json(result.rows);
         } catch (error) {
             res.status(500).json({ message: 'Erreur contacts', error: error.message });
@@ -126,7 +126,7 @@ module.exports = {
         const { nom, prenom, role, telephone, email, commentaire, is_order_recipient } = req.body;
         try {
             const result = await pool.query(
-                'INSERT INTO oracle.contacts (tier_code, nom, prenom, role, telephone, email, commentaire, is_order_recipient) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id',
+                'INSERT INTO hub.contacts (tier_code, nom, prenom, role, telephone, email, commentaire, is_order_recipient) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id',
                 [req.params.code, nom, prenom, role, telephone, email, commentaire, is_order_recipient ? true : false]
             );
             res.json({ id: result.rows[0].id, message: 'Contact ajouté' });
@@ -139,7 +139,7 @@ module.exports = {
         const { nom, prenom, role, telephone, email, commentaire, is_order_recipient } = req.body;
         try {
             await pool.query(
-                'UPDATE oracle.contacts SET nom = $1, prenom = $2, role = $3, telephone = $4, email = $5, commentaire = $6, is_order_recipient = $7 WHERE id = $8',
+                'UPDATE hub.contacts SET nom = $1, prenom = $2, role = $3, telephone = $4, email = $5, commentaire = $6, is_order_recipient = $7 WHERE id = $8',
                 [nom, prenom, role, telephone, email, commentaire, is_order_recipient ? true : false, req.params.id]
             );
             res.json({ message: 'Contact mis à jour' });
@@ -151,7 +151,7 @@ module.exports = {
     deleteContact: async (req, res) => {
         const id = req.params.id;
         try {
-            const result = await pool.query('DELETE FROM oracle.contacts WHERE id = $1', [id]);
+            const result = await pool.query('DELETE FROM hub.contacts WHERE id = $1', [id]);
             if (result.rowCount > 0) {
                 res.json({ message: 'Contact supprimé' });
             } else {

@@ -13,8 +13,14 @@ frontend/public/pdfjs/
 
 # Fichiers de base de données
 *.sqlite
+*.sqlite.old
 *.db
 *.db-journal
+
+# Sauvegardes de bases SQLite (données personnelles) — hors dépôt
+backend/data/
+*.sqlite.bak
+*.sqlite.*.bak
 
 # Fichiers uploadés par les utilisateurs
 backend/uploads/
