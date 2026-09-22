@@ -6041,6 +6041,17 @@ app.post('/api/vibecoding-docs', authenticateJWT, uploadVibecodingDoc.single('fi
 app.delete('/api/vibecoding-docs/:id', authenticateJWT, vibecodingDocsController.deleteDoc);
 
 // ============================================
+// VIBECODING - Catalogue des applications (CRUD, une entree par agent)
+// ============================================
+const applicationsCatalogController = require('./controllers/applicationsCatalogController');
+
+app.get('/api/applications-catalog', authenticateJWT, applicationsCatalogController.getAllApplications);
+app.get('/api/applications-catalog/:id', authenticateJWT, applicationsCatalogController.getApplication);
+app.post('/api/applications-catalog', authenticateJWT, applicationsCatalogController.createApplication);
+app.put('/api/applications-catalog/:id', authenticateJWT, applicationsCatalogController.updateApplication);
+app.delete('/api/applications-catalog/:id', authenticateJWT, applicationsCatalogController.deleteApplication);
+
+// ============================================
 // PROJETS - Gestion de portefeuille
 // ============================================
 const projetsRouter = require('./modules/projets/projets.routes');

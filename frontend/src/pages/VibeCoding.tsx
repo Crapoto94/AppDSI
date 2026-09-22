@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Upload, Trash2, ExternalLink, Download, FileText } from 'lucide-react';
+import { Upload, Trash2, ExternalLink, Download, FileText, LayoutGrid, BookOpen } from 'lucide-react';
 import axios from 'axios';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { useAuth } from '../contexts/AuthContext';
 import Header from '../components/Header';
+import ApplicationsCatalog from '../components/vibecoding/ApplicationsCatalog';
 
 interface ResourceLink {
   label: string;
@@ -28,6 +29,17 @@ interface DocMeta {
   created_at: string;
 }
 
+function tabButtonStyle(active: boolean): React.CSSProperties {
+  return {
+    display: 'flex', alignItems: 'center', gap: '6px',
+    padding: '10px 16px', background: 'none', border: 'none',
+    borderBottom: active ? '2px solid #2563eb' : '2px solid transparent',
+    color: active ? '#2563eb' : '#64748b',
+    fontWeight: active ? 700 : 600, fontSize: '0.9rem', cursor: 'pointer',
+    marginBottom: '-1px'
+  };
+}
+
 const VibeCoding: React.FC = () => {
   const { token } = useAuth();
   const [docs, setDocs] = useState<DocMeta[]>([]);
@@ -40,6 +52,7 @@ const VibeCoding: React.FC = () => {
   const [uploadFile, setUploadFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [activeTab, setActiveTab] = useState<'documents' | 'applications'>('documents');
 
   const authHeaders = { headers: { Authorization: `Bearer ${token}` } };
 
@@ -154,7 +167,7 @@ const VibeCoding: React.FC = () => {
     <div style={{ minHeight: '100vh', backgroundColor: 'var(--bg-color)' }}>
       <Header />
       <main style={{ padding: '60px 20px' }}>
-        <div style={{ maxWidth: '1100px', margin: '0 auto' }}>
+        <div style={{ maxWidth: '1300px', margin: '0 auto' }}>
           <div style={{ marginBottom: '32px' }}>
             <h1 style={{ fontSize: '2rem', fontWeight: '900', color: '#0f172a', margin: 0, marginBottom: '8px' }}>
               VibeCoding
@@ -202,6 +215,26 @@ const VibeCoding: React.FC = () => {
             </div>
           </div>
 
+          <div style={{ display: 'flex', gap: '8px', marginBottom: '20px', borderBottom: '1px solid #e2e8f0' }}>
+            <button
+              onClick={() => setActiveTab('documents')}
+              style={tabButtonStyle(activeTab === 'documents')}
+            >
+              <BookOpen size={16} />
+              Documents
+            </button>
+            <button
+              onClick={() => setActiveTab('applications')}
+              style={tabButtonStyle(activeTab === 'applications')}
+            >
+              <LayoutGrid size={16} />
+              Catalogue des applications
+            </button>
+          </div>
+
+          {activeTab === 'applications' && <ApplicationsCatalog />}
+
+          {activeTab === 'documents' && (
           <div style={{ display: 'grid', gridTemplateColumns: '280px 1fr', gap: '20px', alignItems: 'start' }}>
             {/* Sidebar : liste des documents */}
             <div style={{
@@ -341,6 +374,7 @@ const VibeCoding: React.FC = () => {
               )}
             </div>
           </div>
+          )}
         </div>
       </main>
 
