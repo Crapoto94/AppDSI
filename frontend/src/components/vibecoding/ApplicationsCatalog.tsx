@@ -442,7 +442,7 @@ const FieldGrid: React.FC<{ children: React.ReactNode }> = ({ children }) => (
   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>{children}</div>
 );
 
-const TextField: React.FC<{ label: string; value?: string; type?: string; min?: number; max?: number; onChange: (v: string) => void }> =
+const TextField: React.FC<{ label: string; value?: string | null; type?: string; min?: number; max?: number; onChange: (v: string) => void }> =
   ({ label, value, type = 'text', min, max, onChange }) => (
     <div>
       <label style={labelStyle}>{label}</label>
