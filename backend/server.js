@@ -6030,6 +6030,17 @@ app.put('/api/doctrines/:id', authenticateJWT, doctrinesController.updateDoctrin
 app.delete('/api/doctrines/:id', authenticateJWT, doctrinesController.deleteDoctrine);
 
 // ============================================
+// VIBECODING - Documents Markdown (menus de la rubrique VibeCoding)
+// ============================================
+const vibecodingDocsController = require('./controllers/vibecodingDocsController');
+const uploadVibecodingDoc = multer({ storage: multer.memoryStorage(), limits: { fileSize: 2 * 1024 * 1024 } });
+
+app.get('/api/vibecoding-docs', authenticateJWT, vibecodingDocsController.getAllDocs);
+app.get('/api/vibecoding-docs/:id', authenticateJWT, vibecodingDocsController.getDoc);
+app.post('/api/vibecoding-docs', authenticateJWT, uploadVibecodingDoc.single('file'), vibecodingDocsController.uploadDoc);
+app.delete('/api/vibecoding-docs/:id', authenticateJWT, vibecodingDocsController.deleteDoc);
+
+// ============================================
 // PROJETS - Gestion de portefeuille
 // ============================================
 const projetsRouter = require('./modules/projets/projets.routes');
