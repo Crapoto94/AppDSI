@@ -51,6 +51,7 @@ import AdminDatabases from './pages/AdminDatabases';
 import AdminSync from './pages/AdminSync';
 import WhatsNew from './pages/WhatsNew';
 import Doctrines from './pages/Doctrines';
+import VibeCoding from './pages/VibeCoding';
 import TicketsDashboard from './pages/Tickets/TicketsDashboard';
 import TicketDetail from './pages/Tickets/TicketDetail';
 import TicketCreate from './pages/Tickets/TicketCreate';
@@ -174,6 +175,7 @@ function App() {
         <Route path="/request-feature" element={<PrivateRoute path="/request-feature"><RequestFeature /></PrivateRoute>} />
         <Route path="/whats-new" element={<PrivateRoute path="/whats-new"><WhatsNew /></PrivateRoute>} />
         <Route path="/doctrines" element={<PrivateRoute path="/doctrines"><Doctrines /></PrivateRoute>} />
+        <Route path="/vibecoding" element={<PrivateRoute path="/vibecoding"><VibeCoding /></PrivateRoute>} />
 
         <Route path="/" element={<PrivateRoute path="/"><Dashboard /></PrivateRoute>} />
         <Route path="/budget" element={<PrivateRoute path="/budget"><Budget /></PrivateRoute>} />
