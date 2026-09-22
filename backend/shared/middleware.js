@@ -233,6 +233,34 @@ const authenticateMagappControl = (req, res, next) => {
     });
 };
 
+/**
+ * Middleware for Admin or users with VibeCoding module access
+ */
+const authenticateVibecodingControl = (req, res, next) => {
+    authenticateJWT(req, res, async () => {
+        if (isAdminLike(req.user)) {
+            return next();
+        }
+
+        try {
+            const db = getSqlite();
+            if (req.user && req.user.id && db) {
+                const authorized = await db.get(`
+                    SELECT 1 FROM user_tiles ut
+                    JOIN tile_links tl ON ut.tile_id = tl.tile_id
+                    WHERE ut.user_id = ? AND tl.url = '/vibecoding'
+                `, [req.user.id]);
+
+                if (authorized) return next();
+            }
+        } catch (error) {
+            console.error('[AUTH VIBECODING] Error checking tile access:', error);
+        }
+
+        res.status(403).json({ message: 'Accès refusé : administrateur ou accès VibeCoding requis' });
+    });
+};
+
 const authenticateGLPIControl = (req, res, next) => {
     authenticateJWT(req, res, async () => {
         if (!req.user) return res.status(401).json({ message: 'Non authentifié' });
@@ -568,6 +596,7 @@ module.exports = {
     authenticateAdminOrPMO: bypassIfApiKey(authenticateAdminOrPMO),
     authenticateAdminOrContrats: bypassIfApiKey(authenticateAdminOrContrats),
     authenticateMagappControl: bypassIfApiKey(authenticateMagappControl),
+    authenticateVibecodingControl: bypassIfApiKey(authenticateVibecodingControl),
     authenticateGLPIControl: bypassIfApiKey(authenticateGLPIControl),
     authenticateConsommablesAdmin: bypassIfApiKey(authenticateConsommablesAdmin),
     authenticatePretsAdmin: bypassIfApiKey(authenticatePretsAdmin),

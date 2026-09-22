@@ -45,6 +45,7 @@ const MODULES_REGISTRY = [
     { key: 'param-ville',  title: 'Paramètres Ville',      icon: 'City',        description: 'Paramétrage de la ville et localisations.', url: '/admin/param-ville' },
     { key: 'boites-partagees', title: 'Boîtes mail partagées', icon: 'Mail',    description: 'Suivi des boîtes mail partagées et de leurs membres.', url: '/boites-partagees', is_public: true },
     { key: 'parapheur',    title: 'Parapheur électronique', icon: 'PenTool',    description: 'Signature électronique de documents PDF.', url: '/parapheur', is_public: true },
+    { key: 'vibecoding',   title: 'VibeCoding',            icon: 'Terminal',    description: 'Ressources et plan de la formation au développement assisté par IA.', url: '/vibecoding' },
 ];
 
 module.exports = { MODULES_REGISTRY };

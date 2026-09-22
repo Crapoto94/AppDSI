@@ -20,7 +20,7 @@ const { searchADUsersByQuery } = require('./shared/ad_helper');
 const rhStudio = require('./shared/rh_studio');
 const { SECRET_KEY, PORT, FOLDERS } = require('./shared/config');
 const { MODULES_REGISTRY } = require('./shared/modules-registry');
-const { authenticateJWT, authenticateAdmin, authenticateAdminUI, authenticateInternalOrAdmin, authenticateAdminOrFinances, authenticateMagappControl, isSuperAdmin, isAdminLike } = require('./shared/middleware');
+const { authenticateJWT, authenticateAdmin, authenticateAdminUI, authenticateInternalOrAdmin, authenticateAdminOrFinances, authenticateMagappControl, authenticateVibecodingControl, isSuperAdmin, isAdminLike } = require('./shared/middleware');
 const magappRouter = require('./modules/magapp/magapp.routes');
 const rhRouter = require('./modules/rh/rh.routes');
 const contractsRouter = require('./modules/rh/contracts/contracts.routes');
@@ -6035,22 +6035,22 @@ app.delete('/api/doctrines/:id', authenticateJWT, doctrinesController.deleteDoct
 const vibecodingDocsController = require('./controllers/vibecodingDocsController');
 const uploadVibecodingDoc = multer({ storage: multer.memoryStorage(), limits: { fileSize: 2 * 1024 * 1024 } });
 
-app.get('/api/vibecoding-docs', authenticateJWT, vibecodingDocsController.getAllDocs);
-app.get('/api/vibecoding-docs/:id', authenticateJWT, vibecodingDocsController.getDoc);
-app.post('/api/vibecoding-docs', authenticateJWT, uploadVibecodingDoc.single('file'), vibecodingDocsController.uploadDoc);
-app.delete('/api/vibecoding-docs/:id', authenticateJWT, vibecodingDocsController.deleteDoc);
+app.get('/api/vibecoding-docs', authenticateVibecodingControl, vibecodingDocsController.getAllDocs);
+app.get('/api/vibecoding-docs/:id', authenticateVibecodingControl, vibecodingDocsController.getDoc);
+app.post('/api/vibecoding-docs', authenticateVibecodingControl, uploadVibecodingDoc.single('file'), vibecodingDocsController.uploadDoc);
+app.delete('/api/vibecoding-docs/:id', authenticateVibecodingControl, vibecodingDocsController.deleteDoc);
 
 // ============================================
 // VIBECODING - Catalogue des applications (CRUD, une entree par agent)
 // ============================================
 const applicationsCatalogController = require('./controllers/applicationsCatalogController');
 
-app.get('/api/applications-catalog', authenticateJWT, applicationsCatalogController.getAllApplications);
-app.get('/api/applications-catalog/:id', authenticateJWT, applicationsCatalogController.getApplication);
-app.post('/api/applications-catalog', authenticateJWT, applicationsCatalogController.createApplication);
-app.post('/api/applications-catalog/import', authenticateJWT, applicationsCatalogController.importApplications);
-app.put('/api/applications-catalog/:id', authenticateJWT, applicationsCatalogController.updateApplication);
-app.delete('/api/applications-catalog/:id', authenticateJWT, applicationsCatalogController.deleteApplication);
+app.get('/api/applications-catalog', authenticateVibecodingControl, applicationsCatalogController.getAllApplications);
+app.get('/api/applications-catalog/:id', authenticateVibecodingControl, applicationsCatalogController.getApplication);
+app.post('/api/applications-catalog', authenticateVibecodingControl, applicationsCatalogController.createApplication);
+app.post('/api/applications-catalog/import', authenticateVibecodingControl, applicationsCatalogController.importApplications);
+app.put('/api/applications-catalog/:id', authenticateVibecodingControl, applicationsCatalogController.updateApplication);
+app.delete('/api/applications-catalog/:id', authenticateVibecodingControl, applicationsCatalogController.deleteApplication);
 
 // ============================================
 // PROJETS - Gestion de portefeuille
