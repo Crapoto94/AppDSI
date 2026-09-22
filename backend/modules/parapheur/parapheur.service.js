@@ -1693,6 +1693,22 @@ async function listForEmail(email, { signed }) {
     return attachCreatorDisplayNames(out);
 }
 
+/**
+ * Accepte un identifiant numérique OU une référence lisible (« PARA-2026-0030 »).
+ * Les clients machine (ex. VibeDélib) peuvent ainsi interroger/annuler par référence ;
+ * un identifiant non numérique ne doit JAMAIS être passé tel quel à SQL (NaN → colonne inexistante).
+ * Renvoie l'id numérique, ou null si aucun dossier ne correspond.
+ */
+async function resolveParapheurId(idOrRef) {
+    const brut = String(idOrRef == null ? '' : idOrRef).trim();
+    if (/^\d+$/.test(brut)) {
+        const p = await pgDb.get(`SELECT id FROM hub_parapheur.parapheurs WHERE id = ?`, [parseInt(brut, 10)]);
+        return p ? p.id : null;
+    }
+    const ref = await pgDb.get(`SELECT id FROM hub_parapheur.parapheurs WHERE reference = ?`, [brut]);
+    return ref ? ref.id : null;
+}
+
 async function getDetail(id) {
     const p = await pgDb.get(`SELECT * FROM hub_parapheur.parapheurs WHERE id = ?`, [id]);
     if (!p) return null;
@@ -3233,6 +3249,7 @@ module.exports = {
     deleteParapheur,
     listForEmail,
     getDetail,
+    resolveParapheurId,
     getSignerByToken,
     isExternalSigner,
     assertLinkValid,

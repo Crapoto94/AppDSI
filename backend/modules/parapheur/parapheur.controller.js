@@ -375,7 +375,7 @@ const controller = {
     remove: async (req, res) => {
         try {
             if (!isSuperAdmin(req.user)) return res.status(403).json({ message: 'Réservé au super administrateur.' });
-            const result = await service.deleteParapheur(parseInt(req.params.id, 10));
+            const result = await service.deleteParapheur(await service.resolveParapheurId(req.params.id));
             res.json(result);
         } catch (e) { sendError(res, e, 'Suppression impossible'); }
     },
@@ -439,7 +439,7 @@ const controller = {
 
     detail: async (req, res) => {
         try {
-            const detail = await service.getDetail(parseInt(req.params.id, 10));
+            const detail = await service.getDetail(await service.resolveParapheurId(req.params.id));
             if (!detail) return res.status(404).json({ message: 'Parapheur introuvable' });
             res.json(detail);
         } catch (e) { sendError(res, e, 'Erreur détail'); }
@@ -447,7 +447,7 @@ const controller = {
 
     myToken: async (req, res) => {
         try {
-            const row = await service.getMySignerToken(parseInt(req.params.id, 10), req.user.email);
+            const row = await service.getMySignerToken(await service.resolveParapheurId(req.params.id), req.user.email);
             if (!row || !row.token) return res.status(404).json({ message: 'Vous n\'êtes pas signataire de ce parapheur.' });
             res.json({ token: row.token, status: row.status });
         } catch (e) { sendError(res, e, 'Erreur jeton'); }
@@ -456,7 +456,7 @@ const controller = {
     getDocument: async (req, res) => {
         try {
             const signed = req.query.signed === '1' || req.query.signed === 'true';
-            const f = await service.getSignedDocument(parseInt(req.params.id, 10), parseInt(req.params.docId, 10), { signed });
+            const f = await service.getSignedDocument(await service.resolveParapheurId(req.params.id), parseInt(req.params.docId, 10), { signed });
             if (!f) return res.status(404).send('Document introuvable');
             const download = req.query.download === '1';
             serveFile(res, f, { inline: !download });
@@ -465,7 +465,7 @@ const controller = {
 
     evidence: async (req, res) => {
         try {
-            const id = parseInt(req.params.id, 10);
+            const id = await service.resolveParapheurId(req.params.id);
             const detail = await service.getDetail(id);
             if (!detail) return res.status(404).json({ message: 'Parapheur introuvable' });
             const owner = String(detail.created_by_username || '').toLowerCase() === String(req.user.username || '').toLowerCase();
@@ -481,7 +481,7 @@ const controller = {
 
     verifySeal: async (req, res) => {
         try {
-            const r = await service.verifyParapheurSeal(parseInt(req.params.id, 10));
+            const r = await service.verifyParapheurSeal(await service.resolveParapheurId(req.params.id));
             if (!r) return res.status(404).json({ message: 'Parapheur introuvable' });
             res.json(r);
         } catch (e) { sendError(res, e, 'Vérification du sceau impossible'); }
@@ -507,14 +507,14 @@ const controller = {
 
     relance: async (req, res) => {
         try {
-            const result = await service.relance(parseInt(req.params.id, 10), { manual: true, req });
+            const result = await service.relance(await service.resolveParapheurId(req.params.id), { manual: true, req });
             res.json(result);
         } catch (e) { sendError(res, e, 'Relance impossible'); }
     },
 
     cancel: async (req, res) => {
         try {
-            const result = await service.cancel(parseInt(req.params.id, 10), req.user.username, req);
+            const result = await service.cancel(await service.resolveParapheurId(req.params.id), req.user.username, req);
             res.json(result);
         } catch (e) { sendError(res, e, 'Annulation impossible'); }
     },
