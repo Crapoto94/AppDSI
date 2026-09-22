@@ -6048,6 +6048,7 @@ const applicationsCatalogController = require('./controllers/applicationsCatalog
 app.get('/api/applications-catalog', authenticateJWT, applicationsCatalogController.getAllApplications);
 app.get('/api/applications-catalog/:id', authenticateJWT, applicationsCatalogController.getApplication);
 app.post('/api/applications-catalog', authenticateJWT, applicationsCatalogController.createApplication);
+app.post('/api/applications-catalog/import', authenticateJWT, applicationsCatalogController.importApplications);
 app.put('/api/applications-catalog/:id', authenticateJWT, applicationsCatalogController.updateApplication);
 app.delete('/api/applications-catalog/:id', authenticateJWT, applicationsCatalogController.deleteApplication);
 

@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import axios from 'axios';
-import { Plus, Search, ExternalLink, Github, Edit2, Trash2, X, Gauge } from 'lucide-react';
+import { Plus, Search, ExternalLink, Github, Edit2, Trash2, X, Gauge, Upload } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 
 interface AppMeta {
@@ -84,6 +84,8 @@ const ApplicationsCatalog: React.FC = () => {
   const [editingId, setEditingId] = useState<number | null>(null);
   const [form, setForm] = useState<Partial<AppFull>>(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const jsonFileInputRef = useRef<HTMLInputElement>(null);
 
   const authHeaders = { headers: { Authorization: `Bearer ${token}` } };
 
@@ -164,6 +166,39 @@ const ApplicationsCatalog: React.FC = () => {
     }
   };
 
+  const handleImportFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (jsonFileInputRef.current) jsonFileInputRef.current.value = '';
+    if (!file) return;
+
+    setImporting(true);
+    try {
+      const text = await file.text();
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(text);
+      } catch {
+        alert('Fichier JSON invalide');
+        return;
+      }
+
+      const res = await axios.post('/api/applications-catalog/import', parsed, authHeaders);
+      const { created, errors } = res.data as { created: { nom: string }[]; errors: { nom: string | null; error: string }[] };
+
+      let message = `${created.length} application(s) importée(s).`;
+      if (errors.length > 0) {
+        message += `\n${errors.length} erreur(s) :\n` + errors.map(e => `- ${e.nom || '(sans nom)'} : ${e.error}`).join('\n');
+      }
+      alert(message);
+      await fetchApps();
+    } catch (error: any) {
+      console.error('Error importing applications:', error);
+      alert(error?.response?.data?.error || "Erreur lors de l'import");
+    } finally {
+      setImporting(false);
+    }
+  };
+
   const handleDelete = async (id: number, nom: string) => {
     if (!window.confirm(`Supprimer l'application "${nom}" du catalogue ?`)) return;
     try {
@@ -195,17 +230,39 @@ const ApplicationsCatalog: React.FC = () => {
           </div>
           <span style={{ color: '#94a3b8', fontSize: '0.85rem' }}>{filtered.length} application{filtered.length > 1 ? 's' : ''}</span>
         </div>
-        <button
-          onClick={openCreate}
-          style={{
-            display: 'flex', alignItems: 'center', gap: '6px', padding: '10px 16px',
-            background: '#2563eb', color: 'white', border: 'none', borderRadius: '8px',
-            cursor: 'pointer', fontWeight: 600, fontSize: '0.9rem'
-          }}
-        >
-          <Plus size={16} />
-          Ajouter mon application
-        </button>
+        <div style={{ display: 'flex', gap: '10px' }}>
+          <input
+            ref={jsonFileInputRef}
+            type="file"
+            accept=".json"
+            onChange={handleImportFile}
+            style={{ display: 'none' }}
+          />
+          <button
+            onClick={() => jsonFileInputRef.current?.click()}
+            disabled={importing}
+            title="Importer un ou plusieurs JSON générés par une IA"
+            style={{
+              display: 'flex', alignItems: 'center', gap: '6px', padding: '10px 16px',
+              background: 'white', color: '#334155', border: '1px solid #e2e8f0', borderRadius: '8px',
+              cursor: importing ? 'not-allowed' : 'pointer', fontWeight: 600, fontSize: '0.9rem'
+            }}
+          >
+            <Upload size={16} />
+            {importing ? 'Import...' : 'Importer un JSON'}
+          </button>
+          <button
+            onClick={openCreate}
+            style={{
+              display: 'flex', alignItems: 'center', gap: '6px', padding: '10px 16px',
+              background: '#2563eb', color: 'white', border: 'none', borderRadius: '8px',
+              cursor: 'pointer', fontWeight: 600, fontSize: '0.9rem'
+            }}
+          >
+            <Plus size={16} />
+            Ajouter mon application
+          </button>
+        </div>
       </div>
 
       {loading ? (

@@ -100,6 +100,48 @@ exports.updateApplication = async (req, res) => {
   }
 };
 
+// Import en lot depuis un JSON genere par une IA (un objet, ou un tableau d'objets)
+exports.importApplications = async (req, res) => {
+  try {
+    const body = req.body;
+    const items = Array.isArray(body) ? body : [body];
+
+    if (items.length === 0) {
+      return res.status(400).json({ error: 'Aucune application à importer' });
+    }
+
+    const created = [];
+    const errors = [];
+
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i] || {};
+      if (!item.nom || !item.agent) {
+        errors.push({ index: i, nom: item.nom || null, error: "Le nom et l'agent sont requis" });
+        continue;
+      }
+
+      try {
+        const values = FIELDS.map(f => (item[f] === undefined || item[f] === '') ? null : item[f]);
+        const placeholders = FIELDS.map((_, idx) => `$${idx + 1}`).join(', ');
+
+        const result = await pgDb.run(`
+          INSERT INTO hub.applications_catalog (${FIELDS.join(', ')}, created_by, created_at, updated_at)
+          VALUES (${placeholders}, $${FIELDS.length + 1}, NOW(), NOW())
+        `, [...values, req.user.username]);
+
+        created.push({ id: result.lastID, nom: item.nom });
+      } catch (itemError) {
+        errors.push({ index: i, nom: item.nom, error: itemError.message });
+      }
+    }
+
+    res.json({ created, errors, total: items.length });
+  } catch (error) {
+    console.error('Error importing applications:', error);
+    res.status(500).json({ error: error.message });
+  }
+};
+
 exports.deleteApplication = async (req, res) => {
   try {
     const { id } = req.params;
