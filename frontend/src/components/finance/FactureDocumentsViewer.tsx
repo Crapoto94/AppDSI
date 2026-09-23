@@ -30,6 +30,8 @@ interface Props {
    * utilise l'endpoint JWT /api/finance/pj-share/facture/:numero.
    */
   baseUrl?: string;
+  /** Titre affiché dans l'en-tête (par défaut : « Pièces jointes Sedit — Facture <numero> »). */
+  title?: string;
 }
 
 /**
@@ -37,7 +39,7 @@ interface Props {
  * Sedit Finances d'une facture — voir skill "sedit-finances" et
  * backend/modules/finance/finance-share.controller.js.
  */
-export default function FactureDocumentsViewer({ numero, token, onClose, baseUrl }: Props) {
+export default function FactureDocumentsViewer({ numero, token, onClose, baseUrl, title }: Props) {
   const [documents, setDocuments] = useState<FactureDoc[] | null>(null);
   const [loadingList, setLoadingList] = useState(true);
   const [listError, setListError] = useState<string | null>(null);
@@ -118,7 +120,7 @@ export default function FactureDocumentsViewer({ numero, token, onClose, baseUrl
         <div style={{ padding: '10px 14px', borderBottom: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', gap: 8 }}>
           <FileText size={18} color="#ef4444" />
           <span style={{ flex: 1, minWidth: 0, fontWeight: 700, fontSize: 14, color: '#1e293b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            Pièces jointes Sedit — Facture {numero}
+            {title || `Pièces jointes Sedit — Facture ${numero}`}
           </span>
           {activeDoc && blobUrls[activeDoc.doc_id] && (
             <button onClick={() => window.open(blobUrls[activeDoc.doc_id], '_blank', 'noopener')} title="Ouvrir dans un onglet" style={toolbarBtn}>
@@ -137,7 +139,7 @@ export default function FactureDocumentsViewer({ numero, token, onClose, baseUrl
             )}
             {listError && <div style={{ margin: 12, padding: 10, background: '#fef2f2', color: '#b91c1c', borderRadius: 8, fontSize: 12 }}>{listError}</div>}
             {!loadingList && !listError && documents && documents.length === 0 && (
-              <div style={{ padding: 16, color: '#64748b', fontSize: 13 }}>Aucune pièce jointe trouvée pour cette facture dans Sedit.</div>
+              <div style={{ padding: 16, color: '#64748b', fontSize: 13 }}>Aucune pièce jointe PDF trouvée dans Sedit.</div>
             )}
             {groups.map(group => (
               <div key={group.categorie}>

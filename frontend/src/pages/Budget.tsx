@@ -1421,7 +1421,7 @@ const Budget: React.FC = () => {
             </div>
           </div>
           <div className="view-tabs">
-            {['summary', 'lines', 'engagements', 'invoices', 'invoices_beta', 'orders', 'tiers', 'operations', 'gestion', 'prep'].map(tab => {
+            {['summary', 'lines', 'engagements', 'invoices_beta', 'orders', 'tiers', 'operations', 'gestion', 'prep'].map(tab => {
               // Only admin/finances/compta can see 'gestion'
               if (tab === 'gestion' && !['admin', 'finances', 'compta'].includes(currentUser.role)) return null;
               return (
@@ -1457,8 +1457,7 @@ const Budget: React.FC = () => {
                   {tab === 'summary' && 'Résumé'}
                   {tab === 'lines' && 'Lignes'}
                   {tab === 'engagements' && 'Engagements'}
-                  {tab === 'invoices' && 'Factures'}
-                  {tab === 'invoices_beta' && 'Factures (beta)'}
+                  {tab === 'invoices_beta' && 'Factures'}
                   {tab === 'orders' && 'Commandes'}
                   {tab === 'tiers' && 'Tiers'}
                   {tab === 'operations' && 'Opérations'}
@@ -2848,18 +2847,9 @@ const Budget: React.FC = () => {
                   onColumnsReady={(cols) => setMappedColumns(prev => ({ ...prev, 'Commandes': cols }))} />
               </div>
             )}
-            {view === 'invoices' && (
-              <div className="animate-fade-in">
-                <MappedDataTable rubriqueName="Factures" title="Factures" fiscalYear={currentFiscalYear}
-                  onOpenColumnSettings={() => setShowColumnSelector(true)}
-                  columnStyles={invoiceColumnStyles}
-                  visibleColumns={invoiceColumns}
-                  onColumnsReady={(cols) => setMappedColumns(prev => ({ ...prev, 'Factures': cols }))} />
-              </div>
-            )}
             {view === 'invoices_beta' && (
               <div className="animate-fade-in">
-                <MappedDataTable rubriqueName="Factures" title="Factures (beta)" dataSource="sedit" fiscalYear={currentFiscalYear}
+                <MappedDataTable rubriqueName="Factures" title="Factures" dataSource="sedit" fiscalYear={currentFiscalYear}
                   onOpenColumnSettings={() => setShowColumnSelector(true)}
                   columnStyles={invoiceColumnStyles}
                   visibleColumns={invoiceColumns}

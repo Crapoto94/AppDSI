@@ -44,7 +44,7 @@ async function getOracleSyncConfig(pgTable) {
  * `validColumns` = colonnes réellement présentes dans la table source (l'import
  * ne retient que les selectedFields existants — cf. metaData dans l'executor).
  */
-function buildOracleInner({ tableName, config, whereClause }, validColumns) {
+function buildOracleInner({ tableName, config, whereClause }, validColumns, extraWhere = []) {
     const mainPrefix = tableName.toUpperCase() + '_';
     const selected = (config.selectedFields || []).filter((c) => !validColumns || validColumns.has(c));
     const subs = config.substitutions || {};
@@ -72,13 +72,17 @@ function buildOracleInner({ tableName, config, whereClause }, validColumns) {
 
     let sql = `SELECT ${selectParts.join(', ')} FROM "${tableName}" T1 ${joinParts.join(' ')}`;
     const raw = String(whereClause || '').trim().replace(/"/g, "'");
+    const conditions = [];
     if (raw) {
-        let formatted = /^where\s/i.test(raw) ? raw : `WHERE ${raw}`;
-        formatted = formatted.replace(/\b([a-zA-Z_][a-zA-Z0-9_]*)\b/g, (m) => (
+        const body = raw.replace(/^where\s+/i, '');
+        // Parenthèses obligatoires : le where_clause de synchro peut être une chaîne de
+        // OR, et il est combiné en AND avec les filtres additionnels (else précédence).
+        conditions.push('(' + body.replace(/\b([a-zA-Z_][a-zA-Z0-9_]*)\b/g, (m) => (
             RESERVED_WHERE.has(m.toUpperCase()) ? m : `T1."${m}"`
-        ));
-        sql += ` ${formatted}`;
+        )) + ')');
     }
+    for (const extra of extraWhere) conditions.push(extra);
+    if (conditions.length) sql += ` WHERE ${conditions.join(' AND ')}`;
     return sql;
 }
 
@@ -108,7 +112,7 @@ function columnRefForVariable(v) {
  * Résout une rubrique depuis Sedit. Renvoie la même structure que resolveMapping.
  */
 async function resolveRubriqueFromSedit(name, query = {}) {
-    const { limit, offset, search, fiscal_year, sort_by, sort_dir, etat_filter, section_filter } = query;
+    const { limit, offset, search, fiscal_year, sort_by, sort_dir, etat_filter, section_filter, pending_filter } = query;
 
     const rubriqueResult = await pool.query('SELECT * FROM finance.field_mapping_rubriques WHERE name = $1', [name]);
     if (rubriqueResult.rowCount === 0) { const e = new Error(`Rubrique '${name}' non trouvée`); e.status = 404; throw e; }
@@ -157,6 +161,14 @@ async function resolveRubriqueFromSedit(name, query = {}) {
         }
     }
 
+    // Filtre « à traiter » (Factures) : service fait NON validé dans Sedit ET facture
+    // NON rejetée. Évalué sur la source brute (T1) à l'intérieur de la sous-requête.
+    const innerExtra = [];
+    if (pending_filter && name === 'Factures' && String(sync.tableName).toUpperCase() === 'FACTURE') {
+        innerExtra.push(`T1."DATE_REJET" IS NULL`);
+        innerExtra.push(`NOT EXISTS (SELECT 1 FROM FI.FACSUIVI fs2 WHERE fs2.FACTURE = T1."ROO_IMA_REF" AND fs2.AVANCEMENT = 'SERVICE_FAIT' AND fs2.ETAT = 'VALIDE')`);
+    }
+
     const whereClause = whereParts.length ? 'WHERE ' + whereParts.join(' AND ') : '';
 
     const projections = variables.map(v => `${columnRefForVariable(v)} AS "${v.variable_name}"`);
@@ -184,7 +196,7 @@ async function resolveRubriqueFromSedit(name, query = {}) {
         // Colonnes réellement présentes dans la table source (comme l'import Oracle).
         const metaRes = await conn.execute(`SELECT * FROM "${sync.tableName}" WHERE 1 = 0`);
         const validColumns = new Set((metaRes.metaData || []).map((m) => m.name));
-        const inner = buildOracleInner(sync, validColumns);
+        const inner = buildOracleInner(sync, validColumns, innerExtra);
 
         const countRes = await conn.execute(`SELECT COUNT(*) AS TOTAL FROM (${inner}) "_o" ${whereClause}`, binds);
         const total = Number(countRes.rows[0].TOTAL) || 0;

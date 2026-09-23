@@ -142,6 +142,25 @@ async function queryFactureDocuments(numero) {
     });
 }
 
+/**
+ * Pièces jointes génériques d'un objet Sedit identifié par son ROO_IMA_REF
+ * (FI.FIPES_OBJ_PJ -> FI.PJ_PES). Utilisé p.ex. pour le bon de commande d'une
+ * commande (OBJECT_TYPE='COMMANDE') — voir skill "sedit-finances".
+ */
+async function queryObjectDocuments(roo, objectType) {
+    return withFinanceOracle(async (connection) => {
+        const result = await connection.execute(
+            `SELECT TRIM(pj.ROO_IMA_REF) AS DOC_ID, pj.NOM_PJ, pj.CHEMIN_FICHIER, pj.FORMAT, pj.TAILLE, lnk.PRINCIPAL
+             FROM FI.FIPES_OBJ_PJ lnk
+             JOIN FI.PJ_PES pj ON pj.ROO_IMA_REF = lnk.PJPES_ROO
+             WHERE TRIM(lnk.OBJECT_ROO) = :roo AND TRIM(lnk.OBJECT_TYPE) = :type
+             ORDER BY lnk.PRINCIPAL DESC, pj.NOM_PJ`,
+            { roo: String(roo || '').trim(), type: String(objectType || '').trim() }
+        );
+        return result.rows;
+    });
+}
+
 // Classification par motif de nom de fichier (confirmé sur des cas réels, ex. F26008275) :
 // le seul TYPE_PIECE_ID Oracle ne suffit pas à distinguer la facture elle-même d'un bon de
 // commande (les deux peuvent partager le même DOMAINE_PES) — le nom de fichier est fiable.
@@ -149,7 +168,7 @@ const CATEGORY_ORDER = { facture: 0, bon_commande: 1, autre: 2 };
 function classifyDocument(nomPj) {
     const nom = (nomPj || '').trim();
     if (/^(PJ\d+X?)?FAC/i.test(nom)) return 'facture';
-    if (/^BonDeCommandeSIIM/i.test(nom)) return 'bon_commande';
+    if (/^(BonDeCommand|BrouillardDeCommand)/i.test(nom)) return 'bon_commande';
     return 'autre';
 }
 
@@ -251,12 +270,11 @@ async function updateServiceFaitDone(numero, actorUsername) {
 exports.updateServiceFaitDone = updateServiceFaitDone;
 
 /**
- * Construit la liste des documents (métadonnées + URL) d'une facture, avec un préfixe
- * d'URL paramétrable pour être réutilisable à la fois par la route JWT (/pj-share/...)
- * et par la route publique du service fait (/service-fait/public/:token/...).
+ * Construit la liste des documents (métadonnées + URL) à partir des lignes Oracle,
+ * avec un préfixe d'URL paramétrable pour être réutilisable par les routes JWT
+ * (/pj-share/...) et la route publique du service fait (/service-fait/public/:token/...).
  */
-async function buildFactureDocumentsList(numero, urlPrefix) {
-    const rows = await queryFactureDocuments(numero);
+function buildDocumentsList(rows, urlPrefix) {
     const documents = rows.map(r => ({
         doc_id: r.DOC_ID,
         nom: r.NOM_PJ,
@@ -272,13 +290,22 @@ async function buildFactureDocumentsList(numero, urlPrefix) {
     documents.sort((a, b) => CATEGORY_ORDER[a.categorie] - CATEGORY_ORDER[b.categorie]);
     return documents;
 }
+
+async function buildFactureDocumentsList(numero, urlPrefix) {
+    return buildDocumentsList(await queryFactureDocuments(numero), urlPrefix);
+}
 exports.buildFactureDocumentsList = buildFactureDocumentsList;
 
-/** Écrit le contenu d'une pièce jointe précise d'une facture dans `res` (utilisé par les deux routes ci-dessous). */
-async function streamFactureDocumentFile(numero, docId, res) {
-    const rows = await queryFactureDocuments(numero);
+/** Liste des pièces jointes d'un objet Sedit (p.ex. commande) par son ROO_IMA_REF. */
+async function buildObjectDocumentsList(roo, objectType, urlPrefix) {
+    return buildDocumentsList(await queryObjectDocuments(roo, objectType), urlPrefix);
+}
+exports.buildObjectDocumentsList = buildObjectDocumentsList;
+
+/** Écrit le contenu d'une pièce jointe précise (ligne Oracle) dans `res`. */
+async function streamDocumentFile(rows, docId, res) {
     const doc = rows.find(r => r.DOC_ID === docId);
-    if (!doc) return res.status(404).json({ error: 'Document introuvable pour cette facture.' });
+    if (!doc) return res.status(404).json({ error: 'Document introuvable.' });
 
     const config = await resolveShareConfig();
     if (!config.login || !config.password) {
@@ -293,6 +320,11 @@ async function streamFactureDocumentFile(numero, docId, res) {
     res.setHeader('Content-Type', guessMime(doc.FORMAT, doc.NOM_PJ));
     res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(doc.NOM_PJ)}"`);
     res.send(buffer);
+}
+
+/** Écrit le contenu d'une pièce jointe précise d'une facture dans `res`. */
+async function streamFactureDocumentFile(numero, docId, res) {
+    return streamDocumentFile(await queryFactureDocuments(numero), docId, res);
 }
 exports.streamFactureDocumentFile = streamFactureDocumentFile;
 
@@ -318,6 +350,33 @@ exports.getFactureDocumentFile = async (req, res) => {
         await streamFactureDocumentFile(numero, docId, res);
     } catch (err) {
         console.error('[finance-share] getFactureDocumentFile error:', err);
+        res.status(500).json({ error: err.message });
+    }
+};
+
+/** Liste les pièces jointes d'une commande (bon de commande) via son ROO_IMA_REF Sedit. */
+exports.getCommandeDocuments = async (req, res) => {
+    const roo = String(req.params.roo || '').trim();
+    if (!roo) return res.status(400).json({ error: 'Identifiant de commande requis.' });
+    try {
+        const documents = await buildObjectDocumentsList(roo, 'COMMANDE', `/api/finance/pj-share/commande/${encodeURIComponent(roo)}`);
+        res.json({ numero: roo, documents });
+    } catch (err) {
+        console.error('[finance-share] getCommandeDocuments error:', err);
+        res.status(500).json({ error: err.message });
+    }
+};
+
+/** Sert le contenu d'une pièce jointe précise d'une commande. */
+exports.getCommandeDocumentFile = async (req, res) => {
+    const roo = String(req.params.roo || '').trim();
+    const docId = String(req.params.docId || '').trim();
+    if (!roo || !docId) return res.status(400).json({ error: 'Paramètres invalides.' });
+    try {
+        const rows = await queryObjectDocuments(roo, 'COMMANDE');
+        await streamDocumentFile(rows, docId, res);
+    } catch (err) {
+        console.error('[finance-share] getCommandeDocumentFile error:', err);
         res.status(500).json({ error: err.message });
     }
 };

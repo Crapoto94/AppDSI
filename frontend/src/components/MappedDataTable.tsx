@@ -86,7 +86,7 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
   const [sfModalRow, setSfModalRow] = useState<{ row: any; mode: 'circuit' | 'self' } | null>(null);
   const [sfStatuses, setSfStatuses] = useState<Record<string, any>>({});
   const [sfProcessModal, setSfProcessModal] = useState<{ workflowId: number } | null>(null);
-  const [seditDocsViewerNumero, setSeditDocsViewerNumero] = useState<string | null>(null);
+  const [seditDocsViewer, setSeditDocsViewer] = useState<{ numero: string; baseUrl?: string; title?: string } | null>(null);
   const [mandateNumero, setMandateNumero] = useState<string | null>(null);
 
   useEffect(() => { localStorage.setItem(storageKey, JSON.stringify(visibleCols)); }, [visibleCols, storageKey]);
@@ -115,7 +115,7 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
       const params: any = { limit: effectivePageSize, offset: offset || 0 };
       if (search) params.search = search;
       if (fiscalYear) params.fiscal_year = String(fiscalYear);
-      if (pendingFilter && rubriqueName === 'Factures') params.etat_filter = 'XXXXX';
+      if (pendingFilter && rubriqueName === 'Factures') params.pending_filter = '1';
       if (sectionFilter && sectionFilter !== 'all') params.section_filter = sectionFilter;
       const s = sort !== undefined ? sort : sortConfig;
       if (s) {
@@ -331,16 +331,10 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
 
   const activeCols = columns.filter(c => visibleCols.includes(c.name) || c.name === 'Section');
 
-  const etatCol = columns.find(c => c.name === 'Etat' || c.expression === 'FACETAT_LIBELLE');
-
-  // Apply filters locally as fallback (backend also filters but this ensures they work)
+  // "À traiter" est filtré côté serveur (SF non fait dans Sedit et non rejetée) pour
+  // porter sur l'ensemble des factures, pas seulement la page courante.
   const displayRows = (() => {
     let filtered = rows;
-
-    // Apply etat filter for invoices
-    if (pendingFilter && etatCol && rubriqueName === 'Factures') {
-      filtered = filtered.filter(r => String(r[etatCol.name] || '').trim() === 'XXXXX');
-    }
 
     // Apply section filter
     if (sectionFilter && sectionFilter !== 'all') {
@@ -376,10 +370,10 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
           {rubriqueName === 'Factures' && (
             <button className="mdt-col-btn" style={pendingFilter ? { background: '#fbbf24', color: '#78350f', borderColor: '#fbbf24' } : {}}
               onClick={() => setPendingFilter(!pendingFilter)}>
-              📋 À traiter {pendingFilter && `(${displayRows.length})`}
+              📋 À traiter {pendingFilter && `(${total})`}
             </button>
           )}
-          <span className="mdt-count">{pendingFilter ? displayRows.length : total} résultat{total > 1 ? 's' : ''}</span>
+          <span className="mdt-count">{total} résultat{total > 1 ? 's' : ''}</span>
           <div style={{ display: 'flex', gap: '4px', alignItems: 'center', borderLeft: '1px solid #e2e8f0', paddingLeft: '8px' }}>
             <span style={{ fontSize: '13px', color: '#64748b', whiteSpace: 'nowrap' }}>Lignes:</span>
             {[10, 25, 50, 100, 250].map(size => (
@@ -466,6 +460,8 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
               const expandable = !!(childRubriqueId && childLinkValue);
               const factureCol = rubriqueName === 'Factures' ? columns.find(c => c.expression === 'FACTURE_FACTURE') : null;
               const factureRef = factureCol ? String(row[factureCol.name] || '').trim() : null;
+              const commandeCol = rubriqueName === 'Commandes' ? columns.find(c => c.expression === 'COMMANDE_COMMANDE') : null;
+              const commandeNum = commandeCol ? String(row[commandeCol.name] || '').trim() : null;
               let sfInfo: { label: string; color: string; bg: string; workflowId: number | null; tooltip: string; ongoing: boolean; relaunchable: boolean } | null = null;
               const st = rubriqueName === 'Factures' ? (sfStatuses[factureRef || ''] || null) : null;
               if (st && st.status) {
@@ -625,9 +621,20 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
                             )}
                             {rubriqueName === 'Factures' && factureRef && (
                               <button title="Voir les pièces jointes Sedit (PDF/XML de la facture)"
-                                onClick={() => setSeditDocsViewerNumero(factureRef)}
+                                onClick={() => setSeditDocsViewer({ numero: factureRef })}
                                 style={{ background: '#7c3aed', color: 'white', border: 'none', borderRadius: '4px', padding: '3px 8px', fontSize: '11px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '3px' }}>
                                 <Files size={12} /> Pièces jointes
+                              </button>
+                            )}
+                            {rubriqueName === 'Commandes' && seditId && (
+                              <button title="Voir le bon de commande (Sedit)"
+                                onClick={() => setSeditDocsViewer({
+                                  numero: seditId,
+                                  baseUrl: `/api/finance/pj-share/commande/${encodeURIComponent(seditId)}`,
+                                  title: `Bon de commande Sedit${commandeNum ? ' — Commande ' + commandeNum : ''}`,
+                                })}
+                                style={{ background: '#7c3aed', color: 'white', border: 'none', borderRadius: '4px', padding: '3px 8px', fontSize: '11px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '3px' }}>
+                                <Files size={12} /> PJ
                               </button>
                             )}
                           </div>
@@ -885,11 +892,13 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
         />
       )}
 
-      {seditDocsViewerNumero && (
+      {seditDocsViewer && (
         <FactureDocumentsViewer
-          numero={seditDocsViewerNumero}
+          numero={seditDocsViewer.numero}
           token={token}
-          onClose={() => setSeditDocsViewerNumero(null)}
+          baseUrl={seditDocsViewer.baseUrl}
+          title={seditDocsViewer.title}
+          onClose={() => setSeditDocsViewer(null)}
         />
       )}
 

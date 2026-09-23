@@ -12,4 +12,8 @@ router.get('/test-file', authenticateAdmin, financeShareController.testDisplayFi
 router.get('/facture/:numero/documents', authenticateJWT, financeShareController.getFactureDocuments);
 router.get('/facture/:numero/documents/:docId', authenticateJWT, financeShareController.getFactureDocumentFile);
 
+// Pièces jointes d'une commande — bon de commande (ROO_IMA_REF Sedit) dans la visionneuse
+router.get('/commande/:roo/documents', authenticateJWT, financeShareController.getCommandeDocuments);
+router.get('/commande/:roo/documents/:docId', authenticateJWT, financeShareController.getCommandeDocumentFile);
+
 module.exports = router;
