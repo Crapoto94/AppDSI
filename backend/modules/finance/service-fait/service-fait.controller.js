@@ -460,6 +460,13 @@ const controller = {
                         if (info.rapprochement) {
                             map[ref].sedit_rapproche = info.rapprochement.done;
                         }
+                        if (info.rejete) {
+                            map[ref].sedit_rejete = info.rejete.done;
+                            map[ref].sedit_rejete_date = info.rejete.date || null;
+                        }
+                        if (info.mandate) {
+                            map[ref].sedit_mandate = info.mandate.done;
+                        }
                     }
                 } catch (e) {
                     console.error('[ServiceFait] getStatuses Sedit Facsuivi check error:', e.message);

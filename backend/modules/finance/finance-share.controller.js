@@ -186,6 +186,27 @@ async function queryFacsuiviStatus(numeros) {
                 map[row.NUMERO].service_fait = { done: row.ETAT === 'VALIDE', date: row.DATE_SERVICE_FAIT };
             }
         }
+        // Facture rejetée : signal porté par FACTURE.DATE_REJET (renseigné au rejet).
+        const rejectRes = await connection.execute(
+            `SELECT TRIM(FACTURE) AS NUMERO, DATE_REJET FROM FI.FACTURE WHERE TRIM(FACTURE) IN (${placeholders.join(',')})`,
+            binds
+        );
+        for (const row of rejectRes.rows) {
+            if (!map[row.NUMERO]) map[row.NUMERO] = {};
+            map[row.NUMERO].rejete = { done: !!row.DATE_REJET, date: row.DATE_REJET || null };
+        }
+        // Facture mandatée : présence d'une ligne de mouvement rattachée à un mandat.
+        const mandRes = await connection.execute(
+            `SELECT DISTINCT TRIM(f.FACTURE) AS NUMERO
+             FROM FI.FACTURE f
+             JOIN FI.MVTLIGNE m ON m.FACTURE = f.ROO_IMA_REF
+             WHERE TRIM(f.FACTURE) IN (${placeholders.join(',')}) AND m.MANDAT IS NOT NULL`,
+            binds
+        );
+        for (const row of mandRes.rows) {
+            if (!map[row.NUMERO]) map[row.NUMERO] = {};
+            map[row.NUMERO].mandate = { done: true };
+        }
         return map;
     });
 }

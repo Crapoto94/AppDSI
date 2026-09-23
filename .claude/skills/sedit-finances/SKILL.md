@@ -255,6 +255,51 @@ s'y fier aveuglément :
 | `TYPE_PIECE` | référentiel des types de pièce (FK `TYPE_PIECE_ID`) |
 | `SEDIT_BUSAPP_GED_DOC` (+ `_DICT`, `_TYPE`, `_DOMAIN`) | GED interne Sedit, alternative au stockage filesystem quand `GED_ID` est renseigné |
 
+## Mandatement d'une facture
+
+Chemin facture → mandat (validé sur `F26007017` : mandat 7561, bord 600, 3 163,37 €) :
+
+```
+FI.FACTURE.ROO_IMA_REF
+   ↳ FI.FAIT         (FACTURE_ID_CS = facture.ROO_IMA_REF)
+        MANDAT_ID_CS     → FI.MANDAT.ROO_IMA_REF
+        BORDEREAU_ID_CS  → FI.BORDEREAU.ROO_IMA_REF
+        MANDAT_TYPE      : 'NORM' = Mandat ordinaire, 'REDU' = réduction,
+                           'REJE' = rejeté, 'RERE' = ré-émission
+   (équivalent : FI.MVTLIGNE.FACTURE = facture.ROO et MVTLIGNE.MANDAT = n° mandat)
+```
+
+| Info affichée | Source |
+|---|---|
+| Type | `FAIT.MANDAT_TYPE` (NORM → « Mandat ordinaire ») |
+| Objet | `FI.WO_MANDOBJET.LIBELLE` où `NS_SOURCE` = `MANDAT.ROO_IMA_REF` (vue ; la table `MANDOBJET` n'a pas de FK directe vers le mandat) |
+| Bord (n° bordereau) | `FI.BORDEREAU.BORDEREAU` |
+| Pièce (n° mandat) | `FI.MANDAT.MANDAT` |
+| Date émission | `FI.MANDAT.DATMANDAT` |
+| Date transmission | `FI.BORDEREAU.DATEMISS` (repli `MANDAT.DATINDIGO`) |
+| Date paiement | `FI.MANDAT.DATE_PAIEMENT` |
+| Montant | `FI.MANDAT.MONTANTTC_E` |
+
+Notes : `MANDAT.MANDAT` = n° affiché (NUMBER) ; `MANDLIGNE.MANDAT`/`MANDTIERS.MANDAT`
+stockent le **ROO** du mandat (CHAR), tandis que `MVTLIGNE.MANDAT` stocke le **numéro**.
+`MANDAT.REJET='O'` / `MANDREJETE='O'` = mandat rejeté. Exposé par AppDSI :
+`GET /api/finance/mandatement/:numero` (service `modules/finance/sedit-mandat.service.js`).
+
+## Page « Factures (beta) » — résolution directe depuis Sedit
+
+`/budget` → onglet « Factures (beta) » : mêmes colonnes/rendu que la page Factures,
+mais les données viennent de **Sedit en direct** (et non de la copie `oracle.gf_oracle_*`).
+
+- Endpoint : `GET /api/finance/field-mapping/resolve-sedit/:rubrique`
+  (`modules/finance/sedit-direct.service.js`).
+- Méthode : on relit la config de synchro SQLite `oracle_sync_config` de la table source
+  (`gf_oracle_<table>` → table Oracle), on reconstruit la même requête que l'import
+  (`selectedFields` filtrés sur les colonnes réellement présentes via `SELECT * ... WHERE 1=0`,
+  + `substitutions` en LEFT JOIN + `where_clause`), puis on projette les variables de la
+  rubrique (mêmes règles d'affichage : dates `DD/MM/YYYY`, montants numériques).
+- ⚠️ Tri : ordonner sur la **colonne brute**, jamais sur l'expression formatée
+  (`TO_CHAR(...,'DD/MM/YYYY')` donne un ordre lexicographique erroné).
+
 ## Méthode pour explorer une nouvelle question sur Sedit
 
 1. Se connecter en lecture seule à Oracle `FINANCES` (voir ci-dessus).

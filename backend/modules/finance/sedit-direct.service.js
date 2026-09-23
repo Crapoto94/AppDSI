@@ -161,10 +161,17 @@ async function resolveRubriqueFromSedit(name, query = {}) {
 
     const projections = variables.map(v => `${columnRefForVariable(v)} AS "${v.variable_name}"`);
 
+    // Tri : IMPORTANT, trier sur la colonne BRUTE (pas sur l'expression formatée
+    // TO_CHAR(...'DD/MM/YYYY') qui donnerait un ordre lexicographique erroné).
     let orderBy;
     if (sort_by) {
         const sv = variables.find(v => v.variable_name === sort_by);
-        orderBy = sv ? `${columnRefForVariable(sv)} ${sort_dir === 'desc' ? 'DESC' : 'ASC'} NULLS LAST` : `1`;
+        if (sv) {
+            const ref = sv.expression_type === 'field' ? columnRef(sv.expression) : String(sv.expression);
+            orderBy = `${ref} ${sort_dir === 'desc' ? 'DESC' : 'ASC'} NULLS LAST`;
+        } else {
+            orderBy = '1';
+        }
     } else {
         const firstField = variables.find(v => v.expression_type === 'field');
         orderBy = firstField ? `"_o"."${firstField.expression}"` : '1';

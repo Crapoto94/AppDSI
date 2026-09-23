@@ -5,6 +5,7 @@ import { Search, ChevronUp, ChevronDown, ChevronRight, Columns, ExternalLink, Li
 import ServiceFaitModal from './ServiceFaitModal';
 import ServiceFaitProcessusModal from './ServiceFaitProcessusModal';
 import FactureDocumentsViewer from './finance/FactureDocumentsViewer';
+import MandatementModal from './MandatementModal';
 
 interface MappingColumn {
   name: string;
@@ -86,6 +87,7 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
   const [sfStatuses, setSfStatuses] = useState<Record<string, any>>({});
   const [sfProcessModal, setSfProcessModal] = useState<{ workflowId: number } | null>(null);
   const [seditDocsViewerNumero, setSeditDocsViewerNumero] = useState<string | null>(null);
+  const [mandateNumero, setMandateNumero] = useState<string | null>(null);
 
   useEffect(() => { localStorage.setItem(storageKey, JSON.stringify(visibleCols)); }, [visibleCols, storageKey]);
 
@@ -96,6 +98,7 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
   }, [visibleColumns]);
 
   const effectivePageSize = itemsPerPage === 'all' ? 10000 : itemsPerPage;
+  const factureColumnName = columns.find(c => c.expression === 'FACTURE_FACTURE')?.name || null;
 
   // Plusieurs effets ci-dessous appellent tous fetchData() au montage (token/rubrique,
   // fiscalYear, page/pageSize, filtres...), en parallèle de la requête triée déclenchée
@@ -519,73 +522,95 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
                     {showSfColumn && (
                       <td className="mdt-cell" style={{ whiteSpace: 'nowrap' }}>
                         <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
-                          {st?.sedit_rapproche && (
-                            <span title="Facture rapprochée (engagement/bon de commande) dans Sedit"
-                              style={{ background: '#eff6ff', color: '#1d4ed8', border: '1px solid #bfdbfe', borderRadius: '999px', padding: '2px 7px', fontSize: '10px', fontWeight: 700, lineHeight: '14px' }}>
-                              RA
+                          {st?.sedit_rejete ? (
+                            /* Facture refusée dans Sedit : badge rouge de refus (prioritaire). */
+                            <span title={`Facture rejetée dans Sedit${st.sedit_rejete_date ? ' le ' + new Date(st.sedit_rejete_date).toLocaleDateString('fr-FR') : ''}`}
+                              style={{ background: '#fee2e2', color: '#b91c1c', border: '1px solid #fecaca', borderRadius: '999px', padding: '2px 7px', fontSize: '10px', fontWeight: 700, lineHeight: '14px' }}>
+                              REFUSÉ
                             </span>
-                          )}
-                          {st?.sedit_service_fait && (
-                            <span title={`Service fait déjà validé directement dans Sedit${st.sedit_service_fait_date ? ' le ' + new Date(st.sedit_service_fait_date).toLocaleDateString('fr-FR') : ''}`}
-                              style={{ background: '#ecfdf5', color: '#047857', border: '1px solid #a7f3d0', borderRadius: '999px', padding: '2px 7px', fontSize: '10px', fontWeight: 700, lineHeight: '14px' }}>
-                              SF
-                            </span>
-                          )}
-                          {sfInfo && (
+                          ) : (
                             <>
-                              {sfInfo.ongoing ? (
+                              {/* RA uniquement si le service fait n'est pas encore fait. */}
+                              {st?.sedit_rapproche && !st?.sedit_service_fait && (
+                                <span title="Facture rapprochée (engagement/bon de commande) dans Sedit"
+                                  style={{ background: '#eff6ff', color: '#1d4ed8', border: '1px solid #bfdbfe', borderRadius: '999px', padding: '2px 7px', fontSize: '10px', fontWeight: 700, lineHeight: '14px' }}>
+                                  RA
+                                </span>
+                              )}
+                              {/* Pastille SF Sedit : masquée sur la page beta. */}
+                              {dataSource !== 'sedit' && st?.sedit_service_fait && (
+                                <span title="Service fait validé dans Sedit"
+                                  style={{ background: '#ecfdf5', color: '#047857', border: '1px solid #a7f3d0', borderRadius: '999px', padding: '2px 7px', fontSize: '10px', fontWeight: 700, lineHeight: '14px' }}>
+                                  SF
+                                </span>
+                              )}
+                              {/* Page beta : facture mandatée → badge cliquable (infos mandatement). */}
+                              {dataSource === 'sedit' && st?.sedit_mandate && (
+                                <button type="button" title="Voir le mandatement (Sedit)"
+                                  onClick={(e) => { e.stopPropagation(); const ref = factureColumnName ? String(row[factureColumnName] ?? '').trim() : ''; if (ref) setMandateNumero(ref); }}
+                                  style={{ background: '#ccfbf1', color: '#0f766e', border: '1px solid #99f6e4', borderRadius: '999px', padding: '2px 8px', fontSize: '10px', fontWeight: 700, lineHeight: '14px', cursor: 'pointer' }}>
+                                  MANDATÉ
+                                </button>
+                              )}
+                              {sfInfo && (
                                 <>
-                                  <span title={sfInfo.tooltip} style={{ background: sfInfo.bg, color: sfInfo.color, border: 'none', borderRadius: '4px', padding: '3px 8px', fontSize: '11px', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
-                                    {sfInfo.label}
-                                  </span>
-                                  {sfInfo.workflowId && (
-                                    <button title="Voir le processus de validation"
-                                      onClick={() => setSfProcessModal({ workflowId: sfInfo!.workflowId! })}
-                                      style={{ background: '#2563eb', color: 'white', border: 'none', borderRadius: '4px', padding: '3px 8px', fontSize: '11px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '3px' }}>
-                                      <Eye size={12} /> Processus
-                                    </button>
-                                  )}
-                                </>
-                              ) : (
-                                <>
-                                  {sfInfo.workflowId ? (
-                                    <button title="Voir le processus de validation" onClick={() => setSfProcessModal({ workflowId: sfInfo!.workflowId! })}
-                                      style={{ background: sfInfo.bg, color: sfInfo.color, border: 'none', borderRadius: '4px', padding: '3px 8px', fontSize: '11px', fontWeight: 600, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
-                                      {sfInfo.label}
-                                    </button>
+                                  {/* En cours : un seul bouton (statut) qui ouvre le processus. */}
+                                  {sfInfo.ongoing ? (
+                                    sfInfo.workflowId ? (
+                                      <button title="Voir le processus de validation" onClick={() => setSfProcessModal({ workflowId: sfInfo!.workflowId! })}
+                                        style={{ background: sfInfo.bg, color: sfInfo.color, border: 'none', borderRadius: '4px', padding: '3px 8px', fontSize: '11px', fontWeight: 600, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+                                        <Eye size={12} /> {sfInfo.label}
+                                      </button>
+                                    ) : (
+                                      <span title={sfInfo.tooltip} style={{ background: sfInfo.bg, color: sfInfo.color, border: 'none', borderRadius: '4px', padding: '3px 8px', fontSize: '11px', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+                                        {sfInfo.label}
+                                      </span>
+                                    )
                                   ) : (
-                                    <span title={sfInfo.tooltip} style={{ background: sfInfo.bg, color: sfInfo.color, border: 'none', borderRadius: '4px', padding: '3px 8px', fontSize: '11px', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
-                                      {sfInfo.label}
-                                    </span>
-                                  )}
-                                  {sfInfo.relaunchable && !st?.sedit_service_fait && (
-                                    <button title="Relancer une nouvelle demande de validation"
-                                      onClick={() => setSfModalRow({ row, mode: 'circuit' })}
-                                      style={{ background: '#2563eb', color: 'white', border: 'none', borderRadius: '4px', padding: '3px 8px', fontSize: '11px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '3px' }}>
-                                      <Rocket size={12} /> Relancer
-                                    </button>
+                                    <>
+                                      {sfInfo.workflowId ? (
+                                        <button title="Voir le processus de validation" onClick={() => setSfProcessModal({ workflowId: sfInfo!.workflowId! })}
+                                          style={{ background: sfInfo.bg, color: sfInfo.color, border: 'none', borderRadius: '4px', padding: '3px 8px', fontSize: '11px', fontWeight: 600, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+                                          {sfInfo.label}
+                                        </button>
+                                      ) : (
+                                        <span title={sfInfo.tooltip} style={{ background: sfInfo.bg, color: sfInfo.color, border: 'none', borderRadius: '4px', padding: '3px 8px', fontSize: '11px', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+                                          {sfInfo.label}
+                                        </span>
+                                      )}
+                                      {sfInfo.relaunchable && !st?.sedit_service_fait && (
+                                        <button title="Relancer une nouvelle demande de validation"
+                                          onClick={() => setSfModalRow({ row, mode: 'circuit' })}
+                                          style={{ background: '#2563eb', color: 'white', border: 'none', borderRadius: '4px', padding: '3px 8px', fontSize: '11px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '3px' }}>
+                                          <Rocket size={12} /> Relancer
+                                        </button>
+                                      )}
+                                    </>
                                   )}
                                 </>
                               )}
+                              {!sfInfo && (
+                                /* Sur la beta : ni pastille SF ni « Déjà fait dans Sedit ». */
+                                (dataSource === 'sedit' && st?.sedit_service_fait) ? null : (
+                                  st?.sedit_service_fait ? (
+                                    <span style={{ fontSize: '11px', color: '#047857', fontStyle: 'italic' }}>Déjà fait dans Sedit</span>
+                                  ) : (
+                                    <>
+                                      <button title="Lancer la validation du service fait (avec un vérificateur)"
+                                        onClick={() => setSfModalRow({ row, mode: 'circuit' })}
+                                        style={{ background: '#2563eb', color: 'white', border: 'none', borderRadius: '4px', padding: '3px 8px', fontSize: '11px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '3px' }}>
+                                        <Rocket size={12} /> Lancer
+                                      </button>
+                                      <button title="Déclarer moi-même le service fait (sans circuit de validation)"
+                                        onClick={() => setSfModalRow({ row, mode: 'self' })}
+                                        style={{ background: '#16a34a', color: 'white', border: 'none', borderRadius: '4px', padding: '3px 8px', fontSize: '11px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '3px' }}>
+                                        <CheckCircle size={12} /> Faire
+                                      </button>
+                                    </>
+                                  )
+                                )
+                              )}
                             </>
-                          )}
-                          {!sfInfo && (
-                            st?.sedit_service_fait ? (
-                              <span style={{ fontSize: '11px', color: '#047857', fontStyle: 'italic' }}>Déjà fait dans Sedit</span>
-                            ) : (
-                              <>
-                                <button title="Lancer la validation du service fait (avec un vérificateur)"
-                                  onClick={() => setSfModalRow({ row, mode: 'circuit' })}
-                                  style={{ background: '#2563eb', color: 'white', border: 'none', borderRadius: '4px', padding: '3px 8px', fontSize: '11px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '3px' }}>
-                                  <Rocket size={12} /> Lancer
-                                </button>
-                                <button title="Déclarer moi-même le service fait (sans circuit de validation)"
-                                  onClick={() => setSfModalRow({ row, mode: 'self' })}
-                                  style={{ background: '#16a34a', color: 'white', border: 'none', borderRadius: '4px', padding: '3px 8px', fontSize: '11px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '3px' }}>
-                                  <CheckCircle size={12} /> Faire
-                                </button>
-                              </>
-                            )
                           )}
                         </div>
                       </td>
@@ -868,6 +893,14 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
           numero={seditDocsViewerNumero}
           token={token}
           onClose={() => setSeditDocsViewerNumero(null)}
+        />
+      )}
+
+      {mandateNumero && (
+        <MandatementModal
+          numero={mandateNumero}
+          urlSedit={urlSedit}
+          onClose={() => setMandateNumero(null)}
         />
       )}
     </div>
