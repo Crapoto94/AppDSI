@@ -70,6 +70,19 @@ function buildOracleInner({ tableName, config, whereClause }, validColumns, extr
         }
     }
 
+    // La rubrique Commandes expose une variable « Section » calculée (vue PG
+    // oracle.commandes_with_section) : section de la 1re ligne d'imputation, repli 'F'.
+    // La table Oracle COMMANDE brute ne l'a pas — on la recalcule ici à l'identique.
+    if (String(tableName).toUpperCase() === 'COMMANDE') {
+        selectParts.push(`NVL((SELECT i.TYPE_SECTION FROM FI.CMDLIGNE cl LEFT JOIN FI.IMPUTATION i ON cl.IMPUTATION = i.ROO_IMA_REF WHERE cl.COMMANDE = T1.ROO_IMA_REF AND ROWNUM = 1), 'F') AS "section"`);
+        // Nature (compte M57, ex. 65818) et fonction (ex. 020) : codes distincts des
+        // lignes d'imputation de la commande, concaténés par « , » (ex. « 65818 » ou
+        // « 65818,65819 » pour une commande multiligne aux natures différentes).
+        const impl = (col) => `(SELECT LISTAGG(DISTINCT i.${col}, ',') WITHIN GROUP (ORDER BY i.${col}) FROM FI.CMDLIGNE cl JOIN FI.IMPUTATION i ON cl.IMPUTATION = i.ROO_IMA_REF WHERE cl.COMMANDE = T1.ROO_IMA_REF)`;
+        selectParts.push(`${impl('CODEFONC')} AS "fonction"`);
+        selectParts.push(`${impl('CODECOMP')} AS "nature"`);
+    }
+
     let sql = `SELECT ${selectParts.join(', ')} FROM "${tableName}" T1 ${joinParts.join(' ')}`;
     const raw = String(whereClause || '').trim().replace(/"/g, "'");
     const conditions = [];
@@ -173,6 +186,15 @@ async function resolveRubriqueFromSedit(name, query = {}) {
 
     const projections = variables.map(v => `${columnRefForVariable(v)} AS "${v.variable_name}"`);
 
+    // Colonnes calculées supplémentaires de la rubrique Commandes (non déclarées dans
+    // le mapping) : nature et fonction M57, agrégées sur les lignes d'imputation.
+    const isCommande = String(sync.tableName).toUpperCase() === 'COMMANDE';
+    const extraColumns = isCommande ? [
+        { name: 'Nature', display_type: 'text', expression: 'nature', expression_type: 'field' },
+        { name: 'Fonction', display_type: 'text', expression: 'fonction', expression_type: 'field' },
+    ] : [];
+    if (isCommande) projections.push(`"nature" AS "Nature"`, `"fonction" AS "Fonction"`);
+
     // Tri : IMPORTANT, trier sur la colonne BRUTE (pas sur l'expression formatée
     // TO_CHAR(...'DD/MM/YYYY') qui donnerait un ordre lexicographique erroné).
     let orderBy;
@@ -192,7 +214,7 @@ async function resolveRubriqueFromSedit(name, query = {}) {
     const limitVal = Math.max(1, Math.min(parseInt(String(limit)) || 100, 5000));
     const offsetVal = Math.max(0, parseInt(String(offset)) || 0);
 
-    return financeShare.withFinanceOracle(async (conn) => {
+    const result = await financeShare.withFinanceOracle(async (conn) => {
         // Colonnes réellement présentes dans la table source (comme l'import Oracle).
         const metaRes = await conn.execute(`SELECT * FROM "${sync.tableName}" WHERE 1 = 0`);
         const validColumns = new Set((metaRes.metaData || []).map((m) => m.name));
@@ -218,16 +240,59 @@ async function resolveRubriqueFromSedit(name, query = {}) {
             child_junction_parent_column: rubrique.child_junction_parent_column,
             child_junction_child_column: rubrique.child_junction_child_column,
             child_junction_filter: rubrique.child_junction_filter,
-            columns: variables.map(v => ({
-                name: v.variable_name,
-                display_type: v.display_type || 'text',
-                expression: v.expression,
-                expression_type: v.expression_type,
-            })),
+            columns: [
+                ...variables.map(v => ({
+                    name: v.variable_name,
+                    display_type: v.display_type || 'text',
+                    expression: v.expression,
+                    expression_type: v.expression_type,
+                })),
+                ...extraColumns,
+            ],
             rows: dataRes.rows,
             total,
         };
     });
+
+    // Enrichissement avec les associations opération / logiciel métier. Ces liens
+    // vivent dans Postgres (oracle.oracle_links), PAS dans Sedit : sans cette étape,
+    // la liste des commandes sourcée en direct depuis Sedit perdait l'opération et
+    // l'application pourtant déjà associées (comme le fait resolveMapping pour la
+    // copie locale). On retrouve la valeur de liaison via la variable de la rubrique.
+    const linkIdVar = rubrique.link_id_column
+        ? variables.find(v => v.expression === rubrique.link_id_column)
+        : null;
+    if (rubrique.link_target && linkIdVar) {
+        const linkRowKey = linkIdVar.variable_name;
+        const linkIds = result.rows.map(r => String(r[linkRowKey] || '').trim()).filter(Boolean);
+        let linkMap = new Map();
+        if (linkIds.length > 0) {
+            const linksResult = await pool.query(
+                `SELECT ol.target_id, ol.operation_id, ol.app_id,
+                        o."LIBELLE" as operation_label, o."Service" as operation_service,
+                        a.name as app_label
+                 FROM oracle.oracle_links ol
+                 LEFT JOIN oracle.operations o ON o.id = ol.operation_id
+                 LEFT JOIN magapp.apps a ON a.id = ol.app_id
+                 WHERE ol.target_table = $1 AND ol.target_id = ANY($2)`,
+                [rubrique.link_target, linkIds]
+            );
+            linkMap = new Map(linksResult.rows.map(r => [r.target_id, r]));
+        }
+        result.rows = result.rows.map(row => {
+            const link = linkMap.get(String(row[linkRowKey] || '').trim());
+            return {
+                ...row,
+                _operation_id: link?.operation_id || null,
+                _operation_label: link?.operation_label || null,
+                _operation_service: link?.operation_service || null,
+                _app_id: link?.app_id || null,
+                _app_label: link?.app_label || null,
+            };
+        });
+    }
+
+    return result;
 }
 
 module.exports = { resolveRubriqueFromSedit };

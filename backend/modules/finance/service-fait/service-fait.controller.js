@@ -5,6 +5,7 @@ const { SECRET_KEY } = require('../../../shared/config');
 const financeShareController = require('../finance-share.controller');
 const { getFacsuiviStatus: getSeditFacsuiviStatus } = financeShareController;
 const seditPj = require('./sedit-pj.service');
+const encadrantsController = require('../../rh/encadrants.controller');
 
 const DECISION_LABELS = {
     valide: 'Validé',
@@ -90,6 +91,11 @@ async function syncServiceFaitToSedit({ wf, decision, comment }) {
             verifierEmail: wf.verifier_email,
             decisionAt: new Date(),
             sourceFiles,
+            directorName: wf.director_name,
+            directorEmail: wf.director_email,
+            directorMode: wf.director_mode,
+            directorDecisionAt: wf.director_decision_at,
+            entityLabel: wf.entity_label,
         });
 
         const originalName = `PV_ServiceFait_${wf.invoice_ref || wf.id}_SF-${wf.id}.pdf`;
@@ -180,6 +186,39 @@ async function getAgentInfo(username) {
     }
 }
 
+// Référentiel des directeurs : un directeur par direction, issu des encadrants
+// (/admin/param-ville → Encadrants, GET /api/admin/rh/encadrants). Mis en cache 15 min
+// (l'appel déclenche des recherches AD/LDAP). Aucune table dédiée.
+let directorsCache = { list: null, expiresAt: 0 };
+async function getEncadrantsDirectors() {
+    if (directorsCache.list && Date.now() < directorsCache.expiresAt) return directorsCache.list;
+    let raw = [];
+    await new Promise((resolve) => {
+        const fakeRes = { status: () => fakeRes, json: (d) => { raw = Array.isArray(d) ? d : []; resolve(); } };
+        Promise.resolve(encadrantsController.getEncadrants({}, fakeRes)).catch(() => resolve());
+    });
+    const list = raw
+        .filter(e => e.role === 'directeur' && (e.direction_code || e.direction_label))
+        .map(e => ({
+            entity_code: e.direction_code || e.direction_label,
+            entity_label: e.direction_label || '',
+            director_username: e.ad_username || e.matricule || '',
+            director_name: [e.prenom, e.nom].filter(Boolean).join(' ').trim() || e.nom || '',
+            director_email: e.email || '',
+        }));
+    directorsCache = { list, expiresAt: Date.now() + 15 * 60 * 1000 };
+    return list;
+}
+
+// Directeur d'une direction (par code ou libellé) ; repli sur le 1er si non précisé.
+async function getDirectorForEntity(entityCode) {
+    const list = await getEncadrantsDirectors();
+    if (!entityCode) return list[0] || null;
+    const key = String(entityCode).trim().toLowerCase();
+    return list.find(d => String(d.entity_code).toLowerCase() === key
+        || String(d.entity_label).toLowerCase() === key) || null;
+}
+
 // Résout un token public en workflow encore valide, ou renvoie l'erreur HTTP adaptée
 // (utilisé par les routes publiques de PJ Sedit pour scoper l'accès au strict périmètre
 // de ce workflow, sans exposer l'endpoint JWT /pj-share à un visiteur public).
@@ -222,7 +261,8 @@ const controller = {
         try {
             const {
                 invoice_ref, invoice_number, invoice_label, invoice_supplier,
-                invoice_amount, invoice_section, verifier_username
+                invoice_amount, invoice_section, verifier_username,
+                director_mode, entity_code
             } = req.body;
 
             if (!invoice_ref || !verifier_username) {
@@ -251,15 +291,22 @@ const controller = {
                 return res.status(400).json({ message: 'Un workflow de validation est déjà en cours pour cette facture', existing_id: existing.rows[0].id });
             }
 
+            const directorMode = ['informe', 'visa'].includes(director_mode) ? director_mode : null;
+            const director = directorMode ? await getDirectorForEntity(entity_code || 'DSI') : null;
+
             const insResult = await pool.query(
                 `INSERT INTO finance.service_fait_workflows
                  (invoice_ref, invoice_number, invoice_label, invoice_supplier, invoice_amount, invoice_section,
-                  status, requested_by, verifier_username, verifier_name, verifier_email)
-                 VALUES ($1,$2,$3,$4,$5,$6,'en_attente',$7,$8,$9,$10)
+                  status, requested_by, verifier_username, verifier_name, verifier_email,
+                  entity_code, entity_label, director_mode, director_username, director_name, director_email)
+                 VALUES ($1,$2,$3,$4,$5,$6,'en_attente',$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
                  RETURNING id`,
                 [invoice_ref, invoice_number || '', invoice_label || '', invoice_supplier || '',
                  invoice_amount || null, invoice_section || '', req.user.username,
-                 verifier_username, agent.nom || agent.username, agent.email || '']
+                 verifier_username, agent.nom || agent.username, agent.email || '',
+                 entity_code || 'DSI', director ? director.entity_label || '' : '',
+                 directorMode, director ? director.director_username : null,
+                 director ? director.director_name : '', director ? director.director_email : '']
             );
             const workflowId = insResult.rows[0].id;
 
@@ -477,6 +524,20 @@ const controller = {
         } catch (error) {
             console.error('[ServiceFait] getStatuses error:', error);
             res.status(500).json({ message: 'Erreur récupération statuts', error: error.message });
+        }
+    },
+
+    // État de la/des facture(s) d'une liste de commandes (ROO Sedit) — pastille FAC
+    // sur la liste des commandes : reçue / service fait / mandatée / refusée.
+    getCommandeFactureStatuses: async (req, res) => {
+        try {
+            const { commande_ids } = req.body || {};
+            if (!Array.isArray(commande_ids) || commande_ids.length === 0) return res.json({});
+            const map = await financeShareController.getCommandeFactureStatus(commande_ids);
+            res.json(map);
+        } catch (error) {
+            console.error('[ServiceFait] getCommandeFactureStatuses error:', error);
+            res.status(500).json({ message: 'Erreur récupération statuts commandes', error: error.message });
         }
     },
 
@@ -753,8 +814,26 @@ const controller = {
             // Retour positif du vérificateur : on certifie le service fait DIRECTEMENT
             // dans Sedit (écriture Oracle) et on y pousse le PV scellé (AC interne) comme
             // pièce jointe de la facture — le tout journalisé pour être réversible.
+            // EXCEPTION : si un visa du directeur est requis, l'écriture Sedit est
+            // différée jusqu'à ce visa (le PV doit embarquer les DEUX valideurs).
+            const isPositive = ['valide', 'valide_avec_reserves'].includes(decision);
+            const needsDirectorVisa = isPositive && wf.director_mode === 'visa' && wf.director_email;
+
             let seditSync = null;
-            if (['valide', 'valide_avec_reserves'].includes(decision)) {
+            let directorVisaUrl = null;
+            if (needsDirectorVisa) {
+                const directorToken = makeToken(wf.id, wf.director_email);
+                const dirExpires = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+                await pool.query(
+                    `UPDATE finance.service_fait_workflows
+                     SET status = 'en_attente_visa', director_status = 'en_attente',
+                         director_token = $1, director_token_expires_at = $2, updated_at = CURRENT_TIMESTAMP
+                     WHERE id = $3`,
+                    [directorToken, dirExpires, wf.id]
+                );
+                newStatus = 'en_attente_visa';
+                directorVisaUrl = `${await getAppBaseUrl()}/service-fait-visa/${directorToken}`;
+            } else if (isPositive) {
                 seditSync = await syncServiceFaitToSedit({ wf, decision, comment });
             }
 
@@ -815,7 +894,45 @@ const controller = {
                 }
             }
 
-            res.json({ success: true, status: newStatus, sedit_sync: seditSync });
+            // Directeur : soit on l'invite à viser (mode visa, après le valideur
+            // principal), soit on l'informe simplement de l'issue (mode informé).
+            if (sendMailFn && wf.director_email) {
+                try {
+                    if (needsDirectorVisa && directorVisaUrl) {
+                        const html = `
+                            <p>Bonjour ${wf.director_name || wf.director_username || ''},</p>
+                            <p>Le service fait de la facture <strong>${wf.invoice_number || wf.invoice_ref}</strong> a été validé par ${wf.verifier_name || wf.verifier_username}. Votre <strong>visa</strong> est requis pour finaliser la certification dans Sedit.</p>
+                            <ul>
+                                <li><strong>Fournisseur :</strong> ${wf.invoice_supplier || '-'}</li>
+                                <li><strong>Montant TTC :</strong> ${wf.invoice_amount ? parseFloat(wf.invoice_amount).toLocaleString('fr-FR', { minimumFractionDigits: 2 }) + ' €' : '-'}</li>
+                            </ul>
+                            <p style="margin-top:16px">
+                                <a href="${directorVisaUrl}" style="display:inline-block;padding:12px 24px;background:#6366f1;color:#fff;text-decoration:none;border-radius:6px;font-weight:600;">Viser le service fait</a>
+                            </p>
+                            <p style="font-size:12px;color:#94a3b8;margin-top:8px;word-break:break-all;overflow-wrap:break-word;">Ou copiez ce lien : <a href="${directorVisaUrl}" style="color:#6366f1;word-break:break-all;overflow-wrap:break-word;">${directorVisaUrl}</a></p>
+                        `;
+                        await sendMailFn(wf.director_email, 'Visa du service fait requis', html);
+                    } else if (wf.director_mode === 'informe') {
+                        const statusLabels = {
+                            'valide': '✅ Validé', 'valide_avec_reserves': '⚠️ Validé avec réserves',
+                            'non_valide': '❌ Non validé', 'ne_me_concerne_pas': '🔄 Retourné',
+                            'en_pause': '⏸️ Mis en pause',
+                        };
+                        const html = `
+                            <p>Bonjour ${wf.director_name || wf.director_username || ''},</p>
+                            <p>Pour information, le service fait de la facture <strong>${wf.invoice_number || wf.invoice_ref}</strong> a reçu la décision suivante :</p>
+                            <p style="font-size:16px;font-weight:600;margin:12px 0">${statusLabels[decision] || decision}</p>
+                            ${comment ? `<p><strong>Commentaire :</strong> ${comment}</p>` : ''}
+                            <p style="font-size:12px;color:#94a3b8">Décision de ${wf.verifier_name || wf.verifier_username}</p>
+                        `;
+                        await sendMailFn(wf.director_email, `${subjectMap[decision]} — information`, html);
+                    }
+                } catch (e) {
+                    console.error('[ServiceFait] Director email error:', e.message);
+                }
+            }
+
+            res.json({ success: true, status: newStatus, sedit_sync: seditSync, director_visa_url: directorVisaUrl });
         } catch (error) {
             console.error('[ServiceFait] submitDecision error:', error);
             res.status(500).json({ message: 'Erreur soumission décision', error: error.message });
@@ -896,6 +1013,111 @@ const controller = {
         } catch (error) {
             console.error('[ServiceFait] getPublicDocumentFile error:', error);
             res.status(500).json({ message: 'Erreur récupération document', error: error.message });
+        }
+    },
+
+    // Liste des directeurs par direction (référentiel encadrants). Alimente le choix
+    // « aucun / informé / avec visa » du formulaire de lancement.
+    getDirectors: async (req, res) => {
+        try {
+            res.json(await getEncadrantsDirectors());
+        } catch (error) {
+            console.error('[ServiceFait] getDirectors error:', error);
+            res.status(500).json({ message: 'Erreur récupération directeurs', error: error.message });
+        }
+    },
+
+    // Vue publique du workflow pour le directeur (lien de visa, sans JWT).
+    getPublicDirectorByToken: async (req, res) => {
+        try {
+            const { token } = req.params;
+            const decoded = verifyToken(token);
+            if (!decoded) return res.status(400).json({ message: 'Lien invalide ou expiré' });
+            const wfRes = await pool.query(
+                `SELECT * FROM finance.service_fait_workflows WHERE id = $1 AND director_token = $2`,
+                [decoded.workflowId, token]
+            );
+            if (wfRes.rowCount === 0) return res.status(404).json({ message: 'Workflow non trouvé' });
+            const wf = wfRes.rows[0];
+            if (wf.director_token_expires_at && new Date(wf.director_token_expires_at) < new Date()) {
+                return res.status(410).json({ message: 'Ce lien a expiré' });
+            }
+            const pjRes = await pool.query(
+                `SELECT * FROM finance.service_fait_pieces_jointes WHERE workflow_id = $1 ORDER BY uploaded_at`, [wf.id]
+            );
+            const closed = !!(wf.director_status && wf.director_status !== 'en_attente');
+            res.json({ workflow: wf, pieces_jointes: pjRes.rows, closed });
+        } catch (error) {
+            console.error('[ServiceFait] getPublicDirectorByToken error:', error);
+            res.status(500).json({ message: 'Erreur récupération', error: error.message });
+        }
+    },
+
+    // Décision du directeur sur son lien de visa : 'valide' → le PV scellé (embarquant
+    // les deux valideurs) est poussé dans Sedit ; 'non_valide' → workflow refusé.
+    submitDirectorDecision: async (req, res) => {
+        try {
+            const { token } = req.params;
+            const { decision, comment } = req.body;
+            const decoded = verifyToken(token);
+            if (!decoded) return res.status(400).json({ message: 'Lien invalide ou expiré' });
+            const wfRes = await pool.query(
+                `SELECT * FROM finance.service_fait_workflows WHERE id = $1 AND director_token = $2`,
+                [decoded.workflowId, token]
+            );
+            if (wfRes.rowCount === 0) return res.status(404).json({ message: 'Workflow non trouvé' });
+            const wf = wfRes.rows[0];
+            if (wf.director_token_expires_at && new Date(wf.director_token_expires_at) < new Date()) {
+                return res.status(410).json({ message: 'Ce lien a expiré' });
+            }
+            if (wf.status !== 'en_attente_visa' || wf.director_status !== 'en_attente') {
+                return res.status(400).json({ message: 'Ce visa a déjà été traité' });
+            }
+            if (!['valide', 'non_valide'].includes(decision)) {
+                return res.status(400).json({ message: 'Décision invalide' });
+            }
+            if (decision === 'non_valide' && (!comment || !comment.trim())) {
+                return res.status(400).json({ message: 'Un motif est requis pour refuser' });
+            }
+
+            const actorUsername = wf.director_username || 'directeur';
+            const actorName = wf.director_name || '';
+            const action = decision === 'valide' ? 'visa_directeur' : 'refus_directeur';
+            await pool.query(
+                `UPDATE finance.service_fait_workflows
+                 SET status = $1, director_status = $2, director_decision_at = CURRENT_TIMESTAMP,
+                     director_comment = $3, updated_at = CURRENT_TIMESTAMP
+                 WHERE id = $4`,
+                [decision === 'valide' ? 'valide' : 'non_valide', decision, comment || '', wf.id]
+            );
+            await pool.query(
+                `INSERT INTO finance.service_fait_historique (workflow_id, action, actor_username, actor_name, comment, actor_ip, actor_user_agent)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+                [wf.id, action, actorUsername, actorName, comment || '', getClientIp(req), req.headers['user-agent'] || '']
+            );
+
+            let seditSync = null;
+            if (decision === 'valide') {
+                const wfFresh = (await pool.query(`SELECT * FROM finance.service_fait_workflows WHERE id = $1`, [wf.id])).rows[0];
+                seditSync = await syncServiceFaitToSedit({ wf: wfFresh, decision: 'valide', comment: comment || '' });
+            }
+
+            if (sendMailFn) {
+                const requesterEmail = await getRequesterEmail(wf.requested_by);
+                if (requesterEmail) {
+                    const html = decision === 'valide'
+                        ? `<p>Bonjour ${wf.requested_by},</p><p>Le service fait de la facture <strong>${wf.invoice_number || wf.invoice_ref}</strong> a été visé par le directeur ${actorName} et certifié dans Sedit.</p>${comment ? `<p><strong>Commentaire :</strong> ${comment}</p>` : ''}`
+                        : `<p>Bonjour ${wf.requested_by},</p><p>Le directeur ${actorName} n'a pas visé le service fait de la facture <strong>${wf.invoice_number || wf.invoice_ref}</strong>.</p>${comment ? `<p><strong>Motif :</strong> ${comment}</p>` : ''}`;
+                    try {
+                        await sendMailFn(requesterEmail, decision === 'valide' ? 'Service fait visé par le directeur' : 'Service fait non visé par le directeur', html);
+                    } catch (e) { console.error('[ServiceFait] director decision requester email:', e.message); }
+                }
+            }
+
+            res.json({ success: true, status: decision === 'valide' ? 'valide' : 'non_valide', sedit_sync: seditSync });
+        } catch (error) {
+            console.error('[ServiceFait] submitDirectorDecision error:', error);
+            res.status(500).json({ message: 'Erreur soumission visa', error: error.message });
         }
     },
 

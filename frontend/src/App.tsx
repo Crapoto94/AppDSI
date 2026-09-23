@@ -67,6 +67,7 @@ import AdminGED from './pages/AdminGED';
 import PublicTicketReply from './pages/PublicTicketReply';
 import PublicReopenTicket from './pages/PublicReopenTicket';
 import ServiceFaitVerifier from './pages/ServiceFaitVerifier';
+import ServiceFaitVisa from './pages/ServiceFaitVisa';
 import ServiceFaitProcessus from './pages/ServiceFaitProcessus';
 import ChatWidget from './components/LiveChat/ChatWidget';
 import ParamVille from './pages/Admin/ParamVille';
@@ -171,6 +172,7 @@ function App() {
         <Route path="/repondre/:token" element={<PublicTicketReply />} />
         <Route path="/reouvrir/:token" element={<PublicReopenTicket />} />
         <Route path="/service-fait-verifier/:token" element={<ServiceFaitVerifier />} />
+        <Route path="/service-fait-visa/:token" element={<ServiceFaitVisa />} />
         <Route path="/service-fait/processus/:id" element={<PrivateRoute path="/budget"><ServiceFaitProcessus /></PrivateRoute>} />
         <Route path="/transcript/:token" element={<TranscriptShare />} />
         <Route path="/mes-taches/:token" element={<TasksShare />} />

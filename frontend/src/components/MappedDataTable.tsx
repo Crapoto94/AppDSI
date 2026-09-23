@@ -85,8 +85,9 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
   const [pendingFilter, setPendingFilter] = useState(false);
   const [sfModalRow, setSfModalRow] = useState<{ row: any; mode: 'circuit' | 'self' } | null>(null);
   const [sfStatuses, setSfStatuses] = useState<Record<string, any>>({});
+  const [commandeStatuses, setCommandeStatuses] = useState<Record<string, any>>({});
   const [sfProcessModal, setSfProcessModal] = useState<{ workflowId: number } | null>(null);
-  const [seditDocsViewer, setSeditDocsViewer] = useState<{ numero: string; baseUrl?: string; title?: string } | null>(null);
+  const [seditDocsViewer, setSeditDocsViewer] = useState<{ numero?: string; numeros?: string[]; baseUrl?: string; title?: string } | null>(null);
   const [mandateNumero, setMandateNumero] = useState<string | null>(null);
 
   useEffect(() => { localStorage.setItem(storageKey, JSON.stringify(visibleCols)); }, [visibleCols, storageKey]);
@@ -99,6 +100,10 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
 
   const effectivePageSize = itemsPerPage === 'all' ? 10000 : itemsPerPage;
   const factureColumnName = columns.find(c => c.expression === 'FACTURE_FACTURE')?.name || null;
+  // Colonne « Nb lignes » (commandes) : sert à ne proposer le déroulé que s'il y a
+  // réellement plusieurs lignes (sinon le bouton n'apporte rien).
+  const nbLignesColumnName = (columns.find(c => c.expression === 'COMMANDE_NB_LIGNES_COMMANDE')
+    || columns.find(c => /^nb\s*lignes$/i.test(c.name)))?.name || null;
 
   // Plusieurs effets ci-dessous appellent tous fetchData() au montage (token/rubrique,
   // fiscalYear, page/pageSize, filtres...), en parallèle de la requête triée déclenchée
@@ -211,6 +216,20 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
       .catch(() => {});
   }, [rows, columns, rubriqueName]);
 
+  // État de la facture de chaque commande (pastille FAC) — reçue / service fait /
+  // mandatée / refusée, calculé côté serveur depuis Sedit.
+  useEffect(() => {
+    if (rubriqueName !== 'Commandes') return;
+    if (rows.length === 0) { setCommandeStatuses({}); return; }
+    const col = columns.find(c => c.expression === seditIdColumn);
+    const ids = rows.map(r => (col ? String(r[col.name] ?? '').trim() : '')).filter(Boolean);
+    if (ids.length === 0) return;
+    const uniq = Array.from(new Set(ids));
+    axios.post('/api/finance/service-fait/commande-statuses', { commande_ids: uniq }, { headers })
+      .then(res => { if (res.data) setCommandeStatuses(res.data); })
+      .catch(() => {});
+  }, [rows, columns, rubriqueName, seditIdColumn]);
+
   useEffect(() => {
     axios.get('/api/budget/operations', { headers }).then(res => setOperations(res.data || [])).catch(() => {});
     axios.get('/api/magapp/apps', { headers }).then(res => setApps(Array.isArray(res.data) ? res.data : [])).catch(() => {});
@@ -265,6 +284,19 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
       }
       return '';
     }
+    // Nature / fonction M57 d'une commande : agrégées côté Sedit sur les lignes
+    // d'imputation. Une seule valeur = commune à toutes les lignes (on l'affiche) ;
+    // plusieurs = commande multiligne hétérogène (on affiche « Multi » + infobulle).
+    if (col.expression === 'nature' || col.expression === 'fonction') {
+      const codes = Array.from(new Set(String(value ?? '').split(',').map(s => s.trim()).filter(Boolean)));
+      if (codes.length === 0) return '';
+      if (codes.length === 1) return codes[0];
+      return (
+        <span title={codes.join(', ')} style={{ cursor: 'help', fontWeight: 600, color: '#b45309' }}>
+          Multi
+        </span>
+      );
+    }
     if (value === null || value === undefined) return '';
     const str = String(value);
     if (col.display_type === 'currency') {
@@ -314,7 +346,9 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
 
   const showActions = !!seditIdColumn;
   const showSfColumn = showActions && rubriqueName === 'Factures';
-  const actionColsCount = (showSfColumn ? 1 : 0) + (showActions ? 1 : 0);
+  // Colonne « Facture » sur la liste des commandes : pastille FAC (état de la facture).
+  const showFactureCol = showActions && rubriqueName === 'Commandes';
+  const actionColsCount = (showSfColumn ? 1 : 0) + (showFactureCol ? 1 : 0) + (showActions ? 1 : 0);
 
   if (loading && rows.length === 0) {
     return <div style={{ padding: '2rem', textAlign: 'center', color: '#64748b' }}>Chargement...</div>;
@@ -329,7 +363,8 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
     </div>;
   }
 
-  const activeCols = columns.filter(c => visibleCols.includes(c.name) || c.name === 'Section');
+  const activeCols = columns.filter(c => visibleCols.includes(c.name) || c.name === 'Section'
+    || (rubriqueName === 'Commandes' && (c.expression === 'nature' || c.expression === 'fonction')));
 
   // "À traiter" est filtré côté serveur (SF non fait dans Sedit et non rejetée) pour
   // porter sur l'ensemble des factures, pas seulement la page courante.
@@ -440,6 +475,7 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
                 );
               })}
               {showSfColumn && <th className="mdt-th" style={{ minWidth: '160px' }}>Service Fait</th>}
+              {showFactureCol && <th className="mdt-th" style={{ minWidth: '70px' }}>Facture</th>}
               {showActions && <th className="mdt-th" style={{ minWidth: '120px' }}>Sedit</th>}
             </tr>
           </thead>
@@ -457,7 +493,10 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
               const childKey = childLinkValue || seditId || String(i);
               const child = childrenData[childKey];
               const isLoadingChild = loadingChildren[childKey];
-              const expandable = !!(childRubriqueId && childLinkValue);
+              const nbLignes = nbLignesColumnName
+                ? parseInt(String(row[nbLignesColumnName] ?? '').replace(/[^\d-]/g, ''), 10)
+                : NaN;
+              const expandable = !!(childRubriqueId && childLinkValue) && (isNaN(nbLignes) || nbLignes > 1);
               const factureCol = rubriqueName === 'Factures' ? columns.find(c => c.expression === 'FACTURE_FACTURE') : null;
               const factureRef = factureCol ? String(row[factureCol.name] || '').trim() : null;
               const commandeCol = rubriqueName === 'Commandes' ? columns.find(c => c.expression === 'COMMANDE_COMMANDE') : null;
@@ -476,11 +515,12 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
                   'non_valide': { label: '❌ Non validé', color: '#991b1b', bg: '#fee2e2' },
                   'ne_me_concerne_pas': { label: '🔄 Retourné', color: '#1e40af', bg: '#dbeafe' },
                   'transfere': { label: '➡️ Transféré', color: '#6b21a8', bg: '#f3e8ff' },
+                  'en_attente_visa': { label: '🖋️ Visa directeur', color: '#6b21a8', bg: '#f3e8ff' },
                   'annule': { label: '🚫 Annulé', color: '#64748b', bg: '#f1f5f9' },
                   'telecom': { label: '📡 Telecom', color: '#0369a1', bg: '#e0f2fe' },
                 };
                 const meta = map[st.status] || { label: st.status, color: '#334155', bg: '#f1f5f9' };
-                const ongoing = ['en_attente', 'en_cours', 'transfere', 'en_pause'].includes(st.status);
+                const ongoing = ['en_attente', 'en_cours', 'transfere', 'en_pause', 'en_attente_visa'].includes(st.status);
                 // Statuts pour lesquels une nouvelle demande peut être relancée sur la même
                 // facture (doit rester synchro avec l'exclusion côté backend, createWorkflow).
                 const relaunchable = ['non_valide', 'ne_me_concerne_pas', 'annule'].includes(st.status);
@@ -606,6 +646,40 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
                             </>
                           )}
                         </div>
+                      </td>
+                    )}
+                    {showFactureCol && (
+                      <td className="mdt-cell" style={{ whiteSpace: 'nowrap' }}>
+                        {(() => {
+                          const fs = seditId ? commandeStatuses[seditId] : null;
+                          if (!fs) return null;
+                          const MAP: Record<string, { label: string; color: string; bg: string }> = {
+                            recue: { label: 'Reçue', color: '#475569', bg: '#f1f5f9' },
+                            service_fait: { label: 'Service fait', color: '#1e40af', bg: '#dbeafe' },
+                            mandatee: { label: 'Mandatée', color: '#166534', bg: '#dcfce7' },
+                            refusee: { label: 'Refusée', color: '#b91c1c', bg: '#fee2e2' },
+                          };
+                          const meta = MAP[fs.state] || MAP.recue;
+                          const n = fs.count || 1;
+                          const factures: string[] = Array.isArray(fs.factures) ? fs.factures : [];
+                          const clickable = factures.length > 0;
+                          return (
+                            <button type="button" disabled={!clickable}
+                              onClick={clickable ? (e) => {
+                                e.stopPropagation();
+                                setSeditDocsViewer({
+                                  numeros: factures,
+                                  title: `Facture${n > 1 ? 's' : ''} Sedit — Commande ${commandeNum || seditId || ''}`.trim(),
+                                });
+                              } : undefined}
+                              title={clickable
+                                ? `${n} facture${n > 1 ? 's' : ''} — ${meta.label} (cliquer pour afficher)`
+                                : `${n} facture${n > 1 ? 's' : ''} — ${meta.label}`}
+                              style={{ background: meta.bg, color: meta.color, border: `1px solid ${meta.color}33`, borderRadius: '999px', padding: '2px 7px', fontSize: '10px', fontWeight: 700, lineHeight: '14px', cursor: clickable ? 'pointer' : 'default' }}>
+                              FAC
+                            </button>
+                          );
+                        })()}
                       </td>
                     )}
                     {showActions && (
@@ -895,6 +969,7 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
       {seditDocsViewer && (
         <FactureDocumentsViewer
           numero={seditDocsViewer.numero}
+          numeros={seditDocsViewer.numeros}
           token={token}
           baseUrl={seditDocsViewer.baseUrl}
           title={seditDocsViewer.title}

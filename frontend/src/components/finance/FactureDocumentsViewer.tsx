@@ -10,6 +10,8 @@ interface FactureDoc {
   principal: boolean;
   categorie: 'facture' | 'bon_commande' | 'autre';
   url: string;
+  /** Numéro de facture d'origine (renseigné quand la visionneuse couvre plusieurs factures). */
+  facture?: string;
 }
 
 const CATEGORY_LABELS: Record<FactureDoc['categorie'], string> = {
@@ -20,7 +22,9 @@ const CATEGORY_LABELS: Record<FactureDoc['categorie'], string> = {
 
 interface Props {
   /** Numéro de facture Sedit (ex. "F26008278"), pas l'id/libellé interne AppDSI. */
-  numero: string;
+  numero?: string;
+  /** Plusieurs factures à afficher ensemble (ex. toutes les factures d'une commande). */
+  numeros?: string[];
   token: string | null;
   onClose: () => void;
   /**
@@ -39,7 +43,7 @@ interface Props {
  * Sedit Finances d'une facture — voir skill "sedit-finances" et
  * backend/modules/finance/finance-share.controller.js.
  */
-export default function FactureDocumentsViewer({ numero, token, onClose, baseUrl, title }: Props) {
+export default function FactureDocumentsViewer({ numero, numeros, token, onClose, baseUrl, title }: Props) {
   const [documents, setDocuments] = useState<FactureDoc[] | null>(null);
   const [loadingList, setLoadingList] = useState(true);
   const [listError, setListError] = useState<string | null>(null);
@@ -49,31 +53,43 @@ export default function FactureDocumentsViewer({ numero, token, onClose, baseUrl
   const [docError, setDocError] = useState<string | null>(null);
   const blobUrlsRef = useRef<Record<string, string>>({});
 
+  // Liste effective des factures couvertes : plusieurs numéros (factures d'une
+  // commande) ou un seul (cas historique). Le mode `baseUrl` (bon de commande,
+  // page publique) reste mono-document.
+  const numerosKey = (numeros && numeros.length > 0 ? numeros : [numero].filter(Boolean) as string[]).join(',');
+
   useEffect(() => {
     let cancelled = false;
     setLoadingList(true);
     setListError(null);
-    const listUrl = baseUrl ? `${baseUrl}/documents` : `/api/finance/pj-share/facture/${encodeURIComponent(numero)}/documents`;
-    fetch(listUrl, {
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
-    })
-      .then(async (r) => {
-        if (!r.ok) {
-          const body = await r.json().catch(() => ({}));
-          throw new Error(body.error || `Erreur ${r.status}`);
-        }
-        return r.json();
-      })
-      .then((data) => {
+    const liste = numerosKey ? numerosKey.split(',') : [];
+    const fetchOne = (n: string): Promise<FactureDoc[]> => {
+      const listUrl = baseUrl
+        ? `${baseUrl}/documents`
+        : `/api/finance/pj-share/facture/${encodeURIComponent(n)}/documents`;
+      return fetch(listUrl, { headers: token ? { Authorization: `Bearer ${token}` } : {} })
+        .then(async (r) => {
+          if (!r.ok) {
+            const body = await r.json().catch(() => ({}));
+            throw new Error(body.error || `Erreur ${r.status}`);
+          }
+          return r.json();
+        })
+        .then((data) => (data.documents || [])
+          .filter((d: FactureDoc) => d.mime === 'application/pdf')
+          .map((d: FactureDoc) => ({ ...d, facture: n })));
+    };
+    Promise.all(liste.map(fetchOne))
+      .then((all) => {
         if (cancelled) return;
-        const docs: FactureDoc[] = (data.documents || []).filter((d: FactureDoc) => d.mime === 'application/pdf');
+        const docs = all.flat();
         setDocuments(docs);
         setActiveId(docs[0]?.doc_id || null);
       })
       .catch((e) => { if (!cancelled) setListError(e.message || 'Erreur de chargement'); })
       .finally(() => { if (!cancelled) setLoadingList(false); });
     return () => { cancelled = true; };
-  }, [numero, token, baseUrl]);
+  }, [numerosKey, token, baseUrl]);
 
   useEffect(() => {
     if (!activeId || !documents) return;
@@ -106,13 +122,25 @@ export default function FactureDocumentsViewer({ numero, token, onClose, baseUrl
 
   const activeDoc = documents?.find(d => d.doc_id === activeId) || null;
 
-  // Groupes affichés dans l'ordre où ils apparaissent (le backend trie déjà "facture" avant "autre").
-  const groups: { categorie: FactureDoc['categorie']; docs: FactureDoc[] }[] = [];
-  documents?.forEach(doc => {
-    const last = groups[groups.length - 1];
-    if (last && last.categorie === doc.categorie) last.docs.push(doc);
-    else groups.push({ categorie: doc.categorie, docs: [doc] });
-  });
+  // Groupes affichés dans l'ordre où ils apparaissent. Quand la visionneuse couvre
+  // plusieurs factures (toutes celles d'une commande), on regroupe par facture ;
+  // sinon par catégorie (le backend trie déjà "facture" avant "bon_commande"/"autre").
+  const facturesListe = numerosKey ? numerosKey.split(',') : [];
+  const multiFacture = facturesListe.length > 1;
+  const groups: { key: string; label: string; docs: FactureDoc[] }[] = [];
+  if (multiFacture) {
+    facturesListe.forEach(num => {
+      const docs = (documents || []).filter(d => d.facture === num);
+      if (docs.length > 0) groups.push({ key: `f-${num}`, label: `Facture ${num}`, docs });
+    });
+  } else {
+    (documents || []).forEach(doc => {
+      const last = groups[groups.length - 1];
+      const label = CATEGORY_LABELS[doc.categorie];
+      if (last && last.label === label) last.docs.push(doc);
+      else groups.push({ key: `c-${doc.categorie}`, label, docs: [doc] });
+    });
+  }
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000, padding: 8 }}>
@@ -120,7 +148,7 @@ export default function FactureDocumentsViewer({ numero, token, onClose, baseUrl
         <div style={{ padding: '10px 14px', borderBottom: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', gap: 8 }}>
           <FileText size={18} color="#ef4444" />
           <span style={{ flex: 1, minWidth: 0, fontWeight: 700, fontSize: 14, color: '#1e293b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            {title || `Pièces jointes Sedit — Facture ${numero}`}
+            {title || (multiFacture ? `Pièces jointes Sedit — ${facturesListe.length} factures` : `Pièces jointes Sedit — Facture ${numero}`)}
           </span>
           {activeDoc && blobUrls[activeDoc.doc_id] && (
             <button onClick={() => window.open(blobUrls[activeDoc.doc_id], '_blank', 'noopener')} title="Ouvrir dans un onglet" style={toolbarBtn}>
@@ -142,13 +170,13 @@ export default function FactureDocumentsViewer({ numero, token, onClose, baseUrl
               <div style={{ padding: 16, color: '#64748b', fontSize: 13 }}>Aucune pièce jointe PDF trouvée dans Sedit.</div>
             )}
             {groups.map(group => (
-              <div key={group.categorie}>
+              <div key={group.key}>
                 <div style={{
                   padding: '8px 12px', fontSize: 11, fontWeight: 700, color: '#64748b',
                   textTransform: 'uppercase', letterSpacing: 0.4, background: '#eef2f7',
                   borderBottom: '1px solid #e2e8f0', borderTop: '1px solid #e2e8f0',
                 }}>
-                  {CATEGORY_LABELS[group.categorie]}
+                  {group.label}
                 </div>
                 {group.docs.map(doc => (
                   <button

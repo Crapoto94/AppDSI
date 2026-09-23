@@ -58,6 +58,9 @@ export default function ServiceFaitModal({ row, columns, mode = 'circuit', onClo
   const headers = { Authorization: `Bearer ${token}` };
   const isSelf = mode === 'self';
   const [agents, setAgents] = useState<any[]>([]);
+  const [directors, setDirectors] = useState<any[]>([]);
+  const [directorMode, setDirectorMode] = useState<'none' | 'informe' | 'visa'>('none');
+  const [entityCode, setEntityCode] = useState('');
   const [verifier, setVerifier] = useState('');
   const [comment, setComment] = useState('');
   const [pjFiles, setPjFiles] = useState<File[]>([]);
@@ -77,9 +80,21 @@ export default function ServiceFaitModal({ row, columns, mode = 'circuit', onClo
     axios.get('/api/calendrier-dsi/agents', { headers })
       .then(r => setAgents(Array.isArray(r.data) ? r.data : []))
       .catch(() => setAgents([]));
+    // Directeurs paramétrés (générique : DSI aujourd'hui, d'autres entités ensuite).
+    axios.get('/api/finance/service-fait/directors', { headers })
+      .then(r => {
+        const list = Array.isArray(r.data) ? r.data : [];
+        setDirectors(list);
+        // Par défaut : direction des systèmes d'information (module DSI), sinon 1re.
+        const dsi = list.find((d: any) => /SYST[EÈ]MES D.INFORMATION/i.test(d.entity_label || ''));
+        if (dsi) setEntityCode(dsi.entity_code);
+        else if (list[0]) setEntityCode(list[0].entity_code);
+      })
+      .catch(() => setDirectors([]));
   }, []);
 
   const selectedAgent = agents.find(a => a.username === verifier);
+  const selectedDirector = directors.find(d => d.entity_code === entityCode) || directors[0];
 
   const groupedByService = useMemo(() => {
     const map: Record<string, any[]> = {};
@@ -122,7 +137,12 @@ export default function ServiceFaitModal({ row, columns, mode = 'circuit', onClo
         pjFiles.forEach(f => fd.append('files', f));
         await axios.post('/api/finance/service-fait/self', fd, { headers: { ...headers, 'Content-Type': 'multipart/form-data' } });
       } else {
-        await axios.post('/api/finance/service-fait', { ...payload, verifier_username: verifier }, { headers });
+        await axios.post('/api/finance/service-fait', {
+          ...payload,
+          verifier_username: verifier,
+          director_mode: selectedDirector && directorMode !== 'none' ? directorMode : null,
+          entity_code: selectedDirector ? selectedDirector.entity_code : undefined,
+        }, { headers });
       }
       onCreated();
       onClose();
@@ -195,6 +215,45 @@ export default function ServiceFaitModal({ row, columns, mode = 'circuit', onClo
                 </div>
               )}
             </div>
+            )}
+
+            {!isSelf && selectedDirector && (
+              <div style={{ marginBottom: 16 }}>
+                <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 6 }}>
+                  Directeur
+                </label>
+                {directors.length > 1 && (
+                  <select value={entityCode} onChange={e => setEntityCode(e.target.value)}
+                    style={{ width: '100%', padding: '9px 12px', border: '1.5px solid #e2e8f0', borderRadius: 8, fontSize: 14, fontFamily: 'inherit', background: '#fff', marginBottom: 8 }}>
+                    {directors.map((d: any) => (
+                      <option key={d.entity_code} value={d.entity_code}>{d.entity_label || d.entity_code}</option>
+                    ))}
+                  </select>
+                )}
+                <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, padding: '10px 12px', marginBottom: 8, fontSize: 13, color: '#334155' }}>
+                  <strong>{selectedDirector.director_name || selectedDirector.director_username}</strong>
+                  {selectedDirector.director_email ? <span style={{ color: '#64748b' }}> — {selectedDirector.director_email}</span> : null}
+                </div>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  {([
+                    { value: 'none', label: 'Aucun', hint: 'Le directeur n’est ni informé ni sollicité (défaut)' },
+                    { value: 'informe', label: 'Informé', hint: "Reçoit un email à la décision (validé ou non)" },
+                    { value: 'visa', label: 'Avec visa', hint: 'Doit viser après le valideur ; les 2 valideurs sont scellés dans le PV Sedit' },
+                  ] as const).map(opt => (
+                    <button type="button" key={opt.value} onClick={() => setDirectorMode(opt.value)}
+                      title={opt.hint}
+                      style={{
+                        flex: 1, padding: '10px 12px', borderRadius: 8, cursor: 'pointer', textAlign: 'left',
+                        border: directorMode === opt.value ? '1.5px solid #6366f1' : '1.5px solid #e2e8f0',
+                        background: directorMode === opt.value ? '#eef2ff' : '#fff',
+                        color: directorMode === opt.value ? '#3730a3' : '#475569', fontSize: 13, fontWeight: 600,
+                      }}>
+                      {opt.label}
+                      <div style={{ fontWeight: 400, fontSize: 11, color: '#94a3b8', marginTop: 2 }}>{opt.hint}</div>
+                    </button>
+                  ))}
+                </div>
+              </div>
             )}
 
             {isSelf && (

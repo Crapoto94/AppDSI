@@ -241,6 +241,60 @@ async function queryFacsuiviStatus(numeros) {
 }
 exports.getFacsuiviStatus = queryFacsuiviStatus;
 
+// États possibles d'une facture d'une commande, par ordre de priorité d'affichage
+// (une commande peut avoir plusieurs factures → on retient le « pire »/plus avancé).
+const COMMANDE_FACTURE_RANK = { recue: 1, service_fait: 2, mandatee: 3, refusee: 4 };
+
+/**
+ * Pour une liste de commandes (ROO_IMA_REF Sedit), indique celles qui ont au moins une
+ * facture et l'état de leur facture : reçue (gris), service fait (bleu), mandatée (vert),
+ * refusée (rouge). Utilise FI.FACTURE.COMMANDE → numéros de facture, puis le statut
+ * Sedit déjà calculé par queryFacsuiviStatus (SF / rejet / mandatement).
+ */
+async function queryCommandeFactureStatus(commandes) {
+    const roos = Array.from(new Set((commandes || []).map(c => String(c || '').trim()).filter(Boolean)));
+    if (roos.length === 0) return {};
+
+    const liens = await withFinanceOracle(async (connection) => {
+        const binds = {};
+        const placeholders = roos.map((r, i) => { binds[`c${i}`] = r; return `:c${i}`; });
+        const res = await connection.execute(
+            `SELECT TRIM(COMMANDE) AS CMD, TRIM(FACTURE) AS NUM
+             FROM FI.FACTURE
+             WHERE TRIM(COMMANDE) IN (${placeholders.join(',')})`,
+            binds
+        );
+        return res.rows;
+    });
+
+    const facturesParCommande = {};
+    const numeros = [];
+    for (const row of liens) {
+        if (!facturesParCommande[row.CMD]) facturesParCommande[row.CMD] = [];
+        facturesParCommande[row.CMD].push(row.NUM);
+        numeros.push(row.NUM);
+    }
+    const statuts = numeros.length ? await queryFacsuiviStatus(Array.from(new Set(numeros))) : {};
+
+    const out = {};
+    for (const cmd of roos) {
+        const nums = facturesParCommande[cmd];
+        if (!nums || nums.length === 0) continue;
+        let best = 'recue';
+        for (const num of nums) {
+            const s = statuts[num] || {};
+            let etat = 'recue';
+            if (s.rejete && s.rejete.done) etat = 'refusee';
+            else if (s.mandate && s.mandate.done) etat = 'mandatee';
+            else if (s.service_fait && s.service_fait.done) etat = 'service_fait';
+            if (COMMANDE_FACTURE_RANK[etat] > COMMANDE_FACTURE_RANK[best]) best = etat;
+        }
+        out[cmd] = { state: best, count: nums.length, factures: nums };
+    }
+    return out;
+}
+exports.getCommandeFactureStatus = queryCommandeFactureStatus;
+
 /**
  * Valide le service fait DIRECTEMENT dans Sedit (écriture Oracle) une fois la décision
  * positive rendue côté AppDSI — voir service-fait.controller.js#submitDecision. Ne touche

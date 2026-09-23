@@ -179,7 +179,7 @@ const Budget: React.FC = () => {
   const [tierColumnStyles, setTierColumnStyles] = useState<ColumnStyles>(() => getStoredColumnStyles('tiers'));
 
   const getColumnStyle = (col: string): ColumnStyle | null => {
-    const styles = view === 'orders' ? orderColumnStyles : view === 'invoices' ? invoiceColumnStyles : view === 'operations' ? opColumnStyles : tierColumnStyles;
+    const styles = view === 'orders' ? orderColumnStyles : (view === 'invoices' || view === 'invoices_beta') ? invoiceColumnStyles : view === 'operations' ? opColumnStyles : tierColumnStyles;
     return styles[col] || null;
   };
   const setColumnStyle = (col: string, style: ColumnStyle) => {
@@ -187,7 +187,7 @@ const Budget: React.FC = () => {
       const next = { ...orderColumnStyles, [col]: style };
       setOrderColumnStyles(next);
       setStoredColumnStyles('orders', next);
-    } else if (view === 'invoices') {
+    } else if (view === 'invoices' || view === 'invoices_beta') {
       const next = { ...invoiceColumnStyles, [col]: style };
       setInvoiceColumnStyles(next);
       setStoredColumnStyles('invoices', next);
@@ -206,7 +206,7 @@ const Budget: React.FC = () => {
       const next = { ...orderColumnStyles }; delete next[col];
       setOrderColumnStyles(next);
       setStoredColumnStyles('orders', next);
-    } else if (view === 'invoices') {
+    } else if (view === 'invoices' || view === 'invoices_beta') {
       const next = { ...invoiceColumnStyles }; delete next[col];
       setInvoiceColumnStyles(next);
       setStoredColumnStyles('invoices', next);
@@ -282,7 +282,7 @@ const Budget: React.FC = () => {
 
     const fetchFiscalYears = async () => {
       try {
-        const rubriqueName = view === 'orders' ? 'Commandes' : view === 'invoices' ? 'Factures' : view === 'tiers' ? 'Tiers' : null;
+        const rubriqueName = view === 'orders' ? 'Commandes' : (view === 'invoices' || view === 'invoices_beta') ? 'Factures' : view === 'tiers' ? 'Tiers' : null;
         let data: number[] = [];
 
         if (rubriqueName) {
@@ -2839,7 +2839,7 @@ const Budget: React.FC = () => {
                     Inv.
                   </button>
                 </div>
-                <MappedDataTable rubriqueName="Commandes" title="Commandes" fiscalYear={currentFiscalYear}
+                <MappedDataTable rubriqueName="Commandes" title="Commandes" dataSource="sedit" fiscalYear={currentFiscalYear}
                   onOpenColumnSettings={() => setShowColumnSelector(true)}
                   columnStyles={orderColumnStyles}
                   visibleColumns={orderColumns}
@@ -3358,7 +3358,7 @@ const Budget: React.FC = () => {
         .main-content {
           max-width: 1600px;
           margin: 0 auto;
-          padding: 1rem 1.5rem;
+          padding: 1rem 0.75rem;
         }
 
         /* Typography & Colors */

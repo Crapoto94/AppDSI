@@ -277,7 +277,7 @@ function fmtMontant(v) {
     return normalizeForPdf(n.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })) + ' €';
 }
 
-async function buildCoverPage({ workflow, decisionLabel, comment, verifierName, verifierEmail, decisionAt, sourceFiles }) {
+async function buildCoverPage({ workflow, decisionLabel, comment, verifierName, verifierEmail, decisionAt, sourceFiles, directorName, directorEmail, directorMode, directorDecisionAt, entityLabel }) {
     const pdf = await PDFDocument.create();
     const font = await pdf.embedFont(StandardFonts.Helvetica);
     const bold = await pdf.embedFont(StandardFonts.HelveticaBold);
@@ -317,7 +317,7 @@ async function buildCoverPage({ workflow, decisionLabel, comment, verifierName, 
 
     // En-tête
     text("Ville d'Ivry-sur-Seine", { size: 10, color: rgb(0.35, 0.35, 0.4) });
-    text('Direction des Systèmes d\'Information', { size: 10, color: rgb(0.35, 0.35, 0.4) });
+    text(entityLabel || workflow.entity_label || '', { size: 10, color: rgb(0.35, 0.35, 0.4) });
     spacer(16);
     text('PROCÈS-VERBAL DE VALIDATION DU SERVICE FAIT', { size: 16, boldFont: true });
     spacer(6);
@@ -339,6 +339,15 @@ async function buildCoverPage({ workflow, decisionLabel, comment, verifierName, 
     text(`${verifierName || '-'}${verifierEmail ? ` <${verifierEmail}>` : ''}`);
     text(`Date de validation : ${fmtDateFr(decisionAt)}`);
     spacer(14);
+
+    // Visa du directeur : le directeur valide APRÈS le valideur principal. Les DEUX
+    // validateurs sont alors embarqués dans le PV scellé poussé dans Sedit.
+    if (directorMode === 'visa' && (directorName || directorEmail)) {
+        text('Visa du directeur', { size: 11, boldFont: true });
+        text(`${directorName || '-'}${directorEmail ? ` <${directorEmail}>` : ''}`);
+        text(`Date du visa : ${fmtDateFr(directorDecisionAt || decisionAt)}`);
+        spacer(14);
+    }
 
     text('Commentaire / motif', { size: 11, boldFont: true });
     text(comment && String(comment).trim() ? comment : '(aucun)');
@@ -369,7 +378,7 @@ async function buildCoverPage({ workflow, decisionLabel, comment, verifierName, 
  *           verifierEmail:string, decisionAt:Date|string, sourceFiles:Array<{buffer,originalname,mimetype}> }} p
  * @returns {Promise<{ buffer:Buffer, sourceHashes:Array<{name,sha256}>, seal:object }>}
  */
-async function buildSealedServiceFaitPv({ workflow, decisionLabel, comment, verifierName, verifierEmail, decisionAt, sourceFiles }) {
+async function buildSealedServiceFaitPv({ workflow, decisionLabel, comment, verifierName, verifierEmail, decisionAt, sourceFiles, directorName, directorEmail, directorMode, directorDecisionAt, entityLabel }) {
     const files = [];
     for (const f of (sourceFiles || [])) {
         const buf = Buffer.isBuffer(f.buffer) ? f.buffer : Buffer.from(f.buffer);
@@ -379,7 +388,7 @@ async function buildSealedServiceFaitPv({ workflow, decisionLabel, comment, veri
         files.push({ buffer: buf, originalname: f.originalname, mimetype: f.mimetype, sha256 });
     }
 
-    const cover = await buildCoverPage({ workflow, decisionLabel, comment, verifierName, verifierEmail, decisionAt, sourceFiles: files });
+    const cover = await buildCoverPage({ workflow, decisionLabel, comment, verifierName, verifierEmail, decisionAt, sourceFiles: files, directorName, directorEmail, directorMode, directorDecisionAt, entityLabel });
     // Seules les pièces affichables (PDF/images) sont fusionnées : un format bureautique
     // exotique serait listé sur la page de garde mais ne doit pas casser la génération.
     const renderable = files.filter((f) => /^application\/pdf$|^image\//.test(f.mimetype || ''));

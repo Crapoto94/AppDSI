@@ -3464,6 +3464,27 @@ async function setupPgDb() {
       await client.query(`CREATE INDEX IF NOT EXISTS idx_sf_workflows_invoice_ref ON finance.service_fait_workflows(invoice_ref)`);
     } catch (e) {}
 
+    // Directeur « métier » du service fait : résolu depuis le référentiel RH
+    // (encadrants — /admin/param-ville, un directeur par direction). Les colonnes de
+    // suivi du visa vivent sur le workflow ; pas de table dédiée.
+    try {
+      for (const col of [
+        `entity_code TEXT DEFAULT 'DSI'`,
+        `entity_label TEXT DEFAULT ''`,
+        `director_mode TEXT`,
+        `director_username TEXT`,
+        `director_name TEXT DEFAULT ''`,
+        `director_email TEXT DEFAULT ''`,
+        `director_status TEXT`,
+        `director_decision_at TIMESTAMPTZ`,
+        `director_comment TEXT DEFAULT ''`,
+        `director_token TEXT`,
+        `director_token_expires_at TIMESTAMPTZ`,
+      ]) {
+        await client.query(`ALTER TABLE finance.service_fait_workflows ADD COLUMN IF NOT EXISTS ${col}`);
+      }
+    } catch (e) { console.error('[PG DB] alter service_fait_workflows director:', e.message); }
+
     await client.query(`
       CREATE TABLE IF NOT EXISTS finance.service_fait_pieces_jointes (
         id SERIAL PRIMARY KEY,
@@ -6992,6 +7013,22 @@ async function setupPgDb() {
       `);
       await client.query(`CREATE INDEX IF NOT EXISTS idx_pdf_edit_projects_user ON hub.pdf_edit_projects(username)`);
     } catch (e) { console.error('[PG DB] hub.pdf_edit_projects:', e.message); }
+
+    // Réaligne les séquences des tables migrées depuis SQLite avec des id explicites
+    // (scripts/migrate-non-config-sqlite.js) : l'insertion d'id explicites ne fait pas
+    // avancer la séquence, si bien que les INSERT suivants réutilisent des id déjà
+    // pris → « duplicate key value violates unique constraint ..._pkey ». Idempotent.
+    const migratedSeqTables = [
+      'hub.access_requests', 'hub.contacts', 'hub.todos', 'hub.import_logs',
+      'hub.attachments', 'finance.budgets', 'finance.m57_plan',
+    ];
+    for (const t of migratedSeqTables) {
+      try {
+        await client.query(
+          `SELECT setval(pg_get_serial_sequence('${t}', 'id'), GREATEST((SELECT COALESCE(MAX(id), 1) FROM ${t}), 1), true)`
+        );
+      } catch (e) { /* table absente : ignorer */ }
+    }
 
     console.log('[PG DB] Schema and tables initialized successfully');
   } catch (error) {

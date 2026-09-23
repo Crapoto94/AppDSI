@@ -13,6 +13,7 @@ export const STATUT_LABELS: Record<string, { label: string; color: string; bg: s
   'non_valide': { label: 'Non validé', color: '#991b1b', bg: '#fee2e2' },
   'ne_me_concerne_pas': { label: 'Ne me concerne pas', color: '#1e40af', bg: '#dbeafe' },
   'transfere': { label: 'Transféré', color: '#6b21a8', bg: '#f3e8ff' },
+  'en_attente_visa': { label: 'En attente visa directeur', color: '#6b21a8', bg: '#f3e8ff' },
   'annule': { label: 'Annulé', color: '#64748b', bg: '#f1f5f9' }
 };
 
@@ -29,7 +30,9 @@ const ACTION_LABELS: Record<string, string> = {
   'transfert': 'Transfert',
   'mise_en_pause': 'Mise en pause',
   'annulation': 'Processus annulé',
-  'declaration_directe': 'Service fait déclaré (hors circuit)'
+  'declaration_directe': 'Service fait déclaré (hors circuit)',
+  'visa_directeur': 'Visa du directeur',
+  'refus_directeur': 'Refus du directeur'
 };
 
 function formatAmount(v: any) {
@@ -216,6 +219,18 @@ export default function ServiceFaitWorkflowView({ workflowId, onChanged }: Props
           {wf.transfer_to_username && (
             <div style={{ background: '#f3e8ff', border: '1px solid #e9d5ff', borderRadius: 10, padding: 12, marginBottom: 20, fontSize: 13, color: '#6b21a8' }}>
               <strong>Transféré vers :</strong> {wf.transfer_to_name || wf.transfer_to_username} ({wf.transfer_to_email || 'email non renseigné'})
+            </div>
+          )}
+
+          {/* Directeur (générique) : mode informé ou visa, et état du visa. */}
+          {wf.director_mode && (
+            <div style={{ background: '#f5f3ff', border: '1px solid #ddd6fe', borderRadius: 10, padding: 12, marginBottom: 20, fontSize: 13, color: '#5b21b6' }}>
+              <strong>Directeur ({wf.entity_label || wf.entity_code}) :</strong> {wf.director_name || wf.director_username || '-'}
+              {' — '}
+              {wf.director_mode === 'visa'
+                ? (wf.director_status === 'valide' ? '✅ visa apposé' : wf.director_status === 'non_valide' ? '❌ visa refusé' : '⏳ visa requis')
+                : 'informé à la décision'}
+              {wf.director_comment ? <> · <em>{wf.director_comment}</em></> : null}
             </div>
           )}
 
