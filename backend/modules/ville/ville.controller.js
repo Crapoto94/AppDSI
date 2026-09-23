@@ -20,6 +20,16 @@ function deduceSexe(fonction, prenom) {
 }
 const sexeToCivilite = (sexe) => (sexe === 'F' ? 'Mme' : sexe === 'M' ? 'M.' : null);
 
+// Féminise / masculinise un rôle selon le sexe (Maire reste invariable).
+function genderRole(role, sexe) {
+  const r = String(role || '').trim();
+  const f = sexe === 'F';
+  if (/^Adjoint/i.test(r) || /^Adjointe/i.test(r)) return f ? 'Adjointe' : 'Adjoint';
+  if (/^Conseill/i.test(r)) return f ? 'Conseillère municipale' : 'Conseiller municipal';
+  if (/^Maire/i.test(r)) return 'Maire';
+  return r;
+}
+
 module.exports = {
   // Onglet Général
   getConfig: async (req, res) => {
@@ -80,15 +90,16 @@ module.exports = {
       const delArr = normalizeDelegations(delegations != null ? delegations : delegation);
       const sexeVal = sexe || deduceSexe(role, prenom);
       const civiliteVal = civilite || sexeToCivilite(sexeVal);
+      const roleVal = genderRole(role, sexeVal);
 
       const result = await pgDb.run(
         `INSERT INTO hub.elus (civilite, sexe, nom, prenom, email, telephone, role, liste, delegation, delegations)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [civiliteVal || null, sexeVal || null, nom, prenom, email || null, telephone || null,
-         role, liste || null, delegationsToText(delArr) || null, JSON.stringify(delArr)]
+         roleVal, liste || null, delegationsToText(delArr) || null, JSON.stringify(delArr)]
       );
       logMouchard(`Élu créé: ${prenom} ${nom}`);
-      res.status(201).json({ id: result.lastID, civilite: civiliteVal, sexe: sexeVal, nom, prenom, email, telephone, role, liste, delegations: delArr });
+      res.status(201).json({ id: result.lastID, civilite: civiliteVal, sexe: sexeVal, nom, prenom, email, telephone, role: roleVal, liste, delegations: delArr });
     } catch (error) {
       res.status(500).json({ message: 'Erreur création élu', error: error.message });
     }
@@ -101,12 +112,13 @@ module.exports = {
       const delArr = normalizeDelegations(delegations != null ? delegations : delegation);
       const sexeVal = sexe || deduceSexe(role, prenom);
       const civiliteVal = civilite || sexeToCivilite(sexeVal);
+      const roleVal = genderRole(role, sexeVal);
       await pgDb.run(
         `UPDATE hub.elus SET civilite = ?, sexe = ?, nom = ?, prenom = ?, email = ?, telephone = ?,
                              role = ?, liste = ?, delegation = ?, delegations = ?, updated_at = NOW()
          WHERE id = ?`,
         [civiliteVal || null, sexeVal || null, nom, prenom, email || null, telephone || null,
-         role, liste || null, delegationsToText(delArr) || null, JSON.stringify(delArr), id]
+         roleVal, liste || null, delegationsToText(delArr) || null, JSON.stringify(delArr), id]
       );
       logMouchard(`Élu modifié: ${prenom} ${nom}`);
       res.json({ message: 'Élu mis à jour' });
@@ -169,6 +181,7 @@ module.exports = {
         // Sexe déduit du libellé de fonction (ex. « Adjointe » → F), à défaut du prénom.
         const sexe = deduceSexe(fonction, prenom);
         const civilite = sexeToCivilite(sexe);
+        role = genderRole(role, sexe);
 
         await pgDb.run(
           `INSERT INTO hub.elus (civilite, sexe, nom, prenom, email, telephone, role, liste, delegation, delegations)

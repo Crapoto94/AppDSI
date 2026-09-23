@@ -23,7 +23,15 @@ export interface Elu {
   delegations?: string[];
 }
 
-const ROLES = ['Maire', 'Adjoint', 'Conseiller municipal'];
+// Rôles genrés : « Adjointe », « Conseillère municipale » pour les femmes (Maire invariable).
+const feminizeRole = (role: string, sexe?: string) => {
+  if (/^Adjoint/i.test(role)) return sexe === 'F' ? 'Adjointe' : 'Adjoint';
+  if (/^Conseill/i.test(role)) return sexe === 'F' ? 'Conseillère municipale' : 'Conseiller municipal';
+  return role;
+};
+const rolesFor = (sexe?: string) => (sexe === 'F'
+  ? ['Maire', 'Adjointe', 'Conseillère municipale']
+  : ['Maire', 'Adjoint', 'Conseiller municipal']);
 
 const emptyForm = (): Elu => ({ civilite: 'M.', sexe: 'M', nom: '', prenom: '', role: 'Conseiller municipal', delegations: [] });
 
@@ -166,13 +174,13 @@ export default function ParamVilleElus() {
 
             <div style={s.grid}>
               <label style={s.field}>Civilité
-                <select style={s.input} value={form.civilite || 'M.'} onChange={e => setForm({ ...form, civilite: e.target.value, sexe: e.target.value === 'Mme' ? 'F' : 'M' })}>
+                <select style={s.input} value={form.civilite || 'M.'} onChange={e => { const sexe = e.target.value === 'Mme' ? 'F' : 'M'; setForm({ ...form, civilite: e.target.value, sexe, role: feminizeRole(form.role, sexe) }); }}>
                   <option value="M.">M.</option>
                   <option value="Mme">Mme</option>
                 </select>
               </label>
               <label style={s.field}>Sexe
-                <select style={s.input} value={form.sexe || ''} onChange={e => setForm({ ...form, sexe: e.target.value })}>
+                <select style={s.input} value={form.sexe || ''} onChange={e => { const sexe = e.target.value; setForm({ ...form, sexe, role: feminizeRole(form.role, sexe) }); }}>
                   <option value="">—</option>
                   <option value="M">M</option>
                   <option value="F">F</option>
@@ -184,7 +192,7 @@ export default function ParamVilleElus() {
               <label style={s.field}>Téléphone<input style={s.input} value={form.telephone || ''} onChange={e => setForm({ ...form, telephone: e.target.value })} /></label>
               <label style={s.field}>Rôle
                 <select style={s.input} value={form.role} onChange={e => setForm({ ...form, role: e.target.value })}>
-                  {ROLES.map(r => <option key={r} value={r}>{r}</option>)}
+                  {rolesFor(form.sexe).map(r => <option key={r} value={r}>{r}</option>)}
                 </select>
               </label>
               <label style={s.field}>Liste (politique)<input style={s.input} value={form.liste || ''} onChange={e => setForm({ ...form, liste: e.target.value })} /></label>
