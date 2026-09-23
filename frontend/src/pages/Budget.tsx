@@ -1,14 +1,15 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import Header from '../components/Header';
-import { 
-  Upload, CheckCircle, Search, Filter, BookOpen, X, Eye, 
-  Euro, FileText, ShoppingCart, AlertCircle, 
-  Plus, Trash2, Send, ExternalLink, Columns, Palette, ChevronRight, ChevronDown
+import {
+  Upload, CheckCircle, Search, Filter, BookOpen, X, Eye,
+  Euro, FileText, ShoppingCart, AlertCircle,
+  Plus, Trash2, Send, ExternalLink, Columns, Palette, ChevronRight, ChevronDown, Files
 } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ReferenceLine } from 'recharts';
 import BudgetManagementTab from '../components/BudgetManagementTab';
 import BudgetPrepTab from '../components/BudgetPrepTab';
 import MappedDataTable from '../components/MappedDataTable';
+import FactureDocumentsViewer from '../components/finance/FactureDocumentsViewer';
 import { useAuth } from '../contexts/AuthContext';
 
 const Budget: React.FC = () => {
@@ -101,6 +102,7 @@ const Budget: React.FC = () => {
   // Attachments state
   const [showAttachments, setShowAttachments] = useState(false);
   const [activeAttachmentTarget, setActiveAttachmentTarget] = useState<{type: 'order' | 'invoice', id: string} | null>(null);
+  const [seditDocsViewerNumero, setSeditDocsViewerNumero] = useState<string | null>(null);
   const [currentAttachments, setCurrentAttachments] = useState<any[]>([]);
   const [isUploading, setIsUploading] = useState(false);
   
@@ -2559,6 +2561,19 @@ const Budget: React.FC = () => {
                                           >
                                             <FileText size={16} />
                                           </button>
+                                          {!isOrder && row.FACTURE_FACTURE && (
+                                            <button
+                                              className="icon-btn"
+                                              style={{ padding: '2px', color: '#7c3aed' }}
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                setSeditDocsViewerNumero(String(row.FACTURE_FACTURE));
+                                              }}
+                                              title="Voir les pièces jointes Sedit (PDF/XML de la facture)"
+                                            >
+                                              <Files size={16} />
+                                            </button>
+                                          )}
                                           {isOrder && seditId && (
                                             <button 
                                               className="icon-btn" 
@@ -3176,6 +3191,14 @@ const Budget: React.FC = () => {
               </div>
             </div>
           </div>
+        )}
+
+        {seditDocsViewerNumero && (
+          <FactureDocumentsViewer
+            numero={seditDocsViewerNumero}
+            token={token}
+            onClose={() => setSeditDocsViewerNumero(null)}
+          />
         )}
 
         {showAttachments && activeAttachmentTarget && (

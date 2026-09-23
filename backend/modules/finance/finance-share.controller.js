@@ -10,9 +10,24 @@
  * par /admin/ged (storage.login / storage.password / storage.domain).
  */
 const path = require('path');
+const oracledb = require('oracledb');
 const { getSqlite } = require('../../shared/database');
 const smb = require('../../shared/smb_client');
 const storage = require('../../shared/storage');
+
+oracledb.outFormat = oracledb.OUT_FORMAT_OBJECT;
+
+const MIME_BY_FORMAT = { '06': 'application/pdf', '03': 'application/xml' };
+function guessMime(format, filename) {
+    if (format && MIME_BY_FORMAT[format]) return MIME_BY_FORMAT[format];
+    const ext = path.extname(filename || '').toLowerCase();
+    if (ext === '.pdf') return 'application/pdf';
+    if (ext === '.xml') return 'application/xml';
+    if (ext === '.jpg' || ext === '.jpeg') return 'image/jpeg';
+    if (ext === '.png') return 'image/png';
+    if (ext === '.tif' || ext === '.tiff') return 'image/tiff';
+    return 'application/octet-stream';
+}
 
 const SETTING_KEYS = {
     root_path: 'finance.share_root_path',
@@ -67,6 +82,116 @@ async function resolveShareConfig() {
         source: 'backup',
     };
 }
+
+/** Chemin relatif à la racine du partage configuré, à partir d'un CHEMIN_FICHIER Oracle absolu. */
+function toRelativePath(config, cheminFichier) {
+    const rootParsed = smb.parseUnc(config.root_path);
+    const fileParsed = smb.parseUnc(cheminFichier);
+    if (fileParsed.server.toLowerCase() !== rootParsed.server.toLowerCase() ||
+        fileParsed.share.toLowerCase() !== rootParsed.share.toLowerCase()) {
+        throw new Error(`Le fichier "${cheminFichier}" n'est pas sur le partage configuré (${config.root_path}).`);
+    }
+    const rootPrefix = rootParsed.basePrefix;
+    if (rootPrefix && !fileParsed.basePrefix.toLowerCase().startsWith(rootPrefix.toLowerCase())) {
+        throw new Error(`Le fichier "${cheminFichier}" n'est pas sous la racine configurée.`);
+    }
+    return fileParsed.basePrefix.slice(rootPrefix.length).replace(/^[\\/]+/, '');
+}
+
+async function getFinanceOracleSettings() {
+    const db = getSqlite();
+    if (!db) throw new Error('Base SQLite non initialisée.');
+    const row = await db.get("SELECT * FROM oracle_settings WHERE type = 'FINANCES'");
+    if (!row || !row.host || !row.port || !row.service_name || !row.username || !row.password) {
+        throw new Error('Connexion Oracle FINANCES non configurée (Admin > Oracle > FINANCES).');
+    }
+    return row;
+}
+
+/** Exécute `fn(connection)` sur une connexion Oracle FINANCES, fermée dans tous les cas. */
+async function withFinanceOracle(fn) {
+    const settings = await getFinanceOracleSettings();
+    const connection = await oracledb.getConnection({
+        user: settings.username,
+        password: settings.password,
+        connectString: `${settings.host}:${settings.port}/${settings.service_name}`,
+    });
+    try {
+        return await fn(connection);
+    } finally {
+        try { await connection.close(); } catch (e) { /* ignore */ }
+    }
+}
+
+/**
+ * Pièces jointes PES d'une facture Sedit (FI.FACTURE -> FI.FIPES_OBJ_PJ -> FI.PJ_PES).
+ * Voir skill "sedit-finances" pour le détail du chemin de jointure.
+ */
+async function queryFactureDocuments(numero) {
+    return withFinanceOracle(async (connection) => {
+        const result = await connection.execute(
+            `SELECT TRIM(pj.ROO_IMA_REF) AS DOC_ID, pj.NOM_PJ, pj.CHEMIN_FICHIER, pj.FORMAT, pj.TAILLE, lnk.PRINCIPAL
+             FROM FI.FACTURE f
+             JOIN FI.FIPES_OBJ_PJ lnk ON lnk.OBJECT_ROO = f.ROO_IMA_REF AND lnk.OBJECT_TYPE = 'FACTURE'
+             JOIN FI.PJ_PES pj ON pj.ROO_IMA_REF = lnk.PJPES_ROO
+             WHERE f.FACTURE = :numero
+             ORDER BY lnk.PRINCIPAL DESC, pj.NOM_PJ`,
+            { numero }
+        );
+        return result.rows;
+    });
+}
+
+/** Liste les pièces jointes d'une facture (numéro Sedit, ex. "F26008278"). */
+exports.getFactureDocuments = async (req, res) => {
+    const numero = String(req.params.numero || '').trim();
+    if (!numero) return res.status(400).json({ error: 'Numéro de facture requis.' });
+    try {
+        const rows = await queryFactureDocuments(numero);
+        const documents = rows.map(r => ({
+            doc_id: r.DOC_ID,
+            nom: r.NOM_PJ,
+            format: r.FORMAT,
+            mime: guessMime(r.FORMAT, r.NOM_PJ),
+            taille: r.TAILLE,
+            principal: r.PRINCIPAL === 1,
+            url: `/api/finance/pj-share/facture/${encodeURIComponent(numero)}/documents/${encodeURIComponent(r.DOC_ID)}`,
+        }));
+        res.json({ numero, documents });
+    } catch (err) {
+        console.error('[finance-share] getFactureDocuments error:', err);
+        res.status(500).json({ error: err.message });
+    }
+};
+
+/** Sert le contenu d'une pièce jointe précise d'une facture. */
+exports.getFactureDocumentFile = async (req, res) => {
+    const numero = String(req.params.numero || '').trim();
+    const docId = String(req.params.docId || '').trim();
+    if (!numero || !docId) return res.status(400).json({ error: 'Paramètres invalides.' });
+    try {
+        const rows = await queryFactureDocuments(numero);
+        const doc = rows.find(r => r.DOC_ID === docId);
+        if (!doc) return res.status(404).json({ error: 'Document introuvable pour cette facture.' });
+
+        const config = await resolveShareConfig();
+        if (!config.login || !config.password) {
+            return res.status(400).json({ error: 'Aucun compte disponible pour accéder au partage de pièces jointes.' });
+        }
+        const rel = toRelativePath(config, doc.CHEMIN_FICHIER);
+        const buffer = await smb.readFileRel(config, rel);
+        if (!buffer) {
+            return res.status(404).json({ error: `Fichier introuvable ou accès refusé via le compte "${config.login}".` });
+        }
+
+        res.setHeader('Content-Type', guessMime(doc.FORMAT, doc.NOM_PJ));
+        res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(doc.NOM_PJ)}"`);
+        res.send(buffer);
+    } catch (err) {
+        console.error('[finance-share] getFactureDocumentFile error:', err);
+        res.status(500).json({ error: err.message });
+    }
+};
 
 exports.getShareSettings = async (req, res) => {
     try {
