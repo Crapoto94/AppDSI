@@ -15,6 +15,11 @@ services:
       # On mappe explicitement le nom du filer SMB vers son IP pour que
       # l'accès au partage UNC (\\nas-syno05\editions$\DSIHUB) fonctionne.
       - "nas-syno05:10.103.131.136"
+      # Idem pour le serveur Sedit Finances : le partage des pièces jointes
+      # factures (\\seditgf-prod\editions$\SMPROD\eGF\pjust) est introuvable
+      # depuis le conteneur sans ce mapping, ce qui remonte à tort comme
+      # "Fichier introuvable ou accès refusé".
+      - "seditgf-prod:10.103.130.72"
     environment:
       # Fuseau horaire : le backend lit/écrit des timestamps naïfs (timestamp
       # without time zone). On force Europe/Paris pour que node-pg interprète
