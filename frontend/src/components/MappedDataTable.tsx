@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import { useAuth } from '../contexts/AuthContext';
-import { Search, ChevronUp, ChevronDown, ChevronRight, Columns, ExternalLink, Link2, AppWindow, Rocket, Eye, CheckCircle } from 'lucide-react';
+import { Search, ChevronUp, ChevronDown, ChevronRight, Columns, ExternalLink, Link2, AppWindow, Rocket, Eye, CheckCircle, Files } from 'lucide-react';
 import ServiceFaitModal from './ServiceFaitModal';
 import ServiceFaitProcessusModal from './ServiceFaitProcessusModal';
+import FactureDocumentsViewer from './finance/FactureDocumentsViewer';
 
 interface MappingColumn {
   name: string;
@@ -81,6 +82,7 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
   const [sfModalRow, setSfModalRow] = useState<{ row: any; mode: 'circuit' | 'self' } | null>(null);
   const [sfStatuses, setSfStatuses] = useState<Record<string, any>>({});
   const [sfProcessModal, setSfProcessModal] = useState<{ workflowId: number } | null>(null);
+  const [seditDocsViewerNumero, setSeditDocsViewerNumero] = useState<string | null>(null);
 
   useEffect(() => { localStorage.setItem(storageKey, JSON.stringify(visibleCols)); }, [visibleCols, storageKey]);
 
@@ -578,6 +580,13 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
                                 <ExternalLink size={12} /> Sedit
                               </button>
                             )}
+                            {rubriqueName === 'Factures' && factureRef && (
+                              <button title="Voir les pièces jointes Sedit (PDF/XML de la facture)"
+                                onClick={() => setSeditDocsViewerNumero(factureRef)}
+                                style={{ background: '#7c3aed', color: 'white', border: 'none', borderRadius: '4px', padding: '3px 8px', fontSize: '11px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '3px' }}>
+                                <Files size={12} /> Pièces jointes
+                              </button>
+                            )}
                           </div>
                           <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
                             {linkId && row._operation_id ? (
@@ -830,6 +839,14 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
           workflowId={sfProcessModal.workflowId}
           onClose={() => setSfProcessModal(null)}
           onChanged={() => fetchData(searchTerm, currentPage * effectivePageSize)}
+        />
+      )}
+
+      {seditDocsViewerNumero && (
+        <FactureDocumentsViewer
+          numero={seditDocsViewerNumero}
+          token={token}
+          onClose={() => setSeditDocsViewerNumero(null)}
         />
       )}
     </div>
