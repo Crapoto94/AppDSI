@@ -8,11 +8,15 @@ description: >-
   en SQLite `oracle_settings`), la convention d'identifiant technique
   `ROO_IMA_REF` commune à toutes les tables FI, et le chemin de jointure pour
   retrouver les pièces jointes (PJ PES : PDF/XML dématérialisés) d'une facture,
-  d'un mandat, d'un marché ou d'un tiers. Déclencher dès qu'on parle de Sedit,
-  Sedit Finances, e-GF, du schéma Oracle FI, de l'accès Oracle direct (par
-  opposition à la copie Postgres), de pièces jointes/PJ PES d'une facture ou
-  d'un mandat Sedit, ou qu'on cherche le modèle de données finances au-delà de
-  ce qu'expose déjà le module /finance d'AppDSI.
+  d'un mandat, d'un marché ou d'un tiers. Détaille aussi comment **écrire** de
+  façon contrôlée et réversible dans Sedit (allocateur officiel `SM.SMSEQROO`,
+  insertion de pièces jointes `PJ_PES`/`FIPES_OBJ_PJ`, validation de l'étape
+  `FACSUIVI` « service fait » avec `UTILISATEUR`/`USER_SMGF`, scellement PAdES
+  par l'AC interne). Déclencher dès qu'on parle de Sedit, Sedit Finances, e-GF,
+  du schéma Oracle FI, de l'accès Oracle direct (par opposition à la copie
+  Postgres), de pièces jointes/PJ PES ou de service fait dans Sedit, ou qu'on
+  cherche le modèle de données finances au-delà de ce qu'expose déjà le module
+  /finance d'AppDSI.
 ---
 
 # Sedit Finances — accès Oracle direct (schéma `FI`)
@@ -28,9 +32,121 @@ questions fines (ex. pièces jointes d'une facture). Pour ça, il faut se
 connecter **directement à l'Oracle de Sedit**.
 
 > ⚠️ Cette base est un **système de production tiers** (pas administré par
-> AppDSI). Toujours interroger en **lecture seule** (`SELECT`). Ne jamais
-> exécuter d'`UPDATE`/`DELETE`/`INSERT` sans autorisation explicite de
-> l'utilisateur.
+> AppDSI). Par défaut, toujours interroger en **lecture seule** (`SELECT`).
+> Des **écritures** (`INSERT`/`UPDATE`) sont possibles mais **uniquement sur
+> autorisation explicite de l'utilisateur**, via le service applicatif dédié
+> [`backend/modules/finance/service-fait/sedit-pj.service.js`], et **toujours
+> journalisées/réversibles** (voir « Écrire dans Sedit »).
+
+## Écrire dans Sedit (factures)
+
+Mécanisme réel d'écriture, établi par reverse-engineering et **validé en
+production** (PV de service fait attaché à une facture) — implémentation :
+[`backend/modules/finance/service-fait/sedit-pj.service.js`] et
+[`backend/modules/finance/finance-share.controller.js`].
+Règle d'or : **ne jamais fabriquer un `ROO_IMA_REF` à la main**, on utilise la
+séquence officielle ; et **ne jamais modifier/supprimer une ligne métier
+existante** (seule exception : les champs de l'étape `FACSUIVI` décrits plus bas).
+
+### Allocateur d'identifiants `ROO_IMA_REF`
+
+- Séquence **`SM.SMSEQROO`** (synonyme `FI.SMSEQROO`) — c'est le compteur
+  global de Sedit. Le compte `FI` a le privilège `SELECT` dessus, suffisant
+  pour `SMSEQROO.NEXTVAL` (le privilège requis pour `NEXTVAL` est `SELECT`).
+- Format observé : `'5301700000' || LPAD(NEXTVAL,10,'0') || '<suffixe>'`
+  (suffixe = exercice sur 3 chiffres, ex. `026` pour 2026). **Déduire
+  préfixe/suffixe d'un `ROO_IMA_REF` existant** de l'objet plutôt que de les
+  coder en dur.
+- Autres compteurs utiles : `FI.PJ_CHRONO_SEQ` (colonne `CHRONO` des PJ).
+
+### Insérer une pièce jointe sur une FACTURE
+
+2 tables (`PJ_PES` + `FIPES_OBJ_PJ`), **aucun trigger** → tout est à fournir :
+
+`FI.PJ_PES` (PK `ROO_IMA_REF`) — colonnes systématiques `DATE_CREAT`/`USER_CREAT`/
+`DATE_MODIF`/`USER_MODIF`/`UPDATOKEN` + :
+`ID_UNIQUE` (préfixe repris d'une PJ existante + `TO_CHAR(SYSDATE,'YYYY')` +
+`LPAD(PJ_CHRONO_SEQ.NEXTVAL,8,'0')`), `NOM_PJ`, `CHEMIN_FICHIER` (UNC),
+`DOMAINE` (`'01'`), `SUPPORT` (`'01'`), `TYPEPJ` (`'003'`), `FORMAT` (`'06'` PDF),
+`TAILLE` (Ko), `USAGE` (`'P'`), `BUDGET`/`BUDANNU` (hériter d'une PJ de la même
+facture), `CHRONO`, `SIGNED`, `POBJ_EXTRACT`, `TYPE_PIECE_ID`.
+
+`FI.FIPES_OBJ_PJ` (PK `ROO_IMA_REF`) — **NOT NULL** : `OBJECT_ROO`
+(= `FACTURE.ROO_IMA_REF`), `PJPES_ROO` (= le ROO de la PJ), `OBJECT_TYPE`
+(`'FACTURE'`), `ORIGINE` (`'A'` = auto/plateforme, `'U'` = dépôt utilisateur),
+`PRINCIPAL` (`0`).
+
+- **FK** `FK_PJPES_TYPEPIECEID_TYPEPIECE` : `TYPE_PIECE_ID` doit exister dans
+  `FI.TYPE_PIECE` ; le libellé vient de `FI.SEDIT_BUSAPP_GED_TYPE.IDENTIFIANT`
+  (mêmes identifiants). Repérés : `1` Facture dépense, `2` Bon de commande,
+  `3` conventions/pièces marché, `65` Devis, `80` **PV / Procès-verbal**,
+  `101` PJ INTERNE.
+- **Le contenu n'est pas en base** : écrire le fichier sur le partage UNC Sedit
+  (`smb_client.writeFileRel` via `resolveShareConfig()` / `toRelativePath()`) au
+  même dossier qu'une PJ existante de la facture (`path.win32.dirname`), puis
+  référencer ce chemin dans `CHEMIN_FICHIER`.
+- Dossier cible défini par `SEDIT_BUSAPP_GED_TYPE` : `GED_DOSSIER_NAME`
+  (`//seditgf-prod/editions$/SMPROD/eGF/pjust`) + `GED_DOSSIER_CLASSE_AUTO`
+  (facture : `/<FAC_TYPDOC>/<FAC_COLL>/<FAC_BUD>/<FAC_FRNOM>/<FAC_DATEMI<Y>>/<FAC_NUMFR>`).
+- Faire l'INSERT + l'écriture fichier dans **une transaction** ; écrire le
+  fichier **avant** le `commit` et le supprimer en cas d'échec.
+
+### Marquer l'étape « Service fait » validée (`FI.FACSUIVI`)
+
+`FI.FACSUIVI` = 1 ligne par étape du circuit (`AVANCEMENT` : `SAISIE`,
+`RAPPROCHEMENT`, `SERVICE_FAIT`, `PRE_LIQUIDE`, `LIQUIDE`, `PAYEE`…), jointe à la
+facture par `FACSUIVI.FACTURE = FACTURE.ROO_IMA_REF` (CHAR).
+
+⚠️ **Piège majeur** : mettre seulement `ETAT='VALIDE'` ne suffit pas — l'UI Sedit
+affiche « En attente » tant que plusieurs champs ne sont pas renseignés. Pour
+`AVANCEMENT='SERVICE_FAIT'`, l'écriture complète est :
+
+| Colonne | Valeur |
+|---|---|
+| `ETAT` | `'VALIDE'` |
+| `DATE_SERVICE_FAIT` | `SYSDATE` |
+| `DATDEST` | `SYSDATE` |
+| `UTILISATEUR` | **code** utilisateur Sedit (référentiel `SM.SMUTILISAT.UTILISAT`, ex. `MCHEVALIER`) — **pas** le login AppDSI (sinon champ vide à l'écran) |
+| `USER_SMGF` | **`SM.SMUTILISAT.ROO_IMA_REF`** du même utilisateur |
+| `USER_MODIF` | même code |
+| `COMMENTAIRE` | texte libre (ex. `Pour <valideur>`) |
+| `UPDATOKEN` | `UPDATOKEN + 1` |
+
+Preuve : sur **62 451** lignes `SERVICE_FAIT` `VALIDE`, **62 450** ont
+`UTILISATEUR` ET `USER_SMGF` renseignés (le seul NULL était une écriture SQL
+directe incomplète). Le référentiel `SM.SMUTILISAT` se résout par `MAIL` (email),
+puis `UTILISAT` (login), puis `NOM`.
+
+`SERDEST`/`SERGEST` (service) sont des ROO déjà positionnés par Sedit →
+`FI.SERVICEFI` (`CLEACCES`/`LIBELLE`, ex. `BF1 / DIRECTION DSI`).
+
+### Réversibilité (undo) — obligatoire
+
+Chaque écriture est journalisée côté PostgreSQL dans `finance.sedit_write_log`
+(`action`, `oracle_pj_roo`, `oracle_lnk_roo`, `file_path`, `before_json`,
+`after_json`, `status`). L'inverse est déterministe :
+- PJ : `DELETE` des 2 lignes (`PJ_PES` + `FIPES_OBJ_PJ`) sur les ROO journalisés
+  + suppression du fichier (`smb.deleteRel`) ;
+- `FACSUIVI` : restauration de `ETAT`, `DATE_SERVICE_FAIT`, `UTILISATEUR`,
+  `USER_SMGF`, `COMMENTAIRE`, `DATDEST`, `USER_MODIF`, `DATE_MODIF`, `UPDATOKEN`
+  depuis `before_json`.
+
+### Scellement / signature
+
+Le PDF est scellé en PAdES par l'**AC interne** de la plateforme
+(`hub_parapheur.platform_ca`), via `parapheur.service.js#sealPdfBuffer`
+(certificat éphémère émis par l'AC + chaîne). Réutilisable par tout module.
+
+> Le rendu PDF doit être **WinAnsi-safe** : `String(...).normalize('NFC')` puis
+> remplacer les espaces fines/insécables (`U+202F`, `U+2009`, `U+00A0`) par une
+> espace normale — sinon `toLocaleString('fr-FR')` produit des « ? » dans le PDF.
+
+### Ordre de déploiement / activation
+
+L'écriture Sedit du PV de service fait est pilotée par le flag
+`finance.sedit_write_enabled` (SQLite `app_settings`, défaut **false** ; case à
+cocher dans Admin → Oracle → FINANCES). Le statut `FACSUIVI` est toujours mis à
+jour ; le PV scellé seulement si le flag est actif.
 
 ## Se connecter
 
@@ -164,10 +280,17 @@ s'y fier aveuglément :
 
 ## Garde-fous
 
-- Lecture seule uniquement (`SELECT`) sur cette base de production tierce.
+- **Lecture seule par défaut** (`SELECT`). Écritures **uniquement** sur
+  autorisation explicite, via le service AppDSI dédié, **journalisées et
+  réversibles** (undo). Jamais d'`UPDATE`/`DELETE` sur une ligne métier
+  existante (seule exception encadrée : les champs de l'étape `FACSUIVI`).
+- Ne jamais fabriquer un `ROO_IMA_REF` : utiliser `SM.SMSEQROO.NEXTVAL`.
 - Ne jamais faire confiance à la table Postgres `oracle_settings` (vide) :
   les vraies credentials sont en SQLite.
 - Ne pas confondre les libellés métier (ex. `'F26008278'`) avec les clés
   techniques `ROO_IMA_REF` — toute jointure se fait sur `ROO_IMA_REF`.
 - Le stockage réel des fichiers est un **partage UNC Sedit**, distinct du
   stockage AppDSI documenté dans [[ged]].
+- Sedit est une application Java (Hibernate) : une écriture SQL directe n'est
+  reflétée qu'au rechargement de l'écran ; veiller à renseigner **tous** les
+  champs attendus (sinon l'UI reste sur un état « en attente »).

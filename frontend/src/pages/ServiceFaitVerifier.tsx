@@ -1,11 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import axios from 'axios';
-import { CheckCircle, AlertTriangle, XCircle, UserRoundCog, Repeat, FileText, Paperclip, History, Loader, Upload, X as CloseIcon, Eye, Download } from 'lucide-react';
+import { CheckCircle, AlertTriangle, XCircle, UserRoundCog, Repeat, PauseCircle, FileText, Files, Paperclip, History, Loader, Upload, X as CloseIcon, Eye, Download } from 'lucide-react';
+import FactureDocumentsViewer from '../components/finance/FactureDocumentsViewer';
 
 const STATUT_LABELS: Record<string, { label: string; color: string; bg: string }> = {
   'en_attente': { label: 'En attente', color: '#92400e', bg: '#fef3c7' },
   'en_cours': { label: 'En cours', color: '#1e40af', bg: '#dbeafe' },
+  'en_pause': { label: 'En pause', color: '#9a3412', bg: '#ffedd5' },
   'valide': { label: 'Validé', color: '#166534', bg: '#dcfce7' },
   'valide_avec_reserves': { label: 'Validé avec réserves', color: '#92400e', bg: '#fef3c7' },
   'non_valide': { label: 'Non validé', color: '#991b1b', bg: '#fee2e2' },
@@ -13,12 +15,17 @@ const STATUT_LABELS: Record<string, { label: string; color: string; bg: string }
   'transfere': { label: 'Transféré', color: '#6b21a8', bg: '#f3e8ff' }
 };
 
+// Statuts pour lesquels le processus reste ouvert (le vérificateur peut encore agir) —
+// doit rester synchro avec ONGOING_STATUSES côté backend (service-fait.controller.js).
+const ONGOING_STATUSES = ['en_attente', 'en_cours', 'transfere', 'en_pause'];
+
 const DECISIONS = [
   { id: 'valide', icon: CheckCircle, title: 'Je valide le service fait', color: '#16a34a', bg: '#dcfce7', desc: 'Le service a été réalisé conformément à la facture.' },
   { id: 'valide_avec_reserves', icon: AlertTriangle, title: 'Je valide avec réserves', color: '#d97706', bg: '#fef3c7', desc: 'Valide, mais des réserves doivent être notées.' },
   { id: 'non_valide', icon: XCircle, title: 'Je ne valide pas le service fait', color: '#dc2626', bg: '#fee2e2', desc: 'Le service n\'a pas été réalisé, un motif est requis.' },
   { id: 'ne_me_concerne_pas', icon: UserRoundCog, title: 'Ne me concerne pas', color: '#2563eb', bg: '#dbeafe', desc: 'Cette demande ne relève pas de ma compétence, elle retourne au demandeur.' },
-  { id: 'transfere', icon: Repeat, title: 'Je transfère', color: '#9333ea', bg: '#f3e8ff', desc: 'Un autre agent est plus compétent pour déterminer le service fait.' }
+  { id: 'transfere', icon: Repeat, title: 'Je transfère', color: '#9333ea', bg: '#f3e8ff', desc: 'Un autre agent est plus compétent pour déterminer le service fait.' },
+  { id: 'en_pause', icon: PauseCircle, title: 'Je mets en pause', color: '#ea580c', bg: '#ffedd5', desc: 'Je ne peux pas encore me prononcer ; motif requis. Je pourrai revenir décider plus tard avec ce même lien.' }
 ];
 
 const ACTION_LABELS: Record<string, string> = {
@@ -27,7 +34,8 @@ const ACTION_LABELS: Record<string, string> = {
   'validation_reserves': 'Validation avec réserves',
   'non_validation': 'Non-validation',
   'ne_me_concerne_pas': 'Retour (ne me concerne pas)',
-  'transfert': 'Transfert'
+  'transfert': 'Transfert',
+  'mise_en_pause': 'Mise en pause'
 };
 
 function formatAmount(v: any) {
@@ -56,6 +64,7 @@ export default function ServiceFaitVerifier() {
   const [sent, setSent] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   const [viewer, setViewer] = useState<{ url: string; title: string } | null>(null);
+  const [showSeditDocs, setShowSeditDocs] = useState(false);
 
   useEffect(() => {
     if (!token) return;
@@ -74,7 +83,7 @@ export default function ServiceFaitVerifier() {
   const wf = data?.workflow;
   const statusMeta = wf ? (STATUT_LABELS[wf.status] || STATUT_LABELS.en_attente) : null;
   const isClosed = wf && ['valide', 'valide_avec_reserves', 'non_valide', 'ne_me_concerne_pas'].includes(wf.status);
-  const canAct = wf && ['en_attente', 'en_cours', 'transfere'].includes(wf.status);
+  const canAct = wf && ONGOING_STATUSES.includes(wf.status);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -91,7 +100,7 @@ export default function ServiceFaitVerifier() {
       if (pjFiles.length > 0) {
         const formData = new FormData();
         pjFiles.forEach(f => formData.append('files', f));
-        await axios.post(`/api/finance/service-fait/${wf.id}/pieces-jointes`, formData, { headers: { 'Content-Type': 'multipart/form-data' } });
+        await axios.post(`/api/finance/service-fait/public/${token}/pieces-jointes`, formData, { headers: { 'Content-Type': 'multipart/form-data' } });
       }
       await axios.post(`/api/finance/service-fait/public/${token}/decision`, body);
       setSent(true);
@@ -105,8 +114,8 @@ export default function ServiceFaitVerifier() {
   const hasExistingPj = (data?.pieces_jointes?.length || 0) > 0;
 
   const renderDecisionError = () => {
-    if (['valide_avec_reserves', 'non_valide'].includes(decision) && !comment.trim()) {
-      return 'Un commentaire est requis pour cette décision.';
+    if (['valide_avec_reserves', 'non_valide', 'en_pause'].includes(decision) && !comment.trim()) {
+      return decision === 'en_pause' ? 'Un motif est requis pour mettre en pause.' : 'Un commentaire est requis pour cette décision.';
     }
     if (decision === 'transfere' && !transferTo) {
       return 'Veuillez sélectionner un agent pour le transfert.';
@@ -176,12 +185,12 @@ export default function ServiceFaitVerifier() {
                   <div style={{ fontSize: 14, color: '#374151', lineHeight: 1.5 }}>{wf.invoice_label}</div>
                 </div>
               )}
-              {wf.file_path && (
+              {wf.invoice_ref && (
                 <div style={{ marginTop: 16, paddingTop: 16, borderTop: '1px solid #e2e8f0' }}>
                   <button type="button"
-                    onClick={() => setViewer({ url: fileUrl(wf.file_path), title: `Facture ${wf.invoice_number || wf.invoice_ref}` })}
+                    onClick={() => setShowSeditDocs(true)}
                     style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: '#2563eb', fontWeight: 600, fontSize: 13, background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
-                    <FileText size={14} /> Voir la facture
+                    <Files size={14} /> Voir les pièces jointes Sedit (facture et justificatifs)
                   </button>
                 </div>
               )}
@@ -289,18 +298,18 @@ export default function ServiceFaitVerifier() {
                       </div>
                     )}
 
-                    {/* Motif / commentaire — toujours proposé ; obligatoire pour réserves et non-validation,
-                        sinon requis uniquement si aucune pièce jointe n'accompagne la décision. */}
+                    {/* Motif / commentaire — toujours proposé ; obligatoire pour réserves, non-validation
+                        et mise en pause, sinon requis uniquement si aucune pièce jointe n'accompagne la décision. */}
                     <div>
                       <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 6 }}>
-                        {decision === 'valide_avec_reserves' ? 'Vos réserves' : decision === 'non_valide' ? 'Motif' : 'Motif / commentaire'}
-                        {!['valide_avec_reserves', 'non_valide'].includes(decision) && (
+                        {decision === 'valide_avec_reserves' ? 'Vos réserves' : decision === 'non_valide' ? 'Motif' : decision === 'en_pause' ? 'Motif de la pause' : 'Motif / commentaire'}
+                        {!['valide_avec_reserves', 'non_valide', 'en_pause'].includes(decision) && (
                           <span style={{ fontWeight: 400, color: '#94a3b8' }}> (requis si aucune pièce jointe)</span>
                         )}
                       </label>
                       <textarea value={comment} onChange={e => setComment(e.target.value)}
-                        placeholder={decision === 'valide_avec_reserves' ? 'Décrivez vos réserves...' : decision === 'non_valide' ? 'Motif du refus...' : 'Précisions sur votre décision...'}
-                        rows={decision === 'transfere' ? 2 : 3} required={['valide_avec_reserves', 'non_valide'].includes(decision)}
+                        placeholder={decision === 'valide_avec_reserves' ? 'Décrivez vos réserves...' : decision === 'non_valide' ? 'Motif du refus...' : decision === 'en_pause' ? 'Pourquoi mettez-vous cette demande en pause ?' : 'Précisions sur votre décision...'}
+                        rows={decision === 'transfere' ? 2 : 3} required={['valide_avec_reserves', 'non_valide', 'en_pause'].includes(decision)}
                         style={{ width: '100%', padding: '10px 12px', border: '1.5px solid #e2e8f0', borderRadius: 8, fontSize: 14, fontFamily: 'inherit', resize: 'vertical', outline: 'none', boxSizing: 'border-box' }} />
                     </div>
 
@@ -308,7 +317,7 @@ export default function ServiceFaitVerifier() {
                     <div style={{ marginTop: 12 }}>
                       <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 6 }}>
                         Pièce(s) jointe(s)
-                        {!['valide_avec_reserves', 'non_valide'].includes(decision) && (
+                        {!['valide_avec_reserves', 'non_valide', 'en_pause'].includes(decision) && (
                           <span style={{ fontWeight: 400, color: '#94a3b8' }}> (requis si aucun motif)</span>
                         )}
                       </label>
@@ -396,6 +405,15 @@ export default function ServiceFaitVerifier() {
             <iframe src={viewer.url} title={viewer.title} style={{ flex: 1, width: '100%', border: 0, background: '#525659' }} />
           </div>
         </div>
+      )}
+
+      {showSeditDocs && wf?.invoice_ref && token && (
+        <FactureDocumentsViewer
+          numero={wf.invoice_ref}
+          token={null}
+          baseUrl={`/api/finance/service-fait/public/${token}`}
+          onClose={() => setShowSeditDocs(false)}
+        />
       )}
 
       <style>{`.spinner{animation:spin 1s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}`}</style>

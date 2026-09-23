@@ -3496,6 +3496,34 @@ async function setupPgDb() {
       await client.query(`ALTER TABLE finance.service_fait_historique ADD COLUMN IF NOT EXISTS actor_user_agent TEXT`);
     } catch (e) {}
 
+    // ── Journal des écritures Sedit (Oracle) faites par AppDSI ──
+    // Chaque ligne mémorise l'écriture effectuée ET de quoi la défaire (undo) :
+    // - action 'facsuivi_service_fait' : before_json/after_json pour restaurer l'étape FACSUIVI ;
+    // - action 'facture_pj' : oracle_pj_roo / oracle_lnk_roo / file_path pour supprimer la PJ
+    //   insérée et le fichier écrit sur le partage Sedit.
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS finance.sedit_write_log (
+        id SERIAL PRIMARY KEY,
+        workflow_id INTEGER,
+        invoice_ref TEXT NOT NULL,
+        action TEXT NOT NULL,
+        oracle_pj_roo TEXT,
+        oracle_lnk_roo TEXT,
+        file_path TEXT,
+        before_json JSONB,
+        after_json JSONB,
+        status TEXT NOT NULL DEFAULT 'applied',
+        created_by TEXT,
+        created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+        undone_at TIMESTAMPTZ,
+        undone_by TEXT
+      );
+    `);
+    try {
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_sedit_write_log_invoice ON finance.sedit_write_log(invoice_ref)`);
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_sedit_write_log_workflow ON finance.sedit_write_log(workflow_id)`);
+    } catch (e) {}
+
     // ── Migration fuseau horaire — service fait : mêmes conditions que le LOT 1
     // hub_tickets ci-dessus (session DB en UTC, colonnes stockées sans fuseau).
     for (const [sch, tbl, col] of [

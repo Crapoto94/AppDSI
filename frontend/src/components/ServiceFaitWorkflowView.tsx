@@ -1,11 +1,13 @@
 import { useState, useEffect } from 'react';
 import axios from 'axios';
 import { useAuth } from '../contexts/AuthContext';
-import { FileText, Paperclip, History, Loader, ShieldCheck, Eye, Download, X as CloseIcon, Ban } from 'lucide-react';
+import { FileText, Paperclip, History, Loader, ShieldCheck, Eye, Download, X as CloseIcon, Ban, Files, Link2, Copy, Check, ExternalLink } from 'lucide-react';
+import FactureDocumentsViewer from './finance/FactureDocumentsViewer';
 
 export const STATUT_LABELS: Record<string, { label: string; color: string; bg: string }> = {
   'en_attente': { label: 'En attente', color: '#92400e', bg: '#fef3c7' },
   'en_cours': { label: 'En cours', color: '#1e40af', bg: '#dbeafe' },
+  'en_pause': { label: 'En pause', color: '#9a3412', bg: '#ffedd5' },
   'valide': { label: 'Validé', color: '#166534', bg: '#dcfce7' },
   'valide_avec_reserves': { label: 'Validé avec réserves', color: '#92400e', bg: '#fef3c7' },
   'non_valide': { label: 'Non validé', color: '#991b1b', bg: '#fee2e2' },
@@ -14,8 +16,9 @@ export const STATUT_LABELS: Record<string, { label: string; color: string; bg: s
   'annule': { label: 'Annulé', color: '#64748b', bg: '#f1f5f9' }
 };
 
-// Statuts pour lesquels le processus est encore ouvert (peut être décidé / annulé)
-export const ONGOING_STATUSES = ['en_attente', 'en_cours', 'transfere'];
+// Statuts pour lesquels le processus est encore ouvert (peut être décidé / annulé) —
+// doit rester synchro avec ONGOING_STATUSES côté backend (service-fait.controller.js).
+export const ONGOING_STATUSES = ['en_attente', 'en_cours', 'transfere', 'en_pause'];
 
 const ACTION_LABELS: Record<string, string> = {
   'demande_validation': 'Demande de validation',
@@ -24,6 +27,7 @@ const ACTION_LABELS: Record<string, string> = {
   'non_validation': 'Non-validation',
   'ne_me_concerne_pas': 'Retour (ne me concerne pas)',
   'transfert': 'Transfert',
+  'mise_en_pause': 'Mise en pause',
   'annulation': 'Processus annulé',
   'declaration_directe': 'Service fait déclaré (hors circuit)'
 };
@@ -56,7 +60,9 @@ export default function ServiceFaitWorkflowView({ workflowId, onChanged }: Props
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
   const [viewer, setViewer] = useState<{ url: string; title: string } | null>(null);
+  const [showSeditDocs, setShowSeditDocs] = useState(false);
   const [cancelling, setCancelling] = useState(false);
+  const [copiedLink, setCopiedLink] = useState(false);
 
   const load = () => {
     if (!workflowId || !token) return;
@@ -86,6 +92,19 @@ export default function ServiceFaitWorkflowView({ workflowId, onChanged }: Props
   const wf = data;
   const statusMeta = wf ? (STATUT_LABELS[wf.status] || STATUT_LABELS.en_attente) : null;
   const isOngoing = wf ? ONGOING_STATUSES.includes(wf.status) : false;
+  // Lien public de validation (le même que celui envoyé par e-mail au vérificateur).
+  const verifierUrl = wf ? (wf.verifier_url || (wf.token ? `${window.location.origin}/service-fait-verifier/${wf.token}` : '')) : '';
+
+  const handleCopyLink = async () => {
+    if (!verifierUrl) return;
+    try {
+      await navigator.clipboard.writeText(verifierUrl);
+      setCopiedLink(true);
+      setTimeout(() => setCopiedLink(false), 2000);
+    } catch {
+      window.prompt('Copiez le lien de validation :', verifierUrl);
+    }
+  };
 
   return (
     <div style={{ fontFamily: 'ui-sans-serif, system-ui, sans-serif' }}>
@@ -140,12 +159,12 @@ export default function ServiceFaitWorkflowView({ workflowId, onChanged }: Props
                 <div style={{ fontSize: 14, color: '#374151', lineHeight: 1.5 }}>{wf.invoice_label}</div>
               </div>
             )}
-            {wf.file_path && (
+            {wf.invoice_ref && (
               <div style={{ marginTop: 16, paddingTop: 16, borderTop: '1px solid #e2e8f0' }}>
                 <button
-                  onClick={() => setViewer({ url: fileUrl(wf.file_path), title: `Facture ${wf.invoice_number || wf.invoice_ref}` })}
+                  onClick={() => setShowSeditDocs(true)}
                   style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: '#2563eb', fontWeight: 600, fontSize: 13, background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
-                  <FileText size={14} /> Voir la facture
+                  <Files size={14} /> Voir les pièces jointes Sedit
                 </button>
               </div>
             )}
@@ -164,6 +183,35 @@ export default function ServiceFaitWorkflowView({ workflowId, onChanged }: Props
               {wf.decision_at && <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>Décision le {new Date(wf.decision_at).toLocaleString('fr-FR')}</div>}
             </div>
           </div>
+
+          {isOngoing && verifierUrl && (
+            <div style={{ background: '#eef2ff', border: '1px solid #c7d2fe', borderRadius: 10, padding: 14, marginBottom: 20 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 700, color: '#4338ca', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 8 }}>
+                <Link2 size={14} /> Lien de validation (à transmettre au vérificateur)
+              </div>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                <input
+                  type="text"
+                  readOnly
+                  value={verifierUrl}
+                  onFocus={(e) => e.currentTarget.select()}
+                  style={{ flex: 1, minWidth: 240, padding: '8px 10px', borderRadius: 8, border: '1px solid #c7d2fe', background: '#fff', color: '#1e293b', fontSize: 12, fontFamily: 'ui-monospace, monospace' }}
+                />
+                <button onClick={handleCopyLink} type="button"
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 14px', borderRadius: 8, border: '1px solid #6366f1', background: copiedLink ? '#16a34a' : '#6366f1', color: '#fff', fontWeight: 600, fontSize: 12, cursor: 'pointer' }}>
+                  {copiedLink ? <><Check size={14} /> Copié</> : <><Copy size={14} /> Copier</>}
+                </button>
+                <a href={verifierUrl} target="_blank" rel="noopener noreferrer" title="Ouvrir la page de validation"
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 14px', borderRadius: 8, border: '1px solid #cbd5e1', background: '#fff', color: '#1e293b', fontWeight: 600, fontSize: 12, textDecoration: 'none' }}>
+                  <ExternalLink size={14} /> Ouvrir
+                </a>
+              </div>
+              <div style={{ fontSize: 11, color: '#6366f1', marginTop: 8 }}>
+                {wf.verifier_email ? <>Destinataire : <strong>{wf.verifier_name || wf.verifier_username}</strong> &lt;{wf.verifier_email}&gt;</> : 'Aucun e-mail de vérificateur renseigné.'}
+                {wf.token_expires_at ? <> · Expire le {new Date(wf.token_expires_at).toLocaleDateString('fr-FR')}</> : null}
+              </div>
+            </div>
+          )}
 
           {wf.transfer_to_username && (
             <div style={{ background: '#f3e8ff', border: '1px solid #e9d5ff', borderRadius: 10, padding: 12, marginBottom: 20, fontSize: 13, color: '#6b21a8' }}>
@@ -248,6 +296,10 @@ export default function ServiceFaitWorkflowView({ workflowId, onChanged }: Props
             <iframe src={viewer.url} title={viewer.title} style={{ flex: 1, width: '100%', border: 0, background: '#525659' }} />
           </div>
         </div>
+      )}
+
+      {showSeditDocs && wf?.invoice_ref && (
+        <FactureDocumentsViewer numero={wf.invoice_ref} token={token} onClose={() => setShowSeditDocs(false)} />
       )}
 
       <style>{`@keyframes sf-spin{to{transform:rotate(360deg)}}`}</style>

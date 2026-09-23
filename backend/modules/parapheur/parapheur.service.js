@@ -964,6 +964,32 @@ function p12BufferFromKeyAndChain(keyPem, certPems, password) {
     return Buffer.from(forge.asn1.toDer(asn1).getBytes(), 'binary');
 }
 
+/**
+ * Scelle un buffer PDF avec un certificat éphémère émis par l'AC interne de la
+ * plateforme (même mécanisme que sealParapheur, mais réutilisable par d'autres
+ * modules — ex. le PV de service fait). Renvoie le PDF scellé + les métadonnées
+ * du certificat de sceau utilisées.
+ */
+async function sealPdfBuffer(pdfBuffer, { name, reason, pos } = {}) {
+    const ca = await ensurePlatformCa();
+    if (!ca || !ca.keyPem) throw new Error("Autorité de certification interne indisponible.");
+    const sealCert = issueLeafCertificate(ca, {
+        cn: name || 'Sceau plateforme',
+        organizationName: "Ville d'Ivry-sur-Seine",
+        organizationalUnitName: 'DSI',
+    });
+    const password = crypto.randomBytes(16).toString('hex');
+    const p12 = p12BufferFromKeyAndChain(sealCert.keyPem, [sealCert.certPem, ca.certPem], password);
+    const sealed = await applyPadesToBuffer(pdfBuffer, p12, password, { name, reason, pos });
+    return {
+        buffer: sealed,
+        serial: sealCert.serial,
+        certPem: sealCert.certPem,
+        caCertPem: ca.certPem,
+        caSubject: ca.subject,
+    };
+}
+
 /** Empreinte SHA-256 (hex) de la clé publique (DER SubjectPublicKeyInfo). */
 function publicKeyFingerprintSha256(publicKey) {
     try {
@@ -3293,6 +3319,7 @@ module.exports = {
     getEvidenceArchiveByToken,
     getPlatformCa,
     generatePlatformCa,
+    sealPdfBuffer,
     verifyParapheurSeal,
     verifyParapheurSealByToken,
     runReminders,

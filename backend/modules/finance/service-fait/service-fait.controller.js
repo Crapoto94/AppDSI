@@ -2,6 +2,118 @@ const { pool, getSqlite } = require('../../../shared/database');
 const storage = require('../../../shared/storage');
 const crypto = require('crypto');
 const { SECRET_KEY } = require('../../../shared/config');
+const financeShareController = require('../finance-share.controller');
+const { getFacsuiviStatus: getSeditFacsuiviStatus } = financeShareController;
+const seditPj = require('./sedit-pj.service');
+
+const DECISION_LABELS = {
+    valide: 'Validé',
+    valide_avec_reserves: 'Validé avec réserves',
+};
+
+/** Le PV n'est poussé dans Sedit que si l'admin a activé l'écriture (défaut : désactivé). */
+async function isSeditWriteEnabled() {
+    try {
+        const db = getSqlite();
+        if (!db) return false;
+        const row = await db.get("SELECT setting_value FROM app_settings WHERE setting_key = 'finance.sedit_write_enabled'");
+        return !!(row && String(row.setting_value).toLowerCase() === 'true');
+    } catch {
+        return false;
+    }
+}
+
+/**
+ * Synchronise un service fait validé vers Sedit :
+ *  1. étape FACSUIVI → VALIDE (toujours, journalisé pour pouvoir revenir en arrière) ;
+ *  2. PV scellé (AC interne) poussé comme PJ de la facture (derrière le flag admin).
+ * Les erreurs Sedit ne font jamais échouer la décision AppDSI : elles sont journalisées.
+ */
+async function syncServiceFaitToSedit({ wf, decision, comment }) {
+    const out = { facsuivi: null, pv: null, errors: [] };
+
+    try {
+        // Le service fait est porté dans Sedit par le DEMANDEUR (celui qui a lancé le
+        // workflow), et non par le valideur : le valideur est mentionné en commentaire
+        // (« Pour XXXXX ») — demande explicite.
+        const requesterAgent = await getAgentInfo(wf.requested_by);
+        const requesterEmail = (requesterAgent && requesterAgent.email)
+            || (await getRequesterEmail(wf.requested_by)) || '';
+        const requesterName = (requesterAgent && requesterAgent.nom) || wf.requested_by;
+        const verifierLabel = wf.verifier_name || wf.verifier_username || '';
+        out.facsuivi = await seditPj.updateServiceFaitDoneLogged({
+            invoiceRef: wf.invoice_ref,
+            actorUsername: wf.requested_by,
+            actorEmail: requesterEmail,
+            actorName: requesterName,
+            // Repli si le demandeur n'a pas de compte Sedit (ex. « admin »).
+            fallback: {
+                username: wf.verifier_username,
+                email: wf.verifier_email,
+                name: wf.verifier_name,
+            },
+            comment: verifierLabel ? `Pour ${verifierLabel}` : '',
+            workflowId: wf.id,
+        });
+        if (out.facsuivi.reason) {
+            console.warn(`[ServiceFait] Sedit FACSUIVI non modifié pour ${wf.invoice_ref} (${out.facsuivi.reason}).`);
+        } else if (out.facsuivi.updated > 0) {
+            console.log(`[ServiceFait] Sedit FACSUIVI: service fait validé pour la facture ${wf.invoice_ref}.`);
+        }
+    } catch (e) {
+        out.errors.push('facsuivi: ' + e.message);
+        console.error('[ServiceFait] Sedit FACSUIVI error:', e.message);
+        return out;
+    }
+
+    if (!(await isSeditWriteEnabled())) {
+        out.pv = { skipped: true, reason: 'flag_disabled' };
+        return out;
+    }
+
+    try {
+        const pjRes = await pool.query(
+            `SELECT file_path, original_name FROM finance.service_fait_pieces_jointes WHERE workflow_id = $1 ORDER BY uploaded_at`,
+            [wf.id]
+        );
+        const sourceFiles = [];
+        for (const p of pjRes.rows) {
+            const buffer = await seditPj.readStorageBuffer(p.file_path);
+            sourceFiles.push({ buffer, originalname: p.original_name });
+        }
+
+        const pv = await seditPj.buildSealedServiceFaitPv({
+            workflow: wf,
+            decisionLabel: DECISION_LABELS[decision] || decision,
+            comment,
+            verifierName: wf.verifier_name || wf.verifier_username,
+            verifierEmail: wf.verifier_email,
+            decisionAt: new Date(),
+            sourceFiles,
+        });
+
+        const originalName = `PV_ServiceFait_${wf.invoice_ref || wf.id}_SF-${wf.id}.pdf`;
+        const attached = await seditPj.attachServiceFaitPv({
+            invoiceRef: wf.invoice_ref,
+            workflowId: wf.id,
+            buffer: pv.buffer,
+            originalName,
+            actor: wf.verifier_username,
+        });
+        out.pv = { attached: true, ...attached, seal: pv.seal, sourceHashes: pv.sourceHashes };
+        console.log(`[ServiceFait] PV scellé attaché dans Sedit pour ${wf.invoice_ref} (PJ ${attached.pjRoo}).`);
+    } catch (e) {
+        out.errors.push('pv: ' + e.message);
+        console.error('[ServiceFait] Sedit PV error:', e.message);
+    }
+
+    return out;
+}
+
+// Statuts pour lesquels le processus est encore ouvert : la décision peut être prise,
+// reprise (après pause) ou annulée. Doit rester synchro entre les trois usages ci-dessous
+// (submitDecision, cancelWorkflow, getPublicByToken) et avec ONGOING_STATUSES côté frontend.
+const ONGOING_STATUSES = ['en_attente', 'en_cours', 'transfere', 'en_pause'];
 
 let sendMailFn = null;
 const setSendMail = (fn) => { sendMailFn = fn; };
@@ -66,6 +178,25 @@ async function getAgentInfo(username) {
     } catch {
         return null;
     }
+}
+
+// Résout un token public en workflow encore valide, ou renvoie l'erreur HTTP adaptée
+// (utilisé par les routes publiques de PJ Sedit pour scoper l'accès au strict périmètre
+// de ce workflow, sans exposer l'endpoint JWT /pj-share à un visiteur public).
+async function resolvePublicWorkflow(token, res) {
+    const decoded = verifyToken(token);
+    if (!decoded) { res.status(400).json({ message: 'Lien invalide ou expiré' }); return null; }
+    const wfRes = await pool.query(
+        `SELECT invoice_ref, token_expires_at FROM finance.service_fait_workflows WHERE id = $1 AND token = $2`,
+        [decoded.workflowId, token]
+    );
+    if (wfRes.rowCount === 0) { res.status(404).json({ message: 'Workflow non trouvé' }); return null; }
+    const wf = wfRes.rows[0];
+    if (wf.token_expires_at && new Date(wf.token_expires_at) < new Date()) {
+        res.status(410).json({ message: 'Ce lien a expiré' });
+        return null;
+    }
+    return wf;
 }
 
 // hub_telecom.invoices.invoice_number est alimenté avec le N° Fournisseur de la facture
@@ -139,17 +270,6 @@ const controller = {
                 [token, expiresAt, workflowId]
             );
 
-            if (req.file) {
-                const saved = await storage.saveFile('service-fait', String(workflowId), {
-                    buffer: req.file.buffer,
-                    originalname: req.file.originalname
-                });
-                await pool.query(
-                    `UPDATE finance.service_fait_workflows SET file_path = $1 WHERE id = $2`,
-                    [saved.dbPath, workflowId]
-                );
-            }
-
             await pool.query(
                 `INSERT INTO finance.service_fait_historique (workflow_id, action, actor_username, actor_name, comment, actor_ip, actor_user_agent)
                  VALUES ($1, 'demande_validation', $2, $3, $4, $5, $6)`,
@@ -191,7 +311,8 @@ const controller = {
     // Déclaration directe du service fait par l'utilisateur : pas de circuit de
     // validation ni d'email au vérificateur. Le workflow est créé directement au
     // statut 'valide', le déclarant étant à la fois demandeur et vérificateur.
-    // Un commentaire et/ou une pièce jointe est requis pour tracer la décision.
+    // Un commentaire ET au moins une pièce jointe sont requis ; on applique ensuite
+    // les MÊMES opérations Sedit que le circuit (FACSUIVI service fait + PV scellé).
     createSelfWorkflow: async (req, res) => {
         try {
             const {
@@ -202,8 +323,11 @@ const controller = {
             if (!invoice_ref) {
                 return res.status(400).json({ message: 'invoice_ref requis' });
             }
-            if ((!comment || !comment.trim()) && !req.file) {
-                return res.status(400).json({ message: 'Un commentaire ou une pièce jointe est requis' });
+            if (!comment || !comment.trim()) {
+                return res.status(400).json({ message: 'Un commentaire est requis' });
+            }
+            if (!req.files || req.files.length === 0) {
+                return res.status(400).json({ message: 'Au moins une pièce jointe est requise (justificatif du service fait)' });
             }
 
             if (await isTelecomIntegrated(invoice_ref)) {
@@ -236,14 +360,17 @@ const controller = {
             );
             const workflowId = insResult.rows[0].id;
 
-            if (req.file) {
-                const saved = await storage.saveFile('service-fait', String(workflowId), {
-                    buffer: req.file.buffer,
-                    originalname: req.file.originalname
+            // Pièces jointes obligatoires, enregistrées AVANT la synchro Sedit pour être
+            // reprises dans le PV scellé.
+            for (const file of req.files) {
+                const fileResult = await storage.saveFile('service-fait-pj', String(workflowId), {
+                    buffer: file.buffer,
+                    originalname: file.originalname
                 });
                 await pool.query(
-                    `UPDATE finance.service_fait_workflows SET file_path = $1 WHERE id = $2`,
-                    [saved.dbPath, workflowId]
+                    `INSERT INTO finance.service_fait_pieces_jointes (workflow_id, file_path, original_name, uploaded_by)
+                     VALUES ($1, $2, $3, $4)`,
+                    [workflowId, fileResult.dbPath, file.originalname, req.user.username]
                 );
             }
 
@@ -253,7 +380,11 @@ const controller = {
                 [workflowId, req.user.username, requesterName, comment || '', getClientIp(req), req.headers['user-agent'] || '']
             );
 
-            res.status(201).json({ id: workflowId, status: 'valide' });
+            // Mêmes opérations Sedit que le circuit de validation.
+            const wfRow = (await pool.query(`SELECT * FROM finance.service_fait_workflows WHERE id = $1`, [workflowId])).rows[0];
+            const seditSync = await syncServiceFaitToSedit({ wf: wfRow, decision: 'valide', comment: comment || '' });
+
+            res.status(201).json({ id: workflowId, status: 'valide', sedit_sync: seditSync });
         } catch (error) {
             console.error('[ServiceFait] createSelfWorkflow error:', error);
             res.status(500).json({ message: 'Erreur création service fait', error: error.message });
@@ -309,6 +440,30 @@ const controller = {
                 } catch (e) {
                     console.error('[ServiceFait] getStatuses telecom check error:', e.message);
                 }
+
+                // Statuts « rapprochement » et « service fait » directement issus du circuit
+                // Sedit (Oracle direct, indépendant du workflow de validation AppDSI) — voir
+                // finance-share.controller.js.
+                try {
+                    const facsuiviMap = await getSeditFacsuiviStatus(normalizedRefs);
+                    for (const ref of invoice_refs) {
+                        const norm = String(ref || '').trim();
+                        const info = facsuiviMap[norm];
+                        if (!info) continue;
+                        if (!map[ref]) {
+                            map[ref] = { workflowId: null, status: null, verifier_name: null, updated_at: null, decision_at: null };
+                        }
+                        if (info.service_fait) {
+                            map[ref].sedit_service_fait = info.service_fait.done;
+                            map[ref].sedit_service_fait_date = info.service_fait.date || null;
+                        }
+                        if (info.rapprochement) {
+                            map[ref].sedit_rapproche = info.rapprochement.done;
+                        }
+                    }
+                } catch (e) {
+                    console.error('[ServiceFait] getStatuses Sedit Facsuivi check error:', e.message);
+                }
             }
 
             res.json(map);
@@ -333,8 +488,15 @@ const controller = {
                 `SELECT * FROM finance.service_fait_historique WHERE workflow_id = $1 ORDER BY created_at`, [id]
             );
 
+            const wf = wfRes.rows[0];
+            // Lien public de validation à transmettre au vérificateur (identifie au lien
+            // envoyé par e-mail, pour pouvoir le rediffuser depuis la modale de suivi).
+            const appUrl = await getAppBaseUrl();
+            const verifierUrl = wf.token ? `${appUrl}/service-fait-verifier/${wf.token}` : null;
+
             res.json({
-                ...wfRes.rows[0],
+                ...wf,
+                verifier_url: verifierUrl,
                 pieces_jointes: pjRes.rows,
                 historique: histRes.rows
             });
@@ -375,6 +537,51 @@ const controller = {
         }
     },
 
+    // Ajout de pièces jointes par le vérificateur via son lien public (sans JWT) :
+    // scope au seul workflow identifié par le token, et seulement tant qu'il est ouvert.
+    addPublicPiecesJointes: async (req, res) => {
+        try {
+            const { token } = req.params;
+            const decoded = verifyToken(token);
+            if (!decoded) return res.status(400).json({ message: 'Lien invalide ou expiré' });
+
+            const wfRes = await pool.query(
+                `SELECT * FROM finance.service_fait_workflows WHERE id = $1 AND token = $2`,
+                [decoded.workflowId, token]
+            );
+            if (wfRes.rowCount === 0) return res.status(404).json({ message: 'Workflow non trouvé' });
+            const wf = wfRes.rows[0];
+            if (wf.token_expires_at && new Date(wf.token_expires_at) < new Date()) {
+                return res.status(410).json({ message: 'Ce lien a expiré' });
+            }
+            if (!ONGOING_STATUSES.includes(wf.status)) {
+                return res.status(400).json({ message: 'Ce workflow est déjà clôturé' });
+            }
+            if (!req.files || req.files.length === 0) {
+                return res.status(400).json({ message: 'Aucun fichier fourni' });
+            }
+
+            const saved = [];
+            for (const file of req.files) {
+                const fileResult = await storage.saveFile('service-fait-pj', String(wf.id), {
+                    buffer: file.buffer,
+                    originalname: file.originalname
+                });
+                const insRes = await pool.query(
+                    `INSERT INTO finance.service_fait_pieces_jointes (workflow_id, file_path, original_name, uploaded_by)
+                     VALUES ($1, $2, $3, $4) RETURNING id`,
+                    [wf.id, fileResult.dbPath, file.originalname, wf.verifier_username || 'verificateur']
+                );
+                saved.push({ id: insRes.rows[0].id, file_path: fileResult.dbPath, original_name: file.originalname });
+            }
+
+            res.json({ pieces_jointes: saved });
+        } catch (error) {
+            console.error('[ServiceFait] addPublicPiecesJointes error:', error);
+            res.status(500).json({ message: 'Erreur ajout PJ', error: error.message });
+        }
+    },
+
     deletePieceJointe: async (req, res) => {
         try {
             const { pjId } = req.params;
@@ -407,7 +614,7 @@ const controller = {
                 return res.status(410).json({ message: 'Ce lien a expiré' });
             }
 
-            if (!['en_attente', 'en_cours', 'transfere'].includes(wf.status)) {
+            if (!ONGOING_STATUSES.includes(wf.status)) {
                 return res.status(200).json({ workflow: wf, pieces_jointes: [], historique: [], closed: true });
             }
 
@@ -453,17 +660,17 @@ const controller = {
             if (wf.token_expires_at && new Date(wf.token_expires_at) < new Date()) {
                 return res.status(410).json({ message: 'Ce lien a expiré' });
             }
-            if (!['en_attente', 'en_cours', 'transfere'].includes(wf.status)) {
+            if (!ONGOING_STATUSES.includes(wf.status)) {
                 return res.status(400).json({ message: 'Ce workflow est déjà clôturé' });
             }
 
-            const validDecisions = ['valide', 'valide_avec_reserves', 'non_valide', 'ne_me_concerne_pas', 'transfere'];
+            const validDecisions = ['valide', 'valide_avec_reserves', 'non_valide', 'ne_me_concerne_pas', 'transfere', 'en_pause'];
             if (!validDecisions.includes(decision)) {
                 return res.status(400).json({ message: 'Décision invalide' });
             }
 
-            if (['valide_avec_reserves', 'non_valide'].includes(decision) && (!comment || !comment.trim())) {
-                return res.status(400).json({ message: 'Un commentaire est requis pour cette décision' });
+            if (['valide_avec_reserves', 'non_valide', 'en_pause'].includes(decision) && (!comment || !comment.trim())) {
+                return res.status(400).json({ message: 'Un commentaire (motif) est requis pour cette décision' });
             }
 
             // Quelle que soit la décision, il faut au moins une pièce jointe (déjà
@@ -509,7 +716,8 @@ const controller = {
                 'valide_avec_reserves': 'validation_reserves',
                 'non_valide': 'non_validation',
                 'ne_me_concerne_pas': 'ne_me_concerne_pas',
-                'transfere': 'transfert'
+                'transfere': 'transfert',
+                'en_pause': 'mise_en_pause'
             };
 
             await pool.query(
@@ -535,13 +743,22 @@ const controller = {
                 [wf.id, actionLabels[decision], wf.verifier_username, wf.verifier_name, comment || '', getClientIp(req), req.headers['user-agent'] || '']
             );
 
+            // Retour positif du vérificateur : on certifie le service fait DIRECTEMENT
+            // dans Sedit (écriture Oracle) et on y pousse le PV scellé (AC interne) comme
+            // pièce jointe de la facture — le tout journalisé pour être réversible.
+            let seditSync = null;
+            if (['valide', 'valide_avec_reserves'].includes(decision)) {
+                seditSync = await syncServiceFaitToSedit({ wf, decision, comment });
+            }
+
             const appUrl = await getAppBaseUrl();
             const subjectMap = {
                 'valide': 'Service fait validé',
                 'valide_avec_reserves': 'Service fait validé avec réserves',
                 'non_valide': 'Service fait non validé',
                 'ne_me_concerne_pas': 'Validation retournée - ne vous concerne pas',
-                'transfere': 'Nouvelle demande de validation du service fait'
+                'transfere': 'Nouvelle demande de validation du service fait',
+                'en_pause': 'Service fait mis en pause'
             };
 
             if (decision === 'transfere' && newToken && sendMailFn && newVerifierEmail) {
@@ -573,7 +790,8 @@ const controller = {
                         'valide': '✅ Validé',
                         'valide_avec_reserves': '⚠️ Validé avec réserves',
                         'non_valide': '❌ Non validé',
-                        'ne_me_concerne_pas': '🔄 Retourné (ne concerne pas le vérificateur)'
+                        'ne_me_concerne_pas': '🔄 Retourné (ne concerne pas le vérificateur)',
+                        'en_pause': '⏸️ Mis en pause'
                     };
                     const html = `
                         <p>Bonjour ${wf.requested_by},</p>
@@ -590,7 +808,7 @@ const controller = {
                 }
             }
 
-            res.json({ success: true, status: newStatus });
+            res.json({ success: true, status: newStatus, sedit_sync: seditSync });
         } catch (error) {
             console.error('[ServiceFait] submitDecision error:', error);
             res.status(500).json({ message: 'Erreur soumission décision', error: error.message });
@@ -606,7 +824,7 @@ const controller = {
             if (wfRes.rowCount === 0) return res.status(404).json({ message: 'Workflow non trouvé' });
             const wf = wfRes.rows[0];
 
-            if (!['en_attente', 'en_cours', 'transfere'].includes(wf.status)) {
+            if (!ONGOING_STATUSES.includes(wf.status)) {
                 return res.status(400).json({ message: 'Ce processus est déjà terminé, il ne peut plus être annulé' });
             }
 
@@ -642,7 +860,67 @@ const controller = {
             console.error('[ServiceFait] cancelWorkflow error:', error);
             res.status(500).json({ message: 'Erreur annulation workflow', error: error.message });
         }
+    },
+
+    // Pièces jointes Sedit de la facture concernée, consultables par le vérificateur avant
+    // sa décision — remplace l'ancien upload manuel de la facture (voir invoice_ref).
+    getPublicDocuments: async (req, res) => {
+        try {
+            const { token } = req.params;
+            const wf = await resolvePublicWorkflow(token, res);
+            if (!wf) return;
+            if (!wf.invoice_ref) return res.json({ numero: '', documents: [] });
+            const documents = await financeShareController.buildFactureDocumentsList(
+                wf.invoice_ref, `/api/finance/service-fait/public/${token}`
+            );
+            res.json({ numero: wf.invoice_ref, documents });
+        } catch (error) {
+            console.error('[ServiceFait] getPublicDocuments error:', error);
+            res.status(500).json({ message: 'Erreur récupération documents', error: error.message });
+        }
+    },
+
+    getPublicDocumentFile: async (req, res) => {
+        try {
+            const { token, docId } = req.params;
+            const wf = await resolvePublicWorkflow(token, res);
+            if (!wf) return;
+            await financeShareController.streamFactureDocumentFile(wf.invoice_ref, docId, res);
+        } catch (error) {
+            console.error('[ServiceFait] getPublicDocumentFile error:', error);
+            res.status(500).json({ message: 'Erreur récupération document', error: error.message });
+        }
+    },
+
+    // Journal des écritures Sedit faites par AppDSI (admin) — permet de vérifier et défaire.
+    listSeditWrites: async (req, res) => {
+        try {
+            const writes = await seditPj.listSeditWrites({
+                invoiceRef: req.query.invoice_ref,
+                workflowId: req.query.workflow_id,
+                limit: req.query.limit,
+            });
+            res.json({ writes });
+        } catch (error) {
+            console.error('[ServiceFait] listSeditWrites error:', error);
+            res.status(500).json({ message: 'Erreur récupération écritures Sedit', error: error.message });
+        }
+    },
+
+    // Undo d'une écriture Sedit journalisée (admin).
+    undoSeditWrite: async (req, res) => {
+        try {
+            const result = await seditPj.undoSeditWrite(req.params.logId, req.user.username);
+            res.json(result);
+        } catch (error) {
+            console.error('[ServiceFait] undoSeditWrite error:', error);
+            res.status(error.status || 500).json({ message: error.message });
+        }
     }
 };
+
+// Exposé pour permettre le rattrapage manuel d'une synchro Sedit (ex. décision déjà
+// enregistrée mais écriture Sedit échouée) — cf. scripts/sedit_sf_apply.js.
+controller.syncServiceFaitToSedit = syncServiceFaitToSedit;
 
 module.exports = controller;

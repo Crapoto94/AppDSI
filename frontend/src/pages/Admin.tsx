@@ -222,8 +222,8 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
     { type: 'MAIN', host: '', port: 3306, user: '', password: '', database: '', is_enabled: 0 }
   ]);
   // Compte d'accès au partage de fichiers Sedit Finances (pièces jointes eGF/pjust — voir skill "sedit-finances")
-  const [financeShareSettings, setFinanceShareSettings] = useState<{ root_path: string; login: string; domain: string; has_password: boolean; fallback_available: boolean; fallback_login: string | null } | null>(null);
-  const [financeShareForm, setFinanceShareForm] = useState({ root_path: '', login: '', password: '', domain: '' });
+  const [financeShareSettings, setFinanceShareSettings] = useState<{ root_path: string; login: string; domain: string; has_password: boolean; fallback_available: boolean; fallback_login: string | null; sedit_write_enabled?: boolean } | null>(null);
+  const [financeShareForm, setFinanceShareForm] = useState({ root_path: '', login: '', password: '', domain: '', sedit_write_enabled: false });
   const [savingFinanceShare, setSavingFinanceShare] = useState(false);
   const [testingFinanceShare, setTestingFinanceShare] = useState<'pdf' | 'xml' | null>(null);
   const [financeShareTestResult, setFinanceShareTestResult] = useState<{ success: boolean; message: string } | null>(null);
@@ -1396,7 +1396,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
     try {
       const res = await axios.get('/api/finance/pj-share/settings', { headers: { Authorization: `Bearer ${token}` } });
       setFinanceShareSettings(res.data);
-      setFinanceShareForm({ root_path: res.data.root_path || '', login: res.data.login || '', password: '', domain: res.data.domain || '' });
+      setFinanceShareForm({ root_path: res.data.root_path || '', login: res.data.login || '', password: '', domain: res.data.domain || '', sedit_write_enabled: !!res.data.sedit_write_enabled });
     } catch (e) {
       // paramètres pas encore disponibles (API pas encore déployée côté backend) — ignoré silencieusement
     }
@@ -3472,6 +3472,21 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                               />
                             </div>
                           </div>
+
+                          <label style={{ display: 'flex', alignItems: 'flex-start', gap: '0.6rem', marginTop: '1rem', cursor: 'pointer', background: financeShareForm.sedit_write_enabled ? '#f0fdf4' : '#f8fafc', border: `1px solid ${financeShareForm.sedit_write_enabled ? '#bbf7d0' : '#e2e8f0'}`, borderRadius: 10, padding: '0.75rem 0.9rem' }}>
+                            <input
+                              type="checkbox"
+                              checked={financeShareForm.sedit_write_enabled}
+                              onChange={(e) => setFinanceShareForm({ ...financeShareForm, sedit_write_enabled: e.target.checked })}
+                              style={{ marginTop: 3 }}
+                            />
+                            <span style={{ fontSize: '0.85rem', color: '#475569', lineHeight: 1.5 }}>
+                              <strong>Pousser le PV de service fait scellé dans Sedit.</strong> Lors d'une validation positive,
+                              AppDSI passe l'étape « service fait » de la facture à VALIDE et y attache un procès-verbal scellé
+                              (signature PAdES par l'AC interne) reprenant le valideur, la date, le commentaire et la pièce jointe source.
+                              Chaque écriture Oracle est journalisée et peut être annulée (undo).
+                            </span>
+                          </label>
 
                           <div className="card-actions">
                             <button className="btn-save-luxe" onClick={handleSaveFinanceShare} disabled={savingFinanceShare}>

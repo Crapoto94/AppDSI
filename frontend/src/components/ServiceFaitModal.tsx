@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import axios from 'axios';
 import { useAuth } from '../contexts/AuthContext';
-import { X, Upload, Loader, Send, CheckCircle2 } from 'lucide-react';
+import { X, Loader, Send, CheckCircle2, FileText, Paperclip, Upload } from 'lucide-react';
 
 interface MappingColumn {
   name: string;
@@ -60,7 +60,7 @@ export default function ServiceFaitModal({ row, columns, mode = 'circuit', onClo
   const [agents, setAgents] = useState<any[]>([]);
   const [verifier, setVerifier] = useState('');
   const [comment, setComment] = useState('');
-  const [file, setFile] = useState<File | null>(null);
+  const [pjFiles, setPjFiles] = useState<File[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
   const [telecomBlocked, setTelecomBlocked] = useState(false);
@@ -99,33 +99,30 @@ export default function ServiceFaitModal({ row, columns, mode = 'circuit', onClo
     e.preventDefault();
     if (!invoice_ref) { setError('Référence de facture introuvable.'); return; }
     if (isSelf) {
-      if (!comment.trim() && !file) { setError('Veuillez saisir un commentaire ou joindre un document.'); return; }
+      if (!comment.trim()) { setError('Veuillez saisir un commentaire.'); return; }
+      if (pjFiles.length === 0) { setError('Veuillez joindre au moins une pièce justificative.'); return; }
     } else {
       if (!verifier) { setError('Veuillez choisir un vérificateur.'); return; }
-      if (!file) { setError('Veuillez joindre le document de la facture.'); return; }
     }
     setSubmitting(true);
     setError('');
     try {
-      const formData = new FormData();
-      formData.append('invoice_ref', invoice_ref);
-      formData.append('invoice_number', invoice_number || '');
-      formData.append('invoice_label', invoice_label || '');
-      formData.append('invoice_supplier', invoice_supplier || '');
-      formData.append('invoice_amount', invoice_amount != null ? String(invoice_amount) : '');
-      formData.append('invoice_section', invoice_section || '');
+      const payload = {
+        invoice_ref,
+        invoice_number: invoice_number || '',
+        invoice_label: invoice_label || '',
+        invoice_supplier: invoice_supplier || '',
+        invoice_amount: invoice_amount != null ? String(invoice_amount) : '',
+        invoice_section: invoice_section || '',
+      };
       if (isSelf) {
-        formData.append('comment', comment || '');
-        if (file) formData.append('file', file);
-        await axios.post('/api/finance/service-fait/self', formData, {
-          headers: { ...headers, 'Content-Type': 'multipart/form-data' }
-        });
+        const fd = new FormData();
+        Object.entries(payload).forEach(([k, v]) => fd.append(k, v == null ? '' : String(v)));
+        fd.append('comment', comment || '');
+        pjFiles.forEach(f => fd.append('files', f));
+        await axios.post('/api/finance/service-fait/self', fd, { headers: { ...headers, 'Content-Type': 'multipart/form-data' } });
       } else {
-        formData.append('verifier_username', verifier);
-        formData.append('file', file as File);
-        await axios.post('/api/finance/service-fait', formData, {
-          headers: { ...headers, 'Content-Type': 'multipart/form-data' }
-        });
+        await axios.post('/api/finance/service-fait', { ...payload, verifier_username: verifier }, { headers });
       }
       onCreated();
       onClose();
@@ -170,7 +167,7 @@ export default function ServiceFaitModal({ row, columns, mode = 'circuit', onClo
           <form onSubmit={handleSubmit}>
             {isSelf && (
               <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 8, padding: '12px 14px', color: '#1e40af', fontSize: 13, marginBottom: 16 }}>
-                Aucun circuit de validation : vous déclarez vous-même que le service fait est réalisé. Renseignez un commentaire et/ou joignez un document.
+                Aucun circuit de validation : vous déclarez vous-même que le service fait est réalisé. Renseignez un commentaire.
               </div>
             )}
 
@@ -203,28 +200,43 @@ export default function ServiceFaitModal({ row, columns, mode = 'circuit', onClo
             {isSelf && (
               <div style={{ marginBottom: 16 }}>
                 <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 6 }}>
-                  Commentaire
+                  Commentaire <span style={{ color: '#dc2626' }}>*</span>
                 </label>
-                <textarea value={comment} onChange={e => setComment(e.target.value)} rows={4}
+                <textarea value={comment} onChange={e => setComment(e.target.value)} rows={4} required
                   placeholder="Précisez le service fait (prestation réalisée, date, référence...)"
                   style={{ width: '100%', boxSizing: 'border-box', padding: '10px 12px', border: '1.5px solid #e2e8f0', borderRadius: 8, fontSize: 14, fontFamily: 'inherit', resize: 'vertical' }} />
               </div>
             )}
 
-            <div style={{ marginBottom: 8 }}>
-              <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 6 }}>
-                {isSelf ? 'Pièce jointe' : 'Document de la facture'} {isSelf ? <span style={{ color: '#94a3b8', fontWeight: 400 }}>(optionnel)</span> : <span style={{ color: '#dc2626' }}>*</span>}
-              </label>
-              <label style={{
-                display: 'flex', alignItems: 'center', gap: 10, padding: '14px 16px',
-                border: '1.5px dashed #cbd5e1', borderRadius: 10, cursor: 'pointer', background: '#f8fafc'
-              }}>
-                <Upload size={18} color="#6366f1" />
-                <div style={{ fontSize: 13, color: file ? '#1e40af' : '#64748b' }}>
-                  {file ? file.name : (isSelf ? 'Cliquez pour joindre un document (PDF, image...)' : 'Cliquez pour joindre la facture (PDF, image...)')}
-                </div>
-                <input type="file" style={{ display: 'none' }} onChange={e => setFile(e.target.files?.[0] || null)} />
-              </label>
+            {isSelf && (
+              <div style={{ marginBottom: 16 }}>
+                <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 6 }}>
+                  Pièce(s) justificative(s) <span style={{ color: '#dc2626' }}>*</span>
+                </label>
+                <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, padding: '12px', border: '1.5px dashed #cbd5e1', borderRadius: 8, background: '#f8fafc', color: '#475569', fontSize: 13, cursor: 'pointer' }}>
+                  <Upload size={16} /> Choisir un ou plusieurs fichiers
+                  <input type="file" multiple style={{ display: 'none' }}
+                    onChange={e => setPjFiles(Array.from(e.target.files || []))} />
+                </label>
+                {pjFiles.length > 0 && (
+                  <ul style={{ margin: '8px 0 0', padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    {pjFiles.map((f, i) => (
+                      <li key={i} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#475569' }}>
+                        <Paperclip size={12} /> {f.name}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )}
+
+            <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, marginBottom: 8, padding: '10px 12px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, fontSize: 12.5, color: '#475569' }}>
+              <FileText size={15} color="#7c3aed" style={{ flexShrink: 0, marginTop: 1 }} />
+              <span>
+                {isSelf
+                  ? 'Votre pièce justificative sera scellée avec votre déclaration (signature PAdES, AC interne) puis envoyée dans Sedit comme pièce jointe de la facture.'
+                  : 'Les pièces jointes de cette facture dans Sedit (facture PDF et justificatifs) seront automatiquement mises à disposition du vérificateur — aucun document à joindre ici.'}
+              </span>
             </div>
 
             <button type="submit" disabled={submitting}

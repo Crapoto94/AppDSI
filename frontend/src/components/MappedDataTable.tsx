@@ -458,32 +458,31 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
               const factureCol = rubriqueName === 'Factures' ? columns.find(c => c.expression === 'FACTURE_FACTURE') : null;
               const factureRef = factureCol ? String(row[factureCol.name] || '').trim() : null;
               let sfInfo: { label: string; color: string; bg: string; workflowId: number | null; tooltip: string; ongoing: boolean; relaunchable: boolean } | null = null;
-              if (rubriqueName === 'Factures') {
-                const st = sfStatuses[factureRef || ''] || null;
-                if (st) {
-                  const decisionDate = st.decision_at || st.updated_at;
-                  const formattedDecisionDate = decisionDate ? new Date(decisionDate).toLocaleDateString('fr-FR') : '';
-                  const map: Record<string, { label: string; color: string; bg: string }> = {
-                    'en_attente': { label: '⏳ En attente', color: '#92400e', bg: '#fef3c7' },
-                    'en_cours': { label: '🔵 En cours', color: '#1e40af', bg: '#dbeafe' },
-                    'valide': { label: formattedDecisionDate ? `✅ SF le ${formattedDecisionDate}` : '✅ Validé', color: '#166534', bg: '#dcfce7' },
-                    'valide_avec_reserves': { label: '⚠️ Avec réserves', color: '#92400e', bg: '#fef3c7' },
-                    'non_valide': { label: '❌ Non validé', color: '#991b1b', bg: '#fee2e2' },
-                    'ne_me_concerne_pas': { label: '🔄 Retourné', color: '#1e40af', bg: '#dbeafe' },
-                    'transfere': { label: '➡️ Transféré', color: '#6b21a8', bg: '#f3e8ff' },
-                    'annule': { label: '🚫 Annulé', color: '#64748b', bg: '#f1f5f9' },
-                    'telecom': { label: '📡 Telecom', color: '#0369a1', bg: '#e0f2fe' },
-                  };
-                  const meta = map[st.status] || { label: st.status, color: '#334155', bg: '#f1f5f9' };
-                  const ongoing = ['en_attente', 'en_cours', 'transfere'].includes(st.status);
-                  // Statuts pour lesquels une nouvelle demande peut être relancée sur la même
-                  // facture (doit rester synchro avec l'exclusion côté backend, createWorkflow).
-                  const relaunchable = ['non_valide', 'ne_me_concerne_pas', 'annule'].includes(st.status);
-                  const tooltip = st.status === 'telecom'
-                    ? 'Facture déjà intégrée au module Telecom — pas de service fait à valider ici'
-                    : `${st.status}\nVérificateur: ${st.verifier_name || '-'}`;
-                  sfInfo = { ...meta, workflowId: st.workflowId || null, tooltip, ongoing, relaunchable };
-                }
+              const st = rubriqueName === 'Factures' ? (sfStatuses[factureRef || ''] || null) : null;
+              if (st && st.status) {
+                const decisionDate = st.decision_at || st.updated_at;
+                const formattedDecisionDate = decisionDate ? new Date(decisionDate).toLocaleDateString('fr-FR') : '';
+                const map: Record<string, { label: string; color: string; bg: string }> = {
+                  'en_attente': { label: '⏳ En attente', color: '#92400e', bg: '#fef3c7' },
+                  'en_cours': { label: '🔵 En cours', color: '#1e40af', bg: '#dbeafe' },
+                  'en_pause': { label: '⏸️ En pause', color: '#9a3412', bg: '#ffedd5' },
+                  'valide': { label: formattedDecisionDate ? `✅ SF le ${formattedDecisionDate}` : '✅ Validé', color: '#166534', bg: '#dcfce7' },
+                  'valide_avec_reserves': { label: '⚠️ Avec réserves', color: '#92400e', bg: '#fef3c7' },
+                  'non_valide': { label: '❌ Non validé', color: '#991b1b', bg: '#fee2e2' },
+                  'ne_me_concerne_pas': { label: '🔄 Retourné', color: '#1e40af', bg: '#dbeafe' },
+                  'transfere': { label: '➡️ Transféré', color: '#6b21a8', bg: '#f3e8ff' },
+                  'annule': { label: '🚫 Annulé', color: '#64748b', bg: '#f1f5f9' },
+                  'telecom': { label: '📡 Telecom', color: '#0369a1', bg: '#e0f2fe' },
+                };
+                const meta = map[st.status] || { label: st.status, color: '#334155', bg: '#f1f5f9' };
+                const ongoing = ['en_attente', 'en_cours', 'transfere', 'en_pause'].includes(st.status);
+                // Statuts pour lesquels une nouvelle demande peut être relancée sur la même
+                // facture (doit rester synchro avec l'exclusion côté backend, createWorkflow).
+                const relaunchable = ['non_valide', 'ne_me_concerne_pas', 'annule'].includes(st.status);
+                const tooltip = st.status === 'telecom'
+                  ? 'Facture déjà intégrée au module Telecom — pas de service fait à valider ici'
+                  : `${st.status}\nVérificateur: ${st.verifier_name || '-'}`;
+                sfInfo = { ...meta, workflowId: st.workflowId || null, tooltip, ongoing, relaunchable };
               }
               return (
                 <React.Fragment key={i}>
@@ -514,6 +513,18 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
                     {showSfColumn && (
                       <td className="mdt-cell" style={{ whiteSpace: 'nowrap' }}>
                         <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+                          {st?.sedit_rapproche && (
+                            <span title="Facture rapprochée (engagement/bon de commande) dans Sedit"
+                              style={{ background: '#eff6ff', color: '#1d4ed8', border: '1px solid #bfdbfe', borderRadius: '999px', padding: '2px 7px', fontSize: '10px', fontWeight: 700, lineHeight: '14px' }}>
+                              RA
+                            </span>
+                          )}
+                          {st?.sedit_service_fait && (
+                            <span title={`Service fait déjà validé directement dans Sedit${st.sedit_service_fait_date ? ' le ' + new Date(st.sedit_service_fait_date).toLocaleDateString('fr-FR') : ''}`}
+                              style={{ background: '#ecfdf5', color: '#047857', border: '1px solid #a7f3d0', borderRadius: '999px', padding: '2px 7px', fontSize: '10px', fontWeight: 700, lineHeight: '14px' }}>
+                              SF
+                            </span>
+                          )}
                           {sfInfo && (
                             <>
                               {sfInfo.ongoing ? (
@@ -541,7 +552,7 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
                                       {sfInfo.label}
                                     </span>
                                   )}
-                                  {sfInfo.relaunchable && (
+                                  {sfInfo.relaunchable && !st?.sedit_service_fait && (
                                     <button title="Relancer une nouvelle demande de validation"
                                       onClick={() => setSfModalRow({ row, mode: 'circuit' })}
                                       style={{ background: '#2563eb', color: 'white', border: 'none', borderRadius: '4px', padding: '3px 8px', fontSize: '11px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '3px' }}>
@@ -553,18 +564,22 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
                             </>
                           )}
                           {!sfInfo && (
-                            <>
-                              <button title="Lancer la validation du service fait (avec un vérificateur)"
-                                onClick={() => setSfModalRow({ row, mode: 'circuit' })}
-                                style={{ background: '#2563eb', color: 'white', border: 'none', borderRadius: '4px', padding: '3px 8px', fontSize: '11px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '3px' }}>
-                                <Rocket size={12} /> Lancer
-                              </button>
-                              <button title="Déclarer moi-même le service fait (sans circuit de validation)"
-                                onClick={() => setSfModalRow({ row, mode: 'self' })}
-                                style={{ background: '#16a34a', color: 'white', border: 'none', borderRadius: '4px', padding: '3px 8px', fontSize: '11px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '3px' }}>
-                                <CheckCircle size={12} /> Faire
-                              </button>
-                            </>
+                            st?.sedit_service_fait ? (
+                              <span style={{ fontSize: '11px', color: '#047857', fontStyle: 'italic' }}>Déjà fait dans Sedit</span>
+                            ) : (
+                              <>
+                                <button title="Lancer la validation du service fait (avec un vérificateur)"
+                                  onClick={() => setSfModalRow({ row, mode: 'circuit' })}
+                                  style={{ background: '#2563eb', color: 'white', border: 'none', borderRadius: '4px', padding: '3px 8px', fontSize: '11px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '3px' }}>
+                                  <Rocket size={12} /> Lancer
+                                </button>
+                                <button title="Déclarer moi-même le service fait (sans circuit de validation)"
+                                  onClick={() => setSfModalRow({ row, mode: 'self' })}
+                                  style={{ background: '#16a34a', color: 'white', border: 'none', borderRadius: '4px', padding: '3px 8px', fontSize: '11px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '3px' }}>
+                                  <CheckCircle size={12} /> Faire
+                                </button>
+                              </>
+                            )
                           )}
                         </div>
                       </td>
