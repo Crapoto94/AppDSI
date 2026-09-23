@@ -5158,6 +5158,19 @@ async function setupPgDb() {
     `);
     // Civilité (M. / Mme) ajoutée après coup pour les bases existantes.
     try { await client.query('ALTER TABLE hub.elus ADD COLUMN IF NOT EXISTS civilite VARCHAR(10)'); } catch (e) {}
+    // Sexe (M/F), liste politique d'origine, et délégations multiples (une élu·e peut
+    // cumuler plusieurs délégations, ex. les adjoint·es). `delegation` reste la version
+    // texte (résumé) pour les consommateurs existants (ex. routage tickets).
+    try { await client.query('ALTER TABLE hub.elus ADD COLUMN IF NOT EXISTS sexe VARCHAR(1)'); } catch (e) {}
+    try { await client.query('ALTER TABLE hub.elus ADD COLUMN IF NOT EXISTS liste VARCHAR(255)'); } catch (e) {}
+    try { await client.query("ALTER TABLE hub.elus ADD COLUMN IF NOT EXISTS delegations JSONB DEFAULT '[]'::jsonb"); } catch (e) {}
+    try { await client.query('ALTER TABLE hub.elus ALTER COLUMN delegation TYPE TEXT'); } catch (e) {}
+    // Reprise : la colonne `delegation` contenait historiquement la liste politique
+    // (import Excel). On la déplace vers `liste` si ce n'est pas déjà fait.
+    try {
+      await client.query(`UPDATE hub.elus SET liste = delegation WHERE (liste IS NULL OR liste = '') AND delegation IS NOT NULL AND delegation != ''`);
+      await client.query(`UPDATE hub.elus SET sexe = CASE civilite WHEN 'Mme' THEN 'F' WHEN 'M.' THEN 'M' ELSE sexe END WHERE sexe IS NULL`);
+    } catch (e) { console.error('[PG DB] migration hub.elus:', e.message); }
 
     // ─── hub.sites ────────────────────────────────────────────────
     await client.query(`

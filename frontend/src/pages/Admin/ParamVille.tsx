@@ -5,6 +5,7 @@ import axios from 'axios';
 import { Plus, Edit2, Trash2, Upload, Search, ChevronUp, ChevronDown, ChevronsUpDown, X, MapPin, ChevronRight, List, Network, Phone, UserCheck, UserX, AlertTriangle, RefreshCw, CheckCircle, FileSpreadsheet, Users } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import AdminOrganisation from '../AdminOrganisation';
+import ParamVilleElus from './ParamVilleElus';
 import 'leaflet/dist/leaflet.css';
 import { MapContainer, TileLayer, Marker, Popup, Tooltip, useMap, useMapEvents } from 'react-leaflet';
 import L from 'leaflet';
@@ -18,7 +19,6 @@ L.Icon.Default.mergeOptions({
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface VilleConfig { id?: number; nom: string; code_postal: string; }
-interface Elu { id?: number; civilite?: string; nom: string; prenom: string; email?: string; telephone?: string; role: string; delegation?: string; }
 interface Site {
   id?: number; code_bien?: string; nom: string; categorie?: string;
   adresse?: string; is_active: boolean; lat?: number; lng?: number;
@@ -273,8 +273,6 @@ function filterTreeNodes(nodes: TreeNode[], predicate: (s: Site) => boolean): Tr
 }
 
 // ─── Constantes ───────────────────────────────────────────────────────────────
-const ROLES = ['Maire', 'Adjoint', 'Conseiller municipal'];
-
 const CATEGORY_ICONS: Record<string, string> = {
   'ESPACES VERTS': '🌳', 'SPORTIF': '⚽', 'ADMINISTRATIF': '🏛️', 'AUTRE ADMINISTRATION': '🏢',
   'LOGEMENT': '🏠', 'ACTIVITES': '🎯', 'HANG': '🏭', 'SCOLAIRE': '🏫', 'CULTE': '⛪',
@@ -1515,13 +1513,6 @@ export default function ParamVille() {
 
   const [config, setConfig] = useState<VilleConfig>({ nom: '', code_postal: '' });
 
-  const [elus, setElus] = useState<Elu[]>([]);
-  const [editingElu, setEditingElu] = useState<Elu | null>(null);
-  const [eluForm, setEluForm] = useState<Elu>({ civilite: 'M.', nom: '', prenom: '', role: 'Conseiller municipal' });
-  const [eluUploadFile, setEluUploadFile] = useState<File | null>(null);
-  const [eluImporting, setEluImporting] = useState(false);
-  const [eluImportResult, setEluImportResult] = useState<any>(null);
-
   const [sites, setSites] = useState<Site[]>([]);
   const [sitesLoaded, setSitesLoaded] = useState(false);
   const [editingSite, setEditingSite] = useState<Site | null>(null);
@@ -1568,7 +1559,6 @@ export default function ParamVille() {
 
   useEffect(() => {
     if (selectedTab === 'general') loadConfig();
-    else if (selectedTab === 'elus') loadElus();
     else if (selectedTab === 'sites') loadSites();
     else if (selectedTab === 'carte') { if (!sitesLoaded) loadSites(); }
     else if (selectedTab === 'ecoles') loadEcoles();
@@ -1598,55 +1588,7 @@ export default function ParamVille() {
   };
 
   // ─── ÉLUS ────────────────────────────────────────────────────────
-  const loadElus = async () => {
-    setLoading(true);
-    try { const res = await axios.get('/api/ville/elus', { headers: getHeaders() }); setElus(res.data); }
-    catch (error) { console.error(error); }
-    finally { setLoading(false); }
-  };
-
-  const saveElu = async () => {
-    try {
-      if (editingElu?.id) await axios.put(`/api/ville/elus/${editingElu.id}`, eluForm, { headers: getHeaders() });
-      else await axios.post('/api/ville/elus', eluForm, { headers: getHeaders() });
-      setEditingElu(null);
-    setEluForm({ civilite: 'M.', nom: '', prenom: '', role: 'Conseiller municipal' });
-    loadElus();
-    } catch (error: any) { alert('Erreur: ' + (error.response?.data?.message || error.message)); }
-  };
-
-  const deleteElu = async (id: number) => {
-    if (!confirm('Confirmer la suppression?')) return;
-    try { await axios.delete(`/api/ville/elus/${id}`, { headers: getHeaders() }); loadElus(); }
-    catch (error: any) { alert('Erreur: ' + (error.response?.data?.message || error.message)); }
-  };
-
-  const exportElusCSV = () => {
-    exportToCSV(
-      `elus_${new Date().toISOString().slice(0, 10)}.csv`,
-      ['Civilité', 'Prénom', 'Nom', 'Rôle', 'Email', 'Téléphone', 'Délégation'],
-      elus.map(e => [e.civilite || '', e.prenom, e.nom, e.role, e.email || '', e.telephone || '', e.delegation || ''])
-    );
-  };
-
-  const importElus = async () => {
-    if (!eluUploadFile) { alert('Sélectionner un fichier'); return; }
-    setEluImporting(true); setEluImportResult(null);
-    try {
-      const fd = new FormData();
-      fd.append('file', eluUploadFile);
-      const res = await axios.post('/api/ville/elus/import', fd, {
-        headers: { ...getHeaders(), 'Content-Type': 'multipart/form-data' },
-      });
-      setEluImportResult(res.data);
-      setEluUploadFile(null);
-      loadElus();
-    } catch (error: any) {
-      alert('Erreur import: ' + (error.response?.data?.message || error.message));
-    } finally {
-      setEluImporting(false);
-    }
-  };
+  // Onglet extrait dans ParamVilleElus (modale d'édition, délégations multiples).
 
   // ─── SITES ───────────────────────────────────────────────────────
   const loadSites = async () => {
@@ -1992,81 +1934,7 @@ export default function ParamVille() {
       )}
 
       {/* ─── ÉLUS ────────────────────────────────────────────────── */}
-      {selectedTab === 'elus' && (
-        <>
-          {/* Import Excel */}
-          <div style={{ marginBottom: '16px', display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
-            <input type="file" accept=".xlsx,.xls" onChange={e => setEluUploadFile(e.target.files?.[0] || null)} disabled={eluImporting}
-              style={{ padding: '7px', borderRadius: '6px', border: '1px solid #d1d5db', opacity: eluImporting ? 0.5 : 1 }} />
-            <button style={{ ...s.btn('primary'), opacity: eluImporting ? 0.6 : 1 }} onClick={importElus} disabled={eluImporting}>
-              <Upload size={15} /> {eluImporting ? 'Import en cours...' : 'Importer Excel'}
-            </button>
-            <span style={{ fontSize: '12px', color: '#9ca3af' }}>Écrase toutes les données existantes</span>
-            {eluImportResult && (
-              <span style={{ fontSize: '13px', fontWeight: 600, color: '#16a34a' }}>
-                ✓ {eluImportResult.imported} élu(s) importé(s)
-              </span>
-            )}
-            <button style={s.btn('primary')} onClick={exportElusCSV} disabled={elus.length === 0}>
-              <Upload size={15} style={{ transform: 'rotate(180deg)' }} /> Export CSV
-            </button>
-          </div>
-
-          <button style={s.btn(editingElu ? 'success' : 'primary')} onClick={() => {
-            if (editingElu) { setEditingElu(null); setEluForm({ civilite: 'M.', nom: '', prenom: '', role: 'Conseiller municipal' }); }
-            else setEditingElu({} as Elu);
-          }}>
-            {editingElu ? <><X size={16} /> Annuler</> : <><Plus size={16} /> Ajouter un élu</>}
-          </button>
-
-          {editingElu !== null && (
-            <div style={s.form}>
-              <div style={s.row}>
-                <span style={s.label}>Civilité</span>
-                <select style={s.input} value={eluForm.civilite || 'M.'} onChange={e => setEluForm({ ...eluForm, civilite: e.target.value })}>
-                  <option value="M.">M.</option>
-                  <option value="Mme">Mme</option>
-                </select>
-              </div>
-              {([['Prénom', 'prenom'], ['Nom', 'nom'], ['Email', 'email'], ['Téléphone', 'telephone'], ['Délégation', 'delegation']] as [string, string][]).map(([lbl, key]) => (
-                <div key={key} style={s.row}>
-                  <span style={s.label}>{lbl}</span>
-                  <input style={s.input} type={key === 'email' ? 'email' : 'text'} value={(eluForm as any)[key] || ''} onChange={e => setEluForm({ ...eluForm, [key]: e.target.value })} />
-                </div>
-              ))}
-              <div style={s.row}>
-                <span style={s.label}>Rôle</span>
-                <select style={s.input} value={eluForm.role} onChange={e => setEluForm({ ...eluForm, role: e.target.value })}>
-                  {ROLES.map(r => <option key={r} value={r}>{r}</option>)}
-                </select>
-              </div>
-              <button style={s.btn('success')} onClick={saveElu}>{editingElu?.id ? 'Enregistrer' : 'Créer'}</button>
-            </div>
-          )}
-
-          <table style={s.table}>
-            <thead><tr>
-              {['Nom', 'Rôle', 'Email', 'Téléphone', 'Délégation', 'Actions'].map(h => <th key={h} style={s.th()}>{h}</th>)}
-            </tr></thead>
-            <tbody>
-              {elus.map(e => (
-                <tr key={e.id}>
-                  <td style={s.td}><strong>{e.civilite ? `${e.civilite} ` : ''}{e.prenom} {e.nom}</strong></td>
-                  <td style={s.td}><span style={s.badge('#8b5cf6')}>{e.role}</span></td>
-                  <td style={s.td}><code style={{ fontSize: '12px' }}>{e.email || '—'}</code></td>
-                  <td style={s.td}>{e.telephone || '—'}</td>
-                  <td style={s.td}>{e.delegation || '—'}</td>
-                  <td style={{ ...s.td, display: 'flex', gap: '6px' }}>
-                    <button style={{ ...s.btn('warning'), padding: '5px 9px' }} onClick={() => { setEditingElu(e); setEluForm(e); }}><Edit2 size={15} /></button>
-                    <button style={{ ...s.btn('danger'), padding: '5px 9px' }} onClick={() => deleteElu(e.id!)}><Trash2 size={15} /></button>
-                  </td>
-                </tr>
-              ))}
-              {elus.length === 0 && <tr><td colSpan={6} style={{ ...s.td, textAlign: 'center', padding: '30px', color: '#9ca3af' }}>Aucun élu</td></tr>}
-            </tbody>
-          </table>
-        </>
-      )}
+      {selectedTab === 'elus' && <ParamVilleElus />}
 
       {/* ─── SITES ───────────────────────────────────────────────── */}
       {selectedTab === 'sites' && (

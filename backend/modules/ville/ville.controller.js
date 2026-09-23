@@ -2,6 +2,24 @@ const { pgDb } = require('../../shared/database');
 const { logMouchard } = require('../../shared/utils');
 const VilleService = require('./ville.service');
 
+// Normalise les délégations d'un·e élu·e en tableau de chaînes. Accepte un tableau
+// ou un texte : sur le site de la ville, les délégations sont séparées par des points.
+function normalizeDelegations(input) {
+  let parts = [];
+  if (Array.isArray(input)) parts = input;
+  else if (typeof input === 'string') parts = input.split(/\.\s+|\.$/);
+  return parts.map(s => String(s || '').trim().replace(/\.+$/, '')).filter(Boolean);
+}
+const delegationsToText = (arr) => arr.join(' ; ');
+
+// Sexe (M/F) déduit d'un libellé de fonction (ex. « Adjointe » → F) ou, à défaut, du prénom.
+function deduceSexe(fonction, prenom) {
+  if (/(?:Adjointe|Conseillère|Présidente|Mairesse|Maire adjointe)/i.test(fonction || '')) return 'F';
+  if (/(?:Adjoint|Conseiller|Maire)/i.test(fonction || '')) return 'M';
+  return /(?:e|a|ie|ine|ette|elle|enne)$/i.test(String(prenom || '').trim()) ? 'F' : 'M';
+}
+const sexeToCivilite = (sexe) => (sexe === 'F' ? 'Mme' : sexe === 'M' ? 'M.' : null);
+
 module.exports = {
   // Onglet Général
   getConfig: async (req, res) => {
@@ -40,7 +58,14 @@ module.exports = {
   getElus: async (req, res) => {
     try {
       const elus = await pgDb.all('SELECT * FROM hub.elus ORDER BY nom, prenom');
-      res.json(elus);
+      // `delegations` (JSONB) est renvoyé tel quel ; repli sur l'ancien champ texte
+      // `delegation` (séparé par des points) s'il est vide.
+      const normalized = elus.map(e => {
+        let delegations = Array.isArray(e.delegations) ? e.delegations : [];
+        if (delegations.length === 0 && e.delegation) delegations = normalizeDelegations(e.delegation);
+        return { ...e, delegations };
+      });
+      res.json(normalized);
     } catch (error) {
       res.status(500).json({ message: 'Erreur récupération élus', error: error.message });
     }
@@ -48,17 +73,22 @@ module.exports = {
 
   createElu: async (req, res) => {
     try {
-      const { civilite, nom, prenom, email, telephone, role, delegation } = req.body;
+      const { civilite, sexe, nom, prenom, email, telephone, role, liste, delegation, delegations } = req.body;
       if (!nom || !prenom || !role) {
         return res.status(400).json({ message: 'Champs requis: nom, prenom, role' });
       }
+      const delArr = normalizeDelegations(delegations != null ? delegations : delegation);
+      const sexeVal = sexe || deduceSexe(role, prenom);
+      const civiliteVal = civilite || sexeToCivilite(sexeVal);
 
       const result = await pgDb.run(
-        'INSERT INTO hub.elus (civilite, nom, prenom, email, telephone, role, delegation) VALUES (?, ?, ?, ?, ?, ?, ?)',
-        [civilite || null, nom, prenom, email || null, telephone || null, role, delegation || null]
+        `INSERT INTO hub.elus (civilite, sexe, nom, prenom, email, telephone, role, liste, delegation, delegations)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [civiliteVal || null, sexeVal || null, nom, prenom, email || null, telephone || null,
+         role, liste || null, delegationsToText(delArr) || null, JSON.stringify(delArr)]
       );
       logMouchard(`Élu créé: ${prenom} ${nom}`);
-      res.status(201).json({ id: result.lastID, civilite: civilite || null, nom, prenom, email, telephone, role, delegation });
+      res.status(201).json({ id: result.lastID, civilite: civiliteVal, sexe: sexeVal, nom, prenom, email, telephone, role, liste, delegations: delArr });
     } catch (error) {
       res.status(500).json({ message: 'Erreur création élu', error: error.message });
     }
@@ -67,10 +97,16 @@ module.exports = {
   updateElu: async (req, res) => {
     try {
       const { id } = req.params;
-      const { civilite, nom, prenom, email, telephone, role, delegation } = req.body;
+      const { civilite, sexe, nom, prenom, email, telephone, role, liste, delegation, delegations } = req.body;
+      const delArr = normalizeDelegations(delegations != null ? delegations : delegation);
+      const sexeVal = sexe || deduceSexe(role, prenom);
+      const civiliteVal = civilite || sexeToCivilite(sexeVal);
       await pgDb.run(
-        'UPDATE hub.elus SET civilite = ?, nom = ?, prenom = ?, email = ?, telephone = ?, role = ?, delegation = ?, updated_at = NOW() WHERE id = ?',
-        [civilite || null, nom, prenom, email || null, telephone || null, role, delegation || null, id]
+        `UPDATE hub.elus SET civilite = ?, sexe = ?, nom = ?, prenom = ?, email = ?, telephone = ?,
+                             role = ?, liste = ?, delegation = ?, delegations = ?, updated_at = NOW()
+         WHERE id = ?`,
+        [civiliteVal || null, sexeVal || null, nom, prenom, email || null, telephone || null,
+         role, liste || null, delegationsToText(delArr) || null, JSON.stringify(delArr), id]
       );
       logMouchard(`Élu modifié: ${prenom} ${nom}`);
       res.json({ message: 'Élu mis à jour' });
@@ -130,12 +166,14 @@ module.exports = {
         if (fonction.toLowerCase().includes('maire')) role = 'Maire';
         else if (fonction.toLowerCase().includes('adjoint')) role = 'Adjoint';
 
-        // Civilité déduite du prénom (M./Mme), à corriger dans l'écran si besoin.
-        const civilite = /(?:e|a|ie|ine|ette|elle|enne)$/i.test(prenom.trim()) ? 'Mme' : 'M.';
+        // Sexe déduit du libellé de fonction (ex. « Adjointe » → F), à défaut du prénom.
+        const sexe = deduceSexe(fonction, prenom);
+        const civilite = sexeToCivilite(sexe);
 
         await pgDb.run(
-          'INSERT INTO hub.elus (civilite, nom, prenom, email, telephone, role, delegation) VALUES (?, ?, ?, ?, ?, ?, ?)',
-          [civilite, nom.toUpperCase(), prenom, email || null, telephone || null, role, liste || null]
+          `INSERT INTO hub.elus (civilite, sexe, nom, prenom, email, telephone, role, liste, delegation, delegations)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [civilite, sexe, nom.toUpperCase(), prenom, email || null, telephone || null, role, liste || null, null, '[]']
         );
         imported++;
       }
