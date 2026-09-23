@@ -2209,6 +2209,7 @@ app.use('/api/budget', financeRouter);
 app.use('/api/finance/field-mapping', fieldMappingRouter);
 app.use('/api/finance/service-fait', require('./modules/finance/service-fait/service-fait.routes'));
 require('./modules/finance/service-fait/service-fait.controller').setSendMail(sendMail);
+app.use('/api/finance/pj-share', require('./modules/finance/pj-share.routes'));
 app.use('/api/budget-prep', require('./modules/budget-prep/budget-prep.routes'));
 
 // Parapheur électronique (signature de documents PDF)

@@ -7,7 +7,7 @@ import {
   ShieldAlert, Box, LayoutGrid, Brain, Sparkles,
   Globe, Key, Fingerprint, Check, AlertTriangle, BarChart3,
   Zap, History as HistoryIcon, Hash, Lock, Download, MessageSquare,
-  Clock, Play, Mail, Landmark
+  Clock, Play, Mail, Landmark, Folder, FileText, Eye
 } from 'lucide-react';
 import * as LucideIcons from 'lucide-react';
 import axios from 'axios';
@@ -221,6 +221,12 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
   const [mariadbConfigs, setMariadbConfigs] = useState<any[]>([
     { type: 'MAIN', host: '', port: 3306, user: '', password: '', database: '', is_enabled: 0 }
   ]);
+  // Compte d'accès au partage de fichiers Sedit Finances (pièces jointes eGF/pjust — voir skill "sedit-finances")
+  const [financeShareSettings, setFinanceShareSettings] = useState<{ root_path: string; login: string; domain: string; has_password: boolean; fallback_available: boolean; fallback_login: string | null } | null>(null);
+  const [financeShareForm, setFinanceShareForm] = useState({ root_path: '', login: '', password: '', domain: '' });
+  const [savingFinanceShare, setSavingFinanceShare] = useState(false);
+  const [testingFinanceShare, setTestingFinanceShare] = useState<'pdf' | 'xml' | null>(null);
+  const [financeShareTestResult, setFinanceShareTestResult] = useState<{ success: boolean; message: string } | null>(null);
   const [oracleTestResults, setOracleTestResults] = useState<Record<string, { success: boolean, message: string, details?: string[] }>>({});
   const [isTestingOracle, setIsTestingOracle] = useState<Record<string, boolean>>({});
   const [selectedTables, setSelectedTables] = useState<Record<string, string[]>>({});
@@ -816,6 +822,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
       fetchOracleSettings();
       fetchOracleAutomationConfig();
       fetchOracleSyncLogs();
+      fetchFinanceShareSettings();
     }
     if (section === 'mariadb') fetchMariaDBSettings();
     if (section === 'transcript') { fetchTranscriptSettings(); fetchApmModelsList(); }
@@ -1382,6 +1389,59 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
       alert('Erreur lors de la sauvegarde');
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  const fetchFinanceShareSettings = async () => {
+    try {
+      const res = await axios.get('/api/finance/pj-share/settings', { headers: { Authorization: `Bearer ${token}` } });
+      setFinanceShareSettings(res.data);
+      setFinanceShareForm({ root_path: res.data.root_path || '', login: res.data.login || '', password: '', domain: res.data.domain || '' });
+    } catch (e) {
+      // paramètres pas encore disponibles (API pas encore déployée côté backend) — ignoré silencieusement
+    }
+  };
+
+  const handleSaveFinanceShare = async () => {
+    setSavingFinanceShare(true);
+    try {
+      await axios.post('/api/finance/pj-share/settings', financeShareForm, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      await fetchFinanceShareSettings();
+      alert('Compte d\'accès au partage de pièces jointes Sedit Finances enregistré.');
+    } catch (error: any) {
+      alert(error.response?.data?.error || 'Erreur lors de la sauvegarde du compte de partage.');
+    } finally {
+      setSavingFinanceShare(false);
+    }
+  };
+
+  const handleTestFinanceShareFile = async (which: 'pdf' | 'xml') => {
+    setTestingFinanceShare(which);
+    setFinanceShareTestResult(null);
+    try {
+      const res = await axios.get(`/api/finance/pj-share/test-file?file=${which}`, {
+        headers: { Authorization: `Bearer ${token}` },
+        responseType: 'blob'
+      });
+      const source = res.headers['x-finance-share-source'];
+      const login = res.headers['x-finance-share-login'];
+      const url = URL.createObjectURL(res.data);
+      window.open(url, '_blank', 'noopener');
+      setFinanceShareTestResult({
+        success: true,
+        message: `Fichier de test (facture F26008278) affiché avec succès via le compte "${login}" (${source === 'finance' ? 'compte dédié Finance' : 'repli sur le compte de sauvegarde'}).`
+      });
+    } catch (error: any) {
+      let message = 'Erreur lors du test d\'affichage.';
+      try {
+        const text = await (error.response?.data as Blob)?.text?.();
+        if (text) message = JSON.parse(text).error || message;
+      } catch (e) { /* ignore */ }
+      setFinanceShareTestResult({ success: false, message });
+    } finally {
+      setTestingFinanceShare(null);
     }
   };
 
@@ -3361,6 +3421,81 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                         </button>
                       </div>
                       </div>
+
+                      {type === 'FINANCES' && (
+                        <div className="mt-4" style={{ borderTop: '2px solid #f1f5f9', paddingTop: '1rem', marginTop: '1.5rem' }}>
+                          <h4 style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
+                            <Folder size={16} /> Accès au partage des pièces jointes (eGF/pjust)
+                          </h4>
+                          <p style={{ fontSize: '0.85rem', color: '#64748b', marginBottom: '1rem' }}>
+                            Compte utilisé pour lire les fichiers (PDF/XML) des factures et mandats Sedit Finances
+                            sur le partage réseau. Si aucun compte n'est renseigné ici, l'application utilise
+                            automatiquement le compte de sauvegarde/stockage déjà configuré dans /admin/ged
+                            {financeShareSettings?.fallback_login ? ` (actuellement "${financeShareSettings.fallback_login}")` : ''}.
+                          </p>
+
+                          <div className="form-grid">
+                            <div className="input-group full">
+                              <label><Folder size={14} /> Racine du partage (UNC)</label>
+                              <input
+                                type="text"
+                                placeholder="\\\\serveur\\partage\\..."
+                                value={financeShareForm.root_path}
+                                onChange={(e) => setFinanceShareForm({ ...financeShareForm, root_path: e.target.value })}
+                              />
+                            </div>
+                            <div className="input-group">
+                              <label><UserPlus size={14} /> Compte dédié (nom d'utilisateur)</label>
+                              <input
+                                type="text"
+                                placeholder={financeShareSettings?.fallback_login ? `vide = repli sur "${financeShareSettings.fallback_login}"` : 'ex: svc-sedit'}
+                                value={financeShareForm.login}
+                                onChange={(e) => setFinanceShareForm({ ...financeShareForm, login: e.target.value })}
+                              />
+                            </div>
+                            <div className="input-group">
+                              <label><Lock size={14} /> Mot de passe</label>
+                              <input
+                                type="password"
+                                placeholder={financeShareSettings?.has_password ? '••••••••' : ''}
+                                value={financeShareForm.password}
+                                onChange={(e) => setFinanceShareForm({ ...financeShareForm, password: e.target.value })}
+                              />
+                            </div>
+                            <div className="input-group">
+                              <label><Globe size={14} /> Domaine</label>
+                              <input
+                                type="text"
+                                placeholder="ex: IVRY"
+                                value={financeShareForm.domain}
+                                onChange={(e) => setFinanceShareForm({ ...financeShareForm, domain: e.target.value })}
+                              />
+                            </div>
+                          </div>
+
+                          <div className="card-actions">
+                            <button className="btn-save-luxe" onClick={handleSaveFinanceShare} disabled={savingFinanceShare}>
+                              <Save size={18} /> Enregistrer le compte de partage
+                            </button>
+                            <div className="btn-group">
+                              <button className="btn-test-luxe" onClick={() => handleTestFinanceShareFile('pdf')} disabled={testingFinanceShare !== null}>
+                                {testingFinanceShare === 'pdf' ? <Loader2 className="animate-spin" size={18} /> : <Eye size={18} />}
+                                Tester l'affichage (PDF facture F26008278)
+                              </button>
+                              <button className="btn-test-luxe" onClick={() => handleTestFinanceShareFile('xml')} disabled={testingFinanceShare !== null}>
+                                {testingFinanceShare === 'xml' ? <Loader2 className="animate-spin" size={18} /> : <FileText size={18} />}
+                                Tester l'affichage (XML facture F26008278)
+                              </button>
+                            </div>
+                          </div>
+
+                          {financeShareTestResult && (
+                            <div className={`status-badge ${financeShareTestResult.success ? 'active' : 'inactive'}`} style={{ marginTop: '0.75rem', display: 'inline-block' }}>
+                              {financeShareTestResult.message}
+                            </div>
+                          )}
+                        </div>
+                      )}
 
                       {result && result.details && result.details.length > 0 && (
                       <div className="oracle-tables-selector mt-4">
