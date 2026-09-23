@@ -100,19 +100,38 @@ L'onglet **Engagements** assure le lien direct avec le système comptable centra
   - *Soldé* : commande entièrement livrée, facturée et clôturée.
 - Détail d'un engagement : libellé de l'objet, montant voté initial, réajustements, montant restant à engager.
 
+### 6.1 Onglet Commandes — enrichissements Sedit
+
+La liste des **Commandes** est interrogée en direct depuis Sedit Finances (Oracle) :
+
+- **Nature** et **Fonction** (nomenclature M57) : calculées sur les lignes d'imputation de la commande. Si toutes les lignes partagent la même valeur, elle est affichée (ex. `020` pour la fonction, `65818` pour la nature) ; si la commande est multiligne et hétérogène, la cellule affiche **Multi** avec une infobulle listant tous les codes.
+- **Pastille FAC** : résume l'état de la ou des facture(s) rattachée(s) à la commande (*Reçue*, *Service fait*, *Mandatée*, *Refusée*). Cliquer dessus ouvre la ou les factures correspondantes dans la visionneuse de pièces jointes Sedit.
+- **Bouton PJ** : ouvre le bon de commande (pièces jointes Sedit).
+- **Associations** : chaque commande peut être rattachée à une **opération** budgétaire et à un **logiciel métier** (MagApp) ; l'association est conservée et affichée dans la ligne.
+
 ---
 
-## 7. Factures et circuit de visa du Service Fait (`/service-fait`)
+## 7. Factures et circuit de visa du Service Fait
 
-Avant qu'une facture ne soit payée par la comptabilité, la réglementation impose de certifier que la prestation ou le matériel a bien été livré conformément au bon de commande :
+L'onglet **Factures** interroge directement Sedit Finances (Oracle), sans copie locale. Le filtre **À traiter** ne retient que les factures dont le service fait n'est pas encore attesté dans Sedit et qui ne sont pas rejetées.
 
-### 7.1 Processus du Service Fait dématérialisé
-1. La facture est réceptionnée et numérisée depuis Oracle.
-2. Le gestionnaire DSI ouvre la fiche `/service-fait/processus/:id` :
-   - Vérification du bon de commande associé.
-   - Rapprochement avec le bon de livraison physique issu du module Stocks ou le procès-verbal de recette du module Projets.
-3. **Visa électronique sécurisé** : apposition du tampon « Service Fait » horodaté avec nom de l'agent certificateur.
-4. **Lien de vérification public** (`/service-fait-verifier/:token`) : permet aux auditeurs du Trésor Public de vérifier instantanément l'authenticité du visa via un QR code imprimé sur la facture.
+### 7.1 Le service fait
+
+Avant qu'une facture ne soit payée, la réglementation impose de certifier que la prestation ou le matériel a bien été livré conformément au bon de commande.
+
+- **Pastille Service Fait** : chaque facture porte une pastille compacte résumant son état (service fait attesté dans Sedit, rapprochement RA, refus, ou statut du circuit AppDSI). Cliquer dessus ouvre le **circuit de validation**.
+- **Lancer une validation** : le circuit AppDSI envoie au **vérificateur** choisi (agent DSI) un e-mail avec un lien de validation ; le vérificateur consulte les pièces jointes Sedit de la facture puis rend sa décision (validé, validé avec réserves, non validé, retourné, transféré, en pause).
+- **Déclaration directe** : le déclarant peut attester lui-même le service fait (sans circuit), avec commentaire et pièce justificative obligatoires.
+- **Directeur (informé / avec visa)** : au lancement, le directeur de la direction concernée — résolu automatiquement depuis le référentiel des **encadrants** (un directeur par direction, `/admin/param-ville`) — peut être :
+  - **Aucun** *(défaut)* : ni informé, ni sollicité ;
+  - **Informé** : il reçoit un e-mail au moment de la décision (validée ou non) ;
+  - **Avec visa** : il doit viser **après** le valideur principal ; la certification dans Sedit n'a lieu qu'après son visa, et les **deux valideurs** sont embarqués dans le PV scellé.
+- **PV scellé et écriture Sedit** : à la certification, AppDSI valide l'étape `SERVICE_FAIT` dans Sedit (écriture journalisée et réversible) et y pousse un **procès-verbal scellé** (signature PAdES, AC interne) reprenant les documents sources et les validateurs, en pièce jointe de la facture.
+- **Liens publics** : le vérificateur reçoit un lien tokenisé (`/service-fait-verifier/:token`) ; en mode visa, le directeur reçoit un lien dédié (`/service-fait-visa/:token`).
+
+### 7.2 Pièces jointes Sedit
+
+La **visionneuse multidocuments** affiche les pièces jointes Sedit (facture PDF, bon de commande, XML…) d'une facture ou d'un bon de commande.
 
 ---
 

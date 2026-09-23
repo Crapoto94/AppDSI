@@ -2748,6 +2748,74 @@ app.get('/api/changelog', async (req, res) => {
     }
 });
 
+// ── Édition du What's New (versions) par les admins ──────────────────────────
+// Le contenu affiché dans la modale « What's New ? » du Header vient de
+// hub.changelog_versions (changes = tableau de lignes, release_notes_md = HTML).
+// Normalise `changes` en tableau JSON : accepte un tableau ou un texte (1 ligne/entrée).
+function normalizeChangesInput(changes) {
+    if (Array.isArray(changes)) return JSON.stringify(changes.map(c => String(c)));
+    if (typeof changes === 'string') {
+        return JSON.stringify(changes.split('\n').map(s => s.replace(/\s+$/, '')).filter(s => s.length > 0));
+    }
+    return null;
+}
+
+app.get('/api/admin/changelog', authenticateAdmin, async (req, res) => {
+    try {
+        const rows = await pgDb.all('SELECT id, version, release_date, changes, release_notes_md FROM hub.changelog_versions ORDER BY id DESC');
+        res.json(rows);
+    } catch (err) {
+        console.error('[CHANGELOG] admin list error:', err.message);
+        res.status(500).json({ message: 'Erreur lecture des versions', error: err.message });
+    }
+});
+
+app.post('/api/admin/changelog', authenticateAdmin, async (req, res) => {
+    const { version, release_date, changes, release_notes_md } = req.body || {};
+    if (!version) return res.status(400).json({ message: 'Le numéro de version est requis' });
+    try {
+        const result = await pool.query(
+            `INSERT INTO hub.changelog_versions (version, release_date, changes, release_notes_md)
+             VALUES ($1, $2, $3, $4) RETURNING id`,
+            [version, release_date || new Date().toLocaleDateString('fr-FR'), normalizeChangesInput(changes) || '[]', release_notes_md || null]
+        );
+        res.status(201).json({ id: result.rows[0].id });
+    } catch (err) {
+        console.error('[CHANGELOG] admin create error:', err.message);
+        res.status(500).json({ message: 'Erreur création version', error: err.message });
+    }
+});
+
+app.put('/api/admin/changelog/:id', authenticateAdmin, async (req, res) => {
+    const { version, release_date, changes, release_notes_md } = req.body || {};
+    try {
+        await pool.query(
+            `UPDATE hub.changelog_versions
+             SET version = COALESCE($1, version),
+                 release_date = COALESCE($2, release_date),
+                 changes = COALESCE($3, changes),
+                 release_notes_md = $4
+             WHERE id = $5`,
+            [version || null, release_date || null, normalizeChangesInput(changes), release_notes_md ?? null, req.params.id]
+        );
+        const row = await pgDb.get('SELECT id, version, release_date, changes, release_notes_md FROM hub.changelog_versions WHERE id = $1', [req.params.id]);
+        res.json(row);
+    } catch (err) {
+        console.error('[CHANGELOG] admin update error:', err.message);
+        res.status(500).json({ message: 'Erreur mise à jour version', error: err.message });
+    }
+});
+
+app.delete('/api/admin/changelog/:id', authenticateAdmin, async (req, res) => {
+    try {
+        await pgDb.run('DELETE FROM hub.changelog_versions WHERE id = ?', [req.params.id]);
+        res.json({ success: true });
+    } catch (err) {
+        console.error('[CHANGELOG] admin delete error:', err.message);
+        res.status(500).json({ message: 'Erreur suppression version', error: err.message });
+    }
+});
+
 // Todo List API
 app.get('/api/todos', authenticateJWT, async (req, res) => {
     try {
