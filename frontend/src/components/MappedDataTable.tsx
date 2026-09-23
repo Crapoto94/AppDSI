@@ -74,6 +74,8 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
   const [opFilter, setOpFilter] = useState<'I' | 'F' | null>(null);
   // Association commande → logiciel métier (magapp.apps)
   const [apps, setApps] = useState<any[]>([]);
+  // Référentiel M57 (code → libellé) pour les infobulles Nature/Fonction des commandes.
+  const [m57Plan, setM57Plan] = useState<any[]>([]);
   const [appModal, setAppModal] = useState<{ linkId: string; currentAppId: number | null; currentAppLabel: string | null } | null>(null);
   const [appSearch, setAppSearch] = useState('');
   const [childRubriqueId, setChildRubriqueId] = useState<number | null>(null);
@@ -233,6 +235,7 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
   useEffect(() => {
     axios.get('/api/budget/operations', { headers }).then(res => setOperations(res.data || [])).catch(() => {});
     axios.get('/api/magapp/apps', { headers }).then(res => setApps(Array.isArray(res.data) ? res.data : [])).catch(() => {});
+    axios.get('/api/m57-plan', { headers }).then(res => setM57Plan(Array.isArray(res.data) ? res.data : [])).catch(() => {});
     axios.get('/api/settings', { headers }).then(res => {
       const settings = res.data || [];
       const s = settings.find((s: any) => s.setting_key === 'url_sedit_fi');
@@ -271,6 +274,22 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
     }
   };
 
+  // Libellé M57 d'un code (type 'nature'/'fonction'), avec repli sur toute entrée
+  // portant ce code si le type n'est pas renseigné dans le référentiel.
+  const m57Label = (code: string, type?: string): string | null => {
+    const c = String(code || '').trim();
+    if (!c) return null;
+    const found = m57Plan.find(p => String(p.code).trim() === c && (!type || p.type === type || !p.type))
+      || m57Plan.find(p => String(p.code).trim() === c);
+    return found && found.label ? String(found.label) : null;
+  };
+
+  // Infobulle « code — libellé » (une ligne par code) pour les colonnes Nature/Fonction.
+  const m57Title = (value: any, type: string): string => {
+    const codes = Array.from(new Set(String(value ?? '').split(',').map(s => s.trim()).filter(Boolean)));
+    return codes.map(c => { const l = m57Label(c, type); return l ? `${c} — ${l}` : c; }).join('\n');
+  };
+
   const formatCell = (value: any, col: MappingColumn) => {
     if (col.name === 'Section') {
       const isF = value === 'F' || value === 'Fonctionnement';
@@ -292,7 +311,7 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
       if (codes.length === 0) return '';
       if (codes.length === 1) return codes[0];
       return (
-        <span title={codes.join(', ')} style={{ cursor: 'help', fontWeight: 600, color: '#b45309' }}>
+        <span title={m57Title(value, col.expression)} style={{ cursor: 'help', fontWeight: 600, color: '#b45309' }}>
           Multi
         </span>
       );
@@ -552,7 +571,9 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
                       const tdStyle: React.CSSProperties = {};
                       if (cs?.bold) tdStyle.fontWeight = 'bold';
                       if (cs?.color && cs.color !== '#000000') tdStyle.color = cs.color;
-                      const cellTitle = row[col.name] != null && row[col.name] !== '' ? String(row[col.name]) : undefined;
+                      const cellTitle = (col.expression === 'nature' || col.expression === 'fonction')
+                        ? (m57Title(row[col.name], col.expression) || undefined)
+                        : (row[col.name] != null && row[col.name] !== '' ? String(row[col.name]) : undefined);
                       return <td key={col.name} className="mdt-cell" style={tdStyle} title={cellTitle}>{formatCell(row[col.name], col)}</td>;
                     })}
                     {showSfColumn && (
