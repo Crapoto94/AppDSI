@@ -147,7 +147,8 @@ async function setupDb() {
         ('inventaire_key', 'irs_hjThyQcvBMYvkWqvkA5NVapTB4EZctrOeUI1eoaE-dU', 'Clé API pour l''inventaire'),
         ('finance.share_root_path', '//seditgf-prod/editions$/SMPROD/eGF/pjust', 'Racine UNC du partage de pièces jointes Sedit Finances (eGF/pjust) — slashes acceptés, convertis en antislash'),
         ('finance.share_login', '', 'Compte dédié pour accéder au partage de pièces jointes Sedit Finances (si vide : repli sur le compte de sauvegarde storage.login)'),
-        ('finance.share_domain', 'IVRY', 'Domaine du compte dédié Sedit Finances (requis par seditgf-prod, sinon lecture silencieusement vide)');
+        ('finance.share_domain', 'IVRY', 'Domaine du compte dédié Sedit Finances (requis par seditgf-prod, sinon lecture silencieusement vide)'),
+        ('finance.sedit_write_enabled', 'true', 'Pousse le PV de service fait scellé et valide l''étape service fait dans Sedit (désactivable)');
 
         CREATE TABLE IF NOT EXISTS ad_settings (
             id INTEGER PRIMARY KEY,

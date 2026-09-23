@@ -17,6 +17,8 @@ router.get('/pg-tables', authenticateJWT, fieldMappingController.getPgTables);
 router.get('/pg-columns/:schema/:table', authenticateJWT, fieldMappingController.getPgColumns);
 
 router.get('/preview/:id', authenticateJWT, fieldMappingController.previewMapping);
+// Source Oracle directe (page « Factures (beta) ») — avant /resolve/:name pour clarté.
+router.get('/resolve-sedit/:name', authenticateJWT, fieldMappingController.resolveMappingSedit);
 router.get('/resolve/:name', authenticateJWT, fieldMappingController.resolveMapping);
 router.get('/resolve/:name/children/:parentValue', authenticateJWT, fieldMappingController.getChildren);
 router.get('/years/:name', authenticateJWT, fieldMappingController.getAvailableYears);

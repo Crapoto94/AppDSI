@@ -32,9 +32,12 @@ interface MappedDataTableProps {
   onColumnsReady?: (columns: string[]) => void;
   visibleColumns?: string[];
   sectionFilter?: string;
+  // Source des données : 'pg' (copie locale oracle.gf_oracle_*, défaut) ou 'sedit'
+  // (interrogation directe de la base Sedit — page « Factures (beta) »).
+  dataSource?: 'pg' | 'sedit';
 }
 
-const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: _title, pageSize = 25, fiscalYear, onOpenColumnSettings, columnStyles, onColumnsReady, visibleColumns, sectionFilter }) => {
+const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: _title, pageSize = 25, fiscalYear, onOpenColumnSettings, columnStyles, onColumnsReady, visibleColumns, sectionFilter, dataSource = 'pg' }) => {
   const { token } = useAuth();
   const headers = { Authorization: `Bearer ${token}` };
   const storageKey = `mdt_cols_${rubriqueName}`;
@@ -116,7 +119,10 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
         params.sort_by = s.key;
         params.sort_dir = s.direction;
       }
-      const res = await axios.get(`/api/finance/field-mapping/resolve/${encodeURIComponent(rubriqueName)}`, {
+      const endpoint = dataSource === 'sedit'
+        ? '/api/finance/field-mapping/resolve-sedit/'
+        : '/api/finance/field-mapping/resolve/';
+      const res = await axios.get(`${endpoint}${encodeURIComponent(rubriqueName)}`, {
         headers,
         params
       });
