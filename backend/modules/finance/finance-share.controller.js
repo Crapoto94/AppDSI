@@ -170,15 +170,25 @@ async function queryFacsuiviStatus(numeros) {
             binds[`r${i}`] = n;
             return `:r${i}`;
         });
+        // Une facture peut porter PLUSIEURS circuits : un circuit rejeté puis relancé crée
+        // de nouvelles lignes FACSUIVI pour les mêmes AVANCEMENT (ex. SERVICE_FAIT « REJETE »
+        // puis SERVICE_FAIT « VALIDE »). On ne garde donc que la ligne la plus RÉCENTE par
+        // étape (DATE_CREAT, départagée par ROO_IMA_REF) — l'ancien écrasement « dernière
+        // ligne lue » rendait un service fait pourtant validé, faux et non déterministe.
         const result = await connection.execute(
             `SELECT TRIM(f.FACTURE) AS NUMERO, fs.AVANCEMENT, fs.ETAT, fs.DATE_SERVICE_FAIT
              FROM FI.FACTURE f
              JOIN FI.FACSUIVI fs ON fs.FACTURE = f.ROO_IMA_REF AND fs.AVANCEMENT IN ('RAPPROCHEMENT', 'SERVICE_FAIT')
-             WHERE TRIM(f.FACTURE) IN (${placeholders.join(',')})`,
+             WHERE TRIM(f.FACTURE) IN (${placeholders.join(',')})
+             ORDER BY f.FACTURE, fs.AVANCEMENT, fs.DATE_CREAT DESC NULLS LAST, fs.ROO_IMA_REF DESC`,
             binds
         );
         const map = {};
+        const seen = new Set();
         for (const row of result.rows) {
+            const key = `${row.NUMERO}|${row.AVANCEMENT}`;
+            if (seen.has(key)) continue; // 1re occurrence = ligne la plus récente (cf. tri ci-dessus)
+            seen.add(key);
             if (!map[row.NUMERO]) map[row.NUMERO] = {};
             if (row.AVANCEMENT === 'RAPPROCHEMENT') {
                 map[row.NUMERO].rapprochement = { done: row.ETAT === 'VALIDE' };

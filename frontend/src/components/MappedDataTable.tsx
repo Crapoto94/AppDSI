@@ -537,9 +537,9 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
                                   RA
                                 </span>
                               )}
-                              {/* Pastille SF Sedit : masquée sur la page beta. */}
-                              {dataSource !== 'sedit' && st?.sedit_service_fait && (
-                                <span title="Service fait validé dans Sedit"
+                              {/* Pastille SF : service fait attesté directement dans Sedit (date de SF en infobulle). */}
+                              {st?.sedit_service_fait && (
+                                <span title={`Service fait validé dans Sedit${st.sedit_service_fait_date ? ' le ' + new Date(st.sedit_service_fait_date).toLocaleDateString('fr-FR') : ''}`}
                                   style={{ background: '#ecfdf5', color: '#047857', border: '1px solid #a7f3d0', borderRadius: '999px', padding: '2px 7px', fontSize: '10px', fontWeight: 700, lineHeight: '14px' }}>
                                   SF
                                 </span>
@@ -552,7 +552,9 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
                                   MANDATÉ
                                 </button>
                               )}
-                              {sfInfo && (
+                              {/* Workflow AppDSI : masqué dès que Sedit atteste le service fait
+                                  (c'est alors la pastille SF compacte qui fait foi). */}
+                              {sfInfo && !st?.sedit_service_fait && (
                                 <>
                                   {/* En cours : un seul bouton (statut) qui ouvre le processus. */}
                                   {sfInfo.ongoing ? (
@@ -589,26 +591,21 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
                                   )}
                                 </>
                               )}
-                              {!sfInfo && (
-                                /* Sur la beta : ni pastille SF ni « Déjà fait dans Sedit ». */
-                                (dataSource === 'sedit' && st?.sedit_service_fait) ? null : (
-                                  st?.sedit_service_fait ? (
-                                    <span style={{ fontSize: '11px', color: '#047857', fontStyle: 'italic' }}>Déjà fait dans Sedit</span>
-                                  ) : (
-                                    <>
-                                      <button title="Lancer la validation du service fait (avec un vérificateur)"
-                                        onClick={() => setSfModalRow({ row, mode: 'circuit' })}
-                                        style={{ background: '#2563eb', color: 'white', border: 'none', borderRadius: '4px', padding: '3px 8px', fontSize: '11px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '3px' }}>
-                                        <Rocket size={12} /> Lancer
-                                      </button>
-                                      <button title="Déclarer moi-même le service fait (sans circuit de validation)"
-                                        onClick={() => setSfModalRow({ row, mode: 'self' })}
-                                        style={{ background: '#16a34a', color: 'white', border: 'none', borderRadius: '4px', padding: '3px 8px', fontSize: '11px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '3px' }}>
-                                        <CheckCircle size={12} /> Faire
-                                      </button>
-                                    </>
-                                  )
-                                )
+                              {/* Boutons d'action : seulement si ni SF Sedit ni workflow AppDSI
+                                  (sinon la pastille SF compacte suffit, plus de texte « Déjà fait »). */}
+                              {!sfInfo && !st?.sedit_service_fait && (
+                                <>
+                                  <button title="Lancer la validation du service fait (avec un vérificateur)"
+                                    onClick={() => setSfModalRow({ row, mode: 'circuit' })}
+                                    style={{ background: '#2563eb', color: 'white', border: 'none', borderRadius: '4px', padding: '3px 8px', fontSize: '11px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '3px' }}>
+                                    <Rocket size={12} /> Lancer
+                                  </button>
+                                  <button title="Déclarer moi-même le service fait (sans circuit de validation)"
+                                    onClick={() => setSfModalRow({ row, mode: 'self' })}
+                                    style={{ background: '#16a34a', color: 'white', border: 'none', borderRadius: '4px', padding: '3px 8px', fontSize: '11px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '3px' }}>
+                                    <CheckCircle size={12} /> Faire
+                                  </button>
+                                </>
                               )}
                             </>
                           )}
