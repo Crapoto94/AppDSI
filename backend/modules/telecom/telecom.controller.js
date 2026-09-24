@@ -6,6 +6,7 @@ const AdmZip = require('adm-zip');
 const { parseSfrZip } = require('./telecom.sfr-parser');
 const { pgDb, pool } = require('../../shared/database');
 const storage = require('../../shared/storage');
+const dgpService = require('../finance/dgp.service');
 
 const MODULE = 'telecom';
 
@@ -24,10 +25,11 @@ const RESOLVED_INVOICES_SQL = `
         COALESCE(bf.emission_date, i.invoice_date) as invoice_date,
         COALESCE(i.billing_month, to_char(COALESCE(bf.emission_date, i.invoice_date), 'YYYY-MM')) as effective_month,
         bf."FACETAT_LIBELLE" as general_status,
-        NULLIF(TRIM(bf."FACTURE_ROO_IMA_REF"), '') as sedit_ref
+        NULLIF(TRIM(bf."FACTURE_ROO_IMA_REF"), '') as sedit_ref,
+        NULLIF(TRIM(bf."FACTURE_FACTURE"), '') as sedit_numero
     FROM hub_telecom.invoices i
     LEFT JOIN LATERAL (
-        SELECT f."FACETAT_LIBELLE", f."FACTURE_MONTANTTC_E", f."FACTURE_ROO_IMA_REF",
+        SELECT f."FACETAT_LIBELLE", f."FACTURE_MONTANTTC_E", f."FACTURE_ROO_IMA_REF", f."FACTURE_FACTURE",
             COALESCE(
                 to_date(substring(f."FACTURE_LIBELLE1" from '(\\d{2}/\\d{2}/\\d{4})'), 'DD/MM/YYYY'),
                 f."FACTURE_DATENTREE"::date
@@ -158,7 +160,7 @@ async function computeMonthlySummary(year) {
     const [invoiceRows, accounts, commentRows] = await Promise.all([
         pgDb.all(`
             SELECT ri.id, ri.invoice_number, ri.operator_id, ri.billing_account_id, ri.amount_ttc,
-                ri.effective_month as month, ri.general_status, ri.sedit_ref, ri.description
+                ri.effective_month as month, ri.general_status, ri.sedit_ref, ri.sedit_numero, ri.description, ri.file_path
             FROM (${RESOLVED_INVOICES_SQL}) ri
             WHERE ri.effective_month LIKE ? AND ri.billing_account_id IS NOT NULL
         `, [`${year}-%`]),
@@ -170,6 +172,10 @@ async function computeMonthlySummary(year) {
         `),
         pgDb.all(`SELECT billing_account_id, month, comment FROM hub_telecom.monthly_comments WHERE month LIKE ?`, [`${year}-%`]),
     ]);
+
+    // Info de mandatement (date + booléen) pour chaque facture liée à une facture Sedit :
+    // lue dans le cache finance.facture_dgp (clé = FACTURE_ROO_IMA_REF = ri.sedit_ref).
+    const mandateMap = await dgpService.getMandateInfoByRoos(invoiceRows.map(i => i.sedit_ref)).catch(() => ({}));
 
     const months = Array.from({ length: 12 }, (_, i) => `${year}-${String(i + 1).padStart(2, '0')}`);
     const now = new Date();
@@ -209,6 +215,10 @@ async function computeMonthlySummary(year) {
                     id: i.id, invoice_number: i.invoice_number,
                     amount_ttc: Number(i.amount_ttc) || 0,
                     description: i.description, general_status: i.general_status, sedit_ref: i.sedit_ref,
+                    sedit_numero: i.sedit_numero || null,
+                    file_path: i.file_path || null,
+                    mandated: !!(i.sedit_ref && mandateMap[i.sedit_ref] && mandateMap[i.sedit_ref].mandated),
+                    mandate_date: (i.sedit_ref && mandateMap[i.sedit_ref] && mandateMap[i.sedit_ref].mandate_date) || null,
                 })),
                 comment: (commentsByAccountMonth[a.id] && commentsByAccountMonth[a.id][m]) || null,
                 isPast: m <= currentMonth,

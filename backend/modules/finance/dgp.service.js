@@ -66,12 +66,13 @@ async function refreshFacturesDgpCache(opts = {}) {
             `SELECT TRIM(f.ROO_IMA_REF) AS FROO, TRIM(f.FACTURE) AS NUM,
                     f.DATENTREE AS DT, f.DATPAIPREV AS DPP, f.DATE_REJET AS DREJ,
                     EXTRACT(YEAR FROM f.DATENTREE) AS FY,
-                    p.NB AS NB, p.DP AS DP
+                    p.NB AS NB, p.DP AS DP, p.DMAND AS DMAND
                FROM FI.FACTURE f
                LEFT JOIN (
                    SELECT TRIM(fa.FACTURE_ID_CS) AS FROO,
                           COUNT(fa.MANDAT_ID_CS) AS NB,
-                          MAX(mm.DATE_PAIEMENT) AS DP
+                          MAX(mm.DATE_PAIEMENT) AS DP,
+                          MAX(mm.DATMANDAT) AS DMAND
                      FROM FI.FAIT fa
                      LEFT JOIN FI.MANDAT mm ON TRIM(mm.ROO_IMA_REF) = TRIM(fa.MANDAT_ID_CS)
                     GROUP BY TRIM(fa.FACTURE_ID_CS)
@@ -114,6 +115,8 @@ async function refreshFacturesDgpCache(opts = {}) {
             dgp,
             definitive,
             refused: !!row.DREJ,
+            mandate_date: toDateStr(row.DMAND),
+            mandated: mandate,
         });
     }
 
@@ -127,13 +130,13 @@ async function refreshFacturesDgpCache(opts = {}) {
             const batch = records.slice(i, i + BATCH);
             const values = [];
             const placeholders = batch.map((r, j) => {
-                const b = j * 8;
-                values.push(r.roo, r.num, r.fy, r.reception, r.paiement, r.dgp, r.definitive, r.refused);
-                return `($${b + 1},$${b + 2},$${b + 3},$${b + 4},$${b + 5},$${b + 6},$${b + 7},$${b + 8})`;
+                const b = j * 10;
+                values.push(r.roo, r.num, r.fy, r.reception, r.paiement, r.dgp, r.definitive, r.refused, r.mandate_date, r.mandated);
+                return `($${b + 1},$${b + 2},$${b + 3},$${b + 4},$${b + 5},$${b + 6},$${b + 7},$${b + 8},$${b + 9},$${b + 10})`;
             });
             await client.query(
                 `INSERT INTO finance.facture_dgp
-                   (facture_roo, facture_num, fiscal_year, reception_date, paiement_date, dgp, definitive, refused)
+                   (facture_roo, facture_num, fiscal_year, reception_date, paiement_date, dgp, definitive, refused, mandate_date, mandated)
                  VALUES ${placeholders.join(',')}`,
                 values
             );
@@ -209,4 +212,26 @@ async function getDgpStats(opts = {}) {
     };
 }
 
-module.exports = { getDgpStats, getFacturesDgp, refreshFacturesDgpCache };
+/**
+ * Info de mandatement par facture (ROO) depuis le cache : `{ [roo]: { mandate_date, mandated } }`.
+ * Utilisé par /telecom (contour « mandaté » + infobulle date de mandatement de la synthèse mensuelle).
+ */
+async function getMandateInfoByRoos(roos) {
+    const list = Array.from(new Set((roos || []).map(r => String(r || '').trim()).filter(Boolean)));
+    if (list.length === 0) return {};
+    const { rows } = await pool.query(
+        `SELECT facture_roo, mandate_date, mandated
+           FROM finance.facture_dgp WHERE facture_roo = ANY($1)`,
+        [list]
+    );
+    const out = {};
+    for (const r of rows) {
+        out[r.facture_roo] = {
+            mandate_date: r.mandate_date ? new Date(r.mandate_date).toISOString().slice(0, 10) : null,
+            mandated: !!r.mandated,
+        };
+    }
+    return out;
+}
+
+module.exports = { getDgpStats, getFacturesDgp, refreshFacturesDgpCache, getMandateInfoByRoos };

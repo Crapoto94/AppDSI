@@ -3447,6 +3447,10 @@ async function setupPgDb() {
       );
     `);
     await client.query(`CREATE INDEX IF NOT EXISTS idx_facture_dgp_year ON finance.facture_dgp(fiscal_year);`);
+    // Date de mandatement (FI.MANDAT.DATMANDAT) : utilisée par /telecom pour la pastille
+    // « mandaté » de la synthèse mensuelle (contour vert + infobulle date de mandatement).
+    await client.query(`ALTER TABLE finance.facture_dgp ADD COLUMN IF NOT EXISTS mandate_date DATE;`);
+    await client.query(`ALTER TABLE finance.facture_dgp ADD COLUMN IF NOT EXISTS mandated BOOLEAN DEFAULT FALSE;`);
 
     // ── Service Fait validation workflow ──
     await client.query(`
