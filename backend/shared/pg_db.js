@@ -5291,6 +5291,44 @@ async function setupPgDb() {
       )
     `);
 
+    // Configuration du stockage PAR MODULE (mode mixte filesystem / Alfresco).
+    //   backend       : 'filesystem' | 'alfresco' | 'both' (double écriture)
+    //   ged_root_path : chemin racine Alfresco spécifique au module
+    //                   (node UUID ou chemin relatif à Company Home) ; vide = racine globale.
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS hub_docs.module_storage_config (
+        module VARCHAR(50) PRIMARY KEY,
+        backend VARCHAR(20) NOT NULL DEFAULT 'filesystem',
+        ged_root_path VARCHAR(500),
+        updated_by VARCHAR(100),
+        updated_at TIMESTAMPTZ DEFAULT NOW()
+      )
+    `);
+
+    // Journal des bascules/migrations de stockage (FS ↔ GED), avec vérification.
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS hub_docs.ged_migration_log (
+        id SERIAL PRIMARY KEY,
+        module VARCHAR(50) NOT NULL,
+        direction VARCHAR(20) NOT NULL,
+        item_type VARCHAR(30) NOT NULL,
+        item_ref VARCHAR(200) NOT NULL,
+        source_ref TEXT,
+        target_ref TEXT,
+        size_bytes BIGINT,
+        sha256_source VARCHAR(64),
+        sha256_target VARCHAR(64),
+        status VARCHAR(20) NOT NULL,
+        error TEXT,
+        run_id VARCHAR(50),
+        dry_run BOOLEAN DEFAULT FALSE,
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        created_by VARCHAR(100),
+        UNIQUE (module, direction, item_type, item_ref, run_id)
+      )
+    `);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_ged_migration_run ON hub_docs.ged_migration_log(run_id)`);
+
     // ─── hub_stocks — Module de gestion des stocks ───────────────
     await client.query('CREATE SCHEMA IF NOT EXISTS hub_stocks;');
 

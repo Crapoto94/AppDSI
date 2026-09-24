@@ -18,6 +18,15 @@ router.get('/storage-config', authenticateAdminUI, ctrl.getStorageConfig);
 router.post('/storage-config', authenticateAdminUI, ctrl.saveStorageConfig);
 router.post('/storage-test', authenticateAdminUI, ctrl.testStorage);
 
+// Configuration du stockage PAR MODULE (filesystem / alfresco / both)
+router.get('/module-storage', authenticateAdminUI, ctrl.listModuleStorage);
+router.get('/module-storage/:module', authenticateAdminUI, ctrl.getModuleStorage);
+router.put('/module-storage/:module', authenticateAdminUI, ctrl.saveModuleStorage);
+
+// Bascule de stockage FS ↔ GED (avec vérification)
+router.post('/migrate', authenticateAdminUI, ctrl.runMigration);
+router.get('/migrate/status', authenticateAdminUI, ctrl.migrationStatus);
+
 // Explorateur du stockage filesystem (admin)
 router.get('/storage/browse', authenticateAdminUI, ctrl.browseStorage);
 router.get('/storage/file', authenticateAdminUI, ctrl.downloadStorage);

@@ -1,59 +1,109 @@
 /**
  * Sélecteur d'adaptateur de stockage documentaire.
  *
- * Choix du backend lu depuis SQLite (setting "documents.backend").
- * Valeurs supportées : 'smb' (défaut), 'alfresco' (stub).
+ * Le backend est déterminé PAR MODULE via la table PostgreSQL
+ * `hub_docs.module_storage_config(module, backend, ged_root_path, …)` :
+ *   - 'filesystem' : stockage local / SMB (storage.js)
+ *   - 'alfresco'   : GED Alfresco uniquement
+ *   - 'both'       : double écriture (local principal + copie Alfresco)
  *
- * L'API exposée par les adaptateurs est volontairement identique, pour que
- * documents.service.js soit totalement agnostique du stockage sous-jacent.
+ * En l'absence de ligne pour un module, on retombe sur le réglage global
+ * historique `documents.backend` (app_settings), puis sur 'filesystem'.
+ *
+ * L'API exposée par les adaptateurs est identique, pour que documents.service.js
+ * soit agnostique du stockage sous-jacent.
  */
-const { getSqlite } = require('../database');
+const { pgDb, getSqlite } = require('../database');
 const smbAdapter = require('./smb_adapter');
 const alfrescoAdapter = require('./alfresco_adapter');
 
-const SETTING_KEY = 'documents.backend';
-let cachedBackend = null;
-let cacheExpires = 0;
+const VALID_BACKENDS = ['filesystem', 'alfresco', 'both'];
+const LEGACY_SETTING_KEY = 'documents.backend';
 const CACHE_TTL_MS = 30 * 1000;
 
-async function readBackendFromDb() {
-    try {
-        const db = getSqlite();
-        const row = await db.get('SELECT value FROM settings WHERE key = ?', [SETTING_KEY]);
-        return (row && row.value) || 'smb';
-    } catch (e) {
-        return 'smb';
-    }
+/** @type {Map<string, {backend:string, expires:number}>} */
+const moduleCache = new Map();
+let legacyCache = { backend: null, expires: 0 };
+
+/** Normalise une valeur de backend (alias 'smb' → 'filesystem'). */
+function normalizeBackend(value) {
+    const v = String(value || '').trim().toLowerCase();
+    if (v === 'smb' || v === 'filesystem' || v === 'fs') return 'filesystem';
+    if (v === 'alfresco' || v === 'ged') return 'alfresco';
+    if (v === 'both' || v === 'les-deux') return 'both';
+    return null;
 }
 
-async function getBackendName() {
-    if (cachedBackend && Date.now() < cacheExpires) return cachedBackend;
-    cachedBackend = await readBackendFromDb();
-    cacheExpires = Date.now() + CACHE_TTL_MS;
-    return cachedBackend;
+async function readLegacyBackend() {
+    if (legacyCache.backend && Date.now() < legacyCache.expires) return legacyCache.backend;
+    let backend = 'filesystem';
+    try {
+        const db = getSqlite();
+        if (db) {
+            const row = await db.get('SELECT setting_value FROM app_settings WHERE setting_key = ?', [LEGACY_SETTING_KEY]);
+            backend = normalizeBackend(row && row.setting_value) || 'filesystem';
+        }
+    } catch { backend = 'filesystem'; }
+    legacyCache = { backend, expires: Date.now() + CACHE_TTL_MS };
+    return backend;
+}
+
+/** Backend configuré pour un module ('filesystem' | 'alfresco' | 'both'). */
+async function getBackendForModule(moduleName, { force = false } = {}) {
+    const key = String(moduleName || '').trim();
+    if (key) {
+        const cached = moduleCache.get(key);
+        if (!force && cached && Date.now() < cached.expires) return cached.backend;
+        try {
+            const row = await pgDb.get(
+                'SELECT backend FROM hub_docs.module_storage_config WHERE module = $1',
+                [key]
+            );
+            const backend = normalizeBackend(row && row.backend);
+            if (backend) {
+                moduleCache.set(key, { backend, expires: Date.now() + CACHE_TTL_MS });
+                return backend;
+            }
+        } catch { /* table absente ou PG indisponible : on retombe sur le global */ }
+    }
+    return await readLegacyBackend();
+}
+
+/** Renvoie l'adaptateur principal d'écriture/lecture pour un module. */
+async function getAdapterForModule(moduleName) {
+    const backend = await getBackendForModule(moduleName);
+    return backend === 'alfresco' ? alfrescoAdapter : smbAdapter;
+}
+
+/** Adaptateur correspondant à un backend nommé (lecture d'une version stockée). */
+function getAdapterByName(name) {
+    return normalizeBackend(name) === 'alfresco' ? alfrescoAdapter : smbAdapter;
 }
 
 async function getAdapter() {
-    const name = await getBackendName();
-    if (name === 'alfresco') return alfrescoAdapter;
-    return smbAdapter;
+    const backend = await readLegacyBackend();
+    return backend === 'alfresco' ? alfrescoAdapter : smbAdapter;
 }
 
-/** Récupère l'adaptateur correspondant à un backend nommé (utile pour servir un fichier d'un backend différent du courant). */
-function getAdapterByName(name) {
-    if (name === 'alfresco') return alfrescoAdapter;
-    return smbAdapter;
+async function getBackendName() {
+    return await readLegacyBackend();
 }
 
-/** Force la relecture du backend (à appeler après changement de configuration). */
+/** Force la relecture (après changement de configuration). */
 function clearCache() {
-    cachedBackend = null;
-    cacheExpires = 0;
+    moduleCache.clear();
+    legacyCache = { backend: null, expires: 0 };
 }
 
 module.exports = {
+    VALID_BACKENDS,
+    normalizeBackend,
     getAdapter,
+    getAdapterForModule,
     getAdapterByName,
+    getBackendForModule,
     getBackendName,
     clearCache,
+    smbAdapter,
+    alfrescoAdapter,
 };

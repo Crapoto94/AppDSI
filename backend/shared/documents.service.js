@@ -14,10 +14,55 @@
  *   version.metadata     : champs propres à cette version (commentaire, sha256, etc.)
  */
 const { pgDb } = require('./database');
-const { getAdapter, getAdapterByName } = require('./document_storage');
+const documentStorage = require('./document_storage');
+const { getAdapterByName } = documentStorage;
 const path = require('path');
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
+
+/**
+ * Écrit un fichier dans le(s) backend(s) configurés pour le module.
+ *   - filesystem : local/SMB uniquement (principal = smb)
+ *   - alfresco   : GED Alfresco uniquement
+ *   - both       : local (principal) + copie Alfresco ; la référence GED est
+ *                  consignée dans les métadonnées de version (alfresco.ref).
+ * @returns {Promise<{storageRef:string, storageBackend:string, versionMetadata:Object}>}
+ */
+async function writeDocumentToStorage(file, { module: moduleName, entityType, entityId }) {
+    const backend = await documentStorage.getBackendForModule(moduleName);
+
+    if (backend === 'alfresco') {
+        const storageRef = await documentStorage.alfrescoAdapter.write(file, { module: moduleName, entityType, entityId });
+        return { storageRef, storageBackend: 'alfresco', versionMetadata: {} };
+    }
+
+    // filesystem ou both → le stockage local est le principal.
+    const storageRef = await documentStorage.smbAdapter.write(file, { module: moduleName, entityType, entityId });
+    const versionMetadata = {};
+    if (backend === 'both') {
+        try {
+            const ref = await documentStorage.alfrescoAdapter.write(file, { module: moduleName, entityType, entityId });
+            versionMetadata.alfresco = { ref };
+        } catch (e) {
+            versionMetadata.alfresco_error = e.message;
+            console.warn(`[DOCS] double écriture Alfresco échouée (${moduleName}):`, e.message);
+        }
+    }
+    return { storageRef, storageBackend: 'smb', versionMetadata };
+}
+
+/** Supprime une version de tous les backends où elle est présente (best-effort). */
+async function deleteVersionStorage(versionRow) {
+    const refs = [];
+    if (versionRow.storage_ref) refs.push({ backend: versionRow.storage_backend, ref: versionRow.storage_ref });
+    const meta = typeof versionRow.metadata === 'string' ? JSON.parse(versionRow.metadata || '{}') : (versionRow.metadata || {});
+    if (meta && meta.alfresco && meta.alfresco.ref && meta.alfresco.ref !== versionRow.storage_ref) {
+        refs.push({ backend: 'alfresco', ref: meta.alfresco.ref });
+    }
+    for (const { backend, ref } of refs) {
+        try { await getAdapterByName(backend).delete(ref); } catch (e) { /* ignore */ }
+    }
+}
 
 function normaliseTitle(file, explicitTitle) {
     if (explicitTitle && String(explicitTitle).trim()) return String(explicitTitle).trim();
@@ -62,8 +107,7 @@ async function uploadDocument({ file, module: moduleName, entityType = 'attachme
     if (!moduleName) throw new Error('module requis');
     if (entityId === undefined || entityId === null) throw new Error('entityId requis');
 
-    const adapter = await getAdapter();
-    const storageRef = await adapter.write(file, { module: moduleName, entityType, entityId });
+    const { storageRef, storageBackend, versionMetadata: extraMeta } = await writeDocumentToStorage(file, { module: moduleName, entityType, entityId });
 
     const docRow = await pgDb.get(
         `INSERT INTO hub_docs.documents (module, entity_type, entity_id, title, current_version, metadata, created_by)
@@ -76,7 +120,7 @@ async function uploadDocument({ file, module: moduleName, entityType = 'attachme
             (document_id, version, filename, original_name, mimetype, size, storage_backend, storage_ref, metadata, uploaded_by)
          VALUES ($1, 1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9) RETURNING *`,
         [docRow.id, file.originalname, file.originalname, file.mimetype || null, file.size || null,
-         adapter.backendName, storageRef, JSON.stringify(versionMetadata || {}), uploadedBy || null]
+         storageBackend, storageRef, JSON.stringify({ ...(versionMetadata || {}), ...extraMeta }), uploadedBy || null]
     );
 
     return { document: rowToDoc(docRow), version: rowToVersion(verRow) };
@@ -93,8 +137,7 @@ async function addVersion(documentId, { file, uploadedBy, metadata = {} } = {}) 
     const doc = await pgDb.get('SELECT * FROM hub_docs.documents WHERE id = $1 AND deleted_at IS NULL', [documentId]);
     if (!doc) throw new Error('Document introuvable');
 
-    const adapter = await getAdapter();
-    const storageRef = await adapter.write(file, { module: doc.module, entityType: doc.entity_type, entityId: doc.entity_id });
+    const { storageRef, storageBackend, versionMetadata: extraMeta } = await writeDocumentToStorage(file, { module: doc.module, entityType: doc.entity_type, entityId: doc.entity_id });
 
     const newVersion = (doc.current_version || 0) + 1;
     await pgDb.run('UPDATE hub_docs.documents SET current_version = $1, updated_at = NOW() WHERE id = $2', [newVersion, doc.id]);
@@ -104,7 +147,7 @@ async function addVersion(documentId, { file, uploadedBy, metadata = {} } = {}) 
             (document_id, version, filename, original_name, mimetype, size, storage_backend, storage_ref, metadata, uploaded_by)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10) RETURNING *`,
         [doc.id, newVersion, file.originalname, file.originalname, file.mimetype || null, file.size || null,
-         adapter.backendName, storageRef, JSON.stringify(metadata || {}), uploadedBy || null]
+         storageBackend, storageRef, JSON.stringify({ ...(metadata || {}), ...extraMeta }), uploadedBy || null]
     );
 
     return rowToVersion(verRow);
@@ -145,8 +188,17 @@ async function readVersion(documentId, versionNumber) {
         : await pgDb.get('SELECT * FROM hub_docs.document_versions WHERE document_id = $1 AND version = $2', [doc.id, doc.current_version]);
     if (!v) return null;
 
-    const adapter = getAdapterByName(v.storage_backend);
-    const f = await adapter.read(v.storage_ref);
+    const primary = getAdapterByName(v.storage_backend);
+    let f = null;
+    try { f = await primary.read(v.storage_ref); } catch (e) { f = null; }
+    if (!f) {
+        // Repli : en mode double écriture, la copie Alfresco peut servir de secours.
+        const meta = typeof v.metadata === 'string' ? JSON.parse(v.metadata || '{}') : (v.metadata || {});
+        const altRef = meta && meta.alfresco && meta.alfresco.ref;
+        if (altRef) {
+            try { f = await getAdapterByName('alfresco').read(altRef); } catch (e) { f = null; }
+        }
+    }
     if (!f) return null;
 
     return {
@@ -228,10 +280,7 @@ async function softDeleteDocument(documentId) {
 async function purgeDocument(documentId) {
     const versions = await pgDb.all('SELECT * FROM hub_docs.document_versions WHERE document_id = $1', [documentId]);
     for (const v of versions) {
-        try {
-            const adapter = getAdapterByName(v.storage_backend);
-            await adapter.delete(v.storage_ref);
-        } catch (e) { /* ignore */ }
+        await deleteVersionStorage(v);
     }
     await pgDb.run('DELETE FROM hub_docs.documents WHERE id = $1', [documentId]);
 }
@@ -240,10 +289,7 @@ async function purgeDocument(documentId) {
 async function deleteVersion(documentId, versionNumber) {
     const v = await pgDb.get('SELECT * FROM hub_docs.document_versions WHERE document_id = $1 AND version = $2', [documentId, versionNumber]);
     if (!v) return;
-    try {
-        const adapter = getAdapterByName(v.storage_backend);
-        await adapter.delete(v.storage_ref);
-    } catch (e) { /* ignore */ }
+    await deleteVersionStorage(v);
     await pgDb.run('DELETE FROM hub_docs.document_versions WHERE id = $1', [v.id]);
     // Recale current_version sur la plus haute restante
     const top = await pgDb.get('SELECT MAX(version) AS v FROM hub_docs.document_versions WHERE document_id = $1', [documentId]);
@@ -273,6 +319,29 @@ async function registerExternalUpload({
         return null;
     }
     const finalTitle = title || originalName || filename || 'document';
+
+    // Double écriture / GED : si le module cible Alfresco (ou les deux) et que
+    // l'appelant a écrit en local, on dépose une copie dans la GED.
+    const moduleBackend = await documentStorage.getBackendForModule(moduleName);
+    const mergedVersionMeta = { ...(versionMetadata || {}) };
+    if ((moduleBackend === 'both' || moduleBackend === 'alfresco')
+        && documentStorage.normalizeBackend(storageBackend) === 'filesystem'
+        && !(mergedVersionMeta.alfresco && mergedVersionMeta.alfresco.ref)) {
+        try {
+            const src = await documentStorage.smbAdapter.read(storageRef);
+            if (src && src.buffer) {
+                const ref = await documentStorage.alfrescoAdapter.write(
+                    { buffer: src.buffer, originalname: originalName || filename || 'fichier', mimetype },
+                    { module: moduleName, entityType, entityId }
+                );
+                mergedVersionMeta.alfresco = { ref, copied: true };
+            }
+        } catch (e) {
+            mergedVersionMeta.alfresco_error = e.message;
+            console.warn(`[DOCS] copie Alfresco échouée (${moduleName}):`, e.message);
+        }
+    }
+
     const existing = await findByTitle(moduleName, entityType, entityId, finalTitle);
 
     if (existing) {
@@ -284,7 +353,7 @@ async function registerExternalUpload({
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10) RETURNING *`,
             [existing.id, newVersion, filename || originalName || 'fichier', originalName || filename || 'fichier',
              mimetype || null, size || null, storageBackend, storageRef,
-             JSON.stringify(versionMetadata || {}), uploadedBy || null]
+             JSON.stringify(mergedVersionMeta), uploadedBy || null]
         );
         return { document: existing, version: rowToVersion(verRow), reused: true };
     }
@@ -300,7 +369,7 @@ async function registerExternalUpload({
          VALUES ($1, 1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9) RETURNING *`,
         [docRow.id, filename || originalName || 'fichier', originalName || filename || 'fichier',
          mimetype || null, size || null, storageBackend, storageRef,
-         JSON.stringify(versionMetadata || {}), uploadedBy || null]
+         JSON.stringify(mergedVersionMeta), uploadedBy || null]
     );
     return { document: rowToDoc(docRow), version: rowToVersion(verRow), reused: false };
 }
