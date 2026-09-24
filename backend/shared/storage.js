@@ -45,6 +45,38 @@ function toStorageRelative(storageRelative) {
     return rel.split('/').filter(seg => seg && seg !== '.' && seg !== '..').join('/');
 }
 
+/** Vrai si la référence désigne un document stocké dans la GED Alfresco (« alf:<nodeId> »). */
+function isAlfrescoRef(ref) {
+    return typeof ref === 'string' && ref.startsWith('alf:');
+}
+
+/**
+ * Backend de stockage configuré pour un module :
+ * 'filesystem' (défaut) | 'alfresco' (GED uniquement) | 'both' (local + copie GED).
+ * Lu dans hub_docs.module_storage_config ; mis en cache 30 s.
+ */
+const _moduleBackendCache = new Map();
+async function getModuleBackend(moduleName) {
+    const key = String(moduleName || '').trim();
+    if (!key) return 'filesystem';
+    const cached = _moduleBackendCache.get(key);
+    if (cached && Date.now() < cached.expires) return cached.backend;
+    let backend = 'filesystem';
+    try {
+        const { pgDb } = require('./database');
+        const row = await pgDb.get('SELECT backend FROM hub_docs.module_storage_config WHERE module = $1', [key]);
+        const v = String((row && row.backend) || '').toLowerCase();
+        if (v === 'alfresco' || v === 'both') backend = v;
+    } catch { /* table absente / PG indisponible : défaut filesystem */ }
+    _moduleBackendCache.set(key, { backend, expires: Date.now() + 30000 });
+    return backend;
+}
+
+/** Force le rechargement du cache des backends par module. */
+function clearModuleBackendCache() {
+    _moduleBackendCache.clear();
+}
+
 /** Racine de repli si aucun chemin n'est configuré : le dossier du backend. */
 function defaultRoot() {
     return path.join(__dirname, '..');
@@ -192,6 +224,20 @@ function resolveAbsolute(root, storageRelative) {
  * @returns {Promise<{ filename, relativePath, dbPath, absolutePath }>}
  */
 async function saveFile(moduleName, id, file) {
+    const backend = await getModuleBackend(moduleName);
+    if (backend === 'alfresco') {
+        // Module configuré « GED Alfresco » : on écrit dans la GED (pas de copie locale).
+        if (file && file.originalname) file.originalname = fixUploadName(file.originalname);
+        const alfrescoAdapter = require('./document_storage/alfresco_adapter');
+        const ref = await alfrescoAdapter.write(file, { module: moduleName, entityType: 'attachment', entityId: id });
+        return {
+            filename: path.basename((file && file.originalname) || 'fichier'),
+            relativePath: ref,
+            dbPath: ref,
+            absolutePath: null,
+            backend: 'alfresco',
+        };
+    }
     const config = await getStorageConfig();
     if (config.backend && config.backend !== 'filesystem') {
         throw new Error(`Backend de stockage "${config.backend}" non encore supporté (filesystem uniquement).`);
@@ -231,6 +277,11 @@ async function saveFile(moduleName, id, file) {
 /** Supprime un fichier référencé par son chemin BD (préfixe "storage/"). */
 async function deleteFile(dbPath) {
     if (!dbPath) return;
+    if (isAlfrescoRef(dbPath)) {
+        const alfrescoAdapter = require('./document_storage/alfresco_adapter');
+        try { await alfrescoAdapter.delete(dbPath); } catch (e) { /* ignore */ }
+        return;
+    }
     const config = await getStorageConfig();
     if (isSmbConfig(config)) {
         try { await smb.deleteRel(config, toStorageRelative(dbPath)); } catch (e) { /* ignore */ }
@@ -245,6 +296,7 @@ async function deleteFile(dbPath) {
 
 /** Renvoie le chemin absolu d'un fichier (pour streaming), ou null. (FS uniquement) */
 async function getAbsolutePath(storageRelative) {
+    if (isAlfrescoRef(storageRelative)) return null; // pas de chemin local pour la GED
     const config = await getStorageConfig();
     if (isSmbConfig(config)) return null; // pas de chemin local en mode SMB
     const root = resolveRoot(config);
@@ -258,6 +310,11 @@ async function getAbsolutePath(storageRelative) {
  * Renvoie null si le fichier est introuvable.
  */
 async function getFileForServe(storageRelative) {
+    if (isAlfrescoRef(storageRelative)) {
+        const alfrescoAdapter = require('./document_storage/alfresco_adapter');
+        try { return await alfrescoAdapter.read(storageRelative); }
+        catch (e) { console.error('[STORAGE] lecture Alfresco échouée:', e.message); return null; }
+    }
     const config = await getStorageConfig();
     const rel = toStorageRelative(storageRelative);
     if (isSmbConfig(config)) {
@@ -279,9 +336,10 @@ async function getFileForServe(storageRelative) {
     return { absolutePath: abs, filename: path.basename(abs) };
 }
 
-/** Vrai si un chemin BD relève du nouveau stockage (préfixe "storage/"). */
+/** Vrai si un chemin BD relève du nouveau stockage (préfixe "storage/" ou référence GED "alf:"). */
 function isStoragePath(dbPath) {
-    return typeof dbPath === 'string' && dbPath.replace(/\\/g, '/').startsWith(STORAGE_PREFIX + '/');
+    if (typeof dbPath !== 'string') return false;
+    return dbPath.replace(/\\/g, '/').startsWith(STORAGE_PREFIX + '/') || isAlfrescoRef(dbPath);
 }
 
 // ─── Explorateur filesystem (admin) ──────────────────────────────────────────
@@ -486,6 +544,9 @@ module.exports = {
     resolveAbsolute,
     resolveRoot,
     isStoragePath,
+    isAlfrescoRef,
+    getModuleBackend,
+    clearModuleBackendCache,
     isSmbConfig,
     testAccess,
     sanitizeSegment,

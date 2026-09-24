@@ -75,7 +75,6 @@ exports.getConfig = async (req, res) => {
       username,
       hasPassword: !!password,
       rootPath: rootPath || '',
-      defaultRoot: alfresco.DEFAULT_ROOT,
     });
   } catch (err) {
     console.error('[GED getConfig ERROR]', err.message);
@@ -159,7 +158,6 @@ exports.listModuleStorage = async (req, res) => {
     const byModule = new Map(rows.map((r) => [r.module, r]));
     const modules = Array.from(new Set([...usedModules, ...rows.map((r) => r.module)]));
     res.json({
-      defaultRoot: alfresco.DEFAULT_ROOT,
       modules: modules.map((m) => {
         const c = byModule.get(m);
         return {
@@ -210,6 +208,7 @@ exports.saveModuleStorage = async (req, res) => {
       [module, backend, rootPath, username]
     );
     documentStorage.clearCache();
+    storage.clearModuleBackendCache();
     res.json({ success: true, module, backend, ged_root_path: rootPath });
   } catch (err) {
     console.error('[GED saveModuleStorage ERROR]', err.message);
@@ -415,6 +414,48 @@ exports.testConnection = async (req, res) => {
   }
 };
 
+// Renvoie la racine GED configurée (utilisée par l'explorateur Alfresco).
+exports.getRoot = async (req, res) => {
+  try {
+    const cfg = await alfresco.getConfig();
+    const root = await alfresco.getRoot(cfg);
+    res.json({ success: true, root });
+  } catch (err) {
+    console.error('[GED getRoot ERROR]', err.message);
+    res.status(500).json({ error: err.message });
+  }
+};
+
+// Dépose un document (généré ou fourni) dans la racine GED, pour vérification dans Alfresco.
+exports.testUpload = async (req, res) => {
+  try {
+    const cfg = await alfresco.getConfig();
+    alfresco.assertConfigured(cfg);
+
+    let name, buffer, mime;
+    if (req.file && req.file.buffer) {
+      name = req.file.originalname || 'document';
+      buffer = req.file.buffer;
+      mime = req.file.mimetype || 'application/octet-stream';
+    } else {
+      const stamp = new Date().toISOString();
+      name = `test-dsihub-${stamp.replace(/[:.]/g, '-')}.txt`;
+      buffer = Buffer.from(
+        `Document de test déposé depuis /admin/ged\nDate : ${stamp}\nRacine configurée : ${cfg.rootPath}\n`,
+        'utf8'
+      );
+      mime = 'text/plain';
+    }
+
+    const r = await alfresco.depositToRoot(cfg, { name, buffer, mime, description: 'Document de test déposé depuis /admin/ged' });
+    console.log(`[GED testUpload] "${name}" → node ${r.nodeId} (racine ${r.root?.name || r.root?.id})`);
+    res.json({ success: true, name, nodeId: r.nodeId, versionLabel: r.versionLabel, root: r.root });
+  } catch (err) {
+    console.error('[GED testUpload ERROR]', err.message);
+    res.status(500).json({ error: err.message });
+  }
+};
+
 exports.getNode = async (req, res) => {
   try {
     const { url, username, password } = await loadAlfrescoConfig();
@@ -430,10 +471,40 @@ exports.getNode = async (req, res) => {
   }
 };
 
+exports.listSites = async (req, res) => {
+  try {
+    const cfg = await loadAlfrescoConfig();
+    const { sites, attempts } = await alfresco.listSitesDiagnostic(cfg);
+    res.json({ sites, attempts });
+  } catch (err) {
+    const error = describeAxiosError(err, 'listSites');
+    console.error('[GED listSites ERROR]', error);
+    res.status(500).json({ error });
+  }
+};
+
 exports.listChildren = async (req, res) => {
   try {
-    const { url, username, password } = await loadAlfrescoConfig();
     const { nodeId } = req.params;
+    const cfg = await loadAlfrescoConfig();
+
+    // Conteneur virtuel « Sites » : liste les sites Alfresco.
+    if (nodeId === 'site-container') {
+      const sites = await alfresco.listSites(cfg);
+      const entries = sites.map(s => ({ entry: { id: `site:${s.id}`, name: s.title || s.id, isFolder: true, nodeType: 'st:site' } }));
+      return res.json({ list: { entries, pagination: { count: entries.length, hasMoreItems: false } } });
+    }
+
+    // Site virtuel « site:<id> » : renvoie son documentLibrary comme dossier unique.
+    if (nodeId.startsWith('site:')) {
+      const siteId = nodeId.slice('site:'.length);
+      const libId = await alfresco.getSiteDocumentLibrary(cfg, siteId);
+      if (!libId) return res.status(404).json({ error: `Site « ${siteId} » ou documentLibrary introuvable.` });
+      const entries = [{ entry: { id: libId, name: 'documentLibrary', isFolder: true, nodeType: 'cm:folder' } }];
+      return res.json({ list: { entries, pagination: { count: 1, hasMoreItems: false } } });
+    }
+
+    const { url, username, password } = cfg;
     const { maxItems = 200, skipCount = 0 } = req.query;
     const r = await axios.get(
       `${alfrescoBase(url)}/nodes/${nodeId}/children?include=properties,path&orderBy=isFolder DESC,name ASC&maxItems=${maxItems}&skipCount=${skipCount}`,

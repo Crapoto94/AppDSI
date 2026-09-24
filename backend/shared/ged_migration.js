@@ -98,7 +98,12 @@ async function handleVersion(v, dir, dryRun, runId, createdBy, report) {
         }
         try {
             const buf = await readRef('filesystem', v.storage_ref);
-            if (!buf) throw new Error('Fichier source introuvable');
+            if (!buf) {
+                report.missing = (report.missing || 0) + 1;
+                report.items.push({ ...base, status: 'manquant' });
+                await logItem({ ...base, status: 'manquant', sourceRef: v.storage_ref, error: 'Fichier source introuvable' });
+                return;
+            }
             const { targetRef, srcHash, targetHash, verified } = await copyAndVerify({
                 buffer: buf, direction: dir, ...target, originalname: v.original_name, mimetype: v.mimetype,
             });
@@ -131,7 +136,12 @@ async function handleVersion(v, dir, dryRun, runId, createdBy, report) {
     }
     try {
         const buf = await readRef('alfresco', srcRef);
-        if (!buf) throw new Error('Fichier GED introuvable');
+        if (!buf) {
+            report.missing = (report.missing || 0) + 1;
+            report.items.push({ ...base, status: 'manquant', sourceRef: srcRef });
+            await logItem({ ...base, status: 'manquant', sourceRef: srcRef, error: 'Fichier GED introuvable' });
+            return;
+        }
         const { targetRef, srcHash, targetHash, verified } = await copyAndVerify({
             buffer: buf, direction: dir, ...target, originalname: v.original_name, mimetype: v.mimetype,
         });
@@ -182,7 +192,12 @@ async function handleOrphanFile(file, dir, dryRun, runId, createdBy, report, kno
     try {
         const f = await storage.getFileForServe(file.dbPath);
         const buf = f && f.buffer ? f.buffer : (f && f.absolutePath ? fs.readFileSync(f.absolutePath) : null);
-        if (!buf) throw new Error('Fichier introuvable');
+        if (!buf) {
+            report.missing = (report.missing || 0) + 1;
+            report.items.push({ ...base, status: 'manquant' });
+            await logItem({ ...base, status: 'manquant', sourceRef: file.dbPath, error: 'Fichier introuvable' });
+            return;
+        }
         const { targetRef, srcHash, targetHash, verified } = await copyAndVerify({
             buffer: buf, direction: dir, module: parts[0], entityType: 'storage', entityId, originalname: path.basename(file.relPath),
         });
@@ -221,7 +236,12 @@ async function handleLegacyRow(row, src, dir, dryRun, runId, createdBy, report) 
             const found = candidates.find((p) => { try { return fs.existsSync(p) && fs.statSync(p).isFile(); } catch { return false; } });
             if (found) buf = fs.readFileSync(found);
         }
-        if (!buf) throw new Error('Fichier source introuvable');
+        if (!buf) {
+            report.missing = (report.missing || 0) + 1;
+            report.items.push({ ...base, status: 'manquant', sourceRef: filePath });
+            await logItem({ ...base, status: 'manquant', sourceRef: filePath, error: 'Fichier source introuvable' });
+            return;
+        }
         const originalname = path.basename(filePath);
         const { targetRef, srcHash, targetHash, verified } = await copyAndVerify({
             buffer: buf, direction: dir, module: src.module, entityType: 'legacy', entityId: row[src.idCol], originalname,
@@ -251,7 +271,7 @@ async function handleLegacyRow(row, src, dir, dryRun, runId, createdBy, report) 
 async function runMigration({ module, direction, dryRun = false, includeStorage = true, includeLegacy = true, createdBy = null }) {
     const dir = direction === 'ged2fs' ? 'ged2fs' : 'fs2ged';
     const runId = newRunId();
-    const report = { runId, module, direction: dir, dryRun, scanned: 0, planned: 0, migrated: 0, skipped: 0, errors: [], items: [] };
+    const report = { runId, module, direction: dir, dryRun, scanned: 0, planned: 0, migrated: 0, skipped: 0, missing: 0, errors: [], items: [] };
 
     // 1. Versions hub_docs du module
     const versions = await pgDb.all(

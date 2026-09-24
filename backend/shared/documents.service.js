@@ -324,7 +324,12 @@ async function registerExternalUpload({
     // l'appelant a écrit en local, on dépose une copie dans la GED.
     const moduleBackend = await documentStorage.getBackendForModule(moduleName);
     const mergedVersionMeta = { ...(versionMetadata || {}) };
-    if ((moduleBackend === 'both' || moduleBackend === 'alfresco')
+    let effectiveBackend = storageBackend;
+    if (documentStorage.isAlfrescoRef(storageRef)) {
+        // Le fichier a déjà été écrit dans la GED (module « alfresco ») : rien à copier.
+        effectiveBackend = 'alfresco';
+        mergedVersionMeta.alfresco = { ref: storageRef };
+    } else if ((moduleBackend === 'both' || moduleBackend === 'alfresco')
         && documentStorage.normalizeBackend(storageBackend) === 'filesystem'
         && !(mergedVersionMeta.alfresco && mergedVersionMeta.alfresco.ref)) {
         try {
@@ -352,7 +357,7 @@ async function registerExternalUpload({
                 (document_id, version, filename, original_name, mimetype, size, storage_backend, storage_ref, metadata, uploaded_by)
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10) RETURNING *`,
             [existing.id, newVersion, filename || originalName || 'fichier', originalName || filename || 'fichier',
-             mimetype || null, size || null, storageBackend, storageRef,
+             mimetype || null, size || null, effectiveBackend, storageRef,
              JSON.stringify(mergedVersionMeta), uploadedBy || null]
         );
         return { document: existing, version: rowToVersion(verRow), reused: true };
@@ -368,7 +373,7 @@ async function registerExternalUpload({
             (document_id, version, filename, original_name, mimetype, size, storage_backend, storage_ref, metadata, uploaded_by)
          VALUES ($1, 1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9) RETURNING *`,
         [docRow.id, filename || originalName || 'fichier', originalName || filename || 'fichier',
-         mimetype || null, size || null, storageBackend, storageRef,
+         mimetype || null, size || null, effectiveBackend, storageRef,
          JSON.stringify(mergedVersionMeta), uploadedBy || null]
     );
     return { document: rowToDoc(docRow), version: rowToVersion(verRow), reused: false };

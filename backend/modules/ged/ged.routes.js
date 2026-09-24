@@ -12,6 +12,9 @@ const upload = multer({
 router.get('/config', authenticateAdminUI, ctrl.getConfig);
 router.post('/config', authenticateAdminUI, ctrl.saveConfig);
 router.post('/test-connection', authenticateAdminUI, ctrl.testConnection);
+router.post('/test-upload', authenticateAdminUI, upload.single('file'), ctrl.testUpload);
+router.get('/root', authenticateAdminUI, ctrl.getRoot);
+router.get('/sites', authenticateAdminUI, ctrl.listSites);
 
 // Configuration du stockage de documents (filesystem / ged)
 router.get('/storage-config', authenticateAdminUI, ctrl.getStorageConfig);

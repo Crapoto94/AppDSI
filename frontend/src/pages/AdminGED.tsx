@@ -13,7 +13,7 @@ interface AlfrescoNode {
   name: string;
   isFolder: boolean;
   nodeType: string;
-  modifiedAt: string;
+  modifiedAt?: string;
   modifiedByUser?: { displayName: string };
   content?: { sizeInBytes: number; mimeType: string };
 }
@@ -67,6 +67,7 @@ interface GedMigrationRunReport {
   planned: number;
   migrated: number;
   skipped: number;
+  missing: number;
   errors: { itemRef?: string; error: string }[];
   items: GedMigrationItem[];
 }
@@ -109,6 +110,7 @@ function GedMigrationReport({ result }: { result: { direction: string; dryRun: b
         <span>À copier : <strong>{r.planned ?? 0}</strong></span>
         <span>Copiés vérifiés : <strong>{r.migrated ?? 0}</strong></span>
         <span>Ignorés : <strong>{r.skipped ?? 0}</strong></span>
+        <span>Manquants : <strong>{r.missing ?? 0}</strong></span>
         <span style={{ color: errors.length ? '#b91c1c' : '#16a34a' }}>Erreurs : <strong>{errors.length}</strong></span>
       </div>
       {Array.isArray(r.items) && r.items.length > 0 && (
@@ -165,20 +167,24 @@ const AdminGED: React.FC = () => {
   const [configSaving, setConfigSaving] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('unknown');
   const [connectionMsg, setConnectionMsg] = useState('');
+  const [pushBusy, setPushBusy] = useState(false);
+  const [pushMsg, setPushMsg] = useState('');
+  const [pushOk, setPushOk] = useState<boolean | null>(null);
+  const pushFileRef = useRef<HTMLInputElement>(null);
 
   // Stockage par module (filesystem / alfresco / both) + bascule
   interface ModuleStorageRow { module: string; backend: string; ged_root_path: string; updated_by?: string | null; updated_at?: string | null }
   const [moduleRows, setModuleRows] = useState<ModuleStorageRow[]>([]);
   const [moduleDraft, setModuleDraft] = useState<Record<string, { backend: string; ged_root_path: string }>>({});
   const [modulesLoading, setModulesLoading] = useState(true);
-  const [modulesDefaultRoot, setModulesDefaultRoot] = useState('DSIHUB');
   const [moduleSaving, setModuleSaving] = useState<string | null>(null);
   const [migBusy, setMigBusy] = useState<string | null>(null);
   const [migResult, setMigResult] = useState<{ module: string; direction: string; dryRun: boolean; report: GedMigrationRunReport } | null>(null);
   const [migResultError, setMigResultError] = useState('');
 
   // Explorer state
-  const [breadcrumb, setBreadcrumb] = useState<BreadcrumbItem[]>([{ id: ROOT_NODE, name: 'Company Home' }]);
+  const [breadcrumb, setBreadcrumb] = useState<BreadcrumbItem[]>([{ id: ROOT_NODE, name: 'Entrepôt' }]);
+  const [exploBackend, setExploBackend] = useState<'filesystem' | 'alfresco'>('filesystem');
   const [nodes, setNodes] = useState<AlfrescoNode[]>([]);
   const [explorerLoading, setExplorerLoading] = useState(false);
   const [explorerError, setExplorerError] = useState('');
@@ -189,26 +195,56 @@ const AdminGED: React.FC = () => {
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Sites Alfresco (pour le sélecteur de racine GED)
+  const [sites, setSites] = useState<{ id: string; title: string }[]>([]);
+  const [sitesLoading, setSitesLoading] = useState(false);
+  const [sitesAttempts, setSitesAttempts] = useState<any[]>([]);
+
   const currentNodeId = breadcrumb[breadcrumb.length - 1].id;
 
+  // Site Alfresco sélectionné, déduit de la racine configurée (« site:xxx », « /Sites/xxx/... » ou « xxx »).
+  const selectedSiteId = (() => {
+    const r = (cfgRoot || '').trim();
+    if (!r) return '';
+    const m = /^site:(.+)$/i.exec(r) || /^\/?Sites\/([^/]+)/i.exec(r);
+    const id = m ? m[1] : r;
+    return sites.some(s => s.id === id) ? id : '';
+  })();
+
+  // Chargement de la configuration : dépend du token (AuthContext le pose après le
+  // premier rendu ; sans ça la requête partait sans jeton → 401 → formulaires vides).
   useEffect(() => {
+    if (!token) return;
+    let cancelled = false;
+
     axios.get('/api/ged/config', { headers }).then(r => {
+      if (cancelled) return;
       setCfgUrl(r.data.url || '');
       setCfgUser(r.data.username || '');
       setCfgRoot(r.data.rootPath || '');
-      setModulesDefaultRoot(r.data.defaultRoot || 'DSIHUB');
-      if (r.data.hasPassword) setCfgPass('••••••••');
-    }).finally(() => setConfigLoading(false));
+      setCfgPass(r.data.hasPassword ? '••••••••' : '');
+    }).catch(() => { /* laisse les champs vides et signale via le test de connexion */ })
+      .finally(() => { if (!cancelled) setConfigLoading(false); });
 
     axios.get('/api/ged/storage-config', { headers }).then(r => {
+      if (cancelled) return;
       setStoBackend(r.data.backend === 'ged' ? 'ged' : 'filesystem');
       setStoRoot(r.data.root_path || '');
       setStoLogin(r.data.login || '');
       setStoDomain(r.data.domain || '');
       setStoSmbMode(!!r.data.smbMode);
-      if (r.data.hasPassword) setStoPass('••••••••');
-    }).finally(() => setStoLoading(false));
-  }, []);
+      setStoPass(r.data.hasPassword ? '••••••••' : '');
+    }).catch(() => { /* idem */ })
+      .finally(() => { if (!cancelled) setStoLoading(false); });
+
+    setSitesLoading(true);
+    axios.get('/api/ged/sites', { headers })
+      .then(r => { if (!cancelled) { setSites(r.data?.sites || []); setSitesAttempts(r.data?.attempts || []); } })
+      .catch(() => { if (!cancelled) { setSites([]); setSitesAttempts([]); } })
+      .finally(() => { if (!cancelled) setSitesLoading(false); });
+
+    return () => { cancelled = true; };
+  }, [token]);
 
   const saveStorageConfig = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -323,13 +359,38 @@ const AdminGED: React.FC = () => {
     }
   };
 
+  const pushTestDocument = async (file?: File) => {
+    setPushBusy(true);
+    setPushMsg('');
+    setPushOk(null);
+    try {
+      let r;
+      if (file) {
+        const fd = new FormData();
+        fd.append('file', file);
+        r = await axios.post('/api/ged/test-upload', fd, { headers: { Authorization: `Bearer ${token}` } });
+      } else {
+        r = await axios.post('/api/ged/test-upload', {}, { headers });
+      }
+      setPushOk(true);
+      setPushMsg(`Déposé : « ${r.data.name} » (nœud ${String(r.data.nodeId).slice(0, 8)}…) dans « ${r.data.root?.name || r.data.root?.id} »${r.data.root?.path ? ` — ${r.data.root.path}` : ''}`);
+    } catch (err) {
+      setPushOk(false);
+      const msg = axios.isAxiosError(err) ? (err.response?.data?.error || err.message) : 'Erreur lors du dépôt';
+      setPushMsg(typeof msg === 'string' ? msg : 'Erreur lors du dépôt');
+    } finally {
+      setPushBusy(false);
+      if (pushFileRef.current) pushFileRef.current.value = '';
+    }
+  };
+
   const loadModules = useCallback(async () => {
+    if (!token) return;
     setModulesLoading(true);
     try {
       const r = await axios.get('/api/ged/module-storage', { headers });
       const rows: ModuleStorageRow[] = r.data?.modules || [];
       setModuleRows(rows);
-      if (r.data?.defaultRoot) setModulesDefaultRoot(r.data.defaultRoot);
       setModuleDraft(Object.fromEntries(rows.map(m => [m.module, { backend: m.backend || 'filesystem', ged_root_path: m.ged_root_path || '' }])));
     } catch {
       setModuleRows([]);
@@ -374,11 +435,12 @@ const AdminGED: React.FC = () => {
   useEffect(() => { loadModules(); }, [loadModules]);
 
   const loadFolder = useCallback(async (nodeId: string) => {
+    if (exploBackend === 'alfresco' && !nodeId) { setNodes([]); setExplorerLoading(false); return; }
     setExplorerLoading(true);
     setExplorerError('');
     setNodes([]);
     try {
-      if (stoBackend === 'filesystem') {
+      if (exploBackend === 'filesystem') {
         const r = await axios.get('/api/ged/storage/browse', { headers, params: { path: nodeId } });
         const entries: AlfrescoNode[] = (r.data?.entries || []).map((e: { name: string; relPath: string; isFolder: boolean; size: number | null; modifiedAt: string }) => ({
           id: e.relPath,
@@ -391,7 +453,14 @@ const AdminGED: React.FC = () => {
         setNodes(entries);
       } else {
         const r = await axios.get(`/api/ged/nodes/${nodeId}/children`, { headers });
-        setNodes(r.data?.list?.entries?.map((e: { entry: AlfrescoNode }) => e.entry) || []);
+        let entries: AlfrescoNode[] = r.data?.list?.entries?.map((e: { entry: AlfrescoNode }) => e.entry) || [];
+        if (nodeId === ROOT_NODE) {
+          // À la racine de l'entrepôt, on ajoute un accès « Sites » (API virtuelle) :
+          // l'API /children d'Alfresco ne liste pas les sites de façon exploitable.
+          entries = entries.filter(e => (e.name || '').toLowerCase() !== 'sites');
+          entries = [{ id: 'site-container', name: 'Sites', isFolder: true, nodeType: 'st:siteContainer' }, ...entries];
+        }
+        setNodes(entries);
       }
     } catch (err) {
       const msg = axios.isAxiosError(err) ? (err.response?.data?.error || err.message) : 'Erreur inconnue';
@@ -399,14 +468,37 @@ const AdminGED: React.FC = () => {
     } finally {
       setExplorerLoading(false);
     }
-  }, [token, stoBackend]);
+  }, [token, exploBackend]);
 
-  // Réinitialise la racine de l'explorateur selon le backend actif
+  // Réinitialise la racine de l'explorateur selon le backend actif.
+  // En Alfresco, on ouvre directement le dossier racine GED configuré
+  // (ex. Entrepôt › Sites › dsi-hub › documentLibrary), « Entrepôt » restant en parent
+  // pour remonter jusqu'à la racine du dépôt.
   useEffect(() => {
-    setBreadcrumb(stoBackend === 'filesystem'
-      ? [{ id: '', name: 'Stockage' }]
-      : [{ id: ROOT_NODE, name: 'Company Home' }]);
-  }, [stoBackend]);
+    if (exploBackend === 'filesystem') {
+      setBreadcrumb([{ id: '', name: 'Stockage' }]);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const r = await axios.get('/api/ged/root', { headers });
+        if (cancelled) return;
+        const root = r.data?.root;
+        setExplorerError('');
+        setBreadcrumb([
+          { id: ROOT_NODE, name: 'Entrepôt' },
+          { id: root.id, name: root.name || 'GED' },
+        ]);
+      } catch (err) {
+        if (cancelled) return;
+        const msg = axios.isAxiosError(err) ? (err.response?.data?.error || err.message) : 'Erreur';
+        setExplorerError(typeof msg === 'string' ? msg : 'Erreur de résolution de la racine GED');
+        setBreadcrumb([{ id: ROOT_NODE, name: 'Entrepôt' }]);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [exploBackend, token]);
 
   useEffect(() => {
     if (tab === 'explorer') loadFolder(currentNodeId);
@@ -424,7 +516,7 @@ const AdminGED: React.FC = () => {
   const createFolder = async () => {
     if (!newFolderName.trim()) return;
     try {
-      if (stoBackend === 'filesystem') {
+      if (exploBackend === 'filesystem') {
         await axios.post('/api/ged/storage/folder', { path: currentNodeId, name: newFolderName.trim() }, { headers });
       } else {
         await axios.post(`/api/ged/nodes/${currentNodeId}/folder`, { name: newFolderName.trim() }, { headers });
@@ -447,7 +539,7 @@ const AdminGED: React.FC = () => {
       const form = new FormData();
       form.append('file', file);
       try {
-        if (stoBackend === 'filesystem') {
+        if (exploBackend === 'filesystem') {
           await axios.post('/api/ged/storage/upload', form, {
             headers: { ...headers, 'Content-Type': 'multipart/form-data' },
             params: { path: currentNodeId }
@@ -473,7 +565,7 @@ const AdminGED: React.FC = () => {
     if (!window.confirm(`Supprimer ${label} ?`)) return;
     setDeletingId(node.id);
     try {
-      if (stoBackend === 'filesystem') {
+      if (exploBackend === 'filesystem') {
         await axios.delete('/api/ged/storage/node', { headers, params: { path: node.id } });
       } else {
         await axios.delete(`/api/ged/nodes/${node.id}`, { headers });
@@ -486,18 +578,28 @@ const AdminGED: React.FC = () => {
     }
   };
 
-  const downloadFile = (node: AlfrescoNode) => {
-    const link = document.createElement('a');
-    if (stoBackend === 'filesystem') {
+  const downloadFile = async (node: AlfrescoNode) => {
+    if (exploBackend === 'filesystem') {
       // Servi par la route statique publique /storage/*
+      const link = document.createElement('a');
       link.href = `/storage/${node.id.split('/').map(encodeURIComponent).join('/')}`;
-    } else {
-      link.href = `/api/ged/nodes/${node.id}/content`;
+      link.setAttribute('download', node.name);
+      link.click();
+      return;
     }
-    link.setAttribute('download', node.name);
-    // Pass the token via a temporary anchor click — not ideal but simple
-    // For production, use short-lived signed URLs or a proxy that accepts the JWT as query param
-    link.click();
+    // Alfresco : la route exige le JWT, on télécharge via axios (blob).
+    try {
+      const r = await axios.get(`/api/ged/nodes/${node.id}/content`, { headers, responseType: 'blob' });
+      const url = URL.createObjectURL(r.data);
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', node.name);
+      link.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      const msg = axios.isAxiosError(err) ? (err.response?.data?.error || err.message) : 'Erreur';
+      alert(`Téléchargement impossible : ${typeof msg === 'string' ? msg : ''}`);
+    }
   };
 
   const folders = nodes.filter(n => n.isFolder);
@@ -860,7 +962,7 @@ const AdminGED: React.FC = () => {
                         type="text"
                         value={draft.ged_root_path}
                         onChange={e => setModuleDraft(d => ({ ...d, [m.module]: { ...draft, ged_root_path: e.target.value } }))}
-                        placeholder={`Racine GED (défaut : ${modulesDefaultRoot})`}
+                        placeholder="Racine GED (vide = racine globale ; ex. site:NomSite)"
                         style={{ ...inputStyle, flex: 1, minWidth: 220 }}
                       />
                       <button onClick={() => saveModuleStorage(m.module)} disabled={!changed || moduleSaving === m.module} style={btnPrimary}>
@@ -954,17 +1056,39 @@ const AdminGED: React.FC = () => {
                   </div>
                 </label>
                 <label style={labelStyle}>
-                  <span>Dossier racine de la GED (DSIHUB)</span>
+                  <span>Site Alfresco (racine GED)</span>
+                  <select
+                    value={selectedSiteId}
+                    onChange={e => { const v = e.target.value; if (v) setCfgRoot(`site:${v}`); }}
+                    style={inputStyle}
+                    disabled={sitesLoading}
+                  >
+                    <option value="">{sitesLoading ? 'Chargement des sites…' : (sites.length ? '— Sélectionner un site —' : '— Aucun site détecté —')}</option>
+                    {sites.map(s => <option key={s.id} value={s.id}>{s.title} ({s.id})</option>)}
+                  </select>
+                  <small style={{ color: '#94a3b8' }}>
+                    Emplacement : <code style={codeStyle}>Entrepôt › Sites › {selectedSiteId || '<site>'} › documentLibrary</code>
+                    {!sitesLoading && sites.length === 0 && (
+                      <> — aucun site listé : le site est privé et le compte de service n'en est pas membre. Ajoutez-le comme membre dans Alfresco, ou saisissez l'identifiant ci-dessous.</>
+                    )}
+                  </small>
+                  {!sitesLoading && sites.length === 0 && sitesAttempts.length > 0 && (
+                    <pre style={{ margin: '4px 0 0', fontSize: '0.68rem', color: '#94a3b8', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 6, padding: 8, overflow: 'auto', maxHeight: 140 }}>
+{JSON.stringify(sitesAttempts, null, 2)}
+                    </pre>
+                  )}
+                </label>
+                <label style={labelStyle}>
+                  <span>Racine GED (avancé)</span>
                   <input
                     type="text"
                     value={cfgRoot}
                     onChange={e => setCfgRoot(e.target.value)}
-                    placeholder={`${modulesDefaultRoot}  ou  Sites/archives/documentLibrary/${modulesDefaultRoot}  ou  <nodeId>`}
+                    placeholder="site:dsi-hub  ·  /Sites/dsi-hub/documentLibrary  ·  <nodeId>"
                     style={inputStyle}
                   />
                   <small style={{ color: '#94a3b8' }}>
-                    Dossier sous « Company Home » où DSIHUB dépose ses documents (au même niveau que « delib », « parapheur »…).
-                    Laissez vide pour utiliser « {modulesDefaultRoot} ». Créé automatiquement s'il n'existe pas.
+                    Rempli par le sélecteur de site ; modifiable (chemin sous Company Home ou identifiant de nœud). <strong>Obligatoire</strong> : créé automatiquement s'il n'existe pas.
                   </small>
                 </label>
                 <div style={{ display: 'flex', gap: 10, marginTop: 4 }}>
@@ -991,6 +1115,40 @@ const AdminGED: React.FC = () => {
                     </span>
                   </div>
                 )}
+
+                {/* Dépôt d'un document de test dans la GED */}
+                <div style={{ borderTop: '1px solid #f1f5f9', paddingTop: 16, marginTop: 4, display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  <div style={{ fontSize: '0.82rem', color: '#64748b' }}>
+                    Vérifier le dépôt dans Alfresco (racine : <code style={codeStyle}>{cfgRoot || 'non configurée'}</code>).
+                  </div>
+                  <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                    <button type="button" onClick={() => pushTestDocument()} disabled={pushBusy} style={btnSecondary}>
+                      {pushBusy ? <Loader size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <Upload size={14} />}
+                      Déposer un document de test
+                    </button>
+                    <button type="button" onClick={() => pushFileRef.current?.click()} disabled={pushBusy} style={btnSecondary}>
+                      <Upload size={14} /> Choisir un fichier…
+                    </button>
+                    <input
+                      ref={pushFileRef}
+                      type="file"
+                      style={{ display: 'none' }}
+                      onChange={e => { const f = e.target.files?.[0]; if (f) pushTestDocument(f); }}
+                    />
+                  </div>
+                  {pushMsg && (
+                    <div style={{
+                      display: 'flex', alignItems: 'flex-start', gap: 10, padding: '12px 14px', borderRadius: 8,
+                      background: pushOk ? '#f0fdf4' : '#fef2f2',
+                      border: `1px solid ${pushOk ? '#86efac' : '#fca5a5'}`,
+                    }}>
+                      {pushOk
+                        ? <CheckCircle size={16} style={{ color: '#16a34a', flexShrink: 0, marginTop: 1 }} />
+                        : <XCircle size={16} style={{ color: '#dc2626', flexShrink: 0, marginTop: 1 }} />}
+                      <span style={{ fontSize: '0.85rem', color: pushOk ? '#15803d' : '#b91c1c', wordBreak: 'break-word' }}>{pushMsg}</span>
+                    </div>
+                  )}
+                </div>
               </form>
             )}
           </div>
@@ -1069,6 +1227,21 @@ services:
         <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #e2e8f0', overflow: 'hidden' }}>
           {/* Toolbar */}
           <div style={{ padding: '14px 20px', borderBottom: '1px solid #f1f5f9', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+            {/* Sélecteur de backend */}
+            <div style={{ display: 'flex', border: '1px solid #e2e8f0', borderRadius: 8, overflow: 'hidden', flexShrink: 0 }}>
+              {(['filesystem', 'alfresco'] as const).map(b => (
+                <button
+                  key={b}
+                  onClick={() => setExploBackend(b)}
+                  style={{
+                    padding: '7px 14px', border: 'none', cursor: 'pointer', fontWeight: 700, fontSize: '0.8rem',
+                    background: exploBackend === b ? '#3b82f6' : '#fff', color: exploBackend === b ? '#fff' : '#64748b',
+                  }}
+                >
+                  {b === 'filesystem' ? '💾 Fichiers' : '🗄️ Alfresco'}
+                </button>
+              ))}
+            </div>
             {/* Breadcrumb */}
             <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 4, fontSize: '0.85rem', fontWeight: 600, flexWrap: 'wrap' }}>
               {breadcrumb.map((crumb, idx) => (

@@ -26,8 +26,8 @@ const { SECRET_KEY } = require('./config');
 
 const API = '/alfresco/api/-default-/public/alfresco/versions/1';
 
-/** Dossier racine par défaut sous Company Home (sibling de « delib », « parapheur », …). */
-const DEFAULT_ROOT = 'DSIHUB';
+// Nom du site / dossier racine : entièrement paramétrable via /admin/ged
+// (clé SQLite « alfresco.root_path »). Aucune valeur par défaut n'est imposée.
 
 const box = createSecretBox(SECRET_KEY, 'ged');
 
@@ -71,20 +71,21 @@ async function saveConfig({ url, username, password, rootPath } = {}) {
 
     await db.run(sql, ['alfresco.url', url || '', 'URL du serveur Alfresco (ex: https://alfresco.ivry.local)']);
     await db.run(sql, ['alfresco.username', username || '', 'Compte de service Alfresco']);
-    await db.run(sql, ['alfresco.root_path', rootPath || '', `Dossier racine GED (défaut: ${DEFAULT_ROOT})`]);
+    await db.run(sql, ['alfresco.root_path', rootPath || '', 'Dossier/site racine GED (ex. site:DSIHUB ou /Sites/DSIHUB/documentLibrary)']);
     if (password !== undefined && password !== null && password !== '') {
         await db.run(sql, ['alfresco.password', box.chiffre(password), 'Mot de passe du compte de service Alfresco (chiffré)']);
     }
 }
 
 function isConfigured(cfg) {
-    return !!(cfg && cfg.url && cfg.username && cfg.password);
+    return !!(cfg && cfg.url && cfg.username && cfg.password && (cfg.rootPath || '').trim());
 }
 
 function assertConfigured(cfg) {
     if (!cfg || !cfg.url) throw new Error('Alfresco non configuré : renseignez l\'URL dans /admin/ged.');
     if (!cfg.username) throw new Error('Alfresco : compte de service non configuré.');
     if (!cfg.password) throw new Error('Alfresco : mot de passe non configuré.');
+    if (!(cfg.rootPath || '').trim()) throw new Error('Alfresco : site/dossier racine GED non configuré (voir /admin/ged).');
 }
 
 function httpClient(cfg) {
@@ -107,17 +108,97 @@ function explain(r) {
     return `Alfresco a répondu HTTP ${r.status}${r.data?.error?.briefSummary ? ` : ${r.data.error.briefSummary}` : ''}`;
 }
 
-/** Racine : identifiant de nœud, ou chemin relatif à Company Home (ex. « DSIHUB », « Sites/…/DSIHUB »). */
-async function resolveRootId(http, cfg) {
-    const r = cfg.rootPath && cfg.rootPath !== '-root-' ? String(cfg.rootPath) : DEFAULT_ROOT;
-    if (r === '-root-' || /^[0-9a-f-]{36}$/i.test(r)) return r;
-    const res = await http.get(`${API}/nodes/-root-`, {
-        params: { relativePath: r.replace(/^\/+/, ''), fields: 'id,name,isFolder' },
+/**
+ * Résout le nœud documentLibrary d'un site Alfresco (ex. site « DSIHUB »).
+ * Un site n'est PAS un dossier ordinaire sous Company Home : on passe par l'API Sites.
+ * @returns {Promise<string|null>} identifiant de nœud (UUID) du documentLibrary, ou null.
+ */
+async function resolveSiteDocumentLibrary(http, siteId) {
+    if (!siteId) return null;
+    try {
+        const r = await http.get(`${API}/sites/${encodeURIComponent(siteId)}/containers/documentLibrary`, {
+            params: { fields: 'id,folderId' },
+        });
+        if (r.status === 200 && r.data?.entry) {
+            // `folderId` = identifiant du nœud cm:folder ; `id` = « documentLibrary ».
+            const folderId = r.data.entry.folderId;
+            if (folderId && /^[0-9a-f-]{36}$/i.test(folderId)) return folderId;
+            const id = r.data.entry.id;
+            if (id && /^[0-9a-f-]{36}$/i.test(id)) return id;
+        }
+    } catch { /* site absent ou API indisponible */ }
+    return null;
+}
+
+/** Résout un chemin relatif sous un nœud ; renvoie l'id du dossier, ou null. */
+async function resolveRelative(http, parentId, relPath) {    if (!relPath) return parentId;
+    const res = await http.get(`${API}/nodes/${parentId}`, {
+        params: { relativePath: relPath.replace(/^\/+/, ''), fields: 'id,name,isFolder' },
     });
-    if (res.status !== 200 || !res.data?.entry?.isFolder) {
-        throw new Error(`Dossier racine « ${r} » introuvable dans Alfresco.`);
+    return (res.status === 200 && res.data?.entry?.isFolder) ? res.data.entry.id : null;
+}
+
+/**
+ * Racine : identifiant de nœud, site (« DSIHUB », « site:DSIHUB »,
+ * « /Sites/DSIHUB/documentLibrary[/sous/dossier] »), ou chemin relatif à Company Home.
+ */
+async function resolveRootId(http, cfg) {
+    const raw = (cfg.rootPath || '').trim();
+    if (!raw) {
+        throw new Error(
+            'Dossier racine GED non configuré : renseignez le site ou le dossier dans /admin/ged ' +
+            '(ex. « site:NomDuSite », « /Sites/NomDuSite/documentLibrary » ou un identifiant de nœud).'
+        );
     }
-    return res.data.entry.id;
+    if (raw === '-root-') return '-root-';
+    if (/^[0-9a-f-]{36}$/i.test(raw)) return raw;               // identifiant de nœud direct
+
+    const norm = raw.replace(/^\/+/, '');
+
+    // Détermine un éventuel (siteId, sous-chemin) à partir de la valeur saisie.
+    let siteId = null;
+    let subPath = '';
+    if (/^site:/i.test(norm)) {
+        const [sid, ...rest] = norm.replace(/^site:/i, '').split('/');
+        siteId = sid; subPath = rest.join('/');
+    } else if (/^sites\//i.test(norm)) {
+        const parts = norm.split('/');
+        siteId = parts[1];
+        const rest = parts.slice(2);
+        if (rest[0] && /^documentLibrary$/i.test(rest[0])) rest.shift();
+        subPath = rest.join('/');
+    }
+
+    if (siteId) {
+        const libId = await resolveSiteDocumentLibrary(http, siteId);
+        if (!libId) throw new Error(`Site Alfresco « ${siteId} » introuvable (ou sans documentLibrary).`);
+        const target = await resolveRelative(http, libId, subPath);
+        if (!target) throw new Error(`Sous-dossier « ${subPath} » introuvable dans le documentLibrary du site « ${siteId} ».`);
+        return target;
+    }
+
+    // 1) Dossier ordinaire sous Company Home.
+    const direct = await resolveRelative(http, '-root-', norm);
+    if (direct) return direct;
+
+    // 2) Dossier via le chemin « Sites/<site>/documentLibrary/... » (API Nodes).
+    const viaNodes = await resolveRelative(http, '-root-', `Sites/${norm}`);
+    if (viaNodes) return viaNodes;
+
+    // 3) Interpréter le 1er segment comme un site.
+    const [first, ...rest] = norm.split('/');
+    const libId = await resolveSiteDocumentLibrary(http, first);
+    if (libId) {
+        const restPath = (rest[0] && /^documentLibrary$/i.test(rest[0])) ? rest.slice(1) : rest;
+        const target = await resolveRelative(http, libId, restPath.join('/'));
+        if (target) return target;
+    }
+
+    throw new Error(
+        `Dossier racine « ${raw} » introuvable dans Alfresco. ` +
+        `Formes acceptées : identifiant de nœud, site (« DSIHUB », « site:DSIHUB », ` +
+        `« /Sites/DSIHUB/documentLibrary ») ou chemin sous Company Home.`
+    );
 }
 
 /**
@@ -270,6 +351,32 @@ async function remove(cfg, nodeId) {
     if (![204, 404].includes(r.status)) throw new Error(explain(r));
 }
 
+/**
+ * Résout la racine configurée et renvoie ses métadonnées.
+ * @returns {Promise<{id:string, name:string|null, path:string|null}>}
+ */
+async function getRoot(cfg) {
+    assertConfigured(cfg);
+    const http = httpClient(cfg);
+    const id = await resolveRootId(http, cfg);
+    let info = { id, name: null, path: null };
+    const r = await http.get(`${API}/nodes/${id}`, { params: { fields: 'id,name,path' } });
+    if (r.status === 200 && r.data?.entry) {
+        info = { id, name: r.data.entry.name || null, path: r.data.entry.path?.name || null };
+    }
+    return info;
+}
+
+/**
+ * Dépose un fichier directement dans la racine configurée (bouton de test /admin/ged).
+ * @returns {Promise<{nodeId:string, versionLabel:string|null, nouveau:boolean, nouvelleVersion:boolean, root:{id:string,name:string|null,path:string|null}}>}
+ */
+async function depositToRoot(cfg, { name, buffer, mime = 'application/octet-stream', description }) {
+    const root = await getRoot(cfg);
+    const r = await deposit(cfg, root.id, { name, buffer, mime, description });
+    return { ...r, root };
+}
+
 /** Test de connexion + résolution de la racine. Ne lève pas : renvoie { ok, message, details }. */
 async function testConnexion(cfg) {
     const t = Date.now();
@@ -308,6 +415,65 @@ async function testConnexion(cfg) {
     }
 }
 
+/**
+ * Liste les sites Alfresco visibles par le compte de service, avec diagnostic
+ * des tentatives (utile quand la liste est vide).
+ *  1) API Sites (`/sites`) : publics + modérés + sites dont le compte est membre.
+ *  2) Repli : enfants du dossier « Sites » de l'entrepôt (API Nodes).
+ * Un site PRIVÉ dont le compte n'est pas membre n'apparaît dans aucune des deux.
+ */
+async function listSitesDiagnostic(cfg) {
+    assertConfigured(cfg);
+    const http = httpClient(cfg);
+    const attempts = [];
+    let sites = [];
+
+    try {
+        const r = await http.get(`${API}/sites`, { params: { maxItems: 1000 } });
+        const count = r.data?.list?.entries?.length || 0;
+        attempts.push({ step: '/sites', status: r.status, count });
+        if (r.status === 200) {
+            sites = (r.data?.list?.entries || []).map(({ entry }) => ({
+                id: entry.id,
+                title: entry.title || entry.id,
+                visibility: entry.visibility || null,
+            }));
+        }
+    } catch (e) {
+        attempts.push({ step: '/sites', error: e.code || e.message });
+    }
+
+    if (!sites.length) {
+        try {
+            const sitesContainer = await resolveRelative(http, '-root-', 'Sites');
+            attempts.push({ step: '/nodes/-root-?relativePath=Sites', container: sitesContainer });
+            if (sitesContainer) {
+                const r2 = await http.get(`${API}/nodes/${sitesContainer}/children`, { params: { maxItems: 1000 } });
+                const entries = r2.data?.list?.entries || [];
+                attempts.push({ step: '/nodes/{Sites}/children', status: r2.status, count: entries.length, nodeTypes: Array.from(new Set(entries.map(({ entry }) => entry?.nodeType))).slice(0, 10) });
+                sites = entries
+                    .map(({ entry: e }) => e)
+                    .filter(e => e && (e.isFolder || e.nodeType === 'st:site'))
+                    .map(e => ({ id: e.name, title: e.name, visibility: null }));
+            }
+        } catch (e) {
+            attempts.push({ step: '/nodes/{Sites}/children', error: e.code || e.message });
+        }
+    }
+
+    return { sites, attempts };
+}
+
+async function listSites(cfg) {
+    return (await listSitesDiagnostic(cfg)).sites;
+}
+
+/** Identifiant du nœud documentLibrary d'un site (navigation/stockage). */
+async function getSiteDocumentLibrary(cfg, siteId) {
+    assertConfigured(cfg);
+    return await resolveSiteDocumentLibrary(httpClient(cfg), siteId);
+}
+
 const REF_PREFIX = 'alf:';
 function makeRef(nodeId) { return `${REF_PREFIX}${nodeId}`; }
 function parseRef(ref) {
@@ -319,21 +485,25 @@ function isRef(ref) { return typeof ref === 'string' && ref.startsWith(REF_PREFI
 
 module.exports = {
     API,
-    DEFAULT_ROOT,
     getConfig,
     saveConfig,
     decryptStoredPassword,
     isConfigured,
     assertConfigured,
     resolveRootId,
+    getRoot,
     ensurePath,
     deposit,
+    depositToRoot,
     getContent,
     getNode,
     listChildren,
     exists,
     remove,
     testConnexion,
+    listSites,
+    listSitesDiagnostic,
+    getSiteDocumentLibrary,
     makeRef,
     parseRef,
     isRef,

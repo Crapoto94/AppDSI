@@ -80,6 +80,11 @@ function getAdapterByName(name) {
     return normalizeBackend(name) === 'alfresco' ? alfrescoAdapter : smbAdapter;
 }
 
+/** Vrai si la référence désigne un nœud Alfresco (« alf:<nodeId> »). */
+function isAlfrescoRef(ref) {
+    return typeof ref === 'string' && ref.startsWith('alf:');
+}
+
 async function getAdapter() {
     const backend = await readLegacyBackend();
     return backend === 'alfresco' ? alfrescoAdapter : smbAdapter;
@@ -103,6 +108,7 @@ module.exports = {
     getAdapterByName,
     getBackendForModule,
     getBackendName,
+    isAlfrescoRef,
     clearCache,
     smbAdapter,
     alfrescoAdapter,
