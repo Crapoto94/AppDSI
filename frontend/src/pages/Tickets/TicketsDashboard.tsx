@@ -42,6 +42,13 @@ const ROLE_LABELS: Record<string, { label: string; color: string; bg: string }> 
   user:         { label: 'Utilisateur',   color: '#0284c7', bg: '#e0f2fe' },
 };
 
+const AM_VERDICT: Record<string, { label: string; color: string }> = {
+  compromise_likely: { label: 'Compromission probable', color: '#dc2626' },
+  signals_to_check: { label: 'Signaux à vérifier', color: '#d97706' },
+  no_strong_signal: { label: 'RAS', color: '#16a34a' },
+};
+const AM_SEVERITY: Record<string, string> = { critical: '#dc2626', high: '#ea580c', medium: '#d97706', low: '#64748b' };
+
 const SORT_OPTIONS = [
   { label: 'Plus récents', sortKey: 'date_creation', sortDir: 'desc' as const },
   { label: 'Plus anciens', sortKey: 'date_creation', sortDir: 'asc' as const },
@@ -189,6 +196,48 @@ export default function TicketsDashboard() {
   const [aaAdSearching, setAaAdSearching] = useState(false);
   const [aaAdSelectedUser, setAaAdSelectedUser] = useState<any>(null);
   const [aaAdToggling, setAaAdToggling] = useState(false);
+
+  // ── Analyse mail (détection de compromission d'une boîte mail) ───
+  const [amQuery, setAmQuery] = useState('');
+  const [amResults, setAmResults] = useState<any[]>([]);
+  const [amSearching, setAmSearching] = useState(false);
+  const [amSelected, setAmSelected] = useState<any>(null);
+  const [amLoading, setAmLoading] = useState(false);
+  const [amResult, setAmResult] = useState<any>(null);
+  const [amError, setAmError] = useState('');
+
+  // ── Analyse mail : handlers ──────────────────────────────────────
+  function openMailAnalysis() {
+    setAaStep(4);
+    setAaShowSettings(false);
+    setAmQuery(''); setAmResults([]); setAmSelected(null);
+    setAmLoading(false); setAmResult(null); setAmError('');
+  }
+
+  async function searchMailAgent() {
+    if (amQuery.trim().length < 2) return;
+    setAmSearching(true); setAmError(''); setAmSelected(null); setAmResult(null);
+    try {
+      const tk = localStorage.getItem('token');
+      const r = await axios.get(`/api/tickets/auto-actions/ad-search?q=${encodeURIComponent(amQuery.trim())}`, { headers: { Authorization: `Bearer ${tk}` } });
+      setAmResults(r.data || []);
+      if (!r.data?.length) setAmError('Aucun agent trouvé dans l\'AD.');
+    } catch (e: any) { setAmError(e.response?.data?.message || 'Erreur de recherche.'); }
+    finally { setAmSearching(false); }
+  }
+
+  async function runMailAnalysis() {
+    if (!amSelected) return;
+    const email = (amSelected.mail || '').trim();
+    if (!email || !email.includes('@')) { setAmError("Cet agent n'a pas d'adresse email dans l'AD."); return; }
+    setAmLoading(true); setAmError(''); setAmResult(null);
+    try {
+      const tk = localStorage.getItem('token');
+      const r = await axios.post('/api/analyse-mail/scan', { email, days: 7 }, { headers: { Authorization: `Bearer ${tk}` } });
+      setAmResult(r.data);
+    } catch (e: any) { setAmError(e.response?.data?.message || e.message || "Erreur lors de l'analyse."); }
+    finally { setAmLoading(false); }
+  }
 
   const limit = 50;
 
@@ -1705,17 +1754,18 @@ export default function TicketsDashboard() {
           {/* Header */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '20px 24px 16px', borderBottom: '1px solid #f1f5f9' }}>
             {aaStep > 0 && (
-              <button onClick={() => { setAaStep(aaStep - 1); setAaError(''); setAaSuccess(''); setAaAdWarning(''); setAaShowSettings(false); }}
+              <button onClick={() => { setAaStep(aaStep === 4 ? 0 : aaStep - 1); setAaError(''); setAaSuccess(''); setAaAdWarning(''); setAaShowSettings(false); }}
                 style={{ background: 'none', border: '1px solid #e2e8f0', borderRadius: 6, padding: '4px 10px', cursor: 'pointer', fontSize: 14, color: '#475569' }}>
                 ← Retour
               </button>
             )}
             <div style={{ flex: 1 }}>
               <div style={{ fontWeight: 700, fontSize: 16, color: '#0f172a' }}>
-                {aaStep === 0 ? '⚡ Actions automatiques' : aaStep === 1 ? '🔑 Renouveler mot de passe par SMS' : aaStep === 2 ? '📱 Confirmation et envoi' : '🔁 Activer / Désactiver un compte AD'}
+                {aaStep === 0 ? '⚡ Actions automatiques' : aaStep === 1 ? '🔑 Renouveler mot de passe par SMS' : aaStep === 2 ? '📱 Confirmation et envoi' : aaStep === 4 ? '🛡️ Analyse mail' : '🔁 Activer / Désactiver un compte AD'}
               </div>
               {aaStep === 1 && <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>Sélectionnez le bénéficiaire</div>}
               {aaStep === 2 && aaSelected && <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>{aaSelected.prenom || ''} {aaSelected.nom}</div>}
+              {aaStep === 4 && <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>Détection de compromission d'une boîte mail</div>}
             </div>
             <button onClick={() => { setShowAutoActions(false); setAaStep(0); setAaShowSettings(false); setAaAdWarning(''); }}
               style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 20, color: '#94a3b8', lineHeight: 1 }}>✕</button>
@@ -1772,6 +1822,17 @@ export default function TicketsDashboard() {
                   <div>
                     <div style={{ fontWeight: 700, fontSize: 14, color: '#0f172a' }}>Déclencher synchro O365</div>
                     <div style={{ fontSize: 12, color: '#64748b', marginTop: 4 }}>Lance une synchro Azure AD Connect pour propager les changements AD vers O365.</div>
+                  </div>
+                </button>
+
+                <button onClick={openMailAnalysis}
+                  style={{ display: 'flex', alignItems: 'flex-start', gap: 14, padding: '16px 18px', border: '1px solid #e2e8f0', borderRadius: 10, background: '#f8fafc', cursor: 'pointer', textAlign: 'left' }}
+                  onMouseEnter={e => (e.currentTarget.style.borderColor = '#f87171')}
+                  onMouseLeave={e => (e.currentTarget.style.borderColor = '#e2e8f0')}>
+                  <span style={{ fontSize: 28, lineHeight: 1 }}>🛡️</span>
+                  <div>
+                    <div style={{ fontWeight: 700, fontSize: 14, color: '#0f172a' }}>Analyse mail</div>
+                    <div style={{ fontSize: 12, color: '#64748b', marginTop: 4 }}>Recherche un agent dans l'AD et évalue le risque de compromission de sa boîte mail.</div>
                   </div>
                 </button>
 
@@ -2068,6 +2129,97 @@ export default function TicketsDashboard() {
                         🔑 Forcer changement mdp
                       </button>
                     </>
+                  ) : null}
+                </div>
+              </div>
+            )}
+
+            {/* ── Étape 4 : Analyse mail ── */}
+            {aaStep === 4 && (
+              <div>
+                <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
+                  <input value={amQuery} onChange={e => setAmQuery(e.target.value)}
+                    placeholder="🔍 Rechercher un agent (nom, login, email…)"
+                    onKeyDown={e => { if (e.key === 'Enter') searchMailAgent(); }}
+                    style={{ flex: 1, boxSizing: 'border-box', padding: '9px 12px', border: '1px solid #e2e8f0', borderRadius: 8, fontSize: 13, outline: 'none' }} />
+                  <button onClick={searchMailAgent}
+                    style={{ padding: '9px 18px', borderRadius: 8, border: 'none', background: '#6366f1', color: '#fff', fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>OK</button>
+                </div>
+
+                {amSearching && <div style={{ textAlign: 'center', padding: 24, color: '#94a3b8' }}>Recherche…</div>}
+
+                {!amSearching && amResults.length > 0 && (
+                  <div style={{ marginBottom: 14, maxHeight: 240, overflowY: 'auto' }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 6 }}>Résultats ({amResults.length})</div>
+                    {amResults.map(u => (
+                      <div key={u.sam} onClick={() => { setAmSelected(u); setAmResult(null); setAmError(''); }}
+                        style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 12px', borderRadius: 8, cursor: 'pointer', marginBottom: 4, border: `1px solid ${amSelected?.sam === u.sam ? '#f87171' : '#e2e8f0'}`, background: amSelected?.sam === u.sam ? '#fef2f2' : '#fff' }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0 }}>
+                          <div style={{ fontWeight: 600, fontSize: 13, color: '#0f172a' }}>{u.displayName || u.sam}</div>
+                          <span style={{ fontSize: 11, color: '#64748b' }}>{u.mail || "Pas d'email AD"}{u.department ? ` · ${u.department}` : ''}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {amError && <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 8, padding: '10px 14px', color: '#dc2626', fontSize: 13, marginBottom: 12 }}>{amError}</div>}
+
+                {amLoading && (
+                  <div style={{ background: '#f0f9ff', border: '1px solid #bae6fd', borderRadius: 8, padding: 14, color: '#0369a1', fontSize: 13, textAlign: 'center', marginBottom: 12 }}>
+                    ⏳ Analyse de la boîte en cours… (connexions, audit, règles — jusqu'à une minute)
+                  </div>
+                )}
+
+                {amResult && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                    <div style={{ textAlign: 'center', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 12, padding: '16px 14px' }}>
+                      <div style={{ fontSize: 13, color: '#64748b' }}>{amResult.email}</div>
+                      <div style={{ fontSize: 40, fontWeight: 800, lineHeight: 1.1, color: (AM_VERDICT[amResult.verdict]?.color) || '#64748b' }}>
+                        {amResult.score}<span style={{ fontSize: 18, fontWeight: 600, color: '#94a3b8' }}>/10</span>
+                      </div>
+                      <div style={{ display: 'inline-block', marginTop: 8, fontSize: 13, fontWeight: 700, padding: '4px 12px', borderRadius: 12, background: `${(AM_VERDICT[amResult.verdict]?.color) || '#64748b'}18`, color: (AM_VERDICT[amResult.verdict]?.color) || '#64748b' }}>
+                        {amResult.verdict_label || AM_VERDICT[amResult.verdict]?.label || amResult.verdict}
+                      </div>
+                      <div style={{ marginTop: 10, fontSize: 12, color: '#94a3b8' }}>
+                        {amResult.nb_signins ?? 0} connexion(s) · {amResult.nb_audit ?? 0} audit · {amResult.nb_rules ?? 0} règle(s) — {amResult.days ?? 7} j
+                      </div>
+                    </div>
+
+                    {Array.isArray(amResult.findings) && amResult.findings.length > 0 ? (
+                      <div>
+                        <div style={{ fontSize: 11, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 6 }}>Signaux détectés ({amResult.findings.length})</div>
+                        {amResult.findings.map((f: any, i: number) => (
+                          <div key={i} style={{ border: '1px solid #e2e8f0', borderLeft: `3px solid ${AM_SEVERITY[f.severity] || '#64748b'}`, background: '#fff', borderRadius: 8, padding: '10px 12px', marginBottom: 8 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                              <span style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', padding: '1px 7px', borderRadius: 8, background: `${AM_SEVERITY[f.severity] || '#64748b'}18`, color: AM_SEVERITY[f.severity] || '#64748b' }}>{f.severity}</span>
+                              <span style={{ fontSize: 13, fontWeight: 600, color: '#0f172a' }}>{f.title}</span>
+                            </div>
+                            {f.description && <div style={{ fontSize: 12, color: '#64748b', marginTop: 4 }}>{f.description}</div>}
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 8, padding: '10px 14px', color: '#166534', fontSize: 13 }}>✅ Aucun signal suspect détecté sur la période.</div>
+                    )}
+
+                    {Array.isArray(amResult.errors) && amResult.errors.length > 0 && (
+                      <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 8, padding: '10px 14px', color: '#92400e', fontSize: 12 }}>
+                        ⚠️ Sources non lues : {amResult.errors.join(' · ')}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 16 }}>
+                  {amResult ? (
+                    <button onClick={() => { setAaStep(0); setAmQuery(''); setAmResults([]); setAmSelected(null); setAmResult(null); setAmError(''); }}
+                      style={{ padding: '10px 22px', borderRadius: 8, border: 'none', background: '#0f172a', color: '#fff', fontWeight: 700, fontSize: 14, cursor: 'pointer' }}>Fermer</button>
+                  ) : amSelected ? (
+                    <button disabled={amLoading} onClick={runMailAnalysis}
+                      style={{ padding: '10px 22px', borderRadius: 8, border: 'none', background: amLoading ? '#e2e8f0' : '#dc2626', color: amLoading ? '#94a3b8' : '#fff', fontWeight: 700, fontSize: 14, cursor: amLoading ? 'default' : 'pointer' }}>
+                      {amLoading ? '⏳ Analyse en cours…' : `🛡️ Analyser ${amSelected.mail || amSelected.sam}`}
+                    </button>
                   ) : null}
                 </div>
               </div>

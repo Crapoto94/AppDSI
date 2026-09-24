@@ -46,6 +46,7 @@ const MODULES_REGISTRY = [
     { key: 'boites-partagees', title: 'Boîtes mail partagées', icon: 'Mail',    description: 'Suivi des boîtes mail partagées et de leurs membres.', url: '/boites-partagees', is_public: true },
     { key: 'parapheur',    title: 'Parapheur électronique', icon: 'PenTool',    description: 'Signature électronique de documents PDF.', url: '/parapheur', is_public: true },
     { key: 'vibecoding',   title: 'VibeCoding',            icon: 'Terminal',    description: 'Ressources et plan de la formation au développement assisté par IA.', url: '/vibecoding' },
+    { key: 'fast',         title: 'Actions rapides',       icon: 'Zap',         description: 'Gestes rapides du quotidien : nouveau ticket, tâche, mot de passe par SMS, gestion de compte AD et analyse mail.', url: '/fast' },
 ];
 
 module.exports = { MODULES_REGISTRY };

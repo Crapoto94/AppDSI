@@ -261,6 +261,38 @@ const authenticateVibecodingControl = (req, res, next) => {
     });
 };
 
+/**
+ * Middleware for Admin or users with Fast module access (/fast) or Tickets module access.
+ * Le module « Actions rapides » (/fast) est une façade qui réutilise l'API du
+ * module Tickets : on autorise donc l'accès à quiconque possède la tuile /fast
+ * OU la tuile /tickets (les administrateurs passent toujours).
+ */
+const authenticateFastControl = (req, res, next) => {
+    authenticateJWT(req, res, async () => {
+        if (isAdminLike(req.user)) {
+            return next();
+        }
+
+        try {
+            const db = getSqlite();
+            if (req.user && req.user.id && db) {
+                const authorized = await db.get(`
+                    SELECT 1 FROM user_tiles ut
+                    JOIN tile_links tl ON tl.tile_id = ut.tile_id
+                    WHERE ut.user_id = ? AND tl.url IN ('/fast', '/tickets')
+                    LIMIT 1
+                `, [req.user.id]);
+
+                if (authorized) return next();
+            }
+        } catch (error) {
+            console.error('[AUTH FAST] Error checking tile access:', error);
+        }
+
+        res.status(403).json({ message: 'Accès refusé : accès au module Actions rapides ou Tickets requis' });
+    });
+};
+
 const authenticateGLPIControl = (req, res, next) => {
     authenticateJWT(req, res, async () => {
         if (!req.user) return res.status(401).json({ message: 'Non authentifié' });
@@ -597,6 +629,7 @@ module.exports = {
     authenticateAdminOrContrats: bypassIfApiKey(authenticateAdminOrContrats),
     authenticateMagappControl: bypassIfApiKey(authenticateMagappControl),
     authenticateVibecodingControl: bypassIfApiKey(authenticateVibecodingControl),
+    authenticateFastControl: bypassIfApiKey(authenticateFastControl),
     authenticateGLPIControl: bypassIfApiKey(authenticateGLPIControl),
     authenticateConsommablesAdmin: bypassIfApiKey(authenticateConsommablesAdmin),
     authenticatePretsAdmin: bypassIfApiKey(authenticatePretsAdmin),
