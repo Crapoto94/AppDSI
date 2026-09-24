@@ -3429,6 +3429,25 @@ async function setupPgDb() {
       await client.query(`ALTER TABLE finance.field_mapping_variables ADD COLUMN IF NOT EXISTS display_type TEXT NOT NULL DEFAULT 'text'`);
     } catch (e) {}
 
+    // ── Cache DGP (délai global de paiement) des factures ─────────────────────
+    // Recalculé une fois par jour (cron 05h00) depuis Sedit : la date de mandatement
+    // n'est mise à jour qu'une fois par jour côté Sedit, donc un cache quotidien suffit
+    // et évite un scan de FI.FAIT (~1,9 M lignes) à chaque affichage de la liste.
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS finance.facture_dgp (
+        facture_roo TEXT PRIMARY KEY,
+        facture_num TEXT,
+        fiscal_year INTEGER,
+        reception_date DATE,
+        paiement_date DATE,
+        dgp INTEGER,
+        definitive BOOLEAN DEFAULT FALSE,
+        refused BOOLEAN DEFAULT FALSE,
+        updated_at TIMESTAMPTZ DEFAULT NOW()
+      );
+    `);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_facture_dgp_year ON finance.facture_dgp(fiscal_year);`);
+
     // ── Service Fait validation workflow ──
     await client.query(`
       CREATE TABLE IF NOT EXISTS finance.service_fait_workflows (

@@ -22,6 +22,7 @@ const BudgetTrendWidget     = lazy(() => import('./BudgetTrendWidget'));
 const BudgetInvoicesWidget  = lazy(() => import('./BudgetInvoicesWidget'));
 const BudgetRecentInvoicesWidget = lazy(() => import('./BudgetRecentInvoicesWidget'));
 const BudgetRecentOrdersWidget   = lazy(() => import('./BudgetRecentOrdersWidget'));
+const BudgetDgpWidget            = lazy(() => import('./BudgetDgpWidget'));
 const MagappMaintenancesWidget = lazy(() => import('./MagappMaintenancesWidget'));
 const MagappIdeasWidget     = lazy(() => import('./MagappIdeasWidget'));
 const MagappClicksWidget    = lazy(() => import('./MagappClicksWidget'));
@@ -69,6 +70,7 @@ const WIDGET_MAP: Record<string, React.ComponentType> = {
   budget_invoices:    BudgetInvoicesWidget,
   budget_recent_invoices: BudgetRecentInvoicesWidget,
   budget_recent_orders:   BudgetRecentOrdersWidget,
+  budget_dgp:             BudgetDgpWidget,
   magapp_maintenances: MagappMaintenancesWidget,
   magapp_ideas:       MagappIdeasWidget,
   magapp_clicks:      MagappClicksWidget,

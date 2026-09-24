@@ -224,12 +224,15 @@ async function queryFacsuiviStatus(numeros) {
             if (!map[row.NUMERO]) map[row.NUMERO] = {};
             map[row.NUMERO].rejete = { done: !!row.DATE_REJET, date: row.DATE_REJET || null };
         }
-        // Facture mandatée : présence d'une ligne de mouvement rattachée à un mandat.
+        // Facture mandatée : présence d'une ligne de mouvement rattachée à un VRAI mandat.
+        // ATTENTION : MVTLIGNE.MANDAT = 0 est une ligne « neutre » créée à l'import (facture
+        // non mandatée) — un simple « IS NOT NULL » la comptait à tort comme mandatée (badge
+        // MANDATÉ affiché à tort). On exige donc un n° de mandat strictement positif.
         const mandRes = await connection.execute(
             `SELECT DISTINCT TRIM(f.FACTURE) AS NUMERO
              FROM FI.FACTURE f
              JOIN FI.MVTLIGNE m ON m.FACTURE = f.ROO_IMA_REF
-             WHERE TRIM(f.FACTURE) IN (${placeholders.join(',')}) AND m.MANDAT IS NOT NULL`,
+             WHERE TRIM(f.FACTURE) IN (${placeholders.join(',')}) AND m.MANDAT > 0`,
             binds
         );
         for (const row of mandRes.rows) {

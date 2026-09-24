@@ -218,6 +218,42 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
       .catch(() => {});
   }, [rows, columns, rubriqueName]);
 
+  // DGP (factures) : chargement progressif. La liste de base s'affiche immédiatement
+  // (sans DGP), puis on calcule le DGP de la page en un appel séparé — le calcul dépend
+  // de FI.FAIT (~1,9 M lignes) et ralentirait le chargement initial. `_DGP_LOADED`
+  // marque les lignes déjà traitées et empêche toute boucle de re-fetch.
+  useEffect(() => {
+    if (rubriqueName !== 'Factures' || dataSource !== 'sedit') return;
+    if (rows.length === 0) return;
+    if (rows.every(r => r._DGP_LOADED)) return;
+    const idCol = columns.find(c => c.expression === seditIdColumn);
+    if (!idCol) return;
+    const roos = Array.from(new Set(rows.map(r => String(r[idCol.name] || '').trim()).filter(Boolean)));
+    if (roos.length === 0) return;
+    let cancelled = false;
+    axios.post('/api/finance/dgp/factures', { roos }, { headers })
+      .then(res => {
+        if (cancelled) return;
+        const map = res.data || {};
+        setRows(prev => prev.map(r => {
+          const roo = String(r[idCol.name] || '').trim();
+          const info = map[roo];
+          return {
+            ...r,
+            DGP: info ? info.dgp : null,
+            _DGP_DEF: info ? info.def : 0,
+            _DGP_REFUSE: info ? info.refuse : 0,
+            _DGP_LOADED: 1,
+          };
+        }));
+      })
+      .catch(() => {
+        if (!cancelled) setRows(prev => prev.map(r => ({ ...r, _DGP_LOADED: 1 })));
+      });
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rows, columns, rubriqueName, dataSource, seditIdColumn]);
+
   // État de la facture de chaque commande (pastille FAC) — reçue / service fait /
   // mandatée / refusée, calculé côté serveur depuis Sedit.
   useEffect(() => {
@@ -290,7 +326,7 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
     return codes.map(c => { const l = m57Label(c, type); return l ? `${c} — ${l}` : c; }).join('\n');
   };
 
-  const formatCell = (value: any, col: MappingColumn) => {
+  const formatCell = (value: any, col: MappingColumn, row?: any) => {
     if (col.name === 'Section') {
       const isF = value === 'F' || value === 'Fonctionnement';
       const isI = value === 'I' || value === 'Investissement';
@@ -313,6 +349,34 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
       return (
         <span title={m57Title(value, col.expression)} style={{ cursor: 'help', fontWeight: 600, color: '#b45309' }}>
           Multi
+        </span>
+      );
+    }
+    // DGP (délai global de paiement) : pastille. Contour PLEIN = définitif (facture
+    // mandatée/payée), contour POINTILLÉ = provisoire (facture non encore mandatée).
+    // Rouge au-delà de 30 jours. Masqué pour les factures refusées. Calculé en différé
+    // (chargement progressif) : « … » tant que la valeur n'est pas revenue du serveur.
+    if (col.display_type === 'dgp') {
+      if (row && row._DGP_REFUSE) return '';
+      if (row && !row._DGP_LOADED) return <span style={{ color: '#cbd5e1' }}>…</span>;
+      if (value === null || value === undefined || value === '') return '';
+      const num = parseFloat(String(value));
+      if (isNaN(num)) return '';
+      const late = num > 30;
+      const definitive = !!(row && row._DGP_DEF === 1);
+      const color = late ? '#dc2626' : '#16a34a';
+      const bg = late ? '#fef2f2' : '#f0fdf4';
+      return (
+        <span
+          title={definitive
+            ? 'Délai global de paiement (réception → paiement/mandatement)'
+            : 'Délai provisoire — facture non encore mandatée (jours écoulés depuis la réception)'}
+          style={{
+            display: 'inline-block', padding: '1px 8px', borderRadius: 10,
+            border: `1.5px ${definitive ? 'solid' : 'dotted'} ${color}`,
+            background: bg, color, fontWeight: 700, fontSize: 11, whiteSpace: 'nowrap',
+          }}>
+          {num} j
         </span>
       );
     }
@@ -383,7 +447,8 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
   }
 
   const activeCols = columns.filter(c => visibleCols.includes(c.name) || c.name === 'Section'
-    || (rubriqueName === 'Commandes' && (c.expression === 'nature' || c.expression === 'fonction')));
+    || (rubriqueName === 'Commandes' && (c.expression === 'nature' || c.expression === 'fonction'))
+    || (rubriqueName === 'Factures' && c.name === 'DGP'));
 
   // "À traiter" est filtré côté serveur (SF non fait dans Sedit et non rejetée) pour
   // porter sur l'ensemble des factures, pas seulement la page courante.
@@ -574,7 +639,7 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
                       const cellTitle = (col.expression === 'nature' || col.expression === 'fonction')
                         ? (m57Title(row[col.name], col.expression) || undefined)
                         : (row[col.name] != null && row[col.name] !== '' ? String(row[col.name]) : undefined);
-                      return <td key={col.name} className="mdt-cell" style={tdStyle} title={cellTitle}>{formatCell(row[col.name], col)}</td>;
+                      return <td key={col.name} className="mdt-cell" style={tdStyle} title={cellTitle}>{formatCell(row[col.name], col, row)}</td>;
                     })}
                     {showSfColumn && (
                       <td className="mdt-cell" style={{ whiteSpace: 'nowrap' }}>

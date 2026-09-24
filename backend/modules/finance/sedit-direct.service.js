@@ -112,10 +112,44 @@ function columnRef(expr) {
     return `"${e}"`;
 }
 
-/** Convertit une référence colonne en expression d'affichage (mêmes règles que resolveMapping). */
+/** Retire le préfixe de table du miroir Postgres (ex. TIERS_POBJ_EXTRACT -> POBJ_EXTRACT). */
+function stripMirrorPrefix(table, col) {
+    const prefix = String(table || '').toUpperCase() + '_';
+    const c = String(col || '').toUpperCase();
+    return c.startsWith(prefix) ? c.slice(prefix.length) : c;
+}
+
+/** Référence d'une colonne de la table jointe côté Oracle (gère l'éclatement `*_EXTRACT`). */
+function oracleJoinColumnRef(table, mirrorCol) {
+    const col = stripMirrorPrefix(table, mirrorCol);
+    const m = col.match(/^(.*)_(\d+)$/);
+    if (m && /_EXTRACT$/i.test(m[1])) {
+        return `REGEXP_SUBSTR("${m[1]}", '[^' || CHR(1) || ']+', 1, ${parseInt(m[2], 10)})`;
+    }
+    return `"${col}"`;
+}
+
+/**
+ * Convertit une variable de rubrique en expression SQL sur la sous-requête `_o`.
+ * - `jointure` : reproduit la sous-requête de `formatSelectPart` (resolveMapping),
+ *   mais sur la table Oracle réelle. Le miroir Postgres `oracle.gf_oracle_tiers`
+ *   correspond à la table Oracle `TIERS` (les colonnes y sont préfixées par le nom
+ *   de table : `TIERS_POBJ_EXTRACT` -> `POBJ_EXTRACT`). Sans ce traitement, la
+ *   colonne « Nom tiers » de la rubrique Commandes affichait le code au lieu du nom.
+ * - dates : formatées DD/MM/YYYY (ou DD/MM/YYYY HH24:MI) comme dans resolveMapping.
+ */
 function columnRefForVariable(v) {
-    const ref = v.expression_type === 'field' ? columnRef(v.expression) : String(v.expression || '');
     const dt = v.display_type || 'text';
+
+    if (dt === 'jointure') {
+        const oracleTable = String(v.join_table || '').toUpperCase().replace(/^GF_ORACLE_/, '');
+        const outerRef = v.expression_type === 'field' ? columnRef(v.expression) : String(v.expression || '');
+        const joinCol = stripMirrorPrefix(oracleTable, v.join_on_field);
+        const displayRef = oracleJoinColumnRef(oracleTable, v.join_display_field);
+        return `(SELECT ${displayRef} FROM "${oracleTable}" WHERE TRIM("${joinCol}") = TRIM(${outerRef}) AND ROWNUM = 1)`;
+    }
+
+    const ref = v.expression_type === 'field' ? columnRef(v.expression) : String(v.expression || '');
     if (dt === 'date' || dt === 'text_date') return `TO_CHAR(${ref}, 'DD/MM/YYYY')`;
     if (dt === 'timestamp' || dt === 'text_timestamp') return `TO_CHAR(${ref}, 'DD/MM/YYYY HH24:MI')`;
     return ref;
@@ -150,10 +184,14 @@ async function resolveRubriqueFromSedit(name, query = {}) {
         whereParts.push(`EXTRACT(YEAR FROM "_o"."${rubrique.fiscal_year_column}") = :fy`);
     }
 
-    // Recherche plein texte sur les variables de type texte.
+    // Recherche plein texte sur les variables de type texte. Oracle `LIKE` est
+    // sensible à la casse (contrairement au `ILIKE` Postgres) : on compare en
+    // majuscules des deux côtés pour retrouver « digitech » -> « DIGITECH ».
     if (search && typeof search === 'string') {
-        const textVars = variables.filter(v => (v.display_type === 'text' || !v.display_type));
-        const parts = textVars.map(v => `CAST(${columnRefForVariable(v)} AS VARCHAR2(4000)) LIKE '%' || :search || '%'`);
+        // On inclut les jointures (« Nom tiers ») pour pouvoir chercher un tiers par
+        // son NOM (et pas seulement par son code) : « digitech » -> « DIGITECH ».
+        const textVars = variables.filter(v => (v.display_type === 'text' || !v.display_type || v.display_type === 'jointure'));
+        const parts = textVars.map(v => `UPPER(CAST(${columnRefForVariable(v)} AS VARCHAR2(4000))) LIKE '%' || UPPER(:search) || '%'`);
         if (parts.length) { whereParts.push('(' + parts.join(' OR ') + ')'); binds.search = String(search); }
     }
 
@@ -189,11 +227,23 @@ async function resolveRubriqueFromSedit(name, query = {}) {
     // Colonnes calculées supplémentaires de la rubrique Commandes (non déclarées dans
     // le mapping) : nature et fonction M57, agrégées sur les lignes d'imputation.
     const isCommande = String(sync.tableName).toUpperCase() === 'COMMANDE';
-    const extraColumns = isCommande ? [
-        { name: 'Nature', display_type: 'text', expression: 'nature', expression_type: 'field' },
-        { name: 'Fonction', display_type: 'text', expression: 'fonction', expression_type: 'field' },
-    ] : [];
-    if (isCommande) projections.push(`"nature" AS "Nature"`, `"fonction" AS "Fonction"`);
+    const isFacture = String(sync.tableName).toUpperCase() === 'FACTURE';
+    const extraColumns = [];
+    if (isCommande) {
+        extraColumns.push(
+            { name: 'Nature', display_type: 'text', expression: 'nature', expression_type: 'field' },
+            { name: 'Fonction', display_type: 'text', expression: 'fonction', expression_type: 'field' },
+        );
+        projections.push(`"nature" AS "Nature"`, `"fonction" AS "Fonction"`);
+    }
+    if (isFacture) {
+        // DGP = délai global de paiement (jours entre réception et paiement). Il n'est
+        // PAS calculé ici : il dépend de FI.FAIT (~1,9 M lignes, non indexée sur la
+        // facture) et ralentirait le chargement initial. La liste affiche donc la colonne
+        // vide, puis le front la remplit via POST /api/finance/dgp/factures (chargement
+        // progressif : éléments de base d'abord, éléments calculés ensuite).
+        extraColumns.push({ name: 'DGP', display_type: 'dgp', expression: 'dgp', expression_type: 'field' });
+    }
 
     // Tri : IMPORTANT, trier sur la colonne BRUTE (pas sur l'expression formatée
     // TO_CHAR(...'DD/MM/YYYY') qui donnerait un ordre lexicographique erroné).
@@ -201,7 +251,9 @@ async function resolveRubriqueFromSedit(name, query = {}) {
     if (sort_by) {
         const sv = variables.find(v => v.variable_name === sort_by);
         if (sv) {
-            const ref = sv.expression_type === 'field' ? columnRef(sv.expression) : String(sv.expression);
+            const ref = sv.display_type === 'jointure'
+                ? columnRefForVariable(sv)
+                : (sv.expression_type === 'field' ? columnRef(sv.expression) : String(sv.expression));
             orderBy = `${ref} ${sort_dir === 'desc' ? 'DESC' : 'ASC'} NULLS LAST`;
         } else {
             orderBy = '1';

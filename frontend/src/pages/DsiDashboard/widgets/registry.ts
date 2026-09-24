@@ -189,6 +189,14 @@ export const WIDGET_REGISTRY: WidgetDef[] = [
     defaultSize: { w: 6, h: 4 },
     minSize: { w: 4, h: 3 },
   },
+  {
+    key: 'budget_dgp',
+    label: 'DGP factures',
+    description: 'Délai global de paiement : DGP moyen, factures payées hors délai (>30j), non payées en retard (provisoire)',
+    module: 'Budget',
+    defaultSize: { w: 6, h: 3 },
+    minSize: { w: 4, h: 2 },
+  },
   // ── MagApp ────────────────────────────────────────────────────────────────
   {
     key: 'magapp_maintenances',

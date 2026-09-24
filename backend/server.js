@@ -2212,6 +2212,8 @@ require('./modules/finance/service-fait/service-fait.controller').setSendMail(se
 app.use('/api/finance/pj-share', require('./modules/finance/pj-share.routes'));
 // Mandatement (Sedit) d'une facture — page « Factures (beta) »
 app.use('/api/finance/mandatement', require('./modules/finance/mandatement.routes'));
+// DGP (délai global de paiement) des factures — widget dashboard
+app.use('/api/finance/dgp', require('./modules/finance/dgp.routes'));
 app.use('/api/budget-prep', require('./modules/budget-prep/budget-prep.routes'));
 
 // Parapheur électronique (signature de documents PDF)
@@ -6190,6 +6192,29 @@ cron.schedule('30 4 * * *', async () => {
         logMouchard(`Sync réseau Infra échouée: ${e.message}`);
     }
 }, { timezone: 'Europe/Paris' });
+
+// ─── Budget : recalcul quotidien du cache DGP (délai global de paiement) à 05h00 ──
+// La date de mandatement n'évolue qu'une fois par jour côté Sedit → un cache
+// quotidien suffit et évite un scan de FI.FAIT à chaque affichage des factures.
+cron.schedule('0 5 * * *', async () => {
+    console.log('[CRON] Recalcul cache DGP factures (05h00)...');
+    try {
+        const r = await require('./modules/finance/dgp.service').refreshFacturesDgpCache();
+        console.log(`[CRON dgp] ${r.count} facture(s) (exercices ${r.years.join(', ')}).`);
+        logMouchard(`Cache DGP factures recalculé : ${r.count} facture(s) (${r.years.join(', ')})`);
+    } catch (e) {
+        console.error('[CRON dgp]', e.message);
+        logMouchard(`Recalcul cache DGP échoué: ${e.message}`);
+    }
+}, { timezone: 'Europe/Paris' });
+
+// Pré-remplissage du cache DGP au démarrage (asynchrone, non bloquant) : évite un
+// cache vide après un déploiement, en attendant le cron de 05h00.
+setTimeout(() => {
+    require('./modules/finance/dgp.service').refreshFacturesDgpCache()
+        .then(r => console.log(`[DGP] Cache initial recalculé : ${r.count} facture(s).`))
+        .catch(e => console.warn('[DGP] Cache initial non recalculé:', e.message));
+}, 45000);
 
 // ─── Parc : synchronisation quotidienne de l'Active Directory (postes/serveurs) à 06h00 ──
 cron.schedule('0 6 * * *', async () => {
