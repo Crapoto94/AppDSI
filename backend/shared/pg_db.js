@@ -2908,6 +2908,8 @@ async function setupPgDb() {
         );
       `);
       await client.query(`INSERT INTO oracle_automation_config (sync_type, enabled, frequency) VALUES ('DELIB', FALSE, 'daily') ON CONFLICT (sync_type) DO NOTHING`);
+      await client.query(`INSERT INTO oracle_automation_config (sync_type, enabled, frequency) VALUES ('ASTECH', FALSE, 'daily') ON CONFLICT (sync_type) DO NOTHING`);
+      await client.query(`INSERT INTO oracle_automation_config (sync_type, enabled, frequency) VALUES ('CONCERTO', FALSE, 'daily') ON CONFLICT (sync_type) DO NOTHING`);
     } catch (e) {
       console.log('[PG DB] oracle_automation_config skipped:', e.message);
     }
@@ -6746,6 +6748,7 @@ async function setupPgDb() {
         `note_size NUMERIC`,
         `is_external BOOLEAN DEFAULT FALSE`,
         `activation_notified_at TIMESTAMP`,
+        `activated_at TIMESTAMP`,
       ]) {
         try { await client.query(`ALTER TABLE hub_parapheur.signataires ADD COLUMN IF NOT EXISTS ${col}`); } catch (e) {}
       }

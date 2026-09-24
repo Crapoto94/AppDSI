@@ -29,7 +29,6 @@ export default function ParapheurCreate() {
   const [title, setTitle] = useState('');
   const [message, setMessage] = useState('');
   const [deadline, setDeadline] = useState('');
-  const [linkValidity, setLinkValidity] = useState(10);
   const [mode, setMode] = useState<Mode>('parallele');
   const [modeChosen, setModeChosen] = useState(false);
   const [showModeModal, setShowModeModal] = useState(false);
@@ -37,8 +36,7 @@ export default function ParapheurCreate() {
   const [annexes, setAnnexes] = useState<DocFile[]>([]);
   const [pages, setPages] = useState<Record<string, number>>({});
   const [signataires, setSignataires] = useState<AgentRef[]>([]);
-  const [signerKind, setSignerKind] = useState<'agent' | 'externe'>('agent');
-  const [extName, setExtName] = useState('');
+  const [signerKind, setSignerKind] = useState<'agent' | 'externe'>('agent');  const [extName, setExtName] = useState('');
   const [extEmail, setExtEmail] = useState('');
   const [extPhone, setExtPhone] = useState('');
   const [modeMap, setModeMap] = useState<Record<string, SignMode>>({});
@@ -178,7 +176,6 @@ export default function ParapheurCreate() {
       const effectiveMode: Mode = signataires.length >= 2 ? mode : 'parallele';
       const payload = {
         title, message, mode: effectiveMode, deadline: deadline || null,
-        link_validity_minutes: linkValidity,
         signataires: signataires.map((s) => ({
           agentId: s.id,
           nom: s.displayName,
@@ -237,18 +234,10 @@ export default function ParapheurCreate() {
             <input type="date" value={deadline} onChange={e => setDeadline(e.target.value)} style={{ ...input, maxWidth: 240 }} />
           </Field>
           {signataires.some(s => s.external) && (
-            <Field label="Durée de validité du lien de signature (signataires extérieurs)">
-              <select value={linkValidity} onChange={e => setLinkValidity(Number(e.target.value))} style={{ ...input, maxWidth: 320 }}>
-                <option value={10}>10 minutes</option>
-                <option value={30}>30 minutes</option>
-                <option value={60}>1 heure</option>
-                <option value={1440}>1 jour</option>
-                <option value={10080}>1 semaine</option>
-              </select>
-              <div style={{ fontSize: '0.75rem', color: '#94a3b8', marginTop: 6 }}>
-                {linkValidity <= 60
-                  ? 'Lien court : ouverture directe du parapheur, sans code de vérification.'
-                  : "Au-delà d'une heure, le signataire confirmera son identité par un code envoyé par e-mail."}
+            <Field label="Lien de signature (signataires extérieurs)">
+              <div style={{ fontSize: '0.82rem', color: '#475569', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, padding: '10px 12px' }}>
+                Le lien est valable <strong>7 jours</strong>. Pendant la <strong>1re heure</strong>, le signataire ouvre
+                et signe <strong>directement</strong>. Au-delà, il confirme son identité par un <strong>code envoyé par e-mail</strong>.
               </div>
             </Field>
           )}

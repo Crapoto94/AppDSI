@@ -31,21 +31,29 @@ const CERT_MODULE = 'parapheur-certificats';
 const TOKEN_EXPIRY_DAYS = 30;
 const REMINDER_MAX = 3;
 const REMINDER_INTERVAL_DAYS = 2;
-// Durée de validité du lien (minutes) et seuil au-delà duquel un code e-mail est
-// exigé pour confirmer l'identité du signataire extérieur.
-const LINK_VALIDITY_CHOICES = [10, 30, 60, 1440, 10080];
-const OTP_THRESHOLD_MINUTES = 60;
+// Signataires extérieurs : le lien reste valable 7 jours. Pendant la 1re heure
+// après activation/envoi, l'accès est DIRECT (sans identification) ; au-delà,
+// l'identité est confirmée par un code envoyé par e-mail.
+const EXTERNAL_LINK_VALIDITY_MINUTES = 7 * 24 * 60; // 7 jours
+const DIRECT_ACCESS_MINUTES = 60;
 
-function normalizeLinkValidity(value) {
-    const n = Number(value);
-    return LINK_VALIDITY_CHOICES.includes(n) ? n : 10;
+/** Durée de validité du lien extérieur (fixe : 7 jours). Conservé pour compat. */
+function normalizeLinkValidity() {
+    return EXTERNAL_LINK_VALIDITY_MINUTES;
 }
-function linkValidityOf(parapheur) {
-    return Number(parapheur && parapheur.link_validity_minutes) || 10;
+function linkValidityOf() {
+    return EXTERNAL_LINK_VALIDITY_MINUTES;
 }
-/** Code e-mail requis uniquement si le lien est valable plus d'une heure. */
-function otpRequiredFor(parapheur) {
-    return linkValidityOf(parapheur) > OTP_THRESHOLD_MINUTES;
+/** Vrai si la fenêtre d'accès direct (sans code) est écoulée pour ce signataire. */
+function directWindowElapsed(signataire) {
+    if (!signataire) return false;
+    const ref = signataire.activated_at || signataire.created_at;
+    if (!ref) return false;
+    return (Date.now() - new Date(ref).getTime()) >= DIRECT_ACCESS_MINUTES * 60 * 1000;
+}
+/** Code e-mail requis pour un signataire extérieur au-delà de la 1re heure. */
+function otpRequiredForSigner(signataire) {
+    return isExternalSigner(signataire) && directWindowElapsed(signataire);
 }
 function isLinkExpired(signataire) {
     if (!signataire || !signataire.token_expires_at) return false;
@@ -357,11 +365,11 @@ function isExternalSigner(signataire) {
 async function getSignerAccessInfo(token) {
     const signataire = await getSignerByToken(token);
     if (!signataire) return null;
-    const p = await pgDb.get(`SELECT status, title, reference, link_validity_minutes FROM hub_parapheur.parapheurs WHERE id = ?`, [signataire.parapheur_id]);
+    const p = await pgDb.get(`SELECT status, title, reference FROM hub_parapheur.parapheurs WHERE id = ?`, [signataire.parapheur_id]);
     const isExternal = isExternalSigner(signataire);
-    const otpRequired = otpRequiredFor(p);
+    const otpRequired = otpRequiredForSigner(signataire);
     const expired = isLinkExpired(signataire);
-    // Lien court (≤ 1 h) : accès DIRECT au parapheur, sans code e-mail.
+    // Accès DIRECT (sans code) pendant la 1re heure suivant l'activation.
     const canSignDirectly = isExternal && !otpRequired && !expired
         && (signataire.status === 'en_cours' || signataire.status === 'a_signe')
         && p && p.status === 'en_cours';
@@ -370,6 +378,9 @@ async function getSignerAccessInfo(token) {
         exists: true,
         is_external: isExternal,
         otp_required: otpRequired,
+        direct_access: canSignDirectly,
+        direct_window_elapsed: directWindowElapsed(signataire),
+        direct_access_minutes: DIRECT_ACCESS_MINUTES,
         link_expires_at: signataire.token_expires_at,
         expired,
         nom: signataire.nom,
@@ -1402,23 +1413,24 @@ async function getActiveDelegation(delegantEmail, delegateEmail) {
 
 async function activateSignataires(parapheur, signataires, ip) {
     const now = new Date();
-    // Validité du lien : durée choisie pour les signataires extérieurs ; les
-    // signataires internes conservent une validité longue (30 jours).
-    const p = await pgDb.get('SELECT link_validity_minutes FROM hub_parapheur.parapheurs WHERE id = ?', [parapheur.id]).catch(() => null);
-    const linkMin = Number(parapheur.link_validity_minutes || (p && p.link_validity_minutes)) || 10;
     for (const s of signataires) {
         const isExternal = s.is_external === true;
-        const ms = isExternal ? linkMin * 60 * 1000 : TOKEN_EXPIRY_DAYS * 24 * 3600 * 1000;
+        // Extérieur : lien valable 7 jours (accès direct la 1re heure, puis code).
+        // Interne : validité longue (30 jours).
+        const ms = isExternal
+            ? EXTERNAL_LINK_VALIDITY_MINUTES * 60 * 1000
+            : TOKEN_EXPIRY_DAYS * 24 * 3600 * 1000;
         const expires = new Date(now.getTime() + ms);
         const token = s.token || generateToken();
         await pgDb.run(
             `UPDATE hub_parapheur.signataires
-             SET status = 'en_cours', token = ?, token_expires_at = ?, last_reminder_at = ?, activation_notified_at = NULL
+             SET status = 'en_cours', token = ?, token_expires_at = ?, activated_at = ?, last_reminder_at = ?, activation_notified_at = NULL
              WHERE id = ?`,
-            [token, expires.toISOString(), now.toISOString(), s.id]
+            [token, expires.toISOString(), now.toISOString(), now.toISOString(), s.id]
         );
         s.token = token;
         s.status = 'en_cours';
+        s.activated_at = now.toISOString();
         // L'e-mail n'est pas envoyé immédiatement : il est regroupé par le
         // digest périodique (intervalle paramétrable), afin de combiner
         // plusieurs nouveaux parapheurs en un seul message.
@@ -2604,7 +2616,18 @@ async function relance(parapheurId, { manual, req }) {
                 deadline: parapheur.deadline,
             });
             await sendParapheurEmail(s.email, tpl);
-            await pgDb.run(`UPDATE hub_parapheur.signataires SET reminder_count = reminder_count + 1, last_reminder_at = NOW() WHERE id = ?`, [s.id]);
+            // La relance réinitialise la validité : extérieur 7 jours, interne 30 jours,
+            // et relance la fenêtre d'accès direct (1re heure).
+            const ms = isExternalSigner(s)
+                ? EXTERNAL_LINK_VALIDITY_MINUTES * 60 * 1000
+                : TOKEN_EXPIRY_DAYS * 24 * 3600 * 1000;
+            const expires = new Date(Date.now() + ms).toISOString();
+            await pgDb.run(
+                `UPDATE hub_parapheur.signataires
+                 SET reminder_count = reminder_count + 1, last_reminder_at = NOW(), token_expires_at = ?, activated_at = NOW()
+                 WHERE id = ?`,
+                [expires, s.id]
+            );
             sent++;
         } catch (e) {
             console.warn('[PARAPHEUR] relance échouée:', e.message);
@@ -3279,9 +3302,9 @@ module.exports = {
     getSignerByToken,
     isExternalSigner,
     assertLinkValid,
-    otpRequiredFor,
+    otpRequiredForSigner,
+    directWindowElapsed,
     linkValidityOf,
-    LINK_VALIDITY_CHOICES,
     getSignerAccessInfo,
     requestEmailOtp,
     verifyEmailOtp,

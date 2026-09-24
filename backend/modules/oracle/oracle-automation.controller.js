@@ -20,7 +20,7 @@ exports.updateAutomationConfig = async (req, res) => {
 
   console.log(`[Oracle Config] Update request: sync_type=${sync_type}, enabled=${enabled}, frequency=${frequency}`);
 
-  if (!sync_type || !['RH', 'FINANCES', 'DELIB'].includes(sync_type)) {
+  if (!sync_type || !['RH', 'FINANCES', 'DELIB', 'ASTECH', 'CONCERTO'].includes(sync_type)) {
     return res.status(400).json({ error: 'Invalid sync_type' });
   }
 
@@ -132,7 +132,7 @@ exports.getSyncLogs = async (req, res) => {
 exports.recordSyncLog = async (req, res) => {
   const { sync_type, status, records_synced, duration_ms, error_message, started_at } = req.body;
 
-  if (!sync_type || !['RH', 'FINANCES', 'DELIB'].includes(sync_type)) {
+  if (!sync_type || !['RH', 'FINANCES', 'DELIB', 'ASTECH', 'CONCERTO'].includes(sync_type)) {
     return res.status(400).json({ error: 'Invalid sync_type' });
   }
 
@@ -157,7 +157,7 @@ exports.recordSyncLog = async (req, res) => {
 exports.testSync = async (req, res) => {
   const { syncType } = req.params;
 
-  if (!syncType || !['RH', 'FINANCES', 'DELIB'].includes(syncType)) {
+  if (!syncType || !['RH', 'FINANCES', 'DELIB', 'ASTECH', 'CONCERTO'].includes(syncType)) {
     return res.status(400).json({ error: 'Invalid sync type' });
   }
 

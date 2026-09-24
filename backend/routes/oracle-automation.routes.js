@@ -32,7 +32,7 @@ router.post('/test/:syncType', authenticateAdmin, oracleController.testSync);
 router.post('/exec-sync/:syncType', async (req, res) => {
   const { syncType } = req.params;
 
-  if (!syncType || !['RH', 'FINANCES', 'DELIB'].includes(syncType)) {
+  if (!syncType || !['RH', 'FINANCES', 'DELIB', 'ASTECH', 'CONCERTO'].includes(syncType)) {
     return res.status(400).json({ error: 'Invalid sync type' });
   }
 

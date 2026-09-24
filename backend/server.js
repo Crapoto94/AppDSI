@@ -2132,7 +2132,7 @@ app.post('/api/oracle/test-join', authenticateAdmin, async (req, res) => {
 app.post('/api/oracle/import-tables', authenticateAdmin, async (req, res) => {
     const { type } = req.body;
 
-    if (!type || !['RH', 'FINANCES', 'DELIB'].includes(type)) {
+    if (!type || !['RH', 'FINANCES', 'DELIB', 'ASTECH', 'CONCERTO'].includes(type)) {
         return res.status(400).json({ error: 'Invalid sync type' });
     }
 
@@ -3069,10 +3069,13 @@ let db;
 setupDb().then(async database => {
     db = database;
 
-    // Connexion Oracle DELIB : ligne créée si absente (au même titre que RH et FINANCES).
+    // Connexions Oracle : lignes créées si absentes (RH et FINANCES sont créées
+    // par l'admin ; DELIB/AIRS, ASTECH et CONCERTO sont pré-initialisées).
     try {
         await db.run("INSERT OR IGNORE INTO oracle_settings (type, is_enabled) VALUES ('DELIB', 0)");
-    } catch (e) { console.warn('[ORACLE] Initialisation connexion DELIB:', e.message); }
+        await db.run("INSERT OR IGNORE INTO oracle_settings (type, is_enabled) VALUES ('ASTECH', 0)");
+        await db.run("INSERT OR IGNORE INTO oracle_settings (type, is_enabled) VALUES ('CONCERTO', 0)");
+    } catch (e) { console.warn('[ORACLE] Initialisation connexions Oracle:', e.message); }
 
     // Initialize backlog controller with database for AD lookups
     try { backlogController.setDb(db); } catch (e) { console.warn('[BACKLOG] Controller pas encore chargé, injection DB reportée'); }

@@ -216,7 +216,9 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
   const [oracleConfigs, setOracleConfigs] = useState<any[]>([
     { type: 'FINANCES', host: '', port: 1521, service_name: '', username: '', password: '', is_enabled: 0 },
     { type: 'RH', host: '', port: 1521, service_name: '', username: '', password: '', is_enabled: 0 },
-    { type: 'DELIB', host: '', port: 1521, service_name: '', username: '', password: '', is_enabled: 0 }
+    { type: 'DELIB', host: '', port: 1521, service_name: '', username: '', password: '', is_enabled: 0 },
+    { type: 'ASTECH', host: '', port: 1521, service_name: '', username: '', password: '', is_enabled: 0 },
+    { type: 'CONCERTO', host: '', port: 1521, service_name: '', username: '', password: '', is_enabled: 0 }
   ]);
   const [mariadbConfigs, setMariadbConfigs] = useState<any[]>([
     { type: 'MAIN', host: '', port: 3306, user: '', password: '', database: '', is_enabled: 0 }
@@ -248,7 +250,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
   const [dateFields, setDateFields] = useState<Record<string, string[]>>({});
   const [joinPreviewResult, setJoinPreviewResult] = useState<string | null>(null);
   const [oracleActiveTab, setOracleActiveTab] = useState<'configuration' | 'automatisation' | 'logs'>('configuration');
-  const [oracleAutomations, setOracleAutomations] = useState<Record<string, { enabled: boolean; frequency: string }>>({ FINANCES: { enabled: false, frequency: 'daily' }, RH: { enabled: false, frequency: 'daily' }, DELIB: { enabled: false, frequency: 'daily' } });
+  const [oracleAutomations, setOracleAutomations] = useState<Record<string, { enabled: boolean; frequency: string }>>({ FINANCES: { enabled: false, frequency: 'daily' }, RH: { enabled: false, frequency: 'daily' }, DELIB: { enabled: false, frequency: 'daily' }, ASTECH: { enabled: false, frequency: 'daily' }, CONCERTO: { enabled: false, frequency: 'daily' } });
   const [isSavingAutomation, setIsSavingAutomation] = useState<Record<string, boolean>>({});
   const [isTestingAutomation, setIsTestingAutomation] = useState<Record<string, boolean>>({});
   const [oracleSyncLogs, setOracleSyncLogs] = useState<any[]>([]);
@@ -732,7 +734,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
       const res = await fetch('/api/oracle-settings', { headers: { 'Authorization': `Bearer ${token}` } });
       if (res.ok) {
         const data = await res.json();
-        const types = ['FINANCES', 'RH', 'DELIB'];
+        const types = ['FINANCES', 'RH', 'DELIB', 'ASTECH', 'CONCERTO'];
         const syncedData = types.map(t => {
           const existing = data.find((d: any) => d.type === t);
           return existing || { type: t, host: '', port: 1521, service_name: '', username: '', password: '', is_enabled: 0 };
@@ -3270,7 +3272,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
               </div>
               <div className="header-content">
                 <h2>Synchronisation Oracle</h2>
-                <p>Paramétrez les flux de données entre les bases Oracle RH/FINANCES/DELIB et la base locale.</p>
+                <p>Paramétrez les flux de données entre les bases Oracle RH/FINANCES/DELIB/ASTECH/CONCERTO et la base locale.</p>
               </div>
             </div>
 
@@ -3312,7 +3314,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
             {/* Contenu Configuration */}
             {oracleActiveTab === 'configuration' && (
             <div className="oracle-grid">
-              {['FINANCES', 'RH', 'DELIB'].map(type => {
+              {['FINANCES', 'RH', 'DELIB', 'ASTECH', 'CONCERTO'].map(type => {
                 const config = oracleConfigs.find(c => c.type === type) || { type, host: '', port: 1521, service_name: '', username: '', password: '', is_enabled: 0 };
                 const result = oracleTestResults[type];
                 const testing = isTestingOracle[type];
@@ -3685,7 +3687,7 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                 </div>
 
                 <div className="oracle-grid">
-                  {['FINANCES', 'RH', 'DELIB'].map(type => (
+                  {['FINANCES', 'RH', 'DELIB', 'ASTECH', 'CONCERTO'].map(type => (
                     <div key={type} className="oracle-card glass-card">
                       <div className="card-header">
                         <div className="header-info">

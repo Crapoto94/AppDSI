@@ -169,7 +169,7 @@ function ExternalSignerLogin({ token, nom, emailMasked, otpRequired, accessToken
           <div style={{ display: 'flex', gap: 10, background: '#eff6ff', border: '1px solid #bfdbfe', color: '#1e3a8a', padding: 12, borderRadius: 10, fontSize: 12.5, marginBottom: 16, lineHeight: 1.5 }}>
             <ShieldCheck size={16} style={{ flexShrink: 0, marginTop: 1 }} />
             <span>
-              Cette demande de signature est valable <strong>plus d'une heure</strong>. Pour confirmer que vous êtes bien le destinataire,
+              Ce lien a été ouvert plus d'une heure après son envoi. Pour confirmer que vous êtes bien le destinataire,
               un code à 6 chiffres vous sera envoyé par e-mail à <strong>{sentTo}</strong> : saisissez-le pour accéder au parapheur.
             </span>
           </div>
