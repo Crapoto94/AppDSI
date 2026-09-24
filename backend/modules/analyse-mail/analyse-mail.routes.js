@@ -7,5 +7,6 @@ router.use(authenticateJWT);
 
 router.get('/kpis', ctrl.kpis);
 router.get('/signins/failed', ctrl.failedSignins);
+router.post('/scan', ctrl.scan);
 
 module.exports = router;
