@@ -1281,11 +1281,16 @@ export default function TicketDetail() {
     if (!id) return;
     try {
       const token = localStorage.getItem('token');
-      await axios.post(`/api/tickets/${id}/resolve`,
+      const r = await axios.post(`/api/tickets/${id}/resolve`,
         { solution: cascadeSolution, auto_resolve_linked: true },
         { headers: { Authorization: `Bearer ${token}` } }
       );
       setShowCascadeModal(false);
+      // Les échecs de résolution des tickets liés ne sont plus silencieux côté
+      // serveur : on les affiche pour ne pas laisser croire à tort que tout a été résolu.
+      if (r.data?.failures?.length) {
+        alert(r.data.message);
+      }
       loadTicket();
     } catch (e: any) {
       alert(e.response?.data?.message || 'Erreur lors de la résolution');

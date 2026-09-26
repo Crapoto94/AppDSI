@@ -244,6 +244,9 @@ module.exports = {
         // 1. Resolve the problem ticket itself
         await this.setSolution(problemId, solution, user);
 
+        const resolved = [];
+        const failures = [];
+
         // 2. Resolve linked tickets if requested
         if (autoResolveLinked) {
             // Collect all tickets to resolve: group siblings + problem-linked tickets
@@ -262,15 +265,22 @@ module.exports = {
             `, [problemId]);
             for (const row of linkedTickets) toResolve.add(row.ticket_id);
 
-            // 2c. Resolve all collected tickets with the user's solution
+            // 2c. Resolve all collected tickets with the user's solution — les échecs
+            // étaient auparavant seulement logués côté serveur (console.error), donc
+            // invisibles pour l'agent : "ça s'exécute sans erreur mais rien n'est
+            // résolu". On les remonte désormais dans la réponse de l'API.
             for (const ticketId of toResolve) {
                 try {
                     await this.setSolution(ticketId, solution, user);
+                    resolved.push(ticketId);
                 } catch (e) {
-                    console.error(`[PROBLEM-RESOLVE] Failed to resolve linked ticket #${ticketId}:`, e.message);
+                    console.error(`[PROBLEM-RESOLVE] Failed to resolve linked ticket #${ticketId}:`, e.message, e.stack);
+                    failures.push({ ticketId, error: e.message });
                 }
             }
         }
+
+        return { resolved, failures };
     },
 
     async softDelete(id, user) {
