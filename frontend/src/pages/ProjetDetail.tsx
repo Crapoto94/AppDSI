@@ -9,6 +9,7 @@ import Header from '../components/Header';
 import CreateReunionModal from '../components/CreateReunionModal';
 import ReunionDetailModal from '../components/ReunionDetailModal';
 import AddTaskModal from '../components/AddTaskModal';
+import ProjetDocumentExplorer from '../components/ProjetDocumentExplorer';
 import { useAuth } from '../contexts/AuthContext';
 import { isSuperAdmin, isAdminLike } from '../utils/roles';
 import AgentPresenceBadge from '../components/AgentPresenceBadge';
@@ -2147,7 +2148,8 @@ const DocumentsTab: React.FC<{ projetId: number; token: string | null; documents
         {[
           { key: 'documents', label: `Documents (${docs.filter(d => !d.type_vrac).length})` },
           { key: 'contractuels', label: `📝 Contractuels (${docs.filter(d => d.est_contractuel).length})` },
-          { key: 'vrac', label: `📦 Vrac (${docs.filter(d => d.type_vrac).length})` }
+          { key: 'vrac', label: `📦 Vrac (${docs.filter(d => d.type_vrac).length})` },
+          { key: 'explorateur', label: `🗂️ Explorateur` }
         ].map(t => (
           <button key={t.key} onClick={() => setSousOnglet(t.key)} style={{
             padding: '7px 14px', border: 'none', borderBottom: sousOnglet === t.key ? '2px solid #2563eb' : '2px solid transparent',
@@ -2157,6 +2159,9 @@ const DocumentsTab: React.FC<{ projetId: number; token: string | null; documents
         ))}
       </div>
 
+      {sousOnglet === 'explorateur' ? (
+        <ProjetDocumentExplorer projetId={projetId} token={token} />
+      ) : (<>
       {/* Zone upload */}
       <div style={{ display: 'flex', gap: '8px', marginBottom: '14px', flexWrap: 'wrap' }}>
         <button onClick={() => setShowUpload(!showUpload)} style={{ padding: '8px 16px', background: '#2563eb', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: '700', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px' }}>
@@ -2334,6 +2339,7 @@ const DocumentsTab: React.FC<{ projetId: number; token: string | null; documents
           </table>
         </div>
       )}
+      </>)}
     </div>
   );
 };

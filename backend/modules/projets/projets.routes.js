@@ -94,6 +94,49 @@ router.get('/:id/documents/:did/versions/:vid/telecharger', authenticateJWT, ctr
 router.get('/:id/documents/:did/versions/:vid/view', authenticateJWTQuery, ctrl.telechargerVersion);
 
 // ============================================
+// EXPLORATEUR DE DOCUMENTS (dossiers, typage libre — cf. projets.controller.js)
+// Chemins distincts de /documents ci-dessus : aucune collision possible avec
+// l'ancien système, aucun risque de casser son fonctionnement existant.
+// ============================================
+const explorerUploadHandler = (req, res, next) => {
+    uploadDoc.array('files', 200)(req, res, (err) => {
+        if (err) {
+            const message = err.code === 'LIMIT_FILE_COUNT'
+                ? 'Trop de fichiers (200 maximum) — déposez en plusieurs fois.'
+                : err.code === 'LIMIT_FILE_SIZE'
+                    ? 'Un ou plusieurs fichiers dépassent la taille maximale autorisée (100 Mo).'
+                    : `Échec de la lecture des fichiers déposés : ${err.message}`;
+            return res.status(400).json({ error: message });
+        }
+        next();
+    });
+};
+
+router.get('/:id/explorateur/dossiers', authenticateJWT, ctrl.getExplorerFolders);
+router.post('/:id/explorateur/dossiers', authenticateJWT, ctrl.createExplorerFolder);
+router.delete('/:id/explorateur/dossiers/:folderId', authenticateJWT, ctrl.deleteExplorerFolder);
+router.get('/:id/explorateur/dossiers/:folderId/chemin', authenticateJWT, ctrl.getExplorerFolderPath);
+
+router.get('/:id/explorateur/fichiers', authenticateJWT, ctrl.getExplorerDocuments);
+router.post('/:id/explorateur/fichiers', authenticateJWT, explorerUploadHandler, ctrl.uploadExplorerFiles);
+router.post('/:id/explorateur/fichiers/zip', authenticateJWT, uploadDoc.single('file'), ctrl.uploadExplorerZip);
+router.patch('/:id/explorateur/fichiers/:docId', authenticateJWT, ctrl.patchExplorerDocument);
+router.get('/:id/explorateur/fichiers/:docId/versions', authenticateJWT, ctrl.listExplorerVersions);
+router.delete('/:id/explorateur/fichiers/:docId', authenticateJWT, ctrl.deleteExplorerDocument);
+
+router.get('/explorateur/fichiers/:docId/fichier', authenticateJWTQuery, ctrl.serveExplorerFile);
+router.get('/explorateur/fichiers/:docId/apercu/msg', authenticateJWTQuery, ctrl.previewExplorerMsg);
+router.get('/explorateur/fichiers/:docId/apercu/msg/pieces-jointes/:idx', authenticateJWTQuery, ctrl.previewExplorerMsgAttachment);
+router.get('/explorateur/fichiers/:docId/apercu/docx', authenticateJWTQuery, ctrl.previewExplorerDocx);
+router.get('/explorateur/fichiers/:docId/apercu/xlsx', authenticateJWTQuery, ctrl.previewExplorerXlsx);
+router.get('/explorateur/fichiers/:docId/apercu/pptx', authenticateJWTQuery, ctrl.previewExplorerPptx);
+router.get('/explorateur/versions/:versionId/fichier', authenticateJWTQuery, ctrl.serveExplorerVersionFile);
+
+router.get('/:id/explorateur/champs-metadonnees', authenticateJWT, ctrl.getExplorerMetadataFields);
+router.post('/:id/explorateur/champs-metadonnees', authenticateJWT, ctrl.createExplorerMetadataField);
+router.delete('/:id/explorateur/champs-metadonnees/:fieldId', authenticateJWT, ctrl.deleteExplorerMetadataField);
+
+// ============================================
 // SCORING
 // ============================================
 router.post('/:id/scores', authenticateJWT, ctrl.enregistrerScore);

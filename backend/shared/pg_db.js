@@ -2186,6 +2186,45 @@ async function setupPgDb() {
     try { await client.query(`ALTER TABLE projets.projet_versions_document ADD COLUMN IF NOT EXISTS file_path TEXT`); } catch (e) {}
     try { await client.query(`ALTER TABLE projets.projet_versions_document ADD COLUMN IF NOT EXISTS file_missing BOOLEAN DEFAULT FALSE`); } catch (e) {}
 
+    // ── Base documentaire "explorateur" (dossiers/sous-dossiers, typage libre) ──
+    // Calquée sur le module Documents de l'appli mandat (C:\dev\mandat) : ajoutée
+    // À CÔTÉ de projet_documents/projet_versions_document existants, jamais à leur
+    // place — un document créé par l'ancien système (type_documentaire) reste
+    // visible dans le nouvel explorateur (folder_id NULL = racine), rien n'est
+    // supprimé ni migré de force.
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS projets.projet_folders (
+        id SERIAL PRIMARY KEY,
+        projet_id INTEGER NOT NULL REFERENCES projets.projets(id) ON DELETE CASCADE,
+        parent_id INTEGER REFERENCES projets.projet_folders(id) ON DELETE CASCADE,
+        nom TEXT NOT NULL,
+        created_by TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+    await client.query('CREATE INDEX IF NOT EXISTS idx_projet_folders_projet ON projets.projet_folders(projet_id);');
+    await client.query('CREATE INDEX IF NOT EXISTS idx_projet_folders_parent ON projets.projet_folders(parent_id);');
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS projets.projet_metadata_fields (
+        id SERIAL PRIMARY KEY,
+        projet_id INTEGER NOT NULL REFERENCES projets.projets(id) ON DELETE CASCADE,
+        cle TEXT NOT NULL,
+        libelle TEXT NOT NULL,
+        type TEXT NOT NULL DEFAULT 'texte',
+        options JSONB,
+        ordre INTEGER DEFAULT 0,
+        UNIQUE(projet_id, cle)
+      );
+    `);
+
+    try { await client.query(`ALTER TABLE projets.projet_documents ADD COLUMN IF NOT EXISTS folder_id INTEGER REFERENCES projets.projet_folders(id) ON DELETE CASCADE`); } catch (e) {}
+    try { await client.query(`ALTER TABLE projets.projet_documents ADD COLUMN IF NOT EXISTS metadata JSONB NOT NULL DEFAULT '{}'::jsonb`); } catch (e) {}
+    try { await client.query(`ALTER TABLE projets.projet_documents ADD COLUMN IF NOT EXISTS display_name TEXT`); } catch (e) {}
+    try { await client.query(`ALTER TABLE projets.projet_documents ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP`); } catch (e) {}
+    try { await client.query(`ALTER TABLE projets.projet_documents ADD COLUMN IF NOT EXISTS deleted_by TEXT`); } catch (e) {}
+    await client.query('CREATE INDEX IF NOT EXISTS idx_projet_documents_folder ON projets.projet_documents(folder_id);');
+
     await client.query(`
       CREATE TABLE IF NOT EXISTS projets.projet_scores (
         id SERIAL PRIMARY KEY,
