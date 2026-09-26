@@ -105,7 +105,22 @@ const MagAppController = {
                 (SELECT COUNT(*) FROM magapp.app_docs WHERE app_id = a.id AND is_obsolete = FALSE AND is_technical = TRUE) as technical_doc_count,
                 (SELECT COUNT(*) FROM magapp.app_docs WHERE app_id = a.id AND is_obsolete = FALSE) as doc_count,
                 (SELECT COUNT(*) FROM magapp.maintenances WHERE app_id = a.id AND start_date > CURRENT_TIMESTAMP) as future_maintenance_count,
-                (SELECT COUNT(*) FROM magapp.maintenances WHERE app_id = a.id AND start_date <= CURRENT_TIMESTAMP AND end_date >= CURRENT_TIMESTAMP) as ongoing_maintenance_count
+                (SELECT COUNT(*) FROM magapp.maintenances WHERE app_id = a.id AND start_date <= CURRENT_TIMESTAMP AND end_date >= CURRENT_TIMESTAMP) as ongoing_maintenance_count,
+                -- Prochaine maintenance planifiée (pas encore commencée) : pour la pastille
+                -- "Maintenance à venir" du Magasin d'applications (magapp-frontend).
+                (SELECT json_build_object(
+                    'id', m.id, 'name', m.name, 'description', m.description,
+                    'severity', m.severity, 'has_interruption', m.has_interruption,
+                    -- Explicitement marqué UTC ("Z") : sans ça, une chaîne naïve comme
+                    -- "2026-09-28T06:00:00" serait mal réinterprétée côté navigateur
+                    -- comme de l'heure locale au lieu de son vrai instant UTC.
+                    'start_date', to_char(m.start_date AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'),
+                    'end_date', to_char(m.end_date AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')
+                 )
+                 FROM magapp.maintenances m
+                 WHERE m.app_id = a.id AND m.start_date > CURRENT_TIMESTAMP
+                 ORDER BY m.start_date ASC LIMIT 1
+                ) as next_maintenance
                 FROM magapp_apps a
                 ORDER BY a.name ASC
             `);

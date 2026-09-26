@@ -43,6 +43,11 @@ interface AppItem {
   is_maintenance: number;
   maintenance_start: string | null;
   maintenance_end: string | null;
+  next_maintenance?: {
+    id: number; name: string; description: string | null;
+    severity: 'mineure' | 'majeure'; has_interruption: boolean;
+    start_date: string; end_date: string;
+  } | null;
   app_type: string;
   present_magapp: string;
   present_onboard: string;
@@ -3539,6 +3544,13 @@ interface AppCardProps {
 
 const AppCard: React.FC<AppCardProps> = ({ app, isFavorite, isSubscribed, showSubscriptions, toggleFavorite, handleSubscribe, handleAppClick, formatDate, healthStatus, openLibrary, showLibraryFeature }) => {
   const isMaint = app.is_maintenance === 1;
+  const nextMaint = !isMaint ? app.next_maintenance : null;
+  const nextMaintTooltip = nextMaint ? [
+    `📅 ${nextMaint.name}`,
+    `Du ${formatDate(nextMaint.start_date)} au ${formatDate(nextMaint.end_date)}`,
+    `${nextMaint.severity === 'majeure' ? 'Gravité majeure' : 'Gravité mineure'} — ${nextMaint.has_interruption ? 'avec interruption de service' : 'sans interruption de service'}`,
+    nextMaint.description || '',
+  ].filter(Boolean).join('\n') : '';
   const healthClass = healthStatus === 'ok' ? 'health-ok' : (healthStatus === 'fail' ? 'health-fail' : '');
   
   return (
@@ -3588,6 +3600,26 @@ const AppCard: React.FC<AppCardProps> = ({ app, isFavorite, isSubscribed, showSu
       </a>
 
       <div className="card-actions" style={{ position: 'absolute', right: '25px', display: 'flex', gap: '8px', zIndex: 5 }}>
+        {nextMaint && (
+          <span
+            title={nextMaintTooltip}
+            style={{
+              background: '#eef2ff',
+              border: '1px solid #c7d2fe',
+              borderRadius: '50%',
+              width: '32px',
+              height: '32px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              boxShadow: '0 2px 4px rgba(0,0,0,0.05)',
+              color: '#4f46e5',
+              flexShrink: 0,
+            }}
+          >
+            <Wrench size={15} />
+          </span>
+        )}
         {app.url_test && (
           <a
             className="animate-hover"
