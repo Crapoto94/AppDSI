@@ -1889,11 +1889,8 @@ export default function TicketsDashboard() {
                         <input value={aaSettingsDraft.ad_sync_url || ''} onChange={e => setAaSettingsDraft(d => ({ ...d, ad_sync_url: e.target.value }))} placeholder="http://O365:8088/trigger-sync"
                           style={{ width: '100%', boxSizing: 'border-box', padding: '8px 10px', border: '1px solid #e2e8f0', borderRadius: 6, fontSize: 13, outline: 'none' }} />
                       </div>
-                      <div>
-                        <label style={{ fontSize: 12, color: '#475569', display: 'block', marginBottom: 4, fontWeight: 600 }}>Mot de passe provisoire imposé <span style={{ fontWeight: 400 }}>(action rapide « Changement de mot de passe »)</span></label>
-                        <input value={aaSettingsDraft.pwd_change_value || ''} onChange={e => setAaSettingsDraft(d => ({ ...d, pwd_change_value: e.target.value }))} placeholder="Ex. : 100% service public"
-                          style={{ width: '100%', boxSizing: 'border-box', padding: '8px 10px', border: '1px solid #e2e8f0', borderRadius: 6, fontSize: 13, outline: 'none' }} />
-                        <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 4 }}>Valeur unique, fixée par la DSI — l'agent ne la saisit jamais, elle s'affiche automatiquement dans la modale de confirmation.</div>
+                      <div style={{ background: '#f0f9ff', border: '1px solid #bae6fd', borderRadius: 8, padding: '10px 12px', fontSize: 12, color: '#0369a1' }}>
+                        🔐 Le mot de passe provisoire de l'action « Changement de mot de passe » se configure désormais dans <strong>/tickets/admin → ⚙️ Paramètres</strong> (valeur actuelle : <strong>{aaSettings?.pwd_change_value || '⚠️ non configurée'}</strong>).
                       </div>
                       {aaError && <div style={{ color: '#dc2626', fontSize: 12 }}>{aaError}</div>}
                       <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>

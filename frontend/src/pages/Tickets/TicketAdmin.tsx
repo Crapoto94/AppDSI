@@ -3451,13 +3451,40 @@ function TicketParamsManager() {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
 
+  // Mot de passe provisoire de l'action rapide « Changement de mot de passe » — stocké
+  // à part (app_settings SQLite, mêmes routes que le paramétrage SMS des Actions
+  // automatiques), pas dans le config-bulk générique ci-dessus.
+  const [pwdChangeValue, setPwdChangeValue] = useState('');
+  const [pwdChangeLoading, setPwdChangeLoading] = useState(true);
+  const [pwdChangeSaving, setPwdChangeSaving] = useState(false);
+  const [pwdChangeSaved, setPwdChangeSaved] = useState(false);
+
   useEffect(() => {
     const token = localStorage.getItem('token');
     axios.get('/api/tickets/admin/config-all', { headers: { Authorization: `Bearer ${token}` } })
       .then(r => setConfig(r.data || {}))
       .catch(() => {})
       .finally(() => setLoading(false));
+
+    axios.get('/api/tickets/auto-actions/settings', { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => setPwdChangeValue(r.data?.pwd_change_value || ''))
+      .catch(() => {})
+      .finally(() => setPwdChangeLoading(false));
   }, []);
+
+  async function savePwdChange() {
+    setPwdChangeSaving(true);
+    try {
+      const token = localStorage.getItem('token');
+      // Le back-end fusionne les champs manquants avec leurs valeurs déjà stockées
+      // (sms_message/sms_tuto_link/ad_sync_url) : on ne renvoie que celui qu'on édite ici.
+      const r = await axios.get('/api/tickets/auto-actions/settings', { headers: { Authorization: `Bearer ${token}` } });
+      await axios.post('/api/tickets/auto-actions/settings', { ...r.data, pwd_change_value: pwdChangeValue }, { headers: { Authorization: `Bearer ${token}` } });
+      setPwdChangeSaved(true);
+      setTimeout(() => setPwdChangeSaved(false), 2000);
+    } catch (e: any) { alert(e.response?.data?.message || 'Erreur'); }
+    setPwdChangeSaving(false);
+  }
 
   function get(key: string, fallback: string = ''): string {
     return config[key] ?? fallback;
@@ -3548,6 +3575,33 @@ function TicketParamsManager() {
             style={{ ...inputStyle, flex: 1 }} placeholder="Ex: windows, session..." />
           <span style={{ fontSize: 11, color: '#94a3b8' }}>Utilisé comme placeholder dans le champ identifiant</span>
         </div>
+      </div>
+
+      {/* Mot de passe provisoire (action rapide « Changement de mot de passe ») */}
+      <div style={sectionStyle}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+          <div style={sectionTitleStyle}>🔐 Mot de passe provisoire</div>
+          {pwdChangeSaved && <div style={{ fontSize: 12, color: '#16a34a', fontWeight: 600 }}>✓ Enregistré</div>}
+        </div>
+        {pwdChangeLoading ? (
+          <div style={{ fontSize: 12, color: '#94a3b8' }}>Chargement...</div>
+        ) : (
+          <>
+            <div style={rowStyle}>
+              <label style={lblStyle}>Valeur imposée par la DSI</label>
+              <input value={pwdChangeValue} onChange={e => setPwdChangeValue(e.target.value)}
+                style={{ ...inputStyle, flex: 1 }} placeholder="Ex : 100% service public" />
+              <button onClick={savePwdChange} disabled={pwdChangeSaving}
+                style={{ padding: '8px 16px', background: pwdChangeSaving ? '#94a3b8' : '#6366f1', color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer', fontWeight: 600, fontSize: 13, flexShrink: 0 }}>
+                {pwdChangeSaving ? 'Enregistrement...' : 'Enregistrer'}
+              </button>
+            </div>
+            <div style={{ fontSize: 12, color: '#64748b' }}>
+              Utilisée par l'action rapide « Changement de mot de passe » (module Tickets et /fast) : valeur unique,
+              affichée automatiquement à l'agent dans la modale de confirmation — jamais saisie au cas par cas, jamais transmise par mail.
+            </div>
+          </>
+        )}
       </div>
 
       {/* Fonctionnalités */}
