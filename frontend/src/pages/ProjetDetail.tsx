@@ -2013,26 +2013,76 @@ const DocumentsTab: React.FC<{ projetId: number; token: string | null; documents
     setUploading(false);
   };
 
+  // Le glisser/déposer d'un DOSSIER ne fonctionne pas avec e.dataTransfer.files (l'API
+  // standard ne « voit » pas les dossiers) : il faut passer par l'API non-standard mais
+  // largement supportée webkitGetAsEntry() pour détecter les répertoires et les parcourir
+  // récursivement. Sans ça, le dossier ne produisait aucun fichier exploitable et l'upload
+  // restait bloqué (silencieusement, faute de try/catch — cf. ci-dessous).
+  const readDirectoryEntries = (reader: any): Promise<any[]> =>
+    new Promise((resolve, reject) => reader.readEntries(resolve, reject));
+
+  const collectFilesFromEntry = async (entry: any, out: File[]): Promise<void> => {
+    if (!entry) return;
+    if (entry.isFile) {
+      const file: File = await new Promise((resolve, reject) => entry.file(resolve, reject));
+      out.push(file);
+    } else if (entry.isDirectory) {
+      const reader = entry.createReader();
+      // readEntries() ne renvoie qu'un lot à la fois : il faut boucler jusqu'à un lot vide.
+      let batch = await readDirectoryEntries(reader);
+      while (batch.length > 0) {
+        for (const child of batch) await collectFilesFromEntry(child, out);
+        batch = await readDirectoryEntries(reader);
+      }
+    }
+  };
+
   const handleDrop = async (e: React.DragEvent) => {
     e.preventDefault();
     setDragOver(false);
-    const files = Array.from(e.dataTransfer.files);
+
+    let files: File[] = [];
+    try {
+      const items = e.dataTransfer.items;
+      const entries = items && items.length > 0
+        ? Array.from(items).map((it: any) => it.webkitGetAsEntry?.()).filter(Boolean)
+        : [];
+      if (entries.length > 0) {
+        for (const entry of entries) await collectFilesFromEntry(entry, files);
+      } else {
+        files = Array.from(e.dataTransfer.files);
+      }
+    } catch (err) {
+      console.error('[UPLOAD] lecture du dépôt échouée, repli sur dataTransfer.files:', err);
+      files = Array.from(e.dataTransfer.files);
+    }
     if (files.length === 0) return;
+
     setUploading(true);
     setUploadProgress(0);
     setUploadedFiles(files.map(f => f.name));
-    const form = new FormData();
-    files.forEach(f => form.append('files', f));
-    setUploadProgress(30);
-    await fetch(`/api/projets/${projetId}/documents/versions/vrac`, {
-      method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: form
-    });
-    setUploadProgress(80);
-    const r = await fetch(`/api/projets/${projetId}/documents`, { headers: { Authorization: `Bearer ${token}` } });
-    const d = await r.json();
-    if (Array.isArray(d)) setDocs(d);
-    setUploadProgress(100);
-    setTimeout(() => { setUploading(false); setUploadProgress(0); setUploadedFiles([]); }, 2500);
+    try {
+      const form = new FormData();
+      files.forEach(f => form.append('files', f));
+      setUploadProgress(30);
+      const res = await fetch(`/api/projets/${projetId}/documents/versions/vrac`, {
+        method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: form
+      });
+      if (!res.ok) {
+        const errBody = await res.json().catch(() => null);
+        throw new Error(errBody?.error || `Échec de l'upload (HTTP ${res.status})`);
+      }
+      setUploadProgress(80);
+      const r = await fetch(`/api/projets/${projetId}/documents`, { headers: { Authorization: `Bearer ${token}` } });
+      const d = await r.json();
+      if (Array.isArray(d)) setDocs(d);
+      setUploadProgress(100);
+    } catch (err: any) {
+      console.error('[UPLOAD] drop error:', err);
+      alert(`Erreur lors de l'upload : ${err?.message || 'erreur inconnue'}`);
+    } finally {
+      setTimeout(() => { setUploading(false); setUploadProgress(0); setUploadedFiles([]); }, 2500);
+    }
   };
 
   const docsFiltres = sousOnglet === 'contractuels' ? docs.filter(d => d.est_contractuel)

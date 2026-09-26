@@ -67,7 +67,24 @@ router.delete('/:id/visibilite/:vid', authenticateJWT, ctrl.supprimerVisibilite)
 // ============================================
 router.post('/:id/documents', authenticateJWT, ctrl.creerDocument);
 router.put('/:id/documents/:did/type', authenticateJWT, ctrl.updateDocumentType);
-router.post('/:id/documents/versions/vrac', authenticateJWT, uploadDoc.array('files', 20), ctrl.uploadVersionsVrac);
+router.post('/:id/documents/versions/vrac', authenticateJWT, (req, res, next) => {
+    // Dépôt d'un DOSSIER (frontend : ProjetDetail.tsx handleDrop, parcours récursif
+    // webkitGetAsEntry) : peut facilement dépasser la limite précédente de 20 fichiers,
+    // ce que multer rejette par une MulterError non interceptée ailleurs → 500 brut côté
+    // client. On l'intercepte ici pour renvoyer un message exploitable, et on relève la
+    // limite (200) qui n'a plus de raison d'être aussi basse pour ce cas d'usage.
+    uploadDoc.array('files', 200)(req, res, (err) => {
+        if (err) {
+            const message = err.code === 'LIMIT_FILE_COUNT'
+                ? 'Trop de fichiers dans le dossier déposé (200 maximum) — déposez-le en plusieurs fois.'
+                : err.code === 'LIMIT_FILE_SIZE'
+                    ? 'Un ou plusieurs fichiers dépassent la taille maximale autorisée (100 Mo).'
+                    : `Échec de la lecture des fichiers déposés : ${err.message}`;
+            return res.status(400).json({ error: message });
+        }
+        next();
+    });
+}, ctrl.uploadVersionsVrac);
 router.get('/:id/documents', authenticateJWT, ctrl.getDocuments);
 router.get('/:id/documents/controles', authenticateJWT, ctrl.getControlesDocuments);
 router.get('/:id/documents/:did', authenticateJWT, ctrl.getDocumentDetail);

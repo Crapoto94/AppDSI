@@ -42,6 +42,21 @@ async function readRef(backend, ref) {
     return null;
 }
 
+/**
+ * Repli pour les chemins "bruts" pré-unification du stockage (sans préfixe
+ * storage/, ex. "1779891711060_79.pdf") : storage.getFileForServe() ne sait
+ * résoudre que le nouveau schéma storage/<module>/<id>/... et cherche donc ce
+ * chemin brut à la racine du stockage cible (UNC), où il n'a jamais existé —
+ * ces fichiers vivent encore à la racine du backend ou dans l'ancien uploads/.
+ * Même logique que handleLegacyRow ci-dessous, factorisée pour être réutilisée
+ * par handleVersion (hub_docs.document_versions) sur tous les modules.
+ */
+function readLegacyLocalFile(filePath) {
+    const candidates = [path.join(BACKEND_ROOT, filePath), path.join(BACKEND_ROOT, 'uploads', filePath)];
+    const found = candidates.find((p) => { try { return fs.existsSync(p) && fs.statSync(p).isFile(); } catch { return false; } });
+    return found ? fs.readFileSync(found) : null;
+}
+
 /** Écrit un buffer dans l'environnement cible ; renvoie la référence cible. */
 async function writeRef(direction, { buffer, originalname, mimetype, module, entityType, entityId }) {
     const file = { buffer, originalname: originalname || 'fichier', mimetype: mimetype || 'application/octet-stream' };
@@ -97,7 +112,12 @@ async function handleVersion(v, dir, dryRun, runId, createdBy, report) {
             return;
         }
         try {
-            const buf = await readRef('filesystem', v.storage_ref);
+            let buf = await readRef('filesystem', v.storage_ref);
+            if (!buf && !storage.isStoragePath(v.storage_ref)) {
+                // Chemin pré-unification (pas de préfixe storage/) : chercher dans
+                // l'ancien emplacement local avant de déclarer le fichier manquant.
+                buf = readLegacyLocalFile(v.storage_ref);
+            }
             if (!buf) {
                 report.missing = (report.missing || 0) + 1;
                 report.items.push({ ...base, status: 'manquant' });
@@ -232,9 +252,7 @@ async function handleLegacyRow(row, src, dir, dryRun, runId, createdBy, report) 
             const f = await storage.getFileForServe(filePath);
             buf = f && f.buffer ? f.buffer : (f && f.absolutePath ? fs.readFileSync(f.absolutePath) : null);
         } else {
-            const candidates = [path.join(BACKEND_ROOT, filePath), path.join(BACKEND_ROOT, 'uploads', filePath)];
-            const found = candidates.find((p) => { try { return fs.existsSync(p) && fs.statSync(p).isFile(); } catch { return false; } });
-            if (found) buf = fs.readFileSync(found);
+            buf = readLegacyLocalFile(filePath);
         }
         if (!buf) {
             report.missing = (report.missing || 0) + 1;
