@@ -708,6 +708,15 @@ app.get('/api/auth/me', authenticateJWT, async (req, res) => {
             }
         }
 
+        // /fast ("Actions rapides") n'est pas un module à demander séparément : c'est un
+        // raccourci mobilité vers des gestes déjà couverts par /tickets (nouveau ticket,
+        // mot de passe, compte AD…). Quiconque a accès à /tickets y a donc accès aussi,
+        // sans passer par une tuile ni une demande d'accès dédiée.
+        if (user.authorized_urls && !user.authorized_urls.includes('*') &&
+            user.authorized_urls.includes('/tickets') && !user.authorized_urls.includes('/fast')) {
+            user.authorized_urls.push('/fast');
+        }
+
         res.json({ ...user, auth_source: source });
     } catch (error) {
         res.status(500).json({ message: 'Erreur lors de la récupération du profil', error: error.message });
@@ -1353,7 +1362,15 @@ app.get('/api/auth/azure/login', async (req, res) => {
 
 app.get('/api/auth/azure/callback', async (req, res) => {
     const { code, error, error_description, state } = req.query;
-    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+    // FRONTEND_URL n'est pas défini en prod (docker-compose) : sans repli, ce callback
+    // renvoyait toujours vers http://localhost:5173, quel que soit l'hôte réellement
+    // utilisé (ex. dsihub.ivry.local). Le proxy nginx du conteneur frontend forwarde
+    // Host et X-Forwarded-Proto (cf. frontend/nginx.conf), donc on peut reconstruire
+    // l'origine réelle depuis la requête plutôt que de dépendre d'une variable d'env.
+    const forwardedProto = (req.headers['x-forwarded-proto'] || '').split(',')[0].trim() || req.protocol || 'http';
+    const requestHost = req.headers['host'];
+    const inferredFrontendUrl = requestHost ? `${forwardedProto}://${requestHost}` : null;
+    const frontendUrl = process.env.FRONTEND_URL || inferredFrontendUrl || 'http://localhost:5173';
     const stateParam = state ? `&state=${encodeURIComponent(state)}` : '';
 
     if (error) {

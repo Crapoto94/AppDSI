@@ -289,6 +289,21 @@ const authenticateFastControl = (req, res, next) => {
             console.error('[AUTH FAST] Error checking tile access:', error);
         }
 
+        // Repli : accès tickets réel via le rôle de module résolu (hub_tickets.
+        // technician_profiles / hub.users), indépendant de la tuile SQLite user_tiles —
+        // celle-ci peut ne jamais avoir été demandée par un compte pourtant déjà
+        // superviseur/technicien tickets (élevé directement en base), qui se voyait donc
+        // refuser à tort l'accès aux Actions automatiques du module Tickets.
+        // Require tardif : ticket-permissions.js require shared/middleware.js
+        // (dépendance circulaire si importé en haut de fichier).
+        try {
+            const { resolveTicketRole } = require('../modules/tickets/middleware/ticket-permissions');
+            const role = await resolveTicketRole(req.user);
+            if (['technician', 'supervisor', 'admin', 'superadmin'].includes(role)) return next();
+        } catch (error) {
+            console.error('[AUTH FAST] Error checking ticket role:', error.message);
+        }
+
         res.status(403).json({ message: 'Accès refusé : accès au module Actions rapides ou Tickets requis' });
     });
 };

@@ -142,7 +142,10 @@ const Header: React.FC<HeaderProps> = ({ columns, onColumnsChange }) => {
       const res = await axios.get('/api/tiles', {
         headers: { Authorization: `Bearer ${token}` }
       });
-      setNavTiles((res.data || []).filter((t: TileData) => t.is_authorized && t.status === 'active'));
+      // « Actions rapides » (/fast) est un raccourci mobilité autonome, pas un module à
+      // lister ici (cf. Dashboard.tsx pour la même exclusion sur la grille d'accueil).
+      setNavTiles((res.data || []).filter((t: TileData) =>
+        t.is_authorized && t.status === 'active' && !(t.links || []).some(l => l.url === '/fast')));
     } catch (err) {
       console.error("Error fetching nav tiles:", err);
     }
