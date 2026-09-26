@@ -756,7 +756,7 @@ function MetadataSettingsModal({ base, headers, fields, onClose, onChange }: { b
         <div style={{ marginBottom: 14, display: 'flex', flexDirection: 'column', gap: 6 }}>
           {fields.map(f => (
             <div key={f.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: f.is_builtin ? '#eff6ff' : '#f8fafc', borderRadius: 8, padding: '6px 10px', fontSize: 13 }}>
-              <span>{f.libelle} <span style={{ fontSize: 11, color: '#94a3b8' }}>({f.type}{f.requis ? ', obligatoire' : ''})</span></span>
+              <span>{f.libelle} <span style={{ fontSize: 11, color: '#94a3b8' }}>({f.type})</span></span>
               {f.is_builtin
                 ? <span style={{ fontSize: 10, color: '#2563eb', fontWeight: 600 }}>Types documentaires attendus</span>
                 : <button onClick={() => remove(f.id)} style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#94a3b8' }}><Trash2 size={14} /></button>}
