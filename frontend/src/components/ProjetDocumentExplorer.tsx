@@ -440,20 +440,26 @@ function DocPreviewModal({ doc, base, headers, token, fileUrl, onClose }: { doc:
 
   useEffect(() => {
     const ep = `/api/projets/explorateur/fichiers/${doc.id}/apercu`;
-    if (kind === 'msg') fetch(`${ep}/msg`, { headers }).then(r => r.json()).then(setMsg).catch(() => setLoadError('Lecture impossible')).finally(() => setLoading(false));
-    else if (kind === 'docx') {
-      // OnlyOffice (rendu fidèle, moteur du client) en priorité si configuré ; repli
-      // silencieux sur l'aperçu "maison" (mammoth → HTML) sinon (503 = non configuré).
+    // OnlyOffice (rendu fidèle, moteur du client) en priorité pour les formats Office
+    // qu'il gère, si configuré ; repli silencieux sur l'aperçu "maison" sinon (503 =
+    // non configuré côté serveur, cf. onlyoffice.estPriseEnCharge côté client ici).
+    const viaOnlyOfficeSinon = (repli: () => void) => {
       fetch(`${ep}/onlyoffice`, { headers }).then(async r => {
         if (!r.ok) throw new Error('non configuré');
         setOoConfig(await r.json());
         setLoading(false);
-      }).catch(() => {
-        fetch(`${ep}/docx`, { headers }).then(r => r.json()).then(d => setDocxHtml(d.html)).catch(() => setLoadError('Aperçu impossible')).finally(() => setLoading(false));
-      });
-    }
-    else if (kind === 'xlsx') fetch(`${ep}/xlsx`, { headers }).then(r => r.json()).then(setXlsx).catch(() => setLoadError('Aperçu impossible')).finally(() => setLoading(false));
-    else if (kind === 'pptx') fetch(`${ep}/pptx`, { headers }).then(r => r.json()).then(setPptx).catch(() => setLoadError('Aperçu impossible')).finally(() => setLoading(false));
+      }).catch(repli);
+    };
+    if (kind === 'msg') fetch(`${ep}/msg`, { headers }).then(r => r.json()).then(setMsg).catch(() => setLoadError('Lecture impossible')).finally(() => setLoading(false));
+    else if (kind === 'docx') viaOnlyOfficeSinon(() => {
+      fetch(`${ep}/docx`, { headers }).then(r => r.json()).then(d => setDocxHtml(d.html)).catch(() => setLoadError('Aperçu impossible')).finally(() => setLoading(false));
+    });
+    else if (kind === 'xlsx') viaOnlyOfficeSinon(() => {
+      fetch(`${ep}/xlsx`, { headers }).then(r => r.json()).then(setXlsx).catch(() => setLoadError('Aperçu impossible')).finally(() => setLoading(false));
+    });
+    else if (kind === 'pptx') viaOnlyOfficeSinon(() => {
+      fetch(`${ep}/pptx`, { headers }).then(r => r.json()).then(setPptx).catch(() => setLoadError('Aperçu impossible')).finally(() => setLoading(false));
+    });
     else if (kind === 'md') fetch(url, { headers }).then(r => r.text()).then(setMdText).catch(() => setLoadError('Lecture impossible')).finally(() => setLoading(false));
     // eslint-disable-next-line
   }, [doc.id, kind]);
@@ -558,13 +564,13 @@ function DocPreviewModal({ doc, base, headers, token, fileUrl, onClose }: { doc:
               </div>
             </div>
           )}
-          {kind === 'docx' && !loading && !loadError && ooConfig && (
+          {['docx', 'xlsx', 'pptx'].includes(kind) && !loading && !loadError && ooConfig && (
             <div id={ooContainerId} style={{ width: '100%', height: '100%' }} />
           )}
           {kind === 'docx' && !loading && !loadError && !ooConfig && docxHtml !== null && (
             <div style={{ height: '100%', overflowY: 'auto', background: 'white', padding: 28 }} dangerouslySetInnerHTML={{ __html: docxHtml }} />
           )}
-          {kind === 'xlsx' && !loading && !loadError && xlsx && (
+          {kind === 'xlsx' && !loading && !loadError && !ooConfig && xlsx && (
             <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: 'white' }}>
               {xlsx.sheets.length > 1 && (
                 <div style={{ display: 'flex', gap: 4, borderBottom: '1px solid #e2e8f0', background: '#f8fafc', padding: '6px 10px' }}>
@@ -576,7 +582,7 @@ function DocPreviewModal({ doc, base, headers, token, fileUrl, onClose }: { doc:
               <div style={{ flex: 1, overflow: 'auto', padding: 14, fontSize: 12 }} dangerouslySetInnerHTML={{ __html: xlsx.sheets[activeSheet]?.html || '' }} />
             </div>
           )}
-          {kind === 'pptx' && !loading && !loadError && pptx && (
+          {kind === 'pptx' && !loading && !loadError && !ooConfig && pptx && (
             <div style={{ height: '100%', overflowY: 'auto', background: 'white', padding: 18 }}>
               <p style={{ marginBottom: 12, fontSize: 11, color: '#94a3b8' }}>Aperçu texte des diapositives (mise en forme et images non affichées) — téléchargez pour le rendu complet.</p>
               {pptx.slides.map(s => (
