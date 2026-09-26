@@ -12,6 +12,7 @@ import ProblemModal from './ProblemModal';
 import ResponseSuggestions from './ResponseSuggestions';
 import DocumentSuggestions from './DocumentSuggestions';
 import type { AttachDoc } from './DocumentSuggestions';
+import PasswordChangeModal, { looksLikePasswordTicket } from './PasswordChangeAction';
 import { Phone, MessageSquare, Upload, X, Edit3 } from 'lucide-react';
 import SiteSelectField from '../../components/SiteSelectField';
 import { formatDateTime, formatDate as formatDateParis } from '../../utils/datetime';
@@ -237,6 +238,7 @@ export default function TicketDetail() {
   const [waitingComment, setWaitingComment] = useState('');
   const [showSolutionModal, setShowSolutionModal] = useState(false);
   const [solutionText, setSolutionText] = useState('');
+  const [showPasswordChangeModal, setShowPasswordChangeModal] = useState(false);
   const [observers, setObservers] = useState<any[]>([]);
   const [showAddObserver, setShowAddObserver] = useState(false);
   const [observerSearch, setObserverSearch] = useState('');
@@ -2472,6 +2474,20 @@ export default function TicketDetail() {
               )}
             </div>
 
+            {/* SUGGESTION : action rapide changement de mot de passe */}
+            {ticket && (ticket.status?.id ?? 1) < 5 && looksLikePasswordTicket(ticket) && (
+              <div style={{ borderBottom: '1px solid #f4f4f5', padding: '10px 0' }}>
+                <button onClick={() => setShowPasswordChangeModal(true)}
+                  style={{ width: '100%', display: 'flex', alignItems: 'flex-start', gap: 10, padding: '12px 14px', border: '1px solid #fde68a', borderRadius: 10, background: '#fffbeb', cursor: 'pointer', textAlign: 'left' }}>
+                  <span style={{ fontSize: 20, lineHeight: 1 }}>🔐</span>
+                  <div>
+                    <div style={{ fontWeight: 700, fontSize: 13, color: '#92400e' }}>Ce ticket ressemble à une demande de mot de passe</div>
+                    <div style={{ fontSize: 11, color: '#78350f', marginTop: 2 }}>Lancer l'action rapide : recherche AD, changement de mot de passe et résolution automatique du ticket.</div>
+                  </div>
+                </button>
+              </div>
+            )}
+
             {/* RÉPONSES TYPES & BASE DE CONNAISSANCE (repliées) */}
             <div style={{ borderBottom: '1px solid #f4f4f5', padding: '10px 0' }}>
               <div style={{ fontSize: 11, fontWeight: 600, color: '#a1a1aa', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>Aide à la réponse</div>
@@ -2685,6 +2701,16 @@ export default function TicketDetail() {
             loadTicket();
             loadGroup();
           }}
+        />
+      )}
+
+      {showPasswordChangeModal && ticket && (
+        <PasswordChangeModal
+          ticketId={ticket.id}
+          requesterName={ticket.requester?.name}
+          requesterEmail={ticket.requester?.email}
+          onClose={() => setShowPasswordChangeModal(false)}
+          onResolved={() => { loadTicket(); }}
         />
       )}
 

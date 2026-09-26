@@ -5,6 +5,9 @@ const ldap = require('ldapjs');
 const KEY_MSG     = 'auto_actions.sms_message';
 const KEY_LINK    = 'auto_actions.sms_tuto_link';
 const KEY_SYNC_URL = 'auto_actions.ad_sync_url';
+// Mot de passe provisoire imposé par la DSI pour l'action rapide « Changement de mot
+// de passe » — configuré via le paramétrage (jamais codé en dur, jamais saisi par l'agent).
+const KEY_PWD_CHANGE = 'auto_actions.pwd_change_value';
 
 const DEFAULT_MSG  = 'Bonjour {PRENOM}, votre nouveau mot de passe Windows est : {MOT_DE_PASSE}\nPour le personnaliser, consultez : {LIEN}';
 const DEFAULT_LINK = '';
@@ -187,14 +190,15 @@ module.exports = {
     try {
       const db = getSqlite();
       const rows = await db.all(
-        'SELECT setting_key, setting_value FROM app_settings WHERE setting_key IN (?, ?, ?)',
-        [KEY_MSG, KEY_LINK, KEY_SYNC_URL]
+        'SELECT setting_key, setting_value FROM app_settings WHERE setting_key IN (?, ?, ?, ?)',
+        [KEY_MSG, KEY_LINK, KEY_SYNC_URL, KEY_PWD_CHANGE]
       );
       const map = Object.fromEntries(rows.map(r => [r.setting_key, r.setting_value]));
       res.json({
-        sms_message:   map[KEY_MSG]  ?? DEFAULT_MSG,
-        sms_tuto_link: map[KEY_LINK] ?? DEFAULT_LINK,
-        ad_sync_url:   map[KEY_SYNC_URL] ?? '',
+        sms_message:     map[KEY_MSG]  ?? DEFAULT_MSG,
+        sms_tuto_link:   map[KEY_LINK] ?? DEFAULT_LINK,
+        ad_sync_url:     map[KEY_SYNC_URL] ?? '',
+        pwd_change_value: map[KEY_PWD_CHANGE] ?? '',
       });
     } catch (err) {
       res.status(500).json({ message: err.message });
@@ -203,7 +207,7 @@ module.exports = {
 
   saveSettings: async (req, res) => {
     try {
-      const { sms_message, sms_tuto_link, ad_sync_url } = req.body;
+      const { sms_message, sms_tuto_link, ad_sync_url, pwd_change_value } = req.body;
       const db = getSqlite();
       await db.run(
         'INSERT OR REPLACE INTO app_settings (setting_key, setting_value) VALUES (?, ?)',
@@ -216,6 +220,10 @@ module.exports = {
       await db.run(
         'INSERT OR REPLACE INTO app_settings (setting_key, setting_value) VALUES (?, ?)',
         [KEY_SYNC_URL, ad_sync_url ?? '']
+      );
+      await db.run(
+        'INSERT OR REPLACE INTO app_settings (setting_key, setting_value) VALUES (?, ?)',
+        [KEY_PWD_CHANGE, pwd_change_value ?? '']
       );
       res.json({ ok: true });
     } catch (err) {
@@ -765,16 +773,31 @@ module.exports = {
   // forceAdPwdChange() (route existante, invoquée en interne) — aucun nouveau client LDAP.
   changePasswordTicket: async (req, res) => {
     try {
-      const { sam, display_name, mail, password } = req.body;
+      const { sam, display_name, mail, ticket_id } = req.body;
       if (!sam || !sam.trim()) return res.status(400).json({ message: 'Paramètre sam manquant' });
-      if (!password || password.length < 8) {
-        return res.status(400).json({ message: 'Le mot de passe provisoire doit contenir au moins 8 caractères' });
-      }
 
       const db = getSqlite();
+
+      // Mot de passe provisoire imposé (politique DSI, configuré via le paramétrage
+      // des actions automatiques) — jamais choisi ni saisi par l'agent.
+      const pwdRow = await db.get('SELECT setting_value FROM app_settings WHERE setting_key = ?', [KEY_PWD_CHANGE]);
+      const password = pwdRow?.setting_value || '';
+      if (!password) {
+        return res.status(400).json({ message: "Mot de passe provisoire non configuré — renseignez-le dans le paramétrage des actions automatiques." });
+      }
+
       const adSettings = await db.get('SELECT * FROM ad_settings WHERE id = 1');
       if (!adSettings || !adSettings.is_enabled) {
         return res.status(503).json({ message: "AD non configuré ou désactivé" });
+      }
+
+      // Si un ticket existant est fourni (agent qui traite déjà un ticket de gestion
+      // de mot de passe), on le réutilise au lieu d'en créer un nouveau.
+      const ticketRepo = require('./repositories/ticket.repository');
+      let existingTicket = null;
+      if (ticket_id) {
+        existingTicket = await ticketRepo.findById(parseInt(ticket_id, 10));
+        if (!existingTicket) return res.status(404).json({ message: `Ticket #${ticket_id} introuvable` });
       }
 
       // 1) Changement du mot de passe AD (fonction déjà utilisée par le renouvellement SMS).
@@ -830,12 +853,13 @@ module.exports = {
         }
       }
 
-      // 4) Création du ticket (demandeur = le compte AD), affectation à l'agent connecté,
-      // puis résolution immédiate.
+      // 4) Ticket : on réutilise le ticket déjà ouvert par l'agent s'il y en a un,
+      // sinon on en crée un (demandeur = le compte AD). Affectation à l'agent
+      // connecté, puis résolution immédiate.
       const ticketService = require('./services/ticket.service');
       const assignmentService = require('./services/assignment.service');
 
-      const ticketId = await ticketService.create({
+      const ticketId = existingTicket ? existingTicket.glpi_id : await ticketService.create({
         title: `Changement de mot de passe – ${requesterName}`,
         content: `Réinitialisation du mot de passe du compte AD <strong>${sam.trim()}</strong>` +
           `${requesterEmail ? ` (${requesterEmail})` : ''}, à la demande de l'agent connecté (action rapide « Changement de mot de passe »).`,
@@ -887,6 +911,7 @@ module.exports = {
       res.json({
         ok: true,
         ticket_id: ticketId,
+        reused_existing: !!existingTicket,
         force_pwd_change: forcePwdOk,
         force_pwd_error: forcePwdError,
         o365_changed: o365Changed,

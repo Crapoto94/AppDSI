@@ -182,9 +182,9 @@ export default function TicketsDashboard() {
   const [aaSearch, setAaSearch] = useState('');
   const [aaSelected, setAaSelected] = useState<any>(null);
   
-  const [aaSettings, setAaSettings] = useState<{ sms_message: string; sms_tuto_link: string; ad_sync_url: string } | null>(null);
+  const [aaSettings, setAaSettings] = useState<{ sms_message: string; sms_tuto_link: string; ad_sync_url: string; pwd_change_value: string } | null>(null);
   const [aaShowSettings, setAaShowSettings] = useState(false);
-  const [aaSettingsDraft, setAaSettingsDraft] = useState({ sms_message: '', sms_tuto_link: '', ad_sync_url: '' });
+  const [aaSettingsDraft, setAaSettingsDraft] = useState({ sms_message: '', sms_tuto_link: '', ad_sync_url: '', pwd_change_value: '' });
   const [aaSending, setAaSending] = useState(false);
   const [aaSyncing, setAaSyncing] = useState(false);
   const [aaStepStatus, setAaStepStatus] = useState(0); // 0=idle, 1=AD, 2=SMS, 3=Sync, 4=done
@@ -202,7 +202,6 @@ export default function TicketsDashboard() {
   const [pcSearchResults, setPcSearchResults] = useState<any[]>([]);
   const [pcSearching, setPcSearching] = useState(false);
   const [pcSelected, setPcSelected] = useState<any>(null);
-  const [pcPassword, setPcPassword] = useState('');
   const [pcSubmitting, setPcSubmitting] = useState(false);
   const [pcError, setPcError] = useState('');
   const [pcResult, setPcResult] = useState<any>(null);
@@ -1849,7 +1848,7 @@ export default function TicketsDashboard() {
 
                 <button onClick={() => {
                   setAaStep(5); setPcSearchQuery(''); setPcSearchResults([]); setPcSelected(null);
-                  setPcPassword(''); setPcSubmitting(false); setPcError(''); setPcResult(null);
+                  setPcSubmitting(false); setPcError(''); setPcResult(null);
                 }} style={{ display: 'flex', alignItems: 'flex-start', gap: 14, padding: '16px 18px', border: '1px solid #e2e8f0', borderRadius: 10, background: '#f8fafc', cursor: 'pointer', textAlign: 'left' }}
                   onMouseEnter={e => (e.currentTarget.style.borderColor = '#fbbf24')}
                   onMouseLeave={e => (e.currentTarget.style.borderColor = '#e2e8f0')}>
@@ -1866,16 +1865,16 @@ export default function TicketsDashboard() {
 
                 {/* Paramétrage global */}
                 <div style={{ borderTop: '1px solid #f1f5f9', paddingTop: 14, marginTop: 6 }}>
-                  <button onClick={() => { setAaShowSettings(!aaShowSettings); setAaSettingsDraft(aaSettings || { sms_message: '', sms_tuto_link: '', ad_sync_url: '' }); }}
+                  <button onClick={() => { setAaShowSettings(!aaShowSettings); setAaSettingsDraft(aaSettings || { sms_message: '', sms_tuto_link: '', ad_sync_url: '', pwd_change_value: '' }); }}
                     style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 13, color: '#64748b', display: 'flex', alignItems: 'center', gap: 6, padding: 0, fontWeight: 600 }}>
-                    ⚙️ Paramétrage SMS {aaShowSettings ? '▲' : '▼'}
+                    ⚙️ Paramétrage {aaShowSettings ? '▲' : '▼'}
                   </button>
                   {aaShowSettings && (
                     <div style={{ marginTop: 12, background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 10, padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: 12 }}>
                       <div style={{ fontSize: 12, color: '#94a3b8' }}>Ces paramètres s'appliquent à tous les envois de renouvellement de mot de passe.</div>
                       <div>
                         <label style={{ fontSize: 12, color: '#475569', display: 'block', marginBottom: 4, fontWeight: 600 }}>
-                          Template du message <span style={{ fontWeight: 400 }}>(variables : <code style={{ background: '#e2e8f0', padding: '1px 4px', borderRadius: 3 }}>{'{PRENOM}'}</code> <code style={{ background: '#e2e8f0', padding: '1px 4px', borderRadius: 3 }}>{'{MOT_DE_PASSE}'}</code> <code style={{ background: '#e2e8f0', padding: '1px 4px', borderRadius: 3 }}>{'{LIEN}'}</code>)</span>
+                          Template du message SMS <span style={{ fontWeight: 400 }}>(variables : <code style={{ background: '#e2e8f0', padding: '1px 4px', borderRadius: 3 }}>{'{PRENOM}'}</code> <code style={{ background: '#e2e8f0', padding: '1px 4px', borderRadius: 3 }}>{'{MOT_DE_PASSE}'}</code> <code style={{ background: '#e2e8f0', padding: '1px 4px', borderRadius: 3 }}>{'{LIEN}'}</code>)</span>
                         </label>
                         <textarea value={aaSettingsDraft.sms_message} onChange={e => setAaSettingsDraft(d => ({ ...d, sms_message: e.target.value }))} rows={4}
                           style={{ width: '100%', boxSizing: 'border-box', padding: '8px 10px', border: '1px solid #e2e8f0', borderRadius: 6, fontSize: 13, fontFamily: 'inherit', resize: 'vertical', outline: 'none' }} />
@@ -1889,6 +1888,12 @@ export default function TicketsDashboard() {
                         <label style={{ fontSize: 12, color: '#475569', display: 'block', marginBottom: 4, fontWeight: 600 }}>URL de synchro AD Connect <span style={{ fontWeight: 400 }}>(serveur listener)</span></label>
                         <input value={aaSettingsDraft.ad_sync_url || ''} onChange={e => setAaSettingsDraft(d => ({ ...d, ad_sync_url: e.target.value }))} placeholder="http://O365:8088/trigger-sync"
                           style={{ width: '100%', boxSizing: 'border-box', padding: '8px 10px', border: '1px solid #e2e8f0', borderRadius: 6, fontSize: 13, outline: 'none' }} />
+                      </div>
+                      <div>
+                        <label style={{ fontSize: 12, color: '#475569', display: 'block', marginBottom: 4, fontWeight: 600 }}>Mot de passe provisoire imposé <span style={{ fontWeight: 400 }}>(action rapide « Changement de mot de passe »)</span></label>
+                        <input value={aaSettingsDraft.pwd_change_value || ''} onChange={e => setAaSettingsDraft(d => ({ ...d, pwd_change_value: e.target.value }))} placeholder="Ex. : 100% service public"
+                          style={{ width: '100%', boxSizing: 'border-box', padding: '8px 10px', border: '1px solid #e2e8f0', borderRadius: 6, fontSize: 13, outline: 'none' }} />
+                        <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 4 }}>Valeur unique, fixée par la DSI — l'agent ne la saisit jamais, elle s'affiche automatiquement dans la modale de confirmation.</div>
                       </div>
                       {aaError && <div style={{ color: '#dc2626', fontSize: 12 }}>{aaError}</div>}
                       <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
@@ -2297,13 +2302,13 @@ export default function TicketsDashboard() {
                         {!pcSelected.mail && (
                           <div style={{ fontSize: 12, color: '#92400e', marginTop: 6 }}>⚠️ Aucun email AD connu : le mail de rappel (messagerie mobile/tablette) ne pourra pas être envoyé.</div>
                         )}
-                        <div style={{ marginTop: 12 }}>
-                          <label style={{ fontSize: 12, color: '#475569', display: 'block', marginBottom: 4, fontWeight: 600 }}>Mot de passe provisoire</label>
-                          <input type="text" value={pcPassword} onChange={e => setPcPassword(e.target.value)}
-                            placeholder="Mot de passe provisoire à communiquer à l'agent"
-                            style={{ width: '100%', boxSizing: 'border-box', padding: '9px 12px', border: '1px solid #e2e8f0', borderRadius: 8, fontSize: 13, outline: 'none' }} />
-                          <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 4 }}>
-                            Le compte sera marqué « changement de mot de passe à l'ouverture de session suivante ». Ce mot de passe n'est jamais envoyé par mail : communiquez-le de vive voix.
+                        <div style={{ marginTop: 12, background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 8, padding: '10px 12px' }}>
+                          <div style={{ fontSize: 12, color: '#475569', fontWeight: 600 }}>Mot de passe provisoire qui sera appliqué</div>
+                          <div style={{ fontSize: 15, fontWeight: 700, color: '#92400e', marginTop: 2, fontFamily: 'monospace' }}>
+                            {aaSettings?.pwd_change_value || '⚠️ non configuré'}
+                          </div>
+                          <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 6 }}>
+                            Le compte sera marqué « changement de mot de passe à l'ouverture de session suivante ». Communiquez ce mot de passe de vive voix à l'agent.
                           </div>
                         </div>
                       </div>
@@ -2313,7 +2318,7 @@ export default function TicketsDashboard() {
 
                     <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 4 }}>
                       {pcSelected && (
-                        <button disabled={pcSubmitting || pcPassword.trim().length < 8} onClick={async () => {
+                        <button disabled={pcSubmitting || !aaSettings?.pwd_change_value} onClick={async () => {
                           setPcSubmitting(true); setPcError('');
                           try {
                             const tk = localStorage.getItem('token');
@@ -2321,12 +2326,11 @@ export default function TicketsDashboard() {
                               sam: pcSelected.sam,
                               display_name: pcSelected.displayName,
                               mail: pcSelected.mail,
-                              password: pcPassword.trim(),
                             }, { headers: { Authorization: `Bearer ${tk}` } });
                             setPcResult(r.data);
                           } catch (e: any) { setPcError(e.response?.data?.message || 'Erreur lors du changement de mot de passe.'); }
                           finally { setPcSubmitting(false); }
-                        }} style={{ padding: '10px 22px', borderRadius: 8, border: 'none', background: (pcSubmitting || pcPassword.trim().length < 8) ? '#e2e8f0' : '#0f172a', color: (pcSubmitting || pcPassword.trim().length < 8) ? '#94a3b8' : '#fff', fontWeight: 700, fontSize: 14, cursor: (pcSubmitting || pcPassword.trim().length < 8) ? 'default' : 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
+                        }} style={{ padding: '10px 22px', borderRadius: 8, border: 'none', background: (pcSubmitting || !aaSettings?.pwd_change_value) ? '#e2e8f0' : '#0f172a', color: (pcSubmitting || !aaSettings?.pwd_change_value) ? '#94a3b8' : '#fff', fontWeight: 700, fontSize: 14, cursor: (pcSubmitting || !aaSettings?.pwd_change_value) ? 'default' : 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
                           {pcSubmitting ? '⏳ Traitement…' : '🔐 Changer le mot de passe et créer le ticket'}
                         </button>
                       )}
@@ -2345,7 +2349,7 @@ export default function TicketsDashboard() {
                       <div>{pcResult.mail_sent ? '✅ Mail de rappel envoyé au demandeur' : `ℹ️ Mail non envoyé${pcResult.mail_error ? ` : ${pcResult.mail_error}` : ''}`}</div>
                     </div>
                     <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-                      <button onClick={() => { setAaStep(0); setPcSearchQuery(''); setPcSearchResults([]); setPcSelected(null); setPcPassword(''); setPcResult(null); setPcError(''); }}
+                      <button onClick={() => { setAaStep(0); setPcSearchQuery(''); setPcSearchResults([]); setPcSelected(null); setPcResult(null); setPcError(''); }}
                         style={{ padding: '10px 22px', borderRadius: 8, border: 'none', background: '#0f172a', color: '#fff', fontWeight: 700, fontSize: 14, cursor: 'pointer' }}>Fermer</button>
                     </div>
                   </div>
