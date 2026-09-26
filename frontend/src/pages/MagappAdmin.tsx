@@ -2003,6 +2003,7 @@ const MagappAdmin: React.FC = () => {
 
                 <div className="modal-body-v2">
                   <div className="form-grid-v2">
+                    <div className="form-group-v2 full-width section-divider-v2"><span>Application &amp; gravité</span></div>
                     <div className="form-group-v2">
                       <label>Application</label>
                       <select
@@ -2030,6 +2031,8 @@ const MagappAdmin: React.FC = () => {
                         <option value="oui">Avec interruption</option>
                       </select>
                     </div>
+
+                    <div className="form-group-v2 full-width section-divider-v2"><span>Créneau <span style={{ fontWeight: 500, textTransform: 'none', letterSpacing: 'normal' }}>(heure de Paris)</span></span></div>
                     <div className="form-group-v2">
                       <label>Début *</label>
                       <input type="datetime-local" value={newMaintenance.start_date} onChange={e => setNewMaintenance({...newMaintenance, start_date: e.target.value})} />
@@ -2038,26 +2041,57 @@ const MagappAdmin: React.FC = () => {
                       <label>Fin *</label>
                       <input type="datetime-local" value={newMaintenance.end_date} onChange={e => setNewMaintenance({...newMaintenance, end_date: e.target.value})} />
                     </div>
+
+                    <div className="form-group-v2 full-width section-divider-v2"><span>Description</span></div>
                     <div className="form-group-v2 full-width">
-                      <label>Description</label>
                       <textarea rows={4} value={newMaintenance.description} onChange={e => setNewMaintenance({...newMaintenance, description: e.target.value})} placeholder="Décrivez la maintenance..."></textarea>
                     </div>
+
+                    <div className="form-group-v2 full-width section-divider-v2"><span>Pièces jointes</span></div>
                     <div className="form-group-v2 full-width">
-                      <label>Pièces jointes (comptes rendus, etc.)</label>
-                      <input
-                        type="file"
-                        multiple
-                        onChange={e => {
-                          const files = e.target.files;
-                          if (files) setMaintenanceFiles(Array.from(files));
+                      <label
+                        htmlFor="maintenance-file-input"
+                        style={{
+                          display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+                          gap: '8px', padding: '28px 16px', border: '2px dashed #c7d2fe', borderRadius: '14px',
+                          background: '#f5f6ff', cursor: 'pointer', textAlign: 'center',
                         }}
-                        style={{ padding: '10px', border: '2px dashed #e2e8f0', borderRadius: '12px', background: '#fafbfc', cursor: 'pointer' }}
-                      />
+                        onDragOver={ev => { ev.preventDefault(); }}
+                        onDrop={ev => {
+                          ev.preventDefault();
+                          const dropped = Array.from(ev.dataTransfer.files || []);
+                          if (dropped.length) setMaintenanceFiles(prev => [...prev, ...dropped]);
+                        }}
+                      >
+                        <Paperclip size={22} color="#4f46e5" />
+                        <span style={{ fontSize: '0.9rem', fontWeight: 600, color: '#334155' }}>Glissez-déposez des fichiers ici</span>
+                        <span style={{ fontSize: '0.8rem', color: '#94a3b8' }}>ou cliquez pour parcourir — comptes rendus, captures, etc.</span>
+                        <input
+                          id="maintenance-file-input"
+                          type="file"
+                          multiple
+                          onChange={e => {
+                            const files = e.target.files;
+                            if (files && files.length) setMaintenanceFiles(prev => [...prev, ...Array.from(files)]);
+                            e.target.value = '';
+                          }}
+                          style={{ display: 'none' }}
+                        />
+                      </label>
                       {maintenanceFiles.length > 0 && (
-                        <div style={{ marginTop: '8px' }}>
+                        <div style={{ marginTop: '10px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
                           {maintenanceFiles.map((f, i) => (
-                            <div key={i} style={{ fontSize: '0.8rem', color: '#64748b', padding: '4px 0', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                              <Paperclip size={12} /> {f.name}
+                            <div key={i} style={{ fontSize: '0.85rem', color: '#334155', padding: '6px 10px', display: 'flex', alignItems: 'center', gap: '8px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '8px' }}>
+                              <Paperclip size={13} color="#64748b" />
+                              <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name}</span>
+                              <button
+                                type="button"
+                                onClick={() => setMaintenanceFiles(prev => prev.filter((_, idx) => idx !== i))}
+                                title="Retirer ce fichier"
+                                style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', display: 'flex', alignItems: 'center', padding: 0 }}
+                              >
+                                <X size={14} />
+                              </button>
                             </div>
                           ))}
                         </div>
