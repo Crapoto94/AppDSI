@@ -187,6 +187,46 @@ function toParisSql(d = new Date()) {
     }).format(dt);
 }
 
+/**
+ * Convertit une chaîne "naïve" (ex. valeur brute d'un <input type="datetime-local">,
+ * "YYYY-MM-DDTHH:mm") représentant une heure de PARIS, en horodatage UTC exact
+ * (ISO 8601 avec "Z"), SANS dépendre du fuseau horaire du process Node ni du tzdata
+ * de l'OS (contrairement à `new Date(naive).toISOString()`).
+ *
+ * Contexte (bug corrigé) : le module Maintenances (magapp) convertissait les dates
+ * saisies avec `new Date(start_date).toISOString()`, en supposant que le process
+ * backend interprète bien les chaînes naïves comme de l'heure de Paris (variable
+ * d'env TZ=Europe/Paris). En production, ça ne s'est pas vérifié — une maintenance
+ * saisie 18h-20h (Paris) a été stockée comme 08h-10h UTC (soit ~10h d'écart, pas les
+ * 2h attendus), preuve que le fuseau du conteneur n'était pas fiable pour cet usage.
+ * Cette fonction utilise Intl.DateTimeFormat (ICU embarqué à Node, indépendant de
+ * l'OS) pour calculer le bon décalage Paris↔UTC à cette date précise (2h l'été/CEST,
+ * 1h l'hiver/CET), exactement comme toParisSql() ci-dessus le fait déjà pour l'écriture
+ * des tickets — donc un mécanisme déjà éprouvé dans ce code, appliqué ici en sens inverse.
+ *
+ * @param {string} naiveLocal - ex. "2026-09-15T18:00" (heure de Paris, sans fuseau)
+ * @returns {string|null} ex. "2026-09-15T16:00:00.000Z"
+ */
+function parisLocalToUtcISO(naiveLocal) {
+    if (!naiveLocal) return null;
+    // 1) Interprète (à tort, volontairement) la chaîne naïve comme si elle était déjà
+    //    en UTC : ça donne un instant de référence quelconque, pas encore le bon.
+    const asIfUtc = new Date(naiveLocal.length <= 16 ? naiveLocal + ':00Z' : naiveLocal + 'Z');
+    if (isNaN(asIfUtc.getTime())) return null;
+    // 2) Demande à Intl (ICU, fiable indépendamment de l'OS) quelle heure ça ferait à
+    //    Paris pour CET instant de référence.
+    const parisWallClock = new Intl.DateTimeFormat('sv-SE', {
+        timeZone: 'Europe/Paris',
+        year: 'numeric', month: '2-digit', day: '2-digit',
+        hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false
+    }).format(asIfUtc).replace(' ', 'T') + 'Z';
+    // 3) L'écart entre l'instant de référence et cette même heure d'horloge réinterprétée
+    //    comme UTC est exactement le décalage Paris/UTC (2h l'été, 1h l'hiver) — stable
+    //    sur une journée (hors instant précis du changement d'heure).
+    const offsetMs = asIfUtc.getTime() - new Date(parisWallClock).getTime();
+    return new Date(asIfUtc.getTime() + offsetMs).toISOString();
+}
+
 module.exports = {
     logMouchard,
     decodeLDAPString,
@@ -198,7 +238,8 @@ module.exports = {
     calculateMatchScore,
     parseLDAPDate,
     formatDateToFrench,
-    toParisSql
+    toParisSql,
+    parisLocalToUtcISO
 };
 
 /**

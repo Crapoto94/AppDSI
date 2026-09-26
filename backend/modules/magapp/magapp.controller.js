@@ -1,5 +1,5 @@
 const { getSqlite, pgDb, pool } = require('../../shared/database');
-const { flattenLDAPEntry, decodeLDAPString } = require('../../shared/utils');
+const { flattenLDAPEntry, decodeLDAPString, parisLocalToUtcISO } = require('../../shared/utils');
 const { isAdminLike } = require('../../shared/middleware');
 const axios = require('axios');
 const path = require('path');
@@ -1399,9 +1399,13 @@ const MagAppController = {
                 return res.status(400).json({ message: 'Champs obligatoires manquants' });
             }
             const username = req.user?.username || 'admin';
-            // Convert local dates to UTC for storage
-            const startUTC = new Date(start_date).toISOString();
-            const endUTC = new Date(end_date).toISOString();
+            // Convert local dates (Europe/Paris, saisies via <input type="datetime-local">)
+            // to UTC for storage. new Date(naive).toISOString() dépendait du fuseau du
+            // process Node (TZ=Europe/Paris) — pas fiable en conteneur (cf. bug constaté :
+            // 18h-20h Paris stocké comme 08h-10h UTC). parisLocalToUtcISO() est fiable
+            // quel que soit le fuseau effectif du process.
+            const startUTC = parisLocalToUtcISO(start_date);
+            const endUTC = parisLocalToUtcISO(end_date);
             const result = await pool.query(
                 `INSERT INTO magapp.maintenances (app_id, name, description, severity, has_interruption, start_date, end_date, created_by)
                  VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`,
@@ -1420,8 +1424,8 @@ const MagAppController = {
         try {
             const { id } = req.params;
             const { name, description, severity, has_interruption, start_date, end_date } = req.body;
-            const startUTC = new Date(start_date).toISOString();
-            const endUTC = new Date(end_date).toISOString();
+            const startUTC = parisLocalToUtcISO(start_date);
+            const endUTC = parisLocalToUtcISO(end_date);
             await pool.query(
                 `UPDATE magapp.maintenances
                  SET name = $1, description = $2, severity = $3, has_interruption = $4,
