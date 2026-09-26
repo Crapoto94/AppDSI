@@ -116,10 +116,12 @@ router.get('/:id/explorateur/dossiers', authenticateJWT, ctrl.getExplorerFolders
 router.post('/:id/explorateur/dossiers', authenticateJWT, ctrl.createExplorerFolder);
 router.delete('/:id/explorateur/dossiers/:folderId', authenticateJWT, ctrl.deleteExplorerFolder);
 router.get('/:id/explorateur/dossiers/:folderId/chemin', authenticateJWT, ctrl.getExplorerFolderPath);
+router.patch('/:id/explorateur/dossiers/:folderId/metadonnees-en-masse', authenticateJWT, ctrl.bulkSetFolderMetadata);
 
 router.get('/:id/explorateur/fichiers', authenticateJWT, ctrl.getExplorerDocuments);
 router.post('/:id/explorateur/fichiers', authenticateJWT, explorerUploadHandler, ctrl.uploadExplorerFiles);
 router.post('/:id/explorateur/fichiers/zip', authenticateJWT, uploadDoc.single('file'), ctrl.uploadExplorerZip);
+router.post('/:id/explorateur/fichiers/copier', authenticateJWT, ctrl.copyExplorerDocuments);
 router.patch('/:id/explorateur/fichiers/:docId', authenticateJWT, ctrl.patchExplorerDocument);
 router.get('/:id/explorateur/fichiers/:docId/versions', authenticateJWT, ctrl.listExplorerVersions);
 router.delete('/:id/explorateur/fichiers/:docId', authenticateJWT, ctrl.deleteExplorerDocument);

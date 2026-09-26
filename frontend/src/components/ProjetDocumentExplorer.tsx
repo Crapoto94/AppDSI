@@ -4,6 +4,7 @@ import remarkGfm from 'remark-gfm';
 import {
   Folder, FolderPlus, File, FileArchive, Upload, Download, Pencil, Trash2, X,
   ChevronRight, Settings, Home, Tag, Mail, History, Filter, CheckSquare, Square,
+  Copy, ClipboardPaste,
 } from 'lucide-react';
 
 /**
@@ -20,7 +21,7 @@ import {
  */
 
 interface Folder_ { id: number; parent_id: number | null; nom: string }
-interface MetadataField { id: number; cle: string; libelle: string; type: 'texte' | 'date' | 'liste'; options?: string[]; is_builtin?: boolean; requis?: boolean }
+interface MetadataField { id: number; cle: string; libelle: string; type: 'texte' | 'date' | 'liste'; options?: string[]; is_builtin?: boolean }
 interface DocRow {
   id: number; folder_id: number | null; display_name: string; original_name: string;
   size_bytes: number | null; mime_type: string | null; version: string; version_count: number;
@@ -75,6 +76,10 @@ export default function ProjetDocumentExplorer({ projetId, token }: { projetId: 
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [bulkMetaField, setBulkMetaField] = useState('');
   const [bulkMetaValue, setBulkMetaValue] = useState('');
+  const [clipboard, setClipboard] = useState<number[]>([]);
+  const [pasting, setPasting] = useState(false);
+  const [draggedDocIds, setDraggedDocIds] = useState<number[] | null>(null);
+  const [dropTarget, setDropTarget] = useState<number | 'racine' | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const loadFolders = useCallback(() => {
@@ -199,6 +204,19 @@ export default function ProjetDocumentExplorer({ projetId, token }: { projetId: 
     catch { setError('Métadonnée non enregistrée'); }
   }
 
+  /** Déplace un ou plusieurs documents vers un dossier (glisser-déposer interne à
+   * l'explorateur — distinct du glisser-déposer de fichiers du système d'exploitation
+   * géré par handleDrop). `folderId` null = Racine. */
+  async function moveDocumentsToFolder(docIds: number[], folderId: number | null) {
+    setError(null);
+    const results = await Promise.allSettled(docIds.map(idv =>
+      fetch(`${base}/fichiers/${idv}`, { method: 'PATCH', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify({ folder_id: folderId }) })
+    ));
+    const failed = results.filter(r => r.status === 'rejected').length;
+    if (failed) setError(`${failed} document(s) n'ont pas pu être déplacés`);
+    setSelectedIds(new Set()); loadDocuments();
+  }
+
   function toggleSelected(idv: number) { setSelectedIds(prev => { const n = new Set(prev); n.has(idv) ? n.delete(idv) : n.add(idv); return n; }); }
   function toggleSelectedFolder(idv: number) { setSelectedFolderIds(prev => { const n = new Set(prev); n.has(idv) ? n.delete(idv) : n.add(idv); return n; }); }
   const allSelected = !!(childFolders.length || filteredDocuments.length) && selectedFolderIds.size === childFolders.length && selectedIds.size === filteredDocuments.length;
@@ -223,15 +241,48 @@ export default function ProjetDocumentExplorer({ projetId, token }: { projetId: 
 
   async function bulkApplyMetadata() {
     if (!bulkMetaField || !bulkMetaValue.trim()) return;
-    const ids = Array.from(selectedIds);
-    const results = await Promise.allSettled(ids.map(idv => {
-      const doc = documents.find(d => d.id === idv);
-      const metadata = { ...(doc?.metadata || {}), [bulkMetaField]: bulkMetaValue.trim() };
-      return fetch(`${base}/fichiers/${idv}`, { method: 'PATCH', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify({ metadata }) });
-    }));
+    const docIds = Array.from(selectedIds);
+    const folderIds = Array.from(selectedFolderIds);
+    const results = await Promise.allSettled([
+      ...docIds.map(idv => {
+        const doc = documents.find(d => d.id === idv);
+        const metadata = { ...(doc?.metadata || {}), [bulkMetaField]: bulkMetaValue.trim() };
+        return fetch(`${base}/fichiers/${idv}`, { method: 'PATCH', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify({ metadata }) });
+      }),
+      // Un dossier sélectionné applique la métadonnée à tout son contenu, y compris
+      // ses sous-dossiers (récursif côté serveur) — pas seulement aux documents
+      // actuellement affichés dans la vue courante.
+      ...folderIds.map(idv => fetch(`${base}/dossiers/${idv}/metadonnees-en-masse`, {
+        method: 'PATCH', headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cle: bulkMetaField, valeur: bulkMetaValue.trim() }),
+      })),
+    ]);
     const failed = results.filter(r => r.status === 'rejected').length;
-    if (failed) setError(`${failed} document(s) n'ont pas pu être mis à jour`);
+    if (failed) setError(`${failed} élément(s) n'ont pas pu être mis à jour`);
     setBulkMetaValue(''); loadDocuments();
+  }
+
+  function copySelection() {
+    if (!selectedIds.size) return;
+    setClipboard(Array.from(selectedIds));
+  }
+
+  /** Colle le presse-papiers dans le dossier courant — copie le fichier (nouveau
+   * document indépendant, métadonnées conservées) ; si un document du même nom
+   * existe déjà ici, le collage en devient une nouvelle version (même règle que
+   * pour un dépôt normal). Le presse-papiers reste actif pour coller ailleurs. */
+  async function pasteClipboard() {
+    if (!clipboard.length) return;
+    setError(null); setPasting(true);
+    try {
+      const r = await fetch(`${base}/fichiers/copier`, {
+        method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ document_ids: clipboard, folder_id: currentFolderId }),
+      });
+      if (!r.ok) throw new Error();
+      loadDocuments();
+    } catch { setError('Collage impossible'); }
+    finally { setPasting(false); }
   }
 
   const fileUrl = (docId: number, download?: boolean) =>
@@ -255,6 +306,15 @@ export default function ProjetDocumentExplorer({ projetId, token }: { projetId: 
           <button onClick={() => fileInputRef.current?.click()} disabled={uploading} style={{ ...btnBase, background: '#2563eb', color: 'white', padding: '7px 10px', opacity: uploading ? 0.6 : 1 }}>
             <Upload size={13} /> {uploading ? 'Dépôt…' : 'Ajouter des fichiers'}
           </button>
+          {!!clipboard.length && (
+            <span style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+              <button onClick={pasteClipboard} disabled={pasting} title={`Coller ${clipboard.length} document(s) copié(s) ici`}
+                style={{ ...btnBase, border: '1px solid #93c5fd', color: '#2563eb', background: '#eff6ff', padding: '7px 10px', opacity: pasting ? 0.6 : 1 }}>
+                <ClipboardPaste size={13} /> {pasting ? 'Collage…' : `Coller (${clipboard.length})`}
+              </button>
+              <button onClick={() => setClipboard([])} title="Vider le presse-papiers" style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#94a3b8', padding: 4 }}><X size={13} /></button>
+            </span>
+          )}
           {!!filterableFields.length && (
             <button onClick={() => setFiltersOpen(v => !v)} title="Filtrer par métadonnée"
               style={{ position: 'relative', border: 'none', background: 'none', cursor: 'pointer', padding: 6, color: (filtersOpen || activeFilterCount) ? '#2563eb' : '#94a3b8' }}>
@@ -273,15 +333,24 @@ export default function ProjetDocumentExplorer({ projetId, token }: { projetId: 
         Glissez-déposez des fichiers ou un dossier ici (ou un .zip seul : son contenu recrée les dossiers automatiquement).
       </p>
 
-      {/* Fil d'Ariane */}
+      {/* Fil d'Ariane — chaque niveau est aussi une cible de dépose pour déplacer un
+          document glissé (glisser-déposer interne), y compris "Racine". */}
       <div style={{ marginBottom: 10, display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 4, fontSize: 13 }}>
-        <button onClick={() => setCurrentFolderId(null)} style={{ display: 'flex', alignItems: 'center', gap: 4, border: 'none', background: 'none', cursor: 'pointer', padding: '3px 6px', borderRadius: 4, fontWeight: currentFolderId === null ? 700 : 500, color: currentFolderId === null ? '#1e293b' : '#64748b' }}>
+        <button onClick={() => setCurrentFolderId(null)}
+          onDragOver={e => { if (draggedDocIds) { e.preventDefault(); e.stopPropagation(); setDropTarget('racine'); } }}
+          onDragLeave={() => setDropTarget(prev => prev === 'racine' ? null : prev)}
+          onDrop={e => { e.preventDefault(); e.stopPropagation(); if (draggedDocIds) { moveDocumentsToFolder(draggedDocIds, null); setDraggedDocIds(null); } setDropTarget(null); }}
+          style={{ display: 'flex', alignItems: 'center', gap: 4, border: dropTarget === 'racine' ? '1px dashed #2563eb' : '1px solid transparent', background: dropTarget === 'racine' ? '#eff6ff' : 'none', cursor: 'pointer', padding: '3px 6px', borderRadius: 4, fontWeight: currentFolderId === null ? 700 : 500, color: currentFolderId === null ? '#1e293b' : '#64748b' }}>
           <Home size={13} /> Racine
         </button>
         {breadcrumb.map(f => (
           <span key={f.id} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
             <ChevronRight size={13} color="#cbd5e1" />
-            <button onClick={() => setCurrentFolderId(f.id)} style={{ border: 'none', background: 'none', cursor: 'pointer', padding: '3px 6px', borderRadius: 4, fontWeight: f.id === currentFolderId ? 700 : 500, color: f.id === currentFolderId ? '#1e293b' : '#64748b' }}>
+            <button onClick={() => setCurrentFolderId(f.id)}
+              onDragOver={e => { if (draggedDocIds) { e.preventDefault(); e.stopPropagation(); setDropTarget(f.id); } }}
+              onDragLeave={() => setDropTarget(prev => prev === f.id ? null : prev)}
+              onDrop={e => { e.preventDefault(); e.stopPropagation(); if (draggedDocIds) { moveDocumentsToFolder(draggedDocIds, f.id); setDraggedDocIds(null); } setDropTarget(null); }}
+              style={{ border: dropTarget === f.id ? '1px dashed #2563eb' : '1px solid transparent', background: dropTarget === f.id ? '#eff6ff' : 'none', cursor: 'pointer', padding: '3px 6px', borderRadius: 4, fontWeight: f.id === currentFolderId ? 700 : 500, color: f.id === currentFolderId ? '#1e293b' : '#64748b' }}>
               {f.nom}
             </button>
           </span>
@@ -313,21 +382,36 @@ export default function ProjetDocumentExplorer({ projetId, token }: { projetId: 
             {selectedIds.size + selectedFolderIds.size} sélectionné(s)
             {!!selectedFolderIds.size && ` (dont ${selectedFolderIds.size} dossier${selectedFolderIds.size > 1 ? 's' : ''})`}
           </span>
-          {!!fields.length && !!selectedIds.size && (
+          {!!fields.length && !!(selectedIds.size || selectedFolderIds.size) && (
             <>
-              <select value={bulkMetaField} onChange={e => setBulkMetaField(e.target.value)} style={{ border: '1px solid #cbd5e1', borderRadius: 6, padding: '4px 6px', fontSize: 12 }}>
+              <select value={bulkMetaField} onChange={e => { setBulkMetaField(e.target.value); setBulkMetaValue(''); }} style={{ border: '1px solid #cbd5e1', borderRadius: 6, padding: '4px 6px', fontSize: 12 }}>
                 <option value="">Appliquer une métadonnée…</option>
                 {fields.map(f => <option key={f.id} value={f.cle}>{f.libelle}</option>)}
               </select>
               {bulkMetaField && (
                 <>
-                  <input value={bulkMetaValue} onChange={e => setBulkMetaValue(e.target.value)} placeholder="Valeur" style={{ width: 110, border: '1px solid #cbd5e1', borderRadius: 6, padding: '4px 6px', fontSize: 12 }} />
-                  <button onClick={bulkApplyMetadata} disabled={!bulkMetaValue.trim()} style={{ ...btnBase, background: '#2563eb', color: 'white', padding: '5px 10px', opacity: !bulkMetaValue.trim() ? 0.5 : 1 }}>Appliquer à {selectedIds.size}</button>
+                  {fields.find(f => f.cle === bulkMetaField)?.type === 'liste' ? (
+                    <select value={bulkMetaValue} onChange={e => setBulkMetaValue(e.target.value)} style={{ border: '1px solid #cbd5e1', borderRadius: 6, padding: '4px 6px', fontSize: 12 }}>
+                      <option value="">Choisir…</option>
+                      {(fields.find(f => f.cle === bulkMetaField)?.options || []).map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                    </select>
+                  ) : (
+                    <input value={bulkMetaValue} onChange={e => setBulkMetaValue(e.target.value)} placeholder="Valeur"
+                      type={fields.find(f => f.cle === bulkMetaField)?.type === 'date' ? 'date' : 'text'}
+                      style={{ width: 110, border: '1px solid #cbd5e1', borderRadius: 6, padding: '4px 6px', fontSize: 12 }} />
+                  )}
+                  <button onClick={bulkApplyMetadata} disabled={!bulkMetaValue.trim()} style={{ ...btnBase, background: '#2563eb', color: 'white', padding: '5px 10px', opacity: !bulkMetaValue.trim() ? 0.5 : 1 }}>Appliquer à {selectedIds.size + selectedFolderIds.size}</button>
                 </>
               )}
             </>
           )}
-          <button onClick={bulkDelete} style={{ ...btnBase, marginLeft: 'auto', background: 'none', color: '#dc2626', padding: '5px 10px' }}><Trash2 size={13} /> Supprimer la sélection</button>
+          {!!selectedIds.size && (
+            <button onClick={copySelection} title="Copier — puis ouvrez un dossier et cliquez sur Coller"
+              style={{ ...btnBase, marginLeft: 'auto', border: '1px solid #cbd5e1', color: '#475569', background: 'white', padding: '5px 10px' }}>
+              <Copy size={13} /> Copier {selectedIds.size} document(s)
+            </button>
+          )}
+          <button onClick={bulkDelete} style={{ ...btnBase, marginLeft: selectedIds.size ? 0 : 'auto', background: 'none', color: '#dc2626', padding: '5px 10px' }}><Trash2 size={13} /> Supprimer la sélection</button>
           <button onClick={() => { setSelectedIds(new Set()); setSelectedFolderIds(new Set()); }} style={{ border: 'none', background: 'none', cursor: 'pointer', fontSize: 12, color: '#94a3b8' }}>Annuler</button>
         </div>
       )}
@@ -356,7 +440,11 @@ export default function ProjetDocumentExplorer({ projetId, token }: { projetId: 
             </div>
           )}
           {childFolders.map(f => (
-            <div key={`f${f.id}`} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, padding: '8px 12px', borderBottom: '1px solid #f1f5f9' }}>
+            <div key={`f${f.id}`}
+              onDragOver={e => { if (draggedDocIds) { e.preventDefault(); e.stopPropagation(); setDropTarget(f.id); } }}
+              onDragLeave={() => setDropTarget(prev => prev === f.id ? null : prev)}
+              onDrop={e => { e.preventDefault(); e.stopPropagation(); if (draggedDocIds) { moveDocumentsToFolder(draggedDocIds, f.id); setDraggedDocIds(null); } setDropTarget(null); }}
+              style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, padding: '8px 12px', borderBottom: '1px solid #f1f5f9', background: dropTarget === f.id ? '#eff6ff' : undefined, outline: dropTarget === f.id ? '2px dashed #2563eb' : undefined, outlineOffset: -2 }}>
               <button onClick={() => toggleSelectedFolder(f.id)} title="Sélectionner" style={{ border: 'none', background: 'none', cursor: 'pointer', color: selectedFolderIds.has(f.id) ? '#2563eb' : '#cbd5e1', flexShrink: 0 }}>
                 {selectedFolderIds.has(f.id) ? <CheckSquare size={15} /> : <Square size={15} />}
               </button>
@@ -368,7 +456,11 @@ export default function ProjetDocumentExplorer({ projetId, token }: { projetId: 
             </div>
           ))}
           {filteredDocuments.map(doc => (
-            <div key={`d${doc.id}`} style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 8, padding: '8px 12px', borderBottom: '1px solid #f1f5f9' }}>
+            <div key={`d${doc.id}`}
+              draggable
+              onDragStart={e => { const ids = selectedIds.has(doc.id) ? Array.from(selectedIds) : [doc.id]; setDraggedDocIds(ids); e.dataTransfer.effectAllowed = 'move'; try { e.dataTransfer.setData('text/plain', ''); } catch {} }}
+              onDragEnd={() => { setDraggedDocIds(null); setDropTarget(null); }}
+              style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 8, padding: '8px 12px', borderBottom: '1px solid #f1f5f9', cursor: 'grab', opacity: draggedDocIds?.includes(doc.id) ? 0.4 : 1 }}>
               <button onClick={() => toggleSelected(doc.id)} title="Sélectionner" style={{ border: 'none', background: 'none', cursor: 'pointer', color: selectedIds.has(doc.id) ? '#2563eb' : '#cbd5e1', flexShrink: 0 }}>
                 {selectedIds.has(doc.id) ? <CheckSquare size={15} /> : <Square size={15} />}
               </button>
@@ -381,12 +473,7 @@ export default function ProjetDocumentExplorer({ projetId, token }: { projetId: 
               </button>
               {!!fields.length && (
                 <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 4 }}>
-                  {fields.filter(f => f.requis).map(field => (
-                    <RequiredTypeSelect key={field.id} field={field} value={doc.metadata?.[field.cle] || ''} onChange={v => setMetadataValue(doc, field.cle, v)} />
-                  ))}
-                  {fields.filter(f => !f.requis).map(field => (
-                    <MetadataChip key={field.id} field={field} value={doc.metadata?.[field.cle] || ''} onChange={v => setMetadataValue(doc, field.cle, v)} />
-                  ))}
+                  {fields.map(field => <MetadataChip key={field.id} field={field} value={doc.metadata?.[field.cle] || ''} onChange={v => setMetadataValue(doc, field.cle, v)} />)}
                 </div>
               )}
               <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
@@ -403,21 +490,6 @@ export default function ProjetDocumentExplorer({ projetId, token }: { projetId: 
       {previewDoc && <DocPreviewModal doc={previewDoc} base={base} headers={headers} token={token} fileUrl={fileUrl} onClose={() => setPreviewDoc(null)} />}
       {settingsOpen && <MetadataSettingsModal base={base} headers={headers} fields={fields} onClose={() => setSettingsOpen(false)} onChange={loadFields} />}
     </div>
-  );
-}
-
-/** Champ obligatoire de type "liste" (le typage documentaire, cf. paramétrage
- * "Types documentaires attendus") — toujours affiché comme un vrai <select>
- * (jamais masqué derrière un chip cliquable comme les métadonnées libres),
- * pour qu'il soit sans ambiguïté une liste déroulante. */
-function RequiredTypeSelect({ field, value, onChange }: { field: MetadataField; value: string; onChange: (v: string) => void }) {
-  const manque = !value;
-  return (
-    <select value={value} onChange={e => onChange(e.target.value)} title={field.libelle}
-      style={{ border: manque ? '1px solid #fca5a5' : '1px solid #93c5fd', borderRadius: 6, padding: '2px 6px', fontSize: 11, fontWeight: 600, background: manque ? '#fef2f2' : '#eff6ff', color: manque ? '#dc2626' : '#2563eb' }}>
-      <option value="">{field.libelle} {manque ? '*' : ''}</option>
-      {(field.options || []).map(opt => <option key={opt} value={opt}>{opt}</option>)}
-    </select>
   );
 }
 

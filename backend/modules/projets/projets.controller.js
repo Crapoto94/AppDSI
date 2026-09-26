@@ -3427,6 +3427,32 @@ const deleteExplorerFolder = async (req, res) => {
     } catch (error) { res.status(500).json({ error: error.message }); }
 };
 
+/** Applique une métadonnée à TOUS les documents d'un dossier, y compris ses
+ * sous-dossiers (récursif) — utilisé par la sélection multiple de l'explorateur
+ * pour "typer" un dossier entier en un clic plutôt que document par document. */
+const bulkSetFolderMetadata = async (req, res) => {
+    try {
+        const { id, folderId } = req.params;
+        const { cle, valeur } = req.body || {};
+        if (!cle) return res.status(400).json({ error: 'Champ (cle) requis' });
+        const owned = await pgDb.get(`SELECT id FROM projets.projet_folders WHERE id = $1 AND projet_id = $2`, [folderId, id]);
+        if (!owned) return res.status(404).json({ error: 'Dossier introuvable' });
+        const patch = JSON.stringify({ [cle]: valeur || '' });
+        const result = await pgDb.run(
+            `WITH RECURSIVE sub AS (
+                 SELECT id FROM projets.projet_folders WHERE id = $1
+                 UNION ALL
+                 SELECT f.id FROM projets.projet_folders f JOIN sub ON f.parent_id = sub.id
+             )
+             UPDATE projets.projet_documents
+             SET metadata = metadata || $3::jsonb
+             WHERE projet_id = $2 AND deleted_at IS NULL AND folder_id IN (SELECT id FROM sub)`,
+            [folderId, id, patch]
+        );
+        res.json({ ok: true, updated: result.changes });
+    } catch (error) { res.status(500).json({ error: error.message }); }
+};
+
 const getExplorerDocuments = async (req, res) => {
     try {
         const { id } = req.params;
@@ -3584,6 +3610,38 @@ async function loadExplorerFile(docId) {
     return { row, ...f };
 }
 
+/** Copier/coller — duplique le fichier (version courante) d'un ou plusieurs documents
+ * vers un dossier cible, comme de nouveaux documents indépendants (métadonnées
+ * conservées, historique de versions repartant à '1' ; le document source n'est pas
+ * modifié). Si le dossier cible contient déjà un document du même nom, le dépôt
+ * devient une nouvelle version de celui-ci (même règle que pour un dépôt normal). */
+const copyExplorerDocuments = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { document_ids, folder_id } = req.body || {};
+        if (!Array.isArray(document_ids) || !document_ids.length) return res.status(400).json({ error: 'document_ids requis' });
+        if (folder_id) {
+            const owned = await pgDb.get(`SELECT id FROM projets.projet_folders WHERE id = $1 AND projet_id = $2`, [folder_id, id]);
+            if (!owned) return res.status(404).json({ error: 'Dossier de destination introuvable' });
+        }
+        const created = [];
+        for (const docId of document_ids) {
+            const source = await pgDb.get(`SELECT metadata FROM projets.projet_documents WHERE id = $1 AND projet_id = $2 AND deleted_at IS NULL`, [docId, id]);
+            const loaded = await loadExplorerFile(docId);
+            if (!source || !loaded) continue;
+            const buffer = loaded.buffer || await fs.promises.readFile(loaded.absolutePath);
+            const originalName = loaded.row.fichier_original;
+            const file = { buffer, originalname: originalName, mimetype: loaded.row.fichier_type, size: loaded.row.fichier_taille };
+            const { document } = await explorerCreateDocument({ projetId: id, folderId: folder_id || null, file, originalName, author: req.user.username });
+            if (source.metadata && Object.keys(source.metadata).length) {
+                await pgDb.run(`UPDATE projets.projet_documents SET metadata = $1::jsonb WHERE id = $2`, [JSON.stringify(source.metadata), document.id]);
+            }
+            created.push(document);
+        }
+        res.status(201).json(created);
+    } catch (error) { res.status(500).json({ error: `Copie impossible : ${error.message}` }); }
+};
+
 const serveExplorerFile = async (req, res) => {
     try {
         const loaded = await loadExplorerFile(req.params.docId);
@@ -3704,7 +3762,7 @@ const getExplorerMetadataFields = async (req, res) => {
         const typesGlobaux = await pgDb.all(`SELECT label FROM projet_types_documentaires WHERE actif = 1 ORDER BY ordre`);
         const champTypeDocument = {
             id: -1, projet_id: parseInt(id, 10), cle: 'type_documentaire', libelle: '📋 Type de document',
-            type: 'liste', options: typesGlobaux.map(t => t.label), ordre: -1, is_builtin: true, requis: true,
+            type: 'liste', options: typesGlobaux.map(t => t.label), ordre: -1, is_builtin: true,
         };
         res.json([champTypeDocument, ...rows]);
     } catch (error) { res.status(500).json({ error: error.message }); }
@@ -3766,8 +3824,8 @@ module.exports = {
     getPmoAgents, addPmoAgent, removePmoAgent, getOrgUnits,
     listChefsProjets, registerChefProjet, addChefProjetService, removeChefProjetService,
     getUserServices, batchUpdateServicePilote,
-    getExplorerFolders, createExplorerFolder, deleteExplorerFolder, getExplorerFolderPath,
-    getExplorerDocuments, uploadExplorerFiles, uploadExplorerZip, patchExplorerDocument,
+    getExplorerFolders, createExplorerFolder, deleteExplorerFolder, getExplorerFolderPath, bulkSetFolderMetadata,
+    getExplorerDocuments, uploadExplorerFiles, uploadExplorerZip, patchExplorerDocument, copyExplorerDocuments,
     listExplorerVersions, deleteExplorerDocument,
     serveExplorerFile, serveExplorerVersionFile,
     previewExplorerMsg, previewExplorerMsgAttachment, previewExplorerDocx, previewExplorerXlsx, previewExplorerPptx,
