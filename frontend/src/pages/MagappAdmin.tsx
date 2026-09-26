@@ -1992,7 +1992,7 @@ const MagappAdmin: React.FC = () => {
           {/* Maintenance Modal */}
           {showMaintenanceModal && (
             <div className="modal-overlay-v2">
-              <div className="modal-content-v2 animate-fade-in" style={{ maxWidth: '700px' }}>
+              <div className="modal-content-v2 animate-fade-in maintenance-modal-v2">
                 <div className="modal-header-v2">
                   <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                     <div className="header-icon-v2"><Wrench size={18} /></div>
@@ -2002,8 +2002,7 @@ const MagappAdmin: React.FC = () => {
                 </div>
 
                 <div className="modal-body-v2">
-                  <div className="form-grid-v2">
-                    <div className="form-group-v2 full-width section-divider-v2"><span>Application &amp; gravité</span></div>
+                  <div className="form-grid-v2 maintenance-form-grid-v2">
                     <div className="form-group-v2">
                       <label>Application</label>
                       <select
@@ -2017,6 +2016,7 @@ const MagappAdmin: React.FC = () => {
                       <label>Nom de la maintenance *</label>
                       <input type="text" value={newMaintenance.name} onChange={e => setNewMaintenance({...newMaintenance, name: e.target.value})} placeholder="Ex: Mise à jour sécurité" />
                     </div>
+
                     <div className="form-group-v2">
                       <label>Gravité</label>
                       <select value={newMaintenance.severity} onChange={e => setNewMaintenance({...newMaintenance, severity: e.target.value as 'mineure' | 'majeure'})}>
@@ -2032,9 +2032,8 @@ const MagappAdmin: React.FC = () => {
                       </select>
                     </div>
 
-                    <div className="form-group-v2 full-width section-divider-v2"><span>Créneau <span style={{ fontWeight: 500, textTransform: 'none', letterSpacing: 'normal' }}>(heure de Paris)</span></span></div>
                     <div className="form-group-v2">
-                      <label>Début *</label>
+                      <label>Début * <span className="field-hint-v2">(heure de Paris)</span></label>
                       <input type="datetime-local" value={newMaintenance.start_date} onChange={e => setNewMaintenance({...newMaintenance, start_date: e.target.value})} />
                     </div>
                     <div className="form-group-v2">
@@ -2042,20 +2041,15 @@ const MagappAdmin: React.FC = () => {
                       <input type="datetime-local" value={newMaintenance.end_date} onChange={e => setNewMaintenance({...newMaintenance, end_date: e.target.value})} />
                     </div>
 
-                    <div className="form-group-v2 full-width section-divider-v2"><span>Description</span></div>
                     <div className="form-group-v2 full-width">
-                      <textarea rows={4} value={newMaintenance.description} onChange={e => setNewMaintenance({...newMaintenance, description: e.target.value})} placeholder="Décrivez la maintenance..."></textarea>
+                      <label>Description</label>
+                      <textarea rows={2} value={newMaintenance.description} onChange={e => setNewMaintenance({...newMaintenance, description: e.target.value})} placeholder="Décrivez la maintenance..."></textarea>
                     </div>
 
-                    <div className="form-group-v2 full-width section-divider-v2"><span>Pièces jointes</span></div>
                     <div className="form-group-v2 full-width">
-                      <label
-                        htmlFor="maintenance-file-input"
-                        style={{
-                          display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-                          gap: '8px', padding: '28px 16px', border: '2px dashed #c7d2fe', borderRadius: '14px',
-                          background: '#f5f6ff', cursor: 'pointer', textAlign: 'center',
-                        }}
+                      <label>Pièces jointes</label>
+                      <div
+                        className="maintenance-dropzone-v2"
                         onDragOver={ev => { ev.preventDefault(); }}
                         onDrop={ev => {
                           ev.preventDefault();
@@ -2063,39 +2057,35 @@ const MagappAdmin: React.FC = () => {
                           if (dropped.length) setMaintenanceFiles(prev => [...prev, ...dropped]);
                         }}
                       >
-                        <Paperclip size={22} color="#4f46e5" />
-                        <span style={{ fontSize: '0.9rem', fontWeight: 600, color: '#334155' }}>Glissez-déposez des fichiers ici</span>
-                        <span style={{ fontSize: '0.8rem', color: '#94a3b8' }}>ou cliquez pour parcourir — comptes rendus, captures, etc.</span>
-                        <input
-                          id="maintenance-file-input"
-                          type="file"
-                          multiple
-                          onChange={e => {
-                            const files = e.target.files;
-                            if (files && files.length) setMaintenanceFiles(prev => [...prev, ...Array.from(files)]);
-                            e.target.value = '';
-                          }}
-                          style={{ display: 'none' }}
-                        />
-                      </label>
-                      {maintenanceFiles.length > 0 && (
-                        <div style={{ marginTop: '10px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                          {maintenanceFiles.map((f, i) => (
-                            <div key={i} style={{ fontSize: '0.85rem', color: '#334155', padding: '6px 10px', display: 'flex', alignItems: 'center', gap: '8px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '8px' }}>
-                              <Paperclip size={13} color="#64748b" />
-                              <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name}</span>
-                              <button
-                                type="button"
-                                onClick={() => setMaintenanceFiles(prev => prev.filter((_, idx) => idx !== i))}
-                                title="Retirer ce fichier"
-                                style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', display: 'flex', alignItems: 'center', padding: 0 }}
-                              >
-                                <X size={14} />
-                              </button>
-                            </div>
-                          ))}
-                        </div>
-                      )}
+                        <label htmlFor="maintenance-file-input" className="maintenance-dropzone-btn-v2">
+                          <Paperclip size={14} /> Ajouter des fichiers
+                          <input
+                            id="maintenance-file-input"
+                            type="file"
+                            multiple
+                            onChange={e => {
+                              const files = e.target.files;
+                              if (files && files.length) setMaintenanceFiles(prev => [...prev, ...Array.from(files)]);
+                              e.target.value = '';
+                            }}
+                            style={{ display: 'none' }}
+                          />
+                        </label>
+                        {maintenanceFiles.length === 0 ? (
+                          <span className="field-hint-v2">ou glissez-déposez ici — comptes rendus, captures, etc.</span>
+                        ) : (
+                          <div className="maintenance-file-chips-v2">
+                            {maintenanceFiles.map((f, i) => (
+                              <span key={i} className="maintenance-file-chip-v2">
+                                {f.name}
+                                <button type="button" onClick={() => setMaintenanceFiles(prev => prev.filter((_, idx) => idx !== i))} title="Retirer ce fichier">
+                                  <X size={12} />
+                                </button>
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -3153,7 +3143,7 @@ const MagappAdmin: React.FC = () => {
 
         .form-grid-v2 {
           display: grid;
-          grid-template-columns: repeat(2, 1fr);
+          grid-template-columns: repeat(2, minmax(0, 1fr));
           gap: 24px;
         }
 
@@ -3175,6 +3165,9 @@ const MagappAdmin: React.FC = () => {
         .form-group-v2 input,
         .form-group-v2 textarea,
         .form-group-v2 select {
+          width: 100%;
+          min-width: 0;
+          box-sizing: border-box;
           padding: 12px 16px;
           border: 2px solid #e2e8f0;
           border-radius: 12px;
@@ -3208,6 +3201,80 @@ const MagappAdmin: React.FC = () => {
           letter-spacing: 0.06em;
           text-transform: uppercase;
           color: #94a3b8;
+        }
+
+        /* Modale "Programmer une maintenance" : layout compact, pensé pour tenir dans un
+           seul écran (ni scroll vertical ni horizontal) plutôt que la grille sectionnée
+           plus large utilisée par les autres modales de cette page. */
+        .maintenance-modal-v2 {
+          max-width: 560px;
+        }
+        .maintenance-form-grid-v2 {
+          gap: 14px 18px;
+        }
+        .field-hint-v2 {
+          font-size: 0.78rem;
+          font-weight: 500;
+          color: #94a3b8;
+          text-transform: none;
+          letter-spacing: normal;
+        }
+        .maintenance-dropzone-v2 {
+          display: flex;
+          flex-wrap: wrap;
+          align-items: center;
+          gap: 8px;
+          padding: 10px 12px;
+          border: 1.5px dashed #c7d2fe;
+          border-radius: 12px;
+          background: #f8f9ff;
+        }
+        .maintenance-dropzone-btn-v2 {
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+          padding: 7px 12px;
+          background: white;
+          border: 1px solid #c7d2fe;
+          border-radius: 8px;
+          color: #4f46e5;
+          font-size: 0.82rem;
+          font-weight: 600;
+          cursor: pointer;
+          flex-shrink: 0;
+        }
+        .maintenance-file-chips-v2 {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 6px;
+        }
+        .maintenance-file-chip-v2 {
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+          padding: 4px 8px;
+          background: white;
+          border: 1px solid #e2e8f0;
+          border-radius: 7px;
+          font-size: 0.8rem;
+          color: #334155;
+          max-width: 220px;
+        }
+        .maintenance-file-chip-v2 span,
+        .maintenance-file-chip-v2 {
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+        .maintenance-file-chip-v2 button {
+          background: none;
+          border: none;
+          cursor: pointer;
+          color: #94a3b8;
+          display: flex;
+          align-items: center;
+          padding: 0;
+          flex-shrink: 0;
         }
 
         .toggle-field-v2 {
