@@ -9,6 +9,8 @@ const KEY_SYNC_URL = 'auto_actions.ad_sync_url';
 const DEFAULT_MSG  = 'Bonjour {PRENOM}, votre nouveau mot de passe Windows est : {MOT_DE_PASSE}\nPour le personnaliser, consultez : {LIEN}';
 const DEFAULT_LINK = '';
 
+let _sendMail = null;
+
 function encodeAdPassword(clearText) {
   return Buffer.from(`"${clearText}"`, 'utf16le');
 }
@@ -756,4 +758,147 @@ module.exports = {
       res.status(500).json({ message: err.message });
     }
   },
+
+  // Changement de mot de passe (compte AD retrouvé via ad-search) + création automatique
+  // d'un ticket résolu : demandeur = le compte dont on change le mot de passe,
+  // résolution = l'agent connecté. Réutilise changeAdPassword() (renouvellement SMS) et
+  // forceAdPwdChange() (route existante, invoquée en interne) — aucun nouveau client LDAP.
+  changePasswordTicket: async (req, res) => {
+    try {
+      const { sam, display_name, mail, password } = req.body;
+      if (!sam || !sam.trim()) return res.status(400).json({ message: 'Paramètre sam manquant' });
+      if (!password || password.length < 8) {
+        return res.status(400).json({ message: 'Le mot de passe provisoire doit contenir au moins 8 caractères' });
+      }
+
+      const db = getSqlite();
+      const adSettings = await db.get('SELECT * FROM ad_settings WHERE id = 1');
+      if (!adSettings || !adSettings.is_enabled) {
+        return res.status(503).json({ message: "AD non configuré ou désactivé" });
+      }
+
+      // 1) Changement du mot de passe AD (fonction déjà utilisée par le renouvellement SMS).
+      let adResult;
+      try {
+        adResult = await changeAdPassword(adSettings, sam.trim(), password);
+      } catch (adErr) {
+        return res.status(502).json({ message: `Échec du changement de mot de passe AD : ${adErr.message}` });
+      }
+
+      // 2) « Changement de mot de passe à l'ouverture de session suivante » — on invoke
+      // en interne la route existante forceAdPwdChange (même logique, même client LDAP),
+      // sans dupliquer son code.
+      let forcePwdOk = false;
+      let forcePwdError = null;
+      try {
+        const forceResp = await new Promise((resolve, reject) => {
+          const fakeReq = { body: { sam: sam.trim() } };
+          const fakeRes = {
+            json: (data) => resolve({ status: 200, data }),
+            status: (code) => ({ json: (data) => resolve({ status: code, data }) }),
+          };
+          module.exports.forceAdPwdChange(fakeReq, fakeRes).catch(reject);
+        });
+        forcePwdOk = forceResp.status < 400;
+        if (!forcePwdOk) forcePwdError = forceResp.data?.message || 'Erreur inconnue';
+      } catch (e) {
+        forcePwdError = e.message;
+      }
+
+      const requesterName = (display_name && display_name.trim()) || sam.trim();
+      const requesterEmail = (mail && mail.trim()) || adResult.mail || '';
+
+      // 3) Synchro O365 best-effort (même logique que le renouvellement par SMS).
+      let o365Changed = false;
+      let o365Error = null;
+      const upn = adResult.userPrincipalName;
+      const mailAddr = adResult.mail || requesterEmail;
+      if (upn || mailAddr) {
+        const candidates = [];
+        if (upn && !upn.includes('.local')) candidates.push(upn);
+        if (mailAddr && mailAddr !== upn) candidates.push(mailAddr);
+        if (upn && upn.includes('.local')) candidates.push(upn);
+        for (const identifier of candidates) {
+          try {
+            await changeO365Password(identifier, password);
+            o365Changed = true;
+            break;
+          } catch (o365Err) {
+            o365Error = o365Err.message;
+            if (o365Err.code === 'SYNCED_USER') break;
+          }
+        }
+      }
+
+      // 4) Création du ticket (demandeur = le compte AD), affectation à l'agent connecté,
+      // puis résolution immédiate.
+      const ticketService = require('./services/ticket.service');
+      const assignmentService = require('./services/assignment.service');
+
+      const ticketId = await ticketService.create({
+        title: `Changement de mot de passe – ${requesterName}`,
+        content: `Réinitialisation du mot de passe du compte AD <strong>${sam.trim()}</strong>` +
+          `${requesterEmail ? ` (${requesterEmail})` : ''}, à la demande de l'agent connecté (action rapide « Changement de mot de passe »).`,
+        type: 2,
+        status: 1,
+        requester_name: requesterName,
+        requester_email: requesterEmail || undefined,
+      }, req.user);
+
+      try {
+        await assignmentService.assign(ticketId, { technician_username: req.user.username }, req.user);
+      } catch (e) { console.error('[AUTO-ACTIONS] assign technician failed:', e.message); }
+
+      const solutionParts = [
+        'Mot de passe réinitialisé (mot de passe provisoire).',
+        forcePwdOk
+          ? "Le compte a été marqué « changement de mot de passe à l'ouverture de session suivante »."
+          : `⚠️ Le marquage « changement à l'ouverture de session » a échoué : ${forcePwdError || 'erreur inconnue'}.`,
+      ];
+      if (o365Changed) solutionParts.push('Synchronisation O365 effectuée.');
+      else if (o365Error) solutionParts.push(`Synchro O365 : ${o365Error}`);
+      const solution = solutionParts.join(' ');
+
+      try {
+        await ticketService.setSolution(ticketId, solution, req.user);
+      } catch (e) { console.error('[AUTO-ACTIONS] setSolution failed:', e.message); }
+
+      // 5) Mail dédié au demandeur (rappel messagerie mobile/tablette) — le mot de passe
+      // lui-même n'est jamais transmis par mail, il est communiqué de vive voix.
+      let mailSent = false;
+      let mailError = null;
+      if (requesterEmail && typeof _sendMail === 'function') {
+        try {
+          const subject = 'Votre mot de passe a été réinitialisé';
+          const body = `
+            <p>Bonjour ${requesterName || ''},</p>
+            <p>Votre mot de passe Windows vient d'être réinitialisé par le support informatique. Il vous sera demandé de le personnaliser à votre prochaine connexion.</p>
+            <p><strong>Si vous avez configuré votre messagerie sur un smartphone ou une tablette</strong>, pensez à mettre à jour le mot de passe sur cet appareil également : sinon, les tentatives de connexion répétées avec l'ancien mot de passe risquent de provoquer le blocage de votre compte.</p>
+            <p>Ticket de suivi : #${ticketId}.</p>
+          `;
+          await _sendMail(requesterEmail, subject, body);
+          mailSent = true;
+        } catch (mailErr) {
+          mailError = mailErr.message;
+          console.error('[AUTO-ACTIONS] password change mail failed:', mailErr.message);
+        }
+      }
+
+      res.json({
+        ok: true,
+        ticket_id: ticketId,
+        force_pwd_change: forcePwdOk,
+        force_pwd_error: forcePwdError,
+        o365_changed: o365Changed,
+        o365_error: o365Error,
+        mail_sent: mailSent,
+        mail_error: mailError,
+      });
+    } catch (err) {
+      console.error('[AUTO-ACTIONS] changePasswordTicket error:', err.message);
+      res.status(500).json({ message: err.message });
+    }
+  },
+
+  setSendMail(fn) { _sendMail = fn; },
 };

@@ -15,5 +15,6 @@ router.post('/ad-user-toggle',           ctrl.toggleAdUser);
 router.post('/ad-user-unlock',           ctrl.unlockAdUser);
 router.post('/ad-user-force-pwd-change', ctrl.forceAdPwdChange);
 router.post('/trigger-sync',             ctrl.triggerSync);
+router.post('/password-change-ticket',   ctrl.changePasswordTicket);
 
 module.exports = router;

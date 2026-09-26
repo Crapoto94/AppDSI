@@ -197,6 +197,16 @@ export default function TicketsDashboard() {
   const [aaAdSelectedUser, setAaAdSelectedUser] = useState<any>(null);
   const [aaAdToggling, setAaAdToggling] = useState(false);
 
+  // ── Changement de mot de passe (ticket auto-résolu) ───────────────
+  const [pcSearchQuery, setPcSearchQuery] = useState('');
+  const [pcSearchResults, setPcSearchResults] = useState<any[]>([]);
+  const [pcSearching, setPcSearching] = useState(false);
+  const [pcSelected, setPcSelected] = useState<any>(null);
+  const [pcPassword, setPcPassword] = useState('');
+  const [pcSubmitting, setPcSubmitting] = useState(false);
+  const [pcError, setPcError] = useState('');
+  const [pcResult, setPcResult] = useState<any>(null);
+
   // ── Analyse mail (détection de compromission d'une boîte mail) ───
   const [amQuery, setAmQuery] = useState('');
   const [amResults, setAmResults] = useState<any[]>([]);
@@ -1754,18 +1764,19 @@ export default function TicketsDashboard() {
           {/* Header */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '20px 24px 16px', borderBottom: '1px solid #f1f5f9' }}>
             {aaStep > 0 && (
-              <button onClick={() => { setAaStep(aaStep === 4 ? 0 : aaStep - 1); setAaError(''); setAaSuccess(''); setAaAdWarning(''); setAaShowSettings(false); }}
+              <button onClick={() => { setAaStep((aaStep === 4 || aaStep === 5) ? 0 : aaStep - 1); setAaError(''); setAaSuccess(''); setAaAdWarning(''); setAaShowSettings(false); }}
                 style={{ background: 'none', border: '1px solid #e2e8f0', borderRadius: 6, padding: '4px 10px', cursor: 'pointer', fontSize: 14, color: '#475569' }}>
                 ← Retour
               </button>
             )}
             <div style={{ flex: 1 }}>
               <div style={{ fontWeight: 700, fontSize: 16, color: '#0f172a' }}>
-                {aaStep === 0 ? '⚡ Actions automatiques' : aaStep === 1 ? '🔑 Renouveler mot de passe par SMS' : aaStep === 2 ? '📱 Confirmation et envoi' : aaStep === 4 ? '🛡️ Analyse mail' : '🔁 Activer / Désactiver un compte AD'}
+                {aaStep === 0 ? '⚡ Actions automatiques' : aaStep === 1 ? '🔑 Renouveler mot de passe par SMS' : aaStep === 2 ? '📱 Confirmation et envoi' : aaStep === 4 ? '🛡️ Analyse mail' : aaStep === 5 ? '🔐 Changement de mot de passe' : '🔁 Activer / Désactiver un compte AD'}
               </div>
               {aaStep === 1 && <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>Sélectionnez le bénéficiaire</div>}
               {aaStep === 2 && aaSelected && <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>{aaSelected.prenom || ''} {aaSelected.nom}</div>}
               {aaStep === 4 && <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>Détection de compromission d'une boîte mail</div>}
+              {aaStep === 5 && <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>Recherche AD + création d'un ticket résolu</div>}
             </div>
             <button onClick={() => { setShowAutoActions(false); setAaStep(0); setAaShowSettings(false); setAaAdWarning(''); }}
               style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 20, color: '#94a3b8', lineHeight: 1 }}>✕</button>
@@ -1833,6 +1844,19 @@ export default function TicketsDashboard() {
                   <div>
                     <div style={{ fontWeight: 700, fontSize: 14, color: '#0f172a' }}>Analyse mail</div>
                     <div style={{ fontSize: 12, color: '#64748b', marginTop: 4 }}>Recherche un agent dans l'AD et évalue le risque de compromission de sa boîte mail.</div>
+                  </div>
+                </button>
+
+                <button onClick={() => {
+                  setAaStep(5); setPcSearchQuery(''); setPcSearchResults([]); setPcSelected(null);
+                  setPcPassword(''); setPcSubmitting(false); setPcError(''); setPcResult(null);
+                }} style={{ display: 'flex', alignItems: 'flex-start', gap: 14, padding: '16px 18px', border: '1px solid #e2e8f0', borderRadius: 10, background: '#f8fafc', cursor: 'pointer', textAlign: 'left' }}
+                  onMouseEnter={e => (e.currentTarget.style.borderColor = '#fbbf24')}
+                  onMouseLeave={e => (e.currentTarget.style.borderColor = '#e2e8f0')}>
+                  <span style={{ fontSize: 28, lineHeight: 1 }}>🔐</span>
+                  <div>
+                    <div style={{ fontWeight: 700, fontSize: 14, color: '#0f172a' }}>Changement de mot de passe</div>
+                    <div style={{ fontSize: 12, color: '#64748b', marginTop: 4 }}>Recherche un compte AD, réinitialise son mot de passe et crée automatiquement un ticket résolu.</div>
                   </div>
                 </button>
 
@@ -2222,6 +2246,110 @@ export default function TicketsDashboard() {
                     </button>
                   ) : null}
                 </div>
+              </div>
+            )}
+
+            {/* ── Étape 5 : Changement de mot de passe (ticket auto-résolu) ── */}
+            {aaStep === 5 && (
+              <div>
+                {!pcResult && (
+                  <>
+                    <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
+                      <input value={pcSearchQuery} onChange={e => setPcSearchQuery(e.target.value)}
+                        placeholder="🔍 Rechercher un compte AD (nom, login, email…)"
+                        onKeyDown={async e => {
+                          if (e.key === 'Enter' && pcSearchQuery.trim().length >= 2) {
+                            setPcSearching(true); setPcError(''); setPcSelected(null);
+                            try {
+                              const tk = localStorage.getItem('token');
+                              const r = await axios.get(`/api/tickets/auto-actions/ad-search?q=${encodeURIComponent(pcSearchQuery.trim())}`, { headers: { Authorization: `Bearer ${tk}` } });
+                              setPcSearchResults(r.data || []);
+                              if (!r.data?.length) setPcError('Aucun compte trouvé.');
+                            } catch (e: any) { setPcError(e.response?.data?.message || 'Erreur de recherche.'); }
+                            finally { setPcSearching(false); }
+                          }
+                        }}
+                        style={{ flex: 1, boxSizing: 'border-box', padding: '9px 12px', border: '1px solid #e2e8f0', borderRadius: 8, fontSize: 13, outline: 'none' }} />
+                    </div>
+
+                    {pcSearching && <div style={{ textAlign: 'center', padding: 24, color: '#94a3b8' }}>Recherche…</div>}
+
+                    {!pcSearching && pcSearchResults.length > 0 && (
+                      <div style={{ marginBottom: 14, maxHeight: 220, overflowY: 'auto' }}>
+                        <div style={{ fontSize: 11, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 6 }}>Résultats ({pcSearchResults.length})</div>
+                        {pcSearchResults.map(u => (
+                          <div key={u.sam} onClick={() => { setPcSelected(u); setPcError(''); }}
+                            style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 12px', borderRadius: 8, cursor: 'pointer', marginBottom: 4, border: `1px solid ${pcSelected?.sam === u.sam ? '#fbbf24' : '#e2e8f0'}`, background: pcSelected?.sam === u.sam ? '#fffbeb' : '#fff' }}>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0 }}>
+                              <div style={{ fontWeight: 600, fontSize: 13, color: '#0f172a' }}>{u.displayName || u.sam}</div>
+                              <span style={{ fontSize: 11, color: '#64748b' }}>{u.sam}{u.mail ? ` · ${u.mail}` : ' · Pas d\'email AD'}{u.department ? ` · ${u.department}` : ''}</span>
+                            </div>
+                            {!u.enabled && <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 10, background: '#fee2e2', color: '#991b1b', fontWeight: 600 }}>DÉSACTIVÉ</span>}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {pcSelected && (
+                      <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 10, padding: '14px 16px', marginBottom: 14 }}>
+                        <div style={{ fontWeight: 700, fontSize: 14, color: '#0f172a' }}>{pcSelected.displayName || pcSelected.sam}</div>
+                        <div style={{ fontSize: 12, color: '#64748b', marginTop: 4 }}>{pcSelected.sam}{pcSelected.mail ? ` · ${pcSelected.mail}` : ''}</div>
+                        {!pcSelected.mail && (
+                          <div style={{ fontSize: 12, color: '#92400e', marginTop: 6 }}>⚠️ Aucun email AD connu : le mail de rappel (messagerie mobile/tablette) ne pourra pas être envoyé.</div>
+                        )}
+                        <div style={{ marginTop: 12 }}>
+                          <label style={{ fontSize: 12, color: '#475569', display: 'block', marginBottom: 4, fontWeight: 600 }}>Mot de passe provisoire</label>
+                          <input type="text" value={pcPassword} onChange={e => setPcPassword(e.target.value)}
+                            placeholder="Mot de passe provisoire à communiquer à l'agent"
+                            style={{ width: '100%', boxSizing: 'border-box', padding: '9px 12px', border: '1px solid #e2e8f0', borderRadius: 8, fontSize: 13, outline: 'none' }} />
+                          <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 4 }}>
+                            Le compte sera marqué « changement de mot de passe à l'ouverture de session suivante ». Ce mot de passe n'est jamais envoyé par mail : communiquez-le de vive voix.
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {pcError && <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 8, padding: '10px 14px', color: '#dc2626', fontSize: 13, marginBottom: 12 }}>{pcError}</div>}
+
+                    <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 4 }}>
+                      {pcSelected && (
+                        <button disabled={pcSubmitting || pcPassword.trim().length < 8} onClick={async () => {
+                          setPcSubmitting(true); setPcError('');
+                          try {
+                            const tk = localStorage.getItem('token');
+                            const r = await axios.post('/api/tickets/auto-actions/password-change-ticket', {
+                              sam: pcSelected.sam,
+                              display_name: pcSelected.displayName,
+                              mail: pcSelected.mail,
+                              password: pcPassword.trim(),
+                            }, { headers: { Authorization: `Bearer ${tk}` } });
+                            setPcResult(r.data);
+                          } catch (e: any) { setPcError(e.response?.data?.message || 'Erreur lors du changement de mot de passe.'); }
+                          finally { setPcSubmitting(false); }
+                        }} style={{ padding: '10px 22px', borderRadius: 8, border: 'none', background: (pcSubmitting || pcPassword.trim().length < 8) ? '#e2e8f0' : '#0f172a', color: (pcSubmitting || pcPassword.trim().length < 8) ? '#94a3b8' : '#fff', fontWeight: 700, fontSize: 14, cursor: (pcSubmitting || pcPassword.trim().length < 8) ? 'default' : 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
+                          {pcSubmitting ? '⏳ Traitement…' : '🔐 Changer le mot de passe et créer le ticket'}
+                        </button>
+                      )}
+                    </div>
+                  </>
+                )}
+
+                {pcResult && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                    <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 10, padding: '14px 16px', color: '#166534', fontSize: 13 }}>
+                      ✅ Mot de passe réinitialisé pour <strong>{pcSelected?.displayName || pcSelected?.sam}</strong> · Ticket <strong>#{pcResult.ticket_id}</strong> créé et résolu.
+                    </div>
+                    <div style={{ fontSize: 12, color: '#475569', display: 'flex', flexDirection: 'column', gap: 4 }}>
+                      <div>{pcResult.force_pwd_change ? '✅' : '⚠️'} Changement de mot de passe à l'ouverture de session {pcResult.force_pwd_change ? 'activé' : `— échec : ${pcResult.force_pwd_error || ''}`}</div>
+                      <div>{pcResult.o365_changed ? '✅ Synchronisation O365 effectuée' : `ℹ️ O365 : ${pcResult.o365_error || 'non synchronisé'}`}</div>
+                      <div>{pcResult.mail_sent ? '✅ Mail de rappel envoyé au demandeur' : `ℹ️ Mail non envoyé${pcResult.mail_error ? ` : ${pcResult.mail_error}` : ''}`}</div>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                      <button onClick={() => { setAaStep(0); setPcSearchQuery(''); setPcSearchResults([]); setPcSelected(null); setPcPassword(''); setPcResult(null); setPcError(''); }}
+                        style={{ padding: '10px 22px', borderRadius: 8, border: 'none', background: '#0f172a', color: '#fff', fontWeight: 700, fontSize: 14, cursor: 'pointer' }}>Fermer</button>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>
