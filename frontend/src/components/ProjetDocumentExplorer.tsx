@@ -381,7 +381,12 @@ export default function ProjetDocumentExplorer({ projetId, token }: { projetId: 
               </button>
               {!!fields.length && (
                 <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 4 }}>
-                  {fields.map(field => <MetadataChip key={field.id} field={field} value={doc.metadata?.[field.cle] || ''} onChange={v => setMetadataValue(doc, field.cle, v)} />)}
+                  {fields.filter(f => f.requis).map(field => (
+                    <RequiredTypeSelect key={field.id} field={field} value={doc.metadata?.[field.cle] || ''} onChange={v => setMetadataValue(doc, field.cle, v)} />
+                  ))}
+                  {fields.filter(f => !f.requis).map(field => (
+                    <MetadataChip key={field.id} field={field} value={doc.metadata?.[field.cle] || ''} onChange={v => setMetadataValue(doc, field.cle, v)} />
+                  ))}
                 </div>
               )}
               <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
@@ -401,15 +406,29 @@ export default function ProjetDocumentExplorer({ projetId, token }: { projetId: 
   );
 }
 
+/** Champ obligatoire de type "liste" (le typage documentaire, cf. paramétrage
+ * "Types documentaires attendus") — toujours affiché comme un vrai <select>
+ * (jamais masqué derrière un chip cliquable comme les métadonnées libres),
+ * pour qu'il soit sans ambiguïté une liste déroulante. */
+function RequiredTypeSelect({ field, value, onChange }: { field: MetadataField; value: string; onChange: (v: string) => void }) {
+  const manque = !value;
+  return (
+    <select value={value} onChange={e => onChange(e.target.value)} title={field.libelle}
+      style={{ border: manque ? '1px solid #fca5a5' : '1px solid #93c5fd', borderRadius: 6, padding: '2px 6px', fontSize: 11, fontWeight: 600, background: manque ? '#fef2f2' : '#eff6ff', color: manque ? '#dc2626' : '#2563eb' }}>
+      <option value="">{field.libelle} {manque ? '*' : ''}</option>
+      {(field.options || []).map(opt => <option key={opt} value={opt}>{opt}</option>)}
+    </select>
+  );
+}
+
 function MetadataChip({ field, value, onChange }: { field: MetadataField; value: string; onChange: (v: string) => void }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(value);
-  const manque = !!field.requis && !value;
   if (!editing) {
     return (
-      <button onClick={e => { e.stopPropagation(); setDraft(value); setEditing(true); }} title={manque ? `${field.libelle} (obligatoire)` : field.libelle}
-        style={{ display: 'flex', alignItems: 'center', gap: 4, borderRadius: 10, border: manque ? '1px solid #fca5a5' : 'none', cursor: 'pointer', padding: '2px 8px', fontSize: 11, background: value ? '#dbeafe' : manque ? '#fef2f2' : '#f1f5f9', color: value ? '#2563eb' : manque ? '#dc2626' : '#94a3b8' }}>
-        <Tag size={10} /> {value || (manque ? `${field.libelle} *` : field.libelle)}
+      <button onClick={e => { e.stopPropagation(); setDraft(value); setEditing(true); }} title={field.libelle}
+        style={{ display: 'flex', alignItems: 'center', gap: 4, borderRadius: 10, border: 'none', cursor: 'pointer', padding: '2px 8px', fontSize: 11, background: value ? '#dbeafe' : '#f1f5f9', color: value ? '#2563eb' : '#94a3b8' }}>
+        <Tag size={10} /> {value || field.libelle}
       </button>
     );
   }
