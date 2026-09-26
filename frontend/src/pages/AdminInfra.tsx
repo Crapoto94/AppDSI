@@ -93,7 +93,7 @@ function ApiCard({ api, token, onSaved }: { api: InfraApi; token: string | null;
         </div>
         <div>
           <label style={lbl}>{isOnlyOffice ? 'URL navigateur (moteur → navigateur)' : 'Endpoint'}</label>
-          <input style={inp} value={form.endpoint || ''} onChange={e => setForm({ ...form, endpoint: e.target.value })} placeholder={isOnlyOffice ? 'http://10.103.130.106:8090' : '/agents/presence'} />
+          <input style={inp} value={form.endpoint || ''} onChange={e => setForm({ ...form, endpoint: e.target.value })} placeholder={isOnlyOffice ? 'https://dsihub.ivry.local/onlyoffice' : '/agents/presence'} />
         </div>
         {!isOnlyOffice && (
           <div>
@@ -108,9 +108,13 @@ function ApiCard({ api, token, onSaved }: { api: InfraApi; token: string | null;
       </div>
       {isOnlyOffice && (
         <p style={{ marginTop: 10, fontSize: 12, color: '#94a3b8' }}>
-          Utilisé pour l'aperçu en lecture seule des .docx dans l'explorateur de documents de /projets.
-          L'« URL navigateur » doit être joignable par le navigateur des agents ET l'« URL du moteur » par ce serveur —
-          le moteur doit aussi pouvoir joindre ce serveur (variable d'environnement <code>APP_BASE_URL</code>) pour récupérer le fichier à afficher.
+          Utilisé pour l'aperçu en lecture seule des .docx/.xlsx/.pptx dans l'explorateur de documents de /projets.
+          Le moteur (généralement un port interne comme 10.103.130.106:8090) n'est en général PAS joignable directement
+          par les postes clients (pare-feu) : l'« URL navigateur » doit donc pointer vers un chemin proxifié sous le
+          domaine déjà accessible de l'appli (ex. https://dsihub.ivry.local/onlyoffice — voir le bloc <code>location /onlyoffice/</code> dans
+          frontend/nginx.conf), pas directement vers l'IP:port du moteur. L'« URL du moteur », elle, est utilisée par CE serveur
+          (pas par le navigateur) et peut rester l'adresse interne directe. Le moteur doit aussi pouvoir joindre ce serveur
+          (variable d'environnement <code>APP_BASE_URL</code>) pour récupérer le fichier à afficher.
         </p>
       )}
 
