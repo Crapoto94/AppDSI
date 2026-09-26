@@ -1775,6 +1775,9 @@ const JournalTab: React.FC<{ projetId: number; token: string | null; onOuvrirDoc
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editMsg, setEditMsg] = useState('');
   const [editType, setEditType] = useState('note');
+  const [editAttachmentName, setEditAttachmentName] = useState<string | null>(null);
+  const [editRemoveAttachment, setEditRemoveAttachment] = useState(false);
+  const [editFile, setEditFile] = useState<File | null>(null);
   const [saving, setSaving] = useState(false);
   const isAdmin = user?.role === 'admin';
   const isPMO = user?.est_pmo;
@@ -1835,20 +1838,43 @@ const JournalTab: React.FC<{ projetId: number; token: string | null; onOuvrirDoc
     setEditingId(e.id);
     setEditMsg(e.message);
     setEditType(e.type_entree);
+    let detailsObj: any = null;
+    try { detailsObj = e.details ? JSON.parse(e.details) : null; } catch {}
+    setEditAttachmentName(detailsObj?.document_id ? (detailsObj.type || 'Pièce jointe') : null);
+    setEditRemoveAttachment(false);
+    setEditFile(null);
   };
 
-  const cancelEdit = () => { setEditingId(null); setEditMsg(''); };
+  const cancelEdit = () => {
+    setEditingId(null); setEditMsg(''); setEditAttachmentName(null); setEditRemoveAttachment(false); setEditFile(null);
+  };
 
   const saveEdit = async (entryId: number) => {
     if (!editMsg.trim()) return;
     setSaving(true);
     try {
-      await fetch(`/api/projets/${projetId}/journal/${entryId}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ type_entree: editType, message: editMsg })
-      });
+      if (editFile || editRemoveAttachment) {
+        const formData = new FormData();
+        formData.append('type_entree', editType);
+        formData.append('message', editMsg);
+        if (editFile) formData.append('file', editFile);
+        if (editRemoveAttachment) formData.append('remove_attachment', 'true');
+        await fetch(`/api/projets/${projetId}/journal/${entryId}`, {
+          method: 'PUT',
+          headers: { Authorization: `Bearer ${token}` },
+          body: formData
+        });
+      } else {
+        await fetch(`/api/projets/${projetId}/journal/${entryId}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ type_entree: editType, message: editMsg })
+        });
+      }
       setEditingId(null);
+      setEditAttachmentName(null);
+      setEditRemoveAttachment(false);
+      setEditFile(null);
       loadJournal();
     } catch (e) { console.error(e); }
     finally { setSaving(false); }
@@ -1903,27 +1929,52 @@ const JournalTab: React.FC<{ projetId: number; token: string | null; onOuvrirDoc
         return (
           <div key={e.id} style={{ display: 'flex', alignItems: isEditing ? 'flex-start' : 'center', gap: '10px', background: 'white', borderRadius: '8px', border: '1px solid #e2e8f0', padding: '8px 14px' }}>
             {isEditing ? (
-              <>
-                <select value={editType} onChange={ev => setEditType(ev.target.value)} style={{ padding: '6px 8px', borderRadius: '6px', border: '1px solid #e2e8f0', fontSize: '12px', background: 'white', flexShrink: 0 }}>
-                  <option value="note">📝 Note</option>
-                  <option value="decision">⚖️ Décision</option>
-                  <option value="action">✅ Action</option>
-                  <option value="alerte">⚠️ Alerte</option>
-                  <option value="evenement">📌 Événement</option>
-                </select>
-                <textarea
-                  value={editMsg}
-                  onChange={ev => setEditMsg(ev.target.value)}
-                  style={{ flex: 1, padding: '6px 8px', borderRadius: '6px', border: '1px solid #2563eb', fontSize: '13px', fontFamily: 'inherit', minHeight: '36px', boxSizing: 'border-box' }}
-                  autoFocus
-                />
-                <button onClick={() => saveEdit(e.id)} disabled={saving || !editMsg.trim()} style={{ padding: '5px 10px', background: '#16a34a', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: 700, flexShrink: 0, opacity: (saving || !editMsg.trim()) ? 0.5 : 1 }}>
-                  {saving ? '…' : 'OK'}
-                </button>
-                <button onClick={cancelEdit} style={{ padding: '5px 10px', background: '#f1f5f9', color: '#475569', border: '1px solid #e2e8f0', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', flexShrink: 0 }}>
-                  Annuler
-                </button>
-              </>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', flex: 1 }}>
+                <div style={{ display: 'flex', alignItems: 'flex-start', gap: '10px' }}>
+                  <select value={editType} onChange={ev => setEditType(ev.target.value)} style={{ padding: '6px 8px', borderRadius: '6px', border: '1px solid #e2e8f0', fontSize: '12px', background: 'white', flexShrink: 0 }}>
+                    <option value="note">📝 Note</option>
+                    <option value="decision">⚖️ Décision</option>
+                    <option value="action">✅ Action</option>
+                    <option value="alerte">⚠️ Alerte</option>
+                    <option value="evenement">📌 Événement</option>
+                  </select>
+                  <textarea
+                    value={editMsg}
+                    onChange={ev => setEditMsg(ev.target.value)}
+                    style={{ flex: 1, padding: '6px 8px', borderRadius: '6px', border: '1px solid #2563eb', fontSize: '13px', fontFamily: 'inherit', minHeight: '36px', boxSizing: 'border-box' }}
+                    autoFocus
+                  />
+                  <button onClick={() => saveEdit(e.id)} disabled={saving || !editMsg.trim()} style={{ padding: '5px 10px', background: '#16a34a', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: 700, flexShrink: 0, opacity: (saving || !editMsg.trim()) ? 0.5 : 1 }}>
+                    {saving ? '…' : 'OK'}
+                  </button>
+                  <button onClick={cancelEdit} style={{ padding: '5px 10px', background: '#f1f5f9', color: '#475569', border: '1px solid #e2e8f0', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', flexShrink: 0 }}>
+                    Annuler
+                  </button>
+                </div>
+                {/* Gestion de la pièce jointe (une seule par entrée, comme à la création) */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', paddingLeft: '2px' }}>
+                  <span style={{ fontSize: '11px', color: '#94a3b8' }}>Pièce jointe :</span>
+                  {editFile ? (
+                    <span style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: '#1e293b', background: '#f0f9ff', border: '1px solid #bae6fd', borderRadius: '6px', padding: '3px 8px' }}>
+                      📎 {editFile.name}
+                      <button onClick={() => setEditFile(null)} title="Annuler" style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#64748b', fontSize: '13px', lineHeight: 1, padding: 0 }}>✕</button>
+                    </span>
+                  ) : editAttachmentName && !editRemoveAttachment ? (
+                    <span style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: '#1e293b', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '6px', padding: '3px 8px' }}>
+                      📎 {editAttachmentName}
+                      <button onClick={() => setEditRemoveAttachment(true)} title="Supprimer la pièce jointe" style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ef4444', fontSize: '13px', lineHeight: 1, padding: 0 }}>✕</button>
+                    </span>
+                  ) : editRemoveAttachment ? (
+                    <span style={{ fontSize: '12px', color: '#ef4444' }}>Sera supprimée à l'enregistrement</span>
+                  ) : (
+                    <span style={{ fontSize: '12px', color: '#94a3b8' }}>Aucune</span>
+                  )}
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px', color: '#2563eb', cursor: 'pointer', fontWeight: 600 }}>
+                    📎 {editAttachmentName || editFile ? 'Remplacer' : 'Joindre'}
+                    <input type="file" style={{ display: 'none' }} onChange={ev => { setEditFile(ev.target.files?.[0] || null); setEditRemoveAttachment(false); }} />
+                  </label>
+                </div>
+              </div>
             ) : (
               <>
                 <span style={{ minWidth: '120px', fontSize: '11px', color: '#94a3b8', flexShrink: 0 }}>{new Date(e.date_entree).toLocaleString('fr-FR')}</span>

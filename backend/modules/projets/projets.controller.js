@@ -2128,10 +2128,10 @@ const ajouterEntreeJournal = async (req, res) => {
 const modifierEntreeJournal = async (req, res) => {
     try {
         const { id, journalId } = req.params;
-        const { type_entree, message, date_entree } = req.body;
+        const { type_entree, message, date_entree, remove_attachment } = req.body;
         if (!message || !message.trim()) return res.status(400).json({ error: 'Message requis' });
 
-        const entry = await pgDb.get('SELECT username FROM projet_journal WHERE id = $1 AND projet_id = $2', [journalId, id]);
+        const entry = await pgDb.get('SELECT username, details FROM projet_journal WHERE id = $1 AND projet_id = $2', [journalId, id]);
         if (!entry) return res.status(404).json({ error: 'Entrée du journal non trouvée' });
 
         const isOwner = entry.username && entry.username.toLowerCase() === req.user.username.toLowerCase();
@@ -2139,9 +2139,56 @@ const modifierEntreeJournal = async (req, res) => {
             return res.status(403).json({ error: 'Vous ne pouvez modifier que vos propres entrées de journal.' });
         }
 
+        const username = req.user.username;
+        let detailsObj = null;
+        try { detailsObj = entry.details ? JSON.parse(entry.details) : null; } catch { detailsObj = null; }
+
+        // Suppression de la PJ existante : demandée explicitement, ou implicite quand on
+        // dépose un nouveau fichier (une seule PJ par entrée, comme à la création).
+        const wantsRemoval = remove_attachment === 'true' || remove_attachment === true;
+        if ((wantsRemoval || req.file) && detailsObj?.document_id) {
+            try {
+                await pgDb.run('DELETE FROM projet_versions_document WHERE document_id = $1', [detailsObj.document_id]);
+                await pgDb.run('DELETE FROM projet_documents WHERE id = $1 AND projet_id = $2', [detailsObj.document_id, id]);
+            } catch (e) { console.warn('[JOURNAL] suppression PJ existante échouée:', e.message); }
+            detailsObj = null;
+        }
+
+        // Dépôt d'une nouvelle PJ (même mécanisme que la création — cf. ajouterEntreeJournal).
+        if (req.file) {
+            if (req.file.originalname) req.file.originalname = storage.fixUploadName(req.file.originalname);
+            const docResult = await pgDb.run(
+                `INSERT INTO projet_documents (projet_id, type_documentaire, type_vrac, created_by_username) VALUES ($1, 'journal', 1, $2)`,
+                [id, username]
+            );
+            const did = docResult.lastID;
+            const saved = await storage.saveFile(MODULE, id, req.file);
+            await pgDb.run(
+                `INSERT INTO projet_versions_document (document_id, version, fichier_nom, fichier_original, fichier_taille, fichier_type, est_version_courante, depose_par_username, file_path) VALUES ($1, 'v1.0', $2, $3, $4, $5, 1, $6, $7)`,
+                [did, saved.filename, req.file.originalname, req.file.size, req.file.mimetype, username, saved.dbPath]
+            );
+            try {
+                const docsService = require('../../shared/documents.service');
+                await docsService.registerExternalUpload({
+                    module: 'projets',
+                    entityType: 'journal',
+                    entityId: id,
+                    title: req.file.originalname,
+                    filename: saved.filename,
+                    originalName: req.file.originalname,
+                    mimetype: req.file.mimetype,
+                    size: req.file.size,
+                    storageRef: saved.dbPath,
+                    metadata: { projet_id: id, legacy_document_id: did },
+                    uploadedBy: username,
+                });
+            } catch (e) { console.warn('[DOCS] register failed:', e.message); }
+            detailsObj = { document_id: did, version: 'v1.0', type: req.file.originalname };
+        }
+
         await pgDb.run(
-            `UPDATE projet_journal SET type_entree = COALESCE($1, type_entree), message = $2, date_entree = COALESCE($3, date_entree) WHERE id = $4`,
-            [type_entree || null, message, date_entree || null, journalId]
+            `UPDATE projet_journal SET type_entree = COALESCE($1, type_entree), message = $2, date_entree = COALESCE($3, date_entree), details = $4 WHERE id = $5`,
+            [type_entree || null, message, date_entree || null, detailsObj ? JSON.stringify(detailsObj) : null, journalId]
         );
         res.json({ message: 'Entrée mise à jour' });
     } catch (error) {
