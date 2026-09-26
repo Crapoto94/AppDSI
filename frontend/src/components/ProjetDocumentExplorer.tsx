@@ -20,7 +20,7 @@ import {
  */
 
 interface Folder_ { id: number; parent_id: number | null; nom: string }
-interface MetadataField { id: number; cle: string; libelle: string; type: 'texte' | 'date' | 'liste'; options?: string[] }
+interface MetadataField { id: number; cle: string; libelle: string; type: 'texte' | 'date' | 'liste'; options?: string[]; is_builtin?: boolean; requis?: boolean }
 interface DocRow {
   id: number; folder_id: number | null; display_name: string; original_name: string;
   size_bytes: number | null; mime_type: string | null; version: string; version_count: number;
@@ -70,6 +70,7 @@ export default function ProjetDocumentExplorer({ projetId, token }: { projetId: 
   const [previewDoc, setPreviewDoc] = useState<DocRow | null>(null);
   const [dragOver, setDragOver] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [selectedFolderIds, setSelectedFolderIds] = useState<Set<number>>(new Set());
   const [filters, setFilters] = useState<Record<string, string>>({});
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [bulkMetaField, setBulkMetaField] = useState('');
@@ -90,7 +91,7 @@ export default function ProjetDocumentExplorer({ projetId, token }: { projetId: 
 
   useEffect(() => { loadFolders(); loadFields(); /* eslint-disable-next-line */ }, [projetId]);
   useEffect(() => { loadDocuments(); }, [loadDocuments]);
-  useEffect(() => setSelectedIds(new Set()), [currentFolderId]);
+  useEffect(() => { setSelectedIds(new Set()); setSelectedFolderIds(new Set()); }, [currentFolderId]);
 
   const filterableFields = fields.filter(f => documents.some(d => d.metadata?.[f.cle]));
   const filteredDocuments = documents.filter(doc => filterableFields.every(f => {
@@ -125,7 +126,8 @@ export default function ProjetDocumentExplorer({ projetId, token }: { projetId: 
     if (!files.length) return;
     setError(null); setUploading(true);
     try {
-      if (!relativePaths && files.length === 1 && files[0].name.toLowerCase().endsWith('.zip')) {
+      const isSoloZip = !relativePaths && files.length === 1 && files[0].name.toLowerCase().endsWith('.zip');
+      if (isSoloZip && window.confirm(`« ${files[0].name} » est une archive zip.\n\nOK = dézipper (recrée les dossiers et fichiers qu'elle contient)\nAnnuler = déposer l'archive telle quelle, sans l'ouvrir`)) {
         const form = new FormData();
         form.append('file', files[0]);
         if (currentFolderId) form.append('folder_id', String(currentFolderId));
@@ -198,15 +200,25 @@ export default function ProjetDocumentExplorer({ projetId, token }: { projetId: 
   }
 
   function toggleSelected(idv: number) { setSelectedIds(prev => { const n = new Set(prev); n.has(idv) ? n.delete(idv) : n.add(idv); return n; }); }
-  function toggleSelectAll() { setSelectedIds(prev => prev.size === filteredDocuments.length ? new Set() : new Set(filteredDocuments.map(d => d.id))); }
+  function toggleSelectedFolder(idv: number) { setSelectedFolderIds(prev => { const n = new Set(prev); n.has(idv) ? n.delete(idv) : n.add(idv); return n; }); }
+  const allSelected = !!(childFolders.length || filteredDocuments.length) && selectedFolderIds.size === childFolders.length && selectedIds.size === filteredDocuments.length;
+  function toggleSelectAll() {
+    if (allSelected) { setSelectedIds(new Set()); setSelectedFolderIds(new Set()); }
+    else { setSelectedIds(new Set(filteredDocuments.map(d => d.id))); setSelectedFolderIds(new Set(childFolders.map(f => f.id))); }
+  }
 
   async function bulkDelete() {
-    if (!window.confirm(`Supprimer ${selectedIds.size} document(s) ?`)) return;
-    const ids = Array.from(selectedIds);
-    const results = await Promise.allSettled(ids.map(idv => fetch(`${base}/fichiers/${idv}`, { method: 'DELETE', headers })));
+    const total = selectedIds.size + selectedFolderIds.size;
+    if (!window.confirm(`Supprimer ${total} élément(s) sélectionné(s) ?${selectedFolderIds.size ? '\n\nLes dossiers sélectionnés seront supprimés avec tout leur contenu.' : ''}`)) return;
+    const docIds = Array.from(selectedIds);
+    const folderIds = Array.from(selectedFolderIds);
+    const results = await Promise.allSettled([
+      ...docIds.map(idv => fetch(`${base}/fichiers/${idv}`, { method: 'DELETE', headers })),
+      ...folderIds.map(idv => fetch(`${base}/dossiers/${idv}`, { method: 'DELETE', headers })),
+    ]);
     const failed = results.filter(r => r.status === 'rejected').length;
-    if (failed) setError(`${failed} document(s) n'ont pas pu être supprimés`);
-    setSelectedIds(new Set()); loadDocuments();
+    if (failed) setError(`${failed} élément(s) n'ont pas pu être supprimés`);
+    setSelectedIds(new Set()); setSelectedFolderIds(new Set()); loadFolders(); loadDocuments();
   }
 
   async function bulkApplyMetadata() {
@@ -295,10 +307,13 @@ export default function ProjetDocumentExplorer({ projetId, token }: { projetId: 
         </div>
       )}
 
-      {!!selectedIds.size && (
+      {!!(selectedIds.size + selectedFolderIds.size) && (
         <div style={{ marginBottom: 10, display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, border: '1px solid #bfdbfe', background: '#eff6ff', borderRadius: 8, padding: 10 }}>
-          <span style={{ fontSize: 12, fontWeight: 600, color: '#2563eb' }}>{selectedIds.size} sélectionné(s)</span>
-          {!!fields.length && (
+          <span style={{ fontSize: 12, fontWeight: 600, color: '#2563eb' }}>
+            {selectedIds.size + selectedFolderIds.size} sélectionné(s)
+            {!!selectedFolderIds.size && ` (dont ${selectedFolderIds.size} dossier${selectedFolderIds.size > 1 ? 's' : ''})`}
+          </span>
+          {!!fields.length && !!selectedIds.size && (
             <>
               <select value={bulkMetaField} onChange={e => setBulkMetaField(e.target.value)} style={{ border: '1px solid #cbd5e1', borderRadius: 6, padding: '4px 6px', fontSize: 12 }}>
                 <option value="">Appliquer une métadonnée…</option>
@@ -313,7 +328,7 @@ export default function ProjetDocumentExplorer({ projetId, token }: { projetId: 
             </>
           )}
           <button onClick={bulkDelete} style={{ ...btnBase, marginLeft: 'auto', background: 'none', color: '#dc2626', padding: '5px 10px' }}><Trash2 size={13} /> Supprimer la sélection</button>
-          <button onClick={() => setSelectedIds(new Set())} style={{ border: 'none', background: 'none', cursor: 'pointer', fontSize: 12, color: '#94a3b8' }}>Annuler</button>
+          <button onClick={() => { setSelectedIds(new Set()); setSelectedFolderIds(new Set()); }} style={{ border: 'none', background: 'none', cursor: 'pointer', fontSize: 12, color: '#94a3b8' }}>Annuler</button>
         </div>
       )}
 
@@ -333,15 +348,18 @@ export default function ProjetDocumentExplorer({ projetId, token }: { projetId: 
         <p style={{ border: '1px dashed #e2e8f0', borderRadius: 8, padding: 32, textAlign: 'center', fontSize: 13, color: '#94a3b8' }}>Aucun document ne correspond aux filtres.</p>
       ) : (
         <div style={{ border: '1px solid #f1f5f9', borderRadius: 8, overflow: 'hidden' }}>
-          {!!filteredDocuments.length && (
+          {!!(childFolders.length || filteredDocuments.length) && (
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: '#f8fafc60', padding: '5px 12px' }}>
               <button onClick={toggleSelectAll} style={{ display: 'flex', alignItems: 'center', gap: 6, border: 'none', background: 'none', cursor: 'pointer', fontSize: 11, color: '#94a3b8' }}>
-                {selectedIds.size === filteredDocuments.length ? <CheckSquare size={14} /> : <Square size={14} />} Tout sélectionner
+                {allSelected ? <CheckSquare size={14} /> : <Square size={14} />} Tout sélectionner
               </button>
             </div>
           )}
           {childFolders.map(f => (
             <div key={`f${f.id}`} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, padding: '8px 12px', borderBottom: '1px solid #f1f5f9' }}>
+              <button onClick={() => toggleSelectedFolder(f.id)} title="Sélectionner" style={{ border: 'none', background: 'none', cursor: 'pointer', color: selectedFolderIds.has(f.id) ? '#2563eb' : '#cbd5e1', flexShrink: 0 }}>
+                {selectedFolderIds.has(f.id) ? <CheckSquare size={15} /> : <Square size={15} />}
+              </button>
               <button onClick={() => setCurrentFolderId(f.id)} style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 8, border: 'none', background: 'none', cursor: 'pointer', textAlign: 'left', fontSize: 13, minWidth: 0 }}>
                 <Folder size={16} color="#f59e0b" />
                 <span style={{ fontWeight: 600, color: '#1e293b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.nom}</span>
@@ -386,11 +404,12 @@ export default function ProjetDocumentExplorer({ projetId, token }: { projetId: 
 function MetadataChip({ field, value, onChange }: { field: MetadataField; value: string; onChange: (v: string) => void }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(value);
+  const manque = !!field.requis && !value;
   if (!editing) {
     return (
-      <button onClick={e => { e.stopPropagation(); setDraft(value); setEditing(true); }} title={field.libelle}
-        style={{ display: 'flex', alignItems: 'center', gap: 4, borderRadius: 10, border: 'none', cursor: 'pointer', padding: '2px 8px', fontSize: 11, background: value ? '#dbeafe' : '#f1f5f9', color: value ? '#2563eb' : '#94a3b8' }}>
-        <Tag size={10} /> {value || field.libelle}
+      <button onClick={e => { e.stopPropagation(); setDraft(value); setEditing(true); }} title={manque ? `${field.libelle} (obligatoire)` : field.libelle}
+        style={{ display: 'flex', alignItems: 'center', gap: 4, borderRadius: 10, border: manque ? '1px solid #fca5a5' : 'none', cursor: 'pointer', padding: '2px 8px', fontSize: 11, background: value ? '#dbeafe' : manque ? '#fef2f2' : '#f1f5f9', color: value ? '#2563eb' : manque ? '#dc2626' : '#94a3b8' }}>
+        <Tag size={10} /> {value || (manque ? `${field.libelle} *` : field.libelle)}
       </button>
     );
   }
@@ -645,12 +664,14 @@ function MetadataSettingsModal({ base, headers, fields, onClose, onChange }: { b
         </div>
         <div style={{ marginBottom: 14, display: 'flex', flexDirection: 'column', gap: 6 }}>
           {fields.map(f => (
-            <div key={f.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: '#f8fafc', borderRadius: 8, padding: '6px 10px', fontSize: 13 }}>
-              <span>{f.libelle} <span style={{ fontSize: 11, color: '#94a3b8' }}>({f.type})</span></span>
-              <button onClick={() => remove(f.id)} style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#94a3b8' }}><Trash2 size={14} /></button>
+            <div key={f.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: f.is_builtin ? '#eff6ff' : '#f8fafc', borderRadius: 8, padding: '6px 10px', fontSize: 13 }}>
+              <span>{f.libelle} <span style={{ fontSize: 11, color: '#94a3b8' }}>({f.type}{f.requis ? ', obligatoire' : ''})</span></span>
+              {f.is_builtin
+                ? <span style={{ fontSize: 10, color: '#2563eb', fontWeight: 600 }}>Types documentaires attendus</span>
+                : <button onClick={() => remove(f.id)} style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#94a3b8' }}><Trash2 size={14} /></button>}
             </div>
           ))}
-          {!fields.length && <p style={{ fontSize: 11, color: '#94a3b8' }}>Aucun champ défini pour l'instant.</p>}
+          {fields.length <= 1 && <p style={{ fontSize: 11, color: '#94a3b8' }}>Aucun champ personnalisé défini pour l'instant.</p>}
         </div>
         <form onSubmit={add} style={{ display: 'flex', flexDirection: 'column', gap: 8, borderTop: '1px solid #f1f5f9', paddingTop: 12 }}>
           <input value={libelle} onChange={e => setLibelle(e.target.value)} placeholder="Libellé (ex : Type de document)" style={{ border: '1px solid #cbd5e1', borderRadius: 8, padding: '7px 10px', fontSize: 13 }} />

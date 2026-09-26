@@ -3696,7 +3696,17 @@ const getExplorerMetadataFields = async (req, res) => {
     try {
         const { id } = req.params;
         const rows = await pgDb.all(`SELECT * FROM projets.projet_metadata_fields WHERE projet_id = $1 ORDER BY ordre ASC, id ASC`, [id]);
-        res.json(rows);
+        // Champ virtuel "Type de document" : ses options viennent EN DIRECT du
+        // paramétrage global "Types documentaires attendus" (projet_types_documentaires,
+        // cf. getTypesDocumentaires/getAttendus) — seule source de vérité pour ces
+        // libellés, jamais une copie figée. N'existe pas comme ligne en base (id
+        // négatif, non supprimable depuis l'explorateur).
+        const typesGlobaux = await pgDb.all(`SELECT label FROM projet_types_documentaires WHERE actif = 1 ORDER BY ordre`);
+        const champTypeDocument = {
+            id: -1, projet_id: parseInt(id, 10), cle: 'type_documentaire', libelle: '📋 Type de document',
+            type: 'liste', options: typesGlobaux.map(t => t.label), ordre: -1, is_builtin: true, requis: true,
+        };
+        res.json([champTypeDocument, ...rows]);
     } catch (error) { res.status(500).json({ error: error.message }); }
 };
 
