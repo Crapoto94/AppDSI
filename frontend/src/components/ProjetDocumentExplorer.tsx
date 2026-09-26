@@ -1,4 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import {
   Folder, FolderPlus, File, FileArchive, Upload, Download, Pencil, Trash2, X,
   ChevronRight, Settings, Home, Tag, Mail, History, Filter, CheckSquare, Square,
@@ -36,7 +38,7 @@ function fileTypeLabel(name: string): string {
   const ext = name.split('.').pop();
   return ext && ext !== name ? ext.toUpperCase() : '—';
 }
-type PreviewKind = 'pdf' | 'image' | 'msg' | 'docx' | 'xlsx' | 'pptx' | 'none';
+type PreviewKind = 'pdf' | 'image' | 'msg' | 'docx' | 'xlsx' | 'pptx' | 'md' | 'none';
 function previewKind(mimeType: string | null, name: string): PreviewKind {
   const mt = (mimeType || '').toLowerCase();
   const n = name.toLowerCase();
@@ -46,6 +48,7 @@ function previewKind(mimeType: string | null, name: string): PreviewKind {
   if (n.endsWith('.docx')) return 'docx';
   if (n.endsWith('.xlsx')) return 'xlsx';
   if (n.endsWith('.pptx')) return 'pptx';
+  if (mt === 'text/markdown' || n.endsWith('.md') || n.endsWith('.markdown')) return 'md';
   return 'none';
 }
 
@@ -65,7 +68,6 @@ export default function ProjetDocumentExplorer({ projetId, token }: { projetId: 
   const [newFolderName, setNewFolderName] = useState('');
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [previewDoc, setPreviewDoc] = useState<DocRow | null>(null);
-  const [historyDoc, setHistoryDoc] = useState<DocRow | null>(null);
   const [dragOver, setDragOver] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [filters, setFilters] = useState<Record<string, string>>({});
@@ -331,6 +333,13 @@ export default function ProjetDocumentExplorer({ projetId, token }: { projetId: 
         <p style={{ border: '1px dashed #e2e8f0', borderRadius: 8, padding: 32, textAlign: 'center', fontSize: 13, color: '#94a3b8' }}>Aucun document ne correspond aux filtres.</p>
       ) : (
         <div style={{ border: '1px solid #f1f5f9', borderRadius: 8, overflow: 'hidden' }}>
+          {!!filteredDocuments.length && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: '#f8fafc60', padding: '5px 12px' }}>
+              <button onClick={toggleSelectAll} style={{ display: 'flex', alignItems: 'center', gap: 6, border: 'none', background: 'none', cursor: 'pointer', fontSize: 11, color: '#94a3b8' }}>
+                {selectedIds.size === filteredDocuments.length ? <CheckSquare size={14} /> : <Square size={14} />} Tout sélectionner
+              </button>
+            </div>
+          )}
           {childFolders.map(f => (
             <div key={`f${f.id}`} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, padding: '8px 12px', borderBottom: '1px solid #f1f5f9' }}>
               <button onClick={() => setCurrentFolderId(f.id)} style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 8, border: 'none', background: 'none', cursor: 'pointer', textAlign: 'left', fontSize: 13, minWidth: 0 }}>
@@ -340,13 +349,6 @@ export default function ProjetDocumentExplorer({ projetId, token }: { projetId: 
               <button onClick={() => removeFolder(f.id)} title="Supprimer le dossier" style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#94a3b8', flexShrink: 0 }}><Trash2 size={14} /></button>
             </div>
           ))}
-          {!!filteredDocuments.length && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: '#f8fafc60', padding: '5px 12px' }}>
-              <button onClick={toggleSelectAll} style={{ display: 'flex', alignItems: 'center', gap: 6, border: 'none', background: 'none', cursor: 'pointer', fontSize: 11, color: '#94a3b8' }}>
-                {selectedIds.size === filteredDocuments.length ? <CheckSquare size={14} /> : <Square size={14} />} Tout sélectionner
-              </button>
-            </div>
-          )}
           {filteredDocuments.map(doc => (
             <div key={`d${doc.id}`} style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 8, padding: '8px 12px', borderBottom: '1px solid #f1f5f9' }}>
               <button onClick={() => toggleSelected(doc.id)} title="Sélectionner" style={{ border: 'none', background: 'none', cursor: 'pointer', color: selectedIds.has(doc.id) ? '#2563eb' : '#cbd5e1', flexShrink: 0 }}>
@@ -365,7 +367,7 @@ export default function ProjetDocumentExplorer({ projetId, token }: { projetId: 
                 </div>
               )}
               <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
-                {Number(doc.version) > 1 && <button onClick={() => setHistoryDoc(doc)} title="Historique des versions" style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#94a3b8', padding: 5 }}><History size={14} /></button>}
+                {Number(doc.version) > 1 && <button onClick={() => setPreviewDoc(doc)} title="Historique des versions" style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#94a3b8', padding: 5 }}><History size={14} /></button>}
                 <a href={fileUrl(doc.id, true)} title="Télécharger" style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#94a3b8', padding: 5, display: 'flex' }}><Download size={14} /></a>
                 <button onClick={() => renameDocument(doc)} title="Renommer" style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#94a3b8', padding: 5 }}><Pencil size={14} /></button>
                 <button onClick={() => removeDocument(doc)} title="Supprimer" style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#94a3b8', padding: 5 }}><Trash2 size={14} /></button>
@@ -375,8 +377,7 @@ export default function ProjetDocumentExplorer({ projetId, token }: { projetId: 
         </div>
       )}
 
-      {previewDoc && <DocPreviewModal doc={previewDoc} base={base} headers={headers} fileUrl={fileUrl} onClose={() => setPreviewDoc(null)} />}
-      {historyDoc && <VersionHistoryModal doc={historyDoc} base={base} headers={headers} token={token} onClose={() => setHistoryDoc(null)} />}
+      {previewDoc && <DocPreviewModal doc={previewDoc} base={base} headers={headers} token={token} fileUrl={fileUrl} onClose={() => setPreviewDoc(null)} />}
       {settingsOpen && <MetadataSettingsModal base={base} headers={headers} fields={fields} onClose={() => setSettingsOpen(false)} onChange={loadFields} />}
     </div>
   );
@@ -415,16 +416,26 @@ interface MsgPreview { subject: string; from: string; to: string[]; cc: string[]
 interface XlsxPreview { sheets: { name: string; html: string }[] }
 interface PptxPreview { slides: { index: number; text: string }[] }
 
-function DocPreviewModal({ doc, base, headers, fileUrl, onClose }: { doc: DocRow; base: string; headers: Record<string, string>; fileUrl: (id: number, dl?: boolean) => string; onClose: () => void }) {
+function DocPreviewModal({ doc, base, headers, token, fileUrl, onClose }: { doc: DocRow; base: string; headers: Record<string, string>; token: string | null; fileUrl: (id: number, dl?: boolean) => string; onClose: () => void }) {
   const kind = previewKind(doc.mime_type, doc.original_name);
   const url = fileUrl(doc.id);
-  const [loading, setLoading] = useState(['msg', 'docx', 'xlsx', 'pptx'].includes(kind));
+  const [loading, setLoading] = useState(['msg', 'docx', 'xlsx', 'pptx', 'md'].includes(kind));
   const [loadError, setLoadError] = useState<string | null>(null);
   const [msg, setMsg] = useState<MsgPreview | null>(null);
   const [docxHtml, setDocxHtml] = useState<string | null>(null);
   const [xlsx, setXlsx] = useState<XlsxPreview | null>(null);
   const [pptx, setPptx] = useState<PptxPreview | null>(null);
+  const [mdText, setMdText] = useState<string | null>(null);
   const [activeSheet, setActiveSheet] = useState(0);
+  // Historique des versions — inspiré de la visionneuse native DSI Hub (DocumentViewer.tsx) :
+  // une barre latérale liste les versions, la courante étant celle prévisualisée à droite
+  // (seule la version courante a un aperçu riche côté serveur ; les anciennes se téléchargent).
+  const [versions, setVersions] = useState<DocVersion[] | null>(null);
+
+  useEffect(() => {
+    fetch(`${base}/fichiers/${doc.id}/versions`, { headers }).then(r => r.json()).then(setVersions).catch(() => {});
+    // eslint-disable-next-line
+  }, [doc.id]);
 
   useEffect(() => {
     const ep = `/api/projets/explorateur/fichiers/${doc.id}/apercu`;
@@ -432,12 +443,13 @@ function DocPreviewModal({ doc, base, headers, fileUrl, onClose }: { doc: DocRow
     else if (kind === 'docx') fetch(`${ep}/docx`, { headers }).then(r => r.json()).then(d => setDocxHtml(d.html)).catch(() => setLoadError('Aperçu impossible')).finally(() => setLoading(false));
     else if (kind === 'xlsx') fetch(`${ep}/xlsx`, { headers }).then(r => r.json()).then(setXlsx).catch(() => setLoadError('Aperçu impossible')).finally(() => setLoading(false));
     else if (kind === 'pptx') fetch(`${ep}/pptx`, { headers }).then(r => r.json()).then(setPptx).catch(() => setLoadError('Aperçu impossible')).finally(() => setLoading(false));
+    else if (kind === 'md') fetch(url, { headers }).then(r => r.text()).then(setMdText).catch(() => setLoadError('Lecture impossible')).finally(() => setLoading(false));
     // eslint-disable-next-line
   }, [doc.id, kind]);
 
   return (
     <div style={{ position: 'fixed', inset: 0, zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.55)', padding: 20 }} onClick={onClose}>
-      <div style={{ display: 'flex', flexDirection: 'column', width: '100%', maxWidth: 900, height: '85vh', borderRadius: 12, background: 'white', overflow: 'hidden', boxShadow: '0 25px 50px rgba(0,0,0,0.3)' }} onClick={e => e.stopPropagation()}>
+      <div style={{ display: 'flex', flexDirection: 'column', width: '100%', maxWidth: 1100, height: '88vh', borderRadius: 12, background: 'white', overflow: 'hidden', boxShadow: '0 25px 50px rgba(0,0,0,0.3)' }} onClick={e => e.stopPropagation()}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, borderBottom: '1px solid #e2e8f0', padding: '10px 16px' }}>
           {kind === 'msg' ? <Mail size={18} color="#2563eb" /> : <File size={18} color="#2563eb" />}
           <p style={{ flex: 1, minWidth: 0, margin: 0, fontSize: 13, fontWeight: 600, color: '#1e293b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -446,7 +458,28 @@ function DocPreviewModal({ doc, base, headers, fileUrl, onClose }: { doc: DocRow
           <a href={fileUrl(doc.id, true)} style={{ ...btnBase, background: '#2563eb', color: 'white', padding: '6px 12px', textDecoration: 'none' }}><Download size={13} /> Télécharger</a>
           <button onClick={onClose} style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#94a3b8', padding: 6 }}><X size={18} /></button>
         </div>
-        <div style={{ flex: 1, overflow: 'hidden', background: '#f1f5f9' }}>
+        <div style={{ display: 'flex', flex: 1, minHeight: 0 }}>
+          {/* Versions — même esprit que la visionneuse native DSI Hub (DocumentViewer.tsx) :
+              seule la version courante a un aperçu riche (rendu côté serveur) ; les anciennes
+              se téléchargent, sauf pdf/image (prévisualisables directement). */}
+          {!!versions && versions.length > 0 && (
+            <div style={{ width: 220, flexShrink: 0, borderRight: '1px solid #e5e7eb', background: '#f9fafb', overflowY: 'auto' }}>
+              <div style={{ padding: '8px 10px', fontSize: 11, fontWeight: 700, color: '#374151', textTransform: 'uppercase', letterSpacing: 0.5, borderBottom: '1px solid #e5e7eb' }}>Versions</div>
+              <div style={{ padding: '8px 10px', fontSize: 12, background: '#eef2ff', borderLeft: '3px solid #2563eb' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}><strong>v{doc.version}</strong><span style={{ fontSize: 9, background: '#2563eb', color: 'white', borderRadius: 8, padding: '1px 6px', fontWeight: 700 }}>courante</span></div>
+                <div style={{ fontSize: 10, color: '#6b7280', marginTop: 2 }}>{formatSize(doc.size_bytes)}</div>
+              </div>
+              {versions.filter(v => v.version !== doc.version).map(v => (
+                <a key={v.id} href={`/api/projets/explorateur/versions/${v.id}/fichier?token=${encodeURIComponent(token || '')}`}
+                  style={{ display: 'block', padding: '8px 10px', fontSize: 12, color: '#374151', textDecoration: 'none', borderBottom: '1px solid #f3f4f6' }}>
+                  <div><strong>v{v.version}</strong></div>
+                  <div style={{ fontSize: 10, color: '#6b7280', marginTop: 2 }}>{v.depose_par_username || 'inconnu'} · {new Date(v.date_depot).toLocaleDateString('fr-FR')}</div>
+                  <div style={{ fontSize: 10, color: '#9ca3af', marginTop: 1, display: 'flex', alignItems: 'center', gap: 4 }}><Download size={10} /> {formatSize(v.fichier_taille)}</div>
+                </a>
+              ))}
+            </div>
+          )}
+          <div style={{ flex: 1, minWidth: 0, overflow: 'hidden', background: '#f1f5f9' }}>
           {kind === 'pdf' && <iframe src={url} title={doc.display_name} style={{ width: '100%', height: '100%', border: 0 }} />}
           {kind === 'image' && (
             <div style={{ display: 'flex', height: '100%', alignItems: 'center', justifyContent: 'center', overflow: 'auto', padding: 20 }}>
@@ -455,6 +488,13 @@ function DocPreviewModal({ doc, base, headers, fileUrl, onClose }: { doc: DocRow
           )}
           {loading && <p style={{ padding: 32, textAlign: 'center', fontSize: 13, color: '#64748b' }}>Chargement de l'aperçu…</p>}
           {loadError && <p style={{ padding: 32, textAlign: 'center', fontSize: 13, color: '#dc2626' }}>{loadError}</p>}
+          {kind === 'md' && !loading && !loadError && mdText !== null && (
+            <div style={{ height: '100%', overflowY: 'auto', background: 'white', padding: 28 }}>
+              <div className="markdown-body" style={{ fontSize: 14, color: '#1e293b', lineHeight: 1.6 }}>
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>{mdText}</ReactMarkdown>
+              </div>
+            </div>
+          )}
           {kind === 'msg' && !loading && !loadError && msg && (
             <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden', background: 'white' }}>
               <div style={{ borderBottom: '1px solid #e2e8f0', padding: '14px 18px' }}>
@@ -513,47 +553,13 @@ function DocPreviewModal({ doc, base, headers, fileUrl, onClose }: { doc: DocRow
               <p style={{ fontSize: 13, color: '#64748b' }}>Prévisualisation non disponible pour ce type de fichier.</p>
             </div>
           )}
+          </div>
         </div>
       </div>
     </div>
   );
 }
 
-function VersionHistoryModal({ doc, base, headers, token, onClose }: { doc: DocRow; base: string; headers: Record<string, string>; token: string | null; onClose: () => void }) {
-  const [versions, setVersions] = useState<DocVersion[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  useEffect(() => {
-    fetch(`${base}/fichiers/${doc.id}/versions`, { headers }).then(r => r.json()).then(setVersions).catch(() => setError('Historique indisponible'));
-    // eslint-disable-next-line
-  }, [doc.id]);
-  return (
-    <div style={{ position: 'fixed', inset: 0, zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.55)', padding: 20 }} onClick={onClose}>
-      <div style={{ width: '100%', maxWidth: 440, borderRadius: 12, background: 'white', padding: 18, boxShadow: '0 25px 50px rgba(0,0,0,0.3)' }} onClick={e => e.stopPropagation()}>
-        <div style={{ marginBottom: 14, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <h3 style={{ display: 'flex', alignItems: 'center', gap: 8, margin: 0, fontSize: 14, fontWeight: 700, color: '#1e293b' }}><History size={16} /> Historique — {doc.display_name}</h3>
-          <button onClick={onClose} style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#94a3b8' }}><X size={16} /></button>
-        </div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: '#eff6ff', borderRadius: 8, padding: '6px 10px', fontSize: 13 }}>
-            <span style={{ fontWeight: 700, color: '#2563eb' }}>v{doc.version} (actuelle)</span>
-          </div>
-          {error && <p style={{ fontSize: 11, color: '#dc2626' }}>{error}</p>}
-          {versions?.filter(v => v.version !== doc.version).map(v => (
-            <div key={v.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: '#f8fafc', borderRadius: 8, padding: '6px 10px', fontSize: 13 }}>
-              <div>
-                <span style={{ fontWeight: 600, color: '#334155' }}>v{v.version}</span>{' '}
-                <span style={{ fontSize: 11, color: '#94a3b8' }}>{v.depose_par_username || 'inconnu'} · {new Date(v.date_depot).toLocaleString('fr-FR')}</span>
-              </div>
-              <a href={`/api/projets/explorateur/versions/${v.id}/fichier?token=${encodeURIComponent(token || '')}`} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, fontWeight: 600, color: '#2563eb', textDecoration: 'none' }}>
-                <Download size={12} /> {formatSize(v.fichier_taille)}
-              </a>
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-}
 
 function MetadataSettingsModal({ base, headers, fields, onClose, onChange }: { base: string; headers: Record<string, string>; fields: MetadataField[]; onClose: () => void; onChange: () => void }) {
   const [libelle, setLibelle] = useState('');
