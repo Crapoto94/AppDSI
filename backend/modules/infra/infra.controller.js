@@ -78,6 +78,17 @@ module.exports = {
                 return res.json({ ok: true, count: list.length, sample: list.slice(0, 3) });
             }
 
+            if (key === 'onlyoffice') {
+                // Le Document Server OnlyOffice expose /healthcheck (texte "true" si sain) —
+                // pas d'auth JWT nécessaire pour cette route de diagnostic du moteur lui-même.
+                const axios = require('axios');
+                const base = String(cfg.base_url || '').replace(/\/+$/, '');
+                const r = await axios.get(`${base}/healthcheck`, { timeout: 8000, validateStatus: () => true });
+                const healthy = r.status === 200 && String(r.data).trim() === 'true';
+                if (!healthy) throw new Error(`Réponse inattendue du moteur (HTTP ${r.status})`);
+                return res.json({ ok: true, count: 1, sample: [{ healthcheck: true }] });
+            }
+
             if (key === 'analyse_mail') {
                 const analyseMail = require('../../shared/analyse_mail');
                 const data = await analyseMail.getKpis();

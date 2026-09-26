@@ -5937,6 +5937,16 @@ async function setupPgDb() {
         ON CONFLICT (key) DO NOTHING
       `);
 
+      // Bureau en ligne OnlyOffice (aperçu docx en lecture seule dans l'explorateur de
+      // documents /projets) — base_url = adresse que LE BACKEND appelle (moteur),
+      // endpoint réutilisé ici pour l'adresse que LE NAVIGATEUR charge (souvent la même),
+      // api_key = secret JWT partagé avec le moteur. À renseigner via /admin/infra.
+      await client.query(`
+        INSERT INTO hub.infra_apis (key, label, base_url, endpoint, api_key, header_name, enabled)
+        VALUES ('onlyoffice', 'OnlyOffice (Bureau en ligne — aperçu docx)', '', '', '', '', FALSE)
+        ON CONFLICT (key) DO NOTHING
+      `);
+
       // API IA Ville (APM) — POST {base_url}{endpoint}/query (+ modèle optionnel)
       // et GET {base_url}{endpoint}/models. Utilisée par le module Transcript
       // Manager pour générer les comptes-rendus de réunion (remplace l'IA

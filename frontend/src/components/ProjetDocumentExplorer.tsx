@@ -423,6 +423,7 @@ function DocPreviewModal({ doc, base, headers, token, fileUrl, onClose }: { doc:
   const [loadError, setLoadError] = useState<string | null>(null);
   const [msg, setMsg] = useState<MsgPreview | null>(null);
   const [docxHtml, setDocxHtml] = useState<string | null>(null);
+  const [ooConfig, setOoConfig] = useState<{ sdk: string; config: any } | null>(null);
   const [xlsx, setXlsx] = useState<XlsxPreview | null>(null);
   const [pptx, setPptx] = useState<PptxPreview | null>(null);
   const [mdText, setMdText] = useState<string | null>(null);
@@ -440,12 +441,49 @@ function DocPreviewModal({ doc, base, headers, token, fileUrl, onClose }: { doc:
   useEffect(() => {
     const ep = `/api/projets/explorateur/fichiers/${doc.id}/apercu`;
     if (kind === 'msg') fetch(`${ep}/msg`, { headers }).then(r => r.json()).then(setMsg).catch(() => setLoadError('Lecture impossible')).finally(() => setLoading(false));
-    else if (kind === 'docx') fetch(`${ep}/docx`, { headers }).then(r => r.json()).then(d => setDocxHtml(d.html)).catch(() => setLoadError('Aperçu impossible')).finally(() => setLoading(false));
+    else if (kind === 'docx') {
+      // OnlyOffice (rendu fidèle, moteur du client) en priorité si configuré ; repli
+      // silencieux sur l'aperçu "maison" (mammoth → HTML) sinon (503 = non configuré).
+      fetch(`${ep}/onlyoffice`, { headers }).then(async r => {
+        if (!r.ok) throw new Error('non configuré');
+        setOoConfig(await r.json());
+        setLoading(false);
+      }).catch(() => {
+        fetch(`${ep}/docx`, { headers }).then(r => r.json()).then(d => setDocxHtml(d.html)).catch(() => setLoadError('Aperçu impossible')).finally(() => setLoading(false));
+      });
+    }
     else if (kind === 'xlsx') fetch(`${ep}/xlsx`, { headers }).then(r => r.json()).then(setXlsx).catch(() => setLoadError('Aperçu impossible')).finally(() => setLoading(false));
     else if (kind === 'pptx') fetch(`${ep}/pptx`, { headers }).then(r => r.json()).then(setPptx).catch(() => setLoadError('Aperçu impossible')).finally(() => setLoading(false));
     else if (kind === 'md') fetch(url, { headers }).then(r => r.text()).then(setMdText).catch(() => setLoadError('Lecture impossible')).finally(() => setLoading(false));
     // eslint-disable-next-line
   }, [doc.id, kind]);
+
+  const ooContainerId = `oo-preview-${doc.id}`;
+  useEffect(() => {
+    if (!ooConfig) return;
+    let cancelled = false;
+    const mount = () => {
+      if (cancelled) return;
+      const DocsAPI = (window as any).DocsAPI;
+      if (!DocsAPI) { setLoadError('Moteur OnlyOffice indisponible (script non chargé)'); return; }
+      try { new DocsAPI.DocEditor(ooContainerId, ooConfig.config); }
+      catch (e: any) { setLoadError(`OnlyOffice : ${e?.message || 'erreur de chargement'}`); }
+    };
+    // Un seul chargement du script du moteur par page, réutilisé pour toutes les
+    // prévisualisations suivantes (le SDK gère lui-même plusieurs instances).
+    const existing = document.querySelector(`script[src="${ooConfig.sdk}"]`) as HTMLScriptElement | null;
+    if ((window as any).DocsAPI) { mount(); }
+    else if (existing) { existing.addEventListener('load', mount); }
+    else {
+      const script = document.createElement('script');
+      script.src = ooConfig.sdk;
+      script.async = true;
+      script.onload = mount;
+      script.onerror = () => setLoadError('Impossible de charger le moteur OnlyOffice');
+      document.body.appendChild(script);
+    }
+    return () => { cancelled = true; };
+  }, [ooConfig, ooContainerId]);
 
   return (
     <div style={{ position: 'fixed', inset: 0, zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.55)', padding: 20 }} onClick={onClose}>
@@ -520,7 +558,10 @@ function DocPreviewModal({ doc, base, headers, token, fileUrl, onClose }: { doc:
               </div>
             </div>
           )}
-          {kind === 'docx' && !loading && !loadError && docxHtml !== null && (
+          {kind === 'docx' && !loading && !loadError && ooConfig && (
+            <div id={ooContainerId} style={{ width: '100%', height: '100%' }} />
+          )}
+          {kind === 'docx' && !loading && !loadError && !ooConfig && docxHtml !== null && (
             <div style={{ height: '100%', overflowY: 'auto', background: 'white', padding: 28 }} dangerouslySetInnerHTML={{ __html: docxHtml }} />
           )}
           {kind === 'xlsx' && !loading && !loadError && xlsx && (

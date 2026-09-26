@@ -3644,6 +3644,34 @@ const previewExplorerDocx = async (req, res) => {
     } catch (error) { res.status(500).json({ error: `Aperçu impossible : ${error.message}` }); }
 };
 
+/** Config d'éditeur OnlyOffice (lecture seule) pour prévisualiser un .docx — repli
+ * sur previewExplorerDocx (mammoth) côté front si OnlyOffice n'est pas configuré. */
+const previewExplorerOnlyOffice = async (req, res) => {
+    try {
+        const onlyoffice = require('../../shared/onlyoffice');
+        const cfg = await onlyoffice.getConfig();
+        if (!cfg) return res.status(503).json({ error: 'OnlyOffice non configuré (voir /admin/infra)' });
+        const loaded = await loadExplorerFile(req.params.docId);
+        if (!loaded) return res.status(404).json({ error: 'Fichier introuvable' });
+
+        // Le moteur OnlyOffice va chercher le document lui-même (requête serveur à
+        // serveur) : l'URL doit donc être absolue et joignable PAR LE MOTEUR, pas
+        // seulement par le navigateur de l'agent. On réutilise le jeton déjà validé
+        // pour CETTE requête (header ou ?token=) plutôt que d'en émettre un nouveau.
+        const rawToken = (req.headers['authorization'] || '').replace(/^Bearer\s+/i, '').trim() || String(req.query.token || '');
+        const appBaseUrl = sansPointFinalLocal(process.env.APP_BASE_URL || process.env.APP_URL || `${req.protocol}://${req.get('host')}`);
+        const fileUrl = `${appBaseUrl}/api/projets/explorateur/fichiers/${req.params.docId}/fichier?token=${encodeURIComponent(rawToken)}`;
+
+        const built = onlyoffice.buildViewConfig(cfg, {
+            cle: `projet-doc-${req.params.docId}-v${loaded.row.id}`,
+            nom: loaded.row.fichier_original,
+            url: fileUrl,
+        });
+        res.json(built);
+    } catch (error) { res.status(500).json({ error: `OnlyOffice indisponible : ${error.message}` }); }
+};
+function sansPointFinalLocal(s) { return String(s || '').replace(/\/+$/, ''); }
+
 const previewExplorerXlsx = async (req, res) => {
     try {
         const loaded = await loadExplorerFile(req.params.docId);
@@ -3733,5 +3761,6 @@ module.exports = {
     listExplorerVersions, deleteExplorerDocument,
     serveExplorerFile, serveExplorerVersionFile,
     previewExplorerMsg, previewExplorerMsgAttachment, previewExplorerDocx, previewExplorerXlsx, previewExplorerPptx,
+    previewExplorerOnlyOffice,
     getExplorerMetadataFields, createExplorerMetadataField, deleteExplorerMetadataField,
 };

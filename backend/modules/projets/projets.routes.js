@@ -128,6 +128,7 @@ router.get('/explorateur/fichiers/:docId/fichier', authenticateJWTQuery, ctrl.se
 router.get('/explorateur/fichiers/:docId/apercu/msg', authenticateJWTQuery, ctrl.previewExplorerMsg);
 router.get('/explorateur/fichiers/:docId/apercu/msg/pieces-jointes/:idx', authenticateJWTQuery, ctrl.previewExplorerMsgAttachment);
 router.get('/explorateur/fichiers/:docId/apercu/docx', authenticateJWTQuery, ctrl.previewExplorerDocx);
+router.get('/explorateur/fichiers/:docId/apercu/onlyoffice', authenticateJWTQuery, ctrl.previewExplorerOnlyOffice);
 router.get('/explorateur/fichiers/:docId/apercu/xlsx', authenticateJWTQuery, ctrl.previewExplorerXlsx);
 router.get('/explorateur/fichiers/:docId/apercu/pptx', authenticateJWTQuery, ctrl.previewExplorerPptx);
 router.get('/explorateur/versions/:versionId/fichier', authenticateJWTQuery, ctrl.serveExplorerVersionFile);
