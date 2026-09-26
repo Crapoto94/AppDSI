@@ -1408,7 +1408,11 @@ app.get('/api/auth/azure/callback', async (req, res) => {
         }
 
         // 4. Également s'assurer qu'il existe dans PostgreSQL (MagApp base)
-        let pgUser = await pgDb.get('SELECT username, role, is_approved FROM users WHERE username = ?', [username]);
+        // Comparaison insensible à la casse (comme pour SQLite ci-dessus) : sinon un
+        // compte existant avec une casse différente (ex. "MaChevalier") n'est pas
+        // retrouvé et un doublon est créé en minuscules, ce qui casse ensuite toute
+        // sous-requête scalaire "= (SELECT id FROM hub.users WHERE LOWER(username)…)".
+        let pgUser = await pgDb.get('SELECT username, role, is_approved FROM users WHERE LOWER(username) = LOWER(?)', [username]);
         if (!pgUser) {
             console.log(`[AZURE PG] Création automatique dans PostgreSQL pour ${username}`);
             const isAdminAccount = username === 'admin' || username === 'adminhub';
