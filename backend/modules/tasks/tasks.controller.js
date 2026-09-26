@@ -156,8 +156,17 @@ async function notifyTaskAssignment({ targets, creatorUsername, description, ech
     const ctxStr = (contextTitle && contextTitle !== 'Tâche personnelle')
         ? `<p style="color:#64748b;font-size:13px;">Contexte : ${esc(contextTitle)}</p>` : '';
     const baseUrl = process.env.APP_BASE_URL || process.env.APP_URL || 'http://localhost:5173';
-    const ticketLink = (contextSource === 'ticket' && contextId)
-        ? `<p style="margin-top:12px;"><a href="${baseUrl}/tickets/${encodeURIComponent(contextId)}" style="background:#6366f1;color:#fff;padding:8px 16px;border-radius:6px;text-decoration:none;display:inline-block;">Voir le ticket #${encodeURIComponent(contextId)}</a></p>`
+    // Lien direct vers l'élément d'origine de la tâche, quand on sait le construire —
+    // couvre les sources qui ont une fiche consultable avec un id dans l'URL.
+    const CONTEXT_LINKS = {
+        ticket: (id) => ({ url: `${baseUrl}/tickets/${encodeURIComponent(id)}`, label: `Voir le ticket #${id}` }),
+        projet: (id) => ({ url: `${baseUrl}/projets/${encodeURIComponent(id)}`, label: 'Voir le projet' }),
+        transcript: (id) => ({ url: `${baseUrl}/transcriptmanager/meeting/${encodeURIComponent(id)}`, label: 'Voir le compte-rendu' }),
+        notes: () => ({ url: `${baseUrl}/notes`, label: 'Voir mes notes' }),
+    };
+    const contextLink = (contextId && CONTEXT_LINKS[contextSource]) ? CONTEXT_LINKS[contextSource](contextId) : null;
+    const ticketLink = contextLink
+        ? `<p style="margin-top:12px;"><a href="${contextLink.url}" style="background:#6366f1;color:#fff;padding:8px 16px;border-radius:6px;text-decoration:none;display:inline-block;">${esc(contextLink.label)}</a></p>`
         : '';
     const teamNote = isTeamTask
         ? '<p style="color:#64748b;font-size:13px;">Il s\'agit d\'une tâche d\'équipe : le premier qui la termine la termine pour tout le monde.</p>'
