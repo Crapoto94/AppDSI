@@ -736,7 +736,7 @@ function SignerView({ token, auth, onLogout }: { token: string; auth: SignerAuth
             return (
               <div key={d.id} style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 12, overflow: 'hidden' }}>
                 <div style={{ padding: '10px 16px', background: '#f8fafc', borderBottom: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, fontWeight: 700, color: '#334155', minWidth: 0 }}>
-                  <input type="checkbox" checked={ackDocs.has(d.id)} onChange={() => toggleAck(d.id)} title="Cocher pour signer en masse" style={{ width: 16, height: 16, cursor: 'pointer', flexShrink: 0 }} />
+                  <input type="checkbox" checked={ackDocs.has(d.id)} onChange={() => toggleAck(d.id)} title={info.documents.length > 1 ? 'Cocher pour signer en masse' : 'Cocher ce document'} style={{ width: 16, height: 16, cursor: 'pointer', flexShrink: 0 }} />
                   <FileText size={15} color="#ef4444" style={{ flexShrink: 0 }} />
                   <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {d.original_name}
@@ -903,10 +903,10 @@ function SignerView({ token, auth, onLogout }: { token: string; auth: SignerAuth
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 3000, padding: 16 }}>
           <div style={{ background: '#fff', borderRadius: 14, padding: 24, width: '100%', maxWidth: 540 }}>
             <h3 style={{ margin: '0 0 8px', fontSize: 17, fontWeight: 800, color: '#0f172a', display: 'flex', alignItems: 'center', gap: 8 }}>
-              <ShieldCheck size={18} color="#7c3aed" /> Signature en masse
+              <ShieldCheck size={18} color="#7c3aed" /> {info.documents.length > 1 ? 'Signature en masse' : 'Signature du document'}
             </h3>
             <p style={{ fontSize: 13, color: '#64748b', marginTop: 0 }}>
-              Vous allez signer <strong>{ackDocs.size} document(s)</strong>{ackDocs.size < info.documents.length ? ' (sélection partielle)' : ''} sans en avoir nécessairement pris connaissance de façon intégrale. Cette signature vous engage.
+              Vous allez signer <strong>{ackDocs.size > 1 ? `${ackDocs.size} documents` : 'le document'}</strong>{ackDocs.size < info.documents.length ? ' (sélection partielle)' : ''} sans en avoir pris connaissance de façon intégrale. Cette signature vous engage.
             </p>
             <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 10, padding: '12px 14px', fontSize: 13, color: '#92400e', lineHeight: 1.6 }}>
               {info.parapheur.bulk_sign_mention || DEFAULT_BULK_MENTION}

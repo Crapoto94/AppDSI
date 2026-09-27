@@ -6726,9 +6726,8 @@ async function setupPgDb() {
       // Durée de validité du lien de signature (minutes). ≤ 60 → accès direct au
       // parapheur sans code ; > 60 → confirmation d'identité par code e-mail.
       await client.query(`ALTER TABLE hub_parapheur.parapheurs ADD COLUMN IF NOT EXISTS link_validity_minutes INTEGER DEFAULT 10`);
-    // Service / direction à l'origine de la demande (« la DIRECTION DES SYSTEMES D'INFORMATION vous invite à signer »).
-    // Fourni par l'application qui crée le parapheur (VibeDélib envoie la direction porteuse de l'acte) ; à défaut, le
-    // créateur du parapheur est nommé, comme avant.
+    // Nom affiché comme expéditeur de la demande (« La collectivité vous invite à signer un arrêté »), fourni par
+    // l'application qui crée le parapheur ; à défaut, le créateur du parapheur est nommé, comme avant.
     await client.query(`ALTER TABLE hub_parapheur.parapheurs ADD COLUMN IF NOT EXISTS service TEXT`);
 
       await client.query(`
