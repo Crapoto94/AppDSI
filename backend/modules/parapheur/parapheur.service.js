@@ -52,8 +52,8 @@ function directWindowElapsed(signataire) {
     return (Date.now() - new Date(ref).getTime()) >= DIRECT_ACCESS_MINUTES * 60 * 1000;
 }
 /** Code e-mail requis pour un signataire extérieur au-delà de la 1re heure. */
-function otpRequiredForSigner(signataire) {
-    return isExternalSigner(signataire) && directWindowElapsed(signataire);
+async function otpRequiredForSigner(signataire) {
+    return (await isExternalSigner(signataire)) && directWindowElapsed(signataire);
 }
 function isLinkExpired(signataire) {
     if (!signataire || !signataire.token_expires_at) return false;
@@ -131,8 +131,24 @@ async function resolveAgentDisplayName(username, fallback) {
     return fallback || u;
 }
 
-/** Complète `created_by_name` de chaque élément depuis `created_by_username`. */
-async function attachCreatorDisplayNames(list) {
+/**
+ * Le signataire correspond-il à un **compte interne** (agent de la Ville) ? On cherche son adresse dans hub.users puis
+ * magapp.users. C'est ce qui décide entre la connexion habituelle (login / mot de passe) et le code par e-mail :
+ * une application tierce (VibeDélib) ne fournit pas d'`agent_id`, et l'agent se voyait proposer un code par e-mail.
+ */
+async function estCompteInterne(email) {
+    const e = String(email || '').trim();
+    if (!e) return false;
+    for (const table of ['hub.users', 'magapp.users']) {
+        try {
+            const row = await pgDb.get(`SELECT 1 AS x FROM ${table} WHERE LOWER(email) = LOWER(?) LIMIT 1`, [e]);
+            if (row) return true;
+        } catch { /* table ou colonne absente : on essaie la suivante */ }
+    }
+    return false;
+}
+
+/** Complète `created_by_name` de chaque élément depuis `created_by_username`. */async function attachCreatorDisplayNames(list) {
     const cache = new Map();
     for (const item of list) {
         const username = item && item.created_by_username;
@@ -348,13 +364,15 @@ function maskEmail(email) {
 }
 
 /**
- * Un signataire est « extérieur » s'il a été déclaré comme tel, ou s'il n'a
- * aucun agent associé (agent_id absent) — cas des parapheurs créés avant
- * l'introduction du drapeau explicite.
+ * Un signataire est « extérieur » s'il a été déclaré comme tel, ou si son adresse ne correspond à **aucun compte
+ * interne**. L'absence d'`agent_id` ne suffit plus : les parapheurs créés par une application tierce (VibeDélib) n'en
+ * portent pas, et un agent de la Ville se voyait proposer un code par e-mail au lieu de sa connexion habituelle.
  */
-function isExternalSigner(signataire) {
+async function isExternalSigner(signataire) {
     if (!signataire) return false;
-    return signataire.is_external === true || signataire.agent_id == null;
+    if (signataire.is_external === true) return true;
+    if (signataire.agent_id != null) return false;
+    return !(await estCompteInterne(signataire.email));
 }
 
 /**
@@ -366,8 +384,8 @@ async function getSignerAccessInfo(token) {
     const signataire = await getSignerByToken(token);
     if (!signataire) return null;
     const p = await pgDb.get(`SELECT status, title, reference FROM hub_parapheur.parapheurs WHERE id = ?`, [signataire.parapheur_id]);
-    const isExternal = isExternalSigner(signataire);
-    const otpRequired = otpRequiredForSigner(signataire);
+    const isExternal = await isExternalSigner(signataire);
+    const otpRequired = await otpRequiredForSigner(signataire);
     const expired = isLinkExpired(signataire);
     // Accès DIRECT (sans code) pendant la 1re heure suivant l'activation.
     const canSignDirectly = isExternal && !otpRequired && !expired
@@ -402,7 +420,7 @@ async function requestEmailOtp(token) {
     const signataire = await getSignerByToken(token);
     if (!signataire) throw { status: 404, message: 'Lien de signature introuvable.' };
     assertLinkValid(signataire);
-    if (!isExternalSigner(signataire)) {
+    if (!(await isExternalSigner(signataire))) {
         throw { status: 400, message: "Cette signature utilise l'authentification de la collectivité." };
     }
     if (signataire.status === 'refuse') throw { status: 400, message: 'Vous avez déjà refusé de signer.' };
@@ -453,7 +471,7 @@ async function verifyEmailOtp(token, code) {
     const signataire = await getSignerByToken(token);
     if (!signataire) throw { status: 404, message: 'Lien de signature introuvable.' };
     assertLinkValid(signataire);
-    if (!isExternalSigner(signataire)) throw { status: 400, message: 'Authentification non applicable.' };
+    if (!(await isExternalSigner(signataire))) throw { status: 400, message: 'Authentification non applicable.' };
     if (!code) throw { status: 400, message: 'Code de vérification requis.' };
     if (!signataire.otp_code_hash) throw { status: 400, message: 'Aucun code envoyé. Demandez un nouveau code.' };
 
@@ -1450,7 +1468,7 @@ async function sendSignerMail(parapheur, signataire) {
         );
         const tpl = emailTemplates.signatureRequest({
             signataireNom: signataire.nom,
-            requesterName: parapheur.created_by_name || parapheur.created_by_username || 'La DSI',
+            requesterName: parapheur.service ? `la ${parapheur.service}` : (parapheur.created_by_name || parapheur.created_by_username || 'La DSI'),
             title: parapheur.title,
             reference: parapheur.reference,
             documents: docs,
@@ -1501,20 +1519,21 @@ async function createParapheur({ files, annexes, payload, user, req }) {
     const linkValidity = normalizeLinkValidity(payload.link_validity_minutes);
     const publicToken = generateToken();
     const pRes = await pgDb.run(
-        `INSERT INTO hub_parapheur.parapheurs
-            (title, message, status, mode, deadline, public_token, link_validity_minutes, created_by_username, created_by_name, created_by_email)
-         VALUES (?, ?, 'en_cours', ?, ?, ?, ?, ?, ?, ?)`,
-        [
-            title,
-            payload.message || '',
-            mode,
-            payload.deadline || null,
-            publicToken,
-            linkValidity,
-            user.username || null,
-            createdByName || null,
-            user.email || null,
-        ]
+    `INSERT INTO hub_parapheur.parapheurs
+    (title, message, status, mode, deadline, public_token, link_validity_minutes, created_by_username, created_by_name, created_by_email, service)
+    VALUES (?, ?, 'en_cours', ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+    title,
+    payload.message || '',
+    mode,
+    payload.deadline || null,
+    publicToken,
+    linkValidity,
+    user.username || null,
+    createdByName || null,
+    user.email || null,
+    payload.service ? String(payload.service).trim().slice(0, 200) : null,
+    ]
     );
     const parapheurId = pRes.lastID;
     const reference = `PARA-${year}-${String(parapheurId).padStart(4, '0')}`;
@@ -2274,7 +2293,8 @@ async function notifySignersCompleted(parapheur, signataires) {
         const verifyLink = publicToken ? `${verifyBase}${VERIFY_PATH}/${publicToken}` : null;
         for (const s of signataires) {
             if (!s.email) continue;
-            const link = (isExternalSigner(s) && verifyLink) ? verifyLink : `${base}/parapheur/${parapheur.id}`;
+            const externe = await isExternalSigner(s);
+        const link = (externe && verifyLink) ? verifyLink : `${base}/parapheur/${parapheur.id}`;
             const tpl = emailTemplates.signatureProgress({
                 requesterName: s.nom,
                 signataireNom: 'Tous les signataires',
@@ -2618,9 +2638,9 @@ async function relance(parapheurId, { manual, req }) {
             await sendParapheurEmail(s.email, tpl);
             // La relance réinitialise la validité : extérieur 7 jours, interne 30 jours,
             // et relance la fenêtre d'accès direct (1re heure).
-            const ms = isExternalSigner(s)
-                ? EXTERNAL_LINK_VALIDITY_MINUTES * 60 * 1000
-                : TOKEN_EXPIRY_DAYS * 24 * 3600 * 1000;
+        const ms = (await isExternalSigner(s))
+            ? EXTERNAL_LINK_VALIDITY_MINUTES * 60 * 1000
+            : TOKEN_EXPIRY_DAYS * 24 * 3600 * 1000;
             const expires = new Date(Date.now() + ms).toISOString();
             await pgDb.run(
                 `UPDATE hub_parapheur.signataires
@@ -3216,7 +3236,7 @@ async function runSignatureDigest({ force } = {}) {
     try {
         rows = await pgDb.all(
             `SELECT sg.id, sg.parapheur_id, sg.nom, sg.email, sg.token, sg.is_external, sg.agent_id,
-                    p.title, p.reference, p.deadline, p.created_by_name, p.created_by_username
+                    p.title, p.reference, p.deadline, p.created_by_name, p.created_by_username, p.service
              FROM hub_parapheur.signataires sg
              JOIN hub_parapheur.parapheurs p ON p.id = sg.parapheur_id
              WHERE sg.status = 'en_cours'
@@ -3256,11 +3276,13 @@ async function runSignatureDigest({ force } = {}) {
             totalPending = Number(t?.n || items.length);
         } catch { /* garde items.length */ }
 
-        const isExternal = items[0].is_external === true || items[0].agent_id == null;
+        const isExternal = await isExternalSigner(items[0]);
         try {
-            const tpl = emailTemplates.signatureDigest({
-                signataireNom: items[0].nom,
-                requesterName: items[0].created_by_name || items[0].created_by_username || 'La DSI',
+        const tpl = emailTemplates.signatureDigest({
+            signataireNom: items[0].nom,
+            // La direction porteuse (transmise par VibeDélib) parle au nom du service ; à défaut, le créateur du
+            // parapheur, comme avant.
+            requesterName: items[0].service ? `la ${items[0].service}` : (items[0].created_by_name || items[0].created_by_username || 'La DSI'),
                 totalPending,
                 // Nombre de parapheurs et lien vers le parapheur global : réservés
                 // aux agents internes (les extérieurs n'ont pas de compte).

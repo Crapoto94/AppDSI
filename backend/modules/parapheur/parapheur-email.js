@@ -77,6 +77,24 @@ function button(url, label, color) {
     </p>`;
 }
 
+/**
+ * Objet à signer, au singulier et au pluriel — « un arrêté » / « des arrêtés », « une décision » / « des décisions »,
+ * sinon « un document » / « des documents ». Déduit des titres : un parapheur d'arrêtés se lit « vous invite à signer
+ * un arrêté », pas « le parapheur ».
+ */
+function libelleObjet(titres) {
+    const t = (titres || []).filter(Boolean).map((x) => String(x).trim().toLowerCase());
+    const tous = (mot) => t.length > 0 && t.every((x) => x.startsWith(mot));
+    if (tous('arrêté') || tous('arrete')) return { un: 'un arrêté', plusieurs: 'des arrêtés' };
+    if (tous('décision') || tous('decision')) return { un: 'une décision', plusieurs: 'des décisions' };
+    return { un: 'un document', plusieurs: 'des documents' };
+}
+
+/** Formule d'invitation homogène : « la DIRECTION … vous invite à signer un arrêté ». */
+function invite(qui, objet) {
+    return `<strong>${esc(qui)}</strong> vous invite à signer ${esc(objet)}`;
+}
+
 function signatureRequest({ signataireNom, requesterName, title, reference, documents, link, deadline, mode, frontUrl }) {
     const modeTxt = mode === 'sequentiel'
         ? 'Diffusion séquentielle : vous êtes invité(e) à signer à votre tour.'
@@ -86,7 +104,7 @@ function signatureRequest({ signataireNom, requesterName, title, reference, docu
     const deadlineHtml = deadline
         ? `<p style="font-size:13px;color:#b45309;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:10px 14px;">⏰ Merci de signer avant le <strong>${esc(new Date(deadline).toLocaleDateString('fr-FR'))}</strong>.</p>`
         : '';
-    const intro = `Bonjour <strong>${esc(signataireNom)}</strong>,<br><br><strong>${esc(requesterName)}</strong> vous invite à signer électroniquement le parapheur <strong>${esc(title)}</strong>${reference ? ` (réf. ${esc(reference)})` : ''}.`;
+    const intro = `Bonjour <strong>${esc(signataireNom)}</strong>,<br><br>${invite(requesterName, libelleObjet([title]).un)}${reference ? ` (réf. ${esc(reference)})` : ''}.`;
     const bodyHtml = `${docListHtml(documents)}<p style="font-size:13px;color:#64748b;">${esc(modeTxt)}</p>${deadlineHtml}${button(link, 'Consulter et signer', '#2563eb')}`;
     const footer = frontUrl ? `Hub DSI — ${esc(frontUrl)}` : undefined;
     return {
@@ -164,7 +182,8 @@ function signatureDigest({ signataireNom, parapheurs, totalPending, globalLink, 
           ${button(p.link, 'Signer ce parapheur', '#2563eb')}
         </div>`;
     }).join('');
-    const intro = `Bonjour <strong>${esc(signataireNom)}</strong>,<br><br><strong>${esc(requesterName || 'La DSI')}</strong> vous invite à signer.` +
+    const objet = libelleObjet(list.map((p) => p.title));
+    const intro = `Bonjour <strong>${esc(signataireNom)}</strong>,<br><br>${invite(requesterName || 'La DSI', total > 1 ? objet.plusieurs : objet.un)}.` +
         (internal
             ? ' ' + (total > 1
                 ? `Vous avez <strong>${total} parapheurs</strong> en attente de votre signature.`

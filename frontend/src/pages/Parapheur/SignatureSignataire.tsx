@@ -891,7 +891,7 @@ function SignerView({ token, auth, onLogout }: { token: string; auth: SignerAuth
                 ? 'Sélectionnez un document'
                 : (ackDocs.size < info.documents.length
                   ? `Signer la sélection (${ackDocs.size}/${info.documents.length})`
-                  : (bulkAllChecked && !allViewed ? 'Signer en masse' : 'Signer le(s) document(s)'))}
+                  : (info.documents.length > 1 && bulkAllChecked && !allViewed ? 'Signer en masse' : 'Signer le(s) document(s)'))}
           </button>
           <button onClick={() => setShowReject(true)} disabled={submitting} style={{ ...btnGhost, flex: 1, justifyContent: 'center', padding: '14px 0' }}>
             <XCircle size={16} /> Refuser
