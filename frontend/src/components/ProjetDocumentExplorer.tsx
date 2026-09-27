@@ -39,6 +39,38 @@ function fileTypeLabel(name: string): string {
   const ext = name.split('.').pop();
   return ext && ext !== name ? ext.toUpperCase() : '—';
 }
+
+function escapeHtml(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+/** Met en forme le corps TEXTE BRUT d'un .msg (aucun corps HTML disponible dans ce
+ * fichier — cas fréquent des messages n'ayant conservé que l'alternative texte) :
+ * le rendu précédent (une simple balise <div> en white-space:pre-wrap) affichait du
+ * texte brut illisible (puces "* " littérales, liens non cliquables, et surtout le
+ * bandeau de sécurité de la passerelle mail — ex. Sophos "expéditeur externe" —
+ * mélangé au message). Ici on nettoie ce bandeau, on linkifie URLs/emails, et on
+ * restitue une structure paragraphes/listes proche de ce qu'un client mail afficherait.
+ * Le texte est entièrement échappé AVANT toute insertion de balises : les seules
+ * balises du résultat sont celles qu'on construit nous-mêmes (contenu non fiable,
+ * un .msg provient potentiellement d'un expéditeur externe). */
+function formatMsgPlainText(raw: string): string {
+  if (!raw) return '';
+  // Bandeaux connus de passerelles mail (bruit sans rapport avec le message) —
+  // reconnus par leur marqueur de fin, généré par l'outil de la passerelle.
+  let text = raw.replace(/Attention\s*!\s*Ce message a été envoyé depuis l'extérieur[\s\S]*?sophospsmartbannerend\s*/i, '');
+  text = escapeHtml(text.trim());
+  text = text.replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noopener noreferrer">$1</a>');
+  text = text.replace(/([\w.+-]+@[\w-]+\.[\w.-]+)/g, m => `<a href="mailto:${m}">${m}</a>`);
+  const blocks = text.split(/\n\s*\n/).map(b => b.trim()).filter(Boolean);
+  return blocks.map(block => {
+    const lines = block.split('\n').map(l => l.trim()).filter(Boolean);
+    if (lines.length && lines.every(l => /^[*\-]\s+/.test(l))) {
+      return `<ul style="margin:6px 0;padding-left:20px;">${lines.map(l => `<li style="margin-bottom:2px;">${l.replace(/^[*\-]\s+/, '')}</li>`).join('')}</ul>`;
+    }
+    return `<p style="margin:0 0 12px;">${lines.join('<br/>')}</p>`;
+  }).join('');
+}
 type PreviewKind = 'pdf' | 'image' | 'msg' | 'docx' | 'xlsx' | 'pptx' | 'md' | 'none';
 function previewKind(mimeType: string | null, name: string): PreviewKind {
   const mt = (mimeType || '').toLowerCase();
@@ -676,8 +708,38 @@ function DocPreviewModal({ doc, base, headers, token, fileUrl, editMode, onClose
           {loading && <p style={{ padding: 32, textAlign: 'center', fontSize: 13, color: '#64748b' }}>Chargement de l'aperçu…</p>}
           {loadError && <p style={{ padding: 32, textAlign: 'center', fontSize: 13, color: '#dc2626' }}>{loadError}</p>}
           {kind === 'md' && !loading && !loadError && mdText !== null && (
-            <div style={{ height: '100%', overflowY: 'auto', background: 'white', padding: 28 }}>
-              <div className="markdown-body" style={{ fontSize: 14, color: '#1e293b', lineHeight: 1.6 }}>
+            <div style={{ height: '100%', overflowY: 'auto', background: 'white', padding: '28px 36px' }}>
+              {/* .markdown-body n'avait aucune règle CSS définie nulle part dans le projet
+                  (classe orpheline) : ReactMarkdown rendait des <h1>/<ul>/<table>… bruts,
+                  sans hiérarchie ni espacement — d'où le rendu "moche" signalé. Même
+                  convention que .contrat-ai-md dans Contrats.tsx (balise <style> locale). */}
+              <style>{`
+                .markdown-body { font-size: 14px; color: #1e293b; line-height: 1.7; max-width: 760px; margin: 0 auto; }
+                .markdown-body > *:first-child { margin-top: 0; }
+                .markdown-body h1, .markdown-body h2, .markdown-body h3, .markdown-body h4 { color: #0f172a; font-weight: 700; line-height: 1.3; }
+                .markdown-body h1 { font-size: 26px; margin: 28px 0 14px; padding-bottom: 8px; border-bottom: 1px solid #e2e8f0; }
+                .markdown-body h2 { font-size: 21px; margin: 24px 0 12px; padding-bottom: 6px; border-bottom: 1px solid #f1f5f9; }
+                .markdown-body h3 { font-size: 17px; margin: 20px 0 10px; }
+                .markdown-body h4 { font-size: 15px; margin: 16px 0 8px; }
+                .markdown-body p { margin: 0 0 14px; }
+                .markdown-body ul, .markdown-body ol { margin: 0 0 14px; padding-left: 24px; }
+                .markdown-body li { margin-bottom: 4px; }
+                .markdown-body li > ul, .markdown-body li > ol { margin-top: 4px; margin-bottom: 0; }
+                .markdown-body a { color: #2563eb; text-decoration: none; }
+                .markdown-body a:hover { text-decoration: underline; }
+                .markdown-body strong { font-weight: 700; color: #0f172a; }
+                .markdown-body blockquote { margin: 0 0 14px; padding: 4px 16px; border-left: 3px solid #cbd5e1; color: #64748b; background: #f8fafc; }
+                .markdown-body hr { border: none; border-top: 1px solid #e2e8f0; margin: 24px 0; }
+                .markdown-body code { background: #f1f5f9; color: #be185d; padding: 2px 5px; border-radius: 4px; font-size: 0.88em; font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace; }
+                .markdown-body pre { background: #0f172a; color: #e2e8f0; padding: 14px 16px; border-radius: 8px; overflow-x: auto; margin: 0 0 14px; }
+                .markdown-body pre code { background: none; color: inherit; padding: 0; font-size: 12.5px; }
+                .markdown-body table { border-collapse: collapse; width: 100%; margin: 0 0 16px; font-size: 13px; }
+                .markdown-body th, .markdown-body td { border: 1px solid #e2e8f0; padding: 7px 10px; text-align: left; vertical-align: top; }
+                .markdown-body th { background: #f8fafc; font-weight: 700; color: #374151; }
+                .markdown-body img { max-width: 100%; border-radius: 6px; }
+                .markdown-body input[type="checkbox"] { margin-right: 6px; }
+              `}</style>
+              <div className="markdown-body">
                 <ReactMarkdown remarkPlugins={[remarkGfm]}>{mdText}</ReactMarkdown>
               </div>
             </div>
@@ -703,7 +765,8 @@ function DocPreviewModal({ doc, base, headers, token, fileUrl, editMode, onClose
               )}
               <div style={{ flex: 1, overflow: 'hidden' }}>
                 {msg.bodyHtml ? <iframe srcDoc={msg.bodyHtml} sandbox="" title={msg.subject} style={{ width: '100%', height: '100%', border: 0 }} />
-                  : <div style={{ height: '100%', overflowY: 'auto', whiteSpace: 'pre-wrap', padding: 18, fontSize: 13, color: '#1e293b' }}>{msg.bodyText}</div>}
+                  : <div style={{ height: '100%', overflowY: 'auto', padding: '18px 24px', fontSize: 13, color: '#1e293b', lineHeight: 1.6 }}
+                      dangerouslySetInnerHTML={{ __html: formatMsgPlainText(msg.bodyText) }} />}
               </div>
             </div>
           )}
