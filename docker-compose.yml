@@ -33,6 +33,12 @@ services:
       - POSTGRES_USER=postgres
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-ivrypassword}
       - JWT_SECRET=${JWT_SECRET:-supersecretjwtkey}
+      # Utilisée UNIQUEMENT par l'aperçu OnlyOffice (previewExplorerOnlyOffice) pour
+      # que le conteneur "documentserver" récupère le fichier à afficher en direct,
+      # via le réseau Docker interne — jamais par le certificat auto-signé du
+      # domaine public (dsihub.ivry.local), que le moteur ne peut pas valider.
+      # Ne PAS confondre avec APP_BASE_URL (liens publics dans les emails/tâches).
+      - ONLYOFFICE_CALLBACK_URL=http://backend:3001
     volumes:
       # Dossiers de fichiers persistés
       - ./backend/uploads:/app/uploads

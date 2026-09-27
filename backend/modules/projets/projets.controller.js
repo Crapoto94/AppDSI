@@ -3716,8 +3716,17 @@ const previewExplorerOnlyOffice = async (req, res) => {
         // serveur) : l'URL doit donc être absolue et joignable PAR LE MOTEUR, pas
         // seulement par le navigateur de l'agent. On réutilise le jeton déjà validé
         // pour CETTE requête (header ou ?token=) plutôt que d'en émettre un nouveau.
+        //
+        // ONLYOFFICE_CALLBACK_URL (dédiée, distincte d'APP_BASE_URL) : le moteur et
+        // le backend sont conteneurs voisins sur le même réseau Docker (app-network)
+        // — on les fait se parler en direct, en HTTP interne, plutôt que de faire
+        // sortir cet appel par le domaine public HTTPS (dsihub.ivry.local), dont le
+        // certificat auto-signé n'est pas dans le magasin de confiance du conteneur
+        // OnlyOffice et ferait échouer le téléchargement (DEPTH_ZERO_SELF_SIGNED_CERT).
+        // APP_BASE_URL reste réservé aux liens PUBLICS (emails, tâches...), jamais
+        // réutilisé ici : sa valeur doit rester joignable par un navigateur externe.
         const rawToken = (req.headers['authorization'] || '').replace(/^Bearer\s+/i, '').trim() || String(req.query.token || '');
-        const appBaseUrl = sansPointFinalLocal(process.env.APP_BASE_URL || process.env.APP_URL || `${req.protocol}://${req.get('host')}`);
+        const appBaseUrl = sansPointFinalLocal(process.env.ONLYOFFICE_CALLBACK_URL || process.env.APP_BASE_URL || process.env.APP_URL || `${req.protocol}://${req.get('host')}`);
         const fileUrl = `${appBaseUrl}/api/projets/explorateur/fichiers/${req.params.docId}/fichier?token=${encodeURIComponent(rawToken)}`;
 
         const built = onlyoffice.buildViewConfig(cfg, {
