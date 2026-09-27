@@ -633,8 +633,8 @@ function DocPreviewModal({ doc, base, headers, token, fileUrl, editMode, onClose
   }, [ooConfig, ooContainerId]);
 
   return (
-    <div style={{ position: 'fixed', inset: 0, zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.55)', padding: 20 }} onClick={onClose}>
-      <div style={{ display: 'flex', flexDirection: 'column', width: '100%', maxWidth: 1100, height: '88vh', borderRadius: 12, background: 'white', overflow: 'hidden', boxShadow: '0 25px 50px rgba(0,0,0,0.3)' }} onClick={e => e.stopPropagation()}>
+    <div style={{ position: 'fixed', inset: 0, zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.55)', padding: editMode ? 0 : 20 }} onClick={editMode ? undefined : onClose}>
+      <div style={{ display: 'flex', flexDirection: 'column', width: '100%', maxWidth: editMode ? '100%' : 1100, height: editMode ? '100vh' : '88vh', borderRadius: editMode ? 0 : 12, background: 'white', overflow: 'hidden', boxShadow: editMode ? 'none' : '0 25px 50px rgba(0,0,0,0.3)' }} onClick={e => e.stopPropagation()}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, borderBottom: '1px solid #e2e8f0', padding: '10px 16px' }}>
           {editMode ? <Edit3 size={18} color="#2563eb" /> : kind === 'msg' ? <Mail size={18} color="#2563eb" /> : <File size={18} color="#2563eb" />}
           <p style={{ flex: 1, minWidth: 0, margin: 0, fontSize: 13, fontWeight: 600, color: '#1e293b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -647,8 +647,9 @@ function DocPreviewModal({ doc, base, headers, token, fileUrl, editMode, onClose
         <div style={{ display: 'flex', flex: 1, minHeight: 0 }}>
           {/* Versions — même esprit que la visionneuse native DSI Hub (DocumentViewer.tsx) :
               seule la version courante a un aperçu riche (rendu côté serveur) ; les anciennes
-              se téléchargent, sauf pdf/image (prévisualisables directement). */}
-          {!!versions && versions.length > 0 && (
+              se téléchargent, sauf pdf/image (prévisualisables directement). Masqué en édition :
+              OnlyOffice occupe tout l'espace et la sauvegarde crée elle-même une nouvelle version. */}
+          {!editMode && !!versions && versions.length > 0 && (
             <div style={{ width: 220, flexShrink: 0, borderRight: '1px solid #e5e7eb', background: '#f9fafb', overflowY: 'auto' }}>
               <div style={{ padding: '8px 10px', fontSize: 11, fontWeight: 700, color: '#374151', textTransform: 'uppercase', letterSpacing: 0.5, borderBottom: '1px solid #e5e7eb' }}>Versions</div>
               <div style={{ padding: '8px 10px', fontSize: 12, background: '#eef2ff', borderLeft: '3px solid #2563eb' }}>
