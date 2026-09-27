@@ -4,7 +4,7 @@ import remarkGfm from 'remark-gfm';
 import {
   Folder, FolderPlus, File, FileArchive, Upload, Download, Pencil, Trash2, X,
   ChevronRight, Settings, Home, Tag, Mail, History, Filter, CheckSquare, Square,
-  Copy, ClipboardPaste,
+  Copy, ClipboardPaste, Edit3,
 } from 'lucide-react';
 
 /**
@@ -69,6 +69,7 @@ export default function ProjetDocumentExplorer({ projetId, token }: { projetId: 
   const [newFolderName, setNewFolderName] = useState('');
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [previewDoc, setPreviewDoc] = useState<DocRow | null>(null);
+  const [editDoc, setEditDoc] = useState<DocRow | null>(null);
   const [dragOver, setDragOver] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [selectedFolderIds, setSelectedFolderIds] = useState<Set<number>>(new Set());
@@ -289,12 +290,7 @@ export default function ProjetDocumentExplorer({ projetId, token }: { projetId: 
     `/api/projets/explorateur/fichiers/${docId}/fichier?token=${encodeURIComponent(token || '')}${download ? '&download=1' : ''}`;
 
   return (
-    <div
-      style={{ borderRadius: 12, border: `1px solid ${dragOver ? '#2563eb' : '#e2e8f0'}`, background: dragOver ? '#eff6ff' : 'white', padding: 18, transition: 'colors 0.15s' }}
-      onDragOver={e => { e.preventDefault(); setDragOver(true); }}
-      onDragLeave={() => setDragOver(false)}
-      onDrop={handleDrop}
-    >
+    <div style={{ borderRadius: 12, border: '1px solid #e2e8f0', background: 'white', padding: 18 }}>
       <div style={{ marginBottom: 14, display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
         <h3 style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, fontWeight: 700, color: '#1e293b', margin: 0 }}>
           <Folder size={16} /> Documents
@@ -329,10 +325,30 @@ export default function ProjetDocumentExplorer({ projetId, token }: { projetId: 
         </div>
       </div>
 
-      <p style={{ margin: '0 0 10px', fontSize: 12, color: '#94a3b8' }}>
-        Glissez-déposez des fichiers ou un dossier ici (ou un .zip seul : son contenu recrée les dossiers automatiquement).
-      </p>
+      <div style={{ display: 'flex', gap: 14, alignItems: 'flex-start' }}>
+        {/* Zone de dépose dédiée au glisser-déposer DEPUIS LE SYSTÈME D'EXPLOITATION
+            (fichiers/dossier/.zip) — isolée du reste du panneau pour ne pas entrer
+            en conflit avec le glisser-déposer INTERNE (déplacer un document vers un
+            dossier), qui couvre toute la liste à droite. */}
+        <div
+          onDragOver={e => { e.preventDefault(); setDragOver(true); }}
+          onDragLeave={() => setDragOver(false)}
+          onDrop={handleDrop}
+          style={{
+            width: 150, flexShrink: 0, alignSelf: 'flex-start', height: 200, position: 'sticky', top: 12,
+            border: `2px dashed ${dragOver ? '#2563eb' : '#cbd5e1'}`, borderRadius: 10,
+            background: dragOver ? '#eff6ff' : '#f8fafc', display: 'flex', flexDirection: 'column',
+            alignItems: 'center', justifyContent: 'center', gap: 8, padding: 14, textAlign: 'center',
+            transition: 'colors 0.15s',
+          }}
+        >
+          <Upload size={22} color={dragOver ? '#2563eb' : '#94a3b8'} />
+          <p style={{ margin: 0, fontSize: 11, color: dragOver ? '#2563eb' : '#94a3b8' }}>
+            Glissez des fichiers ou un dossier ici (ou un .zip seul : son contenu recrée les dossiers automatiquement)
+          </p>
+        </div>
 
+        <div style={{ flex: 1, minWidth: 0 }}>
       {/* Fil d'Ariane — chaque niveau est aussi une cible de dépose pour déplacer un
           document glissé (glisser-déposer interne), y compris "Racine". */}
       <div style={{ marginBottom: 10, display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 4, fontSize: 13 }}>
@@ -478,6 +494,9 @@ export default function ProjetDocumentExplorer({ projetId, token }: { projetId: 
               )}
               <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
                 {Number(doc.version) > 1 && <button onClick={() => setPreviewDoc(doc)} title="Historique des versions" style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#94a3b8', padding: 5 }}><History size={14} /></button>}
+                {['docx', 'xlsx', 'pptx'].includes(previewKind(doc.mime_type, doc.original_name)) && (
+                  <button onClick={() => setEditDoc(doc)} title="Modifier (OnlyOffice)" style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#2563eb', padding: 5 }}><Edit3 size={14} /></button>
+                )}
                 <a href={fileUrl(doc.id, true)} title="Télécharger" style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#94a3b8', padding: 5, display: 'flex' }}><Download size={14} /></a>
                 <button onClick={() => renameDocument(doc)} title="Renommer" style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#94a3b8', padding: 5 }}><Pencil size={14} /></button>
                 <button onClick={() => removeDocument(doc)} title="Supprimer" style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#94a3b8', padding: 5 }}><Trash2 size={14} /></button>
@@ -486,8 +505,11 @@ export default function ProjetDocumentExplorer({ projetId, token }: { projetId: 
           ))}
         </div>
       )}
+        </div>
+      </div>
 
       {previewDoc && <DocPreviewModal doc={previewDoc} base={base} headers={headers} token={token} fileUrl={fileUrl} onClose={() => setPreviewDoc(null)} />}
+      {editDoc && <DocPreviewModal doc={editDoc} base={base} headers={headers} token={token} fileUrl={fileUrl} editMode onClose={() => { setEditDoc(null); loadDocuments(); }} />}
       {settingsOpen && <MetadataSettingsModal base={base} headers={headers} fields={fields} onClose={() => setSettingsOpen(false)} onChange={loadFields} />}
     </div>
   );
@@ -526,7 +548,7 @@ interface MsgPreview { subject: string; from: string; to: string[]; cc: string[]
 interface XlsxPreview { sheets: { name: string; html: string }[] }
 interface PptxPreview { slides: { index: number; text: string }[] }
 
-function DocPreviewModal({ doc, base, headers, token, fileUrl, onClose }: { doc: DocRow; base: string; headers: Record<string, string>; token: string | null; fileUrl: (id: number, dl?: boolean) => string; onClose: () => void }) {
+function DocPreviewModal({ doc, base, headers, token, fileUrl, editMode, onClose }: { doc: DocRow; base: string; headers: Record<string, string>; token: string | null; fileUrl: (id: number, dl?: boolean) => string; editMode?: boolean; onClose: () => void }) {
   const kind = previewKind(doc.mime_type, doc.original_name);
   const url = fileUrl(doc.id);
   const [loading, setLoading] = useState(['msg', 'docx', 'xlsx', 'pptx', 'md'].includes(kind));
@@ -550,6 +572,16 @@ function DocPreviewModal({ doc, base, headers, token, fileUrl, onClose }: { doc:
 
   useEffect(() => {
     const ep = `/api/projets/explorateur/fichiers/${doc.id}/apercu`;
+    if (editMode) {
+      // L'édition n'a pas de repli "maison" (mammoth/xlsx/pptx sont en lecture seule) :
+      // sans OnlyOffice configuré, on affiche directement l'erreur.
+      fetch(`/api/projets/explorateur/fichiers/${doc.id}/edition/onlyoffice`, { headers }).then(async r => {
+        if (!r.ok) { const d = await r.json().catch(() => ({})); throw new Error(d.error || 'Édition indisponible'); }
+        setOoConfig(await r.json());
+        setLoading(false);
+      }).catch((e: any) => { setLoadError(e?.message || 'Édition indisponible'); setLoading(false); });
+      return;
+    }
     // OnlyOffice (rendu fidèle, moteur du client) en priorité pour les formats Office
     // qu'il gère, si configuré ; repli silencieux sur l'aperçu "maison" sinon (503 =
     // non configuré côté serveur, cf. onlyoffice.estPriseEnCharge côté client ici).
@@ -572,9 +604,9 @@ function DocPreviewModal({ doc, base, headers, token, fileUrl, onClose }: { doc:
     });
     else if (kind === 'md') fetch(url, { headers }).then(r => r.text()).then(setMdText).catch(() => setLoadError('Lecture impossible')).finally(() => setLoading(false));
     // eslint-disable-next-line
-  }, [doc.id, kind]);
+  }, [doc.id, kind, editMode]);
 
-  const ooContainerId = `oo-preview-${doc.id}`;
+  const ooContainerId = `oo-preview-${doc.id}${editMode ? '-edit' : ''}`;
   useEffect(() => {
     if (!ooConfig) return;
     let cancelled = false;
@@ -605,8 +637,9 @@ function DocPreviewModal({ doc, base, headers, token, fileUrl, onClose }: { doc:
     <div style={{ position: 'fixed', inset: 0, zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.55)', padding: 20 }} onClick={onClose}>
       <div style={{ display: 'flex', flexDirection: 'column', width: '100%', maxWidth: 1100, height: '88vh', borderRadius: 12, background: 'white', overflow: 'hidden', boxShadow: '0 25px 50px rgba(0,0,0,0.3)' }} onClick={e => e.stopPropagation()}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, borderBottom: '1px solid #e2e8f0', padding: '10px 16px' }}>
-          {kind === 'msg' ? <Mail size={18} color="#2563eb" /> : <File size={18} color="#2563eb" />}
+          {editMode ? <Edit3 size={18} color="#2563eb" /> : kind === 'msg' ? <Mail size={18} color="#2563eb" /> : <File size={18} color="#2563eb" />}
           <p style={{ flex: 1, minWidth: 0, margin: 0, fontSize: 13, fontWeight: 600, color: '#1e293b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {editMode && <span style={{ marginRight: 6, fontSize: 10, fontWeight: 700, textTransform: 'uppercase', color: '#2563eb', background: '#eff6ff', borderRadius: 4, padding: '2px 6px' }}>Modification</span>}
             {kind === 'msg' && msg ? <><span style={{ color: '#2563eb' }}>{msg.from || 'Expéditeur inconnu'}</span> — {msg.subject}</> : doc.display_name}
           </p>
           <a href={fileUrl(doc.id, true)} style={{ ...btnBase, background: '#2563eb', color: 'white', padding: '6px 12px', textDecoration: 'none' }}><Download size={13} /> Télécharger</a>

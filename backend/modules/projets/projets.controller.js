@@ -3702,6 +3702,18 @@ const previewExplorerDocx = async (req, res) => {
     } catch (error) { res.status(500).json({ error: `Aperçu impossible : ${error.message}` }); }
 };
 
+// ONLYOFFICE_CALLBACK_URL (dédiée, distincte d'APP_BASE_URL) : le moteur et le
+// backend sont conteneurs voisins sur le même réseau Docker (app-network) — on
+// les fait se parler en direct, en HTTP interne, plutôt que de faire sortir ces
+// appels par le domaine public HTTPS (dsihub.ivry.local), dont le certificat
+// auto-signé n'est pas dans le magasin de confiance du conteneur OnlyOffice et
+// ferait échouer le téléchargement (DEPTH_ZERO_SELF_SIGNED_CERT). APP_BASE_URL
+// reste réservé aux liens PUBLICS (emails, tâches...), jamais réutilisé ici.
+function sansPointFinalLocal(s) { return String(s || '').replace(/\/+$/, ''); }
+function onlyofficeBackendUrl(req) {
+    return sansPointFinalLocal(process.env.ONLYOFFICE_CALLBACK_URL || process.env.APP_BASE_URL || process.env.APP_URL || `${req.protocol}://${req.get('host')}`);
+}
+
 /** Config d'éditeur OnlyOffice (lecture seule) pour prévisualiser un .docx — repli
  * sur previewExplorerDocx (mammoth) côté front si OnlyOffice n'est pas configuré. */
 const previewExplorerOnlyOffice = async (req, res) => {
@@ -3716,18 +3728,8 @@ const previewExplorerOnlyOffice = async (req, res) => {
         // serveur) : l'URL doit donc être absolue et joignable PAR LE MOTEUR, pas
         // seulement par le navigateur de l'agent. On réutilise le jeton déjà validé
         // pour CETTE requête (header ou ?token=) plutôt que d'en émettre un nouveau.
-        //
-        // ONLYOFFICE_CALLBACK_URL (dédiée, distincte d'APP_BASE_URL) : le moteur et
-        // le backend sont conteneurs voisins sur le même réseau Docker (app-network)
-        // — on les fait se parler en direct, en HTTP interne, plutôt que de faire
-        // sortir cet appel par le domaine public HTTPS (dsihub.ivry.local), dont le
-        // certificat auto-signé n'est pas dans le magasin de confiance du conteneur
-        // OnlyOffice et ferait échouer le téléchargement (DEPTH_ZERO_SELF_SIGNED_CERT).
-        // APP_BASE_URL reste réservé aux liens PUBLICS (emails, tâches...), jamais
-        // réutilisé ici : sa valeur doit rester joignable par un navigateur externe.
         const rawToken = (req.headers['authorization'] || '').replace(/^Bearer\s+/i, '').trim() || String(req.query.token || '');
-        const appBaseUrl = sansPointFinalLocal(process.env.ONLYOFFICE_CALLBACK_URL || process.env.APP_BASE_URL || process.env.APP_URL || `${req.protocol}://${req.get('host')}`);
-        const fileUrl = `${appBaseUrl}/api/projets/explorateur/fichiers/${req.params.docId}/fichier?token=${encodeURIComponent(rawToken)}`;
+        const fileUrl = `${onlyofficeBackendUrl(req)}/api/projets/explorateur/fichiers/${req.params.docId}/fichier?token=${encodeURIComponent(rawToken)}`;
 
         const built = onlyoffice.buildViewConfig(cfg, {
             cle: `projet-doc-${req.params.docId}-v${loaded.row.id}`,
@@ -3738,7 +3740,94 @@ const previewExplorerOnlyOffice = async (req, res) => {
         res.json(built);
     } catch (error) { res.status(500).json({ error: `OnlyOffice indisponible : ${error.message}` }); }
 };
-function sansPointFinalLocal(s) { return String(s || '').replace(/\/+$/, ''); }
+
+/** Config d'éditeur OnlyOffice EN ÉDITION — l'agent modifie le document dans le
+ * navigateur ; à l'enregistrement, le moteur rappelle onlyofficeCallback ci-dessous
+ * avec le fichier à jour, qui devient une nouvelle version (jamais un écrasement). */
+const previewExplorerOnlyOfficeEdit = async (req, res) => {
+    try {
+        const onlyoffice = require('../../shared/onlyoffice');
+        const cfg = await onlyoffice.getConfig();
+        if (!cfg) return res.status(503).json({ error: 'OnlyOffice non configuré (voir /admin/infra)' });
+        const loaded = await loadExplorerFile(req.params.docId);
+        if (!loaded) return res.status(404).json({ error: 'Fichier introuvable' });
+        if (!onlyoffice.estPriseEnCharge(loaded.row.fichier_original)) {
+            return res.status(400).json({ error: "Ce type de fichier n'est pas modifiable en ligne" });
+        }
+
+        const rawToken = (req.headers['authorization'] || '').replace(/^Bearer\s+/i, '').trim() || String(req.query.token || '');
+        const backendUrl = onlyofficeBackendUrl(req);
+        const fileUrl = `${backendUrl}/api/projets/explorateur/fichiers/${req.params.docId}/fichier?token=${encodeURIComponent(rawToken)}`;
+        // Clé unique par SESSION d'édition (pas seulement par version) : évite que
+        // le moteur ne réutilise un cache d'édition périmé d'une session précédente.
+        const cle = `projet-doc-edit-${req.params.docId}-v${loaded.row.id}-${Date.now()}`;
+        const callbackUrl = `${backendUrl}/api/projets/explorateur/fichiers/${req.params.docId}/onlyoffice-callback`;
+
+        const built = onlyoffice.buildEditConfig(cfg, {
+            cle,
+            nom: loaded.row.fichier_original,
+            url: fileUrl,
+            callbackUrl,
+            utilisateur: req.user ? { id: req.user.username, nom: req.user.displayName || req.user.username } : undefined,
+        });
+        res.json(built);
+    } catch (error) { res.status(500).json({ error: `OnlyOffice indisponible : ${error.message}` }); }
+};
+
+/** Rappel du moteur OnlyOffice à la sauvegarde (statuts MustSave=2, Corrupted=3,
+ * ClosedNoChanges=4, MustForceSave=6 — cf. doc ONLYOFFICE "editorConfig.callbackUrl").
+ * Authentifié par le JWT du MOTEUR (pas celui de nos agents) : jamais derrière
+ * authenticateJWT/authenticateJWTQuery. Toujours répondre {error:0}, y compris en
+ * cas de souci de notre côté — sinon le moteur ré-essaie indéfiniment. */
+const onlyofficeCallback = async (req, res) => {
+    try {
+        const onlyoffice = require('../../shared/onlyoffice');
+        const cfg = await onlyoffice.getConfig();
+        if (!cfg || !cfg.jwtSecret) return res.json({ error: 0 });
+        const verif = onlyoffice.verifierRappel(req, cfg.jwtSecret);
+        if (!verif.ok) { console.warn('[ONLYOFFICE CALLBACK] jeton invalide:', verif.code); return res.json({ error: 0 }); }
+
+        const body = req.body || {};
+        // 2 = prêt à enregistrer (agent a cliqué "Enregistrer") ; 6 = enregistrement
+        // forcé (autosave) — les autres statuts (édition en cours, fermeture sans
+        // changement, erreur) n'appellent pas de sauvegarde de notre côté.
+        if (body.status === 2 || body.status === 6) {
+            if (!body.url || !onlyoffice.estUrlDeConfiance(cfg, body.url)) {
+                console.warn('[ONLYOFFICE CALLBACK] URL de rappel hors du moteur, ignorée:', body.url);
+                return res.json({ error: 0 });
+            }
+            const { docId } = req.params;
+            const doc = await pgDb.get(`SELECT * FROM projets.projet_documents WHERE id = $1 AND deleted_at IS NULL`, [docId]);
+            const currentVersion = await pgDb.get(`SELECT * FROM projets.projet_versions_document WHERE document_id = $1 AND est_version_courante = 1`, [docId]);
+            if (doc && currentVersion) {
+                const axios = require('axios');
+                const downloadUrl = onlyoffice.versUrlInterne(cfg, body.url);
+                const response = await axios.get(downloadUrl, {
+                    headers: { Authorization: `Bearer ${verif.jeton}` },
+                    responseType: 'arraybuffer', timeout: 60000, maxContentLength: 200 * 1024 * 1024,
+                });
+                const buffer = Buffer.from(response.data);
+                const saved = await storage.saveFile(MODULE, doc.projet_id, { buffer, originalname: currentVersion.fichier_original });
+                const maxVersion = await pgDb.get(
+                    `SELECT MAX(version::int) as m FROM projets.projet_versions_document WHERE document_id = $1 AND version ~ '^\\d+$'`,
+                    [docId]
+                );
+                const newVersionNum = String((maxVersion && maxVersion.m ? maxVersion.m : 1) + 1);
+                await pgDb.run(`UPDATE projets.projet_versions_document SET est_version_courante = 0 WHERE id = $1`, [currentVersion.id]);
+                const author = (Array.isArray(body.users) && body.users[0] && (body.users[0].name || body.users[0].id)) || 'onlyoffice';
+                await pgDb.run(
+                    `INSERT INTO projets.projet_versions_document (document_id, version, fichier_nom, fichier_original, fichier_taille, fichier_type, est_version_courante, depose_par_username, file_path)
+                     VALUES ($1, $2, $3, $4, $5, $6, 1, $7, $8)`,
+                    [docId, newVersionNum, saved.filename, currentVersion.fichier_original, buffer.length, currentVersion.fichier_type, author, saved.dbPath]
+                );
+            }
+        }
+        res.json({ error: 0 });
+    } catch (error) {
+        console.error('[ONLYOFFICE CALLBACK] échec:', error.message);
+        res.json({ error: 0 });
+    }
+};
 
 const previewExplorerXlsx = async (req, res) => {
     try {
@@ -3839,6 +3928,6 @@ module.exports = {
     listExplorerVersions, deleteExplorerDocument,
     serveExplorerFile, serveExplorerVersionFile,
     previewExplorerMsg, previewExplorerMsgAttachment, previewExplorerDocx, previewExplorerXlsx, previewExplorerPptx,
-    previewExplorerOnlyOffice,
+    previewExplorerOnlyOffice, previewExplorerOnlyOfficeEdit, onlyofficeCallback,
     getExplorerMetadataFields, createExplorerMetadataField, deleteExplorerMetadataField,
 };

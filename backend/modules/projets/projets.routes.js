@@ -131,6 +131,10 @@ router.get('/explorateur/fichiers/:docId/apercu/msg', authenticateJWTQuery, ctrl
 router.get('/explorateur/fichiers/:docId/apercu/msg/pieces-jointes/:idx', authenticateJWTQuery, ctrl.previewExplorerMsgAttachment);
 router.get('/explorateur/fichiers/:docId/apercu/docx', authenticateJWTQuery, ctrl.previewExplorerDocx);
 router.get('/explorateur/fichiers/:docId/apercu/onlyoffice', authenticateJWTQuery, ctrl.previewExplorerOnlyOffice);
+router.get('/explorateur/fichiers/:docId/edition/onlyoffice', authenticateJWTQuery, ctrl.previewExplorerOnlyOfficeEdit);
+// Rappel du MOTEUR OnlyOffice (pas un agent) : authentifié par son propre JWT
+// (verifierRappel dans shared/onlyoffice.js), jamais par authenticateJWTQuery.
+router.post('/explorateur/fichiers/:docId/onlyoffice-callback', ctrl.onlyofficeCallback);
 router.get('/explorateur/fichiers/:docId/apercu/xlsx', authenticateJWTQuery, ctrl.previewExplorerXlsx);
 router.get('/explorateur/fichiers/:docId/apercu/pptx', authenticateJWTQuery, ctrl.previewExplorerPptx);
 router.get('/explorateur/versions/:versionId/fichier', authenticateJWTQuery, ctrl.serveExplorerVersionFile);
