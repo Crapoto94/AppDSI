@@ -3733,6 +3733,7 @@ const previewExplorerOnlyOffice = async (req, res) => {
             cle: `projet-doc-${req.params.docId}-v${loaded.row.id}`,
             nom: loaded.row.fichier_original,
             url: fileUrl,
+            utilisateur: req.user ? { id: req.user.username, nom: req.user.displayName || req.user.username } : undefined,
         });
         res.json(built);
     } catch (error) { res.status(500).json({ error: `OnlyOffice indisponible : ${error.message}` }); }

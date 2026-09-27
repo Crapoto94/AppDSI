@@ -48,12 +48,15 @@ function estPriseEnCharge(nom) {
 /**
  * Configuration d'éditeur OnlyOffice en mode visualisation pour un fichier (docx,
  * xlsx ou pptx — type déduit de l'extension de `nom`).
- * @param {{ cle: string, nom: string, url: string }} p - cle: identifiant de session
- *   unique (par version, pour que le moteur n'utilise jamais un cache périmé) ;
- *   nom: nom affiché (son EXTENSION détermine le type d'éditeur) ; url: URL
- *   (absolue, joignable PAR LE MOTEUR) du contenu.
+ * @param {{ cle: string, nom: string, url: string, utilisateur?: { id: string, nom: string } }} p
+ *   cle: identifiant de session unique (par version, pour que le moteur n'utilise
+ *   jamais un cache périmé) ; nom: nom affiché (son EXTENSION détermine le type
+ *   d'éditeur) ; url: URL (absolue, joignable PAR LE MOTEUR) du contenu ;
+ *   utilisateur: agent DSI Hub consultant l'aperçu — sans lui, le moteur demande
+ *   systématiquement "Entrez un nom à utiliser pour la collaboration" à l'ouverture
+ *   (fonctionnalité de co-édition qui n'a pas lieu d'être ici, en lecture seule).
  */
-function buildViewConfig(cfg, { cle, nom, url }) {
+function buildViewConfig(cfg, { cle, nom, url, utilisateur }) {
     const ext = String(nom || '').split('.').pop().toLowerCase();
     const documentType = TYPE_PAR_EXT[ext];
     if (!documentType) throw new Error(`Extension non prise en charge par l'aperçu OnlyOffice : .${ext}`);
@@ -73,6 +76,7 @@ function buildViewConfig(cfg, { cle, nom, url }) {
             mode: 'view',
             lang: 'fr-FR',
             customization: { compactHeader: true, hideRightMenu: true },
+            ...(utilisateur ? { user: { id: utilisateur.id, name: utilisateur.nom } } : {}),
         },
     };
     if (/^https?:\/\//i.test(cfg.urlNavigateur)) config.documentServerUrl = cfg.urlNavigateur;
