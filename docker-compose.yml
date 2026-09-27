@@ -94,7 +94,44 @@ services:
       - app-network
     restart: unless-stopped
 
+  # Serveur de documents (aperçu docx/xlsx/pptx dans l'explorateur de /projets).
+  # Dédié à AppDSI — ne pas confondre avec le "delib-documentserver-1" du projet
+  # delib (autre conteneur, autre secret JWT, sur le même hôte Docker).
+  #
+  # AUCUN port publié, et c'est voulu : le frontal (frontend/nginx.conf, bloc
+  # `location /onlyoffice/`) relaie ce service sous le même nom d'hôte que
+  # l'application (https://dsihub.ivry.local/onlyoffice), donc en HTTPS sans
+  # contenu mixte. Publier son port exposerait en HTTP un moteur qu'une page
+  # HTTPS charge — le navigateur bloquerait ça comme contenu mixte (cf. le
+  # même choix documenté dans C:\dev\delib\docker-compose.yml).
+  #
+  # Version épinglée sur une branche de correctifs (« 9.4 » = tous les 9.4.x) :
+  # la balise flottante « latest » ferait monter la version majeure sans
+  # contrôle ni test — même précaution que delib.
+  documentserver:
+    image: onlyoffice/documentserver:9.4
+    container_name: appdsi-documentserver
+    restart: unless-stopped
+    environment:
+      - JWT_ENABLED=true
+      - JWT_SECRET=${ONLYOFFICE_JWT_SECRET:?secret JWT OnlyOffice requis (variable ONLYOFFICE_JWT_SECRET, cf. .env non versionné sur l'hôte)}
+      - JWT_HEADER=Authorization
+      - JWT_IN_BODY=true
+    volumes:
+      - appdsi-officecache:/var/www/onlyoffice/Data
+      - appdsi-officelogs:/var/log/onlyoffice
+    networks:
+      - app-network
+    depends_on:
+      - backend
+    # Démarrage lent (migration de base interne au premier lancement) :
+    # prévoir quelques minutes avant le premier aperçu.
+
 networks:
   # Définit un réseau commun pour que les conteneurs puissent communiquer entre eux
   app-network:
     driver: bridge
+
+volumes:
+  appdsi-officecache:
+  appdsi-officelogs:

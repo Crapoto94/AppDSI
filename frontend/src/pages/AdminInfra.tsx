@@ -89,7 +89,7 @@ function ApiCard({ api, token, onSaved }: { api: InfraApi; token: string | null;
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
         <div>
           <label style={lbl}>{isOnlyOffice ? 'URL du moteur (backend → moteur)' : 'URL de base'}</label>
-          <input style={inp} value={form.base_url || ''} onChange={e => setForm({ ...form, base_url: e.target.value })} placeholder={isOnlyOffice ? 'http://10.103.130.106:8090' : 'https://exemple.ivry.local/api'} />
+          <input style={inp} value={form.base_url || ''} onChange={e => setForm({ ...form, base_url: e.target.value })} placeholder={isOnlyOffice ? 'http://documentserver' : 'https://exemple.ivry.local/api'} />
         </div>
         <div>
           <label style={lbl}>{isOnlyOffice ? 'URL navigateur (moteur → navigateur)' : 'Endpoint'}</label>
@@ -109,12 +109,14 @@ function ApiCard({ api, token, onSaved }: { api: InfraApi; token: string | null;
       {isOnlyOffice && (
         <p style={{ marginTop: 10, fontSize: 12, color: '#94a3b8' }}>
           Utilisé pour l'aperçu en lecture seule des .docx/.xlsx/.pptx dans l'explorateur de documents de /projets.
-          Le moteur (généralement un port interne comme 10.103.130.106:8090) n'est en général PAS joignable directement
-          par les postes clients (pare-feu) : l'« URL navigateur » doit donc pointer vers un chemin proxifié sous le
-          domaine déjà accessible de l'appli (ex. https://dsihub.ivry.local/onlyoffice — voir le bloc <code>location /onlyoffice/</code> dans
-          frontend/nginx.conf), pas directement vers l'IP:port du moteur. L'« URL du moteur », elle, est utilisée par CE serveur
-          (pas par le navigateur) et peut rester l'adresse interne directe. Le moteur doit aussi pouvoir joindre ce serveur
-          (variable d'environnement <code>APP_BASE_URL</code>) pour récupérer le fichier à afficher.
+          Le moteur est un conteneur DÉDIÉ à AppDSI (service <code>documentserver</code> du docker-compose, sans port
+          publié — ne pas confondre avec un moteur OnlyOffice d'une autre appli sur le même serveur Docker). L'« URL du
+          moteur » (utilisée par CE serveur, pas par le navigateur) reste donc l'adresse interne du réseau Docker :
+          http://documentserver. L'« URL navigateur », elle, DOIT pointer vers un chemin proxifié sous le domaine déjà
+          accessible de l'appli (https://dsihub.ivry.local/onlyoffice — voir le bloc <code>location /onlyoffice/</code>{' '}
+          dans frontend/nginx.conf) : le moteur n'a aucun port exposé aux postes clients. Le secret JWT doit être exactement
+          celui défini dans la variable d'environnement <code>ONLYOFFICE_JWT_SECRET</code> (fichier .env du serveur Docker,
+          non versionné) utilisée par le service <code>documentserver</code>.
         </p>
       )}
 
