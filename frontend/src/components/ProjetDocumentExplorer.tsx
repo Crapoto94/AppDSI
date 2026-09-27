@@ -4,7 +4,7 @@ import remarkGfm from 'remark-gfm';
 import {
   Folder, FolderPlus, File, FileArchive, Upload, Download, Pencil, Trash2, X,
   ChevronRight, Settings, Home, Tag, Mail, History, Filter, CheckSquare, Square,
-  Copy, ClipboardPaste, Edit3,
+  Copy, ClipboardPaste, Edit3, GripVertical,
 } from 'lucide-react';
 
 /**
@@ -325,30 +325,17 @@ export default function ProjetDocumentExplorer({ projetId, token }: { projetId: 
         </div>
       </div>
 
-      <div style={{ display: 'flex', gap: 14, alignItems: 'flex-start' }}>
-        {/* Zone de dépose dédiée au glisser-déposer DEPUIS LE SYSTÈME D'EXPLOITATION
-            (fichiers/dossier/.zip) — isolée du reste du panneau pour ne pas entrer
-            en conflit avec le glisser-déposer INTERNE (déplacer un document vers un
-            dossier), qui couvre toute la liste à droite. */}
-        <div
-          onDragOver={e => { e.preventDefault(); setDragOver(true); }}
-          onDragLeave={() => setDragOver(false)}
-          onDrop={handleDrop}
-          style={{
-            width: 150, flexShrink: 0, alignSelf: 'flex-start', height: 200, position: 'sticky', top: 12,
-            border: `2px dashed ${dragOver ? '#2563eb' : '#cbd5e1'}`, borderRadius: 10,
-            background: dragOver ? '#eff6ff' : '#f8fafc', display: 'flex', flexDirection: 'column',
-            alignItems: 'center', justifyContent: 'center', gap: 8, padding: 14, textAlign: 'center',
-            transition: 'colors 0.15s',
-          }}
-        >
-          <Upload size={22} color={dragOver ? '#2563eb' : '#94a3b8'} />
-          <p style={{ margin: 0, fontSize: 11, color: dragOver ? '#2563eb' : '#94a3b8' }}>
-            Glissez des fichiers ou un dossier ici (ou un .zip seul : son contenu recrée les dossiers automatiquement)
+      <div
+        onDragOver={e => { if (!draggedDocIds) { e.preventDefault(); setDragOver(true); } }}
+        onDragLeave={() => setDragOver(false)}
+        onDrop={e => { if (draggedDocIds) return; handleDrop(e); }}
+        style={{ borderRadius: 10, border: `1px dashed ${dragOver ? '#2563eb' : 'transparent'}`, background: dragOver ? '#eff6ff' : 'transparent', transition: 'colors 0.15s' }}
+      >
+        {dragOver && (
+          <p style={{ margin: '0 0 10px', fontSize: 12, color: '#2563eb', fontWeight: 600 }}>
+            Déposez pour ajouter des fichiers ou un dossier ici (ou un .zip seul : son contenu recrée les dossiers automatiquement).
           </p>
-        </div>
-
-        <div style={{ flex: 1, minWidth: 0 }}>
+        )}
       {/* Fil d'Ariane — chaque niveau est aussi une cible de dépose pour déplacer un
           document glissé (glisser-déposer interne), y compris "Racine". */}
       <div style={{ marginBottom: 10, display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 4, fontSize: 13 }}>
@@ -473,10 +460,20 @@ export default function ProjetDocumentExplorer({ projetId, token }: { projetId: 
           ))}
           {filteredDocuments.map(doc => (
             <div key={`d${doc.id}`}
-              draggable
-              onDragStart={e => { const ids = selectedIds.has(doc.id) ? Array.from(selectedIds) : [doc.id]; setDraggedDocIds(ids); e.dataTransfer.effectAllowed = 'move'; try { e.dataTransfer.setData('text/plain', ''); } catch {} }}
-              onDragEnd={() => { setDraggedDocIds(null); setDropTarget(null); }}
-              style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 8, padding: '8px 12px', borderBottom: '1px solid #f1f5f9', cursor: 'grab', opacity: draggedDocIds?.includes(doc.id) ? 0.4 : 1 }}>
+              style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 8, padding: '8px 12px', borderBottom: '1px solid #f1f5f9', opacity: draggedDocIds?.includes(doc.id) ? 0.4 : 1 }}>
+              {/* Poignée dédiée : seule zone qui déclenche le glisser-déposer INTERNE
+                  (déplacer vers un dossier) — le reste de la ligne reste cliquable
+                  normalement (sélection, aperçu, renommer…) sans risque de glisser
+                  par erreur. */}
+              <span
+                draggable
+                onDragStart={e => { const ids = selectedIds.has(doc.id) ? Array.from(selectedIds) : [doc.id]; setDraggedDocIds(ids); e.dataTransfer.effectAllowed = 'move'; try { e.dataTransfer.setData('text/plain', ''); } catch {} }}
+                onDragEnd={() => { setDraggedDocIds(null); setDropTarget(null); }}
+                title="Glisser pour déplacer vers un dossier"
+                style={{ display: 'flex', alignItems: 'center', cursor: 'grab', color: '#cbd5e1', flexShrink: 0 }}
+              >
+                <GripVertical size={14} />
+              </span>
               <button onClick={() => toggleSelected(doc.id)} title="Sélectionner" style={{ border: 'none', background: 'none', cursor: 'pointer', color: selectedIds.has(doc.id) ? '#2563eb' : '#cbd5e1', flexShrink: 0 }}>
                 {selectedIds.has(doc.id) ? <CheckSquare size={15} /> : <Square size={15} />}
               </button>
@@ -495,7 +492,10 @@ export default function ProjetDocumentExplorer({ projetId, token }: { projetId: 
               <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
                 {Number(doc.version) > 1 && <button onClick={() => setPreviewDoc(doc)} title="Historique des versions" style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#94a3b8', padding: 5 }}><History size={14} /></button>}
                 {['docx', 'xlsx', 'pptx'].includes(previewKind(doc.mime_type, doc.original_name)) && (
-                  <button onClick={() => setEditDoc(doc)} title="Modifier (OnlyOffice)" style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#2563eb', padding: 5 }}><Edit3 size={14} /></button>
+                  <button onClick={() => setEditDoc(doc)} title="Modifier ce document dans OnlyOffice"
+                    style={{ ...btnBase, border: '1px solid #93c5fd', color: '#2563eb', background: '#eff6ff', padding: '4px 9px', fontSize: 11 }}>
+                    <Edit3 size={12} /> Modifier
+                  </button>
                 )}
                 <a href={fileUrl(doc.id, true)} title="Télécharger" style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#94a3b8', padding: 5, display: 'flex' }}><Download size={14} /></a>
                 <button onClick={() => renameDocument(doc)} title="Renommer" style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#94a3b8', padding: 5 }}><Pencil size={14} /></button>
@@ -505,7 +505,6 @@ export default function ProjetDocumentExplorer({ projetId, token }: { projetId: 
           ))}
         </div>
       )}
-        </div>
       </div>
 
       {previewDoc && <DocPreviewModal doc={previewDoc} base={base} headers={headers} token={token} fileUrl={fileUrl} onClose={() => setPreviewDoc(null)} />}
