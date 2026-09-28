@@ -177,8 +177,11 @@ router.post('/:id/resolve', authenticateJWT, async (req, res) => {
     try {
         const ticketId = parseInt(req.params.id);
         const { solution, auto_resolve_linked } = req.body;
-        await require('./services/ticket.service').resolveProblem(ticketId, !!auto_resolve_linked, solution, req.user);
-        res.json({ message: 'Ticket résolu' });
+        const { resolved, failures } = await require('./services/ticket.service').resolveProblem(ticketId, !!auto_resolve_linked, solution, req.user);
+        const message = failures?.length
+            ? `Ticket résolu, mais ${failures.length} ticket(s) lié(s) n'ont pas pu être résolus : ${failures.map(f => `#${f.ticketId} (${f.error})`).join(', ')}`
+            : 'Ticket résolu';
+        res.json({ message, resolved, failures });
     } catch (e) { res.status(400).json({ message: e.message }); }
 });
 

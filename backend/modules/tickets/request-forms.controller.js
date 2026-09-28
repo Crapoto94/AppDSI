@@ -7,6 +7,7 @@
  * avec affichage conditionnel simple (conditional_on).
  */
 const { pgDb, getSqlite } = require('../../shared/database');
+const rhStudio = require('../../shared/rh_studio');
 const ticketService = require('./services/ticket.service');
 const notificationService = require('./services/notification.service');
 const { resolveTicketRole } = require('./middleware/ticket-permissions');
@@ -167,24 +168,18 @@ function sanitizeTasksConfig(tasks) {
 }
 
 /**
- * Résout la Direction/Service d'un agent depuis le référentiel RH
- * (rh.referentiel_agents, SQLite — le même référentiel utilisé par le module
- * RH/organigramme), par son identifiant AD (ad_username). Best-effort : ne
- * bloque jamais la création du ticket si le référentiel est indisponible ou
- * l'agent introuvable.
+ * Résout la Direction/Service d'un agent via le référentiel RH Studio
+ * (source de vérité des agents), à partir de son identifiant AD (username →
+ * username@ivry94.fr). Best-effort : ne bloque jamais la création du ticket si
+ * RH Studio est indisponible ou l'agent introuvable.
  */
 async function resolveAgentDirectionService(username) {
     if (!username) return null;
     try {
-        const db = getSqlite();
-        if (!db) return null;
-        const row = await db.get(
-            'SELECT DIRECTION_L, SERVICE_L FROM rh.referentiel_agents WHERE LOWER(ad_username) = LOWER(?)',
-            [username]
-        );
-        if (!row) return null;
-        const direction = (row.DIRECTION_L || '').trim();
-        const service = (row.SERVICE_L || '').trim();
+        const agent = await rhStudio.findAgentByEmail(rhStudio.emailFromUsername(username));
+        if (!agent) return null;
+        const direction = (agent.direction || '').trim();
+        const service = (agent.service || '').trim();
         if (!direction && !service) return null;
         return { direction, service };
     } catch (e) {

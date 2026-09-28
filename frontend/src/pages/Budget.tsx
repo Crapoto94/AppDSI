@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import Header from '../components/Header';
-import { 
-  Upload, CheckCircle, Search, Filter, BookOpen, X, Eye, 
-  Euro, FileText, ShoppingCart, AlertCircle, 
+import {
+  Upload, CheckCircle, Search, Filter, BookOpen, X, Eye,
+  Euro, FileText, ShoppingCart, AlertCircle,
   Plus, Trash2, Send, ExternalLink, Columns, Palette, ChevronRight, ChevronDown
 } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ReferenceLine } from 'recharts';
@@ -38,7 +38,7 @@ const Budget: React.FC = () => {
     </svg>
   );
 
-  const [view, setView] = useState<'summary' | 'lines' | 'engagements' | 'invoices' | 'orders' | 'tiers' | 'operations' | 'gestion' | 'prep'>('summary');
+  const [view, setView] = useState<'summary' | 'lines' | 'engagements' | 'invoices' | 'invoices_beta' | 'orders' | 'tiers' | 'operations' | 'gestion' | 'prep'>('summary');
   const [isRaw, setIsRaw] = useState(false);
   const [rawData, setRawData] = useState<any[]>([]);
   const [budgetLines, setBudgetLines] = useState<any[]>([]);
@@ -179,7 +179,7 @@ const Budget: React.FC = () => {
   const [tierColumnStyles, setTierColumnStyles] = useState<ColumnStyles>(() => getStoredColumnStyles('tiers'));
 
   const getColumnStyle = (col: string): ColumnStyle | null => {
-    const styles = view === 'orders' ? orderColumnStyles : view === 'invoices' ? invoiceColumnStyles : view === 'operations' ? opColumnStyles : tierColumnStyles;
+    const styles = view === 'orders' ? orderColumnStyles : (view === 'invoices' || view === 'invoices_beta') ? invoiceColumnStyles : view === 'operations' ? opColumnStyles : tierColumnStyles;
     return styles[col] || null;
   };
   const setColumnStyle = (col: string, style: ColumnStyle) => {
@@ -187,7 +187,7 @@ const Budget: React.FC = () => {
       const next = { ...orderColumnStyles, [col]: style };
       setOrderColumnStyles(next);
       setStoredColumnStyles('orders', next);
-    } else if (view === 'invoices') {
+    } else if (view === 'invoices' || view === 'invoices_beta') {
       const next = { ...invoiceColumnStyles, [col]: style };
       setInvoiceColumnStyles(next);
       setStoredColumnStyles('invoices', next);
@@ -206,7 +206,7 @@ const Budget: React.FC = () => {
       const next = { ...orderColumnStyles }; delete next[col];
       setOrderColumnStyles(next);
       setStoredColumnStyles('orders', next);
-    } else if (view === 'invoices') {
+    } else if (view === 'invoices' || view === 'invoices_beta') {
       const next = { ...invoiceColumnStyles }; delete next[col];
       setInvoiceColumnStyles(next);
       setStoredColumnStyles('invoices', next);
@@ -282,7 +282,7 @@ const Budget: React.FC = () => {
 
     const fetchFiscalYears = async () => {
       try {
-        const rubriqueName = view === 'orders' ? 'Commandes' : view === 'invoices' ? 'Factures' : view === 'tiers' ? 'Tiers' : null;
+        const rubriqueName = view === 'orders' ? 'Commandes' : (view === 'invoices' || view === 'invoices_beta') ? 'Factures' : view === 'tiers' ? 'Tiers' : null;
         let data: number[] = [];
 
         if (rubriqueName) {
@@ -1421,7 +1421,7 @@ const Budget: React.FC = () => {
             </div>
           </div>
           <div className="view-tabs">
-            {['summary', 'lines', 'engagements', 'invoices', 'orders', 'tiers', 'operations', 'gestion', 'prep'].map(tab => {
+            {['summary', 'lines', 'engagements', 'invoices_beta', 'orders', 'tiers', 'operations', 'gestion', 'prep'].map(tab => {
               // Only admin/finances/compta can see 'gestion'
               if (tab === 'gestion' && !['admin', 'finances', 'compta'].includes(currentUser.role)) return null;
               return (
@@ -1457,7 +1457,7 @@ const Budget: React.FC = () => {
                   {tab === 'summary' && 'Résumé'}
                   {tab === 'lines' && 'Lignes'}
                   {tab === 'engagements' && 'Engagements'}
-                  {tab === 'invoices' && 'Factures'}
+                  {tab === 'invoices_beta' && 'Factures'}
                   {tab === 'orders' && 'Commandes'}
                   {tab === 'tiers' && 'Tiers'}
                   {tab === 'operations' && 'Opérations'}
@@ -2839,7 +2839,7 @@ const Budget: React.FC = () => {
                     Inv.
                   </button>
                 </div>
-                <MappedDataTable rubriqueName="Commandes" title="Commandes" fiscalYear={currentFiscalYear}
+                <MappedDataTable rubriqueName="Commandes" title="Commandes" dataSource="sedit" fiscalYear={currentFiscalYear}
                   onOpenColumnSettings={() => setShowColumnSelector(true)}
                   columnStyles={orderColumnStyles}
                   visibleColumns={orderColumns}
@@ -2847,16 +2847,16 @@ const Budget: React.FC = () => {
                   onColumnsReady={(cols) => setMappedColumns(prev => ({ ...prev, 'Commandes': cols }))} />
               </div>
             )}
-            {view === 'invoices' && (
+            {view === 'invoices_beta' && (
               <div className="animate-fade-in">
-                <MappedDataTable rubriqueName="Factures" title="Factures" fiscalYear={currentFiscalYear}
+                <MappedDataTable rubriqueName="Factures" title="Factures" dataSource="sedit" fiscalYear={currentFiscalYear}
                   onOpenColumnSettings={() => setShowColumnSelector(true)}
                   columnStyles={invoiceColumnStyles}
                   visibleColumns={invoiceColumns}
                   onColumnsReady={(cols) => setMappedColumns(prev => ({ ...prev, 'Factures': cols }))} />
               </div>
             )}
-            {['orders', 'invoices', 'operations', 'tiers'].includes(view) && (
+            {['orders', 'invoices', 'invoices_beta', 'operations', 'tiers'].includes(view) && (
               <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '1rem' }}>
                 <button
                   className="toolbar-btn"
@@ -2872,10 +2872,11 @@ const Budget: React.FC = () => {
                   </div>
         )}
         {showColumnSelector && (() => {
-          const mappedCols = mappedColumns[view === 'tiers' ? 'Tiers' : view === 'orders' ? 'Commandes' : view === 'invoices' ? 'Factures' : 'Opérations'] || [];
-          const currentCols = view === 'orders' ? orderColumns : view === 'invoices' ? invoiceColumns : view === 'operations' ? opColumns : [];
-          const setCurrentCols: React.Dispatch<React.SetStateAction<string[]>> | null = view === 'orders' ? setOrderColumns : view === 'invoices' ? setInvoiceColumns : view === 'operations' ? setOpColumns : null;
-          const storageKey = view === 'orders' ? 'orders' : view === 'invoices' ? 'invoices' : view === 'operations' ? 'operations' : '';
+          const isInvoices = view === 'invoices' || view === 'invoices_beta';
+          const mappedCols = mappedColumns[view === 'tiers' ? 'Tiers' : view === 'orders' ? 'Commandes' : isInvoices ? 'Factures' : 'Opérations'] || [];
+          const currentCols = view === 'orders' ? orderColumns : isInvoices ? invoiceColumns : view === 'operations' ? opColumns : [];
+          const setCurrentCols: React.Dispatch<React.SetStateAction<string[]>> | null = view === 'orders' ? setOrderColumns : isInvoices ? setInvoiceColumns : view === 'operations' ? setOpColumns : null;
+          const storageKey = view === 'orders' ? 'orders' : isInvoices ? 'invoices' : view === 'operations' ? 'operations' : '';
           const isTiers = view === 'tiers';
           const COLORS = ['', '#ef4444', '#f97316', '#eab308', '#22c55e', '#06b6d4', '#3b82f6', '#8b5cf6', '#ec4899', '#64748b'];
           return (
@@ -3357,7 +3358,7 @@ const Budget: React.FC = () => {
         .main-content {
           max-width: 1600px;
           margin: 0 auto;
-          padding: 1rem 1.5rem;
+          padding: 1rem 0.75rem;
         }
 
         /* Typography & Colors */

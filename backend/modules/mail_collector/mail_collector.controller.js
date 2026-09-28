@@ -1,12 +1,18 @@
 const { pgDb, getSqlite } = require('../../shared/database');
 const { logMouchard } = require('../../shared/utils');
 const MailCollectorService = require('./mail_collector.service');
+const MailScheduler = require('./mail_scheduler');
 
 module.exports = {
   getAll: async (req, res) => {
     try {
       const collectors = await pgDb.all('SELECT * FROM hub_tickets.mail_collectors ORDER BY created_at DESC');
-      res.json(collectors);
+      const sqlite = getSqlite();
+      const withLocalStatus = await Promise.all(collectors.map(async c => ({
+        ...c,
+        is_enabled: await MailScheduler.isEnabledLocally(sqlite, c.id)
+      })));
+      res.json(withLocalStatus);
     } catch (error) {
       res.status(500).json({ message: 'Erreur récupération collecteurs', error: error.message });
     }
@@ -22,7 +28,8 @@ module.exports = {
         [collector.id]
       );
 
-      res.json({ ...collector, recentLogs: logs });
+      const is_enabled = await MailScheduler.isEnabledLocally(getSqlite(), collector.id);
+      res.json({ ...collector, is_enabled, recentLogs: logs });
     } catch (error) {
       res.status(500).json({ message: 'Erreur récupération collecteur', error: error.message });
     }
@@ -73,11 +80,13 @@ module.exports = {
       const updates = [];
       const values = [];
 
+      // is_enabled n'est PAS stocké en PostgreSQL : l'activation est propre à chaque
+      // instance (dev/prod peuvent différer) et vit exclusivement en SQLite local_settings
+      // — cf. MailScheduler.isEnabledLocally/setEnabledLocally.
       if (name !== undefined) { updates.push('name = ?'); values.push(name); }
       if (mailbox !== undefined) { updates.push('mailbox = ?'); values.push(mailbox); }
       if (domain_filter !== undefined) { updates.push('domain_filter = ?'); values.push(domain_filter || null); }
       if (frequency !== undefined) { updates.push('frequency = ?'); values.push(frequency); }
-      if (is_enabled !== undefined) { updates.push('is_enabled = ?'); values.push(is_enabled); }
       if (module !== undefined) { updates.push('module = ?'); values.push(module); }
 
       if (frequency) {
@@ -87,14 +96,20 @@ module.exports = {
       }
 
       updates.push('updated_at = NOW()');
-      if (updates.length === 0) return res.status(400).json({ message: 'Aucun champ à mettre à jour' });
 
       values.push(req.params.id);
       await pgDb.run(`UPDATE hub_tickets.mail_collectors SET ${updates.join(', ')} WHERE id = ?`, values);
 
+      const sqlite = getSqlite();
+      if (is_enabled !== undefined) {
+        await MailScheduler.setEnabledLocally(sqlite, req.params.id, is_enabled);
+        await MailScheduler.onCollectorEnabledChanged(req.params.id, is_enabled);
+      }
+
       const updated = await pgDb.get('SELECT * FROM hub_tickets.mail_collectors WHERE id = ?', [req.params.id]);
+      const updatedIsEnabled = await MailScheduler.isEnabledLocally(sqlite, req.params.id);
       logMouchard(`Collecteur mail modifié: ${updated.name}`);
-      res.json(updated);
+      res.json({ ...updated, is_enabled: updatedIsEnabled });
     } catch (error) {
       res.status(500).json({ message: 'Erreur mise à jour collecteur', error: error.message });
     }
@@ -118,7 +133,8 @@ module.exports = {
       const collectorId = req.params.id;
       const collector = await pgDb.get('SELECT * FROM hub_tickets.mail_collectors WHERE id = ?', [collectorId]);
       if (!collector) return res.status(404).json({ message: 'Collecteur non trouvé' });
-      if (!collector.is_enabled) return res.status(400).json({ message: 'Collecteur désactivé' });
+      const isEnabledLocally = await MailScheduler.isEnabledLocally(getSqlite(), collectorId);
+      if (!isEnabledLocally) return res.status(400).json({ message: 'Collecteur désactivé' });
 
       const module = collector.module || 'tickets';
       const log = await MailCollectorService.performCollection(collectorId);
@@ -295,11 +311,12 @@ module.exports = {
       }
       const internetMsgId = mapping.email_message_id;
 
-      // 2. Collecteur actif (premier trouvé)
+      // 2. Collecteur (premier trouvé) — sert uniquement à récupérer la mailbox/config,
+      // l'activation (propre à chaque instance) n'est pas pertinente pour une réintégration manuelle.
       const collector = await pgDb.get(
-        "SELECT * FROM hub_tickets.mail_collectors WHERE is_enabled = true AND module != 'copieurs' ORDER BY id LIMIT 1"
+        "SELECT * FROM hub_tickets.mail_collectors WHERE module != 'copieurs' ORDER BY id LIMIT 1"
       );
-      if (!collector) return res.status(400).json({ message: 'Aucun collecteur mail actif' });
+      if (!collector) return res.status(400).json({ message: 'Aucun collecteur mail configuré' });
 
       // 3. Token O365
       const sqlite = getSqlite();

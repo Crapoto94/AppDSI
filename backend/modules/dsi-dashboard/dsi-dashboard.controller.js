@@ -375,6 +375,8 @@ const WIDGET_LABELS = {
   mail_analyse_map_france: 'Connexions suspectes — France',
   mail_analyse_failed_signins: 'Connexions en erreur — détail',
   mail_analyse_map: 'Carte des connexions (Analyse-mail)',
+  notes_kpi: 'Mes Notes — indicateurs',
+  notes_wordcloud: 'Mes Notes — nuage de mots',
 };
 
 function buildDashboardEmailHtml(dash, widgets, sub) {

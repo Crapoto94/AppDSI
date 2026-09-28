@@ -64,6 +64,7 @@ function ApiCard({ api, token, onSaved }: { api: InfraApi; token: string | null;
   }
 
   const Icon = form.key === 'reseau_links' ? Network : Globe;
+  const isOnlyOffice = form.key === 'onlyoffice';
 
   return (
     <div style={card}>
@@ -87,22 +88,37 @@ function ApiCard({ api, token, onSaved }: { api: InfraApi; token: string | null;
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
         <div>
-          <label style={lbl}>URL de base</label>
-          <input style={inp} value={form.base_url || ''} onChange={e => setForm({ ...form, base_url: e.target.value })} placeholder="https://exemple.ivry.local/api" />
+          <label style={lbl}>{isOnlyOffice ? 'URL du moteur (backend → moteur)' : 'URL de base'}</label>
+          <input style={inp} value={form.base_url || ''} onChange={e => setForm({ ...form, base_url: e.target.value })} placeholder={isOnlyOffice ? 'http://documentserver' : 'https://exemple.ivry.local/api'} />
         </div>
         <div>
-          <label style={lbl}>Endpoint</label>
-          <input style={inp} value={form.endpoint || ''} onChange={e => setForm({ ...form, endpoint: e.target.value })} placeholder="/agents/presence" />
+          <label style={lbl}>{isOnlyOffice ? 'URL navigateur (moteur → navigateur)' : 'Endpoint'}</label>
+          <input style={inp} value={form.endpoint || ''} onChange={e => setForm({ ...form, endpoint: e.target.value })} placeholder={isOnlyOffice ? 'https://dsihub.ivry.local/onlyoffice' : '/agents/presence'} />
         </div>
+        {!isOnlyOffice && (
+          <div>
+            <label style={lbl}>Nom du header</label>
+            <input style={inp} value={form.header_name || ''} onChange={e => setForm({ ...form, header_name: e.target.value })} placeholder="x-api-key" />
+          </div>
+        )}
         <div>
-          <label style={lbl}>Nom du header</label>
-          <input style={inp} value={form.header_name || ''} onChange={e => setForm({ ...form, header_name: e.target.value })} placeholder="x-api-key" />
-        </div>
-        <div>
-          <label style={lbl}>Clé API {form.api_key_set && <span style={{ color: '#94a3b8', fontWeight: 400 }}>(définie : {form.api_key})</span>}</label>
-          <input style={inp} type="password" value={keyInput} onChange={e => setKeyInput(e.target.value)} placeholder={form.api_key_set ? 'Laisser vide pour conserver' : 'Saisir la clé'} />
+          <label style={lbl}>{isOnlyOffice ? 'Secret JWT' : 'Clé API'} {form.api_key_set && <span style={{ color: '#94a3b8', fontWeight: 400 }}>(définie : {form.api_key})</span>}</label>
+          <input style={inp} type="password" value={keyInput} onChange={e => setKeyInput(e.target.value)} placeholder={form.api_key_set ? 'Laisser vide pour conserver' : (isOnlyOffice ? 'Secret partagé avec le moteur' : 'Saisir la clé')} />
         </div>
       </div>
+      {isOnlyOffice && (
+        <p style={{ marginTop: 10, fontSize: 12, color: '#94a3b8' }}>
+          Utilisé pour l'aperçu en lecture seule des .docx/.xlsx/.pptx dans l'explorateur de documents de /projets.
+          Le moteur est un conteneur DÉDIÉ à AppDSI (service <code>documentserver</code> du docker-compose, sans port
+          publié — ne pas confondre avec un moteur OnlyOffice d'une autre appli sur le même serveur Docker). L'« URL du
+          moteur » (utilisée par CE serveur, pas par le navigateur) reste donc l'adresse interne du réseau Docker :
+          http://documentserver. L'« URL navigateur », elle, DOIT pointer vers un chemin proxifié sous le domaine déjà
+          accessible de l'appli (https://dsihub.ivry.local/onlyoffice — voir le bloc <code>location /onlyoffice/</code>{' '}
+          dans frontend/nginx.conf) : le moteur n'a aucun port exposé aux postes clients. Le secret JWT doit être exactement
+          celui défini dans la variable d'environnement <code>ONLYOFFICE_JWT_SECRET</code> (fichier .env du serveur Docker,
+          non versionné) utilisée par le service <code>documentserver</code>.
+        </p>
+      )}
 
       <div style={{ display: 'flex', gap: 10, marginTop: 18, flexWrap: 'wrap' }}>
         <button onClick={save} disabled={!!busy} style={btnPrimary}>

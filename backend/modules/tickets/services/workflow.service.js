@@ -101,7 +101,8 @@ module.exports = {
             }
         }
 
-        await this.changeStatus(ticketId, 2, resolvedUserId, 'Réouverture du ticket', user);
+        const targetStatus = (ticket.technician_id || ticket.group_id) ? 2 : 1;
+        await this.changeStatus(ticketId, targetStatus, resolvedUserId, 'Réouverture du ticket', user);
 
         await notificationService.trigger('ticket.reopened', {
             ticket_id: ticketId, user

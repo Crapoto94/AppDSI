@@ -1,4 +1,5 @@
 const { pgDb, getSqlite } = require('../../shared/database');
+const rhStudio = require('../../shared/rh_studio');
 const { searchADUsersByQuery } = require('../../shared/ad_helper');
 const { nameSimilarity } = require('../infra/name-match');
 const { isSuperAdmin, isAdminLike } = require('../../shared/middleware');
@@ -87,21 +88,7 @@ async function isInternalEmail(db, email) {
     } catch { return false; }
 }
 
-/** Fonction / direction / service d'un agent ville (référentiel RH Postgres). */
-async function getAgentOrg(db, email) {
-    const local = String(email || '').split('@')[0].toLowerCase().trim();
-    if (!local) return null;
-    try {
-        const row = await db.get(`
-            SELECT DIRECTION_L AS direction, SERVICE_L AS service,
-                   COALESCE(NULLIF(POSTE_L, ''), FONCTION_L) AS fonction
-            FROM rh.referentiel_agents
-            WHERE LOWER(ad_username) = ?
-            LIMIT 1
-        `, [local]);
-        return row || null;
-    } catch { return null; }
-}
+/** Fonction / direction / service d'un agent ville (référentiel RH Studio). */
 
 /** Recherche d'agents RH Studio (lecture). Renvoie le tableau brut `data`
  *  (champs : nom, prenom, email, service, direction, fonction) ou null. */
@@ -135,9 +122,9 @@ async function lookupRhStudioAgent(email, name) {
     const surname = String(name || '').trim().split(/\s+/).filter(Boolean).pop() || '';
     const agents = await rhStudioSearch(surname || name);
     if (!agents || !agents.length) {
-        // Repli : référentiel RH local
-        const local = await getAgentOrg(pgDb, email);
-        return local;
+        // Repli : recherche directe par email via RH Studio
+        const agent = await rhStudio.findAgentByEmail(email);
+        return agent ? { fonction: agent.fonction || null, direction: agent.direction || null, service: agent.service || null } : null;
     }
     let best = agents.find(a => String(a.email || '').toLowerCase() === e);
     if (!best) {

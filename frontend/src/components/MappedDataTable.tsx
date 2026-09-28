@@ -1,9 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import { useAuth } from '../contexts/AuthContext';
-import { Search, ChevronUp, ChevronDown, ChevronRight, Columns, ExternalLink, Link2, AppWindow, Rocket, Eye, CheckCircle } from 'lucide-react';
+import { Search, ChevronUp, ChevronDown, ChevronRight, Columns, ExternalLink, Link2, AppWindow, Rocket, Eye, CheckCircle, Files } from 'lucide-react';
 import ServiceFaitModal from './ServiceFaitModal';
 import ServiceFaitProcessusModal from './ServiceFaitProcessusModal';
+import FactureDocumentsViewer from './finance/FactureDocumentsViewer';
+import MandatementModal from './MandatementModal';
 
 interface MappingColumn {
   name: string;
@@ -31,9 +33,12 @@ interface MappedDataTableProps {
   onColumnsReady?: (columns: string[]) => void;
   visibleColumns?: string[];
   sectionFilter?: string;
+  // Source des données : 'pg' (copie locale oracle.gf_oracle_*, défaut) ou 'sedit'
+  // (interrogation directe de la base Sedit — page « Factures (beta) »).
+  dataSource?: 'pg' | 'sedit';
 }
 
-const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: _title, pageSize = 25, fiscalYear, onOpenColumnSettings, columnStyles, onColumnsReady, visibleColumns, sectionFilter }) => {
+const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: _title, pageSize = 25, fiscalYear, onOpenColumnSettings, columnStyles, onColumnsReady, visibleColumns, sectionFilter, dataSource = 'pg' }) => {
   const { token } = useAuth();
   const headers = { Authorization: `Bearer ${token}` };
   const storageKey = `mdt_cols_${rubriqueName}`;
@@ -69,6 +74,8 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
   const [opFilter, setOpFilter] = useState<'I' | 'F' | null>(null);
   // Association commande → logiciel métier (magapp.apps)
   const [apps, setApps] = useState<any[]>([]);
+  // Référentiel M57 (code → libellé) pour les infobulles Nature/Fonction des commandes.
+  const [m57Plan, setM57Plan] = useState<any[]>([]);
   const [appModal, setAppModal] = useState<{ linkId: string; currentAppId: number | null; currentAppLabel: string | null } | null>(null);
   const [appSearch, setAppSearch] = useState('');
   const [childRubriqueId, setChildRubriqueId] = useState<number | null>(null);
@@ -80,7 +87,10 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
   const [pendingFilter, setPendingFilter] = useState(false);
   const [sfModalRow, setSfModalRow] = useState<{ row: any; mode: 'circuit' | 'self' } | null>(null);
   const [sfStatuses, setSfStatuses] = useState<Record<string, any>>({});
+  const [commandeStatuses, setCommandeStatuses] = useState<Record<string, any>>({});
   const [sfProcessModal, setSfProcessModal] = useState<{ workflowId: number } | null>(null);
+  const [seditDocsViewer, setSeditDocsViewer] = useState<{ numero?: string; numeros?: string[]; baseUrl?: string; title?: string } | null>(null);
+  const [mandateNumero, setMandateNumero] = useState<string | null>(null);
 
   useEffect(() => { localStorage.setItem(storageKey, JSON.stringify(visibleCols)); }, [visibleCols, storageKey]);
 
@@ -91,6 +101,11 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
   }, [visibleColumns]);
 
   const effectivePageSize = itemsPerPage === 'all' ? 10000 : itemsPerPage;
+  const factureColumnName = columns.find(c => c.expression === 'FACTURE_FACTURE')?.name || null;
+  // Colonne « Nb lignes » (commandes) : sert à ne proposer le déroulé que s'il y a
+  // réellement plusieurs lignes (sinon le bouton n'apporte rien).
+  const nbLignesColumnName = (columns.find(c => c.expression === 'COMMANDE_NB_LIGNES_COMMANDE')
+    || columns.find(c => /^nb\s*lignes$/i.test(c.name)))?.name || null;
 
   // Plusieurs effets ci-dessous appellent tous fetchData() au montage (token/rubrique,
   // fiscalYear, page/pageSize, filtres...), en parallèle de la requête triée déclenchée
@@ -107,14 +122,17 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
       const params: any = { limit: effectivePageSize, offset: offset || 0 };
       if (search) params.search = search;
       if (fiscalYear) params.fiscal_year = String(fiscalYear);
-      if (pendingFilter && rubriqueName === 'Factures') params.etat_filter = 'XXXXX';
+      if (pendingFilter && rubriqueName === 'Factures') params.pending_filter = '1';
       if (sectionFilter && sectionFilter !== 'all') params.section_filter = sectionFilter;
       const s = sort !== undefined ? sort : sortConfig;
       if (s) {
         params.sort_by = s.key;
         params.sort_dir = s.direction;
       }
-      const res = await axios.get(`/api/finance/field-mapping/resolve/${encodeURIComponent(rubriqueName)}`, {
+      const endpoint = dataSource === 'sedit'
+        ? '/api/finance/field-mapping/resolve-sedit/'
+        : '/api/finance/field-mapping/resolve/';
+      const res = await axios.get(`${endpoint}${encodeURIComponent(rubriqueName)}`, {
         headers,
         params
       });
@@ -200,9 +218,60 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
       .catch(() => {});
   }, [rows, columns, rubriqueName]);
 
+  // DGP (factures) : chargement progressif. La liste de base s'affiche immédiatement
+  // (sans DGP), puis on calcule le DGP de la page en un appel séparé — le calcul dépend
+  // de FI.FAIT (~1,9 M lignes) et ralentirait le chargement initial. `_DGP_LOADED`
+  // marque les lignes déjà traitées et empêche toute boucle de re-fetch.
+  useEffect(() => {
+    if (rubriqueName !== 'Factures' || dataSource !== 'sedit') return;
+    if (rows.length === 0) return;
+    if (rows.every(r => r._DGP_LOADED)) return;
+    const idCol = columns.find(c => c.expression === seditIdColumn);
+    if (!idCol) return;
+    const roos = Array.from(new Set(rows.map(r => String(r[idCol.name] || '').trim()).filter(Boolean)));
+    if (roos.length === 0) return;
+    let cancelled = false;
+    axios.post('/api/finance/dgp/factures', { roos }, { headers })
+      .then(res => {
+        if (cancelled) return;
+        const map = res.data || {};
+        setRows(prev => prev.map(r => {
+          const roo = String(r[idCol.name] || '').trim();
+          const info = map[roo];
+          return {
+            ...r,
+            DGP: info ? info.dgp : null,
+            _DGP_DEF: info ? info.def : 0,
+            _DGP_REFUSE: info ? info.refuse : 0,
+            _DGP_LOADED: 1,
+          };
+        }));
+      })
+      .catch(() => {
+        if (!cancelled) setRows(prev => prev.map(r => ({ ...r, _DGP_LOADED: 1 })));
+      });
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rows, columns, rubriqueName, dataSource, seditIdColumn]);
+
+  // État de la facture de chaque commande (pastille FAC) — reçue / service fait /
+  // mandatée / refusée, calculé côté serveur depuis Sedit.
+  useEffect(() => {
+    if (rubriqueName !== 'Commandes') return;
+    if (rows.length === 0) { setCommandeStatuses({}); return; }
+    const col = columns.find(c => c.expression === seditIdColumn);
+    const ids = rows.map(r => (col ? String(r[col.name] ?? '').trim() : '')).filter(Boolean);
+    if (ids.length === 0) return;
+    const uniq = Array.from(new Set(ids));
+    axios.post('/api/finance/service-fait/commande-statuses', { commande_ids: uniq }, { headers })
+      .then(res => { if (res.data) setCommandeStatuses(res.data); })
+      .catch(() => {});
+  }, [rows, columns, rubriqueName, seditIdColumn]);
+
   useEffect(() => {
     axios.get('/api/budget/operations', { headers }).then(res => setOperations(res.data || [])).catch(() => {});
     axios.get('/api/magapp/apps', { headers }).then(res => setApps(Array.isArray(res.data) ? res.data : [])).catch(() => {});
+    axios.get('/api/m57-plan', { headers }).then(res => setM57Plan(Array.isArray(res.data) ? res.data : [])).catch(() => {});
     axios.get('/api/settings', { headers }).then(res => {
       const settings = res.data || [];
       const s = settings.find((s: any) => s.setting_key === 'url_sedit_fi');
@@ -241,7 +310,23 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
     }
   };
 
-  const formatCell = (value: any, col: MappingColumn) => {
+  // Libellé M57 d'un code (type 'nature'/'fonction'), avec repli sur toute entrée
+  // portant ce code si le type n'est pas renseigné dans le référentiel.
+  const m57Label = (code: string, type?: string): string | null => {
+    const c = String(code || '').trim();
+    if (!c) return null;
+    const found = m57Plan.find(p => String(p.code).trim() === c && (!type || p.type === type || !p.type))
+      || m57Plan.find(p => String(p.code).trim() === c);
+    return found && found.label ? String(found.label) : null;
+  };
+
+  // Infobulle « code — libellé » (une ligne par code) pour les colonnes Nature/Fonction.
+  const m57Title = (value: any, type: string): string => {
+    const codes = Array.from(new Set(String(value ?? '').split(',').map(s => s.trim()).filter(Boolean)));
+    return codes.map(c => { const l = m57Label(c, type); return l ? `${c} — ${l}` : c; }).join('\n');
+  };
+
+  const formatCell = (value: any, col: MappingColumn, row?: any) => {
     if (col.name === 'Section') {
       const isF = value === 'F' || value === 'Fonctionnement';
       const isI = value === 'I' || value === 'Investissement';
@@ -253,6 +338,47 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
         );
       }
       return '';
+    }
+    // Nature / fonction M57 d'une commande : agrégées côté Sedit sur les lignes
+    // d'imputation. Une seule valeur = commune à toutes les lignes (on l'affiche) ;
+    // plusieurs = commande multiligne hétérogène (on affiche « Multi » + infobulle).
+    if (col.expression === 'nature' || col.expression === 'fonction') {
+      const codes = Array.from(new Set(String(value ?? '').split(',').map(s => s.trim()).filter(Boolean)));
+      if (codes.length === 0) return '';
+      if (codes.length === 1) return codes[0];
+      return (
+        <span title={m57Title(value, col.expression)} style={{ cursor: 'help', fontWeight: 600, color: '#b45309' }}>
+          Multi
+        </span>
+      );
+    }
+    // DGP (délai global de paiement) : pastille. Contour PLEIN = définitif (facture
+    // mandatée/payée), contour POINTILLÉ = provisoire (facture non encore mandatée).
+    // Rouge au-delà de 30 jours. Masqué pour les factures refusées. Calculé en différé
+    // (chargement progressif) : « … » tant que la valeur n'est pas revenue du serveur.
+    if (col.display_type === 'dgp') {
+      if (row && row._DGP_REFUSE) return '';
+      if (row && !row._DGP_LOADED) return <span style={{ color: '#cbd5e1' }}>…</span>;
+      if (value === null || value === undefined || value === '') return '';
+      const num = parseFloat(String(value));
+      if (isNaN(num)) return '';
+      const late = num > 30;
+      const definitive = !!(row && row._DGP_DEF === 1);
+      const color = late ? '#dc2626' : '#16a34a';
+      const bg = late ? '#fef2f2' : '#f0fdf4';
+      return (
+        <span
+          title={definitive
+            ? 'Délai global de paiement (réception → paiement/mandatement)'
+            : 'Délai provisoire — facture non encore mandatée (jours écoulés depuis la réception)'}
+          style={{
+            display: 'inline-block', padding: '1px 8px', borderRadius: 10,
+            border: `1.5px ${definitive ? 'solid' : 'dotted'} ${color}`,
+            background: bg, color, fontWeight: 700, fontSize: 11, whiteSpace: 'nowrap',
+          }}>
+          {num} j
+        </span>
+      );
     }
     if (value === null || value === undefined) return '';
     const str = String(value);
@@ -303,7 +429,9 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
 
   const showActions = !!seditIdColumn;
   const showSfColumn = showActions && rubriqueName === 'Factures';
-  const actionColsCount = (showSfColumn ? 1 : 0) + (showActions ? 1 : 0);
+  // Colonne « Facture » sur la liste des commandes : pastille FAC (état de la facture).
+  const showFactureCol = showActions && rubriqueName === 'Commandes';
+  const actionColsCount = (showSfColumn ? 1 : 0) + (showFactureCol ? 1 : 0) + (showActions ? 1 : 0);
 
   if (loading && rows.length === 0) {
     return <div style={{ padding: '2rem', textAlign: 'center', color: '#64748b' }}>Chargement...</div>;
@@ -318,18 +446,14 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
     </div>;
   }
 
-  const activeCols = columns.filter(c => visibleCols.includes(c.name) || c.name === 'Section');
+  const activeCols = columns.filter(c => visibleCols.includes(c.name) || c.name === 'Section'
+    || (rubriqueName === 'Commandes' && (c.expression === 'nature' || c.expression === 'fonction'))
+    || (rubriqueName === 'Factures' && c.name === 'DGP'));
 
-  const etatCol = columns.find(c => c.name === 'Etat' || c.expression === 'FACETAT_LIBELLE');
-
-  // Apply filters locally as fallback (backend also filters but this ensures they work)
+  // "À traiter" est filtré côté serveur (SF non fait dans Sedit et non rejetée) pour
+  // porter sur l'ensemble des factures, pas seulement la page courante.
   const displayRows = (() => {
     let filtered = rows;
-
-    // Apply etat filter for invoices
-    if (pendingFilter && etatCol && rubriqueName === 'Factures') {
-      filtered = filtered.filter(r => String(r[etatCol.name] || '').trim() === 'XXXXX');
-    }
 
     // Apply section filter
     if (sectionFilter && sectionFilter !== 'all') {
@@ -365,10 +489,10 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
           {rubriqueName === 'Factures' && (
             <button className="mdt-col-btn" style={pendingFilter ? { background: '#fbbf24', color: '#78350f', borderColor: '#fbbf24' } : {}}
               onClick={() => setPendingFilter(!pendingFilter)}>
-              📋 À traiter {pendingFilter && `(${displayRows.length})`}
+              📋 À traiter {pendingFilter && `(${total})`}
             </button>
           )}
-          <span className="mdt-count">{pendingFilter ? displayRows.length : total} résultat{total > 1 ? 's' : ''}</span>
+          <span className="mdt-count">{total} résultat{total > 1 ? 's' : ''}</span>
           <div style={{ display: 'flex', gap: '4px', alignItems: 'center', borderLeft: '1px solid #e2e8f0', paddingLeft: '8px' }}>
             <span style={{ fontSize: '13px', color: '#64748b', whiteSpace: 'nowrap' }}>Lignes:</span>
             {[10, 25, 50, 100, 250].map(size => (
@@ -435,6 +559,7 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
                 );
               })}
               {showSfColumn && <th className="mdt-th" style={{ minWidth: '160px' }}>Service Fait</th>}
+              {showFactureCol && <th className="mdt-th" style={{ minWidth: '70px' }}>Facture</th>}
               {showActions && <th className="mdt-th" style={{ minWidth: '120px' }}>Sedit</th>}
             </tr>
           </thead>
@@ -452,36 +577,41 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
               const childKey = childLinkValue || seditId || String(i);
               const child = childrenData[childKey];
               const isLoadingChild = loadingChildren[childKey];
-              const expandable = !!(childRubriqueId && childLinkValue);
+              const nbLignes = nbLignesColumnName
+                ? parseInt(String(row[nbLignesColumnName] ?? '').replace(/[^\d-]/g, ''), 10)
+                : NaN;
+              const expandable = !!(childRubriqueId && childLinkValue) && (isNaN(nbLignes) || nbLignes > 1);
               const factureCol = rubriqueName === 'Factures' ? columns.find(c => c.expression === 'FACTURE_FACTURE') : null;
               const factureRef = factureCol ? String(row[factureCol.name] || '').trim() : null;
+              const commandeCol = rubriqueName === 'Commandes' ? columns.find(c => c.expression === 'COMMANDE_COMMANDE') : null;
+              const commandeNum = commandeCol ? String(row[commandeCol.name] || '').trim() : null;
               let sfInfo: { label: string; color: string; bg: string; workflowId: number | null; tooltip: string; ongoing: boolean; relaunchable: boolean } | null = null;
-              if (rubriqueName === 'Factures') {
-                const st = sfStatuses[factureRef || ''] || null;
-                if (st) {
-                  const decisionDate = st.decision_at || st.updated_at;
-                  const formattedDecisionDate = decisionDate ? new Date(decisionDate).toLocaleDateString('fr-FR') : '';
-                  const map: Record<string, { label: string; color: string; bg: string }> = {
-                    'en_attente': { label: '⏳ En attente', color: '#92400e', bg: '#fef3c7' },
-                    'en_cours': { label: '🔵 En cours', color: '#1e40af', bg: '#dbeafe' },
-                    'valide': { label: formattedDecisionDate ? `✅ SF le ${formattedDecisionDate}` : '✅ Validé', color: '#166534', bg: '#dcfce7' },
-                    'valide_avec_reserves': { label: '⚠️ Avec réserves', color: '#92400e', bg: '#fef3c7' },
-                    'non_valide': { label: '❌ Non validé', color: '#991b1b', bg: '#fee2e2' },
-                    'ne_me_concerne_pas': { label: '🔄 Retourné', color: '#1e40af', bg: '#dbeafe' },
-                    'transfere': { label: '➡️ Transféré', color: '#6b21a8', bg: '#f3e8ff' },
-                    'annule': { label: '🚫 Annulé', color: '#64748b', bg: '#f1f5f9' },
-                    'telecom': { label: '📡 Telecom', color: '#0369a1', bg: '#e0f2fe' },
-                  };
-                  const meta = map[st.status] || { label: st.status, color: '#334155', bg: '#f1f5f9' };
-                  const ongoing = ['en_attente', 'en_cours', 'transfere'].includes(st.status);
-                  // Statuts pour lesquels une nouvelle demande peut être relancée sur la même
-                  // facture (doit rester synchro avec l'exclusion côté backend, createWorkflow).
-                  const relaunchable = ['non_valide', 'ne_me_concerne_pas', 'annule'].includes(st.status);
-                  const tooltip = st.status === 'telecom'
-                    ? 'Facture déjà intégrée au module Telecom — pas de service fait à valider ici'
-                    : `${st.status}\nVérificateur: ${st.verifier_name || '-'}`;
-                  sfInfo = { ...meta, workflowId: st.workflowId || null, tooltip, ongoing, relaunchable };
-                }
+              const st = rubriqueName === 'Factures' ? (sfStatuses[factureRef || ''] || null) : null;
+              if (st && st.status) {
+                const decisionDate = st.decision_at || st.updated_at;
+                const formattedDecisionDate = decisionDate ? new Date(decisionDate).toLocaleDateString('fr-FR') : '';
+                const map: Record<string, { label: string; color: string; bg: string }> = {
+                  'en_attente': { label: '⏳ En attente', color: '#92400e', bg: '#fef3c7' },
+                  'en_cours': { label: '🔵 En cours', color: '#1e40af', bg: '#dbeafe' },
+                  'en_pause': { label: '⏸️ En pause', color: '#9a3412', bg: '#ffedd5' },
+                  'valide': { label: formattedDecisionDate ? `✅ SF le ${formattedDecisionDate}` : '✅ Validé', color: '#166534', bg: '#dcfce7' },
+                  'valide_avec_reserves': { label: '⚠️ Avec réserves', color: '#92400e', bg: '#fef3c7' },
+                  'non_valide': { label: '❌ Non validé', color: '#991b1b', bg: '#fee2e2' },
+                  'ne_me_concerne_pas': { label: '🔄 Retourné', color: '#1e40af', bg: '#dbeafe' },
+                  'transfere': { label: '➡️ Transféré', color: '#6b21a8', bg: '#f3e8ff' },
+                  'en_attente_visa': { label: '🖋️ Visa directeur', color: '#6b21a8', bg: '#f3e8ff' },
+                  'annule': { label: '🚫 Annulé', color: '#64748b', bg: '#f1f5f9' },
+                  'telecom': { label: '📡 Telecom', color: '#0369a1', bg: '#e0f2fe' },
+                };
+                const meta = map[st.status] || { label: st.status, color: '#334155', bg: '#f1f5f9' };
+                const ongoing = ['en_attente', 'en_cours', 'transfere', 'en_pause', 'en_attente_visa'].includes(st.status);
+                // Statuts pour lesquels une nouvelle demande peut être relancée sur la même
+                // facture (doit rester synchro avec l'exclusion côté backend, createWorkflow).
+                const relaunchable = ['non_valide', 'ne_me_concerne_pas', 'annule'].includes(st.status);
+                const tooltip = st.status === 'telecom'
+                  ? 'Facture déjà intégrée au module Telecom — pas de service fait à valider ici'
+                  : `${st.status}\nVérificateur: ${st.verifier_name || '-'}`;
+                sfInfo = { ...meta, workflowId: st.workflowId || null, tooltip, ongoing, relaunchable };
               }
               return (
                 <React.Fragment key={i}>
@@ -506,65 +636,136 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
                       const tdStyle: React.CSSProperties = {};
                       if (cs?.bold) tdStyle.fontWeight = 'bold';
                       if (cs?.color && cs.color !== '#000000') tdStyle.color = cs.color;
-                      const cellTitle = row[col.name] != null && row[col.name] !== '' ? String(row[col.name]) : undefined;
-                      return <td key={col.name} className="mdt-cell" style={tdStyle} title={cellTitle}>{formatCell(row[col.name], col)}</td>;
+                      const cellTitle = (col.expression === 'nature' || col.expression === 'fonction')
+                        ? (m57Title(row[col.name], col.expression) || undefined)
+                        : (row[col.name] != null && row[col.name] !== '' ? String(row[col.name]) : undefined);
+                      return <td key={col.name} className="mdt-cell" style={tdStyle} title={cellTitle}>{formatCell(row[col.name], col, row)}</td>;
                     })}
                     {showSfColumn && (
                       <td className="mdt-cell" style={{ whiteSpace: 'nowrap' }}>
                         <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
-                          {sfInfo && (
+                          {st?.sedit_rejete ? (
+                            /* Facture refusée dans Sedit : badge rouge de refus (prioritaire). */
+                            <span title={`Facture rejetée dans Sedit${st.sedit_rejete_date ? ' le ' + new Date(st.sedit_rejete_date).toLocaleDateString('fr-FR') : ''}`}
+                              style={{ background: '#fee2e2', color: '#b91c1c', border: '1px solid #fecaca', borderRadius: '999px', padding: '2px 7px', fontSize: '10px', fontWeight: 700, lineHeight: '14px' }}>
+                              REFUSÉ
+                            </span>
+                          ) : (
                             <>
-                              {sfInfo.ongoing ? (
+                              {/* RA uniquement si le service fait n'est pas encore fait. */}
+                              {st?.sedit_rapproche && !st?.sedit_service_fait && (
+                                <span title="Facture rapprochée (engagement/bon de commande) dans Sedit"
+                                  style={{ background: '#eff6ff', color: '#1d4ed8', border: '1px solid #bfdbfe', borderRadius: '999px', padding: '2px 7px', fontSize: '10px', fontWeight: 700, lineHeight: '14px' }}>
+                                  RA
+                                </span>
+                              )}
+                              {/* Pastille SF : service fait attesté directement dans Sedit (date de SF en infobulle). */}
+                              {st?.sedit_service_fait && (
+                                <span title={`Service fait validé dans Sedit${st.sedit_service_fait_date ? ' le ' + new Date(st.sedit_service_fait_date).toLocaleDateString('fr-FR') : ''}`}
+                                  style={{ background: '#ecfdf5', color: '#047857', border: '1px solid #a7f3d0', borderRadius: '999px', padding: '2px 7px', fontSize: '10px', fontWeight: 700, lineHeight: '14px' }}>
+                                  SF
+                                </span>
+                              )}
+                              {/* Page beta : facture mandatée → badge cliquable (infos mandatement). */}
+                              {dataSource === 'sedit' && st?.sedit_mandate && (
+                                <button type="button" title="Voir le mandatement (Sedit)"
+                                  onClick={(e) => { e.stopPropagation(); const ref = factureColumnName ? String(row[factureColumnName] ?? '').trim() : ''; if (ref) setMandateNumero(ref); }}
+                                  style={{ background: '#ccfbf1', color: '#0f766e', border: '1px solid #99f6e4', borderRadius: '999px', padding: '2px 8px', fontSize: '10px', fontWeight: 700, lineHeight: '14px', cursor: 'pointer' }}>
+                                  MANDATÉ
+                                </button>
+                              )}
+                              {/* Workflow AppDSI : masqué dès que Sedit atteste le service fait
+                                  (c'est alors la pastille SF compacte qui fait foi). */}
+                              {sfInfo && !st?.sedit_service_fait && (
                                 <>
-                                  <span title={sfInfo.tooltip} style={{ background: sfInfo.bg, color: sfInfo.color, border: 'none', borderRadius: '4px', padding: '3px 8px', fontSize: '11px', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
-                                    {sfInfo.label}
-                                  </span>
-                                  {sfInfo.workflowId && (
-                                    <button title="Voir le processus de validation"
-                                      onClick={() => setSfProcessModal({ workflowId: sfInfo!.workflowId! })}
-                                      style={{ background: '#2563eb', color: 'white', border: 'none', borderRadius: '4px', padding: '3px 8px', fontSize: '11px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '3px' }}>
-                                      <Eye size={12} /> Processus
-                                    </button>
+                                  {/* En cours : un seul bouton (statut) qui ouvre le processus. */}
+                                  {sfInfo.ongoing ? (
+                                    sfInfo.workflowId ? (
+                                      <button title="Voir le processus de validation" onClick={() => setSfProcessModal({ workflowId: sfInfo!.workflowId! })}
+                                        style={{ background: sfInfo.bg, color: sfInfo.color, border: 'none', borderRadius: '4px', padding: '3px 8px', fontSize: '11px', fontWeight: 600, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+                                        <Eye size={12} /> {sfInfo.label}
+                                      </button>
+                                    ) : (
+                                      <span title={sfInfo.tooltip} style={{ background: sfInfo.bg, color: sfInfo.color, border: 'none', borderRadius: '4px', padding: '3px 8px', fontSize: '11px', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+                                        {sfInfo.label}
+                                      </span>
+                                    )
+                                  ) : (
+                                    <>
+                                      {sfInfo.workflowId ? (
+                                        <button title="Voir le processus de validation" onClick={() => setSfProcessModal({ workflowId: sfInfo!.workflowId! })}
+                                          style={{ background: sfInfo.bg, color: sfInfo.color, border: 'none', borderRadius: '4px', padding: '3px 8px', fontSize: '11px', fontWeight: 600, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+                                          {sfInfo.label}
+                                        </button>
+                                      ) : (
+                                        <span title={sfInfo.tooltip} style={{ background: sfInfo.bg, color: sfInfo.color, border: 'none', borderRadius: '4px', padding: '3px 8px', fontSize: '11px', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+                                          {sfInfo.label}
+                                        </span>
+                                      )}
+                                      {sfInfo.relaunchable && !st?.sedit_service_fait && (
+                                        <button title="Relancer une nouvelle demande de validation"
+                                          onClick={() => setSfModalRow({ row, mode: 'circuit' })}
+                                          style={{ background: '#2563eb', color: 'white', border: 'none', borderRadius: '4px', padding: '3px 8px', fontSize: '11px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '3px' }}>
+                                          <Rocket size={12} /> Relancer
+                                        </button>
+                                      )}
+                                    </>
                                   )}
                                 </>
-                              ) : (
+                              )}
+                              {/* Boutons d'action : seulement si ni SF Sedit ni workflow AppDSI
+                                  (sinon la pastille SF compacte suffit, plus de texte « Déjà fait »). */}
+                              {!sfInfo && !st?.sedit_service_fait && (
                                 <>
-                                  {sfInfo.workflowId ? (
-                                    <button title="Voir le processus de validation" onClick={() => setSfProcessModal({ workflowId: sfInfo!.workflowId! })}
-                                      style={{ background: sfInfo.bg, color: sfInfo.color, border: 'none', borderRadius: '4px', padding: '3px 8px', fontSize: '11px', fontWeight: 600, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
-                                      {sfInfo.label}
-                                    </button>
-                                  ) : (
-                                    <span title={sfInfo.tooltip} style={{ background: sfInfo.bg, color: sfInfo.color, border: 'none', borderRadius: '4px', padding: '3px 8px', fontSize: '11px', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
-                                      {sfInfo.label}
-                                    </span>
-                                  )}
-                                  {sfInfo.relaunchable && (
-                                    <button title="Relancer une nouvelle demande de validation"
-                                      onClick={() => setSfModalRow({ row, mode: 'circuit' })}
-                                      style={{ background: '#2563eb', color: 'white', border: 'none', borderRadius: '4px', padding: '3px 8px', fontSize: '11px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '3px' }}>
-                                      <Rocket size={12} /> Relancer
-                                    </button>
-                                  )}
+                                  <button title="Lancer la validation du service fait (avec un vérificateur)"
+                                    onClick={() => setSfModalRow({ row, mode: 'circuit' })}
+                                    style={{ background: '#2563eb', color: 'white', border: 'none', borderRadius: '4px', padding: '3px 8px', fontSize: '11px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '3px' }}>
+                                    <Rocket size={12} /> Lancer
+                                  </button>
+                                  <button title="Déclarer moi-même le service fait (sans circuit de validation)"
+                                    onClick={() => setSfModalRow({ row, mode: 'self' })}
+                                    style={{ background: '#16a34a', color: 'white', border: 'none', borderRadius: '4px', padding: '3px 8px', fontSize: '11px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '3px' }}>
+                                    <CheckCircle size={12} /> Faire
+                                  </button>
                                 </>
                               )}
                             </>
                           )}
-                          {!sfInfo && (
-                            <>
-                              <button title="Lancer la validation du service fait (avec un vérificateur)"
-                                onClick={() => setSfModalRow({ row, mode: 'circuit' })}
-                                style={{ background: '#2563eb', color: 'white', border: 'none', borderRadius: '4px', padding: '3px 8px', fontSize: '11px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '3px' }}>
-                                <Rocket size={12} /> Lancer
-                              </button>
-                              <button title="Déclarer moi-même le service fait (sans circuit de validation)"
-                                onClick={() => setSfModalRow({ row, mode: 'self' })}
-                                style={{ background: '#16a34a', color: 'white', border: 'none', borderRadius: '4px', padding: '3px 8px', fontSize: '11px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '3px' }}>
-                                <CheckCircle size={12} /> Faire
-                              </button>
-                            </>
-                          )}
                         </div>
+                      </td>
+                    )}
+                    {showFactureCol && (
+                      <td className="mdt-cell" style={{ whiteSpace: 'nowrap' }}>
+                        {(() => {
+                          const fs = seditId ? commandeStatuses[seditId] : null;
+                          if (!fs) return null;
+                          const MAP: Record<string, { label: string; color: string; bg: string }> = {
+                            recue: { label: 'Reçue', color: '#475569', bg: '#f1f5f9' },
+                            service_fait: { label: 'Service fait', color: '#1e40af', bg: '#dbeafe' },
+                            mandatee: { label: 'Mandatée', color: '#166534', bg: '#dcfce7' },
+                            refusee: { label: 'Refusée', color: '#b91c1c', bg: '#fee2e2' },
+                          };
+                          const meta = MAP[fs.state] || MAP.recue;
+                          const n = fs.count || 1;
+                          const factures: string[] = Array.isArray(fs.factures) ? fs.factures : [];
+                          const clickable = factures.length > 0;
+                          return (
+                            <button type="button" disabled={!clickable}
+                              onClick={clickable ? (e) => {
+                                e.stopPropagation();
+                                setSeditDocsViewer({
+                                  numeros: factures,
+                                  title: `Facture${n > 1 ? 's' : ''} Sedit — Commande ${commandeNum || seditId || ''}`.trim(),
+                                });
+                              } : undefined}
+                              title={clickable
+                                ? `${n} facture${n > 1 ? 's' : ''} — ${meta.label} (cliquer pour afficher)`
+                                : `${n} facture${n > 1 ? 's' : ''} — ${meta.label}`}
+                              style={{ background: meta.bg, color: meta.color, border: `1px solid ${meta.color}33`, borderRadius: '999px', padding: '2px 7px', fontSize: '10px', fontWeight: 700, lineHeight: '14px', cursor: clickable ? 'pointer' : 'default' }}>
+                              FAC
+                            </button>
+                          );
+                        })()}
                       </td>
                     )}
                     {showActions && (
@@ -576,6 +777,24 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
                                 onClick={() => window.open(`${urlSedit}/${seditUrlPage}?${seditUrlParam}=${seditId}`, '_blank')}
                                 style={{ background: '#3b82f6', color: 'white', border: 'none', borderRadius: '4px', padding: '3px 8px', fontSize: '11px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '3px' }}>
                                 <ExternalLink size={12} /> Sedit
+                              </button>
+                            )}
+                            {rubriqueName === 'Factures' && factureRef && (
+                              <button title="Voir les pièces jointes Sedit (PDF/XML de la facture)"
+                                onClick={() => setSeditDocsViewer({ numero: factureRef })}
+                                style={{ background: '#7c3aed', color: 'white', border: 'none', borderRadius: '4px', padding: '3px 8px', fontSize: '11px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '3px' }}>
+                                <Files size={12} /> Pièces jointes
+                              </button>
+                            )}
+                            {rubriqueName === 'Commandes' && seditId && (
+                              <button title="Voir le bon de commande (Sedit)"
+                                onClick={() => setSeditDocsViewer({
+                                  numero: seditId,
+                                  baseUrl: `/api/finance/pj-share/commande/${encodeURIComponent(seditId)}`,
+                                  title: `Bon de commande Sedit${commandeNum ? ' — Commande ' + commandeNum : ''}`,
+                                })}
+                                style={{ background: '#7c3aed', color: 'white', border: 'none', borderRadius: '4px', padding: '3px 8px', fontSize: '11px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '3px' }}>
+                                <Files size={12} /> PJ
                               </button>
                             )}
                           </div>
@@ -830,6 +1049,25 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
           workflowId={sfProcessModal.workflowId}
           onClose={() => setSfProcessModal(null)}
           onChanged={() => fetchData(searchTerm, currentPage * effectivePageSize)}
+        />
+      )}
+
+      {seditDocsViewer && (
+        <FactureDocumentsViewer
+          numero={seditDocsViewer.numero}
+          numeros={seditDocsViewer.numeros}
+          token={token}
+          baseUrl={seditDocsViewer.baseUrl}
+          title={seditDocsViewer.title}
+          onClose={() => setSeditDocsViewer(null)}
+        />
+      )}
+
+      {mandateNumero && (
+        <MandatementModal
+          numero={mandateNumero}
+          urlSedit={urlSedit}
+          onClose={() => setMandateNumero(null)}
         />
       )}
     </div>

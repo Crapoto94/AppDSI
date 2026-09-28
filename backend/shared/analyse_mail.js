@@ -61,6 +61,62 @@ async function fetchJson(cfg, url, timeoutMs) {
     }
 }
 
+async function postJson(cfg, url, body, timeoutMs) {
+    const headerName = cfg.header_name || 'X-API-Key';
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+    try {
+        const resp = await fetch(url, {
+            method: 'POST',
+            headers: { [headerName]: cfg.api_key, Accept: 'application/json', 'Content-Type': 'application/json' },
+            body: JSON.stringify(body || {}),
+            signal: ctrl.signal,
+        });
+        const text = await resp.text().catch(() => '');
+        if (!resp.ok) {
+            let msg = `HTTP ${resp.status} depuis Analyse-mail`;
+            try { const j = JSON.parse(text); if (j && j.error) msg += ` — ${j.error}`; }
+            catch { if (text) msg += ' — ' + text.slice(0, 300); }
+            throw new Error(msg);
+        }
+        try {
+            return JSON.parse(text);
+        } catch {
+            throw new Error('Réponse Analyse-mail non JSON');
+        }
+    } finally {
+        clearTimeout(timer);
+    }
+}
+
+/**
+ * Déclenche un scan à la demande d'une boîte mail (endpoint amont POST /api/v1/scan)
+ * et attend son résultat (score, verdict, signaux détectés). Le scan tourne en tâche
+ * de fond côté Analyse-mail : on interroge son job jusqu'à complétion (ou expiration).
+ * @param {object} opts
+ * @param {string} opts.email  adresse de la boîte à analyser
+ * @param {number|string} [opts.days]  profondeur d'analyse en jours (1-90, défaut 7)
+ * @param {number} [opts.timeoutMs]  délai max d'attente du scan (défaut 180 s)
+ */
+async function scanMailbox({ email, days = 7, timeoutMs = 180000, pollIntervalMs = 1500 } = {}) {
+    if (!email || !String(email).includes('@')) throw new Error('Adresse email invalide pour le scan');
+    const cfg = await getConfig();
+    const base = (cfg.base_url || '').replace(/\/+$/, '');
+    const { job_id } = await postJson(cfg, `${base}/api/v1/scan`, { email, days }, 30000);
+    if (!job_id) throw new Error("Analyse-mail n'a pas renvoyé de job_id");
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+        await new Promise(r => setTimeout(r, pollIntervalMs));
+        const job = await fetchJson(cfg, `${base}/api/v1/jobs/${encodeURIComponent(job_id)}`, 30000);
+        if (job.status === 'error') throw new Error(job.error || 'Échec du scan Analyse-mail');
+        if (job.status === 'done') {
+            if (!job.result) throw new Error('Scan Analyse-mail terminé sans résultat');
+            return job.result;
+        }
+    }
+    throw new Error('Délai dépassé : le scan Analyse-mail est trop long (relancez)');
+}
+
 /**
  * Récupère les KPI du tableau de bord Analyse-mail (mêmes chiffres que sa page
  * d'accueil : incidents, surveillance, connexions, et les points
@@ -95,4 +151,4 @@ async function getFailedSignins(opts = {}) {
     return fetchJson(cfg, url, timeoutMs);
 }
 
-module.exports = { getConfig, getKpis, getFailedSignins };
+module.exports = { getConfig, getKpis, getFailedSignins, scanMailbox };

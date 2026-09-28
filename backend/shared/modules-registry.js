@@ -34,6 +34,7 @@ const MODULES_REGISTRY = [
     { key: 'calendrier',   title: 'Calendrier DSI',        icon: 'Calendar',     description: 'Calendrier et agents de la DSI.', url: '/calendrier-dsi' },
     { key: 'budget',       title: 'Budget',                icon: 'DollarSign',   description: 'Gestion budgétaire.', url: '/budget' },
     { key: 'doctrines',    title: 'Notes & doctrines',     icon: 'Book',         description: 'Notes de service et doctrines.', url: '/doctrines' },
+    { key: 'notes',        title: 'Mes Notes IA',          icon: 'NotebookPen',  description: 'Prise de notes assistée par IA : correction, reformulation et classement automatiques.', url: '/notes', is_public: true },
     { key: 'reseau',       title: 'Réseau Ville',          icon: 'Network',      description: 'Cartographie du réseau inter-sites (fibre, WAN, opérateurs, fourreaux).', url: '/reseau' },
     { key: 'reunions',     title: 'Réunions',              icon: 'Calendar',     description: 'Réunions et comptes-rendus.', url: '/mes-reunions' },
     { key: 'magapp',       title: 'Magasin d\'applications',icon: 'AppWindow',    description: 'Galerie d\'applications et logiciels métiers.', url: '/admin/magapp' },
@@ -43,6 +44,9 @@ const MODULES_REGISTRY = [
     { key: 'vols',         title: 'Vols et Pertes de Matériel', icon: 'ShieldAlert', description: 'Suivi des matériels volés ou perdus.', url: '/vols' },
     { key: 'param-ville',  title: 'Paramètres Ville',      icon: 'City',        description: 'Paramétrage de la ville et localisations.', url: '/admin/param-ville' },
     { key: 'boites-partagees', title: 'Boîtes mail partagées', icon: 'Mail',    description: 'Suivi des boîtes mail partagées et de leurs membres.', url: '/boites-partagees', is_public: true },
+    { key: 'parapheur',    title: 'Parapheur électronique', icon: 'PenTool',    description: 'Signature électronique de documents PDF.', url: '/parapheur', is_public: true },
+    { key: 'vibecoding',   title: 'VibeCoding',            icon: 'Terminal',    description: 'Ressources et plan de la formation au développement assisté par IA.', url: '/vibecoding' },
+    { key: 'fast',         title: 'Actions rapides',       icon: 'Zap',         description: 'Gestes rapides du quotidien : nouveau ticket, tâche, mot de passe par SMS, gestion de compte AD et analyse mail.', url: '/fast' },
 ];
 
 module.exports = { MODULES_REGISTRY };

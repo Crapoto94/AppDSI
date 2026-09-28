@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
-import { Search, Loader2, Clock, Bell, User, Heart, X, LogOut, LifeBuoy, AlertTriangle, Activity, CheckCircle2, XCircle, Tag, Lightbulb, Paperclip, Eye, BarChart3, Briefcase, FileText, MessageSquare, GraduationCap, Star, ShoppingCart, FlaskConical, Send, MessageCircle, Plus, Ticket, HelpCircle } from 'lucide-react';
+import { Search, Loader2, Clock, Bell, User, Heart, X, LogOut, LifeBuoy, AlertTriangle, Activity, CheckCircle2, XCircle, Tag, Lightbulb, Paperclip, Eye, BarChart3, Briefcase, FileText, MessageSquare, GraduationCap, Star, ShoppingCart, FlaskConical, Send, MessageCircle, Plus, Ticket, HelpCircle, FileSignature, Wrench, ChevronRight, ListTodo, NotebookPen, Calendar, Sun, Moon } from 'lucide-react';
 import './index.css';
 import logoDsiHub from './assets/DSI.png';
 import Login from './Login';
@@ -11,6 +11,8 @@ import ChatWidget from './components/ChatWidget';
 import RequestFormFieldRenderer from './components/RequestFormFieldRenderer';
 import type { FormFieldDef, ServiceDirectionDef } from './components/requestFormTypes';
 import DynamicIcon from './components/DynamicIcon';
+import PdfToolsHub from './components/PdfTools/PdfToolsHub';
+import { useTheme } from './contexts/ThemeContext';
 
 interface RequestForm {
   id: number;
@@ -41,6 +43,11 @@ interface AppItem {
   is_maintenance: number;
   maintenance_start: string | null;
   maintenance_end: string | null;
+  next_maintenance?: {
+    id: number; name: string; description: string | null;
+    severity: 'mineure' | 'majeure'; has_interruption: boolean;
+    start_date: string; end_date: string;
+  } | null;
   app_type: string;
   present_magapp: string;
   present_onboard: string;
@@ -83,6 +90,28 @@ function normalizeReleaseNotesHtml(html: string): string {
   return html ? html.replace(/&nbsp;/gi, ' ') : html;
 }
 
+/** Carte d'outil de la modale « Mes outils DSI ». */
+function ToolCard({ icon, bg, title, description, beta, onClick }: { icon: React.ReactNode; bg: string; title: string; description: string; beta?: boolean; onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      style={{ display: 'flex', alignItems: 'center', gap: '14px', textAlign: 'left', background: '#fff', border: '1px solid #e2e8f0', borderRadius: '14px', padding: '16px', cursor: 'pointer', transition: 'all 0.2s', position: 'relative' }}
+      onMouseOver={(e) => { e.currentTarget.style.borderColor = '#0078a455'; e.currentTarget.style.boxShadow = '0 6px 16px -6px rgba(0,120,164,0.25)'; }}
+      onMouseOut={(e) => { e.currentTarget.style.borderColor = '#e2e8f0'; e.currentTarget.style.boxShadow = 'none'; }}
+    >
+      <div style={{ width: 44, height: 44, minWidth: 44, borderRadius: '12px', background: bg, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{icon}</div>
+      <div style={{ minWidth: 0 }}>
+        <div style={{ fontSize: '0.95rem', fontWeight: 700, color: '#1e293b', display: 'flex', alignItems: 'center', gap: 6 }}>
+          {title}
+          {beta && <span style={{ background: '#f59e0b', color: '#1e293b', fontSize: '0.55rem', fontWeight: 800, padding: '1px 5px', borderRadius: '6px', letterSpacing: '0.05em' }}>BETA</span>}
+        </div>
+        <div style={{ fontSize: '0.8rem', color: '#64748b', marginTop: 2 }}>{description}</div>
+      </div>
+      <ChevronRight size={18} color="#cbd5e1" style={{ marginLeft: 'auto', flexShrink: 0 }} />
+    </button>
+  );
+}
+
 function App() {
   const [categories, setCategories] = useState<Category[]>([]);
   const [apps, setApps] = useState<AppItem[]>([]);
@@ -98,6 +127,8 @@ function App() {
   const [displayName, setDisplayName] = useState<string>('bel.le inconnu.e');
   const [userEmail, setUserEmail] = useState<string>('');
   const [showSubs, setShowSubs] = useState(false);
+  const [mySubs, setMySubs] = useState<{ is_admin: boolean; email: string; subscriptions: { app_id: number; app_name: string; icon?: string; is_maintenance?: boolean; email_alerts: boolean; forced: boolean }[] }>({ is_admin: false, email: '', subscriptions: [] });
+  const [loadingSubs, setLoadingSubs] = useState(false);
   const [showTickets, setShowTickets] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
   const [helpContentHtml, setHelpContentHtml] = useState<string | null>(null);
@@ -108,7 +139,7 @@ function App() {
   const [showEmail, setShowEmail] = useState(false);
   const [healthResults, setHealthResults] = useState<Record<number, 'ok' | 'fail'>>({});
   const [isTesting, setIsTesting] = useState(false);
-  const [settings, setSettings] = useState({ show_tickets: true, show_subscriptions: true, show_health_check: true, show_create_buttons: true, show_ideas: true, show_rencontres: true, show_library: false, is_beta_user: false, show_tickets_original: true, show_subscriptions_original: true, show_health_check_original: true, show_create_buttons_original: true, show_ideas_original: true, show_library_original: false, show_rencontres_original: false, show_consommables: true, show_consommables_original: true, show_chat_live: false, show_transcript_manager: false, show_transcript_manager_original: false });
+  const [settings, setSettings] = useState({ show_tickets: true, show_subscriptions: true, show_health_check: true, show_create_buttons: true, show_ideas: true, show_rencontres: true, show_library: false, is_beta_user: false, show_tickets_original: true, show_subscriptions_original: true, show_health_check_original: true, show_create_buttons_original: true, show_ideas_original: true, show_library_original: false, show_rencontres_original: false, show_consommables: true, show_consommables_original: true, show_chat_live: false, show_transcript_manager: false, show_transcript_manager_original: false, show_parapheur: false, show_parapheur_original: false, show_pdf_tools: false, show_pdf_tools_original: false, show_tool_incident: true, show_tool_incident_original: true, show_tool_demande: true, show_tool_demande_original: true, show_tasks: false, show_tasks_original: false, show_notes: false, show_notes_original: false, show_reunions: false, show_reunions_original: false });
   const [hasRencontresAccess, setHasRencontresAccess] = useState(false);
   const [hasConsommablesAccess, setHasConsommablesAccess] = useState(false);
   const [activeVersion, setActiveVersion] = useState<{ id: number; version_number: string; release_notes_html: string; release_date: string } | null>(null);
@@ -133,6 +164,8 @@ function App() {
   const [observedTickets, setObservedTickets] = useState<{glpi_id: number, title: string, status_label: string, date_creation: string, type: string, status: string, solution: string, content: string, requester_name: string, requester_email: string, source: string}[]>([]);
   const [showClosedObserved, setShowClosedObserved] = useState(false);
   const [showRencontres, setShowRencontres] = useState(false);
+  const [showTools, setShowTools] = useState(false);
+  const [showPdfTools, setShowPdfTools] = useState(false);
   const [rencontres] = useState<any[]>([]);
   const [myDemandes, setMyDemandes] = useState<any[]>([]);
   const [rencontreSuiviIdx, setRencontreSuiviIdx] = useState<number | null>(null);
@@ -186,6 +219,7 @@ function App() {
   const [isAddingComment, setIsAddingComment] = useState(false);
   const [isClosingTicket, setIsClosingTicket] = useState(false);
 
+  const { isDark, toggleTheme } = useTheme();
   const apiBase = `/api`; // Utiliser le proxy Vite pour les données
 
   useEffect(() => {
@@ -206,6 +240,20 @@ function App() {
           setUserEmail(resolvedEmail);
           setIsLoggedIn(true);
           setIsAutoLogging(false);
+          // Ancienne session (ou profil sans nom) : on résout le vrai nom
+          // (prénom nom) via AD / RH Studio pour l'en-tête « Bienvenue, … ».
+          if (!user.displayName || user.displayName === user.username) {
+            try {
+              const token = localStorage.getItem('token') || '';
+              const r = await axios.get('/api/agents/me', { headers: { Authorization: `Bearer ${token}` } });
+              if (r.data?.displayName) {
+                setDisplayName(r.data.displayName);
+                user.displayName = r.data.displayName;
+                sessionStorage.setItem('magapp_user', JSON.stringify(user));
+                if (localStorage.getItem('magapp_user')) localStorage.setItem('magapp_user', JSON.stringify(user));
+              }
+            } catch { /* on garde le login */ }
+          }
           await loadAppData(user.username, resolvedEmail);
           await checkVersions();
           return;
@@ -365,14 +413,14 @@ function App() {
         fetchSafe(`${apiBase}/magapp/categories`, []),
         fetchSafe(`${apiBase}/magapp/apps`, []),
         fetchSafe(`${apiBase}/magapp/favorites?username=${username}`, []),
-        fetchSafe(`${apiBase}/magapp/settings?username=${encodeURIComponent(username)}${email ? '&email=' + encodeURIComponent(email) : ''}`, { show_tickets: true, show_subscriptions: true, show_health_check: true, show_create_buttons: true, show_ideas: true, show_rencontres: true, is_beta_user: false, show_tickets_original: true, show_subscriptions_original: true, show_health_check_original: true, show_create_buttons_original: true, show_ideas_original: true, show_chat_live: false, show_transcript_manager: false, show_transcript_manager_original: false }),
+        fetchSafe(`${apiBase}/magapp/settings?username=${encodeURIComponent(username)}${email ? '&email=' + encodeURIComponent(email) : ''}`, { show_tickets: true, show_subscriptions: true, show_health_check: true, show_create_buttons: true, show_ideas: true, show_rencontres: true, is_beta_user: false, show_tickets_original: true, show_subscriptions_original: true, show_health_check_original: true, show_create_buttons_original: true, show_ideas_original: true, show_chat_live: false, show_transcript_manager: false, show_transcript_manager_original: false, show_parapheur: false, show_parapheur_original: false, show_pdf_tools: false, show_pdf_tools_original: false, show_tool_incident: true, show_tool_incident_original: true, show_tool_demande: true, show_tool_demande_original: true, show_tasks: false, show_tasks_original: false, show_notes: false, show_notes_original: false, show_reunions: false, show_reunions_original: false }),
         fetchSafe(`${apiBase}/tiles`, [])
       ]);
 
       setCategories((cats || []).sort((a: Category, b: Category) => (a.display_order || 0) - (b.display_order || 0)));
       setApps((appsData || []).sort((a: AppItem, b: AppItem) => a.name.localeCompare(b.name, 'fr', { sensitivity: 'base' })));
       setFavorites(favs);
-      setSettings({...settingsData, is_beta_user: settingsData.is_beta_user || false, show_tickets_original: settingsData.show_tickets_original ?? settingsData.show_tickets, show_subscriptions_original: settingsData.show_subscriptions_original ?? settingsData.show_subscriptions, show_health_check_original: settingsData.show_health_check_original ?? settingsData.show_health_check, show_create_buttons_original: settingsData.show_create_buttons_original ?? settingsData.show_create_buttons, show_ideas_original: settingsData.show_ideas_original ?? settingsData.show_ideas, show_rencontres_original: settingsData.show_rencontres_original ?? settingsData.show_rencontres, show_consommables_original: settingsData.show_consommables_original ?? settingsData.show_consommables ?? true, show_chat_live: settingsData.show_chat_live ?? false, show_transcript_manager: settingsData.show_transcript_manager ?? false, show_transcript_manager_original: settingsData.show_transcript_manager_original ?? false});
+      setSettings({...settingsData, is_beta_user: settingsData.is_beta_user || false, show_tickets_original: settingsData.show_tickets_original ?? settingsData.show_tickets, show_subscriptions_original: settingsData.show_subscriptions_original ?? settingsData.show_subscriptions, show_health_check_original: settingsData.show_health_check_original ?? settingsData.show_health_check, show_create_buttons_original: settingsData.show_create_buttons_original ?? settingsData.show_create_buttons, show_ideas_original: settingsData.show_ideas_original ?? settingsData.show_ideas, show_rencontres_original: settingsData.show_rencontres_original ?? settingsData.show_rencontres, show_consommables_original: settingsData.show_consommables_original ?? settingsData.show_consommables ?? true, show_chat_live: settingsData.show_chat_live ?? false, show_transcript_manager: settingsData.show_transcript_manager ?? false, show_transcript_manager_original: settingsData.show_transcript_manager_original ?? false, show_parapheur: settingsData.show_parapheur ?? false, show_parapheur_original: settingsData.show_parapheur_original ?? false, show_pdf_tools: settingsData.show_pdf_tools ?? false, show_pdf_tools_original: settingsData.show_pdf_tools_original ?? false, show_tool_incident: settingsData.show_tool_incident ?? true, show_tool_incident_original: settingsData.show_tool_incident_original ?? true, show_tool_demande: settingsData.show_tool_demande ?? true, show_tool_demande_original: settingsData.show_tool_demande_original ?? true, show_tasks: settingsData.show_tasks ?? false, show_tasks_original: settingsData.show_tasks_original ?? false, show_notes: settingsData.show_notes ?? false, show_notes_original: settingsData.show_notes_original ?? false, show_reunions: settingsData.show_reunions ?? false, show_reunions_original: settingsData.show_reunions_original ?? false});
       setHasRencontresAccess(settingsData.has_rencontres_access || false);
       setHasConsommablesAccess(settingsData.has_consumables_access || false);
       setTiles((tilesData || []).sort((a: any, b: any) => (a.sort_order || 0) - (b.sort_order || 0)));
@@ -481,6 +529,26 @@ function App() {
     }
   }, [rencontreSuiviIdx]);
 
+  // Chargement des abonnements détaillés à l'ouverture de « Mes abonnements »
+  // (déclaré AVANT les retours anticipés pour respecter les règles des hooks).
+  useEffect(() => {
+    if (!showSubs) return;
+    const load = async () => {
+      setLoadingSubs(true);
+      try {
+        const token = localStorage.getItem('token') || '';
+        const res = await axios.get(`${apiBase}/magapp/my-subscriptions?email=${encodeURIComponent(userEmail || '')}`, {
+          headers: token ? { Authorization: `Bearer ${token}` } : {}
+        });
+        setMySubs(res.data || { is_admin: false, email: '', subscriptions: [] });
+      } catch (e) {
+        console.error('Erreur chargement abonnements', e);
+        setMySubs({ is_admin: false, email: userEmail, subscriptions: [] });
+      } finally { setLoadingSubs(false); }
+    };
+    load();
+  }, [showSubs, userEmail]);
+
   const toggleFavorite = async (e: React.MouseEvent, appId: number) => {
     e.preventDefault();
     e.stopPropagation();
@@ -570,12 +638,96 @@ function App() {
     }
   };
 
+  const handleOpenParapheur = async () => {
+    try {
+      const token = localStorage.getItem('token') || '';
+      const res = await axios.post('/api/auth/magapp-parapheur-access', {}, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const url = res.data?.url;
+      if (!url) throw new Error('URL manquante');
+      window.open(url, '_blank', 'noopener');
+    } catch (error) {
+      console.error("Erreur d'ouverture du Parapheur", error);
+      setModalConfig({
+        isOpen: true,
+        type: 'error',
+        title: 'Parapheur',
+        message: "Impossible d'ouvrir le parapheur électronique. Vérifiez votre session.",
+        onConfirm: () => setModalConfig(prev => ({ ...prev, isOpen: false }))
+      });
+    }
+  };
+
+  const handleOpenTasks = async () => {
+    try {
+      const token = localStorage.getItem('token') || '';
+      const res = await axios.post('/api/auth/magapp-tasks-access', {}, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const url = res.data?.url;
+      if (!url) throw new Error('URL manquante');
+      window.open(url, '_blank', 'noopener');
+    } catch (error) {
+      console.error("Erreur d'ouverture de Mes tâches", error);
+      setModalConfig({
+        isOpen: true,
+        type: 'error',
+        title: 'Mes tâches',
+        message: "Impossible d'ouvrir vos tâches. Vérifiez votre session.",
+        onConfirm: () => setModalConfig(prev => ({ ...prev, isOpen: false }))
+      });
+    }
+  };
+
+  const handleOpenNotes = async () => {
+    try {
+      const token = localStorage.getItem('token') || '';
+      const res = await axios.post('/api/auth/magapp-notes-access', {}, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const url = res.data?.url;
+      if (!url) throw new Error('URL manquante');
+      window.open(url, '_blank', 'noopener');
+    } catch (error) {
+      console.error("Erreur d'ouverture de Mes notes IA", error);
+      setModalConfig({
+        isOpen: true,
+        type: 'error',
+        title: 'Mes notes IA',
+        message: "Impossible d'ouvrir vos notes IA. Vérifiez votre session.",
+        onConfirm: () => setModalConfig(prev => ({ ...prev, isOpen: false }))
+      });
+    }
+  };
+
+  const handleOpenReunions = async () => {
+    try {
+      const token = localStorage.getItem('token') || '';
+      const res = await axios.post('/api/auth/magapp-reunions-access', {}, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const url = res.data?.url;
+      if (!url) throw new Error('URL manquante');
+      window.open(url, '_blank', 'noopener');
+    } catch (error) {
+      console.error("Erreur d'ouverture de Mes réunions", error);
+      setModalConfig({
+        isOpen: true,
+        type: 'error',
+        title: 'Mes réunions',
+        message: "Impossible d'ouvrir vos réunions. Vérifiez votre session.",
+        onConfirm: () => setModalConfig(prev => ({ ...prev, isOpen: false }))
+      });
+    }
+  };
+
   const handleOpenHelp = async () => {
     setShowHelp(true);
     if (helpContentHtml !== null || helpLoading) return;
     setHelpLoading(true);
     try {
-      const res = await axios.get(`/api/page-help/${encodeURIComponent('/transcriptmanager')}`);
+      const res = await axios.get(`/api/page-help/${encodeURIComponent('/magapp')}`);
       setHelpContentHtml(res.data?.content_html || "<p>Aucune aide disponible pour l'instant.</p>");
     } catch (error) {
       console.error("Erreur de chargement de l'aide", error);
@@ -609,26 +761,35 @@ function App() {
     
     setIsCreatingTicket(true);
     try {
-      let content = ticketDescription;
-      if (ticketPhone) {
-        content += `\n\nNuméro de téléphone pour contact: ${ticketPhone}`;
-      }
-      content += `\n\nDemandeur: ${userEmail}`;
-      content += `\nDate: ${new Date().toLocaleString('fr-FR')}`;
-      
       const token = localStorage.getItem('token');
       const isGeneral = ticketType === 'incident' && isIncidentGeneral;
       const blocked = isBlocked;
-      
+
       let urgency = ticketType === 'incident' ? 3 : 2;
       let impact = ticketType === 'incident' ? 2 : 2;
       let priority = 3;
       if (blocked) { urgency = 4; priority = 4; }
       if (isGeneral) { impact = 4; priority = Math.max(priority, 4); }
-      
+
+      // Le champ "content" est affiché en HTML dans la vue ticket (et dans les
+      // emails {{ticket_content}}) : chaque champ est placé sur sa propre ligne,
+      // son intitulé en gras (mêmes conventions que les formulaires de demande).
+      const escHtml = (s: string | null | undefined) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' } as Record<string, string>)[c] ?? c);
+      const metaRows: [string, string][] = [];
+      if (ticketPhone) metaRows.push(['Numéro de téléphone pour contact', escHtml(ticketPhone)]);
+      metaRows.push(['Demandeur', escHtml(userEmail)]);
+      metaRows.push(['Date', escHtml(new Date().toLocaleString('fr-FR'))]);
+      const content = (isGeneral ? '<p><strong>[INCIDENT GENERAL]</strong></p>' : '')
+        + `<p>${escHtml(ticketDescription).replace(/\n/g, '<br>')}</p>`
+        + (metaRows.length > 0
+          ? `<div style="margin-top:10px;">${metaRows.map(([label, value]) =>
+              `<div style="padding:6px 0;border-bottom:1px solid #e2e8f0;"><strong>${label} :</strong> ${value}</div>`
+            ).join('')}</div>`
+          : '');
+
       const response = await axios.post('/api/tickets/', {
         title: ticketTitle,
-        content: isGeneral ? `[INCIDENT GENERAL] ${content}` : content,
+        content,
         type: ticketType === 'incident' ? 1 : 2,
         urgency,
         impact,
@@ -971,6 +1132,19 @@ function App() {
       .replace(/<meta\b(?=[^>]*http-equiv\s*=\s*["']?refresh)[^>]*>/gi, '');
   };
 
+  const handleToggleSubAlert = async (appId: number, emailAlerts: boolean) => {
+    try {
+      const token = localStorage.getItem('token') || '';
+      await axios.put(`${apiBase}/magapp/subscriptions/${appId}/preferences`, { email: userEmail, email_alerts: emailAlerts }, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setMySubs(prev => ({ ...prev, subscriptions: prev.subscriptions.map(s => s.app_id === appId ? { ...s, email_alerts: emailAlerts } : s) }));
+    } catch (e) {
+      const msg = (axios.isAxiosError(e) && e.response?.data?.message) || "Impossible d'enregistrer la préférence.";
+      setModalConfig({ isOpen: true, type: 'error', title: 'Erreur', message: msg, onConfirm: () => setModalConfig(prev => ({ ...prev, isOpen: false })) });
+    }
+  };
+
   const handleSubscribe = async (e: React.MouseEvent, app: AppItem) => {
     e.preventDefault();
     e.stopPropagation();
@@ -1280,9 +1454,9 @@ function App() {
               onMouseOut={(e) => { e.currentTarget.style.background = '#f8fafc'; e.currentTarget.style.borderColor = '#f1f5f9'; }}
             >
               <div style={{ textAlign: 'right' }}>
-                <div style={{ fontSize: '0.95rem', fontWeight: 800, color: '#1e293b' }}>Bienvenue, {displayName}</div>
-                <div style={{ fontSize: '0.75rem', color: showEmail ? '#0078a4' : '#64748b', fontWeight: showEmail ? 700 : 400 }}>
-                  {showEmail ? (userEmail || 'Email non trouvé') : (windowLogin ? 'Session Active' : 'Utilisateur invité')}
+                <div style={{ fontSize: '0.95rem', fontWeight: 800, color: '#1e293b' }}>Bienvenue,</div>
+                <div style={{ fontSize: '0.85rem', color: '#0078a4', fontWeight: 700 }}>
+                  {showEmail ? (userEmail || 'Email non trouvé') : (windowLogin ? (displayName || windowLogin) : 'Utilisateur invité')}
                 </div>
               </div>
               <div style={{ width: '40px', height: '40px', borderRadius: '10px', background: 'linear-gradient(135deg, #0078a4 0%, #00a0db 100%)', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 4px 6px -1px rgba(0,120,164,0.2)' }}>
@@ -1290,32 +1464,28 @@ function App() {
               </div>
             </div>
 
-            {((settings.show_rencontres && hasRencontresAccess) || settings.is_beta_user) && (
-              <button
-                onClick={() => setShowRencontres(true)}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '8px',
-                  background: 'white',
-                  border: '1px solid #cbd5e1',
-                  padding: '10px 18px',
-                  borderRadius: '10px',
-                  fontSize: '0.9rem',
-                  fontWeight: 600,
-                  color: '#475569',
-                  cursor: 'pointer',
-                  transition: 'all 0.2s',
-                  boxShadow: '0 1px 2px rgba(0,0,0,0.05)',
-                  position: 'relative'
-                }}
-                title="Mes demandes budgétaires"
-              >
-                <BarChart3 size={18} />
-                Rencontres
-                {settings.is_beta_user && !settings.show_rencontres_original && <span style={{ position: 'absolute', top: '-4px', right: '-4px', background: '#f59e0b', color: '#1e293b', fontSize: '0.55rem', fontWeight: 800, padding: '1px 4px', borderRadius: '6px', letterSpacing: '0.05em' }}>BETA</span>}
-              </button>
-            )}
+            <button
+              onClick={() => setShowTools(true)}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                background: 'white',
+                border: '1px solid #cbd5e1',
+                padding: '10px 18px',
+                borderRadius: '10px',
+                fontSize: '0.9rem',
+                fontWeight: 600,
+                color: '#475569',
+                cursor: 'pointer',
+                transition: 'all 0.2s',
+                boxShadow: '0 1px 2px rgba(0,0,0,0.05)'
+              }}
+              title="Mes outils DSI (rencontres, transcript, parapheur, tâches, notes IA, réunions, demandes, incidents)"
+            >
+              <Wrench size={18} />
+              Mes outils DSI
+            </button>
 
             {(settings.show_tickets || settings.is_beta_user) && (
               <button
@@ -1343,58 +1513,15 @@ function App() {
               </button>
             )}
 
-            {windowLogin && (settings.show_transcript_manager || settings.is_beta_user) && (
-              <button
-                onClick={handleOpenTranscript}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '8px',
-                  background: 'white',
-                  border: '1px solid #cbd5e1',
-                  padding: '10px 18px',
-                  borderRadius: '10px',
-                  fontSize: '0.9rem',
-                  fontWeight: 600,
-                  color: '#475569',
-                  cursor: 'pointer',
-                  transition: 'all 0.2s',
-                  boxShadow: '0 1px 2px rgba(0,0,0,0.05)',
-                  position: 'relative'
-                }}
-                title="Ouvrir mon Transcript Manager (réunions, résumés IA)"
-              >
-                <FileText size={18} />
-                Mon Transcript Manager
-                {settings.is_beta_user && !settings.show_transcript_manager_original && <span style={{ marginLeft: 8, background: '#f59e0b', color: '#1e293b', fontSize: '0.55rem', fontWeight: 800, padding: '1px 4px', borderRadius: '6px', letterSpacing: '0.05em' }}>BETA</span>}
-              </button>
-            )}
-
-            {(settings.show_subscriptions || settings.is_beta_user) && (
-              <button 
-                onClick={() => setShowSubs(true)}
-                style={{ 
-                  display: 'flex', 
-                  alignItems: 'center', 
-                  gap: '8px', 
-                  background: 'white', 
-                  border: '1px solid #cbd5e1', 
-                  padding: '10px 18px', 
-                  borderRadius: '10px',
-                  fontSize: '0.9rem',
-                  fontWeight: 600,
-                  color: '#475569',
-                  cursor: 'pointer',
-                  transition: 'all 0.2s',
-                  boxShadow: '0 1px 2px rgba(0,0,0,0.05)',
-                  position: 'relative'
-                }}
-              >
-                <Heart size={18} />
-                Mes abonnements
-                {settings.is_beta_user && !settings.show_subscriptions_original && <span style={{ position: 'absolute', top: '-4px', right: '-4px', background: '#f59e0b', color: '#1e293b', fontSize: '0.55rem', fontWeight: 800, padding: '1px 4px', borderRadius: '6px', letterSpacing: '0.05em' }}>BETA</span>}
-              </button>
-            )}
+            <button
+              onClick={toggleTheme}
+              className="theme-toggle-btn"
+              title={isDark ? 'Passer en mode clair' : 'Passer en mode sombre'}
+              aria-label={isDark ? 'Activer le mode clair' : 'Activer le mode sombre'}
+              aria-pressed={isDark}
+            >
+              {isDark ? <Sun size={20} /> : <Moon size={20} />}
+            </button>
 
             <button
               onClick={handleOpenHelp}
@@ -1430,6 +1557,145 @@ function App() {
           </div>
         </div>
       </header>
+
+      {/* Modal « Mes outils DSI » */}
+      {showTools && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(15, 23, 42, 0.6)', backdropFilter: 'blur(4px)', zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
+          <div style={{ background: 'white', maxWidth: '660px', width: '100%', borderRadius: '24px', padding: '32px', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)', position: 'relative', maxHeight: '90vh', overflowY: 'auto' }}>
+            <button
+              onClick={() => setShowTools(false)}
+              style={{ position: 'absolute', top: '20px', right: '20px', background: '#f1f5f9', border: 'none', cursor: 'pointer', color: '#64748b', width: '36px', height: '36px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+            >
+              <X size={20} />
+            </button>
+
+            <div style={{ textAlign: 'center', marginBottom: '24px' }}>
+              <div style={{ width: '60px', height: '60px', background: '#e0f2fe', borderRadius: '16px', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px' }}>
+                <Wrench size={30} color="#0369a1" />
+              </div>
+              <h2 style={{ margin: 0, fontSize: '1.5rem', fontWeight: 800, color: '#1e293b' }}>Mes outils DSI</h2>
+              <p style={{ color: '#64748b', fontSize: '0.95rem', marginTop: '8px' }}>Accédez rapidement à vos services et outils DSI</p>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '12px' }}>
+              {((settings.show_rencontres && hasRencontresAccess) || settings.is_beta_user) && (
+                <ToolCard
+                  icon={<BarChart3 size={22} color="#0284c7" />}
+                  bg="#dbeafe"
+                  title="Rencontres annuelles"
+                  description="Réunions et demandes budgétaires"
+                  beta={settings.is_beta_user && !settings.show_rencontres_original}
+                  onClick={() => { setShowTools(false); setShowRencontres(true); }}
+                />
+              )}
+
+              {windowLogin && (settings.show_transcript_manager || settings.is_beta_user) && (
+                <ToolCard
+                  icon={<FileText size={22} color="#7c3aed" />}
+                  bg="#ede9fe"
+                  title="Transcript manager"
+                  description="Réunions, comptes rendus et résumés IA"
+                  beta={settings.is_beta_user && !settings.show_transcript_manager_original}
+                  onClick={() => { setShowTools(false); handleOpenTranscript(); }}
+                />
+              )}
+
+              {(settings.show_parapheur || settings.is_beta_user) && (
+                <ToolCard
+                  icon={<FileSignature size={22} color="#0e7490" />}
+                  bg="#cffafe"
+                  title="Parapheur"
+                  description="Signer et suivre vos documents"
+                  beta={settings.is_beta_user && !settings.show_parapheur_original}
+                  onClick={() => { setShowTools(false); handleOpenParapheur(); }}
+                />
+              )}
+
+              {(settings.show_tasks || settings.is_beta_user) && (
+                <ToolCard
+                  icon={<ListTodo size={22} color="#2563eb" />}
+                  bg="#dbeafe"
+                  title="Mes tâches"
+                  description="Suivre et organiser vos tâches"
+                  beta={settings.is_beta_user && !settings.show_tasks_original}
+                  onClick={() => { setShowTools(false); handleOpenTasks(); }}
+                />
+              )}
+
+              {(settings.show_notes || settings.is_beta_user) && (
+                <ToolCard
+                  icon={<NotebookPen size={22} color="#059669" />}
+                  bg="#d1fae5"
+                  title="Mes notes IA"
+                  description="Notes personnelles assistées par IA"
+                  beta={settings.is_beta_user && !settings.show_notes_original}
+                  onClick={() => { setShowTools(false); handleOpenNotes(); }}
+                />
+              )}
+
+              {(settings.show_reunions || settings.is_beta_user) && (
+                <ToolCard
+                  icon={<Calendar size={22} color="#0369a1" />}
+                  bg="#e0f2fe"
+                  title="Mes réunions"
+                  description="Vos réunions et comptes-rendus"
+                  beta={settings.is_beta_user && !settings.show_reunions_original}
+                  onClick={() => { setShowTools(false); handleOpenReunions(); }}
+                />
+              )}
+
+              {(settings.show_pdf_tools || settings.is_beta_user) && (
+                <ToolCard
+                  icon={<FileText size={22} color="#0369a1" />}
+                  bg="#dbeafe"
+                  title="Outils PDF"
+                  description="Fusionner, découper, compresser vos PDF"
+                  beta={settings.is_beta_user && !settings.show_pdf_tools_original}
+                  onClick={() => { setShowTools(false); setShowPdfTools(true); }}
+                />
+              )}
+
+              {(settings.show_subscriptions || settings.is_beta_user) && (
+                <ToolCard
+                  icon={<Heart size={22} color="#4f46e5" />}
+                  bg="#e0e7ff"
+                  title="Mes abonnements"
+                  description="Suivre l'état des services"
+                  beta={settings.is_beta_user && !settings.show_subscriptions_original}
+                  onClick={() => { setShowTools(false); setShowSubs(true); }}
+                />
+              )}
+
+              {(settings.show_tool_incident || settings.is_beta_user) && (
+                <ToolCard
+                  icon={<AlertTriangle size={22} color="#dc2626" />}
+                  bg="#fee2e2"
+                  title="Déclarer un incident"
+                  description="Signaler un problème à la DSI"
+                  beta={settings.is_beta_user && !settings.show_tool_incident_original}
+                  onClick={() => { setShowTools(false); handleIncidentClick(); }}
+                />
+              )}
+
+              {(settings.show_tool_demande || settings.is_beta_user) && (
+                <ToolCard
+                  icon={<Clock size={22} color="#2563eb" />}
+                  bg="#dbeafe"
+                  title="Faire une demande"
+                  description="Demander un service à la DSI"
+                  beta={settings.is_beta_user && !settings.show_tool_demande_original}
+                  onClick={() => {
+                    setShowTools(false);
+                    if (publishedForms.length > 0 || hasConsommablesAccess) { setShowFormChooser(true); } else { setTicketType('demande'); setShowCreateTicket(true); }
+                  }}
+                />
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showPdfTools && <PdfToolsHub onClose={() => setShowPdfTools(false)} />}
 
       {/* Modal Rencontres */}
       {showRencontres && (
@@ -1709,29 +1975,66 @@ function App() {
               <X size={20} />
             </button>
 
-            <div style={{ textAlign: 'center', marginBottom: '30px' }}>
+            <div style={{ textAlign: 'center', marginBottom: '24px' }}>
               <div style={{ width: '60px', height: '60px', background: '#fff1f2', borderRadius: '16px', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 20px' }}>
                 <Heart size={32} color="#e11d48" fill="#e11d48" />
               </div>
               <h2 style={{ margin: 0, fontSize: '1.5rem', fontWeight: 800, color: '#1e293b' }}>Mes abonnements</h2>
               <p style={{ color: '#64748b', fontSize: '1rem', marginTop: '10px', lineHeight: '1.5' }}>
-                Gérez vos alertes de maintenance pour vos applications favorites.
+                Alertes de maintenance et de nouveautés pour vos applications.
+              </p>
+              <p style={{ color: '#94a3b8', fontSize: '0.85rem', marginTop: '6px' }}>
+                {mySubs.email || userEmail ? `Alertes envoyées à : ${mySubs.email || userEmail}` : 'Aucun email configuré.'}
               </p>
             </div>
 
-            <div style={{ padding: '30px', background: '#f8fafc', borderRadius: '20px', textAlign: 'center', border: '1px dashed #cbd5e1' }}>
-              <Bell size={40} color="#94a3b8" style={{ marginBottom: '15px', opacity: 0.5 }} />
-              <div style={{ fontSize: '1rem', color: '#64748b', fontWeight: 500 }}>
-                {userEmail ? `Les alertes sont envoyées à : ${userEmail}` : "Aucun email configuré."}
+            {mySubs.is_admin && (
+              <div style={{ marginBottom: '16px', padding: '10px 14px', background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: '10px', fontSize: '0.85rem', color: '#1d4ed8', fontWeight: 600 }}>
+                En tant qu'administrateur du Magasin d'applications, vous êtes abonné d'office à toutes les applications.
               </div>
-              <p style={{ fontSize: '0.85rem', color: '#94a3b8', marginTop: '8px' }}>
-                Cliquez sur l'icône <Bell size={14} style={{ display: 'inline', verticalAlign: 'middle' }} /> d'une application pour vous abonner.
-              </p>
-            </div>
+            )}
+
+            {loadingSubs ? (
+              <div style={{ padding: '30px', textAlign: 'center', color: '#94a3b8', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px' }}>
+                <Loader2 size={20} className="spinner-small" /> Chargement...
+              </div>
+            ) : mySubs.subscriptions.length === 0 ? (
+              <div style={{ padding: '30px', background: '#f8fafc', borderRadius: '20px', textAlign: 'center', border: '1px dashed #cbd5e1' }}>
+                <Bell size={40} color="#94a3b8" style={{ marginBottom: '15px', opacity: 0.5 }} />
+                <div style={{ fontSize: '1rem', color: '#64748b', fontWeight: 500 }}>Aucun abonnement pour l'instant.</div>
+                <p style={{ fontSize: '0.85rem', color: '#94a3b8', marginTop: '8px' }}>
+                  Cliquez sur l'icône <Bell size={14} style={{ display: 'inline', verticalAlign: 'middle' }} /> d'une application pour vous abonner.
+                </p>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '45vh', overflowY: 'auto' }}>
+                {mySubs.subscriptions.map(s => (
+                  <div key={s.app_id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', padding: '12px 14px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '12px' }}>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontWeight: 700, fontSize: '0.95rem', color: '#1e293b', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        {s.app_name}
+                        {s.is_maintenance ? <span style={{ fontSize: '0.65rem', fontWeight: 800, background: '#fef3c7', color: '#92400e', padding: '1px 6px', borderRadius: '6px' }}>MAINTENANCE</span> : null}
+                      </div>
+                      <div style={{ fontSize: '0.78rem', color: '#64748b' }}>{s.forced ? "Abonné d'office (administrateur)" : 'Alerte mail en cas de maintenance et de nouveauté'}</div>
+                    </div>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: s.forced ? 'not-allowed' : 'pointer', flexShrink: 0 }}>
+                      <input
+                        type="checkbox"
+                        checked={s.email_alerts}
+                        disabled={s.forced}
+                        onChange={e => handleToggleSubAlert(s.app_id, e.target.checked)}
+                        style={{ width: '18px', height: '18px', accentColor: '#0078a4', cursor: s.forced ? 'not-allowed' : 'pointer' }}
+                      />
+                      <span style={{ fontSize: '0.8rem', fontWeight: 600, color: s.email_alerts ? '#0078a4' : '#94a3b8' }}>Mail</span>
+                    </label>
+                  </div>
+                ))}
+              </div>
+            )}
 
             <button 
               onClick={() => setShowSubs(false)} 
-              style={{ width: '100%', marginTop: '30px', padding: '14px', background: '#0078a4', color: 'white', border: 'none', borderRadius: '12px', fontSize: '1rem', fontWeight: 700, cursor: 'pointer', boxShadow: '0 4px 6px -1px rgba(0,120,164,0.2)' }}
+              style={{ width: '100%', marginTop: '24px', padding: '14px', background: '#0078a4', color: 'white', border: 'none', borderRadius: '12px', fontSize: '1rem', fontWeight: 700, cursor: 'pointer', boxShadow: '0 4px 6px -1px rgba(0,120,164,0.2)' }}
             >
               Fermer
             </button>
@@ -3241,6 +3544,13 @@ interface AppCardProps {
 
 const AppCard: React.FC<AppCardProps> = ({ app, isFavorite, isSubscribed, showSubscriptions, toggleFavorite, handleSubscribe, handleAppClick, formatDate, healthStatus, openLibrary, showLibraryFeature }) => {
   const isMaint = app.is_maintenance === 1;
+  const nextMaint = !isMaint ? app.next_maintenance : null;
+  const nextMaintTooltip = nextMaint ? [
+    `📅 ${nextMaint.name}`,
+    `Du ${formatDate(nextMaint.start_date)} au ${formatDate(nextMaint.end_date)}`,
+    `${nextMaint.severity === 'majeure' ? 'Gravité majeure' : 'Gravité mineure'} — ${nextMaint.has_interruption ? 'avec interruption de service' : 'sans interruption de service'}`,
+    nextMaint.description || '',
+  ].filter(Boolean).join('\n') : '';
   const healthClass = healthStatus === 'ok' ? 'health-ok' : (healthStatus === 'fail' ? 'health-fail' : '');
   
   return (
@@ -3290,6 +3600,26 @@ const AppCard: React.FC<AppCardProps> = ({ app, isFavorite, isSubscribed, showSu
       </a>
 
       <div className="card-actions" style={{ position: 'absolute', right: '25px', display: 'flex', gap: '8px', zIndex: 5 }}>
+        {nextMaint && (
+          <span
+            title={nextMaintTooltip}
+            style={{
+              background: '#eef2ff',
+              border: '1px solid #c7d2fe',
+              borderRadius: '50%',
+              width: '32px',
+              height: '32px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              boxShadow: '0 2px 4px rgba(0,0,0,0.05)',
+              color: '#4f46e5',
+              flexShrink: 0,
+            }}
+          >
+            <Wrench size={15} />
+          </span>
+        )}
         {app.url_test && (
           <a
             className="animate-hover"

@@ -3,6 +3,7 @@ import { useNavigate, Link, useLocation } from 'react-router-dom';
 import { User, LogOut, Info, X, Settings, Plus, Trash2, CheckCircle2, Clock, AlertTriangle, Github, Loader2, LayoutGrid, HelpCircle, LayoutDashboard } from 'lucide-react';
 import * as LucideIcons from 'lucide-react';
 import { isAdminLike } from '../utils/roles';
+import ThemeToggle from './ThemeToggle';
 import axios from 'axios';
 
 interface Todo {
@@ -141,7 +142,10 @@ const Header: React.FC<HeaderProps> = ({ columns, onColumnsChange }) => {
       const res = await axios.get('/api/tiles', {
         headers: { Authorization: `Bearer ${token}` }
       });
-      setNavTiles((res.data || []).filter((t: TileData) => t.is_authorized && t.status === 'active'));
+      // « Actions rapides » (/fast) est un raccourci mobilité autonome, pas un module à
+      // lister ici (cf. Dashboard.tsx pour la même exclusion sur la grille d'accueil).
+      setNavTiles((res.data || []).filter((t: TileData) =>
+        t.is_authorized && t.status === 'active' && !(t.links || []).some(l => l.url === '/fast')));
     } catch (err) {
       console.error("Error fetching nav tiles:", err);
     }
@@ -402,8 +406,8 @@ const Header: React.FC<HeaderProps> = ({ columns, onColumnsChange }) => {
                         <Link to="/admin/tickets" className="nav-tile-item" onClick={() => setShowAdminDropdown(false)}>
                           🎫 Tickets
                         </Link>
-                        <Link to="/admin/glpi" className="nav-tile-item" onClick={() => setShowAdminDropdown(false)}>
-                          🔄 GLPI
+                        <Link to="/admin/databases" className="nav-tile-item" onClick={() => setShowAdminDropdown(false)}>
+                          🗄️ Bases de données
                         </Link>
                         <Link to="/parc" className="nav-tile-item" onClick={() => setShowAdminDropdown(false)}>
                           🖥️ Parc informatique
@@ -469,6 +473,7 @@ const Header: React.FC<HeaderProps> = ({ columns, onColumnsChange }) => {
                   ))}
                 </span>
               )}
+              <ThemeToggle />
               <button onClick={handleLogout} className="btn-logout" title="Déconnexion">
                 <LogOut size={20} />
               </button>

@@ -1,4 +1,5 @@
 const { pool } = require('../../shared/database');
+const seditDirect = require('./sedit-direct.service');
 
 const DISPLAY_TYPE_CASTS = {
   number: (expr) => `CASE WHEN ${expr} IS NULL OR TRIM(${expr}::text) = '' THEN NULL ELSE (${expr})::numeric END`,
@@ -561,6 +562,20 @@ resolveMapping: async (req, res) => {
     } catch (error) {
       console.error('[FieldMapping] resolveMapping error:', error);
       res.status(500).json({ message: 'Erreur lors de la résolution du mapping', error: error.message });
+    }
+  },
+
+  // Variante « beta » : mêmes colonnes/lignes que resolveMapping mais sourcées
+  // DIRECTEMENT depuis Sedit (Oracle FI), sans passer par la copie locale Postgres.
+  resolveMappingSedit: async (req, res) => {
+    const { name } = req.params;
+    try {
+      const data = await seditDirect.resolveRubriqueFromSedit(name, req.query);
+      res.json(data);
+    } catch (error) {
+      const status = error.status || 500;
+      console.error('[FieldMapping] resolveMappingSedit error:', error.message);
+      res.status(status).json({ message: "Erreur lors de la résolution depuis Sedit", error: error.message });
     }
   },
 

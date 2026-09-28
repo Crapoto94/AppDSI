@@ -1,19 +1,21 @@
 import React, { useState } from 'react';
-import { Inbox, Lightbulb } from 'lucide-react';
+import { Inbox, Lightbulb, Sparkles } from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
 import AdminBacklog from './AdminBacklog';
 import AdminIdeas from './AdminIdeas';
+import AdminWhatsNew from './AdminWhatsNew';
 
-type BacklogTab = 'backlog' | 'magapp';
+type BacklogTab = 'backlog' | 'magapp' | 'whatsnew';
 
 const TABS: { id: BacklogTab; label: string; Icon: React.ElementType }[] = [
-  { id: 'backlog', label: 'BackLog DSIHUB', Icon: Inbox      },
-  { id: 'magapp', label: 'BackLog Magapp',  Icon: Lightbulb  },
+  { id: 'backlog',  label: 'BackLog DSIHUB', Icon: Inbox      },
+  { id: 'magapp',   label: 'BackLog Magapp',  Icon: Lightbulb  },
+  { id: 'whatsnew', label: "What's New",      Icon: Sparkles   },
 ];
 
 const AdminBacklogMerged: React.FC = () => {
   const [searchParams] = useSearchParams();
-  const initial: BacklogTab = searchParams.get('tab') === 'magapp' ? 'magapp' : 'backlog';
+  const initial: BacklogTab = searchParams.get('tab') === 'magapp' ? 'magapp' : (searchParams.get('tab') === 'whatsnew' ? 'whatsnew' : 'backlog');
   const [tab, setTab] = useState<BacklogTab>(initial);
 
   return (
@@ -44,6 +46,7 @@ const AdminBacklogMerged: React.FC = () => {
       <div className="abm-body">
         {tab === 'backlog' && <AdminBacklog />}
         {tab === 'magapp'  && <AdminIdeas />}
+        {tab === 'whatsnew' && <AdminWhatsNew />}
       </div>
 
       <style>{`

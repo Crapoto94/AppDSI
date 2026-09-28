@@ -51,7 +51,7 @@ const Login: React.FC = () => {
       if (token) {
         // Authentifier proprement avec le token reçu
         try {
-          const userRes = await fetch('/api/me', {
+          const userRes = await fetch('/api/auth/me', {
             headers: { 'Authorization': `Bearer ${token}` }
           });
           if (userRes.ok) {
@@ -61,8 +61,11 @@ const Login: React.FC = () => {
             navigate(redirect);
             return;
           }
+          console.error('Final auth error: /api/auth/me a renvoyé', userRes.status);
+          setError("Le jeton de connexion Microsoft n'a pas pu être validé. Réessayez.");
         } catch (e) {
           console.error('Final auth error:', e);
+          setError("Le jeton de connexion Microsoft n'a pas pu être validé. Réessayez.");
         }
       }
 

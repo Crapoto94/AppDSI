@@ -35,6 +35,9 @@ import ProjetDetail from './pages/ProjetDetail';
 import TranscriptManager from './pages/TranscriptManager';
 import TranscriptMeetingDetail from './pages/TranscriptManager/MeetingDetail';
 import TranscriptShare from './pages/TranscriptShare';
+import TasksShare from './pages/TasksShare';
+import NotesShare from './pages/NotesShare';
+import ReunionsShare from './pages/ReunionsShare';
 import Contrats from './pages/Contrats';
 import ContratsAnalysesIA from './pages/ContratsAnalysesIA';
 import Vols from './pages/Vols';
@@ -51,6 +54,8 @@ import AdminDatabases from './pages/AdminDatabases';
 import AdminSync from './pages/AdminSync';
 import WhatsNew from './pages/WhatsNew';
 import Doctrines from './pages/Doctrines';
+import VibeCoding from './pages/VibeCoding';
+import Notes from './pages/Notes';
 import TicketsDashboard from './pages/Tickets/TicketsDashboard';
 import TicketDetail from './pages/Tickets/TicketDetail';
 import TicketCreate from './pages/Tickets/TicketCreate';
@@ -62,14 +67,17 @@ import AdminGED from './pages/AdminGED';
 import PublicTicketReply from './pages/PublicTicketReply';
 import PublicReopenTicket from './pages/PublicReopenTicket';
 import ServiceFaitVerifier from './pages/ServiceFaitVerifier';
+import ServiceFaitVisa from './pages/ServiceFaitVisa';
 import ServiceFaitProcessus from './pages/ServiceFaitProcessus';
 import ChatWidget from './components/LiveChat/ChatWidget';
 import ParamVille from './pages/Admin/ParamVille';
+import ParapheurCertificats from './pages/Admin/ParapheurCertificats';
 import HubSettings from './pages/Admin/HubSettings';
 import AidesAdmin from './pages/Admin/AidesAdmin';
 import SecurityMenu from './pages/Admin/SecurityMenu';
 import AutoResolution from './pages/Admin/AutoResolution';
 import ApiKeysAdmin from './pages/Admin/ApiKeys';
+import AdminNotes from './pages/Admin/AdminNotes';
 import AutoResolutionConfirm from './pages/AutoResolutionConfirm';
 import StocksDashboard from './pages/Stocks/StocksDashboard';
 import ReseauDashboard from './pages/Reseau/ReseauDashboard';
@@ -82,10 +90,19 @@ import StocksPrets from './pages/Stocks/Prets';
 import ParcInformatique from './pages/ParcInformatique';
 import RHPage from './pages/RH';
 import FastActions from './pages/FastActions';
+import ParapheurList from './pages/Parapheur/ParapheurList';
+import ParapheurCreate from './pages/Parapheur/ParapheurCreate';
+import ParapheurDetail from './pages/Parapheur/ParapheurDetail';
+import SignatureSignataire from './pages/Parapheur/SignatureSignataire';
+import ParapheurVerification from './pages/Parapheur/ParapheurVerification';
+import ParapheurShare from './pages/Parapheur/ParapheurShare';
 
 const ChatWidgetWrapper = () => {
   const location = useLocation();
   if (location.pathname === '/fast') return null;
+  // Page publique de vérification (QR des PDF signés, éventuellement servie en
+  // DMZ) : on n'y affiche pas le widget de chat interne.
+  if (location.pathname.startsWith('/parapheur/verification')) return null;
   if (location.search.includes('nomenu') || localStorage.getItem('restrictedPath')) return null;
   return <ChatWidget />;
 };
@@ -155,12 +172,21 @@ function App() {
         <Route path="/repondre/:token" element={<PublicTicketReply />} />
         <Route path="/reouvrir/:token" element={<PublicReopenTicket />} />
         <Route path="/service-fait-verifier/:token" element={<ServiceFaitVerifier />} />
+        <Route path="/service-fait-visa/:token" element={<ServiceFaitVisa />} />
         <Route path="/service-fait/processus/:id" element={<PrivateRoute path="/budget"><ServiceFaitProcessus /></PrivateRoute>} />
         <Route path="/transcript/:token" element={<TranscriptShare />} />
+        <Route path="/mes-taches/:token" element={<TasksShare />} />
+        <Route path="/notes/:token" element={<NotesShare />} />
+        <Route path="/mes-reunions/:token" element={<ReunionsShare />} />
         <Route path="/auto-resolution/keep-alive/:token" element={<AutoResolutionConfirm />} />
+        <Route path="/signature/:token" element={<SignatureSignataire />} />
+        <Route path="/parapheur/verification/:token" element={<ParapheurVerification />} />
+        <Route path="/parapheur/partage/:token" element={<ParapheurShare />} />
         <Route path="/request-feature" element={<PrivateRoute path="/request-feature"><RequestFeature /></PrivateRoute>} />
         <Route path="/whats-new" element={<PrivateRoute path="/whats-new"><WhatsNew /></PrivateRoute>} />
         <Route path="/doctrines" element={<PrivateRoute path="/doctrines"><Doctrines /></PrivateRoute>} />
+        <Route path="/vibecoding" element={<PrivateRoute path="/vibecoding"><VibeCoding /></PrivateRoute>} />
+        <Route path="/notes" element={<PrivateRoute path="/notes"><Notes /></PrivateRoute>} />
 
         <Route path="/" element={<PrivateRoute path="/"><Dashboard /></PrivateRoute>} />
         <Route path="/budget" element={<PrivateRoute path="/budget"><Budget /></PrivateRoute>} />
@@ -193,6 +219,9 @@ function App() {
         <Route path="/reseau" element={<PrivateRoute path="/reseau"><ReseauDashboard /></PrivateRoute>} />
         <Route path="/parc" element={<PrivateRoute path="/parc"><ParcInformatique /></PrivateRoute>} />
         <Route path="/rh" element={<PrivateRoute path="/rh"><RHPage /></PrivateRoute>} />
+        <Route path="/parapheur" element={<PrivateRoute path="/parapheur"><ParapheurList /></PrivateRoute>} />
+        <Route path="/parapheur/nouveau" element={<PrivateRoute path="/parapheur"><ParapheurCreate /></PrivateRoute>} />
+        <Route path="/parapheur/:id" element={<PrivateRoute path="/parapheur"><ParapheurDetail /></PrivateRoute>} />
         <Route path="/fast" element={<PrivateRoute path="/fast"><FastActions /></PrivateRoute>} />
         <Route path="/calendrier-dsi" element={<PrivateRoute path="/calendrier-dsi"><CalendrierDSI /></PrivateRoute>} />
         <Route path="/calendrier-dsi/agents" element={<PrivateRoute path="/calendrier-dsi"><AgentsDSI /></PrivateRoute>} />
@@ -227,7 +256,7 @@ function App() {
           <Route path="users" element={<Admin section="users" />} />
           <Route path="tiles" element={<Admin section="tiles" />} />
           <Route path="ad" element={<AdminSync />} />
-          <Route path="glpi" element={<AdminDatabases />} />
+          <Route path="databases" element={<AdminDatabases />} />
           <Route path="oracle" element={<AdminDatabases />} />
           <Route path="mariadb" element={<AdminDatabases />} />
           <Route path="messages" element={<AdminMessages />} />
@@ -239,12 +268,14 @@ function App() {
           <Route path="ideas" element={<AdminBacklogMerged />} />
           <Route path="frizbi" element={<FrizbiSettings />} />
           <Route path="transcript" element={<Admin section="transcript" />} />
+          <Route path="notes" element={<AdminNotes />} />
           <Route path="finance" element={<AdminDatabases />} />
           <Route path="email-automation" element={<AdminMail />} />
           <Route path="backlog" element={<AdminBacklogMerged />} />
           <Route path="o365-mail" element={<AdminMail />} />
           {/* param-ville déplacé hors du parent admin → cf. route standalone ci-dessous */}
           <Route path="organisation" element={<AdminOrganisation />} />
+          <Route path="parapheur-certificats" element={<ParapheurCertificats />} />
           <Route path="tickets" element={<TicketAdmin />} />
           <Route path="ged" element={<AdminGED />} />
           <Route path="inventaire" element={<AdminInventaire />} />

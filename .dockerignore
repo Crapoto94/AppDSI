@@ -1,0 +1,22 @@
+# Contexte de build racine (utilisé par parapheur-dmz/Dockerfile).
+# On garde le contexte léger : le build n'a besoin que du dossier frontend/.
+
+**/node_modules
+**/dist
+**/dist-ssr
+.git
+.gitignore
+**/*.log
+*.sqlite
+backend/data
+backend/uploads
+backend/file_commandes
+backend/file_factures
+backend/file_certif
+backend/file_telecom
+backend/glpi_attachments
+backend/consommables
+backend/prets
+backend/service-fait
+vol
+dip

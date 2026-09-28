@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Calendar, Users, ArrowLeft, Eye, Plus } from 'lucide-react';
 import Header from '../components/Header';
+import ModuleAgentHeader from '../components/ModuleAgentHeader';
 import CreateReunionModal from '../components/CreateReunionModal';
 import ReunionDetailModal from '../components/ReunionDetailModal';
 import { useAuth } from '../contexts/AuthContext';
@@ -52,9 +53,16 @@ const MesReunions: React.FC = () => {
 
   useEffect(() => { fetchReunions(); }, [fetchReunions]);
 
+  // Accès « module seul » depuis le Magasin d'applications (jeton restreint) :
+  // on affiche l'en-tête DSI « lite » au lieu du header complet.
+  const isMagappAccess = (localStorage.getItem('restrictedPath') || '').startsWith('/mes-reunions');
+  const headerNode = isMagappAccess
+    ? <ModuleAgentHeader title="Mes réunions" helpPath="/mes-reunions" icon={<Calendar size={20} />} user={user} />
+    : <Header />;
+
   return (
     <div style={{minHeight: '100vh', background: '#f8fafc'}}>
-      <Header />
+      {headerNode}
       <div className="container" style={{padding: '24px', maxWidth: '1000px', margin: '0 auto'}}>
         <div style={{display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '24px'}}>
           <button onClick={() => navigate('/')} style={{background: 'none', border: 'none', cursor: 'pointer', padding: '8px', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#64748b'}}>

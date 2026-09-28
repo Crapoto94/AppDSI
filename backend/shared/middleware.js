@@ -233,6 +233,81 @@ const authenticateMagappControl = (req, res, next) => {
     });
 };
 
+/**
+ * Middleware for Admin or users with VibeCoding module access
+ */
+const authenticateVibecodingControl = (req, res, next) => {
+    authenticateJWT(req, res, async () => {
+        if (isAdminLike(req.user)) {
+            return next();
+        }
+
+        try {
+            const db = getSqlite();
+            if (req.user && req.user.id && db) {
+                const authorized = await db.get(`
+                    SELECT 1 FROM user_tiles ut
+                    JOIN tile_links tl ON ut.tile_id = tl.tile_id
+                    WHERE ut.user_id = ? AND tl.url = '/vibecoding'
+                `, [req.user.id]);
+
+                if (authorized) return next();
+            }
+        } catch (error) {
+            console.error('[AUTH VIBECODING] Error checking tile access:', error);
+        }
+
+        res.status(403).json({ message: 'Accès refusé : administrateur ou accès VibeCoding requis' });
+    });
+};
+
+/**
+ * Middleware for Admin or users with Fast module access (/fast) or Tickets module access.
+ * Le module « Actions rapides » (/fast) est une façade qui réutilise l'API du
+ * module Tickets : on autorise donc l'accès à quiconque possède la tuile /fast
+ * OU la tuile /tickets (les administrateurs passent toujours).
+ */
+const authenticateFastControl = (req, res, next) => {
+    authenticateJWT(req, res, async () => {
+        if (isAdminLike(req.user)) {
+            return next();
+        }
+
+        try {
+            const db = getSqlite();
+            if (req.user && req.user.id && db) {
+                const authorized = await db.get(`
+                    SELECT 1 FROM user_tiles ut
+                    JOIN tile_links tl ON tl.tile_id = ut.tile_id
+                    WHERE ut.user_id = ? AND tl.url IN ('/fast', '/tickets')
+                    LIMIT 1
+                `, [req.user.id]);
+
+                if (authorized) return next();
+            }
+        } catch (error) {
+            console.error('[AUTH FAST] Error checking tile access:', error);
+        }
+
+        // Repli : accès tickets réel via le rôle de module résolu (hub_tickets.
+        // technician_profiles / hub.users), indépendant de la tuile SQLite user_tiles —
+        // celle-ci peut ne jamais avoir été demandée par un compte pourtant déjà
+        // superviseur/technicien tickets (élevé directement en base), qui se voyait donc
+        // refuser à tort l'accès aux Actions automatiques du module Tickets.
+        // Require tardif : ticket-permissions.js require shared/middleware.js
+        // (dépendance circulaire si importé en haut de fichier).
+        try {
+            const { resolveTicketRole } = require('../modules/tickets/middleware/ticket-permissions');
+            const role = await resolveTicketRole(req.user);
+            if (['technician', 'supervisor', 'admin', 'superadmin'].includes(role)) return next();
+        } catch (error) {
+            console.error('[AUTH FAST] Error checking ticket role:', error.message);
+        }
+
+        res.status(403).json({ message: 'Accès refusé : accès au module Actions rapides ou Tickets requis' });
+    });
+};
+
 const authenticateGLPIControl = (req, res, next) => {
     authenticateJWT(req, res, async () => {
         if (!req.user) return res.status(401).json({ message: 'Non authentifié' });
@@ -517,6 +592,7 @@ const SEG_TO_SCOPE = {
   'dsi-dashboard': 'dashboard',
   maps: 'dxf',
   'oracle-automation': 'oracle',
+  notes: 'notes',
 };
 
 // Déduit le périmètre (scope) attendu depuis le chemin relatif à /api.
@@ -567,6 +643,8 @@ module.exports = {
     authenticateAdminOrPMO: bypassIfApiKey(authenticateAdminOrPMO),
     authenticateAdminOrContrats: bypassIfApiKey(authenticateAdminOrContrats),
     authenticateMagappControl: bypassIfApiKey(authenticateMagappControl),
+    authenticateVibecodingControl: bypassIfApiKey(authenticateVibecodingControl),
+    authenticateFastControl: bypassIfApiKey(authenticateFastControl),
     authenticateGLPIControl: bypassIfApiKey(authenticateGLPIControl),
     authenticateConsommablesAdmin: bypassIfApiKey(authenticateConsommablesAdmin),
     authenticatePretsAdmin: bypassIfApiKey(authenticatePretsAdmin),

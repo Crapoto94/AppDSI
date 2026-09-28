@@ -1,11 +1,13 @@
 const { getSqlite, pgDb, pool } = require('../../shared/database');
-const { flattenLDAPEntry, decodeLDAPString } = require('../../shared/utils');
+const { flattenLDAPEntry, decodeLDAPString, parisLocalToUtcISO } = require('../../shared/utils');
 const { isAdminLike } = require('../../shared/middleware');
 const axios = require('axios');
 const path = require('path');
 const fs = require('fs');
 const mariadb = require('mariadb');
 const ldap = require('ldapjs');
+const magappAlerts = require('../../shared/magapp_alerts');
+const storage = require('../../shared/storage');
 
 function formatLocal(d) {
     const y = d.getFullYear();
@@ -20,6 +22,25 @@ function formatLocal(d) {
 /**
  * MagApp Controller
  */
+// Un administrateur du Magasin d'applications (rôle admin/superadmin ou accès à
+// la tuile /admin/magapp) est abonné d'office à toutes les applications.
+async function isMagappAdmin(req) {
+    if (isAdminLike(req.user)) return true;
+    try {
+        const db = getSqlite();
+        if (db && req.user?.id) {
+            const row = await db.get(
+                `SELECT 1 FROM user_tiles ut
+                 JOIN tile_links tl ON ut.tile_id = tl.tile_id
+                 WHERE ut.user_id = ? AND tl.url = '/admin/magapp'`,
+                [req.user.id]
+            );
+            if (row) return true;
+        }
+    } catch (e) { /* ignore */ }
+    return false;
+}
+
 const MagAppController = {
     // Categories
     getCategories: async (req, res) => {
@@ -84,7 +105,22 @@ const MagAppController = {
                 (SELECT COUNT(*) FROM magapp.app_docs WHERE app_id = a.id AND is_obsolete = FALSE AND is_technical = TRUE) as technical_doc_count,
                 (SELECT COUNT(*) FROM magapp.app_docs WHERE app_id = a.id AND is_obsolete = FALSE) as doc_count,
                 (SELECT COUNT(*) FROM magapp.maintenances WHERE app_id = a.id AND start_date > CURRENT_TIMESTAMP) as future_maintenance_count,
-                (SELECT COUNT(*) FROM magapp.maintenances WHERE app_id = a.id AND start_date <= CURRENT_TIMESTAMP AND end_date >= CURRENT_TIMESTAMP) as ongoing_maintenance_count
+                (SELECT COUNT(*) FROM magapp.maintenances WHERE app_id = a.id AND start_date <= CURRENT_TIMESTAMP AND end_date >= CURRENT_TIMESTAMP) as ongoing_maintenance_count,
+                -- Prochaine maintenance planifiée (pas encore commencée) : pour la pastille
+                -- "Maintenance à venir" du Magasin d'applications (magapp-frontend).
+                (SELECT json_build_object(
+                    'id', m.id, 'name', m.name, 'description', m.description,
+                    'severity', m.severity, 'has_interruption', m.has_interruption,
+                    -- Explicitement marqué UTC ("Z") : sans ça, une chaîne naïve comme
+                    -- "2026-09-28T06:00:00" serait mal réinterprétée côté navigateur
+                    -- comme de l'heure locale au lieu de son vrai instant UTC.
+                    'start_date', to_char(m.start_date AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'),
+                    'end_date', to_char(m.end_date AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')
+                 )
+                 FROM magapp.maintenances m
+                 WHERE m.app_id = a.id AND m.start_date > CURRENT_TIMESTAMP
+                 ORDER BY m.start_date ASC LIMIT 1
+                ) as next_maintenance
                 FROM magapp_apps a
                 ORDER BY a.name ASC
             `);
@@ -395,11 +431,81 @@ const MagAppController = {
         const { email, app_id } = req.query;
         if (!email || !app_id) return res.status(400).json({ message: 'Données manquantes' });
         try {
+            if (await isMagappAdmin(req)) {
+                return res.status(403).json({ message: "En tant qu'administrateur du Magasin d'applications, vous êtes abonné d'office à toutes les applications." });
+            }
             await pgDb.run('DELETE FROM magapp_subscriptions WHERE email = ? AND app_id = ?', [email, app_id]);
             res.json({ message: 'Désabonné avec succès' });
         } catch (err) {
             console.error('[MAGAPP] Error unsubscribing:', err.message);
             res.status(500).json({ message: 'Erreur désabonnement' });
+        }
+    },
+
+    // Liste détaillée des abonnements de l'agent (avec préférence d'alerte mail).
+    // Les administrateurs du Magasin sont abonnés d'office à TOUTES les applications.
+    getMySubscriptions: async (req, res) => {
+        try {
+            const email = String(req.query.email || req.user?.email || '').toLowerCase();
+            const isAdmin = await isMagappAdmin(req);
+
+            if (isAdmin) {
+                const apps = await pgDb.all(
+                    `SELECT id, name, icon, app_type, is_maintenance FROM magapp.apps ORDER BY name`
+                );
+                return res.json({
+                    is_admin: true,
+                    email,
+                    subscriptions: apps.map(a => ({
+                        app_id: a.id, app_name: a.name, icon: a.icon,
+                        is_maintenance: a.is_maintenance, email_alerts: true, forced: true,
+                    })),
+                });
+            }
+
+            if (!email) return res.json({ is_admin: false, email: '', subscriptions: [] });
+
+            const rows = await pgDb.all(
+                `SELECT s.app_id, s.email_alerts, a.name AS app_name, a.icon, a.is_maintenance
+                 FROM magapp.subscriptions s
+                 JOIN magapp.apps a ON a.id = s.app_id
+                 WHERE LOWER(s.email) = ?
+                 ORDER BY a.name`,
+                [email]
+            );
+            res.json({
+                is_admin: false,
+                email,
+                subscriptions: rows.map(r => ({
+                    app_id: r.app_id, app_name: r.app_name, icon: r.icon,
+                    is_maintenance: r.is_maintenance, email_alerts: r.email_alerts !== false, forced: false,
+                })),
+            });
+        } catch (error) {
+            console.error('[MAGAPP] Error fetching my subscriptions:', error.message);
+            res.status(500).json({ message: 'Erreur lecture abonnements', error: error.message });
+        }
+    },
+
+    // Active/désactive l'alerte mail pour une application donnée.
+    updateSubscriptionPrefs: async (req, res) => {
+        try {
+            const appId = parseInt(req.params.app_id, 10);
+            const email = String(req.body.email || req.query.email || req.user?.email || '').toLowerCase();
+            if (!email || !appId) return res.status(400).json({ message: 'Données manquantes' });
+            if (await isMagappAdmin(req)) {
+                return res.status(403).json({ message: "En tant qu'administrateur du Magasin d'applications, vous êtes abonné d'office à toutes les applications." });
+            }
+            const emailAlerts = req.body.email_alerts !== false;
+            await pool.query(
+                `INSERT INTO magapp.subscriptions (app_id, email, email_alerts) VALUES ($1, $2, $3)
+                 ON CONFLICT (email, app_id) DO UPDATE SET email_alerts = EXCLUDED.email_alerts`,
+                [appId, email, emailAlerts]
+            );
+            res.json({ message: 'Préférence enregistrée', email_alerts: emailAlerts });
+        } catch (error) {
+            console.error('[MAGAPP] Error updating subscription prefs:', error.message);
+            res.status(500).json({ message: 'Erreur enregistrement préférence', error: error.message });
         }
     },
 
@@ -637,7 +743,26 @@ const MagAppController = {
                     }
                 } catch (e) { console.error('[MAGAPP SETTINGS] Beta check error:', e.message); }
             }
-                        
+
+            // Agents BETA (liste gérée dans /admin/magapp) : accès anticipé aux
+            // fonctionnalités pas encore publiées pour tout le monde.
+            if (!isSpecialUser) {
+                try {
+                    const uname = (req.user && req.user.username) || req.query.username || '';
+                    const email = (req.user && req.user.email) || req.query.email || '';
+                    if (uname || email) {
+                        const beta = await pgDb.get(
+                            `SELECT 1 FROM magapp.beta_users
+                             WHERE (email IS NOT NULL AND email <> '' AND LOWER(email) = LOWER(?))
+                                OR (username IS NOT NULL AND username <> '' AND LOWER(username) = LOWER(?))
+                             LIMIT 1`,
+                            [email, uname]
+                        );
+                        if (beta) { isSpecialUser = true; console.log(`[MAGAPP SETTINGS] User ${uname} is BETA (liste)`); }
+                    }
+                } catch (e) { console.error('[MAGAPP SETTINGS] beta list check:', e.message); }
+            }
+
             if (isSpecialUser) {
                 result.is_beta_user = true;
                 // Save originals before forcing them to true
@@ -651,6 +776,13 @@ const MagAppController = {
                 result.show_consommables_original = result.show_consommables;
                 result.show_chat_live_original = result.show_chat_live;
                 result.show_transcript_manager_original = result.show_transcript_manager;
+                result.show_parapheur_original = result.show_parapheur;
+                result.show_pdf_tools_original = result.show_pdf_tools;
+                result.show_tool_incident_original = result.show_tool_incident;
+                result.show_tool_demande_original = result.show_tool_demande;
+                result.show_tasks_original = result.show_tasks;
+                result.show_notes_original = result.show_notes;
+                result.show_reunions_original = result.show_reunions;
 
                 result.show_tickets = true;
                 result.show_subscriptions = true;
@@ -665,6 +797,16 @@ const MagAppController = {
                 // utilisateurs beta (tuile applications). Le toggle admin le
                 // rend disponible à tout le monde.
                 result.show_transcript_manager = true;
+                // Outils « Mes outils DSI » : non publiés = visibles en beta
+                // (tuile /admin/magapp) avec un badge BETA ; le toggle admin les
+                // publie pour tout le monde.
+                result.show_parapheur = true;
+                result.show_pdf_tools = true;
+                result.show_tool_incident = true;
+                result.show_tool_demande = true;
+                result.show_tasks = true;
+                result.show_notes = true;
+                result.show_reunions = true;
                 // show_chat_live reste un toggle admin strict (jamais forcé).
             } else {
                 result.show_tickets_original = result.show_tickets;
@@ -677,6 +819,13 @@ const MagAppController = {
                 result.show_consommables_original = result.show_consommables;
                 result.show_chat_live_original = result.show_chat_live;
                 result.show_transcript_manager_original = result.show_transcript_manager;
+                result.show_parapheur_original = result.show_parapheur;
+                result.show_pdf_tools_original = result.show_pdf_tools;
+                result.show_tool_incident_original = result.show_tool_incident;
+                result.show_tool_demande_original = result.show_tool_demande;
+                result.show_tasks_original = result.show_tasks;
+                result.show_notes_original = result.show_notes;
+                result.show_reunions_original = result.show_reunions;
             }
 
             let hasRencontresAccess = false;
@@ -738,10 +887,10 @@ const MagAppController = {
     },
 
     updateSettings: async (req, res) => {
-        const { show_tickets, show_subscriptions, show_health_check, show_create_buttons, show_ideas, show_rencontres, show_library, show_consommables, show_chat_live, show_transcript_manager } = req.body;
+        const { show_tickets, show_subscriptions, show_health_check, show_create_buttons, show_ideas, show_rencontres, show_library, show_consommables, show_chat_live, show_transcript_manager, show_parapheur, show_pdf_tools, show_tool_incident, show_tool_demande, show_tasks, show_notes, show_reunions } = req.body;
         try {
-            await pgDb.run('UPDATE magapp.settings SET show_tickets = ?, show_subscriptions = ?, show_health_check = ?, show_create_buttons = ?, show_ideas = ?, show_rencontres = ?, show_library = ?, show_consommables = ?, show_chat_live = ?, show_transcript_manager = ? WHERE id = 1',
-                [!!show_tickets, !!show_subscriptions, !!show_health_check, !!show_create_buttons, !!show_ideas, !!show_rencontres, !!show_library, !!show_consommables, !!show_chat_live, !!show_transcript_manager]);
+            await pgDb.run('UPDATE magapp.settings SET show_tickets = ?, show_subscriptions = ?, show_health_check = ?, show_create_buttons = ?, show_ideas = ?, show_rencontres = ?, show_library = ?, show_consommables = ?, show_chat_live = ?, show_transcript_manager = ?, show_parapheur = ?, show_pdf_tools = ?, show_tool_incident = ?, show_tool_demande = ?, show_tasks = ?, show_notes = ?, show_reunions = ? WHERE id = 1',
+                [!!show_tickets, !!show_subscriptions, !!show_health_check, !!show_create_buttons, !!show_ideas, !!show_rencontres, !!show_library, !!show_consommables, !!show_chat_live, !!show_transcript_manager, !!show_parapheur, !!show_pdf_tools, !!show_tool_incident, !!show_tool_demande, !!show_tasks, !!show_notes, !!show_reunions]);
             res.json({ message: 'Settings updated' });
         } catch (error) {
             console.error('[MAGAPP] Error updating settings:', error.message);
@@ -875,6 +1024,41 @@ const MagAppController = {
         }
     },
 
+    // Envoie l'alerte « quoi de neuf » aux abonnés + administrateurs.
+    notifyVersion: async (req, res) => {
+        try {
+            const id = parseInt(req.params.id, 10);
+            const version = await pgDb.get('SELECT * FROM magapp.versions WHERE id = ?', [id]);
+            if (!version) return res.status(404).json({ message: 'Version non trouvée' });
+            const sent = await magappAlerts.sendVersionAlert(id);
+            await pgDb.run('UPDATE magapp.versions SET notified_at = CURRENT_TIMESTAMP WHERE id = ?', [id]);
+            res.json({ message: `Alerte envoyée à ${sent} destinataire(s)`, sent });
+        } catch (error) {
+            console.error('[MAGAPP] Error notifying version:', error.message);
+            res.status(500).json({ message: "Erreur lors de l'envoi de l'alerte", error: error.message });
+        }
+    },
+
+    // Joint un document (PDF, etc.) à une version (lien dans le mail de nouveauté).
+    uploadVersionDocument: async (req, res) => {
+        try {
+            const id = parseInt(req.params.id, 10);
+            if (!req.file) return res.status(400).json({ message: 'Aucun fichier reçu' });
+            const version = await pgDb.get('SELECT * FROM magapp.versions WHERE id = ?', [id]);
+            if (!version) return res.status(404).json({ message: 'Version non trouvée' });
+            if (version.document_path) { try { await storage.deleteFile(version.document_path); } catch (e) { /* ignore */ } }
+            const saved = await storage.saveFile('magapp_versions', id, req.file);
+            await pgDb.run(
+                'UPDATE magapp.versions SET document_path = ?, document_name = ? WHERE id = ?',
+                [saved.dbPath, req.file.originalname, id]
+            );
+            res.json({ message: 'Document ajouté', document_path: saved.dbPath, document_name: req.file.originalname });
+        } catch (error) {
+            console.error('[MAGAPP] Error uploading version document:', error.message);
+            res.status(500).json({ message: "Erreur lors de l'ajout du document", error: error.message });
+        }
+    },
+
     getUserVersion: async (req, res) => {
         try {
             const username = req.user.username;
@@ -940,6 +1124,36 @@ const MagAppController = {
             console.error('[MAGAPP] Error searching AD users:', error.message);
             res.status(500).json({ message: 'Erreur lors de la recherche AD', error: error.message });
         }
+    },
+
+    // ─── Agents BETA (accès anticipé aux fonctionnalités non publiées) ──────
+    listBetaUsers: async (req, res) => {
+        try {
+            const rows = await pgDb.all(
+                'SELECT id, username, email, display_name, added_by, created_at FROM magapp.beta_users ORDER BY created_at DESC'
+            );
+            res.json(rows);
+        } catch (e) { res.status(500).json({ message: e.message }); }
+    },
+
+    addBetaUser: async (req, res) => {
+        try {
+            const { username, email, displayName } = req.body || {};
+            if (!username && !email) return res.status(400).json({ message: 'username ou email requis' });
+            await pgDb.run(
+                `INSERT INTO magapp.beta_users (username, email, display_name, added_by)
+                 VALUES (?, ?, ?, ?) ON CONFLICT DO NOTHING`,
+                [username || null, email || null, displayName || null, (req.user && req.user.username) || null]
+            );
+            res.json({ ok: true });
+        } catch (e) { res.status(500).json({ message: e.message }); }
+    },
+
+    removeBetaUser: async (req, res) => {
+        try {
+            await pgDb.run('DELETE FROM magapp.beta_users WHERE id = ?', [req.params.id]);
+            res.json({ ok: true });
+        } catch (e) { res.status(500).json({ message: e.message }); }
     },
 
     // Statistics
@@ -1200,14 +1414,20 @@ const MagAppController = {
                 return res.status(400).json({ message: 'Champs obligatoires manquants' });
             }
             const username = req.user?.username || 'admin';
-            // Convert local dates to UTC for storage
-            const startUTC = new Date(start_date).toISOString();
-            const endUTC = new Date(end_date).toISOString();
+            // Convert local dates (Europe/Paris, saisies via <input type="datetime-local">)
+            // to UTC for storage. new Date(naive).toISOString() dépendait du fuseau du
+            // process Node (TZ=Europe/Paris) — pas fiable en conteneur (cf. bug constaté :
+            // 18h-20h Paris stocké comme 08h-10h UTC). parisLocalToUtcISO() est fiable
+            // quel que soit le fuseau effectif du process.
+            const startUTC = parisLocalToUtcISO(start_date);
+            const endUTC = parisLocalToUtcISO(end_date);
             const result = await pool.query(
                 `INSERT INTO magapp.maintenances (app_id, name, description, severity, has_interruption, start_date, end_date, created_by)
                  VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`,
                 [app_id, name, description, severity, has_interruption, startUTC, endUTC, username]
             );
+            // Alerte mail aux abonnés de l'application + administrateurs (best-effort).
+            magappAlerts.sendMaintenanceAlert(result.rows[0].id).catch(() => {});
             res.json(result.rows[0]);
         } catch (error) {
             console.error('[MAGAPP] Error creating maintenance:', error.message);
@@ -1219,8 +1439,8 @@ const MagAppController = {
         try {
             const { id } = req.params;
             const { name, description, severity, has_interruption, start_date, end_date } = req.body;
-            const startUTC = new Date(start_date).toISOString();
-            const endUTC = new Date(end_date).toISOString();
+            const startUTC = parisLocalToUtcISO(start_date);
+            const endUTC = parisLocalToUtcISO(end_date);
             await pool.query(
                 `UPDATE magapp.maintenances
                  SET name = $1, description = $2, severity = $3, has_interruption = $4,

@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Header from '../components/Header';
+import ModuleAgentHeader from '../components/ModuleAgentHeader';
 import { useAuth } from '../contexts/AuthContext';
 import {
   CheckSquare, Clock, AlertTriangle, CheckCircle2,
@@ -874,9 +875,15 @@ const MesTaches: React.FC = () => {
     { label: 'Terminées aujourd\'hui', value: doneToday, icon: <CheckCircle2 size={18} />, color: '#16a34a', bg: '#f0fdf4', border: '#bbf7d0', filter: 'terminé' },
   ];
 
+  // Accès « module seul » depuis le Magasin d'applications (jeton restreint) :
+  // on affiche l'en-tête DSI « lite » au lieu du header complet.
+  const isMagappAccess = (localStorage.getItem('restrictedPath') || '').startsWith('/mes-taches');
+
   return (
     <div style={{ minHeight: '100vh', background: 'var(--bg-color)' }}>
-      <Header />
+      {isMagappAccess
+        ? <ModuleAgentHeader title="Mes tâches" helpPath="/mes-taches" icon={<CheckSquare size={20} />} user={user} />
+        : <Header />}
       <main style={{ maxWidth: 1140, margin: '0 auto', padding: '40px 20px' }}>
 
         {/* ── Titre + boutons ───────────────────────────────────────────────── */}

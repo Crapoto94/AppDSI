@@ -265,6 +265,9 @@ async function createOutlookEvent(opts) {
     if (isTeams) {
         eventBody.isOnlineMeeting = true;
         eventBody.onlineMeetingProvider = 'teamsForBusiness';
+        // Rappel par défaut des réunions Teams : 15 minutes avant.
+        eventBody.isReminderOn = true;
+        eventBody.reminderMinutesBeforeStart = 15;
     }
 
     const res = await axios.post(

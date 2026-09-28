@@ -1,7 +1,7 @@
 import React, { useState, Fragment } from 'react';
 import axios from 'axios';
 import { useAuth } from '../../contexts/AuthContext';
-import { formatDate as formatDateParis } from '../../utils/datetime';
+import { formatDate as formatDateParis, formatTime } from '../../utils/datetime';
 import UserHoverCard from '../../components/tickets/UserHoverCard';
 import AgentPresenceBadge from '../../components/AgentPresenceBadge';
 import DsiPresenceBadge from '../../components/DsiPresenceBadge';
@@ -728,7 +728,12 @@ export default function TicketList({
 
                     {/* Date */}
                     <td style={{ ...tdStyle, fontSize: isChild ? 11 : 12, color: '#64748b' }}>
-                      {data.date_creation ? formatDateParis(data.date_creation) : ''}
+                      {data.date_creation ? (
+                        <span style={{ display: 'inline-flex', flexDirection: 'column', gap: 1 }}>
+                          <span>{formatDateParis(data.date_creation)}</span>
+                          <span style={{ fontSize: 11, color: '#94a3b8' }}>{formatTime(data.date_creation)}</span>
+                        </span>
+                      ) : ''}
                     </td>
 
                     {/* Résolu le */}

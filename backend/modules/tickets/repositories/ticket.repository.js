@@ -213,7 +213,10 @@ module.exports = {
             params.push(parseInt(filters.my));
         }
         if (filters.my_username) {
-            conditions.push(`t.glpi_id IN (SELECT ticket_id FROM hub_tickets.ticket_assignments WHERE technician_id = (SELECT id FROM hub.users WHERE LOWER(username) = LOWER($${idx++})))`);
+            // LIMIT 1 : certains comptes ont un doublon hub.users pour le même username
+            // (variantes de casse) — sans ça, la sous-requête scalaire lève "more than
+            // one row returned by a subquery used as an expression".
+            conditions.push(`t.glpi_id IN (SELECT ticket_id FROM hub_tickets.ticket_assignments WHERE technician_id = (SELECT id FROM hub.users WHERE LOWER(username) = LOWER($${idx++}) LIMIT 1))`);
             params.push(filters.my_username);
         }
         if (filters.requester_email) {
@@ -507,7 +510,7 @@ module.exports = {
                 COUNT(*) FILTER (WHERE t.priority = 5 AND t.status IN (1,2,3)) as critical
             FROM hub_tickets.tickets t
             JOIN hub_tickets.ticket_assignments ta ON t.glpi_id = ta.ticket_id
-            WHERE ta.technician_id = (SELECT id FROM hub.users WHERE LOWER(username) = LOWER($1))
+            WHERE ta.technician_id = (SELECT id FROM hub.users WHERE LOWER(username) = LOWER($1) LIMIT 1)
         `, [username]);
     },
 
@@ -525,7 +528,7 @@ module.exports = {
         // compteurs sont gonflés et incohérents avec la liste filtrée.
         return pgDb.get(`
             SELECT
-                COUNT(DISTINCT t.glpi_id) FILTER (WHERE ta.technician_id = (SELECT id FROM hub.users WHERE LOWER(username) = LOWER($1))) as assigned_to_me,
+                COUNT(DISTINCT t.glpi_id) FILTER (WHERE ta.technician_id = (SELECT id FROM hub.users WHERE LOWER(username) = LOWER($1) LIMIT 1)) as assigned_to_me,
                 COUNT(DISTINCT t.glpi_id) FILTER (WHERE LOWER(COALESCE(NULLIF(t.email_alt, ''), t.requester_email_22)) = LOWER($2)) as requested_by_me,
                 COUNT(DISTINCT t.glpi_id) FILTER (WHERE t.is_vip = true) as vip
             FROM hub_tickets.tickets t

@@ -2,7 +2,8 @@ import React, { useState, useEffect } from 'react';
 import * as XLSX from 'xlsx';
 import Header from '../components/Header';
 import { stripDangerousHtmlTags } from '../utils/sanitizeHtml';
-import { Plus, Edit2, Trash2, Save, X, Globe, LayoutGrid, BarChart2, Bell, Tag, Code, CheckCircle, Settings, Users, Lightbulb, GraduationCap, Star, FileText, Wrench, Calendar, Paperclip, Download, Search, ChevronRight, Layers, Banknote, ShieldAlert, ExternalLink } from 'lucide-react';
+import { Plus, Edit2, Trash2, Save, X, Globe, LayoutGrid, BarChart2, Bell, Tag, Code, CheckCircle, Settings, Users, Lightbulb, GraduationCap, Star, FileText, Wrench, Calendar, Paperclip, Download, Search, ChevronRight, Layers, Banknote, ShieldAlert, ExternalLink, Send } from 'lucide-react';
+import BetaUsersAdmin from '../components/BetaUsersAdmin';
 import { ResponsiveContainer, LineChart, Line, ReferenceLine, CartesianGrid, XAxis, YAxis, Tooltip as RTooltip } from 'recharts';
 import ReactQuill from 'react-quill-new';
 import 'react-quill-new/dist/quill.snow.css';
@@ -106,6 +107,9 @@ interface AppVersion {
   release_notes_html: string;
   release_date: string;
   is_active: boolean;
+  document_path?: string | null;
+  document_name?: string | null;
+  notified_at?: string | null;
 }
 
 interface PostgresSettings {
@@ -181,7 +185,7 @@ const MagappAdmin: React.FC = () => {
     is_technical: false,
     is_obsolete: false
   });
-  const [magappSettings, setMagappSettings] = useState<{show_tickets: boolean, show_subscriptions: boolean, show_health_check: boolean, show_create_buttons: boolean, show_ideas: boolean, show_rencontres: boolean, show_library: boolean, show_consommables: boolean, show_chat_live: boolean, show_transcript_manager: boolean}>({
+  const [magappSettings, setMagappSettings] = useState<{show_tickets: boolean, show_subscriptions: boolean, show_health_check: boolean, show_create_buttons: boolean, show_ideas: boolean, show_rencontres: boolean, show_library: boolean, show_consommables: boolean, show_chat_live: boolean, show_transcript_manager: boolean, show_parapheur: boolean, show_pdf_tools: boolean, show_tool_incident: boolean, show_tool_demande: boolean, show_tasks: boolean, show_notes: boolean, show_reunions: boolean}>({
     show_tickets: true,
     show_subscriptions: true,
     show_health_check: true,
@@ -192,6 +196,13 @@ const MagappAdmin: React.FC = () => {
     show_consommables: true,
     show_chat_live: false,
     show_transcript_manager: false,
+    show_parapheur: false,
+    show_pdf_tools: false,
+    show_tool_incident: true,
+    show_tool_demande: true,
+    show_tasks: false,
+    show_notes: false,
+    show_reunions: false,
   });
   const [showDocModal, setShowDocModal] = useState(false);
   const [docFile, setDocFile] = useState<File | null>(null);
@@ -201,6 +212,7 @@ const MagappAdmin: React.FC = () => {
   const [versions, setVersions] = useState<AppVersion[]>([]);
   const [mercatorApps, setMercatorApps] = useState<{id: number, name: string, description?: string}[]>([]);
   const [editingVersion, setEditingVersion] = useState<AppVersion | null>(null);
+  const [versionNotifying, setVersionNotifying] = useState<number | null>(null);
   const [newVersion, setNewVersion] = useState({ version_number: '', release_notes_html: '' });
   const [showAppModal, setShowAppModal] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
@@ -305,6 +317,13 @@ const MagappAdmin: React.FC = () => {
           show_consommables: data.show_consommables_original ?? data.show_consommables ?? true,
           show_chat_live: data.show_chat_live ?? false,
           show_transcript_manager: data.show_transcript_manager_original ?? data.show_transcript_manager ?? false,
+          show_parapheur: data.show_parapheur_original ?? data.show_parapheur ?? false,
+          show_pdf_tools: data.show_pdf_tools_original ?? data.show_pdf_tools ?? false,
+          show_tool_incident: data.show_tool_incident_original ?? data.show_tool_incident ?? true,
+          show_tool_demande: data.show_tool_demande_original ?? data.show_tool_demande ?? true,
+          show_tasks: data.show_tasks_original ?? data.show_tasks ?? false,
+          show_notes: data.show_notes_original ?? data.show_notes ?? false,
+          show_reunions: data.show_reunions_original ?? data.show_reunions ?? false,
         });
       }
       if (mercatorRes.ok) setMercatorApps(await mercatorRes.json());
@@ -856,6 +875,33 @@ const MagappAdmin: React.FC = () => {
   const handleActivateVersion = async (id: number) => {
     await fetch(`/api/admin/magapp/versions/${id}/activate`, { method: 'PUT', headers: { 'Authorization': `Bearer ${token}` } });
     fetchVersions();
+  };
+
+  const handleNotifyVersion = async (id: number) => {
+    if (!window.confirm("Envoyer l'alerte « nouveauté » aux abonnés et administrateurs ?")) return;
+    setVersionNotifying(id);
+    try {
+      const res = await fetch(`/api/admin/magapp/versions/${id}/notify`, { method: 'POST', headers: { 'Authorization': `Bearer ${token}` } });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) alert(data.message || 'Alerte envoyée');
+      else alert(`Erreur : ${data.message || 'échec'}`);
+      fetchVersions();
+    } catch { alert('Erreur réseau'); }
+    finally { setVersionNotifying(null); }
+  };
+
+  const handleUploadVersionDoc = async (id: number, file: File | null) => {
+    if (!file) return;
+    const fd = new FormData();
+    fd.append('file', file);
+    try {
+      const res = await fetch(`/api/admin/magapp/versions/${id}/document`, {
+        method: 'POST', headers: { 'Authorization': `Bearer ${token}` }, body: fd
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) { alert('Document ajouté'); fetchVersions(); }
+      else alert(`Erreur : ${data.message || 'échec'}`);
+    } catch { alert('Erreur réseau'); }
   };
 
   const handleSavePostgresSettings = async () => {
@@ -1946,7 +1992,7 @@ const MagappAdmin: React.FC = () => {
           {/* Maintenance Modal */}
           {showMaintenanceModal && (
             <div className="modal-overlay-v2">
-              <div className="modal-content-v2 animate-fade-in" style={{ maxWidth: '700px' }}>
+              <div className="modal-content-v2 animate-fade-in maintenance-modal-v2">
                 <div className="modal-header-v2">
                   <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                     <div className="header-icon-v2"><Wrench size={18} /></div>
@@ -1956,7 +2002,7 @@ const MagappAdmin: React.FC = () => {
                 </div>
 
                 <div className="modal-body-v2">
-                  <div className="form-grid-v2">
+                  <div className="form-grid-v2 maintenance-form-grid-v2">
                     <div className="form-group-v2">
                       <label>Application</label>
                       <select
@@ -1970,6 +2016,7 @@ const MagappAdmin: React.FC = () => {
                       <label>Nom de la maintenance *</label>
                       <input type="text" value={newMaintenance.name} onChange={e => setNewMaintenance({...newMaintenance, name: e.target.value})} placeholder="Ex: Mise à jour sécurité" />
                     </div>
+
                     <div className="form-group-v2">
                       <label>Gravité</label>
                       <select value={newMaintenance.severity} onChange={e => setNewMaintenance({...newMaintenance, severity: e.target.value as 'mineure' | 'majeure'})}>
@@ -1984,38 +2031,61 @@ const MagappAdmin: React.FC = () => {
                         <option value="oui">Avec interruption</option>
                       </select>
                     </div>
+
                     <div className="form-group-v2">
-                      <label>Début *</label>
+                      <label>Début * <span className="field-hint-v2">(heure de Paris)</span></label>
                       <input type="datetime-local" value={newMaintenance.start_date} onChange={e => setNewMaintenance({...newMaintenance, start_date: e.target.value})} />
                     </div>
                     <div className="form-group-v2">
                       <label>Fin *</label>
                       <input type="datetime-local" value={newMaintenance.end_date} onChange={e => setNewMaintenance({...newMaintenance, end_date: e.target.value})} />
                     </div>
+
                     <div className="form-group-v2 full-width">
                       <label>Description</label>
-                      <textarea rows={4} value={newMaintenance.description} onChange={e => setNewMaintenance({...newMaintenance, description: e.target.value})} placeholder="Décrivez la maintenance..."></textarea>
+                      <textarea rows={2} value={newMaintenance.description} onChange={e => setNewMaintenance({...newMaintenance, description: e.target.value})} placeholder="Décrivez la maintenance..."></textarea>
                     </div>
+
                     <div className="form-group-v2 full-width">
-                      <label>Pièces jointes (comptes rendus, etc.)</label>
-                      <input
-                        type="file"
-                        multiple
-                        onChange={e => {
-                          const files = e.target.files;
-                          if (files) setMaintenanceFiles(Array.from(files));
+                      <label>Pièces jointes</label>
+                      <div
+                        className="maintenance-dropzone-v2"
+                        onDragOver={ev => { ev.preventDefault(); }}
+                        onDrop={ev => {
+                          ev.preventDefault();
+                          const dropped = Array.from(ev.dataTransfer.files || []);
+                          if (dropped.length) setMaintenanceFiles(prev => [...prev, ...dropped]);
                         }}
-                        style={{ padding: '10px', border: '2px dashed #e2e8f0', borderRadius: '12px', background: '#fafbfc', cursor: 'pointer' }}
-                      />
-                      {maintenanceFiles.length > 0 && (
-                        <div style={{ marginTop: '8px' }}>
-                          {maintenanceFiles.map((f, i) => (
-                            <div key={i} style={{ fontSize: '0.8rem', color: '#64748b', padding: '4px 0', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                              <Paperclip size={12} /> {f.name}
-                            </div>
-                          ))}
-                        </div>
-                      )}
+                      >
+                        <label htmlFor="maintenance-file-input" className="maintenance-dropzone-btn-v2">
+                          <Paperclip size={14} /> Ajouter des fichiers
+                          <input
+                            id="maintenance-file-input"
+                            type="file"
+                            multiple
+                            onChange={e => {
+                              const files = e.target.files;
+                              if (files && files.length) setMaintenanceFiles(prev => [...prev, ...Array.from(files)]);
+                              e.target.value = '';
+                            }}
+                            style={{ display: 'none' }}
+                          />
+                        </label>
+                        {maintenanceFiles.length === 0 ? (
+                          <span className="field-hint-v2">ou glissez-déposez ici — comptes rendus, captures, etc.</span>
+                        ) : (
+                          <div className="maintenance-file-chips-v2">
+                            {maintenanceFiles.map((f, i) => (
+                              <span key={i} className="maintenance-file-chip-v2">
+                                {f.name}
+                                <button type="button" onClick={() => setMaintenanceFiles(prev => prev.filter((_, idx) => idx !== i))} title="Retirer ce fichier">
+                                  <X size={12} />
+                                </button>
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -2129,9 +2199,20 @@ const MagappAdmin: React.FC = () => {
                         </h4>
                         <span style={{ fontSize: '0.75rem', color: '#94a3b8' }}>{new Date(v.release_date).toLocaleDateString()}</span>
                         <div style={{ marginTop: '8px', fontSize: '0.85rem', color: '#64748b', maxHeight: '40px', overflow: 'hidden', textOverflow: 'ellipsis', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }} dangerouslySetInnerHTML={{ __html: v.release_notes_html }}></div>
+                        {(v.document_name || v.notified_at) && (
+                          <div style={{ marginTop: '6px', fontSize: '0.72rem', color: '#94a3b8', display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+                            {v.document_name && <span>📄 {v.document_name}</span>}
+                            {v.notified_at && <span>✅ Alerte envoyée le {new Date(v.notified_at).toLocaleDateString('fr-FR')}</span>}
+                          </div>
+                        )}
                       </div>
                       <div className="app-actions-v2">
                         {!v.is_active && <button onClick={() => handleActivateVersion(v.id)} style={{ color: '#10b981' }} title="Activer"><CheckCircle size={16} /></button>}
+                        <label title="Joindre un document à cette version" style={{ cursor: 'pointer', color: '#0369a1', display: 'inline-flex' }}>
+                          <Paperclip size={16} />
+                          <input type="file" style={{ display: 'none' }} onChange={e => { handleUploadVersionDoc(v.id, e.target.files?.[0] || null); e.currentTarget.value = ''; }} />
+                        </label>
+                        <button onClick={() => handleNotifyVersion(v.id)} disabled={versionNotifying === v.id} style={{ color: '#2563eb', opacity: versionNotifying === v.id ? 0.5 : 1 }} title="Notifier les abonnés (quoi de neuf)"><Send size={16} /></button>
                         <button onClick={() => setEditingVersion(v)} title="Modifier"><Edit2 size={16} /></button>
                         <button onClick={() => handleDeleteVersion(v.id)} className="delete" title="Supprimer"><Trash2 size={16} /></button>
                       </div>
@@ -2337,18 +2418,6 @@ const MagappAdmin: React.FC = () => {
                 </div>
                 <div className="form-group-v2 full-width" style={{ padding: '15px', background: 'white', border: '1px solid #e2e8f0', borderRadius: '16px' }}>
                   <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', margin: 0 }}>
-                    <span style={{ fontWeight: 600, fontSize: '1rem' }}>Afficher les abonnements Push</span>
-                    <input 
-                      type="checkbox" 
-                      checked={magappSettings.show_subscriptions} 
-                      onChange={e => setMagappSettings({...magappSettings, show_subscriptions: e.target.checked})} 
-                      style={{ width: '22px', height: '22px', cursor: 'pointer', accentColor: '#4f46e5' }}
-                    />
-                  </label>
-                  <p style={{ margin: '5px 0 0 0', fontSize: '0.85rem', color: '#64748b' }}>Permet aux utilisateurs de s'abonner aux notifications d'état d'un service (abonnement Push).</p>
-                </div>
-                <div className="form-group-v2 full-width" style={{ padding: '15px', background: 'white', border: '1px solid #e2e8f0', borderRadius: '16px' }}>
-                  <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', margin: 0 }}>
                     <span style={{ fontWeight: 600, fontSize: '1rem' }}>Afficher le Health Check global</span>
                     <input 
                       type="checkbox" 
@@ -2397,18 +2466,6 @@ const MagappAdmin: React.FC = () => {
                 </div>
                 <div className="form-group-v2 full-width" style={{ padding: '15px', background: 'white', border: '1px solid #e2e8f0', borderRadius: '16px' }}>
                   <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', margin: 0 }}>
-                    <span style={{ fontWeight: 600, fontSize: '1rem' }}>Afficher les Rencontres Budgétaires</span>
-                    <input
-                      type="checkbox"
-                      checked={magappSettings.show_rencontres}
-                      onChange={e => setMagappSettings({...magappSettings, show_rencontres: e.target.checked})}
-                      style={{ width: '22px', height: '22px', cursor: 'pointer', accentColor: '#4f46e5' }}
-                    />
-                  </label>
-                  <p style={{ margin: '5px 0 0 0', fontSize: '0.85rem', color: '#64748b' }}>Affiche le bouton "Rencontres Budgétaires" pour consulter les demandes de directions.</p>
-                </div>
-                <div className="form-group-v2 full-width" style={{ padding: '15px', background: 'white', border: '1px solid #e2e8f0', borderRadius: '16px' }}>
-                  <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', margin: 0 }}>
                     <span style={{ fontWeight: 600, fontSize: '1rem' }}>Afficher les demandes de consommables</span>
                     <input
                       type="checkbox"
@@ -2438,10 +2495,30 @@ const MagappAdmin: React.FC = () => {
                     Affiche la bulle de chat en direct sur MagApp. Les utilisateurs peuvent contacter un technicien en temps réel.
                   </p>
                 </div>
+                <div className="form-group-v2 full-width" style={{ padding: '15px', background: '#f8fafc', border: '1px dashed #cbd5e1', borderRadius: '16px' }}>
+                  <span style={{ fontWeight: 800, fontSize: '1rem', color: '#0f172a', display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <Wrench size={16} color="#0369a1" /> Mes outils DSI
+                  </span>
+                  <p style={{ margin: '5px 0 0 0', fontSize: '0.85rem', color: '#64748b' }}>
+                    Boutons de la modale « Mes outils DSI » du MagApp. Non publié, un outil reste disponible en beta pour les utilisateurs ayant la tuile d'administration (/admin/magapp).
+                  </p>
+                </div>
+                <div className="form-group-v2 full-width" style={{ padding: '15px', background: 'white', border: '1px solid #e2e8f0', borderRadius: '16px' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', margin: 0 }}>
+                    <span style={{ fontWeight: 600, fontSize: '1rem' }}>Rencontres annuelles</span>
+                    <input
+                      type="checkbox"
+                      checked={magappSettings.show_rencontres}
+                      onChange={e => setMagappSettings({...magappSettings, show_rencontres: e.target.checked})}
+                      style={{ width: '22px', height: '22px', cursor: 'pointer', accentColor: '#0284c7' }}
+                    />
+                  </label>
+                  <p style={{ margin: '5px 0 0 0', fontSize: '0.85rem', color: '#64748b' }}>Affiche l'outil "Rencontres annuelles" (demandes budgétaires des directions).</p>
+                </div>
                 <div className="form-group-v2 full-width" style={{ padding: '15px', background: 'white', border: '1px solid #e2e8f0', borderRadius: '16px' }}>
                   <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', margin: 0 }}>
                     <span style={{ fontWeight: 600, fontSize: '1rem' }}>
-                      Transcript Manager
+                      Transcript manager
                       <span style={{ marginLeft: 8, background: '#0078a4', color: 'white', fontSize: '0.6rem', fontWeight: 800, padding: '2px 6px', borderRadius: '6px', letterSpacing: '0.05em', verticalAlign: 'middle' }}>BETA</span>
                     </span>
                     <input
@@ -2451,13 +2528,124 @@ const MagappAdmin: React.FC = () => {
                       style={{ width: '22px', height: '22px', cursor: 'pointer', accentColor: '#0078a4' }}
                     />
                   </label>
-                  <p style={{ margin: '5px 0 0 0', fontSize: '0.85rem', color: '#64748b' }}>
-                    Affiche le bouton "Mon Transcript Manager" dans le magapp (mode beta).
-                  </p>
+                  <p style={{ margin: '5px 0 0 0', fontSize: '0.85rem', color: '#64748b' }}>Affiche l'outil "Transcript manager" (réunions, comptes rendus, résumés IA).</p>
+                </div>
+                <div className="form-group-v2 full-width" style={{ padding: '15px', background: 'white', border: '1px solid #e2e8f0', borderRadius: '16px' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', margin: 0 }}>
+                    <span style={{ fontWeight: 600, fontSize: '1rem' }}>
+                      Parapheur
+                      <span style={{ marginLeft: 8, background: '#0e7490', color: 'white', fontSize: '0.6rem', fontWeight: 800, padding: '2px 6px', borderRadius: '6px', letterSpacing: '0.05em', verticalAlign: 'middle' }}>BETA</span>
+                    </span>
+                    <input
+                      type="checkbox"
+                      checked={magappSettings.show_parapheur}
+                      onChange={e => setMagappSettings({...magappSettings, show_parapheur: e.target.checked})}
+                      style={{ width: '22px', height: '22px', cursor: 'pointer', accentColor: '#0e7490' }}
+                    />
+                  </label>
+                  <p style={{ margin: '5px 0 0 0', fontSize: '0.85rem', color: '#64748b' }}>Ouvre le parapheur électronique du DSI Hub avec l'en-tête du Magasin d'applications.</p>
+                </div>
+                <div className="form-group-v2 full-width" style={{ padding: '15px', background: 'white', border: '1px solid #e2e8f0', borderRadius: '16px' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', margin: 0 }}>
+                    <span style={{ fontWeight: 600, fontSize: '1rem' }}>
+                      Outils PDF
+                      <span style={{ marginLeft: 8, background: '#0369a1', color: 'white', fontSize: '0.6rem', fontWeight: 800, padding: '2px 6px', borderRadius: '6px', letterSpacing: '0.05em', verticalAlign: 'middle' }}>BETA</span>
+                    </span>
+                    <input
+                      type="checkbox"
+                      checked={magappSettings.show_pdf_tools}
+                      onChange={e => setMagappSettings({...magappSettings, show_pdf_tools: e.target.checked})}
+                      style={{ width: '22px', height: '22px', cursor: 'pointer', accentColor: '#0369a1' }}
+                    />
+                  </label>
+                  <p style={{ margin: '5px 0 0 0', fontSize: '0.85rem', color: '#64748b' }}>Fusionner, découper, compresser, filigraner, comparer et réparer des PDF directement en ligne.</p>
+                </div>
+                <div className="form-group-v2 full-width" style={{ padding: '15px', background: 'white', border: '1px solid #e2e8f0', borderRadius: '16px' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', margin: 0 }}>
+                    <span style={{ fontWeight: 600, fontSize: '1rem' }}>Mes abonnements</span>
+                    <input
+                      type="checkbox"
+                      checked={magappSettings.show_subscriptions}
+                      onChange={e => setMagappSettings({...magappSettings, show_subscriptions: e.target.checked})}
+                      style={{ width: '22px', height: '22px', cursor: 'pointer', accentColor: '#4f46e5' }}
+                    />
+                  </label>
+                  <p style={{ margin: '5px 0 0 0', fontSize: '0.85rem', color: '#64748b' }}>Affiche l'outil "Mes abonnements" (abonnement aux notifications d'état d'un service).</p>
+                </div>
+                <div className="form-group-v2 full-width" style={{ padding: '15px', background: 'white', border: '1px solid #e2e8f0', borderRadius: '16px' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', margin: 0 }}>
+                    <span style={{ fontWeight: 600, fontSize: '1rem' }}>Déclarer un incident</span>
+                    <input
+                      type="checkbox"
+                      checked={magappSettings.show_tool_incident}
+                      onChange={e => setMagappSettings({...magappSettings, show_tool_incident: e.target.checked})}
+                      style={{ width: '22px', height: '22px', cursor: 'pointer', accentColor: '#dc2626' }}
+                    />
+                  </label>
+                  <p style={{ margin: '5px 0 0 0', fontSize: '0.85rem', color: '#64748b' }}>Affiche le bouton « Déclarer un incident » dans « Mes outils DSI » (indépendant du toggle « boutons de création » de Mes tickets).</p>
+                </div>
+                <div className="form-group-v2 full-width" style={{ padding: '15px', background: 'white', border: '1px solid #e2e8f0', borderRadius: '16px' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', margin: 0 }}>
+                    <span style={{ fontWeight: 600, fontSize: '1rem' }}>Faire une demande</span>
+                    <input
+                      type="checkbox"
+                      checked={magappSettings.show_tool_demande}
+                      onChange={e => setMagappSettings({...magappSettings, show_tool_demande: e.target.checked})}
+                      style={{ width: '22px', height: '22px', cursor: 'pointer', accentColor: '#2563eb' }}
+                    />
+                  </label>
+                  <p style={{ margin: '5px 0 0 0', fontSize: '0.85rem', color: '#64748b' }}>Affiche le bouton « Faire une demande » dans « Mes outils DSI » (indépendant du toggle « boutons de création » de Mes tickets).</p>
+                </div>
+                <div className="form-group-v2 full-width" style={{ padding: '15px', background: 'white', border: '1px solid #e2e8f0', borderRadius: '16px' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', margin: 0 }}>
+                    <span style={{ fontWeight: 600, fontSize: '1rem' }}>
+                      Mes tâches
+                      <span style={{ marginLeft: 8, background: '#2563eb', color: 'white', fontSize: '0.6rem', fontWeight: 800, padding: '2px 6px', borderRadius: '6px', letterSpacing: '0.05em', verticalAlign: 'middle' }}>BETA</span>
+                    </span>
+                    <input
+                      type="checkbox"
+                      checked={magappSettings.show_tasks}
+                      onChange={e => setMagappSettings({...magappSettings, show_tasks: e.target.checked})}
+                      style={{ width: '22px', height: '22px', cursor: 'pointer', accentColor: '#2563eb' }}
+                    />
+                  </label>
+                  <p style={{ margin: '5px 0 0 0', fontSize: '0.85rem', color: '#64748b' }}>Ouvre « Mes tâches » du DSI Hub depuis le Magasin d'applications (suivi et organisation des tâches personnelles).</p>
+                </div>
+                <div className="form-group-v2 full-width" style={{ padding: '15px', background: 'white', border: '1px solid #e2e8f0', borderRadius: '16px' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', margin: 0 }}>
+                    <span style={{ fontWeight: 600, fontSize: '1rem' }}>
+                      Mes notes IA
+                      <span style={{ marginLeft: 8, background: '#059669', color: 'white', fontSize: '0.6rem', fontWeight: 800, padding: '2px 6px', borderRadius: '6px', letterSpacing: '0.05em', verticalAlign: 'middle' }}>BETA</span>
+                    </span>
+                    <input
+                      type="checkbox"
+                      checked={magappSettings.show_notes}
+                      onChange={e => setMagappSettings({...magappSettings, show_notes: e.target.checked})}
+                      style={{ width: '22px', height: '22px', cursor: 'pointer', accentColor: '#059669' }}
+                    />
+                  </label>
+                  <p style={{ margin: '5px 0 0 0', fontSize: '0.85rem', color: '#64748b' }}>Ouvre « Mes notes IA » du DSI Hub depuis le Magasin d'applications (notes personnelles assistées par IA).</p>
+                </div>
+                <div className="form-group-v2 full-width" style={{ padding: '15px', background: 'white', border: '1px solid #e2e8f0', borderRadius: '16px' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', margin: 0 }}>
+                    <span style={{ fontWeight: 600, fontSize: '1rem' }}>
+                      Mes réunions
+                      <span style={{ marginLeft: 8, background: '#0369a1', color: 'white', fontSize: '0.6rem', fontWeight: 800, padding: '2px 6px', borderRadius: '6px', letterSpacing: '0.05em', verticalAlign: 'middle' }}>BETA</span>
+                    </span>
+                    <input
+                      type="checkbox"
+                      checked={magappSettings.show_reunions}
+                      onChange={e => setMagappSettings({...magappSettings, show_reunions: e.target.checked})}
+                      style={{ width: '22px', height: '22px', cursor: 'pointer', accentColor: '#0369a1' }}
+                    />
+                  </label>
+                  <p style={{ margin: '5px 0 0 0', fontSize: '0.85rem', color: '#64748b' }}>Ouvre « Mes réunions » du DSI Hub depuis le Magasin d'applications (réunions de l'agent et comptes-rendus).</p>
                 </div>
                 <button className="primary-btn-v2 full-width" style={{ marginTop: '10px' }} onClick={handleSaveMagappSettings}>
                   <Save size={18} /> Mettre à jour les paramètres
                 </button>
+
+                <BetaUsersAdmin token={token} />
               </div>
             </section>
           )}
@@ -2955,7 +3143,7 @@ const MagappAdmin: React.FC = () => {
 
         .form-grid-v2 {
           display: grid;
-          grid-template-columns: repeat(2, 1fr);
+          grid-template-columns: repeat(2, minmax(0, 1fr));
           gap: 24px;
         }
 
@@ -2977,6 +3165,9 @@ const MagappAdmin: React.FC = () => {
         .form-group-v2 input,
         .form-group-v2 textarea,
         .form-group-v2 select {
+          width: 100%;
+          min-width: 0;
+          box-sizing: border-box;
           padding: 12px 16px;
           border: 2px solid #e2e8f0;
           border-radius: 12px;
@@ -3010,6 +3201,80 @@ const MagappAdmin: React.FC = () => {
           letter-spacing: 0.06em;
           text-transform: uppercase;
           color: #94a3b8;
+        }
+
+        /* Modale "Programmer une maintenance" : layout compact, pensé pour tenir dans un
+           seul écran (ni scroll vertical ni horizontal) plutôt que la grille sectionnée
+           plus large utilisée par les autres modales de cette page. */
+        .maintenance-modal-v2 {
+          max-width: 560px;
+        }
+        .maintenance-form-grid-v2 {
+          gap: 14px 18px;
+        }
+        .field-hint-v2 {
+          font-size: 0.78rem;
+          font-weight: 500;
+          color: #94a3b8;
+          text-transform: none;
+          letter-spacing: normal;
+        }
+        .maintenance-dropzone-v2 {
+          display: flex;
+          flex-wrap: wrap;
+          align-items: center;
+          gap: 8px;
+          padding: 10px 12px;
+          border: 1.5px dashed #c7d2fe;
+          border-radius: 12px;
+          background: #f8f9ff;
+        }
+        .maintenance-dropzone-btn-v2 {
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+          padding: 7px 12px;
+          background: white;
+          border: 1px solid #c7d2fe;
+          border-radius: 8px;
+          color: #4f46e5;
+          font-size: 0.82rem;
+          font-weight: 600;
+          cursor: pointer;
+          flex-shrink: 0;
+        }
+        .maintenance-file-chips-v2 {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 6px;
+        }
+        .maintenance-file-chip-v2 {
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+          padding: 4px 8px;
+          background: white;
+          border: 1px solid #e2e8f0;
+          border-radius: 7px;
+          font-size: 0.8rem;
+          color: #334155;
+          max-width: 220px;
+        }
+        .maintenance-file-chip-v2 span,
+        .maintenance-file-chip-v2 {
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+        .maintenance-file-chip-v2 button {
+          background: none;
+          border: none;
+          cursor: pointer;
+          color: #94a3b8;
+          display: flex;
+          align-items: center;
+          padding: 0;
+          flex-shrink: 0;
         }
 
         .toggle-field-v2 {

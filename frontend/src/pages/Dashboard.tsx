@@ -135,7 +135,12 @@ const Dashboard: React.FC = () => {
         ]);
         setColumns(columnsRes.data.columns);
 
-        const tilesData = await tilesRes.json();
+        // « Actions rapides » (/fast) n'est pas un module à afficher/demander comme les
+        // autres : c'est un raccourci mobilité (page autonome, sans retour à l'accueil),
+        // accessible directement par son URL à quiconque a déjà accès à /tickets (cf.
+        // /api/auth/me côté backend). On l'exclut donc de la grille d'accueil.
+        const tilesData = (await tilesRes.json()).filter((t: TileData) =>
+          !(t.links || []).some(l => l.url === '/fast'));
         const pendingCount = pendingRes.data.count || 0;
         const renewalCount = renewalRes.data.count || 0;
         const contratsExpired = contratsExpiryRes.data.expired || 0;

@@ -64,6 +64,7 @@ reunionRouter.post('/free-slots', authenticateJWT, reunionsCtrl.freeSlots);
 reunionRouter.get('/', authenticateJWT, reunionsCtrl.getAll);
 reunionRouter.post('/', authenticateJWT, reunionsCtrl.create);
 reunionRouter.get('/:id', authenticateJWT, reunionsCtrl.getById);
+reunionRouter.get('/:id/compte-rendu/preview', authenticateJWT, reunionsCtrl.previewCompteRendu);
 reunionRouter.post('/:id/compte-rendu', authenticateJWT, reunionsCtrl.sendCompteRendu);
 reunionRouter.post('/:id/outlook', authenticateJWT, reunionsCtrl.createOutlookEvent);
 reunionRouter.put('/:id/reschedule', authenticateJWT, reunionsCtrl.reschedule);
@@ -73,6 +74,7 @@ reunionRouter.delete('/', authenticateAdminUI, reunionsCtrl.deleteAll);
 
 // Reunion participants
 reunionRouter.post('/:id/participants', authenticateJWT, reunionsCtrl.addParticipant);
+reunionRouter.put('/participants/:id', authenticateJWT, reunionsCtrl.updateParticipant);
 reunionRouter.delete('/participants/:id', authenticateJWT, reunionsCtrl.deleteParticipant);
 
 // Reunion attachments

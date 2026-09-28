@@ -22,6 +22,7 @@ const BudgetTrendWidget     = lazy(() => import('./BudgetTrendWidget'));
 const BudgetInvoicesWidget  = lazy(() => import('./BudgetInvoicesWidget'));
 const BudgetRecentInvoicesWidget = lazy(() => import('./BudgetRecentInvoicesWidget'));
 const BudgetRecentOrdersWidget   = lazy(() => import('./BudgetRecentOrdersWidget'));
+const BudgetDgpWidget            = lazy(() => import('./BudgetDgpWidget'));
 const MagappMaintenancesWidget = lazy(() => import('./MagappMaintenancesWidget'));
 const MagappIdeasWidget     = lazy(() => import('./MagappIdeasWidget'));
 const MagappClicksWidget    = lazy(() => import('./MagappClicksWidget'));
@@ -39,6 +40,8 @@ const TelecomOptimWidget    = lazy(() => import('./TelecomOptimWidget'));
 const MailAnalyseMapWorldWidget  = lazy(() => import('./MailAnalyseMapWorldWidget'));
 const MailAnalyseMapFranceWidget = lazy(() => import('./MailAnalyseMapFranceWidget'));
 const MailAnalyseFailedSigninsWidget = lazy(() => import('./MailAnalyseFailedSigninsWidget'));
+const NotesKpiWidget = lazy(() => import('./NotesKpiWidget'));
+const NotesWordcloudWidget = lazy(() => import('./NotesWordcloudWidget'));
 
 const ConsommablesWidget = lazy(() => import('./CounterWidget').then(m => ({ default: m.ConsommablesWidget })));
 const CertificatsWidget  = lazy(() => import('./CounterWidget').then(m => ({ default: m.CertificatsWidget })));
@@ -67,6 +70,7 @@ const WIDGET_MAP: Record<string, React.ComponentType> = {
   budget_invoices:    BudgetInvoicesWidget,
   budget_recent_invoices: BudgetRecentInvoicesWidget,
   budget_recent_orders:   BudgetRecentOrdersWidget,
+  budget_dgp:             BudgetDgpWidget,
   magapp_maintenances: MagappMaintenancesWidget,
   magapp_ideas:       MagappIdeasWidget,
   magapp_clicks:      MagappClicksWidget,
@@ -89,6 +93,8 @@ const WIDGET_MAP: Record<string, React.ComponentType> = {
   mail_analyse_map_world:  MailAnalyseMapWorldWidget,
   mail_analyse_map_france: MailAnalyseMapFranceWidget,
   mail_analyse_failed_signins: MailAnalyseFailedSigninsWidget,
+  notes_kpi:               NotesKpiWidget,
+  notes_wordcloud:         NotesWordcloudWidget,
   // Alias rétro-compatibilité : les tableaux existants enregistrés avec l'ancienne clé
   // unique (carte monde + carte pays empilées) affichent désormais la carte monde.
   mail_analyse_map:        MailAnalyseMapWorldWidget,

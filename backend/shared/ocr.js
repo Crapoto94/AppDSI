@@ -87,7 +87,11 @@ async function ocrPdfBuffer(buffer, opts = {}) {
 
     const doc = await pdfjsLib.getDocument({
         data: new Uint8Array(buffer),
-        useSystemFonts: true,
+        // false : évite un rendu de page blanche pour les polices standard
+        // (substitution par police système jamais résolue avant le rendu
+        // avec @napi-rs/canvas). Sans effet pour les PDF raster/scannés visés
+        // par l'OCR ; corrige le cas d'un PDF mixte contenant du texte vectoriel.
+        useSystemFonts: false,
         isEvalSupported: false,
         standardFontDataUrl,
     }).promise;

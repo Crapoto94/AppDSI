@@ -35,6 +35,8 @@ const MAP = {
   '/mes-reunions':           'GUIDE-REUNIONS.md',
   '/admin/magapp':           'GUIDE-MAGAPP.md',
   '/mes-taches':             'GUIDE-TACHES.md',
+  '/notes':                  'GUIDE-NOTES-IA.md',
+  '/vibecoding':             'GUIDE-VIBECODING.md',
   '/parc':                   'GUIDE-PARC.md',
   '/rh':                     'GUIDE-RH.md',
   '/vols':                   'GUIDE-VOLS.md',

@@ -42,6 +42,13 @@ const ROLE_LABELS: Record<string, { label: string; color: string; bg: string }> 
   user:         { label: 'Utilisateur',   color: '#0284c7', bg: '#e0f2fe' },
 };
 
+const AM_VERDICT: Record<string, { label: string; color: string }> = {
+  compromise_likely: { label: 'Compromission probable', color: '#dc2626' },
+  signals_to_check: { label: 'Signaux à vérifier', color: '#d97706' },
+  no_strong_signal: { label: 'RAS', color: '#16a34a' },
+};
+const AM_SEVERITY: Record<string, string> = { critical: '#dc2626', high: '#ea580c', medium: '#d97706', low: '#64748b' };
+
 const SORT_OPTIONS = [
   { label: 'Plus récents', sortKey: 'date_creation', sortDir: 'desc' as const },
   { label: 'Plus anciens', sortKey: 'date_creation', sortDir: 'asc' as const },
@@ -175,9 +182,9 @@ export default function TicketsDashboard() {
   const [aaSearch, setAaSearch] = useState('');
   const [aaSelected, setAaSelected] = useState<any>(null);
   
-  const [aaSettings, setAaSettings] = useState<{ sms_message: string; sms_tuto_link: string; ad_sync_url: string } | null>(null);
+  const [aaSettings, setAaSettings] = useState<{ sms_message: string; sms_tuto_link: string; ad_sync_url: string; pwd_change_value: string } | null>(null);
   const [aaShowSettings, setAaShowSettings] = useState(false);
-  const [aaSettingsDraft, setAaSettingsDraft] = useState({ sms_message: '', sms_tuto_link: '', ad_sync_url: '' });
+  const [aaSettingsDraft, setAaSettingsDraft] = useState({ sms_message: '', sms_tuto_link: '', ad_sync_url: '', pwd_change_value: '' });
   const [aaSending, setAaSending] = useState(false);
   const [aaSyncing, setAaSyncing] = useState(false);
   const [aaStepStatus, setAaStepStatus] = useState(0); // 0=idle, 1=AD, 2=SMS, 3=Sync, 4=done
@@ -189,6 +196,57 @@ export default function TicketsDashboard() {
   const [aaAdSearching, setAaAdSearching] = useState(false);
   const [aaAdSelectedUser, setAaAdSelectedUser] = useState<any>(null);
   const [aaAdToggling, setAaAdToggling] = useState(false);
+
+  // ── Changement de mot de passe (ticket auto-résolu) ───────────────
+  const [pcSearchQuery, setPcSearchQuery] = useState('');
+  const [pcSearchResults, setPcSearchResults] = useState<any[]>([]);
+  const [pcSearching, setPcSearching] = useState(false);
+  const [pcSelected, setPcSelected] = useState<any>(null);
+  const [pcSubmitting, setPcSubmitting] = useState(false);
+  const [pcError, setPcError] = useState('');
+  const [pcResult, setPcResult] = useState<any>(null);
+
+  // ── Analyse mail (détection de compromission d'une boîte mail) ───
+  const [amQuery, setAmQuery] = useState('');
+  const [amResults, setAmResults] = useState<any[]>([]);
+  const [amSearching, setAmSearching] = useState(false);
+  const [amSelected, setAmSelected] = useState<any>(null);
+  const [amLoading, setAmLoading] = useState(false);
+  const [amResult, setAmResult] = useState<any>(null);
+  const [amError, setAmError] = useState('');
+
+  // ── Analyse mail : handlers ──────────────────────────────────────
+  function openMailAnalysis() {
+    setAaStep(4);
+    setAaShowSettings(false);
+    setAmQuery(''); setAmResults([]); setAmSelected(null);
+    setAmLoading(false); setAmResult(null); setAmError('');
+  }
+
+  async function searchMailAgent() {
+    if (amQuery.trim().length < 2) return;
+    setAmSearching(true); setAmError(''); setAmSelected(null); setAmResult(null);
+    try {
+      const tk = localStorage.getItem('token');
+      const r = await axios.get(`/api/tickets/auto-actions/ad-search?q=${encodeURIComponent(amQuery.trim())}`, { headers: { Authorization: `Bearer ${tk}` } });
+      setAmResults(r.data || []);
+      if (!r.data?.length) setAmError('Aucun agent trouvé dans l\'AD.');
+    } catch (e: any) { setAmError(e.response?.data?.message || 'Erreur de recherche.'); }
+    finally { setAmSearching(false); }
+  }
+
+  async function runMailAnalysis() {
+    if (!amSelected) return;
+    const email = (amSelected.mail || '').trim();
+    if (!email || !email.includes('@')) { setAmError("Cet agent n'a pas d'adresse email dans l'AD."); return; }
+    setAmLoading(true); setAmError(''); setAmResult(null);
+    try {
+      const tk = localStorage.getItem('token');
+      const r = await axios.post('/api/analyse-mail/scan', { email, days: 7 }, { headers: { Authorization: `Bearer ${tk}` } });
+      setAmResult(r.data);
+    } catch (e: any) { setAmError(e.response?.data?.message || e.message || "Erreur lors de l'analyse."); }
+    finally { setAmLoading(false); }
+  }
 
   const limit = 50;
 
@@ -1705,17 +1763,19 @@ export default function TicketsDashboard() {
           {/* Header */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '20px 24px 16px', borderBottom: '1px solid #f1f5f9' }}>
             {aaStep > 0 && (
-              <button onClick={() => { setAaStep(aaStep - 1); setAaError(''); setAaSuccess(''); setAaAdWarning(''); setAaShowSettings(false); }}
+              <button onClick={() => { setAaStep((aaStep === 4 || aaStep === 5) ? 0 : aaStep - 1); setAaError(''); setAaSuccess(''); setAaAdWarning(''); setAaShowSettings(false); }}
                 style={{ background: 'none', border: '1px solid #e2e8f0', borderRadius: 6, padding: '4px 10px', cursor: 'pointer', fontSize: 14, color: '#475569' }}>
                 ← Retour
               </button>
             )}
             <div style={{ flex: 1 }}>
               <div style={{ fontWeight: 700, fontSize: 16, color: '#0f172a' }}>
-                {aaStep === 0 ? '⚡ Actions automatiques' : aaStep === 1 ? '🔑 Renouveler mot de passe par SMS' : aaStep === 2 ? '📱 Confirmation et envoi' : '🔁 Activer / Désactiver un compte AD'}
+                {aaStep === 0 ? '⚡ Actions automatiques' : aaStep === 1 ? '🔑 Renouveler mot de passe par SMS' : aaStep === 2 ? '📱 Confirmation et envoi' : aaStep === 4 ? '🛡️ Analyse mail' : aaStep === 5 ? '🔐 Changement de mot de passe' : '🔁 Activer / Désactiver un compte AD'}
               </div>
               {aaStep === 1 && <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>Sélectionnez le bénéficiaire</div>}
               {aaStep === 2 && aaSelected && <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>{aaSelected.prenom || ''} {aaSelected.nom}</div>}
+              {aaStep === 4 && <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>Détection de compromission d'une boîte mail</div>}
+              {aaStep === 5 && <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>Recherche AD + création d'un ticket résolu</div>}
             </div>
             <button onClick={() => { setShowAutoActions(false); setAaStep(0); setAaShowSettings(false); setAaAdWarning(''); }}
               style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 20, color: '#94a3b8', lineHeight: 1 }}>✕</button>
@@ -1775,22 +1835,46 @@ export default function TicketsDashboard() {
                   </div>
                 </button>
 
+                <button onClick={openMailAnalysis}
+                  style={{ display: 'flex', alignItems: 'flex-start', gap: 14, padding: '16px 18px', border: '1px solid #e2e8f0', borderRadius: 10, background: '#f8fafc', cursor: 'pointer', textAlign: 'left' }}
+                  onMouseEnter={e => (e.currentTarget.style.borderColor = '#f87171')}
+                  onMouseLeave={e => (e.currentTarget.style.borderColor = '#e2e8f0')}>
+                  <span style={{ fontSize: 28, lineHeight: 1 }}>🛡️</span>
+                  <div>
+                    <div style={{ fontWeight: 700, fontSize: 14, color: '#0f172a' }}>Analyse mail</div>
+                    <div style={{ fontSize: 12, color: '#64748b', marginTop: 4 }}>Recherche un agent dans l'AD et évalue le risque de compromission de sa boîte mail.</div>
+                  </div>
+                </button>
+
+                <button onClick={() => {
+                  setAaStep(5); setPcSearchQuery(''); setPcSearchResults([]); setPcSelected(null);
+                  setPcSubmitting(false); setPcError(''); setPcResult(null);
+                }} style={{ display: 'flex', alignItems: 'flex-start', gap: 14, padding: '16px 18px', border: '1px solid #e2e8f0', borderRadius: 10, background: '#f8fafc', cursor: 'pointer', textAlign: 'left' }}
+                  onMouseEnter={e => (e.currentTarget.style.borderColor = '#fbbf24')}
+                  onMouseLeave={e => (e.currentTarget.style.borderColor = '#e2e8f0')}>
+                  <span style={{ fontSize: 28, lineHeight: 1 }}>🔐</span>
+                  <div>
+                    <div style={{ fontWeight: 700, fontSize: 14, color: '#0f172a' }}>Changement de mot de passe</div>
+                    <div style={{ fontSize: 12, color: '#64748b', marginTop: 4 }}>Recherche un compte AD, réinitialise son mot de passe et crée automatiquement un ticket résolu.</div>
+                  </div>
+                </button>
+
                 {aaSyncing && <div style={{ textAlign: 'center', padding: 12, color: '#0369a1', fontSize: 13 }}>⏳ Synchro O365 en cours…</div>}
                 {!aaSyncing && aaSuccess && <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 10, padding: '10px 14px', color: '#166534', fontSize: 13 }}>✅ {aaSuccess}</div>}
                 {!aaSyncing && aaError && <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 10, padding: '10px 14px', color: '#dc2626', fontSize: 13 }}>{aaError}</div>}
 
                 {/* Paramétrage global */}
                 <div style={{ borderTop: '1px solid #f1f5f9', paddingTop: 14, marginTop: 6 }}>
-                  <button onClick={() => { setAaShowSettings(!aaShowSettings); setAaSettingsDraft(aaSettings || { sms_message: '', sms_tuto_link: '', ad_sync_url: '' }); }}
+                  <button onClick={() => { setAaShowSettings(!aaShowSettings); setAaSettingsDraft(aaSettings || { sms_message: '', sms_tuto_link: '', ad_sync_url: '', pwd_change_value: '' }); }}
                     style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 13, color: '#64748b', display: 'flex', alignItems: 'center', gap: 6, padding: 0, fontWeight: 600 }}>
-                    ⚙️ Paramétrage SMS {aaShowSettings ? '▲' : '▼'}
+                    ⚙️ Paramétrage {aaShowSettings ? '▲' : '▼'}
                   </button>
                   {aaShowSettings && (
                     <div style={{ marginTop: 12, background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 10, padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: 12 }}>
                       <div style={{ fontSize: 12, color: '#94a3b8' }}>Ces paramètres s'appliquent à tous les envois de renouvellement de mot de passe.</div>
                       <div>
                         <label style={{ fontSize: 12, color: '#475569', display: 'block', marginBottom: 4, fontWeight: 600 }}>
-                          Template du message <span style={{ fontWeight: 400 }}>(variables : <code style={{ background: '#e2e8f0', padding: '1px 4px', borderRadius: 3 }}>{'{PRENOM}'}</code> <code style={{ background: '#e2e8f0', padding: '1px 4px', borderRadius: 3 }}>{'{MOT_DE_PASSE}'}</code> <code style={{ background: '#e2e8f0', padding: '1px 4px', borderRadius: 3 }}>{'{LIEN}'}</code>)</span>
+                          Template du message SMS <span style={{ fontWeight: 400 }}>(variables : <code style={{ background: '#e2e8f0', padding: '1px 4px', borderRadius: 3 }}>{'{PRENOM}'}</code> <code style={{ background: '#e2e8f0', padding: '1px 4px', borderRadius: 3 }}>{'{MOT_DE_PASSE}'}</code> <code style={{ background: '#e2e8f0', padding: '1px 4px', borderRadius: 3 }}>{'{LIEN}'}</code>)</span>
                         </label>
                         <textarea value={aaSettingsDraft.sms_message} onChange={e => setAaSettingsDraft(d => ({ ...d, sms_message: e.target.value }))} rows={4}
                           style={{ width: '100%', boxSizing: 'border-box', padding: '8px 10px', border: '1px solid #e2e8f0', borderRadius: 6, fontSize: 13, fontFamily: 'inherit', resize: 'vertical', outline: 'none' }} />
@@ -1804,6 +1888,9 @@ export default function TicketsDashboard() {
                         <label style={{ fontSize: 12, color: '#475569', display: 'block', marginBottom: 4, fontWeight: 600 }}>URL de synchro AD Connect <span style={{ fontWeight: 400 }}>(serveur listener)</span></label>
                         <input value={aaSettingsDraft.ad_sync_url || ''} onChange={e => setAaSettingsDraft(d => ({ ...d, ad_sync_url: e.target.value }))} placeholder="http://O365:8088/trigger-sync"
                           style={{ width: '100%', boxSizing: 'border-box', padding: '8px 10px', border: '1px solid #e2e8f0', borderRadius: 6, fontSize: 13, outline: 'none' }} />
+                      </div>
+                      <div style={{ background: '#f0f9ff', border: '1px solid #bae6fd', borderRadius: 8, padding: '10px 12px', fontSize: 12, color: '#0369a1' }}>
+                        🔐 Le mot de passe provisoire de l'action « Changement de mot de passe » se configure désormais dans <strong>/tickets/admin → ⚙️ Paramètres</strong> (valeur actuelle : <strong>{aaSettings?.pwd_change_value || '⚠️ non configurée'}</strong>).
                       </div>
                       {aaError && <div style={{ color: '#dc2626', fontSize: 12 }}>{aaError}</div>}
                       <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
@@ -2070,6 +2157,200 @@ export default function TicketsDashboard() {
                     </>
                   ) : null}
                 </div>
+              </div>
+            )}
+
+            {/* ── Étape 4 : Analyse mail ── */}
+            {aaStep === 4 && (
+              <div>
+                <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
+                  <input value={amQuery} onChange={e => setAmQuery(e.target.value)}
+                    placeholder="🔍 Rechercher un agent (nom, login, email…)"
+                    onKeyDown={e => { if (e.key === 'Enter') searchMailAgent(); }}
+                    style={{ flex: 1, boxSizing: 'border-box', padding: '9px 12px', border: '1px solid #e2e8f0', borderRadius: 8, fontSize: 13, outline: 'none' }} />
+                  <button onClick={searchMailAgent}
+                    style={{ padding: '9px 18px', borderRadius: 8, border: 'none', background: '#6366f1', color: '#fff', fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>OK</button>
+                </div>
+
+                {amSearching && <div style={{ textAlign: 'center', padding: 24, color: '#94a3b8' }}>Recherche…</div>}
+
+                {!amSearching && amResults.length > 0 && (
+                  <div style={{ marginBottom: 14, maxHeight: 240, overflowY: 'auto' }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 6 }}>Résultats ({amResults.length})</div>
+                    {amResults.map(u => (
+                      <div key={u.sam} onClick={() => { setAmSelected(u); setAmResult(null); setAmError(''); }}
+                        style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 12px', borderRadius: 8, cursor: 'pointer', marginBottom: 4, border: `1px solid ${amSelected?.sam === u.sam ? '#f87171' : '#e2e8f0'}`, background: amSelected?.sam === u.sam ? '#fef2f2' : '#fff' }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0 }}>
+                          <div style={{ fontWeight: 600, fontSize: 13, color: '#0f172a' }}>{u.displayName || u.sam}</div>
+                          <span style={{ fontSize: 11, color: '#64748b' }}>{u.mail || "Pas d'email AD"}{u.department ? ` · ${u.department}` : ''}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {amError && <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 8, padding: '10px 14px', color: '#dc2626', fontSize: 13, marginBottom: 12 }}>{amError}</div>}
+
+                {amLoading && (
+                  <div style={{ background: '#f0f9ff', border: '1px solid #bae6fd', borderRadius: 8, padding: 14, color: '#0369a1', fontSize: 13, textAlign: 'center', marginBottom: 12 }}>
+                    ⏳ Analyse de la boîte en cours… (connexions, audit, règles — jusqu'à une minute)
+                  </div>
+                )}
+
+                {amResult && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                    <div style={{ textAlign: 'center', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 12, padding: '16px 14px' }}>
+                      <div style={{ fontSize: 13, color: '#64748b' }}>{amResult.email}</div>
+                      <div style={{ fontSize: 40, fontWeight: 800, lineHeight: 1.1, color: (AM_VERDICT[amResult.verdict]?.color) || '#64748b' }}>
+                        {amResult.score}<span style={{ fontSize: 18, fontWeight: 600, color: '#94a3b8' }}>/10</span>
+                      </div>
+                      <div style={{ display: 'inline-block', marginTop: 8, fontSize: 13, fontWeight: 700, padding: '4px 12px', borderRadius: 12, background: `${(AM_VERDICT[amResult.verdict]?.color) || '#64748b'}18`, color: (AM_VERDICT[amResult.verdict]?.color) || '#64748b' }}>
+                        {amResult.verdict_label || AM_VERDICT[amResult.verdict]?.label || amResult.verdict}
+                      </div>
+                      <div style={{ marginTop: 10, fontSize: 12, color: '#94a3b8' }}>
+                        {amResult.nb_signins ?? 0} connexion(s) · {amResult.nb_audit ?? 0} audit · {amResult.nb_rules ?? 0} règle(s) — {amResult.days ?? 7} j
+                      </div>
+                    </div>
+
+                    {Array.isArray(amResult.findings) && amResult.findings.length > 0 ? (
+                      <div>
+                        <div style={{ fontSize: 11, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 6 }}>Signaux détectés ({amResult.findings.length})</div>
+                        {amResult.findings.map((f: any, i: number) => (
+                          <div key={i} style={{ border: '1px solid #e2e8f0', borderLeft: `3px solid ${AM_SEVERITY[f.severity] || '#64748b'}`, background: '#fff', borderRadius: 8, padding: '10px 12px', marginBottom: 8 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                              <span style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', padding: '1px 7px', borderRadius: 8, background: `${AM_SEVERITY[f.severity] || '#64748b'}18`, color: AM_SEVERITY[f.severity] || '#64748b' }}>{f.severity}</span>
+                              <span style={{ fontSize: 13, fontWeight: 600, color: '#0f172a' }}>{f.title}</span>
+                            </div>
+                            {f.description && <div style={{ fontSize: 12, color: '#64748b', marginTop: 4 }}>{f.description}</div>}
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 8, padding: '10px 14px', color: '#166534', fontSize: 13 }}>✅ Aucun signal suspect détecté sur la période.</div>
+                    )}
+
+                    {Array.isArray(amResult.errors) && amResult.errors.length > 0 && (
+                      <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 8, padding: '10px 14px', color: '#92400e', fontSize: 12 }}>
+                        ⚠️ Sources non lues : {amResult.errors.join(' · ')}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 16 }}>
+                  {amResult ? (
+                    <button onClick={() => { setAaStep(0); setAmQuery(''); setAmResults([]); setAmSelected(null); setAmResult(null); setAmError(''); }}
+                      style={{ padding: '10px 22px', borderRadius: 8, border: 'none', background: '#0f172a', color: '#fff', fontWeight: 700, fontSize: 14, cursor: 'pointer' }}>Fermer</button>
+                  ) : amSelected ? (
+                    <button disabled={amLoading} onClick={runMailAnalysis}
+                      style={{ padding: '10px 22px', borderRadius: 8, border: 'none', background: amLoading ? '#e2e8f0' : '#dc2626', color: amLoading ? '#94a3b8' : '#fff', fontWeight: 700, fontSize: 14, cursor: amLoading ? 'default' : 'pointer' }}>
+                      {amLoading ? '⏳ Analyse en cours…' : `🛡️ Analyser ${amSelected.mail || amSelected.sam}`}
+                    </button>
+                  ) : null}
+                </div>
+              </div>
+            )}
+
+            {/* ── Étape 5 : Changement de mot de passe (ticket auto-résolu) ── */}
+            {aaStep === 5 && (
+              <div>
+                {!pcResult && (
+                  <>
+                    <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
+                      <input value={pcSearchQuery} onChange={e => setPcSearchQuery(e.target.value)}
+                        placeholder="🔍 Rechercher un compte AD (nom, login, email…)"
+                        onKeyDown={async e => {
+                          if (e.key === 'Enter' && pcSearchQuery.trim().length >= 2) {
+                            setPcSearching(true); setPcError(''); setPcSelected(null);
+                            try {
+                              const tk = localStorage.getItem('token');
+                              const r = await axios.get(`/api/tickets/auto-actions/ad-search?q=${encodeURIComponent(pcSearchQuery.trim())}`, { headers: { Authorization: `Bearer ${tk}` } });
+                              setPcSearchResults(r.data || []);
+                              if (!r.data?.length) setPcError('Aucun compte trouvé.');
+                            } catch (e: any) { setPcError(e.response?.data?.message || 'Erreur de recherche.'); }
+                            finally { setPcSearching(false); }
+                          }
+                        }}
+                        style={{ flex: 1, boxSizing: 'border-box', padding: '9px 12px', border: '1px solid #e2e8f0', borderRadius: 8, fontSize: 13, outline: 'none' }} />
+                    </div>
+
+                    {pcSearching && <div style={{ textAlign: 'center', padding: 24, color: '#94a3b8' }}>Recherche…</div>}
+
+                    {!pcSearching && pcSearchResults.length > 0 && (
+                      <div style={{ marginBottom: 14, maxHeight: 220, overflowY: 'auto' }}>
+                        <div style={{ fontSize: 11, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 6 }}>Résultats ({pcSearchResults.length})</div>
+                        {pcSearchResults.map(u => (
+                          <div key={u.sam} onClick={() => { setPcSelected(u); setPcError(''); }}
+                            style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 12px', borderRadius: 8, cursor: 'pointer', marginBottom: 4, border: `1px solid ${pcSelected?.sam === u.sam ? '#fbbf24' : '#e2e8f0'}`, background: pcSelected?.sam === u.sam ? '#fffbeb' : '#fff' }}>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0 }}>
+                              <div style={{ fontWeight: 600, fontSize: 13, color: '#0f172a' }}>{u.displayName || u.sam}</div>
+                              <span style={{ fontSize: 11, color: '#64748b' }}>{u.sam}{u.mail ? ` · ${u.mail}` : ' · Pas d\'email AD'}{u.department ? ` · ${u.department}` : ''}</span>
+                            </div>
+                            {!u.enabled && <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 10, background: '#fee2e2', color: '#991b1b', fontWeight: 600 }}>DÉSACTIVÉ</span>}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {pcSelected && (
+                      <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 10, padding: '14px 16px', marginBottom: 14 }}>
+                        <div style={{ fontWeight: 700, fontSize: 14, color: '#0f172a' }}>{pcSelected.displayName || pcSelected.sam}</div>
+                        <div style={{ fontSize: 12, color: '#64748b', marginTop: 4 }}>{pcSelected.sam}{pcSelected.mail ? ` · ${pcSelected.mail}` : ''}</div>
+                        {!pcSelected.mail && (
+                          <div style={{ fontSize: 12, color: '#92400e', marginTop: 6 }}>⚠️ Aucun email AD connu : le mail de rappel (messagerie mobile/tablette) ne pourra pas être envoyé.</div>
+                        )}
+                        <div style={{ marginTop: 12, background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 8, padding: '10px 12px' }}>
+                          <div style={{ fontSize: 12, color: '#475569', fontWeight: 600 }}>Mot de passe provisoire qui sera appliqué</div>
+                          <div style={{ fontSize: 15, fontWeight: 700, color: '#92400e', marginTop: 2, fontFamily: 'monospace' }}>
+                            {aaSettings?.pwd_change_value || '⚠️ non configuré'}
+                          </div>
+                          <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 6 }}>
+                            Le compte sera marqué « changement de mot de passe à l'ouverture de session suivante ». Communiquez ce mot de passe de vive voix à l'agent.
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {pcError && <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 8, padding: '10px 14px', color: '#dc2626', fontSize: 13, marginBottom: 12 }}>{pcError}</div>}
+
+                    <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 4 }}>
+                      {pcSelected && (
+                        <button disabled={pcSubmitting || !aaSettings?.pwd_change_value} onClick={async () => {
+                          setPcSubmitting(true); setPcError('');
+                          try {
+                            const tk = localStorage.getItem('token');
+                            const r = await axios.post('/api/tickets/auto-actions/password-change-ticket', {
+                              sam: pcSelected.sam,
+                              display_name: pcSelected.displayName,
+                              mail: pcSelected.mail,
+                            }, { headers: { Authorization: `Bearer ${tk}` } });
+                            setPcResult(r.data);
+                          } catch (e: any) { setPcError(e.response?.data?.message || 'Erreur lors du changement de mot de passe.'); }
+                          finally { setPcSubmitting(false); }
+                        }} style={{ padding: '10px 22px', borderRadius: 8, border: 'none', background: (pcSubmitting || !aaSettings?.pwd_change_value) ? '#e2e8f0' : '#0f172a', color: (pcSubmitting || !aaSettings?.pwd_change_value) ? '#94a3b8' : '#fff', fontWeight: 700, fontSize: 14, cursor: (pcSubmitting || !aaSettings?.pwd_change_value) ? 'default' : 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
+                          {pcSubmitting ? '⏳ Traitement…' : '🔐 Changer le mot de passe et créer le ticket'}
+                        </button>
+                      )}
+                    </div>
+                  </>
+                )}
+
+                {pcResult && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                    <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 10, padding: '14px 16px', color: '#166534', fontSize: 13 }}>
+                      ✅ Mot de passe réinitialisé pour <strong>{pcSelected?.displayName || pcSelected?.sam}</strong> · Ticket <strong>#{pcResult.ticket_id}</strong> créé et résolu.
+                    </div>
+                    <div style={{ fontSize: 12, color: '#475569', display: 'flex', flexDirection: 'column', gap: 4 }}>
+                      <div>{pcResult.force_pwd_change ? '✅' : '⚠️'} Changement de mot de passe à l'ouverture de session {pcResult.force_pwd_change ? 'activé' : `— échec : ${pcResult.force_pwd_error || ''}`}</div>
+                      <div>{pcResult.o365_changed ? '✅ Synchronisation O365 effectuée' : `ℹ️ O365 : ${pcResult.o365_error || 'non synchronisé'}`}</div>
+                      <div>{pcResult.mail_sent ? '✅ Mail de rappel envoyé au demandeur' : `ℹ️ Mail non envoyé${pcResult.mail_error ? ` : ${pcResult.mail_error}` : ''}`}</div>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                      <button onClick={() => { setAaStep(0); setPcSearchQuery(''); setPcSearchResults([]); setPcSelected(null); setPcResult(null); setPcError(''); }}
+                        style={{ padding: '10px 22px', borderRadius: 8, border: 'none', background: '#0f172a', color: '#fff', fontWeight: 700, fontSize: 14, cursor: 'pointer' }}>Fermer</button>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>

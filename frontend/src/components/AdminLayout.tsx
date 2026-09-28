@@ -6,7 +6,7 @@ import { useAuth } from '../contexts/AuthContext';
 import {
   LayoutDashboard, Users, MessageSquare,
   Mail, Settings, LayoutGrid, Activity,
-  Monitor, Database, Shield, ChevronRight, Bell, Lock, Sliders, Lightbulb, DollarSign, Wrench, Zap, Inbox, HardDrive, Server, AlertCircle, Network, Key, HelpCircle
+  Monitor, Database, Shield, ChevronRight, Bell, Lock, Sliders, Lightbulb, DollarSign, Wrench, Zap, Inbox, HardDrive, Server, AlertCircle, Network, Key, HelpCircle, NotebookPen
 } from 'lucide-react';
 
 const AdminLayout: React.FC = () => {
@@ -46,6 +46,7 @@ const AdminLayout: React.FC = () => {
     { title: "Paramétrage Hub", icon: Sliders, path: "/admin/hub", badge: isSuperAdmin ? pendingCount : 0 },
     { title: "Aides", icon: HelpCircle, path: "/admin/aides" },
     { title: "Param Ville", icon: LayoutGrid, path: "/admin/param-ville" },
+    { title: "Parapheur", icon: Key, path: "/admin/parapheur-certificats" },
     { title: "Backlog", icon: Inbox, path: "/admin/backlog" },
     { title: "Messagerie & Emails", icon: Mail, path: "/admin/mail" },
     { title: "AD et Entra", icon: Users, path: "/admin/ad" },
@@ -53,8 +54,9 @@ const AdminLayout: React.FC = () => {
     { title: "API externes", icon: Network, path: "/admin/infra" },
     { title: "SMS Frizbi", icon: MessageSquare, path: "/admin/frizbi" },
     { title: "Intelligence Artificielle", icon: MessageSquare, path: "/admin/transcript" },
+    { title: "Notes IA (Mes Notes)", icon: NotebookPen, path: "/admin/notes" },
     { title: "Tickets", icon: Inbox, path: "/admin/tickets" },
-    { title: "Synchronisations", icon: Database, path: "/admin/glpi" },
+    { title: "Databases", icon: Database, path: "/admin/databases" },
     { title: "SQL", icon: Database, path: "/admin/sql" },
     { title: "GED / Alfresco", icon: HardDrive, path: "/admin/ged" },
     ...(isSuperAdmin ? [{ title: "Sécurité & Sauvegarde", icon: AlertCircle, path: "/admin/security" }] : []),

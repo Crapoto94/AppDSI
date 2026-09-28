@@ -29,6 +29,7 @@ import {
 } from 'lucide-react';import { useNavigate } from 'react-router-dom';
 import { BarChart, Bar, Cell, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
 import Header from '../components/Header';
+import FactureDocumentsViewer from '../components/finance/FactureDocumentsViewer';
 
 interface Tier {
   id: number;
@@ -93,6 +94,7 @@ interface TelecomInvoice {
   account_number?: string;
   general_status?: string;
   sedit_ref?: string;
+  sedit_numero?: string | null;
   billing_month?: string | null;
   description?: string | null;
   effective_month?: string | null;
@@ -218,6 +220,10 @@ interface MonthCellInvoice {
   description: string | null;
   general_status: string | null;
   sedit_ref: string | null;
+  sedit_numero?: string | null;
+  file_path?: string | null;
+  mandated?: boolean;
+  mandate_date?: string | null;
 }
 
 interface MonthCell {
@@ -297,6 +303,8 @@ const TelecomManagement: React.FC = () => {
   const [loadingSummary, setLoadingSummary] = useState(false);
   const [summaryYear, setSummaryYear] = useState(new Date().getFullYear());
   const [viewingCell, setViewingCell] = useState<{ label: string; invoices: MonthCellInvoice[] } | null>(null);
+  // Visionneuse des pièces jointes Sedit (PDF) d'une facture (n° Sedit) — bouton « Voir la facture ».
+  const [viewingFactureNumero, setViewingFactureNumero] = useState<string | null>(null);
   const [commentEditor, setCommentEditor] = useState<{ accountId: number; month: string; value: string } | null>(null);
   const [savingComment, setSavingComment] = useState(false);
 
@@ -1576,9 +1584,13 @@ const TelecomManagement: React.FC = () => {
                                     <Edit2 size={18} />
                                   </button>
                                   {inv.file_path ? (
-                                    <a href={`/api/${inv.file_path}`} target="_blank" rel="noopener noreferrer" className="edit-icon-btn" title="Voir le PDF">
+                                    <a href={`/api/${inv.file_path}`} target="_blank" rel="noopener noreferrer" className="edit-icon-btn" title="Voir la facture (PDF)">
                                       <FileText size={18} />
                                     </a>
+                                  ) : inv.sedit_numero ? (
+                                    <button type="button" className="edit-icon-btn" title="Voir la facture (Sedit)" onClick={() => setViewingFactureNumero(inv.sedit_numero!)}>
+                                      <FileText size={18} />
+                                    </button>
                                   ) : inv.sedit_ref ? (
                                     <a href={`${urlSedit}/FicheFacture.html?factureId=${encodeURIComponent(inv.sedit_ref)}`} target="_blank" rel="noopener noreferrer" className="edit-icon-btn" title="Ouvrir dans Sedit">
                                       <ExternalLink size={18} />
@@ -1693,13 +1705,24 @@ const TelecomManagement: React.FC = () => {
                               const isMissing = cell.isPast && cell.total == null && !cell.comment;
                               return (
                                 <td key={m} className="summary-cell" style={{ textAlign: 'right', background: isMissing ? '#fef2f2' : undefined }}>
-                                  {cell.total != null ? (
-                                    <button className="summary-cell-btn"
-                                      onClick={() => setViewingCell({ label: `${row.account_number} — ${formatMonthKey(m)}`, invoices: cell.invoices })}>
-                                      {trend && <span title={trend.title} style={{ display: 'inline-flex' }}><trend.Icon size={10} color={trend.color} /></span>}
-                                      {cell.total.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}
-                                    </button>
-                                  ) : isMissing ? (
+                                  {cell.total != null ? (() => {
+                                    // Contour vert si toutes les factures du mois sont mandatées,
+                                    // gris sinon ; infobulle = date de mandatement (par facture).
+                                    const mandated = cell.invoices.length > 0 && cell.invoices.every(i => i.mandated);
+                                    const mandateTitle = cell.invoices.map(i => {
+                                      const d = i.mandate_date ? new Date(i.mandate_date).toLocaleDateString('fr-FR') : null;
+                                      return i.mandated ? (d ? `Mandaté le ${d}` : 'Mandaté') : 'Non mandaté';
+                                    }).join('\n');
+                                    return (
+                                      <button className="summary-cell-btn"
+                                        title={mandateTitle || undefined}
+                                        style={{ borderColor: mandated ? '#16a34a' : '#cbd5e1', borderWidth: 1.5, borderStyle: 'solid' }}
+                                        onClick={() => setViewingCell({ label: `${row.account_number} — ${formatMonthKey(m)}`, invoices: cell.invoices })}>
+                                        {trend && <span title={trend.title} style={{ display: 'inline-flex' }}><trend.Icon size={10} color={trend.color} /></span>}
+                                        {cell.total.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}
+                                      </button>
+                                    );
+                                  })() : isMissing ? (
                                     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
                                       <span style={{ color: '#dc2626', fontSize: 10.5, fontWeight: 600 }}>Manquant</span>
                                       <button className="summary-comment-btn missing"
@@ -2865,15 +2888,33 @@ const TelecomManagement: React.FC = () => {
                     <div style={{ fontWeight: 700 }}>{inv.invoice_number}</div>
                     {inv.description && <div style={{ fontSize: 12, color: '#64748b' }}>{inv.description}</div>}
                     {inv.general_status && <div style={{ fontSize: 11, color: '#94a3b8' }}>Statut : {inv.general_status}</div>}
+                    <div style={{ fontSize: 11, marginTop: 2, color: inv.mandated ? '#16a34a' : '#94a3b8', fontWeight: 600 }}>
+                      {inv.mandated
+                        ? `Mandaté${inv.mandate_date ? ' le ' + new Date(inv.mandate_date).toLocaleDateString('fr-FR') : ''}`
+                        : 'Non mandaté'}
+                    </div>
                   </div>
                   <div style={{ textAlign: 'right', display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
                     <span style={{ fontWeight: 700 }}>{inv.amount_ttc.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}</span>
-                    {inv.sedit_ref && (
-                      <a href={`${urlSedit}/FicheFacture.html?factureId=${encodeURIComponent(inv.sedit_ref)}`} target="_blank" rel="noopener noreferrer"
-                        style={{ fontSize: 11, color: '#3b82f6', display: 'inline-flex', alignItems: 'center', gap: 3 }}>
-                        <ExternalLink size={11} /> Sedit
-                      </a>
-                    )}
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                      {inv.file_path ? (
+                        <a href={`/api/${inv.file_path}`} target="_blank" rel="noopener noreferrer"
+                          style={{ fontSize: 11, color: '#7c3aed', display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+                          <FileText size={11} /> Voir la facture
+                        </a>
+                      ) : inv.sedit_numero ? (
+                        <button type="button" onClick={() => setViewingFactureNumero(inv.sedit_numero!)}
+                          style={{ background: 'none', border: 'none', padding: 0, fontSize: 11, color: '#7c3aed', display: 'inline-flex', alignItems: 'center', gap: 3, cursor: 'pointer' }}>
+                          <FileText size={11} /> Voir la facture
+                        </button>
+                      ) : null}
+                      {inv.sedit_ref && (
+                        <a href={`${urlSedit}/FicheFacture.html?factureId=${encodeURIComponent(inv.sedit_ref)}`} target="_blank" rel="noopener noreferrer"
+                          style={{ fontSize: 11, color: '#3b82f6', display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+                          <ExternalLink size={11} /> Sedit
+                        </a>
+                      )}
+                    </div>
                   </div>
                 </div>
               ))}
@@ -2885,6 +2926,11 @@ const TelecomManagement: React.FC = () => {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Visionneuse des pièces jointes Sedit (PDF) d'une facture télécom */}
+      {viewingFactureNumero && (
+        <FactureDocumentsViewer numero={viewingFactureNumero} token={token} onClose={() => setViewingFactureNumero(null)} />
       )}
 
       {/* Commentaire sur un mois (justifier une absence de facture, par ex.) */}

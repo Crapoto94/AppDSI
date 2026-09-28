@@ -9,6 +9,7 @@ import Header from '../components/Header';
 import CreateReunionModal from '../components/CreateReunionModal';
 import ReunionDetailModal from '../components/ReunionDetailModal';
 import AddTaskModal from '../components/AddTaskModal';
+import ProjetDocumentExplorer from '../components/ProjetDocumentExplorer';
 import { useAuth } from '../contexts/AuthContext';
 import { isSuperAdmin, isAdminLike } from '../utils/roles';
 import AgentPresenceBadge from '../components/AgentPresenceBadge';
@@ -1775,6 +1776,9 @@ const JournalTab: React.FC<{ projetId: number; token: string | null; onOuvrirDoc
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editMsg, setEditMsg] = useState('');
   const [editType, setEditType] = useState('note');
+  const [editAttachmentName, setEditAttachmentName] = useState<string | null>(null);
+  const [editRemoveAttachment, setEditRemoveAttachment] = useState(false);
+  const [editFile, setEditFile] = useState<File | null>(null);
   const [saving, setSaving] = useState(false);
   const isAdmin = user?.role === 'admin';
   const isPMO = user?.est_pmo;
@@ -1835,20 +1839,43 @@ const JournalTab: React.FC<{ projetId: number; token: string | null; onOuvrirDoc
     setEditingId(e.id);
     setEditMsg(e.message);
     setEditType(e.type_entree);
+    let detailsObj: any = null;
+    try { detailsObj = e.details ? JSON.parse(e.details) : null; } catch {}
+    setEditAttachmentName(detailsObj?.document_id ? (detailsObj.type || 'Pièce jointe') : null);
+    setEditRemoveAttachment(false);
+    setEditFile(null);
   };
 
-  const cancelEdit = () => { setEditingId(null); setEditMsg(''); };
+  const cancelEdit = () => {
+    setEditingId(null); setEditMsg(''); setEditAttachmentName(null); setEditRemoveAttachment(false); setEditFile(null);
+  };
 
   const saveEdit = async (entryId: number) => {
     if (!editMsg.trim()) return;
     setSaving(true);
     try {
-      await fetch(`/api/projets/${projetId}/journal/${entryId}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ type_entree: editType, message: editMsg })
-      });
+      if (editFile || editRemoveAttachment) {
+        const formData = new FormData();
+        formData.append('type_entree', editType);
+        formData.append('message', editMsg);
+        if (editFile) formData.append('file', editFile);
+        if (editRemoveAttachment) formData.append('remove_attachment', 'true');
+        await fetch(`/api/projets/${projetId}/journal/${entryId}`, {
+          method: 'PUT',
+          headers: { Authorization: `Bearer ${token}` },
+          body: formData
+        });
+      } else {
+        await fetch(`/api/projets/${projetId}/journal/${entryId}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ type_entree: editType, message: editMsg })
+        });
+      }
       setEditingId(null);
+      setEditAttachmentName(null);
+      setEditRemoveAttachment(false);
+      setEditFile(null);
       loadJournal();
     } catch (e) { console.error(e); }
     finally { setSaving(false); }
@@ -1903,27 +1930,52 @@ const JournalTab: React.FC<{ projetId: number; token: string | null; onOuvrirDoc
         return (
           <div key={e.id} style={{ display: 'flex', alignItems: isEditing ? 'flex-start' : 'center', gap: '10px', background: 'white', borderRadius: '8px', border: '1px solid #e2e8f0', padding: '8px 14px' }}>
             {isEditing ? (
-              <>
-                <select value={editType} onChange={ev => setEditType(ev.target.value)} style={{ padding: '6px 8px', borderRadius: '6px', border: '1px solid #e2e8f0', fontSize: '12px', background: 'white', flexShrink: 0 }}>
-                  <option value="note">📝 Note</option>
-                  <option value="decision">⚖️ Décision</option>
-                  <option value="action">✅ Action</option>
-                  <option value="alerte">⚠️ Alerte</option>
-                  <option value="evenement">📌 Événement</option>
-                </select>
-                <textarea
-                  value={editMsg}
-                  onChange={ev => setEditMsg(ev.target.value)}
-                  style={{ flex: 1, padding: '6px 8px', borderRadius: '6px', border: '1px solid #2563eb', fontSize: '13px', fontFamily: 'inherit', minHeight: '36px', boxSizing: 'border-box' }}
-                  autoFocus
-                />
-                <button onClick={() => saveEdit(e.id)} disabled={saving || !editMsg.trim()} style={{ padding: '5px 10px', background: '#16a34a', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: 700, flexShrink: 0, opacity: (saving || !editMsg.trim()) ? 0.5 : 1 }}>
-                  {saving ? '…' : 'OK'}
-                </button>
-                <button onClick={cancelEdit} style={{ padding: '5px 10px', background: '#f1f5f9', color: '#475569', border: '1px solid #e2e8f0', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', flexShrink: 0 }}>
-                  Annuler
-                </button>
-              </>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', flex: 1 }}>
+                <div style={{ display: 'flex', alignItems: 'flex-start', gap: '10px' }}>
+                  <select value={editType} onChange={ev => setEditType(ev.target.value)} style={{ padding: '6px 8px', borderRadius: '6px', border: '1px solid #e2e8f0', fontSize: '12px', background: 'white', flexShrink: 0 }}>
+                    <option value="note">📝 Note</option>
+                    <option value="decision">⚖️ Décision</option>
+                    <option value="action">✅ Action</option>
+                    <option value="alerte">⚠️ Alerte</option>
+                    <option value="evenement">📌 Événement</option>
+                  </select>
+                  <textarea
+                    value={editMsg}
+                    onChange={ev => setEditMsg(ev.target.value)}
+                    style={{ flex: 1, padding: '6px 8px', borderRadius: '6px', border: '1px solid #2563eb', fontSize: '13px', fontFamily: 'inherit', minHeight: '36px', boxSizing: 'border-box' }}
+                    autoFocus
+                  />
+                  <button onClick={() => saveEdit(e.id)} disabled={saving || !editMsg.trim()} style={{ padding: '5px 10px', background: '#16a34a', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: 700, flexShrink: 0, opacity: (saving || !editMsg.trim()) ? 0.5 : 1 }}>
+                    {saving ? '…' : 'OK'}
+                  </button>
+                  <button onClick={cancelEdit} style={{ padding: '5px 10px', background: '#f1f5f9', color: '#475569', border: '1px solid #e2e8f0', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', flexShrink: 0 }}>
+                    Annuler
+                  </button>
+                </div>
+                {/* Gestion de la pièce jointe (une seule par entrée, comme à la création) */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', paddingLeft: '2px' }}>
+                  <span style={{ fontSize: '11px', color: '#94a3b8' }}>Pièce jointe :</span>
+                  {editFile ? (
+                    <span style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: '#1e293b', background: '#f0f9ff', border: '1px solid #bae6fd', borderRadius: '6px', padding: '3px 8px' }}>
+                      📎 {editFile.name}
+                      <button onClick={() => setEditFile(null)} title="Annuler" style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#64748b', fontSize: '13px', lineHeight: 1, padding: 0 }}>✕</button>
+                    </span>
+                  ) : editAttachmentName && !editRemoveAttachment ? (
+                    <span style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: '#1e293b', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '6px', padding: '3px 8px' }}>
+                      📎 {editAttachmentName}
+                      <button onClick={() => setEditRemoveAttachment(true)} title="Supprimer la pièce jointe" style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ef4444', fontSize: '13px', lineHeight: 1, padding: 0 }}>✕</button>
+                    </span>
+                  ) : editRemoveAttachment ? (
+                    <span style={{ fontSize: '12px', color: '#ef4444' }}>Sera supprimée à l'enregistrement</span>
+                  ) : (
+                    <span style={{ fontSize: '12px', color: '#94a3b8' }}>Aucune</span>
+                  )}
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px', color: '#2563eb', cursor: 'pointer', fontWeight: 600 }}>
+                    📎 {editAttachmentName || editFile ? 'Remplacer' : 'Joindre'}
+                    <input type="file" style={{ display: 'none' }} onChange={ev => { setEditFile(ev.target.files?.[0] || null); setEditRemoveAttachment(false); }} />
+                  </label>
+                </div>
+              </div>
             ) : (
               <>
                 <span style={{ minWidth: '120px', fontSize: '11px', color: '#94a3b8', flexShrink: 0 }}>{new Date(e.date_entree).toLocaleString('fr-FR')}</span>
@@ -1964,277 +2016,13 @@ const JournalTab: React.FC<{ projetId: number; token: string | null; onOuvrirDoc
 };
 
 // ===== ONGLET DOCUMENTS =====
-const DocumentsTab: React.FC<{ projetId: number; token: string | null; documents: any[]; onVoirDocument: (url: string, nom: string) => void }> = ({ projetId, token, documents, onVoirDocument }) => {
-  const [docs, setDocs] = useState(documents);
-  const [sousOnglet, setSousOnglet] = useState('documents');
-  const [showUpload, setShowUpload] = useState(false);
-  const [uploadType, setUploadType] = useState('');
-  const [uploadFile, setUploadFile] = useState<File | null>(null);
-  const [uploadUrl, setUploadUrl] = useState('');
-  const [uploadContractuel, setUploadContractuel] = useState(false);
-  const [uploadToJournal, setUploadToJournal] = useState(false);
-  const [uploadAutreLabel, setUploadAutreLabel] = useState('');
-  const [dragOver, setDragOver] = useState(false);
-  const [uploading, setUploading] = useState(false);
-  const [uploadProgress, setUploadProgress] = useState(0);
-  const [uploadedFiles, setUploadedFiles] = useState<string[]>([]);
-  const [editDocType, setEditDocType] = useState<{ id: number; currentType: string; customLabel?: string } | null>(null);
-
-  useEffect(() => { setDocs(documents); }, [documents]);
-
-  const handleUpload = async () => {
-    if (!uploadType || (!uploadFile && !uploadUrl)) return;
-    setUploading(true);
-    const docRes = await fetch(`/api/projets/${projetId}/documents`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      body: JSON.stringify({
-        type_documentaire: uploadType === 'autre' && uploadAutreLabel.trim() ? uploadAutreLabel.trim() : uploadType,
-        est_contractuel: uploadContractuel, url: uploadUrl || null
-      })
-    });
-    const docData = await docRes.json();
-    if (!docData.id) { setUploading(false); return; }
-
-    if (uploadFile) {
-      const form = new FormData();
-      form.append('file', uploadFile);
-      form.append('commentaire', '');
-      form.append('journal', uploadToJournal ? 'true' : 'false');
-      await fetch(`/api/projets/${projetId}/documents/${docData.id}/versions`, {
-        method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: form
-      });
-    }
-
-    setShowUpload(false); setUploadFile(null); setUploadUrl(''); setUploadType(''); setUploadContractuel(false); setUploadAutreLabel('');
-    const r = await fetch(`/api/projets/${projetId}/documents`, { headers: { Authorization: `Bearer ${token}` } });
-    const d = await r.json();
-    if (Array.isArray(d)) setDocs(d);
-    setUploading(false);
-  };
-
-  const handleDrop = async (e: React.DragEvent) => {
-    e.preventDefault();
-    setDragOver(false);
-    const files = Array.from(e.dataTransfer.files);
-    if (files.length === 0) return;
-    setUploading(true);
-    setUploadProgress(0);
-    setUploadedFiles(files.map(f => f.name));
-    const form = new FormData();
-    files.forEach(f => form.append('files', f));
-    setUploadProgress(30);
-    await fetch(`/api/projets/${projetId}/documents/versions/vrac`, {
-      method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: form
-    });
-    setUploadProgress(80);
-    const r = await fetch(`/api/projets/${projetId}/documents`, { headers: { Authorization: `Bearer ${token}` } });
-    const d = await r.json();
-    if (Array.isArray(d)) setDocs(d);
-    setUploadProgress(100);
-    setTimeout(() => { setUploading(false); setUploadProgress(0); setUploadedFiles([]); }, 2500);
-  };
-
-  const docsFiltres = sousOnglet === 'contractuels' ? docs.filter(d => d.est_contractuel)
-    : sousOnglet === 'vrac' ? docs.filter(d => d.type_vrac)
-    : docs.filter(d => !d.type_vrac);
-
-  return (
-    <div>
-      {/* Sous-onglets */}
-      <div style={{ display: 'flex', gap: '4px', marginBottom: '14px', borderBottom: '2px solid #e2e8f0' }}>
-        {[
-          { key: 'documents', label: `Documents (${docs.filter(d => !d.type_vrac).length})` },
-          { key: 'contractuels', label: `📝 Contractuels (${docs.filter(d => d.est_contractuel).length})` },
-          { key: 'vrac', label: `📦 Vrac (${docs.filter(d => d.type_vrac).length})` }
-        ].map(t => (
-          <button key={t.key} onClick={() => setSousOnglet(t.key)} style={{
-            padding: '7px 14px', border: 'none', borderBottom: sousOnglet === t.key ? '2px solid #2563eb' : '2px solid transparent',
-            background: 'transparent', cursor: 'pointer', fontWeight: sousOnglet === t.key ? '700' : '500',
-            color: sousOnglet === t.key ? '#2563eb' : '#64748b', fontSize: '13px', marginBottom: '-2px'
-          }}>{t.label}</button>
-        ))}
-      </div>
-
-      {/* Zone upload */}
-      <div style={{ display: 'flex', gap: '8px', marginBottom: '14px', flexWrap: 'wrap' }}>
-        <button onClick={() => setShowUpload(!showUpload)} style={{ padding: '8px 16px', background: '#2563eb', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: '700', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-          <Upload size={16} /> Déposer un document
-        </button>
-      </div>
-
-      {showUpload && (
-        <div style={{ background: 'white', borderRadius: '12px', border: '1px solid #e2e8f0', padding: '20px', marginBottom: '16px' }}>
-          <div style={{ display: 'flex', gap: '10px', alignItems: 'flex-end', flexWrap: 'wrap' }}>
-            <div style={{ flex: 1, minWidth: '150px' }}>
-              <label style={{ fontSize: '12px', fontWeight: '700', color: '#475569', display: 'block', marginBottom: '4px' }}>Type</label>
-              <select value={uploadType} onChange={e => setUploadType(e.target.value)} style={{ width: '100%', padding: '8px 12px', borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '13px', background: 'white' }}>
-                <option value="">Sélectionner...</option>
-                {['fiche_idee','fiche_demande','charte_projet','note_arbitrage','plan_projet','plan_communication','compte_rendu','va','vsr','doc_fonctionnelle','doc_technique','bilan_cloture','autre'].map(t => (
-                  <option key={t} value={t}>{t.replace(/_/g,' ')}</option>
-                ))}
-              </select>
-              {uploadType === 'autre' && (
-                <input value={uploadAutreLabel} onChange={e => setUploadAutreLabel(e.target.value)} placeholder="Précisez le type..." style={{ width: '100%', padding: '8px 12px', borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '13px', marginTop: '6px' }} />
-              )}
-            </div>
-            <div style={{ flex: 1, minWidth: '150px' }}>
-              <label style={{ fontSize: '12px', fontWeight: '700', color: '#475569', display: 'block', marginBottom: '4px' }}>Fichier (ou lien)</label>
-              <input type="file" onChange={e => setUploadFile(e.target.files?.[0] || null)} style={{ width: '100%', padding: '6px', borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '13px' }} />
-            </div>
-            <div style={{ flex: 1, minWidth: '150px' }}>
-              <label style={{ fontSize: '12px', fontWeight: '700', color: '#475569', display: 'block', marginBottom: '4px' }}>Ou lien URL</label>
-              <input value={uploadUrl} onChange={e => setUploadUrl(e.target.value)} placeholder="https://sharepoint/..." style={{ width: '100%', padding: '8px 12px', borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '13px' }} />
-            </div>
-            <button onClick={handleUpload} disabled={uploading || !uploadType || (!uploadFile && !uploadUrl)}
-              style={{ padding: '8px 18px', background: '#2563eb', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: '700', opacity: (uploading || !uploadType || (!uploadFile && !uploadUrl)) ? 0.5 : 1, whiteSpace: 'nowrap' }}>{uploading ? '...' : 'Ajouter'}</button>
-          </div>
-          <div style={{ marginTop: '10px', display: 'flex', gap: '16px', flexWrap: 'wrap' }}>
-            <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: '#64748b', cursor: 'pointer' }}>
-              <input type="checkbox" checked={uploadContractuel} onChange={e => setUploadContractuel(e.target.checked)} style={{ cursor: 'pointer' }} />
-              Document contractuel
-            </label>
-            <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: '#64748b', cursor: 'pointer' }}>
-              <input type="checkbox" checked={uploadToJournal} onChange={e => setUploadToJournal(e.target.checked)} style={{ cursor: 'pointer' }} />
-              Ajouter au journal
-            </label>
-          </div>
-        </div>
-      )}
-
-      {/* Zone glisser-déposer vrac */}
-      {!uploading ? (
-        <div onDragOver={e => { e.preventDefault(); setDragOver(true); }} onDragLeave={() => setDragOver(false)} onDrop={handleDrop}
-          style={{ background: dragOver ? '#eff6ff' : '#f8fafc', borderRadius: '12px', border: `2px dashed ${dragOver ? '#2563eb' : '#e2e8f0'}`, padding: '30px', marginBottom: '16px', textAlign: 'center', cursor: 'pointer', transition: 'all 0.2s' }}>
-          <div style={{ fontSize: '13px', color: dragOver ? '#2563eb' : '#94a3b8', fontWeight: '600' }}>
-            📦 Glissez-déposez des fichiers ici<br />
-            <span style={{ fontSize: '11px', fontWeight: '400' }}>Ils seront classés comme "documentation en vrac"</span>
-          </div>
-        </div>
-      ) : (
-        <div style={{ background: '#f8fafc', borderRadius: '12px', border: '1px solid #e2e8f0', padding: '20px', marginBottom: '16px' }}>
-          <div style={{ fontSize: '13px', fontWeight: '600', color: '#1e293b', marginBottom: '10px' }}>📤 Upload en cours... ({uploadProgress}%)</div>
-          <div style={{ height: '8px', background: '#e2e8f0', borderRadius: '4px', overflow: 'hidden', marginBottom: '10px' }}>
-            <div style={{ width: `${uploadProgress}%`, height: '100%', background: 'linear-gradient(90deg, #2563eb, #3b82f6)', borderRadius: '4px', transition: 'width 0.3s ease' }} />
-          </div>
-          <div style={{ fontSize: '12px', color: '#64748b' }}>
-            {uploadedFiles.map((name, i) => (
-              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '2px 0' }}>
-                <span style={{ color: uploadProgress >= 100 ? '#16a34a' : '#94a3b8' }}>{uploadProgress >= 100 ? '✅' : '⏳'}</span>
-                {name}
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Liste documents */}
-      {docsFiltres.length === 0 ? (
-        <p style={{ color: '#94a3b8', textAlign: 'center', padding: '30px', fontSize: '13px' }}>Aucun document</p>
-      ) : (
-        <div style={{ background: 'white', borderRadius: '12px', border: '1px solid #e2e8f0', overflow: 'hidden' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
-            <thead><tr style={{ background: '#f8fafc', borderBottom: '2px solid #e2e8f0' }}>
-              <th style={{ padding: '10px 14px', textAlign: 'left', color: '#475569', fontWeight: '700' }}>Type</th>
-              <th style={{ padding: '10px 14px', textAlign: 'center', color: '#475569', fontWeight: '700' }}>Version</th>
-              <th style={{ padding: '10px 14px', textAlign: 'left', color: '#475569', fontWeight: '700' }}>Fichier / Lien</th>
-              <th style={{ padding: '10px 14px', textAlign: 'left', color: '#475569', fontWeight: '700' }}>Date</th>
-              <th style={{ padding: '10px 14px', textAlign: 'center', color: '#475569', fontWeight: '700' }}></th>
-            </tr></thead>
-            <tbody>
-              {docsFiltres.map(d => (
-                <tr key={d.id} style={{ borderBottom: '1px solid #f1f5f9', background: d.est_contractuel ? '#fffbeb' : 'white' }}>
-                  <td style={{ padding: '10px 14px' }}>
-                    <div style={{ fontWeight: '600', color: '#1e293b', textTransform: 'capitalize', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                      {d.type_documentaire.replace(/_/g, ' ')}
-                      {d.est_contractuel ? <span style={{ fontSize: '10px', padding: '1px 5px', background: '#fef3c7', borderRadius: '3px', color: '#92400e', fontWeight: '700' }}>C</span> : null}
-                    </div>
-                    {d.phase_concernee && <div style={{ fontSize: '11px', color: '#94a3b8' }}>{d.phase_concernee}</div>}
-                  </td>
-                  <td style={{ padding: '10px 14px', textAlign: 'center', fontWeight: '700', color: d.version_courante ? '#2563eb' : '#94a3b8' }}>{d.version_courante || '—'}</td>
-                  <td style={{ padding: '10px 14px', color: '#64748b', fontSize: '12px' }}>
-                    {d.url ? (
-                      <a href={d.url} target="_blank" rel="noopener noreferrer" style={{ color: '#2563eb', textDecoration: 'underline', display: 'flex', alignItems: 'center', gap: '3px' }}
-                        onClick={e => e.stopPropagation()}>
-                        🔗 {d.url.substring(0, 40)}...
-                      </a>
-                    ) : (d.fichier_nom_original || '—')}
-                  </td>
-                  <td style={{ padding: '10px 14px', color: '#64748b', fontSize: '12px' }}>{new Date(d.date_creation).toLocaleDateString('fr-FR')}</td>
-                  <td style={{ padding: '10px 14px', textAlign: 'center' }}>
-                    {d.version_courante_id ? (
-                      <a onClick={async (e) => {
-                        e.preventDefault();
-                        const r = await fetch(`/api/projets/${projetId}/documents/${d.id}`, { headers: { Authorization: `Bearer ${token}` } });
-                        const detail = await r.json();
-                        const versionActive = detail.versions?.find((v: any) => v.est_version_courante);
-                        if (versionActive) {
-                          const viewerUrl = `/api/projets/${projetId}/documents/${d.id}/versions/${versionActive.id}/view?mode=inline&token=${token}`;
-                          onVoirDocument(viewerUrl, `${d.type_documentaire.replace(/_/g, ' ')} ${versionActive.version}`);
-                        }
-                      }} style={{ padding: '5px 12px', background: d.est_contractuel ? '#fef3c7' : '#eff6ff', borderRadius: '6px', fontSize: '12px', fontWeight: '600', color: '#2563eb', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '4px', cursor: 'pointer' }}>
-                        👁️ Voir
-                      </a>
-                    ) : d.url ? (
-                      <a href={d.url} target="_blank" rel="noopener noreferrer" style={{ padding: '5px 12px', background: '#fef3c7', borderRadius: '6px', fontSize: '12px', fontWeight: '600', color: '#2563eb', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
-                        🔗 Ouvrir
-                      </a>
-                    ) : null}
-                    <button onClick={async () => {
-                      if (!window.confirm(`Supprimer le document "${d.type_documentaire.replace(/_/g, ' ')}" ?`)) return;
-                      await fetch(`/api/projets/${projetId}/documents/${d.id}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } });
-                      const r = await fetch(`/api/projets/${projetId}/documents`, { headers: { Authorization: `Bearer ${token}` } });
-                      const rd = await r.json();
-                      if (Array.isArray(rd)) setDocs(rd);
-                    }} style={{ padding: '5px 8px', background: 'none', border: 'none', cursor: 'pointer', color: '#cbd5e1', fontSize: '14px', marginLeft: '4px' }}
-                      onMouseEnter={e => (e.currentTarget.style.color = '#ef4444')} onMouseLeave={e => (e.currentTarget.style.color = '#cbd5e1')}>🗑️</button>
-                    {d.type_vrac && (
-                      <>
-                        {editDocType?.id === d.id ? (
-                          <div style={{ display: 'flex', gap: '4px', marginTop: '4px', flexDirection: 'column' }}>
-                            <select value={editDocType!.currentType} onChange={e => setEditDocType({...editDocType!, currentType: e.target.value})}
-                              style={{ padding: '3px 6px', borderRadius: '4px', border: '1px solid #e2e8f0', fontSize: '11px', background: 'white', width: '120px' }}>
-                              {['fiche_idee','fiche_demande','charte_projet','note_arbitrage','plan_projet','plan_communication','compte_rendu','va','vsr','doc_fonctionnelle','doc_technique','bilan_cloture','autre'].map(t => (
-                                <option key={t} value={t}>{t.replace(/_/g, ' ')}</option>
-                              ))}
-                            </select>
-                            {editDocType!.currentType === 'autre' && (
-                              <input value={editDocType!.customLabel || ''} onChange={e => setEditDocType({...editDocType!, customLabel: e.target.value})}
-                                placeholder="Précisez le type..." style={{ padding: '3px 6px', borderRadius: '4px', border: '1px solid #e2e8f0', fontSize: '11px', width: '160px' }} />
-                            )}
-                            <div style={{ display: 'flex', gap: '4px' }}>
-                              <button onClick={async () => {
-                                const typeFinal = editDocType!.currentType === 'autre' && editDocType!.customLabel?.trim()
-                                  ? editDocType!.customLabel.trim() : editDocType!.currentType;
-                                await fetch(`/api/projets/${projetId}/documents/${d.id}/type`, {
-                                  method: 'PUT', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-                                  body: JSON.stringify({ type_documentaire: typeFinal, type_vrac: 0 })
-                                });
-                                setEditDocType(null);
-                                const r = await fetch(`/api/projets/${projetId}/documents`, { headers: { Authorization: `Bearer ${token}` } });
-                                const rd = await r.json();
-                                if (Array.isArray(rd)) setDocs(rd);
-                              }} style={{ padding: '3px 8px', background: '#2563eb', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '10px', fontWeight: '600' }}>OK</button>
-                              <button onClick={() => setEditDocType(null)} style={{ padding: '3px 8px', background: 'white', border: '1px solid #e2e8f0', borderRadius: '4px', cursor: 'pointer', fontSize: '10px' }}>✕</button>
-                            </div>
-                          </div>
-                        ) : (
-                          <button onClick={() => setEditDocType({ id: d.id, currentType: d.type_documentaire })}
-                            style={{ padding: '3px 8px', background: '#f1f5f9', borderRadius: '4px', fontSize: '10px', color: '#475569', border: 'none', cursor: 'pointer', fontWeight: '600', display: 'block', marginTop: '4px' }}>
-                            ✏️ Classer
-                          </button>
-                        )}
-                      </>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </div>
-  );
+// Fusionné avec l'ancien "Explorateur" : une seule vue par dossiers (l'onglet "Vrac"
+// et la liste plate à part n'ont plus lieu d'être — le classement/typage des documents
+// se fait désormais dans l'explorateur lui-même, via ses métadonnées libres). Les
+// documents créés par l'ancien système (Documents/Contractuels/Vrac) restent tous
+// visibles ici, à la racine (rien n'a été supprimé côté données).
+const DocumentsTab: React.FC<{ projetId: number; token: string | null; documents: any[]; onVoirDocument: (url: string, nom: string) => void }> = ({ projetId, token }) => {
+  return <ProjetDocumentExplorer projetId={projetId} token={token} />;
 };
 
 // ===== ONGLET RÉUNIONS =====

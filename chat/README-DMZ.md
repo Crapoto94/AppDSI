@@ -81,6 +81,34 @@ Si ce reverse proxy route par réseau Docker plutôt que par port publié
 `docker-compose.yml` (réseau externe + labels Traefik) à adapter au nom réel
 de votre réseau.
 
+## Durcissement & WAF (nginx)
+
+Le conteneur n'expose que les routes nécessaires et applique une **couche de
+durcissement + un WAF nginx** (règles natives nginx, sans ModSecurity) :
+
+- **WAF** : blocage des motifs d'attaque dans l'URI (traversée de chemin,
+  injections SQL/script, scanners type `*.env`/`wp-*`/`phpmyadmin`), des
+  user-agents d'outils offensifs (sqlmap, nikto, nmap, acunetix…) et des méthodes
+  HTTP non autorisées (TRACE/TRACK/CONNECT).
+- **Limitation de débit / connexions par IP** : plafond global, et limite
+  renforcée sur les endpoints d'authentification publics (`guest-login`,
+  `auth/ad`, `auth/otp/*`, `auth/sms-token`) pour limiter le brute force.
+  Dépassement → `429`.
+- **Anti-slowloris** : timeouts de lecture/écriture et d'en-têtes réduits,
+  `reset_timedout_connection`.
+- **En-têtes de sécurité** : `X-Content-Type-Options`, `X-Frame-Options`,
+  `Referrer-Policy`, `Permissions-Policy`, `Cross-Origin-Opener-Policy`,
+  `Cross-Origin-Resource-Policy`, `Strict-Transport-Security` et une
+  **Content-Security-Policy** adaptée au chat (styles inline, WebSocket
+  same-origin, images data:/blob:).
+- `server_tokens off` (pas de version nginx divulguée), refus des fichiers
+  cachés/sauvegardes, pièces jointes `/api/storage/` en **lecture seule**
+  (GET/HEAD).
+
+> ⚠️ WAF nginx (règles), **pas ModSecurity/CRS**. Pour une protection applicative
+> plus poussée, ajouter ModSecurity + CRS (ou le WAF) au niveau du **reverse
+> proxy DMZ en amont**, qui voit tout le trafic TLS.
+
 ## Vérification
 
 ```bash

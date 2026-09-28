@@ -44,14 +44,29 @@ function loadAuth(): { token: string; user: UserInfo } | null {
   }
 }
 
+export type ApiStatus = 'checking' | 'online' | 'offline'
+
+const API_CHECK_INTERVAL_MS = 15000
+
 export default function App() {
   const [auth, setAuth] = useState<{ token: string; user: UserInfo } | null>(loadAuth)
   const [config, setConfig] = useState<AppConfig>(DEFAULT_CONFIG)
+  const [apiStatus, setApiStatus] = useState<ApiStatus>('checking')
 
   useEffect(() => {
-    axios.get<AppConfig>('/api/live/public-config')
-      .then(r => setConfig({ ...DEFAULT_CONFIG, ...r.data }))
-      .catch(() => {})
+    let cancelled = false
+    function check() {
+      axios.get<AppConfig>('/api/live/public-config', { timeout: 5000 })
+        .then(r => {
+          if (cancelled) return
+          setConfig({ ...DEFAULT_CONFIG, ...r.data })
+          setApiStatus('online')
+        })
+        .catch(() => { if (!cancelled) setApiStatus('offline') })
+    }
+    check()
+    const interval = setInterval(check, API_CHECK_INTERVAL_MS)
+    return () => { cancelled = true; clearInterval(interval) }
   }, [])
 
   function handleLogin(token: string, user: UserInfo, remember: boolean) {
@@ -69,6 +84,6 @@ export default function App() {
     setAuth(null)
   }
 
-  if (!auth) return <LoginPage onLogin={handleLogin} config={config} />
+  if (!auth) return <LoginPage onLogin={handleLogin} config={config} apiStatus={apiStatus} />
   return <ChatPage token={auth.token} user={auth.user} onLogout={handleLogout} config={config} />
 }

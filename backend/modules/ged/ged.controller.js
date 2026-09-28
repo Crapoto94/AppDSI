@@ -8,6 +8,9 @@ const fs = require('fs');
 const path = require('path');
 const { getSqlite, pgDb } = require('../../shared/database');
 const storage = require('../../shared/storage');
+const alfresco = require('../../shared/alfresco');
+const documentStorage = require('../../shared/document_storage');
+const gedMigration = require('../../shared/ged_migration');
 
 function alfrescoBase(url) {
   return `${url.replace(/\/$/, '')}/alfresco/api/-default-/public/alfresco/versions/1`;
@@ -60,22 +63,19 @@ function getDb() {
   return db;
 }
 
-async function getConfig() {
-  const db = getDb();
-  const keys = ['alfresco.url', 'alfresco.username', 'alfresco.password'];
-  const config = {};
-  for (const k of keys) {
-    const row = await db.get('SELECT setting_value FROM app_settings WHERE setting_key = ?', k);
-    config[k] = row?.setting_value || '';
-  }
-  return { url: config['alfresco.url'], username: config['alfresco.username'], password: config['alfresco.password'] };
+async function loadAlfrescoConfig() {
+  return await alfresco.getConfig();
 }
 
 exports.getConfig = async (req, res) => {
   try {
-    const { url, username, password } = await getConfig();
-    console.log(`[GED getConfig] url=${url ? url : '(vide)'}, username=${username ? username : '(vide)'}, hasPassword=${!!password}`);
-    res.json({ url, username, hasPassword: !!password });
+    const { url, username, password, rootPath } = await alfresco.getConfig();
+    res.json({
+      url,
+      username,
+      hasPassword: !!password,
+      rootPath: rootPath || '',
+    });
   } catch (err) {
     console.error('[GED getConfig ERROR]', err.message);
     res.status(500).json({ error: `Impossible de charger la configuration GED : ${err.message}` });
@@ -84,37 +84,9 @@ exports.getConfig = async (req, res) => {
 
 exports.saveConfig = async (req, res) => {
   try {
-    const { url, username, password } = req.body;
-    console.log(`[GED saveConfig] Sauvegarde config — url=${url}, username=${username}, passwordProvided=${!!(password && password !== '••••••••')}`);
-
-    const db = getDb();
-
-    // Vérifier que la table app_settings existe
-    const tableCheck = await db.get("SELECT name FROM sqlite_master WHERE type='table' AND name='app_settings'");
-    if (!tableCheck) {
-      console.error('[GED saveConfig ERROR] Table app_settings introuvable dans la base SQLite');
-      return res.status(500).json({ error: 'Table app_settings introuvable dans la base SQLite. La base de données est peut-être corrompue ou non initialisée.' });
-    }
-
-    const sql = `INSERT INTO app_settings (setting_key, setting_value, description)
-       VALUES (?, ?, ?)
-       ON CONFLICT(setting_key) DO UPDATE SET setting_value = excluded.setting_value, description = excluded.description`;
-
-    await db.run(sql, ['alfresco.url', url || '', 'URL du serveur Alfresco (ex: https://alfresco.ivry.local)']);
-    console.log('[GED saveConfig] alfresco.url sauvegardé');
-
-    await db.run(sql, ['alfresco.username', username || '', 'Compte de service Alfresco']);
-    console.log('[GED saveConfig] alfresco.username sauvegardé');
-
-    if (password !== undefined && password !== '' && password !== '••••••••') {
-      await db.run(sql, ['alfresco.password', password, 'Mot de passe du compte de service Alfresco']);
-      console.log('[GED saveConfig] alfresco.password sauvegardé');
-    }
-
-    // Re-lire pour confirmer
-    const verify = await getConfig();
-    console.log(`[GED saveConfig] Vérification après sauvegarde — url=${verify.url}, username=${verify.username}, hasPassword=${!!verify.password}`);
-
+    const { url, username, password, rootPath } = req.body;
+    console.log(`[GED saveConfig] url=${url}, username=${username}, rootPath=${rootPath}, passwordProvided=${!!(password && password !== '••••••••')}`);
+    await alfresco.saveConfig({ url, username, password, rootPath });
     res.json({ success: true });
   } catch (err) {
     console.error('[GED saveConfig ERROR]', err.message, err.stack);
@@ -165,6 +137,116 @@ exports.testStorage = async (req, res) => {
     res.json({ success: true, root: r.root, mode: r.mode });
   } catch (err) {
     res.json({ success: false, error: `Accès au chemin de stockage impossible : ${err.message}` });
+  }
+};
+
+// ─── Configuration du stockage par module (filesystem / alfresco / both) ─────
+
+exports.listModuleStorage = async (req, res) => {
+  try {
+    const rows = await pgDb.all(
+      'SELECT module, backend, ged_root_path, updated_by, updated_at FROM hub_docs.module_storage_config ORDER BY module'
+    );
+    let usedModules = [];
+    try {
+      const distinct = await pgDb.all(
+        'SELECT DISTINCT module FROM hub_docs.documents WHERE deleted_at IS NULL ORDER BY module'
+      );
+      usedModules = distinct.map((r) => r.module);
+    } catch { usedModules = []; }
+
+    const byModule = new Map(rows.map((r) => [r.module, r]));
+    const modules = Array.from(new Set([...usedModules, ...rows.map((r) => r.module)]));
+    res.json({
+      modules: modules.map((m) => {
+        const c = byModule.get(m);
+        return {
+          module: m,
+          backend: c?.backend || 'filesystem',
+          ged_root_path: c?.ged_root_path || '',
+          updated_by: c?.updated_by || null,
+          updated_at: c?.updated_at || null,
+        };
+      }),
+    });
+  } catch (err) {
+    console.error('[GED listModuleStorage ERROR]', err.message);
+    res.status(500).json({ error: `Impossible de charger le stockage par module : ${err.message}` });
+  }
+};
+
+exports.getModuleStorage = async (req, res) => {
+  try {
+    const row = await pgDb.get(
+      'SELECT module, backend, ged_root_path, updated_by, updated_at FROM hub_docs.module_storage_config WHERE module = ?',
+      [req.params.module]
+    );
+    res.json(row || { module: req.params.module, backend: 'filesystem', ged_root_path: '' });
+  } catch (err) {
+    console.error('[GED getModuleStorage ERROR]', err.message);
+    res.status(500).json({ error: err.message });
+  }
+};
+
+exports.saveModuleStorage = async (req, res) => {
+  try {
+    const module = String(req.params.module || '').trim();
+    if (!module) return res.status(400).json({ error: 'Module requis.' });
+    const backend = documentStorage.normalizeBackend(req.body.backend || 'filesystem');
+    if (!backend) return res.status(400).json({ error: 'Backend invalide (filesystem | alfresco | both).' });
+    const rootPath = (req.body.ged_root_path || '').trim() || null;
+    const username = req.user?.username || null;
+
+    await pgDb.run(
+      `INSERT INTO hub_docs.module_storage_config (module, backend, ged_root_path, updated_by, updated_at)
+       VALUES (?, ?, ?, ?, NOW())
+       ON CONFLICT (module) DO UPDATE
+         SET backend = EXCLUDED.backend,
+             ged_root_path = EXCLUDED.ged_root_path,
+             updated_by = EXCLUDED.updated_by,
+             updated_at = NOW()`,
+      [module, backend, rootPath, username]
+    );
+    documentStorage.clearCache();
+    storage.clearModuleBackendCache();
+    res.json({ success: true, module, backend, ged_root_path: rootPath });
+  } catch (err) {
+    console.error('[GED saveModuleStorage ERROR]', err.message);
+    res.status(500).json({ error: `Échec de la sauvegarde du stockage du module : ${err.message}` });
+  }
+};
+
+// ─── Bascule de stockage FS ↔ GED (avec vérification) ────────────────────────
+
+exports.runMigration = async (req, res) => {
+  try {
+    const module = String(req.body.module || '').trim();
+    if (!module) return res.status(400).json({ error: 'Module requis.' });
+    const direction = req.body.direction === 'ged2fs' ? 'ged2fs' : 'fs2ged';
+    const dryRun = !!req.body.dryRun;
+    const report = await gedMigration.runMigration({
+      module,
+      direction,
+      dryRun,
+      includeStorage: req.body.includeStorage !== false,
+      includeLegacy: req.body.includeLegacy !== false,
+      createdBy: req.user?.username || null,
+    });
+    res.json(report);
+  } catch (err) {
+    console.error('[GED runMigration ERROR]', err.message);
+    res.status(500).json({ error: `Échec de la bascule : ${err.message}` });
+  }
+};
+
+exports.migrationStatus = async (req, res) => {
+  try {
+    const limit = Math.min(parseInt(req.query.limit || '100', 10) || 100, 500);
+    const rows = await gedMigration.history({ module: req.query.module, limit });
+    res.json({ history: rows });
+  } catch (err) {
+    console.error('[GED migrationStatus ERROR]', err.message);
+    res.status(500).json({ error: err.message });
   }
 };
 
@@ -318,34 +400,65 @@ exports.recoverStorage = async (req, res) => {
 
 exports.testConnection = async (req, res) => {
   try {
-    const { url, username, password } = await getConfig();
-    console.log(`[GED testConnection] url=${url}, username=${username}, hasPassword=${!!password}`);
-
-    if (!url) return res.json({ success: false, error: 'URL du serveur Alfresco non configurée. Renseignez-la dans le formulaire et cliquez sur "Enregistrer" d\'abord.' });
-    if (!username) return res.json({ success: false, error: 'Nom d\'utilisateur Alfresco non configuré.' });
-    if (!password) return res.json({ success: false, error: 'Mot de passe Alfresco non configuré.' });
-
-    const targetUrl = `${alfrescoBase(url)}/nodes/-root-`;
-    console.log(`[GED testConnection] Appel API : GET ${targetUrl}`);
-
-    const response = await axios.get(targetUrl, {
-      headers: { Authorization: basicAuth(username, password) },
-      timeout: 10000
-    });
-
-    const rootName = response.data?.entry?.name || 'Company Home';
-    console.log(`[GED testConnection] Succès ! Nœud racine : "${rootName}"`);
-    res.json({ success: true, rootName });
+    const cfg = await loadAlfrescoConfig();
+    console.log(`[GED testConnection] url=${cfg.url}, username=${cfg.username}, hasPassword=${!!cfg.password}, rootPath=${cfg.rootPath}`);
+    const result = await alfresco.testConnexion(cfg);
+    if (result.ok) {
+      res.json({ success: true, rootName: result.details?.racine?.nom || 'Company Home', details: result.details });
+    } else {
+      res.json({ success: false, error: result.message, details: result.details });
+    }
   } catch (err) {
-    const error = describeAxiosError(err, 'testConnection');
-    console.error('[GED testConnection ERROR]', error);
-    res.json({ success: false, error });
+    console.error('[GED testConnection ERROR]', err.message);
+    res.json({ success: false, error: err.message });
+  }
+};
+
+// Renvoie la racine GED configurée (utilisée par l'explorateur Alfresco).
+exports.getRoot = async (req, res) => {
+  try {
+    const cfg = await alfresco.getConfig();
+    const root = await alfresco.getRoot(cfg);
+    res.json({ success: true, root });
+  } catch (err) {
+    console.error('[GED getRoot ERROR]', err.message);
+    res.status(500).json({ error: err.message });
+  }
+};
+
+// Dépose un document (généré ou fourni) dans la racine GED, pour vérification dans Alfresco.
+exports.testUpload = async (req, res) => {
+  try {
+    const cfg = await alfresco.getConfig();
+    alfresco.assertConfigured(cfg);
+
+    let name, buffer, mime;
+    if (req.file && req.file.buffer) {
+      name = req.file.originalname || 'document';
+      buffer = req.file.buffer;
+      mime = req.file.mimetype || 'application/octet-stream';
+    } else {
+      const stamp = new Date().toISOString();
+      name = `test-dsihub-${stamp.replace(/[:.]/g, '-')}.txt`;
+      buffer = Buffer.from(
+        `Document de test déposé depuis /admin/ged\nDate : ${stamp}\nRacine configurée : ${cfg.rootPath}\n`,
+        'utf8'
+      );
+      mime = 'text/plain';
+    }
+
+    const r = await alfresco.depositToRoot(cfg, { name, buffer, mime, description: 'Document de test déposé depuis /admin/ged' });
+    console.log(`[GED testUpload] "${name}" → node ${r.nodeId} (racine ${r.root?.name || r.root?.id})`);
+    res.json({ success: true, name, nodeId: r.nodeId, versionLabel: r.versionLabel, root: r.root });
+  } catch (err) {
+    console.error('[GED testUpload ERROR]', err.message);
+    res.status(500).json({ error: err.message });
   }
 };
 
 exports.getNode = async (req, res) => {
   try {
-    const { url, username, password } = await getConfig();
+    const { url, username, password } = await loadAlfrescoConfig();
     const { nodeId } = req.params;
     const r = await axios.get(`${alfrescoBase(url)}/nodes/${nodeId}?include=path`, {
       headers: { Authorization: basicAuth(username, password) }
@@ -358,10 +471,40 @@ exports.getNode = async (req, res) => {
   }
 };
 
+exports.listSites = async (req, res) => {
+  try {
+    const cfg = await loadAlfrescoConfig();
+    const { sites, attempts } = await alfresco.listSitesDiagnostic(cfg);
+    res.json({ sites, attempts });
+  } catch (err) {
+    const error = describeAxiosError(err, 'listSites');
+    console.error('[GED listSites ERROR]', error);
+    res.status(500).json({ error });
+  }
+};
+
 exports.listChildren = async (req, res) => {
   try {
-    const { url, username, password } = await getConfig();
     const { nodeId } = req.params;
+    const cfg = await loadAlfrescoConfig();
+
+    // Conteneur virtuel « Sites » : liste les sites Alfresco.
+    if (nodeId === 'site-container') {
+      const sites = await alfresco.listSites(cfg);
+      const entries = sites.map(s => ({ entry: { id: `site:${s.id}`, name: s.title || s.id, isFolder: true, nodeType: 'st:site' } }));
+      return res.json({ list: { entries, pagination: { count: entries.length, hasMoreItems: false } } });
+    }
+
+    // Site virtuel « site:<id> » : renvoie son documentLibrary comme dossier unique.
+    if (nodeId.startsWith('site:')) {
+      const siteId = nodeId.slice('site:'.length);
+      const libId = await alfresco.getSiteDocumentLibrary(cfg, siteId);
+      if (!libId) return res.status(404).json({ error: `Site « ${siteId} » ou documentLibrary introuvable.` });
+      const entries = [{ entry: { id: libId, name: 'documentLibrary', isFolder: true, nodeType: 'cm:folder' } }];
+      return res.json({ list: { entries, pagination: { count: 1, hasMoreItems: false } } });
+    }
+
+    const { url, username, password } = cfg;
     const { maxItems = 200, skipCount = 0 } = req.query;
     const r = await axios.get(
       `${alfrescoBase(url)}/nodes/${nodeId}/children?include=properties,path&orderBy=isFolder DESC,name ASC&maxItems=${maxItems}&skipCount=${skipCount}`,
@@ -377,7 +520,7 @@ exports.listChildren = async (req, res) => {
 
 exports.downloadContent = async (req, res) => {
   try {
-    const { url, username, password } = await getConfig();
+    const { url, username, password } = await loadAlfrescoConfig();
     const { nodeId } = req.params;
     const infoR = await axios.get(`${alfrescoBase(url)}/nodes/${nodeId}`, {
       headers: { Authorization: basicAuth(username, password) }
@@ -402,7 +545,7 @@ exports.downloadContent = async (req, res) => {
 
 exports.createFolder = async (req, res) => {
   try {
-    const { url, username, password } = await getConfig();
+    const { url, username, password } = await loadAlfrescoConfig();
     const { nodeId } = req.params;
     const { name } = req.body;
     if (!name || !name.trim()) return res.status(400).json({ error: 'Nom du dossier requis' });
@@ -421,7 +564,7 @@ exports.createFolder = async (req, res) => {
 
 exports.uploadFile = async (req, res) => {
   try {
-    const { url, username, password } = await getConfig();
+    const { url, username, password } = await loadAlfrescoConfig();
     const { nodeId } = req.params;
     if (!req.file) return res.status(400).json({ error: 'Aucun fichier reçu' });
     const form = new FormData();
@@ -443,7 +586,7 @@ exports.uploadFile = async (req, res) => {
 
 exports.deleteNode = async (req, res) => {
   try {
-    const { url, username, password } = await getConfig();
+    const { url, username, password } = await loadAlfrescoConfig();
     const { nodeId } = req.params;
     await axios.delete(`${alfrescoBase(url)}/nodes/${nodeId}`, {
       headers: { Authorization: basicAuth(username, password) }

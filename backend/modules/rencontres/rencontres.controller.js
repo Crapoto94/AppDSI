@@ -193,7 +193,7 @@ module.exports = {
                 }
             }
 
-            await db.run('INSERT INTO import_logs (type, username) VALUES (?, ?)', ['rencontres_budgetaires', req.user.username]);
+            await pgDb.run('INSERT INTO hub.import_logs (type, username) VALUES (?, ?)', ['rencontres_budgetaires', req.user.username]);
 
             res.json({
                 imported,

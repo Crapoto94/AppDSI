@@ -97,11 +97,15 @@ module.exports = {
     try {
       const docs = await pgDb.all('SELECT * FROM hub_vols.theft_documents WHERE theft_id = ?', [req.params.id]);
       for (const d of docs) {
-        if (d.file_path) await storage.deleteFile(d.file_path).catch(() => {});
+        // Purge centralisée : supprime les fichiers sur TOUS les backends
+        // (local ET copie Alfresco le cas échéant), puis la ligne hub_docs.
         if (d.hub_doc_id) {
-          await pgDb.run('DELETE FROM hub_docs.document_versions WHERE document_id = ?', [d.hub_doc_id]).catch(() => {});
-          await pgDb.run('DELETE FROM hub_docs.documents WHERE id = ?', [d.hub_doc_id]).catch(() => {});
+          try {
+            const docsService = require('../../shared/documents.service');
+            await docsService.purgeDocument(d.hub_doc_id);
+          } catch (e) { console.warn('[VOLS] purge GED échouée:', e.message); }
         }
+        if (d.file_path) await storage.deleteFile(d.file_path).catch(() => {});
       }
       await pgDb.run('DELETE FROM hub_vols.theft_comments WHERE theft_id = ?', [req.params.id]);
       await pgDb.run('DELETE FROM hub_vols.theft_documents WHERE theft_id = ?', [req.params.id]);
@@ -163,11 +167,15 @@ module.exports = {
     try {
       const doc = await pgDb.get('SELECT * FROM hub_vols.theft_documents WHERE id = ? AND theft_id = ?', [req.params.docId, req.params.id]);
       if (doc) {
-        if (doc.file_path) await storage.deleteFile(doc.file_path).catch(() => {});
+        // Purge centralisée (local + copie Alfresco), puis supprime le fichier
+        // pointé par file_path si distinct.
         if (doc.hub_doc_id) {
-          await pgDb.run('DELETE FROM hub_docs.document_versions WHERE document_id = ?', [doc.hub_doc_id]).catch(() => {});
-          await pgDb.run('DELETE FROM hub_docs.documents WHERE id = ?', [doc.hub_doc_id]).catch(() => {});
+          try {
+            const docsService = require('../../shared/documents.service');
+            await docsService.purgeDocument(doc.hub_doc_id);
+          } catch (e) { console.warn('[VOLS] purge GED échouée:', e.message); }
         }
+        if (doc.file_path) await storage.deleteFile(doc.file_path).catch(() => {});
         await pgDb.run('DELETE FROM hub_vols.theft_documents WHERE id = ?', [req.params.docId]);
       }
       res.json({ message: 'Document supprimé' });

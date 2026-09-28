@@ -189,6 +189,14 @@ export const WIDGET_REGISTRY: WidgetDef[] = [
     defaultSize: { w: 6, h: 4 },
     minSize: { w: 4, h: 3 },
   },
+  {
+    key: 'budget_dgp',
+    label: 'DGP factures',
+    description: 'Délai global de paiement : DGP moyen, factures payées hors délai (>30j), non payées en retard (provisoire)',
+    module: 'Budget',
+    defaultSize: { w: 6, h: 3 },
+    minSize: { w: 4, h: 2 },
+  },
   // ── MagApp ────────────────────────────────────────────────────────────────
   {
     key: 'magapp_maintenances',
@@ -236,6 +244,23 @@ export const WIDGET_REGISTRY: WidgetDef[] = [
     label: 'Répartition par OS',
     description: 'Nombre de postes par famille d\'OS (Windows 10, 11, Server…), depuis la synchro AD',
     module: 'Parc',
+    defaultSize: { w: 6, h: 4 },
+    minSize: { w: 4, h: 3 },
+  },
+  // ── Notes IA (Mes Notes) ──────────────────────────────────────────────────
+  {
+    key: 'notes_kpi',
+    label: 'Mes Notes — indicateurs',
+    description: 'Notes, analysées par IA, carnets, sections, tags, mots',
+    module: 'Notes',
+    defaultSize: { w: 6, h: 2 },
+    minSize: { w: 4, h: 2 },
+  },
+  {
+    key: 'notes_wordcloud',
+    label: 'Mes Notes — nuage de mots',
+    description: 'Mots-clés les plus fréquents des notes (contenu + tags IA)',
+    module: 'Notes',
     defaultSize: { w: 6, h: 4 },
     minSize: { w: 4, h: 3 },
   },

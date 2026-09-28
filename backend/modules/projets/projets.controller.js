@@ -2128,10 +2128,10 @@ const ajouterEntreeJournal = async (req, res) => {
 const modifierEntreeJournal = async (req, res) => {
     try {
         const { id, journalId } = req.params;
-        const { type_entree, message, date_entree } = req.body;
+        const { type_entree, message, date_entree, remove_attachment } = req.body;
         if (!message || !message.trim()) return res.status(400).json({ error: 'Message requis' });
 
-        const entry = await pgDb.get('SELECT username FROM projet_journal WHERE id = $1 AND projet_id = $2', [journalId, id]);
+        const entry = await pgDb.get('SELECT username, details FROM projet_journal WHERE id = $1 AND projet_id = $2', [journalId, id]);
         if (!entry) return res.status(404).json({ error: 'Entrée du journal non trouvée' });
 
         const isOwner = entry.username && entry.username.toLowerCase() === req.user.username.toLowerCase();
@@ -2139,9 +2139,56 @@ const modifierEntreeJournal = async (req, res) => {
             return res.status(403).json({ error: 'Vous ne pouvez modifier que vos propres entrées de journal.' });
         }
 
+        const username = req.user.username;
+        let detailsObj = null;
+        try { detailsObj = entry.details ? JSON.parse(entry.details) : null; } catch { detailsObj = null; }
+
+        // Suppression de la PJ existante : demandée explicitement, ou implicite quand on
+        // dépose un nouveau fichier (une seule PJ par entrée, comme à la création).
+        const wantsRemoval = remove_attachment === 'true' || remove_attachment === true;
+        if ((wantsRemoval || req.file) && detailsObj?.document_id) {
+            try {
+                await pgDb.run('DELETE FROM projet_versions_document WHERE document_id = $1', [detailsObj.document_id]);
+                await pgDb.run('DELETE FROM projet_documents WHERE id = $1 AND projet_id = $2', [detailsObj.document_id, id]);
+            } catch (e) { console.warn('[JOURNAL] suppression PJ existante échouée:', e.message); }
+            detailsObj = null;
+        }
+
+        // Dépôt d'une nouvelle PJ (même mécanisme que la création — cf. ajouterEntreeJournal).
+        if (req.file) {
+            if (req.file.originalname) req.file.originalname = storage.fixUploadName(req.file.originalname);
+            const docResult = await pgDb.run(
+                `INSERT INTO projet_documents (projet_id, type_documentaire, type_vrac, created_by_username) VALUES ($1, 'journal', 1, $2)`,
+                [id, username]
+            );
+            const did = docResult.lastID;
+            const saved = await storage.saveFile(MODULE, id, req.file);
+            await pgDb.run(
+                `INSERT INTO projet_versions_document (document_id, version, fichier_nom, fichier_original, fichier_taille, fichier_type, est_version_courante, depose_par_username, file_path) VALUES ($1, 'v1.0', $2, $3, $4, $5, 1, $6, $7)`,
+                [did, saved.filename, req.file.originalname, req.file.size, req.file.mimetype, username, saved.dbPath]
+            );
+            try {
+                const docsService = require('../../shared/documents.service');
+                await docsService.registerExternalUpload({
+                    module: 'projets',
+                    entityType: 'journal',
+                    entityId: id,
+                    title: req.file.originalname,
+                    filename: saved.filename,
+                    originalName: req.file.originalname,
+                    mimetype: req.file.mimetype,
+                    size: req.file.size,
+                    storageRef: saved.dbPath,
+                    metadata: { projet_id: id, legacy_document_id: did },
+                    uploadedBy: username,
+                });
+            } catch (e) { console.warn('[DOCS] register failed:', e.message); }
+            detailsObj = { document_id: did, version: 'v1.0', type: req.file.originalname };
+        }
+
         await pgDb.run(
-            `UPDATE projet_journal SET type_entree = COALESCE($1, type_entree), message = $2, date_entree = COALESCE($3, date_entree) WHERE id = $4`,
-            [type_entree || null, message, date_entree || null, journalId]
+            `UPDATE projet_journal SET type_entree = COALESCE($1, type_entree), message = $2, date_entree = COALESCE($3, date_entree), details = $4 WHERE id = $5`,
+            [type_entree || null, message, date_entree || null, detailsObj ? JSON.stringify(detailsObj) : null, journalId]
         );
         res.json({ message: 'Entrée mise à jour' });
     } catch (error) {
@@ -3205,6 +3252,647 @@ const removeChefProjetService = async (req, res) => {
     }
 };
 
+// ============================================
+// EXPLORATEUR DE DOCUMENTS (dossiers/sous-dossiers, typage libre)
+// ============================================
+// Calqué sur le module Documents de l'appli "mandat" (C:\dev\mandat\backend\modules\
+// documents) : navigation par dossiers, glisser-déposer (fichiers ou dossier entier),
+// dépôt d'un .zip qui recrée l'arborescence, renommage, versions automatiques par nom
+// de fichier, métadonnées libres définies par projet, aperçus intégrés (pdf/image côté
+// front direct ; .msg/.docx/.xlsx/.pptx via ces routes).
+//
+// AJOUTÉ À CÔTÉ de projet_documents/projet_versions_document existants (colonnes
+// folder_id/metadata/display_name/deleted_at ajoutées en ALTER, jamais en remplacement)
+// : un document créé par l'ANCIEN système (onglets Documents/Contractuels/Vrac) reste
+// visible ici, à la racine (folder_id NULL) — rien n'est supprimé ni migré de force.
+// Nouveau document créé ici : type_documentaire = 'documentation_en_vrac' (catégorie
+// générique déjà utilisée par le dépôt en vrac existant), son vrai "type" vit dans les
+// métadonnées libres (projet_metadata_fields), pas dans l'ancien champ figé.
+
+const EXPLORER_DOC_TYPE = 'documentation_en_vrac';
+
+function explorerBaseName(originalName) {
+    const ext = path.extname(originalName);
+    return ext ? originalName.slice(0, -ext.length) : originalName;
+}
+
+async function explorerFindOrCreateFolder(projetId, parentId, nom, author) {
+    const params = [projetId, nom];
+    let clause = 'parent_id IS NULL';
+    if (parentId) { params.push(parentId); clause = `parent_id = $${params.length}`; }
+    const existing = await pgDb.get(
+        `SELECT * FROM projets.projet_folders WHERE projet_id = $1 AND nom = $2 AND ${clause}`,
+        params
+    );
+    if (existing) return existing;
+    return pgDb.get(
+        `INSERT INTO projets.projet_folders (projet_id, parent_id, nom, created_by) VALUES ($1, $2, $3, $4) RETURNING *`,
+        [projetId, parentId || null, nom.trim(), author || null]
+    );
+}
+
+/** Résout (en créant au besoin) la chaîne de sous-dossiers d'un chemin relatif
+ * ("A/B/C") — partagé entre le dépôt de zip et le dépôt d'un dossier glissé-déposé.
+ * `cache` (Map) doit être fourni par l'appelant et réutilisé sur tout un lot de fichiers. */
+async function explorerResolveFolderPath(projetId, rootFolderId, dirParts, author, cache) {
+    let currentPath = '';
+    let parentId = rootFolderId;
+    for (const part of dirParts) {
+        currentPath = currentPath ? `${currentPath}/${part}` : part;
+        if (cache.has(currentPath)) { parentId = cache.get(currentPath); continue; }
+        const folder = await explorerFindOrCreateFolder(projetId, parentId, part, author);
+        cache.set(currentPath, folder.id);
+        parentId = folder.id;
+    }
+    return parentId;
+}
+
+/** Dépose un fichier — si un document actif du même nom existe déjà dans le même
+ * dossier, ce dépôt en devient une NOUVELLE VERSION (l'ancienne reste archivée dans
+ * projet_versions_document, son fichier jamais supprimé) plutôt qu'un second document. */
+async function explorerCreateDocument({ projetId, folderId, file, originalName, author }) {
+    const folderClause = folderId ? `folder_id = $2` : `folder_id IS NULL`;
+    const params = folderId ? [projetId, folderId, originalName] : [projetId, originalName];
+    const existing = await pgDb.get(
+        `SELECT d.id, d.folder_id,
+                (SELECT v.id FROM projets.projet_versions_document v WHERE v.document_id = d.id AND v.est_version_courante = 1) as current_version_id,
+                (SELECT MAX(v.version::int) FROM projets.projet_versions_document v WHERE v.document_id = d.id AND v.version ~ '^\\d+$') as max_version
+         FROM projets.projet_documents d
+         WHERE d.projet_id = $1 AND ${folderClause} AND LOWER(d.display_name) = LOWER($${params.length})
+           AND d.deleted_at IS NULL`,
+        params
+    );
+
+    const saved = await storage.saveFile(MODULE, projetId, file);
+    const newVersionNum = existing ? String((existing.max_version || 1) + 1) : '1';
+
+    if (existing) {
+        if (existing.current_version_id) {
+            await pgDb.run(`UPDATE projets.projet_versions_document SET est_version_courante = 0 WHERE id = $1`, [existing.current_version_id]);
+        }
+        await pgDb.run(
+            `INSERT INTO projets.projet_versions_document (document_id, version, fichier_nom, fichier_original, fichier_taille, fichier_type, est_version_courante, depose_par_username, file_path)
+             VALUES ($1, $2, $3, $4, $5, $6, 1, $7, $8)`,
+            [existing.id, newVersionNum, saved.filename, originalName, file.size, file.mimetype, author, saved.dbPath]
+        );
+        const document = await pgDb.get(`SELECT * FROM projets.projet_documents WHERE id = $1`, [existing.id]);
+        return { document, isNewVersion: true };
+    }
+
+    const docResult = await pgDb.run(
+        `INSERT INTO projets.projet_documents (projet_id, folder_id, type_documentaire, type_vrac, display_name, created_by_username)
+         VALUES ($1, $2, $3, 1, $4, $5)`,
+        [projetId, folderId || null, EXPLORER_DOC_TYPE, explorerBaseName(originalName), author]
+    );
+    const documentId = docResult.lastID;
+    await pgDb.run(
+        `INSERT INTO projets.projet_versions_document (document_id, version, fichier_nom, fichier_original, fichier_taille, fichier_type, est_version_courante, depose_par_username, file_path)
+         VALUES ($1, '1', $2, $3, $4, $5, 1, $6, $7)`,
+        [documentId, saved.filename, originalName, file.size, file.mimetype, author, saved.dbPath]
+    );
+    try {
+        const docsService = require('../../shared/documents.service');
+        await docsService.registerExternalUpload({
+            module: 'projets', entityType: 'documentation', entityId: projetId,
+            title: originalName, filename: saved.filename, originalName, mimetype: file.mimetype, size: file.size,
+            storageRef: saved.dbPath, metadata: { projet_id: projetId, legacy_document_id: documentId }, uploadedBy: author,
+        });
+    } catch (e) { console.warn('[EXPLORER] hub_docs register failed:', e.message); }
+    const document = await pgDb.get(`SELECT * FROM projets.projet_documents WHERE id = $1`, [documentId]);
+    return { document, isNewVersion: false };
+}
+
+/** multer/busboy décode le nom de fichier en latin1 par défaut. */
+function explorerFixFilename(name) {
+    try { return Buffer.from(name, 'latin1').toString('utf8'); } catch { return name; }
+}
+
+const getExplorerFolders = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const rows = await pgDb.all(`SELECT * FROM projets.projet_folders WHERE projet_id = $1 ORDER BY nom ASC`, [id]);
+        res.json(rows);
+    } catch (error) { res.status(500).json({ error: error.message }); }
+};
+
+const createExplorerFolder = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { nom, parent_id } = req.body || {};
+        if (!nom || !nom.trim()) return res.status(400).json({ error: 'Nom de dossier requis' });
+        const folder = await pgDb.get(
+            `INSERT INTO projets.projet_folders (projet_id, parent_id, nom, created_by) VALUES ($1, $2, $3, $4) RETURNING *`,
+            [id, parent_id || null, nom.trim(), req.user.username]
+        );
+        res.status(201).json(folder);
+    } catch (error) { res.status(500).json({ error: error.message }); }
+};
+
+const getExplorerFolderPath = async (req, res) => {
+    try {
+        const chain = [];
+        let current = req.params.folderId ? parseInt(req.params.folderId, 10) : null;
+        while (current) {
+            const folder = await pgDb.get(`SELECT id, nom, parent_id FROM projets.projet_folders WHERE id = $1`, [current]);
+            if (!folder) break;
+            chain.unshift({ id: folder.id, nom: folder.nom });
+            current = folder.parent_id;
+        }
+        res.json(chain);
+    } catch (error) { res.status(500).json({ error: error.message }); }
+};
+
+const deleteExplorerFolder = async (req, res) => {
+    try {
+        const { id, folderId } = req.params;
+        const owned = await pgDb.get(`SELECT id FROM projets.projet_folders WHERE id = $1 AND projet_id = $2`, [folderId, id]);
+        if (!owned) return res.status(404).json({ error: 'Dossier introuvable' });
+
+        // Sous-arbre complet (récursif) — fichiers à effacer du stockage avant de couper
+        // la ligne (le ON DELETE CASCADE des FK nettoie folders/documents/versions en base).
+        const versions = await pgDb.all(
+            `WITH RECURSIVE sub AS (
+                 SELECT id FROM projets.projet_folders WHERE id = $1
+                 UNION ALL
+                 SELECT f.id FROM projets.projet_folders f JOIN sub ON f.parent_id = sub.id
+             )
+             SELECT v.file_path FROM projets.projet_versions_document v
+             JOIN projets.projet_documents d ON d.id = v.document_id
+             WHERE d.folder_id IN (SELECT id FROM sub) AND v.file_path IS NOT NULL`,
+            [folderId]
+        );
+        await pgDb.run(`DELETE FROM projets.projet_folders WHERE id = $1`, [folderId]);
+        for (const v of versions) { try { await storage.deleteFile(v.file_path); } catch (e) {} }
+        res.status(204).end();
+    } catch (error) { res.status(500).json({ error: error.message }); }
+};
+
+/** Applique une métadonnée à TOUS les documents d'un dossier, y compris ses
+ * sous-dossiers (récursif) — utilisé par la sélection multiple de l'explorateur
+ * pour "typer" un dossier entier en un clic plutôt que document par document. */
+const bulkSetFolderMetadata = async (req, res) => {
+    try {
+        const { id, folderId } = req.params;
+        const { cle, valeur } = req.body || {};
+        if (!cle) return res.status(400).json({ error: 'Champ (cle) requis' });
+        const owned = await pgDb.get(`SELECT id FROM projets.projet_folders WHERE id = $1 AND projet_id = $2`, [folderId, id]);
+        if (!owned) return res.status(404).json({ error: 'Dossier introuvable' });
+        const patch = JSON.stringify({ [cle]: valeur || '' });
+        const result = await pgDb.run(
+            `WITH RECURSIVE sub AS (
+                 SELECT id FROM projets.projet_folders WHERE id = $1
+                 UNION ALL
+                 SELECT f.id FROM projets.projet_folders f JOIN sub ON f.parent_id = sub.id
+             )
+             UPDATE projets.projet_documents
+             SET metadata = metadata || $3::jsonb
+             WHERE projet_id = $2 AND deleted_at IS NULL AND folder_id IN (SELECT id FROM sub)`,
+            [folderId, id, patch]
+        );
+        res.json({ ok: true, updated: result.changes });
+    } catch (error) { res.status(500).json({ error: error.message }); }
+};
+
+const getExplorerDocuments = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const folderId = req.query.folder_id ? parseInt(req.query.folder_id, 10) : null;
+        const clause = folderId ? 'd.folder_id = $2' : 'd.folder_id IS NULL';
+        const params = folderId ? [id, folderId] : [id];
+        const rows = await pgDb.all(
+            `SELECT d.id, d.projet_id, d.folder_id, d.metadata, d.created_by_username, d.date_creation,
+                    COALESCE(d.display_name, v.fichier_original) as display_name,
+                    v.id as version_id, v.version, v.fichier_original as original_name, v.fichier_taille as size_bytes,
+                    v.fichier_type as mime_type, v.depose_par_username as uploaded_by, v.date_depot as created_at,
+                    v.file_missing,
+                    (SELECT COUNT(*) FROM projets.projet_versions_document v2 WHERE v2.document_id = d.id) as version_count
+             FROM projets.projet_documents d
+             JOIN projets.projet_versions_document v ON v.document_id = d.id AND v.est_version_courante = 1
+             WHERE d.projet_id = $1 AND ${clause} AND d.deleted_at IS NULL
+             ORDER BY display_name ASC`,
+            params
+        );
+        res.json(rows.map(r => ({ ...r, metadata: r.metadata || {} })));
+    } catch (error) { res.status(500).json({ error: error.message }); }
+};
+
+/** Dépôt de fichiers — éventuellement avec un chemin relatif par fichier (`paths`,
+ * tableau JSON parallèle à `files`) pour reconstituer l'arborescence d'un DOSSIER
+ * glissé-déposé depuis l'explorateur du système d'exploitation. */
+const uploadExplorerFiles = async (req, res) => {
+    try {
+        const { id } = req.params;
+        if (!req.files?.length) return res.status(400).json({ error: 'Aucun fichier reçu' });
+        const rootFolderId = req.body.folder_id ? parseInt(req.body.folder_id, 10) : null;
+        const author = req.user.username;
+
+        let paths = null;
+        if (req.body.paths) {
+            try {
+                paths = JSON.parse(req.body.paths);
+                if (!Array.isArray(paths) || paths.length !== req.files.length) paths = null;
+            } catch { paths = null; }
+        }
+
+        const folderCache = new Map();
+        const created = [];
+        for (let i = 0; i < req.files.length; i++) {
+            const file = req.files[i];
+            let folderId = rootFolderId;
+            let originalName = explorerFixFilename(file.originalname);
+
+            if (paths) {
+                const parts = String(paths[i] || '').split('/').filter(Boolean);
+                const fileName = parts.pop();
+                if (fileName) originalName = fileName;
+                if (parts.length) folderId = await explorerResolveFolderPath(id, rootFolderId, parts, author, folderCache);
+            }
+
+            const { document } = await explorerCreateDocument({ projetId: id, folderId, file, originalName, author });
+            created.push(document);
+        }
+        res.status(201).json(created);
+    } catch (error) { res.status(500).json({ error: error.message }); }
+};
+
+/** Dépôt d'un .zip : recrée l'arborescence de dossiers, un document par fichier. */
+const uploadExplorerZip = async (req, res) => {
+    try {
+        const { id } = req.params;
+        if (!req.file) return res.status(400).json({ error: 'Aucun fichier reçu' });
+        const rootFolderId = req.body.folder_id ? parseInt(req.body.folder_id, 10) : null;
+        const author = req.user.username;
+
+        const AdmZip = require('adm-zip');
+        let zip;
+        try { zip = new AdmZip(req.file.buffer); }
+        catch (err) { return res.status(400).json({ error: `Zip invalide : ${err.message}` }); }
+
+        const folderCache = new Map();
+        const created = [];
+        const entries = zip.getEntries().filter(e => !e.isDirectory);
+        for (const entry of entries) {
+            const parts = entry.entryName.split('/').filter(Boolean);
+            const fileName = parts.pop();
+            if (!fileName) continue;
+            const folderId = await explorerResolveFolderPath(id, rootFolderId, parts, author, folderCache);
+            const buffer = entry.getData();
+            const { document } = await explorerCreateDocument({
+                projetId: id, folderId, author, originalName: fileName,
+                file: { buffer, size: buffer.length, mimetype: null, originalname: fileName },
+            });
+            created.push(document);
+        }
+        res.status(201).json({ created: created.length, documents: created });
+    } catch (error) { res.status(500).json({ error: error.message }); }
+};
+
+const patchExplorerDocument = async (req, res) => {
+    try {
+        const { id, docId } = req.params;
+        const { display_name, metadata, folder_id } = req.body || {};
+        const sets = []; const params = [];
+        if (display_name !== undefined) { params.push(display_name.trim()); sets.push(`display_name = $${params.length}`); }
+        if (metadata !== undefined) { params.push(JSON.stringify(metadata)); sets.push(`metadata = $${params.length}::jsonb`); }
+        if (folder_id !== undefined) { params.push(folder_id || null); sets.push(`folder_id = $${params.length}`); }
+        if (!sets.length) {
+            const row = await pgDb.get(`SELECT * FROM projets.projet_documents WHERE id = $1 AND projet_id = $2`, [docId, id]);
+            return res.json(row);
+        }
+        params.push(docId, id);
+        const row = await pgDb.get(
+            `UPDATE projets.projet_documents SET ${sets.join(', ')} WHERE id = $${params.length - 1} AND projet_id = $${params.length} RETURNING *`,
+            params
+        );
+        if (!row) return res.status(404).json({ error: 'Document introuvable' });
+        res.json(row);
+    } catch (error) { res.status(500).json({ error: error.message }); }
+};
+
+const listExplorerVersions = async (req, res) => {
+    try {
+        const { id, docId } = req.params;
+        const doc = await pgDb.get(`SELECT id FROM projets.projet_documents WHERE id = $1 AND projet_id = $2`, [docId, id]);
+        if (!doc) return res.status(404).json({ error: 'Document introuvable' });
+        const rows = await pgDb.all(
+            `SELECT * FROM projets.projet_versions_document WHERE document_id = $1 ORDER BY id DESC`,
+            [docId]
+        );
+        res.json(rows);
+    } catch (error) { res.status(500).json({ error: error.message }); }
+};
+
+const deleteExplorerDocument = async (req, res) => {
+    try {
+        const { id, docId } = req.params;
+        const row = await pgDb.get(
+            `UPDATE projets.projet_documents SET deleted_at = CURRENT_TIMESTAMP, deleted_by = $1
+             WHERE id = $2 AND projet_id = $3 AND deleted_at IS NULL RETURNING *`,
+            [req.user.username, docId, id]
+        );
+        if (!row) return res.status(404).json({ error: 'Document introuvable' });
+        res.status(204).end();
+    } catch (error) { res.status(500).json({ error: error.message }); }
+};
+
+/** Charge la version courante d'un document accessible (pas de contrôle d'appartenance
+ * fin ici : même périmètre d'accès que le reste du module projets, cf. authenticateJWT). */
+async function loadExplorerFile(docId) {
+    const row = await pgDb.get(
+        `SELECT v.*, d.projet_id FROM projets.projet_versions_document v
+         JOIN projets.projet_documents d ON d.id = v.document_id
+         WHERE v.document_id = $1 AND v.est_version_courante = 1 AND d.deleted_at IS NULL`,
+        [docId]
+    );
+    if (!row || !row.file_path) return null;
+    const f = await storage.getFileForServe(row.file_path);
+    if (!f) return null;
+    return { row, ...f };
+}
+
+/** Copier/coller — duplique le fichier (version courante) d'un ou plusieurs documents
+ * vers un dossier cible, comme de nouveaux documents indépendants (métadonnées
+ * conservées, historique de versions repartant à '1' ; le document source n'est pas
+ * modifié). Si le dossier cible contient déjà un document du même nom, le dépôt
+ * devient une nouvelle version de celui-ci (même règle que pour un dépôt normal). */
+const copyExplorerDocuments = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { document_ids, folder_id } = req.body || {};
+        if (!Array.isArray(document_ids) || !document_ids.length) return res.status(400).json({ error: 'document_ids requis' });
+        if (folder_id) {
+            const owned = await pgDb.get(`SELECT id FROM projets.projet_folders WHERE id = $1 AND projet_id = $2`, [folder_id, id]);
+            if (!owned) return res.status(404).json({ error: 'Dossier de destination introuvable' });
+        }
+        const created = [];
+        for (const docId of document_ids) {
+            const source = await pgDb.get(`SELECT metadata FROM projets.projet_documents WHERE id = $1 AND projet_id = $2 AND deleted_at IS NULL`, [docId, id]);
+            const loaded = await loadExplorerFile(docId);
+            if (!source || !loaded) continue;
+            const buffer = loaded.buffer || await fs.promises.readFile(loaded.absolutePath);
+            const originalName = loaded.row.fichier_original;
+            const file = { buffer, originalname: originalName, mimetype: loaded.row.fichier_type, size: loaded.row.fichier_taille };
+            const { document } = await explorerCreateDocument({ projetId: id, folderId: folder_id || null, file, originalName, author: req.user.username });
+            if (source.metadata && Object.keys(source.metadata).length) {
+                await pgDb.run(`UPDATE projets.projet_documents SET metadata = $1::jsonb WHERE id = $2`, [JSON.stringify(source.metadata), document.id]);
+            }
+            created.push(document);
+        }
+        res.status(201).json(created);
+    } catch (error) { res.status(500).json({ error: `Copie impossible : ${error.message}` }); }
+};
+
+const serveExplorerFile = async (req, res) => {
+    try {
+        const loaded = await loadExplorerFile(req.params.docId);
+        if (!loaded) return res.status(404).json({ error: 'Fichier introuvable' });
+        const disposition = req.query.download ? 'attachment' : 'inline';
+        res.setHeader('Content-Disposition', `${disposition}; filename*=UTF-8''${encodeURIComponent(loaded.row.fichier_original)}`);
+        res.type(loaded.row.fichier_type || path.extname(loaded.row.fichier_original) || 'application/octet-stream');
+        if (loaded.absolutePath) return res.sendFile(loaded.absolutePath);
+        return res.send(loaded.buffer);
+    } catch (error) { res.status(500).json({ error: error.message }); }
+};
+
+const serveExplorerVersionFile = async (req, res) => {
+    try {
+        const version = await pgDb.get(`SELECT * FROM projets.projet_versions_document WHERE id = $1`, [req.params.versionId]);
+        if (!version || !version.file_path) return res.status(404).json({ error: 'Version introuvable' });
+        const f = await storage.getFileForServe(version.file_path);
+        if (!f) return res.status(404).json({ error: 'Fichier introuvable' });
+        res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(`v${version.version}_${version.fichier_original}`)}`);
+        res.type(version.fichier_type || path.extname(version.fichier_original) || 'application/octet-stream');
+        if (f.absolutePath) return res.sendFile(f.absolutePath);
+        return res.send(f.buffer);
+    } catch (error) { res.status(500).json({ error: error.message }); }
+};
+
+const previewExplorerMsg = async (req, res) => {
+    try {
+        const loaded = await loadExplorerFile(req.params.docId);
+        if (!loaded) return res.status(404).json({ error: 'Fichier introuvable' });
+        const { parseMsgBuffer } = require('../../shared/msg_parser');
+        const buffer = loaded.buffer || fs.readFileSync(loaded.absolutePath);
+        res.json(parseMsgBuffer(buffer));
+    } catch (error) { res.status(500).json({ error: `Lecture du message impossible : ${error.message}` }); }
+};
+
+const previewExplorerMsgAttachment = async (req, res) => {
+    try {
+        const loaded = await loadExplorerFile(req.params.docId);
+        if (!loaded) return res.status(404).json({ error: 'Fichier introuvable' });
+        const { extractMsgAttachment } = require('../../shared/msg_parser');
+        const buffer = loaded.buffer || fs.readFileSync(loaded.absolutePath);
+        const att = extractMsgAttachment(buffer, parseInt(req.params.idx, 10));
+        if (!att) return res.status(404).json({ error: 'Pièce jointe introuvable' });
+        const disposition = req.query.download ? 'attachment' : 'inline';
+        res.setHeader('Content-Disposition', `${disposition}; filename*=UTF-8''${encodeURIComponent(att.fileName)}`);
+        res.type(path.extname(att.fileName) || 'application/octet-stream');
+        res.send(Buffer.from(att.content));
+    } catch (error) { res.status(500).json({ error: `Extraction impossible : ${error.message}` }); }
+};
+
+const previewExplorerDocx = async (req, res) => {
+    try {
+        const loaded = await loadExplorerFile(req.params.docId);
+        if (!loaded) return res.status(404).json({ error: 'Fichier introuvable' });
+        const officePreview = require('../../shared/office_preview');
+        const buffer = loaded.buffer || fs.readFileSync(loaded.absolutePath);
+        res.json(await officePreview.previewDocx(buffer));
+    } catch (error) { res.status(500).json({ error: `Aperçu impossible : ${error.message}` }); }
+};
+
+// ONLYOFFICE_CALLBACK_URL (dédiée, distincte d'APP_BASE_URL) : le moteur et le
+// backend sont conteneurs voisins sur le même réseau Docker (app-network) — on
+// les fait se parler en direct, en HTTP interne, plutôt que de faire sortir ces
+// appels par le domaine public HTTPS (dsihub.ivry.local), dont le certificat
+// auto-signé n'est pas dans le magasin de confiance du conteneur OnlyOffice et
+// ferait échouer le téléchargement (DEPTH_ZERO_SELF_SIGNED_CERT). APP_BASE_URL
+// reste réservé aux liens PUBLICS (emails, tâches...), jamais réutilisé ici.
+function sansPointFinalLocal(s) { return String(s || '').replace(/\/+$/, ''); }
+function onlyofficeBackendUrl(req) {
+    return sansPointFinalLocal(process.env.ONLYOFFICE_CALLBACK_URL || process.env.APP_BASE_URL || process.env.APP_URL || `${req.protocol}://${req.get('host')}`);
+}
+
+/** Config d'éditeur OnlyOffice (lecture seule) pour prévisualiser un .docx — repli
+ * sur previewExplorerDocx (mammoth) côté front si OnlyOffice n'est pas configuré. */
+const previewExplorerOnlyOffice = async (req, res) => {
+    try {
+        const onlyoffice = require('../../shared/onlyoffice');
+        const cfg = await onlyoffice.getConfig();
+        if (!cfg) return res.status(503).json({ error: 'OnlyOffice non configuré (voir /admin/infra)' });
+        const loaded = await loadExplorerFile(req.params.docId);
+        if (!loaded) return res.status(404).json({ error: 'Fichier introuvable' });
+
+        // Le moteur OnlyOffice va chercher le document lui-même (requête serveur à
+        // serveur) : l'URL doit donc être absolue et joignable PAR LE MOTEUR, pas
+        // seulement par le navigateur de l'agent. On réutilise le jeton déjà validé
+        // pour CETTE requête (header ou ?token=) plutôt que d'en émettre un nouveau.
+        const rawToken = (req.headers['authorization'] || '').replace(/^Bearer\s+/i, '').trim() || String(req.query.token || '');
+        const fileUrl = `${onlyofficeBackendUrl(req)}/api/projets/explorateur/fichiers/${req.params.docId}/fichier?token=${encodeURIComponent(rawToken)}`;
+
+        const built = onlyoffice.buildViewConfig(cfg, {
+            cle: `projet-doc-${req.params.docId}-v${loaded.row.id}`,
+            nom: loaded.row.fichier_original,
+            url: fileUrl,
+            utilisateur: req.user ? { id: req.user.username, nom: req.user.displayName || req.user.username } : undefined,
+        });
+        res.json(built);
+    } catch (error) { res.status(500).json({ error: `OnlyOffice indisponible : ${error.message}` }); }
+};
+
+/** Config d'éditeur OnlyOffice EN ÉDITION — l'agent modifie le document dans le
+ * navigateur ; à l'enregistrement, le moteur rappelle onlyofficeCallback ci-dessous
+ * avec le fichier à jour, qui devient une nouvelle version (jamais un écrasement). */
+const previewExplorerOnlyOfficeEdit = async (req, res) => {
+    try {
+        const onlyoffice = require('../../shared/onlyoffice');
+        const cfg = await onlyoffice.getConfig();
+        if (!cfg) return res.status(503).json({ error: 'OnlyOffice non configuré (voir /admin/infra)' });
+        const loaded = await loadExplorerFile(req.params.docId);
+        if (!loaded) return res.status(404).json({ error: 'Fichier introuvable' });
+        if (!onlyoffice.estPriseEnCharge(loaded.row.fichier_original)) {
+            return res.status(400).json({ error: "Ce type de fichier n'est pas modifiable en ligne" });
+        }
+
+        const rawToken = (req.headers['authorization'] || '').replace(/^Bearer\s+/i, '').trim() || String(req.query.token || '');
+        const backendUrl = onlyofficeBackendUrl(req);
+        const fileUrl = `${backendUrl}/api/projets/explorateur/fichiers/${req.params.docId}/fichier?token=${encodeURIComponent(rawToken)}`;
+        // Clé unique par SESSION d'édition (pas seulement par version) : évite que
+        // le moteur ne réutilise un cache d'édition périmé d'une session précédente.
+        const cle = `projet-doc-edit-${req.params.docId}-v${loaded.row.id}-${Date.now()}`;
+        const callbackUrl = `${backendUrl}/api/projets/explorateur/fichiers/${req.params.docId}/onlyoffice-callback`;
+
+        const built = onlyoffice.buildEditConfig(cfg, {
+            cle,
+            nom: loaded.row.fichier_original,
+            url: fileUrl,
+            callbackUrl,
+            utilisateur: req.user ? { id: req.user.username, nom: req.user.displayName || req.user.username } : undefined,
+        });
+        res.json(built);
+    } catch (error) { res.status(500).json({ error: `OnlyOffice indisponible : ${error.message}` }); }
+};
+
+/** Rappel du moteur OnlyOffice à la sauvegarde (statuts MustSave=2, Corrupted=3,
+ * ClosedNoChanges=4, MustForceSave=6 — cf. doc ONLYOFFICE "editorConfig.callbackUrl").
+ * Authentifié par le JWT du MOTEUR (pas celui de nos agents) : jamais derrière
+ * authenticateJWT/authenticateJWTQuery. Toujours répondre {error:0}, y compris en
+ * cas de souci de notre côté — sinon le moteur ré-essaie indéfiniment. */
+const onlyofficeCallback = async (req, res) => {
+    try {
+        const onlyoffice = require('../../shared/onlyoffice');
+        const cfg = await onlyoffice.getConfig();
+        if (!cfg || !cfg.jwtSecret) return res.json({ error: 0 });
+        const verif = onlyoffice.verifierRappel(req, cfg.jwtSecret);
+        if (!verif.ok) { console.warn('[ONLYOFFICE CALLBACK] jeton invalide:', verif.code); return res.json({ error: 0 }); }
+
+        const body = req.body || {};
+        // 2 = prêt à enregistrer (agent a cliqué "Enregistrer") ; 6 = enregistrement
+        // forcé (autosave) — les autres statuts (édition en cours, fermeture sans
+        // changement, erreur) n'appellent pas de sauvegarde de notre côté.
+        if (body.status === 2 || body.status === 6) {
+            if (!body.url || !onlyoffice.estUrlDeConfiance(cfg, body.url)) {
+                console.warn('[ONLYOFFICE CALLBACK] URL de rappel hors du moteur, ignorée:', body.url);
+                return res.json({ error: 0 });
+            }
+            const { docId } = req.params;
+            const doc = await pgDb.get(`SELECT * FROM projets.projet_documents WHERE id = $1 AND deleted_at IS NULL`, [docId]);
+            const currentVersion = await pgDb.get(`SELECT * FROM projets.projet_versions_document WHERE document_id = $1 AND est_version_courante = 1`, [docId]);
+            if (doc && currentVersion) {
+                const axios = require('axios');
+                const downloadUrl = onlyoffice.versUrlInterne(cfg, body.url);
+                const response = await axios.get(downloadUrl, {
+                    headers: { Authorization: `Bearer ${verif.jeton}` },
+                    responseType: 'arraybuffer', timeout: 60000, maxContentLength: 200 * 1024 * 1024,
+                });
+                const buffer = Buffer.from(response.data);
+                const saved = await storage.saveFile(MODULE, doc.projet_id, { buffer, originalname: currentVersion.fichier_original });
+                const maxVersion = await pgDb.get(
+                    `SELECT MAX(version::int) as m FROM projets.projet_versions_document WHERE document_id = $1 AND version ~ '^\\d+$'`,
+                    [docId]
+                );
+                const newVersionNum = String((maxVersion && maxVersion.m ? maxVersion.m : 1) + 1);
+                await pgDb.run(`UPDATE projets.projet_versions_document SET est_version_courante = 0 WHERE id = $1`, [currentVersion.id]);
+                const author = (Array.isArray(body.users) && body.users[0] && (body.users[0].name || body.users[0].id)) || 'onlyoffice';
+                await pgDb.run(
+                    `INSERT INTO projets.projet_versions_document (document_id, version, fichier_nom, fichier_original, fichier_taille, fichier_type, est_version_courante, depose_par_username, file_path)
+                     VALUES ($1, $2, $3, $4, $5, $6, 1, $7, $8)`,
+                    [docId, newVersionNum, saved.filename, currentVersion.fichier_original, buffer.length, currentVersion.fichier_type, author, saved.dbPath]
+                );
+            }
+        }
+        res.json({ error: 0 });
+    } catch (error) {
+        console.error('[ONLYOFFICE CALLBACK] échec:', error.message);
+        res.json({ error: 0 });
+    }
+};
+
+const previewExplorerXlsx = async (req, res) => {
+    try {
+        const loaded = await loadExplorerFile(req.params.docId);
+        if (!loaded) return res.status(404).json({ error: 'Fichier introuvable' });
+        const officePreview = require('../../shared/office_preview');
+        const buffer = loaded.buffer || fs.readFileSync(loaded.absolutePath);
+        res.json(officePreview.previewXlsx(buffer));
+    } catch (error) { res.status(500).json({ error: `Aperçu impossible : ${error.message}` }); }
+};
+
+const previewExplorerPptx = async (req, res) => {
+    try {
+        const loaded = await loadExplorerFile(req.params.docId);
+        if (!loaded) return res.status(404).json({ error: 'Fichier introuvable' });
+        const officePreview = require('../../shared/office_preview');
+        const buffer = loaded.buffer || fs.readFileSync(loaded.absolutePath);
+        res.json(officePreview.previewPptx(buffer));
+    } catch (error) { res.status(500).json({ error: `Aperçu impossible : ${error.message}` }); }
+};
+
+const getExplorerMetadataFields = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const rows = await pgDb.all(`SELECT * FROM projets.projet_metadata_fields WHERE projet_id = $1 ORDER BY ordre ASC, id ASC`, [id]);
+        // Champ virtuel "Type de document" : ses options viennent EN DIRECT du
+        // paramétrage global "Types documentaires attendus" (projet_types_documentaires,
+        // cf. getTypesDocumentaires/getAttendus) — seule source de vérité pour ces
+        // libellés, jamais une copie figée. N'existe pas comme ligne en base (id
+        // négatif, non supprimable depuis l'explorateur).
+        const typesGlobaux = await pgDb.all(`SELECT label FROM projet_types_documentaires WHERE actif = 1 ORDER BY ordre`);
+        const champTypeDocument = {
+            id: -1, projet_id: parseInt(id, 10), cle: 'type_documentaire', libelle: '📋 Type de document',
+            type: 'liste', options: typesGlobaux.map(t => t.label), ordre: -1, is_builtin: true,
+        };
+        res.json([champTypeDocument, ...rows]);
+    } catch (error) { res.status(500).json({ error: error.message }); }
+};
+
+const createExplorerMetadataField = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { cle, libelle, type, options, ordre } = req.body || {};
+        if (!cle || !cle.trim() || !libelle || !libelle.trim()) return res.status(400).json({ error: 'Clé et libellé requis' });
+        if (type && !['texte', 'date', 'liste'].includes(type)) return res.status(400).json({ error: 'Type invalide (texte, date, ou liste)' });
+        const field = await pgDb.get(
+            `INSERT INTO projets.projet_metadata_fields (projet_id, cle, libelle, type, options, ordre) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
+            [id, cle.trim(), libelle.trim(), type || 'texte', options ? JSON.stringify(options) : null, ordre || 0]
+        );
+        res.status(201).json(field);
+    } catch (error) {
+        if (String(error.message).includes('duplicate key')) return res.status(409).json({ error: 'Cette clé existe déjà' });
+        res.status(500).json({ error: error.message });
+    }
+};
+
+const deleteExplorerMetadataField = async (req, res) => {
+    try {
+        const { id, fieldId } = req.params;
+        const result = await pgDb.run(`DELETE FROM projets.projet_metadata_fields WHERE id = $1 AND projet_id = $2`, [fieldId, id]);
+        if (!result.changes) return res.status(404).json({ error: 'Champ introuvable' });
+        res.status(204).end();
+    } catch (error) { res.status(500).json({ error: error.message }); }
+};
+
 module.exports = {
     setSendMail,
     getAll, getMesProjets, getById, create, update, remove,
@@ -3234,5 +3922,12 @@ module.exports = {
     toggleMiniProjet,
     getPmoAgents, addPmoAgent, removePmoAgent, getOrgUnits,
     listChefsProjets, registerChefProjet, addChefProjetService, removeChefProjetService,
-    getUserServices, batchUpdateServicePilote
+    getUserServices, batchUpdateServicePilote,
+    getExplorerFolders, createExplorerFolder, deleteExplorerFolder, getExplorerFolderPath, bulkSetFolderMetadata,
+    getExplorerDocuments, uploadExplorerFiles, uploadExplorerZip, patchExplorerDocument, copyExplorerDocuments,
+    listExplorerVersions, deleteExplorerDocument,
+    serveExplorerFile, serveExplorerVersionFile,
+    previewExplorerMsg, previewExplorerMsgAttachment, previewExplorerDocx, previewExplorerXlsx, previewExplorerPptx,
+    previewExplorerOnlyOffice, previewExplorerOnlyOfficeEdit, onlyofficeCallback,
+    getExplorerMetadataFields, createExplorerMetadataField, deleteExplorerMetadataField,
 };

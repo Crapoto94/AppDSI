@@ -133,7 +133,7 @@ async function notifyCreatorOfRefusal({ createdBy, refuserUsername, description,
 // Prévient par mail chaque destinataire (≠ créateur) qu'une tâche vient de lui être
 // affectée. Notification immédiate et inconditionnelle (indépendante de l'opt-in du
 // récap quotidien). Silencieuse si pas de service mail / d'adresse ; non bloquante.
-async function notifyTaskAssignment({ targets, creatorUsername, description, echeance, isTeamTask, contextTitle, contextSource }) {
+async function notifyTaskAssignment({ targets, creatorUsername, description, echeance, isTeamTask, contextTitle, contextSource, contextId }) {
     if (!sendMailFn) return;
     // Ne pas notifier pour les tâches personnelles
     if (contextSource === 'personal') return;
@@ -155,6 +155,19 @@ async function notifyTaskAssignment({ targets, creatorUsername, description, ech
     const echStr = echeance ? `<p><strong>Échéance :</strong> ${esc(String(echeance).slice(0, 10))}</p>` : '';
     const ctxStr = (contextTitle && contextTitle !== 'Tâche personnelle')
         ? `<p style="color:#64748b;font-size:13px;">Contexte : ${esc(contextTitle)}</p>` : '';
+    const baseUrl = process.env.APP_BASE_URL || process.env.APP_URL || 'http://localhost:5173';
+    // Lien direct vers l'élément d'origine de la tâche, quand on sait le construire —
+    // couvre les sources qui ont une fiche consultable avec un id dans l'URL.
+    const CONTEXT_LINKS = {
+        ticket: (id) => ({ url: `${baseUrl}/tickets/${encodeURIComponent(id)}`, label: `Voir le ticket #${id}` }),
+        projet: (id) => ({ url: `${baseUrl}/projets/${encodeURIComponent(id)}`, label: 'Voir le projet' }),
+        transcript: (id) => ({ url: `${baseUrl}/transcriptmanager/meeting/${encodeURIComponent(id)}`, label: 'Voir le compte-rendu' }),
+        notes: () => ({ url: `${baseUrl}/notes`, label: 'Voir mes notes' }),
+    };
+    const contextLink = (contextId && CONTEXT_LINKS[contextSource]) ? CONTEXT_LINKS[contextSource](contextId) : null;
+    const ticketLink = contextLink
+        ? `<p style="margin-top:12px;"><a href="${contextLink.url}" style="background:#6366f1;color:#fff;padding:8px 16px;border-radius:6px;text-decoration:none;display:inline-block;">${esc(contextLink.label)}</a></p>`
+        : '';
     const teamNote = isTeamTask
         ? '<p style="color:#64748b;font-size:13px;">Il s\'agit d\'une tâche d\'équipe : le premier qui la termine la termine pour tout le monde.</p>'
         : '';
@@ -173,6 +186,7 @@ async function notifyTaskAssignment({ targets, creatorUsername, description, ech
                 ${echStr}
                 ${ctxStr}
                 ${teamNote}
+                ${ticketLink}
                 <p style="color:#64748b;font-size:13px;margin-top:12px;">Retrouvez-la dans <em>Mes Tâches</em> sur DSI Hub.</p>
             `;
             await sendMailFn(to, '📋 Nouvelle tâche assignée — DSI Hub', html, [], 'task_alert');
@@ -620,7 +634,7 @@ module.exports = {
                 targets, creatorUsername: creator,
                 description: description.trim(), echeance: echeance || null,
                 isTeamTask: is_team_task, contextTitle: context_title,
-                contextSource: context_source,
+                contextSource: context_source, contextId: context_id,
             }).catch(e => console.error('[tasks] notify assignment error:', e.message));
 
             // Return single row for personal tasks, array for team
@@ -682,7 +696,7 @@ module.exports = {
                 targets, creatorUsername: 'RH Studio',
                 description: description.trim(), echeance: echeance || null,
                 isTeamTask, contextTitle: ticket.title || null,
-                contextSource: 'ticket',
+                contextSource: 'ticket', contextId: ticket_id,
             }).catch((e) => console.error('[tasks] notify assignment (rhstudio) error:', e.message));
 
             res.status(201).json({ ids: createdIds, id: createdIds[0] });
