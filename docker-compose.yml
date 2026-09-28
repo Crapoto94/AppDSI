@@ -39,6 +39,10 @@ services:
       # domaine public (dsihub.ivry.local), que le moteur ne peut pas valider.
       # Ne PAS confondre avec APP_BASE_URL (liens publics dans les emails/tâches).
       - ONLYOFFICE_CALLBACK_URL=http://backend:3001
+      # Base des liens de signature (e-mail) et du QR code de vérification : domaine public
+      # du parapheur. Repli si le réglage SQLite `parapheur.public_base_url` est vide
+      # (réglage prioritaire, modifiable dans /admin/parapheur-certificats).
+      - PARAPHEUR_PUBLIC_URL=${PARAPHEUR_PUBLIC_URL:-https://parapheur.ivry94.fr}
     volumes:
       # Dossiers de fichiers persistés
       - ./backend/uploads:/app/uploads

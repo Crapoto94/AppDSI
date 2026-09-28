@@ -192,10 +192,12 @@ const DEFAULT_BULK_SIGN_MENTION =
 
 /**
  * Paramétrage du parapheur (SQLite app_settings) :
- * - `public_base_url` : URL externe (ex. https://chat.ivry94.fr) utilisée pour
- *   construire le lien du QR code de vérification, afin qu'il soit joignable
- *   hors du réseau interne (le domaine peut changer, la fonction reste la même).
- * À défaut, on retombe sur l'URL de base interne de l'application.
+ * - `public_base_url` : URL externe (ex. https://parapheur.ivry94.fr) utilisée
+ *   pour construire les liens de signature (e-mail) ET le QR code de vérification,
+ *   afin qu'ils soient joignables hors du réseau interne (le domaine peut changer,
+ *   la fonction reste la même).
+ * À défaut de réglage : repli sur la variable `PARAPHEUR_PUBLIC_URL`, puis sur
+ * l'URL de base interne de l'application (`getAppBaseUrl`).
  */
 async function getParapheurSettings() {
     let publicBaseUrl = '';
@@ -216,6 +218,10 @@ async function getParapheurSettings() {
             if (Number.isFinite(notifyVal) && notifyVal > 0) notifyIntervalMinutes = Math.min(240, Math.round(notifyVal));
         }
     } catch { /* configuration non initialisée */ }
+    // Repli par variable d'environnement : un déploiement ou une base restaurée sans réglage
+    // ne doit jamais retomber silencieusement sur `http://localhost:5173` dans les liens de
+    // signature/QR (ils doivent pointer sur le domaine public du parapheur, ex. parapheur.ivry94.fr).
+    if (!publicBaseUrl) publicBaseUrl = String(process.env.PARAPHEUR_PUBLIC_URL || '').trim().replace(/\/+$/, '');
     const internal = await getAppBaseUrl();
     return {
         public_base_url: publicBaseUrl,
