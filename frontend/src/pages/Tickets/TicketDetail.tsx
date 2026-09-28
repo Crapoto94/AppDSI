@@ -2246,14 +2246,42 @@ export default function TicketDetail() {
                       : h.action === 'assigned'
                         ? `👤 Assigné${h.new_value_label ? ' à ' + h.new_value_label : ''}`
                         : `⬆️ Escaladé au groupe${h.new_value_label ? ' ' + h.new_value_label : ''}`;
+                    // Le motif d'attente est stocké dans le commentaire de l'événement
+                    // de passage au statut « En attente » (4).
+                    const waitingMotif = h.action === 'status_changed'
+                      && parseInt(h.new_value) === 4
+                      && !isCommentEmpty(h.comment || '')
+                      ? decodeHtml(String(h.comment))
+                      : null;
                     return (
-                      <div key={`ev-${h.id || i}`} style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '6px 0' }}>
-                        <div style={{ flex: 1, height: 1, background: '#e4e4e7' }} />
-                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1, background: '#fafafa', border: '1px solid #e4e4e7', borderRadius: 999, padding: '3px 12px', whiteSpace: 'nowrap' }}>
-                          <span style={{ fontSize: 11, color: '#71717a', fontWeight: 600, lineHeight: 1.2 }}>{label}</span>
-                          <span style={{ fontSize: 10, color: '#a1a1aa', lineHeight: 1.2 }}>{h.created_at ? formatDateTime(h.created_at) : ''}</span>
+                      <div key={`ev-${h.id || i}`}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '6px 0' }}>
+                          <div style={{ flex: 1, height: 1, background: '#e4e4e7' }} />
+                          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1, background: '#fafafa', border: '1px solid #e4e4e7', borderRadius: 999, padding: '3px 12px', whiteSpace: 'nowrap' }}>
+                            <span style={{ fontSize: 11, color: '#71717a', fontWeight: 600, lineHeight: 1.2 }}>{label}</span>
+                            <span style={{ fontSize: 10, color: '#a1a1aa', lineHeight: 1.2 }}>{h.created_at ? formatDateTime(h.created_at) : ''}</span>
+                          </div>
+                          <div style={{ flex: 1, height: 1, background: '#e4e4e7' }} />
                         </div>
-                        <div style={{ flex: 1, height: 1, background: '#e4e4e7' }} />
+                        {waitingMotif && (
+                          <div style={{ display: 'flex', justifyContent: 'center', margin: '-2px 0 8px' }}>
+                            <div style={{
+                              maxWidth: '92%', display: 'flex', alignItems: 'flex-start', gap: 7,
+                              fontSize: 12, color: '#92400e', background: '#fef3c7',
+                              border: '1px solid #fde68a', borderLeft: '3px solid #f59e0b',
+                              borderRadius: 8, padding: '6px 10px', lineHeight: 1.45,
+                              wordBreak: 'break-word', overflowWrap: 'break-word'
+                            }}>
+                              <span style={{ fontSize: 12, lineHeight: 1.45, flexShrink: 0 }}>💬</span>
+                              <div style={{ minWidth: 0 }}>
+                                <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: '#b45309', marginBottom: 1 }}>
+                                  Message d'attente
+                                </div>
+                                {waitingMotif}
+                              </div>
+                            </div>
+                          </div>
+                        )}
                       </div>
                     );
                   }
