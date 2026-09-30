@@ -358,7 +358,7 @@ const controller = {
     // Déclaration directe du service fait par l'utilisateur : pas de circuit de
     // validation ni d'email au vérificateur. Le workflow est créé directement au
     // statut 'valide', le déclarant étant à la fois demandeur et vérificateur.
-    // Un commentaire ET au moins une pièce jointe sont requis ; on applique ensuite
+    // Un commentaire OU une pièce jointe suffit (l'un des deux) ; on applique ensuite
     // les MÊMES opérations Sedit que le circuit (FACSUIVI service fait + PV scellé).
     createSelfWorkflow: async (req, res) => {
         try {
@@ -370,11 +370,11 @@ const controller = {
             if (!invoice_ref) {
                 return res.status(400).json({ message: 'invoice_ref requis' });
             }
-            if (!comment || !comment.trim()) {
-                return res.status(400).json({ message: 'Un commentaire est requis' });
-            }
-            if (!req.files || req.files.length === 0) {
-                return res.status(400).json({ message: 'Au moins une pièce jointe est requise (justificatif du service fait)' });
+            // Un commentaire OU une pièce jointe suffit à justifier la déclaration (l'un des deux).
+            const hasComment = !!(comment && comment.trim());
+            const hasFiles = !!(req.files && req.files.length > 0);
+            if (!hasComment && !hasFiles) {
+                return res.status(400).json({ message: 'Un commentaire ou une pièce jointe est requis (l\'un des deux suffit).' });
             }
 
             if (await isTelecomIntegrated(invoice_ref)) {
@@ -394,38 +394,53 @@ const controller = {
             const requesterEmail = (agent && agent.email) || req.user.email || (await getRequesterEmail(req.user.username)) || '';
             const requesterName = (agent && agent.nom) || req.user.displayName || req.user.username;
 
-            const insResult = await pool.query(
-                `INSERT INTO finance.service_fait_workflows
-                 (invoice_ref, invoice_number, invoice_label, invoice_supplier, invoice_amount, invoice_section,
-                  status, requested_by, verifier_username, verifier_name, verifier_email,
-                  decision_at, decision_comment)
-                 VALUES ($1,$2,$3,$4,$5,$6,'valide',$7,$8,$9,$10,CURRENT_TIMESTAMP,$11)
-                 RETURNING id`,
-                [invoice_ref, invoice_number || '', invoice_label || '', invoice_supplier || '',
-                 invoice_amount || null, invoice_section || '', req.user.username,
-                 req.user.username, requesterName, requesterEmail, comment || '']
-            );
-            const workflowId = insResult.rows[0].id;
-
-            // Pièces jointes obligatoires, enregistrées AVANT la synchro Sedit pour être
-            // reprises dans le PV scellé.
-            for (const file of req.files) {
-                const fileResult = await storage.saveFile('service-fait-pj', String(workflowId), {
-                    buffer: file.buffer,
-                    originalname: file.originalname
-                });
-                await pool.query(
-                    `INSERT INTO finance.service_fait_pieces_jointes (workflow_id, file_path, original_name, uploaded_by)
-                     VALUES ($1, $2, $3, $4)`,
-                    [workflowId, fileResult.dbPath, file.originalname, req.user.username]
+            // Insertion atomique : le workflow, ses pièces justificatives et l'historique
+            // sont écrits dans une même transaction. Si l'enregistrement d'une PJ échoue
+            // (stockage indisponible), TOUT est annulé : pas de dossier de service fait
+            // orphelin, sans synchronisation Sedit (cf. la facture F26008584).
+            const client = await pool.connect();
+            let workflowId;
+            try {
+                await client.query('BEGIN');
+                const insResult = await client.query(
+                    `INSERT INTO finance.service_fait_workflows
+                     (invoice_ref, invoice_number, invoice_label, invoice_supplier, invoice_amount, invoice_section,
+                      status, requested_by, verifier_username, verifier_name, verifier_email,
+                      decision_at, decision_comment)
+                     VALUES ($1,$2,$3,$4,$5,$6,'valide',$7,$8,$9,$10,CURRENT_TIMESTAMP,$11)
+                     RETURNING id`,
+                    [invoice_ref, invoice_number || '', invoice_label || '', invoice_supplier || '',
+                     invoice_amount || null, invoice_section || '', req.user.username,
+                     req.user.username, requesterName, requesterEmail, comment || '']
                 );
-            }
+                workflowId = insResult.rows[0].id;
 
-            await pool.query(
-                `INSERT INTO finance.service_fait_historique (workflow_id, action, actor_username, actor_name, comment, actor_ip, actor_user_agent)
-                 VALUES ($1, 'declaration_directe', $2, $3, $4, $5, $6)`,
-                [workflowId, req.user.username, requesterName, comment || '', getClientIp(req), req.headers['user-agent'] || '']
-            );
+                // Pièces justificatives enregistrées AVANT la synchro Sedit pour être
+                // reprises dans le PV scellé.
+                for (const file of (req.files || [])) {
+                    const fileResult = await storage.saveFile('service-fait-pj', String(workflowId), {
+                        buffer: file.buffer,
+                        originalname: file.originalname
+                    });
+                    await client.query(
+                        `INSERT INTO finance.service_fait_pieces_jointes (workflow_id, file_path, original_name, uploaded_by)
+                         VALUES ($1, $2, $3, $4)`,
+                        [workflowId, fileResult.dbPath, file.originalname, req.user.username]
+                    );
+                }
+
+                await client.query(
+                    `INSERT INTO finance.service_fait_historique (workflow_id, action, actor_username, actor_name, comment, actor_ip, actor_user_agent)
+                     VALUES ($1, 'declaration_directe', $2, $3, $4, $5, $6)`,
+                    [workflowId, req.user.username, requesterName, comment || '', getClientIp(req), req.headers['user-agent'] || '']
+                );
+                await client.query('COMMIT');
+            } catch (e) {
+                try { await client.query('ROLLBACK'); } catch (e2) { /* ignore */ }
+                throw e;
+            } finally {
+                client.release();
+            }
 
             // Mêmes opérations Sedit que le circuit de validation.
             const wfRow = (await pool.query(`SELECT * FROM finance.service_fait_workflows WHERE id = $1`, [workflowId])).rows[0];
