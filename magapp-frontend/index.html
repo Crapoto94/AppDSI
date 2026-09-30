@@ -17,6 +17,21 @@
         } catch (e) { /* ignore */ }
       })();
     </script>
+    <style>
+      /* ───────────────────────────────────────────────────────────
+         Fond posé dans le <head> et pas seulement dans index.css : le
+         CSS du bundle arrive avec le JS, donc le navigateur peint son
+         fond BLANC par défaut pendant tout le chargement des modules —
+         c'est cet éclair qu'on voit en mode sombre. En mode sombre le
+         fond reste blanc SUR LE PLAN CSS : c'est le filter: invert(1)
+         de <html> qui le transforme en noir, comme le reste de l'UI.
+         ─────────────────────────────────────────────────────────── */
+      html { background-color: #ffffff; }
+      html[data-theme="dark"] {
+        filter: invert(1) hue-rotate(180deg);
+        background-color: #ffffff;
+      }
+    </style>
   </head>
   <body>
     <div id="root"></div>

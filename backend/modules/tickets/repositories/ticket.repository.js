@@ -28,7 +28,13 @@ SELECT t.*,
             WHERE LOWER(vu.email) = LOWER(COALESCE(NULLIF(t.email_alt, ''), t.requester_email_22)) LIMIT 1) as requester_is_elu,
            (SELECT COUNT(*) FROM hub_tickets.observers o WHERE o.ticket_id = t.glpi_id AND o.is_active = 1) as observer_count,
            (SELECT COUNT(*) FROM hub_tickets.ticket_followups tf WHERE tf.ticket_id = t.glpi_id) as followups_count,
-           (SELECT COUNT(*) FROM hub.user_tasks ut WHERE ut.context_source = 'ticket' AND ut.context_id = t.glpi_id AND ut.statut != 'terminé') as tasks_count,
+           -- Tâches : dédupliqué sur team_group_id (une ligne par membre pour
+            -- une tâche d'équipe), voir LITE_BASE_SELECT.
+            (SELECT COUNT(*) FROM (
+                 SELECT 1 FROM hub.user_tasks ut
+                 WHERE ut.context_source = 'ticket' AND ut.context_id = t.glpi_id AND ut.statut != 'terminé'
+                 GROUP BY COALESCE('team-' || ut.team_group_id::text, 'id-' || ut.id::text)
+             ) utc) as tasks_count,
            tsla.sla_status
      FROM hub_tickets.tickets t
      LEFT JOIN LATERAL (
@@ -102,7 +108,15 @@ SELECT t.*,
              (SELECT COUNT(*) FROM hub_tickets.observers o WHERE o.ticket_id = t.glpi_id AND o.is_active = 1) as observer_count,
             (SELECT COUNT(*) FROM hub_tickets.ticket_history h WHERE h.ticket_id = t.glpi_id) as history_count,
             (SELECT COUNT(*) FROM hub_tickets.ticket_followups tf WHERE tf.ticket_id = t.glpi_id) as followups_count,
-            (SELECT COUNT(*) FROM hub.user_tasks ut WHERE ut.context_source = 'ticket' AND ut.context_id = t.glpi_id AND ut.statut != 'terminé') as tasks_count,
+-- Tâches : une tâche d'équipe est stockée sur UNE LIGNE PAR MEMBRE
+           -- (même team_group_id). Compter les lignes gonfle donc la pastille
+           -- (ticket 45309 : 23 lignes = 3 tâches réelles). On déduplique sur le
+           -- groupe, comme le fait l'UI (displayTasks / activityItems).
+           (SELECT COUNT(*) FROM (
+                SELECT 1 FROM hub.user_tasks ut
+                WHERE ut.context_source = 'ticket' AND ut.context_id = t.glpi_id AND ut.statut != 'terminé'
+                GROUP BY COALESCE('team-' || ut.team_group_id::text, 'id-' || ut.id::text)
+            ) utc) as tasks_count,
              (SELECT h2.comment FROM hub_tickets.ticket_history h2
               WHERE h2.ticket_id = t.glpi_id AND h2.action = 'status_changed' AND h2.new_value = '4'
               ORDER BY h2.created_at DESC LIMIT 1) as waiting_reason,

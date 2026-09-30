@@ -17,6 +17,25 @@
         } catch (e) { /* ignore */ }
       })();
     </script>
+    <style>
+      /* ───────────────────────────────────────────────────────────
+         Fond de la page posé ICI, dans le <head>, et pas seulement dans
+         index.css : le CSS du bundle arrive avec le JS, donc le navigateur
+         peint son fond BLANC par défaut pendant tout le chargement des
+         modules — c'est cet éclair qu'on voit en mode sombre. Ces deux
+         règles (reprises à l'identique dans index.css) font que le premier
+         pixel peint est déjà clair ou sombre, sans dépendre de React.
+
+         En mode sombre le fond reste blanc SUR LE PLAN CSS : c'est le
+         filter: invert(1) de <html> qui le transforme en noir, comme le
+         reste de l'UI (cf. index.css).
+         ─────────────────────────────────────────────────────────── */
+      html { background-color: #F4F4F4; }
+      html[data-theme="dark"] {
+        filter: invert(1) hue-rotate(180deg);
+        background-color: #FFFFFF;
+      }
+    </style>
   </head>
   <body>
     <div id="root"></div>

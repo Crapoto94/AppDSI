@@ -285,13 +285,22 @@ export default function TicketDetail() {
         .map((h: any) => ({ kind: 'event' as const, ts: h.created_at ? new Date(h.created_at).getTime() : 0, h })),
     ];
     // Tâches : une tâche d'équipe a 1 ligne par membre dans user_tasks → on
-    // déduplique par team_group_id (même logique que displayTasks).
+    // déduplique par team_group_id (même logique que displayTasks). Les lignes
+    // d'un même groupe portent toutes le même team_group_name, mais on le
+    // recale au cas où seule la 1re ligne est conservée.
     if (showActivityTasks) {
       for (const task of ticketTasks) {
         const key = task.is_team_task && task.team_group_id ? `team-${task.team_group_id}` : `id-${task.id}`;
-        if (seen.has(key)) continue;
-        seen.set(key, true);
-        items.push({ kind: 'task' as const, ts: task.created_at ? new Date(task.created_at).getTime() : 0, t: task });
+        if (seen.has(key)) {
+          const prev = seen.get(key);
+          if (!prev.team_group_name && task.team_group_name) prev.team_group_name = task.team_group_name;
+          if (task.taken_by && !prev.taken_by) prev.taken_by = task.taken_by;
+          if (task.statut === 'en_cours' && prev.statut !== 'terminé') prev.statut = 'en_cours';
+          continue;
+        }
+        const entry = { ...task, _isTeam: !!task.is_team_task };
+        seen.set(key, entry);
+        items.push({ kind: 'task' as const, ts: task.created_at ? new Date(task.created_at).getTime() : 0, t: entry });
       }
     }
     items.sort((a, b) => b.ts - a.ts);
@@ -2253,50 +2262,108 @@ export default function TicketDetail() {
                       && !isCommentEmpty(h.comment || '')
                       ? decodeHtml(String(h.comment))
                       : null;
+                    // Auteur de l'événement : displayName résolu par username côté
+                    // requête, sinon le username brut. Vide = action automatique.
+                    const eventAuthor = (h.user_name || '').trim();
                     return (
                       <div key={`ev-${h.id || i}`}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '6px 0' }}>
-                          <div style={{ flex: 1, height: 1, background: '#e4e4e7' }} />
-                          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1, background: '#fafafa', border: '1px solid #e4e4e7', borderRadius: 999, padding: '3px 12px', whiteSpace: 'nowrap' }}>
-                            <span style={{ fontSize: 11, color: '#71717a', fontWeight: 600, lineHeight: 1.2 }}>{label}</span>
-                            <span style={{ fontSize: 10, color: '#a1a1aa', lineHeight: 1.2 }}>{h.created_at ? formatDateTime(h.created_at) : ''}</span>
-                          </div>
-                          <div style={{ flex: 1, height: 1, background: '#e4e4e7' }} />
-                        </div>
-                        {waitingMotif && (
-                          <div style={{ display: 'flex', justifyContent: 'center', margin: '-2px 0 8px' }}>
-                            <div style={{
-                              maxWidth: '92%', display: 'flex', alignItems: 'flex-start', gap: 7,
-                              fontSize: 12, color: '#92400e', background: '#fef3c7',
-                              border: '1px solid #fde68a', borderLeft: '3px solid #f59e0b',
-                              borderRadius: 8, padding: '6px 10px', lineHeight: 1.45,
-                              wordBreak: 'break-word', overflowWrap: 'break-word'
-                            }}>
-                              <span style={{ fontSize: 12, lineHeight: 1.45, flexShrink: 0 }}>💬</span>
-                              <div style={{ minWidth: 0 }}>
-                                <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: '#b45309', marginBottom: 1 }}>
-                                  Message d'attente
-                                </div>
-                                {waitingMotif}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '6px 0', flexWrap: 'wrap' }}>
+                          {/* Gauche : qui a fait le changement */}
+                          {eventAuthor ? (
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, flexShrink: 0, maxWidth: '45%' }}>
+                              <span style={{ fontSize: 11 }}>👤</span>
+                              <span title={eventAuthor} style={{ fontSize: 11, color: '#52525b', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{eventAuthor}</span>
+                              <AgentPresenceBadge name={eventAuthor} size={11} />
+                            </span>
+                          ) : (
+                            <span style={{ flexShrink: 0, fontSize: 11, color: '#a1a1aa', fontStyle: 'italic' }}>⚙️ Système</span>
+                          )}
+                          {/* Centre : le changement, encadré par les filets de séparation. Le motif
+                          d'attente est intégré DANS la pastille (même conteneur,
+                          fond ambre) au lieu d'être une carte détachée en dessous :
+                          la ligne se lit alors « qui → quoi → message d'attente ». */}
+                          <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+                            <div style={{ flex: 1, height: 1, background: '#e4e4e7' }} />
+                            {waitingMotif ? (
+                              <div style={{
+                                flexShrink: 1, maxWidth: '86%', display: 'flex', flexDirection: 'column',
+                                alignItems: 'center', gap: 3, padding: '5px 10px',
+                                background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 12,
+                              }}>
+                                <span style={{ flexShrink: 0, fontSize: 11, color: '#b45309', fontWeight: 600, background: '#fef3c7', border: '1px solid #fcd34d', borderRadius: 999, padding: '2px 12px', whiteSpace: 'nowrap' }}>
+                                  {label}
+                                </span>
+                                <span style={{
+                                  display: 'flex', alignItems: 'flex-start', gap: 5,
+                                  fontSize: 11, color: '#92400e', lineHeight: 1.4,
+                                  textAlign: 'left', wordBreak: 'break-word', overflowWrap: 'break-word',
+                                }}>
+                                  <span style={{ flexShrink: 0, lineHeight: 1.4 }}>💬</span>
+                                  <span style={{ minWidth: 0 }}>{waitingMotif}</span>
+                                </span>
                               </div>
-                            </div>
+                            ) : (
+                              <span style={{ flexShrink: 0, fontSize: 11, color: '#71717a', fontWeight: 600, background: '#fafafa', border: '1px solid #e4e4e7', borderRadius: 999, padding: '3px 12px' }}>{label}</span>
+                            )}
+                            <div style={{ flex: 1, height: 1, background: '#e4e4e7' }} />
                           </div>
-                        )}
+                          {/* Droite : quand */}
+                          <span style={{ flexShrink: 0, marginLeft: 'auto', fontSize: 10, color: '#a1a1aa', whiteSpace: 'nowrap' }}>
+                            {h.created_at ? formatDateTime(h.created_at) : ''}
+                          </span>
+                        </div>
                       </div>
                     );
                   }
                   if (item.kind === 'task') {
                     const task = item.t;
                     const taskIcon = task.statut === 'terminé' ? '✅' : task.statut === 'en_cours' ? '🔄' : '📋';
+                    const taskDone = task.statut === 'terminé';
                     const desc = (task.description || '').slice(0, 80);
+                    const creatorLabel = task.creator_name || task.created_by || null;
+                    const groupName = task._isTeam ? (task.team_group_name || null) : null;
                     return (
-                      <div key={`task-${task.id || i}`} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '3px 10px', background: '#f0f4ff', border: '1px solid #dbe4ff', borderRadius: 8, fontSize: 12, color: '#64748b', margin: '2px 0' }}>
-                        <span style={{ fontSize: 11, flexShrink: 0 }}>{taskIcon}</span>
-                        <span style={{ wordBreak: 'break-word', overflowWrap: 'break-word' }}>{desc || 'Tâche'}</span>
-                        {task.created_by && (
-                          <span style={{ fontSize: 10, color: '#a1a1aa', flexShrink: 0 }}>· {task.created_by}</span>
-                        )}
-                        <span style={{ fontSize: 10, color: '#a1a1aa', flexShrink: 0 }}>{task.created_at ? formatDateTime(task.created_at) : ''}</span>
+                      <div key={`task-${task.id || i}`} style={{ margin: '2px 0' }}>
+                        <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginBottom: 2, flexWrap: 'wrap' }}>
+                          {creatorLabel ? (
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, fontWeight: 600, color: '#18181b' }}>
+                              <span style={{ fontSize: 11, lineHeight: 1 }}>📋</span>
+                              <UserHoverCard email={task.creator_email || undefined}>
+                                <span>{creatorLabel}</span>
+                              </UserHoverCard>
+                              <span style={{ fontSize: 10, color: '#a1a1aa', fontWeight: 400 }}>a créé la tâche</span>
+                              {task.creator_email && <AgentPresenceBadge email={task.creator_email} name={creatorLabel} size={11} />}
+                            </span>
+                          ) : (
+                            <span style={{ fontSize: 12, fontWeight: 600, color: '#18181b' }}>Tâche</span>
+                          )}
+                          <span style={{ fontSize: 11, color: '#a1a1aa', marginLeft: 'auto', whiteSpace: 'nowrap' }}>
+                            {task.created_at ? formatDateTime(task.created_at) : ''}
+                          </span>
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '3px 10px', background: '#f0f4ff', border: '1px solid #dbe4ff', borderRadius: 8, fontSize: 12, color: '#64748b', flexWrap: 'wrap' }}>
+                          <span style={{ fontSize: 11, flexShrink: 0 }}>{taskIcon}</span>
+                          <span style={{ wordBreak: 'break-word', overflowWrap: 'break-word' }}>{desc || 'Tâche'}</span>
+                          {groupName ? (
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10, color: '#a1a1aa', flexShrink: 0 }}>
+                              <span>·</span> 👥 {groupName}
+                            </span>
+                          ) : !task._isTeam ? (
+                            <span style={{ fontSize: 10, color: '#a1a1aa', flexShrink: 0 }}>· individuelle</span>
+                          ) : null}
+                          {task.echeance && (
+                            <span
+                              title={`Échéance : ${formatDateParis(task.echeance)}`}
+                              style={{
+                                fontSize: 10, fontWeight: 600, flexShrink: 0, marginLeft: 'auto',
+                                color: !taskDone && new Date(task.echeance) < new Date() ? '#b91c1c' : '#475569',
+                                background: !taskDone && new Date(task.echeance) < new Date() ? '#fee2e2' : '#e2e8f0',
+                                borderRadius: 4, padding: '1px 5px',
+                              }}>
+                              📅 {formatDateParis(task.echeance)}
+                            </span>
+                          )}
+                        </div>
                       </div>
                     );
                   }

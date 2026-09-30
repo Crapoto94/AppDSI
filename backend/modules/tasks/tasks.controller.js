@@ -793,6 +793,36 @@ module.exports = {
                 );
                 task.notes = notes || [];
             }
+// Identité du créateur (hub.users n'a pas de contrainte FK, on résout
+            // donc par username — created_by peut contenir un email ou un nom
+            // libre, d'où les deux variantes). Comparaison en LOWER() : hub.users
+            // stocke 'MCavarretta' alors que created_by vaut 'mcavarretta'.
+            // Colonne NON entre guillemets : la table a été créée sans, donc
+            // Postgres l'a pliée en minuscules (displayname) — un "displayName"
+            // cité lèverait column does not exist et ferait échouer l'appel.
+            const creators = [...new Set(tasks.map(t => t.created_by).filter(Boolean))];
+            if (creators.length) {
+                const logins = creators.map(c => String(c).toLowerCase());
+                const { rows: agents } = await pool.query(
+                    `SELECT username, displayname, email FROM hub.users
+                     WHERE LOWER(username) = ANY($1) OR LOWER(email) = ANY($1)`,
+                    [logins]
+                );
+                const byLogin = new Map();
+                for (const a of agents) {
+                    if (a.username) byLogin.set(a.username.toLowerCase(), a);
+                    if (a.email) byLogin.set(a.email.toLowerCase(), a);
+                }
+                // Créateurs synthétiques (absents de hub.users) : l'intégration
+                // RH Studio écrit littéralement 'rhstudio' dans created_by.
+                const SYNTHETIC = { rhstudio: 'RH Studio' };
+                for (const task of tasks) {
+                    const login = String(task.created_by || '').toLowerCase();
+                    const creator = byLogin.get(login);
+                    task.creator_name = creator?.displayname || SYNTHETIC[login] || task.created_by || null;
+                    task.creator_email = creator?.email || (task.created_by?.includes('@') ? task.created_by : null);
+                }
+            }
             res.json(tasks);
         } catch (error) {
             res.status(500).json({ error: error.message });
