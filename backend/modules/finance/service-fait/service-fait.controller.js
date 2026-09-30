@@ -24,6 +24,12 @@ async function isSeditWriteEnabled() {
     }
 }
 
+/** Normalise une date de service fait 'YYYY-MM-DD' reçue du formulaire (ou null si invalide/absente). */
+function normalizeServiceFaitDate(value) {
+    const s = String(value || '').trim();
+    return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : null;
+}
+
 /**
  * Synchronise un service fait validé vers Sedit :
  *  1. étape FACSUIVI → VALIDE (toujours, journalisé pour pouvoir revenir en arrière) ;
@@ -54,6 +60,8 @@ async function syncServiceFaitToSedit({ wf, decision, comment }) {
                 name: wf.verifier_name,
             },
             comment: verifierLabel ? `Pour ${verifierLabel}` : '',
+            // Date de service fait saisie dans le formulaire (défaut : jour de la validation).
+            serviceFaitDate: normalizeServiceFaitDate(wf.service_fait_date),
             workflowId: wf.id,
         });
         if (out.facsuivi.reason) {
@@ -262,7 +270,7 @@ const controller = {
             const {
                 invoice_ref, invoice_number, invoice_label, invoice_supplier,
                 invoice_amount, invoice_section, verifier_username,
-                director_mode, entity_code
+                director_mode, entity_code, service_fait_date
             } = req.body;
 
             if (!invoice_ref || !verifier_username) {
@@ -298,15 +306,17 @@ const controller = {
                 `INSERT INTO finance.service_fait_workflows
                  (invoice_ref, invoice_number, invoice_label, invoice_supplier, invoice_amount, invoice_section,
                   status, requested_by, verifier_username, verifier_name, verifier_email,
-                  entity_code, entity_label, director_mode, director_username, director_name, director_email)
-                 VALUES ($1,$2,$3,$4,$5,$6,'en_attente',$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
+                  entity_code, entity_label, director_mode, director_username, director_name, director_email,
+                  service_fait_date)
+                 VALUES ($1,$2,$3,$4,$5,$6,'en_attente',$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
                  RETURNING id`,
                 [invoice_ref, invoice_number || '', invoice_label || '', invoice_supplier || '',
                  invoice_amount || null, invoice_section || '', req.user.username,
                  verifier_username, agent.nom || agent.username, agent.email || '',
                  entity_code || 'DSI', director ? director.entity_label || '' : '',
                  directorMode, director ? director.director_username : null,
-                 director ? director.director_name : '', director ? director.director_email : '']
+                 director ? director.director_name : '', director ? director.director_email : '',
+                 normalizeServiceFaitDate(service_fait_date)]
             );
             const workflowId = insResult.rows[0].id;
 
@@ -364,7 +374,7 @@ const controller = {
         try {
             const {
                 invoice_ref, invoice_number, invoice_label, invoice_supplier,
-                invoice_amount, invoice_section, comment
+                invoice_amount, invoice_section, comment, service_fait_date
             } = req.body;
 
             if (!invoice_ref) {
@@ -406,12 +416,13 @@ const controller = {
                     `INSERT INTO finance.service_fait_workflows
                      (invoice_ref, invoice_number, invoice_label, invoice_supplier, invoice_amount, invoice_section,
                       status, requested_by, verifier_username, verifier_name, verifier_email,
-                      decision_at, decision_comment)
-                     VALUES ($1,$2,$3,$4,$5,$6,'valide',$7,$8,$9,$10,CURRENT_TIMESTAMP,$11)
+                      decision_at, decision_comment, service_fait_date)
+                     VALUES ($1,$2,$3,$4,$5,$6,'valide',$7,$8,$9,$10,CURRENT_TIMESTAMP,$11,$12)
                      RETURNING id`,
                     [invoice_ref, invoice_number || '', invoice_label || '', invoice_supplier || '',
                      invoice_amount || null, invoice_section || '', req.user.username,
-                     req.user.username, requesterName, requesterEmail, comment || '']
+                     req.user.username, requesterName, requesterEmail, comment || '',
+                     normalizeServiceFaitDate(service_fait_date)]
                 );
                 workflowId = insResult.rows[0].id;
 
