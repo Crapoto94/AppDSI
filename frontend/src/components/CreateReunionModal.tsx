@@ -47,7 +47,9 @@ const CreateReunionModal: React.FC<CreateReunionModalProps> = ({ isOpen, onClose
   const [slotsError, setSlotsError] = useState('');
   const [afterHours, setAfterHours] = useState(false);
   const [strictAll, setStrictAll] = useState(false);
+  const [horizonJours, setHorizonJours] = useState(30);
   const [slotsOpen, setSlotsOpen] = useState(false);
+  const [noMoreSlots, setNoMoreSlots] = useState(false);
   const [participants, setParticipants] = useState<Participant[]>([]);
 
   // À l'ouverture, ajoute automatiquement l'agent connecté comme participant, avec
@@ -224,9 +226,14 @@ const CreateReunionModal: React.FC<CreateReunionModalProps> = ({ isOpen, onClose
     setNewParticipant({ nom: '', prenom: '', email: '', organisme: '', fonction: '', type_presence: 'externe', statut_presence: 'present' });
   };
 
-  const fetchSlots = async (withAfterHours: boolean, strict: boolean = strictAll) => {
+  const horizonLabel = (j: number) => ({ 30: 'les 30 prochains jours', 61: 'les 2 prochains mois', 91: 'les 3 prochains mois', 183: 'les 6 prochains mois', 365: "l'année à venir" } as Record<number, string>)[j] || `les ${j} prochains jours`;
+
+  const fetchSlots = async (withAfterHours: boolean, strict: boolean = strictAll, horizon: number = horizonJours, append: boolean = false) => {
     setLoadingSlots(true);
     setSlotsError('');
+    if (!append) setNoMoreSlots(false);
+    // Pagination « suivants » : on repart du dernier créneau déjà affiché (le plus tardif).
+    const apres = append && slots.length ? slots.reduce((m, x) => (x.start > m ? x.start : m), slots[0].start) : undefined;
     setSlotsOpen(true);
     try {
       const parts = participants
@@ -235,19 +242,25 @@ const CreateReunionModal: React.FC<CreateReunionModalProps> = ({ isOpen, onClose
       const res = await fetch('/api/rencontres-reunions/free-slots', {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ participants: parts, duree_minutes: dureeMinutes, after_hours: withAfterHours, strict })
+        body: JSON.stringify({ participants: parts, duree_minutes: dureeMinutes, after_hours: withAfterHours, strict, horizon_jours: horizon, apres })
       });
       const data = await res.json();
       if (res.ok) {
-        setSlots(data.slots || []);
-        if (!data.slots || data.slots.length === 0) setSlotsError(strict ? 'Aucun créneau où tous les participants sont libres sur les 30 prochains jours.' : 'Aucun créneau commun trouvé sur les 30 prochains jours.');
+        const found: typeof slots = data.slots || [];
+        if (append) {
+          if (found.length === 0) setNoMoreSlots(true);
+          else setSlots(prev => [...prev, ...found]);
+        } else {
+          setSlots(found);
+        }
+        if (!append && found.length === 0) setSlotsError(strict ? `Aucun créneau où tous les participants sont libres sur ${horizonLabel(horizon)}.` : `Aucun créneau commun trouvé sur ${horizonLabel(horizon)}.`);
       } else {
         setSlotsError(data.error || 'Erreur lors de la recherche des créneaux.');
-        setSlots([]);
+        if (!append) setSlots([]);
       }
     } catch (e) {
       setSlotsError('Erreur réseau lors de la recherche des créneaux.');
-      setSlots([]);
+      if (!append) setSlots([]);
     } finally {
       setLoadingSlots(false);
     }
@@ -313,7 +326,7 @@ const CreateReunionModal: React.FC<CreateReunionModalProps> = ({ isOpen, onClose
         setCreateOutlook(false);
         setIsTeams(false);
         setFiles([]);
-        setSlots([]);
+        setSlots([]); setNoMoreSlots(false);
         setSlotsOpen(false);
         setSlotsError('');
         setParticipants([]);
@@ -443,6 +456,17 @@ const CreateReunionModal: React.FC<CreateReunionModalProps> = ({ isOpen, onClose
                 <input type="checkbox" checked={strictAll} onChange={e => { const v = e.target.checked; setStrictAll(v); if (slotsOpen) fetchSlots(afterHours, v); }} />
                 Strictement tous les participants
               </label>
+              <label style={{display: 'inline-flex', alignItems: 'center', gap: '7px', fontSize: '13px', color: '#475569', fontWeight: 600}}>
+                Rechercher sur
+                <select value={horizonJours} onChange={e => { const v = parseInt(e.target.value, 10); setHorizonJours(v); if (slotsOpen) fetchSlots(afterHours, strictAll, v); }}
+                  style={{padding: '6px 8px', border: '1px solid #cbd5e1', borderRadius: '8px', fontSize: '13px', background: 'white'}}>
+                  <option value={30}>1 mois</option>
+                  <option value={61}>2 mois</option>
+                  <option value={91}>3 mois</option>
+                  <option value={183}>6 mois</option>
+                  <option value={365}>1 an</option>
+                </select>
+              </label>
             </div>
             {!loadingSlots && !slotsError && slots.length === 0 && !slotsOpen && (
               <div style={{marginTop: '8px', fontSize: '12px', color: '#94a3b8'}}>Cherche les 5 prochains créneaux libres pour tous les participants ({afterHours ? '8h–19h' : '8h30–12h / 13h30–17h30 (ven. 17h)'}, lun–ven), selon la durée choisie.</div>
@@ -472,6 +496,14 @@ const CreateReunionModal: React.FC<CreateReunionModalProps> = ({ isOpen, onClose
                     </button>
                   );
                 })}
+                {noMoreSlots
+                  ? <div style={{fontSize: '12px', color: '#94a3b8', textAlign: 'center', padding: '6px'}}>Plus aucun créneau sur {horizonLabel(horizonJours)} — élargissez la période de recherche pour aller plus loin.</div>
+                  : (
+                    <button type="button" onClick={() => fetchSlots(afterHours, strictAll, horizonJours, true)} disabled={loadingSlots}
+                      style={{padding: '8px 12px', background: 'white', color: '#2563eb', border: '1px dashed #93c5fd', borderRadius: '8px', cursor: loadingSlots ? 'wait' : 'pointer', fontWeight: 600, fontSize: '13px'}}>
+                      {loadingSlots ? 'Recherche…' : '+ 5 créneaux suivants'}
+                    </button>
+                  )}
               </div>
             )}
           </div>
