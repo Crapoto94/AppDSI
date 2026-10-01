@@ -207,6 +207,7 @@ export default function AjouterJournalModal({ token, onClose, onCreated }: Ajout
                   Événement *
                 </label>
                 <textarea
+                  data-mentions
                   value={message}
                   onChange={e => setMessage(e.target.value)}
                   placeholder="Décrivez l'événement..."

@@ -1309,6 +1309,10 @@ module.exports = {
                 `INSERT INTO hub.task_notes (source, task_id, content, type, created_by) VALUES ($1,$2,$3,'comment',$4) RETURNING *`,
                 [source, String(id), content.trim(), username]
             );
+            require('../mentions/mentions.service').notifyMentions({
+                content, actor: req.user, source: 'tache', entityId: id,
+                title: 'Une tâche', link: '/mes-taches'
+            });
             res.status(201).json(rows[0]);
         } catch (error) {
             res.status(500).json({ error: error.message });

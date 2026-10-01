@@ -1660,6 +1660,13 @@ const ajouterNoteTache = async (req, res) => {
 
         if (!content || !content.trim()) return res.status(400).json({ error: 'Contenu obligatoire' });
 
+        res.on('finish', () => {
+            if (res.statusCode === 201) require('../mentions/mentions.service').notifyMentions({
+                content: content, actor: req.user, source: 'projet', entityId: id,
+                title: `Tâche du projet #${id}`, link: `/projets/${id}`
+            });
+        });
+
         const note = { id: Date.now(), type: type || 'comment', content: content.trim(), created_at: new Date().toISOString(), created_by: username };
 
         if (taskId.startsWith('m-')) {
@@ -2072,6 +2079,12 @@ const ajouterEntreeJournal = async (req, res) => {
             return res.status(400).json({ error: 'Type et message requis' });
         }
 
+        res.on('finish', () => {
+            if (res.statusCode === 201) require('../mentions/mentions.service').notifyMentions({
+                content: message, actor: req.user, source: 'projet', entityId: id,
+                title: `Journal du projet #${id}`, link: `/projets/${id}`
+            });
+        });
         let details_obj = details ? JSON.stringify(details) : null;
 
         // Si un fichier est joint, on le dépose dans l'espace documentaire du projet

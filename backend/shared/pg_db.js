@@ -4891,6 +4891,26 @@ async function setupPgDb() {
     try { await client.query(`CREATE INDEX IF NOT EXISTS idx_task_notes_src ON hub.task_notes(source, task_id)`); } catch (e) {}
     try { await client.query(`ALTER TABLE hub.task_notes ADD COLUMN IF NOT EXISTS file_missing BOOLEAN DEFAULT FALSE`); } catch (e) {}
 
+    // Notifications in-app (mentions @) — mail récapitulatif à 20h si non lues
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS hub.user_notifications (
+        id SERIAL PRIMARY KEY,
+        username TEXT NOT NULL,
+        type TEXT NOT NULL DEFAULT 'mention',
+        title TEXT,
+        body TEXT,
+        link TEXT,
+        source TEXT,
+        entity_id TEXT,
+        actor_username TEXT,
+        actor_name TEXT,
+        read_at TIMESTAMP,
+        mailed_at TIMESTAMP,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    try { await client.query(`CREATE INDEX IF NOT EXISTS idx_user_notif_user ON hub.user_notifications(username, read_at)`); } catch (e) {}
+
     // Préférence sync Microsoft Todo — colonne legacy dans hub.users, conservée pour compatibilité
     try { await client.query(`ALTER TABLE hub.users ADD COLUMN IF NOT EXISTS ms_todo_sync BOOLEAN DEFAULT FALSE`); } catch (e) {}
 

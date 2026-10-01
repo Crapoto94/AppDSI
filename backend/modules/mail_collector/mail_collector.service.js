@@ -15,6 +15,9 @@ const ticketEmitter = require('../../shared/ticketEmitter');
 const fs = require('fs');
 const path = require('path');
 
+// Préfixes de réponse / transfert (RE, RÉ, TR, FW, FWD, RÉP...), éventuellement répétés
+const SUBJECT_PREFIX = /^\s*((re|ré|rep|rép|tr|fw|fwd|réf|ref)\s*:\s*)+/i;
+
 class MailCollectorService {
 
   static async getGraphToken(settings) {
@@ -36,46 +39,40 @@ class MailCollectorService {
     return tokenRes.data.access_token;
   }
 
+  // Ne garde que ce que l'expéditeur a ajouté : tout ce qui suit le premier marqueur
+  // de message cité / transféré (Outlook, Gmail, Apple Mail, texte brut) est retiré.
   static extractReplyContent(body) {
     if (!body) return '';
+    let html = String(body)
+      .replace(/<head[\s\S]*?<\/head>/gi, '')
+      .replace(/<(style|script)[\s\S]*?<\/>/gi, '')
+      .replace(/<\/?(html|body)[^>]*>/gi, '');
 
-    const html = body.replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
-      .replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&nbsp;/g, ' ');
-
-    const textOnly = html.replace(/<[^>]+>/g, '\n');
-    const lines = textOnly.split('\n').map(l => l.trim()).filter(l => l);
-    let content = '';
-
-    for (const line of lines) {
-      if (/^(--|De\s*:|À\s*:|Envoyé\s*:|Cordialement|Bien cordialement|---)/i.test(line)) break;
-      content += (content ? '\n' : '') + line;
+    const markers = [
+      /<div[^>]+id=["']?appendonsend/i,
+      /<div[^>]+id=["']?divRplyFwdMsg/i,
+      /<div[^>]+class=["'][^"']*gmail_(quote|attr)/i,
+      /<div[^>]+class=["'][^"']*(moz-cite-prefix|yahoo_quoted|OutlookMessageHeader)/i,
+      /<blockquote/i,
+      /<hr/i,
+      /<div[^>]+border-top:\s*solid\s*#(E1E1E1|B5C4DF)/i,
+      /<(b|strong)[^>]*>\s*(De|From|Von)\s*(&nbsp;|\s)*:/i,
+      /-{3,}\s*(Original Message|Message d['’&#39;]origine|Forwarded message|Message transf[ée]r[ée])/i,
+      /D[ée]but du message (transf[ée]r[ée]|r[ée]exp[ée]di[ée])/i,
+      /_{10,}/,
+      /Le\s[^<]{5,120}\sa\s[ée]crit\s*:/i,
+      /On\s[^<]{5,120}\swrote\s*:/i,
+    ];
+    let cut = html.length;
+    for (const re of markers) {
+      const m = re.exec(html);
+      if (m && m.index < cut) cut = m.index;
     }
+    html = html.substring(0, cut).replace(/<[^>]*$/, '');
 
-    if (!content && lines.length > 0) {
-      for (let i = 0; i < Math.min(lines.length, 10); i++) {
-        if (!/^(--|De\s*:|À\s*:|Envoyé\s*:|Cordialement)/i.test(lines[i])) {
-          content += (content ? '\n' : '') + lines[i];
-        }
-      }
-    }
-
-    const plainText = content.substring(0, 1500).trim();
-    if (!plainText) return '';
-
-    const bodyLower = html.toLowerCase();
-    let htmlContent = html;
-    const markers = ['<div class="gmail_quote">', '<div id="appendonsend"></div>', '<hr tabindex', '<style>'];
-    for (const marker of markers) {
-      const idx = bodyLower.indexOf(marker.toLowerCase());
-      if (idx !== -1) { htmlContent = htmlContent.substring(0, idx); break; }
-    }
-
-    const bodyEnd = htmlContent.lastIndexOf('</div>');
-    if (bodyEnd !== -1) htmlContent = htmlContent.substring(0, bodyEnd + 6);
-    const bodyEnd2 = htmlContent.lastIndexOf('</body>');
-    if (bodyEnd2 !== -1) htmlContent = htmlContent.substring(0, bodyEnd2 + 7);
-
-    return htmlContent.substring(0, 2000).trim();
+    const text = html.replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim();
+    if (!text) return '';
+    return html.trim().substring(0, 20000);
   }
 
   static extractFromEmail(email) {
@@ -174,9 +171,32 @@ class MailCollectorService {
     return mapping?.ticket_id || null;
   }
 
+  // Ids des mails parents (en-têtes In-Reply-To / References) : fiable pour les réponses,
+  // même quand l'objet a été modifié.
+  static parentMessageIds(email) {
+    const headers = email.internetMessageHeaders || [];
+    const ids = [];
+    for (const h of headers) {
+      if (/^(in-reply-to|references)$/i.test(h.name || '')) {
+        ids.push(...(String(h.value || '').match(/<[^>]+>/g) || []));
+      }
+    }
+    return [...new Set(ids)];
+  }
+
+  static async findExistingTicketByHeaders(email) {
+    const ids = this.parentMessageIds(email);
+    if (!ids.length) return null;
+    const row = await pgDb.get(
+      'SELECT ticket_id FROM hub_tickets.ticket_email_mapping WHERE email_message_id = ANY($1::text[]) ORDER BY imported_at DESC LIMIT 1',
+      [ids]
+    );
+    return row?.ticket_id || null;
+  }
+
   static async findExistingTicketBySubject(subject) {
     if (!subject) return null;
-    const baseSubject = subject.replace(/^(RE:|FW:)\s*/i, '').trim();
+    const baseSubject = subject.replace(SUBJECT_PREFIX, '').trim();
 
     const ticket = await pgDb.get(
       `SELECT m.ticket_id
@@ -391,7 +411,7 @@ class MailCollectorService {
 
       const baseParams = {
         $top: 100,
-        $select: 'id,subject,receivedDateTime,from,toRecipients,ccRecipients,body,bodyPreview,internetMessageId,hasAttachments',
+        $select: 'id,subject,receivedDateTime,from,toRecipients,ccRecipients,body,bodyPreview,internetMessageId,hasAttachments,internetMessageHeaders',
         $orderby: 'receivedDateTime desc',
         $filter: `receivedDateTime ge ${filterDate}`,
       };
@@ -441,12 +461,10 @@ class MailCollectorService {
           }
 
           // Detect reply emails by subject line (RE: or FW:) or inReplyTo
-          const isReply = /^(RE:|FW:)/i.test(email.subject || '');
-          let existingTicket = isReply ? await this.findExistingTicketBySubject(email.subject) : null;
-
-          // Fallback: try by inReplyTo Internet Message ID
-          if (!existingTicket && email.inReplyTo) {
-            existingTicket = await this.findExistingTicket(email.internetMessageId, email.inReplyTo);
+          // 1) en-têtes In-Reply-To / References, 2) objet préfixé RE/TR/FW/Fwd...
+          let existingTicket = await this.findExistingTicketByHeaders(email);
+          if (!existingTicket && SUBJECT_PREFIX.test(email.subject || '')) {
+            existingTicket = await this.findExistingTicketBySubject(email.subject);
           }
 
           if (existingTicket) {

@@ -2201,6 +2201,11 @@ app.use('/api/vols', require('./modules/vols/vols.routes'));
 // Tasks Module (tâches agrégées)
 app.use('/api/tasks', tasksRouter);
 
+// Mentions @ + notifications in-app (digest mail à 20h pour les non lues)
+const mentionsSvc = require('./modules/mentions/mentions.service');
+mentionsSvc.setSendMail(sendMail);
+app.use('/api/notifications', require('./modules/mentions/mentions.routes'));
+
 // Consommables Module
 const consommablesCtrl = require('./modules/consommables/consommables.controller');
 consommablesCtrl.setSendMail(sendMail);
@@ -5935,6 +5940,12 @@ cron.schedule('* * * * *', () => {
     glpiController.processScheduledSyncs();
 });
 console.log('[SCHEDULED SYNC] Cron job enregistré');
+
+// Mentions @ : mail récapitulatif des notifications non lues, tous les jours à 20h
+cron.schedule('0 20 * * *', async () => {
+    try { await require('./modules/mentions/mentions.service').sendDigest(); }
+    catch (e) { console.error('[MENTIONS] digest 20h:', e.message); }
+}, { timezone: 'Europe/Paris' });
 
 // KPI daily snapshot — tous les jours à 23h55
 cron.schedule('55 23 * * *', async () => {

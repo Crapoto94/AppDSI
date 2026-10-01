@@ -181,7 +181,25 @@ function OfficeFrame({ blob, name, downloadUrl }: { blob: Blob; name: string; do
                 if (alive) { setMsg(e?.message || "Impossible d'afficher ce document"); setState('error'); }
             }
         })();
+        // Le moteur impose des curseurs personnalisés qui s'affichent invisibles : on force la flèche
+        // (l'iframe est de même origine grâce au relais nginx /onlyoffice).
+        const fixCursor = (win: Window, depth = 0) => {
+            try {
+                const d = win.document;
+                if (!d.getElementById('av-cursor-fix')) {
+                    const st = d.createElement('style');
+                    st.id = 'av-cursor-fix';
+                    st.textContent = '*, *::before, *::after { cursor: default !important; }';
+                    d.head.appendChild(st);
+                }
+                if (depth < 3) Array.from(d.querySelectorAll('iframe')).forEach(f => f.contentWindow && fixCursor(f.contentWindow, depth + 1));
+            } catch { /* iframe d'une autre origine */ }
+        };
+        const cursorTimer = window.setInterval(() => {
+            if (zone.current) Array.from(zone.current.querySelectorAll('iframe')).forEach(f => f.contentWindow && fixCursor(f.contentWindow));
+        }, 700);
         return () => {
+            window.clearInterval(cursorTimer);
             alive = false;
             try { editor?.destroyEditor?.(); } catch { /* déjà détruit */ }
             if (zone.current) zone.current.innerHTML = '';

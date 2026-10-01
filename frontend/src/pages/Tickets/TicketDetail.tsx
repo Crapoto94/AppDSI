@@ -1627,7 +1627,7 @@ export default function TicketDetail() {
               </div>
             </div>
           )}
-          <div
+          <div data-mentions
             onKeyDown={e => { if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); if (!submitDisabled) handleSubmitReply(); } }}
             style={{ border: '1px solid #d4d4d8', borderRadius: 8, overflow: 'hidden', marginBottom: 8, background: faintTintOf(activeReplyMode.accent) }}>
             <ReactQuill value={newComment} onChange={setNewComment} placeholder="Ajouter un commentaire... (Ctrl+Entrée pour publier)"

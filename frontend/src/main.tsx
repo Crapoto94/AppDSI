@@ -5,6 +5,7 @@ import App from './App.tsx'
 import { AuthProvider } from './contexts/AuthContext.tsx'
 import { ThemeProvider } from './contexts/ThemeContext.tsx'
 import { AttachmentViewerProvider } from './components/AttachmentViewer.tsx'
+import MentionAutocomplete from './components/MentionAutocomplete.tsx'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
@@ -12,6 +13,7 @@ createRoot(document.getElementById('root')!).render(
       <ThemeProvider>
         <AttachmentViewerProvider>
           <App />
+          <MentionAutocomplete />
         </AttachmentViewerProvider>
       </ThemeProvider>
     </AuthProvider>
