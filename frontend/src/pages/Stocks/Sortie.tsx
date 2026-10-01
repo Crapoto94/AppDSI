@@ -6,6 +6,7 @@ import { Send, ArrowLeft, Plus, Trash2, Search, CheckCircle, UserCheck, FileText
 import SignaturePad from './SignaturePad';
 import { stocksApi, type Store, type ParcItem, type StorageLocation, type BlTemplate, type Delivery } from './api';
 import AgentPresenceBadge from '../../components/AgentPresenceBadge';
+import { openAttachmentViewer } from '../../components/AttachmentViewer';
 
 const C = { indigo: '#6366f1', red: '#ef4444', green: '#22c55e', amber: '#f59e0b', slate: '#64748b', border: '#e2e8f0', text: '#1e293b', bg: '#f8fafc' };
 
@@ -89,7 +90,7 @@ export default function Sortie() {
   async function viewBl(storeIdLocal: number, id: number) {
     try {
       const url = await stocksApi.downloadBlUrl(storeIdLocal, id);
-      window.open(url, '_blank');
+      openAttachmentViewer({ url, name: `bon-de-livraison-${id}.pdf`, mime: 'application/pdf' });
     } catch (e: any) { setError(e.response?.data?.message || 'Bon de livraison indisponible'); }
   }
 

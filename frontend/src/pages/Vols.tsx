@@ -8,6 +8,7 @@ import {
   MessageSquare, Send, Loader2, ArrowLeft, ArrowUp, ArrowDown, ChevronsUpDown, Eye, ShieldCheck, TrendingUp
 } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, Tooltip, Legend, ResponsiveContainer, CartesianGrid } from 'recharts';
+import { openAttachmentViewer } from '../components/AttachmentViewer';
 
 interface Theft {
   id: number;
@@ -495,7 +496,7 @@ const Vols: React.FC = () => {
     if (d.hub_doc_id) {
       setViewerDocId(d.hub_doc_id);
     } else {
-      window.open(`/api/vols/${d.theft_id}/documents/${d.id}?token=${token || ''}`, '_blank');
+      openAttachmentViewer({ url: `/api/vols/${d.theft_id}/documents/${d.id}?token=${token || ''}`, name: (d as any).original_name || (d as any).filename || (d as any).name });
     }
   };
 

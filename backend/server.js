@@ -6344,6 +6344,9 @@ require('./modules/transcriptmanager/transcriptmanager.controller').setSendMail(
 // Module documents centralisé (gestion documentaire avec versionning)
 app.use('/api/documents', require('./modules/documents/documents.routes'));
 
+// Visionneuse Office en lecture seule (ONLYOFFICE Document Server)
+app.use('/api/office-viewer', require('./modules/office_viewer/office_viewer.routes'));
+
 // GED / Alfresco
 app.use('/api/ged', require('./modules/ged/ged.routes'));
 
