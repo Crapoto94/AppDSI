@@ -532,8 +532,18 @@ export default function TicketDetail() {
       .ticket-html-content table { display: block; max-width: 100% !important; overflow-x: auto; }
       .ticket-html-content p { margin: 0 0 8px 0; }
       .ticket-html-content p:last-child { margin-bottom: 0; }
-      .ticket-html-content ul, .ticket-html-content ol { margin: 0 0 8px 16px; padding: 0; }
+      /* Listes : la puce doit toujours rester DANS la bulle. Le défaut navigateur
+         (padding-left: 40px + margin-block 1em) déborde des conteneurs étroits
+         (bulle de commentaire en padding: 8px 12px, volet splitté). */
+      .ticket-html-content ul, .ticket-html-content ol { margin: 0 0 8px 0 !important; padding-left: 20px !important; list-style-position: outside; }
+      .ticket-html-content ul ul, .ticket-html-content ol ol, .ticket-html-content ul ol, .ticket-html-content ol ul { margin: 0 !important; padding-left: 18px !important; }
       .ticket-html-content li { margin-bottom: 2px; }
+      .ticket-html-content > li:last-child { margin-bottom: 0; }
+      /* Listes "faux" des emails Outlook/Word : le HTML importé n'a pas de <ul>, mais des
+         <p style="margin-left:36pt; text-indent:-18pt"> contenant la puce en caractère
+         littéral (mso-list:Ignore). Le text-indent négatif projetait la puce en dehors du
+         cadre : on l'annule au profit d'un retrait interne constant. */
+      .ticket-html-content p.MsoListParagraph, .ticket-html-content div.MsoListParagraph, .ticket-html-content p[style*="mso-list"], .ticket-html-content div[style*="mso-list"], .ticket-html-content p[style*="text-indent:-"], .ticket-html-content div[style*="text-indent:-"] { margin-left: 20px !important; text-indent: 0 !important; padding-left: 0 !important; }
       .ticket-html-content a { color: #2563eb; text-decoration: underline; }
       .ticket-html-content a:hover { color: #1d4ed8; }
       .ticket-html-content strong, .ticket-html-content b { font-weight: 600; }
@@ -1898,7 +1908,7 @@ export default function TicketDetail() {
               <div style={{ borderBottom: '1px solid #f4f4f5', paddingBottom: 20 }}>
                 <span style={{ fontSize: 11, fontWeight: 600, color: '#a1a1aa', textTransform: 'uppercase', letterSpacing: '0.06em', display: 'block', padding: '16px 0 8px' }}>Solution</span>
                 <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 8, padding: '12px 14px' }}>
-                  <div style={{ fontSize: 13, color: '#166534', lineHeight: 1.6, wordBreak: 'break-word', overflowWrap: 'break-word' }} dangerouslySetInnerHTML={{ __html: rewriteGlpiImages(decodeHtml(ticket.solution), cidDocs) }} />
+                  <div className="ticket-html-content" style={{ fontSize: 13, color: '#166534', lineHeight: 1.6, wordBreak: 'break-word', overflowWrap: 'break-word' }} dangerouslySetInnerHTML={{ __html: rewriteGlpiImages(decodeHtml(ticket.solution), cidDocs) }} />
                 </div>
               </div>
             )}
@@ -2432,7 +2442,7 @@ export default function TicketDetail() {
                             </div>
                           </div>
                         ) : !isCommentEmpty(c.content || '') && (
-                          <div style={{
+                          <div className="ticket-html-content" style={{
                             fontSize: 13, color: '#3f3f46', lineHeight: 1.5,
                             background: bgColor,
                             border: `1px solid ${borderColor}`,
