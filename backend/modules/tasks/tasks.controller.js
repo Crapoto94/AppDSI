@@ -1,4 +1,4 @@
-const { pool, pgDb } = require('../../shared/database');
+const { pool, pgDb, getSqlite } = require('../../shared/database');
 const path = require('path');
 const fs = require('fs');
 const { randomUUID } = require('crypto');
@@ -6,6 +6,20 @@ const storage = require('../../shared/storage');
 
 let sendMailFn = null;
 const setSendMail = (fn) => { sendMailFn = fn; };
+
+// URL publique de DSI Hub (paramétrable dans Admin → Paramètres, clé SQLite
+// `app_base_url`). Même logique que tickets.controller.js#getAppBaseUrl pour que
+// les liens des mails ne retombent jamais sur localhost en production.
+async function getAppBaseUrl() {
+    try {
+        const db = getSqlite();
+        const row = await db.get("SELECT setting_value FROM app_settings WHERE setting_key = 'app_base_url'");
+        const val = row?.setting_value?.trim();
+        return val || process.env.APP_BASE_URL || process.env.APP_URL || 'http://localhost:5173';
+    } catch {
+        return process.env.APP_BASE_URL || process.env.APP_URL || 'http://localhost:5173';
+    }
+}
 
 // ─── MS TODO HELPERS ─────────────────────────────────────────────────────────
 
@@ -155,7 +169,7 @@ async function notifyTaskAssignment({ targets, creatorUsername, description, ech
     const echStr = echeance ? `<p><strong>Échéance :</strong> ${esc(String(echeance).slice(0, 10))}</p>` : '';
     const ctxStr = (contextTitle && contextTitle !== 'Tâche personnelle')
         ? `<p style="color:#64748b;font-size:13px;">Contexte : ${esc(contextTitle)}</p>` : '';
-    const baseUrl = process.env.APP_BASE_URL || process.env.APP_URL || 'http://localhost:5173';
+    const baseUrl = await getAppBaseUrl();
     // Lien direct vers l'élément d'origine de la tâche, quand on sait le construire —
     // couvre les sources qui ont une fiche consultable avec un id dans l'URL.
     const CONTEXT_LINKS = {
@@ -1847,6 +1861,9 @@ module.exports = {
     },
 
     setSendMail,
+    // Réutilisé par les modules qui créent des tâches hors de ce contrôleur
+    // (ex. tâches d'arbitrage des formulaires de demande, cf. request-forms.controller.js).
+    notifyTaskAssignment,
 
     // GET /api/tasks/assigned-by-me — tasks I created for other users
     async getAssignedByMe(req, res) {
