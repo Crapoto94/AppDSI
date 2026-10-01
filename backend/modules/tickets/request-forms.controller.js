@@ -14,6 +14,7 @@ const { resolveTicketRole } = require('./middleware/ticket-permissions');
 const encadrantsController = require('../rh/encadrants.controller');
 const studioOnboarding = require('../infra/studio-onboarding');
 const mailboxesService = require('../mailboxes/mailboxes.service');
+const tasksController = require('../tasks/tasks.controller');
 const { randomUUID } = require('crypto');
 
 const TICKET_ADMIN_ROLES = ['supervisor', 'admin', 'superadmin'];
@@ -429,6 +430,20 @@ async function createArbitrageTask(form, ticketId, ticketTitle) {
             );
             createdIds.push(result.lastID);
         }
+        // Notification mail des arbitres (comme toute tâche assignée). Best-effort :
+        // un échec d'envoi ne remet pas en cause la tâche déjà créée.
+        try {
+            await tasksController.notifyTaskAssignment({
+                targets,
+                creatorUsername: 'request_form',
+                description,
+                echeance: null,
+                isTeamTask,
+                contextTitle: ticketTitle || null,
+                contextSource: 'ticket',
+                contextId: ticketId,
+            });
+        } catch (e) { console.error('[request-forms] arbitrage notify failed:', e.message); }
         await logHistory('arbitrage_task_created', `Tâche d'arbitrage créée pour ${form.arbitrage_type === 'group' ? `le groupe "${teamGroupName}"` : form.arbitrage_username}`);
         return { ok: true, ids: createdIds };
     } catch (e) {
@@ -488,6 +503,19 @@ async function createFormTasks(form, ticketId, ticketTitle, answers) {
                 );
                 createdIds.push(result.lastID);
             }
+            // Notification mail des membres du groupe (même logique que l'arbitrage).
+            try {
+                await tasksController.notifyTaskAssignment({
+                    targets: members.map((m) => m.username),
+                    creatorUsername: 'request_form',
+                    description: task.name,
+                    echeance: null,
+                    isTeamTask,
+                    contextTitle: ticketTitle || null,
+                    contextSource: 'ticket',
+                    contextId: ticketId,
+                });
+            } catch (e) { console.error('[request-forms] form task notify failed:', e.message); }
             await logHistory('form_task_created', `Tâche "${task.name}" créée pour le groupe "${task.group_name || task.group_id}"`);
             results.push({ ok: true, name: task.name, ids: createdIds });
         } catch (e) {

@@ -3549,6 +3549,13 @@ async function setupPgDb() {
       }
     } catch (e) { console.error('[PG DB] alter service_fait_workflows director:', e.message); }
 
+    // Date de réalisation du service fait, saisie dans le formulaire ('YYYY-MM-DD',
+    // défaut : jour de la déclaration). Reportée dans FI.FACSUIVI.DATE_SERVICE_FAIT
+    // lors de la synchro Sedit.
+    try {
+      await client.query(`ALTER TABLE finance.service_fait_workflows ADD COLUMN IF NOT EXISTS service_fait_date TEXT`);
+    } catch (e) { console.error('[PG DB] alter service_fait_workflows service_fait_date:', e.message); }
+
     await client.query(`
       CREATE TABLE IF NOT EXISTS finance.service_fait_pieces_jointes (
         id SERIAL PRIMARY KEY,

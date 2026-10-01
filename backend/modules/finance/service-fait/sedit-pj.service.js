@@ -165,9 +165,12 @@ async function resolveSeditUser(conn, { username, name, email } = {}) {
  * Passe l'étape SERVICE_FAIT de la facture à VALIDE, en journalisant l'état AVANT
  * pour permettre l'undo. Idempotent : ne réécrase pas une étape déjà VALIDE.
  */
-async function updateServiceFaitDoneLogged({ invoiceRef, actorUsername, actorEmail, actorName, fallback, comment, workflowId }) {
+async function updateServiceFaitDoneLogged({ invoiceRef, actorUsername, actorEmail, actorName, fallback, comment, workflowId, serviceFaitDate }) {
     const rawActor = String(actorUsername || APP_USER).slice(0, 10);
     const commentValue = comment == null ? null : String(comment).slice(0, 2000);
+    // Date de service fait saisie dans le formulaire (YYYY-MM-DD) ; si absente, on
+    // retombe sur la date du jour (SYSDATE), comportement historique.
+    const dsf = /^\d{4}-\d{2}-\d{2}$/.test(String(serviceFaitDate || '')) ? String(serviceFaitDate) : null;
     return financeShare.withFinanceOracle(async (conn) => {
         try {
             // Utilisateur Sedit (référentiel SM.SMUTILISAT) : le code (UTILISAT) ET
@@ -205,7 +208,7 @@ async function updateServiceFaitDoneLogged({ invoiceRef, actorUsername, actorEma
             const upd = await conn.execute(
                 `UPDATE FI.FACSUIVI fs
                  SET fs.ETAT = 'VALIDE',
-                     fs.DATE_SERVICE_FAIT = SYSDATE,
+                     fs.DATE_SERVICE_FAIT = CASE WHEN :dsf IS NULL THEN SYSDATE ELSE TO_DATE(:dsf, 'YYYY-MM-DD') END,
                      fs.UTILISATEUR = :actor,
                      fs.USER_MODIF = :actor,
                      fs.USER_SMGF = :smgf,
@@ -215,7 +218,7 @@ async function updateServiceFaitDoneLogged({ invoiceRef, actorUsername, actorEma
                      fs.UPDATOKEN = fs.UPDATOKEN + 1
                  WHERE fs.AVANCEMENT = 'SERVICE_FAIT'
                    AND fs.FACTURE = (SELECT f.ROO_IMA_REF FROM FI.FACTURE f WHERE TRIM(f.FACTURE) = :numero)`,
-                { actor, smgf: userSmgf, commentaire: commentValue, numero: invoiceRef }
+                { actor, smgf: userSmgf, commentaire: commentValue, numero: invoiceRef, dsf }
             );
             await conn.commit();
 
@@ -233,7 +236,7 @@ async function updateServiceFaitDoneLogged({ invoiceRef, actorUsername, actorEma
             };
             const afterJson = {
                 ETAT: 'VALIDE',
-                DATE_SERVICE_FAIT: new Date().toISOString(),
+                DATE_SERVICE_FAIT: dsf || new Date().toISOString(),
                 UTILISATEUR: actor,
                 USER_MODIF: actor,
                 USER_SMGF: userSmgf,
@@ -261,6 +264,14 @@ function fmtDateFr(value) {
     const d = new Date(value);
     if (Number.isNaN(d.getTime())) return String(value);
     return d.toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+}
+
+/** Date seule (pas d'heure) — pour la date de réalisation du service fait. */
+function fmtDateOnly(value) {
+    if (!value) return '-';
+    const d = new Date(value);
+    if (Number.isNaN(d.getTime())) return String(value);
+    return d.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' });
 }
 
 /** Remplace les espaces fines/insécables non encodables en WinAnsi par une espace normale. */
@@ -333,6 +344,7 @@ async function buildCoverPage({ workflow, decisionLabel, comment, verifierName, 
     text(`Fournisseur : ${workflow.invoice_supplier || '-'}`);
     text(`Libellé : ${workflow.invoice_label || '-'}`);
     text(`Montant TTC : ${fmtMontant(workflow.invoice_amount)}`);
+    if (workflow.service_fait_date) text(`Date de service fait : ${fmtDateOnly(workflow.service_fait_date)}`);
     spacer(14);
 
     text('Validateur', { size: 11, boldFont: true });

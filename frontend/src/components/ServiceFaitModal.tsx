@@ -63,6 +63,10 @@ export default function ServiceFaitModal({ row, columns, mode = 'circuit', onClo
   const [entityCode, setEntityCode] = useState('');
   const [verifier, setVerifier] = useState('');
   const [comment, setComment] = useState('');
+  const [serviceFaitDate, setServiceFaitDate] = useState<string>(() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  });
   const [pjFiles, setPjFiles] = useState<File[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
@@ -114,8 +118,11 @@ export default function ServiceFaitModal({ row, columns, mode = 'circuit', onClo
     e.preventDefault();
     if (!invoice_ref) { setError('Référence de facture introuvable.'); return; }
     if (isSelf) {
-      if (!comment.trim()) { setError('Veuillez saisir un commentaire.'); return; }
-      if (pjFiles.length === 0) { setError('Veuillez joindre au moins une pièce justificative.'); return; }
+      // Un commentaire OU une pièce justificative suffit (l'un des deux).
+      if (!comment.trim() && pjFiles.length === 0) {
+        setError('Renseignez un commentaire ou joignez au moins une pièce justificative (l\'un des deux suffit).');
+        return;
+      }
     } else {
       if (!verifier) { setError('Veuillez choisir un vérificateur.'); return; }
     }
@@ -129,6 +136,7 @@ export default function ServiceFaitModal({ row, columns, mode = 'circuit', onClo
         invoice_supplier: invoice_supplier || '',
         invoice_amount: invoice_amount != null ? String(invoice_amount) : '',
         invoice_section: invoice_section || '',
+        service_fait_date: serviceFaitDate || '',
       };
       if (isSelf) {
         const fd = new FormData();
@@ -187,9 +195,18 @@ export default function ServiceFaitModal({ row, columns, mode = 'circuit', onClo
           <form onSubmit={handleSubmit}>
             {isSelf && (
               <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 8, padding: '12px 14px', color: '#1e40af', fontSize: 13, marginBottom: 16 }}>
-                Aucun circuit de validation : vous déclarez vous-même que le service fait est réalisé. Renseignez un commentaire.
+                Aucun circuit de validation : vous déclarez vous-même que le service fait est réalisé. Renseignez un commentaire ou joignez une pièce justificative (l'un des deux suffit).
               </div>
             )}
+
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 6 }}>
+                Date de service fait
+              </label>
+              <input type="date" value={serviceFaitDate} onChange={e => setServiceFaitDate(e.target.value)}
+                style={{ width: '100%', boxSizing: 'border-box', padding: '10px 12px', border: '1.5px solid #e2e8f0', borderRadius: 8, fontSize: 14, fontFamily: 'inherit', background: '#fff' }} />
+              <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 4 }}>Reportée dans Sedit (date de réalisation du service fait).</div>
+            </div>
 
             {!isSelf && (
             <div style={{ marginBottom: 16 }}>
@@ -259,9 +276,9 @@ export default function ServiceFaitModal({ row, columns, mode = 'circuit', onClo
             {isSelf && (
               <div style={{ marginBottom: 16 }}>
                 <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 6 }}>
-                  Commentaire <span style={{ color: '#dc2626' }}>*</span>
+                  Commentaire <span style={{ fontWeight: 400, color: '#94a3b8' }}>— ou joignez une pièce ci-dessous</span>
                 </label>
-                <textarea value={comment} onChange={e => setComment(e.target.value)} rows={4} required
+                <textarea value={comment} onChange={e => setComment(e.target.value)} rows={4}
                   placeholder="Précisez le service fait (prestation réalisée, date, référence...)"
                   style={{ width: '100%', boxSizing: 'border-box', padding: '10px 12px', border: '1.5px solid #e2e8f0', borderRadius: 8, fontSize: 14, fontFamily: 'inherit', resize: 'vertical' }} />
               </div>
@@ -270,7 +287,7 @@ export default function ServiceFaitModal({ row, columns, mode = 'circuit', onClo
             {isSelf && (
               <div style={{ marginBottom: 16 }}>
                 <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 6 }}>
-                  Pièce(s) justificative(s) <span style={{ color: '#dc2626' }}>*</span>
+                  Pièce(s) justificative(s) <span style={{ fontWeight: 400, color: '#94a3b8' }}>— ou saisissez un commentaire ci-dessus</span>
                 </label>
                 <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, padding: '12px', border: '1.5px dashed #cbd5e1', borderRadius: 8, background: '#f8fafc', color: '#475569', fontSize: 13, cursor: 'pointer' }}>
                   <Upload size={16} /> Choisir un ou plusieurs fichiers
