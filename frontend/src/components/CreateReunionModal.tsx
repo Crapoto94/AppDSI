@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { X, Plus, Paperclip, Calendar as CalendarIcon, CalendarSearch, AlertTriangle, Video } from 'lucide-react';
 import ReactQuill from 'react-quill-new';
 import 'react-quill-new/dist/quill.snow.css';
@@ -132,6 +132,84 @@ const CreateReunionModal: React.FC<CreateReunionModalProps> = ({ isOpen, onClose
     }]);
     ad.setQuery('');
     ad.clearResults();
+  };
+
+  // ── Ajout rapide par catégorie (DG/DGA, directeurs, responsables de service, groupes particuliers) ──
+  // Sources existantes : /api/admin/rh/encadrants (référentiel RH, classé par role) et les
+  // « groupes particuliers » de /admin/param-ville (groupes AD relus en direct).
+  const [bulkBusy, setBulkBusy] = useState('');
+  const [bulkMsg, setBulkMsg] = useState('');
+  const [customGroups, setCustomGroups] = useState<{ id: number; name: string }[]>([]);
+  const encadrantsCache = useRef<any[] | null>(null);
+
+  useEffect(() => {
+    fetch('/api/admin/rh/encadrants/custom-groups', { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.ok ? r.json() : { groups: [] })
+      .then(d => setCustomGroups(Array.isArray(d.groups) ? d.groups : []))
+      .catch(() => setCustomGroups([]));
+  }, [token]);
+
+  const addBulk = (label: string, candidates: Participant[]) => {
+    const withEmail = candidates.filter(c => c.email && c.email.includes('@'));
+    const skippedNoEmail = candidates.length - withEmail.length;
+    const known = new Set(participants.map(p => (p.email || '').toLowerCase()).filter(Boolean));
+    const knownAd = new Set(participants.map(p => (p.ad_username || '').toLowerCase()).filter(Boolean));
+    const seen = new Set<string>();
+    const toAdd = withEmail.filter(c => {
+      const e = (c.email || '').toLowerCase();
+      const a = (c.ad_username || '').toLowerCase();
+      if (known.has(e) || seen.has(e) || (a && knownAd.has(a))) return false;
+      seen.add(e);
+      return true;
+    });
+    if (toAdd.length) setParticipants(prev => [...prev, ...toAdd]);
+    const dejaLa = withEmail.length - toAdd.length;
+    setBulkMsg(
+      `${label} : ${toAdd.length} ajouté(s)` +
+      (dejaLa ? `, ${dejaLa} déjà présent(s)` : '') +
+      (skippedNoEmail ? `, ${skippedNoEmail} ignoré(s) faute d'adresse mail` : '') + '.'
+    );
+  };
+
+  const addEncadrants = async (kind: 'dg' | 'directeur' | 'responsable_service', label: string) => {
+    setBulkBusy(kind); setBulkMsg('');
+    try {
+      if (!encadrantsCache.current) {
+        const r = await fetch('/api/admin/rh/encadrants', { headers: { Authorization: `Bearer ${token}` } });
+        if (!r.ok) throw new Error();
+        encadrantsCache.current = await r.json();
+      }
+      const list = (encadrantsCache.current || []).filter((e: any) => e.role === kind);
+      addBulk(label, list.map((e: any) => ({
+        id: Date.now() + Math.random(), reunion_id: 0,
+        nom: e.nom || '', prenom: e.prenom || '', email: e.email || '',
+        service: e.service_label || '', direction: e.direction_label || '', fonction: e.poste || '',
+        type_presence: 'metier' as const, statut_presence: 'present' as const, ad_username: e.ad_username || undefined,
+      })));
+    } catch { setBulkMsg('Impossible de charger le référentiel des encadrants.'); }
+    finally { setBulkBusy(''); }
+  };
+
+  const addCustomGroup = async (groupId: string) => {
+    if (!groupId) return;
+    const group = customGroups.find(g => String(g.id) === groupId);
+    setBulkBusy('group'); setBulkMsg('');
+    try {
+      const r = await fetch(`/api/admin/rh/encadrants/custom-groups/${groupId}/members`, { headers: { Authorization: `Bearer ${token}` } });
+      if (!r.ok) throw new Error();
+      const d = await r.json();
+      addBulk(group?.name || 'Groupe', (d.members || []).map((m: any) => {
+        const parts = String(m.displayName || '').trim().split(/\s+/);
+        return {
+          id: Date.now() + Math.random(), reunion_id: 0,
+          nom: parts.length > 1 ? parts.slice(1).join(' ') : (m.displayName || m.username || ''),
+          prenom: parts.length > 1 ? parts[0] : '',
+          email: m.email || '', service: m.department || '', direction: '', fonction: m.title || '',
+          type_presence: 'metier' as const, statut_presence: 'present' as const, ad_username: m.username || undefined,
+        };
+      }));
+    } catch { setBulkMsg('Impossible de charger les membres du groupe.'); }
+    finally { setBulkBusy(''); }
   };
 
   const handleCreateRhTicket = async (agentName: string) => {
@@ -441,6 +519,26 @@ const CreateReunionModal: React.FC<CreateReunionModalProps> = ({ isOpen, onClose
           )}
 
           <h3 style={{margin: '0 0 14px', fontSize: '14px', fontWeight: '700', color: '#1e293b', borderTop: '1px solid #e2e8f0', paddingTop: '16px'}}>Participants ({participants.length})</h3>
+
+          <div style={{background: '#faf5ff', borderRadius: '10px', padding: '14px', marginBottom: '14px'}}>
+            <div style={{fontSize: '12px', fontWeight: '700', color: '#7e22ce', marginBottom: '8px'}}>⚡ Ajout rapide par catégorie</div>
+            <div style={{display: 'flex', flexWrap: 'wrap', gap: '8px', alignItems: 'center'}}>
+              {([['dg', 'DG / DGA'], ['directeur', 'Directeurs'], ['responsable_service', 'Responsables de service']] as const).map(([k, label]) => (
+                <button key={k} type="button" disabled={!!bulkBusy} onClick={() => addEncadrants(k, label)}
+                  style={{padding: '7px 12px', background: 'white', color: '#7e22ce', border: '1px solid #d8b4fe', borderRadius: '8px', cursor: bulkBusy ? 'wait' : 'pointer', fontWeight: 600, fontSize: '13px', opacity: bulkBusy && bulkBusy !== k ? 0.6 : 1}}>
+                  {bulkBusy === k ? 'Chargement…' : `+ ${label}`}
+                </button>
+              ))}
+              {customGroups.length > 0 && (
+                <select value="" disabled={!!bulkBusy} onChange={e => addCustomGroup(e.target.value)}
+                  style={{padding: '7px 10px', border: '1px solid #d8b4fe', borderRadius: '8px', fontSize: '13px', background: 'white', color: '#7e22ce', fontWeight: 600}}>
+                  <option value="">{bulkBusy === 'group' ? 'Chargement…' : '+ Groupe particulier…'}</option>
+                  {customGroups.map(g => <option key={g.id} value={String(g.id)}>{g.name}</option>)}
+                </select>
+              )}
+            </div>
+            {bulkMsg && <div style={{marginTop: '8px', fontSize: '12px', color: '#6b21a8'}}>{bulkMsg}</div>}
+          </div>
 
           <div style={{background: '#eff6ff', borderRadius: '10px', padding: '14px', marginBottom: '14px'}}>
             <div style={{fontSize: '12px', fontWeight: '700', color: '#1d4ed8', marginBottom: '8px'}}>🔍 Ajouter un agent</div>
