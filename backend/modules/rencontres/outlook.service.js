@@ -60,11 +60,12 @@ const minToHM = (m) => `${pad2(Math.floor(m / 60))}:${pad2(m % 60)}`;
  * @param {string[]} [opts.emails] - alternative : simples emails
  * @param {number} opts.durationMinutes
  * @param {boolean} [opts.afterHours] - étend la plage à 08:00-19:00
+ * @param {boolean} [opts.strict] - ne renvoie que des créneaux où TOUS les participants sont libres (pas de repli partiel)
  * @param {number} [opts.count] - nombre de créneaux à renvoyer (défaut 5)
  * @returns {Promise<Array<{start:string,end:string,label:string,available:number,total:number,unavailable:string[]}>>}
  */
 async function findCommonSlots(opts) {
-    const { organizerEmail, organizerName, participants, emails, durationMinutes, afterHours, count = 5 } = opts;
+    const { organizerEmail, organizerName, participants, emails, durationMinutes, afterHours, strict = false, count = 5 } = opts;
     const duration = Number(durationMinutes) || 60;
 
     // Liste unique des personnes à interroger (organisateur + participants), avec leur nom
@@ -182,6 +183,9 @@ async function findCommonSlots(opts) {
         }
     }
 
+    // Mode strict : uniquement des créneaux où TOUS les participants (avec données free/busy)
+    // sont libres — aucun repli sur des créneaux partiels.
+    if (strict) return fullSlots.slice(0, count);
     // Priorité aux créneaux où tout le monde est dispo ; complète avec les meilleurs partiels.
     if (fullSlots.length >= count) return fullSlots.slice(0, count);
     partialSlots.sort((a, b) => (b.available - a.available) || (a.start < b.start ? -1 : 1));

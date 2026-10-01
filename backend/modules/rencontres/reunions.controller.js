@@ -333,7 +333,7 @@ module.exports = {
     // POST: Prochains créneaux communs libres pour une liste de participants
     freeSlots: async (req, res) => {
         try {
-            const { emails, participants, duree_minutes, after_hours } = req.body;
+            const { emails, participants, duree_minutes, after_hours, strict } = req.body;
             const username = req.user?.username || 'unknown';
             let organizerEmail = req.user?.email || null;
             const ui = await pgDb.get('SELECT displayName, email FROM hub.users WHERE username=?', [username]);
@@ -357,6 +357,7 @@ module.exports = {
                 participants: parts,
                 durationMinutes: parseInt(duree_minutes, 10) || 60,
                 afterHours: !!after_hours,
+                strict: !!strict,
                 count: 5
             });
             res.json({ slots, organizerEmail });

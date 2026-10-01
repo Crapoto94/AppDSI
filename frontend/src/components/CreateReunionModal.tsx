@@ -46,6 +46,7 @@ const CreateReunionModal: React.FC<CreateReunionModalProps> = ({ isOpen, onClose
   const [loadingSlots, setLoadingSlots] = useState(false);
   const [slotsError, setSlotsError] = useState('');
   const [afterHours, setAfterHours] = useState(false);
+  const [strictAll, setStrictAll] = useState(false);
   const [slotsOpen, setSlotsOpen] = useState(false);
   const [participants, setParticipants] = useState<Participant[]>([]);
 
@@ -145,7 +146,7 @@ const CreateReunionModal: React.FC<CreateReunionModalProps> = ({ isOpen, onClose
     setNewParticipant({ nom: '', prenom: '', email: '', organisme: '', fonction: '', type_presence: 'externe', statut_presence: 'present' });
   };
 
-  const fetchSlots = async (withAfterHours: boolean) => {
+  const fetchSlots = async (withAfterHours: boolean, strict: boolean = strictAll) => {
     setLoadingSlots(true);
     setSlotsError('');
     setSlotsOpen(true);
@@ -156,12 +157,12 @@ const CreateReunionModal: React.FC<CreateReunionModalProps> = ({ isOpen, onClose
       const res = await fetch('/api/rencontres-reunions/free-slots', {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ participants: parts, duree_minutes: dureeMinutes, after_hours: withAfterHours })
+        body: JSON.stringify({ participants: parts, duree_minutes: dureeMinutes, after_hours: withAfterHours, strict })
       });
       const data = await res.json();
       if (res.ok) {
         setSlots(data.slots || []);
-        if (!data.slots || data.slots.length === 0) setSlotsError('Aucun créneau commun trouvé sur les 30 prochains jours.');
+        if (!data.slots || data.slots.length === 0) setSlotsError(strict ? 'Aucun créneau où tous les participants sont libres sur les 30 prochains jours.' : 'Aucun créneau commun trouvé sur les 30 prochains jours.');
       } else {
         setSlotsError(data.error || 'Erreur lors de la recherche des créneaux.');
         setSlots([]);
@@ -339,6 +340,10 @@ const CreateReunionModal: React.FC<CreateReunionModalProps> = ({ isOpen, onClose
               <label style={{display: 'inline-flex', alignItems: 'center', gap: '7px', fontSize: '13px', color: '#475569', fontWeight: 600, cursor: 'pointer'}}>
                 <input type="checkbox" checked={afterHours} onChange={e => { const v = e.target.checked; setAfterHours(v); if (slotsOpen) fetchSlots(v); }} />
                 Hors heures ouvrées (8h–19h)
+              </label>
+              <label title="Ne propose que des créneaux où tous les participants sont libres, sans créneaux partiels de repli" style={{display: 'inline-flex', alignItems: 'center', gap: '7px', fontSize: '13px', color: '#475569', fontWeight: 600, cursor: 'pointer'}}>
+                <input type="checkbox" checked={strictAll} onChange={e => { const v = e.target.checked; setStrictAll(v); if (slotsOpen) fetchSlots(afterHours, v); }} />
+                Strictement tous les participants
               </label>
             </div>
             {!loadingSlots && !slotsError && slots.length === 0 && !slotsOpen && (
