@@ -266,7 +266,27 @@ const CreateReunionModal: React.FC<CreateReunionModalProps> = ({ isOpen, onClose
             </div>
             <div>
               <label style={{display: 'block', fontSize: '12px', fontWeight: '600', color: '#64748b', marginBottom: '6px'}}>DATE & HEURE *</label>
-              <input type="datetime-local" step={300} style={{width: '100%', padding: '10px 12px', border: '1px solid #cbd5e1', borderRadius: '8px', fontSize: '14px'}} value={newReunion.date_reunion} onChange={e => setNewReunion(v => ({...v, date_reunion: e.target.value}))} />
+              {(() => {
+                // Saisie simplifiée : date + heure + minutes au quart d'heure (valeur stockée "YYYY-MM-DDTHH:mm").
+                const [datePart = '', timePart = ''] = (newReunion.date_reunion || '').split('T');
+                const [hh = '', mm = ''] = timePart.split(':');
+                const update = (d: string, h: string, m: string) =>
+                  setNewReunion(v => ({ ...v, date_reunion: d ? `${d}T${h || '09'}:${m || '00'}` : '' }));
+                const selStyle: React.CSSProperties = { padding: '10px 8px', border: '1px solid #cbd5e1', borderRadius: '8px', fontSize: '14px', background: 'white' };
+                return (
+                  <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                    <input type="date" style={{ ...selStyle, flex: 1, minWidth: 0, padding: '10px 12px' }} value={datePart} onChange={e => update(e.target.value, hh, mm)} />
+                    <select style={selStyle} value={hh} onChange={e => update(datePart, e.target.value, mm)} disabled={!datePart} aria-label="Heure">
+                      {!hh && <option value="">--</option>}
+                      {Array.from({ length: 24 }, (_, h) => String(h).padStart(2, '0')).map(h => <option key={h} value={h}>{h} h</option>)}
+                    </select>
+                    <select style={selStyle} value={mm} onChange={e => update(datePart, hh, e.target.value)} disabled={!datePart} aria-label="Minutes">
+                      {!mm && <option value="">--</option>}
+                      {['00', '15', '30', '45'].map(m => <option key={m} value={m}>{m}</option>)}
+                    </select>
+                  </div>
+                );
+              })()}
             </div>
             <div>
               <label style={{display: 'block', fontSize: '12px', fontWeight: '600', color: '#64748b', marginBottom: '6px'}}>LIEU</label>
