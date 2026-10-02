@@ -3684,9 +3684,9 @@ const previewExplorerMsg = async (req, res) => {
     try {
         const loaded = await loadExplorerFile(req.params.docId);
         if (!loaded) return res.status(404).json({ error: 'Fichier introuvable' });
-        const { parseMsgBuffer } = require('../../shared/msg_parser');
+        const { parseEmailBuffer } = require('../../shared/msg_parser');
         const buffer = loaded.buffer || fs.readFileSync(loaded.absolutePath);
-        res.json(parseMsgBuffer(buffer));
+        res.json(await parseEmailBuffer(buffer, loaded.row.fichier_original, loaded.row.fichier_type));
     } catch (error) { res.status(500).json({ error: `Lecture du message impossible : ${error.message}` }); }
 };
 
@@ -3694,9 +3694,9 @@ const previewExplorerMsgAttachment = async (req, res) => {
     try {
         const loaded = await loadExplorerFile(req.params.docId);
         if (!loaded) return res.status(404).json({ error: 'Fichier introuvable' });
-        const { extractMsgAttachment } = require('../../shared/msg_parser');
+        const { extractEmailAttachment } = require('../../shared/msg_parser');
         const buffer = loaded.buffer || fs.readFileSync(loaded.absolutePath);
-        const att = extractMsgAttachment(buffer, parseInt(req.params.idx, 10));
+        const att = await extractEmailAttachment(buffer, loaded.row.fichier_original, loaded.row.fichier_type, parseInt(req.params.idx, 10));
         if (!att) return res.status(404).json({ error: 'Pièce jointe introuvable' });
         const disposition = req.query.download ? 'attachment' : 'inline';
         res.setHeader('Content-Disposition', `${disposition}; filename*=UTF-8''${encodeURIComponent(att.fileName)}`);

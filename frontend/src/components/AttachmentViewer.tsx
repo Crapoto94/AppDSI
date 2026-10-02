@@ -1,5 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { X, Download, ExternalLink, ChevronLeft, ChevronRight, File as FileIcon, FileText, Image as ImageIcon } from 'lucide-react';
+import EmailMessageView from './EmailMessageView';
+import type { EmailPreviewData } from './EmailMessageView';
 
 /**
  * Visionneuse générique de pièces jointes (toutes les PJ d'une page/entité dans une modale).
@@ -91,9 +93,10 @@ function collectGroup(clicked: HTMLAnchorElement): { items: ViewerItem[]; index:
     return { items, index: seen.get(dedupKey(clicked.href)) ?? 0 };
 }
 
-type Kind = 'pdf' | 'image' | 'video' | 'audio' | 'text' | 'office' | 'none';
+type Kind = 'pdf' | 'image' | 'video' | 'audio' | 'text' | 'office' | 'email' | 'none';
 
 const OFFICE_EXT = new Set(['doc', 'docx', 'rtf', 'odt', 'xls', 'xlsx', 'xlsm', 'ods', 'ppt', 'pptx', 'pptm', 'odp']);
+const EMAIL_EXT = new Set(['msg', 'eml']);
 
 const EXT_MIME: Record<string, string> = {
     pdf: 'application/pdf', png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp', svg: 'image/svg+xml', bmp: 'image/bmp',
@@ -102,7 +105,11 @@ const EXT_MIME: Record<string, string> = {
 };
 
 function detectKind(mime: string, name: string): Kind {
-    if (OFFICE_EXT.has(name.toLowerCase().split('.').pop() || '')) return 'office';
+    const ext0 = name.toLowerCase().split('.').pop() || '';
+    if (EMAIL_EXT.has(ext0)) return 'email';
+    const mime0 = (mime || '').toLowerCase().split(';')[0].trim();
+    if (mime0 === 'message/rfc822' || mime0 === 'application/vnd.ms-outlook') return 'email';
+    if (OFFICE_EXT.has(ext0)) return 'office';
     let m = (mime || '').toLowerCase().split(';')[0].trim();
     if (!m || m === 'application/octet-stream') {
         const ext = name.toLowerCase().split('.').pop() || '';
@@ -221,6 +228,76 @@ function OfficeFrame({ blob, name, downloadUrl }: { blob: Blob; name: string; do
     );
 }
 
+/** Prévisualisation d'un e-mail (.msg/.eml) non stocké en GED : le blob est renvoyé
+ * au backend (/api/documents/email-preview), qui le parse (msgreader OU mailparser)
+ * et renvoie la structure normalisée affichée par EmailMessageView. */
+function EmailFrame({ blob, name, downloadUrl }: { blob: Blob; name: string; downloadUrl: string }) {
+    const [data, setData] = useState<EmailPreviewData | null>(null);
+    const [state, setState] = useState<'loading' | 'ready' | 'error'>('loading');
+    const [msg, setMsg] = useState('');
+
+    useEffect(() => {
+        let alive = true;
+        (async () => {
+            try {
+                const token = localStorage.getItem('token');
+                const fd = new FormData();
+                fd.append('file', blob, name);
+                const r = await fetch(`/api/documents/email-preview?name=${encodeURIComponent(name)}`, {
+                    method: 'POST',
+                    headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+                    body: fd,
+                });
+                if (!r.ok) {
+                    const j = await r.json().catch(() => ({}));
+                    throw new Error(j.error || `Erreur ${r.status}`);
+                }
+                const parsed = await r.json();
+                if (alive) { setData(parsed); setState('ready'); }
+            } catch (e: any) {
+                if (alive) { setMsg(e?.message || 'Lecture du message impossible'); setState('error'); }
+            }
+        })();
+        return () => { alive = false; };
+    }, [blob, name]);
+
+    const downloadAttachment = async (index: number) => {
+        try {
+            const token = localStorage.getItem('token');
+            const fd = new FormData();
+            fd.append('file', blob, name);
+            const r = await fetch(`/api/documents/email-attachment?name=${encodeURIComponent(name)}&index=${index}`, {
+                method: 'POST',
+                headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+                body: fd,
+            });
+            if (!r.ok) throw new Error(`Erreur ${r.status}`);
+            const url = URL.createObjectURL(await r.blob());
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = name.replace(/\.[^.]+$/, '') + `-pj-${index + 1}`;
+            document.body.appendChild(a); a.click(); a.remove();
+            setTimeout(() => URL.revokeObjectURL(url), 5000);
+        } catch (e: any) { alert(e?.message || 'Téléchargement impossible'); }
+    };
+
+    return (
+        <div style={{ flex: 1, minHeight: 0, display: 'flex', background: '#fff' }}>
+            {state === 'loading' && <div style={S.center}>Lecture du message…</div>}
+            {state === 'error' && (
+                <div style={{ ...S.center, color: '#c53030' }}>
+                    <FileIcon size={64} color="#9ca3af" />
+                    <div style={{ marginTop: 12 }}>{msg}</div>
+                    <a href={downloadUrl} download={name} style={{ ...S.btn, marginTop: 16 }}><Download size={16} /> Télécharger {name}</a>
+                </div>
+            )}
+            {state === 'ready' && data && (
+                <EmailMessageView data={data} accent="#6366f1" onAttachmentClick={downloadAttachment} />
+            )}
+        </div>
+    );
+}
+
 function Viewer({ items, startIndex, onClose }: { items: ViewerItem[]; startIndex: number; onClose: () => void }) {
     const [index, setIndex] = useState(startIndex);
     const [loaded, setLoaded] = useState<Loaded | null>(null);
@@ -254,7 +331,7 @@ function Viewer({ items, startIndex, onClose }: { items: ViewerItem[]; startInde
                 if ((!blob.type || blob.type === 'application/octet-stream') && EXT_MIME[ext]) typed = new Blob([blob], { type: EXT_MIME[ext] });
                 const l: Loaded = { blobUrl: URL.createObjectURL(typed), kind, name: item.name || realName };
                 if (kind === 'text') l.text = (await blob.slice(0, 500_000).text());
-                if (kind === 'office') l.blob = blob;
+                if (kind === 'office' || kind === 'email') l.blob = blob;
                 cache.current.set(url, l);
                 if (!cancelled) { setLoaded(l); setLoading(false); }
             } catch (e: any) {
@@ -315,6 +392,9 @@ function Viewer({ items, startIndex, onClose }: { items: ViewerItem[]; startInde
                         {!loading && !error && loaded && loaded.kind === 'text' && <pre style={S.pre}>{loaded.text}</pre>}
                         {!loading && !error && loaded && loaded.kind === 'office' && loaded.blob && (
                             <OfficeFrame key={loaded.blobUrl} blob={loaded.blob} name={loaded.name} downloadUrl={dlUrl} />
+                        )}
+                        {!loading && !error && loaded && loaded.kind === 'email' && loaded.blob && (
+                            <EmailFrame key={loaded.blobUrl} blob={loaded.blob} name={loaded.name} downloadUrl={dlUrl} />
                         )}
                         {!loading && !error && loaded && loaded.kind === 'none' && (
                             <div style={S.center}>

@@ -31,6 +31,10 @@ router.get('/:id/versions/:v/content', authJwtOrQuery, ctrl.getVersionContent);
 router.get('/:id/versions/:v/msg', authJwtOrQuery, ctrl.getMsgPreview);
 router.get('/:id/versions/:v/msg/attachments/:idx', authJwtOrQuery, ctrl.getMsgAttachment);
 
+// ─── Préview e-mail pour fichiers non stockés en GED (msg/eml) ────────────────
+router.post('/email-preview', authenticateJWT, upload.single('file'), ctrl.emailPreview);
+router.post('/email-attachment', authenticateJWT, upload.single('file'), ctrl.emailAttachment);
+
 // ─── Écriture ────────────────────────────────────────────────────────────────
 router.post('/', authenticateJWT, upload.single('file'), ctrl.upload);
 router.post('/:id/versions', authenticateJWT, upload.single('file'), ctrl.addVersion);

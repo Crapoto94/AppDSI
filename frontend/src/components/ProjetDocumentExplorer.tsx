@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import EmailMessageView from './EmailMessageView';
 import {
   Folder, FolderPlus, File, FileArchive, Upload, Download, Pencil, Trash2, X,
   ChevronRight, Settings, Home, Tag, Mail, History, Filter, CheckSquare, Square,
@@ -40,44 +41,13 @@ function fileTypeLabel(name: string): string {
   return ext && ext !== name ? ext.toUpperCase() : '—';
 }
 
-function escapeHtml(s: string): string {
-  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
-}
-
-/** Met en forme le corps TEXTE BRUT d'un .msg (aucun corps HTML disponible dans ce
- * fichier — cas fréquent des messages n'ayant conservé que l'alternative texte) :
- * le rendu précédent (une simple balise <div> en white-space:pre-wrap) affichait du
- * texte brut illisible (puces "* " littérales, liens non cliquables, et surtout le
- * bandeau de sécurité de la passerelle mail — ex. Sophos "expéditeur externe" —
- * mélangé au message). Ici on nettoie ce bandeau, on linkifie URLs/emails, et on
- * restitue une structure paragraphes/listes proche de ce qu'un client mail afficherait.
- * Le texte est entièrement échappé AVANT toute insertion de balises : les seules
- * balises du résultat sont celles qu'on construit nous-mêmes (contenu non fiable,
- * un .msg provient potentiellement d'un expéditeur externe). */
-function formatMsgPlainText(raw: string): string {
-  if (!raw) return '';
-  // Bandeaux connus de passerelles mail (bruit sans rapport avec le message) —
-  // reconnus par leur marqueur de fin, généré par l'outil de la passerelle.
-  let text = raw.replace(/Attention\s*!\s*Ce message a été envoyé depuis l'extérieur[\s\S]*?sophospsmartbannerend\s*/i, '');
-  text = escapeHtml(text.trim());
-  text = text.replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noopener noreferrer">$1</a>');
-  text = text.replace(/([\w.+-]+@[\w-]+\.[\w.-]+)/g, m => `<a href="mailto:${m}">${m}</a>`);
-  const blocks = text.split(/\n\s*\n/).map(b => b.trim()).filter(Boolean);
-  return blocks.map(block => {
-    const lines = block.split('\n').map(l => l.trim()).filter(Boolean);
-    if (lines.length && lines.every(l => /^[*\-]\s+/.test(l))) {
-      return `<ul style="margin:6px 0;padding-left:20px;">${lines.map(l => `<li style="margin-bottom:2px;">${l.replace(/^[*\-]\s+/, '')}</li>`).join('')}</ul>`;
-    }
-    return `<p style="margin:0 0 12px;">${lines.join('<br/>')}</p>`;
-  }).join('');
-}
 type PreviewKind = 'pdf' | 'image' | 'msg' | 'docx' | 'xlsx' | 'pptx' | 'md' | 'none';
 function previewKind(mimeType: string | null, name: string): PreviewKind {
   const mt = (mimeType || '').toLowerCase();
   const n = name.toLowerCase();
   if (mt === 'application/pdf' || n.endsWith('.pdf')) return 'pdf';
   if (mt.startsWith('image/')) return 'image';
-  if (n.endsWith('.msg')) return 'msg';
+  if (n.endsWith('.msg') || n.endsWith('.eml') || mt === 'message/rfc822' || mt === 'application/vnd.ms-outlook') return 'msg';
   if (n.endsWith('.docx')) return 'docx';
   if (n.endsWith('.xlsx')) return 'xlsx';
   if (n.endsWith('.pptx')) return 'pptx';
@@ -745,30 +715,11 @@ function DocPreviewModal({ doc, base, headers, token, fileUrl, editMode, onClose
             </div>
           )}
           {kind === 'msg' && !loading && !loadError && msg && (
-            <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden', background: 'white' }}>
-              <div style={{ borderBottom: '1px solid #e2e8f0', padding: '14px 18px' }}>
-                <p style={{ margin: '0 0 8px', display: 'flex', alignItems: 'center', gap: 8, fontSize: 15, fontWeight: 700, color: '#1e293b' }}><Mail size={16} color="#2563eb" /> {msg.subject}</p>
-                <p style={{ margin: '2px 0', fontSize: 13, color: '#475569' }}><strong>De :</strong> {msg.from || '—'}</p>
-                {!!msg.to.length && <p style={{ margin: '2px 0', fontSize: 13, color: '#475569' }}><strong>À :</strong> {msg.to.join(', ')}</p>}
-                {!!msg.cc.length && <p style={{ margin: '2px 0', fontSize: 13, color: '#475569' }}><strong>Cc :</strong> {msg.cc.join(', ')}</p>}
-                <p style={{ margin: '2px 0', fontSize: 13, color: '#475569' }}><strong>Date :</strong> {msg.date ? new Date(msg.date).toLocaleString('fr-FR') : '—'}</p>
-              </div>
-              {!!msg.attachments.length && (
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, borderBottom: '1px solid #e2e8f0', background: '#f8fafc', padding: '8px 18px' }}>
-                  {msg.attachments.map(a => (
-                    <a key={a.index} href={`/api/projets/explorateur/fichiers/${doc.id}/apercu/msg/pieces-jointes/${a.index}?token=${encodeURIComponent(headers.Authorization.replace('Bearer ', ''))}&download=1`}
-                      style={{ display: 'flex', alignItems: 'center', gap: 6, border: '1px solid #e2e8f0', borderRadius: 8, background: 'white', padding: '5px 10px', fontSize: 11, color: '#334155', textDecoration: 'none' }}>
-                      📎 {a.fileName} <span style={{ color: '#94a3b8' }}>({formatSize(a.contentLength)})</span>
-                    </a>
-                  ))}
-                </div>
-              )}
-              <div style={{ flex: 1, overflow: 'hidden' }}>
-                {msg.bodyHtml ? <iframe srcDoc={msg.bodyHtml} sandbox="" title={msg.subject} style={{ width: '100%', height: '100%', border: 0 }} />
-                  : <div style={{ height: '100%', overflowY: 'auto', padding: '18px 24px', fontSize: 13, color: '#1e293b', lineHeight: 1.6 }}
-                      dangerouslySetInnerHTML={{ __html: formatMsgPlainText(msg.bodyText) }} />}
-              </div>
-            </div>
+            <EmailMessageView
+              data={msg}
+              accent="#2563eb"
+              attachmentHref={(i) => `/api/projets/explorateur/fichiers/${doc.id}/apercu/msg/pieces-jointes/${i}?token=${encodeURIComponent(headers.Authorization.replace('Bearer ', ''))}&download=1`}
+            />
           )}
           {['docx', 'xlsx', 'pptx'].includes(kind) && !loading && !loadError && ooConfig && (
             <div id={ooContainerId} style={{ width: '100%', height: '100%' }} />
