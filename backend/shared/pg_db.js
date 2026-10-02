@@ -4723,6 +4723,26 @@ async function setupPgDb() {
       CREATE INDEX IF NOT EXISTS idx_doctrine_comments_section ON hub.doctrine_comments(section_key)
     `);
 
+    // Revue de chaque doctrine (règle) par les administrateurs : état OK / à voir /
+    // à supprimer + commentaire, sans modifier le document markdown lui-même.
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS hub.doctrine_reviews (
+        id SERIAL PRIMARY KEY,
+        item_key VARCHAR(80) UNIQUE NOT NULL,
+        section_key VARCHAR(255),
+        section_title TEXT,
+        rule_excerpt TEXT,
+        status VARCHAR(20) NOT NULL,
+        comment TEXT,
+        reviewed_by VARCHAR(255),
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_doctrine_reviews_status ON hub.doctrine_reviews(status)
+    `);
+
     await client.query(`
       CREATE TABLE IF NOT EXISTS hub.changelog_versions (
         id SERIAL PRIMARY KEY,

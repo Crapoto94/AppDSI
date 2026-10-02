@@ -140,3 +140,73 @@ exports.deleteComment = async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 };
+
+// Statuts de revue autorisés pour une doctrine.
+const REVIEW_STATUSES = ['ok', 'a_voir', 'a_supprimer'];
+
+// GET /api/doctrines/reviews — état de revue de chaque doctrine (règle).
+exports.getReviews = async (req, res) => {
+  try {
+    const items = await pgDb.all(`
+      SELECT id, item_key, section_key, section_title, rule_excerpt, status, comment, reviewed_by, updated_at
+      FROM hub.doctrine_reviews
+      ORDER BY updated_at DESC
+    `);
+    res.json(items);
+  } catch (error) {
+    console.error('Error fetching doctrine reviews:', error);
+    res.status(500).json({ error: error.message });
+  }
+};
+
+// PUT /api/doctrines/reviews  { item_key, section_key, section_title, rule_excerpt, status, comment }
+// Réservé aux administrateurs (voir routes).
+exports.upsertReview = async (req, res) => {
+  try {
+    const { item_key, section_key, section_title, rule_excerpt, status, comment } = req.body;
+    if (!item_key || !String(item_key).trim()) {
+      return res.status(400).json({ error: 'item_key requis' });
+    }
+    if (!REVIEW_STATUSES.includes(status)) {
+      return res.status(400).json({ error: `status doit être l'un de : ${REVIEW_STATUSES.join(', ')}` });
+    }
+
+    const row = await pgDb.get(`
+      INSERT INTO hub.doctrine_reviews (item_key, section_key, section_title, rule_excerpt, status, comment, reviewed_by, updated_at)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
+      ON CONFLICT (item_key) DO UPDATE SET
+        section_key = EXCLUDED.section_key,
+        section_title = EXCLUDED.section_title,
+        rule_excerpt = EXCLUDED.rule_excerpt,
+        status = EXCLUDED.status,
+        comment = EXCLUDED.comment,
+        reviewed_by = EXCLUDED.reviewed_by,
+        updated_at = NOW()
+      RETURNING id, item_key, section_key, section_title, rule_excerpt, status, comment, reviewed_by, updated_at
+    `, [
+      String(item_key).trim(),
+      section_key || null,
+      section_title || null,
+      rule_excerpt ? String(rule_excerpt).slice(0, 500) : null,
+      status,
+      comment ? String(comment).trim() : null,
+      req.user.username,
+    ]);
+
+    res.json(row);
+  } catch (error) {
+    console.error('Error upserting doctrine review:', error);
+    res.status(500).json({ error: error.message });
+  }
+};
+
+// DELETE /api/doctrines/reviews/:item_key — réinitialise l'état (admin).
+exports.deleteReview = async (req, res) => {
+  try {
+    await pgDb.run('DELETE FROM hub.doctrine_reviews WHERE item_key = $1', [req.params.item_key]);
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error deleting doctrine review:', error);
+    res.status(500).json({ error: error.message });
+  }
+};

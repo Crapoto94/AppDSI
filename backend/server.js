@@ -6137,6 +6137,11 @@ app.get('/api/doctrines/comments', authenticateJWT, doctrinesController.getAllCo
 app.post('/api/doctrines/comments', authenticateJWT, doctrinesController.createComment);
 app.delete('/api/doctrines/comments/:id', authenticateJWT, doctrinesController.deleteComment);
 
+// Revue admin de chaque doctrine (OK / à voir / à supprimer + commentaire).
+app.get('/api/doctrines/reviews', authenticateJWT, doctrinesController.getReviews);
+app.put('/api/doctrines/reviews', authenticateJWT, authenticateAdmin, doctrinesController.upsertReview);
+app.delete('/api/doctrines/reviews/:item_key', authenticateJWT, authenticateAdmin, doctrinesController.deleteReview);
+
 // ============================================
 // VIBECODING - Documents Markdown (menus de la rubrique VibeCoding)
 // ============================================
