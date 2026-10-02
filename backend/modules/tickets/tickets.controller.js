@@ -625,6 +625,11 @@ async assign(req, res) {
 
             await notificationService.trigger('ticket.comment_added', { ticket_id: ticketId, comment, user: req.user });
 
+            require('../mentions/mentions.service').notifyMentions({
+                content, actor: req.user, source: 'ticket', entityId: ticketId,
+                title: `Ticket #${ticketId}`, link: `/tickets/${ticketId}`
+            });
+
             // Propagation du commentaire à tous les membres du groupe
             const siblingIds = await groupRepo.getSiblingIds(ticketId);
             for (const sibId of siblingIds) {

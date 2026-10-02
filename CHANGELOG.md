@@ -2,6 +2,47 @@
 
 Toutes les évolutions notables du projet AppDSI sont documentées ici.
 
+## [1.4.1] - 2026-10-01
+
+### Projets — Explorateur de documents
+- Fusion des onglets **Documents** et **Explorateur** ; dossiers, glisser-déposer par fichier, gestion des ZIP (dézipper / conserver), type de document en liste déroulante (obligatoire, devenu optionnel) et sous « tout sélectionner ».
+- **Sélection multiple** de dossiers et fichiers, **copier-coller** et déplacement d'un dossier entier (typage en cascade).
+- **Visionneuse enrichie** : versions, rendu Markdown (`.md`) et affichage texte brut des `.msg`.
+- **Add-in OnlyOffice** : aperçu lecture seule (docx/xlsx/pptx) et **édition en ligne** (bouton Modifier, plein écran, sans panneau des versions), moteur dédié à AppDSI et proxy nginx ; collaboration au nom de l'agent connecté (plus de demande de nom).
+- Ajout / suppression d'une pièce jointe en éditant une entrée du journal.
+
+### Réunions
+- Recherche de créneaux communs : **horizon réglable** (1 mois à 1 an), bouton « **5 créneaux suivants** » et option « **Strictement tous les participants** ».
+- **Ajout rapide d'invités par catégorie** (DG/DGA, directeurs, responsables de service, groupes particuliers).
+- Saisie de l'heure **simplifiée au quart d'heure** à la création d'une réunion.
+
+### Tickets
+- **Mentions @** avec notifications et **rappel par e-mail à 20h**.
+- **Collecteur mail** : les réponses et transferts sont ajoutés en commentaire (contenu ajouté uniquement).
+- **Mot de passe provisoire configurable** (réglage déplacé vers `/tickets/admin` > Paramètres) et action rapide de changement de mot de passe avec ticket auto-résolu.
+- Affichage de l'**activité / timeline**, du message d'attente et des puces de listes dans la vue détail.
+
+### Tâches
+- Lien vers l'**élément d'origine** dans le mail d'assignation, notification des **tâches d'arbitrage**, liens e-mail basés sur le domaine public.
+
+### Service fait (Sedit)
+- **Date de service fait** saisie dans le formulaire (défaut : jour) et reportée dans Sedit.
+- Création **atomique** avec synchronisation Sedit ; « Faire » accepte un commentaire **ou** une pièce jointe.
+
+### Parapheur
+- Liens de **signature et QR basés sur le domaine public**, expéditeur (direction), libellés « en masse » ajustés.
+
+### MagApp
+- Pastille « **maintenance à venir** » avec infobulle dans le Magasin d'applications ; refonte de la modale « Programmer une maintenance ».
+
+### Pièces jointes
+- **Visionneuse générique** de pièces jointes et **aperçu Office en lecture seule** (Document Server OnlyOffice d'AppDSI via `hub.infra_apis`).
+
+### Corrections
+- Résolution en cascade des tickets liés (échec silencieux), upload de dossier bloqué à 30 % dans `/projets`, bascule des fichiers GED legacy vers Alfresco.
+- Maintenances MagApp stockées avec un mauvais horaire (fuseau).
+- Callback Azure AD : doublon `hub.users` (casse), redirection localhost et `/api/auth/me` ; crash du dashboard tickets ; `/fast` inaccessibles aux agents tickets.
+
 ## [1.2.0] - 2026-09-16
 
 ### Nouveau module — Parapheur électronique (`/parapheur`)

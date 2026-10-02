@@ -1,7 +1,8 @@
 import { useEffect, useState, useMemo } from 'react';
 import axios from 'axios';
 import { useAuth } from '../contexts/AuthContext';
-import { X, Download, FileText, Image as ImageIcon, File, Clock, User, Upload, Paperclip, Mail } from 'lucide-react';
+import { X, Download, FileText, File, Clock, User, Upload } from 'lucide-react';
+import EmailMessageView from './EmailMessageView';
 
 /**
  * DocumentViewer — modal de visualisation des documents du module centralisé.
@@ -60,7 +61,9 @@ interface MsgPreview {
 
 function isPreviewableMime(m: string | null | undefined, filename?: string | null): { kind: 'pdf' | 'image' | 'msg' | 'none' } {
     const name = (filename || '').toLowerCase();
-    if (name.endsWith('.msg') || (m || '').toLowerCase() === 'application/vnd.ms-outlook') return { kind: 'msg' };
+    const mm0 = (m || '').toLowerCase();
+    if (name.endsWith('.msg') || mm0 === 'application/vnd.ms-outlook') return { kind: 'msg' };
+    if (name.endsWith('.eml') || mm0 === 'message/rfc822') return { kind: 'msg' };
     if (!m) return { kind: 'none' };
     const mm = m.toLowerCase();
     if (mm === 'application/pdf') return { kind: 'pdf' };
@@ -269,37 +272,11 @@ export default function DocumentViewer({ documentId, onClose, canEdit = false, o
                                         {msgLoading && <div style={styles.center}>Lecture du message…</div>}
                                         {msgError && <div style={{ ...styles.center, color: '#c53030' }}>{msgError}</div>}
                                         {!msgLoading && !msgError && msgData && (
-                                            <>
-                                                <div style={styles.msgHeader}>
-                                                    <div style={styles.msgSubject}>
-                                                        <Mail size={16} color="#4a6cf7" /> {msgData.subject}
-                                                    </div>
-                                                    <div style={styles.msgMetaRow}><strong>De :</strong> {msgData.from || '—'}</div>
-                                                    {msgData.to.length > 0 && (
-                                                        <div style={styles.msgMetaRow}><strong>À :</strong> {msgData.to.join(', ')}</div>
-                                                    )}
-                                                    {msgData.cc.length > 0 && (
-                                                        <div style={styles.msgMetaRow}><strong>Cc :</strong> {msgData.cc.join(', ')}</div>
-                                                    )}
-                                                    <div style={styles.msgMetaRow}><strong>Date :</strong> {msgData.date ? formatDate(msgData.date) : '—'}</div>
-                                                </div>
-                                                {msgData.attachments.length > 0 && (
-                                                    <div style={styles.msgAttachments}>
-                                                        {msgData.attachments.map(a => (
-                                                            <a key={a.index}
-                                                                href={`/api/documents/${documentId}/versions/${current.version}/msg/attachments/${a.index}?token=${encodeURIComponent(token || '')}`}
-                                                                style={styles.msgAttachmentChip}>
-                                                                <Paperclip size={12} /> {a.fileName} <span style={{ color: '#9ca3af' }}>({formatSize(a.contentLength)})</span>
-                                                            </a>
-                                                        ))}
-                                                    </div>
-                                                )}
-                                                <div style={styles.msgBody}>
-                                                    {msgData.bodyHtml
-                                                        ? <iframe srcDoc={msgData.bodyHtml} style={styles.iframe} sandbox="" title={msgData.subject} />
-                                                        : <div style={styles.msgBodyText}>{msgData.bodyText}</div>}
-                                                </div>
-                                            </>
+                                            <EmailMessageView
+                                                data={msgData}
+                                                accent="#4a6cf7"
+                                                attachmentHref={(i) => `/api/documents/${documentId}/versions/${current.version}/msg/attachments/${i}?token=${encodeURIComponent(token || '')}`}
+                                            />
                                         )}
                                     </div>
                                 )}

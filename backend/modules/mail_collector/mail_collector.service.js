@@ -12,8 +12,12 @@ const historyRepo = require('../tickets/repositories/history.repository');
 const notificationService = require('../tickets/services/notification.service');
 const { toParisSql } = require('../../shared/utils');
 const ticketEmitter = require('../../shared/ticketEmitter');
+const storage = require('../../shared/storage');
 const fs = require('fs');
 const path = require('path');
+
+// Préfixes de réponse / transfert (RE, RÉ, TR, FW, FWD, RÉP...), éventuellement répétés
+const SUBJECT_PREFIX = /^\s*((re|ré|rep|rép|tr|fw|fwd|réf|ref)\s*:\s*)+/i;
 
 class MailCollectorService {
 
@@ -36,46 +40,40 @@ class MailCollectorService {
     return tokenRes.data.access_token;
   }
 
+  // Ne garde que ce que l'expéditeur a ajouté : tout ce qui suit le premier marqueur
+  // de message cité / transféré (Outlook, Gmail, Apple Mail, texte brut) est retiré.
   static extractReplyContent(body) {
     if (!body) return '';
+    let html = String(body)
+      .replace(/<head[\s\S]*?<\/head>/gi, '')
+      .replace(/<(style|script)[\s\S]*?<\/>/gi, '')
+      .replace(/<\/?(html|body)[^>]*>/gi, '');
 
-    const html = body.replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
-      .replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&nbsp;/g, ' ');
-
-    const textOnly = html.replace(/<[^>]+>/g, '\n');
-    const lines = textOnly.split('\n').map(l => l.trim()).filter(l => l);
-    let content = '';
-
-    for (const line of lines) {
-      if (/^(--|De\s*:|À\s*:|Envoyé\s*:|Cordialement|Bien cordialement|---)/i.test(line)) break;
-      content += (content ? '\n' : '') + line;
+    const markers = [
+      /<div[^>]+id=["']?appendonsend/i,
+      /<div[^>]+id=["']?divRplyFwdMsg/i,
+      /<div[^>]+class=["'][^"']*gmail_(quote|attr)/i,
+      /<div[^>]+class=["'][^"']*(moz-cite-prefix|yahoo_quoted|OutlookMessageHeader)/i,
+      /<blockquote/i,
+      /<hr/i,
+      /<div[^>]+border-top:\s*solid\s*#(E1E1E1|B5C4DF)/i,
+      /<(b|strong)[^>]*>\s*(De|From|Von)\s*(&nbsp;|\s)*:/i,
+      /-{3,}\s*(Original Message|Message d['’&#39;]origine|Forwarded message|Message transf[ée]r[ée])/i,
+      /D[ée]but du message (transf[ée]r[ée]|r[ée]exp[ée]di[ée])/i,
+      /_{10,}/,
+      /Le\s[^<]{5,120}\sa\s[ée]crit\s*:/i,
+      /On\s[^<]{5,120}\swrote\s*:/i,
+    ];
+    let cut = html.length;
+    for (const re of markers) {
+      const m = re.exec(html);
+      if (m && m.index < cut) cut = m.index;
     }
+    html = html.substring(0, cut).replace(/<[^>]*$/, '');
 
-    if (!content && lines.length > 0) {
-      for (let i = 0; i < Math.min(lines.length, 10); i++) {
-        if (!/^(--|De\s*:|À\s*:|Envoyé\s*:|Cordialement)/i.test(lines[i])) {
-          content += (content ? '\n' : '') + lines[i];
-        }
-      }
-    }
-
-    const plainText = content.substring(0, 1500).trim();
-    if (!plainText) return '';
-
-    const bodyLower = html.toLowerCase();
-    let htmlContent = html;
-    const markers = ['<div class="gmail_quote">', '<div id="appendonsend"></div>', '<hr tabindex', '<style>'];
-    for (const marker of markers) {
-      const idx = bodyLower.indexOf(marker.toLowerCase());
-      if (idx !== -1) { htmlContent = htmlContent.substring(0, idx); break; }
-    }
-
-    const bodyEnd = htmlContent.lastIndexOf('</div>');
-    if (bodyEnd !== -1) htmlContent = htmlContent.substring(0, bodyEnd + 6);
-    const bodyEnd2 = htmlContent.lastIndexOf('</body>');
-    if (bodyEnd2 !== -1) htmlContent = htmlContent.substring(0, bodyEnd2 + 7);
-
-    return htmlContent.substring(0, 2000).trim();
+    const text = html.replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim();
+    if (!text) return '';
+    return html.trim().substring(0, 20000);
   }
 
   static extractFromEmail(email) {
@@ -174,9 +172,32 @@ class MailCollectorService {
     return mapping?.ticket_id || null;
   }
 
+  // Ids des mails parents (en-têtes In-Reply-To / References) : fiable pour les réponses,
+  // même quand l'objet a été modifié.
+  static parentMessageIds(email) {
+    const headers = email.internetMessageHeaders || [];
+    const ids = [];
+    for (const h of headers) {
+      if (/^(in-reply-to|references)$/i.test(h.name || '')) {
+        ids.push(...(String(h.value || '').match(/<[^>]+>/g) || []));
+      }
+    }
+    return [...new Set(ids)];
+  }
+
+  static async findExistingTicketByHeaders(email) {
+    const ids = this.parentMessageIds(email);
+    if (!ids.length) return null;
+    const row = await pgDb.get(
+      'SELECT ticket_id FROM hub_tickets.ticket_email_mapping WHERE email_message_id = ANY($1::text[]) ORDER BY imported_at DESC LIMIT 1',
+      [ids]
+    );
+    return row?.ticket_id || null;
+  }
+
   static async findExistingTicketBySubject(subject) {
     if (!subject) return null;
-    const baseSubject = subject.replace(/^(RE:|FW:)\s*/i, '').trim();
+    const baseSubject = subject.replace(SUBJECT_PREFIX, '').trim();
 
     const ticket = await pgDb.get(
       `SELECT m.ticket_id
@@ -391,7 +412,7 @@ class MailCollectorService {
 
       const baseParams = {
         $top: 100,
-        $select: 'id,subject,receivedDateTime,from,toRecipients,ccRecipients,body,bodyPreview,internetMessageId,hasAttachments',
+        $select: 'id,subject,receivedDateTime,from,toRecipients,ccRecipients,body,bodyPreview,internetMessageId,hasAttachments,internetMessageHeaders',
         $orderby: 'receivedDateTime desc',
         $filter: `receivedDateTime ge ${filterDate}`,
       };
@@ -441,12 +462,10 @@ class MailCollectorService {
           }
 
           // Detect reply emails by subject line (RE: or FW:) or inReplyTo
-          const isReply = /^(RE:|FW:)/i.test(email.subject || '');
-          let existingTicket = isReply ? await this.findExistingTicketBySubject(email.subject) : null;
-
-          // Fallback: try by inReplyTo Internet Message ID
-          if (!existingTicket && email.inReplyTo) {
-            existingTicket = await this.findExistingTicket(email.internetMessageId, email.inReplyTo);
+          // 1) en-têtes In-Reply-To / References, 2) objet préfixé RE/TR/FW/Fwd...
+          let existingTicket = await this.findExistingTicketByHeaders(email);
+          if (!existingTicket && SUBJECT_PREFIX.test(email.subject || '')) {
+            existingTicket = await this.findExistingTicketBySubject(email.subject);
           }
 
           if (existingTicket) {
@@ -573,6 +592,181 @@ class MailCollectorService {
     }
   }
 
+  /** Récupère les emails reçus depuis le dernier run (filtre + pagination Graph). */
+  static async fetchRecentEmails(collector, token, axiosOpts) {
+    const filterDate = collector.last_run
+      ? new Date(collector.last_run).toISOString()
+      : '1970-01-01T00:00:00Z';
+
+    const baseParams = {
+      $top: 100,
+      $select: 'id,subject,receivedDateTime,from,toRecipients,ccRecipients,body,bodyPreview,internetMessageId,hasAttachments,internetMessageHeaders',
+      $orderby: 'receivedDateTime desc',
+      $filter: `receivedDateTime ge ${filterDate}`,
+    };
+
+    const allEmails = [];
+    const firstRes = await axios.get(
+      `https://graph.microsoft.com/v1.0/users/${collector.mailbox}/messages`,
+      { ...axiosOpts, headers: { Authorization: `Bearer ${token}` }, params: baseParams }
+    );
+    allEmails.push(...(firstRes.data.value || []));
+    let nextLink = firstRes.data['@odata.nextLink'] || null;
+    while (nextLink) {
+      const pageRes = await axios.get(nextLink, { ...axiosOpts, headers: { Authorization: `Bearer ${token}` } });
+      allEmails.push(...(pageRes.data.value || []));
+      nextLink = pageRes.data['@odata.nextLink'] || null;
+    }
+    return allEmails;
+  }
+
+  /** Résout le username hub.users à partir d'une adresse email (fallback : partie locale). */
+  static async resolveUsernameByEmail(emailAddr) {
+    if (!emailAddr) return null;
+    const row = await pgDb.get(
+      'SELECT username FROM hub.users WHERE LOWER(email) = LOWER(?) AND username IS NOT NULL LIMIT 1',
+      [emailAddr]
+    );
+    if (row?.username) return row.username;
+    const local = String(emailAddr).split('@')[0];
+    if (!local) return null;
+    const row2 = await pgDb.get(
+      'SELECT username FROM hub.users WHERE LOWER(username) = LOWER(?) LIMIT 1',
+      [local]
+    );
+    return row2?.username || null;
+  }
+
+  /** Télécharge le message brut (MIME RFC822) pour le joindre en .eml à une tâche. */
+  static async downloadRawMessage(token, mailbox, messageId, axiosOpts) {
+    try {
+      const res = await axios.get(
+        `https://graph.microsoft.com/v1.0/users/${mailbox}/messages/${messageId}/$value`,
+        { ...axiosOpts, headers: { Authorization: `Bearer ${token}`, Accept: 'message/rfc822' }, responseType: 'arraybuffer' }
+      );
+      return Buffer.from(res.data);
+    } catch (e) {
+      console.error('[MAIL-TACHES] téléchargement du message brut échoué:', e.message);
+      return null;
+    }
+  }
+
+  /** Nom de fichier .eml sûr, dérivé du sujet de la tâche. */
+  static toEmlFileName(title) {
+    const base = String(title || 'mail')
+      .replace(/[\\/:*?"<>|\r\n\t]+/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, 100) || 'mail';
+    return `${base}.eml`;
+  }
+
+  /**
+   * Collecteur « tâches » (collector.module === 'taches').
+   * Chaque email reçu (souvent un transfert) est transformé en tâche personnelle
+   * attribuée à l'émetteur (hub.users.username résolu par email), avec pour titre
+   * le sujet débarrassé des préfixes RE:/TR:/FW: et, en pièce jointe, le message
+   * d'origine au format .eml.
+   */
+  static async collectTasksMailbox(collector, token, o365Settings, axiosOpts) {
+    const log = {
+      collector_id: collector.id,
+      emails_received: 0, emails_imported: 0, emails_skipped: 0, emails_failed: 0,
+      tickets_created: 0, tasks_created: 0, comments_added: 0, attachments_processed: 0,
+      errors: [], status: 'success'
+    };
+
+    try {
+      const allEmails = await this.fetchRecentEmails(collector, token, axiosOpts);
+      log.emails_received = allEmails.length;
+
+      let successFolderId = null;
+      if (collector.success_folder && collector.success_folder.trim()) {
+        successFolderId = await this.resolveOrCreateFolder(collector.mailbox, collector.success_folder.trim(), token, axiosOpts);
+      }
+
+      for (const email of allEmails) {
+        try {
+          const msgId = email.internetMessageId || email.id;
+          const existing = await pgDb.get(
+            'SELECT task_id FROM hub.task_email_mapping WHERE email_message_id = ?',
+            [msgId]
+          );
+          if (existing) { log.emails_skipped++; continue; }
+
+          const from = this.extractFromEmail(email);
+          const username = await this.resolveUsernameByEmail(from.email);
+          if (!username) {
+            log.emails_failed++;
+            log.errors.push(`Émetteur inconnu (${from.email}) pour « ${email.subject || 'sans objet'} »`);
+            if (log.status === 'success') log.status = 'partial_error';
+            continue;
+          }
+
+          const title = (email.subject || '').replace(SUBJECT_PREFIX, '').trim().substring(0, 255) || 'Tâche sans titre';
+
+          const result = await pgDb.run(
+            `INSERT INTO hub.user_tasks (username, description, statut, created_by, context_source, priority, is_public)
+             VALUES (?, ?, 'a_faire', 'collecteur-mail', 'personal', 'normale', false)`,
+            [username, title]
+          );
+          const taskId = result.lastID;
+
+          // Réservation atomique du mapping (évite les doublons si deux collectes tournent)
+          const mapRes = await pgDb.run(
+            `INSERT INTO hub.task_email_mapping (task_id, email_message_id, email_from, email_received_at)
+             VALUES (?, ?, ?, ?) ON CONFLICT (email_message_id) DO NOTHING`,
+            [taskId, msgId, from.email, email.receivedDateTime]
+          );
+          if (mapRes.changes === 0) {
+            await pgDb.run('DELETE FROM hub.user_tasks WHERE id = ?', [taskId]);
+            log.emails_skipped++;
+            continue;
+          }
+
+          // Pièce jointe : le message d'origine au format .eml
+          const raw = await this.downloadRawMessage(token, collector.mailbox, email.id, axiosOpts);
+          if (raw && raw.length) {
+            const fileName = this.toEmlFileName(title);
+            const saved = await storage.saveFile('tasks', taskId, {
+              buffer: raw, originalname: fileName, mimetype: 'message/rfc822'
+            });
+            await pgDb.run(
+              `INSERT INTO hub.task_notes (source, task_id, content, type, filename, filepath, created_by)
+               VALUES ('personal', ?, ?, 'file', ?, ?, 'collecteur-mail')`,
+              [String(taskId), fileName, fileName, saved.dbPath]
+            );
+            try {
+              const docsService = require('../../shared/documents.service');
+              await docsService.registerExternalUpload({
+                module: 'tasks', entityType: 'note_file', entityId: taskId,
+                title: fileName, filename: saved.filename, originalName: fileName,
+                mimetype: 'message/rfc822', size: raw.length,
+                storageRef: saved.dbPath, uploadedBy: 'collecteur-mail',
+              });
+            } catch (e) { console.warn('[MAIL-TACHES] register document échoué:', e.message); }
+            log.attachments_processed++;
+          }
+
+          log.tasks_created++;
+          log.emails_imported++;
+          if (successFolderId) await this.moveMessage(collector.mailbox, email.id, successFolderId, token, axiosOpts);
+        } catch (e) {
+          console.error('[MAIL-TACHES] erreur traitement email:', e.message);
+          log.emails_failed++;
+          log.errors.push(`Email ${email.subject}: ${e.message}`);
+          if (log.status === 'success') log.status = 'partial_error';
+        }
+      }
+
+      return log;
+    } catch (error) {
+      log.status = 'failed';
+      log.errors.push(error.response?.data ? JSON.stringify(error.response.data) : error.message);
+      return log;
+    }
+  }
+
   static async performCollection(collectorId) {
     const collector = await pgDb.get('SELECT * FROM hub_tickets.mail_collectors WHERE id = ?', [collectorId]);
     if (!collector) return null;
@@ -612,7 +806,9 @@ class MailCollectorService {
           : { httpsAgent: new https.Agent({ rejectUnauthorized: false }) };
 
         const token = await this.getGraphToken(o365Settings);
-        log = await this.collectMailbox(collector, token, o365Settings, axiosOpts);
+        log = collector.module === 'taches'
+          ? await this.collectTasksMailbox(collector, token, o365Settings, axiosOpts)
+          : await this.collectMailbox(collector, token, o365Settings, axiosOpts);
       }
     } catch (err) {
       log.status = 'failed';
@@ -623,11 +819,12 @@ class MailCollectorService {
     await pgDb.run(
       `INSERT INTO hub_tickets.mail_collector_logs (
         collector_id, emails_received, emails_imported, emails_skipped, emails_failed,
-        tickets_created, comments_added, attachments_processed, errors, status, run_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
+        tickets_created, tasks_created, comments_added, attachments_processed, errors, status, run_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
       [
         collectorId, log.emails_received, log.emails_imported, log.emails_skipped,
-        log.emails_failed, log.tickets_created, log.comments_added, log.attachments_processed,
+        log.emails_failed, log.tickets_created || 0, log.tasks_created || 0,
+        log.comments_added, log.attachments_processed,
         JSON.stringify(log.errors), log.status
       ]
     );

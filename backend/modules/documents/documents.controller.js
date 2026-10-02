@@ -7,7 +7,7 @@
 const path = require('path');
 const fs = require('fs');
 const docs = require('../../shared/documents.service');
-const { parseMsgBuffer, extractMsgAttachment } = require('../../shared/msg_parser');
+const { parseEmailBuffer, extractEmailAttachment } = require('../../shared/msg_parser');
 
 /** Sécurise un nom de fichier pour l'entête Content-Disposition. */
 function dispositionFilename(name) {
@@ -111,28 +111,58 @@ module.exports = {
         }
     },
 
-    // GET /api/documents/:id/versions/:v/msg — prévisualisation structurée d'un fichier .msg (Outlook)
+    // GET /api/documents/:id/versions/:v/msg — prévisualisation structurée d'un e-mail (.msg ou .eml)
     async getMsgPreview(req, res) {
         try {
             const f = await docs.readVersion(req.params.id, parseInt(req.params.v, 10));
             if (!f) return res.status(404).json({ error: 'Fichier introuvable' });
             const buffer = bufferOf(f);
             if (!buffer) return res.status(404).json({ error: 'Contenu introuvable' });
-            const parsed = parseMsgBuffer(buffer);
+            const parsed = await parseEmailBuffer(buffer, f.originalName, f.mimetype);
             res.json(parsed);
         } catch (error) {
             res.status(500).json({ error: error.message });
         }
     },
 
-    // GET /api/documents/:id/versions/:v/msg/attachments/:idx — pièce jointe embarquée dans un .msg
+    // GET /api/documents/:id/versions/:v/msg/attachments/:idx — pièce jointe embarquée dans un e-mail
     async getMsgAttachment(req, res) {
         try {
             const f = await docs.readVersion(req.params.id, parseInt(req.params.v, 10));
             if (!f) return res.status(404).json({ error: 'Fichier introuvable' });
             const buffer = bufferOf(f);
             if (!buffer) return res.status(404).json({ error: 'Contenu introuvable' });
-            const att = extractMsgAttachment(buffer, parseInt(req.params.idx, 10));
+            const att = await extractEmailAttachment(buffer, f.originalName, f.mimetype, parseInt(req.params.idx, 10));
+            if (!att) return res.status(404).json({ error: 'Pièce jointe introuvable' });
+            res.setHeader('Content-Disposition', 'attachment; ' + dispositionFilename(att.fileName));
+            res.type(path.extname(att.fileName) || 'application/octet-stream');
+            res.send(Buffer.from(att.content));
+        } catch (error) {
+            res.status(500).json({ error: error.message });
+        }
+    },
+
+    // POST /api/documents/email-preview?name=... — préview d'un e-mail (.msg/.eml) dont le
+    // fichier n'est PAS stocké dans la GED (pièces jointes de tâches, tickets…) : le front
+    // envoie le binaire, on renvoie la structure normalisée. Unifie le rendu e-mail.
+    async emailPreview(req, res) {
+        try {
+            if (!req.file) return res.status(400).json({ error: 'Fichier requis' });
+            const parsed = await parseEmailBuffer(req.file.buffer, req.file.originalname || req.query.name, req.file.mimetype);
+            res.json(parsed);
+        } catch (error) {
+            res.status(500).json({ error: error.message });
+        }
+    },
+
+    // POST /api/documents/email-attachment?name=&index= — extrait une pièce jointe d'un
+    // e-mail non stocké (même logique que ci-dessus).
+    async emailAttachment(req, res) {
+        try {
+            if (!req.file) return res.status(400).json({ error: 'Fichier requis' });
+            const att = await extractEmailAttachment(
+                req.file.buffer, req.file.originalname || req.query.name, req.file.mimetype, parseInt(req.query.index, 10)
+            );
             if (!att) return res.status(404).json({ error: 'Pièce jointe introuvable' });
             res.setHeader('Content-Disposition', 'attachment; ' + dispositionFilename(att.fileName));
             res.type(path.extname(att.fileName) || 'application/octet-stream');

@@ -53,6 +53,11 @@ services:
       - ./backend/magapp_img:/app/magapp_img
       # Base de données SQLite persistée
       - ./backend/data:/app/data
+      # Document de doctrine (docs/DOCTRINE-DSI.md) affiché par la tuile
+      # « Notes & doctrines » : il vit à la racine du dépôt, hors du contexte
+      # de build du backend (./backend), donc non embarqué dans l'image — on le
+      # monte en lecture seule.
+      - ./docs:/app/docs:ro
       # Dossier de logs pour éviter les conflits de montage de fichiers inexistants
       - ./backend/logs:/app/logs
     networks:

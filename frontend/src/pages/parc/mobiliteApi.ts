@@ -1,5 +1,6 @@
 // ─── Client API du parc mobilité (façade /api/mobilite) ───────────────────────
 import axios from 'axios';
+import { openAttachmentViewer } from '../../components/AttachmentViewer';
 
 const h = (token: string) => ({ Authorization: `Bearer ${token}` });
 
@@ -78,7 +79,7 @@ export const mobiliteApi = {
   openFiche: async (token: string, docId: number) => {
     const r = await axios.get(`/api/mobilite/fiche/${docId}`, { headers: h(token), responseType: 'blob' });
     const url = URL.createObjectURL(r.data);
-    window.open(url, '_blank');
-    setTimeout(() => URL.revokeObjectURL(url), 60000);
+    openAttachmentViewer({ url, name: `fiche-mobilite-${docId}.pdf`, mime: 'application/pdf' });
+    setTimeout(() => URL.revokeObjectURL(url), 10 * 60000);
   },
 };

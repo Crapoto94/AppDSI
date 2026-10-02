@@ -12,6 +12,7 @@ import {
 import * as LucideIcons from 'lucide-react';
 import axios from 'axios';
 import { useAuth } from '../contexts/AuthContext';
+import TilesAuthorizationPanel from '../components/TilesAuthorizationPanel';
 
 interface TileLink {
   id: number;
@@ -4716,6 +4717,9 @@ const Admin: React.FC<AdminProps> = ({ section = 'main' }) => {
                 )}
               </div>
             </div>
+
+            {/* ── Autorisations par tuile ── */}
+            <TilesAuthorizationPanel />
 
             {showTileModal && (
               <div className="modal-overlay" onClick={() => { setEditingTile(null); setNewTile({ title: '', icon: 'Box', description: '', status: 'active', is_public: false }); setShowTileModal(false); }}>

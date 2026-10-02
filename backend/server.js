@@ -2201,6 +2201,11 @@ app.use('/api/vols', require('./modules/vols/vols.routes'));
 // Tasks Module (tâches agrégées)
 app.use('/api/tasks', tasksRouter);
 
+// Mentions @ + notifications in-app (digest mail à 20h pour les non lues)
+const mentionsSvc = require('./modules/mentions/mentions.service');
+mentionsSvc.setSendMail(sendMail);
+app.use('/api/notifications', require('./modules/mentions/mentions.routes'));
+
 // Consommables Module
 const consommablesCtrl = require('./modules/consommables/consommables.controller');
 consommablesCtrl.setSendMail(sendMail);
@@ -4805,6 +4810,36 @@ app.delete('/api/tiles/:id', authenticateAdmin, async (req, res) => {
     res.json({ message: 'Tile deleted' });
 });
 
+// Autorisations par tuile (vue inversée de /api/users/:id/tiles).
+// GET  /api/tiles/:id/users -> tous les agents avec un drapeau `authorized`
+// PUT  /api/tiles/:id/users { users: [ids] } -> remplace la liste des autorisés
+app.get('/api/tiles/:id/users', authenticateAdmin, async (req, res) => {
+    try {
+        const users = await db.all('SELECT id, username, role, is_approved FROM users ORDER BY username');
+        const rows = await db.all('SELECT user_id FROM user_tiles WHERE tile_id = ?', [req.params.id]);
+        const authorized = new Set(rows.map(r => Number(r.user_id)));
+        res.json(users.map(u => ({ ...u, authorized: authorized.has(Number(u.id)) })));
+    } catch (error) {
+        res.status(500).json({ message: 'Erreur lors de la récupération des autorisations', error: error.message });
+    }
+});
+
+app.put('/api/tiles/:id/users', authenticateAdmin, async (req, res) => {
+    const { users } = req.body;
+    if (!Array.isArray(users)) {
+        return res.status(400).json({ message: 'users doit être un tableau d\'identifiants utilisateurs' });
+    }
+    try {
+        await db.run('DELETE FROM user_tiles WHERE tile_id = ?', [req.params.id]);
+        for (const userId of users) {
+            await db.run('INSERT OR IGNORE INTO user_tiles (user_id, tile_id) VALUES (?, ?)', [userId, req.params.id]);
+        }
+        res.json({ message: 'Autorisations de la tuile mises à jour avec succès' });
+    } catch (error) {
+        res.status(500).json({ message: 'Erreur lors de la mise à jour des autorisations', error: error.message });
+    }
+});
+
 // Links Routes
 app.post('/api/tiles/:tileId/links', authenticateAdmin, async (req, res) => {
     const { label, url, is_internal } = req.body;
@@ -5936,6 +5971,12 @@ cron.schedule('* * * * *', () => {
 });
 console.log('[SCHEDULED SYNC] Cron job enregistré');
 
+// Mentions @ : mail récapitulatif des notifications non lues, tous les jours à 20h
+cron.schedule('0 20 * * *', async () => {
+    try { await require('./modules/mentions/mentions.service').sendDigest(); }
+    catch (e) { console.error('[MENTIONS] digest 20h:', e.message); }
+}, { timezone: 'Europe/Paris' });
+
 // KPI daily snapshot — tous les jours à 23h55
 cron.schedule('55 23 * * *', async () => {
     try {
@@ -6120,11 +6161,16 @@ app.delete('/api/backlog/:id', authenticateAdmin, backlogController.deleteBacklo
 // ============================================
 const doctrinesController = require('./controllers/doctrinesController');
 
-app.get('/api/doctrines', authenticateJWT, doctrinesController.getAllDoctrines);
-app.get('/api/doctrines/:id', authenticateJWT, doctrinesController.getDoctrine);
-app.post('/api/doctrines', authenticateJWT, doctrinesController.createDoctrine);
-app.put('/api/doctrines/:id', authenticateJWT, doctrinesController.updateDoctrine);
-app.delete('/api/doctrines/:id', authenticateJWT, doctrinesController.deleteDoctrine);
+// Document de doctrine (docs/DOCTRINE-DSI.md) + commentaires ancrés.
+app.get('/api/doctrines/markdown', authenticateJWT, doctrinesController.getMarkdown);
+app.get('/api/doctrines/comments', authenticateJWT, doctrinesController.getAllComments);
+app.post('/api/doctrines/comments', authenticateJWT, doctrinesController.createComment);
+app.delete('/api/doctrines/comments/:id', authenticateJWT, doctrinesController.deleteComment);
+
+// Revue admin de chaque doctrine (OK / à voir / à supprimer + commentaire).
+app.get('/api/doctrines/reviews', authenticateJWT, doctrinesController.getReviews);
+app.put('/api/doctrines/reviews', authenticateJWT, authenticateAdmin, doctrinesController.upsertReview);
+app.delete('/api/doctrines/reviews/:item_key', authenticateJWT, authenticateAdmin, doctrinesController.deleteReview);
 
 // ============================================
 // VIBECODING - Documents Markdown (menus de la rubrique VibeCoding)
@@ -6343,6 +6389,9 @@ require('./modules/transcriptmanager/transcriptmanager.controller').setSendMail(
 
 // Module documents centralisé (gestion documentaire avec versionning)
 app.use('/api/documents', require('./modules/documents/documents.routes'));
+
+// Visionneuse Office en lecture seule (ONLYOFFICE Document Server)
+app.use('/api/office-viewer', require('./modules/office_viewer/office_viewer.routes'));
 
 // GED / Alfresco
 app.use('/api/ged', require('./modules/ged/ged.routes'));

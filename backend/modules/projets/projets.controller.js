@@ -1660,6 +1660,13 @@ const ajouterNoteTache = async (req, res) => {
 
         if (!content || !content.trim()) return res.status(400).json({ error: 'Contenu obligatoire' });
 
+        res.on('finish', () => {
+            if (res.statusCode === 201) require('../mentions/mentions.service').notifyMentions({
+                content: content, actor: req.user, source: 'projet', entityId: id,
+                title: `Tâche du projet #${id}`, link: `/projets/${id}`
+            });
+        });
+
         const note = { id: Date.now(), type: type || 'comment', content: content.trim(), created_at: new Date().toISOString(), created_by: username };
 
         if (taskId.startsWith('m-')) {
@@ -2072,6 +2079,12 @@ const ajouterEntreeJournal = async (req, res) => {
             return res.status(400).json({ error: 'Type et message requis' });
         }
 
+        res.on('finish', () => {
+            if (res.statusCode === 201) require('../mentions/mentions.service').notifyMentions({
+                content: message, actor: req.user, source: 'projet', entityId: id,
+                title: `Journal du projet #${id}`, link: `/projets/${id}`
+            });
+        });
         let details_obj = details ? JSON.stringify(details) : null;
 
         // Si un fichier est joint, on le dépose dans l'espace documentaire du projet
@@ -3671,9 +3684,9 @@ const previewExplorerMsg = async (req, res) => {
     try {
         const loaded = await loadExplorerFile(req.params.docId);
         if (!loaded) return res.status(404).json({ error: 'Fichier introuvable' });
-        const { parseMsgBuffer } = require('../../shared/msg_parser');
+        const { parseEmailBuffer } = require('../../shared/msg_parser');
         const buffer = loaded.buffer || fs.readFileSync(loaded.absolutePath);
-        res.json(parseMsgBuffer(buffer));
+        res.json(await parseEmailBuffer(buffer, loaded.row.fichier_original, loaded.row.fichier_type));
     } catch (error) { res.status(500).json({ error: `Lecture du message impossible : ${error.message}` }); }
 };
 
@@ -3681,9 +3694,9 @@ const previewExplorerMsgAttachment = async (req, res) => {
     try {
         const loaded = await loadExplorerFile(req.params.docId);
         if (!loaded) return res.status(404).json({ error: 'Fichier introuvable' });
-        const { extractMsgAttachment } = require('../../shared/msg_parser');
+        const { extractEmailAttachment } = require('../../shared/msg_parser');
         const buffer = loaded.buffer || fs.readFileSync(loaded.absolutePath);
-        const att = extractMsgAttachment(buffer, parseInt(req.params.idx, 10));
+        const att = await extractEmailAttachment(buffer, loaded.row.fichier_original, loaded.row.fichier_type, parseInt(req.params.idx, 10));
         if (!att) return res.status(404).json({ error: 'Pièce jointe introuvable' });
         const disposition = req.query.download ? 'attachment' : 'inline';
         res.setHeader('Content-Disposition', `${disposition}; filename*=UTF-8''${encodeURIComponent(att.fileName)}`);

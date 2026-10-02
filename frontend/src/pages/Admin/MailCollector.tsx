@@ -39,6 +39,7 @@ interface CollectorLog {
   emails_skipped: number;
   emails_failed: number;
   tickets_created: number;
+  tasks_created: number;
   comments_added: number;
   attachments_processed: number;
   errors: string | null;
@@ -58,6 +59,7 @@ const FREQUENCIES = [
 const MODULES = [
   { value: 'tickets',  label: 'Tickets (créer des tickets depuis les emails)' },
   { value: 'copieurs', label: 'Copieurs (importer les interventions SAV Koesio)' },
+  { value: 'taches',   label: 'Tâches (transformer un mail en tâche personnelle)' },
 ];
 
 const DEFAULT_PER_PAGE = 50;
@@ -237,7 +239,7 @@ export default function MailCollector() {
   };
 
   const freqLabel = (v: string) => FREQUENCIES.find(f => f.value === v)?.label || v;
-  const modLabel  = (v: string) => v === 'copieurs' ? '📠 Copieurs' : '🎫 Tickets';
+  const modLabel  = (v: string) => v === 'copieurs' ? '📠 Copieurs' : v === 'taches' ? '✅ Tâches' : '🎫 Tickets';
 
   const statusColor = (s: string) => s === 'success' ? '#10b981' : s === 'partial_error' ? '#f59e0b' : '#ef4444';
   const statusIcon = (s: string) => s === 'success' ? '✓' : s === 'partial_error' ? '⚠' : '✕';
@@ -703,6 +705,7 @@ export default function MailCollector() {
                     <th style={{ ...s.th, textAlign: 'center' as const }}>Ignorés</th>
                     <th style={{ ...s.th, textAlign: 'center' as const }}>Échoués</th>
                     <th style={{ ...s.th, textAlign: 'center' as const }}>Tickets</th>
+                    <th style={{ ...s.th, textAlign: 'center' as const }}>Tâches</th>
                     <th style={{ ...s.th, textAlign: 'center' as const }}>Commentaires</th>
                     <th style={{ ...s.th, textAlign: 'center' as const }}>PJ</th>
                     <th style={s.th}>Détails</th>
@@ -727,6 +730,7 @@ export default function MailCollector() {
                         <td style={{ ...s.td, textAlign: 'center' as const, color: '#6b7280' }}>{log.emails_skipped}</td>
                         <td style={{ ...s.td, textAlign: 'center' as const, color: log.emails_failed > 0 ? '#ef4444' : '#6b7280', fontWeight: log.emails_failed > 0 ? '600' : '400' }}>{log.emails_failed}</td>
                         <td style={{ ...s.td, textAlign: 'center' as const, fontWeight: '500' }}>{log.tickets_created}</td>
+                        <td style={{ ...s.td, textAlign: 'center' as const, fontWeight: '500' }}>{log.tasks_created || 0}</td>
                         <td style={{ ...s.td, textAlign: 'center' as const, fontWeight: '500' }}>{log.comments_added}</td>
                         <td style={{ ...s.td, textAlign: 'center' as const, fontSize: '12px' }}>{log.attachments_processed}</td>
                         <td style={s.td}>

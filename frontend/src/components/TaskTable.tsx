@@ -392,6 +392,7 @@ export const TaskTable: React.FC<TaskTableProps> = ({
                         <div style={{ display: 'flex', gap: 4, marginTop: 4 }}>
                           <input
                             type="text"
+                            data-mentions
                             placeholder="Note..."
                             style={{ flex: 1, padding: '4px 8px', border: '1px solid #cbd5e1', borderRadius: 4, fontSize: 11 }}
                             value={noteInput}

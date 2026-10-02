@@ -5,6 +5,7 @@ import {
   ChevronDown, ChevronRight, File, FileImage, FileSpreadsheet,
 } from 'lucide-react';
 import DocumentViewer from '../../components/DocumentViewer';
+import { openAttachmentViewer } from '../../components/AttachmentViewer';
 
 interface Doc {
   id: number;
@@ -154,7 +155,7 @@ export default function KnowledgeBaseAdmin() {
       a.click();
       a.remove();
     } else {
-      window.open(url, '_blank');
+      openAttachmentViewer({ url, name: d.original_name });
     }
   }
 

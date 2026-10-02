@@ -60,11 +60,14 @@ const minToHM = (m) => `${pad2(Math.floor(m / 60))}:${pad2(m % 60)}`;
  * @param {string[]} [opts.emails] - alternative : simples emails
  * @param {number} opts.durationMinutes
  * @param {boolean} [opts.afterHours] - étend la plage à 08:00-19:00
+ * @param {number} [opts.horizonDays] - profondeur de recherche en jours (défaut 30, max 366)
+ * @param {string} [opts.after] - "YYYY-MM-DDTHH:mm" : ne renvoie que des créneaux démarrant strictement après (pagination « suivants »)
+ * @param {boolean} [opts.strict] - ne renvoie que des créneaux où TOUS les participants sont libres (pas de repli partiel)
  * @param {number} [opts.count] - nombre de créneaux à renvoyer (défaut 5)
  * @returns {Promise<Array<{start:string,end:string,label:string,available:number,total:number,unavailable:string[]}>>}
  */
 async function findCommonSlots(opts) {
-    const { organizerEmail, organizerName, participants, emails, durationMinutes, afterHours, count = 5 } = opts;
+    const { organizerEmail, organizerName, participants, emails, durationMinutes, afterHours, strict = false, horizonDays = 30, after = null, count = 5 } = opts;
     const duration = Number(durationMinutes) || 60;
 
     // Liste unique des personnes à interroger (organisateur + participants), avec leur nom
@@ -109,16 +112,15 @@ async function findCommonSlots(opts) {
     const fullSlots = [];     // tout le monde dispo
     const partialSlots = [];  // certains indisponibles (fallback)
 
-    for (let i = 0; i < 30 && fullSlots.length < count; i++) {
-        const dt = new Date(anchor + i * 86400000);
-        const dow = dt.getUTCDay();
-        if (dow === 0 || dow === 6) continue;
-        const Y = dt.getUTCFullYear(), Mo = dt.getUTCMonth() + 1, D = dt.getUTCDate();
-        const dayKey = `${Y}-${pad2(Mo)}-${pad2(D)}`;
+    const horizon = Math.min(Math.max(parseInt(horizonDays, 10) || 30, 1), 366);
 
-        // availabilityView par personne (index aligné sur `people`). '' => boîte sans données.
-        let views;
-        try {
+    // availabilityView par personne pour un jour donné (index aligné sur `people`).
+    // '' => boîte sans données (externe).
+    const fetchViews = async (dayKey) => {
+        // Exchange limite les appels simultanés par boîte (« MailboxConcurrency limit », HTTP 429/503) :
+        // on réessaie avec une courte attente plutôt que d'échouer toute la recherche.
+        for (let attempt = 0; ; attempt++) {
+          try {
             const res = await axios.post(
                 `https://graph.microsoft.com/v1.0/users/${encodeURIComponent(organizerEmail)}/calendar/getSchedule`,
                 {
@@ -130,10 +132,42 @@ async function findCommonSlots(opts) {
                 { ...axiosOpts, headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } }
             );
             const value = res.data.value || [];
-            views = people.map((_, k) => (value[k] && value[k].availabilityView) || '');
-        } catch (e) {
-            throw new Error(e.response?.data?.error?.message || e.message);
+            return people.map((_, k) => (value[k] && value[k].availabilityView) || '');
+          } catch (e) {
+            const msg = e.response?.data?.error?.message || e.message;
+            const throttled = [429, 503].includes(e.response?.status) || /concurrency|throttl|too many/i.test(msg);
+            if (throttled && attempt < 4) { await new Promise(r => setTimeout(r, 1500 * (attempt + 1))); continue; }
+            throw new Error(msg);
+          }
         }
+    };
+
+    // Un appel Graph par jour ouvré : sur un horizon long (jusqu'à 1 an), on précharge
+    // par lots de 2 jours en parallèle (au-delà, Exchange répond « MailboxConcurrency limit »).
+    const BATCH = 2;
+    const viewsCache = new Map();
+    const dayInfo = (i) => {
+        const dt = new Date(anchor + i * 86400000);
+        const dow = dt.getUTCDay();
+        const dayKey = `${dt.getUTCFullYear()}-${pad2(dt.getUTCMonth() + 1)}-${pad2(dt.getUTCDate())}`;
+        return { dt, dow, dayKey };
+    };
+
+    for (let i = 0; i < horizon && fullSlots.length < count; i++) {
+        const { dt, dow, dayKey } = dayInfo(i);
+        if (dow === 0 || dow === 6) continue;
+        if (after && dayKey < String(after).slice(0, 10)) continue;
+
+        if (!viewsCache.has(dayKey)) {
+            const batchKeys = [];
+            for (let j = i; j < horizon && batchKeys.length < BATCH; j++) {
+                const d = dayInfo(j);
+                if (d.dow !== 0 && d.dow !== 6 && !viewsCache.has(d.dayKey)) batchKeys.push(d.dayKey);
+            }
+            const results = await Promise.all(batchKeys.map(k => fetchViews(k)));
+            batchKeys.forEach((k, idx) => viewsCache.set(k, results[idx]));
+        }
+        const views = viewsCache.get(dayKey);
 
         // Évalue la dispo d'un créneau : renvoie {total, available, unavailable[]}
         // total = nb de personnes avec des données free/busy (les externes sans données sont exclus).
@@ -159,6 +193,7 @@ async function findCommonSlots(opts) {
             let startMin = wStart;
             while (startMin + duration <= wEnd && fullSlots.length < count) {
                 if (dayKey === nowDayKey && startMin <= nowMin + 5) { startMin += INTERVAL; continue; }
+                if (after && `${dayKey}T${minToHM(startMin)}` <= String(after)) { startMin += INTERVAL; continue; }
                 const idx = (startMin - DAY_START) / INTERVAL;
                 if (!Number.isInteger(idx) || idx < 0) { startMin += INTERVAL; continue; }
                 const { total, available, unavailable } = evaluate(startMin);
@@ -182,6 +217,9 @@ async function findCommonSlots(opts) {
         }
     }
 
+    // Mode strict : uniquement des créneaux où TOUS les participants (avec données free/busy)
+    // sont libres — aucun repli sur des créneaux partiels.
+    if (strict) return fullSlots.slice(0, count);
     // Priorité aux créneaux où tout le monde est dispo ; complète avec les meilleurs partiels.
     if (fullSlots.length >= count) return fullSlots.slice(0, count);
     partialSlots.sort((a, b) => (b.available - a.available) || (a.start < b.start ? -1 : 1));

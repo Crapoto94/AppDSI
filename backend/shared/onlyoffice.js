@@ -64,13 +64,13 @@ function estPriseEnCharge(nom) {
  *   si edit=true, URL (joignable PAR LE MOTEUR) que celui-ci rappelle à la
  *   sauvegarde — cf. onlyofficeCallback dans projets.controller.js.
  */
-function buildConfig(cfg, { cle, nom, url, utilisateur, edit, callbackUrl }) {
+function buildConfig(cfg, { cle, nom, url, utilisateur, edit, callbackUrl, minimal }) {
     const ext = String(nom || '').split('.').pop().toLowerCase();
     const documentType = TYPE_PAR_EXT[ext];
     if (!documentType) throw new Error(`Extension non prise en charge par l'aperçu OnlyOffice : .${ext}`);
     const config = {
         documentType,
-        type: 'desktop',
+        type: minimal ? 'embedded' : 'desktop',
         width: '100%',
         height: '100%',
         document: {
@@ -78,12 +78,16 @@ function buildConfig(cfg, { cle, nom, url, utilisateur, edit, callbackUrl }) {
             key: cle,
             title: nom,
             url,
-            permissions: { edit: !!edit, download: true, print: true, comment: !!edit },
+            permissions: minimal
+                ? { edit: false, download: false, print: false, copy: true, comment: false }
+                : { edit: !!edit, download: true, print: true, comment: !!edit },
         },
         editorConfig: {
             mode: edit ? 'edit' : 'view',
             lang: 'fr-FR',
-            customization: { compactHeader: true, hideRightMenu: !edit },
+            customization: minimal
+                ? { compactHeader: true, toolbarHideFileName: true, hideRightMenu: true, chat: false, comments: false, plugins: false, help: false, feedback: false }
+                : { compactHeader: true, hideRightMenu: !edit },
             ...(utilisateur ? { user: { id: utilisateur.id, name: utilisateur.nom } } : {}),
             ...(edit && callbackUrl ? { callbackUrl } : {}),
         },

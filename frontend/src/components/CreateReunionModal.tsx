@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { X, Plus, Paperclip, Calendar as CalendarIcon, CalendarSearch, AlertTriangle, Video } from 'lucide-react';
 import ReactQuill from 'react-quill-new';
 import 'react-quill-new/dist/quill.snow.css';
@@ -46,7 +46,10 @@ const CreateReunionModal: React.FC<CreateReunionModalProps> = ({ isOpen, onClose
   const [loadingSlots, setLoadingSlots] = useState(false);
   const [slotsError, setSlotsError] = useState('');
   const [afterHours, setAfterHours] = useState(false);
+  const [strictAll, setStrictAll] = useState(false);
+  const [horizonJours, setHorizonJours] = useState(30);
   const [slotsOpen, setSlotsOpen] = useState(false);
+  const [noMoreSlots, setNoMoreSlots] = useState(false);
   const [participants, setParticipants] = useState<Participant[]>([]);
 
   // À l'ouverture, ajoute automatiquement l'agent connecté comme participant, avec
@@ -133,6 +136,84 @@ const CreateReunionModal: React.FC<CreateReunionModalProps> = ({ isOpen, onClose
     ad.clearResults();
   };
 
+  // ── Ajout rapide par catégorie (DG/DGA, directeurs, responsables de service, groupes particuliers) ──
+  // Sources existantes : /api/admin/rh/encadrants (référentiel RH, classé par role) et les
+  // « groupes particuliers » de /admin/param-ville (groupes AD relus en direct).
+  const [bulkBusy, setBulkBusy] = useState('');
+  const [bulkMsg, setBulkMsg] = useState('');
+  const [customGroups, setCustomGroups] = useState<{ id: number; name: string }[]>([]);
+  const encadrantsCache = useRef<any[] | null>(null);
+
+  useEffect(() => {
+    fetch('/api/admin/rh/encadrants/custom-groups', { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.ok ? r.json() : { groups: [] })
+      .then(d => setCustomGroups(Array.isArray(d.groups) ? d.groups : []))
+      .catch(() => setCustomGroups([]));
+  }, [token]);
+
+  const addBulk = (label: string, candidates: Participant[]) => {
+    const withEmail = candidates.filter(c => c.email && c.email.includes('@'));
+    const skippedNoEmail = candidates.length - withEmail.length;
+    const known = new Set(participants.map(p => (p.email || '').toLowerCase()).filter(Boolean));
+    const knownAd = new Set(participants.map(p => (p.ad_username || '').toLowerCase()).filter(Boolean));
+    const seen = new Set<string>();
+    const toAdd = withEmail.filter(c => {
+      const e = (c.email || '').toLowerCase();
+      const a = (c.ad_username || '').toLowerCase();
+      if (known.has(e) || seen.has(e) || (a && knownAd.has(a))) return false;
+      seen.add(e);
+      return true;
+    });
+    if (toAdd.length) setParticipants(prev => [...prev, ...toAdd]);
+    const dejaLa = withEmail.length - toAdd.length;
+    setBulkMsg(
+      `${label} : ${toAdd.length} ajouté(s)` +
+      (dejaLa ? `, ${dejaLa} déjà présent(s)` : '') +
+      (skippedNoEmail ? `, ${skippedNoEmail} ignoré(s) faute d'adresse mail` : '') + '.'
+    );
+  };
+
+  const addEncadrants = async (kind: 'dg' | 'directeur' | 'responsable_service', label: string) => {
+    setBulkBusy(kind); setBulkMsg('');
+    try {
+      if (!encadrantsCache.current) {
+        const r = await fetch('/api/admin/rh/encadrants', { headers: { Authorization: `Bearer ${token}` } });
+        if (!r.ok) throw new Error();
+        encadrantsCache.current = await r.json();
+      }
+      const list = (encadrantsCache.current || []).filter((e: any) => e.role === kind);
+      addBulk(label, list.map((e: any) => ({
+        id: Date.now() + Math.random(), reunion_id: 0,
+        nom: e.nom || '', prenom: e.prenom || '', email: e.email || '',
+        service: e.service_label || '', direction: e.direction_label || '', fonction: e.poste || '',
+        type_presence: 'metier' as const, statut_presence: 'present' as const, ad_username: e.ad_username || undefined,
+      })));
+    } catch { setBulkMsg('Impossible de charger le référentiel des encadrants.'); }
+    finally { setBulkBusy(''); }
+  };
+
+  const addCustomGroup = async (groupId: string) => {
+    if (!groupId) return;
+    const group = customGroups.find(g => String(g.id) === groupId);
+    setBulkBusy('group'); setBulkMsg('');
+    try {
+      const r = await fetch(`/api/admin/rh/encadrants/custom-groups/${groupId}/members`, { headers: { Authorization: `Bearer ${token}` } });
+      if (!r.ok) throw new Error();
+      const d = await r.json();
+      addBulk(group?.name || 'Groupe', (d.members || []).map((m: any) => {
+        const parts = String(m.displayName || '').trim().split(/\s+/);
+        return {
+          id: Date.now() + Math.random(), reunion_id: 0,
+          nom: parts.length > 1 ? parts.slice(1).join(' ') : (m.displayName || m.username || ''),
+          prenom: parts.length > 1 ? parts[0] : '',
+          email: m.email || '', service: m.department || '', direction: '', fonction: m.title || '',
+          type_presence: 'metier' as const, statut_presence: 'present' as const, ad_username: m.username || undefined,
+        };
+      }));
+    } catch { setBulkMsg('Impossible de charger les membres du groupe.'); }
+    finally { setBulkBusy(''); }
+  };
+
   const handleCreateRhTicket = async (agentName: string) => {
     const id = await createAgentLinkTicket(token, agentName, { name: user?.displayName, email: user?.email });
     if (id) alert(`Ticket DSI créé (n° ${id}) : refaire le lien RH/AD pour ${agentName}.`);
@@ -145,9 +226,14 @@ const CreateReunionModal: React.FC<CreateReunionModalProps> = ({ isOpen, onClose
     setNewParticipant({ nom: '', prenom: '', email: '', organisme: '', fonction: '', type_presence: 'externe', statut_presence: 'present' });
   };
 
-  const fetchSlots = async (withAfterHours: boolean) => {
+  const horizonLabel = (j: number) => ({ 30: 'les 30 prochains jours', 61: 'les 2 prochains mois', 91: 'les 3 prochains mois', 183: 'les 6 prochains mois', 365: "l'année à venir" } as Record<number, string>)[j] || `les ${j} prochains jours`;
+
+  const fetchSlots = async (withAfterHours: boolean, strict: boolean = strictAll, horizon: number = horizonJours, append: boolean = false) => {
     setLoadingSlots(true);
     setSlotsError('');
+    if (!append) setNoMoreSlots(false);
+    // Pagination « suivants » : on repart du dernier créneau déjà affiché (le plus tardif).
+    const apres = append && slots.length ? slots.reduce((m, x) => (x.start > m ? x.start : m), slots[0].start) : undefined;
     setSlotsOpen(true);
     try {
       const parts = participants
@@ -156,19 +242,25 @@ const CreateReunionModal: React.FC<CreateReunionModalProps> = ({ isOpen, onClose
       const res = await fetch('/api/rencontres-reunions/free-slots', {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ participants: parts, duree_minutes: dureeMinutes, after_hours: withAfterHours })
+        body: JSON.stringify({ participants: parts, duree_minutes: dureeMinutes, after_hours: withAfterHours, strict, horizon_jours: horizon, apres })
       });
       const data = await res.json();
       if (res.ok) {
-        setSlots(data.slots || []);
-        if (!data.slots || data.slots.length === 0) setSlotsError('Aucun créneau commun trouvé sur les 30 prochains jours.');
+        const found: typeof slots = data.slots || [];
+        if (append) {
+          if (found.length === 0) setNoMoreSlots(true);
+          else setSlots(prev => [...prev, ...found]);
+        } else {
+          setSlots(found);
+        }
+        if (!append && found.length === 0) setSlotsError(strict ? `Aucun créneau où tous les participants sont libres sur ${horizonLabel(horizon)}.` : `Aucun créneau commun trouvé sur ${horizonLabel(horizon)}.`);
       } else {
         setSlotsError(data.error || 'Erreur lors de la recherche des créneaux.');
-        setSlots([]);
+        if (!append) setSlots([]);
       }
     } catch (e) {
       setSlotsError('Erreur réseau lors de la recherche des créneaux.');
-      setSlots([]);
+      if (!append) setSlots([]);
     } finally {
       setLoadingSlots(false);
     }
@@ -234,7 +326,7 @@ const CreateReunionModal: React.FC<CreateReunionModalProps> = ({ isOpen, onClose
         setCreateOutlook(false);
         setIsTeams(false);
         setFiles([]);
-        setSlots([]);
+        setSlots([]); setNoMoreSlots(false);
         setSlotsOpen(false);
         setSlotsError('');
         setParticipants([]);
@@ -265,7 +357,27 @@ const CreateReunionModal: React.FC<CreateReunionModalProps> = ({ isOpen, onClose
             </div>
             <div>
               <label style={{display: 'block', fontSize: '12px', fontWeight: '600', color: '#64748b', marginBottom: '6px'}}>DATE & HEURE *</label>
-              <input type="datetime-local" step={300} style={{width: '100%', padding: '10px 12px', border: '1px solid #cbd5e1', borderRadius: '8px', fontSize: '14px'}} value={newReunion.date_reunion} onChange={e => setNewReunion(v => ({...v, date_reunion: e.target.value}))} />
+              {(() => {
+                // Saisie simplifiée : date + heure + minutes au quart d'heure (valeur stockée "YYYY-MM-DDTHH:mm").
+                const [datePart = '', timePart = ''] = (newReunion.date_reunion || '').split('T');
+                const [hh = '', mm = ''] = timePart.split(':');
+                const update = (d: string, h: string, m: string) =>
+                  setNewReunion(v => ({ ...v, date_reunion: d ? `${d}T${h || '09'}:${m || '00'}` : '' }));
+                const selStyle: React.CSSProperties = { padding: '10px 8px', border: '1px solid #cbd5e1', borderRadius: '8px', fontSize: '14px', background: 'white' };
+                return (
+                  <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                    <input type="date" style={{ ...selStyle, flex: 1, minWidth: 0, padding: '10px 12px' }} value={datePart} onChange={e => update(e.target.value, hh, mm)} />
+                    <select style={selStyle} value={hh} onChange={e => update(datePart, e.target.value, mm)} disabled={!datePart} aria-label="Heure">
+                      {!hh && <option value="">--</option>}
+                      {Array.from({ length: 24 }, (_, h) => String(h).padStart(2, '0')).map(h => <option key={h} value={h}>{h} h</option>)}
+                    </select>
+                    <select style={selStyle} value={mm} onChange={e => update(datePart, hh, e.target.value)} disabled={!datePart} aria-label="Minutes">
+                      {!mm && <option value="">--</option>}
+                      {['00', '15', '30', '45'].map(m => <option key={m} value={m}>{m}</option>)}
+                    </select>
+                  </div>
+                );
+              })()}
             </div>
             <div>
               <label style={{display: 'block', fontSize: '12px', fontWeight: '600', color: '#64748b', marginBottom: '6px'}}>LIEU</label>
@@ -340,6 +452,21 @@ const CreateReunionModal: React.FC<CreateReunionModalProps> = ({ isOpen, onClose
                 <input type="checkbox" checked={afterHours} onChange={e => { const v = e.target.checked; setAfterHours(v); if (slotsOpen) fetchSlots(v); }} />
                 Hors heures ouvrées (8h–19h)
               </label>
+              <label title="Ne propose que des créneaux où tous les participants sont libres, sans créneaux partiels de repli" style={{display: 'inline-flex', alignItems: 'center', gap: '7px', fontSize: '13px', color: '#475569', fontWeight: 600, cursor: 'pointer'}}>
+                <input type="checkbox" checked={strictAll} onChange={e => { const v = e.target.checked; setStrictAll(v); if (slotsOpen) fetchSlots(afterHours, v); }} />
+                Strictement tous les participants
+              </label>
+              <label style={{display: 'inline-flex', alignItems: 'center', gap: '7px', fontSize: '13px', color: '#475569', fontWeight: 600}}>
+                Rechercher sur
+                <select value={horizonJours} onChange={e => { const v = parseInt(e.target.value, 10); setHorizonJours(v); if (slotsOpen) fetchSlots(afterHours, strictAll, v); }}
+                  style={{padding: '6px 8px', border: '1px solid #cbd5e1', borderRadius: '8px', fontSize: '13px', background: 'white'}}>
+                  <option value={30}>1 mois</option>
+                  <option value={61}>2 mois</option>
+                  <option value={91}>3 mois</option>
+                  <option value={183}>6 mois</option>
+                  <option value={365}>1 an</option>
+                </select>
+              </label>
             </div>
             {!loadingSlots && !slotsError && slots.length === 0 && !slotsOpen && (
               <div style={{marginTop: '8px', fontSize: '12px', color: '#94a3b8'}}>Cherche les 5 prochains créneaux libres pour tous les participants ({afterHours ? '8h–19h' : '8h30–12h / 13h30–17h30 (ven. 17h)'}, lun–ven), selon la durée choisie.</div>
@@ -369,6 +496,14 @@ const CreateReunionModal: React.FC<CreateReunionModalProps> = ({ isOpen, onClose
                     </button>
                   );
                 })}
+                {noMoreSlots
+                  ? <div style={{fontSize: '12px', color: '#94a3b8', textAlign: 'center', padding: '6px'}}>Plus aucun créneau sur {horizonLabel(horizonJours)} — élargissez la période de recherche pour aller plus loin.</div>
+                  : (
+                    <button type="button" onClick={() => fetchSlots(afterHours, strictAll, horizonJours, true)} disabled={loadingSlots}
+                      style={{padding: '8px 12px', background: 'white', color: '#2563eb', border: '1px dashed #93c5fd', borderRadius: '8px', cursor: loadingSlots ? 'wait' : 'pointer', fontWeight: 600, fontSize: '13px'}}>
+                      {loadingSlots ? 'Recherche…' : '+ 5 créneaux suivants'}
+                    </button>
+                  )}
               </div>
             )}
           </div>
@@ -416,6 +551,26 @@ const CreateReunionModal: React.FC<CreateReunionModalProps> = ({ isOpen, onClose
           )}
 
           <h3 style={{margin: '0 0 14px', fontSize: '14px', fontWeight: '700', color: '#1e293b', borderTop: '1px solid #e2e8f0', paddingTop: '16px'}}>Participants ({participants.length})</h3>
+
+          <div style={{background: '#faf5ff', borderRadius: '10px', padding: '14px', marginBottom: '14px'}}>
+            <div style={{fontSize: '12px', fontWeight: '700', color: '#7e22ce', marginBottom: '8px'}}>⚡ Ajout rapide par catégorie</div>
+            <div style={{display: 'flex', flexWrap: 'wrap', gap: '8px', alignItems: 'center'}}>
+              {([['dg', 'DG / DGA'], ['directeur', 'Directeurs'], ['responsable_service', 'Responsables de service']] as const).map(([k, label]) => (
+                <button key={k} type="button" disabled={!!bulkBusy} onClick={() => addEncadrants(k, label)}
+                  style={{padding: '7px 12px', background: 'white', color: '#7e22ce', border: '1px solid #d8b4fe', borderRadius: '8px', cursor: bulkBusy ? 'wait' : 'pointer', fontWeight: 600, fontSize: '13px', opacity: bulkBusy && bulkBusy !== k ? 0.6 : 1}}>
+                  {bulkBusy === k ? 'Chargement…' : `+ ${label}`}
+                </button>
+              ))}
+              {customGroups.length > 0 && (
+                <select value="" disabled={!!bulkBusy} onChange={e => addCustomGroup(e.target.value)}
+                  style={{padding: '7px 10px', border: '1px solid #d8b4fe', borderRadius: '8px', fontSize: '13px', background: 'white', color: '#7e22ce', fontWeight: 600}}>
+                  <option value="">{bulkBusy === 'group' ? 'Chargement…' : '+ Groupe particulier…'}</option>
+                  {customGroups.map(g => <option key={g.id} value={String(g.id)}>{g.name}</option>)}
+                </select>
+              )}
+            </div>
+            {bulkMsg && <div style={{marginTop: '8px', fontSize: '12px', color: '#6b21a8'}}>{bulkMsg}</div>}
+          </div>
 
           <div style={{background: '#eff6ff', borderRadius: '10px', padding: '14px', marginBottom: '14px'}}>
             <div style={{fontSize: '12px', fontWeight: '700', color: '#1d4ed8', marginBottom: '8px'}}>🔍 Ajouter un agent</div>

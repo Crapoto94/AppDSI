@@ -4,6 +4,7 @@ import { User, LogOut, Info, X, Settings, Plus, Trash2, CheckCircle2, Clock, Ale
 import * as LucideIcons from 'lucide-react';
 import { isAdminLike } from '../utils/roles';
 import ThemeToggle from './ThemeToggle';
+import NotificationBell from './NotificationBell';
 import axios from 'axios';
 
 interface Todo {
@@ -293,6 +294,7 @@ const Header: React.FC<HeaderProps> = ({ columns, onColumnsChange }) => {
         <nav className="header-nav">
           {token ? (
             <div className="user-menu">
+              <NotificationBell />
               <Link to="/profile" className="user-info-link" title="Mon Profil">
                 <span className="user-name">
                   {user.displayName || user.username}
