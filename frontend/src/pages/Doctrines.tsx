@@ -1,524 +1,518 @@
-import React, { useState, useEffect } from 'react';
-import { Plus, Edit2, Trash2, X, Search } from 'lucide-react';
+import React, { useState, useEffect, useMemo } from 'react';
+import { MessageSquarePlus, Trash2, X, Search, RefreshCw } from 'lucide-react';
 import axios from 'axios';
 import { useAuth } from '../contexts/AuthContext';
 import Header from '../components/Header';
-import ReactQuill from 'react-quill-new';
-import 'react-quill-new/dist/quill.snow.css';
+import ReactMarkdown, { type Components } from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import remarkBreaks from 'remark-breaks';
+
+interface SectionMeta {
+  key: string;
+  title: string;
+}
 
 interface Doctrine {
+  markdown: string;
+  sections: SectionMeta[];
+  updated_at?: string;
+}
+
+interface Comment {
   id: number;
-  title: string;
+  section_key: string;
+  section_title: string | null;
   content: string;
-  category: string;
-  doctrine_date: string;
   created_by: string;
   created_at: string;
 }
 
+interface ParsedSection {
+  key: string;
+  title: string;
+  body: string;
+}
+
+const DOC_KEY = 'document';
+
+const mdComponents: Components = {
+  a({ node, ...props }) {
+    void node;
+    return <a {...props} target="_blank" rel="noopener noreferrer" />;
+  },
+};
+
+const slugify = (value: string) =>
+  value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 120) || 'section';
+
+const parseDocument = (markdown: string, sections: SectionMeta[]) => {
+  const lines = markdown.split(/\r?\n/);
+  const intro: string[] = [];
+  const raw: { title: string; body: string[] }[] = [];
+  let current: { title: string; body: string[] } | null = null;
+
+  for (const line of lines) {
+    const m = line.match(/^##\s+(.+?)\s*$/);
+    if (m) {
+      current = { title: m[1].trim(), body: [] };
+      raw.push(current);
+    } else if (current) {
+      current.body.push(line);
+    } else {
+      intro.push(line);
+    }
+  }
+
+  const seen: Record<string, number> = {};
+  const parsed: ParsedSection[] = raw.map((s, i) => {
+    let key = sections[i]?.key;
+    if (!key) {
+      const base = slugify(s.title);
+      seen[base] = (seen[base] ?? -1) + 1;
+      key = seen[base] === 0 ? base : `${base}-${seen[base]}`;
+    }
+    return { key, title: sections[i]?.title || s.title, body: s.body.join('\n').trim() };
+  });
+
+  return { intro: intro.join('\n').trim(), sections: parsed };
+};
+
 const Doctrines: React.FC = () => {
-  const { token } = useAuth();
-  const [doctrines, setDoctrines] = useState<Doctrine[]>([]);
+  const { token, user } = useAuth();
+  const [doc, setDoc] = useState<Doctrine | null>(null);
+  const [comments, setComments] = useState<Comment[]>([]);
   const [loading, setLoading] = useState(true);
-  const [showModal, setShowModal] = useState(false);
-  const [editingId, setEditingId] = useState<number | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
 
-  const [formData, setFormData] = useState({
-    title: '',
-    content: '',
-    category: '',
-    doctrine_date: new Date().toISOString().split('T')[0]
-  });
+  const [openForm, setOpenForm] = useState<string | null>(null);
+  const [draft, setDraft] = useState('');
+  const [saving, setSaving] = useState(false);
 
-  const filteredDoctrines = doctrines.filter(doc => {
-    const query = searchQuery.toLowerCase();
-    return (
-      doc.title.toLowerCase().includes(query) ||
-      doc.content.toLowerCase().includes(query) ||
-      doc.category.toLowerCase().includes(query)
-    );
-  });
+  const authHeaders = useMemo(() => ({ Authorization: `Bearer ${token}` }), [token]);
 
-  useEffect(() => {
-    fetchDoctrines();
-  }, [token]);
-
-  const fetchDoctrines = async () => {
+  const fetchAll = async () => {
+    setLoading(true);
+    setError(null);
     try {
-      const response = await axios.get('/api/doctrines', {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      setDoctrines(response.data);
-    } catch (error) {
-      console.error('Error fetching doctrines:', error);
+      const [docRes, comRes] = await Promise.all([
+        axios.get('/api/doctrines/markdown', { headers: authHeaders }),
+        axios.get('/api/doctrines/comments', { headers: authHeaders }),
+      ]);
+      setDoc(docRes.data);
+      setComments(comRes.data);
+    } catch (err) {
+      console.error('Error fetching doctrine:', err);
+      setError('Impossible de charger le document de doctrine.');
     } finally {
       setLoading(false);
     }
   };
 
-  const handleSave = async () => {
-    if (!formData.title || !formData.content || !formData.doctrine_date) {
-      alert('Tous les champs sont requis');
-      return;
-    }
+  useEffect(() => {
+    if (token) fetchAll();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token]);
 
+  const parsed = useMemo(
+    () => (doc ? parseDocument(doc.markdown, doc.sections || []) : { intro: '', sections: [] }),
+    [doc]
+  );
+
+  const commentsBySection = useMemo(() => {
+    const map: Record<string, Comment[]> = {};
+    for (const c of comments) {
+      const key = c.section_key || DOC_KEY;
+      (map[key] = map[key] || []).push(c);
+    }
+    return map;
+  }, [comments]);
+
+  const canDelete = (c: Comment) =>
+    user?.username === c.created_by || ['admin', 'superadmin'].includes(user?.role || '');
+
+  const filteredSections = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return parsed.sections;
+    return parsed.sections.filter(
+      (s) => s.title.toLowerCase().includes(q) || s.body.toLowerCase().includes(q)
+    );
+  }, [parsed.sections, searchQuery]);
+
+  const handleSubmit = async (sectionKey: string, sectionTitle: string | null) => {
+    if (!draft.trim()) return;
+    setSaving(true);
     try {
-      if (editingId) {
-        await axios.put(`/api/doctrines/${editingId}`, formData, {
-          headers: { Authorization: `Bearer ${token}` }
-        });
-      } else {
-        await axios.post('/api/doctrines', formData, {
-          headers: { Authorization: `Bearer ${token}` }
-        });
-      }
-      setShowModal(false);
-      setFormData({ title: '', content: '', category: '', doctrine_date: new Date().toISOString().split('T')[0] });
-      setEditingId(null);
-      fetchDoctrines();
-    } catch (error) {
-      console.error('Error saving doctrine:', error);
-      alert('Erreur lors de la sauvegarde');
+      const res = await axios.post(
+        '/api/doctrines/comments',
+        { section_key: sectionKey, section_title: sectionTitle, content: draft },
+        { headers: authHeaders }
+      );
+      setComments((prev) => [...prev, res.data]);
+      setDraft('');
+      setOpenForm(null);
+    } catch (err) {
+      console.error('Error saving comment:', err);
+      alert("Erreur lors de l'enregistrement du commentaire");
+    } finally {
+      setSaving(false);
     }
-  };
-
-  const handleEdit = (doctrine: Doctrine) => {
-    setFormData({
-      title: doctrine.title,
-      content: doctrine.content,
-      category: doctrine.category,
-      doctrine_date: doctrine.doctrine_date
-    });
-    setEditingId(doctrine.id);
-    setShowModal(true);
   };
 
   const handleDelete = async (id: number) => {
-    if (!window.confirm('Êtes-vous sûr de vouloir supprimer cette doctrine?')) return;
-
+    if (!window.confirm('Supprimer ce commentaire ?')) return;
     try {
-      await axios.delete(`/api/doctrines/${id}`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      fetchDoctrines();
-    } catch (error) {
-      console.error('Error deleting doctrine:', error);
+      await axios.delete(`/api/doctrines/comments/${id}`, { headers: authHeaders });
+      setComments((prev) => prev.filter((c) => c.id !== id));
+    } catch (err) {
+      console.error('Error deleting comment:', err);
       alert('Erreur lors de la suppression');
     }
   };
 
-  const handleCloseModal = () => {
-    setShowModal(false);
-    setEditingId(null);
-    setFormData({ title: '', content: '', category: '', doctrine_date: new Date().toISOString().split('T')[0] });
-  };
+  const renderComments = (sectionKey: string, sectionTitle: string | null) => (
+    <div style={{ marginTop: '12px', borderTop: '1px dashed #e2e8f0', paddingTop: '12px' }}>
+      {(commentsBySection[sectionKey] || []).map((c) => (
+        <div
+          key={c.id}
+          style={{
+            background: '#fffbeb',
+            border: '1px solid #fde68a',
+            borderRadius: '8px',
+            padding: '10px 12px',
+            marginBottom: '8px',
+          }}
+        >
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', marginBottom: '4px' }}>
+            <span style={{ fontSize: '0.78rem', color: '#92400e', fontWeight: 600 }}>
+              {c.created_by} · {new Date(c.created_at).toLocaleString('fr-FR')}
+            </span>
+            {canDelete(c) && (
+              <button
+                onClick={() => handleDelete(c.id)}
+                title="Supprimer"
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#b45309', padding: 0 }}
+              >
+                <Trash2 size={14} />
+              </button>
+            )}
+          </div>
+          <div style={{ color: '#78350f', fontSize: '0.9rem', whiteSpace: 'pre-wrap', overflowWrap: 'break-word' }}>
+            {c.content}
+          </div>
+        </div>
+      ))}
 
-  if (loading) {
-    return (
-      <div style={{ minHeight: '100vh', backgroundColor: 'var(--bg-color)' }}>
-        <Header />
-        <main style={{ padding: '60px 20px', textAlign: 'center' }}>
-          Chargement...
-        </main>
-      </div>
-    );
-  }
+      {openForm === sectionKey ? (
+        <div>
+          <textarea
+            autoFocus
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            placeholder={`Votre commentaire sur « ${sectionTitle || 'ce document'} »…`}
+            rows={3}
+            style={{
+              width: '100%',
+              boxSizing: 'border-box',
+              padding: '10px 12px',
+              border: '1px solid #cbd5e1',
+              borderRadius: '8px',
+              fontSize: '0.95rem',
+              fontFamily: 'inherit',
+              resize: 'vertical',
+            }}
+          />
+          <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', marginTop: '8px' }}>
+            <button
+              onClick={() => {
+                setOpenForm(null);
+                setDraft('');
+              }}
+              style={{
+                padding: '7px 14px',
+                background: 'white',
+                color: '#64748b',
+                border: '1px solid #e2e8f0',
+                borderRadius: '8px',
+                cursor: 'pointer',
+                fontWeight: 600,
+              }}
+            >
+              Annuler
+            </button>
+            <button
+              onClick={() => handleSubmit(sectionKey, sectionTitle)}
+              disabled={saving || !draft.trim()}
+              style={{
+                padding: '7px 14px',
+                background: saving || !draft.trim() ? '#93c5fd' : '#2563eb',
+                color: 'white',
+                border: 'none',
+                borderRadius: '8px',
+                cursor: saving || !draft.trim() ? 'not-allowed' : 'pointer',
+                fontWeight: 600,
+              }}
+            >
+              {saving ? 'Envoi…' : 'Publier le commentaire'}
+            </button>
+          </div>
+        </div>
+      ) : (
+        <button
+          onClick={() => {
+            setOpenForm(sectionKey);
+            setDraft('');
+          }}
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '6px',
+            padding: '6px 12px',
+            background: '#f1f5f9',
+            color: '#0c4a6e',
+            border: '1px solid #cbd5e1',
+            borderRadius: '999px',
+            cursor: 'pointer',
+            fontSize: '0.85rem',
+            fontWeight: 600,
+          }}
+        >
+          <MessageSquarePlus size={15} />
+          Commenter cette section
+        </button>
+      )}
+    </div>
+  );
+
+  const countFor = (key: string) => (commentsBySection[key] || []).length;
 
   return (
     <div style={{ minHeight: '100vh', backgroundColor: 'var(--bg-color)' }}>
       <Header />
       <main style={{ padding: '60px 20px' }}>
-        <div style={{ maxWidth: '1200px', margin: '0 auto' }}>
-          <div style={{ marginBottom: '32px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div style={{ maxWidth: '1000px', margin: '0 auto' }}>
+          <div style={{ marginBottom: '20px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '16px', flexWrap: 'wrap' }}>
             <div>
-              <h1 style={{ fontSize: '2rem', fontWeight: '900', color: '#0f172a', margin: 0, marginBottom: '8px' }}>
+              <h1 style={{ fontSize: '2rem', fontWeight: 900, color: '#0f172a', margin: 0, marginBottom: '8px' }}>
                 Notes de service et doctrines
               </h1>
               <p style={{ color: '#64748b', fontSize: '1rem', margin: 0 }}>
-                Gérez les doctrines et notes de service
+                Document de doctrine DSI — <code>docs/DOCTRINE-DSI.md</code>
+                {doc?.updated_at && (
+                  <> · mis à jour le {new Date(doc.updated_at).toLocaleDateString('fr-FR')}</>
+                )}
               </p>
             </div>
             <button
-              onClick={() => setShowModal(true)}
+              onClick={fetchAll}
               style={{
-                padding: '10px 20px',
-                background: '#2563eb',
-                color: 'white',
-                border: 'none',
+                padding: '8px 14px',
+                background: 'white',
+                color: '#334155',
+                border: '1px solid #e2e8f0',
                 borderRadius: '8px',
                 cursor: 'pointer',
-                fontWeight: '600',
+                fontWeight: 600,
                 display: 'flex',
                 alignItems: 'center',
-                gap: '8px'
+                gap: '6px',
               }}
             >
-              <Plus size={18} />
-              Nouvelle doctrine
+              <RefreshCw size={16} />
+              Rafraîchir
             </button>
           </div>
 
-          <div style={{ marginBottom: '24px', display: 'flex', alignItems: 'center', gap: '12px' }}>
-            <div style={{
-              flex: 1,
+          <div
+            style={{
+              background: '#eff6ff',
+              border: '1px solid #bfdbfe',
+              borderRadius: '10px',
+              padding: '12px 16px',
+              color: '#1e40af',
+              fontSize: '0.9rem',
+              marginBottom: '20px',
+            }}
+          >
+            Chaque section peut recevoir des commentaires. Cliquez sur <strong>« Commenter cette section »</strong> pour
+            signaler un point à analyser ultérieurement : l'emplacement de la remarque est conservé.
+          </div>
+
+          <div
+            style={{
+              marginBottom: '20px',
               display: 'flex',
               alignItems: 'center',
               gap: '12px',
               padding: '10px 16px',
               border: '1px solid #e2e8f0',
               borderRadius: '8px',
-              backgroundColor: 'white'
-            }}>
-              <Search size={18} color="#94a3b8" />
-              <input
-                type="text"
-                placeholder="Rechercher par titre, catégorie ou contenu..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                style={{
-                  flex: 1,
-                  border: 'none',
-                  outline: 'none',
-                  fontSize: '1rem',
-                  fontFamily: 'inherit'
-                }}
-              />
-              {searchQuery && (
-                <button
-                  onClick={() => setSearchQuery('')}
-                  style={{
-                    background: 'none',
-                    border: 'none',
-                    cursor: 'pointer',
-                    color: '#94a3b8',
-                    padding: '4px'
-                  }}
-                >
-                  <X size={18} />
-                </button>
-              )}
-            </div>
+              backgroundColor: 'white',
+            }}
+          >
+            <Search size={18} color="#94a3b8" />
+            <input
+              type="text"
+              placeholder="Rechercher dans le document…"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              style={{ flex: 1, border: 'none', outline: 'none', fontSize: '1rem', fontFamily: 'inherit' }}
+            />
             {searchQuery && (
-              <span style={{ color: '#64748b', fontSize: '0.9rem', whiteSpace: 'nowrap' }}>
-                {filteredDoctrines.length} résultat{filteredDoctrines.length > 1 ? 's' : ''}
-              </span>
+              <button
+                onClick={() => setSearchQuery('')}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', padding: '4px' }}
+              >
+                <X size={18} />
+              </button>
             )}
           </div>
 
-          <div style={{ display: 'grid', gap: '16px' }}>
-            {filteredDoctrines.length === 0 ? (
-              <div style={{
-                background: 'white',
+          {loading ? (
+            <div style={{ textAlign: 'center', padding: '60px', color: '#94a3b8' }}>Chargement…</div>
+          ) : error ? (
+            <div
+              style={{
+                background: '#fef2f2',
+                border: '1px solid #fecaca',
                 borderRadius: '12px',
-                padding: '40px',
-                textAlign: 'center',
-                color: '#94a3b8',
-                boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
-              }}>
-                {searchQuery ? 'Aucune doctrine ne correspond à votre recherche' : 'Aucune doctrine pour le moment'}
-              </div>
-            ) : (
-              filteredDoctrines.map(doc => (
+                padding: '24px',
+                color: '#991b1b',
+              }}
+            >
+              {error}
+            </div>
+          ) : doc ? (
+            <div style={{ display: 'grid', gap: '16px' }}>
+              {parsed.intro && (
                 <div
-                  key={doc.id}
+                  style={{
+                    background: 'white',
+                    borderRadius: '12px',
+                    padding: '16px 20px',
+                    boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
+                    color: '#475569',
+                  }}
+                  className="doctrine-content"
+                >
+                  <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]} components={mdComponents}>
+                    {parsed.intro}
+                  </ReactMarkdown>
+                </div>
+              )}
+
+              {filteredSections.map((section) => (
+                <div
+                  key={section.key}
+                  id={`doctrine-${section.key}`}
                   style={{
                     background: 'white',
                     borderRadius: '12px',
                     padding: '20px',
                     boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
-                    borderLeft: '4px solid #2563eb',
+                    borderLeft: countFor(section.key) > 0 ? '4px solid #f59e0b' : '4px solid #2563eb',
                     overflow: 'hidden',
-                    minWidth: 0
+                    minWidth: 0,
                   }}
                 >
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', gap: '12px', marginBottom: '12px' }}>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <h3 style={{ fontSize: '1.1rem', fontWeight: '700', color: '#0f172a', margin: 0, marginBottom: '4px', overflowWrap: 'break-word', wordBreak: 'break-word' }}>
-                        {doc.title}
-                      </h3>
-                      <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
-                        {doc.category && (
-                          <span style={{
-                            display: 'inline-block',
-                            background: '#dbeafe',
-                            color: '#1e40af',
-                            padding: '4px 10px',
-                            borderRadius: '6px',
-                            fontSize: '0.8rem',
-                            fontWeight: '600'
-                          }}>
-                            {doc.category}
-                          </span>
-                        )}
-                        <span style={{ fontSize: '0.85rem', color: '#64748b' }}>
-                          {new Date(doc.doctrine_date).toLocaleDateString('fr-FR')}
-                        </span>
-                        <span style={{ fontSize: '0.85rem', color: '#94a3b8' }}>
-                          par {doc.created_by}
-                        </span>
-                      </div>
-                    </div>
-                    <div style={{ display: 'flex', gap: '8px', flexShrink: 0 }}>
-                      <button
-                        onClick={() => handleEdit(doc)}
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', marginBottom: '10px' }}>
+                    <h2 style={{ fontSize: '1.25rem', fontWeight: 800, color: '#0f172a', margin: 0 }}>
+                      {section.title}
+                    </h2>
+                    {countFor(section.key) > 0 && (
+                      <span
                         style={{
-                          padding: '6px 12px',
-                          background: '#f1f5f9',
-                          color: '#0c4a6e',
-                          border: '1px solid #cbd5e1',
-                          borderRadius: '6px',
-                          cursor: 'pointer',
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '4px'
+                          flexShrink: 0,
+                          background: '#fef3c7',
+                          color: '#92400e',
+                          borderRadius: '999px',
+                          padding: '3px 10px',
+                          fontSize: '0.78rem',
+                          fontWeight: 700,
                         }}
                       >
-                        <Edit2 size={14} />
-                        Éditer
-                      </button>
-                      <button
-                        onClick={() => handleDelete(doc.id)}
-                        style={{
-                          padding: '6px 12px',
-                          background: '#fee2e2',
-                          color: '#991b1b',
-                          border: '1px solid #fca5a5',
-                          borderRadius: '6px',
-                          cursor: 'pointer',
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '4px'
-                        }}
-                      >
-                        <Trash2 size={14} />
-                        Supprimer
-                      </button>
-                    </div>
+                        {countFor(section.key)} commentaire{countFor(section.key) > 1 ? 's' : ''}
+                      </span>
+                    )}
                   </div>
 
-                  <div
-                    className="doctrine-content"
-                    style={{
-                      background: '#f8fafc',
-                      padding: '12px',
-                      borderRadius: '8px',
-                      fontSize: '0.95rem',
-                      color: '#475569',
-                      lineHeight: 1.6,
-                      minWidth: 0
-                    }}
-                    dangerouslySetInnerHTML={{ __html: doc.content }}
-                  />
+                  <div className="doctrine-content" style={{ color: '#475569', fontSize: '0.95rem', lineHeight: 1.6, minWidth: 0 }}>
+                    <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]} components={mdComponents}>
+                      {section.body}
+                    </ReactMarkdown>
+                  </div>
+
+                  {renderComments(section.key, section.title)}
                 </div>
-              ))
-            )}
-          </div>
+              ))}
+
+              {filteredSections.length === 0 && (
+                <div style={{ background: 'white', borderRadius: '12px', padding: '40px', textAlign: 'center', color: '#94a3b8' }}>
+                  Aucune section ne correspond à votre recherche.
+                </div>
+              )}
+
+              <div
+                style={{
+                  background: 'white',
+                  borderRadius: '12px',
+                  padding: '20px',
+                  boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
+                  borderLeft: '4px solid #64748b',
+                }}
+              >
+                <h2 style={{ fontSize: '1.1rem', fontWeight: 800, color: '#0f172a', margin: 0, marginBottom: '4px' }}>
+                  Commentaires généraux (hors section)
+                </h2>
+                <p style={{ color: '#94a3b8', fontSize: '0.85rem', margin: '0 0 8px' }}>
+                  Remarques transverses au document.
+                </p>
+                {renderComments(DOC_KEY, 'Document (général)')}
+              </div>
+            </div>
+          ) : null}
         </div>
       </main>
 
       <style>{`
-        .doctrine-content {
-          white-space: normal;
-          overflow-wrap: break-word;
-          word-break: normal;
-        }
+        .doctrine-content { white-space: normal; overflow-wrap: break-word; word-break: normal; }
         .doctrine-content p,
         .doctrine-content span,
         .doctrine-content strong,
         .doctrine-content em,
         .doctrine-content li,
-        .doctrine-content a {
-          white-space: normal;
-          overflow-wrap: break-word;
-          word-break: normal;
-        }
+        .doctrine-content a { white-space: normal; overflow-wrap: break-word; word-break: normal; }
         .doctrine-content ul,
-        .doctrine-content ol {
-          padding-left: 1.6em;
-          margin: 0.4em 0;
-        }
+        .doctrine-content ol { padding-left: 1.6em; margin: 0.4em 0; }
         .doctrine-content ul { list-style-type: disc; }
         .doctrine-content ol { list-style-type: decimal; }
-        .doctrine-content li { margin-bottom: 0.2em; }
-        .doctrine-content ul ul,
-        .doctrine-content ol ul { list-style-type: circle; }
-        .doctrine-content ul ul ul { list-style-type: square; }
-        .doctrine-content a {
-          color: #2563eb;
-          text-decoration: underline;
-          cursor: pointer;
-          text-underline-offset: 2px;
+        .doctrine-content li { margin-bottom: 0.35em; }
+        .doctrine-content h2, .doctrine-content h3 { margin: 0.6em 0 0.3em; }
+        .doctrine-content blockquote {
+          margin: 0.4em 0;
+          padding: 4px 12px;
+          border-left: 3px solid #cbd5e1;
+          color: #64748b;
+          background: #f8fafc;
         }
-        .doctrine-content a:hover {
-          color: #1d4ed8;
-          text-decoration: underline;
-        }
+        .doctrine-content a { color: #2563eb; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
+        .doctrine-content a:hover { color: #1d4ed8; }
         .doctrine-content p { margin: 0.3em 0; }
         .doctrine-content p:first-child { margin-top: 0; }
         .doctrine-content p:last-child { margin-bottom: 0; }
+        .doctrine-content code {
+          background: #f1f5f9;
+          padding: 1px 5px;
+          border-radius: 4px;
+          font-size: 0.85em;
+        }
       `}</style>
-
-      {showModal && (
-        <div style={{
-          position: 'fixed',
-          inset: 0,
-          backgroundColor: 'rgba(15, 23, 42, 0.6)',
-          backdropFilter: 'blur(4px)',
-          display: 'flex',
-          justifyContent: 'center',
-          alignItems: 'center',
-          zIndex: 2000,
-          padding: '20px'
-        }}>
-          <div style={{
-            background: 'white',
-            borderRadius: '16px',
-            width: '100%',
-            maxWidth: '900px',
-            maxHeight: '90vh',
-            display: 'flex',
-            flexDirection: 'column',
-            boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)'
-          }}>
-            <div style={{
-              padding: '20px 24px',
-              borderBottom: '1px solid #f1f5f9',
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center'
-            }}>
-              <h2 style={{ fontSize: '1.5rem', fontWeight: '800', color: '#0f172a', margin: 0 }}>
-                {editingId ? 'Éditer la doctrine' : 'Nouvelle doctrine'}
-              </h2>
-              <button
-                onClick={handleCloseModal}
-                style={{
-                  background: 'none',
-                  border: 'none',
-                  cursor: 'pointer',
-                  color: '#64748b',
-                  padding: '8px'
-                }}
-              >
-                <X size={24} />
-              </button>
-            </div>
-
-            <div style={{ padding: '24px', overflow: 'auto', flex: 1 }}>
-              <div style={{ marginBottom: '16px' }}>
-                <label style={{ display: 'block', fontWeight: '600', color: '#334155', marginBottom: '6px' }}>
-                  Titre
-                </label>
-                <input
-                  type="text"
-                  value={formData.title}
-                  onChange={e => setFormData({ ...formData, title: e.target.value })}
-                  style={{
-                    width: '100%',
-                    padding: '10px 12px',
-                    border: '1px solid #e2e8f0',
-                    borderRadius: '8px',
-                    fontSize: '1rem',
-                    boxSizing: 'border-box'
-                  }}
-                  placeholder="Titre de la doctrine"
-                />
-              </div>
-
-              <div style={{ marginBottom: '16px' }}>
-                <label style={{ display: 'block', fontWeight: '600', color: '#334155', marginBottom: '6px' }}>
-                  Contenu
-                </label>
-                <ReactQuill
-                  value={formData.content}
-                  onChange={(content: string) => setFormData({ ...formData, content })}
-                  style={{ background: 'white', height: '250px', marginBottom: '50px' }}
-                  theme="snow"
-                />
-              </div>
-
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
-                <div>
-                  <label style={{ display: 'block', fontWeight: '600', color: '#334155', marginBottom: '6px' }}>
-                    Catégorie
-                  </label>
-                  <input
-                    type="text"
-                    value={formData.category}
-                    onChange={e => setFormData({ ...formData, category: e.target.value })}
-                    style={{
-                      width: '100%',
-                      padding: '10px 12px',
-                      border: '1px solid #e2e8f0',
-                      borderRadius: '8px',
-                      fontSize: '1rem',
-                      boxSizing: 'border-box'
-                    }}
-                    placeholder="Catégorie"
-                  />
-                </div>
-
-                <div>
-                  <label style={{ display: 'block', fontWeight: '600', color: '#334155', marginBottom: '6px' }}>
-                    Date
-                  </label>
-                  <input
-                    type="date"
-                    value={formData.doctrine_date}
-                    onChange={e => setFormData({ ...formData, doctrine_date: e.target.value })}
-                    style={{
-                      width: '100%',
-                      padding: '10px 12px',
-                      border: '1px solid #e2e8f0',
-                      borderRadius: '8px',
-                      fontSize: '1rem',
-                      boxSizing: 'border-box'
-                    }}
-                  />
-                </div>
-              </div>
-            </div>
-
-            <div style={{
-              padding: '16px 24px',
-              borderTop: '1px solid #f1f5f9',
-              display: 'flex',
-              gap: '12px',
-              justifyContent: 'flex-end'
-            }}>
-              <button
-                onClick={handleCloseModal}
-                style={{
-                  padding: '10px 20px',
-                  background: 'white',
-                  color: '#64748b',
-                  border: '1px solid #e2e8f0',
-                  borderRadius: '8px',
-                  cursor: 'pointer',
-                  fontWeight: '600'
-                }}
-              >
-                Annuler
-              </button>
-              <button
-                onClick={handleSave}
-                style={{
-                  padding: '10px 20px',
-                  background: '#2563eb',
-                  color: 'white',
-                  border: 'none',
-                  borderRadius: '8px',
-                  cursor: 'pointer',
-                  fontWeight: '600'
-                }}
-              >
-                {editingId ? 'Mettre à jour' : 'Créer'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 };

@@ -4707,6 +4707,22 @@ async function setupPgDb() {
       CREATE INDEX IF NOT EXISTS idx_doctrines_date ON hub.doctrines(doctrine_date DESC)
     `);
 
+    // Commentaires ancrés sur le document de doctrine (docs/DOCTRINE-DSI.md)
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS hub.doctrine_comments (
+        id SERIAL PRIMARY KEY,
+        section_key VARCHAR(255),
+        section_title TEXT,
+        content TEXT NOT NULL,
+        created_by VARCHAR(255),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_doctrine_comments_section ON hub.doctrine_comments(section_key)
+    `);
+
     await client.query(`
       CREATE TABLE IF NOT EXISTS hub.changelog_versions (
         id SERIAL PRIMARY KEY,

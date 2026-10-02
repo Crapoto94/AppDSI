@@ -6131,11 +6131,11 @@ app.delete('/api/backlog/:id', authenticateAdmin, backlogController.deleteBacklo
 // ============================================
 const doctrinesController = require('./controllers/doctrinesController');
 
-app.get('/api/doctrines', authenticateJWT, doctrinesController.getAllDoctrines);
-app.get('/api/doctrines/:id', authenticateJWT, doctrinesController.getDoctrine);
-app.post('/api/doctrines', authenticateJWT, doctrinesController.createDoctrine);
-app.put('/api/doctrines/:id', authenticateJWT, doctrinesController.updateDoctrine);
-app.delete('/api/doctrines/:id', authenticateJWT, doctrinesController.deleteDoctrine);
+// Document de doctrine (docs/DOCTRINE-DSI.md) + commentaires ancrés.
+app.get('/api/doctrines/markdown', authenticateJWT, doctrinesController.getMarkdown);
+app.get('/api/doctrines/comments', authenticateJWT, doctrinesController.getAllComments);
+app.post('/api/doctrines/comments', authenticateJWT, doctrinesController.createComment);
+app.delete('/api/doctrines/comments/:id', authenticateJWT, doctrinesController.deleteComment);
 
 // ============================================
 // VIBECODING - Documents Markdown (menus de la rubrique VibeCoding)
