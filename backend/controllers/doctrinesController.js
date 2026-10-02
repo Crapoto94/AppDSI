@@ -4,7 +4,30 @@ const { pgDb } = require('../shared/pg_db');
 
 // Le document de doctrine affiché par la tuile « Notes & doctrines ».
 // Il est livré avec le code (docs/DOCTRINE-DSI.md) et non stocké en base.
-const DOCTRINE_MD_PATH = path.join(__dirname, '..', '..', 'docs', 'DOCTRINE-DSI.md');
+//
+// Chemins candidats, dans l'ordre :
+//  - DOCTRINE_MD_PATH (surcharge explicite) ;
+//  - dev / repo : <repo>/docs/DOCTRINE-DSI.md (backend/controllers -> 2 niveaux) ;
+//  - doc embarqué côté backend : backend/docs/DOCTRINE-DSI.md ;
+//  - Docker : le dossier docs/ est monté dans le conteneur (/app/docs ou /docs).
+const DOCTRINE_MD_CANDIDATES = [
+  process.env.DOCTRINE_MD_PATH,
+  path.join(__dirname, '..', '..', 'docs', 'DOCTRINE-DSI.md'),
+  path.join(__dirname, '..', 'docs', 'DOCTRINE-DSI.md'),
+  '/app/docs/DOCTRINE-DSI.md',
+  '/docs/DOCTRINE-DSI.md',
+].filter(Boolean);
+
+function resolveDoctrinePath() {
+  for (const candidate of DOCTRINE_MD_CANDIDATES) {
+    try {
+      if (fs.existsSync(candidate)) return candidate;
+    } catch (_) {
+      // ignore et passe au candidat suivant
+    }
+  }
+  return DOCTRINE_MD_CANDIDATES[0];
+}
 
 function slugify(value) {
   return String(value)
@@ -39,19 +62,24 @@ function parseSections(markdown) {
 }
 
 function readDoctrine() {
-  const markdown = fs.readFileSync(DOCTRINE_MD_PATH, 'utf-8');
-  return { markdown, sections: parseSections(markdown) };
+  const filePath = resolveDoctrinePath();
+  const markdown = fs.readFileSync(filePath, 'utf-8');
+  return { filePath, markdown, sections: parseSections(markdown) };
 }
 
 // GET /api/doctrines/markdown
 exports.getMarkdown = async (req, res) => {
   try {
-    const { markdown, sections } = readDoctrine();
-    const stat = fs.statSync(DOCTRINE_MD_PATH);
+    const { filePath, markdown, sections } = readDoctrine();
+    const stat = fs.statSync(filePath);
     res.json({ markdown, sections, updated_at: stat.mtime });
   } catch (error) {
-    console.error('Error reading doctrine markdown:', error);
-    res.status(500).json({ error: error.message });
+    console.error('Error reading doctrine markdown:', error, '| candidats:', DOCTRINE_MD_CANDIDATES);
+    res.status(500).json({
+      error: 'Document de doctrine introuvable',
+      detail: error.message,
+      candidates: DOCTRINE_MD_CANDIDATES,
+    });
   }
 };
 
