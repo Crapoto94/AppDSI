@@ -1170,12 +1170,29 @@ async function setupPgDb() {
         emails_skipped INTEGER DEFAULT 0,
         emails_failed INTEGER DEFAULT 0,
         tickets_created INTEGER DEFAULT 0,
+        tasks_created INTEGER DEFAULT 0,
         comments_added INTEGER DEFAULT 0,
         attachments_processed INTEGER DEFAULT 0,
         errors TEXT,
         status VARCHAR(50) DEFAULT 'success'
       );
     `);
+    await client.query(`ALTER TABLE hub_tickets.mail_collector_logs ADD COLUMN IF NOT EXISTS tasks_created INTEGER DEFAULT 0`);
+
+    // Collecteur mail « tâches » (module='taches') : déduplication des emails déjà
+    // transformés en tâche personnelle (l'équivalent de ticket_email_mapping, mais
+    // pour hub.user_tasks). Un email Graph = au plus une tâche.
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS hub.task_email_mapping (
+        id SERIAL PRIMARY KEY,
+        task_id INTEGER NOT NULL,
+        email_message_id VARCHAR(255) NOT NULL UNIQUE,
+        email_from VARCHAR(255),
+        email_received_at TIMESTAMPTZ,
+        imported_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_task_email_mapping_task ON hub.task_email_mapping(task_id)`);
 
     await client.query(`
       CREATE TABLE IF NOT EXISTS hub_tickets.ticket_email_mapping (

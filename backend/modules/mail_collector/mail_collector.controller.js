@@ -37,7 +37,7 @@ module.exports = {
 
   create: async (req, res) => {
     try {
-      const { name, mailbox, domain_filter, frequency, is_enabled, module } = req.body;
+      const { name, mailbox, domain_filter, frequency, is_enabled, module, success_folder } = req.body;
 
       if (!name || !mailbox) {
         return res.status(400).json({ message: 'Champs requis: name, mailbox' });
@@ -51,8 +51,8 @@ module.exports = {
       const nextRun = MailCollectorService.getNextRunTime(frequency || 'hourly');
 
       const result = await pgDb.run(
-        'INSERT INTO hub_tickets.mail_collectors (name, mailbox, domain_filter, frequency, module, is_enabled, next_run) VALUES (?, ?, ?, ?, ?, ?, ?)',
-        [name, mailbox, domain_filter || null, frequency || 'hourly', module || 'tickets', is_enabled !== false, nextRun.toISOString()]
+        'INSERT INTO hub_tickets.mail_collectors (name, mailbox, domain_filter, frequency, module, is_enabled, success_folder, next_run) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+        [name, mailbox, domain_filter || null, frequency || 'hourly', module || 'tickets', is_enabled !== false, success_folder || null, nextRun.toISOString()]
       );
 
       const collector = await pgDb.get('SELECT * FROM hub_tickets.mail_collectors WHERE id = ?', [result.lastID]);
@@ -68,7 +68,7 @@ module.exports = {
       const existing = await pgDb.get('SELECT * FROM hub_tickets.mail_collectors WHERE id = ?', [req.params.id]);
       if (!existing) return res.status(404).json({ message: 'Collecteur non trouvé' });
 
-      const { name, mailbox, domain_filter, frequency, is_enabled, module } = req.body;
+      const { name, mailbox, domain_filter, frequency, is_enabled, module, success_folder } = req.body;
 
       if (mailbox && mailbox !== existing.mailbox) {
         const duplicate = await pgDb.get('SELECT id FROM hub_tickets.mail_collectors WHERE mailbox = ?', [mailbox]);
@@ -88,6 +88,7 @@ module.exports = {
       if (domain_filter !== undefined) { updates.push('domain_filter = ?'); values.push(domain_filter || null); }
       if (frequency !== undefined) { updates.push('frequency = ?'); values.push(frequency); }
       if (module !== undefined) { updates.push('module = ?'); values.push(module); }
+      if (success_folder !== undefined) { updates.push('success_folder = ?'); values.push(success_folder || null); }
 
       if (frequency) {
         const nextRun = MailCollectorService.getNextRunTime(frequency);
