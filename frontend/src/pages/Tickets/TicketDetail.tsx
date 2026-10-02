@@ -2845,18 +2845,18 @@ export default function TicketDetail() {
             <div style={SF}>
               <span style={SL}>Lieu</span>
               {editingInfo ? (
-                <div style={{ position: 'relative', width: '100%', maxWidth: 180 }}>
+                <div style={{ position: 'relative', width: '100%', maxWidth: 420, flex: 1, minWidth: 0 }}>
                   <SiteSelectField
                     initialValue={editForm.location || ''}
                     onSelect={s => { const l = s.code_bien ? `${s.code_bien} — ${s.nom}` : s.nom; setEditForm((f: any) => ({ ...f, location: l })); }}
                     onClear={() => setEditForm((f: any) => ({ ...f, location: '' }))}
                     onQueryChange={q => setEditForm((f: any) => ({ ...f, location: q }))}
-                    placeholder="Chercher..."
+                    placeholder="Chercher un site..."
                     compact
                     maxResults={20}
                     showAbbreviation={false}
-                    dropdownStyle={{ borderRadius: 6, maxHeight: 200, background: '#fff', border: '1px solid #e4e4e7', boxShadow: '0 4px 6px rgba(0,0,0,0.1)' }}
-                    inputStyle={{ border: '1px solid #e4e4e7', borderRadius: 6, fontSize: 12, padding: '5px 8px' }}
+                    dropdownStyle={{ borderRadius: 6, maxHeight: 240, background: '#fff', border: '1px solid #e4e4e7', boxShadow: '0 4px 6px rgba(0,0,0,0.1)', minWidth: '100%', maxWidth: '100%', width: '100%' }}
+                    inputStyle={{ border: '1px solid #e4e4e7', borderRadius: 6, fontSize: 12, padding: '5px 8px', width: '100%', minWidth: 320 }}
                   />
                 </div>
               ) : (
