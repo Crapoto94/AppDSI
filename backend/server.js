@@ -4810,6 +4810,36 @@ app.delete('/api/tiles/:id', authenticateAdmin, async (req, res) => {
     res.json({ message: 'Tile deleted' });
 });
 
+// Autorisations par tuile (vue inversée de /api/users/:id/tiles).
+// GET  /api/tiles/:id/users -> tous les agents avec un drapeau `authorized`
+// PUT  /api/tiles/:id/users { users: [ids] } -> remplace la liste des autorisés
+app.get('/api/tiles/:id/users', authenticateAdmin, async (req, res) => {
+    try {
+        const users = await db.all('SELECT id, username, role, is_approved FROM users ORDER BY username');
+        const rows = await db.all('SELECT user_id FROM user_tiles WHERE tile_id = ?', [req.params.id]);
+        const authorized = new Set(rows.map(r => Number(r.user_id)));
+        res.json(users.map(u => ({ ...u, authorized: authorized.has(Number(u.id)) })));
+    } catch (error) {
+        res.status(500).json({ message: 'Erreur lors de la récupération des autorisations', error: error.message });
+    }
+});
+
+app.put('/api/tiles/:id/users', authenticateAdmin, async (req, res) => {
+    const { users } = req.body;
+    if (!Array.isArray(users)) {
+        return res.status(400).json({ message: 'users doit être un tableau d\'identifiants utilisateurs' });
+    }
+    try {
+        await db.run('DELETE FROM user_tiles WHERE tile_id = ?', [req.params.id]);
+        for (const userId of users) {
+            await db.run('INSERT OR IGNORE INTO user_tiles (user_id, tile_id) VALUES (?, ?)', [userId, req.params.id]);
+        }
+        res.json({ message: 'Autorisations de la tuile mises à jour avec succès' });
+    } catch (error) {
+        res.status(500).json({ message: 'Erreur lors de la mise à jour des autorisations', error: error.message });
+    }
+});
+
 // Links Routes
 app.post('/api/tiles/:tileId/links', authenticateAdmin, async (req, res) => {
     const { label, url, is_internal } = req.body;
