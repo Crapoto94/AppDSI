@@ -7,6 +7,7 @@ import Header from '../../components/Header';
 import CreateTaskModal from '../../components/CreateTaskModal';
 import { useAuth } from '../../contexts/AuthContext';
 import { useADSearch } from '../../utils/useADSearch';
+import { normalizeLinksHtml } from './ticketEditor';
 import AssociateProblemModal from './AssociateProblemModal';
 import ProblemModal from './ProblemModal';
 import ResponseSuggestions from './ResponseSuggestions';
@@ -25,6 +26,13 @@ function decodeHtml(str: string) {
   const txt = document.createElement('textarea');
   txt.innerHTML = str;
   return txt.value;
+}
+
+// Point d'entrée unique pour afficher un HTML de ticket / commentaire / solution :
+// décodage des entités, normalisation des liens sans schéma (cf. ticketEditor)
+// puis réécriture des images GLPI / cid:.
+function renderTicketHtml(raw: string, cidMap?: Record<string, number>): string {
+  return rewriteGlpiImages(normalizeLinksHtml(decodeHtml(raw || '')), cidMap);
 }
 
 // Réécrit les liens d'images GLPI (document.send.php + cid:) vers notre proxy authentifié.
@@ -1155,7 +1163,7 @@ export default function TicketDetail() {
       const token = localStorage.getItem('token');
       const attachment_ids = await buildAttachmentIds();
       await axios.post(`/api/tickets/${id}/comments`, {
-        content: newComment,
+        content: normalizeLinksHtml(newComment),
         is_private: isPrivate ? 1 : 0,
         attachment_ids
       }, { headers: { Authorization: `Bearer ${token}` } });
@@ -1172,7 +1180,7 @@ export default function TicketDetail() {
     if (!editingCommentText.trim()) return;
     try {
       const token = localStorage.getItem('token');
-      await axios.put(`/api/tickets/${id}/comments/${commentId}`, { content: editingCommentText }, { headers: { Authorization: `Bearer ${token}` } });
+      await axios.put(`/api/tickets/${id}/comments/${commentId}`, { content: normalizeLinksHtml(editingCommentText) }, { headers: { Authorization: `Bearer ${token}` } });
       setEditingCommentId(null);
       setEditingCommentText('');
       loadTicket();
@@ -1191,20 +1199,21 @@ export default function TicketDetail() {
       const token = localStorage.getItem('token');
       const h = { headers: { Authorization: `Bearer ${token}` } };
       const attachment_ids = await buildAttachmentIds();
+      const content = normalizeLinksHtml(newComment);
       // 1) Poster le commentaire — envoyé par email au demandeur si connu
       //    (+ CC techniciens/observateurs sélectionnés), sinon commentaire public simple.
       if (ticket.requester?.email) {
         await axios.post(`/api/tickets/${id}/comments/send`, {
-          content: newComment, is_private: 0,
+          content, is_private: 0,
           cc_observers: ccObservers, cc_technicians: ccTechnicians,
           is_resolution: true,
           attachment_ids
         }, h);
       } else {
-        await axios.post(`/api/tickets/${id}/comments`, { content: newComment, is_private: 0, attachment_ids }, h);
+        await axios.post(`/api/tickets/${id}/comments`, { content, is_private: 0, attachment_ids }, h);
       }
       // 2) Le définir comme solution → statut Résolu (5) + date_solved (côté backend)
-      await axios.post(`/api/tickets/${id}/solution`, { solution: newComment }, h);
+      await axios.post(`/api/tickets/${id}/solution`, { solution: content }, h);
       setNewComment('');
       setCommentFile(null);
       setPendingDocs([]);
@@ -1226,12 +1235,12 @@ export default function TicketDetail() {
       const token = localStorage.getItem('token');
       const attachment_ids = await buildAttachmentIds();
       await axios.post(`/api/tickets/${id}/comments/send`, {
-        content: newComment,
-        is_private: 0,
-        cc_observers: ccObservers,
-        cc_technicians: ccTechnicians,
-        attachment_ids
-      }, { headers: { Authorization: `Bearer ${token}` } });
+          content: normalizeLinksHtml(newComment),
+          is_private: 0,
+          cc_observers: ccObservers,
+          cc_technicians: ccTechnicians,
+          attachment_ids
+        }, { headers: { Authorization: `Bearer ${token}` } });
       setNewComment('');
       setCommentFile(null);
       setPendingDocs([]);
@@ -1877,7 +1886,7 @@ export default function TicketDetail() {
               <div style={{ background: '#fafafa', border: '1px solid #e4e4e7', borderRadius: 8, padding: '12px 14px' }}>
                 {ticket.content
                   ? <div className="ticket-html-content" style={{ fontSize: 13, color: '#3f3f46', lineHeight: 1.6, maxHeight: activeSplitMode ? 'none' : 320, overflowY: activeSplitMode ? 'visible' : 'auto', paddingRight: 4, wordBreak: 'break-word', overflowWrap: 'break-word', maxWidth: '100%',
-                    minWidth: 0 }} dangerouslySetInnerHTML={{ __html: rewriteGlpiImages(decodeHtml(ticket.content), cidDocs) }} />
+                    minWidth: 0 }} dangerouslySetInnerHTML={{ __html: renderTicketHtml(ticket.content, cidDocs) }} />
                   : <p style={{ fontSize: 13, color: '#a1a1aa', margin: 0, fontStyle: 'italic' }}>Aucune description</p>
                 }
               </div>
@@ -1908,7 +1917,7 @@ export default function TicketDetail() {
               <div style={{ borderBottom: '1px solid #f4f4f5', paddingBottom: 20 }}>
                 <span style={{ fontSize: 11, fontWeight: 600, color: '#a1a1aa', textTransform: 'uppercase', letterSpacing: '0.06em', display: 'block', padding: '16px 0 8px' }}>Solution</span>
                 <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 8, padding: '12px 14px' }}>
-                  <div className="ticket-html-content" style={{ fontSize: 13, color: '#166534', lineHeight: 1.6, wordBreak: 'break-word', overflowWrap: 'break-word' }} dangerouslySetInnerHTML={{ __html: rewriteGlpiImages(decodeHtml(ticket.solution), cidDocs) }} />
+                  <div className="ticket-html-content" style={{ fontSize: 13, color: '#166534', lineHeight: 1.6, wordBreak: 'break-word', overflowWrap: 'break-word' }} dangerouslySetInnerHTML={{ __html: renderTicketHtml(ticket.solution, cidDocs) }} />
                 </div>
               </div>
             )}
@@ -2448,7 +2457,7 @@ export default function TicketDetail() {
                             border: `1px solid ${borderColor}`,
                             borderRadius: 8, padding: '8px 12px',
                             wordBreak: 'break-word', overflowWrap: 'break-word'
-                          }} dangerouslySetInnerHTML={{ __html: rewriteGlpiImages(decodeHtml(c.content), cidDocs) }} />
+                          }} dangerouslySetInnerHTML={{ __html: renderTicketHtml(c.content, cidDocs) }} />
                         )}
                         {(() => {
                           const atts = attachments.filter((a: any) => a.followup_id === c.id);

@@ -10,6 +10,38 @@ export const QUILL_MODULES = {
   ],
 };
 
+// Quill ne préfixe JAMAIS le schéma d'une URL : Link.sanitize() valide
+// « google.fr » (le navigateur le résout temporairement en https pour lire le
+// protocole) puis le renvoie tel quel dans href. Le lien est donc stocké en
+// relatif et, une fois la page ouverte sur /tickets/12345, le navigateur le
+// résout contre la route courante → https://<domaine>/tickets/google.fr.
+// On normalise en https:// les href sans schéma.
+const HAS_SCHEME = /^[a-z][a-z0-9+.-]*:/i;
+
+export function withScheme(href: string): string {
+  const raw = String(href || '').trim();
+  if (!raw) return href;
+  if (raw.startsWith('#')) return href;            // ancre interne
+  if (raw.startsWith('//')) return `https:${raw}`;  // protocol-relative
+  if (HAS_SCHEME.test(raw)) return href;           // http(s), mailto, tel, about:blank…
+  if (raw.startsWith('/')) return href;            // chemin absolu applicatif (/api, /tickets)
+  return `https://${raw}`;
+}
+
+// Normalise tous les <a href="…"> d'un HTML de commentaire. Appliqué à
+// l'affichage (corrige les commentaires déjà enregistrés) et à l'enregistrement
+// (corrige le contenu stocké, donc aussi les mails envoyés au demandeur).
+export function normalizeLinksHtml(html: string): string {
+  if (!html || !/<a\s/i.test(html)) return html;
+  return html.replace(
+    /(<a\b[^>]*?\shref\s*=\s*)(["'])([^"']*)\2/gi,
+    (match, head: string, quote: string, href: string) => {
+      const fixed = withScheme(href);
+      return fixed === href ? match : `${head}${quote}${fixed}${quote}`;
+    }
+  );
+}
+
 // Quill renvoie '<p><br></p>' quand l'éditeur est vide.
 export function isQuillEmpty(html: string): boolean {
   if (!html) return true;
