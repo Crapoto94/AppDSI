@@ -6,6 +6,7 @@ const financeShareController = require('../finance-share.controller');
 const { getFacsuiviStatus: getSeditFacsuiviStatus } = financeShareController;
 const seditPj = require('./sedit-pj.service');
 const encadrantsController = require('../../rh/encadrants.controller');
+const { getAppBaseUrl } = require('../../../shared/app_url');
 
 const DECISION_LABELS = {
     valide: 'Validé',
@@ -131,17 +132,6 @@ const ONGOING_STATUSES = ['en_attente', 'en_cours', 'transfere', 'en_pause'];
 
 let sendMailFn = null;
 const setSendMail = (fn) => { sendMailFn = fn; };
-
-async function getAppBaseUrl() {
-    try {
-        const db = getSqlite();
-        const row = await db.get("SELECT setting_value FROM app_settings WHERE setting_key = 'app_base_url'");
-        const val = row?.setting_value?.trim();
-        return val || process.env.APP_BASE_URL || process.env.APP_URL || 'http://localhost:5173';
-    } catch {
-        return process.env.APP_BASE_URL || process.env.APP_URL || 'http://localhost:5173';
-    }
-}
 
 function makeToken(workflowId, verifierEmail) {
     const ts = Date.now();

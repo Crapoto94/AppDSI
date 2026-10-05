@@ -1783,13 +1783,9 @@ router.get('/knowledge-documents/:id/public-link', authenticateJWT, async (req, 
         if (!doc) return res.status(404).json({ message: 'Document non trouvé' });
         const sig = crypto.createHmac('sha256', SECRET_KEY).update(`kbdoc|${id}`).digest('hex');
         // URL absolue (pour les liens dans les emails)
-        let base = process.env.APP_BASE_URL || process.env.APP_URL || '';
-        try {
-            const db = getSqlite();
-            const row = await db.get("SELECT setting_value FROM app_settings WHERE setting_key = 'app_base_url'");
-            if (row?.setting_value?.trim()) base = row.setting_value.trim();
-        } catch (e) { /* ignore */ }
-        base = (base || `${req.protocol}://${req.get('host')}`).replace(/\/$/, '');
+        const { getAppBaseUrl, APP_BASE_URL_FALLBACK } = require('../../shared/app_url');
+        let base = await getAppBaseUrl();
+        if (base === APP_BASE_URL_FALLBACK) base = `${req.protocol}://${req.get('host')}`.replace(/\/$/, '');
         const url = `${base}/api/public/kb-document/${id}?sig=${sig}`;
         res.json({ url, name: doc.name, original_name: doc.original_name });
     } catch (e) { res.status(500).json({ message: e.message }); }
@@ -1804,13 +1800,9 @@ router.get('/magapp-doc-link/:docId', authenticateJWT, async (req, res) => {
         let url = (doc.url || '').trim();
         if (!/^https?:\/\//i.test(url)) {
             // URL relative (fichier uploadé) → préfixer avec l'URL de base configurée
-            let base = process.env.APP_BASE_URL || process.env.APP_URL || '';
-            try {
-                const db = getSqlite();
-                const row = await db.get("SELECT setting_value FROM app_settings WHERE setting_key = 'app_base_url'");
-                if (row?.setting_value?.trim()) base = row.setting_value.trim();
-            } catch (e) { /* ignore */ }
-            base = (base || `${req.protocol}://${req.get('host')}`).replace(/\/$/, '');
+            const { getAppBaseUrl, APP_BASE_URL_FALLBACK } = require('../../shared/app_url');
+            let base = await getAppBaseUrl();
+            if (base === APP_BASE_URL_FALLBACK) base = `${req.protocol}://${req.get('host')}`.replace(/\/$/, '');
             url = base + (url.startsWith('/') ? url : '/' + url);
         }
         res.json({ url, name: doc.title });

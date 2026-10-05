@@ -24,6 +24,10 @@ const { SECRET_KEY } = require('../../shared/config');
 const axios = require('axios');
 const apmAi = require('../../shared/apm_ai');
 const { searchADUsersByQuery } = require('../../shared/ad_helper');
+// URL publique de DSI Hub (SQLite `app_base_url` → env → localhost en dev).
+// Résolution centralisée dans shared/app_url.js pour que tous les mails partent
+// sur le bon domaine, y compris en production.
+const { getAppBaseUrl } = require('../../shared/app_url');
 
 // Émet un événement temps réel vers les clients abonnés à la salle "tickets:watch".
 function emitTicketEvent(event, payload) {
@@ -126,17 +130,6 @@ async function resolveDocFiles(list) {
 }
 
 let _sendMail = null;
-
-async function getAppBaseUrl() {
-    try {
-        const db = getSqlite();
-        const row = await db.get("SELECT setting_value FROM app_settings WHERE setting_key = 'app_base_url'");
-        const val = row?.setting_value?.trim();
-        return val || process.env.APP_BASE_URL || process.env.APP_URL || 'http://localhost:5173';
-    } catch {
-        return process.env.APP_BASE_URL || process.env.APP_URL || 'http://localhost:5173';
-    }
-}
 
 // Délai pendant lequel le demandeur peut rouvrir son ticket lui-même depuis le lien
 // reçu dans l'email de résolution (au-delà, il doit créer un nouveau ticket).
@@ -727,6 +720,7 @@ async assign(req, res) {
                             user: req.user,
                             comment: { content },
                             reply_url: replyUrl,
+                            app_url: await getAppBaseUrl(),
                         };
                         subject = notificationService.fillTemplate(tpl.subject, tplContext);
                         body = notificationService.fillTemplate(tpl.body_html, tplContext);

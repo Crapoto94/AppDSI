@@ -20,6 +20,7 @@ const { searchADUsersByQuery } = require('./shared/ad_helper');
 const rhStudio = require('./shared/rh_studio');
 const { SECRET_KEY, PORT, FOLDERS } = require('./shared/config');
 const { MODULES_REGISTRY } = require('./shared/modules-registry');
+const { getAppBaseUrl, invalidateAppBaseUrlCache, APP_BASE_URL_FALLBACK } = require('./shared/app_url');
 const { authenticateJWT, authenticateAdmin, authenticateAdminUI, authenticateInternalOrAdmin, authenticateAdminOrFinances, authenticateMagappControl, authenticateVibecodingControl, isSuperAdmin, isAdminLike } = require('./shared/middleware');
 const magappRouter = require('./modules/magapp/magapp.routes');
 const rhRouter = require('./modules/rh/rh.routes');
@@ -3693,6 +3694,9 @@ app.post('/api/admin/settings', authenticateAdmin, async (req, res) => {
              ON CONFLICT(setting_key) DO UPDATE SET setting_value = excluded.setting_value, description = excluded.description`,
             [setting_key, setting_value, description]
         );
+        // Un changement d'URL de base doit être visible immédiatement par les
+        // mails, SMS et liens partagés (le résolveur met en cache 60 s).
+        if (setting_key === 'app_base_url') invalidateAppBaseUrlCache();
         res.json({ message: 'Paramètre mis à jour' });
     } catch (error) {
         res.status(500).json({ message: 'Erreur mise à jour paramètre', error: error.message });
@@ -3702,6 +3706,7 @@ app.post('/api/admin/settings', authenticateAdmin, async (req, res) => {
 app.delete('/api/admin/settings/:key', authenticateAdmin, async (req, res) => {
     try {
         await db.run("DELETE FROM app_settings WHERE setting_key = ?", [req.params.key]);
+        if (req.params.key === 'app_base_url') invalidateAppBaseUrlCache();
         res.json({ message: 'Paramètre supprimé' });
     } catch (error) {
         res.status(500).json({ message: 'Erreur suppression paramètre', error: error.message });
@@ -4225,6 +4230,15 @@ app.post('/api/auth/ad-login-transcript', async (req, res) => {
     }
 });
 
+// URL publique pour les liens "accès module seul" générés ci-dessous.
+// Résolution centralisée (SQLite `app_base_url` → env) ; l'hôte de la requête
+// ne sert que de repli quand rien n'est configuré (dev).
+async function moduleLinkBaseUrl(req) {
+    const base = await getAppBaseUrl();
+    if (base !== APP_BASE_URL_FALLBACK || !req) return base;
+    return `${req.protocol}://${req.get('host')}`.replace(/\/+$/, '');
+}
+
 // Accès « module seul » pour un agent déjà identifié (provenant du Magapp) :
 // on re-signe son identité réelle avec un champ d'action restreint au Transcript
 // Manager (scope 'transcript', rôle 'transcript_agent'). Il peut alors importer
@@ -4247,12 +4261,7 @@ app.post('/api/auth/magapp-transcript-access', authenticateJWT, async (req, res)
             source: req.user.source || 'magapp',
             scope: 'transcript',
         }, SECRET_KEY);
-        let appBaseUrl = process.env.FRONTEND_URL || process.env.APP_BASE_URL || process.env.APP_URL || '';
-        try {
-            const baseRow = await db.get("SELECT setting_value FROM app_settings WHERE setting_key = 'app_base_url'");
-            appBaseUrl = (baseRow?.setting_value || '').trim() || appBaseUrl;
-        } catch { /* repli env */ }
-        appBaseUrl = (appBaseUrl || `${req.protocol}://${req.get('host')}`).replace(/\/+$/, '');
+        const appBaseUrl = await moduleLinkBaseUrl(req);
         res.json({ url: `${appBaseUrl}/transcript/${accessToken}` });
     } catch (error) {
         console.error('[Transcript access error]', error.message);
@@ -4282,12 +4291,7 @@ app.post('/api/auth/magapp-parapheur-access', authenticateJWT, async (req, res) 
             source: req.user.source || 'magapp',
             scope: 'parapheur',
         }, SECRET_KEY);
-        let appBaseUrl = process.env.FRONTEND_URL || process.env.APP_BASE_URL || process.env.APP_URL || '';
-        try {
-            const baseRow = await db.get("SELECT setting_value FROM app_settings WHERE setting_key = 'app_base_url'");
-            appBaseUrl = (baseRow?.setting_value || '').trim() || appBaseUrl;
-        } catch { /* repli env */ }
-        appBaseUrl = (appBaseUrl || `${req.protocol}://${req.get('host')}`).replace(/\/+$/, '');
+        const appBaseUrl = await moduleLinkBaseUrl(req);
         res.json({ url: `${appBaseUrl}/parapheur/partage/${accessToken}` });
     } catch (error) {
         console.error('[Parapheur access error]', error.message);
@@ -4316,12 +4320,7 @@ app.post('/api/auth/magapp-tasks-access', authenticateJWT, async (req, res) => {
             source: req.user.source || 'magapp',
             scope: 'tasks',
         }, SECRET_KEY);
-        let appBaseUrl = process.env.FRONTEND_URL || process.env.APP_BASE_URL || process.env.APP_URL || '';
-        try {
-            const baseRow = await db.get("SELECT setting_value FROM app_settings WHERE setting_key = 'app_base_url'");
-            appBaseUrl = (baseRow?.setting_value || '').trim() || appBaseUrl;
-        } catch { /* repli env */ }
-        appBaseUrl = (appBaseUrl || `${req.protocol}://${req.get('host')}`).replace(/\/+$/, '');
+        const appBaseUrl = await moduleLinkBaseUrl(req);
         res.json({ url: `${appBaseUrl}/mes-taches/${accessToken}` });
     } catch (error) {
         console.error('[Tasks access error]', error.message);
@@ -4350,12 +4349,7 @@ app.post('/api/auth/magapp-notes-access', authenticateJWT, async (req, res) => {
             source: req.user.source || 'magapp',
             scope: 'notes',
         }, SECRET_KEY);
-        let appBaseUrl = process.env.FRONTEND_URL || process.env.APP_BASE_URL || process.env.APP_URL || '';
-        try {
-            const baseRow = await db.get("SELECT setting_value FROM app_settings WHERE setting_key = 'app_base_url'");
-            appBaseUrl = (baseRow?.setting_value || '').trim() || appBaseUrl;
-        } catch { /* repli env */ }
-        appBaseUrl = (appBaseUrl || `${req.protocol}://${req.get('host')}`).replace(/\/+$/, '');
+        const appBaseUrl = await moduleLinkBaseUrl(req);
         res.json({ url: `${appBaseUrl}/notes/${accessToken}` });
     } catch (error) {
         console.error('[Notes access error]', error.message);
@@ -4384,12 +4378,7 @@ app.post('/api/auth/magapp-reunions-access', authenticateJWT, async (req, res) =
             source: req.user.source || 'magapp',
             scope: 'reunions',
         }, SECRET_KEY);
-        let appBaseUrl = process.env.FRONTEND_URL || process.env.APP_BASE_URL || process.env.APP_URL || '';
-        try {
-            const baseRow = await db.get("SELECT setting_value FROM app_settings WHERE setting_key = 'app_base_url'");
-            appBaseUrl = (baseRow?.setting_value || '').trim() || appBaseUrl;
-        } catch { /* repli env */ }
-        appBaseUrl = (appBaseUrl || `${req.protocol}://${req.get('host')}`).replace(/\/+$/, '');
+        const appBaseUrl = await moduleLinkBaseUrl(req);
         res.json({ url: `${appBaseUrl}/mes-reunions/${accessToken}` });
     } catch (error) {
         console.error('[Reunions access error]', error.message);

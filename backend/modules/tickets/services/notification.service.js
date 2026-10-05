@@ -1,4 +1,5 @@
 const { pgDb, getSqlite } = require('../../../shared/database');
+const { getAppBaseUrl, getAppBaseUrlSync } = require('../../../shared/app_url');
 
 module.exports = {
     async trigger(event, context) {
@@ -31,11 +32,14 @@ module.exports = {
 
             for (const trigger of triggers) {
                 const recipients = await this.getRecipients(trigger.recipient_type, ticket, context);
+                // URL publique résolue une seule fois par lot : `{{app_url}}` doit
+                // pointer sur le domaine de prod, jamais sur localhost.
+                const app_url = await getAppBaseUrl();
                 for (const recipient of recipients) {
                     if (!recipient.email) continue;
 
-                    const bodyHtml = this.fillTemplate(trigger.body_html, { ...context, ticket, recipient });
-                    const subject = this.fillTemplate(trigger.subject, { ...context, ticket, recipient });
+                    const bodyHtml = this.fillTemplate(trigger.body_html, { ...context, ticket, recipient, app_url });
+                    const subject = this.fillTemplate(trigger.subject, { ...context, ticket, recipient, app_url });
 
                     const dup = await pgDb.get(`
                         SELECT id FROM hub_tickets.notification_queue
@@ -136,7 +140,7 @@ module.exports = {
 
         const vars = {
             app_name: 'DSI Hub',
-            app_url: process.env.APP_URL || 'http://localhost:5173',
+            app_url: context.app_url || getAppBaseUrlSync(),
             ticket_id: ticket?.glpi_id || context.ticket_id,
             ticket_title: ticket?.title || '',
             ticket_content: ticket?.content || '',

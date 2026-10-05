@@ -8,18 +8,10 @@ let sendMailFn = null;
 const setSendMail = (fn) => { sendMailFn = fn; };
 
 // URL publique de DSI Hub (paramétrable dans Admin → Paramètres, clé SQLite
-// `app_base_url`). Même logique que tickets.controller.js#getAppBaseUrl pour que
-// les liens des mails ne retombent jamais sur localhost en production.
-async function getAppBaseUrl() {
-    try {
-        const db = getSqlite();
-        const row = await db.get("SELECT setting_value FROM app_settings WHERE setting_key = 'app_base_url'");
-        const val = row?.setting_value?.trim();
-        return val || process.env.APP_BASE_URL || process.env.APP_URL || 'http://localhost:5173';
-    } catch {
-        return process.env.APP_BASE_URL || process.env.APP_URL || 'http://localhost:5173';
-    }
-}
+// `app_base_url`). Résolution centralisée dans shared/app_url.js (SQLite → env →
+// localhost en dev) pour que les liens des mails ne retombent jamais sur
+// localhost en production.
+const { getAppBaseUrl } = require('../../shared/app_url');
 
 // ─── MS TODO HELPERS ─────────────────────────────────────────────────────────
 

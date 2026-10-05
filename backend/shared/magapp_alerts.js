@@ -65,15 +65,8 @@ async function getAllSubscriberEmails() {
 }
 
 async function getBaseUrl() {
-    let base = process.env.FRONTEND_URL || process.env.APP_BASE_URL || process.env.APP_URL || '';
-    try {
-        const db = getSqlite();
-        if (db) {
-            const row = await db.get("SELECT setting_value FROM app_settings WHERE setting_key = 'app_base_url'");
-            if (row?.setting_value) base = row.setting_value;
-        }
-    } catch (e) { /* repli env */ }
-    return String(base || '').replace(/\/+$/, '');
+    const { getAppBaseUrl } = require('./app_url');
+    return getAppBaseUrl();
 }
 
 async function sendToAll(emails, subject, content) {

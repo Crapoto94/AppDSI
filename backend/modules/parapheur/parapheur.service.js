@@ -24,6 +24,7 @@ const { P12Signer } = require('@signpdf/signer-p12');
 const { pdflibAddPlaceholder } = require('@signpdf/placeholder-pdf-lib');
 const emailTemplates = require('./parapheur-email');
 const apmMail = require('../../shared/apm_mail');
+const { getAppBaseUrl } = require('../../shared/app_url');
 
 const MODULE = 'parapheur';
 const SIGN_MODULE = 'parapheur-signatures';
@@ -99,17 +100,6 @@ async function sendParapheurEmail(to, tpl) {
     }
     if (!sendMailFn) throw apmErr || new Error("Aucun service d'envoi d'e-mails disponible.");
     await sendMailFn(to, subject, html, [], 'parapheur');
-}
-
-async function getAppBaseUrl() {
-    try {
-        const db = getSqlite();
-        const row = await db.get("SELECT setting_value FROM app_settings WHERE setting_key = 'app_base_url'");
-        const val = row?.setting_value?.trim();
-        return val || process.env.APP_BASE_URL || process.env.APP_URL || 'http://localhost:5173';
-    } catch {
-        return process.env.APP_BASE_URL || process.env.APP_URL || 'http://localhost:5173';
-    }
 }
 
 /**

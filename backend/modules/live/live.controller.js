@@ -6,21 +6,12 @@ const axios = require('axios');
 const { SECRET_KEY } = require('../../shared/config');
 const { authenticateAD, lookupADUser } = require('../../shared/ad_auth');
 
+const { getAppBaseUrl } = require('../../shared/app_url');
+
 const MODULE = 'live';
 
 let _sendMail = null;
 function setSendMail(fn) { _sendMail = fn; }
-
-async function getAppBaseUrl() {
-    try {
-        const db = getSqlite();
-        const row = await db.get("SELECT setting_value FROM app_settings WHERE setting_key = 'app_base_url'");
-        const val = row?.setting_value?.trim();
-        return val || process.env.APP_BASE_URL || process.env.APP_URL || 'http://localhost:5173';
-    } catch {
-        return process.env.APP_BASE_URL || process.env.APP_URL || 'http://localhost:5173';
-    }
-}
 
 // ── GET /api/live/sessions ─────────────────────────────────────────────
 async function getSessions(req, res) {

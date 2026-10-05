@@ -4,21 +4,10 @@ const commentRepo = require('../../tickets/repositories/comment.repository');
 const historyRepo = require('../../tickets/repositories/history.repository');
 const slaRepo = require('../../tickets/repositories/sla.repository');
 const { pgDb } = require('../../../shared/database');
+const { getAppBaseUrl } = require('../../../shared/app_url');
 
 let _sendMail = null;
 function setSendMail(fn) { _sendMail = fn; }
-
-async function getAppBaseUrl() {
-    try {
-        const { getSqlite } = require('../../../shared/database');
-        const db = getSqlite();
-        const row = await db.get("SELECT setting_value FROM app_settings WHERE setting_key = 'app_base_url'");
-        const val = row?.setting_value?.trim();
-        return val || process.env.APP_BASE_URL || process.env.APP_URL || 'http://localhost:5173';
-    } catch {
-        return process.env.APP_BASE_URL || process.env.APP_URL || 'http://localhost:5173';
-    }
-}
 
 function generateToken() {
     return crypto.randomBytes(24).toString('hex');

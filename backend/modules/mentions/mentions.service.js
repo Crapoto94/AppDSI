@@ -63,16 +63,8 @@ async function notifyMentions({ content, actor, source, entityId, title, link })
 }
 
 async function appBaseUrl() {
-    let base = process.env.FRONTEND_URL || process.env.APP_BASE_URL || process.env.APP_URL || '';
-    if (!base) {
-        try {
-            const { getSqlite } = require('../../shared/database');
-            const db = getSqlite();
-            const r = db && await db.get("SELECT setting_value FROM app_settings WHERE setting_key = 'app_base_url'");
-            base = r?.setting_value || '';
-        } catch (_) { /* pas de réglage */ }
-    }
-    return base.replace(/\/+$/, '');
+    const { getAppBaseUrl } = require('../../shared/app_url');
+    return getAppBaseUrl();
 }
 
 // Un mail récapitulatif par agent pour ses notifications non lues, une seule fois.

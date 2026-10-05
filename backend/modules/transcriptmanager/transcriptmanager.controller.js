@@ -648,13 +648,11 @@ function inlineTableStyles(html) {
 }
 
 async function getAppBaseUrl(req) {
-    let appBaseUrl = process.env.FRONTEND_URL || process.env.APP_BASE_URL || process.env.APP_URL || '';
-    try {
-        const baseRow = await getSqlite()?.get("SELECT setting_value FROM app_settings WHERE setting_key = 'app_base_url'");
-        appBaseUrl = (baseRow?.setting_value || '').trim() || appBaseUrl;
-    } catch { /* repli env */ }
-    if (!appBaseUrl && req) appBaseUrl = `${req.protocol}://${req.get('host')}`;
-    return (appBaseUrl || '').replace(/\/+$/, '');
+    const { getAppBaseUrl: resolveAppBaseUrl, APP_BASE_URL_FALLBACK } = require('../../shared/app_url');
+    const resolved = await resolveAppBaseUrl();
+    // Rien de configuré (dev) : on retombe sur l'hôte de la requête courante.
+    if (resolved !== APP_BASE_URL_FALLBACK || !req) return resolved;
+    return `${req.protocol}://${req.get('host')}`.replace(/\/+$/, '');
 }
 
 /** Persiste les champs organisationnels (fonction/direction/service) des
@@ -2770,12 +2768,7 @@ transcriptController.getShareLink = async (req, res) => {
             is_approved: 1,
             scope: 'transcript',
         }, SECRET_KEY);
-        let appBaseUrl = process.env.FRONTEND_URL || process.env.APP_BASE_URL || process.env.APP_URL || '';
-        try {
-            const baseRow = await db.get("SELECT setting_value FROM app_settings WHERE setting_key = 'app_base_url'");
-            appBaseUrl = (baseRow?.setting_value || '').trim() || appBaseUrl;
-        } catch { /* repli env */ }
-        appBaseUrl = (appBaseUrl || `${req.protocol}://${req.get('host')}`).replace(/\/+$/, '');
+        let appBaseUrl = await getAppBaseUrl(req);
         res.json({ url: `${appBaseUrl}/transcript/${shareToken}` });
     } catch (err) {
         console.error('[TranscriptManager] Erreur génération du lien de partage:', err);
