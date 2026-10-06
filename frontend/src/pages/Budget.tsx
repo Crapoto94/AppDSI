@@ -8,6 +8,7 @@ import {
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ReferenceLine } from 'recharts';
 import BudgetManagementTab from '../components/BudgetManagementTab';
 import BudgetPrepTab from '../components/BudgetPrepTab';
+import DemandesCommandeTab from '../components/DemandesCommandeTab';
 import MappedDataTable from '../components/MappedDataTable';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -38,7 +39,7 @@ const Budget: React.FC = () => {
     </svg>
   );
 
-  const [view, setView] = useState<'summary' | 'lines' | 'engagements' | 'invoices' | 'invoices_beta' | 'orders' | 'tiers' | 'operations' | 'gestion' | 'prep'>('summary');
+  const [view, setView] = useState<'summary' | 'lines' | 'engagements' | 'invoices' | 'invoices_beta' | 'orders' | 'tiers' | 'operations' | 'gestion' | 'prep' | 'demandes'>('summary');
   const [isRaw, setIsRaw] = useState(false);
   const [rawData, setRawData] = useState<any[]>([]);
   const [budgetLines, setBudgetLines] = useState<any[]>([]);
@@ -1421,7 +1422,7 @@ const Budget: React.FC = () => {
             </div>
           </div>
           <div className="view-tabs">
-            {['summary', 'lines', 'engagements', 'invoices_beta', 'orders', 'tiers', 'operations', 'gestion', 'prep'].map(tab => {
+            {['summary', 'lines', 'engagements', 'invoices_beta', 'orders', 'tiers', 'operations', 'gestion', 'prep', 'demandes'].map(tab => {
               // Only admin/finances/compta can see 'gestion'
               if (tab === 'gestion' && !['admin', 'finances', 'compta'].includes(currentUser.role)) return null;
               return (
@@ -1463,6 +1464,7 @@ const Budget: React.FC = () => {
                   {tab === 'operations' && 'Opérations'}
                   {tab === 'gestion' && 'Gestion'}
                   {tab === 'prep' && 'Préparation budgétaire'}
+                  {tab === 'demandes' && 'Demande de commande'}
                 </button>
               );
             })}
@@ -2803,6 +2805,11 @@ const Budget: React.FC = () => {
             {view === 'prep' && (
               <div className="animate-fade-in">
                 <BudgetPrepTab />
+              </div>
+            )}
+            {view === 'demandes' && (
+              <div className="animate-fade-in">
+                <DemandesCommandeTab />
               </div>
             )}
             {view === 'tiers' && (

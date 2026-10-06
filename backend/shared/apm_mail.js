@@ -9,7 +9,9 @@
  * Config : hub.infra_apis WHERE key='apm_mail' (base_url, api_key, header_name),
  * avec repli sur 'apm_ai' (même hôte APM ; la clé API doit alors porter la
  * permission `mail_send`). Endpoint APM : POST {base_url}/api/v1/mail/send
- *   body : { to, subject, content, attachments?, from_name?, from_email? }
+ *   body : { to, subject, content, attachments?, from_name?, from_email?, cc?, bcc? }
+ *   `to`, `cc`, `bcc` : une adresse, ou plusieurs séparées par `,` / `;` (tableau accepté ici).
+ *   cc = copie visible, bcc = copie cachée (Cci) — nécessite l'APM à jour (cf. GUIDE_NOUVELLE_APP_VILLE.md).
  */
 const { pgDb } = require('./database');
 
@@ -32,12 +34,16 @@ function buildUrl(cfg) {
 
 /**
  * Envoie un mail via l'API Ville (APM) — le template global de l'APM est appliqué.
- * @param {{ to:string, subject:string, content:string, attachments?:Array<{filename:string,content:string}>, fromName?:string, fromEmail?:string }} mail
+ * @param {{ to:string|string[], subject:string, content:string, attachments?:Array<{filename:string,content:string}>, fromName?:string, fromEmail?:string, cc?:string|string[], bcc?:string|string[] }} mail
  */
-async function sendMail({ to, subject, content, attachments = [], fromName, fromEmail }) {
+const joinAddresses = (v) => (Array.isArray(v) ? v.filter(Boolean).join(', ') : v);
+
+async function sendMail({ to, subject, content, attachments = [], fromName, fromEmail, cc, bcc }) {
     const cfg = await getConfig();
     const headerName = cfg.header_name || 'X-API-KEY';
-    const body = { to, subject, content, attachments };
+    const body = { to: joinAddresses(to), subject, content, attachments };
+    if (cc && joinAddresses(cc)) body.cc = joinAddresses(cc);
+    if (bcc && joinAddresses(bcc)) body.bcc = joinAddresses(bcc);
     if (fromName) body.from_name = fromName;
     if (fromEmail) body.from_email = fromEmail;
 

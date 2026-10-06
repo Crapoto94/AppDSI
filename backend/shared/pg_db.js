@@ -3605,6 +3605,80 @@ async function setupPgDb() {
       await client.query(`ALTER TABLE finance.service_fait_historique ADD COLUMN IF NOT EXISTS actor_user_agent TEXT`);
     } catch (e) {}
 
+    // ── Demandes de commande (/budget) : saisie demandeur + devis, validation directeur/RAF ──
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS finance.demandes_commande (
+        id SERIAL PRIMARY KEY,
+        designation TEXT NOT NULL,
+        description TEXT DEFAULT '',
+        montant NUMERIC(14,2) NOT NULL DEFAULT 0,
+        demandeur_username TEXT NOT NULL,
+        demandeur_name TEXT DEFAULT '',
+        statut TEXT NOT NULL DEFAULT 'devis_pris_en_compte',
+        valide_par TEXT,
+        valide_fonction TEXT,
+        valide_at TIMESTAMPTZ,
+        created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+    // Commande Sedit associée (copie des infos affichées + ROO_IMA_REF de FI.COMMANDE).
+    for (const col of [
+      `commande_roo TEXT`, `commande_numero TEXT`, `commande_libelle TEXT`,
+      `commande_montant NUMERIC(14,2)`, `commande_tiers TEXT`,
+      `commande_associee_par TEXT`, `commande_associee_at TIMESTAMPTZ`,
+      `valide_commentaire TEXT`,
+    ]) {
+      try { await client.query(`ALTER TABLE finance.demandes_commande ADD COLUMN IF NOT EXISTS ${col}`); } catch (e) { console.error('[PG DB] alter demandes_commande:', e.message); }
+    }
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS finance.demandes_commande_pj (
+        id SERIAL PRIMARY KEY,
+        demande_id INTEGER NOT NULL REFERENCES finance.demandes_commande(id) ON DELETE CASCADE,
+        file_path TEXT NOT NULL,
+        file_name TEXT NOT NULL,
+        size BIGINT,
+        mimetype TEXT,
+        uploaded_by TEXT,
+        uploaded_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS finance.demandes_commande_validateurs (
+        username TEXT PRIMARY KEY,
+        fonction TEXT NOT NULL CHECK (fonction IN ('directeur','raf'))
+      );
+    `);
+
+    // ── Envoi des bons de commande aux fournisseurs (/budget → Commandes) ──
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS finance.commande_mail_settings (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        subject_template TEXT NOT NULL,
+        body_template TEXT NOT NULL,
+        updated_by TEXT,
+        updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS finance.commande_envois (
+        id SERIAL PRIMARY KEY,
+        commande_roo TEXT NOT NULL,
+        commande_numero TEXT,
+        sent_by TEXT,
+        emetteur_email TEXT,
+        destinataires TEXT,
+        cc TEXT,
+        subject TEXT,
+        message TEXT,
+        bon_commande TEXT,
+        sent_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+    for (const col of [`closing_template TEXT`, `signature_template TEXT`]) {
+      try { await client.query(`ALTER TABLE finance.commande_mail_settings ADD COLUMN IF NOT EXISTS ${col}`); } catch (e) { console.error('[PG DB] alter commande_mail_settings:', e.message); }
+    }
+    try { await client.query(`CREATE INDEX IF NOT EXISTS idx_commande_envois_roo ON finance.commande_envois(commande_roo)`); } catch (e) {}
+
     // ── Journal des écritures Sedit (Oracle) faites par AppDSI ──
     // Chaque ligne mémorise l'écriture effectuée ET de quoi la défaire (undo) :
     // - action 'facsuivi_service_fait' : before_json/after_json pour restaurer l'étape FACSUIVI ;

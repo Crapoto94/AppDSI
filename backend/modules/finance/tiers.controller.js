@@ -52,9 +52,26 @@ module.exports = {
         }
     },
 
+    // Nombre de contacts par tiers (et dont « destinataire commande ») pour une liste de codes tiers.
+    getContactCounts: async (req, res) => {
+        try {
+            const codes = Array.isArray(req.body.codes) ? req.body.codes.map(c => String(c).trim()).filter(Boolean).slice(0, 1000) : [];
+            if (!codes.length) return res.json({});
+            const r = await pool.query(
+                `SELECT TRIM(tier_code) AS code, COUNT(*) AS total,
+                        COUNT(*) FILTER (WHERE is_order_recipient = TRUE) AS recipients
+                   FROM hub.contacts WHERE TRIM(tier_code) = ANY($1::text[]) GROUP BY TRIM(tier_code)`,
+                [codes]
+            );
+            res.json(Object.fromEntries(r.rows.map(x => [x.code, { total: Number(x.total), recipients: Number(x.recipients) }])));
+        } catch (error) {
+            res.status(500).json({ message: 'Erreur compteur contacts', error: error.message });
+        }
+    },
+
     getContacts: async (req, res) => {
         try {
-            const result = await pool.query('SELECT * FROM hub.contacts WHERE tier_code = $1', [req.params.code]);
+            const result = await pool.query('SELECT * FROM hub.contacts WHERE tier_code = $1 ORDER BY nom, prenom', [String(req.params.id).trim()]);
             res.json(result.rows);
         } catch (error) {
             res.status(500).json({ message: 'Erreur contacts', error: error.message });
@@ -65,7 +82,7 @@ module.exports = {
         try {
             const tier = await pool.query(
                 'SELECT "TIERS_POBJ_EXTRACT_2" FROM oracle.gf_oracle_tiers WHERE "TIERS_TIERS" = $1',
-                [req.params.code]
+                [req.params.id]
             );
             if (!tier.rows.length) return res.status(404).json({ message: 'Tiers non trouvé' });
 
@@ -127,7 +144,7 @@ module.exports = {
         try {
             const result = await pool.query(
                 'INSERT INTO hub.contacts (tier_code, nom, prenom, role, telephone, email, commentaire, is_order_recipient) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id',
-                [req.params.code, nom, prenom, role, telephone, email, commentaire, is_order_recipient ? true : false]
+                [String(req.params.tierId).trim(), nom, prenom, role, telephone, email, commentaire, is_order_recipient ? true : false]
             );
             res.json({ id: result.rows[0].id, message: 'Contact ajouté' });
         } catch (error) {

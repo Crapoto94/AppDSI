@@ -108,14 +108,34 @@ async function getFinanceOracleSettings() {
     return row;
 }
 
-/** Exécute `fn(connection)` sur une connexion Oracle FINANCES, fermée dans tous les cas. */
+// Pool de connexions : ouvrir une connexion Oracle à chaque appel coûte de 0,3 s à plusieurs
+// secondes (pics observés à 8-9 s) et la liste des commandes en enchaîne plusieurs. Le pool est
+// recréé si les paramètres de connexion changent (Admin > Oracle > FINANCES).
+let financePool = null;
+let financePoolKey = '';
+async function getFinancePool(settings) {
+    const connectString = `${settings.host}:${settings.port}/${settings.service_name}`;
+    const key = `${settings.username}@${connectString}#${settings.password}`;
+    if (financePool && financePoolKey === key) return financePool;
+    if (financePool) {
+        const old = financePool;
+        financePool = null;
+        old.then(p => p.close(5)).catch(() => {});
+    }
+    const poolPromise = oracledb.createPool({
+        user: settings.username, password: settings.password, connectString,
+        poolMin: 1, poolMax: 5, poolIncrement: 1, poolTimeout: 120, queueTimeout: 30000,
+    });
+    financePoolKey = key;
+    financePool = poolPromise;
+    try { return await poolPromise; } catch (e) { financePool = null; financePoolKey = ''; throw e; }
+}
+
+/** Exécute `fn(connection)` sur une connexion Oracle FINANCES (issue du pool), rendue dans tous les cas. */
 async function withFinanceOracle(fn) {
     const settings = await getFinanceOracleSettings();
-    const connection = await oracledb.getConnection({
-        user: settings.username,
-        password: settings.password,
-        connectString: `${settings.host}:${settings.port}/${settings.service_name}`,
-    });
+    const pool = await getFinancePool(settings);
+    const connection = await pool.getConnection();
     try {
         return await fn(connection);
     } finally {

@@ -258,6 +258,10 @@ async function resolveRubriqueFromSedit(name, query = {}) {
         } else {
             orderBy = '1';
         }
+    } else if (isCommande && variables.some(v => v.expression === 'COMMANDE_COMMANDE')) {
+        // Commandes : les plus récentes d'abord (n° décroissant). Le front applique le même
+        // tri par défaut sans relancer de requête.
+        orderBy = `"_o"."COMMANDE_COMMANDE" DESC NULLS LAST`;
     } else {
         const firstField = variables.find(v => v.expression_type === 'field');
         orderBy = firstField ? `"_o"."${firstField.expression}"` : '1';

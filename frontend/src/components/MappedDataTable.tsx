@@ -1,11 +1,13 @@
 import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import { useAuth } from '../contexts/AuthContext';
-import { Search, ChevronUp, ChevronDown, ChevronRight, Columns, ExternalLink, Link2, AppWindow, Rocket, Eye, CheckCircle, Files } from 'lucide-react';
+import { Search, ChevronUp, ChevronDown, ChevronRight, Columns, ExternalLink, Link2, AppWindow, Rocket, Eye, CheckCircle, Files, Users, Send } from 'lucide-react';
 import ServiceFaitModal from './ServiceFaitModal';
 import ServiceFaitProcessusModal from './ServiceFaitProcessusModal';
 import FactureDocumentsViewer from './finance/FactureDocumentsViewer';
 import MandatementModal from './MandatementModal';
+import TiersContactsModal from './TiersContactsModal';
+import CommandeEnvoiModal from './CommandeEnvoiModal';
 
 interface MappingColumn {
   name: string;
@@ -181,28 +183,45 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
     return () => clearTimeout(timer);
   }, [searchTerm]);
 
-  useEffect(() => { setCurrentPage(0); fetchData(searchTerm, 0); }, [fiscalYear]);
-  useEffect(() => { fetchData(searchTerm, currentPage * effectivePageSize); }, [currentPage, effectivePageSize]);
+  // Au montage, l'effet [token, rubriqueName, fiscalYear] charge déjà la liste : les effets
+  // suivants (exercice, page, filtres) ne doivent pas relancer la même requête (4 appels
+  // identiques à Sedit à l'ouverture de la page). `mountedRef` est passé à true par le dernier
+  // d'entre eux.
+  const mountedRef = useRef(false);
+  // Tri par défaut déjà appliqué par le serveur : inutile de recharger quand on le mémorise.
+  const skipNextSortFetchRef = useRef(false);
+  useEffect(() => { if (!mountedRef.current) return; setCurrentPage(0); fetchData(searchTerm, 0); }, [fiscalYear]);
+  useEffect(() => { if (!mountedRef.current) return; fetchData(searchTerm, currentPage * effectivePageSize); }, [currentPage, effectivePageSize]);
   useEffect(() => {
+    if (skipNextSortFetchRef.current) { skipNextSortFetchRef.current = false; return; }
     if (sortConfig) fetchData(searchTerm, currentPage * effectivePageSize, sortConfig);
   }, [sortConfig?.key, sortConfig?.direction, effectivePageSize]);
 
-  // Tri par défaut de la page Factures : date décroissante, tant que l'utilisateur
-  // n'a pas lui-même choisi un tri (ne s'applique qu'une fois par montage).
+  // Tri par défaut, tant que l'utilisateur n'a pas lui-même choisi un tri (ne s'applique
+  // qu'une fois par montage) : Factures → date décroissante ; Commandes → n° de commande
+  // décroissant (les plus récentes d'abord).
   useEffect(() => {
-    if (rubriqueName !== 'Factures' || defaultSortApplied) return;
+    if ((rubriqueName !== 'Factures' && rubriqueName !== 'Commandes') || defaultSortApplied) return;
     if (sortConfig) { setDefaultSortApplied(true); return; }
     if (columns.length === 0) return;
-    const dateCol = columns.find(c => c.expression === 'FACTURE_DATENTREE')
-      || columns.find(c => ['date', 'timestamp', 'text_date', 'text_timestamp'].includes(c.display_type));
-    if (dateCol) setSortConfig({ key: dateCol.name, direction: 'desc' });
+    const dateCol = rubriqueName === 'Commandes'
+      ? columns.find(c => c.expression === 'COMMANDE_COMMANDE')
+      : (columns.find(c => c.expression === 'FACTURE_DATENTREE')
+        || columns.find(c => ['date', 'timestamp', 'text_date', 'text_timestamp'].includes(c.display_type)));
+    if (dateCol) {
+      // Commandes (source Sedit) : le serveur trie déjà par n° décroissant par défaut.
+      if (rubriqueName === 'Commandes' && dataSource === 'sedit') skipNextSortFetchRef.current = true;
+      setSortConfig({ key: dateCol.name, direction: 'desc' });
+    }
     setDefaultSortApplied(true);
   }, [rubriqueName, columns, sortConfig, defaultSortApplied]);
 
   useEffect(() => {
+    if (!mountedRef.current) return;
     setCurrentPage(0);
     fetchData(searchTerm, 0);
   }, [pendingFilter, sectionFilter]);
+  useEffect(() => { mountedRef.current = true; }, []);
 
   useEffect(() => {
     if (rubriqueName !== 'Factures') return;
@@ -266,6 +285,32 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
     axios.post('/api/finance/service-fait/commande-statuses', { commande_ids: uniq }, { headers })
       .then(res => { if (res.data) setCommandeStatuses(res.data); })
       .catch(() => {});
+  }, [rows, columns, rubriqueName, seditIdColumn]);
+
+  useEffect(() => {
+    if (rubriqueName !== 'Tiers') return;
+    const col = columns.find(c => c.expression === 'TIERS_TIERS');
+    if (!col) return;
+    const codes = Array.from(new Set(rows.map(r => String(r[col.name] ?? '').trim()).filter(Boolean)));
+    // codes absents du résultat = 0 contact (la ligne est écrasée à chaque rechargement)
+    setContactCounts(prev => { const next = { ...prev }; codes.forEach(c => { if (!(c in next)) next[c] = { total: 0, recipients: 0 }; }); return next; });
+    loadContactCounts(codes);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rows, columns, rubriqueName]);
+
+  useEffect(() => {
+    if (rubriqueName !== 'Commandes') return;
+    const col = columns.find(c => c.expression === seditIdColumn);
+    const ids = rows.map(r => (col ? String(r[col.name] ?? '').trim() : '')).filter(Boolean);
+    loadEnvoiStatuses(Array.from(new Set(ids)));
+    const tierCol = columns.find(c => c.expression === 'TIERS_TIERS' && c.display_type !== 'jointure');
+    const codes = Array.from(new Set(rows.map(r => (tierCol ? String(r[tierCol.name] ?? '').trim() : '')).filter(c => c && c !== 'XXXXX')));
+    if (codes.length) {
+      axios.post('/api/commande-envoi/recipients', { tier_codes: codes }, { headers })
+        .then(res => { if (res.data) setRecipientTiers(prev => ({ ...prev, ...res.data })); })
+        .catch(() => {});
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rows, columns, rubriqueName, seditIdColumn]);
 
   useEffect(() => {
@@ -427,11 +472,31 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
     }
   };
 
+  const [envoiRoo, setEnvoiRoo] = useState<string | null>(null);
+  // État d'envoi des commandes (bouton « Envoyée » + possibilité de renvoyer).
+  const [envoiStatuses, setEnvoiStatuses] = useState<Record<string, { sent_at: string; sent_by: string; to: string; count: number }>>({});
+  const [recipientTiers, setRecipientTiers] = useState<Record<string, number>>({});
+  // Nombre de contacts par tiers (bouton « Contacts » de la liste des tiers).
+  const [contactCounts, setContactCounts] = useState<Record<string, { total: number; recipients: number }>>({});
+  const loadContactCounts = (codes: string[]) => {
+    if (codes.length === 0) return;
+    axios.post('/api/tiers/contact-counts', { codes }, { headers })
+      .then(res => { if (res.data) setContactCounts(prev => ({ ...prev, ...res.data })); })
+      .catch(() => {});
+  };
+  const loadEnvoiStatuses = (roos: string[]) => {
+    if (roos.length === 0) return;
+    axios.post('/api/commande-envoi/statuses', { roos }, { headers })
+      .then(res => { if (res.data) setEnvoiStatuses(prev => ({ ...prev, ...res.data })); })
+      .catch(() => {});
+  };
+  const [contactsTier, setContactsTier] = useState<{ code: string; name: string } | null>(null);
+  const showContactsCol = rubriqueName === 'Tiers';
   const showActions = !!seditIdColumn;
   const showSfColumn = showActions && rubriqueName === 'Factures';
   // Colonne « Facture » sur la liste des commandes : pastille FAC (état de la facture).
   const showFactureCol = showActions && rubriqueName === 'Commandes';
-  const actionColsCount = (showSfColumn ? 1 : 0) + (showFactureCol ? 1 : 0) + (showActions ? 1 : 0);
+  const actionColsCount = (showSfColumn ? 1 : 0) + (showFactureCol ? 1 : 0) + (showActions ? 1 : 0) + (showContactsCol ? 1 : 0);
 
   if (loading && rows.length === 0) {
     return <div style={{ padding: '2rem', textAlign: 'center', color: '#64748b' }}>Chargement...</div>;
@@ -446,9 +511,23 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
     </div>;
   }
 
-  const activeCols = columns.filter(c => visibleCols.includes(c.name) || c.name === 'Section'
-    || (rubriqueName === 'Commandes' && (c.expression === 'nature' || c.expression === 'fonction'))
-    || (rubriqueName === 'Factures' && c.name === 'DGP'));
+  const isCommandes = rubriqueName === 'Commandes';
+  // Commandes : la fonction M57 s'affiche sous la nature (même cellule, plus petit) → pas de colonne dédiée.
+  const fonctionCol = isCommandes ? columns.find(c => c.expression === 'fonction') : undefined;
+  const activeCols = columns.filter(c => !(isCommandes && c.expression === 'fonction') && (visibleCols.includes(c.name) || c.name === 'Section'
+    || (isCommandes && c.expression === 'nature')
+    || (rubriqueName === 'Factures' && c.name === 'DGP')));
+  // Boutons d'action : carrés (icône seule, infobulle) sur les commandes, avec libellé ailleurs.
+  const actBtn = (bg: string): React.CSSProperties => (isCommandes
+    ? { background: bg, color: 'white', border: 'none', borderRadius: 4, width: 24, height: 24, padding: 0, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flex: '0 0 auto' }
+    : { background: bg, color: 'white', border: 'none', borderRadius: '4px', padding: '3px 8px', fontSize: '11px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '3px' });
+  // Libellés d'en-tête courts pour les commandes (gain de largeur).
+  const headerLabel = (col: MappingColumn) => {
+    if (!isCommandes) return col.name;
+    if (col.expression === 'SERVICEFI_CLEACCES') return 'Serv.';
+    if (col.expression === 'nature') return 'Nature / fct';
+    return col.name;
+  };
 
   // "À traiter" est filtré côté serveur (SF non fait dans Sedit et non rejetée) pour
   // porter sur l'ensemble des factures, pas seulement la page courante.
@@ -538,7 +617,7 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
       </div>
 
       <div className="mdt-table-wrap">
-        <table className="mdt-table">
+        <table className={`mdt-table${isCommandes ? ' mdt-compact' : ''}`}>
           <thead>
             <tr>
               {childRubriqueId && <th className="mdt-th" style={{ width: '32px', minWidth: '32px', padding: '10px 4px' }}></th>}
@@ -550,7 +629,7 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
                 return (
                 <th key={col.name} onClick={() => handleSort(col.name)} className="mdt-th" style={thStyle}>
                   <div className="mdt-th-inner">
-                    <span>{col.name}</span>
+                    <span>{headerLabel(col)}</span>
                     {sortConfig?.key === col.name && (
                       sortConfig.direction === 'asc' ? <ChevronUp size={12} /> : <ChevronDown size={12} />
                     )}
@@ -559,8 +638,9 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
                 );
               })}
               {showSfColumn && <th className="mdt-th" style={{ minWidth: '160px' }}>Service Fait</th>}
-              {showFactureCol && <th className="mdt-th" style={{ minWidth: '70px' }}>Facture</th>}
-              {showActions && <th className="mdt-th" style={{ minWidth: '120px' }}>Sedit</th>}
+              {showFactureCol && <th className="mdt-th" style={{ minWidth: isCommandes ? '36px' : '70px' }}>{isCommandes ? 'Fac.' : 'Facture'}</th>}
+              {showActions && <th className="mdt-th" style={{ minWidth: isCommandes ? '0' : '120px' }}>{isCommandes ? 'Actions' : 'Sedit'}</th>}
+              {showContactsCol && <th className="mdt-th" style={{ minWidth: '110px' }}>Contacts</th>}
             </tr>
           </thead>
           <tbody>
@@ -639,6 +719,38 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
                       const cellTitle = (col.expression === 'nature' || col.expression === 'fonction')
                         ? (m57Title(row[col.name], col.expression) || undefined)
                         : (row[col.name] != null && row[col.name] !== '' ? String(row[col.name]) : undefined);
+                      if (isCommandes) {
+                        // Code service en pastille (le libellé du service en infobulle).
+                        if (col.expression === 'SERVICEFI_CLEACCES') {
+                          const code = String(row[col.name] ?? '').trim();
+                          const svcName = row['Service'] != null ? String(row['Service']).trim() : '';
+                          return (
+                            <td key={col.name} className="mdt-cell" style={tdStyle} title={svcName || undefined}>
+                              {code && code !== 'XXXXX' && (
+                                <span style={{ display: 'inline-block', padding: '1px 8px', borderRadius: 10, background: '#eef2ff', color: '#3730a3', fontWeight: 700, fontSize: 11, whiteSpace: 'nowrap' }}>{code}</span>
+                              )}
+                            </td>
+                          );
+                        }
+                        // Nature en grand, fonction dessous en plus petit.
+                        if (col.expression === 'nature') {
+                          const fct = fonctionCol ? formatCell(row[fonctionCol.name], fonctionCol, row) : '';
+                          const title = [m57Title(row[col.name], 'nature'), fonctionCol ? m57Title(row[fonctionCol.name], 'fonction') : '']
+                            .filter(Boolean).join('\n') || undefined;
+                          return (
+                            <td key={col.name} className="mdt-cell" style={tdStyle} title={title}>
+                              <div style={{ lineHeight: 1.2 }}>
+                                <div>{formatCell(row[col.name], col, row)}</div>
+                                {fct !== '' && <div style={{ fontSize: '0.68rem', color: '#94a3b8' }}>{fct}</div>}
+                              </div>
+                            </td>
+                          );
+                        }
+                        // Nom du tiers : colonne plus étroite (texte tronqué, nom complet en infobulle).
+                        if (col.display_type === 'jointure') {
+                          return <td key={col.name} className="mdt-cell" style={{ ...tdStyle, maxWidth: 130 }} title={cellTitle}>{String(row[col.name] ?? '').trim()}</td>;
+                        }
+                      }
                       return <td key={col.name} className="mdt-cell" style={tdStyle} title={cellTitle}>{formatCell(row[col.name], col, row)}</td>;
                     })}
                     {showSfColumn && (
@@ -768,21 +880,49 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
                         })()}
                       </td>
                     )}
+                    {showContactsCol && (() => {
+                      const codeCol = columns.find(c => c.expression === 'TIERS_TIERS');
+                      const nameCol = columns.find(c => c.name.trim() === 'Nom');
+                      const tierCode = codeCol ? String(row[codeCol.name] ?? '').trim() : '';
+                      const tierName = nameCol ? String(row[nameCol.name] ?? '').trim() : tierCode;
+                      return (
+                        <td className="mdt-cell" style={{ whiteSpace: 'nowrap' }}>
+                          {tierCode && (
+                            <button title="Gérer les contacts du tiers"
+                              onClick={() => setContactsTier({ code: tierCode, name: tierName })}
+                              style={{ background: '#0d9488', color: 'white', border: 'none', borderRadius: '4px', padding: '3px 8px', fontSize: '11px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '3px' }}>
+                              <Users size={12} /> Contacts
+                              {(() => {
+                                const n = contactCounts[tierCode];
+                                const total = n ? n.total : 0;
+                                return (
+                                  <span
+                                    title={n ? `${total} contact${total > 1 ? 's' : ''}${n.recipients ? ` dont ${n.recipients} destinataire${n.recipients > 1 ? 's' : ''} de commande` : ''}` : undefined}
+                                    style={{ background: total > 0 ? 'white' : 'rgba(255,255,255,0.35)', color: total > 0 ? '#0d9488' : 'white', borderRadius: 8, padding: '0 5px', fontSize: 10, fontWeight: 700, minWidth: 14, textAlign: 'center', lineHeight: '14px' }}>
+                                    {total}
+                                  </span>
+                                );
+                              })()}
+                            </button>
+                          )}
+                        </td>
+                      );
+                    })()}
                     {showActions && (
                       <td className="mdt-cell" style={{ whiteSpace: 'nowrap' }}>
-                        <div style={{ display: 'flex', gap: '8px', alignItems: 'center', justifyContent: 'space-between' }}>
-                          <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+                        <div style={{ display: 'flex', gap: isCommandes ? '3px' : '8px', alignItems: 'center', justifyContent: isCommandes ? 'flex-start' : 'space-between' }}>
+                          <div style={{ display: 'flex', gap: '3px', alignItems: 'center' }}>
                             {seditId && (
                               <button title="Ouvrir dans Sedit"
                                 onClick={() => window.open(`${urlSedit}/${seditUrlPage}?${seditUrlParam}=${seditId}`, '_blank')}
-                                style={{ background: '#3b82f6', color: 'white', border: 'none', borderRadius: '4px', padding: '3px 8px', fontSize: '11px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '3px' }}>
-                                <ExternalLink size={12} /> Sedit
+                                style={actBtn('#3b82f6')}>
+                                <ExternalLink size={12} />{!isCommandes && ' Sedit'}
                               </button>
                             )}
                             {rubriqueName === 'Factures' && factureRef && (
                               <button title="Voir les pièces jointes Sedit (PDF/XML de la facture)"
                                 onClick={() => setSeditDocsViewer({ numero: factureRef })}
-                                style={{ background: '#7c3aed', color: 'white', border: 'none', borderRadius: '4px', padding: '3px 8px', fontSize: '11px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '3px' }}>
+                                style={actBtn('#7c3aed')}>
                                 <Files size={12} /> Pièces jointes
                               </button>
                             )}
@@ -793,34 +933,52 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
                                   baseUrl: `/api/finance/pj-share/commande/${encodeURIComponent(seditId)}`,
                                   title: `Bon de commande Sedit${commandeNum ? ' — Commande ' + commandeNum : ''}`,
                                 })}
-                                style={{ background: '#7c3aed', color: 'white', border: 'none', borderRadius: '4px', padding: '3px 8px', fontSize: '11px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '3px' }}>
-                                <Files size={12} /> PJ
+                                style={actBtn('#7c3aed')}>
+                                <Files size={12} />{!isCommandes && ' PJ'}
                               </button>
+                            )}
+                            {rubriqueName === 'Commandes' && seditId && (
+                              (() => {
+                                const sent = envoiStatuses[seditId];
+                                const tierCodeCell = String(row[(columns.find(c => c.expression === 'TIERS_TIERS' && c.display_type !== 'jointure') || { name: '' }).name] ?? '').trim();
+                                // Pas de bouton sans contact « destinataire commande » sur le tiers (sauf historique d'envoi).
+                                if (!sent && !(tierCodeCell && recipientTiers[tierCodeCell])) return null;
+                                return (
+                                  <button
+                                    title={sent
+                                      ? `Envoyée le ${new Date(sent.sent_at).toLocaleString('fr-FR')} par ${sent.sent_by} à ${sent.to}${sent.count > 1 ? ` (${sent.count} envois)` : ''} — cliquer pour la renvoyer`
+                                      : 'Envoyer le bon de commande signé aux contacts du tiers'}
+                                    onClick={() => setEnvoiRoo(seditId)}
+                                    style={actBtn(sent ? '#16a34a' : '#0d9488')}>
+                                    {sent ? <CheckCircle size={12} /> : <Send size={12} />}{!isCommandes && (sent ? ' Envoyée' : ' Envoyer')}
+                                  </button>
+                                );
+                              })()
                             )}
                           </div>
                           <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
                             {linkId && row._operation_id ? (
                               <span title={row._operation_label || ''} style={{ fontSize: '11px', color: '#059669', fontWeight: 500, cursor: 'pointer', borderBottom: '1px dashed #059669' }}
                                 onClick={() => setAssignModal({ linkId: String(linkId), currentOpId: row._operation_id, currentOpLabel: row._operation_label })}>
-                                {(row._operation_label || '').length > 28 ? (row._operation_label || '').substring(0, 26) + '...' : row._operation_label}
+                                {(() => { const l = row._operation_label || ''; const max = isCommandes ? 14 : 28; return l.length > max ? l.substring(0, max - 2) + '...' : l; })()}
                               </span>
                             ) : linkId ? (
                               <button title="Associer à une opération"
                                 onClick={() => setAssignModal({ linkId: String(linkId), currentOpId: null, currentOpLabel: null })}
-                                style={{ background: '#f59e0b', color: 'white', border: 'none', borderRadius: '4px', padding: '3px 8px', fontSize: '11px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '3px' }}>
-                                <Link2 size={12} /> Associer
+                                style={actBtn('#f59e0b')}>
+                                <Link2 size={12} />{!isCommandes && ' Associer'}
                               </button>
                             ) : null}
                             {linkId && row._app_id ? (
                               <span title={row._app_label || ''} style={{ fontSize: '11px', color: '#2563eb', fontWeight: 500, cursor: 'pointer', borderBottom: '1px dashed #2563eb', display: 'inline-flex', alignItems: 'center', gap: '3px' }}
                                 onClick={() => setAppModal({ linkId: String(linkId), currentAppId: row._app_id, currentAppLabel: row._app_label })}>
-                                <AppWindow size={12} />{(row._app_label || '').length > 22 ? (row._app_label || '').substring(0, 20) + '...' : row._app_label}
+                                <AppWindow size={12} />{(() => { const l = row._app_label || ''; const max = isCommandes ? 12 : 22; return l.length > max ? l.substring(0, max - 2) + '...' : l; })()}
                               </span>
                             ) : linkId ? (
                               <button title="Associer à un logiciel métier"
                                 onClick={() => setAppModal({ linkId: String(linkId), currentAppId: null, currentAppLabel: null })}
-                                style={{ background: '#2563eb', color: 'white', border: 'none', borderRadius: '4px', padding: '3px 8px', fontSize: '11px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '3px' }}>
-                                <AppWindow size={12} /> APP
+                                style={actBtn('#2563eb')}>
+                                <AppWindow size={12} />{!isCommandes && ' APP'}
                               </button>
                             ) : null}
                           </div>
@@ -1015,6 +1173,8 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
         .mdt-expand-btn:hover { background: #f1f5f9; color: #3b82f6; }
         .mdt-spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid #e2e8f0; border-top-color: #3b82f6; border-radius: 50%; animation: mdt-spin 0.6s linear infinite; }
         @keyframes mdt-spin { to { transform: rotate(360deg); } }
+        .mdt-compact .mdt-th { padding: 6px 5px; font-size: 0.7rem; }
+        .mdt-compact .mdt-cell { padding: 4px 5px; font-size: 0.8rem; max-width: 210px; }
         .mdt-cell { padding: 8px 14px; font-size: 0.85rem; border-bottom: 1px solid #f1f5f9; max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .mdt-empty { text-align: center; padding: 32px; color: #94a3b8; }
         .mdt-pagination { display: flex; justify-content: center; align-items: center; gap: 16px; padding: 8px 0; }
@@ -1033,6 +1193,12 @@ const MappedDataTable: React.FC<MappedDataTableProps> = ({ rubriqueName, title: 
         .mdt-modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.4); display: flex; align-items: center; justify-content: center; z-index: 1000; }
         .mdt-modal { background: white; border-radius: 12px; padding: 24px; width: 90%; max-height: 80vh; overflow-y: auto; }
       `}</style>
+
+      {envoiRoo && <CommandeEnvoiModal roo={envoiRoo} onClose={() => setEnvoiRoo(null)} onSent={() => loadEnvoiStatuses([envoiRoo])} />}
+
+      {contactsTier && (
+        <TiersContactsModal tierCode={contactsTier.code} tierName={contactsTier.name} onClose={() => { const code = contactsTier.code; setContactsTier(null); loadContactCounts([code]); }} />
+      )}
 
       {sfModalRow && rubriqueName === 'Factures' && (
         <ServiceFaitModal

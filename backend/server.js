@@ -2242,6 +2242,9 @@ app.use('/api/finance/mandatement', require('./modules/finance/mandatement.route
 // DGP (délai global de paiement) des factures — widget dashboard
 app.use('/api/finance/dgp', require('./modules/finance/dgp.routes'));
 app.use('/api/budget-prep', require('./modules/budget-prep/budget-prep.routes'));
+app.use('/api/demandes-commande', require('./modules/demandes-commande/demandes-commande.routes'));
+app.use('/api/commande-envoi', require('./modules/commande-envoi/commande-envoi.routes'));
+require('./modules/commande-envoi/commande-envoi.controller').setSendMail(sendMail);
 
 // Parapheur électronique (signature de documents PDF)
 const parapheurCtrl = require('./modules/parapheur/parapheur.controller');
@@ -5819,8 +5822,10 @@ async function sendMail(to, subject, content, extraAttachments = [], source = 's
         const apiUrl = s.api_url || 'https://api.brevo.com/v3/smtp/email';
         
         const payload = {
-            sender: { name: s.sender_name || 'DSI Hub', email: s.sender_email },
-            to: [{ email: to }],
+            sender: { name: (options && options.fromName) || s.sender_name || 'DSI Hub', email: s.sender_email },
+            to: (Array.isArray(to) ? to : [to]).map(email => ({ email })),
+            ...(options && options.cc && options.cc.length ? { cc: options.cc.map(email => ({ email })) } : {}),
+            ...(options && options.replyTo ? { replyTo: options.replyTo } : {}),
             subject: subject,
             htmlContent: html,
             attachment: attachments.map(a => {
@@ -5878,8 +5883,10 @@ async function sendMail(to, subject, content, extraAttachments = [], source = 's
         const transporter = nodemailer.createTransport(transporterOptions);
 
         const mailOptions = {
-            from: `"${s.sender_name}" <${s.sender_email}>`,
+            from: `"${(options && options.fromName) || s.sender_name}" <${s.sender_email}>`,
             to,
+            ...(options && options.cc && options.cc.length ? { cc: options.cc } : {}),
+            ...(options && options.replyTo ? { replyTo: `"${options.replyTo.name || ''}" <${options.replyTo.email}>` } : {}),
             subject,
             html,
             attachments: attachments.map(a => ({
@@ -5907,7 +5914,7 @@ async function sendMail(to, subject, content, extraAttachments = [], source = 's
                 const { pool: _pgPool } = require('./shared/pg_db');
                 await _pgPool.query(
                     'INSERT INTO hub.email_logs (recipient, subject, status, error_message, source) VALUES ($1, $2, $3, $4, $5)',
-                    [to, subject, _logStatus, _logError, source]
+                    [Array.isArray(to) ? to.join(', ') : to, subject, _logStatus, _logError, source]
                 );
             } catch (_le) { /* never let logging break delivery */ }
         }
