@@ -285,6 +285,68 @@ stockent le **ROO** du mandat (CHAR), tandis que `MVTLIGNE.MANDAT` stocke le **n
 `MANDAT.REJET='O'` / `MANDREJETE='O'` = mandat rejeté. Exposé par AppDSI :
 `GET /api/finance/mandatement/:numero` (service `modules/finance/sedit-mandat.service.js`).
 
+## Commandes (`FI.COMMANDE`) — lister / retrouver
+
+Validé en lecture réelle (oct. 2026, numéros du type `26D008707` = exercice + `D` + n° séquentiel).
+`FI.COMMANDE` — colonnes utiles :
+
+| Colonne | Contenu |
+|---|---|
+| `ROO_IMA_REF` | PK technique (CHAR padded → `TRIM`) — à stocker pour référencer la commande |
+| `COMMANDE` | n° affiché (`26D008707`) |
+| `CMD_DATECOMMANDE` | date de commande (DATE ; `TO_CHAR(...,'DD/MM/YYYY')` côté SQL, sinon node-oracledb renvoie un UTC décalé : minuit local = `22:00Z` la veille) |
+| `MONTANT_TTC`, `CMD_NB_LIGNES_COMMANDE` | montant, nb de lignes |
+| `LIBELLE` + `CMD_LIBELLE2` | libellé **à concaténer** (le 1er est tronqué à ~40 car., ex. « …VERTES » = `…V` + `ERTES`) |
+| `TIERS` | **ROO** du tiers → `FI.TIERS.ROO_IMA_REF` ; nom = 2ᵉ élément de `TIERS.POBJ_EXTRACT` (séparateur `CHR(1)`), à `TRIM` (espaces parasites) |
+| `SERVICE` | **ROO** du service → `FI.SERVICEFI.ROO_IMA_REF` (`LIBELLE`, `CLEACCES`) |
+
+Lignes d'imputation : `FI.CMDLIGNE.COMMANDE = COMMANDE.ROO_IMA_REF` → `FI.IMPUTATION`
+(`TYPE_SECTION`, `CODEFONC`, `CODECOMP`). Factures d'une commande : `FI.FACTURE.COMMANDE` = ROO de la commande.
+PJ d'une commande (bon de commande) : `FIPES_OBJ_PJ` avec `OBJECT_TYPE='COMMANDE'`.
+
+**Périmètre DSI** : les services DSI ont un code `FI.SERVICEFI.CLEACCES` commençant par **`BF`**
+(`BF1 / DIRECTION DSI`, `BF8 / BUREAU DES PROJETS`, …). Filtrer via `c.SERVICE` → `SERVICEFI.ROO_IMA_REF` ;
+sans ce filtre on récupère les commandes de toute la collectivité.
+
+**N dernières commandes de la DSI** (tri date puis n° — la date seule a beaucoup d'ex æquo) :
+
+```sql
+SELECT TRIM(c.ROO_IMA_REF) ROO, c.COMMANDE, c.CMD_DATECOMMANDE, c.MONTANT_TTC, c.LIBELLE || c.CMD_LIBELLE2 AS LIBELLE
+FROM FI.COMMANDE c
+WHERE EXISTS (SELECT 1 FROM FI.SERVICEFI s WHERE TRIM(s.ROO_IMA_REF) = TRIM(c.SERVICE) AND s.CLEACCES LIKE 'BF%')
+ORDER BY c.CMD_DATECOMMANDE DESC NULLS LAST, c.COMMANDE DESC
+FETCH FIRST 20 ROWS ONLY;
+```
+
+Implémenté dans `backend/modules/demandes-commande/sedit-commandes.service.js`
+(`listLastCommandes`, `getCommandeByRoo`) ; utilisé par l'onglet « Demande de commande »
+de `/budget` (association d'une commande Sedit à une demande validée, ROO relu côté
+serveur, copie des infos stockée dans `finance.demandes_commande`).
+
+**Émetteur / correspondant** : `COMMANDE.CORRESP` (nom), `MAILCORRESP` (e-mail), `TELCORRESP`, `REFERENCE`
+(réf. fournisseur/devis), `CMD_COMMENTAIRE`, `USER_CREAT` (login Sedit de saisie). `MONTANT_HT`/`MONTANT_TVA`/`MONTANT_TTC`.
+
+**Pièces jointes d'une commande** (`FIPES_OBJ_PJ` `OBJECT_TYPE='COMMANDE'` → `PJ_PES`) :
+- **Bon de commande** : `NOM_PJ LIKE 'BonDeCommande%'` (ex. `BonDeCommandeSIIM IVRY2_…pdf`, dossier `…/pjust/BONCOMMAND/…`),
+  `TYPE_PIECE_ID = 2`. **Signé ⇔ `PJ_PES.SIGNED = 1`** (vérifié : 32 836 signés / 5 996 non signés ; le plus récent par
+  `DATE_CREAT`). Les `Brouillard…` ne sont pas des bons signés.
+- **Devis** : `TYPE_PIECE_ID = 65` (« Devis »), y compris les `order-BD…` / `BD<chiffres>` (devis du portail
+  fournisseur). ⚠️ `PJ_PES.NOM_PJ` **n'a souvent pas d'extension** (78 674 PJ sur 244 000, ex. `order-BD8981731688`)
+  alors que le fichier réel en a une : l'extension se lit dans `CHEMIN_FICHIER`
+  (`…/DEVIS/…/order-BD8981731688.pdf`), à défaut dans `FORMAT` (`06` = pdf, `03` = xml) — à reprendre pour nommer
+  une PJ de mail/téléchargement. ⚠️ Sedit double parfois un devis (variante du nom, autre type `2`). `66` = contrat/pièces marché.
+- Lecture du fichier : `financeShare.resolveShareConfig()` + `toRelativePath()` + `smb.readFileRel()` (partage UNC Sedit).
+
+**Hiérarchie ↔ RH** : le code service Sedit (`SERVICEFI.CLEACCES`, ex. `BF1`, `BF8`) est **identique** au code service RH
+(`oracle.rh_v_extract_dsi.SERVICE`, `encadrants.service_code`). Responsable de service / directeur (avec e-mail) =
+`encadrants.controller.getEncadrants` (rôles `directeur` / `responsable_service`, `direction_code`, `service_code`) ;
+le service d'accueil (BF1) n'a pas de responsable propre → le directeur. Implémenté dans
+`backend/modules/commande-envoi/` (envoi du bon de commande signé + devis aux contacts du tiers, Cc directeur/resp. service).
+
+> **Script Node hors serveur** : `getSqlite()` renvoie `null` tant que `require('./shared/database').setupDb()`
+> n'a pas été appelé → l'appeler avant `financeShare.withFinanceOracle(...)` (qui lit `oracle_settings`).
+> Penser aussi à `{ outFormat: oracledb.OUT_FORMAT_OBJECT }` (sinon lignes en tableaux).
+
 ## Page « Factures (beta) » — résolution directe depuis Sedit
 
 `/budget` → onglet « Factures (beta) » : mêmes colonnes/rendu que la page Factures,
