@@ -1153,7 +1153,7 @@ export default function TicketDetail() {
     // la liste se rouvre immédiatement avec les correspondances de ce nom.
     requesterSearchSkipRef.current = true;
     setRequesterSearch(u.name || '');
-    setEditForm(f => ({ ...f, requester_name: u.username || u.name, requester_email: u.email || '' }));
+    setEditForm((f: any) => ({ ...f, requester_name: u.username || u.name, requester_email: u.email || '' }));
     setRequesterResults([]);
   }
 
