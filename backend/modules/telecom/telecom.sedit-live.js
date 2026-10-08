@@ -27,7 +27,13 @@ const COLUMNS = [
     ['TIERS_POBJ_EXTRACT', 'text'],
     ['FACTURE_MONTANTTC_E', 'numeric'],
     ['FACTURE_DATENTREE', 'timestamp'],
+    // Codes des engagements (FI.MOUVEMENT) auxquels Sedit a rapproché la facture (via ses
+    // lignes FI.MVTLIGNE), séparés par « , ». Colonne calculée, absente du miroir.
+    ['ENGAGEMENT', 'text'],
 ];
+const ENGAGEMENT_SQL = `(SELECT LISTAGG(DISTINCT TRIM(mv.MOUVEMENT), ',') WITHIN GROUP (ORDER BY TRIM(mv.MOUVEMENT))
+    FROM FI.MVTLIGNE ml JOIN FI.MOUVEMENT mv ON mv.ROO_IMA_REF = ml.MOUVEMENT
+    WHERE ml.FACTURE = "_o"."FACTURE_ROO_IMA_REF")`;
 
 let lastRefresh = 0;
 let inflight = null;
@@ -39,6 +45,9 @@ async function ensureTable() {
     await pool.query(`CREATE UNLOGGED TABLE IF NOT EXISTS hub_telecom.sedit_factures_live (
         ${COLUMNS.map(([c, t]) => `"${c}" ${t}`).join(', ')}
     )`);
+    for (const [c, t] of COLUMNS) {
+        await pool.query(`ALTER TABLE hub_telecom.sedit_factures_live ADD COLUMN IF NOT EXISTS "${c}" ${t}`);
+    }
     tableReady = true;
 }
 
@@ -51,7 +60,10 @@ async function fetchFromSedit() {
         const inner = seditDirect.buildOracleInner(sync, validColumns);
         const innerMeta = await conn.execute(`SELECT * FROM (${inner}) WHERE 1 = 0`);
         const present = new Set((innerMeta.metaData || []).map((m) => m.name));
-        const select = COLUMNS.map(([c]) => (present.has(c) ? `"_o"."${c}"` : `NULL`) + ` AS "${c}"`).join(', ');
+        const select = COLUMNS.map(([c]) => {
+            if (c === 'ENGAGEMENT') return present.has('FACTURE_ROO_IMA_REF') ? `${ENGAGEMENT_SQL} AS "${c}"` : `NULL AS "${c}"`;
+            return (present.has(c) ? `"_o"."${c}"` : `NULL`) + ` AS "${c}"`;
+        }).join(', ');
         const where = present.has('FACTURE_DATENTREE') ? 'WHERE "_o"."FACTURE_DATENTREE" >= :since' : '';
         const binds = where ? { since } : {};
         const res = await conn.execute(`SELECT ${select} FROM (${inner}) "_o" ${where}`, binds, { maxRows: 0 });
@@ -92,6 +104,38 @@ async function doRefresh() {
     }
     lastRefresh = Date.now();
     console.log(`[Telecom] ${rows.length} factures lues en direct dans Sedit`);
+    await autoLinkAccounts().catch((e) => console.error('[Telecom] Rattachement auto des comptes impossible :', e.message));
+}
+
+/**
+ * Rattache automatiquement au compte de facturation les factures télécom qui n'en ont pas :
+ * Sedit rapproche chaque facture reçue d'un engagement, et le compte est celui dont le n°
+ * d'engagement correspond (uniquement si un seul compte de l'opérateur correspond).
+ */
+async function autoLinkAccounts() {
+    await pool.query(`
+        UPDATE hub_telecom.invoices i
+        SET billing_account_id = m.account_id
+        FROM (
+            SELECT i2.id AS invoice_id, MIN(a.id) AS account_id
+            FROM hub_telecom.invoices i2
+            JOIN LATERAL (
+                SELECT f."ENGAGEMENT" FROM hub_telecom.sedit_factures_live f
+                WHERE f."ENGAGEMENT" IS NOT NULL AND (
+                       LOWER(TRIM(f."FACTURE_REFERENCE")) = LOWER(TRIM(i2.invoice_number))
+                    OR f."FACTURE_LIBELLE1" ILIKE '%' || TRIM(i2.invoice_number) || '%'
+                    OR LOWER(TRIM(f."FACTURE_FACTIERS")) = LOWER(TRIM(i2.invoice_number)))
+                ORDER BY (LOWER(TRIM(f."FACTURE_REFERENCE")) = LOWER(TRIM(i2.invoice_number))) DESC
+                LIMIT 1
+            ) bf ON TRUE
+            JOIN hub_telecom.billing_accounts a ON a.operator_id = i2.operator_id
+                AND TRIM(a.commitment_number) = ANY(string_to_array(bf."ENGAGEMENT", ','))
+            WHERE i2.billing_account_id IS NULL AND TRIM(COALESCE(i2.invoice_number, '')) <> ''
+            GROUP BY i2.id
+            HAVING COUNT(DISTINCT a.id) = 1
+        ) m
+        WHERE i.id = m.invoice_id
+    `);
 }
 
 /** Recharge les factures depuis Sedit si la dernière lecture a plus de REFRESH_TTL_MS. */

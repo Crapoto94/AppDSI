@@ -93,6 +93,7 @@ interface TelecomInvoice {
   operator_name?: string;
   account_number?: string;
   general_status?: string;
+  engagement?: string | null;
   sedit_ref?: string;
   sedit_numero?: string | null;
   billing_month?: string | null;
@@ -112,6 +113,8 @@ interface AvailableBudgetInvoice {
   invoice_date: string | null;
   sedit_ref: string | null;
   etat: string | null;
+  engagement?: string | null;
+  suggested_account_id?: number | null;
 }
 
 interface RejectedInvoice {
@@ -970,7 +973,9 @@ const TelecomManagement: React.FC = () => {
 
   const handleAddInvoiceFromBudget = async (candidate: AvailableBudgetInvoice) => {
     if (!addInvoiceOperatorId) return;
-    if (!addInvoiceAccountId) { alert('Veuillez choisir un compte de facturation'); return; }
+    // Compte déduit de l'engagement auquel Sedit a rapproché la facture, sinon celui choisi.
+    const accountId = candidate.suggested_account_id || addInvoiceAccountId;
+    if (!accountId) { alert("Aucun compte ne correspond à l'engagement de cette facture : choisissez un compte de facturation"); return; }
     setAddingInvoiceNumber(candidate.invoice_number);
     try {
       const res = await fetch('/api/telecom/invoices/from-budget', {
@@ -978,7 +983,7 @@ const TelecomManagement: React.FC = () => {
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
         body: JSON.stringify({
           operator_id: addInvoiceOperatorId,
-          billing_account_id: addInvoiceAccountId,
+          billing_account_id: accountId,
           invoice_number: candidate.invoice_number,
         }),
       });
@@ -1556,6 +1561,7 @@ const TelecomManagement: React.FC = () => {
                     <th>N° Facture</th>
                     <th>Opérateur</th>
                     <th>N° Compte</th>
+                    <th>Engagement</th>
                     <th>Mois</th>
                     <th>Description</th>
                     <th>Montant TTC</th>
@@ -1567,7 +1573,7 @@ const TelecomManagement: React.FC = () => {
                   {Object.entries(groupedInvoices).sort((a, b) => b[0].localeCompare(a[0])).map(([monthKey, invoices]) => (
                     <React.Fragment key={monthKey}>
                       <tr className="month-break-row">
-                        <td colSpan={9}>{formatMonthKey(monthKey)}</td>
+                        <td colSpan={10}>{formatMonthKey(monthKey)}</td>
                       </tr>
                       {invoices.map(inv => {
                         const isEditing = editingMeta?.id === inv.id;
@@ -1577,6 +1583,9 @@ const TelecomManagement: React.FC = () => {
                           <td style={{ fontWeight: 700 }}>{inv.invoice_number}</td>
                           <td>{inv.operator_name || <span style={{ color: '#ef4444' }}>Inconnu</span>}</td>
                           <td>{inv.account_number || <span style={{ color: '#ef4444' }}>Inconnu</span>}</td>
+                          <td style={{ fontFamily: 'monospace', fontSize: '0.8rem' }} title="Engagement auquel Sedit a rapproché la facture">
+                            {inv.engagement ? inv.engagement.split(',').join(', ') : <span style={{ color: '#cbd5e1' }}>—</span>}
+                          </td>
                           <td>
                             {isEditing ? (
                               <input type="month" value={editingMeta!.billing_month} style={{ width: 130 }}
@@ -2678,7 +2687,7 @@ const TelecomManagement: React.FC = () => {
                   const accId = e.target.value ? parseInt(e.target.value) : null;
                   setAddInvoiceAccountId(accId);
                 }}>
-                <option value="">-- Compte (obligatoire) --</option>
+                <option value="">-- Compte (si engagement non reconnu) --</option>
                 {addInvoiceOperatorId && billingAccounts[addInvoiceOperatorId]?.map(acc => {
                   const eng = acc.commitment_number ? liveEngagements[acc.commitment_number.trim()] : undefined;
                   return (
@@ -2696,7 +2705,7 @@ const TelecomManagement: React.FC = () => {
             {(() => {
               const acc = addInvoiceOperatorId ? billingAccounts[addInvoiceOperatorId]?.find(a => a.id === addInvoiceAccountId) : undefined;
               if (!acc) return addInvoiceOperatorId ? (
-                <div style={{ padding: '8px 20px', fontSize: 12.5, color: '#b91c1c', background: '#fef2f2' }}>Choisissez un compte de facturation pour pouvoir ajouter une facture.</div>
+                <div style={{ padding: '8px 20px', fontSize: 12.5, color: '#b91c1c', background: '#fef2f2' }}>Le compte est déduit de l'engagement Sedit de chaque facture ; choisissez un compte pour celles dont l'engagement ne correspond à aucun compte.</div>
               ) : null;
               const code = (acc.commitment_number || '').trim();
               const eng = code ? liveEngagements[code] : undefined;
@@ -2736,8 +2745,8 @@ const TelecomManagement: React.FC = () => {
               ) : (
                 <table className="commitments-table" style={{ tableLayout: 'fixed', width: '100%' }}>
                   <colgroup>
-                    <col style={{ width: '18%' }} /><col style={{ width: '24%' }} /><col style={{ width: '11%' }} />
-                    <col style={{ width: '12%' }} /><col style={{ width: '13%' }} /><col style={{ width: '22%' }} />
+                    <col style={{ width: '15%' }} /><col style={{ width: '19%' }} /><col style={{ width: '10%' }} />
+                    <col style={{ width: '11%' }} /><col style={{ width: '13%' }} /><col style={{ width: '11%' }} /><col style={{ width: '21%' }} />
                   </colgroup>
                   <thead>
                     <tr>
@@ -2745,6 +2754,7 @@ const TelecomManagement: React.FC = () => {
                       <th>Libellé</th>
                       <th>Date</th>
                       <th>Montant</th>
+                      <th>Engagement</th>
                       <th>État</th>
                       <th></th>
                     </tr>
@@ -2761,6 +2771,9 @@ const TelecomManagement: React.FC = () => {
                           <td style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={c.libelle}>{c.libelle || '—'}</td>
                           <td>{c.invoice_date ? new Date(c.invoice_date).toLocaleDateString('fr-FR') : '—'}</td>
                           <td>{c.amount_ttc != null ? Number(c.amount_ttc).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' }) : '—'}</td>
+                          <td style={{ fontFamily: 'monospace', fontSize: '0.8rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={c.engagement ? `Engagement Sedit : ${c.engagement}` : ''}>
+                            {c.engagement ? c.engagement.split(',').join(', ') : '—'}
+                          </td>
                           <td style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={c.etat || ''}>{c.etat || '—'}</td>
                           <td>
                             <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
@@ -2770,8 +2783,8 @@ const TelecomManagement: React.FC = () => {
                                 </a>
                               )}
                               <button className="add-btn" style={{ padding: '4px 10px', fontSize: 12 }}
-                                disabled={addingInvoiceNumber === c.invoice_number || !addInvoiceAccountId}
-                                title={addInvoiceAccountId ? undefined : "Choisissez d'abord un compte"}
+                                disabled={addingInvoiceNumber === c.invoice_number || !(c.suggested_account_id || addInvoiceAccountId)}
+                                title={c.suggested_account_id ? "Compte déduit de l'engagement Sedit" : (addInvoiceAccountId ? undefined : "Aucun compte ne correspond à l'engagement : choisissez-en un")}
                                 onClick={() => handleAddInvoiceFromBudget(c)}>
                                 {addingInvoiceNumber === c.invoice_number ? '...' : 'Ajouter'}
                               </button>
@@ -2784,7 +2797,7 @@ const TelecomManagement: React.FC = () => {
                         </tr>
                       ))}
                     {availableInvoices.length === 0 && (
-                      <tr><td colSpan={6} style={{ textAlign: 'center', padding: 30, color: '#94a3b8' }}>
+                      <tr><td colSpan={7} style={{ textAlign: 'center', padding: 30, color: '#94a3b8' }}>
                         {addInvoiceOperatorId ? 'Aucune facture disponible pour ce fournisseur dans le budget' : 'Sélectionnez un opérateur pour voir ses factures en attente'}
                       </td></tr>
                     )}

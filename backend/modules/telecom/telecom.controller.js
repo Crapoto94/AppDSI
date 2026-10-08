@@ -26,11 +26,12 @@ const RESOLVED_INVOICES_SQL = `
         COALESCE(bf.emission_date, i.invoice_date) as invoice_date,
         COALESCE(i.billing_month, to_char(COALESCE(bf.emission_date, i.invoice_date), 'YYYY-MM')) as effective_month,
         bf."FACETAT_LIBELLE" as general_status,
+        bf."ENGAGEMENT" as engagement,
         NULLIF(TRIM(bf."FACTURE_ROO_IMA_REF"), '') as sedit_ref,
         NULLIF(TRIM(bf."FACTURE_FACTURE"), '') as sedit_numero
     FROM hub_telecom.invoices i
     LEFT JOIN LATERAL (
-        SELECT f."FACETAT_LIBELLE", f."FACTURE_MONTANTTC_E", f."FACTURE_ROO_IMA_REF", f."FACTURE_FACTURE",
+        SELECT f."FACETAT_LIBELLE", f."ENGAGEMENT", f."FACTURE_MONTANTTC_E", f."FACTURE_ROO_IMA_REF", f."FACTURE_FACTURE",
             COALESCE(
                 to_date(substring(f."FACTURE_LIBELLE1" from '(\\d{2}/\\d{2}/\\d{4})'), 'DD/MM/YYYY'),
                 f."FACTURE_DATENTREE"::date
@@ -113,7 +114,8 @@ async function findBudgetInvoicesForOperator(operatorId, tierCode) {
                        f."FACTURE_DATENTREE"::date
                    ) as invoice_date,
                    NULLIF(TRIM(f."FACTURE_ROO_IMA_REF"), '') as sedit_ref,
-                   f."FACETAT_LIBELLE" as etat
+                   f."FACETAT_LIBELLE" as etat,
+                   f."ENGAGEMENT" as engagement
             FROM hub_telecom.sedit_factures_live f
             WHERE ${conditions.join(' OR ')}
         ) c
@@ -137,6 +139,9 @@ async function findBudgetInvoicesForOperator(operatorId, tierCode) {
     const existingRes = await pool.query(`SELECT LOWER(TRIM(invoice_number)) as k FROM hub_telecom.invoices WHERE invoice_number IS NOT NULL`);
     const existingKeys = new Set(existingRes.rows.map(r => r.k));
 
+    const accountsRes = await pool.query(
+        'SELECT id, commitment_number FROM hub_telecom.billing_accounts WHERE operator_id = $1', [operatorId]);
+
     const seen = new Set();
     return candidatesRes.rows.filter(r => {
         if (!r.invoice_number) return false;
@@ -144,7 +149,17 @@ async function findBudgetInvoicesForOperator(operatorId, tierCode) {
         if (existingKeys.has(key) || seen.has(key)) return false;
         seen.add(key);
         return true;
-    });
+    }).map(r => ({ ...r, suggested_account_id: accountForEngagement(accountsRes.rows, r.engagement) }));
+}
+
+// Compte de facturation dont le n° d'engagement correspond à l'un des engagements auxquels Sedit a
+// rapproché la facture (colonne ENGAGEMENT : codes séparés par « , »). null si aucun compte — ou
+// plusieurs comptes différents — ne correspond.
+function accountForEngagement(accounts, engagement) {
+    if (!engagement) return null;
+    const codes = String(engagement).split(',').map(c => c.trim()).filter(Boolean);
+    const ids = new Set(accounts.filter(a => a.commitment_number && codes.includes(String(a.commitment_number).trim())).map(a => a.id));
+    return ids.size === 1 ? [...ids][0] : null;
 }
 
 // Synthèse mensuelle par compte (façon onglet "Suivi" de l'Excel) : pour chaque compte de
@@ -586,11 +601,27 @@ module.exports = {
     // PDF. Le compte est facultatif : il n'apparaît pas toujours sur la facture, on liste les
     // factures du tiers sans en exiger un ; il pourra être affecté plus tard via updateInvoiceMeta.
     addInvoiceFromBudget: async (req, res) => {
-        const { operator_id, billing_account_id, invoice_number, description } = req.body;
-        if (!operator_id || !invoice_number || !billing_account_id) {
-            return res.status(400).json({ message: 'operator_id, billing_account_id et invoice_number sont requis' });
+        const { operator_id, invoice_number, description } = req.body;
+        let billing_account_id = req.body.billing_account_id;
+        if (!operator_id || !invoice_number) {
+            return res.status(400).json({ message: 'operator_id et invoice_number sont requis' });
         }
         try {
+            // Compte déduit automatiquement de l'engagement auquel Sedit a rapproché la facture ;
+            // à défaut, celui choisi par l'utilisateur (obligatoire).
+            await seditLive.refreshFactures().catch(() => {});
+            const engRes = await pool.query(`
+                SELECT f."ENGAGEMENT" FROM hub_telecom.sedit_factures_live f
+                WHERE LOWER(TRIM(f."FACTURE_REFERENCE")) = LOWER(TRIM($1))
+                   OR f."FACTURE_LIBELLE1" ILIKE '%' || TRIM($1) || '%'
+                   OR LOWER(TRIM(f."FACTURE_FACTIERS")) = LOWER(TRIM($1))
+                ORDER BY (LOWER(TRIM(f."FACTURE_REFERENCE")) = LOWER(TRIM($1))) DESC LIMIT 1`, [invoice_number]);
+            const accRes = await pool.query('SELECT id, commitment_number FROM hub_telecom.billing_accounts WHERE operator_id = $1', [operator_id]);
+            const autoAccount = accountForEngagement(accRes.rows, engRes.rows[0]?.ENGAGEMENT);
+            if (autoAccount) billing_account_id = autoAccount;
+            if (!billing_account_id) {
+                return res.status(400).json({ message: "Aucun compte ne correspond à l'engagement de cette facture : choisissez un compte de facturation" });
+            }
             const existing = await pgDb.get('SELECT id FROM hub_telecom.invoices WHERE LOWER(TRIM(invoice_number)) = LOWER(TRIM(?))', [invoice_number]);
             if (existing) return res.status(409).json({ message: 'Cette facture est déjà intégrée' });
             const result = await pgDb.run(
