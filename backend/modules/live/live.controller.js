@@ -753,7 +753,7 @@ async function getPublicConfig(req, res) {
             : (cfg.live_enabled !== 'false');
         res.json({
             live_enabled,
-            // Hors horaires, la bulle propose d'alerter l'astreinte par SMS (si un numéro est configuré)
+            // Hors horaires, la bulle propose d'envoyer un message d'urgence (si un numéro destinataire est configuré)
             emergency_available: !!(cfg.live_oncall_phone || '').trim(),
             closing_message: cfg.live_closing_message || '',
             chat_name: cfg.chat_name || 'Support DSI',
@@ -812,7 +812,7 @@ async function setConfig(req, res) {
         if (closing_message           !== undefined) await upsert('live_closing_message',       closing_message);
         if (live_oncall_phone         !== undefined) {
             const phone = String(live_oncall_phone || '').trim();
-            if (phone && !normalizeMobile(phone)) return res.status(400).json({ message: "Numéro d'astreinte invalide (mobile français 06/07 ou +33 6/7…)" });
+            if (phone && !normalizeMobile(phone)) return res.status(400).json({ message: "Numéro de mobile invalide (06/07 ou +33 6/7…)" });
             await upsert('live_oncall_phone', phone ? normalizeMobile(phone) : '');
         }
         if (whatsapp_enabled          !== undefined) await upsert('whatsapp_enabled',           whatsapp_enabled ? 'true' : 'false');
@@ -1203,7 +1203,7 @@ async function sendEmergencyMessage(req, res) {
     }
 }
 
-// ── Astreinte : SMS hors horaires ─────────────────────────────────────
+// ── Messages d'urgence hors horaires ──────────────────────────────────
 
 // Mobile français -> format national 06XXXXXXXX (accepte 06…, +33 6…, 0033 6…, avec espaces/points). null si invalide.
 function normalizeMobile(raw) {
@@ -1256,8 +1256,8 @@ function astreinteRateLimited(username) {
 }
 
 // ── POST /api/live/emergency-sms ──────────────────────────────────────
-// Hors horaires d'ouverture : l'utilisateur laisse son nom, son problème et son mobile ; un SMS est envoyé au
-// numéro d'astreinte saisi dans /admin/tickets.
+// Hors horaires d'ouverture : message d'urgence (nom, problème, mobile de rappel) transmis au numéro saisi dans
+// /admin/tickets.
 async function sendAfterHoursAlert(req, res) {
     try {
         const name = String(req.body?.name || '').trim().slice(0, 80);
@@ -1272,21 +1272,21 @@ async function sendAfterHoursAlert(req, res) {
 
         const row = await pgDb.get("SELECT value FROM hub_tickets.module_config WHERE key = 'live_oncall_phone'");
         const oncall = normalizeMobile(row?.value);
-        if (!oncall) return res.status(503).json({ message: "Aucun numéro d'astreinte n'est configuré" });
+        if (!oncall) return res.status(503).json({ message: "Les messages d'urgence ne sont pas disponibles pour le moment" });
 
         const who = req.user?.username || 'anonyme';
         if (astreinteRateLimited(who)) return res.status(429).json({ message: 'Trop de demandes : réessayez dans une heure' });
 
-        const message = `[DSI ASTREINTE] ${name} (${phone}) : ${problem}`.slice(0, 320);
+        const message = `[DSI URGENCE] ${name} (${phone}) : ${problem}`.slice(0, 320);
         await sendFrizbiSms({
-            phones: [oncall], title: 'Astreinte DSI', message,
+            phones: [oncall], title: 'Urgence DSI', message,
             customerId: `astr_${Date.now()}_${who}`, source: 'astreinte', createdBy: who,
         });
         console.log(`[LIVE] SMS d'astreinte envoyé (demandeur ${name}, ${phone})`);
         res.json({ success: true });
     } catch (e) {
         console.error('[LIVE] sendAfterHoursAlert error:', e.message);
-        res.status(500).json({ message: "Envoi du SMS impossible : " + e.message });
+        res.status(500).json({ message: "Envoi du message d'urgence impossible : " + e.message });
     }
 }
 

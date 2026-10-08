@@ -43,7 +43,7 @@ export default function ChatWidget({ liveEnabled, beta = false }: Props) {
   // la bulle est grisée (même comportement que le chat du Hub).
   const [scheduleOpen, setScheduleOpen] = useState<boolean | null>(null);
   const [closingMessage, setClosingMessage] = useState('');
-  // Hors horaires : la bulle ouvre le formulaire d'alerte de l'astreinte (SMS) si un numéro est configuré
+  // Hors horaires : la bulle ouvre le formulaire de message d'urgence s'il est activé (/admin/tickets)
   const [emergencyAvailable, setEmergencyAvailable] = useState(false);
   const [showAfterHours, setShowAfterHours] = useState(false);
   const [rating, setRating] = useState(0);
@@ -323,7 +323,7 @@ export default function ChatWidget({ liveEnabled, beta = false }: Props) {
         disabled={!emergencyAvailable}
         onClick={() => emergencyAvailable && setShowAfterHours(true)}
         title={emergencyAvailable
-          ? (closingMessage ? closingMessage + '\n\n' : '') + "Support fermé : cliquez pour alerter l'astreinte par SMS"
+          ? (closingMessage ? closingMessage + '\n\n' : '') + "Support fermé : cliquez pour envoyer un message d'urgence"
           : (closingMessage || 'Le support est actuellement fermé')}
         style={{
           position: 'fixed', bottom: 24, right: 24, zIndex: 9999,

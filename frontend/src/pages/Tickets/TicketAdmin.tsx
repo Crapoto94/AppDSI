@@ -108,7 +108,7 @@ export default function TicketAdmin() {
     setOncallMsg(null);
     try {
       await axios.put('/api/live/config', { live_oncall_phone: oncallPhone }, { headers: { Authorization: `Bearer ${token}` } });
-      setOncallMsg({ ok: true, text: oncallPhone.trim() ? "Numéro d'astreinte enregistré." : 'Astreinte désactivée (aucun numéro).' });
+      setOncallMsg({ ok: true, text: oncallPhone.trim() ? "Numéro enregistré." : "Messages d'urgence désactivés (aucun numéro)." });
     } catch (e: any) {
       setOncallMsg({ ok: false, text: e.response?.data?.message || "Erreur lors de l'enregistrement" });
     } finally { setOncallSaving(false); }
@@ -390,14 +390,14 @@ export default function TicketAdmin() {
               </div>
             </div>
 
-            {/* ── Astreinte : SMS hors horaires ─────────────────────── */}
+            {/* ── Messages d'urgence hors horaires ──────────────────── */}
             <div style={{ background: '#fff7ed', border: '1px solid #fed7aa', borderRadius: 12, padding: '16px 20px' }}>
               <div style={{ fontWeight: 700, fontSize: 14, color: '#1e293b', marginBottom: 4 }}>
-                📟 Numéro d'astreinte (SMS hors horaires)
+                🚨 Messages d'urgence (hors horaires)
               </div>
               <div style={{ fontSize: 12, color: '#64748b', marginBottom: 12 }}>
-                Hors horaires d'ouverture, la bulle du chat reste visible : elle demande le nom, le problème et un mobile, puis envoie un SMS à ce numéro.
-                Laissez vide pour désactiver (la bulle est alors grisée).
+                Hors horaires d'ouverture, la bulle du chat reste visible et permet d'envoyer un message d'urgence (nom, problème, mobile de rappel).
+                Saisissez le numéro de mobile qui reçoit ces messages ; laissez vide pour désactiver (la bulle est alors grisée).
               </div>
               <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
                 <input

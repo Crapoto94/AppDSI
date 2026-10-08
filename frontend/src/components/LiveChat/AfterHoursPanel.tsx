@@ -10,8 +10,8 @@ interface Props {
 }
 
 /**
- * Hors horaires d'ouverture du chat : formulaire d'alerte (nom, problème, mobile) qui envoie un SMS au
- * numéro d'astreinte configuré dans /admin/tickets.
+ * Hors horaires d'ouverture du chat : formulaire de message d'urgence (nom, problème, mobile de rappel),
+ * transmis au numéro configuré dans /admin/tickets.
  */
 export default function AfterHoursPanel({ defaultName = '', closingMessage, primary = '#6366f1', secondary = '#818cf8', onClose }: Props) {
   const [name, setName] = useState(defaultName);
@@ -34,7 +34,7 @@ export default function AfterHoursPanel({ defaultName = '', closingMessage, prim
       await axios.post('/api/live/emergency-sms', { name, problem, phone }, token ? { headers: { Authorization: `Bearer ${token}` } } : undefined);
       setSent(true);
     } catch (err: any) {
-      setError(err.response?.data?.message || "Envoi impossible, réessayez ou appelez l'astreinte.");
+      setError(err.response?.data?.message || "Envoi impossible, réessayez dans un instant.");
     } finally {
       setSending(false);
     }
@@ -43,21 +43,21 @@ export default function AfterHoursPanel({ defaultName = '', closingMessage, prim
   return (
     <div style={{ position: 'fixed', bottom: 24, right: 24, zIndex: 9999, width: 340, background: '#fff', borderRadius: 20, boxShadow: '0 8px 40px rgba(0,0,0,0.18)', overflow: 'hidden', fontFamily: 'ui-sans-serif, system-ui, sans-serif' }}>
       <div style={{ background: `linear-gradient(135deg, ${primary}, ${secondary})`, padding: '14px 16px', color: '#fff', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <div style={{ fontWeight: 700, fontSize: 14 }}>🚨 Support fermé — Astreinte</div>
+        <div style={{ fontWeight: 700, fontSize: 14 }}>🚨 Support fermé — Message d'urgence</div>
         <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#fff', opacity: 0.8, fontSize: 20, cursor: 'pointer', lineHeight: 1 }}>✕</button>
       </div>
       <div style={{ padding: '14px 16px 16px' }}>
         {sent ? (
           <div style={{ textAlign: 'center', padding: '12px 0' }}>
             <div style={{ fontSize: 34 }}>✅</div>
-            <div style={{ fontWeight: 700, marginTop: 6 }}>Alerte transmise à l'astreinte</div>
+            <div style={{ fontWeight: 700, marginTop: 6 }}>Message d'urgence transmis</div>
             <div style={{ fontSize: 12, color: '#64748b', marginTop: 6 }}>Vous serez rappelé sur le {phone}.</div>
             <button onClick={onClose} style={{ marginTop: 14, padding: '8px 18px', border: 'none', borderRadius: 8, background: primary, color: '#fff', fontWeight: 600, cursor: 'pointer' }}>Fermer</button>
           </div>
         ) : (
           <form onSubmit={submit}>
             {closingMessage && <div style={{ fontSize: 12, color: '#64748b', background: '#f8fafc', borderRadius: 8, padding: '8px 10px' }}>{closingMessage}</div>}
-            <div style={{ fontSize: 12, color: '#475569', marginTop: 8 }}>Urgence uniquement : un SMS sera envoyé à l'astreinte DSI.</div>
+            <div style={{ fontSize: 12, color: '#475569', marginTop: 8 }}>Réservé aux urgences : votre message sera transmis immédiatement à la DSI.</div>
             <label style={label}>Votre nom *</label>
             <input style={field} value={name} onChange={e => setName(e.target.value)} maxLength={80} />
             <label style={label}>Votre problème *</label>
@@ -66,7 +66,7 @@ export default function AfterHoursPanel({ defaultName = '', closingMessage, prim
             <input style={field} type="tel" value={phone} onChange={e => setPhone(e.target.value)} placeholder="06 12 34 56 78" />
             {error && <div style={{ color: '#dc2626', fontSize: 12, marginTop: 8 }}>{error}</div>}
             <button type="submit" disabled={sending} style={{ marginTop: 14, width: '100%', padding: '10px', border: 'none', borderRadius: 10, background: sending ? '#94a3b8' : '#dc2626', color: '#fff', fontWeight: 700, cursor: sending ? 'default' : 'pointer' }}>
-              {sending ? 'Envoi…' : "📱 Alerter l'astreinte par SMS"}
+              {sending ? 'Envoi…' : "🚨 Envoyer le message d'urgence"}
             </button>
           </form>
         )}

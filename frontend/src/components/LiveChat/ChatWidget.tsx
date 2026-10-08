@@ -46,7 +46,7 @@ export default function ChatWidget() {
   const [checking, setChecking] = useState(true); // checking for existing session on mount
   const [liveEnabled, setLiveEnabled] = useState<boolean | null>(null); // null = loading
   const [closingMessage, setClosingMessage] = useState(''); // message affiché quand le chat est fermé
-  // Hors horaires : la bulle reste cliquable et ouvre le formulaire d'alerte de l'astreinte (SMS)
+  // Hors horaires : la bulle reste cliquable et ouvre le formulaire de message d'urgence
   const [emergencyAvailable, setEmergencyAvailable] = useState(false);
   const [showAfterHours, setShowAfterHours] = useState(false);
   const [chatConfig, setChatConfig] = useState<{ primary_color: string; secondary_color: string; chat_name: string; chat_logo: string } | null>(null);
@@ -495,15 +495,15 @@ export default function ChatWidget() {
           <MessageSquare size={24} />
         </button>
       ) : liveEnabled === false ? (
-        // Chat fermé (désactivé manuellement OU hors horaires) : la bulle reste visible. Avec un numéro d'astreinte
-        // configuré, elle ouvre le formulaire d'alerte SMS ; sinon elle est grisée.
+        // Chat fermé (désactivé manuellement OU hors horaires) : la bulle reste visible. Si les messages d'urgence sont
+        // activés (/admin/tickets), elle ouvre le formulaire d'urgence ; sinon elle est grisée.
         showAfterHours ? (
           <AfterHoursPanel defaultName={(user as any)?.displayName || user?.username || ''} closingMessage={closingMessage}
             primary={PC} secondary={SC} onClose={() => setShowAfterHours(false)} />
         ) : emergencyAvailable ? (
           <button
             onClick={() => setShowAfterHours(true)}
-            title={(closingMessage ? closingMessage + '\n\n' : '') + "Support fermé : cliquez pour alerter l'astreinte par SMS"}
+            title={(closingMessage ? closingMessage + '\n\n' : '') + "Support fermé : cliquez pour envoyer un message d'urgence"}
             style={{
               width: 56, height: 56, borderRadius: '50%',
               background: 'linear-gradient(135deg, #f59e0b, #dc2626)',
