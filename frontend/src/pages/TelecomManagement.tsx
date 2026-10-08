@@ -79,6 +79,7 @@ interface Commitment {
   operator_name: string;
   // Géré en fluide (défaut : oui) : les factures rapprochées à l'engagement sont intégrées à l'historique
   managed?: boolean;
+  sedit_ref?: string | null;
   function_code?: string;
   section?: string;
   // Champs dynamiques renvoyés par /api/telecom/engagements (issus du budget)
@@ -1999,6 +2000,7 @@ const TelecomManagement: React.FC = () => {
                   <tr>
                     <th>Année</th>
                     <th>N° Engagement</th>
+                    <th title="Cliquer sur le bouton d'un engagement pour le classer « Fluide » (ses factures sont listées dans l'historique) ou « Non fluide » (ignoré)">Classification</th>
                     <th>Libellé</th>
                     <th>Opérateur</th>
                     <th>Montant Engagé</th>
@@ -2007,7 +2009,6 @@ const TelecomManagement: React.FC = () => {
                     <th>Total Facturé (comptes liés)</th>
                     <th>Solde</th>
                     <th>Écart</th>
-                    <th title="Les factures rapprochées à un engagement géré en fluide sont listées dans l'historique des factures">Géré en fluide</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -2021,7 +2022,25 @@ const TelecomManagement: React.FC = () => {
                     return (
                     <tr key={c.id ?? c.commitment_number} style={c.managed === false ? { opacity: 0.55 } : undefined}>
                       <td className="year-cell">{c.year}</td>
-                      <td className="num-cell">{c.commitment_number}</td>
+                      <td className="num-cell">
+                        {c.commitment_number}
+                        {c.sedit_ref && (
+                          <a href={`${urlSedit}/FicheMouvement.html?mouvementId=${encodeURIComponent(c.sedit_ref)}`} target="_blank" rel="noopener noreferrer"
+                            className="edit-icon-btn" title="Ouvrir l'engagement dans Sedit" style={{ marginLeft: 6, verticalAlign: 'middle' }}>
+                            <ExternalLink size={14} />
+                          </a>
+                        )}
+                      </td>
+                      <td>
+                        <button type="button" onClick={() => handleToggleManaged(c.commitment_number, c.managed === false)}
+                          title={c.managed === false
+                            ? 'Non fluide : ses factures ne sont pas listées. Cliquer pour le gérer en fluide.'
+                            : 'Fluide : ses factures sont listées dans l\'historique. Cliquer pour le classer « non fluide ».'}
+                          style={{ border: 'none', borderRadius: 999, padding: '3px 12px', fontSize: 11.5, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap',
+                            background: c.managed === false ? '#e2e8f0' : '#dcfce7', color: c.managed === false ? '#64748b' : '#166534' }}>
+                          {c.managed === false ? '✕ Non fluide' : '✓ Fluide'}
+                        </button>
+                      </td>
                       <td>{c.label}</td>
                       <td>{c.operator_name}</td>
                       <td className="amount-cell" title={dynamic ? 'Montant récupéré dynamiquement depuis les engagements budgétaires' : 'Montant importé (engagement budgétaire non trouvé)'}>
@@ -2057,22 +2076,17 @@ const TelecomManagement: React.FC = () => {
                           </button>
                         )}
                       </td>
-                      <td style={{ textAlign: 'center' }}>
-                        <input type="checkbox" checked={c.managed !== false}
-                          title={c.managed === false ? 'Non géré en fluide : ses factures ne sont plus listées' : 'Géré en fluide : ses factures sont listées dans l\'historique'}
-                          onChange={e => handleToggleManaged(c.commitment_number, e.target.checked)} />
-                      </td>
                     </tr>
                     );
                   })}
                   {commitments.length === 0 && (
-                    <tr><td colSpan={11} style={{ textAlign: 'center', padding: '40px', color: '#64748b' }}>Aucun engagement télécom (nature 6262) dans le suivi budgétaire</td></tr>
+                    <tr><td colSpan={10} style={{ textAlign: 'center', padding: '40px', color: '#64748b' }}>Aucun engagement télécom (nature 6262) dans le suivi budgétaire</td></tr>
                   )}
                 </tbody>
                 {commitments.length > 0 && (
                   <tfoot>
                     <tr style={{ background: '#f8fafc', borderTop: '2px solid #e2e8f0' }}>
-                      <td colSpan={4} style={{ textAlign: 'right', fontWeight: 700, padding: '10px 12px', fontSize: 13 }}>Totaux ({commitments.length} engagements)</td>
+                      <td colSpan={5} style={{ textAlign: 'right', fontWeight: 700, padding: '10px 12px', fontSize: 13 }}>Totaux ({commitments.length} engagements)</td>
                       <td className="amount-cell" style={{ fontWeight: 800 }}>
                         {commitments.reduce((s, c) => s + (c.engaged_amount ?? c.amount ?? 0), 0).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}
                       </td>

@@ -304,7 +304,7 @@ async function getTelecomEngagementsLive() {
     const r2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
     const rows = await financeShare.withFinanceOracle(async (conn) => {
         const r = await conn.execute(
-            `SELECT TRIM(m.MOUVEMENT) AS CODE, m.LIBELLE AS LIBELLE, COUNT(*) AS N,
+            `SELECT TRIM(m.MOUVEMENT) AS CODE, m.LIBELLE AS LIBELLE, COUNT(*) AS N, TRIM(m.ROO_IMA_REF) AS ROO,
                     SUM(l.MONTANTTC_E) AS ENG, SUM(l.MTSERFAIT_E) AS DEG,
                     (SELECT REGEXP_SUBSTR(t.POBJ_EXTRACT, '[^' || CHR(1) || ']+', 1, 2) FROM FI.TIERS t WHERE t.ROO_IMA_REF = m.TIERS) AS TIERS,
                     (SELECT TRIM(t.TIERS) FROM FI.TIERS t WHERE t.ROO_IMA_REF = m.TIERS) AS TIERS_CODE,
@@ -330,6 +330,7 @@ async function getTelecomEngagementsLive() {
             label: row.LIBELLE ? String(row.LIBELLE).trim() : '',
             operator_name: row.TIERS ? String(row.TIERS).trim() : '',
             tiers_code: row.TIERS_CODE ? String(row.TIERS_CODE).trim() : null,
+            sedit_ref: row.ROO ? String(row.ROO).trim() : null,
             year: String(year),
             section: row.SECTION ? String(row.SECTION).trim() : '',
             amount: engaged,
