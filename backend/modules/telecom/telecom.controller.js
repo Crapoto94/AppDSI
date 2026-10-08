@@ -427,65 +427,15 @@ module.exports = {
     },
 
     // --- Commitments ---
-    // Engagements télécom récupérés dynamiquement depuis les engagements budgétaires
-    // (oracle.budget_engagements) : on ne garde que les engagements ayant au moins une
-    // ligne de nature 6262 (télécom). Pas d'import à ce niveau.
+    // Engagements télécom de l'exercice en cours, lus EN DIRECT dans Sedit : engagements ayant au
+    // moins une ligne d'imputation de nature 6262 (montant engagé, dégagé et reste comme l'écran
+    // « Synthèse » de Sedit). Plus d'import Excel à ce niveau.
     getTelecomEngagements: async (req, res) => {
         try {
-            const r = await pool.query(`
-                SELECT "Code mouvement" AS code, "Montant TTC" AS ttc, "Reste engagé" AS reste,
-                       "Article par nature" AS nat, "Libellé mouvement" AS lib, "Libellé" AS lib2,
-                       "Nom tiers" AS tiers, "Exercice" AS ex, "Section" AS sec
-                FROM oracle.budget_engagements
-                WHERE TRIM("Exercice") = $1
-                  AND "Code mouvement" IN (
-                    SELECT "Code mouvement" FROM oracle.budget_engagements
-                    WHERE TRIM("Article par nature") = '6262' AND TRIM("Exercice") = $1
-                )
-            `, [String(new Date().getFullYear())]); // exercice en cours uniquement
-
-            const num = (v) => {
-                if (v === null || v === undefined || v === '') return 0;
-                const n = parseFloat(String(v).trim().replace(',', '.').replace(/[^\d.\-]/g, ''));
-                return isNaN(n) ? 0 : n;
-            };
-            const round2 = (n) => Math.round(n * 100) / 100;
-
-            const groups = {};
-            for (const row of r.rows) {
-                const code = (row.code || '').toString().trim();
-                if (!code) continue;
-                let g = groups[code];
-                if (!g) g = groups[code] = { code, montant: 0, solde: 0, label: '', tiers: '', year: '', section: '' };
-                g.montant += num(row.ttc);
-                g.solde += num(row.reste);
-                if (!g.label) g.label = (row.lib || row.lib2 || '').toString().trim();
-                if (!g.tiers) g.tiers = (row.tiers || '').toString().trim();
-                if (!g.year) g.year = (row.ex || '').toString().trim();
-                if (!g.section) g.section = (row.sec || '').toString().trim();
-            }
-
-            const list = Object.values(groups).map(g => {
-                const engaged = round2(g.montant);
-                const remaining = round2(g.solde);
-                const invoiced = round2(engaged - remaining); // réalisé / consommé
-                return {
-                    commitment_number: g.code,
-                    label: g.label,
-                    operator_name: g.tiers,
-                    year: g.year,
-                    section: g.section,
-                    amount: engaged,
-                    engaged_amount: engaged,
-                    remaining_amount: remaining,
-                    invoiced_amount: invoiced
-                };
-            }).sort((a, b) => a.commitment_number.localeCompare(b.commitment_number));
-
-            res.json(list);
+            res.json(await seditLive.getTelecomEngagementsLive());
         } catch (error) {
             console.error('[Telecom] getTelecomEngagements error:', error);
-            res.status(500).json({ message: 'Erreur lecture engagements télécom', error: error.message });
+            res.status(500).json({ message: 'Erreur lecture engagements télécom (Sedit)', error: error.message });
         }
     },
 

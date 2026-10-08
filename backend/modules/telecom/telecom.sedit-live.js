@@ -252,4 +252,48 @@ async function getEngagementsLive(codes) {
     });
 }
 
-module.exports = { getEngagementsLive, refreshFactures, refreshMiddleware, getTierNames, TABLE: 'hub_telecom.sedit_factures_live' };
+/**
+ * Liste des engagements télécom de l'exercice en cours lue en direct dans Sedit : engagements
+ * (FI.MOUVEMENT) ayant au moins une ligne d'imputation de nature 6262. Montants TTC comme
+ * l'écran « Synthèse » : engagé (MONTANTTC_E), dégagé (MTSERFAIT_E), reste = engagé − dégagé.
+ */
+async function getTelecomEngagementsLive() {
+    const year = new Date().getFullYear();
+    const r2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
+    const rows = await financeShare.withFinanceOracle(async (conn) => {
+        const r = await conn.execute(
+            `SELECT TRIM(m.MOUVEMENT) AS CODE, m.LIBELLE AS LIBELLE, COUNT(*) AS N,
+                    SUM(l.MONTANTTC_E) AS ENG, SUM(l.MTSERFAIT_E) AS DEG,
+                    (SELECT REGEXP_SUBSTR(t.POBJ_EXTRACT, '[^' || CHR(1) || ']+', 1, 2) FROM FI.TIERS t WHERE t.ROO_IMA_REF = m.TIERS) AS TIERS,
+                    MAX((SELECT MAX(i.TYPE_SECTION) FROM FI.IMPUTATION i WHERE i.ROO_IMA_REF = l.IMPUTATION)) AS SECTION
+             FROM FI.MOUVEMENT m
+             JOIN FI.MVTLIGNE l ON l.MOUVEMENT = m.ROO_IMA_REF
+             WHERE l.EXEORIGINE = :year
+               AND EXISTS (SELECT 1 FROM FI.MVTLIGNE l2 JOIN FI.IMPUTATION i2 ON i2.ROO_IMA_REF = l2.IMPUTATION
+                           WHERE l2.MOUVEMENT = m.ROO_IMA_REF AND TRIM(i2.CODECOMP) = '6262')
+             GROUP BY TRIM(m.MOUVEMENT), m.ROO_IMA_REF, m.LIBELLE, m.TIERS`,
+            { year }
+        );
+        return r.rows;
+    });
+    // Un même code peut exister sur plusieurs mouvements : on garde celui qui a le plus de lignes.
+    const best = {};
+    for (const row of rows) if (!best[row.CODE] || row.N > best[row.CODE].N) best[row.CODE] = row;
+    return Object.values(best).map((row) => {
+        const engaged = r2(row.ENG);
+        const degage = r2(row.DEG);
+        return {
+            commitment_number: row.CODE,
+            label: row.LIBELLE ? String(row.LIBELLE).trim() : '',
+            operator_name: row.TIERS ? String(row.TIERS).trim() : '',
+            year: String(year),
+            section: row.SECTION ? String(row.SECTION).trim() : '',
+            amount: engaged,
+            engaged_amount: engaged,
+            remaining_amount: r2(engaged - degage),
+            invoiced_amount: degage,
+        };
+    }).sort((a, b) => a.commitment_number.localeCompare(b.commitment_number));
+}
+
+module.exports = { getTelecomEngagementsLive, getEngagementsLive, refreshFactures, refreshMiddleware, getTierNames, TABLE: 'hub_telecom.sedit_factures_live' };

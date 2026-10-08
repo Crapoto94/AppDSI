@@ -1888,7 +1888,7 @@ const TelecomManagement: React.FC = () => {
           <div className="tab-content">
             <div className="section-header">
               <h2>Engagements Télécom (nature 6262)</h2>
-              <span style={{ fontSize: '0.85rem', color: '#64748b' }}>Issus du suivi budgétaire — montant engagé et reste actualisés automatiquement</span>
+              <span style={{ fontSize: '0.85rem', color: '#64748b' }}>Lus en direct dans Sedit — exercice en cours uniquement</span>
             </div>
 
             <div className="commitments-table-wrapper admin-card">
