@@ -2658,15 +2658,39 @@ const TelecomManagement: React.FC = () => {
                   <div className="admin-card" style={{ padding: 18, marginBottom: 24 }}>
                     <h3 style={{ margin: '0 0 4px', fontSize: '1rem', color: '#1e293b' }}>Évolution des dépenses (mensuel) — export SFR importé</h3>
                     <p style={{ margin: '0 0 12px', fontSize: '0.78rem', color: '#94a3b8' }}>Dépenses récurrentes — hors achats ponctuels d'équipement/terminaux</p>
-                    <ResponsiveContainer width="100%" height={220}>
-                      <BarChart data={billingTrend}>
-                        <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                        <XAxis dataKey="month" fontSize={12} />
-                        <YAxis fontSize={12} />
-                        <Tooltip formatter={(v) => `${Number(v).toLocaleString('fr-FR')} € HT`} />
-                        <Bar dataKey="total" fill="#0078a4" radius={[4, 4, 0, 0]} />
-                      </BarChart>
-                    </ResponsiveContainer>
+                    {(() => {
+                      // Mois postérieurs au dernier export ZIP : complétés avec les factures SFR analysées depuis Sedit.
+                      const lastZip = billingTrend.reduce((mx: string, t: any) => (t.month > mx ? t.month : mx), '');
+                      const sedit: Record<string, number> = {};
+                      analysisRows.filter(r => /^SFR/i.test(r.operator_name) && r.effective_month && r.effective_month > lastZip).forEach(r => {
+                        const ht = r.amount_ht != null ? Number(r.amount_ht) : (Number(r.amount_ttc) || 0) / 1.2;
+                        sedit[r.effective_month as string] = Math.round(((sedit[r.effective_month as string] || 0) + ht) * 100) / 100;
+                      });
+                      const merged: any[] = [
+                        ...billingTrend.map((t: any) => ({ ...t, source: 'zip' })),
+                        ...Object.keys(sedit).sort().map(m => ({ month: m, total: sedit[m], source: 'sedit' })),
+                      ];
+                      return (
+                        <>
+                          <ResponsiveContainer width="100%" height={220}>
+                            <BarChart data={merged}>
+                              <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                              <XAxis dataKey="month" fontSize={12} />
+                              <YAxis fontSize={12} />
+                              <Tooltip formatter={(v, _n, item: any) => [`${Number(v).toLocaleString('fr-FR')} € HT`, item?.payload?.source === 'sedit' ? 'Factures SFR (Sedit)' : 'Export SFR']} />
+                              <Bar dataKey="total" radius={[4, 4, 0, 0]}>
+                                {merged.map((d, i) => <Cell key={i} fill={d.source === 'sedit' ? '#38bdf8' : '#0078a4'} />)}
+                              </Bar>
+                            </BarChart>
+                          </ResponsiveContainer>
+                          {Object.keys(sedit).length > 0 && (
+                            <p style={{ margin: '6px 0 0', fontSize: '0.75rem', color: '#64748b' }}>
+                              Barres bleu clair : mois postérieurs au dernier export, complétés avec les factures SFR analysées depuis Sedit.
+                            </p>
+                          )}
+                        </>
+                      );
+                    })()}
                   </div>
                 )}
 
