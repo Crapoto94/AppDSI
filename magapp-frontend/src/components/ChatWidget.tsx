@@ -27,9 +27,11 @@ const SC = '#818cf8';
 
 interface Props {
   liveEnabled: boolean;
+  // Chat visible uniquement pour les beta testeurs (non activé pour tout le monde) : affiche le badge BETA
+  beta?: boolean;
 }
 
-export default function ChatWidget({ liveEnabled }: Props) {
+export default function ChatWidget({ liveEnabled, beta = false }: Props) {
   const [state, setState] = useState<ChatState>('idle');
   const [input, setInput] = useState('');
   const [messages, setMessages] = useState<LiveMessage[]>([]);
@@ -279,7 +281,7 @@ export default function ChatWidget({ liveEnabled }: Props) {
         <div>
           <div style={{ fontWeight: 700, fontSize: 14 }}>
             {title}
-            <span style={{ marginLeft: 6, background: 'rgba(255,255,255,0.25)', fontSize: '0.55rem', fontWeight: 800, padding: '1px 5px', borderRadius: 4, letterSpacing: '0.05em' }}>BETA</span>
+            {beta && <span style={{ marginLeft: 6, background: 'rgba(255,255,255,0.25)', fontSize: '0.55rem', fontWeight: 800, padding: '1px 5px', borderRadius: 4, letterSpacing: '0.05em' }}>BETA</span>}
           </div>
           {subtitle && <div style={{ fontSize: 11, opacity: 0.85 }}>{subtitle}</div>}
         </div>
@@ -310,13 +312,13 @@ export default function ChatWidget({ liveEnabled }: Props) {
         onMouseLeave={e => { (e.currentTarget as HTMLElement).style.transform = 'scale(1)'; }}
       >
         {sessionId ? '🟢' : '💬'}
-        <span style={{
+        {beta && <span style={{
           position: 'absolute', top: -4, right: -4,
           background: '#f59e0b', color: '#1e293b',
           fontSize: '0.5rem', fontWeight: 900,
           padding: '2px 5px', borderRadius: 6,
           letterSpacing: '0.05em', lineHeight: 1.4,
-        }}>BETA</span>
+        }}>BETA</span>}
       </button>
     );
   }
