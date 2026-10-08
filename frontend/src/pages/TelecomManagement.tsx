@@ -1260,7 +1260,7 @@ const TelecomManagement: React.FC = () => {
   return (
     <div className="telecom-container">
       <Header />
-      <main className={`telecom-main${activeTab === 'summary' ? ' summary-wide' : ''}`}>
+      <main className={`telecom-main${activeTab === 'summary' || activeTab === 'pdfs' ? ' summary-wide' : ''}`}>
         <div className="telecom-page-header">
           <button className="back-button" onClick={() => navigate('/')}>
             <ArrowLeft size={20} />
@@ -1704,7 +1704,7 @@ const TelecomManagement: React.FC = () => {
               </div>
             </div>
 
-            <div className="invoices-list admin-card">
+            <div className="invoices-list admin-card" style={{ overflowX: "auto" }}>
               <table className="commitments-table">
                 <thead>
                   <tr>
@@ -1739,13 +1739,13 @@ const TelecomManagement: React.FC = () => {
                           </td>
                           <td>
                             {isEditing ? (
-                              <input type="month" value={editingMeta!.billing_month} style={{ width: 130 }}
+                              <input type="month" className="inv-edit-input" value={editingMeta!.billing_month} style={{ width: 150 }}
                                 onChange={e => setEditingMeta(m => m ? { ...m, billing_month: e.target.value } : m)} />
                             ) : (inv.effective_month ? formatMonthKey(inv.effective_month) : '—')}
                           </td>
                           <td>
                             {isEditing ? (
-                              <input type="text" value={editingMeta!.description} placeholder="Description..." style={{ width: 160 }}
+                              <input type="text" className="inv-edit-input" value={editingMeta!.description} placeholder="Description..." style={{ width: '100%', minWidth: 200 }}
                                 onChange={e => setEditingMeta(m => m ? { ...m, description: e.target.value } : m)} />
                             ) : inv.rejected ? (
                               <span style={{ color: '#b91c1c', fontSize: 12 }} title={inv.reject_reason || ''}>{inv.reject_reason || '—'}</span>
@@ -3404,7 +3404,13 @@ const TelecomManagement: React.FC = () => {
         .month-break-row td { background: #f8fafc; font-weight: 700; color: #0078a4; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.05em; padding: 10px 15px; border-bottom: 2px solid #e2e8f0; }
 
         /* Synthèse mensuelle : tableau étendu (~90% de la fenêtre) + colonnes opérateur/compte figées au scroll */
-        .telecom-main.summary-wide { max-width: none; width: 90vw; }
+        .telecom-main.summary-wide { max-width: none; width: 96vw; padding: 24px 8px; }
+        /* Historique des factures : tableau compact, pleine largeur */
+        .invoices-list .commitments-table th { padding: 10px 8px; }
+        .invoices-list .commitments-table td { padding: 8px; font-size: 0.85rem; vertical-align: middle; }
+        .invoices-list .month-break-row td { padding: 8px; }
+        .invoices-list .inv-edit-input { border: 1px solid #cbd5e1; border-radius: 6px; padding: 4px 8px; font-size: 0.85rem; background: #fff; font-family: inherit; box-sizing: border-box; }
+        .invoices-list .inv-edit-input:focus { outline: none; border-color: #0078a4; box-shadow: 0 0 0 2px rgba(0,120,164,0.15); }
         .summary-table th:nth-child(1), .summary-table td:nth-child(1),
         .summary-table th:nth-child(2), .summary-table td:nth-child(2) {
           position: sticky;
