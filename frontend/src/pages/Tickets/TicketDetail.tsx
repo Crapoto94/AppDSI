@@ -414,6 +414,9 @@ export default function TicketDetail() {
   // avec le demandeur déjà en place à l'ouverture du mode édition (sinon son propre
   // nom réapparaît dans la liste de résultats, comme s'il fallait le resélectionner).
   const requesterSearchSkipRef = useRef(false);
+  // Sélection clavier dans l'autocomplete Demandeur (-1 = aucune)
+  const [requesterHighlight, setRequesterHighlight] = useState(-1);
+  const requesterListRef = useRef<HTMLDivElement | null>(null);
   const [escaladeTargets, setEscaladeTargets] = useState<any[]>([]);
   const [assignees, setAssignees] = useState<any[]>([]);
   const [assignTab, setAssignTab] = useState<'tech' | 'escalade'>('tech');
@@ -1135,6 +1138,45 @@ export default function TicketDetail() {
     }, 300);
     return () => clearTimeout(timer);
   }, [requesterSearch, editingInfo]);
+
+  // La liste change → on repart sans sélection, et on garde la ligne
+  // sélectionnée visible quand on navigue au clavier.
+  useEffect(() => { setRequesterHighlight(-1); }, [requesterResults]);
+  useEffect(() => {
+    if (requesterHighlight < 0) return;
+    requesterListRef.current?.querySelector(`[data-idx="${requesterHighlight}"]`)
+      ?.scrollIntoView({ block: 'nearest' });
+  }, [requesterHighlight]);
+
+  function selectRequester(u: { name?: string; username?: string; email?: string }) {
+    // On ne relance pas la recherche sur le nom qu'on vient de choisir : sinon
+    // la liste se rouvre immédiatement avec les correspondances de ce nom.
+    requesterSearchSkipRef.current = true;
+    setRequesterSearch(u.name || '');
+    setEditForm(f => ({ ...f, requester_name: u.username || u.name, requester_email: u.email || '' }));
+    setRequesterResults([]);
+  }
+
+  function requesterKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    const count = requesterResults.length;
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      if (!count) return;
+      e.preventDefault();
+      const last = count - 1;
+      setRequesterHighlight(prev => {
+        if (e.key === 'ArrowDown') return prev >= last ? 0 : prev + 1;
+        return prev <= 0 ? last : prev - 1;
+      });
+    } else if (e.key === 'Enter') {
+      if (count && requesterHighlight >= 0) {
+        e.preventDefault();
+        const u = requesterResults[requesterHighlight];
+        if (u) selectRequester(u);
+      }
+    } else if (e.key === 'Escape') {
+      if (count) { e.preventDefault(); setRequesterResults([]); }
+    }
+  }
 
   function isCommentEmpty(html: string) {
     return !html || html === '<p><br></p>' || html.replace(/<[^>]*>/g, '').trim() === '';
@@ -2748,21 +2790,17 @@ export default function TicketDetail() {
                   <input
                     value={requesterSearch}
                     onChange={e => { setRequesterSearch(e.target.value); setEditForm((f: any) => ({ ...f, requester_name: e.target.value })); }}
+                    onKeyDown={requesterKeyDown}
                     placeholder="Nom du demandeur…"
                     style={{ width: '100%', boxSizing: 'border-box', padding: '5px 7px', border: '1px solid #e4e4e7', borderRadius: 6, fontSize: 12, outline: 'none' }}
                   />
                   {requesterSearching && <div style={{ fontSize: 11, color: '#a1a1aa', marginTop: 3 }}>Recherche...</div>}
                   {requesterResults.length > 0 && (
-                    <div style={{ position: 'absolute', top: 'calc(100% + 3px)', left: 0, right: 0, zIndex: 60, background: '#fff', border: '1px solid #e4e4e7', borderRadius: 6, boxShadow: '0 6px 18px rgba(0,0,0,0.1)', overflow: 'hidden' }}>
-                      {requesterResults.map(u => (
-                        <div key={u.username || u.email} onClick={() => {
-                          setRequesterSearch(u.name);
-                          setEditForm((f: any) => ({ ...f, requester_name: u.username || u.name, requester_email: u.email || '' }));
-                          setRequesterResults([]);
-                        }}
-                          style={{ padding: '5px 8px', cursor: 'pointer', fontSize: 12, borderBottom: '1px solid #f9f9fb' }}
-                          onMouseEnter={e => (e.currentTarget.style.background = '#f4f4f5')}
-                          onMouseLeave={e => (e.currentTarget.style.background = '')}>
+                    <div ref={requesterListRef} style={{ position: 'absolute', top: 'calc(100% + 3px)', left: 0, right: 0, zIndex: 60, background: '#fff', border: '1px solid #e4e4e7', borderRadius: 6, boxShadow: '0 6px 18px rgba(0,0,0,0.1)', overflow: 'hidden', maxHeight: 200, overflowY: 'auto' }}>
+                      {requesterResults.map((u, i) => (
+                        <div key={u.username || u.email} data-idx={i} onClick={() => selectRequester(u)}
+                          onMouseEnter={() => setRequesterHighlight(i)}
+                          style={{ padding: '5px 8px', cursor: 'pointer', fontSize: 12, borderBottom: '1px solid #f9f9fb', background: i === requesterHighlight ? '#f4f4f5' : '#fff' }}>
                           <div style={{ fontWeight: 500 }}>{u.name}</div>
                           <div style={{ fontSize: 10, color: '#71717a' }}>{u.email}</div>
                         </div>

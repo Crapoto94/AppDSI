@@ -149,6 +149,9 @@ export default function TicketsDashboard() {
   const [requesterResults, setRequesterResults] = useState<any[]>([]);
   const [requesterSearching, setRequesterSearching] = useState(false);
   const [activeRequesterEmail, setActiveRequesterEmail] = useState<string | null>(_initSnap?.activeRequesterEmail ?? null);
+  // Sélection clavier dans l'autocomplete Demandeur (-1 = aucune)
+  const [requesterHighlight, setRequesterHighlight] = useState(-1);
+  const requesterListRef = useRef<HTMLDivElement | null>(null);
   const [kpiHistory, setKpiHistory] = useState<any[]>([]);
   const [kpiDays, setKpiDays] = useState(30);
   const [kpiActionLoading, setKpiActionLoading] = useState<string | null>(null);
@@ -608,6 +611,45 @@ export default function TicketsDashboard() {
     finally { setRequesterSearching(false); }
   }
 
+  // La liste change → on repart sans sélection, et on garde la ligne
+  // sélectionnée visible quand on navigue au clavier.
+  useEffect(() => { setRequesterHighlight(-1); }, [requesterResults]);
+  useEffect(() => {
+    if (requesterHighlight < 0) return;
+    requesterListRef.current?.querySelector(`[data-idx="${requesterHighlight}"]`)
+      ?.scrollIntoView({ block: 'nearest' });
+  }, [requesterHighlight]);
+
+  function selectRequester(u: { displayName?: string; username?: string; email?: string }) {
+    const email = u.email || null;
+    setRequesterSearch(u.displayName || u.username || '');
+    setRequesterResults([]);
+    setActiveRequesterEmail(email);
+    setPage(1);
+    loadData(activeFilter, activeUserFilter, 1, search, activeCategory, activeSubcategory, activeSoftware, email);
+  }
+
+  function requesterKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    const count = requesterResults.length;
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      if (!count) return;
+      e.preventDefault();
+      const last = count - 1;
+      setRequesterHighlight(prev => {
+        if (e.key === 'ArrowDown') return prev >= last ? 0 : prev + 1;
+        return prev <= 0 ? last : prev - 1;
+      });
+    } else if (e.key === 'Enter') {
+      if (count && requesterHighlight >= 0) {
+        e.preventDefault();
+        const u = requesterResults[requesterHighlight];
+        if (u) selectRequester(u);
+      }
+    } else if (e.key === 'Escape') {
+      if (count) { e.preventDefault(); setRequesterResults([]); }
+    }
+  }
+
   function stopResetPolling() {
     if (resetPollRef.current) { clearInterval(resetPollRef.current); resetPollRef.current = null; }
   }
@@ -1057,13 +1099,15 @@ export default function TicketsDashboard() {
           <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Rechercher..." style={{ padding: '8px 12px', border: '1px solid #e2e8f0', borderRadius: 8, fontSize: 13, width: 200, outline: 'none' }} />
           {/* Demandeur autocomplete */}
           <div style={{ position: 'relative' }}>
-            <input value={requesterSearch} onChange={e => { setRequesterSearch(e.target.value); handleRequesterSearch(e.target.value); }} placeholder="🔍 Demandeur..." style={{ padding: '8px 12px', border: '1px solid #e2e8f0', borderRadius: 8, fontSize: 13, width: 180, outline: 'none' }} />
+            <input value={requesterSearch} onChange={e => { setRequesterSearch(e.target.value); handleRequesterSearch(e.target.value); }} onKeyDown={requesterKeyDown} placeholder="🔍 Demandeur..." style={{ padding: '8px 12px', border: '1px solid #e2e8f0', borderRadius: 8, fontSize: 13, width: 180, outline: 'none' }} />
             {requesterSearching && <div style={{ position: 'absolute', right: 8, top: 8, fontSize: 12, color: '#94a3b8' }}>⏳</div>}
             {requesterResults.length > 0 && (
-              <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 8, boxShadow: '0 4px 12px rgba(0,0,0,0.1)', zIndex: 100, maxHeight: 200, overflowY: 'auto' }}>
+              <div ref={requesterListRef} style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 8, boxShadow: '0 4px 12px rgba(0,0,0,0.1)', zIndex: 100, maxHeight: 200, overflowY: 'auto' }}>
                 {requesterResults.map((u, i) => (
-                  <div key={u.username || u.email || i} onClick={() => { setRequesterSearch(u.displayName || u.username); setRequesterResults([]); setActiveRequesterEmail(u.email); setPage(1); loadData(activeFilter, activeUserFilter, 1, search, activeCategory, activeSubcategory, activeSoftware, u.email); }}
-                    style={{ padding: '8px 12px', cursor: 'pointer', fontSize: 13, borderBottom: '1px solid #f1f5f9' }}>
+                  <div key={u.username || u.email || i} data-idx={i}
+                    onClick={() => selectRequester(u)}
+                    onMouseEnter={() => setRequesterHighlight(i)}
+                    style={{ padding: '8px 12px', cursor: 'pointer', fontSize: 13, borderBottom: '1px solid #f1f5f9', background: i === requesterHighlight ? '#eef2ff' : '#fff' }}>
                     <div style={{ fontWeight: 500 }}>{u.displayName || u.username}</div>
                     <div style={{ fontSize: 11, color: '#94a3b8' }}>{u.email}{u.service ? ` · ${u.service}` : ''}</div>
                   </div>
