@@ -48,6 +48,10 @@ router.get('/billing/line/:number', authenticateJWT, telecomController.getLineHi
 router.post('/billing/invoices/import', authenticateAdmin, upload.single('file'), telecomController.importBillingInvoices);
 router.get('/billing/invoice-files', authenticateJWT, telecomController.getInvoiceFiles);
 
+// Analyse automatique des factures à partir des PDF Sedit (version la plus détaillée)
+router.get('/billing/analysis', authenticateJWT, telecomController.getInvoiceAnalysis);
+router.post('/billing/analysis/run', authenticateJWT, telecomController.runInvoiceAnalysis);
+
 // Invoices
 router.get('/invoices', authenticateJWT, telecomController.getInvoices);
 router.get('/invoices/monthly-summary', authenticateJWT, telecomController.getMonthlySummary);

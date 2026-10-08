@@ -240,6 +240,34 @@ interface BillingLine {
 // géré en fluide sont intégrées automatiquement). Passer à true pour le réactiver.
 const ADD_INVOICE_ENABLED = false;
 
+// Analyse automatique d'une facture à partir de son PDF Sedit (version la plus détaillée)
+interface InvoiceAnalysisRow {
+  id: number;
+  invoice_number: string;
+  sedit_numero: string | null;
+  sedit_ref: string | null;
+  amount_ttc: number | null;
+  effective_month: string | null;
+  operator_name: string;
+  account_number: string | null;
+  status: string | null;
+  doc_name: string | null;
+  doc_size_kb: number | null;
+  docs_count: number | null;
+  pages: number | null;
+  period_start: string | null;
+  period_end: string | null;
+  account_ref: string | null;
+  amount_ht: number | null;
+  amount_tva: number | null;
+  pdf_ttc: number | null;
+  amount_abonnements: number | null;
+  amount_consommations: number | null;
+  ecart: number | null;
+  error: string | null;
+  analysed_at: string | null;
+}
+
 interface MonthCellInvoice {
   id: number;
   invoice_number: string;
@@ -349,6 +377,11 @@ const TelecomManagement: React.FC = () => {
 
   // Coûts & mobile (facturation SFR)
   const [billingStats, setBillingStats] = useState<BillingStats | null>(null);
+  // Analyse automatique des factures Sedit (PDF le plus détaillé de chaque facture)
+  const [analysisRows, setAnalysisRows] = useState<InvoiceAnalysisRow[]>([]);
+  const [analysisRunning, setAnalysisRunning] = useState(false);
+  const [analysisLoading, setAnalysisLoading] = useState(false);
+  const [analysisFilter, setAnalysisFilter] = useState<'all' | 'issues'>('all');
   const [billingTrend, setBillingTrend] = useState<{ month: string; total: number }[]>([]);
   const [billingLines, setBillingLines] = useState<BillingLine[]>([]);
   const [billingType, setBillingType] = useState<'all' | 'mobile' | 'fixe'>('all');
@@ -671,6 +704,38 @@ const TelecomManagement: React.FC = () => {
     }
   };
 
+  const fetchInvoiceAnalysis = async () => {
+    setAnalysisLoading(true);
+    try {
+      const res = await fetch(`/api/telecom/billing/analysis?year=${new Date().getFullYear()}`, { headers: { 'Authorization': `Bearer ${token}` } });
+      if (res.ok) {
+        const d = await res.json();
+        setAnalysisRows(d.rows || []);
+        setAnalysisRunning(!!d.running);
+        return !!d.running;
+      }
+    } catch (e) { console.error(e); } finally { setAnalysisLoading(false); }
+    return false;
+  };
+
+  const runInvoiceAnalysis = async (force: boolean) => {
+    if (force && !window.confirm('Relancer l\'analyse de toutes les factures de l\'exercice depuis leurs PDF Sedit ?')) return;
+    setAnalysisRunning(true);
+    try {
+      await fetch('/api/telecom/billing/analysis/run', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ force }),
+      });
+      // l'analyse tourne en tâche de fond : on rafraîchit jusqu'à la fin
+      for (let i = 0; i < 40; i++) {
+        await new Promise(r => setTimeout(r, 3000));
+        const stillRunning = await fetchInvoiceAnalysis();
+        if (!stillRunning) break;
+      }
+    } finally { setAnalysisRunning(false); }
+  };
+
   const fetchBilling = async () => {
     try {
       const [statsRes, trendRes, linesRes] = await Promise.all([
@@ -687,7 +752,7 @@ const TelecomManagement: React.FC = () => {
   };
 
   useEffect(() => {
-    if (activeTab === 'billing') { fetchBilling(); fetchInvoiceFiles(); }
+    if (activeTab === 'billing') { fetchBilling(); fetchInvoiceFiles(); fetchInvoiceAnalysis(); }
   }, [activeTab, token]);
 
   const fetchOptim = async () => {
@@ -2416,6 +2481,119 @@ const TelecomManagement: React.FC = () => {
                 </button>
               </div>
             </div>
+
+            {/* Analyse automatique des factures Sedit : PDF le plus détaillé de chaque facture */}
+            {(() => {
+              const eur = (n: number | null | undefined) => (n == null ? '—' : Number(n).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' }));
+              const fmtD = (d: string | null) => (d ? new Date(d).toLocaleDateString('fr-FR') : '—');
+              const isIssue = (r: InvoiceAnalysisRow) => r.status !== 'ok' || (r.ecart != null && Math.abs(Number(r.ecart)) > 0.02);
+              const rows = analysisRows.filter(r => analysisFilter === 'all' || isIssue(r));
+              const analysed = analysisRows.filter(r => r.status).length;
+              const issues = analysisRows.filter(isIssue).length;
+              const sum = (k: 'amount_ht' | 'amount_tva' | 'pdf_ttc' | 'amount_abonnements' | 'amount_consommations') => analysisRows.reduce((t, r) => t + (Number(r[k]) || 0), 0);
+              const badge = (r: InvoiceAnalysisRow) => {
+                const map: Record<string, [string, string, string]> = {
+                  ok: ['Cohérente', '#166534', '#dcfce7'],
+                  ecart: ['Écart', '#b91c1c', '#fee2e2'],
+                  a_verifier: ['À vérifier', '#b45309', '#fef3c7'],
+                  sans_pdf: ['Pas de PDF', '#64748b', '#e2e8f0'],
+                  sans_facture_sedit: ['Hors Sedit', '#64748b', '#e2e8f0'],
+                  illisible: ['PDF illisible', '#b45309', '#fef3c7'],
+                  erreur: ['Erreur', '#b91c1c', '#fee2e2'],
+                };
+                if (!r.status) return <span style={{ color: '#94a3b8', fontSize: 11 }}>En attente</span>;
+                const [label, color, bg] = map[r.status] || [r.status, '#475569', '#f1f5f9'];
+                return <span title={r.error || undefined} style={{ background: bg, color, borderRadius: 999, padding: '2px 8px', fontSize: 11, fontWeight: 700, whiteSpace: 'nowrap' }}>{label}</span>;
+              };
+              return (
+                <div className="admin-card" style={{ padding: 16, marginBottom: 24 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap', marginBottom: 12 }}>
+                    <div>
+                      <h3 style={{ margin: 0, fontSize: '1rem', color: '#1e293b' }}>Analyse automatique des factures (PDF Sedit)</h3>
+                      <div style={{ fontSize: '0.8rem', color: '#64748b', marginTop: 2 }}>
+                        Chaque facture est analysée depuis son PDF dans Sedit ; quand plusieurs versions existent (synthétique / détaillée), la plus volumineuse est retenue.
+                        {' '}{analysed}/{analysisRows.length} analysée{analysed > 1 ? 's' : ''}{issues > 0 ? ` — ${issues} à contrôler` : ''}.
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                      <select value={analysisFilter} onChange={e => setAnalysisFilter(e.target.value as 'all' | 'issues')}
+                        style={{ padding: '6px 10px', borderRadius: 6, border: '1px solid #e2e8f0' }}>
+                        <option value="all">Toutes les factures</option>
+                        <option value="issues">À contrôler uniquement</option>
+                      </select>
+                      <button className="add-btn" disabled={analysisRunning} onClick={() => runInvoiceAnalysis(false)} title="Analyser les factures pas encore analysées">
+                        {analysisRunning ? 'Analyse en cours…' : 'Analyser'}
+                      </button>
+                      <button className="add-btn" style={{ background: '#475569' }} disabled={analysisRunning} onClick={() => runInvoiceAnalysis(true)} title="Relancer l'analyse de toutes les factures">
+                        Tout réanalyser
+                      </button>
+                    </div>
+                  </div>
+                  {analysisLoading && analysisRows.length === 0 ? (
+                    <div style={{ textAlign: 'center', padding: 20, color: '#64748b' }}>Chargement…</div>
+                  ) : (
+                    <div style={{ overflow: 'auto', maxHeight: 420 }}>
+                      <table className="commitments-table" style={{ fontSize: '0.8rem' }}>
+                        <thead>
+                          <tr>
+                            <th>Facture</th><th>Opérateur</th><th>Compte</th><th>Période</th>
+                            <th style={{ textAlign: 'right' }}>HT</th><th style={{ textAlign: 'right' }}>TVA</th>
+                            <th style={{ textAlign: 'right' }}>TTC (PDF)</th><th style={{ textAlign: 'right' }}>Montant Sedit</th>
+                            <th style={{ textAlign: 'right' }}>Abonnements</th><th style={{ textAlign: 'right' }}>Consommations</th>
+                            <th>Contrôle</th><th>Document analysé</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {rows.map(r => (
+                            <tr key={r.id}>
+                              <td style={{ fontWeight: 700, whiteSpace: 'nowrap' }}>{r.invoice_number}</td>
+                              <td>{r.operator_name}</td>
+                              <td>{r.account_number || '—'}</td>
+                              <td style={{ whiteSpace: 'nowrap' }}>{r.period_start ? `${fmtD(r.period_start)} → ${fmtD(r.period_end)}` : '—'}</td>
+                              <td style={{ textAlign: 'right' }}>{eur(r.amount_ht)}</td>
+                              <td style={{ textAlign: 'right' }}>{eur(r.amount_tva)}</td>
+                              <td style={{ textAlign: 'right', fontWeight: 700 }}>{eur(r.pdf_ttc)}</td>
+                              <td style={{ textAlign: 'right' }}>{eur(r.amount_ttc)}</td>
+                              <td style={{ textAlign: 'right' }}>{eur(r.amount_abonnements)}</td>
+                              <td style={{ textAlign: 'right' }}>{eur(r.amount_consommations)}</td>
+                              <td>
+                                {badge(r)}
+                                {r.ecart != null && Math.abs(Number(r.ecart)) > 0.02 && (
+                                  <span style={{ marginLeft: 4, color: '#b91c1c', fontSize: 11 }} title="PDF − Sedit">{Number(r.ecart) > 0 ? '+' : ''}{eur(r.ecart)}</span>
+                                )}
+                              </td>
+                              <td style={{ maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                                title={r.doc_name ? `${r.doc_name} — ${r.doc_size_kb} Ko — ${r.pages ?? '?'} page(s) — plus volumineux de ${r.docs_count ?? 1} document(s) facture` : ''}>
+                                {r.doc_name ? `${r.doc_name} (${r.doc_size_kb} Ko${r.docs_count && r.docs_count > 1 ? `, 1/${r.docs_count}` : ''})` : '—'}
+                              </td>
+                            </tr>
+                          ))}
+                          {rows.length === 0 && (
+                            <tr><td colSpan={12} style={{ textAlign: 'center', padding: 24, color: '#94a3b8' }}>
+                              {analysisRows.length === 0 ? 'Aucune facture à analyser' : 'Aucune facture à contrôler'}
+                            </td></tr>
+                          )}
+                        </tbody>
+                        {analysisFilter === 'all' && analysisRows.length > 0 && (
+                          <tfoot>
+                            <tr style={{ background: '#f8fafc', fontWeight: 800 }}>
+                              <td colSpan={4} style={{ textAlign: 'right' }}>Totaux ({analysisRows.length} factures)</td>
+                              <td style={{ textAlign: 'right' }}>{eur(sum('amount_ht'))}</td>
+                              <td style={{ textAlign: 'right' }}>{eur(sum('amount_tva'))}</td>
+                              <td style={{ textAlign: 'right' }}>{eur(sum('pdf_ttc'))}</td>
+                              <td style={{ textAlign: 'right' }}>{eur(analysisRows.reduce((t, r) => t + (Number(r.amount_ttc) || 0), 0))}</td>
+                              <td style={{ textAlign: 'right' }}>{eur(sum('amount_abonnements'))}</td>
+                              <td style={{ textAlign: 'right' }}>{eur(sum('amount_consommations'))}</td>
+                              <td colSpan={2}></td>
+                            </tr>
+                          </tfoot>
+                        )}
+                      </table>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
 
             {!billingStats || billingStats.totalLines === 0 ? (
               <div className="empty-state">

@@ -114,6 +114,8 @@ async function doRefresh() {
     await refreshEngagementsTable().catch((e) => console.error('[Telecom] Lecture des engagements Sedit impossible :', e.message));
     await autoImportEngagementInvoices().catch((e) => console.error('[Telecom] Import auto des factures rapprochées impossible :', e.message));
     await autoLinkAccounts().catch((e) => console.error('[Telecom] Rattachement auto des comptes impossible :', e.message));
+    // Analyse automatique (PDF Sedit) des factures pas encore analysées, en tâche de fond.
+    require('./telecom.invoice-analysis').analysePending({ limit: 15 }).catch((e) => console.error('[Telecom] Analyse auto des factures impossible :', e.message));
 }
 
 /** Recopie dans Postgres la liste des engagements télécom (6262) de l'exercice lue dans Sedit. */

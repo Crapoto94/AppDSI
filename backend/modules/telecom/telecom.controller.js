@@ -9,6 +9,7 @@ const storage = require('../../shared/storage');
 const dgpService = require('../finance/dgp.service');
 const financeShare = require('../finance/finance-share.controller');
 const seditLive = require('./telecom.sedit-live');
+const invoiceAnalysis = require('./telecom.invoice-analysis');
 
 const MODULE = 'telecom';
 
@@ -312,6 +313,46 @@ async function computeMonthlySummary(year) {
 }
 
 module.exports = {
+    RESOLVED_INVOICES_SQL,
+
+    // --- Analyse automatique des factures (PDF Sedit, version la plus détaillée) ---
+    // Liste des analyses de l'exercice (?year=) avec le montant Sedit et le contrôle de cohérence.
+    getInvoiceAnalysis: async (req, res) => {
+        try {
+            await invoiceAnalysis.ensureTable();
+            const year = parseInt(req.query.year, 10) || new Date().getFullYear();
+            const rows = await pgDb.all(`
+                SELECT ri.id, ri.invoice_number, ri.sedit_numero, ri.sedit_ref, ri.amount_ttc, ri.effective_month,
+                       o.name AS operator_name, a.account_number,
+                       an.status, an.doc_name, an.doc_size_kb, an.docs_count, an.pages, an.period_start, an.period_end, an.account_ref,
+                       an.amount_ht, an.amount_tva, an.amount_ttc AS pdf_ttc, an.amount_abonnements, an.amount_consommations,
+                       an.ecart, an.error, an.analysed_at
+                FROM (${RESOLVED_INVOICES_SQL}) ri
+                JOIN hub_telecom.operators o ON o.id = ri.operator_id
+                LEFT JOIN hub_telecom.billing_accounts a ON a.id = ri.billing_account_id
+                LEFT JOIN hub_telecom.invoice_analysis an ON an.invoice_id = ri.id
+                WHERE ri.effective_month LIKE ?
+                ORDER BY ri.effective_month DESC, o.name, ri.invoice_number
+            `, [`${year}-%`]);
+            res.json({ running: invoiceAnalysis.isRunning(), rows });
+        } catch (error) {
+            console.error('[Telecom] getInvoiceAnalysis error:', error);
+            res.status(500).json({ message: "Erreur lecture de l'analyse des factures", error: error.message });
+        }
+    },
+
+    // Lance l'analyse des factures non encore analysées (ou toutes avec force=true) en tâche de fond.
+    runInvoiceAnalysis: async (req, res) => {
+        try {
+            const force = req.body?.force === true || req.body?.force === 'true';
+            const limit = Math.min(parseInt(req.body?.limit, 10) || (force ? 500 : 100), 1000);
+            invoiceAnalysis.analysePending({ limit, force }).catch(e => console.error('[Telecom] analyse factures :', e.message));
+            res.json({ started: true, force, limit });
+        } catch (error) {
+            res.status(500).json({ message: "Erreur lancement de l'analyse", error: error.message });
+        }
+    },
+
     // --- Operators ---
     getOperators: async (req, res) => {
         try {
