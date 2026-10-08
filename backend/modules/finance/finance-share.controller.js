@@ -244,6 +244,27 @@ async function queryFacsuiviStatus(numeros) {
             if (!map[row.NUMERO]) map[row.NUMERO] = {};
             map[row.NUMERO].rejete = { done: !!row.DATE_REJET, date: row.DATE_REJET || null };
         }
+        // Facture refusée au RAPPROCHEMENT sans DATE_REJET : Sedit consigne le refus par une ligne
+        // FACSUIVI RAPPROCHEMENT « REJETE » puis rouvre le circuit (nouvelles lignes, FAC_AVANCEMENT
+        // = 1, retour en saisie) sans renseigner FACTURE.DATE_REJET (ex. F26008707). Elle est donc
+        // refusée tant que le rapprochement n'a jamais été VALIDE ; un rejet suivi d'un rapprochement
+        // validé est un circuit repris normalement, pas un refus.
+        const refusRes = await connection.execute(
+            `SELECT TRIM(f.FACTURE) AS NUMERO, MAX(fs.DATE_MODIF) AS DATE_REFUS
+             FROM FI.FACTURE f
+             JOIN FI.FACSUIVI fs ON fs.FACTURE = f.ROO_IMA_REF AND fs.AVANCEMENT = 'RAPPROCHEMENT' AND fs.ETAT = 'REJETE'
+             WHERE TRIM(f.FACTURE) IN (${placeholders.join(',')})
+               AND NOT EXISTS (SELECT 1 FROM FI.FACSUIVI v
+                               WHERE v.FACTURE = f.ROO_IMA_REF AND v.AVANCEMENT = 'RAPPROCHEMENT' AND v.ETAT = 'VALIDE')
+             GROUP BY TRIM(f.FACTURE)`,
+            binds
+        );
+        for (const row of refusRes.rows) {
+            if (!map[row.NUMERO]) map[row.NUMERO] = {};
+            if (!map[row.NUMERO].rejete || !map[row.NUMERO].rejete.done) {
+                map[row.NUMERO].rejete = { done: true, date: row.DATE_REFUS || null };
+            }
+        }
         // Facture mandatée : présence d'une ligne de mouvement rattachée à un VRAI mandat.
         // ATTENTION : MVTLIGNE.MANDAT = 0 est une ligne « neutre » créée à l'import (facture
         // non mandatée) — un simple « IS NOT NULL » la comptait à tort comme mandatée (badge
