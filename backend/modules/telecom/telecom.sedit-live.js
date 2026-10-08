@@ -51,6 +51,8 @@ async function ensureTable() {
     // Engagements télécom (nature 6262) de l'exercice, lus dans Sedit à chaque rafraîchissement.
     await pool.query(`CREATE UNLOGGED TABLE IF NOT EXISTS hub_telecom.sedit_engagements_live (
         commitment_number text, tiers_code text)`);
+    // Codes des engagements de nature 6262 (exercices N-1 et N) : périmètre de l'analyse des factures.
+    await pool.query(`CREATE UNLOGGED TABLE IF NOT EXISTS hub_telecom.sedit_engagements_6262 (commitment_number text PRIMARY KEY)`);
     // Choix de l'utilisateur : engagement géré (ou non) en fluide. Absent = géré (défaut).
     await pool.query(`CREATE TABLE IF NOT EXISTS hub_telecom.engagement_settings (
         commitment_number text PRIMARY KEY, managed boolean NOT NULL DEFAULT true,
@@ -119,8 +121,25 @@ async function doRefresh() {
 }
 
 /** Recopie dans Postgres la liste des engagements télécom (6262) de l'exercice lue dans Sedit. */
+/** Codes des engagements ayant au moins une ligne d'imputation de nature 6262 (exercices N-1 et N). */
+async function getEngagements6262Codes() {
+    const year = new Date().getFullYear();
+    return financeShare.withFinanceOracle(async (conn) => {
+        const r = await conn.execute(
+            `SELECT DISTINCT TRIM(m.MOUVEMENT) AS CODE
+             FROM FI.MOUVEMENT m
+             JOIN FI.MVTLIGNE l ON l.MOUVEMENT = m.ROO_IMA_REF
+             JOIN FI.IMPUTATION i ON i.ROO_IMA_REF = l.IMPUTATION
+             WHERE l.EXEORIGINE >= :y0 AND TRIM(i.CODECOMP) = '6262'`,
+            { y0: year - 1 }
+        );
+        return r.rows.map(x => x.CODE).filter(Boolean);
+    });
+}
+
 async function refreshEngagementsTable() {
     const list = await getTelecomEngagementsLive();
+    const codes6262 = await getEngagements6262Codes().catch(() => null);
     const client = await pool.connect();
     try {
         await client.query('BEGIN');
@@ -128,6 +147,10 @@ async function refreshEngagementsTable() {
         for (const e of list) {
             await client.query('INSERT INTO hub_telecom.sedit_engagements_live (commitment_number, tiers_code) VALUES ($1, $2)',
                 [e.commitment_number, e.tiers_code || null]);
+        }
+        if (codes6262) {
+            await client.query('DELETE FROM hub_telecom.sedit_engagements_6262');
+            for (const c of codes6262) await client.query('INSERT INTO hub_telecom.sedit_engagements_6262 (commitment_number) VALUES ($1) ON CONFLICT DO NOTHING', [c]);
         }
         await client.query('COMMIT');
     } catch (err) {

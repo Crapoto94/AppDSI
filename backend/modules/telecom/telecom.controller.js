@@ -13,6 +13,19 @@ const invoiceAnalysis = require('./telecom.invoice-analysis');
 
 const MODULE = 'telecom';
 
+// Seules les lignes issues des factures Sedit (source « sedit:… ») alimentent les écrans de coûts :
+// les anciennes données importées en ZIP sont ignorées (conservées en base, jamais lues).
+pool.query(`CREATE OR REPLACE VIEW hub_telecom.line_billing_sedit AS
+    SELECT * FROM hub_telecom.line_billing WHERE source_file LIKE 'sedit:%'`)
+    .catch(e => console.error('[Telecom] vue line_billing_sedit :', e.message));
+
+// Les montants d'analyse (lignes de facturation, tendance) sont stockés en HT ; l'application les
+// affiche toujours en TTC (TVA 20 %).
+const TVA_RATE = 1.2;
+const toTtc = (v) => Math.round((parseFloat(v) || 0) * TVA_RATE * 100) / 100;
+const MONEY_COLS = ['amt_subscriptions', 'amt_other', 'amt_discounts', 'amt_third_party', 'amt_voix_fixe', 'amt_voix_mobile',
+    'amt_data_fixe', 'amt_data_mobile', 'amt_conso_autre', 'amt_contenu', 'amt_total'];
+
 // Sous-requête réutilisée partout où on a besoin d'une facture télécom "résolue" : montant, date
 // et état sont recalés en direct sur le budget (oracle.gf_oracle_facture) quand une correspondance
 // est trouvée. Le n° de facture fournisseur peut vivre dans plusieurs colonnes selon les fichiers
@@ -326,12 +339,12 @@ module.exports = {
                        o.name AS operator_name, a.account_number,
                        an.status, an.doc_name, an.doc_size_kb, an.docs_count, an.pages, an.period_start, an.period_end, an.account_ref,
                        an.amount_ht, an.amount_tva, an.amount_ttc AS pdf_ttc, an.amount_abonnements, an.amount_consommations,
-                       an.ecart, an.error, an.analysed_at
+                       an.ecart, an.error, an.analysed_at, an.lines_count, an.lines_total_ht
                 FROM (${RESOLVED_INVOICES_SQL}) ri
                 JOIN hub_telecom.operators o ON o.id = ri.operator_id
                 LEFT JOIN hub_telecom.billing_accounts a ON a.id = ri.billing_account_id
                 LEFT JOIN hub_telecom.invoice_analysis an ON an.invoice_id = ri.id
-                WHERE ri.effective_month LIKE ?
+                WHERE ri.effective_month LIKE ? AND ${invoiceAnalysis.IN_6262_SQL}
                 ORDER BY ri.effective_month DESC, o.name, ri.invoice_number
             `, [`${year}-%`]);
             res.json({ running: invoiceAnalysis.isRunning(), rows });
@@ -1341,7 +1354,7 @@ module.exports = {
     // Périodes de facturation disponibles
     getBillingPeriods: async (req, res) => {
         try {
-            const r = await pool.query(`SELECT DISTINCT period FROM hub_telecom.line_billing ORDER BY period DESC`);
+            const r = await pool.query(`SELECT DISTINCT period FROM hub_telecom.line_billing_sedit ORDER BY period DESC`);
             res.json(r.rows.map(x => x.period));
         } catch (error) {
             res.status(500).json({ message: 'Erreur périodes', error: error.message });
@@ -1355,7 +1368,7 @@ module.exports = {
             const where = [];
             const params = [];
             if (period) { params.push(period); where.push(`period = $${params.length}`); }
-            else where.push(`period = (SELECT MAX(period) FROM hub_telecom.line_billing)`);
+            else where.push(`period = (SELECT MAX(period) FROM hub_telecom.line_billing_sedit)`);
             if (type === 'mobile') where.push(`is_mobile = TRUE`);
             if (type === 'fixe') where.push(`is_mobile = FALSE`);
             if (search) {
@@ -1368,10 +1381,10 @@ module.exports = {
                        (SELECT ln.access_type FROM hub_telecom.lines ln
                           WHERE regexp_replace(ln.ndi, '\\D', '', 'g') = regexp_replace(lb.line_number, '\\D', '', 'g')
                           LIMIT 1) AS access_type
-                FROM hub_telecom.line_billing lb
+                FROM hub_telecom.line_billing_sedit lb
                 WHERE ${where.join(' AND ')}
                 ORDER BY lb.amt_total DESC`, params);
-            res.json(r.rows);
+            res.json(r.rows.map(row => { const o = { ...row }; MONEY_COLS.forEach(c => { if (o[c] != null) o[c] = toTtc(o[c]); }); return o; }));
         } catch (error) {
             res.status(500).json({ message: 'Erreur détail facturation', error: error.message });
         }
@@ -1381,18 +1394,19 @@ module.exports = {
     getBillingStats: async (req, res) => {
         try {
             const { period } = req.query;
-            const periodClause = period ? `period = $1` : `period = (SELECT MAX(period) FROM hub_telecom.line_billing)`;
+            const periodClause = period ? `period = $1` : `period = (SELECT MAX(period) FROM hub_telecom.line_billing_sedit)`;
             const params = period ? [period] : [];
-            const { rows } = await pool.query(`SELECT * FROM hub_telecom.line_billing WHERE ${periodClause}`, params);
+            const { rows } = await pool.query(`SELECT * FROM hub_telecom.line_billing_sedit WHERE ${periodClause}`, params);
 
             const n = (v) => parseFloat(v) || 0;
+            const t = (v) => toTtc(v); // montants affichés en TTC
 
             // Nombre de mois consécutifs sans conso (voix+data) par numéro mobile,
             // en partant du mois le plus récent (= depuis combien de mois la ligne est dormante)
             const mobRows = (await pool.query(`
                 SELECT regexp_replace(line_number, '\\D', '', 'g') AS num, period,
                        SUM(conso_voix) AS v, SUM(conso_data) AS d
-                FROM hub_telecom.line_billing
+                FROM hub_telecom.line_billing_sedit
                 WHERE is_mobile
                 GROUP BY num, period
                 ORDER BY num, period DESC
@@ -1407,6 +1421,10 @@ module.exports = {
                     streakByNum[num] = c;
                 }
             }
+
+            // Les PDF de factures Sedit ne donnent pas les volumes voix/data par ligne : sans volumes, la
+            // détection des lignes dormantes n'a pas de sens (toutes ressortiraient dormantes) et est désactivée.
+            const hasVolumes = rows.some(r => n(r.conso_voix) > 0 || n(r.conso_data) > 0);
 
             const stats = {
                 period: rows[0] ? rows[0].period : null,
@@ -1426,14 +1444,14 @@ module.exports = {
             };
 
             for (const r of rows) {
-                const tot = n(r.amt_total);
+                const tot = t(r.amt_total);
                 stats.totalHT += tot;
                 if (r.is_mobile) stats.totalMobile += tot; else stats.totalFixe += tot;
-                stats.totalSubscriptions += n(r.amt_subscriptions);
-                stats.totalDiscounts += n(r.amt_discounts);
-                stats.totalConso += n(r.amt_voix_fixe) + n(r.amt_voix_mobile) + n(r.amt_data_fixe) + n(r.amt_data_mobile) + n(r.amt_conso_autre);
+                stats.totalSubscriptions += t(r.amt_subscriptions);
+                stats.totalDiscounts += t(r.amt_discounts);
+                stats.totalConso += t(r.amt_voix_fixe) + t(r.amt_voix_mobile) + t(r.amt_data_fixe) + t(r.amt_data_mobile) + t(r.amt_conso_autre);
                 // Dormante = mobile facturé (> 0 €) sans aucune consommation voix ni data
-                if (r.is_mobile && tot > 0 && n(r.conso_voix) === 0 && n(r.conso_data) === 0) {
+                if (hasVolumes && r.is_mobile && tot > 0 && n(r.conso_voix) === 0 && n(r.conso_data) === 0) {
                     stats.dormant++;
                     stats.dormantCost += tot;
                     stats.dormantList.push({ line_number: r.line_number, user_name: r.user_name, plan: r.plan, list_label: r.list_label, amt_total: tot, monthsWithoutConso: streakByNum[String(r.line_number).replace(/\D/g, '')] || 1 });
@@ -1446,7 +1464,7 @@ module.exports = {
             }
 
             stats.topLines = rows
-                .map(r => ({ line_number: r.line_number, user_name: r.user_name, site_name: r.site_name, plan: r.plan, is_mobile: r.is_mobile, amt_total: n(r.amt_total) }))
+                .map(r => ({ line_number: r.line_number, user_name: r.user_name, site_name: r.site_name, plan: r.plan, is_mobile: r.is_mobile, amt_total: t(r.amt_total) }))
                 .sort((a, b) => b.amt_total - a.amt_total).slice(0, 15);
             stats.bySite = Object.entries(stats.bySite).map(([k, v]) => ({ site: k, amount: Math.round(v * 100) / 100 })).sort((a, b) => b.amount - a.amount).slice(0, 10);
             stats.byList = Object.entries(stats.byList).map(([k, v]) => ({ list: k, amount: Math.round(v * 100) / 100 })).sort((a, b) => b.amount - a.amount).slice(0, 12);
@@ -1466,12 +1484,17 @@ module.exports = {
         try {
             // Exclut « Vos autres prestations » = achats ponctuels d'équipement/terminaux
             // (non récurrents, ex. 10 250 € de terminaux mobiles en sept. 2025)
-            const r = await pool.query(`
-                SELECT month, SUM(amount) AS total
-                FROM hub_telecom.billing_trend
-                WHERE category <> 'Vos autres prestations'
-                GROUP BY month ORDER BY month`);
-            res.json(r.rows.map(x => ({ month: x.month, total: Math.round(parseFloat(x.total) * 100) / 100 })));
+            // Source : factures SFR lues dans Sedit (lignes détaillées issues des PDF) ; à défaut seulement,
+            // l'ancienne tendance importée. Montants en TTC.
+            const sedit = await pool.query(`
+                SELECT to_char(period, 'YYYY-MM') AS month, SUM(amt_total) AS total
+                FROM hub_telecom.line_billing_sedit
+                WHERE source_file LIKE 'sedit:%'
+                GROUP BY 1 ORDER BY 1`);
+            if (sedit.rows.length > 0) {
+                return res.json(sedit.rows.map(x => ({ month: x.month, total: toTtc(x.total) })));
+            }
+            res.json([]);
         } catch (error) {
             res.status(500).json({ message: 'Erreur tendance', error: error.message });
         }
@@ -1495,7 +1518,7 @@ module.exports = {
                        SUM(amt_discounts) AS amt_discounts,
                        SUM(amt_voix_fixe + amt_voix_mobile + amt_data_fixe + amt_data_mobile + amt_conso_autre) AS amt_conso,
                        SUM(amt_total) AS amt_total, SUM(conso_voix) AS conso_voix, SUM(conso_data) AS conso_data
-                FROM hub_telecom.line_billing
+                FROM hub_telecom.line_billing_sedit
                 WHERE regexp_replace(line_number, '\\D', '', 'g') = $1
                 GROUP BY period
                 ORDER BY period DESC
@@ -1505,17 +1528,18 @@ module.exports = {
             // Numéro affichable + libellé pris sur la ligne la plus récente
             const latest = rows[0] || {};
             const n = (v) => parseFloat(v) || 0;
+            const m = (v) => toTtc(v); // montants en TTC
             const history = rows.slice().reverse().map(r => ({
                 period: r.period,
                 invoice_number: r.invoice_number,
                 invoice_date: r.invoice_date,
                 cf_label: r.cf_label,
                 plan: r.plan,
-                amt_subscriptions: n(r.amt_subscriptions),
-                amt_conso: n(r.amt_conso),
-                amt_discounts: n(r.amt_discounts),
-                amt_other: n(r.amt_other),
-                amt_total: n(r.amt_total),
+                amt_subscriptions: m(r.amt_subscriptions),
+                amt_conso: m(r.amt_conso),
+                amt_discounts: m(r.amt_discounts),
+                amt_other: m(r.amt_other),
+                amt_total: m(r.amt_total),
                 conso_voix: n(r.conso_voix),
                 conso_data: n(r.conso_data),
             }));
@@ -1607,9 +1631,15 @@ module.exports = {
     // Mapping n° de facture → chemin du PDF (pour rendre les numéros cliquables)
     getInvoiceFiles: async (req, res) => {
         try {
-            const { rows } = await pool.query('SELECT invoice_number, file_path FROM hub_telecom.invoice_files');
+            // N° de facture fournisseur -> n° interne Sedit (F2600xxxx) : la facture est lue dans Sedit
+            // (PDF en pièce jointe) ; les anciens PDF importés en ZIP ne sont plus utilisés.
+            await seditLive.refreshFactures().catch(() => {});
+            const { rows } = await pool.query(`
+                SELECT TRIM("FACTURE_FACTIERS") AS supplier_number, TRIM("FACTURE_FACTURE") AS sedit_numero
+                FROM hub_telecom.sedit_factures_live
+                WHERE "FACTURE_FACTIERS" IS NOT NULL AND TRIM("FACTURE_FACTIERS") <> ''`);
             const map = {};
-            for (const r of rows) map[r.invoice_number] = r.file_path;
+            for (const r of rows) map[r.supplier_number] = r.sedit_numero;
             res.json(map);
         } catch (error) {
             res.status(500).json({ message: 'Erreur fichiers factures', error: error.message });
@@ -1624,11 +1654,11 @@ module.exports = {
             const inv = (await pool.query(`SELECT mid, ndi, site_name, category, access_type, status FROM hub_telecom.lines`)).rows;
             const billing = (await pool.query(`
                 SELECT line_number, cf_id, cf_label, site_name, is_mobile, plan, amt_total
-                FROM hub_telecom.line_billing
-                WHERE period = (SELECT MAX(period) FROM hub_telecom.line_billing)
+                FROM hub_telecom.line_billing_sedit
+                WHERE period = (SELECT MAX(period) FROM hub_telecom.line_billing_sedit)
             `)).rows;
 
-            const n = (v) => parseFloat(v) || 0;
+            const n = (v) => toTtc(v); // montants uniquement : affichés en TTC
             const norm = (s) => String(s || '').replace(/\D/g, '');   // garde les chiffres (numéros)
 
             // Index facturation par numéro

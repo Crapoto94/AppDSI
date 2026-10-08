@@ -16,6 +16,7 @@ const pdf = require('pdf-parse');
 const { pool } = require('../../shared/database');
 const financeShare = require('../finance/finance-share.controller');
 const smb = require('../../shared/smb_client');
+const { parseSfrDetailText } = require('./telecom.sfr-pdf');
 
 let tableReady = false;
 let running = false;
@@ -35,8 +36,15 @@ async function ensureTable() {
         sedit_amount numeric, ecart numeric,
         error text,
         analysed_at timestamp DEFAULT CURRENT_TIMESTAMP)`);
+    await pool.query('ALTER TABLE hub_telecom.invoice_analysis ADD COLUMN IF NOT EXISTS lines_count integer');
+    await pool.query('ALTER TABLE hub_telecom.invoice_analysis ADD COLUMN IF NOT EXISTS lines_total_ht numeric');
     tableReady = true;
 }
+
+/** Prédicat SQL (alias `ri`) : facture rapprochée à un engagement de nature 6262. */
+const IN_6262_SQL = `EXISTS (
+    SELECT 1 FROM unnest(string_to_array(ri.engagement, ',')) AS c(v)
+    WHERE TRIM(c.v) IN (SELECT commitment_number FROM hub_telecom.sedit_engagements_6262))`;
 
 // --------------------------------------------------------------------------- choix du document
 const FACTURE_RE = /^(PJ\d+X?)?FAC/i;
@@ -127,6 +135,9 @@ async function analyseInvoice(inv) {
         `, [row.invoice_id, row.sedit_numero, row.status, row.doc_id || null, row.doc_name || null, row.doc_size_kb ?? null, row.docs_count ?? null, row.pages ?? null,
             row.period_start || null, row.period_end || null, row.account_ref || null, row.ht ?? null, row.tva ?? null, row.ttc ?? null,
             row.abonnements ?? null, row.consommations ?? null, row.sedit_amount ?? null, row.ecart ?? null, row.error || null]);
+        if (row.lines_count !== undefined) {
+            await pool.query('UPDATE hub_telecom.invoice_analysis SET lines_count = $2, lines_total_ht = $3 WHERE invoice_id = $1', [row.invoice_id, row.lines_count, row.lines_total_ht]);
+        }
     };
 
     if (!inv.sedit_numero) { await save({ status: 'sans_facture_sedit' }); return; }
@@ -148,14 +159,16 @@ async function analyseInvoice(inv) {
         const x = extractFromText(text, base.sedit_amount);
         // La version la plus détaillée (annexes SFR « détail par compte »…) ne porte pas toujours les
         // totaux de la facture : on les complète depuis la facture principale (page de synthèse).
-        if (x.ttc === null || x.ht === null || !x.sedit_found) {
+        {
             const main = (docs || []).find(d => Number(d.PRINCIPAL) === 1 && /\.pdf$/i.test(String(d.NOM_PJ || '').trim()) && d.DOC_ID !== doc.DOC_ID);
             if (main) {
                 try {
                     const mb = await smb.readFileRel(config, financeShare.toRelativePath(config, main.CHEMIN_FICHIER));
                     const mx = mb ? extractFromText((await pdf(mb)).text || '', base.sedit_amount) : null;
                     if (mx) {
-                        for (const k of ['ttc', 'ht', 'tva', 'period_start', 'period_end', 'account_ref']) if (x[k] === null || x[k] === undefined) x[k] = mx[k];
+                        // Les totaux de la facture principale font foi (le détail ne donne que des sous-totaux par ligne/compte)
+                        for (const k of ['ttc', 'ht', 'tva']) if (mx[k] !== null && mx[k] !== undefined) x[k] = mx[k];
+                        for (const k of ['period_start', 'period_end', 'account_ref', 'abonnements', 'consommations']) if (x[k] === null || x[k] === undefined) x[k] = mx[k];
                         x.sedit_found = x.sedit_found || mx.sedit_found;
                         if (x.ttc !== null && x.ht !== null && x.tva === null) x.tva = Math.round((x.ttc - x.ht) * 100) / 100;
                     }
@@ -174,7 +187,12 @@ async function analyseInvoice(inv) {
                 status = 'a_verifier';
             }
         }
+        let linesInfo = {};
+        if (/^SFR/i.test(String(inv.operator_name || ''))) {
+            linesInfo = await importSfrLines(inv, docs, config).catch(e => { console.error('[Telecom] Lignes SFR :', e.message); return {}; });
+        }
         await save({
+            lines_count: linesInfo.count ?? null, lines_total_ht: linesInfo.totalHt ?? null,
             status, doc_id: doc.DOC_ID, doc_name: doc.NOM_PJ, doc_size_kb: doc.TAILLE, docs_count: count, pages: parsed.numpages,
             period_start: x.period_start, period_end: x.period_end, account_ref: x.account_ref,
             ht: x.ht, tva: x.tva, ttc, abonnements: x.abonnements, consommations: x.consommations, ecart,
@@ -184,14 +202,81 @@ async function analyseInvoice(inv) {
     }
 }
 
+// --------------------------------------------------------------------------- détail par ligne SFR
+/**
+ * Détail par ligne d'une facture SFR lu dans ses PDF Sedit et écrit dans hub_telecom.line_billing
+ * (remplace l'import du ZIP d'export). Le PDF de détail est celui qui contient les blocs « Référence : »
+ * (annexe « détail par compte client ») : on lit les PDF facture du plus gros au plus petit et on garde
+ * celui qui livre le plus de lignes. Période = mois précédant la date de facture (mois de consommation).
+ * Les lignes déjà présentes pour la même facture (import ZIP) sont remplacées.
+ */
+async function importSfrLines(inv, docs, config) {
+    const cands = (docs || []).filter(d => FACTURE_RE.test(String(d.NOM_PJ || '').trim()) && /\.pdf$/i.test(String(d.NOM_PJ || '').trim()))
+        .sort((a, b) => (Number(b.TAILLE) || 0) - (Number(a.TAILLE) || 0));
+    let best = null;
+    for (const d of cands) {
+        const buf = await smb.readFileRel(config, financeShare.toRelativePath(config, d.CHEMIN_FICHIER));
+        if (!buf) continue;
+        const parsed = parseSfrDetailText((await pdf(buf)).text || '');
+        if (parsed.lines.length && (!best || parsed.lines.length > best.parsed.lines.length)) best = { parsed, doc: d };
+    }
+    if (!best) return { count: 0, totalHt: 0 };
+
+    const { parsed, doc } = best;
+    const invoiceNumber = parsed.invoice_number || inv.invoice_number;
+    const invDate = parsed.invoice_date;
+    if (!invDate) return { count: 0, totalHt: 0 };
+    const dt = new Date(`${invDate}T00:00:00Z`);
+    const period = new Date(Date.UTC(dt.getUTCFullYear(), dt.getUTCMonth() - 1, 1)).toISOString().slice(0, 10);
+    const n2 = (v) => Math.round((Number(v) || 0) * 100) / 100;
+
+    const client = await pool.connect();
+    try {
+        await client.query('BEGIN');
+        await client.query('DELETE FROM hub_telecom.line_billing WHERE invoice_number = $1', [invoiceNumber]);
+        let total = 0;
+        for (const l of parsed.lines) {
+            const isNumber = /^\d{8,}$/.test(l.ref);
+            const lineNumber = isNumber ? l.ref : `${l.ref} · ${l.site_id}`;
+            const isMobile = /^0[67]\d{8}$/.test(l.ref) || /mobile|forfait/i.test(l.plan || '');
+            const abo = n2(l.abo_net - l.remises); // brut avant remises ; remises (négatives) à part
+            const other = n2((l.total || 0) - l.abo_net - l.conso);
+            total += l.total || 0;
+            await client.query(`
+                INSERT INTO hub_telecom.line_billing
+                  (period, invoice_number, invoice_date, org_id, company, contract_id, cf_id, cf_label, site_id, site_name,
+                   list_id, list_label, line_number, mobile_name, user_name, plan, is_mobile, resiliation,
+                   amt_subscriptions, amt_other, amt_discounts, amt_third_party, amt_voix_fixe, amt_voix_mobile,
+                   amt_data_fixe, amt_data_mobile, amt_conso_autre, amt_contenu, amt_total, conso_voix, conso_data, source_file)
+                VALUES ($1,$2,$3,'','COMMUNE D IVRY SUR SEINE','',$4,$5,$6,$7,'',$8,$9,'',$10,$11,$12,'',
+                        $13,$14,$15,0,0,0,0,0,$16,0,$17,0,0,$18)
+                ON CONFLICT (period, line_number, cf_id) DO UPDATE SET
+                  invoice_number=$2, invoice_date=$3, cf_label=$5, site_id=$6, site_name=$7, list_label=$8, user_name=$10, plan=$11,
+                  is_mobile=$12, amt_subscriptions=$13, amt_other=$14, amt_discounts=$15, amt_conso_autre=$16, amt_total=$17,
+                  source_file=$18, imported_at=NOW()
+            `, [period, invoiceNumber, invDate, l.account || '', l.site_name || '', l.site_id || '', l.site_name || '', l.liste || '',
+                lineNumber, l.user || '', l.plan || '', isMobile, abo, other > 0.004 ? other : 0, n2(l.remises), n2(l.conso), n2(l.total),
+                `sedit:${doc.NOM_PJ}`]);
+        }
+        await client.query('COMMIT');
+        return { count: parsed.lines.length, totalHt: n2(total) };
+    } catch (e) {
+        try { await client.query('ROLLBACK'); } catch (_) { /* ignore */ }
+        throw e;
+    } finally {
+        client.release();
+    }
+}
+
 // --------------------------------------------------------------------------- orchestration
 async function pendingInvoices(limit, force) {
     const { RESOLVED_INVOICES_SQL } = require('./telecom.controller');
     const r = await pool.query(`
-        SELECT ri.id, ri.sedit_numero, ri.amount_ttc
+        SELECT ri.id, ri.sedit_numero, ri.amount_ttc, ri.invoice_number, ri.operator_id, o.name AS operator_name
         FROM (${RESOLVED_INVOICES_SQL}) ri
+        JOIN hub_telecom.operators o ON o.id = ri.operator_id
         LEFT JOIN hub_telecom.invoice_analysis an ON an.invoice_id = ri.id
-        WHERE ri.sedit_numero IS NOT NULL
+        WHERE ri.sedit_numero IS NOT NULL AND ${IN_6262_SQL}
           ${force ? '' : `AND (an.invoice_id IS NULL OR (an.status IN ('erreur') AND an.analysed_at < NOW() - INTERVAL '1 hour')
                  OR an.sedit_amount IS DISTINCT FROM ri.amount_ttc::numeric)`}
         ORDER BY ri.invoice_date DESC NULLS LAST
@@ -216,4 +301,4 @@ async function analysePending({ limit = 20, force = false } = {}) {
 
 function isRunning() { return running; }
 
-module.exports = { analysePending, analyseInvoice, pickLargestInvoiceDoc, extractFromText, ensureTable, isRunning };
+module.exports = { IN_6262_SQL, analysePending, analyseInvoice, pickLargestInvoiceDoc, extractFromText, ensureTable, isRunning };

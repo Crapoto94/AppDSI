@@ -236,6 +236,9 @@ interface BillingLine {
   resiliation: string;
 }
 
+// Imports ZIP (export de facturation / duplicatas PDF) désactivés : les données viennent des factures Sedit.
+const ZIP_IMPORT_ENABLED = false;
+
 // L'ajout manuel de factures est désactivé pour le moment (les factures rapprochées à un engagement
 // géré en fluide sont intégrées automatiquement). Passer à true pour le réactiver.
 const ADD_INVOICE_ENABLED = false;
@@ -643,17 +646,24 @@ const TelecomManagement: React.FC = () => {
     }
   };
 
-  // Rendu d'un n° de facture : cliquable (ouvre le PDF GED) si disponible
+  // Rendu d'un n° de facture fournisseur : lié à la facture SEDIT (invoiceFiles = n° fournisseur -> n° interne
+  // Sedit). Un clic ouvre ses pièces jointes (PDF) lues dans Sedit.
   const renderInvoiceNumber = (num: string | null | undefined) => {
     if (!num) return <span style={{ color: '#cbd5e1' }}>—</span>;
     return <>{String(num).split(/,\s*/).map((nm, i) => {
-      const path = invoiceFiles[nm];
+      const sedit = invoiceFiles[nm];
       return (
         <React.Fragment key={nm}>
           {i > 0 && ', '}
-          {path
-            ? <a href={`/api/${path}`} target="_blank" rel="noopener noreferrer" className="ndi-link" title="Voir le PDF de la facture">{nm}</a>
-            : <span title="PDF non importé — importez le ZIP de duplicatas contenant cette facture" style={{ borderBottom: '1px dotted #cbd5e1', cursor: 'help' }}>{nm}</span>}
+          {sedit
+            ? (
+              <span style={{ display: 'inline-flex', flexDirection: 'column', lineHeight: 1.25 }}>
+                <a href="#" className="ndi-link" title={`Voir la facture ${sedit} dans SEDIT (pièces jointes PDF)`}
+                  onClick={e => { e.preventDefault(); setViewingFactureNumero(sedit); }}>{nm}</a>
+                <span style={{ fontSize: '0.66rem', color: '#0369a1', fontWeight: 700 }} title="Facture présente dans SEDIT">SEDIT · {sedit}</span>
+              </span>
+            )
+            : <span title="Facture introuvable dans SEDIT" style={{ borderBottom: '1px dotted #cbd5e1', cursor: 'help' }}>{nm}</span>}
         </React.Fragment>
       );
     })}</>;
@@ -2465,10 +2475,11 @@ const TelecomManagement: React.FC = () => {
               <div>
                 <h2>Coûts de facturation & parc mobile</h2>
                 <span style={{ fontSize: '0.85rem', color: '#64748b' }}>
-                  Import de l'export de facturation opérateur (ZIP SFR){billingStats?.period ? ` — période ${new Date(billingStats.period).toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' })}` : ''}
+                  Détail par ligne des factures SFR lues dans Sedit (engagements 6262), montants TTC{billingStats?.period ? ` — période ${new Date(billingStats.period).toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' })}` : ''}
                 </span>
               </div>
               <div className="action-group" style={{ display: 'flex', gap: 8 }}>
+                {ZIP_IMPORT_ENABLED && <>
                 <input type="file" id="import-telecom-billing" style={{ display: 'none' }} accept=".zip" onChange={handleImportBilling} />
                 <button className="add-btn" disabled={importingBilling}
                   onClick={() => document.getElementById('import-telecom-billing')?.click()}>
@@ -2479,6 +2490,7 @@ const TelecomManagement: React.FC = () => {
                   onClick={() => document.getElementById('import-telecom-invoices')?.click()}>
                   <FileText size={18} /> {importingInvoices ? 'Import en cours…' : 'Importer factures PDF (ZIP)'}
                 </button>
+                </>}
               </div>
             </div>
 
@@ -2595,7 +2607,7 @@ const TelecomManagement: React.FC = () => {
               );
             })()}
 
-            {/* Histogramme mensuel des dépenses, alimenté par les factures Sedit (HT, par opérateur) */}
+            {/* Histogramme mensuel des dépenses, alimenté par les factures Sedit (TTC, par opérateur) */}
             {(() => {
               const year = new Date().getFullYear();
               const monthKeys = Array.from({ length: 12 }, (_, i) => `${year}-${String(i + 1).padStart(2, '0')}`);
@@ -2605,8 +2617,7 @@ const TelecomManagement: React.FC = () => {
                 const row: Record<string, any> = { month: new Date(`${m}-01`).toLocaleDateString('fr-FR', { month: 'short' }) };
                 operatorsSet.forEach(op => { row[op] = 0; });
                 analysisRows.filter(r => r.effective_month === m).forEach(r => {
-                  const ht = r.amount_ht != null ? Number(r.amount_ht) : (Number(r.amount_ttc) || 0) / 1.2;
-                  row[r.operator_name] = Math.round(((row[r.operator_name] as number) + ht) * 100) / 100;
+                  row[r.operator_name] = Math.round(((row[r.operator_name] as number) + (Number(r.amount_ttc) || 0)) * 100) / 100;
                 });
                 return row;
               });
@@ -2614,13 +2625,13 @@ const TelecomManagement: React.FC = () => {
               return (
                 <div className="admin-card" style={{ padding: 18, marginBottom: 24 }}>
                   <h3 style={{ margin: '0 0 4px', fontSize: '1rem', color: '#1e293b' }}>Évolution des dépenses {year} (factures Sedit)</h3>
-                  <p style={{ margin: '0 0 12px', fontSize: '0.78rem', color: '#94a3b8' }}>Montants HT par mois de rattachement et par opérateur, issus des PDF analysés (TTC ÷ 1,2 si le HT n'a pas pu être lu).</p>
+                  <p style={{ margin: '0 0 12px', fontSize: '0.78rem', color: '#94a3b8' }}>Montants TTC par mois de rattachement et par opérateur, d'après les factures Sedit rapprochées à un engagement 6262.</p>
                   <ResponsiveContainer width="100%" height={260}>
                     <BarChart data={data}>
                       <CartesianGrid strokeDasharray="3 3" vertical={false} />
                       <XAxis dataKey="month" fontSize={12} />
                       <YAxis fontSize={12} />
-                      <Tooltip formatter={(v) => `${Number(v).toLocaleString('fr-FR')} € HT`} />
+                      <Tooltip formatter={(v) => `${Number(v).toLocaleString('fr-FR')} € TTC`} />
                       <Legend />
                       {operatorsSet.map((op, i) => <Bar key={op} dataKey={op} stackId="a" fill={palette[i % palette.length]} />)}
                     </BarChart>
@@ -2632,14 +2643,14 @@ const TelecomManagement: React.FC = () => {
             {!billingStats || billingStats.totalLines === 0 ? (
               <div className="empty-state">
                 <Phone size={48} />
-                <p>Aucune facturation importée. Déposez l'export ZIP de votre opérateur (SFR).</p>
+                <p>Aucune ligne de facturation analysée pour le moment : lancez « Analyser » ci-dessus (factures SFR de Sedit).</p>
               </div>
             ) : (
               <>
                 {/* KPI coûts */}
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 12, marginBottom: 24 }}>
                   {[
-                    { label: 'Total / mois', value: `${billingStats.totalHT.toLocaleString('fr-FR')} €`, color: '#0078a4' },
+                    { label: 'Total / mois (TTC)', value: `${billingStats.totalHT.toLocaleString('fr-FR')} €`, color: '#0078a4' },
                     { label: 'Estimation annuelle', value: `${billingStats.annualEstimate.toLocaleString('fr-FR')} €`, color: '#1e293b' },
                     { label: 'Coût mobile', value: `${billingStats.totalMobile.toLocaleString('fr-FR')} €`, color: '#3b82f6' },
                     { label: 'Coût fixe / data', value: `${billingStats.totalFixe.toLocaleString('fr-FR')} €`, color: '#059669' },
@@ -2656,41 +2667,17 @@ const TelecomManagement: React.FC = () => {
                 {/* Tendance 13 mois */}
                 {billingTrend.length > 0 && (
                   <div className="admin-card" style={{ padding: 18, marginBottom: 24 }}>
-                    <h3 style={{ margin: '0 0 4px', fontSize: '1rem', color: '#1e293b' }}>Évolution des dépenses (mensuel) — export SFR importé</h3>
-                    <p style={{ margin: '0 0 12px', fontSize: '0.78rem', color: '#94a3b8' }}>Dépenses récurrentes — hors achats ponctuels d'équipement/terminaux</p>
-                    {(() => {
-                      // Mois postérieurs au dernier export ZIP : complétés avec les factures SFR analysées depuis Sedit.
-                      const lastZip = billingTrend.reduce((mx: string, t: any) => (t.month > mx ? t.month : mx), '');
-                      const sedit: Record<string, number> = {};
-                      analysisRows.filter(r => /^SFR/i.test(r.operator_name) && r.effective_month && r.effective_month > lastZip).forEach(r => {
-                        const ht = r.amount_ht != null ? Number(r.amount_ht) : (Number(r.amount_ttc) || 0) / 1.2;
-                        sedit[r.effective_month as string] = Math.round(((sedit[r.effective_month as string] || 0) + ht) * 100) / 100;
-                      });
-                      const merged: any[] = [
-                        ...billingTrend.map((t: any) => ({ ...t, source: 'zip' })),
-                        ...Object.keys(sedit).sort().map(m => ({ month: m, total: sedit[m], source: 'sedit' })),
-                      ];
-                      return (
-                        <>
-                          <ResponsiveContainer width="100%" height={220}>
-                            <BarChart data={merged}>
-                              <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                              <XAxis dataKey="month" fontSize={12} />
-                              <YAxis fontSize={12} />
-                              <Tooltip formatter={(v, _n, item: any) => [`${Number(v).toLocaleString('fr-FR')} € HT`, item?.payload?.source === 'sedit' ? 'Factures SFR (Sedit)' : 'Export SFR']} />
-                              <Bar dataKey="total" radius={[4, 4, 0, 0]}>
-                                {merged.map((d, i) => <Cell key={i} fill={d.source === 'sedit' ? '#38bdf8' : '#0078a4'} />)}
-                              </Bar>
-                            </BarChart>
-                          </ResponsiveContainer>
-                          {Object.keys(sedit).length > 0 && (
-                            <p style={{ margin: '6px 0 0', fontSize: '0.75rem', color: '#64748b' }}>
-                              Barres bleu clair : mois postérieurs au dernier export, complétés avec les factures SFR analysées depuis Sedit.
-                            </p>
-                          )}
-                        </>
-                      );
-                    })()}
+                    <h3 style={{ margin: '0 0 4px', fontSize: '1rem', color: '#1e293b' }}>Évolution des dépenses SFR (mensuel, TTC) — lignes des factures Sedit</h3>
+                    <p style={{ margin: '0 0 12px', fontSize: '0.78rem', color: '#94a3b8' }}>Détail par ligne des factures SFR lues dans Sedit (engagements 6262), montants TTC</p>
+                    <ResponsiveContainer width="100%" height={220}>
+                      <BarChart data={billingTrend}>
+                        <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                        <XAxis dataKey="month" fontSize={12} />
+                        <YAxis fontSize={12} />
+                        <Tooltip formatter={(v) => `${Number(v).toLocaleString('fr-FR')} € TTC`} />
+                        <Bar dataKey="total" fill="#0078a4" radius={[4, 4, 0, 0]} />
+                      </BarChart>
+                    </ResponsiveContainer>
                   </div>
                 )}
 
@@ -2768,7 +2755,7 @@ const TelecomManagement: React.FC = () => {
                 <div className="admin-card">
                   <table className="commitments-table">
                     <thead>
-                      <tr><th>Type</th><th>Numéro</th><th>N° Facture</th><th>Utilisateur</th><th>Site / Service</th><th>Forfait</th><th style={{ textAlign: 'right' }}>€/mois HT</th></tr>
+                      <tr><th>Type</th><th>Numéro</th><th>N° Facture</th><th>Utilisateur</th><th>Site / Service</th><th>Forfait</th><th style={{ textAlign: 'right' }}>€/mois TTC</th></tr>
                     </thead>
                     <tbody>
                       {(() => {
@@ -3052,7 +3039,7 @@ const TelecomManagement: React.FC = () => {
                   </ResponsiveContainer>
                   <table className="commitments-table" style={{ marginTop: 16 }}>
                     <thead>
-                      <tr><th>Mois</th><th>N° Facture</th><th>Forfait</th><th style={{ textAlign: 'right' }}>Abonnement</th><th style={{ textAlign: 'right' }}>Conso</th><th style={{ textAlign: 'right' }}>Remises</th><th style={{ textAlign: 'right' }}>Total HT</th></tr>
+                      <tr><th>Mois</th><th>N° Facture</th><th>Forfait</th><th style={{ textAlign: 'right' }}>Abonnement</th><th style={{ textAlign: 'right' }}>Conso</th><th style={{ textAlign: 'right' }}>Remises</th><th style={{ textAlign: 'right' }}>Total TTC</th></tr>
                     </thead>
                     <tbody>
                       {lineHistory.history.slice().reverse().map((h: any, i: number) => (
