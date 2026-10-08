@@ -28,7 +28,7 @@ import {
   MessageSquare,
   CheckCircle
 } from 'lucide-react';import { useNavigate } from 'react-router-dom';
-import { BarChart, Bar, Cell, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
+import { BarChart, Bar, Cell, XAxis, YAxis, Tooltip, Legend, ResponsiveContainer, CartesianGrid } from 'recharts';
 import Header from '../components/Header';
 import { useAuth } from '../contexts/AuthContext';
 import FactureDocumentsViewer from '../components/finance/FactureDocumentsViewer';
@@ -2595,6 +2595,40 @@ const TelecomManagement: React.FC = () => {
               );
             })()}
 
+            {/* Histogramme mensuel des dépenses, alimenté par les factures Sedit (HT, par opérateur) */}
+            {(() => {
+              const year = new Date().getFullYear();
+              const monthKeys = Array.from({ length: 12 }, (_, i) => `${year}-${String(i + 1).padStart(2, '0')}`);
+              const operatorsSet = Array.from(new Set(analysisRows.map(r => r.operator_name))).sort();
+              if (analysisRows.length === 0) return null;
+              const data = monthKeys.map(m => {
+                const row: Record<string, any> = { month: new Date(`${m}-01`).toLocaleDateString('fr-FR', { month: 'short' }) };
+                operatorsSet.forEach(op => { row[op] = 0; });
+                analysisRows.filter(r => r.effective_month === m).forEach(r => {
+                  const ht = r.amount_ht != null ? Number(r.amount_ht) : (Number(r.amount_ttc) || 0) / 1.2;
+                  row[r.operator_name] = Math.round(((row[r.operator_name] as number) + ht) * 100) / 100;
+                });
+                return row;
+              });
+              const palette = ['#0078a4', '#16a34a', '#f59e0b', '#7c3aed', '#ef4444', '#0ea5e9', '#64748b', '#db2777'];
+              return (
+                <div className="admin-card" style={{ padding: 18, marginBottom: 24 }}>
+                  <h3 style={{ margin: '0 0 4px', fontSize: '1rem', color: '#1e293b' }}>Évolution des dépenses {year} (factures Sedit)</h3>
+                  <p style={{ margin: '0 0 12px', fontSize: '0.78rem', color: '#94a3b8' }}>Montants HT par mois de rattachement et par opérateur, issus des PDF analysés (TTC ÷ 1,2 si le HT n'a pas pu être lu).</p>
+                  <ResponsiveContainer width="100%" height={260}>
+                    <BarChart data={data}>
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                      <XAxis dataKey="month" fontSize={12} />
+                      <YAxis fontSize={12} />
+                      <Tooltip formatter={(v) => `${Number(v).toLocaleString('fr-FR')} € HT`} />
+                      <Legend />
+                      {operatorsSet.map((op, i) => <Bar key={op} dataKey={op} stackId="a" fill={palette[i % palette.length]} />)}
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              );
+            })()}
+
             {!billingStats || billingStats.totalLines === 0 ? (
               <div className="empty-state">
                 <Phone size={48} />
@@ -2622,7 +2656,7 @@ const TelecomManagement: React.FC = () => {
                 {/* Tendance 13 mois */}
                 {billingTrend.length > 0 && (
                   <div className="admin-card" style={{ padding: 18, marginBottom: 24 }}>
-                    <h3 style={{ margin: '0 0 4px', fontSize: '1rem', color: '#1e293b' }}>Évolution des dépenses (mensuel)</h3>
+                    <h3 style={{ margin: '0 0 4px', fontSize: '1rem', color: '#1e293b' }}>Évolution des dépenses (mensuel) — export SFR importé</h3>
                     <p style={{ margin: '0 0 12px', fontSize: '0.78rem', color: '#94a3b8' }}>Dépenses récurrentes — hors achats ponctuels d'équipement/terminaux</p>
                     <ResponsiveContainer width="100%" height={220}>
                       <BarChart data={billingTrend}>
