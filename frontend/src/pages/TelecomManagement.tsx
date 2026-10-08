@@ -25,11 +25,13 @@ import {
   TrendingUp,
   TrendingDown,
   ArrowRight,
-  MessageSquare
+  MessageSquare,
+  CheckCircle
 } from 'lucide-react';import { useNavigate } from 'react-router-dom';
 import { BarChart, Bar, Cell, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
 import Header from '../components/Header';
 import FactureDocumentsViewer from '../components/finance/FactureDocumentsViewer';
+import ServiceFaitModal from '../components/ServiceFaitModal';
 
 interface Tier {
   id: number;
@@ -115,6 +117,7 @@ interface AvailableBudgetInvoice {
   etat: string | null;
   engagement?: string | null;
   suggested_account_id?: number | null;
+  sedit_numero?: string | null;
 }
 
 interface RejectedInvoice {
@@ -368,6 +371,12 @@ const TelecomManagement: React.FC = () => {
   const [billingAccounts, setBillingAccounts] = useState<Record<number, BillingAccount[]>>({});
   const [commitments, setCommitments] = useState<Commitment[]>([]);
   const [telecomInvoices, setTelecomInvoices] = useState<TelecomInvoice[]>([]);
+  // État des factures lu EN DIRECT dans Sedit (service fait, rapprochement, mandatement, rejet),
+  // clé = n° interne Sedit de la facture (sedit_numero).
+  const [seditStatuses, setSeditStatuses] = useState<Record<string, any>>({});
+  const [seditStatusesLoaded, setSeditStatusesLoaded] = useState<Record<string, boolean>>({});
+  // Facture télécom pour laquelle on déclare le service fait (modale ServiceFaitModal)
+  const [sfInvoice, setSfInvoice] = useState<TelecomInvoice | null>(null);
   const [allTiers, setAllTiers] = useState<Tier[]>([]);
   const [showAddOperator, setShowAddOperator] = useState(false);
   const [selectedTier, setSelectedTier] = useState<Tier | null>(null);
@@ -940,6 +949,65 @@ const TelecomManagement: React.FC = () => {
       .catch(() => { if (!cancelled) setLiveEngagements({}); });
     return () => { cancelled = true; };
   }, [showAddInvoiceModal, addInvoiceOperatorId, billingAccounts, token]);
+
+  const loadSeditStatuses = async (refs: string[]) => {
+    const uniq = Array.from(new Set(refs.map(r => (r || '').trim()).filter(Boolean)));
+    if (uniq.length === 0) return;
+    try {
+      const res = await fetch('/api/finance/service-fait/statuses', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ invoice_refs: uniq }),
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      setSeditStatuses(prev => ({ ...prev, ...data }));
+      setSeditStatusesLoaded(prev => { const n = { ...prev }; uniq.forEach(r => { n[r] = true; }); return n; });
+    } catch (e) {
+      console.error('Statuts Sedit indisponibles', e);
+    }
+  };
+
+  useEffect(() => {
+    loadSeditStatuses(telecomInvoices.map(i => i.sedit_numero || ''));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [telecomInvoices]);
+
+  useEffect(() => {
+    loadSeditStatuses(availableInvoices.map(c => c.sedit_numero || ''));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [availableInvoices]);
+
+  // Pastille d'état + bouton « Faire le SF » (si le service fait n'est pas encore fait dans Sedit).
+  const renderSeditState = (ref: string | null | undefined, inv?: TelecomInvoice) => {
+    const key = (ref || '').trim();
+    if (!key) return <span className="status-tag pending" title="Facture introuvable dans Sedit">Non trouvée</span>;
+    if (!seditStatusesLoaded[key]) return <span style={{ color: '#94a3b8', fontSize: 12 }}>…</span>;
+    const st = seditStatuses[key] || {};
+    const fmt = (d?: string | null) => (d ? new Date(d).toLocaleDateString('fr-FR') : '');
+    let label = 'Reçue'; let color = '#475569'; let bg = '#f1f5f9'; let title = 'Facture reçue dans Sedit';
+    if (st.sedit_rejete) { label = 'Refusée'; color = '#b91c1c'; bg = '#fee2e2'; title = `Rejetée dans Sedit${st.sedit_rejete_date ? ' le ' + fmt(st.sedit_rejete_date) : ''}`; }
+    else if (st.sedit_mandate) { label = 'Mandatée'; color = '#0f766e'; bg = '#ccfbf1'; title = 'Mandatée dans Sedit'; }
+    else if (st.sedit_service_fait) { label = 'Service fait'; color = '#047857'; bg = '#ecfdf5'; title = `Service fait validé dans Sedit${st.sedit_service_fait_date ? ' le ' + fmt(st.sedit_service_fait_date) : ''}`; }
+    else if (st.sedit_rapproche) { label = 'Rapprochée'; color = '#1d4ed8'; bg = '#eff6ff'; title = 'Rapprochée (engagement / bon de commande) dans Sedit — service fait non fait'; }
+    const ongoing = ['en_attente', 'en_cours', 'transfere', 'en_pause'].includes(st.status);
+    const sfDone = !!st.sedit_service_fait || !!st.sedit_mandate;
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 4, alignItems: 'flex-start' }}>
+        <span title={title} style={{ background: bg, color, borderRadius: 999, padding: '2px 8px', fontSize: 11, fontWeight: 700, whiteSpace: 'nowrap' }}>
+          {label}{st.sedit_service_fait && st.sedit_service_fait_date ? ` ${fmt(st.sedit_service_fait_date)}` : ''}
+        </span>
+        {inv && !sfDone && !st.sedit_rejete && (ongoing ? (
+          <span title="Une validation de service fait est en cours (module Finance)" style={{ fontSize: 11, color: '#b45309' }}>SF en cours</span>
+        ) : (
+          <button type="button" title="Déclarer le service fait (écrit dans Sedit)" onClick={() => setSfInvoice(inv)}
+            style={{ background: '#16a34a', color: '#fff', border: 'none', borderRadius: 4, padding: '2px 8px', fontSize: 11, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 3, whiteSpace: 'nowrap' }}>
+            <CheckCircle size={12} /> Faire le SF
+          </button>
+        ))}
+      </div>
+    );
+  };
 
   const loadAvailableInvoices = async (operatorId: number) => {
     setAvailableInvoices([]);
@@ -1599,15 +1667,7 @@ const TelecomManagement: React.FC = () => {
                             ) : (inv.description || <span style={{ color: '#cbd5e1' }}>—</span>)}
                           </td>
                           <td style={{ fontWeight: 700 }}>{inv.amount_ttc != null ? inv.amount_ttc.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' }) : <span style={{ color: '#94a3b8' }}>—</span>}</td>
-                          <td>
-                            {inv.general_status ? (
-                              <span className="status-tag imported" title={`Statut budget : ${inv.general_status}`}>
-                                {inv.general_status}
-                              </span>
-                            ) : (
-                              <span className="status-tag pending">Statut inconnu</span>
-                            )}
-                          </td>
+                          <td>{renderSeditState(inv.sedit_numero, inv)}</td>
                           <td>
                             <div className="action-btns">
                               {isEditing ? (
@@ -2774,7 +2834,7 @@ const TelecomManagement: React.FC = () => {
                           <td style={{ fontFamily: 'monospace', fontSize: '0.8rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={c.engagement ? `Engagement Sedit : ${c.engagement}` : ''}>
                             {c.engagement ? c.engagement.split(',').join(', ') : '—'}
                           </td>
-                          <td style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={c.etat || ''}>{c.etat || '—'}</td>
+                          <td style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={c.etat || ''}>{renderSeditState(c.sedit_numero)}</td>
                           <td>
                             <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
                               {c.sedit_ref && (
@@ -2807,6 +2867,30 @@ const TelecomManagement: React.FC = () => {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Service fait d'une facture télécom (déclaration directe, écrit dans Sedit) */}
+      {sfInvoice && (
+        <ServiceFaitModal
+          mode="self"
+          fromTelecom
+          row={{
+            Numero: sfInvoice.sedit_numero || '',
+            Reference: sfInvoice.invoice_number,
+            Fournisseur: sfInvoice.operator_name || '',
+            Montant: sfInvoice.amount_ttc,
+            Libelle: sfInvoice.description || '',
+          }}
+          columns={[
+            { name: 'Numero', display_type: 'text', expression: 'FACTURE_FACTURE' },
+            { name: 'Reference', display_type: 'text', expression: 'FACTURE_REFERENCE' },
+            { name: 'Fournisseur', display_type: 'text', expression: 'FACTURE_FACTIERS' },
+            { name: 'Montant', display_type: 'currency', expression: 'FACTURE_MONTANTTC_E' },
+            { name: 'Libelle', display_type: 'text', expression: 'FACTURE_LIBELLE' },
+          ]}
+          onClose={() => setSfInvoice(null)}
+          onCreated={() => { const ref = (sfInvoice.sedit_numero || '').trim(); setSfInvoice(null); if (ref) loadSeditStatuses([ref]); }}
+        />
       )}
 
       {/* Rejet / écartement d'une facture du budget */}

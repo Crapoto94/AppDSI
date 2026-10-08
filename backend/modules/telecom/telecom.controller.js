@@ -114,6 +114,7 @@ async function findBudgetInvoicesForOperator(operatorId, tierCode) {
                        f."FACTURE_DATENTREE"::date
                    ) as invoice_date,
                    NULLIF(TRIM(f."FACTURE_ROO_IMA_REF"), '') as sedit_ref,
+                   NULLIF(TRIM(f."FACTURE_FACTURE"), '') as sedit_numero,
                    f."FACETAT_LIBELLE" as etat,
                    f."ENGAGEMENT" as engagement
             FROM hub_telecom.sedit_factures_live f

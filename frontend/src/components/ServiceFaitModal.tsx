@@ -13,6 +13,8 @@ interface ServiceFaitModalProps {
   row: any;
   columns: MappingColumn[];
   mode?: 'circuit' | 'self';
+  // Déclenché depuis le module Telecom : lève le blocage « facture intégrée au module Telecom ».
+  fromTelecom?: boolean;
   onClose: () => void;
   onCreated: () => void;
 }
@@ -53,7 +55,7 @@ function pick(row: any, columns: MappingColumn[], field: string): any {
   return undefined;
 }
 
-export default function ServiceFaitModal({ row, columns, mode = 'circuit', onClose, onCreated }: ServiceFaitModalProps) {
+export default function ServiceFaitModal({ row, columns, mode = 'circuit', fromTelecom = false, onClose, onCreated }: ServiceFaitModalProps) {
   const { token } = useAuth();
   const headers = { Authorization: `Bearer ${token}` };
   const isSelf = mode === 'self';
@@ -137,6 +139,7 @@ export default function ServiceFaitModal({ row, columns, mode = 'circuit', onClo
         invoice_amount: invoice_amount != null ? String(invoice_amount) : '',
         invoice_section: invoice_section || '',
         service_fait_date: serviceFaitDate || '',
+        ...(fromTelecom ? { from_telecom: '1' } : {}),
       };
       if (isSelf) {
         const fd = new FormData();
