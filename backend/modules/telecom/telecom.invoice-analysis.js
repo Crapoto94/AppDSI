@@ -207,7 +207,7 @@ async function analyseInvoice(inv) {
  * Détail par ligne d'une facture SFR lu dans ses PDF Sedit et écrit dans hub_telecom.line_billing
  * (remplace l'import du ZIP d'export). Le PDF de détail est celui qui contient les blocs « Référence : »
  * (annexe « détail par compte client ») : on lit les PDF facture du plus gros au plus petit et on garde
- * celui qui livre le plus de lignes. Période = mois précédant la date de facture (mois de consommation).
+ * celui qui livre le plus de lignes. Période = mois de la date de facture.
  * Les lignes déjà présentes pour la même facture (import ZIP) sont remplacées.
  */
 async function importSfrLines(inv, docs, config) {
@@ -227,7 +227,8 @@ async function importSfrLines(inv, docs, config) {
     const invDate = parsed.invoice_date;
     if (!invDate) return { count: 0, totalHt: 0 };
     const dt = new Date(`${invDate}T00:00:00Z`);
-    const period = new Date(Date.UTC(dt.getUTCFullYear(), dt.getUTCMonth() - 1, 1)).toISOString().slice(0, 10);
+    // Période = mois de la facture (même rattachement que la synthèse mensuelle) : une facture du 01/10 compte en octobre.
+    const period = new Date(Date.UTC(dt.getUTCFullYear(), dt.getUTCMonth(), 1)).toISOString().slice(0, 10);
     const n2 = (v) => Math.round((Number(v) || 0) * 100) / 100;
 
     const client = await pool.connect();
