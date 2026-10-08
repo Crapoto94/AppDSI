@@ -216,6 +216,15 @@ function PaneDivider({ onMouseDown }: { onMouseDown: (e: React.MouseEvent) => vo
   );
 }
 
+// Avancement d'un statut de tâche. Une tâche d'équipe vit en N lignes
+// (une par membre) : on affiche le statut le plus avancé du groupe. Le rang
+// rend le fusionnement indépendant de l'ordre des lignes (ordre DB aléatoire).
+function taskStatutRank(statut?: string) {
+  if (statut === 'terminé') return 2;
+  if (statut === 'en_cours') return 1;
+  return 0;
+}
+
 export default function TicketDetail() {
   const { id } = useParams();
   const { user, token } = useAuth();
@@ -303,7 +312,7 @@ export default function TicketDetail() {
           const prev = seen.get(key);
           if (!prev.team_group_name && task.team_group_name) prev.team_group_name = task.team_group_name;
           if (task.taken_by && !prev.taken_by) prev.taken_by = task.taken_by;
-          if (task.statut === 'en_cours' && prev.statut !== 'terminé') prev.statut = 'en_cours';
+          if (taskStatutRank(task.statut) > taskStatutRank(prev.statut)) prev.statut = task.statut;
           continue;
         }
         const entry = { ...task, _isTeam: !!task.is_team_task };
@@ -788,10 +797,12 @@ export default function TicketDetail() {
       await axios.patch(`/api/tasks/personal/${taskId}`, { statut: next }, {
         headers: { Authorization: `Bearer ${token}` }
       });
+      // Le serveur propage le statut à toutes les lignes du groupe d'équipe :
+      // on fait pareil ici pour que le rendu ne dépende pas d'un rechargement.
       setTicketTasks(prev => prev.map(t => {
-        if (t.id === taskId) return { ...t, statut: next };
-        if (teamGroupId && next === 'terminé' && t.team_group_id === teamGroupId) return { ...t, statut: next };
-        return t;
+        const inGroup = !!teamGroupId && t.team_group_id === teamGroupId;
+        if (t.id !== taskId && !inGroup) return t;
+        return { ...t, statut: next, taken_by: next === 'a_faire' ? null : t.taken_by };
       }));
     } catch (e: any) {
       alert(e.response?.data?.message || 'Erreur lors de la mise à jour de la tâche');
@@ -855,8 +866,7 @@ export default function TicketDetail() {
         if (seen.has(task.team_group_id)) {
           const existing = seen.get(task.team_group_id);
           if (task.username) existing._members.push(task.username);
-          if (task.statut === 'en_cours' && existing.statut !== 'terminé') existing.statut = 'en_cours';
-          else if (task.statut === 'a_faire') existing.statut = 'a_faire';
+          if (taskStatutRank(task.statut) > taskStatutRank(existing.statut)) existing.statut = task.statut;
           if (task.taken_by && !existing.taken_by) existing.taken_by = task.taken_by;
         } else {
           const entry = { ...task, _isTeam: true, _members: task.username ? [task.username] : [] };
@@ -1952,8 +1962,8 @@ export default function TicketDetail() {
                     const isArbitrage = !!task.is_arbitrage;
                     const arbitrated = !!task.arbitrage_decision;
                     const isArbitratingThis = arbitratingTaskId === task.id || (task.team_group_id && arbitratingTaskId && displayTasks.find((t: any) => t.id === arbitratingTaskId)?.team_group_id === task.team_group_id);
-                    return (<>
-                      <div key={task.team_group_id || task.id} style={{
+                    return (<React.Fragment key={task.team_group_id || task.id}>
+                      <div style={{
                         display: 'flex', alignItems: 'center', gap: 10,
                         padding: '8px 12px', borderRadius: 7,
                         background: arbitrated ? (task.arbitrage_decision === 'positif' ? '#f0fdf4' : '#fef2f2') : done ? '#f0fdf4' : '#fff',
@@ -2159,7 +2169,7 @@ export default function TicketDetail() {
                           </div>
                         </div>
                       )}
-                    </>);
+                    </React.Fragment>);
                   })}
                 </div>
               ) : (
