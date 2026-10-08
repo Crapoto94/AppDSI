@@ -104,7 +104,42 @@ async function doRefresh() {
     }
     lastRefresh = Date.now();
     console.log(`[Telecom] ${rows.length} factures lues en direct dans Sedit`);
+    await autoImportEngagementInvoices().catch((e) => console.error('[Telecom] Import auto des factures rapprochées impossible :', e.message));
     await autoLinkAccounts().catch((e) => console.error('[Telecom] Rattachement auto des comptes impossible :', e.message));
+}
+
+/**
+ * Intègre automatiquement à l'historique télécom toutes les factures que Sedit a rapprochées d'un
+ * engagement télécom (= n° d'engagement d'un compte de facturation), de l'année en cours (+ déc. N-1)
+ * et non rejetées. Opérateur déduit du compte ; compte renseigné seulement s'il est unique (sinon
+ * l'utilisateur le choisit ensuite). Une facture dont l'engagement correspond à des comptes de
+ * plusieurs opérateurs n'est pas importée.
+ */
+async function autoImportEngagementInvoices() {
+    const r = await pool.query(`
+        INSERT INTO hub_telecom.invoices (invoice_number, operator_id, billing_account_id)
+        SELECT c.num, MIN(a.operator_id),
+               CASE WHEN COUNT(DISTINCT a.id) = 1 THEN MIN(a.id) END
+        FROM (
+            SELECT COALESCE(substring(f."FACTURE_LIBELLE1" from 'N°([^ ]+)'),
+                            substring(f."FACTURE_LIBELLE1" from '([A-Z]\\d{4}VTF\\d{4,5})'),
+                            NULLIF(TRIM(f."FACTURE_FACTIERS"), '')) AS num,
+                   f."ENGAGEMENT" AS eng,
+                   COALESCE(to_date(substring(f."FACTURE_LIBELLE1" from '(\\d{2}/\\d{2}/\\d{4})'), 'DD/MM/YYYY'),
+                            f."FACTURE_DATENTREE"::date) AS dt
+            FROM hub_telecom.sedit_factures_live f
+            WHERE f."ENGAGEMENT" IS NOT NULL
+        ) c
+        JOIN hub_telecom.billing_accounts a ON TRIM(a.commitment_number) = ANY(string_to_array(c.eng, ','))
+        WHERE c.num IS NOT NULL AND c.dt IS NOT NULL
+          AND (EXTRACT(YEAR FROM c.dt) = EXTRACT(YEAR FROM CURRENT_DATE)
+               OR (EXTRACT(YEAR FROM c.dt) = EXTRACT(YEAR FROM CURRENT_DATE) - 1 AND EXTRACT(MONTH FROM c.dt) = 12))
+          AND NOT EXISTS (SELECT 1 FROM hub_telecom.invoices i WHERE LOWER(TRIM(i.invoice_number)) = LOWER(TRIM(c.num)))
+          AND NOT EXISTS (SELECT 1 FROM hub_telecom.rejected_invoices rj WHERE LOWER(TRIM(rj.invoice_number)) = LOWER(TRIM(c.num)))
+        GROUP BY c.num
+        HAVING COUNT(DISTINCT a.operator_id) = 1
+    `);
+    if (r.rowCount > 0) console.log(`[Telecom] ${r.rowCount} facture(s) rapprochée(s) à un engagement télécom intégrée(s) automatiquement`);
 }
 
 /**
