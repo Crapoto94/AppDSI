@@ -7,6 +7,7 @@ const { parseSfrZip } = require('./telecom.sfr-parser');
 const { pgDb, pool } = require('../../shared/database');
 const storage = require('../../shared/storage');
 const dgpService = require('../finance/dgp.service');
+const financeShare = require('../finance/finance-share.controller');
 const seditLive = require('./telecom.sedit-live');
 
 const MODULE = 'telecom';
@@ -195,6 +196,38 @@ async function computeMonthlySummary(year) {
     // lue dans le cache finance.facture_dgp (clé = FACTURE_ROO_IMA_REF = ri.sedit_ref).
     const mandateMap = await dgpService.getMandateInfoByRoos(invoiceRows.map(i => i.sedit_ref)).catch(() => ({}));
 
+    // Factures refusées dans Sedit (état lu en direct) + factures rejetées localement (onglet
+    // « Rejeter ») : comptées en pastille rouge à côté du montant du mois.
+    const refusedNumeros = new Set();
+    try {
+        const numeros = Array.from(new Set(invoiceRows.map(i => (i.sedit_numero || '').trim()).filter(Boolean)));
+        for (let i = 0; i < numeros.length; i += 500) {
+            const st = await financeShare.getFacsuiviStatus(numeros.slice(i, i + 500));
+            for (const [num, info] of Object.entries(st)) if (info && info.rejete && info.rejete.done) refusedNumeros.add(num);
+        }
+    } catch (e) {
+        console.error('[Telecom] Statuts Sedit (refus) indisponibles pour la synthèse :', e.message);
+    }
+    const rejectedLocal = await pool.query(`
+        SELECT r.billing_account_id, to_char(COALESCE(bf.dt, r.rejected_at::date), 'YYYY-MM') AS month, COUNT(*)::int AS n
+        FROM hub_telecom.rejected_invoices r
+        LEFT JOIN LATERAL (
+            SELECT COALESCE(to_date(substring(f."FACTURE_LIBELLE1" from '(\\d{2}/\\d{2}/\\d{4})'), 'DD/MM/YYYY'), f."FACTURE_DATENTREE"::date) AS dt
+            FROM hub_telecom.sedit_factures_live f
+            WHERE LOWER(TRIM(f."FACTURE_REFERENCE")) = LOWER(TRIM(r.invoice_number))
+               OR f."FACTURE_LIBELLE1" ILIKE '%' || TRIM(r.invoice_number) || '%'
+               OR LOWER(TRIM(f."FACTURE_FACTIERS")) = LOWER(TRIM(r.invoice_number))
+            LIMIT 1
+        ) bf ON TRUE
+        WHERE r.category = 'rejetee' AND r.billing_account_id IS NOT NULL
+        GROUP BY 1, 2
+    `).then(r => r.rows).catch(() => []);
+    const rejectedLocalMap = {};
+    for (const r of rejectedLocal) {
+        if (!rejectedLocalMap[r.billing_account_id]) rejectedLocalMap[r.billing_account_id] = {};
+        rejectedLocalMap[r.billing_account_id][r.month] = r.n;
+    }
+
     const months = Array.from({ length: 12 }, (_, i) => `${year}-${String(i + 1).padStart(2, '0')}`);
     const now = new Date();
     const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
@@ -227,8 +260,12 @@ async function computeMonthlySummary(year) {
         months.forEach(m => {
             const invs = (byAccountMonth[a.id] && byAccountMonth[a.id][m]) || [];
             const total = invs.reduce((s, i) => s + (Number(i.amount_ttc) || 0), 0);
+            const refusedInSedit = invs.filter(i => i.sedit_numero && refusedNumeros.has(String(i.sedit_numero).trim())).length;
             monthly[m] = {
                 total: invs.length ? total : null,
+                // Pastilles : factures OK (non refusées) et refusées / rejetées du mois
+                ok_count: invs.length - refusedInSedit,
+                refused_count: refusedInSedit + ((rejectedLocalMap[a.id] && rejectedLocalMap[a.id][m]) || 0),
                 invoices: invs.map(i => ({
                     id: i.id, invoice_number: i.invoice_number,
                     amount_ttc: Number(i.amount_ttc) || 0,

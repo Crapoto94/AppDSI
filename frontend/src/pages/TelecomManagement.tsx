@@ -235,6 +235,10 @@ interface BillingLine {
   resiliation: string;
 }
 
+// L'ajout manuel de factures est désactivé pour le moment (les factures rapprochées à un engagement
+// géré en fluide sont intégrées automatiquement). Passer à true pour le réactiver.
+const ADD_INVOICE_ENABLED = false;
+
 interface MonthCellInvoice {
   id: number;
   invoice_number: string;
@@ -250,6 +254,8 @@ interface MonthCellInvoice {
 
 interface MonthCell {
   total: number | null;
+  ok_count?: number;
+  refused_count?: number;
   invoices: MonthCellInvoice[];
   comment: string | null;
   isPast: boolean;
@@ -1013,6 +1019,20 @@ const TelecomManagement: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [availableInvoices]);
 
+  // Pastilles façon notification iPhone : factures OK (vert) et refusées / rejetées (rouge).
+  const renderCountBadges = (okCount?: number, refusedCount?: number) => {
+    const ok = okCount || 0; const ko = refusedCount || 0;
+    if (!ok && !ko) return null;
+    const base: React.CSSProperties = { minWidth: 16, height: 16, padding: '0 4px', borderRadius: 999, color: '#fff', fontSize: 10, fontWeight: 700,
+      lineHeight: '16px', textAlign: 'center', boxShadow: '0 0 0 1.5px #fff', pointerEvents: 'none' };
+    return (
+      <span style={{ position: 'absolute', top: -7, right: -6, display: 'inline-flex', gap: 2 }}>
+        {ok > 0 && <span title={`${ok} facture${ok > 1 ? 's' : ''} OK`} style={{ ...base, background: '#16a34a' }}>{ok}</span>}
+        {ko > 0 && <span title={`${ko} facture${ko > 1 ? 's' : ''} refusée${ko > 1 ? 's' : ''} / rejetée${ko > 1 ? 's' : ''}`} style={{ ...base, background: '#dc2626' }}>{ko}</span>}
+      </span>
+    );
+  };
+
   // Pastille d'état + bouton « Faire le SF » (si le service fait n'est pas encore fait dans Sedit).
   const renderSeditState = (ref: string | null | undefined, inv?: TelecomInvoice) => {
     const key = (ref || '').trim();
@@ -1569,9 +1589,11 @@ const TelecomManagement: React.FC = () => {
                                         </td>
                                         <td>
                                           <div className="action-btns" style={{ justifyContent: 'center' }}>
-                                            <button className="edit-icon-btn" title="Ajouter une facture depuis le budget" onClick={() => openAddInvoice(acc)}>
-                                              <Plus size={16} />
-                                            </button>
+                                            {ADD_INVOICE_ENABLED && (
+                                              <button className="edit-icon-btn" title="Ajouter une facture depuis le budget" onClick={() => openAddInvoice(acc)}>
+                                                <Plus size={16} />
+                                              </button>
+                                            )}
                                             <button className="edit-icon-btn" onClick={() => startEditAccount(acc)}>
                                               <Edit2 size={16} />
                                             </button>
@@ -1611,9 +1633,11 @@ const TelecomManagement: React.FC = () => {
             <div className="section-header">
               <h2>Historique des factures</h2>
               <div className="action-group">
-                <button className="add-btn" onClick={openAddInvoicePicker}>
-                  <Plus size={18} /> Ajouter une facture
-                </button>
+                {ADD_INVOICE_ENABLED && (
+                  <button className="add-btn" onClick={openAddInvoicePicker}>
+                    <Plus size={18} /> Ajouter une facture
+                  </button>
+                )}
                 <input
                   type="file"
                   id="import-telecom-suivi"
@@ -1808,7 +1832,7 @@ const TelecomManagement: React.FC = () => {
             ) : !monthlySummary || monthlySummary.rows.length === 0 ? (
               <div style={{ textAlign: 'center', padding: '40px', color: '#64748b' }}>Aucune donnée</div>
             ) : (
-              <div className="accounts-table-wrapper admin-card" style={{ overflowX: 'auto' }}>
+              <div className="accounts-table-wrapper admin-card" style={{ overflow: 'auto', maxHeight: 'calc(100vh - 230px)' }}>
                 <table className="commitments-table summary-table" style={{ minWidth: `${640 + monthlySummary.months.length * 110}px` }}>
                   <thead>
                     <tr>
@@ -1877,6 +1901,8 @@ const TelecomManagement: React.FC = () => {
                               const isMissing = cell.isPast && cell.total == null && !cell.comment;
                               return (
                                 <td key={m} className="summary-cell" style={{ textAlign: 'right', background: isMissing ? '#fef2f2' : undefined }}>
+                                  <span style={{ position: 'relative', display: 'inline-block' }}>
+                                  {renderCountBadges(cell.ok_count, cell.refused_count)}
                                   {cell.total != null ? (() => {
                                     // Contour vert si toutes les factures du mois sont mandatées,
                                     // gris sinon ; infobulle = date de mandatement (par facture).
@@ -1909,6 +1935,7 @@ const TelecomManagement: React.FC = () => {
                                   ) : (
                                     <span style={{ color: '#cbd5e1' }}>—</span>
                                   )}
+                                  </span>
                                 </td>
                               );
                             })}
@@ -3383,6 +3410,9 @@ const TelecomManagement: React.FC = () => {
           overflow: hidden;
         }
         .summary-table th:nth-child(1), .summary-table th:nth-child(2) { z-index: 4; }
+        /* En-têtes figés en haut : le tableau défile dans sa propre boîte, la barre de défilement horizontale reste visible en bas */
+        .summary-table thead th { position: sticky; top: 0; background: #f8fafc; z-index: 2; }
+        .summary-table thead th:nth-child(1), .summary-table thead th:nth-child(2) { z-index: 5; }
         .summary-table .month-break-row td:nth-child(1),
         .summary-table .month-break-row td:nth-child(2) { background: #f8fafc; z-index: 4; }
 
