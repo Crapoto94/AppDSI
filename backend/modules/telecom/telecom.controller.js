@@ -471,6 +471,17 @@ module.exports = {
         }
     },
 
+    // Engagements (code mouvement Sedit) lus en direct : ?codes=26D000168,26D000164
+    getEngagementsLive: async (req, res) => {
+        try {
+            const codes = String(req.query.codes || '').split(',');
+            res.json(await seditLive.getEngagementsLive(codes));
+        } catch (error) {
+            console.error('[Telecom] getEngagementsLive error:', error);
+            res.status(500).json({ message: 'Erreur lecture engagements Sedit', error: error.message });
+        }
+    },
+
     // --- Invoices ---
     // Montant, état et date sont recalés en direct sur le budget (oracle.gf_oracle_facture) quand une
     // correspondance est trouvée — le n° de facture fournisseur y est rarement renseigné dans
@@ -576,8 +587,8 @@ module.exports = {
     // factures du tiers sans en exiger un ; il pourra être affecté plus tard via updateInvoiceMeta.
     addInvoiceFromBudget: async (req, res) => {
         const { operator_id, billing_account_id, invoice_number, description } = req.body;
-        if (!operator_id || !invoice_number) {
-            return res.status(400).json({ message: 'operator_id et invoice_number sont requis' });
+        if (!operator_id || !invoice_number || !billing_account_id) {
+            return res.status(400).json({ message: 'operator_id, billing_account_id et invoice_number sont requis' });
         }
         try {
             const existing = await pgDb.get('SELECT id FROM hub_telecom.invoices WHERE LOWER(TRIM(invoice_number)) = LOWER(TRIM(?))', [invoice_number]);

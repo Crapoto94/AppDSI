@@ -26,6 +26,7 @@ router.put('/billing-accounts/:id/monthly-comment', authenticateJWT, telecomCont
 
 // Engagements télécom (lecture dynamique depuis le suivi budgétaire, nature 6262)
 router.get('/engagements', authenticateJWT, telecomController.getTelecomEngagements);
+router.get('/engagements/live', authenticateJWT, telecomController.getEngagementsLive);
 
 // Lignes fixes & accès internet (import Excel opérateur, ré-importable)
 router.get('/lines', authenticateJWT, telecomController.getLines);

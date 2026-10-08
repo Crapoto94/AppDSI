@@ -384,6 +384,8 @@ const TelecomManagement: React.FC = () => {
   const [addInvoiceOperatorId, setAddInvoiceOperatorId] = useState<number | null>(null);
   const [addInvoiceAccountId, setAddInvoiceAccountId] = useState<number | null>(null);
   const [availableInvoices, setAvailableInvoices] = useState<AvailableBudgetInvoice[]>([]);
+  // Engagements Sedit (lus en direct) des comptes de l'opérateur choisi dans la modale d'ajout
+  const [liveEngagements, setLiveEngagements] = useState<Record<string, { libelle: string; engage: number; consomme: number; solde: number }>>({});
   const [loadingAvailable, setLoadingAvailable] = useState(false);
   const [availableSearch, setAvailableSearch] = useState('');
   const [addingInvoiceNumber, setAddingInvoiceNumber] = useState<string | null>(null);
@@ -911,6 +913,27 @@ const TelecomManagement: React.FC = () => {
     }
   };
 
+  // Compte obligatoire : s'il n'y en a qu'un pour l'opérateur, il est sélectionné d'office.
+  useEffect(() => {
+    if (!showAddInvoiceModal || !addInvoiceOperatorId) return;
+    const accs = billingAccounts[addInvoiceOperatorId] || [];
+    if (accs.length === 1 && addInvoiceAccountId !== accs[0].id) setAddInvoiceAccountId(accs[0].id);
+    else if (addInvoiceAccountId && accs.length > 0 && !accs.some(a => a.id === addInvoiceAccountId)) setAddInvoiceAccountId(null);
+  }, [showAddInvoiceModal, addInvoiceOperatorId, billingAccounts, addInvoiceAccountId]);
+
+  // Numéro d'engagement + solde de chaque compte, lus en direct dans Sedit.
+  useEffect(() => {
+    if (!showAddInvoiceModal || !addInvoiceOperatorId) return;
+    const codes = Array.from(new Set((billingAccounts[addInvoiceOperatorId] || []).map(a => (a.commitment_number || '').trim()).filter(Boolean)));
+    if (codes.length === 0) { setLiveEngagements({}); return; }
+    let cancelled = false;
+    fetch(`/api/telecom/engagements/live?codes=${encodeURIComponent(codes.join(','))}`, { headers: { 'Authorization': `Bearer ${token}` } })
+      .then(r => (r.ok ? r.json() : {}))
+      .then(d => { if (!cancelled) setLiveEngagements(d || {}); })
+      .catch(() => { if (!cancelled) setLiveEngagements({}); });
+    return () => { cancelled = true; };
+  }, [showAddInvoiceModal, addInvoiceOperatorId, billingAccounts, token]);
+
   const loadAvailableInvoices = async (operatorId: number) => {
     setAvailableInvoices([]);
     setLoadingAvailable(true);
@@ -943,6 +966,7 @@ const TelecomManagement: React.FC = () => {
 
   const handleAddInvoiceFromBudget = async (candidate: AvailableBudgetInvoice) => {
     if (!addInvoiceOperatorId) return;
+    if (!addInvoiceAccountId) { alert('Veuillez choisir un compte de facturation'); return; }
     setAddingInvoiceNumber(candidate.invoice_number);
     try {
       const res = await fetch('/api/telecom/invoices/from-budget', {
@@ -2624,7 +2648,7 @@ const TelecomManagement: React.FC = () => {
       {/* Ajout d'une facture depuis le budget (remplace l'ancien upload PDF) */}
       {showAddInvoiceModal && (
         <div className="validation-modal-overlay" onClick={() => setShowAddInvoiceModal(false)}>
-          <div style={{ background: '#fff', borderRadius: 12, width: '90%', maxWidth: 780, maxHeight: '85vh', display: 'flex', flexDirection: 'column' }} onClick={e => e.stopPropagation()}>
+          <div style={{ background: '#fff', borderRadius: 12, width: '95%', maxWidth: 980, maxHeight: '85vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }} onClick={e => e.stopPropagation()}>
             <div style={{ padding: '16px 20px', borderBottom: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
               <div>
                 <h2 style={{ margin: 0, fontSize: 16 }}>Ajouter une facture{addInvoiceOperatorId ? ` — ${operators.find(o => o.id === addInvoiceOperatorId)?.name || ''}` : ''}</h2>
@@ -2644,26 +2668,58 @@ const TelecomManagement: React.FC = () => {
                 <option value="">-- Opérateur --</option>
                 {operators.map(op => <option key={op.id} value={op.id}>{op.name}</option>)}
               </select>
-              <select value={addInvoiceAccountId || ''} disabled={!addInvoiceOperatorId} style={{ padding: '6px 10px', borderRadius: 6, border: '1px solid #e2e8f0' }}
+              <select value={addInvoiceAccountId || ''} disabled={!addInvoiceOperatorId} required
+                style={{ padding: '6px 10px', borderRadius: 6, border: `1px solid ${addInvoiceOperatorId && !addInvoiceAccountId ? '#f87171' : '#e2e8f0'}`, maxWidth: 360, minWidth: 0 }}
                 onChange={e => {
                   const accId = e.target.value ? parseInt(e.target.value) : null;
                   setAddInvoiceAccountId(accId);
                 }}>
-                <option value="">-- Compte (facultatif) --</option>
-                {addInvoiceOperatorId && billingAccounts[addInvoiceOperatorId]?.map(acc => (
-                  <option key={acc.id} value={acc.id}>{acc.account_number} ({acc.designation})</option>
-                ))}
+                <option value="">-- Compte (obligatoire) --</option>
+                {addInvoiceOperatorId && billingAccounts[addInvoiceOperatorId]?.map(acc => {
+                  const eng = acc.commitment_number ? liveEngagements[acc.commitment_number.trim()] : undefined;
+                  return (
+                    <option key={acc.id} value={acc.id}>
+                      {acc.account_number} ({acc.designation}){acc.commitment_number ? ` — Eng. ${acc.commitment_number}` : ''}{eng ? ` — solde ${eng.solde.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}` : ''}
+                    </option>
+                  );
+                })}
               </select>
               <div className="search-input-wrapper-mini" style={{ flex: 1, minWidth: 180 }}>
                 <Search size={14} />
                 <input type="text" placeholder="Rechercher un numéro, un libellé..." value={availableSearch} onChange={e => setAvailableSearch(e.target.value)} />
               </div>
             </div>
-            <div style={{ overflowY: 'auto', padding: '0 20px 16px' }}>
+            {(() => {
+              const acc = addInvoiceOperatorId ? billingAccounts[addInvoiceOperatorId]?.find(a => a.id === addInvoiceAccountId) : undefined;
+              if (!acc) return addInvoiceOperatorId ? (
+                <div style={{ padding: '8px 20px', fontSize: 12.5, color: '#b91c1c', background: '#fef2f2' }}>Choisissez un compte de facturation pour pouvoir ajouter une facture.</div>
+              ) : null;
+              const code = (acc.commitment_number || '').trim();
+              const eng = code ? liveEngagements[code] : undefined;
+              const eur = (n: number) => n.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' });
+              return (
+                <div style={{ padding: '8px 20px', fontSize: 12.5, background: '#f0f9ff', color: '#0c4a6e', display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'center' }}>
+                  <span>Compte <b>{acc.account_number}</b></span>
+                  <span>Engagement : <b>{code || 'non renseigné'}</b>{eng?.libelle ? ` — ${eng.libelle}` : ''}</span>
+                  {code && (eng ? (
+                    <>
+                      <span>Engagé : <b>{eur(eng.engage)}</b></span>
+                      <span>Consommé : <b>{eur(eng.consomme)}</b></span>
+                      <span>Solde : <b style={{ color: eng.solde < 0 ? '#b91c1c' : '#047857' }}>{eur(eng.solde)}</b></span>
+                    </>
+                  ) : <span style={{ color: '#64748b' }}>solde Sedit indisponible</span>)}
+                </div>
+              );
+            })()}
+            <div style={{ overflowY: 'auto', overflowX: 'hidden', padding: '0 20px 16px' }}>
               {loadingAvailable ? (
                 <div style={{ textAlign: 'center', padding: 30, color: '#64748b' }}>Recherche des factures dans le budget...</div>
               ) : (
-                <table className="commitments-table">
+                <table className="commitments-table" style={{ tableLayout: 'fixed', width: '100%' }}>
+                  <colgroup>
+                    <col style={{ width: '18%' }} /><col style={{ width: '24%' }} /><col style={{ width: '11%' }} />
+                    <col style={{ width: '12%' }} /><col style={{ width: '13%' }} /><col style={{ width: '22%' }} />
+                  </colgroup>
                   <thead>
                     <tr>
                       <th>N° Facture</th>
@@ -2682,20 +2738,21 @@ const TelecomManagement: React.FC = () => {
                       .slice(0, 100)
                       .map(c => (
                         <tr key={c.invoice_number}>
-                          <td style={{ fontWeight: 700 }} title={c.libelle}>{c.invoice_number}</td>
-                          <td style={{ maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={c.libelle}>{c.libelle || '—'}</td>
+                          <td style={{ fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={c.libelle}>{c.invoice_number}</td>
+                          <td style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={c.libelle}>{c.libelle || '—'}</td>
                           <td>{c.invoice_date ? new Date(c.invoice_date).toLocaleDateString('fr-FR') : '—'}</td>
                           <td>{c.amount_ttc != null ? Number(c.amount_ttc).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' }) : '—'}</td>
-                          <td>{c.etat || '—'}</td>
+                          <td style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={c.etat || ''}>{c.etat || '—'}</td>
                           <td>
-                            <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                            <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
                               {c.sedit_ref && (
                                 <a href={`${urlSedit}/FicheFacture.html?factureId=${encodeURIComponent(c.sedit_ref)}`} target="_blank" rel="noopener noreferrer" className="edit-icon-btn" title="Ouvrir dans Sedit">
                                   <ExternalLink size={18} />
                                 </a>
                               )}
                               <button className="add-btn" style={{ padding: '4px 10px', fontSize: 12 }}
-                                disabled={addingInvoiceNumber === c.invoice_number}
+                                disabled={addingInvoiceNumber === c.invoice_number || !addInvoiceAccountId}
+                                title={addInvoiceAccountId ? undefined : "Choisissez d'abord un compte"}
                                 onClick={() => handleAddInvoiceFromBudget(c)}>
                                 {addingInvoiceNumber === c.invoice_number ? '...' : 'Ajouter'}
                               </button>
