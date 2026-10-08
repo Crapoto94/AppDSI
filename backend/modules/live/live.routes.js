@@ -18,6 +18,7 @@ router.post('/auth/ad',            (req, res) => controller.adLogin(req, res)); 
 router.post('/auth/otp/request',   (req, res) => controller.otpRequest(req, res));     // public
 router.post('/auth/otp/verify',    (req, res) => controller.otpVerify(req, res));      // public
 router.post('/auth/sms-token',     (req, res) => controller.smsTokenAuth(req, res));   // public (short-lived token)
+router.post('/emergency-sms',      authenticateJWT, (req, res) => controller.sendAfterHoursAlert(req, res)); // hors horaires : SMS à l'astreinte
 router.get('/public-config',       (req, res) => controller.getPublicConfig(req, res));// public
 router.get('/config',              authenticateJWT, (req, res) => controller.getConfig(req, res));
 router.put('/config',              authenticateJWT, (req, res) => controller.setConfig(req, res));

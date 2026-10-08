@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import axios from 'axios';
 import EmojiPicker from './EmojiPicker';
+import AfterHoursPanel from './AfterHoursPanel';
 
 type ChatState = 'idle' | 'open' | 'connecting' | 'waiting' | 'active' | 'rating' | 'ended';
 
@@ -42,6 +43,9 @@ export default function ChatWidget({ liveEnabled, beta = false }: Props) {
   // la bulle est grisée (même comportement que le chat du Hub).
   const [scheduleOpen, setScheduleOpen] = useState<boolean | null>(null);
   const [closingMessage, setClosingMessage] = useState('');
+  // Hors horaires : la bulle ouvre le formulaire d'alerte de l'astreinte (SMS) si un numéro est configuré
+  const [emergencyAvailable, setEmergencyAvailable] = useState(false);
+  const [showAfterHours, setShowAfterHours] = useState(false);
   const [rating, setRating] = useState(0);
   const [ratingComment, setRatingComment] = useState('');
 
@@ -63,7 +67,7 @@ export default function ChatWidget({ liveEnabled, beta = false }: Props) {
     let stop = false;
     const check = () => {
       axios.get('/api/live/public-config', token ? { headers: { Authorization: `Bearer ${token}` } } : undefined)
-        .then(r => { if (!stop) { setScheduleOpen(r.data.live_enabled !== false); setClosingMessage(r.data.closing_message || ''); } })
+        .then(r => { if (!stop) { setScheduleOpen(r.data.live_enabled !== false); setClosingMessage(r.data.closing_message || ''); setEmergencyAvailable(!!r.data.emergency_available); } })
         .catch(() => { if (!stop) setScheduleOpen(true); }); // en cas d'erreur, on n'empêche pas le chat
     };
     check();
@@ -311,19 +315,26 @@ export default function ChatWidget({ liveEnabled, beta = false }: Props) {
   // ── Bubble ────────────────────────────────────────────────────────────
   // Hors horaires (et sans conversation en cours) : bulle grisée, non cliquable.
   if ((state === 'idle' || state === 'ended') && scheduleOpen === false && !sessionId) {
+    if (showAfterHours) {
+      return <AfterHoursPanel defaultName={(() => { try { const u = JSON.parse(localStorage.getItem('magapp_user') || sessionStorage.getItem('magapp_user') || '{}'); return u.displayName || u.username || ''; } catch { return ''; } })()} closingMessage={closingMessage} primary={PC} secondary={SC} onClose={() => setShowAfterHours(false)} />;
+    }
     return (
       <button
-        disabled
-        title={closingMessage || 'Le support est actuellement fermé'}
+        disabled={!emergencyAvailable}
+        onClick={() => emergencyAvailable && setShowAfterHours(true)}
+        title={emergencyAvailable
+          ? (closingMessage ? closingMessage + '\n\n' : '') + "Support fermé : cliquez pour alerter l'astreinte par SMS"
+          : (closingMessage || 'Le support est actuellement fermé')}
         style={{
           position: 'fixed', bottom: 24, right: 24, zIndex: 9999,
           width: 56, height: 56, borderRadius: '50%',
-          background: 'linear-gradient(135deg, #94a3b8, #64748b)',
-          border: 'none', cursor: 'not-allowed', boxShadow: '0 4px 20px rgba(100,116,139,0.4)',
-          color: '#fff', fontSize: 24, opacity: 0.85,
+          background: emergencyAvailable ? 'linear-gradient(135deg, #f59e0b, #dc2626)' : 'linear-gradient(135deg, #94a3b8, #64748b)',
+          border: 'none', cursor: emergencyAvailable ? 'pointer' : 'not-allowed',
+          boxShadow: emergencyAvailable ? '0 4px 20px rgba(220,38,38,0.4)' : '0 4px 20px rgba(100,116,139,0.4)',
+          color: '#fff', fontSize: 24, opacity: emergencyAvailable ? 1 : 0.85,
         }}
       >
-        ✕
+        {emergencyAvailable ? '🚨' : '✕'}
       </button>
     );
   }

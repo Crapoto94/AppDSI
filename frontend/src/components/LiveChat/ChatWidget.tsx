@@ -5,6 +5,7 @@ import EmojiPicker from './EmojiPicker';
 import AddTaskModal from '../AddTaskModal';
 import CreateTicketModal from '../tickets/CreateTicketModal';
 import AjouterJournalModal from '../projets/AjouterJournalModal';
+import AfterHoursPanel from './AfterHoursPanel';
 import { useAuth } from '../../contexts/AuthContext';
 import { Ticket, CheckCircle, MessageSquare, BookOpen, X, Send, Mic, Paperclip } from 'lucide-react';
 
@@ -45,6 +46,9 @@ export default function ChatWidget() {
   const [checking, setChecking] = useState(true); // checking for existing session on mount
   const [liveEnabled, setLiveEnabled] = useState<boolean | null>(null); // null = loading
   const [closingMessage, setClosingMessage] = useState(''); // message affiché quand le chat est fermé
+  // Hors horaires : la bulle reste cliquable et ouvre le formulaire d'alerte de l'astreinte (SMS)
+  const [emergencyAvailable, setEmergencyAvailable] = useState(false);
+  const [showAfterHours, setShowAfterHours] = useState(false);
   const [chatConfig, setChatConfig] = useState<{ primary_color: string; secondary_color: string; chat_name: string; chat_logo: string } | null>(null);
   const [uploading, setUploading] = useState(false);
   const [listening, setListening] = useState(false);
@@ -75,6 +79,7 @@ export default function ChatWidget() {
       .then(r => {
         setLiveEnabled(r.data.live_enabled);
         setClosingMessage(r.data.closing_message || '');
+        setEmergencyAvailable(!!r.data.emergency_available);
         setChatConfig({ primary_color: r.data.primary_color || '#6366f1', secondary_color: r.data.secondary_color || '#818cf8', chat_name: r.data.chat_name || 'Support DSI', chat_logo: r.data.chat_logo || '💬' });
       })
       .catch(() => setLiveEnabled(true)); // fail open
@@ -490,20 +495,40 @@ export default function ChatWidget() {
           <MessageSquare size={24} />
         </button>
       ) : liveEnabled === false ? (
-        // Chat fermé (désactivé manuellement OU hors horaires) : bulle grise barrée.
-        <button
-          disabled
-          title={closingMessage || 'Chat indisponible pour le moment'}
-          style={{
-            width: 56, height: 56, borderRadius: '50%',
-            background: 'linear-gradient(135deg, #94a3b8, #64748b)',
-            border: 'none', cursor: 'not-allowed', boxShadow: '0 4px 20px rgba(100,116,139,0.4)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            color: '#fff', opacity: 0.85,
-          }}
-        >
-          <X size={24} />
-        </button>
+        // Chat fermé (désactivé manuellement OU hors horaires) : la bulle reste visible. Avec un numéro d'astreinte
+        // configuré, elle ouvre le formulaire d'alerte SMS ; sinon elle est grisée.
+        showAfterHours ? (
+          <AfterHoursPanel defaultName={(user as any)?.displayName || user?.username || ''} closingMessage={closingMessage}
+            primary={PC} secondary={SC} onClose={() => setShowAfterHours(false)} />
+        ) : emergencyAvailable ? (
+          <button
+            onClick={() => setShowAfterHours(true)}
+            title={(closingMessage ? closingMessage + '\n\n' : '') + "Support fermé : cliquez pour alerter l'astreinte par SMS"}
+            style={{
+              width: 56, height: 56, borderRadius: '50%',
+              background: 'linear-gradient(135deg, #f59e0b, #dc2626)',
+              border: 'none', cursor: 'pointer', boxShadow: '0 4px 20px rgba(220,38,38,0.4)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              color: '#fff', fontSize: 24,
+            }}
+          >
+            🚨
+          </button>
+        ) : (
+          <button
+            disabled
+            title={closingMessage || 'Chat indisponible pour le moment'}
+            style={{
+              width: 56, height: 56, borderRadius: '50%',
+              background: 'linear-gradient(135deg, #94a3b8, #64748b)',
+              border: 'none', cursor: 'not-allowed', boxShadow: '0 4px 20px rgba(100,116,139,0.4)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              color: '#fff', opacity: 0.85,
+            }}
+          >
+            <X size={24} />
+          </button>
+        )
       ) : (
         liveEnabled !== null && (
           <button

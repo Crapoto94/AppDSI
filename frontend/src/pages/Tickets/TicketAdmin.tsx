@@ -36,6 +36,9 @@ export default function TicketAdmin() {
   const [liveStats, setLiveStats] = useState<any>(null);
   const [closingMessage, setClosingMessage] = useState('');
   const [closingMessageSaving, setClosingMessageSaving] = useState(false);
+  const [oncallPhone, setOncallPhone] = useState('');
+  const [oncallSaving, setOncallSaving] = useState(false);
+  const [oncallMsg, setOncallMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [waEnabled, setWaEnabled] = useState(false);
   const [waPhoneNumberId, setWaPhoneNumberId] = useState('');
   const [waAccessToken, setWaAccessToken] = useState('');
@@ -52,6 +55,7 @@ export default function TicketAdmin() {
         setLiveUseSchedule(!!r.data.live_use_schedule);
         setLiveCalendarId(r.data.live_calendar_id ?? null);
         setClosingMessage(r.data.closing_message || '');
+        setOncallPhone(r.data.live_oncall_phone || '');
         setWaEnabled(!!r.data.whatsapp_enabled);
         setWaPhoneNumberId(r.data.whatsapp_phone_number_id || '');
         setWaAccessToken(r.data.whatsapp_access_token || '');
@@ -96,6 +100,18 @@ export default function TicketAdmin() {
       const r = await axios.put('/api/live/config', { live_calendar_id: calId }, { headers: { Authorization: `Bearer ${token}` } });
       setLiveEnabled(r.data.live_enabled);
     } catch (e) { console.error(e); }
+  }
+
+  async function saveOncallPhone() {
+    const token = localStorage.getItem('token');
+    setOncallSaving(true);
+    setOncallMsg(null);
+    try {
+      await axios.put('/api/live/config', { live_oncall_phone: oncallPhone }, { headers: { Authorization: `Bearer ${token}` } });
+      setOncallMsg({ ok: true, text: oncallPhone.trim() ? "Numéro d'astreinte enregistré." : 'Astreinte désactivée (aucun numéro).' });
+    } catch (e: any) {
+      setOncallMsg({ ok: false, text: e.response?.data?.message || "Erreur lors de l'enregistrement" });
+    } finally { setOncallSaving(false); }
   }
 
   async function saveClosingMessage() {
@@ -371,6 +387,34 @@ export default function TicketAdmin() {
                 >
                   {closingMessageSaving ? '⏳ Enregistrement…' : '💾 Enregistrer'}
                 </button>
+              </div>
+            </div>
+
+            {/* ── Astreinte : SMS hors horaires ─────────────────────── */}
+            <div style={{ background: '#fff7ed', border: '1px solid #fed7aa', borderRadius: 12, padding: '16px 20px' }}>
+              <div style={{ fontWeight: 700, fontSize: 14, color: '#1e293b', marginBottom: 4 }}>
+                📟 Numéro d'astreinte (SMS hors horaires)
+              </div>
+              <div style={{ fontSize: 12, color: '#64748b', marginBottom: 12 }}>
+                Hors horaires d'ouverture, la bulle du chat reste visible : elle demande le nom, le problème et un mobile, puis envoie un SMS à ce numéro.
+                Laissez vide pour désactiver (la bulle est alors grisée).
+              </div>
+              <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+                <input
+                  type="tel"
+                  value={oncallPhone}
+                  onChange={e => setOncallPhone(e.target.value)}
+                  placeholder="06 12 34 56 78"
+                  style={{ padding: '8px 12px', border: '1.5px solid #e2e8f0', borderRadius: 8, fontSize: 13, width: 220, outline: 'none' }}
+                />
+                <button
+                  onClick={saveOncallPhone}
+                  disabled={oncallSaving}
+                  style={{ padding: '8px 20px', background: oncallSaving ? '#a5b4fc' : '#6366f1', color: '#fff', border: 'none', borderRadius: 8, fontWeight: 600, cursor: 'pointer', fontSize: 13 }}
+                >
+                  {oncallSaving ? '⏳ Enregistrement…' : '💾 Enregistrer'}
+                </button>
+                {oncallMsg && <span style={{ fontSize: 12, color: oncallMsg.ok ? '#059669' : '#dc2626' }}>{oncallMsg.text}</span>}
               </div>
             </div>
 

@@ -744,7 +744,7 @@ async function computeLiveEnabled() {
 async function getPublicConfig(req, res) {
     try {
         const rows = await pgDb.all(
-            `SELECT key, value FROM hub_tickets.module_config WHERE key IN ('live_enabled','live_use_schedule','live_calendar_id','live_closing_message','chat_name','chat_logo','primary_color','secondary_color','ad_name','ad_default_username')`
+            `SELECT key, value FROM hub_tickets.module_config WHERE key IN ('live_enabled','live_use_schedule','live_calendar_id','live_closing_message','live_oncall_phone','chat_name','chat_logo','primary_color','secondary_color','ad_name','ad_default_username')`
         );
         const cfg = Object.fromEntries(rows.map(r => [r.key, r.value]));
         const useSchedule = cfg.live_use_schedule === 'true';
@@ -753,6 +753,8 @@ async function getPublicConfig(req, res) {
             : (cfg.live_enabled !== 'false');
         res.json({
             live_enabled,
+            // Hors horaires, la bulle propose d'alerter l'astreinte par SMS (si un numéro est configuré)
+            emergency_available: !!(cfg.live_oncall_phone || '').trim(),
             closing_message: cfg.live_closing_message || '',
             chat_name: cfg.chat_name || 'Support DSI',
             chat_logo: cfg.chat_logo || '💬',
@@ -770,7 +772,7 @@ async function getPublicConfig(req, res) {
 async function getConfig(req, res) {
     try {
         const rows = await pgDb.all(
-            `SELECT key, value FROM hub_tickets.module_config WHERE key IN ('live_enabled','live_use_schedule','live_calendar_id','live_closing_message','whatsapp_enabled','whatsapp_phone_number_id','whatsapp_access_token')`
+            `SELECT key, value FROM hub_tickets.module_config WHERE key IN ('live_enabled','live_use_schedule','live_calendar_id','live_closing_message','live_oncall_phone','whatsapp_enabled','whatsapp_phone_number_id','whatsapp_access_token')`
         );
         const cfg = Object.fromEntries(rows.map(r => [r.key, r.value]));
         const useSchedule  = cfg.live_use_schedule === 'true';
@@ -782,6 +784,7 @@ async function getConfig(req, res) {
         res.json({
             live_enabled, live_use_schedule: useSchedule, live_calendar_id: calendarId,
             closing_message: cfg.live_closing_message || '',
+            live_oncall_phone: cfg.live_oncall_phone || '',
             whatsapp_enabled: cfg.whatsapp_enabled === 'true',
             whatsapp_phone_number_id: cfg.whatsapp_phone_number_id || '',
             whatsapp_access_token: cfg.whatsapp_access_token || '',
@@ -794,7 +797,7 @@ async function getConfig(req, res) {
 // ── PUT /api/live/config ──────────────────────────────────────────────
 async function setConfig(req, res) {
     try {
-        const { live_enabled, live_use_schedule, live_calendar_id, closing_message,
+        const { live_enabled, live_use_schedule, live_calendar_id, closing_message, live_oncall_phone,
                 whatsapp_enabled, whatsapp_phone_number_id, whatsapp_access_token } = req.body;
 
         const upsert = (key, val) => pgDb.run(
@@ -807,6 +810,11 @@ async function setConfig(req, res) {
         if (live_use_schedule         !== undefined) await upsert('live_use_schedule',          live_use_schedule ? 'true' : 'false');
         if (live_calendar_id          !== undefined) await upsert('live_calendar_id',           live_calendar_id ?? '');
         if (closing_message           !== undefined) await upsert('live_closing_message',       closing_message);
+        if (live_oncall_phone         !== undefined) {
+            const phone = String(live_oncall_phone || '').trim();
+            if (phone && !normalizeMobile(phone)) return res.status(400).json({ message: "Numéro d'astreinte invalide (mobile français 06/07 ou +33 6/7…)" });
+            await upsert('live_oncall_phone', phone ? normalizeMobile(phone) : '');
+        }
         if (whatsapp_enabled          !== undefined) await upsert('whatsapp_enabled',           whatsapp_enabled ? 'true' : 'false');
         if (whatsapp_phone_number_id  !== undefined) await upsert('whatsapp_phone_number_id',   whatsapp_phone_number_id || '');
         if (whatsapp_access_token     !== undefined) await upsert('whatsapp_access_token',      whatsapp_access_token || '');
@@ -1195,6 +1203,93 @@ async function sendEmergencyMessage(req, res) {
     }
 }
 
+// ── Astreinte : SMS hors horaires ─────────────────────────────────────
+
+// Mobile français -> format national 06XXXXXXXX (accepte 06…, +33 6…, 0033 6…, avec espaces/points). null si invalide.
+function normalizeMobile(raw) {
+    let d = String(raw || '').replace(/[\s.\-()]/g, '');
+    if (d.startsWith('+33')) d = '0' + d.slice(3);
+    else if (d.startsWith('0033')) d = '0' + d.slice(4);
+    return /^0[67]\d{8}$/.test(d) ? d : null;
+}
+
+// Envoi SMS via Frizbi (même passerelle que les messages d'urgence existants) + journal hub.sms_logs
+async function sendFrizbiSms({ phones, title, message, customerId, source, createdBy }) {
+    const db = getSqlite();
+    const frizbi = await db.get('SELECT * FROM frizbi_settings WHERE id = 1');
+    if (!frizbi?.is_enabled || !frizbi.client_id || !frizbi.client_secret) throw new Error('Passerelle SMS (Frizbi) non configurée');
+    const loginRes = await axios.post(`${frizbi.api_url}/api/auth/login`, { login: frizbi.client_id, password: frizbi.client_secret });
+    const token = loginRes.data?.token;
+    if (!token) throw new Error('Authentification Frizbi impossible');
+    await axios.post(`${frizbi.api_url}/api/sms/send`, {
+        customerSmsId: String(customerId).substring(0, 50),
+        date: new Date().toISOString(),
+        title,
+        message,
+        customerSenderId: frizbi.sender_id || 'IVRY',
+        smsContacts: phones.map(ph => ({
+            customerSmsContactId: `astr_${ph.replace(/\D/g, '')}`,
+            mobile: ph.replace(/\D/g, ''),
+            firstName: 'Astreinte',
+            lastName: 'DSI',
+        })),
+    }, { headers: { Authorization: `Bearer ${token}` } });
+    for (const ph of phones) {
+        try {
+            await pgDb.run(
+                `INSERT INTO hub.sms_logs (recipient, message, sender_id, status, source, created_by) VALUES ($1, $2, $3, $4, $5, $6)`,
+                [ph.replace(/\D/g, ''), message, frizbi.sender_id || 'IVRY', 'sent', source, createdBy || 'system']
+            );
+        } catch (logErr) { console.error('[LIVE] log SMS astreinte:', logErr.message); }
+    }
+}
+
+// Limite anti-abus : 3 alertes par utilisateur et par heure
+const _astreinteHits = new Map();
+function astreinteRateLimited(username) {
+    const now = Date.now();
+    const hits = (_astreinteHits.get(username) || []).filter(t => now - t < 3600 * 1000);
+    if (hits.length >= 3) { _astreinteHits.set(username, hits); return true; }
+    hits.push(now);
+    _astreinteHits.set(username, hits);
+    return false;
+}
+
+// ── POST /api/live/emergency-sms ──────────────────────────────────────
+// Hors horaires d'ouverture : l'utilisateur laisse son nom, son problème et son mobile ; un SMS est envoyé au
+// numéro d'astreinte saisi dans /admin/tickets.
+async function sendAfterHoursAlert(req, res) {
+    try {
+        const name = String(req.body?.name || '').trim().slice(0, 80);
+        const problem = String(req.body?.problem || '').trim().slice(0, 400);
+        const phone = normalizeMobile(req.body?.phone);
+        if (!name) return res.status(400).json({ message: 'Votre nom est requis' });
+        if (!problem) return res.status(400).json({ message: 'Décrivez votre problème' });
+        if (!phone) return res.status(400).json({ message: 'Numéro de mobile invalide (06/07…)' });
+
+        // Le support est-il vraiment fermé ? Sinon on invite à utiliser le chat.
+        if (await computeLiveEnabled()) return res.status(409).json({ message: 'Le chat est ouvert : utilisez-le pour joindre le support' });
+
+        const row = await pgDb.get("SELECT value FROM hub_tickets.module_config WHERE key = 'live_oncall_phone'");
+        const oncall = normalizeMobile(row?.value);
+        if (!oncall) return res.status(503).json({ message: "Aucun numéro d'astreinte n'est configuré" });
+
+        const who = req.user?.username || 'anonyme';
+        if (astreinteRateLimited(who)) return res.status(429).json({ message: 'Trop de demandes : réessayez dans une heure' });
+
+        const message = `[DSI ASTREINTE] ${name} (${phone}) : ${problem}`.slice(0, 320);
+        await sendFrizbiSms({
+            phones: [oncall], title: 'Astreinte DSI', message,
+            customerId: `astr_${Date.now()}_${who}`, source: 'astreinte', createdBy: who,
+        });
+        console.log(`[LIVE] SMS d'astreinte envoyé (demandeur ${name}, ${phone})`);
+        res.json({ success: true });
+    } catch (e) {
+        console.error('[LIVE] sendAfterHoursAlert error:', e.message);
+        res.status(500).json({ message: "Envoi du SMS impossible : " + e.message });
+    }
+}
+
 async function setTicketType(req, res) {
     try {
         const { id } = req.params;
@@ -1488,4 +1583,4 @@ async function smsTokenAuth(req, res) {
     }
 }
 
-module.exports = { getSessions, getSession, getMessages, createSession, claimSession, closeSession, getWaitingCount, getStats, setSendMail, getConfig, setConfig, getPublicConfig, getCalendars, startScheduler, uploadAttachment, sendMessage, guestLogin, adLogin, otpRequest, otpVerify, rejectSession, createTask, setTicketType, setTicketPriority, setTicketCategory, setSessionApp, submitSatisfaction, getSatisfactionStats, sendEmergencyMessage, smsTokenAuth };
+module.exports = { getSessions, getSession, getMessages, createSession, claimSession, closeSession, getWaitingCount, getStats, setSendMail, getConfig, setConfig, getPublicConfig, getCalendars, startScheduler, uploadAttachment, sendMessage, guestLogin, adLogin, otpRequest, otpVerify, rejectSession, createTask, setTicketType, setTicketPriority, setTicketCategory, setSessionApp, submitSatisfaction, getSatisfactionStats, sendEmergencyMessage, sendAfterHoursAlert, smsTokenAuth };
