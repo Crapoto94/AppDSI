@@ -1260,7 +1260,7 @@ const TelecomManagement: React.FC = () => {
   return (
     <div className="telecom-container">
       <Header />
-      <main className={`telecom-main${activeTab === 'summary' || activeTab === 'pdfs' ? ' summary-wide' : ''}`}>
+      <main className={`telecom-main${activeTab === 'summary' || activeTab === 'pdfs' || activeTab === 'invoices' ? ' summary-wide' : ''}`}>
         <div className="telecom-page-header">
           <button className="back-button" onClick={() => navigate('/')}>
             <ArrowLeft size={20} />
@@ -1872,9 +1872,14 @@ const TelecomManagement: React.FC = () => {
                                 const val = op?.monthly[m] || 0;
                                 const prevVal = i > 0 ? (op?.monthly[monthlySummary!.months[i - 1]] || 0) : null;
                                 const trend = prevVal != null ? monthTrend(val, prevVal) : null;
+                                // Pastilles du mois pour l'opérateur : somme des comptes
+                                const opRows = monthlySummary!.rows.filter(r => r.operator_id === currentOperatorId);
+                                const opOk = opRows.reduce((acc, r) => acc + (r.monthly[m]?.ok_count || 0), 0);
+                                const opKo = opRows.reduce((acc, r) => acc + (r.monthly[m]?.refused_count || 0), 0);
                                 return (
                                   <td key={m} style={{ textAlign: 'right', fontWeight: 700 }}>
-                                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+                                    <span style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+                                      {renderCountBadges(opOk, opKo)}
                                       {trend && val > 0 && <span title={trend.title} style={{ display: 'inline-flex' }}><trend.Icon size={11} color={trend.color} /></span>}
                                       {val > 0 ? val.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' }) : <span style={{ color: '#cbd5e1' }}>—</span>}
                                     </span>
@@ -3405,6 +3410,9 @@ const TelecomManagement: React.FC = () => {
 
         /* Synthèse mensuelle : tableau étendu (~90% de la fenêtre) + colonnes opérateur/compte figées au scroll */
         .telecom-main.summary-wide { max-width: none; width: 96vw; padding: 24px 8px; }
+        /* Engagements : tableau compact, pleine largeur */
+        .commitments-table-wrapper .commitments-table th { padding: 10px 8px; }
+        .commitments-table-wrapper .commitments-table td { padding: 8px; font-size: 0.85rem; vertical-align: middle; }
         /* Historique des factures : tableau compact, pleine largeur */
         .invoices-list .commitments-table th { padding: 10px 8px; }
         .invoices-list .commitments-table td { padding: 8px; font-size: 0.85rem; vertical-align: middle; }
