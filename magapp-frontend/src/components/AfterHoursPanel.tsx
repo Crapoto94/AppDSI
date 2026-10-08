@@ -57,7 +57,6 @@ export default function AfterHoursPanel({ defaultName = '', closingMessage, prim
         ) : (
           <form onSubmit={submit}>
             {closingMessage && <div style={{ fontSize: 12, color: '#64748b', background: '#f8fafc', borderRadius: 8, padding: '8px 10px' }}>{closingMessage}</div>}
-            <div style={{ fontSize: 12, color: '#475569', marginTop: 8 }}>Réservé aux urgences : votre message sera transmis immédiatement à la DSI.</div>
             <label style={label}>Votre nom *</label>
             <input style={field} value={name} onChange={e => setName(e.target.value)} maxLength={80} />
             <label style={label}>Votre problème *</label>
