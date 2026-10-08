@@ -30,6 +30,7 @@ import {
 } from 'lucide-react';import { useNavigate } from 'react-router-dom';
 import { BarChart, Bar, Cell, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
 import Header from '../components/Header';
+import { useAuth } from '../contexts/AuthContext';
 import FactureDocumentsViewer from '../components/finance/FactureDocumentsViewer';
 import ServiceFaitModal from '../components/ServiceFaitModal';
 
@@ -76,6 +77,8 @@ interface Commitment {
   invoiced_amount: number;
   year: number;
   operator_name: string;
+  // Géré en fluide (défaut : oui) : les factures rapprochées à l'engagement sont intégrées à l'historique
+  managed?: boolean;
   function_code?: string;
   section?: string;
   // Champs dynamiques renvoyés par /api/telecom/engagements (issus du budget)
@@ -101,6 +104,9 @@ interface TelecomInvoice {
   billing_month?: string | null;
   description?: string | null;
   effective_month?: string | null;
+  // Ligne issue des factures rejetées (affichée dans l'historique, sans actions de gestion)
+  rejected?: boolean;
+  reject_reason?: string | null;
 }
 
 // Synthèse d'un engagement lue en direct dans Sedit (année en cours uniquement)
@@ -132,6 +138,12 @@ interface RejectedInvoice {
   sedit_ref: string | null;
   etat: string | null;
   invoice_date: string | null;
+  operator_id?: number | null;
+  billing_account_id?: number | null;
+  operator_name?: string | null;
+  account_number?: string | null;
+  engagement?: string | null;
+  sedit_numero?: string | null;
 }
 
 interface TelecomLine {
@@ -412,6 +424,8 @@ const TelecomManagement: React.FC = () => {
   const [rejecting, setRejecting] = useState(false);
   const [rejectedDetail, setRejectedDetail] = useState<{ title: string; operator_id: number; billing_account_id: number | null } | null>(null);
   const [rejectedInvoices, setRejectedInvoices] = useState<RejectedInvoice[]>([]);
+  // Toutes les factures rejetées (pour l'historique des factures)
+  const [allRejected, setAllRejected] = useState<RejectedInvoice[]>([]);
   const [loadingRejected, setLoadingRejected] = useState(false);
   // Comparaison import engagements vs total facturé dynamique (factures des comptes liés)
   const [commitmentDiff, setCommitmentDiff] = useState<{
@@ -437,6 +451,8 @@ const TelecomManagement: React.FC = () => {
   const [accountTypeFilter, setAccountTypeFilter] = useState<Record<number, string>>({});
 
   const token = localStorage.getItem('token');
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'admin' || user?.role === 'superadmin';
 
   useEffect(() => {
     fetchData();
@@ -473,6 +489,9 @@ const TelecomManagement: React.FC = () => {
 
       const invRes = await fetch('/api/telecom/invoices', { headers: { 'Authorization': `Bearer ${token}` } });
       if (invRes.ok) setTelecomInvoices(await invRes.json());
+
+      const rejRes = await fetch('/api/telecom/invoices/rejected', { headers: { 'Authorization': `Bearer ${token}` } });
+      if (rejRes.ok) setAllRejected(await rejRes.json());
 
       const ifRes = await fetch('/api/telecom/billing/invoice-files', { headers: { 'Authorization': `Bearer ${token}` } });
       if (ifRes.ok) setInvoiceFiles(await ifRes.json());
@@ -916,6 +935,22 @@ const TelecomManagement: React.FC = () => {
     setShowAddAccount(acc.operator_id);
   };
 
+  const handleToggleManaged = async (code: string, managed: boolean) => {
+    setCommitments(prev => prev.map(c => (c.commitment_number === code ? { ...c, managed } : c)));
+    try {
+      const res = await fetch(`/api/telecom/engagements/${encodeURIComponent(code)}/managed`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ managed }),
+      });
+      if (!res.ok) throw new Error('KO');
+      await fetchData(); // l'historique des factures dépend de ce choix
+    } catch (e) {
+      setCommitments(prev => prev.map(c => (c.commitment_number === code ? { ...c, managed: !managed } : c)));
+      alert("Erreur lors de la mise à jour de l'engagement");
+    }
+  };
+
   const handleDeleteTelecomInvoice = async (id: number) => {
     if (!window.confirm("Supprimer cette facture ?")) return;
     try {
@@ -1154,7 +1189,30 @@ const TelecomManagement: React.FC = () => {
     !operators.some(op => op.tier_code === t.code && op.id !== editingOperator?.id)
   ).slice(0, 5);
 
-  const filteredInvoices = telecomInvoices.filter(inv => {
+  // Factures rejetées (hors « hors télécom ») affichées dans l'historique, à titre d'information.
+  const rejectedAsInvoices: TelecomInvoice[] = allRejected
+    .filter(r => r.category === 'rejetee')
+    .map(r => ({
+      id: -r.id,
+      invoice_number: r.invoice_number,
+      operator_id: r.operator_id ?? 0,
+      billing_account_id: r.billing_account_id ?? 0,
+      amount_ttc: Number(r.amount_ttc ?? 0),
+      invoice_date: r.invoice_date || r.rejected_at,
+      file_path: '',
+      uploaded_at: r.rejected_at,
+      operator_name: r.operator_name || undefined,
+      account_number: r.account_number || undefined,
+      engagement: r.engagement || null,
+      sedit_ref: r.sedit_ref || undefined,
+      sedit_numero: r.sedit_numero || null,
+      description: null,
+      effective_month: (r.invoice_date || r.rejected_at || '').slice(0, 7) || null,
+      rejected: true,
+      reject_reason: r.reason,
+    }));
+
+  const filteredInvoices = [...telecomInvoices, ...rejectedAsInvoices].filter(inv => {
     const matchesSearch = !invoiceSearch || 
       inv.invoice_number.toLowerCase().includes(invoiceSearch.toLowerCase()) || 
       (inv.account_number || '').toLowerCase().includes(invoiceSearch.toLowerCase());
@@ -1646,7 +1704,7 @@ const TelecomManagement: React.FC = () => {
                       {invoices.map(inv => {
                         const isEditing = editingMeta?.id === inv.id;
                         return (
-                        <tr key={inv.id}>
+                        <tr key={inv.id} style={inv.rejected ? { background: '#fef2f2' } : undefined}>
                           <td>{inv.invoice_date ? new Date(inv.invoice_date).toLocaleDateString('fr-FR') : 'Inconnue'}</td>
                           <td style={{ fontWeight: 700 }}>{inv.invoice_number}</td>
                           <td>{inv.operator_name || <span style={{ color: '#ef4444' }}>Inconnu</span>}</td>
@@ -1664,10 +1722,16 @@ const TelecomManagement: React.FC = () => {
                             {isEditing ? (
                               <input type="text" value={editingMeta!.description} placeholder="Description..." style={{ width: 160 }}
                                 onChange={e => setEditingMeta(m => m ? { ...m, description: e.target.value } : m)} />
+                            ) : inv.rejected ? (
+                              <span style={{ color: '#b91c1c', fontSize: 12 }} title={inv.reject_reason || ''}>{inv.reject_reason || '—'}</span>
                             ) : (inv.description || <span style={{ color: '#cbd5e1' }}>—</span>)}
                           </td>
                           <td style={{ fontWeight: 700 }}>{inv.amount_ttc != null ? inv.amount_ttc.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' }) : <span style={{ color: '#94a3b8' }}>—</span>}</td>
-                          <td>{renderSeditState(inv.sedit_numero, inv)}</td>
+                          <td>
+                            {inv.rejected
+                              ? <span className="reject-category-tag rejetee" title={inv.reject_reason || 'Facture rejetée'}>Rejetée</span>
+                              : renderSeditState(inv.sedit_numero, inv)}
+                          </td>
                           <td>
                             <div className="action-btns">
                               {isEditing ? (
@@ -1677,10 +1741,19 @@ const TelecomManagement: React.FC = () => {
                                 </>
                               ) : (
                                 <>
+                                  {inv.sedit_ref && (
+                                    <a href={`${urlSedit}/FicheFacture.html?factureId=${encodeURIComponent(inv.sedit_ref)}`} target="_blank" rel="noopener noreferrer"
+                                      title="Ouvrir la facture dans Sedit"
+                                      style={{ display: 'inline-flex', alignItems: 'center', gap: 3, background: '#e0f2fe', color: '#0369a1', borderRadius: 4, padding: '2px 8px', fontSize: 11, fontWeight: 700, textDecoration: 'none' }}>
+                                      <ExternalLink size={12} /> Sedit
+                                    </a>
+                                  )}
+                                  {!inv.rejected && (
                                   <button className="edit-icon-btn" title="Modifier le mois / la description" onClick={() => startEditMeta(inv)}>
                                     <Edit2 size={18} />
                                   </button>
-                                  {inv.file_path ? (
+                                  )}
+                                  {inv.rejected ? null : inv.file_path ? (
                                     <a href={`/api/${inv.file_path}`} target="_blank" rel="noopener noreferrer" className="edit-icon-btn" title="Voir la facture (PDF)">
                                       <FileText size={18} />
                                     </a>
@@ -1693,9 +1766,11 @@ const TelecomManagement: React.FC = () => {
                                       <ExternalLink size={18} />
                                     </a>
                                   ) : null}
-                                  <button className="delete-icon-btn" onClick={() => handleDeleteTelecomInvoice(inv.id)}>
-                                    <Trash2 size={18} />
-                                  </button>
+                                  {isAdmin && !inv.rejected && (
+                                    <button className="delete-icon-btn" title="Supprimer la facture (admin)" onClick={() => handleDeleteTelecomInvoice(inv.id)}>
+                                      <Trash2 size={18} />
+                                    </button>
+                                  )}
                                 </>
                               )}
                             </div>
@@ -1706,7 +1781,7 @@ const TelecomManagement: React.FC = () => {
                     </React.Fragment>
                   ))}
                   {filteredInvoices.length === 0 && (
-                    <tr><td colSpan={9} style={{ textAlign: 'center', padding: '40px', color: '#64748b' }}>Aucune facture trouvée</td></tr>
+                    <tr><td colSpan={10} style={{ textAlign: 'center', padding: '40px', color: '#64748b' }}>Aucune facture trouvée</td></tr>
                   )}
                 </tbody>
               </table>
@@ -1905,6 +1980,7 @@ const TelecomManagement: React.FC = () => {
                     <th>Total Facturé (comptes liés)</th>
                     <th>Solde</th>
                     <th>Écart</th>
+                    <th title="Les factures rapprochées à un engagement géré en fluide sont listées dans l'historique des factures">Géré en fluide</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1916,7 +1992,7 @@ const TelecomManagement: React.FC = () => {
                     const dynamicInvoiced = invoicedForCommitment(c.commitment_number);
                     const diff = Math.abs(importInvoiced - dynamicInvoiced) > 0.005;
                     return (
-                    <tr key={c.id ?? c.commitment_number}>
+                    <tr key={c.id ?? c.commitment_number} style={c.managed === false ? { opacity: 0.55 } : undefined}>
                       <td className="year-cell">{c.year}</td>
                       <td className="num-cell">{c.commitment_number}</td>
                       <td>{c.label}</td>
@@ -1954,11 +2030,16 @@ const TelecomManagement: React.FC = () => {
                           </button>
                         )}
                       </td>
+                      <td style={{ textAlign: 'center' }}>
+                        <input type="checkbox" checked={c.managed !== false}
+                          title={c.managed === false ? 'Non géré en fluide : ses factures ne sont plus listées' : 'Géré en fluide : ses factures sont listées dans l\'historique'}
+                          onChange={e => handleToggleManaged(c.commitment_number, e.target.checked)} />
+                      </td>
                     </tr>
                     );
                   })}
                   {commitments.length === 0 && (
-                    <tr><td colSpan={10} style={{ textAlign: 'center', padding: '40px', color: '#64748b' }}>Aucun engagement télécom (nature 6262) dans le suivi budgétaire</td></tr>
+                    <tr><td colSpan={11} style={{ textAlign: 'center', padding: '40px', color: '#64748b' }}>Aucun engagement télécom (nature 6262) dans le suivi budgétaire</td></tr>
                   )}
                 </tbody>
                 {commitments.length > 0 && (

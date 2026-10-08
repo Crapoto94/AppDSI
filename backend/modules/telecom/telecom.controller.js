@@ -43,6 +43,10 @@ const RESOLVED_INVOICES_SQL = `
         ORDER BY (LOWER(TRIM(f."FACTURE_REFERENCE")) = LOWER(TRIM(i.invoice_number))) DESC
         LIMIT 1
     ) bf ON i.invoice_number IS NOT NULL AND TRIM(i.invoice_number) != ''
+    WHERE bf."ENGAGEMENT" IS NULL OR EXISTS (
+        SELECT 1 FROM unnest(string_to_array(bf."ENGAGEMENT", ',')) AS code(v)
+        WHERE TRIM(code.v) NOT IN (SELECT commitment_number FROM hub_telecom.engagement_settings WHERE managed = false)
+    )
 `;
 
 // Convertit une date opérateur "JJ-MM-AAAA" (ou "JJ/MM/AAAA") en ISO 'AAAA-MM-JJ', sinon null
@@ -432,10 +436,34 @@ module.exports = {
     // « Synthèse » de Sedit). Plus d'import Excel à ce niveau.
     getTelecomEngagements: async (req, res) => {
         try {
-            res.json(await seditLive.getTelecomEngagementsLive());
+            const [list, settings] = await Promise.all([
+                seditLive.getTelecomEngagementsLive(),
+                pool.query('SELECT commitment_number, managed FROM hub_telecom.engagement_settings').then(r => r.rows).catch(() => []),
+            ]);
+            const unmanaged = new Set(settings.filter(s => s.managed === false).map(s => String(s.commitment_number).trim()));
+            res.json(list.map(e => ({ ...e, managed: !unmanaged.has(e.commitment_number) })));
         } catch (error) {
             console.error('[Telecom] getTelecomEngagements error:', error);
             res.status(500).json({ message: 'Erreur lecture engagements télécom (Sedit)', error: error.message });
+        }
+    },
+
+    // Gérer (ou non) un engagement en fluide : les factures rapprochées à un engagement géré sont
+    // intégrées automatiquement à l'historique ; celles d'un engagement non géré en sont masquées.
+    setEngagementManaged: async (req, res) => {
+        try {
+            const code = String(req.params.code || '').trim();
+            if (!code) return res.status(400).json({ message: 'Code engagement requis' });
+            const managed = req.body.managed !== false && req.body.managed !== 'false';
+            await pool.query(`
+                INSERT INTO hub_telecom.engagement_settings (commitment_number, managed, updated_by, updated_at)
+                VALUES ($1, $2, $3, CURRENT_TIMESTAMP)
+                ON CONFLICT (commitment_number) DO UPDATE SET managed = EXCLUDED.managed, updated_by = EXCLUDED.updated_by, updated_at = CURRENT_TIMESTAMP
+            `, [code, managed, req.user?.username || null]);
+            if (managed) await seditLive.refreshFactures({ force: true }).catch(() => {});
+            res.json({ commitment_number: code, managed });
+        } catch (error) {
+            res.status(500).json({ message: 'Erreur mise à jour engagement', error: error.message });
         }
     },
 
@@ -622,6 +650,8 @@ module.exports = {
 
             const result = await pool.query(`
                 SELECT r.id, r.invoice_number, r.reason, r.category, r.rejected_by, r.rejected_at,
+                       r.operator_id, r.billing_account_id, op.name as operator_name, ac.account_number,
+                       bf."ENGAGEMENT" as engagement, NULLIF(TRIM(bf."FACTURE_FACTURE"), '') as sedit_numero,
                        bf."FACTURE_LIBELLE2" as fournisseur,
                        bf."FACTURE_MONTANTTC_E"::numeric as amount_ttc,
                        bf."FACTURE_ROO_IMA_REF" as sedit_ref,
@@ -630,7 +660,7 @@ module.exports = {
                 FROM hub_telecom.rejected_invoices r
                 LEFT JOIN LATERAL (
                     SELECT f."FACTURE_LIBELLE2", f."FACTURE_MONTANTTC_E", f."FACTURE_ROO_IMA_REF",
-                           f."FACETAT_LIBELLE", f."FACTURE_LIBELLE1"
+                           f."FACETAT_LIBELLE", f."FACTURE_LIBELLE1", f."ENGAGEMENT", f."FACTURE_FACTURE"
                     FROM hub_telecom.sedit_factures_live f
                     WHERE LOWER(TRIM(f."FACTURE_REFERENCE")) = LOWER(TRIM(r.invoice_number))
                        OR f."FACTURE_LIBELLE1" ILIKE '%' || TRIM(r.invoice_number) || '%'
@@ -638,6 +668,8 @@ module.exports = {
                     ORDER BY (LOWER(TRIM(f."FACTURE_REFERENCE")) = LOWER(TRIM(r.invoice_number))) DESC
                     LIMIT 1
                 ) bf ON r.invoice_number IS NOT NULL AND TRIM(r.invoice_number) != ''
+                LEFT JOIN hub_telecom.operators op ON op.id = r.operator_id
+                LEFT JOIN hub_telecom.billing_accounts ac ON ac.id = r.billing_account_id
                 ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
                 ORDER BY r.rejected_at DESC, r.id DESC
                 LIMIT 500
