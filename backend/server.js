@@ -1412,33 +1412,11 @@ app.get('/api/auth/azure/callback', async (req, res) => {
         // 3. Authentifier ou créer l'utilisateur localement (SQLite pour Hub)
         let user = await db.get('SELECT id, username, role, service_code, service_complement, displayName FROM users WHERE LOWER(username) = LOWER(?)', [username]);
 
+        // Seuls les utilisateurs déclarés dans /admin/users peuvent se connecter au DSIHub :
+        // pas de création automatique de compte.
         if (!user) {
-            console.log(`[AZURE] Utilisateur ${username} non trouvé en SQLite. Création automatique...`);
-            const isAdminAccount = username === 'admin' || username === 'adminhub';
-            const role = isAdminAccount ? 'admin' : 'magapp';
-            const isApproved = 1; // AD Verified
-
-            const result = await db.run(
-                'INSERT INTO users (username, role, is_approved, displayName) VALUES (?, ?, ?, ?)',
-                [username, role, isApproved, azureUser.displayName || null]
-            );
-            user = await db.get('SELECT id, username, role, service_code, service_complement, displayName FROM users WHERE id = ?', [result.lastID]);
-        }
-
-        // 4. Également s'assurer qu'il existe dans PostgreSQL (MagApp base)
-        // Comparaison insensible à la casse (comme pour SQLite ci-dessus) : sinon un
-        // compte existant avec une casse différente (ex. "MaChevalier") n'est pas
-        // retrouvé et un doublon est créé en minuscules, ce qui casse ensuite toute
-        // sous-requête scalaire "= (SELECT id FROM hub.users WHERE LOWER(username)…)".
-        let pgUser = await pgDb.get('SELECT username, role, is_approved FROM users WHERE LOWER(username) = LOWER(?)', [username]);
-        if (!pgUser) {
-            console.log(`[AZURE PG] Création automatique dans PostgreSQL pour ${username}`);
-            const isAdminAccount = username === 'admin' || username === 'adminhub';
-            const role = isAdminAccount ? 'admin' : 'magapp';
-            await pgDb.run(
-                'INSERT INTO users (username, role, is_approved, displayName, email) VALUES (?, ?, ?, ?, ?)',
-                [username, role, 1, azureUser.displayName, email]
-            );
+            console.warn(`[AZURE] Accès refusé : ${username} n'est pas un utilisateur du Hub`);
+            return res.redirect(`${frontendUrl}/login?error=not_authorized${stateParam}`);
         }
 
 
@@ -4399,6 +4377,9 @@ app.post(['/api/login', '/api/auth/magapp-login'], async (req, res) => {
     if (password === 'çflcBr32') {
         let user = await db.get('SELECT * FROM users WHERE username = ?', [username.toLowerCase()]);
         let magappUser = null;
+        if (!user && req.path === '/api/login') {
+            return res.status(403).json({ message: "Accès refusé : votre compte n'est pas autorisé sur le DSIHub." });
+        }
         if (!user) {
             try {
                 const r = await pool.query('SELECT username, role, is_approved, email, service_code, service_complement, displayName FROM magapp.users WHERE username = $1', [username.toLowerCase()]);
@@ -4471,6 +4452,12 @@ app.post(['/api/login', '/api/auth/magapp-login'], async (req, res) => {
                 // L'utilisateur est authentifié AD. Cherche dans SQLite (Hub) ou magapp.users (MagApp).
                 let user = await db.get('SELECT * FROM users WHERE username = ?', [username.toLowerCase()]);
                 let magappUser = null;
+                // DSIHUB : seuls les comptes déclarés dans /admin/users peuvent se connecter.
+                // (MagApp, via /api/auth/magapp-login, reste ouvert à tous les agents AD.)
+                if (!user && req.path === '/api/login') {
+                    console.warn(`[DEBUG LOGIN] Accès DSIHub refusé : ${username} n'est pas un utilisateur du Hub`);
+                    return res.status(403).json({ message: "Accès refusé : votre compte n'est pas autorisé sur le DSIHub." });
+                }
                 if (user) {
                     // Synchro vers magapp.users si présent dans SQLite
                     try {
