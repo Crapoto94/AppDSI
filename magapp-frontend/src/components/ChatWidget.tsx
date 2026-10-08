@@ -38,6 +38,10 @@ export default function ChatWidget({ liveEnabled, beta = false }: Props) {
   const [sessionId, setSessionId] = useState<number | null>(null);
   const [techName, setTechName] = useState('');
   const [checking, setChecking] = useState(true);
+  // Ouverture selon les horaires du support (/admin/tickets) : null = en cours de lecture. Hors horaires,
+  // la bulle est grisée (même comportement que le chat du Hub).
+  const [scheduleOpen, setScheduleOpen] = useState<boolean | null>(null);
+  const [closingMessage, setClosingMessage] = useState('');
   const [rating, setRating] = useState(0);
   const [ratingComment, setRatingComment] = useState('');
 
@@ -52,6 +56,20 @@ export default function ChatWidget({ liveEnabled, beta = false }: Props) {
   const recognitionRef = useRef<any>(null);
 
   const token = localStorage.getItem('token');
+
+  // Horaires : lecture de l'état réel d'ouverture (calcul serveur, fuseau du calendrier), rafraîchi chaque minute
+  useEffect(() => {
+    if (!liveEnabled) return;
+    let stop = false;
+    const check = () => {
+      axios.get('/api/live/public-config', token ? { headers: { Authorization: `Bearer ${token}` } } : undefined)
+        .then(r => { if (!stop) { setScheduleOpen(r.data.live_enabled !== false); setClosingMessage(r.data.closing_message || ''); } })
+        .catch(() => { if (!stop) setScheduleOpen(true); }); // en cas d'erreur, on n'empêche pas le chat
+    };
+    check();
+    const t = setInterval(check, 60000);
+    return () => { stop = true; clearInterval(t); };
+  }, [liveEnabled]);
 
   // Restore existing session on mount
   useEffect(() => {
@@ -291,6 +309,24 @@ export default function ChatWidget({ liveEnabled, beta = false }: Props) {
   );
 
   // ── Bubble ────────────────────────────────────────────────────────────
+  // Hors horaires (et sans conversation en cours) : bulle grisée, non cliquable.
+  if ((state === 'idle' || state === 'ended') && scheduleOpen === false && !sessionId) {
+    return (
+      <button
+        disabled
+        title={closingMessage || 'Le support est actuellement fermé'}
+        style={{
+          position: 'fixed', bottom: 24, right: 24, zIndex: 9999,
+          width: 56, height: 56, borderRadius: '50%',
+          background: 'linear-gradient(135deg, #94a3b8, #64748b)',
+          border: 'none', cursor: 'not-allowed', boxShadow: '0 4px 20px rgba(100,116,139,0.4)',
+          color: '#fff', fontSize: 24, opacity: 0.85,
+        }}
+      >
+        ✕
+      </button>
+    );
+  }
   if (state === 'idle' || state === 'ended') {
     return (
       <button
