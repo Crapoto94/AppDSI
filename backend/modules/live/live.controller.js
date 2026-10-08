@@ -707,6 +707,14 @@ async function isNowInCalendar(calendarId) {
     const minStr   = parts.find(p => p.type === 'minute')?.value || '00';
     const current  = `${String(hourStr).padStart(2, '0')}:${String(minStr).padStart(2, '0')}`;
 
+    // Jour férié / fermeture exceptionnelle du calendrier : chat fermé toute la journée
+    const today = new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' }).format(now);
+    const holiday = await pgDb.get(
+        'SELECT 1 FROM hub_tickets.sla_holidays WHERE calendar_id = $1 AND holiday_date = $2::date LIMIT 1',
+        [cal.id, today]
+    );
+    if (holiday) return false;
+
     const slots = await pgDb.all(
         `SELECT start_time, end_time FROM hub_tickets.sla_calendar_hours
          WHERE calendar_id = $1 AND day_of_week = $2`,

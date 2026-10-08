@@ -1415,34 +1415,47 @@ function SLADefinitions({ data, categories, onUpdate }: { data: any[], categorie
   );
 }
 
-// ── SLA Calendars ──────────────────────────────────────────────────
+// ── SLA Calendars (CRUD : calendriers, plages horaires, jours fériés) ─────────
+const COMMON_TIMEZONES = ['Europe/Paris', 'Europe/London', 'Europe/Brussels', 'Europe/Zurich', 'America/Martinique', 'America/Guadeloupe', 'Indian/Reunion', 'America/New_York', 'UTC'];
+
 function SLACalendars({ data, onUpdate, loading }: { data: any[], onUpdate: () => void, loading: boolean }) {
   const [showCreate, setShowCreate] = useState(false);
   const [name, setName] = useState('');
+  const [desc, setDesc] = useState('');
+  const [tz, setTz] = useState('Europe/Paris');
   const [saving, setSaving] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editName, setEditName] = useState('');
   const [editDesc, setEditDesc] = useState('');
   const [editTz, setEditTz] = useState('');
-  const [addingHour, setAddingHour] = useState<number | null>(null);
+  // Plage horaire : ajout (hourId = null) ou modification d'une plage existante
+  const [slotForm, setSlotForm] = useState<{ calId: number; hourId: number | null } | null>(null);
   const [hourDay, setHourDay] = useState('1');
   const [hourStart, setHourStart] = useState('08:00');
   const [hourEnd, setHourEnd] = useState('12:00');
+  // Jour férié
+  const [holidayFor, setHolidayFor] = useState<number | null>(null);
+  const [holidayDate, setHolidayDate] = useState('');
+  const [holidayLabel, setHolidayLabel] = useState('');
 
   const token = localStorage.getItem('token');
   const h = { Authorization: `Bearer ${token}` };
+  const base = '/api/tickets/admin/sla/calendars';
 
   const DAY_LABELS = ['', 'Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam', 'Dim'];
+  const fail = (e: any) => alert(e.response?.data?.message || 'Erreur');
+  const btn = (bg: string, color = '#fff'): React.CSSProperties => ({ padding: '4px 10px', background: bg, color, border: 'none', borderRadius: 4, fontSize: 11, cursor: 'pointer', fontWeight: 600 });
+  const input: React.CSSProperties = { padding: '8px 12px', border: '1px solid #e2e8f0', borderRadius: 6, fontSize: 13 };
 
   async function create() {
     if (!name.trim()) return;
     setSaving(true);
     try {
-      await axios.post('/api/tickets/admin/sla/calendars', { name }, { headers: h });
-      setName('');
+      await axios.post(base, { name, description: desc, timezone: tz }, { headers: h });
+      setName(''); setDesc(''); setTz('Europe/Paris');
       setShowCreate(false);
       onUpdate();
-    } catch (e: any) { alert(e.response?.data?.message || 'Erreur'); }
+    } catch (e: any) { fail(e); }
     setSaving(false);
   }
 
@@ -1457,34 +1470,76 @@ function SLACalendars({ data, onUpdate, loading }: { data: any[], onUpdate: () =
     if (!editingId || !editName.trim()) return;
     setSaving(true);
     try {
-      await axios.put(`/api/tickets/admin/sla/calendars/${editingId}`, { name: editName, description: editDesc, timezone: editTz }, { headers: h });
+      await axios.put(`${base}/${editingId}`, { name: editName, description: editDesc, timezone: editTz }, { headers: h });
       setEditingId(null);
       onUpdate();
-    } catch (e: any) { alert(e.response?.data?.message || 'Erreur'); }
+    } catch (e: any) { fail(e); }
     setSaving(false);
   }
 
-  async function addHour(calendarId: number) {
+  async function setDefault(c: any) {
+    try { await axios.put(`${base}/${c.id}/default`, {}, { headers: h }); onUpdate(); } catch (e: any) { fail(e); }
+  }
+
+  async function duplicate(c: any) {
+    const nm = window.prompt('Nom du nouveau calendrier', `${c.name} (copie)`);
+    if (!nm || !nm.trim()) return;
+    try { await axios.post(`${base}/${c.id}/duplicate`, { name: nm }, { headers: h }); onUpdate(); } catch (e: any) { fail(e); }
+  }
+
+  async function remove(c: any) {
+    if (!window.confirm(`Supprimer le calendrier « ${c.name} » (plages horaires et jours fériés compris) ?`)) return;
+    try { await axios.delete(`${base}/${c.id}`, { headers: h }); onUpdate(); } catch (e: any) { fail(e); }
+  }
+
+  function openSlotForm(calId: number, slot?: any) {
+    setSlotForm({ calId, hourId: slot ? slot.id : null });
+    setHourDay(slot ? String(slot.day_of_week) : '1');
+    setHourStart(slot ? String(slot.start_time).substring(0, 5) : '08:00');
+    setHourEnd(slot ? String(slot.end_time).substring(0, 5) : '12:00');
+  }
+
+  async function saveSlot() {
+    if (!slotForm) return;
     setSaving(true);
     try {
-      await axios.post(`/api/tickets/admin/sla/calendars/${calendarId}/hours`, { day_of_week: parseInt(hourDay), start_time: hourStart, end_time: hourEnd }, { headers: h });
-      setAddingHour(null);
-      setHourDay('1'); setHourStart('08:00'); setHourEnd('12:00');
+      const body = { day_of_week: parseInt(hourDay), start_time: hourStart, end_time: hourEnd };
+      if (slotForm.hourId) await axios.put(`${base}/${slotForm.calId}/hours/${slotForm.hourId}`, body, { headers: h });
+      else await axios.post(`${base}/${slotForm.calId}/hours`, body, { headers: h });
+      setSlotForm(null);
       onUpdate();
-    } catch (e: any) { alert(e.response?.data?.message || 'Erreur'); }
+    } catch (e: any) { fail(e); }
     setSaving(false);
   }
 
   async function deleteHour(calendarId: number, hourId: number) {
     if (!confirm('Supprimer cette plage horaire ?')) return;
-    try {
-      await axios.delete(`/api/tickets/admin/sla/calendars/${calendarId}/hours/${hourId}`, { headers: h });
-      onUpdate();
-    } catch (e: any) { alert(e.response?.data?.message || 'Erreur'); }
+    try { await axios.delete(`${base}/${calendarId}/hours/${hourId}`, { headers: h }); onUpdate(); } catch (e: any) { fail(e); }
   }
+
+  async function addHoliday(calId: number) {
+    if (!holidayDate || !holidayLabel.trim()) return;
+    setSaving(true);
+    try {
+      await axios.post(`${base}/${calId}/holidays`, { holiday_date: holidayDate, label: holidayLabel }, { headers: h });
+      setHolidayFor(null); setHolidayDate(''); setHolidayLabel('');
+      onUpdate();
+    } catch (e: any) { fail(e); }
+    setSaving(false);
+  }
+
+  async function deleteHoliday(calId: number, holidayId: number) {
+    try { await axios.delete(`${base}/${calId}/holidays/${holidayId}`, { headers: h }); onUpdate(); } catch (e: any) { fail(e); }
+  }
+
+  const fmtDate = (d: string) => new Date(`${String(d).substring(0, 10)}T12:00:00`).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: 'numeric' });
+  const tzList = (
+    <datalist id="sla-timezones">{COMMON_TIMEZONES.map(z => <option key={z} value={z} />)}</datalist>
+  );
 
   return (
     <div>
+      {tzList}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
         <h3 style={{ margin: 0, fontSize: 16 }}>Calendriers SLA</h3>
         <button onClick={() => setShowCreate(true)}
@@ -1494,14 +1549,15 @@ function SLACalendars({ data, onUpdate, loading }: { data: any[], onUpdate: () =
       </div>
 
       {showCreate && (
-        <div style={{ display: 'flex', gap: 8, marginBottom: 16, padding: 12, background: '#eff6ff', borderRadius: 8, border: '1px solid #dbeafe' }}>
-          <input value={name} onChange={e => setName(e.target.value)} placeholder="Nom du calendrier"
-            style={{ flex: 1, padding: '8px 12px', border: '1px solid #e2e8f0', borderRadius: 6, fontSize: 13 }} />
+        <div style={{ display: 'flex', gap: 8, marginBottom: 16, padding: 12, background: '#eff6ff', borderRadius: 8, border: '1px solid #dbeafe', flexWrap: 'wrap' }}>
+          <input value={name} onChange={e => setName(e.target.value)} placeholder="Nom du calendrier" style={{ ...input, flex: '1 1 200px' }} />
+          <input value={desc} onChange={e => setDesc(e.target.value)} placeholder="Description (facultatif)" style={{ ...input, flex: '2 1 240px' }} />
+          <input value={tz} onChange={e => setTz(e.target.value)} list="sla-timezones" placeholder="Fuseau" style={{ ...input, width: 170 }} />
           <button onClick={create} disabled={saving}
             style={{ padding: '8px 16px', background: saving ? '#94a3b8' : '#6366f1', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontWeight: 600, fontSize: 13 }}>
             {saving ? '...' : 'Créer'}
           </button>
-          <button onClick={() => { setShowCreate(false); setName(''); }}
+          <button onClick={() => { setShowCreate(false); setName(''); setDesc(''); }}
             style={{ padding: '8px 16px', background: '#e2e8f0', color: '#475569', border: 'none', borderRadius: 6, cursor: 'pointer', fontWeight: 600, fontSize: 13 }}>Annuler</button>
         </div>
       )}
@@ -1510,75 +1566,114 @@ function SLACalendars({ data, onUpdate, loading }: { data: any[], onUpdate: () =
         <div style={{ padding: 40, textAlign: 'center', color: '#94a3b8' }}>Chargement...</div>
       ) : (
         <div style={{ display: 'grid', gap: 12 }}>
-          {data.map(c => (
-            <div key={c.id} style={{ padding: 16, border: '1px solid #e2e8f0', borderRadius: 10, background: '#f8fafc' }}>
-              {editingId === c.id ? (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                  <input value={editName} onChange={e => setEditName(e.target.value)} placeholder="Nom"
-                    style={{ padding: '8px 12px', border: '1px solid #e2e8f0', borderRadius: 6, fontSize: 13 }} />
-                  <input value={editDesc} onChange={e => setEditDesc(e.target.value)} placeholder="Description"
-                    style={{ padding: '8px 12px', border: '1px solid #e2e8f0', borderRadius: 6, fontSize: 13 }} />
-                  <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                    <span style={{ fontSize: 12, fontWeight: 600, color: '#64748b' }}>Fuseau:</span>
-                    <input value={editTz} onChange={e => setEditTz(e.target.value)}
-                      style={{ flex: 1, padding: '6px 10px', border: '1px solid #e2e8f0', borderRadius: 6, fontSize: 12 }} />
+          {data.map(c => {
+            const blockers: string[] = [];
+            if (c.is_default) blockers.push('calendrier par défaut');
+            if (c.sla_count > 0) blockers.push(`${c.sla_count} SLA`);
+            if (c.used_by_live) blockers.push('chat live');
+            return (
+              <div key={c.id} style={{ padding: 16, border: '1px solid #e2e8f0', borderRadius: 10, background: '#f8fafc' }}>
+                {editingId === c.id ? (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                    <input value={editName} onChange={e => setEditName(e.target.value)} placeholder="Nom" style={input} />
+                    <input value={editDesc} onChange={e => setEditDesc(e.target.value)} placeholder="Description" style={input} />
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                      <span style={{ fontSize: 12, fontWeight: 600, color: '#64748b' }}>Fuseau :</span>
+                      <input value={editTz} onChange={e => setEditTz(e.target.value)} list="sla-timezones"
+                        style={{ flex: 1, padding: '6px 10px', border: '1px solid #e2e8f0', borderRadius: 6, fontSize: 12 }} />
+                    </div>
+                    <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+                      <button onClick={() => setEditingId(null)}
+                        style={{ padding: '6px 14px', border: '1px solid #e2e8f0', borderRadius: 6, background: '#fff', cursor: 'pointer', fontSize: 12 }}>Annuler</button>
+                      <button onClick={saveEdit} disabled={saving}
+                        style={{ padding: '6px 14px', border: 'none', borderRadius: 6, background: saving ? '#94a3b8' : '#6366f1', color: '#fff', cursor: 'pointer', fontWeight: 600, fontSize: 12 }}>
+                        {saving ? '...' : 'Enregistrer'}
+                      </button>
+                    </div>
                   </div>
-                  <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-                    <button onClick={() => setEditingId(null)}
-                      style={{ padding: '6px 14px', border: '1px solid #e2e8f0', borderRadius: 6, background: '#fff', cursor: 'pointer', fontSize: 12 }}>Annuler</button>
-                    <button onClick={saveEdit} disabled={saving}
-                      style={{ padding: '6px 14px', border: 'none', borderRadius: 6, background: saving ? '#94a3b8' : '#6366f1', color: '#fff', cursor: 'pointer', fontWeight: 600, fontSize: 12 }}>
-                      {saving ? '...' : 'Enregistrer'}
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                <>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
-                    <div>
-                      <div style={{ fontWeight: 600, fontSize: 14 }}>{c.name}</div>
-                      <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>
-                        {c.description || '—'} · {c.timezone || 'Europe/Paris'}
-                        {c.is_default && <span style={{ marginLeft: 8, color: '#6366f1', fontWeight: 600 }}>Défaut</span>}
+                ) : (
+                  <>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8, gap: 8, flexWrap: 'wrap' }}>
+                      <div>
+                        <div style={{ fontWeight: 600, fontSize: 14 }}>{c.name}</div>
+                        <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>
+                          {c.description || '—'} · {c.timezone || 'Europe/Paris'}
+                          {c.is_default && <span style={{ marginLeft: 8, color: '#6366f1', fontWeight: 600 }}>Défaut</span>}
+                          {c.used_by_live && <span style={{ marginLeft: 8, color: '#059669', fontWeight: 600 }}>Pilote le chat live</span>}
+                          {c.sla_count > 0 && <span style={{ marginLeft: 8, color: '#0369a1' }}>{c.sla_count} SLA</span>}
+                        </div>
+                      </div>
+                      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                        <button onClick={() => startEdit(c)} style={btn('#f59e0b')}>✎ Modifier</button>
+                        {!c.is_default && <button onClick={() => setDefault(c)} style={btn('#6366f1')} title="Utiliser ce calendrier par défaut">★ Par défaut</button>}
+                        <button onClick={() => duplicate(c)} style={btn('#0ea5e9')} title="Dupliquer avec ses plages horaires et jours fériés">⧉ Dupliquer</button>
+                        <button onClick={() => remove(c)} disabled={blockers.length > 0} style={{ ...btn(blockers.length ? '#e2e8f0' : '#ef4444', blockers.length ? '#94a3b8' : '#fff'), cursor: blockers.length ? 'not-allowed' : 'pointer' }}
+                          title={blockers.length ? `Suppression impossible : ${blockers.join(', ')}` : 'Supprimer le calendrier'}>🗑 Supprimer</button>
                       </div>
                     </div>
-                    <button onClick={() => startEdit(c)} style={{ padding: '4px 10px', background: '#f59e0b', color: '#fff', border: 'none', borderRadius: 4, fontSize: 11, cursor: 'pointer', fontWeight: 600 }}>✎ Modifier</button>
-                  </div>
 
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
-                    {(c.hours || []).map((hSlot: any) => (
-                      <span key={hSlot.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '4px 10px', background: '#eef2ff', color: '#6366f1', borderRadius: 6, fontSize: 12 }}>
-                        {DAY_LABELS[hSlot.day_of_week] || `J${hSlot.day_of_week}`} {hSlot.start_time?.substring(0, 5)}-{hSlot.end_time?.substring(0, 5)}
-                        <button onClick={() => deleteHour(c.id, hSlot.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ef4444', fontSize: 14, padding: 0, marginLeft: 2, lineHeight: 1 }}>×</button>
-                      </span>
-                    ))}
-                  </div>
-
-                  {addingHour === c.id ? (
-                    <div style={{ display: 'flex', gap: 6, alignItems: 'center', padding: 8, background: '#fff', borderRadius: 6, border: '1px solid #e2e8f0' }}>
-                      <select value={hourDay} onChange={e => setHourDay(e.target.value)}
-                        style={{ padding: '4px 6px', border: '1px solid #e2e8f0', borderRadius: 4, fontSize: 12, background: '#fff' }}>
-                        {[1, 2, 3, 4, 5, 6, 7].map(d => <option key={d} value={d}>{DAY_LABELS[d]}</option>)}
-                      </select>
-                      <input type="time" value={hourStart} onChange={e => setHourStart(e.target.value)}
-                        style={{ padding: '4px 6px', border: '1px solid #e2e8f0', borderRadius: 4, fontSize: 12 }} />
-                      <span style={{ fontSize: 12, color: '#94a3b8' }}>-</span>
-                      <input type="time" value={hourEnd} onChange={e => setHourEnd(e.target.value)}
-                        style={{ padding: '4px 6px', border: '1px solid #e2e8f0', borderRadius: 4, fontSize: 12 }} />
-                      <button onClick={() => addHour(c.id)} disabled={saving}
-                        style={{ padding: '4px 10px', background: '#22c55e', color: '#fff', border: 'none', borderRadius: 4, cursor: 'pointer', fontSize: 11, fontWeight: 600 }}>+</button>
-                      <button onClick={() => setAddingHour(null)}
-                        style={{ padding: '4px 8px', background: '#e2e8f0', color: '#475569', border: 'none', borderRadius: 4, cursor: 'pointer', fontSize: 11 }}>✕</button>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
+                      {(c.hours || []).map((hSlot: any) => (
+                        <span key={hSlot.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '4px 10px', background: '#eef2ff', color: '#6366f1', borderRadius: 6, fontSize: 12 }}>
+                          <span onClick={() => openSlotForm(c.id, hSlot)} style={{ cursor: 'pointer' }} title="Modifier cette plage">
+                            {DAY_LABELS[hSlot.day_of_week] || `J${hSlot.day_of_week}`} {hSlot.start_time?.substring(0, 5)}-{hSlot.end_time?.substring(0, 5)}
+                          </span>
+                          <button onClick={() => deleteHour(c.id, hSlot.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ef4444', fontSize: 14, padding: 0, marginLeft: 2, lineHeight: 1 }}>×</button>
+                        </span>
+                      ))}
+                      {(c.hours || []).length === 0 && <span style={{ fontSize: 12, color: '#94a3b8' }}>Aucune plage horaire : le calendrier est toujours fermé.</span>}
                     </div>
-                  ) : (
-                    <button onClick={() => setAddingHour(c.id)} style={{ padding: '4px 10px', background: 'none', border: '1px dashed #cbd5e1', borderRadius: 6, cursor: 'pointer', fontSize: 12, color: '#64748b' }}>
-                      + Ajouter une plage horaire
-                    </button>
-                  )}
-                </>
-              )}
-            </div>
-          ))}
+
+                    {slotForm?.calId === c.id ? (
+                      <div style={{ display: 'flex', gap: 6, alignItems: 'center', padding: 8, background: '#fff', borderRadius: 6, border: '1px solid #e2e8f0', flexWrap: 'wrap' }}>
+                        <span style={{ fontSize: 12, color: '#64748b' }}>{slotForm?.hourId ? 'Modifier la plage' : 'Nouvelle plage'}</span>
+                        <select value={hourDay} onChange={e => setHourDay(e.target.value)}
+                          style={{ padding: '4px 6px', border: '1px solid #e2e8f0', borderRadius: 4, fontSize: 12, background: '#fff' }}>
+                          {[1, 2, 3, 4, 5, 6, 7].map(d => <option key={d} value={d}>{DAY_LABELS[d]}</option>)}
+                        </select>
+                        <input type="time" value={hourStart} onChange={e => setHourStart(e.target.value)} style={{ padding: '4px 6px', border: '1px solid #e2e8f0', borderRadius: 4, fontSize: 12 }} />
+                        <span style={{ fontSize: 12, color: '#94a3b8' }}>-</span>
+                        <input type="time" value={hourEnd} onChange={e => setHourEnd(e.target.value)} style={{ padding: '4px 6px', border: '1px solid #e2e8f0', borderRadius: 4, fontSize: 12 }} />
+                        <button onClick={saveSlot} disabled={saving} style={btn('#22c55e')}>{slotForm?.hourId ? 'Enregistrer' : '+'}</button>
+                        <button onClick={() => setSlotForm(null)} style={btn('#e2e8f0', '#475569')}>✕</button>
+                      </div>
+                    ) : (
+                      <button onClick={() => openSlotForm(c.id)} style={{ padding: '4px 10px', background: 'none', border: '1px dashed #cbd5e1', borderRadius: 6, cursor: 'pointer', fontSize: 12, color: '#64748b' }}>
+                        + Ajouter une plage horaire
+                      </button>
+                    )}
+
+                    {/* Jours fériés / fermetures exceptionnelles */}
+                    <div style={{ marginTop: 12, paddingTop: 10, borderTop: '1px dashed #e2e8f0' }}>
+                      <div style={{ fontSize: 12, fontWeight: 600, color: '#475569', marginBottom: 6 }}>Jours fériés / fermetures (calendrier fermé ces jours-là)</div>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 6 }}>
+                        {(c.holidays || []).map((hd: any) => (
+                          <span key={hd.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '4px 10px', background: '#fef3c7', color: '#92400e', borderRadius: 6, fontSize: 12 }}>
+                            {fmtDate(hd.holiday_date)} — {hd.label}
+                            <button onClick={() => deleteHoliday(c.id, hd.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ef4444', fontSize: 14, padding: 0, marginLeft: 2, lineHeight: 1 }}>×</button>
+                          </span>
+                        ))}
+                        {(c.holidays || []).length === 0 && <span style={{ fontSize: 12, color: '#94a3b8' }}>Aucun jour férié.</span>}
+                      </div>
+                      {holidayFor === c.id ? (
+                        <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+                          <input type="date" value={holidayDate} onChange={e => setHolidayDate(e.target.value)} style={{ padding: '4px 6px', border: '1px solid #e2e8f0', borderRadius: 4, fontSize: 12 }} />
+                          <input value={holidayLabel} onChange={e => setHolidayLabel(e.target.value)} placeholder="Libellé (ex. Noël)" style={{ padding: '4px 8px', border: '1px solid #e2e8f0', borderRadius: 4, fontSize: 12, width: 200 }} />
+                          <button onClick={() => addHoliday(c.id)} disabled={saving} style={btn('#22c55e')}>+</button>
+                          <button onClick={() => setHolidayFor(null)} style={btn('#e2e8f0', '#475569')}>✕</button>
+                        </div>
+                      ) : (
+                        <button onClick={() => { setHolidayFor(c.id); setHolidayDate(''); setHolidayLabel(''); }}
+                          style={{ padding: '4px 10px', background: 'none', border: '1px dashed #cbd5e1', borderRadius: 6, cursor: 'pointer', fontSize: 12, color: '#64748b' }}>
+                          + Ajouter un jour férié
+                        </button>
+                      )}
+                    </div>
+                  </>
+                )}
+              </div>
+            );
+          })}
           {data.length === 0 && !loading && (
             <div style={{ padding: 40, textAlign: 'center', color: '#94a3b8' }}>Aucun calendrier</div>
           )}
