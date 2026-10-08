@@ -126,33 +126,47 @@ async function getTierNames(tierCode) {
 }
 
 /**
- * Engagements (FI.MOUVEMENT) lus en direct dans Sedit, par code (ex. 26D000168) : montant engagé
- * (somme des lignes MTENGAGE_E), consommé (MTOCRE_E) et solde = engagé − consommé.
+ * Synthèse des engagements (FI.MOUVEMENT / FI.MVTLIGNE) lue en direct dans Sedit, comme l'écran
+ * « Synthèse » d'un engagement : Initial (MTTC_INITIAL), Engagé (MONTANTTC_E), Dégagé
+ * (MTSERFAIT_E) et Reste engagé (Engagé − Dégagé), en TTC et en HT. Seuls les engagements de
+ * l'année en cours sont renvoyés.
  */
 async function getEngagementsLive(codes) {
     const list = [...new Set((codes || []).map((c) => String(c || '').trim()).filter(Boolean))];
     if (!list.length) return {};
-    const binds = {};
+    const binds = { year: new Date().getFullYear() };
     const ph = list.map((c, i) => { binds[`c${i}`] = c; return `:c${i}`; }).join(', ');
+    const r2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
     return financeShare.withFinanceOracle(async (conn) => {
         const r = await conn.execute(
-            `SELECT TRIM(m.MOUVEMENT) AS CODE, MAX(m.LIBELLE) AS LIBELLE,
-                    SUM(l.MTENGAGE_E) AS ENGAGE, SUM(l.MTOCRE_E) AS CONSOMME
+            `SELECT TRIM(m.MOUVEMENT) AS CODE, m.LIBELLE AS LIBELLE, COUNT(*) AS N, MAX(l.EXEORIGINE) AS EXERCICE,
+                    SUM(l.MTTC_INITIAL) AS INIT_TTC, SUM(l.MTTC_INITIAL - NVL(l.MTVA_INITIAL, 0)) AS INIT_HT,
+                    SUM(l.MONTANTTC_E) AS ENG_TTC, SUM(l.MONTANTTC_E - NVL(l.MTVA_E, 0)) AS ENG_HT,
+                    SUM(l.MTSERFAIT_E) AS DEG_TTC,
+                    SUM(CASE WHEN l.MONTANTTC_E = 0 THEN 0
+                             ELSE l.MTSERFAIT_E * (l.MONTANTTC_E - NVL(l.MTVA_E, 0)) / l.MONTANTTC_E END) AS DEG_HT
              FROM FI.MOUVEMENT m
-             LEFT JOIN FI.MVTLIGNE l ON l.MOUVEMENT = m.ROO_IMA_REF
+             JOIN FI.MVTLIGNE l ON l.MOUVEMENT = m.ROO_IMA_REF
              WHERE TRIM(m.MOUVEMENT) IN (${ph})
-             GROUP BY TRIM(m.MOUVEMENT)`,
+             GROUP BY TRIM(m.MOUVEMENT), m.ROO_IMA_REF, m.LIBELLE
+             HAVING MAX(l.EXEORIGINE) = :year`,
             binds
         );
-        const out = {};
+        // Un même code peut exister sur plusieurs mouvements (ex. régularisation) : on garde celui
+        // qui compte le plus de lignes.
+        const best = {};
         for (const row of r.rows) {
-            const engage = Number(row.ENGAGE) || 0;
-            const consomme = Number(row.CONSOMME) || 0;
-            out[row.CODE] = {
+            if (!best[row.CODE] || row.N > best[row.CODE].N) best[row.CODE] = row;
+        }
+        const out = {};
+        for (const [code, row] of Object.entries(best)) {
+            const ttc = { initial: r2(row.INIT_TTC), engage: r2(row.ENG_TTC), degage: r2(row.DEG_TTC) };
+            const ht = { initial: r2(row.INIT_HT), engage: r2(row.ENG_HT), degage: r2(row.DEG_HT) };
+            out[code] = {
                 libelle: row.LIBELLE ? String(row.LIBELLE).trim() : '',
-                engage: Math.round(engage * 100) / 100,
-                consomme: Math.round(consomme * 100) / 100,
-                solde: Math.round((engage - consomme) * 100) / 100,
+                exercice: row.EXERCICE,
+                ttc: { ...ttc, reste: r2(ttc.engage - ttc.degage) },
+                ht: { ...ht, reste: r2(ht.engage - ht.degage) },
             };
         }
         return out;

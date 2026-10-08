@@ -100,6 +100,10 @@ interface TelecomInvoice {
   effective_month?: string | null;
 }
 
+// Synthèse d'un engagement lue en direct dans Sedit (année en cours uniquement)
+interface EngagementTotals { initial: number; engage: number; degage: number; reste: number; }
+interface EngagementSynthese { libelle: string; exercice: number; ttc: EngagementTotals; ht: EngagementTotals; }
+
 interface AvailableBudgetInvoice {
   invoice_number: string;
   libelle: string;
@@ -385,7 +389,7 @@ const TelecomManagement: React.FC = () => {
   const [addInvoiceAccountId, setAddInvoiceAccountId] = useState<number | null>(null);
   const [availableInvoices, setAvailableInvoices] = useState<AvailableBudgetInvoice[]>([]);
   // Engagements Sedit (lus en direct) des comptes de l'opérateur choisi dans la modale d'ajout
-  const [liveEngagements, setLiveEngagements] = useState<Record<string, { libelle: string; engage: number; consomme: number; solde: number }>>({});
+  const [liveEngagements, setLiveEngagements] = useState<Record<string, EngagementSynthese>>({});
   const [loadingAvailable, setLoadingAvailable] = useState(false);
   const [availableSearch, setAvailableSearch] = useState('');
   const [addingInvoiceNumber, setAddingInvoiceNumber] = useState<string | null>(null);
@@ -2679,7 +2683,7 @@ const TelecomManagement: React.FC = () => {
                   const eng = acc.commitment_number ? liveEngagements[acc.commitment_number.trim()] : undefined;
                   return (
                     <option key={acc.id} value={acc.id}>
-                      {acc.account_number} ({acc.designation}){acc.commitment_number ? ` — Eng. ${acc.commitment_number}` : ''}{eng ? ` — solde ${eng.solde.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}` : ''}
+                      {acc.account_number} ({acc.designation}){acc.commitment_number ? ` — Eng. ${acc.commitment_number}` : ''}{eng ? ` — reste engagé ${eng.ttc.reste.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}` : ''}
                     </option>
                   );
                 })}
@@ -2701,13 +2705,28 @@ const TelecomManagement: React.FC = () => {
                 <div style={{ padding: '8px 20px', fontSize: 12.5, background: '#f0f9ff', color: '#0c4a6e', display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'center' }}>
                   <span>Compte <b>{acc.account_number}</b></span>
                   <span>Engagement : <b>{code || 'non renseigné'}</b>{eng?.libelle ? ` — ${eng.libelle}` : ''}</span>
-                  {code && (eng ? (
-                    <>
-                      <span>Engagé : <b>{eur(eng.engage)}</b></span>
-                      <span>Consommé : <b>{eur(eng.consomme)}</b></span>
-                      <span>Solde : <b style={{ color: eng.solde < 0 ? '#b91c1c' : '#047857' }}>{eur(eng.solde)}</b></span>
-                    </>
-                  ) : <span style={{ color: '#64748b' }}>solde Sedit indisponible</span>)}
+                  {code && !eng && <span style={{ color: '#64748b' }}>aucun engagement {new Date().getFullYear()} trouvé dans Sedit</span>}
+                  {eng && (
+                    <table style={{ borderCollapse: 'collapse', background: '#fff', border: '1px solid #bae6fd', fontSize: 12.5 }}>
+                      <thead>
+                        <tr style={{ color: '#0369a1' }}>
+                          <th></th><th style={{ padding: '2px 10px', textAlign: 'right' }}>Initial</th><th style={{ padding: '2px 10px', textAlign: 'right' }}>Engagé</th>
+                          <th style={{ padding: '2px 10px', textAlign: 'right' }}>Dégagé</th><th style={{ padding: '2px 10px', textAlign: 'right' }}>Reste engagé</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {([['HT', eng.ht], ['TTC', eng.ttc]] as [string, EngagementTotals][]).map(([lbl, t]) => (
+                          <tr key={lbl}>
+                            <td style={{ padding: '2px 10px', fontWeight: 700 }}>{lbl}</td>
+                            <td style={{ padding: '2px 10px', textAlign: 'right' }}>{eur(t.initial)}</td>
+                            <td style={{ padding: '2px 10px', textAlign: 'right' }}>{eur(t.engage)}</td>
+                            <td style={{ padding: '2px 10px', textAlign: 'right' }}>{eur(t.degage)}</td>
+                            <td style={{ padding: '2px 10px', textAlign: 'right', fontWeight: 700, color: t.reste < 0 ? '#b91c1c' : '#047857' }}>{eur(t.reste)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
                 </div>
               );
             })()}
