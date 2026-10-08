@@ -3627,6 +3627,7 @@ async function setupPgDb() {
       `commande_montant NUMERIC(14,2)`, `commande_tiers TEXT`,
       `commande_associee_par TEXT`, `commande_associee_at TIMESTAMPTZ`,
       `valide_commentaire TEXT`,
+      `modifie_par TEXT`, `modifie_at TIMESTAMPTZ`,
     ]) {
       try { await client.query(`ALTER TABLE finance.demandes_commande ADD COLUMN IF NOT EXISTS ${col}`); } catch (e) { console.error('[PG DB] alter demandes_commande:', e.message); }
     }
@@ -3642,6 +3643,22 @@ async function setupPgDb() {
         uploaded_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
       );
     `);
+    // Fil de commentaires d'une demande (dès le devis pris en compte) : réponses (parent_id) et @mentions.
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS finance.demandes_commande_commentaires (
+        id SERIAL PRIMARY KEY,
+        demande_id INTEGER NOT NULL REFERENCES finance.demandes_commande(id) ON DELETE CASCADE,
+        parent_id INTEGER REFERENCES finance.demandes_commande_commentaires(id) ON DELETE CASCADE,
+        author_username TEXT NOT NULL,
+        author_name TEXT DEFAULT '',
+        content TEXT NOT NULL,
+        mentions TEXT[] DEFAULT '{}',
+        is_system BOOLEAN DEFAULT FALSE,
+        created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+        edited_at TIMESTAMPTZ
+      );
+    `);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_demandes_commande_comm_demande ON finance.demandes_commande_commentaires(demande_id)`);
     await client.query(`
       CREATE TABLE IF NOT EXISTS finance.demandes_commande_validateurs (
         username TEXT PRIMARY KEY,

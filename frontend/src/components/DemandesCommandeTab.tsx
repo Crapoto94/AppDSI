@@ -1,7 +1,8 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import axios from 'axios';
 import { useAuth } from '../contexts/AuthContext';
-import { CheckCircle, Paperclip, Plus, Trash2, FileText } from 'lucide-react';
+import { CheckCircle, Paperclip, Plus, Trash2, FileText, MessageSquare, Edit2, X } from 'lucide-react';
+import DemandeCommentsModal from './DemandeCommentsModal';
 
 interface Piece { id: number; file_path: string; file_name: string; size: number | null; }
 interface Demande {
@@ -22,6 +23,9 @@ interface Demande {
   commande_libelle: string | null;
   commande_montant: number | null;
   commande_tiers: string | null;
+  comment_count?: number;
+  modifie_par?: string | null;
+  modifie_at?: string | null;
 }
 interface SeditCommande {
   ROO: string; NUMERO: string; DATE_COMMANDE: string | null; MONTANT_TTC: number | null;
@@ -47,7 +51,7 @@ const s: Record<string, React.CSSProperties> = {
 const fmtMoney = (n: number) => n.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' });
 
 const DemandesCommandeTab: React.FC = () => {
-  const { token } = useAuth();
+  const { token, user } = useAuth();
   const headers = { Authorization: `Bearer ${token}` };
 
   const [demandes, setDemandes] = useState<Demande[]>([]);
@@ -58,6 +62,48 @@ const DemandesCommandeTab: React.FC = () => {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [newVal, setNewVal] = useState<Validateur>({ username: '', fonction: 'directeur' });
+
+  // Fil de commentaires (dès le devis pris en compte) et édition d'une demande
+  const [commentsFor, setCommentsFor] = useState<Demande | null>(null);
+  const [editFor, setEditFor] = useState<Demande | null>(null);
+  const [editForm, setEditForm] = useState({ designation: '', description: '', montant: '' });
+  const [editRemove, setEditRemove] = useState<number[]>([]);
+  const [editFiles, setEditFiles] = useState<File[]>([]);
+  const [editSaving, setEditSaving] = useState(false);
+  const [editError, setEditError] = useState('');
+
+  // Le demandeur modifie tant que rien n'est validé ; gestionnaires et validateurs à tout moment.
+  const canEditDemande = (d: Demande) => me.can_manage || me.can_validate || (d.demandeur_username === user?.username && d.statut === 'devis_pris_en_compte');
+
+  const openEdit = (d: Demande) => {
+    setEditFor(d);
+    setEditForm({ designation: d.designation, description: d.description || '', montant: String(d.montant) });
+    setEditRemove([]);
+    setEditFiles([]);
+    setEditError('');
+  };
+
+  const saveEdit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editFor) return;
+    setEditError('');
+    const fd = new FormData();
+    fd.append('designation', editForm.designation);
+    fd.append('description', editForm.description);
+    fd.append('montant', editForm.montant);
+    fd.append('remove_piece_ids', JSON.stringify(editRemove));
+    editFiles.forEach(f => fd.append('files', f));
+    setEditSaving(true);
+    try {
+      await axios.put(`/api/demandes-commande/${editFor.id}`, fd, { headers });
+      setEditFor(null);
+      await load();
+    } catch (err: any) {
+      setEditError(err.response?.data?.message || 'Erreur lors de la modification');
+    } finally {
+      setEditSaving(false);
+    }
+  };
 
   const load = useCallback(async () => {
     try {
@@ -76,6 +122,18 @@ const DemandesCommandeTab: React.FC = () => {
   }, [token]);
 
   useEffect(() => { load(); }, [load]);
+
+  // Lien d'une notification de mention : ouvre directement le fil de la demande
+  const [deepLinked, setDeepLinked] = useState(false);
+  useEffect(() => {
+    if (deepLinked || demandes.length === 0) return;
+    const id = parseInt(new URLSearchParams(window.location.search).get('demande') || '', 10);
+    if (id) {
+      const d = demandes.find(x => x.id === id);
+      if (d) setCommentsFor(d);
+    }
+    setDeepLinked(true);
+  }, [demandes, deepLinked]);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -189,13 +247,14 @@ const DemandesCommandeTab: React.FC = () => {
           <th style={s.th}>Montant TTC</th>
           <th style={s.th}>Devis</th>
           <th style={s.th}>Statut</th>
+          <th style={s.th}>Échanges</th>
           {withCommande && <th style={s.th}>Commande Sedit</th>}
           {withAction && <th style={s.th}></th>}
         </tr>
       </thead>
       <tbody>
         {rows.length === 0 && (
-          <tr><td style={{ ...s.td, color: '#94a3b8' }} colSpan={6 + (withAction ? 1 : 0) + (withCommande ? 1 : 0)}>Aucune demande.</td></tr>
+          <tr><td style={{ ...s.td, color: '#94a3b8' }} colSpan={7 + (withAction ? 1 : 0) + (withCommande ? 1 : 0)}>Aucune demande.</td></tr>
         )}
         {rows.map(d => {
           const st = STATUT_LABELS[d.statut] || { label: d.statut, color: '#64748b' };
@@ -206,6 +265,7 @@ const DemandesCommandeTab: React.FC = () => {
               <td style={s.td}>
                 <div style={{ fontWeight: 600 }}>{d.designation}</div>
                 {d.description && <div style={{ color: '#64748b', fontSize: '0.8rem', whiteSpace: 'pre-wrap' }}>{d.description}</div>}
+                {d.modifie_at && <div style={{ color: '#94a3b8', fontSize: '0.72rem' }}>modifiée par {d.modifie_par} le {new Date(d.modifie_at).toLocaleDateString('fr-FR')}</div>}
               </td>
               <td style={{ ...s.td, whiteSpace: 'nowrap' }}>{fmtMoney(d.montant)}</td>
               <td style={s.td}>
@@ -229,6 +289,12 @@ const DemandesCommandeTab: React.FC = () => {
                   <div style={{ fontSize: '0.78rem', color: '#475569', fontStyle: 'italic', whiteSpace: 'pre-wrap', marginTop: 2 }}>« {d.valide_commentaire} »</div>
                 )}
               </td>
+              <td style={s.td}>
+                <button type="button" onClick={() => setCommentsFor(d)} title="Commenter, mentionner (@) et répondre"
+                  style={{ ...s.btn, background: (d.comment_count || 0) > 0 ? '#0ea5e9' : '#64748b', padding: '0.35rem 0.7rem', fontSize: '0.8rem' }}>
+                  <MessageSquare size={14} /> {(d.comment_count || 0) > 0 ? d.comment_count : 'Commenter'}
+                </button>
+              </td>
               {withCommande && (
                 <td style={s.td}>
                   {d.commande_numero && (
@@ -250,6 +316,11 @@ const DemandesCommandeTab: React.FC = () => {
               {withAction && (
                 <td style={s.td}>
                   <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                    {canEditDemande(d) && (
+                      <button style={{ ...s.btn, background: '#475569' }} onClick={() => openEdit(d)} title="Modifier la demande">
+                        <Edit2 size={15} /> Modifier
+                      </button>
+                    )}
                     {me.can_validate && d.statut === 'devis_pris_en_compte' && (
                       <button style={{ ...s.btn, background: '#16a34a' }} onClick={() => openValidate(d)}>
                         <CheckCircle size={15} /> Valider
@@ -311,6 +382,65 @@ const DemandesCommandeTab: React.FC = () => {
         <div style={s.card}>
           <h3 style={{ marginTop: 0 }}>Demandes validées ({validees.length})</h3>
           {renderTable(validees, true, true)}
+        </div>
+      )}
+
+      {commentsFor && (
+        <DemandeCommentsModal
+          demandeId={commentsFor.id}
+          designation={commentsFor.designation}
+          canManage={me.can_manage}
+          onClose={() => setCommentsFor(null)}
+          onChanged={load}
+        />
+      )}
+
+      {editFor && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }} onClick={() => setEditFor(null)}>
+          <form onSubmit={saveEdit} style={{ ...s.card, width: 'min(620px, 94vw)', maxHeight: '88vh', overflow: 'auto' }} onClick={e => e.stopPropagation()}>
+            <h3 style={{ marginTop: 0 }}>Modifier la demande</h3>
+            {editFor.statut === 'validee' && (
+              <p style={{ color: '#b45309', fontSize: '0.8rem', marginTop: 0 }}>Cette demande est déjà validée : toute modification est tracée dans les commentaires.</p>
+            )}
+            <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '1rem' }}>
+              <div>
+                <label style={s.label}>Désignation *</label>
+                <input style={s.input} required value={editForm.designation} onChange={e => setEditForm({ ...editForm, designation: e.target.value })} />
+              </div>
+              <div>
+                <label style={s.label}>Montant (€ TTC) *</label>
+                <input style={s.input} required type="number" min="0" step="0.01" value={editForm.montant} onChange={e => setEditForm({ ...editForm, montant: e.target.value })} />
+              </div>
+            </div>
+            <div style={{ marginTop: '1rem' }}>
+              <label style={s.label}>Description</label>
+              <textarea style={{ ...s.input, minHeight: 80 }} value={editForm.description} onChange={e => setEditForm({ ...editForm, description: e.target.value })} />
+            </div>
+            <div style={{ marginTop: '1rem' }}>
+              <label style={s.label}><Paperclip size={12} /> Devis</label>
+              {editFor.pieces.map(p => {
+                const removed = editRemove.includes(p.id);
+                return (
+                  <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '2px 0', opacity: removed ? 0.45 : 1 }}>
+                    <FileText size={13} /> <span style={{ textDecoration: removed ? 'line-through' : 'none' }}>{p.file_name}</span>
+                    <button type="button" title={removed ? 'Conserver' : 'Retirer ce devis'} onClick={() => setEditRemove(removed ? editRemove.filter(i => i !== p.id) : [...editRemove, p.id])}
+                      style={{ border: 'none', background: 'none', cursor: 'pointer', color: removed ? '#16a34a' : '#dc2626' }}>
+                      {removed ? 'annuler' : <X size={14} />}
+                    </button>
+                  </div>
+                );
+              })}
+              <div style={{ marginTop: 6 }}>
+                <label style={{ ...s.label, fontWeight: 500 }}>Ajouter des devis</label>
+                <input type="file" multiple onChange={e => setEditFiles(Array.from(e.target.files || []))} />
+              </div>
+            </div>
+            {editError && <div style={{ color: '#dc2626', marginTop: '0.75rem' }}>{editError}</div>}
+            <div style={{ marginTop: '1rem', display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+              <button type="button" style={{ ...s.btn, background: '#64748b' }} onClick={() => setEditFor(null)}>Annuler</button>
+              <button type="submit" style={s.btn} disabled={editSaving}>{editSaving ? 'Enregistrement…' : 'Enregistrer'}</button>
+            </div>
+          </form>
         </div>
       )}
 

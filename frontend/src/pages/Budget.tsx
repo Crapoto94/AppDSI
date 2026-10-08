@@ -39,7 +39,10 @@ const Budget: React.FC = () => {
     </svg>
   );
 
-  const [view, setView] = useState<'summary' | 'lines' | 'engagements' | 'invoices' | 'invoices_beta' | 'orders' | 'tiers' | 'operations' | 'gestion' | 'prep' | 'demandes'>('summary');
+  const [view, setView] = useState<'summary' | 'lines' | 'engagements' | 'invoices' | 'invoices_beta' | 'orders' | 'tiers' | 'operations' | 'gestion' | 'prep' | 'demandes'>(
+    // Lien d'une notification (@mention) : /budget?view=demandes&demande=ID
+    () => (new URLSearchParams(window.location.search).get('view') === 'demandes' ? 'demandes' : 'summary')
+  );
   const [isRaw, setIsRaw] = useState(false);
   const [rawData, setRawData] = useState<any[]>([]);
   const [budgetLines, setBudgetLines] = useState<any[]>([]);

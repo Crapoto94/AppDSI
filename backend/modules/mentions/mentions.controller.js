@@ -5,10 +5,11 @@ exports.searchUsers = async (req, res) => {
     try {
         const q = String(req.query.q || '').trim();
         const rows = await pgDb.all(
-            `SELECT username, "displayName" AS display_name, service_code FROM hub.users
-             WHERE is_approved = 1 AND "displayName" IS NOT NULL AND TRIM("displayName") <> ''
-               AND (unaccent(lower("displayName")) LIKE unaccent(lower($1)) OR unaccent(lower("displayName")) LIKE unaccent(lower($2)))
-             ORDER BY "displayName" LIMIT 8`,
+            `SELECT username, displayName AS display_name, service_code FROM hub.users
+             WHERE displayName IS NOT NULL AND TRIM(displayName) <> ''
+               AND (unaccent(lower(displayName)) LIKE unaccent(lower($1)) OR unaccent(lower(displayName)) LIKE unaccent(lower($2))
+                    OR lower(username) LIKE lower($1))
+             ORDER BY displayName LIMIT 8`,
             [`${q}%`, `% ${q}%`]
         );
         res.json(rows);
