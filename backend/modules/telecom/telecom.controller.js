@@ -437,10 +437,12 @@ module.exports = {
                        "Article par nature" AS nat, "Libellé mouvement" AS lib, "Libellé" AS lib2,
                        "Nom tiers" AS tiers, "Exercice" AS ex, "Section" AS sec
                 FROM oracle.budget_engagements
-                WHERE "Code mouvement" IN (
-                    SELECT "Code mouvement" FROM oracle.budget_engagements WHERE TRIM("Article par nature") = '6262'
+                WHERE TRIM("Exercice") = $1
+                  AND "Code mouvement" IN (
+                    SELECT "Code mouvement" FROM oracle.budget_engagements
+                    WHERE TRIM("Article par nature") = '6262' AND TRIM("Exercice") = $1
                 )
-            `);
+            `, [String(new Date().getFullYear())]); // exercice en cours uniquement
 
             const num = (v) => {
                 if (v === null || v === undefined || v === '') return 0;
