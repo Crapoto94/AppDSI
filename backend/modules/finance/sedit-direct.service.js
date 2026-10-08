@@ -351,4 +351,4 @@ async function resolveRubriqueFromSedit(name, query = {}) {
     return result;
 }
 
-module.exports = { resolveRubriqueFromSedit };
+module.exports = { resolveRubriqueFromSedit, getOracleSyncConfig, buildOracleInner };

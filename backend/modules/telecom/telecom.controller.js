@@ -7,6 +7,7 @@ const { parseSfrZip } = require('./telecom.sfr-parser');
 const { pgDb, pool } = require('../../shared/database');
 const storage = require('../../shared/storage');
 const dgpService = require('../finance/dgp.service');
+const seditLive = require('./telecom.sedit-live');
 
 const MODULE = 'telecom';
 
@@ -34,7 +35,7 @@ const RESOLVED_INVOICES_SQL = `
                 to_date(substring(f."FACTURE_LIBELLE1" from '(\\d{2}/\\d{2}/\\d{4})'), 'DD/MM/YYYY'),
                 f."FACTURE_DATENTREE"::date
             ) as emission_date
-        FROM oracle.gf_oracle_facture f
+        FROM hub_telecom.sedit_factures_live f
         WHERE LOWER(TRIM(f."FACTURE_REFERENCE")) = LOWER(TRIM(i.invoice_number))
            OR f."FACTURE_LIBELLE1" ILIKE '%' || TRIM(i.invoice_number) || '%'
            OR LOWER(TRIM(f."FACTURE_FACTIERS")) = LOWER(TRIM(i.invoice_number))
@@ -64,18 +65,14 @@ function parseFrDate(v) {
 // sont lus en priorité dans le libellé, puis dans les colonnes dédiées (FACTURE_FACTIERS /
 // FACTURE_DATENTREE) car tous les fichiers n'impriment pas ces infos dans le libellé.
 async function findBudgetInvoicesForOperator(operatorId, tierCode) {
+    await seditLive.refreshFactures();
     const conditions = [];
     const params = [];
 
     if (tierCode) {
         params.push(tierCode);
         conditions.push(`TRIM(SPLIT_PART(f."TIERS_POBJ_EXTRACT", chr(1), 1)) = TRIM($${params.length})`);
-        const tierRes = await pool.query(
-            'SELECT "TIERS_POBJ_EXTRACT_2" as nom, "TIERS_POBJ_EXTRACT_3" as complement_nom FROM oracle.gf_oracle_tiers WHERE TRIM("TIERS_TIERS") = TRIM($1)',
-            [tierCode]
-        );
-        const tierNom = tierRes.rows[0]?.nom ? String(tierRes.rows[0].nom).trim() : '';
-        const tierComp = tierRes.rows[0]?.complement_nom ? String(tierRes.rows[0].complement_nom).trim() : '';
+        const { nom: tierNom, complement: tierComp } = await seditLive.getTierNames(tierCode);
         for (const n of [tierNom, tierComp]) {
             if (n) {
                 params.push(`%${n}%`);
@@ -87,7 +84,7 @@ async function findBudgetInvoicesForOperator(operatorId, tierCode) {
     const libRes = await pool.query(`
         SELECT DISTINCT f."FACTURE_LIBELLE2" as libelle
         FROM hub_telecom.invoices i
-        JOIN oracle.gf_oracle_facture f ON (
+        JOIN hub_telecom.sedit_factures_live f ON (
             LOWER(TRIM(f."FACTURE_REFERENCE")) = LOWER(TRIM(i.invoice_number))
             OR f."FACTURE_LIBELLE1" ILIKE '%' || TRIM(i.invoice_number) || '%'
         )
@@ -117,7 +114,7 @@ async function findBudgetInvoicesForOperator(operatorId, tierCode) {
                    ) as invoice_date,
                    NULLIF(TRIM(f."FACTURE_ROO_IMA_REF"), '') as sedit_ref,
                    f."FACETAT_LIBELLE" as etat
-            FROM oracle.gf_oracle_facture f
+            FROM hub_telecom.sedit_factures_live f
             WHERE ${conditions.join(' OR ')}
         ) c
         WHERE c.invoice_date IS NOT NULL
@@ -157,6 +154,7 @@ async function findBudgetInvoicesForOperator(operatorId, tierCode) {
 // Extrait en fonction top-level (plutôt que directement dans getMonthlySummary) pour être
 // réutilisable par /budget-prep, qui a besoin de l'atterrissage annuel global (nature 6262).
 async function computeMonthlySummary(year) {
+    await seditLive.refreshFactures().catch(e => console.error('[Telecom] Lecture directe Sedit impossible :', e.message));
     const [invoiceRows, accounts, commentRows] = await Promise.all([
         pgDb.all(`
             SELECT ri.id, ri.invoice_number, ri.operator_id, ri.billing_account_id, ri.amount_ttc,
@@ -323,6 +321,7 @@ module.exports = {
     // --- Billing Accounts ---
     getBillingAccounts: async (req, res) => {
         try {
+            await seditLive.refreshFactures().catch(e => console.error('[Telecom] Lecture directe Sedit impossible :', e.message));
             const { operator_id } = req.query;
             let query = `
                 SELECT a.*, o.name as operator_name,
@@ -350,6 +349,7 @@ module.exports = {
 
     getOperatorAccounts: async (req, res) => {
         try {
+            await seditLive.refreshFactures().catch(e => console.error('[Telecom] Lecture directe Sedit impossible :', e.message));
             const accounts = await pgDb.all(`
                 SELECT a.*, o.name as operator_name,
                        (SELECT COUNT(*) FROM hub_telecom.invoices WHERE billing_account_id = a.id) as invoice_count,
@@ -479,6 +479,7 @@ module.exports = {
     // upload PDF) ne servent que de repli si aucune correspondance budget n'est trouvée.
     getInvoices: async (req, res) => {
         try {
+            await seditLive.refreshFactures().catch(e => console.error('[Telecom] Lecture directe Sedit impossible :', e.message));
             const invoices = await pgDb.all(`
                 SELECT ri.*, o.name as operator_name, a.account_number
                 FROM (${RESOLVED_INVOICES_SQL}) ri
@@ -617,6 +618,7 @@ module.exports = {
     // avec le motif du rejet et les informations du budget (montant, date, état, référence SEDIT).
     getRejectedInvoices: async (req, res) => {
         try {
+            await seditLive.refreshFactures().catch(e => console.error('[Telecom] Lecture directe Sedit impossible :', e.message));
             const { operator_id, billing_account_id } = req.query;
             const where = [];
             const params = [];
@@ -634,7 +636,7 @@ module.exports = {
                 LEFT JOIN LATERAL (
                     SELECT f."FACTURE_LIBELLE2", f."FACTURE_MONTANTTC_E", f."FACTURE_ROO_IMA_REF",
                            f."FACETAT_LIBELLE", f."FACTURE_LIBELLE1"
-                    FROM oracle.gf_oracle_facture f
+                    FROM hub_telecom.sedit_factures_live f
                     WHERE LOWER(TRIM(f."FACTURE_REFERENCE")) = LOWER(TRIM(r.invoice_number))
                        OR f."FACTURE_LIBELLE1" ILIKE '%' || TRIM(r.invoice_number) || '%'
                        OR LOWER(TRIM(f."FACTURE_FACTIERS")) = LOWER(TRIM(r.invoice_number))
