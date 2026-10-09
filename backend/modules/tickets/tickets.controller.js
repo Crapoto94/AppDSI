@@ -970,6 +970,8 @@ async assign(req, res) {
                 group_id: req.query.group_id,
                 technician_id: req.query.technician_id,
                 requester_email: req.query.requester_email,
+                requester_name: req.query.requester_name,
+                requester_login: req.query.requester_login,
                 search: req.query.search,
                 show_resolved: req.query.show_resolved === '1',
                 show_rejected: req.query.show_rejected === '1',

@@ -1,6 +1,26 @@
 const { pgDb, pool } = require('../../../shared/database');
 const { toParisSql } = require('../../../shared/utils');
 
+// ── Expressions SQL réutilisées pour le filtre « demandeur » ─────────────────
+// e-mail résolu (email_alt fait foi, sinon GLPI champ 22) — de chaque côté
+// de la comparaison on TRIM pour tolérer les espaces résiduels.
+const REQUESTER_EMAIL_EXPR = `LOWER(COALESCE(NULLIF(TRIM(t.email_alt), ''), NULLIF(TRIM(t.requester_email_22), '')))`;
+// nom du demandeur tel que saisi dans le ticket (« DUBURCQ Kevin », « EIsmar »…).
+// Pas de résolution via hub.users : elle coûterait ~750 ms par requête (sous-
+// requête corrélée sur les 38 k tickets) alors que l'égalité sur le login AD
+// (requester_login) couvre déjà les tickets saisis sous forme de login.
+const REQUESTER_NAME_EXPR = `LOWER(t.requester_name)`;
+// partie locale de l'e-mail (avant @), pour comparer avec un login AD.
+const REQUESTER_LOCAL_EXPR = `LOWER(COALESCE(SPLIT_PART(${REQUESTER_EMAIL_EXPR}, '@', 1), ''))`;
+
+// « DUBURCQ Kevin » → ['duburcq', 'kevin'] (jetons ≥ 3 car. : on ignore les
+// particules et initiales qui créeraient des faux positifs).
+function tokenizeRequesterName(name) {
+    if (!name) return [];
+    return [...new Set(String(name).normalize('NFC').toLowerCase().split(/[\s,]+/)
+        .map(s => s.trim()).filter(s => s.length >= 3))];
+}
+
 // Version allégée : supprime les 2 agrégations JSON lourdes, history_count et waiting_reason.
 // Utilisée pour le 1er chargement afin d'afficher la liste immédiatement.
 const LITE_BASE_SELECT = `
@@ -234,8 +254,31 @@ module.exports = {
             params.push(filters.my_username);
         }
         if (filters.requester_email) {
-            conditions.push(`LOWER(COALESCE(NULLIF(t.email_alt, ''), t.requester_email_22)) = LOWER($${idx++})`);
-            params.push(filters.requester_email);
+            conditions.push(`${REQUESTER_EMAIL_EXPR} = LOWER($${idx++})`);
+            params.push(String(filters.requester_email).trim());
+        } else if (filters.requester_name || filters.requester_login) {
+            // Compte AD sans attribut mail : impossible de filtrer par e-mail.
+            // On retombe sur le nom complet (tous les jetons doivent être
+            // présents, ordre indifférent) ou sur le login AD (égalité stricte),
+            // ce qui couvre aussi les tickets saisis sous forme de login.
+            const alternatives = [];
+            const login = String(filters.requester_login || '').trim().toLowerCase();
+            if (login) {
+                alternatives.push(`LOWER(t.requester_name) = $${idx}`);
+                params.push(login); idx++;
+                alternatives.push(`${REQUESTER_LOCAL_EXPR} = $${idx}`);
+                params.push(login); idx++;
+            }
+            const tokens = tokenizeRequesterName(filters.requester_name);
+            if (tokens.length) {
+                alternatives.push(tokens.map(tok => {
+                    const p = `%${tok}%`;
+                    const clause = `(${REQUESTER_NAME_EXPR} LIKE $${idx} OR ${REQUESTER_LOCAL_EXPR} LIKE $${idx})`;
+                    params.push(p); idx++;
+                    return clause;
+                }).join(' AND '));
+            }
+            if (alternatives.length) conditions.push(`(${alternatives.join(' OR ')})`);
         }
         if (filters.exclude_id) {
             conditions.push(`t.glpi_id != $${idx++}`);
@@ -471,7 +514,26 @@ module.exports = {
         if (filters.software_id) conds.push(`t.software_id = ${parseInt(filters.software_id, 10)}`);
         if (filters.group_id) conds.push(`t.glpi_id IN (SELECT ticket_id FROM hub_tickets.ticket_assignments WHERE group_id = ${parseInt(filters.group_id, 10)})`);
         if (filters.technician_id) conds.push(`t.glpi_id IN (SELECT ticket_id FROM hub_tickets.ticket_assignments WHERE technician_id = ${parseInt(filters.technician_id, 10)})`);
-        if (filters.requester_email) conds.push(`LOWER(COALESCE(NULLIF(t.email_alt,''), t.requester_email_22)) = LOWER('${esc(filters.requester_email)}')`);
+        if (filters.requester_email) {
+            conds.push(`${REQUESTER_EMAIL_EXPR} = LOWER('${esc(String(filters.requester_email).trim())}')`);
+        } else if (filters.requester_name || filters.requester_login) {
+            // Même repli que findAll (cf. tokenizeRequesterName) : les KPI
+            // filtrées doivent suivre exactement le même périmètre que la liste.
+            const alternatives = [];
+            const login = String(filters.requester_login || '').trim().toLowerCase();
+            if (login) {
+                alternatives.push(`LOWER(t.requester_name) = '${esc(login)}'`);
+                alternatives.push(`${REQUESTER_LOCAL_EXPR} = '${esc(login)}'`);
+            }
+            const tokens = tokenizeRequesterName(filters.requester_name);
+            if (tokens.length) {
+                alternatives.push(tokens.map(tok => {
+                    const p = `%${esc(tok)}%`;
+                    return `(${REQUESTER_NAME_EXPR} LIKE '${p}' OR ${REQUESTER_LOCAL_EXPR} LIKE '${p}')`;
+                }).join(' AND '));
+            }
+            if (alternatives.length) conds.push(`(${alternatives.join(' OR ')})`);
+        }
         if (filters.search) {
             const s = esc(filters.search);
             conds.push(`(t.title ILIKE '%${s}%' OR CAST(t.glpi_id AS TEXT) ILIKE '%${s}%')`);

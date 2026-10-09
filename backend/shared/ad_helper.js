@@ -4,6 +4,32 @@ const { flattenLDAPEntry, decodeLDAPString } = require('./utils');
 // Domaine e-mail de l'organisation (ex. login → login@ivry94.fr)
 const EMAIL_DOMAIN = 'ivry94.fr';
 
+/** Échappe les métacaractères LDAP (la valeur est littérale, `*` compris). */
+function escapeLdapLiteral(value) {
+    return String(value).replace(/[*()\\\x00]/g, '\\$&');
+}
+
+/** Échappe les métacaractères LDAP en conservant les `*` (jokers). */
+function escapeLdapKeepingWildcards(value) {
+    return String(value).replace(/[()\\\x00]/g, '\\$&');
+}
+
+/**
+ * Variante d'une recherche « tolérante aux accents » : NFD puis joker à la place
+ * des diacritiques (« cafe » ↔ « café »), les jokers consécutifs sont fusionnés
+ * et le tout est entouré de `*`.
+ * Les `*` doivent rester des jokers : les échapper (comportement antérieur) les
+ * rendait littéraux, la variante accent-insensible ne pouvait donc jamais
+ * correspondre.
+ */
+function ldapFuzzyPattern(value) {
+    const fuzzy = String(value)
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '*')
+        .replace(/\*{2,}/g, '*');
+    return `*${escapeLdapKeepingWildcards(fuzzy)}*`.replace(/\*{2,}/g, '*');
+}
+
 /**
  * Déduit l'adresse e-mail d'une valeur « usager » qui contient déjà un identifiant
  * suivi d'une ébauche de domaine. Ex. « sotest@IVRY » → « sotest@ivry94.fr ».
@@ -65,24 +91,19 @@ async function searchADUsersByQuery(query, config) {
                 return finish([]);
             }
 
-            const escaped = query.replace(/[*()\\\x00]/g, '\\$&');
-
-            // Fuzzy version: replace accented characters with *
-            const fuzzy = query.normalize("NFD").replace(/[̀-ͯ]/g, "*");
-            const escapedFuzzy = fuzzy.replace(/[*()\\\x00]/g, '\\$&');
+            const escaped = escapeLdapLiteral(query);
+            // Variante accent-insensible : les `*` produits par NFD restent des jokers.
+            const fuzzy = ldapFuzzyPattern(query);
 
             // On essaye d'abord un match exact/partiel simple
-            let filter = `(&(objectClass=user)(|(displayName=*${escaped}*)(sAMAccountName=*${escaped}*)(cn=*${escaped}*)(mail=*${escaped}*)(displayName=*${escapedFuzzy}*)))`;
+            let filter = `(&(objectClass=user)(|(displayName=*${escaped}*)(sAMAccountName=*${escaped}*)(cn=*${escaped}*)(mail=*${escaped}*)(displayName=${fuzzy})))`;
 
             // Si le nom contient des espaces, on tente un match sur chaque partie pour être plus flexible
             const parts = query.split(/\s+/).filter(p => p.length > 2);
             if (parts.length > 1) {
-                const partFilters = parts.map(p => {
-                    const pEscaped = p.replace(/[*()\\\x00]/g, '\\$&');
-                    const pFuzzy = p.normalize("NFD").replace(/[̀-ͯ]/g, "*");
-                    const pEscapedFuzzy = pFuzzy.replace(/[*()\\\x00]/g, '\\$&');
-                    return `(|(displayName=*${pEscaped}*)(displayName=*${pEscapedFuzzy}*))`;
-                }).join('');
+                const partFilters = parts.map(p =>
+                    `(|(displayName=*${escapeLdapLiteral(p)}*)(displayName=${ldapFuzzyPattern(p)}))`
+                ).join('');
                 filter = `(|${filter}(&(objectClass=user)${partFilters}))`;
             }
 
@@ -90,7 +111,7 @@ async function searchADUsersByQuery(query, config) {
                 filter,
                 scope: 'sub',
                 attributes: ['sAMAccountName', 'displayName', 'cn', 'mail', 'department', 'company'],
-                sizeLimit: 10
+                sizeLimit: 25
             };
 
             client.search(config.base_dn, opts, (err, searchRes) => {
@@ -103,7 +124,8 @@ async function searchADUsersByQuery(query, config) {
                         results.push({
                             username: user.sAMAccountName,
                             displayName: decodeLDAPString(user.displayName || user.cn || user.sAMAccountName),
-                            email: user.mail || '',
+                            // `mail` peut être multivalué (tableau) en LDAP.
+                            email: decodeLDAPString(Array.isArray(user.mail) ? user.mail[0] : (user.mail || '')) || '',
                             service: user.department || '',
                             direction: user.company || ''
                         });

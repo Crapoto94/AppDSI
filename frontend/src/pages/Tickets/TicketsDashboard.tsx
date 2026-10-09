@@ -59,6 +59,22 @@ const SORT_OPTIONS = [
 const FILTER_SESSION_KEY = 'tickets_dash_filters';
 const VIEW_MODE_KEY = 'tickets_dash_view_mode';
 
+// Filtre « Demandeur » : e-mail canonique si le compte AD en a un, sinon on
+// retombe sur le nom et le login (sAMAccountName) — cf. backend `requester_name`
+// / `requester_login`. Certains comptes internes ont un attribut mail vide.
+type ActiveRequester = { email: string | null; name: string; login: string } | null;
+
+type FilterSnapshot = {
+  activeRequester?: ActiveRequester;
+  activeRequesterEmail?: string | null;
+} | null;
+
+function requesterFromSnapshot(snap: FilterSnapshot): ActiveRequester {
+  if (snap?.activeRequester) return snap.activeRequester;
+  if (snap?.activeRequesterEmail) return { email: snap.activeRequesterEmail, name: '', login: '' };
+  return null;
+}
+
 function generatePassword(): string {
   const upper = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
   const lower = 'abcdefghjkmnpqrstuvwxyz';
@@ -148,7 +164,12 @@ export default function TicketsDashboard() {
   const [requesterSearch, setRequesterSearch] = useState(_initSnap?.requesterSearch ?? '');
   const [requesterResults, setRequesterResults] = useState<any[]>([]);
   const [requesterSearching, setRequesterSearching] = useState(false);
-  const [activeRequesterEmail, setActiveRequesterEmail] = useState<string | null>(_initSnap?.activeRequesterEmail ?? null);
+  const [requesterNoResult, setRequesterNoResult] = useState(false);
+  const [activeRequester, setActiveRequesterState] = useState<ActiveRequester>(() => requesterFromSnapshot(_initSnap));
+  // Ref synchronisée : loadData lit le filtre demandeur ici (et non via son 8e
+  // argument), sans quoi il est perdu à l'appel (pagination, tri, recherche…).
+  const activeRequesterRef = useRef<ActiveRequester>(activeRequester);
+  const setActiveRequester = (v: ActiveRequester) => { activeRequesterRef.current = v; setActiveRequesterState(v); };
   // Sélection clavier dans l'autocomplete Demandeur (-1 = aucune)
   const [requesterHighlight, setRequesterHighlight] = useState(-1);
   const requesterListRef = useRef<HTMLDivElement | null>(null);
@@ -262,9 +283,18 @@ export default function TicketsDashboard() {
 
   // Persistance session : sauvegarde automatique de l'état des filtres
   useEffect(() => {
-    const snap = { activeFilter, activeUserFilter, search, activeRequesterEmail, requesterSearch, activeCategory, activeSubcategory, activeSoftware, activeGroup, activeTechnician, typeFilter, activeLiveFilter, showResolved, showRejected, sortKey, sortDir };
+    const snap = { activeFilter, activeUserFilter, search, activeRequester, activeRequesterEmail: activeRequester?.email ?? null, requesterSearch, activeCategory, activeSubcategory, activeSoftware, activeGroup, activeTechnician, typeFilter, activeLiveFilter, showResolved, showRejected, sortKey, sortDir };
     try { sessionStorage.setItem(FILTER_SESSION_KEY, JSON.stringify(snap)); } catch {}
-  }, [activeFilter, activeUserFilter, search, activeRequesterEmail, requesterSearch, activeCategory, activeSubcategory, activeSoftware, activeGroup, activeTechnician, typeFilter, activeLiveFilter, showResolved, showRejected, sortKey, sortDir]);
+  }, [activeFilter, activeUserFilter, search, activeRequester, requesterSearch, activeCategory, activeSubcategory, activeSoftware, activeGroup, activeTechnician, typeFilter, activeLiveFilter, showResolved, showRejected, sortKey, sortDir]);
+
+  // Rend le filtre demandeur en paramètres d'URL : e-mail si présent (filtrage
+  // exact), sinon nom + login AD (repli géré côté backend).
+  const applyRequesterParams = (params: Record<string, string>, r: ActiveRequester) => {
+    if (!r) return;
+    if (r.email) { params.requester_email = r.email; return; }
+    if (r.name) params.requester_name = r.name;
+    if (r.login) params.requester_login = r.login;
+  };
 
   const inboxParams = React.useMemo(() => {
     const params: Record<string, string> = {};
@@ -281,9 +311,7 @@ export default function TicketsDashboard() {
     if (search.trim()) {
       params.search = search.trim();
     }
-    if (activeRequesterEmail) {
-      params.requester_email = activeRequesterEmail;
-    }
+    applyRequesterParams(params, activeRequester);
     if (activeCategory) {
       params.category_id = String(activeCategory);
     }
@@ -309,7 +337,7 @@ export default function TicketsDashboard() {
     params.sort = sortKeyRef.current;
     params.order = sortDirRef.current;
     return params;
-  }, [activeFilter, activeUserFilter, search, activeRequesterEmail, activeCategory, activeSubcategory, activeSoftware, activeGroup, activeTechnician, typeFilter, activeLiveFilter, showRejected, showResolved, sortKey, sortDir]);
+  }, [activeFilter, activeUserFilter, search, activeRequester, activeCategory, activeSubcategory, activeSoftware, activeGroup, activeTechnician, typeFilter, activeLiveFilter, showRejected, showResolved, sortKey, sortDir]);
 
   // ── Cache mémoire : évite un round-trip réseau si le même filtre a été chargé < 45 s ──
   const resultCache = useRef<Map<string, { tickets: any[]; total: number; totalPages: number; stats: any; ts: number }>>(new Map());
@@ -324,11 +352,16 @@ export default function TicketsDashboard() {
     categoryId?: number | 'none' | null,
     subcategoryId?: number | null,
     softwareId?: number | null,
-    requesterEmail?: string | null,
+    requesterEmail?: string | null, // override éventuel ; sinon activeRequesterRef
     isLiveOverride?: boolean,
     silent?: boolean
   ) => {
     lastLoadArgsRef.current = [filter, userFilter, pageNum, searchValue, categoryId, subcategoryId, softwareId, requesterEmail, isLiveOverride];
+    // Filtre demandeur : 8e argument passé explicitement (ancien appel), sinon
+    // l'état courant via la ref — sinon tout appel sans cet argument perd le filtre.
+    const requesterFilter: ActiveRequester = requesterEmail !== undefined
+      ? (requesterEmail ? { email: requesterEmail, name: '', login: '' } : null)
+      : activeRequesterRef.current;
     if (!silent) setLoading(true);
     try {
       const token = localStorage.getItem('token');
@@ -348,9 +381,8 @@ export default function TicketsDashboard() {
       if (searchValue.trim()) {
         params.search = searchValue.trim();
       }
-      if (requesterEmail) {
-        params.requester_email = requesterEmail;
-      } else if (viewModeRef.current === 'kanban' || viewModeRef.current === 'inbox') {
+      applyRequesterParams(params, requesterFilter);
+      if (!requesterFilter && (viewModeRef.current === 'kanban' || viewModeRef.current === 'inbox')) {
         params.status_in = '1,2,3,4,5';
       }
       if (userFilter && USER_FILTERS[userFilter]) {
@@ -387,7 +419,7 @@ export default function TicketsDashboard() {
       const qs = new URLSearchParams(params).toString();
       // Filtres passés aux stats (pour afficher KPI filtrés + globaux)
       const statsParams: Record<string, string> = {};
-      ['category_id', 'subcategory_id', 'software_id', 'group_id', 'technician_id', 'requester_email', 'search'].forEach(k => {
+      ['category_id', 'subcategory_id', 'software_id', 'group_id', 'technician_id', 'requester_email', 'requester_name', 'requester_login', 'search'].forEach(k => {
         if (params[k]) statsParams[k] = params[k];
       });
       statsParams.show_resolved = showResolvedRef.current ? '1' : '0';
@@ -576,21 +608,21 @@ export default function TicketsDashboard() {
     setActiveGroup(groupId);
     activeGroupRef.current = groupId;
     setPage(1);
-    loadData(activeFilter, activeUserFilter, 1, search, activeCategory, activeSubcategory, activeSoftware, activeRequesterEmail);
+    loadData(activeFilter, activeUserFilter, 1, search, activeCategory, activeSubcategory, activeSoftware);
   }
 
   function handleTechnicianFilter(techId: number | null) {
     setActiveTechnician(techId);
     activeTechnicianRef.current = techId;
     setPage(1);
-    loadData(activeFilter, activeUserFilter, 1, search, activeCategory, activeSubcategory, activeSoftware, activeRequesterEmail);
+    loadData(activeFilter, activeUserFilter, 1, search, activeCategory, activeSubcategory, activeSoftware);
   }
 
   function handleTypeFilter(t: string) {
     setTypeFilter(t);
     typeFilterRef.current = t;
     setPage(1);
-    loadData(activeFilter, activeUserFilter, 1, search, activeCategory, activeSubcategory, activeSoftware, activeRequesterEmail);
+    loadData(activeFilter, activeUserFilter, 1, search, activeCategory, activeSubcategory, activeSoftware);
   }
 
   function handleSoftwareFilter(softwareId: number | null) {
@@ -599,16 +631,35 @@ export default function TicketsDashboard() {
     loadData(activeFilter, activeUserFilter, 1, search, activeCategory, activeSubcategory, softwareId);
   }
 
-  async function handleRequesterSearch(q: string) {
-    if (!q || q.length < 2) { setRequesterResults([]); return; }
-    setRequesterSearching(true);
-    try {
-      const token = localStorage.getItem('token');
-      // Recherche AD générique (évite le 403 de /tickets/users/search)
-      const res = await axios.get(`/api/ad/search?q=${encodeURIComponent(q)}`, { headers: { Authorization: `Bearer ${token}` } });
-      setRequesterResults(res.data || []);
-    } catch { setRequesterResults([]); }
-    finally { setRequesterSearching(false); }
+  // Autocomplete Demandeur : debounce 300 ms + garde anti-réponse périmée
+  // (sinon une réponse lente écrase celle d'une frappe plus récente).
+  const requesterDebounceRef = useRef<number | null>(null);
+  const requesterReqIdRef = useRef(0);
+  function handleRequesterSearch(q: string) {
+    if (requesterDebounceRef.current) window.clearTimeout(requesterDebounceRef.current);
+    if (!q || q.length < 2) {
+      requesterReqIdRef.current++;
+      setRequesterResults([]); setRequesterNoResult(false); setRequesterSearching(false);
+      return;
+    }
+    setRequesterSearching(true); setRequesterNoResult(false);
+    requesterDebounceRef.current = window.setTimeout(async () => {
+      const reqId = ++requesterReqIdRef.current;
+      try {
+        const token = localStorage.getItem('token');
+        // Recherche AD générique (évite le 403 de /tickets/users/search)
+        const res = await axios.get(`/api/ad/search?q=${encodeURIComponent(q)}`, { headers: { Authorization: `Bearer ${token}` } });
+        if (reqId !== requesterReqIdRef.current) return;
+        const list = res.data || [];
+        setRequesterResults(list);
+        setRequesterNoResult(list.length === 0);
+      } catch {
+        if (reqId !== requesterReqIdRef.current) return;
+        setRequesterResults([]); setRequesterNoResult(true);
+      } finally {
+        if (reqId === requesterReqIdRef.current) setRequesterSearching(false);
+      }
+    }, 300);
   }
 
   // La liste change → on repart sans sélection, et on garde la ligne
@@ -621,12 +672,18 @@ export default function TicketsDashboard() {
   }, [requesterHighlight]);
 
   function selectRequester(u: { displayName?: string; username?: string; email?: string }) {
+    if (requesterDebounceRef.current) window.clearTimeout(requesterDebounceRef.current);
+    requesterReqIdRef.current++;
     const email = u.email || null;
+    const login = u.username || '';
+    const name = u.displayName || u.username || requesterSearch || '';
     setRequesterSearch(u.displayName || u.username || '');
     setRequesterResults([]);
-    setActiveRequesterEmail(email);
+    setRequesterNoResult(false);
+    setRequesterSearching(false);
+    setActiveRequester({ email, name, login });
     setPage(1);
-    loadData(activeFilter, activeUserFilter, 1, search, activeCategory, activeSubcategory, activeSoftware, email);
+    loadData(activeFilter, activeUserFilter, 1, search, activeCategory, activeSubcategory, activeSoftware);
   }
 
   function requesterKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
@@ -777,12 +834,16 @@ export default function TicketsDashboard() {
     setActiveUserFilter(null);
     setSearch('');
     setActiveSoftware(null);
+    setActiveRequester(null);
+    setRequesterSearch('');
+    setRequesterResults([]);
+    setRequesterNoResult(false);
     setPage(1);
     loadData(null, null, 1, '', activeCategory, activeSubcategory, null);
   }
 
   const getCurrentFilterSnap = () => ({
-    activeFilter, activeUserFilter, search, activeRequesterEmail, requesterSearch,
+    activeFilter, activeUserFilter, search, activeRequester, activeRequesterEmail: activeRequester?.email ?? null, requesterSearch,
     activeCategory, activeSubcategory, activeSoftware, activeGroup, activeTechnician,
     typeFilter, activeLiveFilter, showResolved, showRejected, sortKey, sortDir,
   });
@@ -825,7 +886,7 @@ export default function TicketsDashboard() {
     const af = snap.activeFilter ?? null;
     const auf = snap.activeUserFilter ?? null;
     const s = snap.search ?? '';
-    const re = snap.activeRequesterEmail ?? null;
+    const re = requesterFromSnapshot(snap);
     const cat = snap.activeCategory ?? null;
     const subcat = snap.activeSubcategory ?? null;
     const sw = snap.activeSoftware ?? null;
@@ -836,7 +897,9 @@ export default function TicketsDashboard() {
     const res = snap.showResolved ?? false;
     const rej = snap.showRejected ?? false;
     setActiveFilter(af); setActiveUserFilter(auf); setSearch(s);
-    setActiveRequesterEmail(re); setRequesterSearch(snap.requesterSearch ?? '');
+    setActiveRequester(re);
+    setRequesterSearch(snap.requesterSearch ?? (re && !re.email ? re.name : ''));
+    setRequesterResults([]); setRequesterNoResult(false);
     setActiveCategory(cat); setActiveSubcategory(subcat); setActiveSoftware(sw);
     setActiveGroup(grp); activeGroupRef.current = grp;
     setActiveTechnician(tech); activeTechnicianRef.current = tech;
@@ -848,7 +911,7 @@ export default function TicketsDashboard() {
     setSortDir(snap.sortDir ?? 'desc');
     setPage(1);
     setShowFilterPanel(false);
-    loadData(af, auf, 1, s, cat, subcat, sw, re, lf);
+    loadData(af, auf, 1, s, cat, subcat, sw, undefined, lf);
   };
 
   function handleSort(key: string, dir: 'asc' | 'desc') {
@@ -863,7 +926,7 @@ export default function TicketsDashboard() {
   function runSearch(e: React.FormEvent) {
     e.preventDefault();
     setPage(1);
-    loadData(activeFilter, activeUserFilter, 1, search, activeCategory, activeSubcategory, activeSoftware, activeRequesterEmail);
+    loadData(activeFilter, activeUserFilter, 1, search, activeCategory, activeSubcategory, activeSoftware);
   }
 
   const getKpiValue = (key: string) =>
@@ -1099,7 +1162,18 @@ export default function TicketsDashboard() {
           <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Rechercher..." style={{ padding: '8px 12px', border: '1px solid #e2e8f0', borderRadius: 8, fontSize: 13, width: 200, outline: 'none' }} />
           {/* Demandeur autocomplete */}
           <div style={{ position: 'relative' }}>
-            <input value={requesterSearch} onChange={e => { setRequesterSearch(e.target.value); handleRequesterSearch(e.target.value); }} onKeyDown={requesterKeyDown} placeholder="🔍 Demandeur..." style={{ padding: '8px 12px', border: '1px solid #e2e8f0', borderRadius: 8, fontSize: 13, width: 180, outline: 'none' }} />
+            <input value={requesterSearch} onChange={e => {
+                const v = e.target.value;
+                setRequesterSearch(v);
+                // Saisie modifiée → le filtre sélectionné ne correspond plus : on le
+                // retire (une seule fois) pour ne pas garder une liste filtrée.
+                if (activeRequesterRef.current) {
+                  setActiveRequester(null);
+                  setPage(1);
+                  loadData(activeFilter, activeUserFilter, 1, search, activeCategory, activeSubcategory, activeSoftware);
+                }
+                handleRequesterSearch(v);
+              }} onKeyDown={requesterKeyDown} placeholder="🔍 Demandeur..." style={{ padding: '8px 12px', border: '1px solid #e2e8f0', borderRadius: 8, fontSize: 13, width: 180, outline: 'none' }} />
             {requesterSearching && <div style={{ position: 'absolute', right: 8, top: 8, fontSize: 12, color: '#94a3b8' }}>⏳</div>}
             {requesterResults.length > 0 && (
               <div ref={requesterListRef} style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 8, boxShadow: '0 4px 12px rgba(0,0,0,0.1)', zIndex: 100, maxHeight: 200, overflowY: 'auto' }}>
@@ -1114,8 +1188,13 @@ export default function TicketsDashboard() {
                 ))}
               </div>
             )}
+            {requesterNoResult && !requesterSearching && requesterResults.length === 0 && (
+              <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 8, boxShadow: '0 4px 12px rgba(0,0,0,0.1)', zIndex: 100, padding: '8px 12px', fontSize: 13, color: '#94a3b8', fontStyle: 'italic' }}>
+                Aucun résultat
+              </div>
+            )}
             {requesterSearch && (
-              <button onClick={() => { setRequesterSearch(''); setRequesterResults([]); setActiveRequesterEmail(null); setPage(1); loadData(activeFilter, activeUserFilter, 1, search, activeCategory, activeSubcategory, activeSoftware, null); }} style={{ position: 'absolute', right: 8, top: 8, background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: 14 }}>×</button>
+              <button type="button" onClick={() => { setRequesterSearch(''); setRequesterResults([]); setRequesterNoResult(false); setActiveRequester(null); setPage(1); loadData(activeFilter, activeUserFilter, 1, search, activeCategory, activeSubcategory, activeSoftware); }} style={{ position: 'absolute', right: 8, top: 8, background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: 14 }}>×</button>
             )}
           </div>
 
@@ -1141,7 +1220,7 @@ export default function TicketsDashboard() {
             </select>
           )}
           {(activeCategory || activeSubcategory) && (
-            <button onClick={() => handleCategoryFilter(null, null)} style={{ padding: '6px 10px', border: '1px solid #fecaca', borderRadius: 6, background: '#fef2f2', color: '#ef4444', cursor: 'pointer', fontSize: 12, fontWeight: 500 }}>✕</button>
+            <button type="button" onClick={() => handleCategoryFilter(null, null)} style={{ padding: '6px 10px', border: '1px solid #fecaca', borderRadius: 6, background: '#fef2f2', color: '#ef4444', cursor: 'pointer', fontSize: 12, fontWeight: 500 }}>✕</button>
           )}
           {softwares.length > 0 && (
             <select value={activeSoftware || ''} onChange={e => handleSoftwareFilter(e.target.value ? parseInt(e.target.value) : null)}
@@ -1151,7 +1230,7 @@ export default function TicketsDashboard() {
             </select>
           )}
           {activeSoftware && (
-            <button onClick={() => handleSoftwareFilter(null)} style={{ padding: '6px 10px', border: '1px solid #fecaca', borderRadius: 6, background: '#fef2f2', color: '#ef4444', cursor: 'pointer', fontSize: 12, fontWeight: 500 }}>✕</button>
+            <button type="button" onClick={() => handleSoftwareFilter(null)} style={{ padding: '6px 10px', border: '1px solid #fecaca', borderRadius: 6, background: '#fef2f2', color: '#ef4444', cursor: 'pointer', fontSize: 12, fontWeight: 500 }}>✕</button>
           )}
           {groups.length > 0 && (
             <select value={activeGroup || ''} onChange={e => handleGroupFilter(e.target.value ? parseInt(e.target.value) : null)}
@@ -1161,7 +1240,7 @@ export default function TicketsDashboard() {
             </select>
           )}
           {activeGroup && (
-            <button onClick={() => handleGroupFilter(null)} style={{ padding: '6px 10px', border: '1px solid #fecaca', borderRadius: 6, background: '#fef2f2', color: '#ef4444', cursor: 'pointer', fontSize: 12, fontWeight: 500 }}>✕</button>
+            <button type="button" onClick={() => handleGroupFilter(null)} style={{ padding: '6px 10px', border: '1px solid #fecaca', borderRadius: 6, background: '#fef2f2', color: '#ef4444', cursor: 'pointer', fontSize: 12, fontWeight: 500 }}>✕</button>
           )}
           {technicians.length > 0 && (
             <select value={activeTechnician || ''} onChange={e => handleTechnicianFilter(e.target.value ? parseInt(e.target.value) : null)}
@@ -1177,7 +1256,7 @@ export default function TicketsDashboard() {
             </select>
           )}
           {activeTechnician && (
-            <button onClick={() => handleTechnicianFilter(null)} style={{ padding: '6px 10px', border: '1px solid #fecaca', borderRadius: 6, background: '#fef2f2', color: '#ef4444', cursor: 'pointer', fontSize: 12, fontWeight: 500 }}>✕</button>
+            <button type="button" onClick={() => handleTechnicianFilter(null)} style={{ padding: '6px 10px', border: '1px solid #fecaca', borderRadius: 6, background: '#fef2f2', color: '#ef4444', cursor: 'pointer', fontSize: 12, fontWeight: 500 }}>✕</button>
           )}
           <select value={typeFilter} onChange={e => handleTypeFilter(e.target.value)}
             style={{ padding: '7px 12px', border: `1px solid ${typeFilter ? '#4f46e5' : '#e2e8f0'}`, borderRadius: 6, background: typeFilter ? '#eef2ff' : '#fff', cursor: 'pointer', fontSize: 13, fontWeight: 500, color: typeFilter ? '#4338ca' : '#64748b', outline: 'none' }}>
@@ -1186,7 +1265,7 @@ export default function TicketsDashboard() {
             <option value="2">📩 Demandes</option>
           </select>
           {typeFilter && (
-            <button onClick={() => handleTypeFilter('')} style={{ padding: '6px 10px', border: '1px solid #fecaca', borderRadius: 6, background: '#fef2f2', color: '#ef4444', cursor: 'pointer', fontSize: 12, fontWeight: 500 }}>✕</button>
+            <button type="button" onClick={() => handleTypeFilter('')} style={{ padding: '6px 10px', border: '1px solid #fecaca', borderRadius: 6, background: '#fef2f2', color: '#ef4444', cursor: 'pointer', fontSize: 12, fontWeight: 500 }}>✕</button>
           )}
           <button type="submit" style={{ padding: '8px 14px', border: '1px solid #e2e8f0', borderRadius: 8, background: '#fff', cursor: 'pointer', fontSize: 13, fontWeight: 500, color: '#475569' }}>🔍</button>
         </form>
@@ -1308,7 +1387,7 @@ export default function TicketsDashboard() {
         };
 
         // Un filtre de liste est-il actif ? (pour afficher KPI filtrés + globaux)
-        const hasActiveListFilters = !!(activeCategory || activeSubcategory || activeSoftware || activeGroup || activeTechnician || activeRequesterEmail || (search && search.trim()));
+        const hasActiveListFilters = !!(activeCategory || activeSubcategory || activeSoftware || activeGroup || activeTechnician || activeRequester || (search && search.trim()));
 
         // Config unifiée : statuts + temps dans le même tableau
         const allCards = [
