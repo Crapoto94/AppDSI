@@ -5018,6 +5018,40 @@ async function setupPgDb() {
     try { await client.query(`CREATE INDEX IF NOT EXISTS idx_task_notes_src ON hub.task_notes(source, task_id)`); } catch (e) {}
     try { await client.query(`ALTER TABLE hub.task_notes ADD COLUMN IF NOT EXISTS file_missing BOOLEAN DEFAULT FALSE`); } catch (e) {}
 
+    // ── Migration fuseau horaire — LOT tâches (hub.user_tasks / hub.task_notes) ──────────
+    // Même problème que le LOT 1 hub_tickets (cf. commentaire LOT 1 en haut de fichier) :
+    // session DB en UTC + DEFAULT CURRENT_TIMESTAMP / NOW() → heure murale UTC stockée dans
+    // une colonne `timestamp` SANS fuseau, que node-postgres relit ensuite en Europe/Paris
+    // (TZ forcée sur le process) → une tâche créée à 14h45 est affichée 12h45, soit 2h trop
+    // tôt, dans l'activité du ticket. Le journal des événements est juste car
+    // hub_tickets.ticket_history.created_at est déjà en timestamptz (LOT 1).
+    // On convertit en timestamptz en déclarant l'existant comme UTC (AT TIME ZONE 'UTC'),
+    // ce qui restitue l'instant réel — sans changement de code ni de front.
+    // Écritures concernées : toutes en heure UTC (DEFAULT CURRENT_TIMESTAMP, NOW(),
+    // paramètre Date node-pg) → conversion correcte, y compris pour les données existantes.
+    for (const [sch, tbl, col] of [
+      ['hub', 'user_tasks', 'created_at'],
+      ['hub', 'user_tasks', 'updated_at'],
+      ['hub', 'task_notes', 'created_at'],
+    ]) {
+      try {
+        await client.query(`
+          DO $$
+          BEGIN
+            IF EXISTS (
+              SELECT 1 FROM information_schema.columns
+              WHERE table_schema = '${sch}' AND table_name = '${tbl}'
+                AND column_name = '${col}' AND data_type = 'timestamp without time zone'
+            ) THEN
+              EXECUTE 'ALTER TABLE ${sch}.${tbl} ALTER COLUMN ${col} TYPE timestamptz USING ${col} AT TIME ZONE ''UTC''';
+              RAISE NOTICE '[tz] ${sch}.${tbl}.${col} -> timestamptz';
+            END IF;
+          END $$;
+        `);
+      } catch (e) { console.log('[DB][tz] skip', sch, tbl, col, ':', e.message); }
+    }
+    console.log('[DB][tz] LOT tâches (user_tasks / task_notes) vérifié');
+
     // Notifications in-app (mentions @) — mail récapitulatif à 20h si non lues
     await client.query(`
       CREATE TABLE IF NOT EXISTS hub.user_notifications (
