@@ -330,11 +330,14 @@ async function getFileForServe(storageRelative) {
 async function readAlfrescoCopy(storageRelative) {
     try {
         const { pgDb } = require('./database');
+        // Les routes /storage et /api/storage retirent le préfixe « storage/ » de l'URL :
+        // on cherche donc la référence avec ET sans ce préfixe.
+        const bare = toStorageRelative(storageRelative);
         const row = await pgDb.get(
             `SELECT metadata->'alfresco'->>'ref' AS ref FROM hub_docs.document_versions
-             WHERE storage_ref = $1 AND metadata->'alfresco'->>'ref' IS NOT NULL
+             WHERE storage_ref IN ($1, $2) AND metadata->'alfresco'->>'ref' IS NOT NULL
              ORDER BY id DESC LIMIT 1`,
-            [String(storageRelative).replace(/\\/g, '/')]
+            [bare, `${STORAGE_PREFIX}/${bare}`]
         );
         if (!row || !row.ref) return null;
         const alfrescoAdapter = require('./document_storage/alfresco_adapter');
