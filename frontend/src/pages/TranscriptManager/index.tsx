@@ -57,6 +57,7 @@ interface TeamsMeeting {
 
 interface ApiErrorResponseData {
     error?: string;
+    message?: string;
     existingMeetingId?: number;
     existingTitle?: string;
     [key: string]: unknown;
@@ -300,7 +301,7 @@ const TranscriptManager: React.FC = () => {
                 );
                 if (reimport) await importTeamsMeeting(m, true);
             } else {
-                const msg = e.response?.data?.error || e.message || "Erreur inconnue";
+                const msg = e.response?.data?.error || e.response?.data?.message || e.message || "Erreur inconnue";
                 alert(typeof msg === 'string' ? msg : JSON.stringify(msg));
             }
         } finally {
