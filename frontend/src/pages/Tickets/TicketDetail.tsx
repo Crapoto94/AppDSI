@@ -1153,7 +1153,7 @@ export default function TicketDetail() {
     // la liste se rouvre immédiatement avec les correspondances de ce nom.
     requesterSearchSkipRef.current = true;
     setRequesterSearch(u.name || '');
-    setEditForm((f: Record<string, unknown>) => ({ ...f, requester_name: u.username || u.name, requester_email: u.email || '' }));
+    setEditForm((f: any) => ({ ...f, requester_name: u.username || u.name, requester_email: u.email || '' }));
     setRequesterResults([]);
   }
 
@@ -1241,9 +1241,8 @@ export default function TicketDetail() {
     }
   }
 
-  // Valide le commentaire comme SOLUTION : le poste (et l'envoie par email au
-  // demandeur s'il en a un, comme le mode Réponse e-mail), le définit comme
-  // solution du ticket (affichage distinct) et passe le statut à Résolu.
+  // Valide le commentaire comme SOLUTION : le poste, le définit comme solution du ticket
+  // (affichage distinct) et passe le statut à Résolu. Seul le mail de résolution est envoyé.
   async function handleSolutionner() {
     if (isCommentEmpty(newComment)) return;
     setSolutionning(true);
@@ -1252,18 +1251,9 @@ export default function TicketDetail() {
       const h = { headers: { Authorization: `Bearer ${token}` } };
       const attachment_ids = await buildAttachmentIds();
       const content = normalizeLinksHtml(newComment);
-      // 1) Poster le commentaire — envoyé par email au demandeur si connu
-      //    (+ CC techniciens/observateurs sélectionnés), sinon commentaire public simple.
-      if (ticket.requester?.email) {
-        await axios.post(`/api/tickets/${id}/comments/send`, {
-          content, is_private: 0,
-          cc_observers: ccObservers, cc_technicians: ccTechnicians,
-          is_resolution: true,
-          attachment_ids
-        }, h);
-      } else {
-        await axios.post(`/api/tickets/${id}/comments`, { content, is_private: 0, attachment_ids }, h);
-      }
+      // 1) Poster le commentaire de solution, SANS mail « Réponse à votre demande » : le demandeur
+      //    reçoit uniquement le mail de résolution, envoyé par l'étape 2 (ticket.resolved).
+      await axios.post(`/api/tickets/${id}/comments`, { content, is_private: 0, is_solution: true, attachment_ids }, h);
       // 2) Le définir comme solution → statut Résolu (5) + date_solved (côté backend)
       await axios.post(`/api/tickets/${id}/solution`, { solution: content }, h);
       setNewComment('');

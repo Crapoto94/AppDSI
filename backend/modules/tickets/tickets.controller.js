@@ -600,7 +600,9 @@ async assign(req, res) {
 
     async addComment(req, res) {
         try {
-            const { content, is_private = 0 } = req.body;
+            // is_solution : commentaire posté pour la résolution du ticket. Le demandeur reçoit alors
+            // uniquement le mail de résolution (ticket.resolved), pas la notification de commentaire.
+            const { content, is_private = 0, is_solution = false } = req.body;
             const ticketId = parseInt(req.params.id);
             const comment = await commentRepo.create(ticketId, { content, is_private }, req.user);
 
@@ -616,7 +618,9 @@ async assign(req, res) {
                 await slaRepo.setFirstResponse(ticketId);
             }
 
-            await notificationService.trigger('ticket.comment_added', { ticket_id: ticketId, comment, user: req.user });
+            if (!is_solution) {
+                await notificationService.trigger('ticket.comment_added', { ticket_id: ticketId, comment, user: req.user });
+            }
 
             require('../mentions/mentions.service').notifyMentions({
                 content, actor: req.user, source: 'ticket', entityId: ticketId,

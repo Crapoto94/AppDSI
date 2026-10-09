@@ -807,7 +807,9 @@ const MagAppController = {
                 result.show_tasks = true;
                 result.show_notes = true;
                 result.show_reunions = true;
-                // show_chat_live reste un toggle admin strict (jamais forcé).
+                // Chat : le toggle admin l'active pour TOUT LE MONDE ; désactivé, il reste visible pour les
+                // beta testeurs (show_chat_live_original conserve la valeur publiée, pour le badge BETA).
+                result.show_chat_live = true;
             } else {
                 result.show_tickets_original = result.show_tickets;
                 result.show_subscriptions_original = result.show_subscriptions;

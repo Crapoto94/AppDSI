@@ -3523,7 +3523,7 @@ Je confirme l'incident
         </div>
       )}
 
-      <ChatWidget liveEnabled={settings.show_chat_live} />
+      <ChatWidget liveEnabled={settings.show_chat_live} beta={settings.is_beta_user && !(settings as any).show_chat_live_original} />
     </div>
   );
 }

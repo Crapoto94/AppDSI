@@ -241,10 +241,14 @@ async function resolvePublicWorkflow(token, res) {
 // (FACTURE_FACTURE) qui sert d'invoice_ref au workflow de service fait. Il faut donc
 // repasser par la table Oracle pour retrouver le FACTURE_FACTIERS correspondant à
 // l'invoice_ref avant de chercher une correspondance côté Telecom.
+function isTruthyFlag(v) {
+    return v === true || v === 1 || ['1', 'true'].includes(String(v).toLowerCase());
+}
+
 function isTelecomIntegrated(invoiceRef) {
     if (!invoiceRef) return false;
     return pool.query(
-        `SELECT 1 FROM oracle.gf_oracle_facture f
+        `SELECT 1 FROM hub_telecom.sedit_factures_live f
          JOIN hub_telecom.invoices t ON LOWER(TRIM(t.invoice_number)) = LOWER(TRIM(f."FACTURE_FACTIERS"))
          WHERE TRIM(f."FACTURE_FACTURE") = $1 LIMIT 1`,
         [invoiceRef]
@@ -267,7 +271,7 @@ const controller = {
                 return res.status(400).json({ message: 'invoice_ref et verifier_username requis' });
             }
 
-            if (await isTelecomIntegrated(invoice_ref)) {
+            if (!isTruthyFlag(req.body.from_telecom) && await isTelecomIntegrated(invoice_ref)) { // Telecom a son propre bouton SF : il lève ce blocage
                 return res.status(400).json({ message: 'Cette facture est intégrée au module Telecom et ne peut pas faire l\'objet d\'une validation de service fait.' });
             }
 
@@ -377,7 +381,7 @@ const controller = {
                 return res.status(400).json({ message: 'Un commentaire ou une pièce jointe est requis (l\'un des deux suffit).' });
             }
 
-            if (await isTelecomIntegrated(invoice_ref)) {
+            if (!isTruthyFlag(req.body.from_telecom) && await isTelecomIntegrated(invoice_ref)) { // Telecom a son propre bouton SF : il lève ce blocage
                 return res.status(400).json({ message: 'Cette facture est intégrée au module Telecom et ne peut pas faire l\'objet d\'une validation de service fait.' });
             }
 
@@ -488,7 +492,7 @@ const controller = {
                 try {
                     const telecomRes = await pool.query(
                         `SELECT DISTINCT TRIM(f."FACTURE_FACTURE") AS ref
-                         FROM oracle.gf_oracle_facture f
+                         FROM hub_telecom.sedit_factures_live f
                          JOIN hub_telecom.invoices t ON LOWER(TRIM(t.invoice_number)) = LOWER(TRIM(f."FACTURE_FACTIERS"))
                          WHERE TRIM(f."FACTURE_FACTURE") = ANY($1)`,
                         [normalizedRefs]

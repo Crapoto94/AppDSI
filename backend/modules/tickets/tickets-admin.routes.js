@@ -468,17 +468,39 @@ router.post('/sla/reset', authenticateTicketAdmin, async (req, res) => {
     } catch (e) { res.status(500).json({ message: e.message }); }
 });
 
-// ─── SLA Calendars ─────────────────────────────────────────────
+// ─── SLA Calendars (CRUD : calendriers, plages horaires, jours fériés) ─────────────
+const CAL_DAY_RE = /^[1-7]$/;
+const CAL_TIME_RE = /^([01]\d|2[0-3]):[0-5]\d(:[0-5]\d)?$/;
+const isValidTimezone = (tz) => { try { new Intl.DateTimeFormat('fr-FR', { timeZone: tz }); return true; } catch (e) { return false; } };
+const toHM = (t) => String(t || '').substring(0, 5);
+
+// Valide une plage (jour, début < fin, pas de chevauchement avec les autres plages du même jour)
+async function validateSlot(calendarId, { day_of_week, start_time, end_time }, ignoreHourId = null) {
+    if (!CAL_DAY_RE.test(String(day_of_week))) return 'Jour invalide (1 = lundi … 7 = dimanche)';
+    if (!CAL_TIME_RE.test(String(start_time)) || !CAL_TIME_RE.test(String(end_time))) return 'Heure invalide (HH:MM)';
+    if (toHM(start_time) >= toHM(end_time)) return "L'heure de fin doit être postérieure à l'heure de début";
+    const others = await pgDb.all(
+        'SELECT id, start_time, end_time FROM hub_tickets.sla_calendar_hours WHERE calendar_id = $1 AND day_of_week = $2',
+        [calendarId, parseInt(day_of_week, 10)]
+    );
+    const clash = others.find(o => o.id !== ignoreHourId && toHM(start_time) < toHM(o.end_time) && toHM(end_time) > toHM(o.start_time));
+    if (clash) return `Chevauche une plage existante (${toHM(clash.start_time)}-${toHM(clash.end_time)})`;
+    return null;
+}
+
 router.get('/sla/calendars', authenticateJWT, async (req, res) => {
     try {
         const calendars = await pgDb.all(`
             SELECT c.*,
-                   COALESCE(json_agg(json_build_object('id', h.id, 'day_of_week', h.day_of_week, 'start_time', h.start_time, 'end_time', h.end_time))
-                       FILTER (WHERE h.id IS NOT NULL), '[]') as hours
+                   COALESCE((SELECT json_agg(json_build_object('id', h.id, 'day_of_week', h.day_of_week, 'start_time', h.start_time, 'end_time', h.end_time)
+                                             ORDER BY h.day_of_week, h.start_time)
+                             FROM hub_tickets.sla_calendar_hours h WHERE h.calendar_id = c.id), '[]') AS hours,
+                   COALESCE((SELECT json_agg(json_build_object('id', x.id, 'holiday_date', x.holiday_date, 'label', x.label) ORDER BY x.holiday_date)
+                             FROM hub_tickets.sla_holidays x WHERE x.calendar_id = c.id), '[]') AS holidays,
+                   (SELECT COUNT(*)::int FROM hub_tickets.sla_definitions d WHERE d.calendar_id = c.id) AS sla_count,
+                   (SELECT value FROM hub_tickets.module_config WHERE key = 'live_calendar_id') = c.id::text AS used_by_live
             FROM hub_tickets.sla_calendars c
-            LEFT JOIN hub_tickets.sla_calendar_hours h ON c.id = h.calendar_id
-            GROUP BY c.id, c.name, c.description, c.timezone, c.is_default, c.created_at
-            ORDER BY c.name
+            ORDER BY c.is_default DESC, c.name
         `);
         res.json(calendars);
     } catch (e) { res.status(500).json({ message: e.message }); }
@@ -486,35 +508,129 @@ router.get('/sla/calendars', authenticateJWT, async (req, res) => {
 
 router.post('/sla/calendars', authenticateTicketAdmin, async (req, res) => {
     try {
+        const name = String(req.body.name || '').trim();
+        if (!name) return res.status(400).json({ message: 'Nom requis' });
+        const timezone = req.body.timezone || 'Europe/Paris';
+        if (!isValidTimezone(timezone)) return res.status(400).json({ message: `Fuseau horaire invalide : ${timezone}` });
         const result = await pgDb.run(
             'INSERT INTO hub_tickets.sla_calendars (name, description, timezone) VALUES ($1, $2, $3)',
-            [req.body.name, req.body.description, req.body.timezone || 'Europe/Paris']);
+            [name, req.body.description || null, timezone]);
         res.status(201).json({ id: result.lastID, message: 'Calendrier créé' });
     } catch (e) { res.status(400).json({ message: e.message }); }
 });
 
 router.put('/sla/calendars/:id', authenticateTicketAdmin, async (req, res) => {
     try {
+        const name = String(req.body.name || '').trim();
+        if (!name) return res.status(400).json({ message: 'Nom requis' });
+        const timezone = req.body.timezone || 'Europe/Paris';
+        if (!isValidTimezone(timezone)) return res.status(400).json({ message: `Fuseau horaire invalide : ${timezone}` });
         await pgDb.run(
             'UPDATE hub_tickets.sla_calendars SET name = $1, description = $2, timezone = $3 WHERE id = $4',
-            [req.body.name, req.body.description, req.body.timezone || 'Europe/Paris', req.params.id]);
+            [name, req.body.description || null, timezone, req.params.id]);
         res.json({ message: 'Calendrier mis à jour' });
+    } catch (e) { res.status(400).json({ message: e.message }); }
+});
+
+// Calendrier par défaut (un seul, mis à jour en une requête)
+router.put('/sla/calendars/:id/default', authenticateTicketAdmin, async (req, res) => {
+    try {
+        const { pool } = require('../../shared/database');
+        const r = await pool.query('UPDATE hub_tickets.sla_calendars SET is_default = (id = $1) RETURNING id', [parseInt(req.params.id, 10)]);
+        if (!r.rowCount) return res.status(404).json({ message: 'Calendrier introuvable' });
+        res.json({ message: 'Calendrier par défaut modifié' });
+    } catch (e) { res.status(400).json({ message: e.message }); }
+});
+
+// Suppression : refusée pour le calendrier par défaut, s'il porte des SLA ou s'il pilote le chat live
+router.delete('/sla/calendars/:id', authenticateTicketAdmin, async (req, res) => {
+    try {
+        const id = parseInt(req.params.id, 10);
+        const cal = await pgDb.get('SELECT id, name, is_default FROM hub_tickets.sla_calendars WHERE id = $1', [id]);
+        if (!cal) return res.status(404).json({ message: 'Calendrier introuvable' });
+        if (cal.is_default) return res.status(409).json({ message: 'Impossible de supprimer le calendrier par défaut : désignez-en un autre d\'abord' });
+        const defs = await pgDb.get('SELECT COUNT(*)::int AS n FROM hub_tickets.sla_definitions WHERE calendar_id = $1', [id]);
+        if (defs && defs.n > 0) return res.status(409).json({ message: `Ce calendrier est utilisé par ${defs.n} définition(s) de SLA : changez leur calendrier avant de le supprimer` });
+        const live = await pgDb.get("SELECT value FROM hub_tickets.module_config WHERE key = 'live_calendar_id'");
+        if (live && String(live.value) === String(id)) return res.status(409).json({ message: 'Ce calendrier pilote les horaires du chat live : choisissez-en un autre dans les paramètres du live' });
+        await pgDb.run('DELETE FROM hub_tickets.sla_calendars WHERE id = $1', [id]); // plages et jours fériés suivent (CASCADE)
+        res.json({ message: 'Calendrier supprimé' });
+    } catch (e) { res.status(400).json({ message: e.message }); }
+});
+
+// Duplication (plages horaires et jours fériés inclus)
+router.post('/sla/calendars/:id/duplicate', authenticateTicketAdmin, async (req, res) => {
+    try {
+        const { pool } = require('../../shared/database');
+        const id = parseInt(req.params.id, 10);
+        const src = await pgDb.get('SELECT * FROM hub_tickets.sla_calendars WHERE id = $1', [id]);
+        if (!src) return res.status(404).json({ message: 'Calendrier introuvable' });
+        const name = String(req.body?.name || '').trim() || `${src.name} (copie)`;
+        const ins = await pool.query(
+            'INSERT INTO hub_tickets.sla_calendars (name, description, timezone) VALUES ($1, $2, $3) RETURNING id',
+            [name, src.description, src.timezone]);
+        const newId = ins.rows[0].id;
+        await pool.query(
+            `INSERT INTO hub_tickets.sla_calendar_hours (calendar_id, day_of_week, start_time, end_time)
+             SELECT $1, day_of_week, start_time, end_time FROM hub_tickets.sla_calendar_hours WHERE calendar_id = $2`, [newId, id]);
+        await pool.query(
+            `INSERT INTO hub_tickets.sla_holidays (calendar_id, holiday_date, label)
+             SELECT $1, holiday_date, label FROM hub_tickets.sla_holidays WHERE calendar_id = $2`, [newId, id]);
+        res.status(201).json({ id: newId, message: 'Calendrier dupliqué' });
     } catch (e) { res.status(400).json({ message: e.message }); }
 });
 
 router.delete('/sla/calendars/:id/hours/:hourId', authenticateTicketAdmin, async (req, res) => {
     try {
-        await pgDb.run('DELETE FROM hub_tickets.sla_calendar_hours WHERE id = $1', [req.params.hourId]);
+        await pgDb.run('DELETE FROM hub_tickets.sla_calendar_hours WHERE id = $1 AND calendar_id = $2', [req.params.hourId, req.params.id]);
         res.json({ message: 'Plage horaire supprimée' });
     } catch (e) { res.status(400).json({ message: e.message }); }
 });
 
 router.post('/sla/calendars/:id/hours', authenticateTicketAdmin, async (req, res) => {
     try {
+        const calId = parseInt(req.params.id, 10);
+        const err = await validateSlot(calId, req.body);
+        if (err) return res.status(400).json({ message: err });
         await pgDb.run(
             'INSERT INTO hub_tickets.sla_calendar_hours (calendar_id, day_of_week, start_time, end_time) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING',
-            [req.params.id, req.body.day_of_week, req.body.start_time, req.body.end_time]);
+            [calId, req.body.day_of_week, req.body.start_time, req.body.end_time]);
         res.status(201).json({ message: 'Plage horaire ajoutée' });
+    } catch (e) { res.status(400).json({ message: e.message }); }
+});
+
+router.put('/sla/calendars/:id/hours/:hourId', authenticateTicketAdmin, async (req, res) => {
+    try {
+        const calId = parseInt(req.params.id, 10);
+        const hourId = parseInt(req.params.hourId, 10);
+        const err = await validateSlot(calId, req.body, hourId);
+        if (err) return res.status(400).json({ message: err });
+        const r = await pgDb.run(
+            'UPDATE hub_tickets.sla_calendar_hours SET day_of_week = $1, start_time = $2, end_time = $3 WHERE id = $4 AND calendar_id = $5',
+            [req.body.day_of_week, req.body.start_time, req.body.end_time, hourId, calId]);
+        res.json({ message: 'Plage horaire modifiée' });
+    } catch (e) { res.status(400).json({ message: e.message }); }
+});
+
+// Jours fériés / fermetures exceptionnelles (le calendrier est fermé ces jours-là)
+router.post('/sla/calendars/:id/holidays', authenticateTicketAdmin, async (req, res) => {
+    try {
+        const date = String(req.body.holiday_date || '').trim();
+        const label = String(req.body.label || '').trim();
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return res.status(400).json({ message: 'Date invalide (AAAA-MM-JJ)' });
+        if (!label) return res.status(400).json({ message: 'Libellé requis' });
+        await pgDb.run(
+            `INSERT INTO hub_tickets.sla_holidays (calendar_id, holiday_date, label) VALUES ($1, $2, $3)
+             ON CONFLICT (calendar_id, holiday_date) DO UPDATE SET label = EXCLUDED.label`,
+            [req.params.id, date, label]);
+        res.status(201).json({ message: 'Jour férié enregistré' });
+    } catch (e) { res.status(400).json({ message: e.message }); }
+});
+
+router.delete('/sla/calendars/:id/holidays/:holidayId', authenticateTicketAdmin, async (req, res) => {
+    try {
+        await pgDb.run('DELETE FROM hub_tickets.sla_holidays WHERE id = $1 AND calendar_id = $2', [req.params.holidayId, req.params.id]);
+        res.json({ message: 'Jour férié supprimé' });
     } catch (e) { res.status(400).json({ message: e.message }); }
 });
 

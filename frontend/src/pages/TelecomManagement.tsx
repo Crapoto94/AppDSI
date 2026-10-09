@@ -25,11 +25,14 @@ import {
   TrendingUp,
   TrendingDown,
   ArrowRight,
-  MessageSquare
+  MessageSquare,
+  CheckCircle
 } from 'lucide-react';import { useNavigate } from 'react-router-dom';
-import { BarChart, Bar, Cell, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
+import { BarChart, Bar, Cell, XAxis, YAxis, Tooltip, Legend, ResponsiveContainer, CartesianGrid } from 'recharts';
 import Header from '../components/Header';
+import { useAuth } from '../contexts/AuthContext';
 import FactureDocumentsViewer from '../components/finance/FactureDocumentsViewer';
+import ServiceFaitModal from '../components/ServiceFaitModal';
 
 interface Tier {
   id: number;
@@ -74,6 +77,9 @@ interface Commitment {
   invoiced_amount: number;
   year: number;
   operator_name: string;
+  // Géré en fluide (défaut : oui) : les factures rapprochées à l'engagement sont intégrées à l'historique
+  managed?: boolean;
+  sedit_ref?: string | null;
   function_code?: string;
   section?: string;
   // Champs dynamiques renvoyés par /api/telecom/engagements (issus du budget)
@@ -93,12 +99,20 @@ interface TelecomInvoice {
   operator_name?: string;
   account_number?: string;
   general_status?: string;
+  engagement?: string | null;
   sedit_ref?: string;
   sedit_numero?: string | null;
   billing_month?: string | null;
   description?: string | null;
   effective_month?: string | null;
+  // Ligne issue des factures rejetées (affichée dans l'historique, sans actions de gestion)
+  rejected?: boolean;
+  reject_reason?: string | null;
 }
+
+// Synthèse d'un engagement lue en direct dans Sedit (année en cours uniquement)
+interface EngagementTotals { initial: number; engage: number; degage: number; reste: number; }
+interface EngagementSynthese { libelle: string; exercice: number; ttc: EngagementTotals; ht: EngagementTotals; }
 
 interface AvailableBudgetInvoice {
   invoice_number: string;
@@ -108,6 +122,9 @@ interface AvailableBudgetInvoice {
   invoice_date: string | null;
   sedit_ref: string | null;
   etat: string | null;
+  engagement?: string | null;
+  suggested_account_id?: number | null;
+  sedit_numero?: string | null;
 }
 
 interface RejectedInvoice {
@@ -122,6 +139,12 @@ interface RejectedInvoice {
   sedit_ref: string | null;
   etat: string | null;
   invoice_date: string | null;
+  operator_id?: number | null;
+  billing_account_id?: number | null;
+  operator_name?: string | null;
+  account_number?: string | null;
+  engagement?: string | null;
+  sedit_numero?: string | null;
 }
 
 interface TelecomLine {
@@ -213,6 +236,41 @@ interface BillingLine {
   resiliation: string;
 }
 
+// Imports ZIP (export de facturation / duplicatas PDF) désactivés : les données viennent des factures Sedit.
+const ZIP_IMPORT_ENABLED = false;
+
+// L'ajout manuel de factures est désactivé pour le moment (les factures rapprochées à un engagement
+// géré en fluide sont intégrées automatiquement). Passer à true pour le réactiver.
+const ADD_INVOICE_ENABLED = false;
+
+// Analyse automatique d'une facture à partir de son PDF Sedit (version la plus détaillée)
+interface InvoiceAnalysisRow {
+  id: number;
+  invoice_number: string;
+  sedit_numero: string | null;
+  sedit_ref: string | null;
+  amount_ttc: number | null;
+  effective_month: string | null;
+  operator_name: string;
+  account_number: string | null;
+  status: string | null;
+  doc_name: string | null;
+  doc_size_kb: number | null;
+  docs_count: number | null;
+  pages: number | null;
+  period_start: string | null;
+  period_end: string | null;
+  account_ref: string | null;
+  amount_ht: number | null;
+  amount_tva: number | null;
+  pdf_ttc: number | null;
+  amount_abonnements: number | null;
+  amount_consommations: number | null;
+  ecart: number | null;
+  error: string | null;
+  analysed_at: string | null;
+}
+
 interface MonthCellInvoice {
   id: number;
   invoice_number: string;
@@ -228,6 +286,8 @@ interface MonthCellInvoice {
 
 interface MonthCell {
   total: number | null;
+  ok_count?: number;
+  refused_count?: number;
   invoices: MonthCellInvoice[];
   comment: string | null;
   isPast: boolean;
@@ -320,6 +380,11 @@ const TelecomManagement: React.FC = () => {
 
   // Coûts & mobile (facturation SFR)
   const [billingStats, setBillingStats] = useState<BillingStats | null>(null);
+  // Analyse automatique des factures Sedit (PDF le plus détaillé de chaque facture)
+  const [analysisRows, setAnalysisRows] = useState<InvoiceAnalysisRow[]>([]);
+  const [analysisRunning, setAnalysisRunning] = useState(false);
+  const [analysisLoading, setAnalysisLoading] = useState(false);
+  const [analysisFilter, setAnalysisFilter] = useState<'all' | 'issues'>('all');
   const [billingTrend, setBillingTrend] = useState<{ month: string; total: number }[]>([]);
   const [billingLines, setBillingLines] = useState<BillingLine[]>([]);
   const [billingType, setBillingType] = useState<'all' | 'mobile' | 'fixe'>('all');
@@ -361,6 +426,12 @@ const TelecomManagement: React.FC = () => {
   const [billingAccounts, setBillingAccounts] = useState<Record<number, BillingAccount[]>>({});
   const [commitments, setCommitments] = useState<Commitment[]>([]);
   const [telecomInvoices, setTelecomInvoices] = useState<TelecomInvoice[]>([]);
+  // État des factures lu EN DIRECT dans Sedit (service fait, rapprochement, mandatement, rejet),
+  // clé = n° interne Sedit de la facture (sedit_numero).
+  const [seditStatuses, setSeditStatuses] = useState<Record<string, any>>({});
+  const [seditStatusesLoaded, setSeditStatusesLoaded] = useState<Record<string, boolean>>({});
+  // Facture télécom pour laquelle on déclare le service fait (modale ServiceFaitModal)
+  const [sfInvoice, setSfInvoice] = useState<TelecomInvoice | null>(null);
   const [allTiers, setAllTiers] = useState<Tier[]>([]);
   const [showAddOperator, setShowAddOperator] = useState(false);
   const [selectedTier, setSelectedTier] = useState<Tier | null>(null);
@@ -384,6 +455,8 @@ const TelecomManagement: React.FC = () => {
   const [addInvoiceOperatorId, setAddInvoiceOperatorId] = useState<number | null>(null);
   const [addInvoiceAccountId, setAddInvoiceAccountId] = useState<number | null>(null);
   const [availableInvoices, setAvailableInvoices] = useState<AvailableBudgetInvoice[]>([]);
+  // Engagements Sedit (lus en direct) des comptes de l'opérateur choisi dans la modale d'ajout
+  const [liveEngagements, setLiveEngagements] = useState<Record<string, EngagementSynthese>>({});
   const [loadingAvailable, setLoadingAvailable] = useState(false);
   const [availableSearch, setAvailableSearch] = useState('');
   const [addingInvoiceNumber, setAddingInvoiceNumber] = useState<string | null>(null);
@@ -394,6 +467,8 @@ const TelecomManagement: React.FC = () => {
   const [rejecting, setRejecting] = useState(false);
   const [rejectedDetail, setRejectedDetail] = useState<{ title: string; operator_id: number; billing_account_id: number | null } | null>(null);
   const [rejectedInvoices, setRejectedInvoices] = useState<RejectedInvoice[]>([]);
+  // Toutes les factures rejetées (pour l'historique des factures)
+  const [allRejected, setAllRejected] = useState<RejectedInvoice[]>([]);
   const [loadingRejected, setLoadingRejected] = useState(false);
   // Comparaison import engagements vs total facturé dynamique (factures des comptes liés)
   const [commitmentDiff, setCommitmentDiff] = useState<{
@@ -419,6 +494,8 @@ const TelecomManagement: React.FC = () => {
   const [accountTypeFilter, setAccountTypeFilter] = useState<Record<number, string>>({});
 
   const token = localStorage.getItem('token');
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'admin' || user?.role === 'superadmin';
 
   useEffect(() => {
     fetchData();
@@ -455,6 +532,9 @@ const TelecomManagement: React.FC = () => {
 
       const invRes = await fetch('/api/telecom/invoices', { headers: { 'Authorization': `Bearer ${token}` } });
       if (invRes.ok) setTelecomInvoices(await invRes.json());
+
+      const rejRes = await fetch('/api/telecom/invoices/rejected', { headers: { 'Authorization': `Bearer ${token}` } });
+      if (rejRes.ok) setAllRejected(await rejRes.json());
 
       const ifRes = await fetch('/api/telecom/billing/invoice-files', { headers: { 'Authorization': `Bearer ${token}` } });
       if (ifRes.ok) setInvoiceFiles(await ifRes.json());
@@ -566,17 +646,24 @@ const TelecomManagement: React.FC = () => {
     }
   };
 
-  // Rendu d'un n° de facture : cliquable (ouvre le PDF GED) si disponible
+  // Rendu d'un n° de facture fournisseur : lié à la facture SEDIT (invoiceFiles = n° fournisseur -> n° interne
+  // Sedit). Un clic ouvre ses pièces jointes (PDF) lues dans Sedit.
   const renderInvoiceNumber = (num: string | null | undefined) => {
     if (!num) return <span style={{ color: '#cbd5e1' }}>—</span>;
     return <>{String(num).split(/,\s*/).map((nm, i) => {
-      const path = invoiceFiles[nm];
+      const sedit = invoiceFiles[nm];
       return (
         <React.Fragment key={nm}>
           {i > 0 && ', '}
-          {path
-            ? <a href={`/api/${path}`} target="_blank" rel="noopener noreferrer" className="ndi-link" title="Voir le PDF de la facture">{nm}</a>
-            : <span title="PDF non importé — importez le ZIP de duplicatas contenant cette facture" style={{ borderBottom: '1px dotted #cbd5e1', cursor: 'help' }}>{nm}</span>}
+          {sedit
+            ? (
+              <span style={{ display: 'inline-flex', flexDirection: 'column', lineHeight: 1.25 }}>
+                <a href="#" className="ndi-link" title={`Voir la facture ${sedit} dans SEDIT (pièces jointes PDF)`}
+                  onClick={e => { e.preventDefault(); setViewingFactureNumero(sedit); }}>{nm}</a>
+                <span style={{ fontSize: '0.66rem', color: '#0369a1', fontWeight: 700 }} title="Facture présente dans SEDIT">SEDIT · {sedit}</span>
+              </span>
+            )
+            : <span title="Facture introuvable dans SEDIT" style={{ borderBottom: '1px dotted #cbd5e1', cursor: 'help' }}>{nm}</span>}
         </React.Fragment>
       );
     })}</>;
@@ -627,6 +714,38 @@ const TelecomManagement: React.FC = () => {
     }
   };
 
+  const fetchInvoiceAnalysis = async () => {
+    setAnalysisLoading(true);
+    try {
+      const res = await fetch(`/api/telecom/billing/analysis?year=${new Date().getFullYear()}`, { headers: { 'Authorization': `Bearer ${token}` } });
+      if (res.ok) {
+        const d = await res.json();
+        setAnalysisRows(d.rows || []);
+        setAnalysisRunning(!!d.running);
+        return !!d.running;
+      }
+    } catch (e) { console.error(e); } finally { setAnalysisLoading(false); }
+    return false;
+  };
+
+  const runInvoiceAnalysis = async (force: boolean) => {
+    if (force && !window.confirm('Relancer l\'analyse de toutes les factures de l\'exercice depuis leurs PDF Sedit ?')) return;
+    setAnalysisRunning(true);
+    try {
+      await fetch('/api/telecom/billing/analysis/run', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ force }),
+      });
+      // l'analyse tourne en tâche de fond : on rafraîchit jusqu'à la fin
+      for (let i = 0; i < 40; i++) {
+        await new Promise(r => setTimeout(r, 3000));
+        const stillRunning = await fetchInvoiceAnalysis();
+        if (!stillRunning) break;
+      }
+    } finally { setAnalysisRunning(false); }
+  };
+
   const fetchBilling = async () => {
     try {
       const [statsRes, trendRes, linesRes] = await Promise.all([
@@ -643,7 +762,7 @@ const TelecomManagement: React.FC = () => {
   };
 
   useEffect(() => {
-    if (activeTab === 'billing') { fetchBilling(); fetchInvoiceFiles(); }
+    if (activeTab === 'billing') { fetchBilling(); fetchInvoiceFiles(); fetchInvoiceAnalysis(); }
   }, [activeTab, token]);
 
   const fetchOptim = async () => {
@@ -898,6 +1017,22 @@ const TelecomManagement: React.FC = () => {
     setShowAddAccount(acc.operator_id);
   };
 
+  const handleToggleManaged = async (code: string, managed: boolean) => {
+    setCommitments(prev => prev.map(c => (c.commitment_number === code ? { ...c, managed } : c)));
+    try {
+      const res = await fetch(`/api/telecom/engagements/${encodeURIComponent(code)}/managed`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ managed }),
+      });
+      if (!res.ok) throw new Error('KO');
+      await fetchData(); // l'historique des factures dépend de ce choix
+    } catch (e) {
+      setCommitments(prev => prev.map(c => (c.commitment_number === code ? { ...c, managed: !managed } : c)));
+      alert("Erreur lors de la mise à jour de l'engagement");
+    }
+  };
+
   const handleDeleteTelecomInvoice = async (id: number) => {
     if (!window.confirm("Supprimer cette facture ?")) return;
     try {
@@ -909,6 +1044,100 @@ const TelecomManagement: React.FC = () => {
     } catch (e) {
       alert("Erreur");
     }
+  };
+
+  // Compte obligatoire : s'il n'y en a qu'un pour l'opérateur, il est sélectionné d'office.
+  useEffect(() => {
+    if (!showAddInvoiceModal || !addInvoiceOperatorId) return;
+    const accs = billingAccounts[addInvoiceOperatorId] || [];
+    if (accs.length === 1 && addInvoiceAccountId !== accs[0].id) setAddInvoiceAccountId(accs[0].id);
+    else if (addInvoiceAccountId && accs.length > 0 && !accs.some(a => a.id === addInvoiceAccountId)) setAddInvoiceAccountId(null);
+  }, [showAddInvoiceModal, addInvoiceOperatorId, billingAccounts, addInvoiceAccountId]);
+
+  // Numéro d'engagement + solde de chaque compte, lus en direct dans Sedit.
+  useEffect(() => {
+    if (!showAddInvoiceModal || !addInvoiceOperatorId) return;
+    const codes = Array.from(new Set((billingAccounts[addInvoiceOperatorId] || []).map(a => (a.commitment_number || '').trim()).filter(Boolean)));
+    if (codes.length === 0) { setLiveEngagements({}); return; }
+    let cancelled = false;
+    fetch(`/api/telecom/engagements/live?codes=${encodeURIComponent(codes.join(','))}`, { headers: { 'Authorization': `Bearer ${token}` } })
+      .then(r => (r.ok ? r.json() : {}))
+      .then(d => { if (!cancelled) setLiveEngagements(d || {}); })
+      .catch(() => { if (!cancelled) setLiveEngagements({}); });
+    return () => { cancelled = true; };
+  }, [showAddInvoiceModal, addInvoiceOperatorId, billingAccounts, token]);
+
+  const loadSeditStatuses = async (refs: string[]) => {
+    const uniq = Array.from(new Set(refs.map(r => (r || '').trim()).filter(Boolean)));
+    if (uniq.length === 0) return;
+    try {
+      const res = await fetch('/api/finance/service-fait/statuses', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ invoice_refs: uniq }),
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      setSeditStatuses(prev => ({ ...prev, ...data }));
+      setSeditStatusesLoaded(prev => { const n = { ...prev }; uniq.forEach(r => { n[r] = true; }); return n; });
+    } catch (e) {
+      console.error('Statuts Sedit indisponibles', e);
+    }
+  };
+
+  useEffect(() => {
+    loadSeditStatuses(telecomInvoices.map(i => i.sedit_numero || ''));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [telecomInvoices]);
+
+  useEffect(() => {
+    loadSeditStatuses(availableInvoices.map(c => c.sedit_numero || ''));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [availableInvoices]);
+
+  // Pastilles façon notification iPhone : factures OK (vert) et refusées / rejetées (rouge).
+  const renderCountBadges = (okCount?: number, refusedCount?: number) => {
+    const ok = okCount || 0; const ko = refusedCount || 0;
+    if (!ok && !ko) return null;
+    const base: React.CSSProperties = { minWidth: 16, height: 16, padding: '0 4px', borderRadius: 999, color: '#fff', fontSize: 10, fontWeight: 700,
+      lineHeight: '16px', textAlign: 'center', boxShadow: '0 0 0 1.5px #fff', pointerEvents: 'none' };
+    return (
+      <span style={{ position: 'absolute', top: -7, right: -6, display: 'inline-flex', gap: 2 }}>
+        {ok > 0 && <span title={`${ok} facture${ok > 1 ? 's' : ''} OK`} style={{ ...base, background: '#16a34a' }}>{ok}</span>}
+        {ko > 0 && <span title={`${ko} facture${ko > 1 ? 's' : ''} refusée${ko > 1 ? 's' : ''} / rejetée${ko > 1 ? 's' : ''}`} style={{ ...base, background: '#dc2626' }}>{ko}</span>}
+      </span>
+    );
+  };
+
+  // Pastille d'état + bouton « Faire le SF » (si le service fait n'est pas encore fait dans Sedit).
+  const renderSeditState = (ref: string | null | undefined, inv?: TelecomInvoice) => {
+    const key = (ref || '').trim();
+    if (!key) return <span className="status-tag pending" title="Facture introuvable dans Sedit">Non trouvée</span>;
+    if (!seditStatusesLoaded[key]) return <span style={{ color: '#94a3b8', fontSize: 12 }}>…</span>;
+    const st = seditStatuses[key] || {};
+    const fmt = (d?: string | null) => (d ? new Date(d).toLocaleDateString('fr-FR') : '');
+    let label = 'Reçue'; let color = '#475569'; let bg = '#f1f5f9'; let title = 'Facture reçue dans Sedit';
+    if (st.sedit_rejete) { label = 'Refusée'; color = '#b91c1c'; bg = '#fee2e2'; title = `Rejetée dans Sedit${st.sedit_rejete_date ? ' le ' + fmt(st.sedit_rejete_date) : ''}`; }
+    else if (st.sedit_mandate) { label = 'Mandatée'; color = '#0f766e'; bg = '#ccfbf1'; title = 'Mandatée dans Sedit'; }
+    else if (st.sedit_service_fait) { label = 'Service fait'; color = '#047857'; bg = '#ecfdf5'; title = `Service fait validé dans Sedit${st.sedit_service_fait_date ? ' le ' + fmt(st.sedit_service_fait_date) : ''}`; }
+    else if (st.sedit_rapproche) { label = 'Rapprochée'; color = '#1d4ed8'; bg = '#eff6ff'; title = 'Rapprochée (engagement / bon de commande) dans Sedit — service fait non fait'; }
+    const ongoing = ['en_attente', 'en_cours', 'transfere', 'en_pause'].includes(st.status);
+    const sfDone = !!st.sedit_service_fait || !!st.sedit_mandate;
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 4, alignItems: 'flex-start' }}>
+        <span title={title} style={{ background: bg, color, borderRadius: 999, padding: '2px 8px', fontSize: 11, fontWeight: 700, whiteSpace: 'nowrap' }}>
+          {label}{st.sedit_service_fait && st.sedit_service_fait_date ? ` ${fmt(st.sedit_service_fait_date)}` : ''}
+        </span>
+        {inv && !sfDone && !st.sedit_rejete && (ongoing ? (
+          <span title="Une validation de service fait est en cours (module Finance)" style={{ fontSize: 11, color: '#b45309' }}>SF en cours</span>
+        ) : (
+          <button type="button" title="Déclarer le service fait (écrit dans Sedit)" onClick={() => setSfInvoice(inv)}
+            style={{ background: '#16a34a', color: '#fff', border: 'none', borderRadius: 4, padding: '2px 8px', fontSize: 11, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 3, whiteSpace: 'nowrap' }}>
+            <CheckCircle size={12} /> Faire le SF
+          </button>
+        ))}
+      </div>
+    );
   };
 
   const loadAvailableInvoices = async (operatorId: number) => {
@@ -943,6 +1172,9 @@ const TelecomManagement: React.FC = () => {
 
   const handleAddInvoiceFromBudget = async (candidate: AvailableBudgetInvoice) => {
     if (!addInvoiceOperatorId) return;
+    // Compte déduit de l'engagement auquel Sedit a rapproché la facture, sinon celui choisi.
+    const accountId = candidate.suggested_account_id || addInvoiceAccountId;
+    if (!accountId) { alert("Aucun compte ne correspond à l'engagement de cette facture : choisissez un compte de facturation"); return; }
     setAddingInvoiceNumber(candidate.invoice_number);
     try {
       const res = await fetch('/api/telecom/invoices/from-budget', {
@@ -950,7 +1182,7 @@ const TelecomManagement: React.FC = () => {
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
         body: JSON.stringify({
           operator_id: addInvoiceOperatorId,
-          billing_account_id: addInvoiceAccountId,
+          billing_account_id: accountId,
           invoice_number: candidate.invoice_number,
         }),
       });
@@ -1053,7 +1285,30 @@ const TelecomManagement: React.FC = () => {
     !operators.some(op => op.tier_code === t.code && op.id !== editingOperator?.id)
   ).slice(0, 5);
 
-  const filteredInvoices = telecomInvoices.filter(inv => {
+  // Factures rejetées (hors « hors télécom ») affichées dans l'historique, à titre d'information.
+  const rejectedAsInvoices: TelecomInvoice[] = allRejected
+    .filter(r => r.category === 'rejetee')
+    .map(r => ({
+      id: -r.id,
+      invoice_number: r.invoice_number,
+      operator_id: r.operator_id ?? 0,
+      billing_account_id: r.billing_account_id ?? 0,
+      amount_ttc: Number(r.amount_ttc ?? 0),
+      invoice_date: r.invoice_date || r.rejected_at,
+      file_path: '',
+      uploaded_at: r.rejected_at,
+      operator_name: r.operator_name || undefined,
+      account_number: r.account_number || undefined,
+      engagement: r.engagement || null,
+      sedit_ref: r.sedit_ref || undefined,
+      sedit_numero: r.sedit_numero || null,
+      description: null,
+      effective_month: (r.invoice_date || r.rejected_at || '').slice(0, 7) || null,
+      rejected: true,
+      reject_reason: r.reason,
+    }));
+
+  const filteredInvoices = [...telecomInvoices, ...rejectedAsInvoices].filter(inv => {
     const matchesSearch = !invoiceSearch || 
       inv.invoice_number.toLowerCase().includes(invoiceSearch.toLowerCase()) || 
       (inv.account_number || '').toLowerCase().includes(invoiceSearch.toLowerCase());
@@ -1080,7 +1335,7 @@ const TelecomManagement: React.FC = () => {
   return (
     <div className="telecom-container">
       <Header />
-      <main className={`telecom-main${activeTab === 'summary' ? ' summary-wide' : ''}`}>
+      <main className={`telecom-main${activeTab === 'summary' || activeTab === 'pdfs' || activeTab === 'invoices' ? ' summary-wide' : ''}`}>
         <div className="telecom-page-header">
           <button className="back-button" onClick={() => navigate('/')}>
             <ArrowLeft size={20} />
@@ -1410,9 +1665,11 @@ const TelecomManagement: React.FC = () => {
                                         </td>
                                         <td>
                                           <div className="action-btns" style={{ justifyContent: 'center' }}>
-                                            <button className="edit-icon-btn" title="Ajouter une facture depuis le budget" onClick={() => openAddInvoice(acc)}>
-                                              <Plus size={16} />
-                                            </button>
+                                            {ADD_INVOICE_ENABLED && (
+                                              <button className="edit-icon-btn" title="Ajouter une facture depuis le budget" onClick={() => openAddInvoice(acc)}>
+                                                <Plus size={16} />
+                                              </button>
+                                            )}
                                             <button className="edit-icon-btn" onClick={() => startEditAccount(acc)}>
                                               <Edit2 size={16} />
                                             </button>
@@ -1452,9 +1709,11 @@ const TelecomManagement: React.FC = () => {
             <div className="section-header">
               <h2>Historique des factures</h2>
               <div className="action-group">
-                <button className="add-btn" onClick={openAddInvoicePicker}>
-                  <Plus size={18} /> Ajouter une facture
-                </button>
+                {ADD_INVOICE_ENABLED && (
+                  <button className="add-btn" onClick={openAddInvoicePicker}>
+                    <Plus size={18} /> Ajouter une facture
+                  </button>
+                )}
                 <input
                   type="file"
                   id="import-telecom-suivi"
@@ -1520,7 +1779,7 @@ const TelecomManagement: React.FC = () => {
               </div>
             </div>
 
-            <div className="invoices-list admin-card">
+            <div className="invoices-list admin-card" style={{ overflowX: "auto" }}>
               <table className="commitments-table">
                 <thead>
                   <tr>
@@ -1528,6 +1787,7 @@ const TelecomManagement: React.FC = () => {
                     <th>N° Facture</th>
                     <th>Opérateur</th>
                     <th>N° Compte</th>
+                    <th>Engagement</th>
                     <th>Mois</th>
                     <th>Description</th>
                     <th>Montant TTC</th>
@@ -1539,37 +1799,38 @@ const TelecomManagement: React.FC = () => {
                   {Object.entries(groupedInvoices).sort((a, b) => b[0].localeCompare(a[0])).map(([monthKey, invoices]) => (
                     <React.Fragment key={monthKey}>
                       <tr className="month-break-row">
-                        <td colSpan={9}>{formatMonthKey(monthKey)}</td>
+                        <td colSpan={10}>{formatMonthKey(monthKey)}</td>
                       </tr>
                       {invoices.map(inv => {
                         const isEditing = editingMeta?.id === inv.id;
                         return (
-                        <tr key={inv.id}>
+                        <tr key={inv.id} style={inv.rejected ? { background: '#fef2f2' } : undefined}>
                           <td>{inv.invoice_date ? new Date(inv.invoice_date).toLocaleDateString('fr-FR') : 'Inconnue'}</td>
                           <td style={{ fontWeight: 700 }}>{inv.invoice_number}</td>
                           <td>{inv.operator_name || <span style={{ color: '#ef4444' }}>Inconnu</span>}</td>
                           <td>{inv.account_number || <span style={{ color: '#ef4444' }}>Inconnu</span>}</td>
+                          <td style={{ fontFamily: 'monospace', fontSize: '0.8rem' }} title="Engagement auquel Sedit a rapproché la facture">
+                            {inv.engagement ? inv.engagement.split(',').join(', ') : <span style={{ color: '#cbd5e1' }}>—</span>}
+                          </td>
                           <td>
                             {isEditing ? (
-                              <input type="month" value={editingMeta!.billing_month} style={{ width: 130 }}
+                              <input type="month" className="inv-edit-input" value={editingMeta!.billing_month} style={{ width: 150 }}
                                 onChange={e => setEditingMeta(m => m ? { ...m, billing_month: e.target.value } : m)} />
                             ) : (inv.effective_month ? formatMonthKey(inv.effective_month) : '—')}
                           </td>
                           <td>
                             {isEditing ? (
-                              <input type="text" value={editingMeta!.description} placeholder="Description..." style={{ width: 160 }}
+                              <input type="text" className="inv-edit-input" value={editingMeta!.description} placeholder="Description..." style={{ width: '100%', minWidth: 200 }}
                                 onChange={e => setEditingMeta(m => m ? { ...m, description: e.target.value } : m)} />
+                            ) : inv.rejected ? (
+                              <span style={{ color: '#b91c1c', fontSize: 12 }} title={inv.reject_reason || ''}>{inv.reject_reason || '—'}</span>
                             ) : (inv.description || <span style={{ color: '#cbd5e1' }}>—</span>)}
                           </td>
                           <td style={{ fontWeight: 700 }}>{inv.amount_ttc != null ? inv.amount_ttc.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' }) : <span style={{ color: '#94a3b8' }}>—</span>}</td>
                           <td>
-                            {inv.general_status ? (
-                              <span className="status-tag imported" title={`Statut budget : ${inv.general_status}`}>
-                                {inv.general_status}
-                              </span>
-                            ) : (
-                              <span className="status-tag pending">Statut inconnu</span>
-                            )}
+                            {inv.rejected
+                              ? <span className="reject-category-tag rejetee" title={inv.reject_reason || 'Facture rejetée'}>Rejetée</span>
+                              : renderSeditState(inv.sedit_numero, inv)}
                           </td>
                           <td>
                             <div className="action-btns">
@@ -1580,10 +1841,19 @@ const TelecomManagement: React.FC = () => {
                                 </>
                               ) : (
                                 <>
+                                  {inv.sedit_ref && (
+                                    <a href={`${urlSedit}/FicheFacture.html?factureId=${encodeURIComponent(inv.sedit_ref)}`} target="_blank" rel="noopener noreferrer"
+                                      title="Ouvrir la facture dans Sedit"
+                                      style={{ display: 'inline-flex', alignItems: 'center', gap: 3, background: '#e0f2fe', color: '#0369a1', borderRadius: 4, padding: '2px 8px', fontSize: 11, fontWeight: 700, textDecoration: 'none' }}>
+                                      <ExternalLink size={12} /> Sedit
+                                    </a>
+                                  )}
+                                  {!inv.rejected && (
                                   <button className="edit-icon-btn" title="Modifier le mois / la description" onClick={() => startEditMeta(inv)}>
                                     <Edit2 size={18} />
                                   </button>
-                                  {inv.file_path ? (
+                                  )}
+                                  {inv.rejected ? null : inv.file_path ? (
                                     <a href={`/api/${inv.file_path}`} target="_blank" rel="noopener noreferrer" className="edit-icon-btn" title="Voir la facture (PDF)">
                                       <FileText size={18} />
                                     </a>
@@ -1596,9 +1866,11 @@ const TelecomManagement: React.FC = () => {
                                       <ExternalLink size={18} />
                                     </a>
                                   ) : null}
-                                  <button className="delete-icon-btn" onClick={() => handleDeleteTelecomInvoice(inv.id)}>
-                                    <Trash2 size={18} />
-                                  </button>
+                                  {isAdmin && !inv.rejected && (
+                                    <button className="delete-icon-btn" title="Supprimer la facture (admin)" onClick={() => handleDeleteTelecomInvoice(inv.id)}>
+                                      <Trash2 size={18} />
+                                    </button>
+                                  )}
                                 </>
                               )}
                             </div>
@@ -1609,7 +1881,7 @@ const TelecomManagement: React.FC = () => {
                     </React.Fragment>
                   ))}
                   {filteredInvoices.length === 0 && (
-                    <tr><td colSpan={9} style={{ textAlign: 'center', padding: '40px', color: '#64748b' }}>Aucune facture trouvée</td></tr>
+                    <tr><td colSpan={10} style={{ textAlign: 'center', padding: '40px', color: '#64748b' }}>Aucune facture trouvée</td></tr>
                   )}
                 </tbody>
               </table>
@@ -1636,7 +1908,7 @@ const TelecomManagement: React.FC = () => {
             ) : !monthlySummary || monthlySummary.rows.length === 0 ? (
               <div style={{ textAlign: 'center', padding: '40px', color: '#64748b' }}>Aucune donnée</div>
             ) : (
-              <div className="accounts-table-wrapper admin-card" style={{ overflowX: 'auto' }}>
+              <div className="accounts-table-wrapper admin-card" style={{ overflow: 'auto', maxHeight: 'calc(100vh - 230px)' }}>
                 <table className="commitments-table summary-table" style={{ minWidth: `${640 + monthlySummary.months.length * 110}px` }}>
                   <thead>
                     <tr>
@@ -1675,9 +1947,14 @@ const TelecomManagement: React.FC = () => {
                                 const val = op?.monthly[m] || 0;
                                 const prevVal = i > 0 ? (op?.monthly[monthlySummary!.months[i - 1]] || 0) : null;
                                 const trend = prevVal != null ? monthTrend(val, prevVal) : null;
+                                // Pastilles du mois pour l'opérateur : somme des comptes
+                                const opRows = monthlySummary!.rows.filter(r => r.operator_id === currentOperatorId);
+                                const opOk = opRows.reduce((acc, r) => acc + (r.monthly[m]?.ok_count || 0), 0);
+                                const opKo = opRows.reduce((acc, r) => acc + (r.monthly[m]?.refused_count || 0), 0);
                                 return (
                                   <td key={m} style={{ textAlign: 'right', fontWeight: 700 }}>
-                                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+                                    <span style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+                                      {renderCountBadges(opOk, opKo)}
                                       {trend && val > 0 && <span title={trend.title} style={{ display: 'inline-flex' }}><trend.Icon size={11} color={trend.color} /></span>}
                                       {val > 0 ? val.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' }) : <span style={{ color: '#cbd5e1' }}>—</span>}
                                     </span>
@@ -1705,6 +1982,8 @@ const TelecomManagement: React.FC = () => {
                               const isMissing = cell.isPast && cell.total == null && !cell.comment;
                               return (
                                 <td key={m} className="summary-cell" style={{ textAlign: 'right', background: isMissing ? '#fef2f2' : undefined }}>
+                                  <span style={{ position: 'relative', display: 'inline-block' }}>
+                                  {renderCountBadges(cell.ok_count, cell.refused_count)}
                                   {cell.total != null ? (() => {
                                     // Contour vert si toutes les factures du mois sont mandatées,
                                     // gris sinon ; infobulle = date de mandatement (par facture).
@@ -1737,6 +2016,7 @@ const TelecomManagement: React.FC = () => {
                                   ) : (
                                     <span style={{ color: '#cbd5e1' }}>—</span>
                                   )}
+                                  </span>
                                 </td>
                               );
                             })}
@@ -1791,7 +2071,7 @@ const TelecomManagement: React.FC = () => {
           <div className="tab-content">
             <div className="section-header">
               <h2>Engagements Télécom (nature 6262)</h2>
-              <span style={{ fontSize: '0.85rem', color: '#64748b' }}>Issus du suivi budgétaire — montant engagé et reste actualisés automatiquement</span>
+              <span style={{ fontSize: '0.85rem', color: '#64748b' }}>Lus en direct dans Sedit — exercice en cours uniquement</span>
             </div>
 
             <div className="commitments-table-wrapper admin-card">
@@ -1800,6 +2080,7 @@ const TelecomManagement: React.FC = () => {
                   <tr>
                     <th>Année</th>
                     <th>N° Engagement</th>
+                    <th title="Cliquer sur le bouton d'un engagement pour le classer « Fluide » (ses factures sont listées dans l'historique) ou « Non fluide » (ignoré)">Classification</th>
                     <th>Libellé</th>
                     <th>Opérateur</th>
                     <th>Montant Engagé</th>
@@ -1819,9 +2100,27 @@ const TelecomManagement: React.FC = () => {
                     const dynamicInvoiced = invoicedForCommitment(c.commitment_number);
                     const diff = Math.abs(importInvoiced - dynamicInvoiced) > 0.005;
                     return (
-                    <tr key={c.id ?? c.commitment_number}>
+                    <tr key={c.id ?? c.commitment_number} style={c.managed === false ? { opacity: 0.55 } : undefined}>
                       <td className="year-cell">{c.year}</td>
-                      <td className="num-cell">{c.commitment_number}</td>
+                      <td className="num-cell">
+                        {c.commitment_number}
+                        {c.sedit_ref && (
+                          <a href={`${urlSedit}/FicheMouvement.html?mouvementId=${encodeURIComponent(c.sedit_ref)}`} target="_blank" rel="noopener noreferrer"
+                            className="edit-icon-btn" title="Ouvrir l'engagement dans Sedit" style={{ marginLeft: 6, verticalAlign: 'middle' }}>
+                            <ExternalLink size={14} />
+                          </a>
+                        )}
+                      </td>
+                      <td>
+                        <button type="button" onClick={() => handleToggleManaged(c.commitment_number, c.managed === false)}
+                          title={c.managed === false
+                            ? 'Non fluide : ses factures ne sont pas listées. Cliquer pour le gérer en fluide.'
+                            : 'Fluide : ses factures sont listées dans l\'historique. Cliquer pour le classer « non fluide ».'}
+                          style={{ border: 'none', borderRadius: 999, padding: '3px 12px', fontSize: 11.5, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap',
+                            background: c.managed === false ? '#e2e8f0' : '#dcfce7', color: c.managed === false ? '#64748b' : '#166534' }}>
+                          {c.managed === false ? '✕ Non fluide' : '✓ Fluide'}
+                        </button>
+                      </td>
                       <td>{c.label}</td>
                       <td>{c.operator_name}</td>
                       <td className="amount-cell" title={dynamic ? 'Montant récupéré dynamiquement depuis les engagements budgétaires' : 'Montant importé (engagement budgétaire non trouvé)'}>
@@ -1867,7 +2166,7 @@ const TelecomManagement: React.FC = () => {
                 {commitments.length > 0 && (
                   <tfoot>
                     <tr style={{ background: '#f8fafc', borderTop: '2px solid #e2e8f0' }}>
-                      <td colSpan={4} style={{ textAlign: 'right', fontWeight: 700, padding: '10px 12px', fontSize: 13 }}>Totaux ({commitments.length} engagements)</td>
+                      <td colSpan={5} style={{ textAlign: 'right', fontWeight: 700, padding: '10px 12px', fontSize: 13 }}>Totaux ({commitments.length} engagements)</td>
                       <td className="amount-cell" style={{ fontWeight: 800 }}>
                         {commitments.reduce((s, c) => s + (c.engaged_amount ?? c.amount ?? 0), 0).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}
                       </td>
@@ -2176,10 +2475,11 @@ const TelecomManagement: React.FC = () => {
               <div>
                 <h2>Coûts de facturation & parc mobile</h2>
                 <span style={{ fontSize: '0.85rem', color: '#64748b' }}>
-                  Import de l'export de facturation opérateur (ZIP SFR){billingStats?.period ? ` — période ${new Date(billingStats.period).toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' })}` : ''}
+                  Détail par ligne des factures SFR lues dans Sedit (engagements 6262), montants TTC{billingStats?.period ? ` — période ${new Date(billingStats.period).toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' })}` : ''}
                 </span>
               </div>
               <div className="action-group" style={{ display: 'flex', gap: 8 }}>
+                {ZIP_IMPORT_ENABLED && <>
                 <input type="file" id="import-telecom-billing" style={{ display: 'none' }} accept=".zip" onChange={handleImportBilling} />
                 <button className="add-btn" disabled={importingBilling}
                   onClick={() => document.getElementById('import-telecom-billing')?.click()}>
@@ -2190,20 +2490,167 @@ const TelecomManagement: React.FC = () => {
                   onClick={() => document.getElementById('import-telecom-invoices')?.click()}>
                   <FileText size={18} /> {importingInvoices ? 'Import en cours…' : 'Importer factures PDF (ZIP)'}
                 </button>
+                </>}
               </div>
             </div>
+
+            {/* Analyse automatique des factures Sedit : PDF le plus détaillé de chaque facture */}
+            {(() => {
+              const eur = (n: number | null | undefined) => (n == null ? '—' : Number(n).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' }));
+              const fmtD = (d: string | null) => (d ? new Date(d).toLocaleDateString('fr-FR') : '—');
+              const isIssue = (r: InvoiceAnalysisRow) => r.status !== 'ok' || (r.ecart != null && Math.abs(Number(r.ecart)) > 0.02);
+              const rows = analysisRows.filter(r => analysisFilter === 'all' || isIssue(r));
+              const analysed = analysisRows.filter(r => r.status).length;
+              const issues = analysisRows.filter(isIssue).length;
+              const sum = (k: 'amount_ht' | 'amount_tva' | 'pdf_ttc' | 'amount_abonnements' | 'amount_consommations') => analysisRows.reduce((t, r) => t + (Number(r[k]) || 0), 0);
+              const badge = (r: InvoiceAnalysisRow) => {
+                const map: Record<string, [string, string, string]> = {
+                  ok: ['Cohérente', '#166534', '#dcfce7'],
+                  ecart: ['Écart', '#b91c1c', '#fee2e2'],
+                  a_verifier: ['À vérifier', '#b45309', '#fef3c7'],
+                  sans_pdf: ['Pas de PDF', '#64748b', '#e2e8f0'],
+                  sans_facture_sedit: ['Hors Sedit', '#64748b', '#e2e8f0'],
+                  illisible: ['PDF illisible', '#b45309', '#fef3c7'],
+                  erreur: ['Erreur', '#b91c1c', '#fee2e2'],
+                };
+                if (!r.status) return <span style={{ color: '#94a3b8', fontSize: 11 }}>En attente</span>;
+                const [label, color, bg] = map[r.status] || [r.status, '#475569', '#f1f5f9'];
+                return <span title={r.error || undefined} style={{ background: bg, color, borderRadius: 999, padding: '2px 8px', fontSize: 11, fontWeight: 700, whiteSpace: 'nowrap' }}>{label}</span>;
+              };
+              return (
+                <div className="admin-card" style={{ padding: 16, marginBottom: 24 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap', marginBottom: 12 }}>
+                    <div>
+                      <h3 style={{ margin: 0, fontSize: '1rem', color: '#1e293b' }}>Analyse automatique des factures (PDF Sedit)</h3>
+                      <div style={{ fontSize: '0.8rem', color: '#64748b', marginTop: 2 }}>
+                        Chaque facture est analysée depuis son PDF dans Sedit ; quand plusieurs versions existent (synthétique / détaillée), la plus volumineuse est retenue.
+                        {' '}{analysed}/{analysisRows.length} analysée{analysed > 1 ? 's' : ''}{issues > 0 ? ` — ${issues} à contrôler` : ''}.
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                      <select value={analysisFilter} onChange={e => setAnalysisFilter(e.target.value as 'all' | 'issues')}
+                        style={{ padding: '6px 10px', borderRadius: 6, border: '1px solid #e2e8f0' }}>
+                        <option value="all">Toutes les factures</option>
+                        <option value="issues">À contrôler uniquement</option>
+                      </select>
+                      <button className="add-btn" disabled={analysisRunning} onClick={() => runInvoiceAnalysis(false)} title="Analyser les factures pas encore analysées">
+                        {analysisRunning ? 'Analyse en cours…' : 'Analyser'}
+                      </button>
+                      <button className="add-btn" style={{ background: '#475569' }} disabled={analysisRunning} onClick={() => runInvoiceAnalysis(true)} title="Relancer l'analyse de toutes les factures">
+                        Tout réanalyser
+                      </button>
+                    </div>
+                  </div>
+                  {analysisLoading && analysisRows.length === 0 ? (
+                    <div style={{ textAlign: 'center', padding: 20, color: '#64748b' }}>Chargement…</div>
+                  ) : (
+                    <div style={{ overflow: 'auto', maxHeight: 420 }}>
+                      <table className="commitments-table" style={{ fontSize: '0.8rem' }}>
+                        <thead>
+                          <tr>
+                            <th>Facture</th><th>Opérateur</th><th>Compte</th><th>Période</th>
+                            <th style={{ textAlign: 'right' }}>HT</th><th style={{ textAlign: 'right' }}>TVA</th>
+                            <th style={{ textAlign: 'right' }}>TTC (PDF)</th><th style={{ textAlign: 'right' }}>Montant Sedit</th>
+                            <th style={{ textAlign: 'right' }}>Abonnements</th><th style={{ textAlign: 'right' }}>Consommations</th>
+                            <th>Contrôle</th><th>Document analysé</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {rows.map(r => (
+                            <tr key={r.id}>
+                              <td style={{ fontWeight: 700, whiteSpace: 'nowrap' }}>{r.invoice_number}</td>
+                              <td>{r.operator_name}</td>
+                              <td>{r.account_number || '—'}</td>
+                              <td style={{ whiteSpace: 'nowrap' }}>{r.period_start ? `${fmtD(r.period_start)} → ${fmtD(r.period_end)}` : '—'}</td>
+                              <td style={{ textAlign: 'right' }}>{eur(r.amount_ht)}</td>
+                              <td style={{ textAlign: 'right' }}>{eur(r.amount_tva)}</td>
+                              <td style={{ textAlign: 'right', fontWeight: 700 }}>{eur(r.pdf_ttc)}</td>
+                              <td style={{ textAlign: 'right' }}>{eur(r.amount_ttc)}</td>
+                              <td style={{ textAlign: 'right' }}>{eur(r.amount_abonnements)}</td>
+                              <td style={{ textAlign: 'right' }}>{eur(r.amount_consommations)}</td>
+                              <td>
+                                {badge(r)}
+                                {r.ecart != null && Math.abs(Number(r.ecart)) > 0.02 && (
+                                  <span style={{ marginLeft: 4, color: '#b91c1c', fontSize: 11 }} title="PDF − Sedit">{Number(r.ecart) > 0 ? '+' : ''}{eur(r.ecart)}</span>
+                                )}
+                              </td>
+                              <td style={{ maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                                title={r.doc_name ? `${r.doc_name} — ${r.doc_size_kb} Ko — ${r.pages ?? '?'} page(s) — plus volumineux de ${r.docs_count ?? 1} document(s) facture` : ''}>
+                                {r.doc_name ? `${r.doc_name} (${r.doc_size_kb} Ko${r.docs_count && r.docs_count > 1 ? `, 1/${r.docs_count}` : ''})` : '—'}
+                              </td>
+                            </tr>
+                          ))}
+                          {rows.length === 0 && (
+                            <tr><td colSpan={12} style={{ textAlign: 'center', padding: 24, color: '#94a3b8' }}>
+                              {analysisRows.length === 0 ? 'Aucune facture à analyser' : 'Aucune facture à contrôler'}
+                            </td></tr>
+                          )}
+                        </tbody>
+                        {analysisFilter === 'all' && analysisRows.length > 0 && (
+                          <tfoot>
+                            <tr style={{ background: '#f8fafc', fontWeight: 800 }}>
+                              <td colSpan={4} style={{ textAlign: 'right' }}>Totaux ({analysisRows.length} factures)</td>
+                              <td style={{ textAlign: 'right' }}>{eur(sum('amount_ht'))}</td>
+                              <td style={{ textAlign: 'right' }}>{eur(sum('amount_tva'))}</td>
+                              <td style={{ textAlign: 'right' }}>{eur(sum('pdf_ttc'))}</td>
+                              <td style={{ textAlign: 'right' }}>{eur(analysisRows.reduce((t, r) => t + (Number(r.amount_ttc) || 0), 0))}</td>
+                              <td style={{ textAlign: 'right' }}>{eur(sum('amount_abonnements'))}</td>
+                              <td style={{ textAlign: 'right' }}>{eur(sum('amount_consommations'))}</td>
+                              <td colSpan={2}></td>
+                            </tr>
+                          </tfoot>
+                        )}
+                      </table>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+
+            {/* Histogramme mensuel des dépenses, alimenté par les factures Sedit (TTC, par opérateur) */}
+            {(() => {
+              const year = new Date().getFullYear();
+              const monthKeys = Array.from({ length: 12 }, (_, i) => `${year}-${String(i + 1).padStart(2, '0')}`);
+              const operatorsSet = Array.from(new Set(analysisRows.map(r => r.operator_name))).sort();
+              if (analysisRows.length === 0) return null;
+              const data = monthKeys.map(m => {
+                const row: Record<string, any> = { month: new Date(`${m}-01`).toLocaleDateString('fr-FR', { month: 'short' }) };
+                operatorsSet.forEach(op => { row[op] = 0; });
+                analysisRows.filter(r => r.effective_month === m).forEach(r => {
+                  row[r.operator_name] = Math.round(((row[r.operator_name] as number) + (Number(r.amount_ttc) || 0)) * 100) / 100;
+                });
+                return row;
+              });
+              const palette = ['#0078a4', '#16a34a', '#f59e0b', '#7c3aed', '#ef4444', '#0ea5e9', '#64748b', '#db2777'];
+              return (
+                <div className="admin-card" style={{ padding: 18, marginBottom: 24 }}>
+                  <h3 style={{ margin: '0 0 4px', fontSize: '1rem', color: '#1e293b' }}>Évolution des dépenses {year} (factures Sedit)</h3>
+                  <p style={{ margin: '0 0 12px', fontSize: '0.78rem', color: '#94a3b8' }}>Montants TTC par mois de rattachement et par opérateur, d'après les factures Sedit rapprochées à un engagement 6262.</p>
+                  <ResponsiveContainer width="100%" height={260}>
+                    <BarChart data={data}>
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                      <XAxis dataKey="month" fontSize={12} />
+                      <YAxis fontSize={12} />
+                      <Tooltip formatter={(v) => `${Number(v).toLocaleString('fr-FR')} € TTC`} />
+                      <Legend />
+                      {operatorsSet.map((op, i) => <Bar key={op} dataKey={op} stackId="a" fill={palette[i % palette.length]} />)}
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              );
+            })()}
 
             {!billingStats || billingStats.totalLines === 0 ? (
               <div className="empty-state">
                 <Phone size={48} />
-                <p>Aucune facturation importée. Déposez l'export ZIP de votre opérateur (SFR).</p>
+                <p>Aucune ligne de facturation analysée pour le moment : lancez « Analyser » ci-dessus (factures SFR de Sedit).</p>
               </div>
             ) : (
               <>
                 {/* KPI coûts */}
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 12, marginBottom: 24 }}>
                   {[
-                    { label: 'Total / mois', value: `${billingStats.totalHT.toLocaleString('fr-FR')} €`, color: '#0078a4' },
+                    { label: 'Total / mois (TTC)', value: `${billingStats.totalHT.toLocaleString('fr-FR')} €`, color: '#0078a4' },
                     { label: 'Estimation annuelle', value: `${billingStats.annualEstimate.toLocaleString('fr-FR')} €`, color: '#1e293b' },
                     { label: 'Coût mobile', value: `${billingStats.totalMobile.toLocaleString('fr-FR')} €`, color: '#3b82f6' },
                     { label: 'Coût fixe / data', value: `${billingStats.totalFixe.toLocaleString('fr-FR')} €`, color: '#059669' },
@@ -2220,14 +2667,14 @@ const TelecomManagement: React.FC = () => {
                 {/* Tendance 13 mois */}
                 {billingTrend.length > 0 && (
                   <div className="admin-card" style={{ padding: 18, marginBottom: 24 }}>
-                    <h3 style={{ margin: '0 0 4px', fontSize: '1rem', color: '#1e293b' }}>Évolution des dépenses (mensuel)</h3>
-                    <p style={{ margin: '0 0 12px', fontSize: '0.78rem', color: '#94a3b8' }}>Dépenses récurrentes — hors achats ponctuels d'équipement/terminaux</p>
+                    <h3 style={{ margin: '0 0 4px', fontSize: '1rem', color: '#1e293b' }}>Évolution des dépenses SFR (mensuel, TTC) — lignes des factures Sedit</h3>
+                    <p style={{ margin: '0 0 12px', fontSize: '0.78rem', color: '#94a3b8' }}>Détail par ligne des factures SFR lues dans Sedit (engagements 6262), montants TTC</p>
                     <ResponsiveContainer width="100%" height={220}>
                       <BarChart data={billingTrend}>
                         <CartesianGrid strokeDasharray="3 3" vertical={false} />
                         <XAxis dataKey="month" fontSize={12} />
                         <YAxis fontSize={12} />
-                        <Tooltip formatter={(v) => `${Number(v).toLocaleString('fr-FR')} € HT`} />
+                        <Tooltip formatter={(v) => `${Number(v).toLocaleString('fr-FR')} € TTC`} />
                         <Bar dataKey="total" fill="#0078a4" radius={[4, 4, 0, 0]} />
                       </BarChart>
                     </ResponsiveContainer>
@@ -2308,7 +2755,7 @@ const TelecomManagement: React.FC = () => {
                 <div className="admin-card">
                   <table className="commitments-table">
                     <thead>
-                      <tr><th>Type</th><th>Numéro</th><th>N° Facture</th><th>Utilisateur</th><th>Site / Service</th><th>Forfait</th><th style={{ textAlign: 'right' }}>€/mois HT</th></tr>
+                      <tr><th>Type</th><th>Numéro</th><th>N° Facture</th><th>Utilisateur</th><th>Site / Service</th><th>Forfait</th><th style={{ textAlign: 'right' }}>€/mois TTC</th></tr>
                     </thead>
                     <tbody>
                       {(() => {
@@ -2592,7 +3039,7 @@ const TelecomManagement: React.FC = () => {
                   </ResponsiveContainer>
                   <table className="commitments-table" style={{ marginTop: 16 }}>
                     <thead>
-                      <tr><th>Mois</th><th>N° Facture</th><th>Forfait</th><th style={{ textAlign: 'right' }}>Abonnement</th><th style={{ textAlign: 'right' }}>Conso</th><th style={{ textAlign: 'right' }}>Remises</th><th style={{ textAlign: 'right' }}>Total HT</th></tr>
+                      <tr><th>Mois</th><th>N° Facture</th><th>Forfait</th><th style={{ textAlign: 'right' }}>Abonnement</th><th style={{ textAlign: 'right' }}>Conso</th><th style={{ textAlign: 'right' }}>Remises</th><th style={{ textAlign: 'right' }}>Total TTC</th></tr>
                     </thead>
                     <tbody>
                       {lineHistory.history.slice().reverse().map((h: any, i: number) => (
@@ -2624,7 +3071,7 @@ const TelecomManagement: React.FC = () => {
       {/* Ajout d'une facture depuis le budget (remplace l'ancien upload PDF) */}
       {showAddInvoiceModal && (
         <div className="validation-modal-overlay" onClick={() => setShowAddInvoiceModal(false)}>
-          <div style={{ background: '#fff', borderRadius: 12, width: '90%', maxWidth: 780, maxHeight: '85vh', display: 'flex', flexDirection: 'column' }} onClick={e => e.stopPropagation()}>
+          <div style={{ background: '#fff', borderRadius: 12, width: '95%', maxWidth: 980, maxHeight: '85vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }} onClick={e => e.stopPropagation()}>
             <div style={{ padding: '16px 20px', borderBottom: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
               <div>
                 <h2 style={{ margin: 0, fontSize: 16 }}>Ajouter une facture{addInvoiceOperatorId ? ` — ${operators.find(o => o.id === addInvoiceOperatorId)?.name || ''}` : ''}</h2>
@@ -2644,32 +3091,80 @@ const TelecomManagement: React.FC = () => {
                 <option value="">-- Opérateur --</option>
                 {operators.map(op => <option key={op.id} value={op.id}>{op.name}</option>)}
               </select>
-              <select value={addInvoiceAccountId || ''} disabled={!addInvoiceOperatorId} style={{ padding: '6px 10px', borderRadius: 6, border: '1px solid #e2e8f0' }}
+              <select value={addInvoiceAccountId || ''} disabled={!addInvoiceOperatorId} required
+                style={{ padding: '6px 10px', borderRadius: 6, border: `1px solid ${addInvoiceOperatorId && !addInvoiceAccountId ? '#f87171' : '#e2e8f0'}`, maxWidth: 360, minWidth: 0 }}
                 onChange={e => {
                   const accId = e.target.value ? parseInt(e.target.value) : null;
                   setAddInvoiceAccountId(accId);
                 }}>
-                <option value="">-- Compte (facultatif) --</option>
-                {addInvoiceOperatorId && billingAccounts[addInvoiceOperatorId]?.map(acc => (
-                  <option key={acc.id} value={acc.id}>{acc.account_number} ({acc.designation})</option>
-                ))}
+                <option value="">-- Compte (si engagement non reconnu) --</option>
+                {addInvoiceOperatorId && billingAccounts[addInvoiceOperatorId]?.map(acc => {
+                  const eng = acc.commitment_number ? liveEngagements[acc.commitment_number.trim()] : undefined;
+                  return (
+                    <option key={acc.id} value={acc.id}>
+                      {acc.account_number} ({acc.designation}){acc.commitment_number ? ` — Eng. ${acc.commitment_number}` : ''}{eng ? ` — reste engagé ${eng.ttc.reste.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}` : ''}
+                    </option>
+                  );
+                })}
               </select>
               <div className="search-input-wrapper-mini" style={{ flex: 1, minWidth: 180 }}>
                 <Search size={14} />
                 <input type="text" placeholder="Rechercher un numéro, un libellé..." value={availableSearch} onChange={e => setAvailableSearch(e.target.value)} />
               </div>
             </div>
-            <div style={{ overflowY: 'auto', padding: '0 20px 16px' }}>
+            {(() => {
+              const acc = addInvoiceOperatorId ? billingAccounts[addInvoiceOperatorId]?.find(a => a.id === addInvoiceAccountId) : undefined;
+              if (!acc) return addInvoiceOperatorId ? (
+                <div style={{ padding: '8px 20px', fontSize: 12.5, color: '#b91c1c', background: '#fef2f2' }}>Le compte est déduit de l'engagement Sedit de chaque facture ; choisissez un compte pour celles dont l'engagement ne correspond à aucun compte.</div>
+              ) : null;
+              const code = (acc.commitment_number || '').trim();
+              const eng = code ? liveEngagements[code] : undefined;
+              const eur = (n: number) => n.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' });
+              return (
+                <div style={{ padding: '8px 20px', fontSize: 12.5, background: '#f0f9ff', color: '#0c4a6e', display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'center' }}>
+                  <span>Compte <b>{acc.account_number}</b></span>
+                  <span>Engagement : <b>{code || 'non renseigné'}</b>{eng?.libelle ? ` — ${eng.libelle}` : ''}</span>
+                  {code && !eng && <span style={{ color: '#64748b' }}>aucun engagement {new Date().getFullYear()} trouvé dans Sedit</span>}
+                  {eng && (
+                    <table style={{ borderCollapse: 'collapse', background: '#fff', border: '1px solid #bae6fd', fontSize: 12.5 }}>
+                      <thead>
+                        <tr style={{ color: '#0369a1' }}>
+                          <th></th><th style={{ padding: '2px 10px', textAlign: 'right' }}>Initial</th><th style={{ padding: '2px 10px', textAlign: 'right' }}>Engagé</th>
+                          <th style={{ padding: '2px 10px', textAlign: 'right' }}>Dégagé</th><th style={{ padding: '2px 10px', textAlign: 'right' }}>Reste engagé</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {([['HT', eng.ht], ['TTC', eng.ttc]] as [string, EngagementTotals][]).map(([lbl, t]) => (
+                          <tr key={lbl}>
+                            <td style={{ padding: '2px 10px', fontWeight: 700 }}>{lbl}</td>
+                            <td style={{ padding: '2px 10px', textAlign: 'right' }}>{eur(t.initial)}</td>
+                            <td style={{ padding: '2px 10px', textAlign: 'right' }}>{eur(t.engage)}</td>
+                            <td style={{ padding: '2px 10px', textAlign: 'right' }}>{eur(t.degage)}</td>
+                            <td style={{ padding: '2px 10px', textAlign: 'right', fontWeight: 700, color: t.reste < 0 ? '#b91c1c' : '#047857' }}>{eur(t.reste)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
+                </div>
+              );
+            })()}
+            <div style={{ overflowY: 'auto', overflowX: 'hidden', padding: '0 20px 16px' }}>
               {loadingAvailable ? (
                 <div style={{ textAlign: 'center', padding: 30, color: '#64748b' }}>Recherche des factures dans le budget...</div>
               ) : (
-                <table className="commitments-table">
+                <table className="commitments-table" style={{ tableLayout: 'fixed', width: '100%' }}>
+                  <colgroup>
+                    <col style={{ width: '15%' }} /><col style={{ width: '19%' }} /><col style={{ width: '10%' }} />
+                    <col style={{ width: '11%' }} /><col style={{ width: '13%' }} /><col style={{ width: '11%' }} /><col style={{ width: '21%' }} />
+                  </colgroup>
                   <thead>
                     <tr>
                       <th>N° Facture</th>
                       <th>Libellé</th>
                       <th>Date</th>
                       <th>Montant</th>
+                      <th>Engagement</th>
                       <th>État</th>
                       <th></th>
                     </tr>
@@ -2682,20 +3177,24 @@ const TelecomManagement: React.FC = () => {
                       .slice(0, 100)
                       .map(c => (
                         <tr key={c.invoice_number}>
-                          <td style={{ fontWeight: 700 }} title={c.libelle}>{c.invoice_number}</td>
-                          <td style={{ maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={c.libelle}>{c.libelle || '—'}</td>
+                          <td style={{ fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={c.libelle}>{c.invoice_number}</td>
+                          <td style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={c.libelle}>{c.libelle || '—'}</td>
                           <td>{c.invoice_date ? new Date(c.invoice_date).toLocaleDateString('fr-FR') : '—'}</td>
                           <td>{c.amount_ttc != null ? Number(c.amount_ttc).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' }) : '—'}</td>
-                          <td>{c.etat || '—'}</td>
+                          <td style={{ fontFamily: 'monospace', fontSize: '0.8rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={c.engagement ? `Engagement Sedit : ${c.engagement}` : ''}>
+                            {c.engagement ? c.engagement.split(',').join(', ') : '—'}
+                          </td>
+                          <td style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={c.etat || ''}>{renderSeditState(c.sedit_numero)}</td>
                           <td>
-                            <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                            <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
                               {c.sedit_ref && (
                                 <a href={`${urlSedit}/FicheFacture.html?factureId=${encodeURIComponent(c.sedit_ref)}`} target="_blank" rel="noopener noreferrer" className="edit-icon-btn" title="Ouvrir dans Sedit">
                                   <ExternalLink size={18} />
                                 </a>
                               )}
                               <button className="add-btn" style={{ padding: '4px 10px', fontSize: 12 }}
-                                disabled={addingInvoiceNumber === c.invoice_number}
+                                disabled={addingInvoiceNumber === c.invoice_number || !(c.suggested_account_id || addInvoiceAccountId)}
+                                title={c.suggested_account_id ? "Compte déduit de l'engagement Sedit" : (addInvoiceAccountId ? undefined : "Aucun compte ne correspond à l'engagement : choisissez-en un")}
                                 onClick={() => handleAddInvoiceFromBudget(c)}>
                                 {addingInvoiceNumber === c.invoice_number ? '...' : 'Ajouter'}
                               </button>
@@ -2708,7 +3207,7 @@ const TelecomManagement: React.FC = () => {
                         </tr>
                       ))}
                     {availableInvoices.length === 0 && (
-                      <tr><td colSpan={6} style={{ textAlign: 'center', padding: 30, color: '#94a3b8' }}>
+                      <tr><td colSpan={7} style={{ textAlign: 'center', padding: 30, color: '#94a3b8' }}>
                         {addInvoiceOperatorId ? 'Aucune facture disponible pour ce fournisseur dans le budget' : 'Sélectionnez un opérateur pour voir ses factures en attente'}
                       </td></tr>
                     )}
@@ -2718,6 +3217,30 @@ const TelecomManagement: React.FC = () => {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Service fait d'une facture télécom (déclaration directe, écrit dans Sedit) */}
+      {sfInvoice && (
+        <ServiceFaitModal
+          mode="self"
+          fromTelecom
+          row={{
+            Numero: sfInvoice.sedit_numero || '',
+            Reference: sfInvoice.invoice_number,
+            Fournisseur: sfInvoice.operator_name || '',
+            Montant: sfInvoice.amount_ttc,
+            Libelle: sfInvoice.description || '',
+          }}
+          columns={[
+            { name: 'Numero', display_type: 'text', expression: 'FACTURE_FACTURE' },
+            { name: 'Reference', display_type: 'text', expression: 'FACTURE_REFERENCE' },
+            { name: 'Fournisseur', display_type: 'text', expression: 'FACTURE_FACTIERS' },
+            { name: 'Montant', display_type: 'currency', expression: 'FACTURE_MONTANTTC_E' },
+            { name: 'Libelle', display_type: 'text', expression: 'FACTURE_LIBELLE' },
+          ]}
+          onClose={() => setSfInvoice(null)}
+          onCreated={() => { const ref = (sfInvoice.sedit_numero || '').trim(); setSfInvoice(null); if (ref) loadSeditStatuses([ref]); }}
+        />
       )}
 
       {/* Rejet / écartement d'une facture du budget */}
@@ -3109,7 +3632,16 @@ const TelecomManagement: React.FC = () => {
         .month-break-row td { background: #f8fafc; font-weight: 700; color: #0078a4; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.05em; padding: 10px 15px; border-bottom: 2px solid #e2e8f0; }
 
         /* Synthèse mensuelle : tableau étendu (~90% de la fenêtre) + colonnes opérateur/compte figées au scroll */
-        .telecom-main.summary-wide { max-width: none; width: 90vw; }
+        .telecom-main.summary-wide { max-width: none; width: 96vw; padding: 24px 8px; }
+        /* Engagements : tableau compact, pleine largeur */
+        .commitments-table-wrapper .commitments-table th { padding: 10px 8px; }
+        .commitments-table-wrapper .commitments-table td { padding: 8px; font-size: 0.85rem; vertical-align: middle; }
+        /* Historique des factures : tableau compact, pleine largeur */
+        .invoices-list .commitments-table th { padding: 10px 8px; }
+        .invoices-list .commitments-table td { padding: 8px; font-size: 0.85rem; vertical-align: middle; }
+        .invoices-list .month-break-row td { padding: 8px; }
+        .invoices-list .inv-edit-input { border: 1px solid #cbd5e1; border-radius: 6px; padding: 4px 8px; font-size: 0.85rem; background: #fff; font-family: inherit; box-sizing: border-box; }
+        .invoices-list .inv-edit-input:focus { outline: none; border-color: #0078a4; box-shadow: 0 0 0 2px rgba(0,120,164,0.15); }
         .summary-table th:nth-child(1), .summary-table td:nth-child(1),
         .summary-table th:nth-child(2), .summary-table td:nth-child(2) {
           position: sticky;
@@ -3129,6 +3661,9 @@ const TelecomManagement: React.FC = () => {
           overflow: hidden;
         }
         .summary-table th:nth-child(1), .summary-table th:nth-child(2) { z-index: 4; }
+        /* En-têtes figés en haut : le tableau défile dans sa propre boîte, la barre de défilement horizontale reste visible en bas */
+        .summary-table thead th { position: sticky; top: 0; background: #f8fafc; z-index: 2; }
+        .summary-table thead th:nth-child(1), .summary-table thead th:nth-child(2) { z-index: 5; }
         .summary-table .month-break-row td:nth-child(1),
         .summary-table .month-break-row td:nth-child(2) { background: #f8fafc; z-index: 4; }
 

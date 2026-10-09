@@ -9,8 +9,8 @@ const esc = (s) => String(s || '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<':
 
 async function approvedUsers() {
     return pgDb.all(
-        `SELECT username, "displayName" AS display_name, email FROM hub.users
-         WHERE is_approved = 1 AND "displayName" IS NOT NULL AND TRIM("displayName") <> ''`
+        `SELECT username, displayName AS display_name, email FROM hub.users
+         WHERE displayName IS NOT NULL AND TRIM(displayName) <> ''`
     );
 }
 
@@ -35,6 +35,17 @@ async function extractMentions(content) {
         }
         if (hit) found.set(u.username, u);
     }
+    // Saisie directe par identifiant (« @iabbas »), comme dans Teams
+    for (const u of users) {
+        if (found.has(u.username)) continue;
+        const tag = '@' + norm(u.username);
+        let i = rest.indexOf(tag);
+        while (i !== -1) {
+            const after = rest[i + tag.length];
+            if (!after || !/[a-z0-9._-]/.test(after)) { found.set(u.username, u); break; }
+            i = rest.indexOf(tag, i + tag.length);
+        }
+    }
     return [...found.values()];
 }
 
@@ -42,9 +53,9 @@ async function extractMentions(content) {
  * Crée une notification pour chaque agent tagué dans `content`.
  * Ne bloque jamais le commentaire : toute erreur est seulement journalisée.
  */
-async function notifyMentions({ content, actor, source, entityId, title, link }) {
+async function notifyMentions({ content, actor, source, entityId, title, link, exclude = [] }) {
     try {
-        const users = (await extractMentions(content)).filter(u => u.username !== actor?.username);
+        const users = (await extractMentions(content)).filter(u => u.username !== actor?.username && !exclude.includes(u.username));
         if (!users.length) return 0;
         const by = actor?.displayName || actor?.username || 'Un agent';
         const excerpt = stripHtml(content).trim().slice(0, 300);
@@ -71,7 +82,7 @@ async function appBaseUrl() {
 async function sendDigest() {
     if (!_sendMail) { console.warn('[MENTIONS] digest ignoré : sendMail non branché'); return 0; }
     const rows = await pgDb.all(
-        `SELECT n.*, u.email, u."displayName" AS display_name FROM hub.user_notifications n
+        `SELECT n.*, u.email, u.displayName AS display_name FROM hub.user_notifications n
          JOIN hub.users u ON u.username = n.username
          WHERE n.read_at IS NULL AND n.mailed_at IS NULL ORDER BY n.created_at`
     );

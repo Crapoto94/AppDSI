@@ -7,8 +7,24 @@ const { parseSfrZip } = require('./telecom.sfr-parser');
 const { pgDb, pool } = require('../../shared/database');
 const storage = require('../../shared/storage');
 const dgpService = require('../finance/dgp.service');
+const financeShare = require('../finance/finance-share.controller');
+const seditLive = require('./telecom.sedit-live');
+const invoiceAnalysis = require('./telecom.invoice-analysis');
 
 const MODULE = 'telecom';
+
+// Seules les lignes issues des factures Sedit (source « sedit:… ») alimentent les écrans de coûts :
+// les anciennes données importées en ZIP sont ignorées (conservées en base, jamais lues).
+pool.query(`CREATE OR REPLACE VIEW hub_telecom.line_billing_sedit AS
+    SELECT * FROM hub_telecom.line_billing WHERE source_file LIKE 'sedit:%'`)
+    .catch(e => console.error('[Telecom] vue line_billing_sedit :', e.message));
+
+// Les montants d'analyse (lignes de facturation, tendance) sont stockés en HT ; l'application les
+// affiche toujours en TTC (TVA 20 %).
+const TVA_RATE = 1.2;
+const toTtc = (v) => Math.round((parseFloat(v) || 0) * TVA_RATE * 100) / 100;
+const MONEY_COLS = ['amt_subscriptions', 'amt_other', 'amt_discounts', 'amt_third_party', 'amt_voix_fixe', 'amt_voix_mobile',
+    'amt_data_fixe', 'amt_data_mobile', 'amt_conso_autre', 'amt_contenu', 'amt_total'];
 
 // Sous-requête réutilisée partout où on a besoin d'une facture télécom "résolue" : montant, date
 // et état sont recalés en direct sur le budget (oracle.gf_oracle_facture) quand une correspondance
@@ -25,22 +41,27 @@ const RESOLVED_INVOICES_SQL = `
         COALESCE(bf.emission_date, i.invoice_date) as invoice_date,
         COALESCE(i.billing_month, to_char(COALESCE(bf.emission_date, i.invoice_date), 'YYYY-MM')) as effective_month,
         bf."FACETAT_LIBELLE" as general_status,
+        bf."ENGAGEMENT" as engagement,
         NULLIF(TRIM(bf."FACTURE_ROO_IMA_REF"), '') as sedit_ref,
         NULLIF(TRIM(bf."FACTURE_FACTURE"), '') as sedit_numero
     FROM hub_telecom.invoices i
     LEFT JOIN LATERAL (
-        SELECT f."FACETAT_LIBELLE", f."FACTURE_MONTANTTC_E", f."FACTURE_ROO_IMA_REF", f."FACTURE_FACTURE",
+        SELECT f."FACETAT_LIBELLE", f."ENGAGEMENT", f."FACTURE_MONTANTTC_E", f."FACTURE_ROO_IMA_REF", f."FACTURE_FACTURE",
             COALESCE(
                 to_date(substring(f."FACTURE_LIBELLE1" from '(\\d{2}/\\d{2}/\\d{4})'), 'DD/MM/YYYY'),
                 f."FACTURE_DATENTREE"::date
             ) as emission_date
-        FROM oracle.gf_oracle_facture f
+        FROM hub_telecom.sedit_factures_live f
         WHERE LOWER(TRIM(f."FACTURE_REFERENCE")) = LOWER(TRIM(i.invoice_number))
            OR f."FACTURE_LIBELLE1" ILIKE '%' || TRIM(i.invoice_number) || '%'
            OR LOWER(TRIM(f."FACTURE_FACTIERS")) = LOWER(TRIM(i.invoice_number))
         ORDER BY (LOWER(TRIM(f."FACTURE_REFERENCE")) = LOWER(TRIM(i.invoice_number))) DESC
         LIMIT 1
     ) bf ON i.invoice_number IS NOT NULL AND TRIM(i.invoice_number) != ''
+    WHERE bf."ENGAGEMENT" IS NULL OR EXISTS (
+        SELECT 1 FROM unnest(string_to_array(bf."ENGAGEMENT", ',')) AS code(v)
+        WHERE TRIM(code.v) NOT IN (SELECT commitment_number FROM hub_telecom.engagement_settings WHERE managed = false)
+    )
 `;
 
 // Convertit une date opérateur "JJ-MM-AAAA" (ou "JJ/MM/AAAA") en ISO 'AAAA-MM-JJ', sinon null
@@ -64,18 +85,14 @@ function parseFrDate(v) {
 // sont lus en priorité dans le libellé, puis dans les colonnes dédiées (FACTURE_FACTIERS /
 // FACTURE_DATENTREE) car tous les fichiers n'impriment pas ces infos dans le libellé.
 async function findBudgetInvoicesForOperator(operatorId, tierCode) {
+    await seditLive.refreshFactures();
     const conditions = [];
     const params = [];
 
     if (tierCode) {
         params.push(tierCode);
         conditions.push(`TRIM(SPLIT_PART(f."TIERS_POBJ_EXTRACT", chr(1), 1)) = TRIM($${params.length})`);
-        const tierRes = await pool.query(
-            'SELECT "TIERS_POBJ_EXTRACT_2" as nom, "TIERS_POBJ_EXTRACT_3" as complement_nom FROM oracle.gf_oracle_tiers WHERE TRIM("TIERS_TIERS") = TRIM($1)',
-            [tierCode]
-        );
-        const tierNom = tierRes.rows[0]?.nom ? String(tierRes.rows[0].nom).trim() : '';
-        const tierComp = tierRes.rows[0]?.complement_nom ? String(tierRes.rows[0].complement_nom).trim() : '';
+        const { nom: tierNom, complement: tierComp } = await seditLive.getTierNames(tierCode);
         for (const n of [tierNom, tierComp]) {
             if (n) {
                 params.push(`%${n}%`);
@@ -87,7 +104,7 @@ async function findBudgetInvoicesForOperator(operatorId, tierCode) {
     const libRes = await pool.query(`
         SELECT DISTINCT f."FACTURE_LIBELLE2" as libelle
         FROM hub_telecom.invoices i
-        JOIN oracle.gf_oracle_facture f ON (
+        JOIN hub_telecom.sedit_factures_live f ON (
             LOWER(TRIM(f."FACTURE_REFERENCE")) = LOWER(TRIM(i.invoice_number))
             OR f."FACTURE_LIBELLE1" ILIKE '%' || TRIM(i.invoice_number) || '%'
         )
@@ -116,8 +133,10 @@ async function findBudgetInvoicesForOperator(operatorId, tierCode) {
                        f."FACTURE_DATENTREE"::date
                    ) as invoice_date,
                    NULLIF(TRIM(f."FACTURE_ROO_IMA_REF"), '') as sedit_ref,
-                   f."FACETAT_LIBELLE" as etat
-            FROM oracle.gf_oracle_facture f
+                   NULLIF(TRIM(f."FACTURE_FACTURE"), '') as sedit_numero,
+                   f."FACETAT_LIBELLE" as etat,
+                   f."ENGAGEMENT" as engagement
+            FROM hub_telecom.sedit_factures_live f
             WHERE ${conditions.join(' OR ')}
         ) c
         WHERE c.invoice_date IS NOT NULL
@@ -140,6 +159,9 @@ async function findBudgetInvoicesForOperator(operatorId, tierCode) {
     const existingRes = await pool.query(`SELECT LOWER(TRIM(invoice_number)) as k FROM hub_telecom.invoices WHERE invoice_number IS NOT NULL`);
     const existingKeys = new Set(existingRes.rows.map(r => r.k));
 
+    const accountsRes = await pool.query(
+        'SELECT id, commitment_number FROM hub_telecom.billing_accounts WHERE operator_id = $1', [operatorId]);
+
     const seen = new Set();
     return candidatesRes.rows.filter(r => {
         if (!r.invoice_number) return false;
@@ -147,7 +169,17 @@ async function findBudgetInvoicesForOperator(operatorId, tierCode) {
         if (existingKeys.has(key) || seen.has(key)) return false;
         seen.add(key);
         return true;
-    });
+    }).map(r => ({ ...r, suggested_account_id: accountForEngagement(accountsRes.rows, r.engagement) }));
+}
+
+// Compte de facturation dont le n° d'engagement correspond à l'un des engagements auxquels Sedit a
+// rapproché la facture (colonne ENGAGEMENT : codes séparés par « , »). null si aucun compte — ou
+// plusieurs comptes différents — ne correspond.
+function accountForEngagement(accounts, engagement) {
+    if (!engagement) return null;
+    const codes = String(engagement).split(',').map(c => c.trim()).filter(Boolean);
+    const ids = new Set(accounts.filter(a => a.commitment_number && codes.includes(String(a.commitment_number).trim())).map(a => a.id));
+    return ids.size === 1 ? [...ids][0] : null;
 }
 
 // Synthèse mensuelle par compte (façon onglet "Suivi" de l'Excel) : pour chaque compte de
@@ -157,6 +189,7 @@ async function findBudgetInvoicesForOperator(operatorId, tierCode) {
 // Extrait en fonction top-level (plutôt que directement dans getMonthlySummary) pour être
 // réutilisable par /budget-prep, qui a besoin de l'atterrissage annuel global (nature 6262).
 async function computeMonthlySummary(year) {
+    await seditLive.refreshFactures().catch(e => console.error('[Telecom] Lecture directe Sedit impossible :', e.message));
     const [invoiceRows, accounts, commentRows] = await Promise.all([
         pgDb.all(`
             SELECT ri.id, ri.invoice_number, ri.operator_id, ri.billing_account_id, ri.amount_ttc,
@@ -176,6 +209,38 @@ async function computeMonthlySummary(year) {
     // Info de mandatement (date + booléen) pour chaque facture liée à une facture Sedit :
     // lue dans le cache finance.facture_dgp (clé = FACTURE_ROO_IMA_REF = ri.sedit_ref).
     const mandateMap = await dgpService.getMandateInfoByRoos(invoiceRows.map(i => i.sedit_ref)).catch(() => ({}));
+
+    // Factures refusées dans Sedit (état lu en direct) + factures rejetées localement (onglet
+    // « Rejeter ») : comptées en pastille rouge à côté du montant du mois.
+    const refusedNumeros = new Set();
+    try {
+        const numeros = Array.from(new Set(invoiceRows.map(i => (i.sedit_numero || '').trim()).filter(Boolean)));
+        for (let i = 0; i < numeros.length; i += 500) {
+            const st = await financeShare.getFacsuiviStatus(numeros.slice(i, i + 500));
+            for (const [num, info] of Object.entries(st)) if (info && info.rejete && info.rejete.done) refusedNumeros.add(num);
+        }
+    } catch (e) {
+        console.error('[Telecom] Statuts Sedit (refus) indisponibles pour la synthèse :', e.message);
+    }
+    const rejectedLocal = await pool.query(`
+        SELECT r.billing_account_id, to_char(COALESCE(bf.dt, r.rejected_at::date), 'YYYY-MM') AS month, COUNT(*)::int AS n
+        FROM hub_telecom.rejected_invoices r
+        LEFT JOIN LATERAL (
+            SELECT COALESCE(to_date(substring(f."FACTURE_LIBELLE1" from '(\\d{2}/\\d{2}/\\d{4})'), 'DD/MM/YYYY'), f."FACTURE_DATENTREE"::date) AS dt
+            FROM hub_telecom.sedit_factures_live f
+            WHERE LOWER(TRIM(f."FACTURE_REFERENCE")) = LOWER(TRIM(r.invoice_number))
+               OR f."FACTURE_LIBELLE1" ILIKE '%' || TRIM(r.invoice_number) || '%'
+               OR LOWER(TRIM(f."FACTURE_FACTIERS")) = LOWER(TRIM(r.invoice_number))
+            LIMIT 1
+        ) bf ON TRUE
+        WHERE r.category = 'rejetee' AND r.billing_account_id IS NOT NULL
+        GROUP BY 1, 2
+    `).then(r => r.rows).catch(() => []);
+    const rejectedLocalMap = {};
+    for (const r of rejectedLocal) {
+        if (!rejectedLocalMap[r.billing_account_id]) rejectedLocalMap[r.billing_account_id] = {};
+        rejectedLocalMap[r.billing_account_id][r.month] = r.n;
+    }
 
     const months = Array.from({ length: 12 }, (_, i) => `${year}-${String(i + 1).padStart(2, '0')}`);
     const now = new Date();
@@ -209,8 +274,12 @@ async function computeMonthlySummary(year) {
         months.forEach(m => {
             const invs = (byAccountMonth[a.id] && byAccountMonth[a.id][m]) || [];
             const total = invs.reduce((s, i) => s + (Number(i.amount_ttc) || 0), 0);
+            const refusedInSedit = invs.filter(i => i.sedit_numero && refusedNumeros.has(String(i.sedit_numero).trim())).length;
             monthly[m] = {
                 total: invs.length ? total : null,
+                // Pastilles : factures OK (non refusées) et refusées / rejetées du mois
+                ok_count: invs.length - refusedInSedit,
+                refused_count: refusedInSedit + ((rejectedLocalMap[a.id] && rejectedLocalMap[a.id][m]) || 0),
                 invoices: invs.map(i => ({
                     id: i.id, invoice_number: i.invoice_number,
                     amount_ttc: Number(i.amount_ttc) || 0,
@@ -257,6 +326,46 @@ async function computeMonthlySummary(year) {
 }
 
 module.exports = {
+    RESOLVED_INVOICES_SQL,
+
+    // --- Analyse automatique des factures (PDF Sedit, version la plus détaillée) ---
+    // Liste des analyses de l'exercice (?year=) avec le montant Sedit et le contrôle de cohérence.
+    getInvoiceAnalysis: async (req, res) => {
+        try {
+            await invoiceAnalysis.ensureTable();
+            const year = parseInt(req.query.year, 10) || new Date().getFullYear();
+            const rows = await pgDb.all(`
+                SELECT ri.id, ri.invoice_number, ri.sedit_numero, ri.sedit_ref, ri.amount_ttc, ri.effective_month,
+                       o.name AS operator_name, a.account_number,
+                       an.status, an.doc_name, an.doc_size_kb, an.docs_count, an.pages, an.period_start, an.period_end, an.account_ref,
+                       an.amount_ht, an.amount_tva, an.amount_ttc AS pdf_ttc, an.amount_abonnements, an.amount_consommations,
+                       an.ecart, an.error, an.analysed_at, an.lines_count, an.lines_total_ht
+                FROM (${RESOLVED_INVOICES_SQL}) ri
+                JOIN hub_telecom.operators o ON o.id = ri.operator_id
+                LEFT JOIN hub_telecom.billing_accounts a ON a.id = ri.billing_account_id
+                LEFT JOIN hub_telecom.invoice_analysis an ON an.invoice_id = ri.id
+                WHERE ri.effective_month LIKE ? AND ${invoiceAnalysis.IN_6262_SQL}
+                ORDER BY ri.effective_month DESC, o.name, ri.invoice_number
+            `, [`${year}-%`]);
+            res.json({ running: invoiceAnalysis.isRunning(), rows });
+        } catch (error) {
+            console.error('[Telecom] getInvoiceAnalysis error:', error);
+            res.status(500).json({ message: "Erreur lecture de l'analyse des factures", error: error.message });
+        }
+    },
+
+    // Lance l'analyse des factures non encore analysées (ou toutes avec force=true) en tâche de fond.
+    runInvoiceAnalysis: async (req, res) => {
+        try {
+            const force = req.body?.force === true || req.body?.force === 'true';
+            const limit = Math.min(parseInt(req.body?.limit, 10) || (force ? 500 : 100), 1000);
+            invoiceAnalysis.analysePending({ limit, force }).catch(e => console.error('[Telecom] analyse factures :', e.message));
+            res.json({ started: true, force, limit });
+        } catch (error) {
+            res.status(500).json({ message: "Erreur lancement de l'analyse", error: error.message });
+        }
+    },
+
     // --- Operators ---
     getOperators: async (req, res) => {
         try {
@@ -323,6 +432,7 @@ module.exports = {
     // --- Billing Accounts ---
     getBillingAccounts: async (req, res) => {
         try {
+            await seditLive.refreshFactures().catch(e => console.error('[Telecom] Lecture directe Sedit impossible :', e.message));
             const { operator_id } = req.query;
             let query = `
                 SELECT a.*, o.name as operator_name,
@@ -350,6 +460,7 @@ module.exports = {
 
     getOperatorAccounts: async (req, res) => {
         try {
+            await seditLive.refreshFactures().catch(e => console.error('[Telecom] Lecture directe Sedit impossible :', e.message));
             const accounts = await pgDb.all(`
                 SELECT a.*, o.name as operator_name,
                        (SELECT COUNT(*) FROM hub_telecom.invoices WHERE billing_account_id = a.id) as invoice_count,
@@ -411,63 +522,50 @@ module.exports = {
     },
 
     // --- Commitments ---
-    // Engagements télécom récupérés dynamiquement depuis les engagements budgétaires
-    // (oracle.budget_engagements) : on ne garde que les engagements ayant au moins une
-    // ligne de nature 6262 (télécom). Pas d'import à ce niveau.
+    // Engagements télécom de l'exercice en cours, lus EN DIRECT dans Sedit : engagements ayant au
+    // moins une ligne d'imputation de nature 6262 (montant engagé, dégagé et reste comme l'écran
+    // « Synthèse » de Sedit). Plus d'import Excel à ce niveau.
     getTelecomEngagements: async (req, res) => {
         try {
-            const r = await pool.query(`
-                SELECT "Code mouvement" AS code, "Montant TTC" AS ttc, "Reste engagé" AS reste,
-                       "Article par nature" AS nat, "Libellé mouvement" AS lib, "Libellé" AS lib2,
-                       "Nom tiers" AS tiers, "Exercice" AS ex, "Section" AS sec
-                FROM oracle.budget_engagements
-                WHERE "Code mouvement" IN (
-                    SELECT "Code mouvement" FROM oracle.budget_engagements WHERE TRIM("Article par nature") = '6262'
-                )
-            `);
-
-            const num = (v) => {
-                if (v === null || v === undefined || v === '') return 0;
-                const n = parseFloat(String(v).trim().replace(',', '.').replace(/[^\d.\-]/g, ''));
-                return isNaN(n) ? 0 : n;
-            };
-            const round2 = (n) => Math.round(n * 100) / 100;
-
-            const groups = {};
-            for (const row of r.rows) {
-                const code = (row.code || '').toString().trim();
-                if (!code) continue;
-                let g = groups[code];
-                if (!g) g = groups[code] = { code, montant: 0, solde: 0, label: '', tiers: '', year: '', section: '' };
-                g.montant += num(row.ttc);
-                g.solde += num(row.reste);
-                if (!g.label) g.label = (row.lib || row.lib2 || '').toString().trim();
-                if (!g.tiers) g.tiers = (row.tiers || '').toString().trim();
-                if (!g.year) g.year = (row.ex || '').toString().trim();
-                if (!g.section) g.section = (row.sec || '').toString().trim();
-            }
-
-            const list = Object.values(groups).map(g => {
-                const engaged = round2(g.montant);
-                const remaining = round2(g.solde);
-                const invoiced = round2(engaged - remaining); // réalisé / consommé
-                return {
-                    commitment_number: g.code,
-                    label: g.label,
-                    operator_name: g.tiers,
-                    year: g.year,
-                    section: g.section,
-                    amount: engaged,
-                    engaged_amount: engaged,
-                    remaining_amount: remaining,
-                    invoiced_amount: invoiced
-                };
-            }).sort((a, b) => a.commitment_number.localeCompare(b.commitment_number));
-
-            res.json(list);
+            const [list, settings] = await Promise.all([
+                seditLive.getTelecomEngagementsLive(),
+                pool.query('SELECT commitment_number, managed FROM hub_telecom.engagement_settings').then(r => r.rows).catch(() => []),
+            ]);
+            const unmanaged = new Set(settings.filter(s => s.managed === false).map(s => String(s.commitment_number).trim()));
+            res.json(list.map(e => ({ ...e, managed: !unmanaged.has(e.commitment_number) })));
         } catch (error) {
             console.error('[Telecom] getTelecomEngagements error:', error);
-            res.status(500).json({ message: 'Erreur lecture engagements télécom', error: error.message });
+            res.status(500).json({ message: 'Erreur lecture engagements télécom (Sedit)', error: error.message });
+        }
+    },
+
+    // Gérer (ou non) un engagement en fluide : les factures rapprochées à un engagement géré sont
+    // intégrées automatiquement à l'historique ; celles d'un engagement non géré en sont masquées.
+    setEngagementManaged: async (req, res) => {
+        try {
+            const code = String(req.params.code || '').trim();
+            if (!code) return res.status(400).json({ message: 'Code engagement requis' });
+            const managed = req.body.managed !== false && req.body.managed !== 'false';
+            await pool.query(`
+                INSERT INTO hub_telecom.engagement_settings (commitment_number, managed, updated_by, updated_at)
+                VALUES ($1, $2, $3, CURRENT_TIMESTAMP)
+                ON CONFLICT (commitment_number) DO UPDATE SET managed = EXCLUDED.managed, updated_by = EXCLUDED.updated_by, updated_at = CURRENT_TIMESTAMP
+            `, [code, managed, req.user?.username || null]);
+            if (managed) await seditLive.refreshFactures({ force: true }).catch(() => {});
+            res.json({ commitment_number: code, managed });
+        } catch (error) {
+            res.status(500).json({ message: 'Erreur mise à jour engagement', error: error.message });
+        }
+    },
+
+    // Engagements (code mouvement Sedit) lus en direct : ?codes=26D000168,26D000164
+    getEngagementsLive: async (req, res) => {
+        try {
+            const codes = String(req.query.codes || '').split(',');
+            res.json(await seditLive.getEngagementsLive(codes));
+        } catch (error) {
+            console.error('[Telecom] getEngagementsLive error:', error);
+            res.status(500).json({ message: 'Erreur lecture engagements Sedit', error: error.message });
         }
     },
 
@@ -479,6 +577,7 @@ module.exports = {
     // upload PDF) ne servent que de repli si aucune correspondance budget n'est trouvée.
     getInvoices: async (req, res) => {
         try {
+            await seditLive.refreshFactures().catch(e => console.error('[Telecom] Lecture directe Sedit impossible :', e.message));
             const invoices = await pgDb.all(`
                 SELECT ri.*, o.name as operator_name, a.account_number
                 FROM (${RESOLVED_INVOICES_SQL}) ri
@@ -574,11 +673,27 @@ module.exports = {
     // PDF. Le compte est facultatif : il n'apparaît pas toujours sur la facture, on liste les
     // factures du tiers sans en exiger un ; il pourra être affecté plus tard via updateInvoiceMeta.
     addInvoiceFromBudget: async (req, res) => {
-        const { operator_id, billing_account_id, invoice_number, description } = req.body;
+        const { operator_id, invoice_number, description } = req.body;
+        let billing_account_id = req.body.billing_account_id;
         if (!operator_id || !invoice_number) {
             return res.status(400).json({ message: 'operator_id et invoice_number sont requis' });
         }
         try {
+            // Compte déduit automatiquement de l'engagement auquel Sedit a rapproché la facture ;
+            // à défaut, celui choisi par l'utilisateur (obligatoire).
+            await seditLive.refreshFactures().catch(() => {});
+            const engRes = await pool.query(`
+                SELECT f."ENGAGEMENT" FROM hub_telecom.sedit_factures_live f
+                WHERE LOWER(TRIM(f."FACTURE_REFERENCE")) = LOWER(TRIM($1))
+                   OR f."FACTURE_LIBELLE1" ILIKE '%' || TRIM($1) || '%'
+                   OR LOWER(TRIM(f."FACTURE_FACTIERS")) = LOWER(TRIM($1))
+                ORDER BY (LOWER(TRIM(f."FACTURE_REFERENCE")) = LOWER(TRIM($1))) DESC LIMIT 1`, [invoice_number]);
+            const accRes = await pool.query('SELECT id, commitment_number FROM hub_telecom.billing_accounts WHERE operator_id = $1', [operator_id]);
+            const autoAccount = accountForEngagement(accRes.rows, engRes.rows[0]?.ENGAGEMENT);
+            if (autoAccount) billing_account_id = autoAccount;
+            if (!billing_account_id) {
+                return res.status(400).json({ message: "Aucun compte ne correspond à l'engagement de cette facture : choisissez un compte de facturation" });
+            }
             const existing = await pgDb.get('SELECT id FROM hub_telecom.invoices WHERE LOWER(TRIM(invoice_number)) = LOWER(TRIM(?))', [invoice_number]);
             if (existing) return res.status(409).json({ message: 'Cette facture est déjà intégrée' });
             const result = await pgDb.run(
@@ -617,6 +732,7 @@ module.exports = {
     // avec le motif du rejet et les informations du budget (montant, date, état, référence SEDIT).
     getRejectedInvoices: async (req, res) => {
         try {
+            await seditLive.refreshFactures().catch(e => console.error('[Telecom] Lecture directe Sedit impossible :', e.message));
             const { operator_id, billing_account_id } = req.query;
             const where = [];
             const params = [];
@@ -625,6 +741,8 @@ module.exports = {
 
             const result = await pool.query(`
                 SELECT r.id, r.invoice_number, r.reason, r.category, r.rejected_by, r.rejected_at,
+                       r.operator_id, r.billing_account_id, op.name as operator_name, ac.account_number,
+                       bf."ENGAGEMENT" as engagement, NULLIF(TRIM(bf."FACTURE_FACTURE"), '') as sedit_numero,
                        bf."FACTURE_LIBELLE2" as fournisseur,
                        bf."FACTURE_MONTANTTC_E"::numeric as amount_ttc,
                        bf."FACTURE_ROO_IMA_REF" as sedit_ref,
@@ -633,14 +751,16 @@ module.exports = {
                 FROM hub_telecom.rejected_invoices r
                 LEFT JOIN LATERAL (
                     SELECT f."FACTURE_LIBELLE2", f."FACTURE_MONTANTTC_E", f."FACTURE_ROO_IMA_REF",
-                           f."FACETAT_LIBELLE", f."FACTURE_LIBELLE1"
-                    FROM oracle.gf_oracle_facture f
+                           f."FACETAT_LIBELLE", f."FACTURE_LIBELLE1", f."ENGAGEMENT", f."FACTURE_FACTURE"
+                    FROM hub_telecom.sedit_factures_live f
                     WHERE LOWER(TRIM(f."FACTURE_REFERENCE")) = LOWER(TRIM(r.invoice_number))
                        OR f."FACTURE_LIBELLE1" ILIKE '%' || TRIM(r.invoice_number) || '%'
                        OR LOWER(TRIM(f."FACTURE_FACTIERS")) = LOWER(TRIM(r.invoice_number))
                     ORDER BY (LOWER(TRIM(f."FACTURE_REFERENCE")) = LOWER(TRIM(r.invoice_number))) DESC
                     LIMIT 1
                 ) bf ON r.invoice_number IS NOT NULL AND TRIM(r.invoice_number) != ''
+                LEFT JOIN hub_telecom.operators op ON op.id = r.operator_id
+                LEFT JOIN hub_telecom.billing_accounts ac ON ac.id = r.billing_account_id
                 ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
                 ORDER BY r.rejected_at DESC, r.id DESC
                 LIMIT 500
@@ -1234,7 +1354,7 @@ module.exports = {
     // Périodes de facturation disponibles
     getBillingPeriods: async (req, res) => {
         try {
-            const r = await pool.query(`SELECT DISTINCT period FROM hub_telecom.line_billing ORDER BY period DESC`);
+            const r = await pool.query(`SELECT DISTINCT period FROM hub_telecom.line_billing_sedit ORDER BY period DESC`);
             res.json(r.rows.map(x => x.period));
         } catch (error) {
             res.status(500).json({ message: 'Erreur périodes', error: error.message });
@@ -1248,7 +1368,7 @@ module.exports = {
             const where = [];
             const params = [];
             if (period) { params.push(period); where.push(`period = $${params.length}`); }
-            else where.push(`period = (SELECT MAX(period) FROM hub_telecom.line_billing)`);
+            else where.push(`period = (SELECT MAX(period) FROM hub_telecom.line_billing_sedit)`);
             if (type === 'mobile') where.push(`is_mobile = TRUE`);
             if (type === 'fixe') where.push(`is_mobile = FALSE`);
             if (search) {
@@ -1261,10 +1381,10 @@ module.exports = {
                        (SELECT ln.access_type FROM hub_telecom.lines ln
                           WHERE regexp_replace(ln.ndi, '\\D', '', 'g') = regexp_replace(lb.line_number, '\\D', '', 'g')
                           LIMIT 1) AS access_type
-                FROM hub_telecom.line_billing lb
+                FROM hub_telecom.line_billing_sedit lb
                 WHERE ${where.join(' AND ')}
                 ORDER BY lb.amt_total DESC`, params);
-            res.json(r.rows);
+            res.json(r.rows.map(row => { const o = { ...row }; MONEY_COLS.forEach(c => { if (o[c] != null) o[c] = toTtc(o[c]); }); return o; }));
         } catch (error) {
             res.status(500).json({ message: 'Erreur détail facturation', error: error.message });
         }
@@ -1274,18 +1394,19 @@ module.exports = {
     getBillingStats: async (req, res) => {
         try {
             const { period } = req.query;
-            const periodClause = period ? `period = $1` : `period = (SELECT MAX(period) FROM hub_telecom.line_billing)`;
+            const periodClause = period ? `period = $1` : `period = (SELECT MAX(period) FROM hub_telecom.line_billing_sedit)`;
             const params = period ? [period] : [];
-            const { rows } = await pool.query(`SELECT * FROM hub_telecom.line_billing WHERE ${periodClause}`, params);
+            const { rows } = await pool.query(`SELECT * FROM hub_telecom.line_billing_sedit WHERE ${periodClause}`, params);
 
             const n = (v) => parseFloat(v) || 0;
+            const t = (v) => toTtc(v); // montants affichés en TTC
 
             // Nombre de mois consécutifs sans conso (voix+data) par numéro mobile,
             // en partant du mois le plus récent (= depuis combien de mois la ligne est dormante)
             const mobRows = (await pool.query(`
                 SELECT regexp_replace(line_number, '\\D', '', 'g') AS num, period,
                        SUM(conso_voix) AS v, SUM(conso_data) AS d
-                FROM hub_telecom.line_billing
+                FROM hub_telecom.line_billing_sedit
                 WHERE is_mobile
                 GROUP BY num, period
                 ORDER BY num, period DESC
@@ -1300,6 +1421,10 @@ module.exports = {
                     streakByNum[num] = c;
                 }
             }
+
+            // Les PDF de factures Sedit ne donnent pas les volumes voix/data par ligne : sans volumes, la
+            // détection des lignes dormantes n'a pas de sens (toutes ressortiraient dormantes) et est désactivée.
+            const hasVolumes = rows.some(r => n(r.conso_voix) > 0 || n(r.conso_data) > 0);
 
             const stats = {
                 period: rows[0] ? rows[0].period : null,
@@ -1319,14 +1444,14 @@ module.exports = {
             };
 
             for (const r of rows) {
-                const tot = n(r.amt_total);
+                const tot = t(r.amt_total);
                 stats.totalHT += tot;
                 if (r.is_mobile) stats.totalMobile += tot; else stats.totalFixe += tot;
-                stats.totalSubscriptions += n(r.amt_subscriptions);
-                stats.totalDiscounts += n(r.amt_discounts);
-                stats.totalConso += n(r.amt_voix_fixe) + n(r.amt_voix_mobile) + n(r.amt_data_fixe) + n(r.amt_data_mobile) + n(r.amt_conso_autre);
+                stats.totalSubscriptions += t(r.amt_subscriptions);
+                stats.totalDiscounts += t(r.amt_discounts);
+                stats.totalConso += t(r.amt_voix_fixe) + t(r.amt_voix_mobile) + t(r.amt_data_fixe) + t(r.amt_data_mobile) + t(r.amt_conso_autre);
                 // Dormante = mobile facturé (> 0 €) sans aucune consommation voix ni data
-                if (r.is_mobile && tot > 0 && n(r.conso_voix) === 0 && n(r.conso_data) === 0) {
+                if (hasVolumes && r.is_mobile && tot > 0 && n(r.conso_voix) === 0 && n(r.conso_data) === 0) {
                     stats.dormant++;
                     stats.dormantCost += tot;
                     stats.dormantList.push({ line_number: r.line_number, user_name: r.user_name, plan: r.plan, list_label: r.list_label, amt_total: tot, monthsWithoutConso: streakByNum[String(r.line_number).replace(/\D/g, '')] || 1 });
@@ -1339,7 +1464,7 @@ module.exports = {
             }
 
             stats.topLines = rows
-                .map(r => ({ line_number: r.line_number, user_name: r.user_name, site_name: r.site_name, plan: r.plan, is_mobile: r.is_mobile, amt_total: n(r.amt_total) }))
+                .map(r => ({ line_number: r.line_number, user_name: r.user_name, site_name: r.site_name, plan: r.plan, is_mobile: r.is_mobile, amt_total: t(r.amt_total) }))
                 .sort((a, b) => b.amt_total - a.amt_total).slice(0, 15);
             stats.bySite = Object.entries(stats.bySite).map(([k, v]) => ({ site: k, amount: Math.round(v * 100) / 100 })).sort((a, b) => b.amount - a.amount).slice(0, 10);
             stats.byList = Object.entries(stats.byList).map(([k, v]) => ({ list: k, amount: Math.round(v * 100) / 100 })).sort((a, b) => b.amount - a.amount).slice(0, 12);
@@ -1359,12 +1484,17 @@ module.exports = {
         try {
             // Exclut « Vos autres prestations » = achats ponctuels d'équipement/terminaux
             // (non récurrents, ex. 10 250 € de terminaux mobiles en sept. 2025)
-            const r = await pool.query(`
-                SELECT month, SUM(amount) AS total
-                FROM hub_telecom.billing_trend
-                WHERE category <> 'Vos autres prestations'
-                GROUP BY month ORDER BY month`);
-            res.json(r.rows.map(x => ({ month: x.month, total: Math.round(parseFloat(x.total) * 100) / 100 })));
+            // Source : factures SFR lues dans Sedit (lignes détaillées issues des PDF) ; à défaut seulement,
+            // l'ancienne tendance importée. Montants en TTC.
+            const sedit = await pool.query(`
+                SELECT to_char(period, 'YYYY-MM') AS month, SUM(amt_total) AS total
+                FROM hub_telecom.line_billing_sedit
+                WHERE source_file LIKE 'sedit:%'
+                GROUP BY 1 ORDER BY 1`);
+            if (sedit.rows.length > 0) {
+                return res.json(sedit.rows.map(x => ({ month: x.month, total: toTtc(x.total) })));
+            }
+            res.json([]);
         } catch (error) {
             res.status(500).json({ message: 'Erreur tendance', error: error.message });
         }
@@ -1388,7 +1518,7 @@ module.exports = {
                        SUM(amt_discounts) AS amt_discounts,
                        SUM(amt_voix_fixe + amt_voix_mobile + amt_data_fixe + amt_data_mobile + amt_conso_autre) AS amt_conso,
                        SUM(amt_total) AS amt_total, SUM(conso_voix) AS conso_voix, SUM(conso_data) AS conso_data
-                FROM hub_telecom.line_billing
+                FROM hub_telecom.line_billing_sedit
                 WHERE regexp_replace(line_number, '\\D', '', 'g') = $1
                 GROUP BY period
                 ORDER BY period DESC
@@ -1398,17 +1528,18 @@ module.exports = {
             // Numéro affichable + libellé pris sur la ligne la plus récente
             const latest = rows[0] || {};
             const n = (v) => parseFloat(v) || 0;
+            const m = (v) => toTtc(v); // montants en TTC
             const history = rows.slice().reverse().map(r => ({
                 period: r.period,
                 invoice_number: r.invoice_number,
                 invoice_date: r.invoice_date,
                 cf_label: r.cf_label,
                 plan: r.plan,
-                amt_subscriptions: n(r.amt_subscriptions),
-                amt_conso: n(r.amt_conso),
-                amt_discounts: n(r.amt_discounts),
-                amt_other: n(r.amt_other),
-                amt_total: n(r.amt_total),
+                amt_subscriptions: m(r.amt_subscriptions),
+                amt_conso: m(r.amt_conso),
+                amt_discounts: m(r.amt_discounts),
+                amt_other: m(r.amt_other),
+                amt_total: m(r.amt_total),
                 conso_voix: n(r.conso_voix),
                 conso_data: n(r.conso_data),
             }));
@@ -1500,9 +1631,15 @@ module.exports = {
     // Mapping n° de facture → chemin du PDF (pour rendre les numéros cliquables)
     getInvoiceFiles: async (req, res) => {
         try {
-            const { rows } = await pool.query('SELECT invoice_number, file_path FROM hub_telecom.invoice_files');
+            // N° de facture fournisseur -> n° interne Sedit (F2600xxxx) : la facture est lue dans Sedit
+            // (PDF en pièce jointe) ; les anciens PDF importés en ZIP ne sont plus utilisés.
+            await seditLive.refreshFactures().catch(() => {});
+            const { rows } = await pool.query(`
+                SELECT TRIM("FACTURE_FACTIERS") AS supplier_number, TRIM("FACTURE_FACTURE") AS sedit_numero
+                FROM hub_telecom.sedit_factures_live
+                WHERE "FACTURE_FACTIERS" IS NOT NULL AND TRIM("FACTURE_FACTIERS") <> ''`);
             const map = {};
-            for (const r of rows) map[r.invoice_number] = r.file_path;
+            for (const r of rows) map[r.supplier_number] = r.sedit_numero;
             res.json(map);
         } catch (error) {
             res.status(500).json({ message: 'Erreur fichiers factures', error: error.message });
@@ -1517,11 +1654,11 @@ module.exports = {
             const inv = (await pool.query(`SELECT mid, ndi, site_name, category, access_type, status FROM hub_telecom.lines`)).rows;
             const billing = (await pool.query(`
                 SELECT line_number, cf_id, cf_label, site_name, is_mobile, plan, amt_total
-                FROM hub_telecom.line_billing
-                WHERE period = (SELECT MAX(period) FROM hub_telecom.line_billing)
+                FROM hub_telecom.line_billing_sedit
+                WHERE period = (SELECT MAX(period) FROM hub_telecom.line_billing_sedit)
             `)).rows;
 
-            const n = (v) => parseFloat(v) || 0;
+            const n = (v) => toTtc(v); // montants uniquement : affichés en TTC
             const norm = (s) => String(s || '').replace(/\D/g, '');   // garde les chiffres (numéros)
 
             // Index facturation par numéro

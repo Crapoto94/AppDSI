@@ -70,7 +70,9 @@ const Login: React.FC = () => {
       }
 
       if (azureError) {
-        setError("L'authentification Azure AD a échoué.");
+        setError(azureError === 'not_authorized'
+          ? "Accès refusé : votre compte n'est pas autorisé sur le DSIHub."
+          : "L'authentification Azure AD a échoué.");
       }
     };
 

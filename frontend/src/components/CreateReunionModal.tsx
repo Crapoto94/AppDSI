@@ -331,6 +331,8 @@ const CreateReunionModal: React.FC<CreateReunionModalProps> = ({ isOpen, onClose
         setSlotsError('');
         setParticipants([]);
         created._comite_id = comiteId ? parseInt(comiteId) : null;
+        // Fermeture immédiate, sans attendre le traitement du parent (ex. rattachement au projet).
+        onClose();
         onCreated(created);
       } else {
         const err = await res.json();

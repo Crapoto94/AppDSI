@@ -26,6 +26,8 @@ router.put('/billing-accounts/:id/monthly-comment', authenticateJWT, telecomCont
 
 // Engagements télécom (lecture dynamique depuis le suivi budgétaire, nature 6262)
 router.get('/engagements', authenticateJWT, telecomController.getTelecomEngagements);
+router.get('/engagements/live', authenticateJWT, telecomController.getEngagementsLive);
+router.put('/engagements/:code/managed', authenticateJWT, telecomController.setEngagementManaged);
 
 // Lignes fixes & accès internet (import Excel opérateur, ré-importable)
 router.get('/lines', authenticateJWT, telecomController.getLines);
@@ -45,6 +47,10 @@ router.get('/billing/line/:number', authenticateJWT, telecomController.getLineHi
 // PDF des factures (duplicatas) stockés en GED, indexés par n° de facture
 router.post('/billing/invoices/import', authenticateAdmin, upload.single('file'), telecomController.importBillingInvoices);
 router.get('/billing/invoice-files', authenticateJWT, telecomController.getInvoiceFiles);
+
+// Analyse automatique des factures à partir des PDF Sedit (version la plus détaillée)
+router.get('/billing/analysis', authenticateJWT, telecomController.getInvoiceAnalysis);
+router.post('/billing/analysis/run', authenticateJWT, telecomController.runInvoiceAnalysis);
 
 // Invoices
 router.get('/invoices', authenticateJWT, telecomController.getInvoices);

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import axios from 'axios';
 import EmojiPicker from './EmojiPicker';
+import AfterHoursPanel from './AfterHoursPanel';
 
 type ChatState = 'idle' | 'open' | 'connecting' | 'waiting' | 'active' | 'rating' | 'ended';
 
@@ -27,15 +28,24 @@ const SC = '#818cf8';
 
 interface Props {
   liveEnabled: boolean;
+  // Chat visible uniquement pour les beta testeurs (non activé pour tout le monde) : affiche le badge BETA
+  beta?: boolean;
 }
 
-export default function ChatWidget({ liveEnabled }: Props) {
+export default function ChatWidget({ liveEnabled, beta = false }: Props) {
   const [state, setState] = useState<ChatState>('idle');
   const [input, setInput] = useState('');
   const [messages, setMessages] = useState<LiveMessage[]>([]);
   const [sessionId, setSessionId] = useState<number | null>(null);
   const [techName, setTechName] = useState('');
   const [checking, setChecking] = useState(true);
+  // Ouverture selon les horaires du support (/admin/tickets) : null = en cours de lecture. Hors horaires,
+  // la bulle est grisée (même comportement que le chat du Hub).
+  const [scheduleOpen, setScheduleOpen] = useState<boolean | null>(null);
+  const [closingMessage, setClosingMessage] = useState('');
+  // Hors horaires : la bulle ouvre le formulaire de message d'urgence s'il est activé (/admin/tickets)
+  const [emergencyAvailable, setEmergencyAvailable] = useState(false);
+  const [showAfterHours, setShowAfterHours] = useState(false);
   const [rating, setRating] = useState(0);
   const [ratingComment, setRatingComment] = useState('');
 
@@ -50,6 +60,20 @@ export default function ChatWidget({ liveEnabled }: Props) {
   const recognitionRef = useRef<any>(null);
 
   const token = localStorage.getItem('token');
+
+  // Horaires : lecture de l'état réel d'ouverture (calcul serveur, fuseau du calendrier), rafraîchi chaque minute
+  useEffect(() => {
+    if (!liveEnabled) return;
+    let stop = false;
+    const check = () => {
+      axios.get('/api/live/public-config', token ? { headers: { Authorization: `Bearer ${token}` } } : undefined)
+        .then(r => { if (!stop) { setScheduleOpen(r.data.live_enabled !== false); setClosingMessage(r.data.closing_message || ''); setEmergencyAvailable(!!r.data.emergency_available); } })
+        .catch(() => { if (!stop) setScheduleOpen(true); }); // en cas d'erreur, on n'empêche pas le chat
+    };
+    check();
+    const t = setInterval(check, 60000);
+    return () => { stop = true; clearInterval(t); };
+  }, [liveEnabled]);
 
   // Restore existing session on mount
   useEffect(() => {
@@ -279,7 +303,7 @@ export default function ChatWidget({ liveEnabled }: Props) {
         <div>
           <div style={{ fontWeight: 700, fontSize: 14 }}>
             {title}
-            <span style={{ marginLeft: 6, background: 'rgba(255,255,255,0.25)', fontSize: '0.55rem', fontWeight: 800, padding: '1px 5px', borderRadius: 4, letterSpacing: '0.05em' }}>BETA</span>
+            {beta && <span style={{ marginLeft: 6, background: 'rgba(255,255,255,0.25)', fontSize: '0.55rem', fontWeight: 800, padding: '1px 5px', borderRadius: 4, letterSpacing: '0.05em' }}>BETA</span>}
           </div>
           {subtitle && <div style={{ fontSize: 11, opacity: 0.85 }}>{subtitle}</div>}
         </div>
@@ -289,6 +313,31 @@ export default function ChatWidget({ liveEnabled }: Props) {
   );
 
   // ── Bubble ────────────────────────────────────────────────────────────
+  // Hors horaires (et sans conversation en cours) : bulle grisée, non cliquable.
+  if ((state === 'idle' || state === 'ended') && scheduleOpen === false && !sessionId) {
+    if (showAfterHours) {
+      return <AfterHoursPanel defaultName={(() => { try { const u = JSON.parse(localStorage.getItem('magapp_user') || sessionStorage.getItem('magapp_user') || '{}'); return u.displayName || u.username || ''; } catch { return ''; } })()} closingMessage={closingMessage} primary={PC} secondary={SC} onClose={() => setShowAfterHours(false)} />;
+    }
+    return (
+      <button
+        disabled={!emergencyAvailable}
+        onClick={() => emergencyAvailable && setShowAfterHours(true)}
+        title={emergencyAvailable
+          ? (closingMessage ? closingMessage + '\n\n' : '') + "Support fermé : cliquez pour envoyer un message d'urgence"
+          : (closingMessage || 'Le support est actuellement fermé')}
+        style={{
+          position: 'fixed', bottom: 24, right: 24, zIndex: 9999,
+          width: 56, height: 56, borderRadius: '50%',
+          background: emergencyAvailable ? 'linear-gradient(135deg, #f59e0b, #dc2626)' : 'linear-gradient(135deg, #94a3b8, #64748b)',
+          border: 'none', cursor: emergencyAvailable ? 'pointer' : 'not-allowed',
+          boxShadow: emergencyAvailable ? '0 4px 20px rgba(220,38,38,0.4)' : '0 4px 20px rgba(100,116,139,0.4)',
+          color: '#fff', fontSize: 24, opacity: emergencyAvailable ? 1 : 0.85,
+        }}
+      >
+        {emergencyAvailable ? '🚨' : '✕'}
+      </button>
+    );
+  }
   if (state === 'idle' || state === 'ended') {
     return (
       <button
@@ -310,13 +359,13 @@ export default function ChatWidget({ liveEnabled }: Props) {
         onMouseLeave={e => { (e.currentTarget as HTMLElement).style.transform = 'scale(1)'; }}
       >
         {sessionId ? '🟢' : '💬'}
-        <span style={{
+        {beta && <span style={{
           position: 'absolute', top: -4, right: -4,
           background: '#f59e0b', color: '#1e293b',
           fontSize: '0.5rem', fontWeight: 900,
           padding: '2px 5px', borderRadius: 6,
           letterSpacing: '0.05em', lineHeight: 1.4,
-        }}>BETA</span>
+        }}>BETA</span>}
       </button>
     );
   }

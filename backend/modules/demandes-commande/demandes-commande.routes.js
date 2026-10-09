@@ -15,7 +15,12 @@ router.get('/sedit-commandes', authenticateJWT, controller.listSeditCommandes);
 
 router.get('/', authenticateJWT, controller.list);
 router.post('/', authenticateJWT, upload.array('files', 10), controller.create);
+router.put('/:id', authenticateJWT, upload.array('files', 10), controller.update);
 router.post('/:id/validate', authenticateJWT, controller.validate);
+router.get('/:id/commentaires', authenticateJWT, controller.listComments);
+router.post('/:id/commentaires', authenticateJWT, controller.addComment);
+router.put('/:id/commentaires/:cid', authenticateJWT, controller.editComment);
+router.delete('/:id/commentaires/:cid', authenticateJWT, controller.deleteComment);
 router.delete('/:id', authenticateJWT, controller.remove);
 router.post('/:id/commande', authenticateJWT, controller.associerCommande);
 
