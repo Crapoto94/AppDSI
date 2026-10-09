@@ -84,6 +84,13 @@ router.post('/external/rh-studio', apiTasks, (req, res) => controller.createExte
 // RH Studio -> DSI Hub : le manager a rempli le formulaire d'arrivée, le
 // ticket "En attente" passe "En cours" (même clé/scope que ci-dessus).
 router.patch('/external/rh-studio/onboarding-started', apiTasks, (req, res) => controller.markOnboardingTicketInProgress(req, res));
+// RH Studio -> DSI Hub : tâche miroir (dés)acquittée côté RH Studio.
+router.patch('/external/rh-studio/task-completed', apiTasks, (req, res) => controller.rhStudioTaskCompleted(req, res));
+// RH Studio -> DSI Hub : état complet de l'onboarding d'un ticket (checklist des
+// comptes à créer + réponses de l'encadrant écrites dans le corps du ticket).
+router.put('/external/rh-studio/onboarding-sync', apiTasks, (req, res) => controller.syncOnboardingFromRhStudio(req, res));
+// UI ticket : checklist onboarding en direct.
+router.get('/onboarding/:ticketId', authenticateJWT, (req, res) => controller.getTicketOnboarding(req, res));
 router.patch('/edit/:id',         authenticateJWT, (req, res) => controller.editTask(req, res));
 router.patch('/:source/:id/favorite',      authenticateJWT, (req, res) => controller.toggleFavorite(req, res));
 router.patch('/:source/:id',      authenticateJWT, (req, res) => controller.updateTaskStatus(req, res));

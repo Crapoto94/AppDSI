@@ -13,6 +13,45 @@ const setSendMail = (fn) => { sendMailFn = fn; };
 // localhost en production.
 const { getAppBaseUrl } = require('../../shared/app_url');
 
+// ─── ONBOARDING RH STUDIO : bloc « réponses de l'encadrant » dans le ticket ──
+const ONB_FORM_START = '<!--rhs-form-->';
+const ONB_FORM_END = '<!--/rhs-form-->';
+// Notice « Action requise » posée à la création du ticket (request-forms.controller.js) :
+// obsolète dès que l'encadrant a rempli le formulaire.
+const ONB_NOTICE_RE = /<div style="margin-top:16px;padding:12px 16px;border:1px solid #f0ad4e;[\s\S]*?<\/div>/;
+
+function onbEscape(s) {
+    return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+/** form : [{ title, items: [{ label, value }] }] — valeurs déjà formatées en texte. */
+function renderOnboardingFormBlock(form) {
+    const td1 = 'padding:4px 14px 4px 0;font-weight:600;white-space:nowrap;vertical-align:top;';
+    const sections = form
+        .filter((g) => Array.isArray(g.items) && g.items.length > 0)
+        .map((g) => {
+            const rows = g.items.map((it) =>
+                `<tr><td style="${td1}">${onbEscape(it.label)}</td><td style="padding:4px 0;white-space:pre-wrap;">${onbEscape(it.value)}</td></tr>`
+            ).join('');
+            const title = g.title ? `<div style="margin:10px 0 2px;font-weight:700;color:#4f46e5;">${onbEscape(g.title)}</div>` : '';
+            return `${title}<table style="border-collapse:collapse;">${rows}</table>`;
+        }).join('');
+    return `${ONB_FORM_START}<div style="margin-top:16px;padding:12px 16px;border:1px solid #c7d2fe;background:#f5f7ff;border-radius:6px;">`
+        + `<strong>✅ Formulaire complété par l'encadrant</strong>${sections}</div>${ONB_FORM_END}`;
+}
+
+/** Remplace le bloc existant (ou l'ajoute) et retire la notice « Action requise ». */
+function injectOnboardingFormBlock(content, form) {
+    const block = renderOnboardingFormBlock(form);
+    const start = content.indexOf(ONB_FORM_START);
+    const end = content.indexOf(ONB_FORM_END);
+    if (start !== -1 && end > start) {
+        return content.slice(0, start) + block + content.slice(end + ONB_FORM_END.length);
+    }
+    if (ONB_NOTICE_RE.test(content)) return content.replace(ONB_NOTICE_RE, () => block);
+    return content + block;
+}
+
 // ─── MS TODO HELPERS ─────────────────────────────────────────────────────────
 
 /** Fetch all tasks from a Todo list (auto-paginate; tries $expand=linkedResources, falls back without) */
@@ -734,6 +773,93 @@ module.exports = {
                 [ticket_id, 'Le manager a rempli le formulaire d\'arrivée (RH Studio) — demande en cours de traitement']
             );
             res.json({ ok: true });
+        } catch (error) {
+            res.status(500).json({ error: error.message });
+        }
+    },
+
+    // PATCH /api/tasks/external/rh-studio/task-completed
+    // Appelée par RH Studio quand une OnboardingTask ayant un miroir DSI Hub est
+    // (dés)acquittée côté RH Studio : on répercute l'état sur la tâche miroir
+    // (toutes les lignes de l'équipe si c'est une tâche d'équipe). SQL direct —
+    // surtout pas updateTaskStatus, qui rappellerait RH Studio (aller-retour infini).
+    async rhStudioTaskCompleted(req, res) {
+        const { dsihub_task_id, done } = req.body || {};
+        if (!dsihub_task_id) return res.status(400).json({ error: 'dsihub_task_id requis' });
+        try {
+            const task = await pgDb.get(
+                'SELECT id, team_group_id FROM hub.user_tasks WHERE id = ? AND rh_studio_task_id IS NOT NULL',
+                [dsihub_task_id]
+            );
+            if (!task) return res.status(404).json({ error: 'Tâche introuvable' });
+            const statut = done === false ? 'a_faire' : 'terminé';
+            if (task.team_group_id) {
+                await pgDb.run('UPDATE hub.user_tasks SET statut = ? WHERE team_group_id = ?', [statut, task.team_group_id]);
+            } else {
+                await pgDb.run('UPDATE hub.user_tasks SET statut = ? WHERE id = ?', [statut, task.id]);
+            }
+            res.json({ ok: true, statut });
+        } catch (error) {
+            res.status(500).json({ error: error.message });
+        }
+    },
+
+    // PUT /api/tasks/external/rh-studio/onboarding-sync
+    // RH Studio pousse l'état complet de l'onboarding rattaché à un ticket
+    // « Arrivée d'agent » (idempotent, rappelé à chaque changement) :
+    //   { ticket_id, onboarding_id, statut, agent: {...},
+    //     form: [{ title, items: [{ label, value }] }] | null,
+    //     tasks: [{ id, titre, kind, done, date_completion, commentaire, responsable }] }
+    // - la checklist (tasks) est stockée dans hub_tickets.ticket_onboarding et
+    //   affichée en direct dans le ticket (GET /api/tasks/onboarding/:ticketId) ;
+    // - les réponses de l'encadrant (form) sont écrites dans le corps du ticket,
+    //   dans un bloc balisé réécrit à chaque appel (jamais dupliqué).
+    async syncOnboardingFromRhStudio(req, res) {
+        const { ticket_id, onboarding_id, statut, agent, form, tasks } = req.body || {};
+        if (!ticket_id) return res.status(400).json({ error: 'ticket_id requis' });
+        try {
+            const ticket = await pgDb.get('SELECT glpi_id, content FROM hub_tickets.tickets WHERE glpi_id = ?', [ticket_id]);
+            if (!ticket) return res.status(404).json({ error: 'Ticket introuvable' });
+
+            // pool.query et non pgDb.run : ce dernier ajoute « RETURNING id » aux INSERT,
+            // or ticket_onboarding a ticket_id pour clé (pas de colonne id).
+            await pool.query(
+                `INSERT INTO hub_tickets.ticket_onboarding (ticket_id, onboarding_id, statut, agent, tasks, updated_at)
+                 VALUES ($1, $2, $3, $4::jsonb, $5::jsonb, NOW())
+                 ON CONFLICT (ticket_id) DO UPDATE SET onboarding_id = EXCLUDED.onboarding_id, statut = EXCLUDED.statut,
+                   agent = EXCLUDED.agent, tasks = EXCLUDED.tasks, updated_at = NOW()`,
+                [ticket_id, onboarding_id || null, statut || null, JSON.stringify(agent || {}), JSON.stringify(Array.isArray(tasks) ? tasks : [])]
+            );
+
+            let contentUpdated = false;
+            if (Array.isArray(form) && form.length > 0) {
+                const hadBlock = (ticket.content || '').includes(ONB_FORM_START);
+                const newContent = injectOnboardingFormBlock(ticket.content || '', form);
+                if (newContent !== ticket.content) {
+                    await pgDb.run('UPDATE hub_tickets.tickets SET content = ? WHERE glpi_id = ?', [newContent, ticket_id]);
+                    contentUpdated = true;
+                }
+                if (!hadBlock) {
+                    await pgDb.run(
+                        `INSERT INTO hub_tickets.ticket_history (ticket_id, user_id, action, field_name, old_value, new_value, comment) VALUES (?, NULL, 'onboarding_form_received', NULL, NULL, NULL, ?)`,
+                        [ticket_id, "Informations renseignées par l'encadrant ajoutées à la description du ticket (RH Studio)"]
+                    );
+                }
+            }
+            res.json({ ok: true, contentUpdated });
+        } catch (error) {
+            res.status(500).json({ error: error.message });
+        }
+    },
+
+    // GET /api/tasks/onboarding/:ticketId — checklist onboarding d'un ticket (UI)
+    async getTicketOnboarding(req, res) {
+        try {
+            const row = await pgDb.get(
+                'SELECT ticket_id, onboarding_id, statut, agent, tasks, updated_at FROM hub_tickets.ticket_onboarding WHERE ticket_id = ?',
+                [req.params.ticketId]
+            );
+            res.json(row || null);
         } catch (error) {
             res.status(500).json({ error: error.message });
         }

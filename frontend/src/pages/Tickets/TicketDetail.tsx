@@ -19,6 +19,7 @@ import SiteSelectField from '../../components/SiteSelectField';
 import { formatDateTime, formatDate as formatDateParis } from '../../utils/datetime';
 import UserHoverCard from '../../components/tickets/UserHoverCard';
 import AgentPresenceBadge from '../../components/AgentPresenceBadge';
+import TicketOnboardingPanel from './TicketOnboardingPanel';
 import DsiPresenceBadge, { loadDsiAgentsStatus, findDsiAgentStatus, buildDsiTooltip } from '../../components/DsiPresenceBadge';
 import type { DsiAgentStatus } from '../../components/DsiPresenceBadge';
 
@@ -1970,6 +1971,9 @@ export default function TicketDetail() {
           )}
           <div style={splitRightStyle}>
           <div style={splitRightScrollStyle}>
+
+            {/* ONBOARDING RH STUDIO (comptes à créer, en direct) */}
+            {id && <TicketOnboardingPanel ticketId={id} />}
 
             {/* TÂCHES */}
             <div style={{ borderBottom: '1px solid #f4f4f5', paddingBottom: 16 }}>

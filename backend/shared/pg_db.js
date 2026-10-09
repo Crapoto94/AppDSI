@@ -513,6 +513,19 @@ async function setupPgDb() {
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
     `);
+    // Onboarding RH Studio rattaché au ticket « Arrivée d'agent » : checklist des
+    // tâches (création de comptes…) + identité de l'agent, poussées par RH Studio
+    // à chaque changement (PUT /api/tasks/external/rh-studio/onboarding-sync).
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS hub_tickets.ticket_onboarding (
+        ticket_id INTEGER PRIMARY KEY REFERENCES hub_tickets.tickets(glpi_id) ON DELETE CASCADE,
+        onboarding_id INTEGER,
+        statut VARCHAR(50),
+        agent JSONB DEFAULT '{}',
+        tasks JSONB DEFAULT '[]',
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
     await client.query(`CREATE INDEX IF NOT EXISTS idx_th_ticket ON hub_tickets.ticket_history(ticket_id)`);
     await client.query(`CREATE INDEX IF NOT EXISTS idx_th_created ON hub_tickets.ticket_history(created_at DESC)`);
     // ── Index critiques pour la performance de la liste tickets ────────────────
