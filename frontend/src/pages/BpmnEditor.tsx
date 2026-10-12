@@ -3,7 +3,7 @@ import { FilePlus, FolderOpen, Download, Image as ImageIcon, ZoomIn, ZoomOut, Ma
 import axios from 'axios';
 import BpmnModeler from 'bpmn-js/lib/Modeler';
 import { layoutProcess } from 'bpmn-auto-layout';
-import 'bpmn-js/dist/assets/diagram-js.css';
+import 'diagram-js/assets/diagram-js.css';
 import 'bpmn-js/dist/assets/bpmn-js.css';
 import 'bpmn-js/dist/assets/bpmn-font/css/bpmn.css';
 import Header from '../components/Header';
@@ -100,6 +100,14 @@ DsiPalette.prototype.getPaletteEntries = function (this: { _cfg: DsiPaletteConfi
 // (retours à la ligne des descriptions) et une largeur raisonnable.
 const tooltipStyle = `
 .djs-hover-tooltip { white-space: pre-line !important; max-width: 340px; line-height: 1.45 !important; text-align: left; }
+[data-tip] { position: relative; }
+[data-tip]:hover::after {
+  content: attr(data-tip); position: absolute; top: calc(100% + 8px); left: 0; z-index: 3000;
+  width: max-content; max-width: 320px; white-space: pre-line; text-align: left;
+  background: #0f172a; color: #fff; padding: 8px 11px; border-radius: 8px;
+  font-size: 0.75rem; font-weight: 500; line-height: 1.45; box-shadow: 0 6px 18px rgba(15, 23, 42, 0.3); pointer-events: none;
+}
+[data-tip]:nth-last-child(-n+5):hover::after { left: auto; right: 0; }
 `;
 
 const download = (content: string, filename: string, type: string) => {
@@ -457,39 +465,39 @@ const BpmnEditor: React.FC = () => {
             <button
               style={{ ...btn, background: '#4f46e5', borderColor: '#4f46e5', color: 'white' }}
               onClick={openSaveDialog}
-              title={"Enregistrer dans la bibliothèque du serveur.\nSaisie du titre, de la description et des étiquettes ; les logiciels concernés sont détectés automatiquement.\nMet à jour le diagramme ouvert (si vous en êtes le créateur) ou en crée un nouveau. Le point • signale des modifications non enregistrées."}
+              data-tip={"Enregistrer dans la bibliothèque du serveur.\nSaisie du titre, de la description et des étiquettes ; les logiciels concernés sont détectés automatiquement.\nMet à jour le diagramme ouvert (si vous en êtes le créateur) ou en crée un nouveau. Le point • signale des modifications non enregistrées."}
             >
               <Save size={16} /> Enregistrer{dirty ? ' •' : ''}
             </button>
-            <button style={btn} onClick={() => setLibraryOpen(true)} title={"Bibliothèque de diagrammes partagée.\nRecherche par titre, description, créateur, logiciel ou étiquette ; filtre par logiciel ; ouverture et suppression (créateur ou administrateur)."}>
+            <button style={btn} onClick={() => setLibraryOpen(true)} data-tip={"Bibliothèque de diagrammes partagée.\nRecherche par titre, description, créateur, logiciel ou étiquette ; filtre par logiciel ; ouverture et suppression (créateur ou administrateur)."}>
               <Library size={16} /> Bibliothèque
             </button>
-            <button style={btn} onClick={handleNew} title={"Nouveau diagramme vide.\nLe brouillon actuel est remplacé (confirmation demandée s'il contient des modifications non enregistrées)."}>
+            <button style={btn} onClick={handleNew} data-tip={"Nouveau diagramme vide.\nLe brouillon actuel est remplacé (confirmation demandée s'il contient des modifications non enregistrées)."}>
               <FilePlus size={16} /> Nouveau
             </button>
-            <button style={btn} onClick={() => setPickerOpen(true)} title={"Ajouter un logiciel du Magasin d'applications comme actif du diagramme (fenêtre portant son nom).\nReliez-le ensuite à la tâche qui l'utilise avec la flèche du pavé contextuel."}>
+            <button style={btn} onClick={() => setPickerOpen(true)} data-tip={"Ajouter un logiciel du Magasin d'applications comme actif du diagramme (fenêtre portant son nom).\nReliez-le ensuite à la tâche qui l'utilise avec la flèche du pavé contextuel."}>
               <AppWindow size={16} /> Application
             </button>
-            <button style={btn} onClick={() => fileInputRef.current?.click()} title={"Importer un fichier de diagramme depuis votre poste.\nFormats acceptés : .bpmn ou .xml (BPMN 2.0)."}>
+            <button style={btn} onClick={() => fileInputRef.current?.click()} data-tip={"Importer un fichier de diagramme depuis votre poste.\nFormats acceptés : .bpmn ou .xml (BPMN 2.0)."}>
               <FolderOpen size={16} /> Importer…
             </button>
-            <button style={btn} onClick={exportBpmn} title={"Télécharger le diagramme au format BPMN 2.0 (.bpmn).\nRéutilisable dans d'autres outils de modélisation."}>
+            <button style={btn} onClick={exportBpmn} data-tip={"Télécharger le diagramme au format BPMN 2.0 (.bpmn).\nRéutilisable dans d'autres outils de modélisation."}>
               <Download size={16} /> Exporter .bpmn
             </button>
-            <button style={btn} onClick={exportSvg} title={"Télécharger une image vectorielle (SVG) du diagramme.\nUtilisable dans un document ou une présentation, sans perte de qualité."}>
+            <button style={btn} onClick={exportSvg} data-tip={"Télécharger une image vectorielle (SVG) du diagramme.\nUtilisable dans un document ou une présentation, sans perte de qualité."}>
               <ImageIcon size={16} /> Exporter SVG
             </button>
             <span style={{ flex: 1 }} />
             <button
               style={{ ...btn, background: aiOpen ? '#eef2ff' : 'white', color: '#4338ca', borderColor: '#c7d2fe' }}
               onClick={() => setAiOpen(!aiOpen)}
-              title={"Afficher ou masquer l'assistant IA.\nDécrivez un processus à construire ou une modification du diagramme actuel ; l'IA connaît les applications du Magasin d'applications. Le diagramme est replacé automatiquement et la dernière modification IA peut être annulée."}
+              data-tip={"Afficher ou masquer l'assistant IA.\nDécrivez un processus à construire ou une modification du diagramme actuel ; l'IA connaît les applications du Magasin d'applications. Le diagramme est replacé automatiquement et la dernière modification IA peut être annulée."}
             >
               <Sparkles size={16} /> Assistant IA
             </button>
-            <button style={btn} onClick={() => zoom(-0.2)} title="Dézoomer (réduire l'affichage)"><ZoomOut size={16} /></button>
-            <button style={btn} onClick={() => zoom(0.2)} title="Zoomer (agrandir l'affichage)"><ZoomIn size={16} /></button>
-            <button style={btn} onClick={() => zoom('fit')} title="Ajuster le diagramme à la taille de la fenêtre"><Maximize size={16} /></button>
+            <button style={btn} onClick={() => zoom(-0.2)} data-tip="Dézoomer (réduire l'affichage)"><ZoomOut size={16} /></button>
+            <button style={btn} onClick={() => zoom(0.2)} data-tip="Zoomer (agrandir l'affichage)"><ZoomIn size={16} /></button>
+            <button style={btn} onClick={() => zoom('fit')} data-tip="Ajuster le diagramme à la taille de la fenêtre"><Maximize size={16} /></button>
             <input ref={fileInputRef} type="file" accept=".bpmn,.xml" onChange={handleOpenFile} style={{ display: 'none' }} />
           </div>
 
