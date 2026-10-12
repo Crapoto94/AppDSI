@@ -1,0 +1,294 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" xmlns:dsi="http://dsi.ivry/schema/bpmn" id="Definitions_1" targetNamespace="http://bpmn.io/schema/bpmn">
+  <bpmn:collaboration id="Collaboration_1">
+    <bpmn:participant id="Participant_1" name="ODP — Demande de tournage : dépôt, instruction et création du dossier" processRef="Process_1" />
+  </bpmn:collaboration>
+  <bpmn:process id="Process_1" isExecutable="false">
+    <bpmn:documentation id="Doc_Process">Parcours d'une demande d'autorisation de tournage dans ODP Manager : dépôt par la société de production sur le site public (DMZ), validation serveur (délais d'instruction, pièces obligatoires), accusé de réception, instruction par l'agent tournages (DAC), demandes d'avis aux services par lien sans authentification avec relances, simulation financière, décision (accord, complément, refus) puis création du dossier ODP. Reconstitué à partir du code d'ODP (lib/tournage-*, app/api/tournages, app/api/public).</bpmn:documentation>
+    <bpmn:laneSet id="LaneSet_1">
+        <bpmn:lane id="Lane_0" name="Société de production (demandeur)">
+          <bpmn:flowNodeRef>S</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>T_Fill</bpmn:flowNodeRef>
+        </bpmn:lane>
+        <bpmn:lane id="Lane_1" name="Site public (frontend-web, DMZ)">
+          <bpmn:flowNodeRef>T_Send</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>T_Errors</bpmn:flowNodeRef>
+        </bpmn:lane>
+        <bpmn:lane id="Lane_2" name="ODP Manager (API et back-office)">
+          <bpmn:flowNodeRef>G_Auth</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>E_401</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>T_Check</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>G_Valid</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>T_Store</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>T_Ack</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>T_Notif</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>T_AskSend</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>T_Recorded</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>T_Create</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>E_End</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>App_VibeODP</bpmn:flowNodeRef>
+        </bpmn:lane>
+        <bpmn:lane id="Lane_3" name="Agent tournages (DAC)">
+          <bpmn:flowNodeRef>T_Instr</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>G_Need</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>T_Ask</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>G_All</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>T_Remind</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>T_Sim</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>G_Dec</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>T_Compl</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>T_Refus</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>E_Refus</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>T_Accord</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>T_Dossier</bpmn:flowNodeRef>
+        </bpmn:lane>
+        <bpmn:lane id="Lane_4" name="Services consultés">
+          <bpmn:flowNodeRef>T_Reply</bpmn:flowNodeRef>
+        </bpmn:lane>
+    </bpmn:laneSet>
+      <bpmn:startEvent id="S" name="Projet de tournage à déclarer">
+        <bpmn:documentation>La société de production dépose sa demande sur le site public, sans compte.</bpmn:documentation>
+        <bpmn:outgoing>F01</bpmn:outgoing>
+      </bpmn:startEvent>
+      <bpmn:userTask id="T_Fill" name="Remplir la demande de tournage">
+        <bpmn:documentation>Entrées du formulaire : demandeur (société, nom, e-mail, téléphone, tous obligatoires) ; titre ; type de film (Fiction, Documentaire, Reportage, Film publicitaire, Clip musical, Court-métrage, Shooting photo, Autre) ; synopsis (20 caractères minimum) ; descriptif des scènes en extérieur ; scènes de violence et armes factices (oui/non obligatoires) ; jours de tournage (date, horaires d'arrivée et de départ de l'équipe par pas de 15 minutes, véhicules techniques facultatifs mais arrivée ET départ ensemble) ; lieu (voie, espace vert, bâtiment ou équipement sportif, emplacements, adresse) ; plan de tournage (date, lieu, heures, matériel) ; nombre de personnes (équipe, comédiens, figurants, autres) ; véhicules et places de stationnement ; projet étudiant (école et contact) ; cas particuliers (drone, passerelle aux câbles, parc des Cormailles) ; acceptation des conditions. Pièces PDF, PNG ou JPG de 10 Mo maximum : attestation d'assurance (obligatoire), plan de localisation du matériel et des véhicules au 1/100e ou 1/200e (obligatoire), attestation de l'école (si étudiant), pièces complémentaires.</bpmn:documentation>
+        <bpmn:incoming>F01</bpmn:incoming>
+        <bpmn:incoming>F09</bpmn:incoming>
+        <bpmn:outgoing>F02</bpmn:outgoing>
+      </bpmn:userTask>
+      <bpmn:serviceTask id="T_Send" name="Transmettre la demande à l'API d'ODP">
+        <bpmn:documentation>Le site public (frontend-web) envoie le formulaire en multipart (données JSON + pièces) à POST /api/public/tournages/demandes, avec l'en-tête x-api-key. Un guide des périodes et délais est lu via /api/public/tournages/config.</bpmn:documentation>
+        <bpmn:incoming>F02</bpmn:incoming>
+        <bpmn:outgoing>F03</bpmn:outgoing>
+      </bpmn:serviceTask>
+      <bpmn:exclusiveGateway id="G_Auth" name="Appel autorisé et dépôt ouvert ?">
+        <bpmn:documentation>Contrôles : clé API valide (comparaison à temps constant), adresse IP du frontend dans la liste des IP ou plages CIDR autorisées (liste vide = pas de filtre), et dépôt ouvert dans la configuration des tournages (champ actif).</bpmn:documentation>
+        <bpmn:incoming>F03</bpmn:incoming>
+        <bpmn:outgoing>F04</bpmn:outgoing>
+        <bpmn:outgoing>F05</bpmn:outgoing>
+      </bpmn:exclusiveGateway>
+      <bpmn:endEvent id="E_401" name="Dépôt refusé (401 ou 403)">
+        <bpmn:incoming>F05</bpmn:incoming>
+      </bpmn:endEvent>
+      <bpmn:serviceTask id="T_Check" name="Valider la demande (règles serveur)">
+        <bpmn:documentation>Le serveur rejoue toutes les règles bloquantes (le frontend ne fait que guider) : champs obligatoires, horaires, dates de tournage au plus tôt à la première date possible (délai d'instruction de 15 jours ouvrés lundi-vendredi hors jours fériés, délai minimal de dépôt, période d'absence du service avec date de reprise), pièces obligatoires, format et taille des fichiers, contact de l'école pour un projet étudiant, acceptation des conditions.</bpmn:documentation>
+        <bpmn:incoming>F04</bpmn:incoming>
+        <bpmn:outgoing>F06</bpmn:outgoing>
+      </bpmn:serviceTask>
+      <bpmn:exclusiveGateway id="G_Valid" name="Demande valide ?">
+        <bpmn:incoming>F06</bpmn:incoming>
+        <bpmn:outgoing>F07</bpmn:outgoing>
+        <bpmn:outgoing>F08</bpmn:outgoing>
+      </bpmn:exclusiveGateway>
+      <bpmn:serviceTask id="T_Errors" name="Afficher les erreurs de validation (HTTP 422)">
+        <bpmn:documentation>La liste des erreurs est renvoyée au site public, qui les affiche au demandeur ; rien n'est enregistré.</bpmn:documentation>
+        <bpmn:incoming>F08</bpmn:incoming>
+        <bpmn:outgoing>F09</bpmn:outgoing>
+      </bpmn:serviceTask>
+      <bpmn:serviceTask id="T_Store" name="Enregistrer la demande (statut Nouvelle)">
+        <bpmn:documentation>Référence TOU-AAAA-NNNN, date limite de réponse (fin du délai d'instruction), première et dernière dates de tournage, pièces stockées HORS du dossier public (servies par une route contrôlée), adresse géocodée pour la carte (BAN, échec toléré).</bpmn:documentation>
+        <bpmn:incoming>F07</bpmn:incoming>
+        <bpmn:outgoing>F10</bpmn:outgoing>
+      </bpmn:serviceTask>
+      <bpmn:serviceTask id="T_Ack" name="Envoyer l'accusé de réception au demandeur">
+        <bpmn:documentation>Modèle MSG_TOURNAGE_ACCUSE (modèles éditables, expéditeur et pied de page paramétrables). Un échec d'envoi est journalisé sans bloquer le dépôt.</bpmn:documentation>
+        <bpmn:incoming>F10</bpmn:incoming>
+        <bpmn:outgoing>F11</bpmn:outgoing>
+      </bpmn:serviceTask>
+      <bpmn:serviceTask id="T_Notif" name="Notifier l'équipe interne">
+        <bpmn:documentation>Modèle MSG_TOURNAGE_NOTIFICATION vers l'adresse de notification configurée (si renseignée).</bpmn:documentation>
+        <bpmn:incoming>F11</bpmn:incoming>
+        <bpmn:outgoing>F12</bpmn:outgoing>
+      </bpmn:serviceTask>
+      <bpmn:userTask id="T_Instr" name="Instruire la demande (En instruction)">
+        <bpmn:documentation>La liste des demandes (paginée, suivi des avis) donne le statut, la date limite de réponse et les pièces. Statuts d'une demande : Nouvelle, En instruction, Complément demandé, Accord de principe, Refusée, Annulée. L'agent consulte la carte SIG des tournages en cours, à venir et passés, et ajoute des notes internes.</bpmn:documentation>
+        <bpmn:incoming>F12</bpmn:incoming>
+        <bpmn:incoming>F27</bpmn:incoming>
+        <bpmn:outgoing>F13</bpmn:outgoing>
+      </bpmn:userTask>
+      <bpmn:exclusiveGateway id="G_Need" name="Avis de services nécessaires ?">
+        <bpmn:documentation>La DAC est le point d'entrée unique : elle consulte selon les cas la direction de l'espace public, les sports, l'éducation, le CMS, les salles municipales ou d'autres gestionnaires.</bpmn:documentation>
+        <bpmn:incoming>F13</bpmn:incoming>
+        <bpmn:outgoing>F14</bpmn:outgoing>
+        <bpmn:outgoing>F15</bpmn:outgoing>
+      </bpmn:exclusiveGateway>
+      <bpmn:userTask id="T_Ask" name="Demander l'avis des services">
+        <bpmn:documentation>Choix de services paramétrables (code, nom, adresses e-mail, questions propres au service en Oui/Non ou texte, circuit propre pour la direction de l'espace public) et/ou d'adresses libres saisies à la volée, avec un message.</bpmn:documentation>
+        <bpmn:incoming>F14</bpmn:incoming>
+        <bpmn:outgoing>F16</bpmn:outgoing>
+      </bpmn:userTask>
+      <bpmn:serviceTask id="T_AskSend" name="Envoyer les demandes d'avis (lien à jeton)">
+        <bpmn:documentation>Une demande (AvisTournage, statut En attente) par service, avec un jeton aléatoire de 192 bits et un lien /avis/{jeton}. Cas d'échec : service sans adresse e-mail (signalé, à renseigner dans les paramètres) ; mail non parti mais demande enregistrée (relance possible).</bpmn:documentation>
+        <bpmn:incoming>F16</bpmn:incoming>
+        <bpmn:outgoing>F17</bpmn:outgoing>
+      </bpmn:serviceTask>
+      <bpmn:userTask id="T_Reply" name="Répondre via le lien (favorable ou défavorable)">
+        <bpmn:documentation>Réponse SANS authentification, protégée par le jeton : la page affiche une synthèse sans coordonnées ni pièces. Avis favorable ou défavorable ; un avis défavorable DOIT être motivé (3 caractères minimum) ; réponses aux questions du service ; nom du répondant. Limite de 30 requêtes par minute et par adresse IP ; lien invalide ou annulé = 404.</bpmn:documentation>
+        <bpmn:incoming>F17</bpmn:incoming>
+        <bpmn:incoming>F22</bpmn:incoming>
+        <bpmn:outgoing>F18</bpmn:outgoing>
+      </bpmn:userTask>
+      <bpmn:serviceTask id="T_Recorded" name="Enregistrer l'avis et notifier l'équipe">
+        <bpmn:documentation>Avis Favorable ou Défavorable, commentaire, réponses, date. Notification interne MSG_TOURNAGE_AVIS_REPONSE (si adresse configurée).</bpmn:documentation>
+        <bpmn:incoming>F18</bpmn:incoming>
+        <bpmn:outgoing>F19</bpmn:outgoing>
+      </bpmn:serviceTask>
+      <bpmn:exclusiveGateway id="G_All" name="Tous les avis reçus ?">
+        <bpmn:incoming>F19</bpmn:incoming>
+        <bpmn:outgoing>F20</bpmn:outgoing>
+        <bpmn:outgoing>F21</bpmn:outgoing>
+      </bpmn:exclusiveGateway>
+      <bpmn:userTask id="T_Remind" name="Relancer les services sans retour">
+        <bpmn:documentation>Relance par mail (MSG_TOURNAGE_AVIS_RELANCE) : date de dernière relance et compteur de relances mis à jour.</bpmn:documentation>
+        <bpmn:incoming>F21</bpmn:incoming>
+        <bpmn:outgoing>F22</bpmn:outgoing>
+      </bpmn:userTask>
+      <bpmn:userTask id="T_Sim" name="Estimer le coût (simulation financière)">
+        <bpmn:documentation>Barèmes selon le lieu : voie et espaces verts (barème « tournages de films »), bâtiments municipaux (délibération du 13/02/2025), équipements sportifs. Prix lus dans le module Tarifs. Cas particuliers : abattement de 50 % (court-métrage jusqu'à 59 minutes hors publicité), gratuité des projets d'écoles, projets aidés par la Ville, supplément de nuit, signalisation, câbles. Options et surcharges manuelles.</bpmn:documentation>
+        <bpmn:incoming>F15</bpmn:incoming>
+        <bpmn:incoming>F20</bpmn:incoming>
+        <bpmn:outgoing>F23</bpmn:outgoing>
+      </bpmn:userTask>
+      <bpmn:exclusiveGateway id="G_Dec" name="Décision ?">
+        <bpmn:incoming>F23</bpmn:incoming>
+        <bpmn:outgoing>F24</bpmn:outgoing>
+        <bpmn:outgoing>F25</bpmn:outgoing>
+        <bpmn:outgoing>F26</bpmn:outgoing>
+      </bpmn:exclusiveGateway>
+      <bpmn:userTask id="T_Compl" name="Demander un complément">
+        <bpmn:documentation>Statut « Complément demandé » ; mail optionnel au demandeur (MSG_TOURNAGE_COMPLEMENT) avec message libre. L'instruction reprend quand le complément est reçu.</bpmn:documentation>
+        <bpmn:incoming>F25</bpmn:incoming>
+        <bpmn:outgoing>F27</bpmn:outgoing>
+      </bpmn:userTask>
+      <bpmn:userTask id="T_Refus" name="Refuser la demande">
+        <bpmn:documentation>Statut « Refusée » ; mail optionnel motivé (MSG_TOURNAGE_REFUS).</bpmn:documentation>
+        <bpmn:incoming>F26</bpmn:incoming>
+        <bpmn:outgoing>F28</bpmn:outgoing>
+      </bpmn:userTask>
+      <bpmn:endEvent id="E_Refus" name="Demande refusée">
+        <bpmn:incoming>F28</bpmn:incoming>
+      </bpmn:endEvent>
+      <bpmn:userTask id="T_Accord" name="Donner un accord de principe">
+        <bpmn:documentation>Statut « Accord de principe » ; mail optionnel au demandeur (MSG_TOURNAGE_ACCORD). Le traitement (arrêtés, facturation) se poursuit dans un dossier ODP.</bpmn:documentation>
+        <bpmn:incoming>F24</bpmn:incoming>
+        <bpmn:outgoing>F29</bpmn:outgoing>
+      </bpmn:userTask>
+      <bpmn:userTask id="T_Dossier" name="Créer le dossier ODP depuis la demande">
+        <bpmn:documentation>Choix du rattachement : un tiers existant parmi les candidats (même nom ou même e-mail) ou la création d'un tiers provisoire (à compléter et valider ensuite). Option : créer les lignes de facturation issues de la simulation.</bpmn:documentation>
+        <bpmn:incoming>F29</bpmn:incoming>
+        <bpmn:outgoing>F30</bpmn:outgoing>
+      </bpmn:userTask>
+      <bpmn:serviceTask id="T_Create" name="Créer le dossier de tournage">
+        <bpmn:documentation>Dossier de type TOURNAGE au statut initial (En attente, affiché Initialisation), dates, adresse géolocalisée, description, résumé complet de la demande, contact du demandeur sur le dossier et le tiers, note de traçabilité reprenant les avis des services. Lignes de facturation (articles du module Tarifs, abattement ou exonération ligne à ligne, ou mécanisme court-métrage du dossier sans double minoration), avertissement si un article est introuvable. Une demande ne peut avoir qu'un dossier (409 sinon).</bpmn:documentation>
+        <bpmn:incoming>F30</bpmn:incoming>
+        <bpmn:outgoing>F31</bpmn:outgoing>
+        <bpmn:dataOutputAssociation id="DA_App_VibeODP"><bpmn:targetRef>App_VibeODP</bpmn:targetRef></bpmn:dataOutputAssociation>
+      </bpmn:serviceTask>
+      <bpmn:endEvent id="E_End" name="Dossier créé : suite dans le cycle de vie du dossier">
+        <bpmn:incoming>F31</bpmn:incoming>
+      </bpmn:endEvent>
+      <bpmn:sequenceFlow id="F01" sourceRef="S" targetRef="T_Fill" />
+      <bpmn:sequenceFlow id="F02" sourceRef="T_Fill" targetRef="T_Send" />
+      <bpmn:sequenceFlow id="F03" sourceRef="T_Send" targetRef="G_Auth" />
+      <bpmn:sequenceFlow id="F04" name="oui" sourceRef="G_Auth" targetRef="T_Check" />
+      <bpmn:sequenceFlow id="F05" name="non" sourceRef="G_Auth" targetRef="E_401" />
+      <bpmn:sequenceFlow id="F06" sourceRef="T_Check" targetRef="G_Valid" />
+      <bpmn:sequenceFlow id="F07" name="oui" sourceRef="G_Valid" targetRef="T_Store" />
+      <bpmn:sequenceFlow id="F08" name="non" sourceRef="G_Valid" targetRef="T_Errors" />
+      <bpmn:sequenceFlow id="F09" sourceRef="T_Errors" targetRef="T_Fill" />
+      <bpmn:sequenceFlow id="F10" sourceRef="T_Store" targetRef="T_Ack" />
+      <bpmn:sequenceFlow id="F11" sourceRef="T_Ack" targetRef="T_Notif" />
+      <bpmn:sequenceFlow id="F12" sourceRef="T_Notif" targetRef="T_Instr" />
+      <bpmn:sequenceFlow id="F13" sourceRef="T_Instr" targetRef="G_Need" />
+      <bpmn:sequenceFlow id="F14" name="oui" sourceRef="G_Need" targetRef="T_Ask" />
+      <bpmn:sequenceFlow id="F15" name="non" sourceRef="G_Need" targetRef="T_Sim" />
+      <bpmn:sequenceFlow id="F16" sourceRef="T_Ask" targetRef="T_AskSend" />
+      <bpmn:sequenceFlow id="F17" sourceRef="T_AskSend" targetRef="T_Reply" />
+      <bpmn:sequenceFlow id="F18" sourceRef="T_Reply" targetRef="T_Recorded" />
+      <bpmn:sequenceFlow id="F19" sourceRef="T_Recorded" targetRef="G_All" />
+      <bpmn:sequenceFlow id="F20" name="oui" sourceRef="G_All" targetRef="T_Sim" />
+      <bpmn:sequenceFlow id="F21" name="non" sourceRef="G_All" targetRef="T_Remind" />
+      <bpmn:sequenceFlow id="F22" sourceRef="T_Remind" targetRef="T_Reply" />
+      <bpmn:sequenceFlow id="F23" sourceRef="T_Sim" targetRef="G_Dec" />
+      <bpmn:sequenceFlow id="F24" name="accord" sourceRef="G_Dec" targetRef="T_Accord" />
+      <bpmn:sequenceFlow id="F25" name="complément" sourceRef="G_Dec" targetRef="T_Compl" />
+      <bpmn:sequenceFlow id="F26" name="refus" sourceRef="G_Dec" targetRef="T_Refus" />
+      <bpmn:sequenceFlow id="F27" sourceRef="T_Compl" targetRef="T_Instr" />
+      <bpmn:sequenceFlow id="F28" sourceRef="T_Refus" targetRef="E_Refus" />
+      <bpmn:sequenceFlow id="F29" sourceRef="T_Accord" targetRef="T_Dossier" />
+      <bpmn:sequenceFlow id="F30" sourceRef="T_Dossier" targetRef="T_Create" />
+      <bpmn:sequenceFlow id="F31" sourceRef="T_Create" targetRef="E_End" />
+      <bpmn:dataStoreReference id="App_VibeODP" name="VibeODP" dsi:applicationId="215" />
+  </bpmn:process>
+  <bpmndi:BPMNDiagram id="BPMNDiagram_1">
+    <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="Collaboration_1">
+      <bpmndi:BPMNShape id="Participant_1_di" bpmnElement="Participant_1" isHorizontal="true"><dc:Bounds x="160" y="80" width="4280" height="1405" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_0_di" bpmnElement="Lane_0" isHorizontal="true"><dc:Bounds x="190" y="80" width="4250" height="215" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_1_di" bpmnElement="Lane_1" isHorizontal="true"><dc:Bounds x="190" y="295" width="4250" height="215" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_2_di" bpmnElement="Lane_2" isHorizontal="true"><dc:Bounds x="190" y="510" width="4250" height="325" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_3_di" bpmnElement="Lane_3" isHorizontal="true"><dc:Bounds x="190" y="835" width="4250" height="435" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_4_di" bpmnElement="Lane_4" isHorizontal="true"><dc:Bounds x="190" y="1270" width="4250" height="215" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S_di" bpmnElement="S"><dc:Bounds x="292" y="137" width="36" height="36" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Fill_di" bpmnElement="T_Fill"><dc:Bounds x="430" y="120" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Send_di" bpmnElement="T_Send"><dc:Bounds x="620" y="335" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="G_Auth_di" bpmnElement="G_Auth" isMarkerVisible="true"><dc:Bounds x="855" y="560" width="50" height="50" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="E_401_di" bpmnElement="E_401"><dc:Bounds x="1052" y="677" width="36" height="36" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Check_di" bpmnElement="T_Check"><dc:Bounds x="1000" y="550" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="G_Valid_di" bpmnElement="G_Valid" isMarkerVisible="true"><dc:Bounds x="1235" y="560" width="50" height="50" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Errors_di" bpmnElement="T_Errors"><dc:Bounds x="1380" y="335" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Store_di" bpmnElement="T_Store"><dc:Bounds x="1380" y="550" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Ack_di" bpmnElement="T_Ack"><dc:Bounds x="1570" y="550" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Notif_di" bpmnElement="T_Notif"><dc:Bounds x="1760" y="550" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Instr_di" bpmnElement="T_Instr"><dc:Bounds x="1950" y="875" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="G_Need_di" bpmnElement="G_Need" isMarkerVisible="true"><dc:Bounds x="2185" y="885" width="50" height="50" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Ask_di" bpmnElement="T_Ask"><dc:Bounds x="2330" y="875" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_AskSend_di" bpmnElement="T_AskSend"><dc:Bounds x="2520" y="550" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Reply_di" bpmnElement="T_Reply"><dc:Bounds x="2710" y="1310" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Recorded_di" bpmnElement="T_Recorded"><dc:Bounds x="2900" y="550" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="G_All_di" bpmnElement="G_All" isMarkerVisible="true"><dc:Bounds x="3135" y="885" width="50" height="50" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Remind_di" bpmnElement="T_Remind"><dc:Bounds x="3280" y="985" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Sim_di" bpmnElement="T_Sim"><dc:Bounds x="3280" y="875" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="G_Dec_di" bpmnElement="G_Dec" isMarkerVisible="true"><dc:Bounds x="3515" y="885" width="50" height="50" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Compl_di" bpmnElement="T_Compl"><dc:Bounds x="3660" y="985" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Refus_di" bpmnElement="T_Refus"><dc:Bounds x="3660" y="1095" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="E_Refus_di" bpmnElement="E_Refus"><dc:Bounds x="3902" y="1112" width="36" height="36" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Accord_di" bpmnElement="T_Accord"><dc:Bounds x="3660" y="875" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Dossier_di" bpmnElement="T_Dossier"><dc:Bounds x="3850" y="875" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Create_di" bpmnElement="T_Create"><dc:Bounds x="4040" y="550" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="E_End_di" bpmnElement="E_End"><dc:Bounds x="4282" y="567" width="36" height="36" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="App_VibeODP_di" bpmnElement="App_VibeODP"><dc:Bounds x="4050" y="740" width="120" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="F01_di" bpmnElement="F01"><di:waypoint x="328" y="155" /><di:waypoint x="430" y="155" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F02_di" bpmnElement="F02"><di:waypoint x="570" y="155" /><di:waypoint x="595" y="155" /><di:waypoint x="595" y="370" /><di:waypoint x="620" y="370" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F03_di" bpmnElement="F03"><di:waypoint x="760" y="370" /><di:waypoint x="807.5" y="370" /><di:waypoint x="807.5" y="585" /><di:waypoint x="855" y="585" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F04_di" bpmnElement="F04"><di:waypoint x="905" y="585" /><di:waypoint x="1000" y="585" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F05_di" bpmnElement="F05"><di:waypoint x="905" y="585" /><di:waypoint x="978.5" y="585" /><di:waypoint x="978.5" y="695" /><di:waypoint x="1052" y="695" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F06_di" bpmnElement="F06"><di:waypoint x="1140" y="585" /><di:waypoint x="1235" y="585" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F07_di" bpmnElement="F07"><di:waypoint x="1285" y="585" /><di:waypoint x="1380" y="585" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F08_di" bpmnElement="F08"><di:waypoint x="1285" y="585" /><di:waypoint x="1332.5" y="585" /><di:waypoint x="1332.5" y="370" /><di:waypoint x="1380" y="370" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F09_di" bpmnElement="F09"><di:waypoint x="1450" y="405" /><di:waypoint x="1450" y="435" /><di:waypoint x="500" y="435" /><di:waypoint x="500" y="190" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F10_di" bpmnElement="F10"><di:waypoint x="1520" y="585" /><di:waypoint x="1570" y="585" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F11_di" bpmnElement="F11"><di:waypoint x="1710" y="585" /><di:waypoint x="1760" y="585" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F12_di" bpmnElement="F12"><di:waypoint x="1900" y="585" /><di:waypoint x="1925" y="585" /><di:waypoint x="1925" y="910" /><di:waypoint x="1950" y="910" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F13_di" bpmnElement="F13"><di:waypoint x="2090" y="910" /><di:waypoint x="2185" y="910" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F14_di" bpmnElement="F14"><di:waypoint x="2235" y="910" /><di:waypoint x="2330" y="910" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F15_di" bpmnElement="F15"><di:waypoint x="2210" y="935" /><di:waypoint x="2210" y="965" /><di:waypoint x="3350" y="965" /><di:waypoint x="3350" y="945" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F16_di" bpmnElement="F16"><di:waypoint x="2470" y="910" /><di:waypoint x="2495" y="910" /><di:waypoint x="2495" y="585" /><di:waypoint x="2520" y="585" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F17_di" bpmnElement="F17"><di:waypoint x="2660" y="585" /><di:waypoint x="2685" y="585" /><di:waypoint x="2685" y="1345" /><di:waypoint x="2710" y="1345" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F18_di" bpmnElement="F18"><di:waypoint x="2850" y="1345" /><di:waypoint x="2875" y="1345" /><di:waypoint x="2875" y="585" /><di:waypoint x="2900" y="585" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F19_di" bpmnElement="F19"><di:waypoint x="3040" y="585" /><di:waypoint x="3087.5" y="585" /><di:waypoint x="3087.5" y="910" /><di:waypoint x="3135" y="910" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F20_di" bpmnElement="F20"><di:waypoint x="3185" y="910" /><di:waypoint x="3280" y="910" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F21_di" bpmnElement="F21"><di:waypoint x="3185" y="910" /><di:waypoint x="3232.5" y="910" /><di:waypoint x="3232.5" y="1020" /><di:waypoint x="3280" y="1020" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F22_di" bpmnElement="F22"><di:waypoint x="3350" y="1055" /><di:waypoint x="3350" y="1410" /><di:waypoint x="2780" y="1410" /><di:waypoint x="2780" y="1380" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F23_di" bpmnElement="F23"><di:waypoint x="3420" y="910" /><di:waypoint x="3515" y="910" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F24_di" bpmnElement="F24"><di:waypoint x="3565" y="910" /><di:waypoint x="3660" y="910" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F25_di" bpmnElement="F25"><di:waypoint x="3565" y="910" /><di:waypoint x="3612.5" y="910" /><di:waypoint x="3612.5" y="1020" /><di:waypoint x="3660" y="1020" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F26_di" bpmnElement="F26"><di:waypoint x="3565" y="910" /><di:waypoint x="3612.5" y="910" /><di:waypoint x="3612.5" y="1130" /><di:waypoint x="3660" y="1130" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F27_di" bpmnElement="F27"><di:waypoint x="3730" y="1055" /><di:waypoint x="3730" y="1085" /><di:waypoint x="2020" y="1085" /><di:waypoint x="2020" y="945" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F28_di" bpmnElement="F28"><di:waypoint x="3800" y="1130" /><di:waypoint x="3902" y="1130" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F29_di" bpmnElement="F29"><di:waypoint x="3800" y="910" /><di:waypoint x="3850" y="910" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F30_di" bpmnElement="F30"><di:waypoint x="3990" y="910" /><di:waypoint x="4015" y="910" /><di:waypoint x="4015" y="585" /><di:waypoint x="4040" y="585" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F31_di" bpmnElement="F31"><di:waypoint x="4180" y="585" /><di:waypoint x="4282" y="585" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="DA_App_VibeODP_di" bpmnElement="DA_App_VibeODP"><di:waypoint x="4110" y="620" /><di:waypoint x="4110" y="740" /></bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>

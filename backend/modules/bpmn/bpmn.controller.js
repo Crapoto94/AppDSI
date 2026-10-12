@@ -200,16 +200,20 @@ async function seedTemplates() {
         if (!fs.existsSync(dir)) return;
         for (const file of fs.readdirSync(dir).filter((f) => f.endsWith('.bpmn'))) {
             const xml = fs.readFileSync(path.join(dir, file), 'utf8');
-            const title = (xml.match(/<bpmn:participant[^>]*\bname="([^"]+)"/) || [])[1] || file.replace(/\.bpmn$/, '');
-            const description = (xml.match(/<bpmn:documentation id="Doc_Process">([\s\S]*?)<\/bpmn:documentation>/) || [])[1] || null;
+            // Le XML échappe & < > " : on les décode pour le titre et la description affichés
+            const decode = (s) => (s == null ? s : s.replace(/&quot;/g, '"').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&'));
+            const title = decode((xml.match(/<bpmn:participant[^>]*\bname="([^"]+)"/) || [])[1]) || file.replace(/\.bpmn$/, '');
+            const description = decode((xml.match(/<bpmn:documentation id="Doc_Process">([\s\S]*?)<\/bpmn:documentation>/) || [])[1]) || null;
+            // Étiquettes : « modèle », plus « ODP » pour les processus de l'application ODP Manager (fichiers odp-*.bpmn)
+            const tags = JSON.stringify(file.startsWith('odp-') ? ['modèle', 'ODP'] : ['modèle']);
             const { rows } = await pool.query('SELECT id, xml, created_by, updated_by FROM hub.bpmn_diagrams WHERE title = $1', [title]);
             if (rows.length > 0) {
                 // Modèle jamais modifié par un utilisateur : on le met à jour quand le fichier livré évolue
                 const row = rows[0];
                 if (row.created_by === TEMPLATE_OWNER && row.updated_by === TEMPLATE_OWNER && row.xml !== xml) {
                     await pool.query(
-                        'UPDATE hub.bpmn_diagrams SET xml = $1, description = $2, assets = $3::jsonb, updated_at = NOW() WHERE id = $4',
-                        [xml, description, JSON.stringify(await extractAssets(xml)), row.id]
+                        'UPDATE hub.bpmn_diagrams SET xml = $1, description = $2, assets = $3::jsonb, tags = $4::jsonb, updated_at = NOW() WHERE id = $5',
+                        [xml, description, JSON.stringify(await extractAssets(xml)), tags, row.id]
                     );
                 }
                 continue;
@@ -217,7 +221,7 @@ async function seedTemplates() {
             await pool.query(
                 `INSERT INTO hub.bpmn_diagrams (title, description, xml, assets, tags, created_by, updated_by)
                  VALUES ($1, $2, $3, $4::jsonb, $5::jsonb, $6, $6)`,
-                [title, description, xml, JSON.stringify(await extractAssets(xml)), JSON.stringify(['modèle']), TEMPLATE_OWNER]
+                [title, description, xml, JSON.stringify(await extractAssets(xml)), tags, TEMPLATE_OWNER]
             );
         }
     } catch (e) {

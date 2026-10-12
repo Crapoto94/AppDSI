@@ -1,0 +1,179 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" xmlns:dsi="http://dsi.ivry/schema/bpmn" id="Definitions_1" targetNamespace="http://bpmn.io/schema/bpmn">
+  <bpmn:collaboration id="Collaboration_1">
+    <bpmn:participant id="Participant_1" name="ODP — Report d'année (reconduction des dossiers)" processRef="Process_1" />
+  </bpmn:collaboration>
+  <bpmn:process id="Process_1" isExecutable="false">
+    <bpmn:documentation id="Doc_Process">Reconduction annuelle des dossiers d'occupation dans ODP Manager : préparation des tarifs de l'année cible, sélection des dossiers de l'année source, rapprochement de chaque ligne avec l'article de l'année cible, création des dossiers de l'année suivante (dates décalées, filiation conservée) avec le statut Erreur tarif quand un article manque, puis re-tarification des enseignes TLPE. Reconstitué à partir du code d'ODP (app/api/report/process, lib/tlpe-utils).</bpmn:documentation>
+    <bpmn:laneSet id="LaneSet_1">
+        <bpmn:lane id="Lane_0" name="Instructeur (droit MANAGE_TARIFS)">
+          <bpmn:flowNodeRef>S</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>T_Tarifs</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>T_Select</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>T_Fix</bpmn:flowNodeRef>
+        </bpmn:lane>
+        <bpmn:lane id="Lane_1" name="ODP Manager (traitement du report)">
+          <bpmn:flowNodeRef>T_Check</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>G_Any</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>E_Block</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>T_Match</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>G_Art</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>T_Line</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>T_LineErr</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>T_Create</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>G_Err</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>T_Err</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>T_Ok</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>T_Tlpe</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>E_End</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>App_VibeODP</bpmn:flowNodeRef>
+        </bpmn:lane>
+    </bpmn:laneSet>
+      <bpmn:startEvent id="S" name="Fin de campagne : reconduire les dossiers">
+        <bpmn:documentation>Dossiers de commerce et de TLPE à reconduire d'une année sur l'autre (un dossier par commerce et par année de taxation).</bpmn:documentation>
+        <bpmn:outgoing>F01</bpmn:outgoing>
+      </bpmn:startEvent>
+      <bpmn:userTask id="T_Tarifs" name="Préparer les tarifs de l'année cible">
+        <bpmn:documentation>Saisie dans Tarifs et articles, import Excel des barèmes, ou duplication des articles d'une année sur l'autre. La délibération et le barème TLPE de l'exercice sont à renseigner dans la configuration annuelle.</bpmn:documentation>
+        <bpmn:incoming>F01</bpmn:incoming>
+        <bpmn:outgoing>F02</bpmn:outgoing>
+      </bpmn:userTask>
+      <bpmn:userTask id="T_Select" name="Choisir les dossiers, l'année source et l'année cible">
+        <bpmn:documentation>Écran Report (/dashboard/report). Entrées : liste de dossiers, année source, année cible, type.</bpmn:documentation>
+        <bpmn:incoming>F02</bpmn:incoming>
+        <bpmn:outgoing>F03</bpmn:outgoing>
+      </bpmn:userTask>
+      <bpmn:serviceTask id="T_Check" name="Vérifier les tarifs de l'année cible">
+        <bpmn:documentation>Il doit exister au moins un article pour l'année cible.</bpmn:documentation>
+        <bpmn:incoming>F03</bpmn:incoming>
+        <bpmn:outgoing>F04</bpmn:outgoing>
+      </bpmn:serviceTask>
+      <bpmn:exclusiveGateway id="G_Any" name="Articles trouvés ?">
+        <bpmn:incoming>F04</bpmn:incoming>
+        <bpmn:outgoing>F05</bpmn:outgoing>
+        <bpmn:outgoing>F06</bpmn:outgoing>
+      </bpmn:exclusiveGateway>
+      <bpmn:endEvent id="E_Block" name="Report refusé (tarifs manquants)">
+        <bpmn:documentation>Réponse « Report impossible car tarifs manquants pour l'année d'arrivée » (missingAll) ; rien n'est créé.</bpmn:documentation>
+        <bpmn:incoming>F06</bpmn:incoming>
+      </bpmn:endEvent>
+      <bpmn:serviceTask id="T_Match" name="Rapprocher chaque ligne d'un article de l'année cible">
+        <bpmn:documentation>Pour chaque ligne du dossier source : recherche, dans l'année cible, de l'article de même désignation ET de même numéro.</bpmn:documentation>
+        <bpmn:incoming>F05</bpmn:incoming>
+        <bpmn:outgoing>F07</bpmn:outgoing>
+        <bpmn:dataOutputAssociation id="DA_App_VibeODP"><bpmn:targetRef>App_VibeODP</bpmn:targetRef></bpmn:dataOutputAssociation>
+      </bpmn:serviceTask>
+      <bpmn:exclusiveGateway id="G_Art" name="Article trouvé ?">
+        <bpmn:incoming>F07</bpmn:incoming>
+        <bpmn:outgoing>F08</bpmn:outgoing>
+        <bpmn:outgoing>F09</bpmn:outgoing>
+      </bpmn:exclusiveGateway>
+      <bpmn:serviceTask id="T_Line" name="Recalculer la ligne au tarif cible">
+        <bpmn:documentation>Montant = tarif cible × quantité 1 × quantité 2 (hors TLPE : le montant est le tarif unitaire, remis à zéro puis recalculé par la re-tarification). Dates décalées du nombre d'années écoulées.</bpmn:documentation>
+        <bpmn:incoming>F08</bpmn:incoming>
+        <bpmn:outgoing>F10</bpmn:outgoing>
+      </bpmn:serviceTask>
+      <bpmn:serviceTask id="T_LineErr" name="Garder l'ancien article, montant 0">
+        <bpmn:documentation>L'article manquant est signalé : la ligne est recopiée avec l'ancien article, un montant nul et un indicateur d'erreur.</bpmn:documentation>
+        <bpmn:incoming>F09</bpmn:incoming>
+        <bpmn:outgoing>F11</bpmn:outgoing>
+      </bpmn:serviceTask>
+      <bpmn:serviceTask id="T_Create" name="Créer le dossier de l'année cible">
+        <bpmn:documentation>Même nom, tiers, type, adresse, coordonnées, description et photos ; dates décalées de N ans ; année de taxation = année cible ; filiation conservée (dossier parent) ; facturation remise à zéro (montant, numéro et chemin de facture) ; dispositifs recréés au statut En attente ; l'exonération d'origine n'est pas propagée.</bpmn:documentation>
+        <bpmn:incoming>F10</bpmn:incoming>
+        <bpmn:incoming>F11</bpmn:incoming>
+        <bpmn:outgoing>F12</bpmn:outgoing>
+      </bpmn:serviceTask>
+      <bpmn:exclusiveGateway id="G_Err" name="Une ligne en erreur ?">
+        <bpmn:incoming>F12</bpmn:incoming>
+        <bpmn:outgoing>F13</bpmn:outgoing>
+        <bpmn:outgoing>F14</bpmn:outgoing>
+      </bpmn:exclusiveGateway>
+      <bpmn:serviceTask id="T_Err" name="Statut Erreur tarif (montant 0)">
+        <bpmn:documentation>Le dossier est créé en ERREUR_TARIF avec un montant nul et l'anomalie est signalée dans le résultat du report.</bpmn:documentation>
+        <bpmn:incoming>F14</bpmn:incoming>
+        <bpmn:outgoing>F15</bpmn:outgoing>
+      </bpmn:serviceTask>
+      <bpmn:userTask id="T_Fix" name="Saisir le tarif manquant et corriger les lignes">
+        <bpmn:documentation>Ajouter l'article dans l'année cible puis reprendre la ligne ; le dossier repasse en instruction (retour de ERREUR_TARIF vers INST).</bpmn:documentation>
+        <bpmn:incoming>F15</bpmn:incoming>
+        <bpmn:outgoing>F18</bpmn:outgoing>
+      </bpmn:userTask>
+      <bpmn:serviceTask id="T_Ok" name="Statut En attente (Initialisation)">
+        <bpmn:incoming>F13</bpmn:incoming>
+        <bpmn:outgoing>F16</bpmn:outgoing>
+      </bpmn:serviceTask>
+      <bpmn:serviceTask id="T_Tlpe" name="Re-tarifer la TLPE sur la grille de l'année cible">
+        <bpmn:documentation>Cumul des enseignes et paliers des dispositifs selon la grille de l'année cible (retariferEnseignes, forcé), puis recalcul du total du dossier.</bpmn:documentation>
+        <bpmn:incoming>F16</bpmn:incoming>
+        <bpmn:incoming>F18</bpmn:incoming>
+        <bpmn:outgoing>F17</bpmn:outgoing>
+      </bpmn:serviceTask>
+      <bpmn:endEvent id="E_End" name="Dossiers reconduits">
+        <bpmn:incoming>F17</bpmn:incoming>
+      </bpmn:endEvent>
+      <bpmn:sequenceFlow id="F01" sourceRef="S" targetRef="T_Tarifs" />
+      <bpmn:sequenceFlow id="F02" sourceRef="T_Tarifs" targetRef="T_Select" />
+      <bpmn:sequenceFlow id="F03" sourceRef="T_Select" targetRef="T_Check" />
+      <bpmn:sequenceFlow id="F04" sourceRef="T_Check" targetRef="G_Any" />
+      <bpmn:sequenceFlow id="F05" name="oui" sourceRef="G_Any" targetRef="T_Match" />
+      <bpmn:sequenceFlow id="F06" name="non" sourceRef="G_Any" targetRef="E_Block" />
+      <bpmn:sequenceFlow id="F07" sourceRef="T_Match" targetRef="G_Art" />
+      <bpmn:sequenceFlow id="F08" name="oui" sourceRef="G_Art" targetRef="T_Line" />
+      <bpmn:sequenceFlow id="F09" name="non" sourceRef="G_Art" targetRef="T_LineErr" />
+      <bpmn:sequenceFlow id="F10" sourceRef="T_Line" targetRef="T_Create" />
+      <bpmn:sequenceFlow id="F11" sourceRef="T_LineErr" targetRef="T_Create" />
+      <bpmn:sequenceFlow id="F12" sourceRef="T_Create" targetRef="G_Err" />
+      <bpmn:sequenceFlow id="F13" name="non" sourceRef="G_Err" targetRef="T_Ok" />
+      <bpmn:sequenceFlow id="F14" name="oui" sourceRef="G_Err" targetRef="T_Err" />
+      <bpmn:sequenceFlow id="F15" sourceRef="T_Err" targetRef="T_Fix" />
+      <bpmn:sequenceFlow id="F16" sourceRef="T_Ok" targetRef="T_Tlpe" />
+      <bpmn:sequenceFlow id="F17" sourceRef="T_Tlpe" targetRef="E_End" />
+      <bpmn:sequenceFlow id="F18" sourceRef="T_Fix" targetRef="T_Tlpe" />
+      <bpmn:dataStoreReference id="App_VibeODP" name="VibeODP" dsi:applicationId="215" />
+  </bpmn:process>
+  <bpmndi:BPMNDiagram id="BPMNDiagram_1">
+    <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="Collaboration_1">
+      <bpmndi:BPMNShape id="Participant_1_di" bpmnElement="Participant_1" isHorizontal="true"><dc:Bounds x="160" y="80" width="2570" height="650" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_0_di" bpmnElement="Lane_0" isHorizontal="true"><dc:Bounds x="190" y="80" width="2540" height="325" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_1_di" bpmnElement="Lane_1" isHorizontal="true"><dc:Bounds x="190" y="405" width="2540" height="325" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S_di" bpmnElement="S"><dc:Bounds x="292" y="137" width="36" height="36" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Tarifs_di" bpmnElement="T_Tarifs"><dc:Bounds x="430" y="120" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Select_di" bpmnElement="T_Select"><dc:Bounds x="620" y="120" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Check_di" bpmnElement="T_Check"><dc:Bounds x="810" y="445" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="G_Any_di" bpmnElement="G_Any" isMarkerVisible="true"><dc:Bounds x="1045" y="455" width="50" height="50" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="E_Block_di" bpmnElement="E_Block"><dc:Bounds x="1052" y="572" width="36" height="36" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Match_di" bpmnElement="T_Match"><dc:Bounds x="1190" y="445" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="G_Art_di" bpmnElement="G_Art" isMarkerVisible="true"><dc:Bounds x="1425" y="455" width="50" height="50" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Line_di" bpmnElement="T_Line"><dc:Bounds x="1570" y="445" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_LineErr_di" bpmnElement="T_LineErr"><dc:Bounds x="1570" y="555" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Create_di" bpmnElement="T_Create"><dc:Bounds x="1760" y="445" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="G_Err_di" bpmnElement="G_Err" isMarkerVisible="true"><dc:Bounds x="1995" y="455" width="50" height="50" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Err_di" bpmnElement="T_Err"><dc:Bounds x="2140" y="555" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Fix_di" bpmnElement="T_Fix"><dc:Bounds x="2330" y="230" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Ok_di" bpmnElement="T_Ok"><dc:Bounds x="2140" y="445" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Tlpe_di" bpmnElement="T_Tlpe"><dc:Bounds x="2330" y="445" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="E_End_di" bpmnElement="E_End"><dc:Bounds x="2572" y="462" width="36" height="36" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="App_VibeODP_di" bpmnElement="App_VibeODP"><dc:Bounds x="1200" y="635" width="120" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="F01_di" bpmnElement="F01"><di:waypoint x="328" y="155" /><di:waypoint x="430" y="155" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F02_di" bpmnElement="F02"><di:waypoint x="570" y="155" /><di:waypoint x="620" y="155" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F03_di" bpmnElement="F03"><di:waypoint x="760" y="155" /><di:waypoint x="785" y="155" /><di:waypoint x="785" y="480" /><di:waypoint x="810" y="480" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F04_di" bpmnElement="F04"><di:waypoint x="950" y="480" /><di:waypoint x="1045" y="480" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F05_di" bpmnElement="F05"><di:waypoint x="1095" y="480" /><di:waypoint x="1190" y="480" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F06_di" bpmnElement="F06"><di:waypoint x="1070" y="505" /><di:waypoint x="1070" y="572" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F07_di" bpmnElement="F07"><di:waypoint x="1330" y="480" /><di:waypoint x="1425" y="480" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F08_di" bpmnElement="F08"><di:waypoint x="1475" y="480" /><di:waypoint x="1570" y="480" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F09_di" bpmnElement="F09"><di:waypoint x="1475" y="480" /><di:waypoint x="1522.5" y="480" /><di:waypoint x="1522.5" y="590" /><di:waypoint x="1570" y="590" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F10_di" bpmnElement="F10"><di:waypoint x="1710" y="480" /><di:waypoint x="1760" y="480" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F11_di" bpmnElement="F11"><di:waypoint x="1710" y="590" /><di:waypoint x="1735" y="590" /><di:waypoint x="1735" y="480" /><di:waypoint x="1760" y="480" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F12_di" bpmnElement="F12"><di:waypoint x="1900" y="480" /><di:waypoint x="1995" y="480" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F13_di" bpmnElement="F13"><di:waypoint x="2045" y="480" /><di:waypoint x="2140" y="480" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F14_di" bpmnElement="F14"><di:waypoint x="2045" y="480" /><di:waypoint x="2092.5" y="480" /><di:waypoint x="2092.5" y="590" /><di:waypoint x="2140" y="590" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F15_di" bpmnElement="F15"><di:waypoint x="2280" y="590" /><di:waypoint x="2305" y="590" /><di:waypoint x="2305" y="265" /><di:waypoint x="2330" y="265" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F16_di" bpmnElement="F16"><di:waypoint x="2280" y="480" /><di:waypoint x="2330" y="480" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F17_di" bpmnElement="F17"><di:waypoint x="2470" y="480" /><di:waypoint x="2572" y="480" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F18_di" bpmnElement="F18"><di:waypoint x="2400" y="300" /><di:waypoint x="2400" y="445" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="DA_App_VibeODP_di" bpmnElement="DA_App_VibeODP"><di:waypoint x="1260" y="515" /><di:waypoint x="1260" y="635" /></bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>

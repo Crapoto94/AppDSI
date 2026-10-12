@@ -1,0 +1,314 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" xmlns:dsi="http://dsi.ivry/schema/bpmn" id="Definitions_1" targetNamespace="http://bpmn.io/schema/bpmn">
+  <bpmn:collaboration id="Collaboration_1">
+    <bpmn:participant id="Participant_1" name="ODP — Facturation en lot, FILIEN et titrage SEDIT" processRef="Process_1" />
+  </bpmn:collaboration>
+  <bpmn:process id="Process_1" isExecutable="false">
+    <bpmn:documentation id="Doc_Process">Facturation en lot des dossiers d'occupation dans ODP Manager : sélection, regroupement des commerces par tiers et par année, calcul et facture PDF conforme, distribution automatique optionnelle aux débiteurs, récapitulatif, fichier FILIEN, dépôt sur le partage réseau, enregistrement du train puis passage des dossiers à Facturé, notification des finances avec lien de confirmation, puis titrage et paiement dans SEDIT (confirmation par lien ou lecture automatique de l'état des titres). Reconstitué à partir du code d'ODP (app/api/billing, lib/billing, lib/filien, lib/sedit-*).</bpmn:documentation>
+    <bpmn:laneSet id="LaneSet_1">
+        <bpmn:lane id="Lane_0" name="Instructeur (droits SEND_EMAILS et SEND_FILIEN)">
+          <bpmn:flowNodeRef>S</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>T_Select</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>T_Fail</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>T_Manual</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>S2</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>T_Defac</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>E_Defac</bpmn:flowNodeRef>
+        </bpmn:lane>
+        <bpmn:lane id="Lane_1" name="ODP Manager (traitement en lot)">
+          <bpmn:flowNodeRef>T_Docs</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>T_Fetch</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>T_Num</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>T_Calc</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>G_Dist</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>T_Dist</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>T_Recap</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>T_Merge</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>T_Filien</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>G_Ok</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>T_Run</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>T_Notify</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>T_Titre</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>T_Read</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>G_State</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>T_Clos</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>T_Titre2</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>E_End</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>App_VibeODP</bpmn:flowNodeRef>
+        </bpmn:lane>
+        <bpmn:lane id="Lane_2" name="Stockage (public/Factures, partage UNC)">
+          <bpmn:flowNodeRef>T_Deposit</bpmn:flowNodeRef>
+        </bpmn:lane>
+        <bpmn:lane id="Lane_3" name="Finances (SEDIT)">
+          <bpmn:flowNodeRef>T_Integ</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>G_Way</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>T_Confirm</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>App_Sedit</bpmn:flowNodeRef>
+        </bpmn:lane>
+        <bpmn:lane id="Lane_4" name="Débiteur (tiers facturé)">
+          <bpmn:flowNodeRef>E_Debt</bpmn:flowNodeRef>
+        </bpmn:lane>
+    </bpmn:laneSet>
+      <bpmn:startEvent id="S" name="Dossiers à facturer">
+        <bpmn:outgoing>F01</bpmn:outgoing>
+      </bpmn:startEvent>
+      <bpmn:userTask id="T_Select" name="Sélectionner les dossiers à facturer">
+        <bpmn:documentation>Sélection par type de dossier : commerces VÉRIFIÉS ou VALIDÉS (non exonérés), chantiers et tournages non encore facturés. Option « regrouper plusieurs années » pour un commerce reconduit.</bpmn:documentation>
+        <bpmn:incoming>F01</bpmn:incoming>
+        <bpmn:incoming>F17</bpmn:incoming>
+        <bpmn:outgoing>F02</bpmn:outgoing>
+      </bpmn:userTask>
+      <bpmn:serviceTask id="T_Docs" name="Vérifier les documents (pièces du FILIEN)">
+        <bpmn:documentation>Contrôle documentaire préalable (/api/billing/verify-documents) : délibération, tarifs, AOT et détails attendus.</bpmn:documentation>
+        <bpmn:incoming>F02</bpmn:incoming>
+        <bpmn:outgoing>F03</bpmn:outgoing>
+      </bpmn:serviceTask>
+      <bpmn:serviceTask id="T_Fetch" name="Charger les dossiers et regrouper les commerces">
+        <bpmn:documentation>Les dossiers exonérés (isExempt) sont exclus. Les commerces sont regroupés par tiers ET par année de taxation : une seule facture par groupe, une ligne par exercice. Cas d'échec : aucun dossier valide après regroupement, commerce sans tiers (ignoré avec avertissement).</bpmn:documentation>
+        <bpmn:incoming>F03</bpmn:incoming>
+        <bpmn:outgoing>F04</bpmn:outgoing>
+      </bpmn:serviceTask>
+      <bpmn:serviceTask id="T_Num" name="Numéroter les factures (AAAA-ODP-n)">
+        <bpmn:documentation>L'index suivant est le plus grand index existant de l'année plus un.</bpmn:documentation>
+        <bpmn:incoming>F04</bpmn:incoming>
+        <bpmn:outgoing>F05</bpmn:outgoing>
+      </bpmn:serviceTask>
+      <bpmn:serviceTask id="T_Calc" name="Calculer chaque facture et produire le PDF">
+        <bpmn:documentation>Montant par ligne (quantité × prix unitaire) ; TLPE : prorata en mois pleins et exonération des enseignes sous le seuil ; MAJORATION de 100 % pour un dossier sans autorisation (ligne « Majoration – pas d'autorisation ») ; minoration de 50 % d'un court-métrage. Facture PDF conforme à l'impression : marges techniques de 4 mm, niveaux de gris uniquement, zone réservée au recto, polices autorisées.</bpmn:documentation>
+        <bpmn:incoming>F05</bpmn:incoming>
+        <bpmn:outgoing>F06</bpmn:outgoing>
+        <bpmn:dataOutputAssociation id="DA_App_VibeODP"><bpmn:targetRef>App_VibeODP</bpmn:targetRef></bpmn:dataOutputAssociation>
+      </bpmn:serviceTask>
+      <bpmn:exclusiveGateway id="G_Dist" name="Distribution automatique active ?">
+        <bpmn:documentation>Paramètres « distribuer automatiquement » et « seulement les dossiers vérifiés ».</bpmn:documentation>
+        <bpmn:incoming>F06</bpmn:incoming>
+        <bpmn:outgoing>F07</bpmn:outgoing>
+        <bpmn:outgoing>F08</bpmn:outgoing>
+      </bpmn:exclusiveGateway>
+      <bpmn:serviceTask id="T_Dist" name="Envoyer la facture au contact principal">
+        <bpmn:documentation>Le débiteur est le tiers facturable ; la facture est envoyée par e-mail (modèle MSG_INVOICE_DEBTOR) au contact dont le rôle est « contact principal ». Cas d'échec : pas de contact principal avec e-mail (échec consigné, le lot continue). Note d'audit sur le dossier.</bpmn:documentation>
+        <bpmn:incoming>F07</bpmn:incoming>
+        <bpmn:outgoing>F09</bpmn:outgoing>
+        <bpmn:outgoing>F10</bpmn:outgoing>
+      </bpmn:serviceTask>
+      <bpmn:endEvent id="E_Debt" name="Facture reçue par le débiteur">
+        <bpmn:incoming>F10</bpmn:incoming>
+      </bpmn:endEvent>
+      <bpmn:serviceTask id="T_Recap" name="Générer le récapitulatif PDF du lot">
+        <bpmn:documentation>Récapitulatif de facturation avec le détail des factures et le total du train.</bpmn:documentation>
+        <bpmn:incoming>F08</bpmn:incoming>
+        <bpmn:incoming>F09</bpmn:incoming>
+        <bpmn:outgoing>F11</bpmn:outgoing>
+      </bpmn:serviceTask>
+      <bpmn:serviceTask id="T_Merge" name="Fusionner les pièces multi-années">
+        <bpmn:documentation>Commerces multi-exercices : délibérations, tarifs, AOT (le fichier signé en priorité), détails de facture, fusionnés en un seul PDF par type de pièce.</bpmn:documentation>
+        <bpmn:incoming>F11</bpmn:incoming>
+        <bpmn:outgoing>F12</bpmn:outgoing>
+      </bpmn:serviceTask>
+      <bpmn:serviceTask id="T_Filien" name="Générer le fichier FILIEN">
+        <bpmn:documentation>Format d'échange avec SEDIT GF (Berger-Levrault) : en-tête (organisme, budget, exercice), mouvements, pièces jointes, lignes de prestation, ventilation analytique héritée de l'article (surchargeable par type de dossier), montants. Multi-exercices : un seul mouvement, une ligne par année. Encodage latin1 ; pièces manquantes journalisées ; compteur de mouvement et de bordereau incrémenté.</bpmn:documentation>
+        <bpmn:incoming>F12</bpmn:incoming>
+        <bpmn:outgoing>F13</bpmn:outgoing>
+      </bpmn:serviceTask>
+      <bpmn:serviceTask id="T_Deposit" name="Déposer les fichiers (Factures et partage UNC)">
+        <bpmn:documentation>Dépôt dans public/Factures/&lt;lot&gt; et sur le partage réseau (SMB2). Surveillance de l'espace disponible (seuil minimal paramétrable, alertes). Une erreur à ce stade fait échouer TOUT le lot.</bpmn:documentation>
+        <bpmn:incoming>F13</bpmn:incoming>
+        <bpmn:outgoing>F14</bpmn:outgoing>
+      </bpmn:serviceTask>
+      <bpmn:exclusiveGateway id="G_Ok" name="Lot réussi ?">
+        <bpmn:documentation>Le lot n'est jamais appliqué partiellement.</bpmn:documentation>
+        <bpmn:incoming>F14</bpmn:incoming>
+        <bpmn:outgoing>F15</bpmn:outgoing>
+        <bpmn:outgoing>F16</bpmn:outgoing>
+      </bpmn:exclusiveGateway>
+      <bpmn:userTask id="T_Fail" name="Corriger la cause et relancer">
+        <bpmn:documentation>Espace disque insuffisant, pièce manquante, partage injoignable… Aucun dossier n'a changé de statut : le lot peut être relancé.</bpmn:documentation>
+        <bpmn:incoming>F16</bpmn:incoming>
+        <bpmn:outgoing>F17</bpmn:outgoing>
+      </bpmn:userTask>
+      <bpmn:serviceTask id="T_Run" name="Enregistrer le train et passer les dossiers à Facturé">
+        <bpmn:documentation>Seulement après succès du récapitulatif, du FILIEN et de l'enregistrement : train (BillingRun) et factures (BillingRunInvoice), puis statut FACTURE, numéro et chemin de la facture, date de facturation, note « Facturé ». Les dossiers facturés sont verrouillés.</bpmn:documentation>
+        <bpmn:incoming>F15</bpmn:incoming>
+        <bpmn:outgoing>F18</bpmn:outgoing>
+      </bpmn:serviceTask>
+      <bpmn:serviceTask id="T_Notify" name="Notifier les finances">
+        <bpmn:documentation>E-mail à l'adresse finances avec le fichier FILIEN en pièce jointe, le dossier réseau des pièces et un lien de confirmation SEDIT valable 7 jours (jeton).</bpmn:documentation>
+        <bpmn:incoming>F18</bpmn:incoming>
+        <bpmn:outgoing>F19</bpmn:outgoing>
+      </bpmn:serviceTask>
+      <bpmn:userTask id="T_Integ" name="Intégrer le FILIEN dans SEDIT">
+        <bpmn:documentation>Les finances intègrent le fichier et créent les titres de recette. Le protocole FILIEN RETOUR (comptes rendus de rejet) n'est pas encore exploité.</bpmn:documentation>
+        <bpmn:incoming>F19</bpmn:incoming>
+        <bpmn:outgoing>F20</bpmn:outgoing>
+        <bpmn:dataOutputAssociation id="DA_App_Sedit"><bpmn:targetRef>App_Sedit</bpmn:targetRef></bpmn:dataOutputAssociation>
+      </bpmn:userTask>
+      <bpmn:exclusiveGateway id="G_Way" name="Comment confirmer le titrage ?">
+        <bpmn:incoming>F20</bpmn:incoming>
+        <bpmn:outgoing>F21</bpmn:outgoing>
+        <bpmn:outgoing>F22</bpmn:outgoing>
+      </bpmn:exclusiveGateway>
+      <bpmn:userTask id="T_Confirm" name="Ouvrir le lien de confirmation">
+        <bpmn:documentation>Page accessible SANS session, protégée par le jeton : vérification du jeton puis validation de l'intégration.</bpmn:documentation>
+        <bpmn:incoming>F21</bpmn:incoming>
+        <bpmn:outgoing>F23</bpmn:outgoing>
+      </bpmn:userTask>
+      <bpmn:serviceTask id="T_Titre" name="Passer les dossiers du train à TITRE">
+        <bpmn:documentation>Statut TITRE pour tous les dossiers du train, note « Passage en TITRÉ – Intégration SEDIT validée », e-mail de confirmation à l'agent (MSG_SEDIT_CONFIRMATION). Jeton invalide ou expiré : refus (401).</bpmn:documentation>
+        <bpmn:incoming>F23</bpmn:incoming>
+        <bpmn:outgoing>F24</bpmn:outgoing>
+      </bpmn:serviceTask>
+      <bpmn:serviceTask id="T_Read" name="Lire l'état des titres dans SEDIT">
+        <bpmn:documentation>Lecture seule via l'API APM (/oracle/query, type FINANCES), cache de 5 minutes, relecture forcée possible. Rapprochement de chaque facture avec le titre par code tiers SEDIT et montant d'origine, dans les 30 jours de la date du train.</bpmn:documentation>
+        <bpmn:incoming>F22</bpmn:incoming>
+        <bpmn:outgoing>F25</bpmn:outgoing>
+      </bpmn:serviceTask>
+      <bpmn:exclusiveGateway id="G_State" name="État du titre ?">
+        <bpmn:documentation>Trois cas modifient un statut ; les autres sont laissés à l'agent.</bpmn:documentation>
+        <bpmn:incoming>F25</bpmn:incoming>
+        <bpmn:outgoing>F26</bpmn:outgoing>
+        <bpmn:outgoing>F27</bpmn:outgoing>
+        <bpmn:outgoing>F28</bpmn:outgoing>
+      </bpmn:exclusiveGateway>
+      <bpmn:serviceTask id="T_Clos" name="Clôturer les dossiers (titre payé)">
+        <bpmn:documentation>Titre payé : statut CLOS, date de clôture = date de paiement, dateTITRE complétée si vide (depuis Facturé ou Titré).</bpmn:documentation>
+        <bpmn:incoming>F26</bpmn:incoming>
+        <bpmn:outgoing>F29</bpmn:outgoing>
+      </bpmn:serviceTask>
+      <bpmn:serviceTask id="T_Titre2" name="Passer à TITRE (titre émis)">
+        <bpmn:documentation>Titre émis ou non encore pris en charge, non payé : statut TITRE depuis Facturé uniquement.</bpmn:documentation>
+        <bpmn:incoming>F27</bpmn:incoming>
+        <bpmn:outgoing>F30</bpmn:outgoing>
+      </bpmn:serviceTask>
+      <bpmn:userTask id="T_Manual" name="Traiter à la main">
+        <bpmn:documentation>Titre rejeté, suspendu, annulé en totalité (réduit), rapprochement ambigu ou titre introuvable : aucun statut modifié ; le motif de réduction et les pièces du titre sont affichés.</bpmn:documentation>
+        <bpmn:incoming>F28</bpmn:incoming>
+      </bpmn:userTask>
+      <bpmn:endEvent id="E_End" name="Facturation terminée">
+        <bpmn:incoming>F24</bpmn:incoming>
+        <bpmn:incoming>F29</bpmn:incoming>
+        <bpmn:incoming>F30</bpmn:incoming>
+      </bpmn:endEvent>
+      <bpmn:startEvent id="S2" name="Erreur sur une facture émise">
+        <bpmn:documentation>Montant ou redevable erroné sur une facture déjà émise (commerce).</bpmn:documentation>
+        <bpmn:outgoing>F31</bpmn:outgoing>
+      </bpmn:startEvent>
+      <bpmn:userTask id="T_Defac" name="Défacturer (avoir)">
+        <bpmn:documentation>Défacturation (DEFAC) d'un commerce : /defacturer, annulation partielle ou totale par avoir ; le dossier peut ensuite être refacturé.</bpmn:documentation>
+        <bpmn:incoming>F31</bpmn:incoming>
+        <bpmn:outgoing>F32</bpmn:outgoing>
+      </bpmn:userTask>
+      <bpmn:endEvent id="E_Defac" name="Avoir établi">
+        <bpmn:incoming>F32</bpmn:incoming>
+      </bpmn:endEvent>
+      <bpmn:sequenceFlow id="F01" sourceRef="S" targetRef="T_Select" />
+      <bpmn:sequenceFlow id="F02" sourceRef="T_Select" targetRef="T_Docs" />
+      <bpmn:sequenceFlow id="F03" sourceRef="T_Docs" targetRef="T_Fetch" />
+      <bpmn:sequenceFlow id="F04" sourceRef="T_Fetch" targetRef="T_Num" />
+      <bpmn:sequenceFlow id="F05" sourceRef="T_Num" targetRef="T_Calc" />
+      <bpmn:sequenceFlow id="F06" sourceRef="T_Calc" targetRef="G_Dist" />
+      <bpmn:sequenceFlow id="F07" name="oui" sourceRef="G_Dist" targetRef="T_Dist" />
+      <bpmn:sequenceFlow id="F08" name="non" sourceRef="G_Dist" targetRef="T_Recap" />
+      <bpmn:sequenceFlow id="F09" sourceRef="T_Dist" targetRef="T_Recap" />
+      <bpmn:sequenceFlow id="F10" sourceRef="T_Dist" targetRef="E_Debt" />
+      <bpmn:sequenceFlow id="F11" sourceRef="T_Recap" targetRef="T_Merge" />
+      <bpmn:sequenceFlow id="F12" sourceRef="T_Merge" targetRef="T_Filien" />
+      <bpmn:sequenceFlow id="F13" sourceRef="T_Filien" targetRef="T_Deposit" />
+      <bpmn:sequenceFlow id="F14" sourceRef="T_Deposit" targetRef="G_Ok" />
+      <bpmn:sequenceFlow id="F15" name="oui" sourceRef="G_Ok" targetRef="T_Run" />
+      <bpmn:sequenceFlow id="F16" name="non" sourceRef="G_Ok" targetRef="T_Fail" />
+      <bpmn:sequenceFlow id="F17" sourceRef="T_Fail" targetRef="T_Select" />
+      <bpmn:sequenceFlow id="F18" sourceRef="T_Run" targetRef="T_Notify" />
+      <bpmn:sequenceFlow id="F19" sourceRef="T_Notify" targetRef="T_Integ" />
+      <bpmn:sequenceFlow id="F20" sourceRef="T_Integ" targetRef="G_Way" />
+      <bpmn:sequenceFlow id="F21" name="lien de confirmation" sourceRef="G_Way" targetRef="T_Confirm" />
+      <bpmn:sequenceFlow id="F22" name="lecture automatique" sourceRef="G_Way" targetRef="T_Read" />
+      <bpmn:sequenceFlow id="F23" sourceRef="T_Confirm" targetRef="T_Titre" />
+      <bpmn:sequenceFlow id="F24" sourceRef="T_Titre" targetRef="E_End" />
+      <bpmn:sequenceFlow id="F25" sourceRef="T_Read" targetRef="G_State" />
+      <bpmn:sequenceFlow id="F26" name="payé" sourceRef="G_State" targetRef="T_Clos" />
+      <bpmn:sequenceFlow id="F27" name="émis, non payé" sourceRef="G_State" targetRef="T_Titre2" />
+      <bpmn:sequenceFlow id="F28" name="rejeté, suspendu, ambigu ou introuvable" sourceRef="G_State" targetRef="T_Manual" />
+      <bpmn:sequenceFlow id="F29" sourceRef="T_Clos" targetRef="E_End" />
+      <bpmn:sequenceFlow id="F30" sourceRef="T_Titre2" targetRef="E_End" />
+      <bpmn:sequenceFlow id="F31" sourceRef="S2" targetRef="T_Defac" />
+      <bpmn:sequenceFlow id="F32" sourceRef="T_Defac" targetRef="E_Defac" />
+      <bpmn:dataStoreReference id="App_VibeODP" name="VibeODP" dsi:applicationId="215" />
+      <bpmn:dataStoreReference id="App_Sedit" name="Sédit Finances" dsi:applicationId="84" />
+  </bpmn:process>
+  <bpmndi:BPMNDiagram id="BPMNDiagram_1">
+    <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="Collaboration_1">
+      <bpmndi:BPMNShape id="Participant_1_di" bpmnElement="Participant_1" isHorizontal="true"><dc:Bounds x="160" y="80" width="4280" height="1625" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_0_di" bpmnElement="Lane_0" isHorizontal="true"><dc:Bounds x="190" y="80" width="4250" height="545" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_1_di" bpmnElement="Lane_1" isHorizontal="true"><dc:Bounds x="190" y="625" width="4250" height="435" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_2_di" bpmnElement="Lane_2" isHorizontal="true"><dc:Bounds x="190" y="1060" width="4250" height="215" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_3_di" bpmnElement="Lane_3" isHorizontal="true"><dc:Bounds x="190" y="1275" width="4250" height="215" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_4_di" bpmnElement="Lane_4" isHorizontal="true"><dc:Bounds x="190" y="1490" width="4250" height="215" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S_di" bpmnElement="S"><dc:Bounds x="292" y="137" width="36" height="36" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Select_di" bpmnElement="T_Select"><dc:Bounds x="430" y="120" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Docs_di" bpmnElement="T_Docs"><dc:Bounds x="620" y="665" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Fetch_di" bpmnElement="T_Fetch"><dc:Bounds x="810" y="665" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Num_di" bpmnElement="T_Num"><dc:Bounds x="1000" y="665" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Calc_di" bpmnElement="T_Calc"><dc:Bounds x="1190" y="665" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="G_Dist_di" bpmnElement="G_Dist" isMarkerVisible="true"><dc:Bounds x="1425" y="675" width="50" height="50" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Dist_di" bpmnElement="T_Dist"><dc:Bounds x="1570" y="775" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="E_Debt_di" bpmnElement="E_Debt"><dc:Bounds x="1812" y="1547" width="36" height="36" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Recap_di" bpmnElement="T_Recap"><dc:Bounds x="1760" y="665" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Merge_di" bpmnElement="T_Merge"><dc:Bounds x="1950" y="665" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Filien_di" bpmnElement="T_Filien"><dc:Bounds x="2140" y="665" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Deposit_di" bpmnElement="T_Deposit"><dc:Bounds x="2330" y="1100" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="G_Ok_di" bpmnElement="G_Ok" isMarkerVisible="true"><dc:Bounds x="2565" y="675" width="50" height="50" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Fail_di" bpmnElement="T_Fail"><dc:Bounds x="2710" y="230" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Run_di" bpmnElement="T_Run"><dc:Bounds x="2710" y="665" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Notify_di" bpmnElement="T_Notify"><dc:Bounds x="2900" y="665" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Integ_di" bpmnElement="T_Integ"><dc:Bounds x="3090" y="1315" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="G_Way_di" bpmnElement="G_Way" isMarkerVisible="true"><dc:Bounds x="3325" y="1325" width="50" height="50" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Confirm_di" bpmnElement="T_Confirm"><dc:Bounds x="3470" y="1315" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Titre_di" bpmnElement="T_Titre"><dc:Bounds x="3660" y="665" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Read_di" bpmnElement="T_Read"><dc:Bounds x="3470" y="775" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="G_State_di" bpmnElement="G_State" isMarkerVisible="true"><dc:Bounds x="3895" y="785" width="50" height="50" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Clos_di" bpmnElement="T_Clos"><dc:Bounds x="4040" y="775" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Titre2_di" bpmnElement="T_Titre2"><dc:Bounds x="4040" y="885" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Manual_di" bpmnElement="T_Manual"><dc:Bounds x="4040" y="450" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="E_End_di" bpmnElement="E_End"><dc:Bounds x="4282" y="792" width="36" height="36" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S2_di" bpmnElement="S2"><dc:Bounds x="292" y="357" width="36" height="36" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Defac_di" bpmnElement="T_Defac"><dc:Bounds x="430" y="340" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="E_Defac_di" bpmnElement="E_Defac"><dc:Bounds x="672" y="357" width="36" height="36" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="App_VibeODP_di" bpmnElement="App_VibeODP"><dc:Bounds x="1200" y="965" width="120" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="App_Sedit_di" bpmnElement="App_Sedit"><dc:Bounds x="3100" y="1395" width="120" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="F01_di" bpmnElement="F01"><di:waypoint x="328" y="155" /><di:waypoint x="430" y="155" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F02_di" bpmnElement="F02"><di:waypoint x="570" y="155" /><di:waypoint x="595" y="155" /><di:waypoint x="595" y="700" /><di:waypoint x="620" y="700" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F03_di" bpmnElement="F03"><di:waypoint x="760" y="700" /><di:waypoint x="810" y="700" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F04_di" bpmnElement="F04"><di:waypoint x="950" y="700" /><di:waypoint x="1000" y="700" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F05_di" bpmnElement="F05"><di:waypoint x="1140" y="700" /><di:waypoint x="1190" y="700" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F06_di" bpmnElement="F06"><di:waypoint x="1330" y="700" /><di:waypoint x="1425" y="700" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F07_di" bpmnElement="F07"><di:waypoint x="1475" y="700" /><di:waypoint x="1522.5" y="700" /><di:waypoint x="1522.5" y="810" /><di:waypoint x="1570" y="810" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F08_di" bpmnElement="F08"><di:waypoint x="1475" y="700" /><di:waypoint x="1760" y="700" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F09_di" bpmnElement="F09"><di:waypoint x="1710" y="810" /><di:waypoint x="1735" y="810" /><di:waypoint x="1735" y="700" /><di:waypoint x="1760" y="700" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F10_di" bpmnElement="F10"><di:waypoint x="1710" y="810" /><di:waypoint x="1761" y="810" /><di:waypoint x="1761" y="1565" /><di:waypoint x="1812" y="1565" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F11_di" bpmnElement="F11"><di:waypoint x="1900" y="700" /><di:waypoint x="1950" y="700" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F12_di" bpmnElement="F12"><di:waypoint x="2090" y="700" /><di:waypoint x="2140" y="700" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F13_di" bpmnElement="F13"><di:waypoint x="2280" y="700" /><di:waypoint x="2305" y="700" /><di:waypoint x="2305" y="1135" /><di:waypoint x="2330" y="1135" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F14_di" bpmnElement="F14"><di:waypoint x="2470" y="1135" /><di:waypoint x="2517.5" y="1135" /><di:waypoint x="2517.5" y="700" /><di:waypoint x="2565" y="700" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F15_di" bpmnElement="F15"><di:waypoint x="2615" y="700" /><di:waypoint x="2710" y="700" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F16_di" bpmnElement="F16"><di:waypoint x="2615" y="700" /><di:waypoint x="2662.5" y="700" /><di:waypoint x="2662.5" y="265" /><di:waypoint x="2710" y="265" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F17_di" bpmnElement="F17"><di:waypoint x="2780" y="300" /><di:waypoint x="2780" y="330" /><di:waypoint x="500" y="330" /><di:waypoint x="500" y="190" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F18_di" bpmnElement="F18"><di:waypoint x="2850" y="700" /><di:waypoint x="2900" y="700" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F19_di" bpmnElement="F19"><di:waypoint x="3040" y="700" /><di:waypoint x="3065" y="700" /><di:waypoint x="3065" y="1350" /><di:waypoint x="3090" y="1350" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F20_di" bpmnElement="F20"><di:waypoint x="3230" y="1350" /><di:waypoint x="3325" y="1350" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F21_di" bpmnElement="F21"><di:waypoint x="3375" y="1350" /><di:waypoint x="3470" y="1350" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F22_di" bpmnElement="F22"><di:waypoint x="3375" y="1350" /><di:waypoint x="3422.5" y="1350" /><di:waypoint x="3422.5" y="810" /><di:waypoint x="3470" y="810" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F23_di" bpmnElement="F23"><di:waypoint x="3610" y="1350" /><di:waypoint x="3635" y="1350" /><di:waypoint x="3635" y="700" /><di:waypoint x="3660" y="700" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F24_di" bpmnElement="F24"><di:waypoint x="3800" y="700" /><di:waypoint x="4257" y="700" /><di:waypoint x="4257" y="810" /><di:waypoint x="4282" y="810" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F25_di" bpmnElement="F25"><di:waypoint x="3610" y="810" /><di:waypoint x="3895" y="810" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F26_di" bpmnElement="F26"><di:waypoint x="3945" y="810" /><di:waypoint x="4040" y="810" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F27_di" bpmnElement="F27"><di:waypoint x="3945" y="810" /><di:waypoint x="3992.5" y="810" /><di:waypoint x="3992.5" y="920" /><di:waypoint x="4040" y="920" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F28_di" bpmnElement="F28"><di:waypoint x="3945" y="810" /><di:waypoint x="3992.5" y="810" /><di:waypoint x="3992.5" y="485" /><di:waypoint x="4040" y="485" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F29_di" bpmnElement="F29"><di:waypoint x="4180" y="810" /><di:waypoint x="4282" y="810" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F30_di" bpmnElement="F30"><di:waypoint x="4180" y="920" /><di:waypoint x="4231" y="920" /><di:waypoint x="4231" y="810" /><di:waypoint x="4282" y="810" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F31_di" bpmnElement="F31"><di:waypoint x="328" y="375" /><di:waypoint x="430" y="375" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F32_di" bpmnElement="F32"><di:waypoint x="570" y="375" /><di:waypoint x="672" y="375" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="DA_App_VibeODP_di" bpmnElement="DA_App_VibeODP"><di:waypoint x="1260" y="735" /><di:waypoint x="1260" y="965" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="DA_App_Sedit_di" bpmnElement="DA_App_Sedit"><di:waypoint x="3160" y="1385" /><di:waypoint x="3160" y="1395" /></bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>

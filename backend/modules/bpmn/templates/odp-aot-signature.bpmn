@@ -1,0 +1,233 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" xmlns:dsi="http://dsi.ivry/schema/bpmn" id="Definitions_1" targetNamespace="http://bpmn.io/schema/bpmn">
+  <bpmn:collaboration id="Collaboration_1">
+    <bpmn:participant id="Participant_1" name="ODP — Autorisation d'occupation (AOT) et signature électronique" processRef="Process_1" />
+  </bpmn:collaboration>
+  <bpmn:process id="Process_1" isExecutable="false">
+    <bpmn:documentation id="Doc_Process">Production et signature d'une autorisation d'occupation temporaire dans ODP Manager : génération du document Word depuis un gabarit, conversion en PDF, demande de signature par lien à jeton (valable 7 jours), page publique de signature (acceptation ou refus motivé), incrustation de la signature dans le PDF, avancement du statut du dossier, notifications et envoi de l'AOT signée au demandeur. Reconstitué à partir du code d'ODP (lib/aot, app/api/signature, app/api/autorisations).</bpmn:documentation>
+    <bpmn:laneSet id="LaneSet_1">
+        <bpmn:lane id="Lane_0" name="Instructeur (droit GENERATE_AOT)">
+          <bpmn:flowNodeRef>S</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>T_Tpl</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>T_Review</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>G_Ok</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>T_Req</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>T_SendAot</bpmn:flowNodeRef>
+        </bpmn:lane>
+        <bpmn:lane id="Lane_1" name="ODP Manager">
+          <bpmn:flowNodeRef>T_Gen</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>T_Pdf</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>T_Send</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>G_Link</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>E_Exp</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>T_RejNotif</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>E_Rej</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>T_Sign</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>T_Adv</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>T_NotifOk</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>App_VibeODP</bpmn:flowNodeRef>
+        </bpmn:lane>
+        <bpmn:lane id="Lane_2" name="Signataire (lien public)">
+          <bpmn:flowNodeRef>T_Open</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>T_View</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>G_Dec</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>T_Accept</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>T_Reject</bpmn:flowNodeRef>
+        </bpmn:lane>
+        <bpmn:lane id="Lane_3" name="Demandeur (tiers)">
+          <bpmn:flowNodeRef>T_Recv</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>E_End</bpmn:flowNodeRef>
+        </bpmn:lane>
+    </bpmn:laneSet>
+      <bpmn:startEvent id="S" name="Dossier prêt à autoriser">
+        <bpmn:documentation>Dossier au statut PREP (préparation des AOT), lignes et dates renseignées.</bpmn:documentation>
+        <bpmn:outgoing>F01</bpmn:outgoing>
+      </bpmn:startEvent>
+      <bpmn:userTask id="T_Tpl" name="Choisir le gabarit et créer l'arrêté">
+        <bpmn:documentation>Un dossier peut porter plusieurs arrêtés (Autorisation) : libellé, gabarit, période, lignes concernées, ordre. Le gabarit par défaut (AOT-Template-Default.docx) est initialisé automatiquement ; un gabarit DOCX est téléversé dans l'espace Gabarits (variables documentées). Les tournages ont leur propre arrêté.</bpmn:documentation>
+        <bpmn:incoming>F01</bpmn:incoming>
+        <bpmn:incoming>F07</bpmn:incoming>
+        <bpmn:outgoing>F02</bpmn:outgoing>
+      </bpmn:userTask>
+      <bpmn:serviceTask id="T_Gen" name="Générer le document Word">
+        <bpmn:documentation>Le fichier DOCX est ouvert comme une archive ZIP, les variables de document.xml sont remplacées puis l'archive est réassemblée. Variables : dossier ({id}, {nom}, {adresse}, {dateDebut}, {dateFin}), tiers ({tiers.nom}, {demandeurComplet}, {agissantPour}), signataire ({signataireNom}, {signataireRole}, {signataireDelegation}, {today}), articles ({article1.designation}, {article1.quantite}, {article1.pu}, {article1.dates}…).</bpmn:documentation>
+        <bpmn:incoming>F02</bpmn:incoming>
+        <bpmn:outgoing>F03</bpmn:outgoing>
+        <bpmn:dataOutputAssociation id="DA_App_VibeODP"><bpmn:targetRef>App_VibeODP</bpmn:targetRef></bpmn:dataOutputAssociation>
+      </bpmn:serviceTask>
+      <bpmn:serviceTask id="T_Pdf" name="Convertir en PDF (LibreOffice)">
+        <bpmn:documentation>Conversion DOCX vers PDF par LibreOffice en mode headless (--convert-to pdf), binaire détecté automatiquement. Cas d'échec : LibreOffice introuvable ou conversion en erreur (code retour non nul, fichier non créé).</bpmn:documentation>
+        <bpmn:incoming>F03</bpmn:incoming>
+        <bpmn:outgoing>F04</bpmn:outgoing>
+      </bpmn:serviceTask>
+      <bpmn:userTask id="T_Review" name="Relire le document généré">
+        <bpmn:documentation>Téléchargement du PDF (/api/aot-pdf) et contrôle du contenu.</bpmn:documentation>
+        <bpmn:incoming>F04</bpmn:incoming>
+        <bpmn:outgoing>F05</bpmn:outgoing>
+      </bpmn:userTask>
+      <bpmn:exclusiveGateway id="G_Ok" name="Document conforme ?">
+        <bpmn:incoming>F05</bpmn:incoming>
+        <bpmn:outgoing>F06</bpmn:outgoing>
+        <bpmn:outgoing>F07</bpmn:outgoing>
+      </bpmn:exclusiveGateway>
+      <bpmn:userTask id="T_Req" name="Demander la signature">
+        <bpmn:documentation>Choix du signataire (par défaut le signataire ACTIF marqué par défaut) et du type de document (PDF ou DOCX). Cas d'échec : aucun signataire configuré, ou type invalide. Signataire : nom, e-mail, rôle, titre, image de signature, certificat P12 protégé par mot de passe.</bpmn:documentation>
+        <bpmn:incoming>F06</bpmn:incoming>
+        <bpmn:outgoing>F08</bpmn:outgoing>
+      </bpmn:userTask>
+      <bpmn:serviceTask id="T_Send" name="Créer la demande et envoyer le lien">
+        <bpmn:documentation>Demande de signature au statut PENDING, jeton JWT valable 7 jours, lien public /signature/{jeton} envoyé par e-mail au signataire (modèle MSG_SIGNATURE_REQUEST via l'APM).</bpmn:documentation>
+        <bpmn:incoming>F08</bpmn:incoming>
+        <bpmn:outgoing>F09</bpmn:outgoing>
+      </bpmn:serviceTask>
+      <bpmn:userTask id="T_Open" name="Ouvrir le lien reçu par e-mail">
+        <bpmn:documentation>Page publique sans connexion : affichage du document (routes /view et /document).</bpmn:documentation>
+        <bpmn:incoming>F09</bpmn:incoming>
+        <bpmn:outgoing>F10</bpmn:outgoing>
+      </bpmn:userTask>
+      <bpmn:exclusiveGateway id="G_Link" name="Lien valide ?">
+        <bpmn:documentation>Le jeton doit être valide, la demande trouvée, non expirée et encore au statut PENDING (sinon déjà acceptée ou refusée).</bpmn:documentation>
+        <bpmn:incoming>F10</bpmn:incoming>
+        <bpmn:outgoing>F11</bpmn:outgoing>
+        <bpmn:outgoing>F12</bpmn:outgoing>
+      </bpmn:exclusiveGateway>
+      <bpmn:endEvent id="E_Exp" name="Lien expiré ou déjà utilisé">
+        <bpmn:incoming>F12</bpmn:incoming>
+      </bpmn:endEvent>
+      <bpmn:userTask id="T_View" name="Consulter le document et positionner la signature">
+        <bpmn:documentation>Choix de la page (la dernière par défaut) et de la position de la signature en pourcentage de la page.</bpmn:documentation>
+        <bpmn:incoming>F11</bpmn:incoming>
+        <bpmn:outgoing>F13</bpmn:outgoing>
+      </bpmn:userTask>
+      <bpmn:exclusiveGateway id="G_Dec" name="Décision du signataire ?">
+        <bpmn:incoming>F13</bpmn:incoming>
+        <bpmn:outgoing>F14</bpmn:outgoing>
+        <bpmn:outgoing>F15</bpmn:outgoing>
+      </bpmn:exclusiveGateway>
+      <bpmn:userTask id="T_Accept" name="Accepter et signer">
+        <bpmn:incoming>F14</bpmn:incoming>
+        <bpmn:outgoing>F18</bpmn:outgoing>
+      </bpmn:userTask>
+      <bpmn:userTask id="T_Reject" name="Refuser avec un motif">
+        <bpmn:documentation>Le motif est enregistré dans la demande (statut REJECTED) et rappelé dans la note du dossier.</bpmn:documentation>
+        <bpmn:incoming>F15</bpmn:incoming>
+        <bpmn:outgoing>F16</bpmn:outgoing>
+      </bpmn:userTask>
+      <bpmn:serviceTask id="T_RejNotif" name="Notifier le refus et le noter">
+        <bpmn:documentation>E-mail à l'administrateur (MSG_SIGNATURE_REJET) et au demandeur de la signature (MSG_AOT_REFUSE) ; note automatique « Document refusé par … — Motif ». Le statut du dossier n'avance pas.</bpmn:documentation>
+        <bpmn:incoming>F16</bpmn:incoming>
+        <bpmn:outgoing>F17</bpmn:outgoing>
+      </bpmn:serviceTask>
+      <bpmn:endEvent id="E_Rej" name="Signature refusée">
+        <bpmn:incoming>F17</bpmn:incoming>
+      </bpmn:endEvent>
+      <bpmn:serviceTask id="T_Sign" name="Incruster la signature dans le PDF">
+        <bpmn:documentation>Le document est converti en PDF si besoin, puis pdf-lib incruste l'image de signature (proportions conservées, rectangle de substitution s'il n'y a pas d'image), trace le nom et le titre, et enregistre le fichier *_signe.pdf. Le certificat P12 est lu et validé mais la signature cryptographique PDF/A n'est pas encore apposée (placeholder documenté). Un échec de signature graphique est non bloquant.</bpmn:documentation>
+        <bpmn:incoming>F18</bpmn:incoming>
+        <bpmn:outgoing>F19</bpmn:outgoing>
+      </bpmn:serviceTask>
+      <bpmn:serviceTask id="T_Adv" name="Avancer le statut du dossier">
+        <bpmn:documentation>Demande au statut ACCEPTED (date de signature) ; le dossier reçoit aotSigned et le chemin du fichier signé ; le statut avance d'UNE étape (INIT vers INST, INST vers PREP, PREP vers EN_COURS, EN_COURS vers VALIDE). Note automatique « Document signé par … ».</bpmn:documentation>
+        <bpmn:incoming>F19</bpmn:incoming>
+        <bpmn:outgoing>F20</bpmn:outgoing>
+      </bpmn:serviceTask>
+      <bpmn:serviceTask id="T_NotifOk" name="Notifier le demandeur de la signature">
+        <bpmn:documentation>Modèle MSG_AOT_SIGNE adressé à l'agent à l'origine de la demande (sauf compte administrateur), avec lien du dossier, signataire et date.</bpmn:documentation>
+        <bpmn:incoming>F20</bpmn:incoming>
+        <bpmn:outgoing>F21</bpmn:outgoing>
+      </bpmn:serviceTask>
+      <bpmn:userTask id="T_SendAot" name="Envoyer l'AOT au demandeur">
+        <bpmn:documentation>Envoi aux contacts dont le rôle est marqué « envoi AOT » (types de contacts paramétrables), avec le document signé en pièce jointe et le modèle MSG_AOT_DEMANDEUR. Cas d'échec : aucun document AOT, ou aucun destinataire.</bpmn:documentation>
+        <bpmn:incoming>F21</bpmn:incoming>
+        <bpmn:outgoing>F22</bpmn:outgoing>
+      </bpmn:userTask>
+      <bpmn:userTask id="T_Recv" name="Recevoir l'autorisation signée">
+        <bpmn:incoming>F22</bpmn:incoming>
+        <bpmn:outgoing>F23</bpmn:outgoing>
+      </bpmn:userTask>
+      <bpmn:endEvent id="E_End" name="Autorisation délivrée">
+        <bpmn:incoming>F23</bpmn:incoming>
+      </bpmn:endEvent>
+      <bpmn:sequenceFlow id="F01" sourceRef="S" targetRef="T_Tpl" />
+      <bpmn:sequenceFlow id="F02" sourceRef="T_Tpl" targetRef="T_Gen" />
+      <bpmn:sequenceFlow id="F03" sourceRef="T_Gen" targetRef="T_Pdf" />
+      <bpmn:sequenceFlow id="F04" sourceRef="T_Pdf" targetRef="T_Review" />
+      <bpmn:sequenceFlow id="F05" sourceRef="T_Review" targetRef="G_Ok" />
+      <bpmn:sequenceFlow id="F06" name="oui" sourceRef="G_Ok" targetRef="T_Req" />
+      <bpmn:sequenceFlow id="F07" name="non, à corriger" sourceRef="G_Ok" targetRef="T_Tpl" />
+      <bpmn:sequenceFlow id="F08" sourceRef="T_Req" targetRef="T_Send" />
+      <bpmn:sequenceFlow id="F09" sourceRef="T_Send" targetRef="T_Open" />
+      <bpmn:sequenceFlow id="F10" sourceRef="T_Open" targetRef="G_Link" />
+      <bpmn:sequenceFlow id="F11" name="oui" sourceRef="G_Link" targetRef="T_View" />
+      <bpmn:sequenceFlow id="F12" name="non" sourceRef="G_Link" targetRef="E_Exp" />
+      <bpmn:sequenceFlow id="F13" sourceRef="T_View" targetRef="G_Dec" />
+      <bpmn:sequenceFlow id="F14" name="accepter" sourceRef="G_Dec" targetRef="T_Accept" />
+      <bpmn:sequenceFlow id="F15" name="refuser" sourceRef="G_Dec" targetRef="T_Reject" />
+      <bpmn:sequenceFlow id="F16" sourceRef="T_Reject" targetRef="T_RejNotif" />
+      <bpmn:sequenceFlow id="F17" sourceRef="T_RejNotif" targetRef="E_Rej" />
+      <bpmn:sequenceFlow id="F18" sourceRef="T_Accept" targetRef="T_Sign" />
+      <bpmn:sequenceFlow id="F19" sourceRef="T_Sign" targetRef="T_Adv" />
+      <bpmn:sequenceFlow id="F20" sourceRef="T_Adv" targetRef="T_NotifOk" />
+      <bpmn:sequenceFlow id="F21" sourceRef="T_NotifOk" targetRef="T_SendAot" />
+      <bpmn:sequenceFlow id="F22" sourceRef="T_SendAot" targetRef="T_Recv" />
+      <bpmn:sequenceFlow id="F23" sourceRef="T_Recv" targetRef="E_End" />
+      <bpmn:dataStoreReference id="App_VibeODP" name="VibeODP" dsi:applicationId="215" />
+  </bpmn:process>
+  <bpmndi:BPMNDiagram id="BPMNDiagram_1">
+    <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="Collaboration_1">
+      <bpmndi:BPMNShape id="Participant_1_di" bpmnElement="Participant_1" isHorizontal="true"><dc:Bounds x="160" y="80" width="3710" height="1080" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_0_di" bpmnElement="Lane_0" isHorizontal="true"><dc:Bounds x="190" y="80" width="3680" height="215" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_1_di" bpmnElement="Lane_1" isHorizontal="true"><dc:Bounds x="190" y="295" width="3680" height="325" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_2_di" bpmnElement="Lane_2" isHorizontal="true"><dc:Bounds x="190" y="620" width="3680" height="325" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_3_di" bpmnElement="Lane_3" isHorizontal="true"><dc:Bounds x="190" y="945" width="3680" height="215" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S_di" bpmnElement="S"><dc:Bounds x="292" y="137" width="36" height="36" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Tpl_di" bpmnElement="T_Tpl"><dc:Bounds x="430" y="120" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Gen_di" bpmnElement="T_Gen"><dc:Bounds x="620" y="335" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Pdf_di" bpmnElement="T_Pdf"><dc:Bounds x="810" y="335" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Review_di" bpmnElement="T_Review"><dc:Bounds x="1000" y="120" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="G_Ok_di" bpmnElement="G_Ok" isMarkerVisible="true"><dc:Bounds x="1235" y="130" width="50" height="50" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Req_di" bpmnElement="T_Req"><dc:Bounds x="1380" y="120" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Send_di" bpmnElement="T_Send"><dc:Bounds x="1570" y="335" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Open_di" bpmnElement="T_Open"><dc:Bounds x="1760" y="660" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="G_Link_di" bpmnElement="G_Link" isMarkerVisible="true"><dc:Bounds x="1995" y="345" width="50" height="50" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="E_Exp_di" bpmnElement="E_Exp"><dc:Bounds x="2192" y="462" width="36" height="36" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_View_di" bpmnElement="T_View"><dc:Bounds x="2140" y="660" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="G_Dec_di" bpmnElement="G_Dec" isMarkerVisible="true"><dc:Bounds x="2375" y="670" width="50" height="50" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Accept_di" bpmnElement="T_Accept"><dc:Bounds x="2520" y="660" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Reject_di" bpmnElement="T_Reject"><dc:Bounds x="2520" y="770" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_RejNotif_di" bpmnElement="T_RejNotif"><dc:Bounds x="2710" y="445" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="E_Rej_di" bpmnElement="E_Rej"><dc:Bounds x="2952" y="462" width="36" height="36" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Sign_di" bpmnElement="T_Sign"><dc:Bounds x="2710" y="335" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Adv_di" bpmnElement="T_Adv"><dc:Bounds x="2900" y="335" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_NotifOk_di" bpmnElement="T_NotifOk"><dc:Bounds x="3090" y="335" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_SendAot_di" bpmnElement="T_SendAot"><dc:Bounds x="3280" y="120" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Recv_di" bpmnElement="T_Recv"><dc:Bounds x="3470" y="985" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="E_End_di" bpmnElement="E_End"><dc:Bounds x="3712" y="1002" width="36" height="36" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="App_VibeODP_di" bpmnElement="App_VibeODP"><dc:Bounds x="630" y="525" width="120" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="F01_di" bpmnElement="F01"><di:waypoint x="328" y="155" /><di:waypoint x="430" y="155" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F02_di" bpmnElement="F02"><di:waypoint x="570" y="155" /><di:waypoint x="595" y="155" /><di:waypoint x="595" y="370" /><di:waypoint x="620" y="370" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F03_di" bpmnElement="F03"><di:waypoint x="760" y="370" /><di:waypoint x="810" y="370" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F04_di" bpmnElement="F04"><di:waypoint x="950" y="370" /><di:waypoint x="975" y="370" /><di:waypoint x="975" y="155" /><di:waypoint x="1000" y="155" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F05_di" bpmnElement="F05"><di:waypoint x="1140" y="155" /><di:waypoint x="1235" y="155" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F06_di" bpmnElement="F06"><di:waypoint x="1285" y="155" /><di:waypoint x="1380" y="155" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F07_di" bpmnElement="F07"><di:waypoint x="1260" y="180" /><di:waypoint x="1260" y="210" /><di:waypoint x="500" y="210" /><di:waypoint x="500" y="190" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F08_di" bpmnElement="F08"><di:waypoint x="1520" y="155" /><di:waypoint x="1545" y="155" /><di:waypoint x="1545" y="370" /><di:waypoint x="1570" y="370" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F09_di" bpmnElement="F09"><di:waypoint x="1710" y="370" /><di:waypoint x="1735" y="370" /><di:waypoint x="1735" y="695" /><di:waypoint x="1760" y="695" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F10_di" bpmnElement="F10"><di:waypoint x="1900" y="695" /><di:waypoint x="1947.5" y="695" /><di:waypoint x="1947.5" y="370" /><di:waypoint x="1995" y="370" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F11_di" bpmnElement="F11"><di:waypoint x="2045" y="370" /><di:waypoint x="2092.5" y="370" /><di:waypoint x="2092.5" y="695" /><di:waypoint x="2140" y="695" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F12_di" bpmnElement="F12"><di:waypoint x="2045" y="370" /><di:waypoint x="2118.5" y="370" /><di:waypoint x="2118.5" y="480" /><di:waypoint x="2192" y="480" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F13_di" bpmnElement="F13"><di:waypoint x="2280" y="695" /><di:waypoint x="2375" y="695" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F14_di" bpmnElement="F14"><di:waypoint x="2425" y="695" /><di:waypoint x="2520" y="695" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F15_di" bpmnElement="F15"><di:waypoint x="2425" y="695" /><di:waypoint x="2472.5" y="695" /><di:waypoint x="2472.5" y="805" /><di:waypoint x="2520" y="805" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F16_di" bpmnElement="F16"><di:waypoint x="2660" y="805" /><di:waypoint x="2685" y="805" /><di:waypoint x="2685" y="480" /><di:waypoint x="2710" y="480" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F17_di" bpmnElement="F17"><di:waypoint x="2850" y="480" /><di:waypoint x="2952" y="480" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F18_di" bpmnElement="F18"><di:waypoint x="2660" y="695" /><di:waypoint x="2685" y="695" /><di:waypoint x="2685" y="370" /><di:waypoint x="2710" y="370" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F19_di" bpmnElement="F19"><di:waypoint x="2850" y="370" /><di:waypoint x="2900" y="370" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F20_di" bpmnElement="F20"><di:waypoint x="3040" y="370" /><di:waypoint x="3090" y="370" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F21_di" bpmnElement="F21"><di:waypoint x="3230" y="370" /><di:waypoint x="3255" y="370" /><di:waypoint x="3255" y="155" /><di:waypoint x="3280" y="155" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F22_di" bpmnElement="F22"><di:waypoint x="3420" y="155" /><di:waypoint x="3445" y="155" /><di:waypoint x="3445" y="1020" /><di:waypoint x="3470" y="1020" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F23_di" bpmnElement="F23"><di:waypoint x="3610" y="1020" /><di:waypoint x="3712" y="1020" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="DA_App_VibeODP_di" bpmnElement="DA_App_VibeODP"><di:waypoint x="690" y="405" /><di:waypoint x="690" y="525" /></bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>
