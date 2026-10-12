@@ -55,6 +55,7 @@ import AdminSync from './pages/AdminSync';
 import WhatsNew from './pages/WhatsNew';
 import Doctrines from './pages/Doctrines';
 import VibeCoding from './pages/VibeCoding';
+import BpmnEditor from './pages/BpmnEditor';
 import Notes from './pages/Notes';
 import TicketsDashboard from './pages/Tickets/TicketsDashboard';
 import TicketDetail from './pages/Tickets/TicketDetail';
@@ -186,6 +187,7 @@ function App() {
         <Route path="/whats-new" element={<PrivateRoute path="/whats-new"><WhatsNew /></PrivateRoute>} />
         <Route path="/doctrines" element={<PrivateRoute path="/doctrines"><Doctrines /></PrivateRoute>} />
         <Route path="/vibecoding" element={<PrivateRoute path="/vibecoding"><VibeCoding /></PrivateRoute>} />
+        <Route path="/bpmn" element={<PrivateRoute path="/bpmn"><BpmnEditor /></PrivateRoute>} />
         <Route path="/notes" element={<PrivateRoute path="/notes"><Notes /></PrivateRoute>} />
 
         <Route path="/" element={<PrivateRoute path="/"><Dashboard /></PrivateRoute>} />

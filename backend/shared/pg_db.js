@@ -6155,6 +6155,25 @@ async function setupPgDb() {
         ON CONFLICT (key) DO NOTHING
       `);
 
+      // Bibliothèque de diagrammes BPMN (module /bpmn) : un diagramme = XML BPMN 2.0 +
+      // métadonnées. `assets` (jsonb) liste les actifs concernés, recalculés côté serveur
+      // à partir du XML : [{ type: 'application', id, name }] (applications du Magasin).
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS hub.bpmn_diagrams (
+          id SERIAL PRIMARY KEY,
+          title TEXT NOT NULL,
+          description TEXT,
+          xml TEXT NOT NULL,
+          assets JSONB NOT NULL DEFAULT '[]'::jsonb,
+          tags JSONB NOT NULL DEFAULT '[]'::jsonb,
+          created_by TEXT,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          updated_by TEXT,
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+      `);
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_bpmn_diagrams_assets ON hub.bpmn_diagrams USING GIN (assets)`);
+
       // Bureau en ligne OnlyOffice (aperçu docx en lecture seule dans l'explorateur de
       // documents /projets) — base_url = adresse que LE BACKEND appelle (moteur),
       // endpoint réutilisé ici pour l'adresse que LE NAVIGATEUR charge (souvent la même),
