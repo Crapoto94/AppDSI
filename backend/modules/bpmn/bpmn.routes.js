@@ -11,6 +11,15 @@ const authenticateBpmn = (req, res, next) => {
         if (isAdminLike(req.user)) return next();
         try {
             const db = getSqlite();
+            if (db) {
+                // Tuile rendue publique : accessible à tout utilisateur connecté, sans autorisation individuelle
+                const isPublic = await db.get(`
+                    SELECT 1 FROM tiles t
+                    JOIN tile_links tl ON tl.tile_id = t.id
+                    WHERE tl.url = '/bpmn' AND t.is_public = 1
+                `);
+                if (isPublic) return next();
+            }
             if (req.user && req.user.id && db) {
                 const authorized = await db.get(`
                     SELECT 1 FROM user_tiles ut
@@ -22,7 +31,7 @@ const authenticateBpmn = (req, res, next) => {
         } catch (error) {
             console.error('[AUTH BPMN] Error checking tile access:', error);
         }
-        res.status(403).json({ message: 'Accès refusé : administrateur ou accès Modélisation BPMN requis' });
+        res.status(403).json({ message: 'Accès refusé : tuile « Modélisation BPMN » non publique et non attribuée à votre compte' });
     });
 };
 
