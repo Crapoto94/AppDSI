@@ -7,6 +7,7 @@ import React, { useState, useEffect } from 'react';
 import { X, Plus, Users, UserPlus, Trash2, ChevronDown, Globe, Lock } from 'lucide-react';
 import { useADSearch } from '../utils/useADSearch';
 import type { ADUser } from '../utils/useADSearch';
+import SoftwareSelect from './SoftwareSelect';
 import DsiPresenceBadge, { loadDsiAgentsStatus, findDsiAgentStatus, buildDsiTooltip } from './DsiPresenceBadge';
 import type { DsiAgentStatus } from './DsiPresenceBadge';
 
@@ -52,6 +53,9 @@ const AddTaskModal: React.FC<AddTaskModalProps> = ({
   const [isPublic, setIsPublic]       = useState(false);
   const [classes, setClasses]         = useState<{ id: number; name: string; color: string; scope: string }[]>([]);
   const [classId, setClassId]         = useState('');
+  const [softwareId, setSoftwareId]   = useState('');
+  const [apps, setApps]               = useState<{ id: number; name: string }[]>([]);
+  const isSoftwareClass = classes.find(c => String(c.id) === classId)?.scope === 'software';
   const [saving, setSaving]           = useState(false);
   const [error, setError]             = useState<string | null>(null);
   const [pendingAbsentAgent, setPendingAbsentAgent] = useState<DsiAgentStatus | null>(null);
@@ -81,6 +85,8 @@ const AddTaskModal: React.FC<AddTaskModalProps> = ({
       .then(r => r.json())
       .then(d => setClasses(Array.isArray(d.classes) ? d.classes : []))
       .catch(() => {});
+    fetch('/api/magapp/apps', { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.json()).then(d => setApps(Array.isArray(d) ? d : [])).catch(() => {});
   }, [enableClasses, token]);
 
   // Load services when switching to service mode
@@ -192,7 +198,7 @@ const AddTaskModal: React.FC<AddTaskModalProps> = ({
         const mine = created.filter((t: any) => t?.id && (!currentUsername || String(t.username || '').toLowerCase() === currentUsername.toLowerCase()));
         await Promise.all(mine.map((t: any) => fetch('/api/tasks/classify', {
           method: 'PUT', headers: authHeaders,
-          body: JSON.stringify({ source: t.context_source || 'personal', task_id: String(t.id), class_id: Number(classId) }),
+          body: JSON.stringify({ source: t.context_source || 'personal', task_id: String(t.id), class_id: Number(classId), software_id: isSoftwareClass && softwareId ? Number(softwareId) : null }),
         }).catch(() => {})));
       }
       onCreated(data);
@@ -258,11 +264,16 @@ const AddTaskModal: React.FC<AddTaskModalProps> = ({
               <label style={{ fontSize: 12, fontWeight: 700, color: '#374151', display: 'block', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
                 Classe
               </label>
-              <select value={classId} onChange={e => setClassId(e.target.value)}
+              <select value={classId} onChange={e => { setClassId(e.target.value); setSoftwareId(''); }}
                 style={{ width: '100%', borderRadius: 8, border: '1px solid #e2e8f0', padding: '9px 12px', fontSize: 14, boxSizing: 'border-box', outline: 'none', background: 'white' }}>
                 <option value="">— Aucune classe —</option>
-                {classes.map(c => <option key={c.id} value={c.id}>{c.scope === 'team' ? '👥 ' : ''}{c.name}</option>)}
+                {classes.map(c => <option key={c.id} value={c.id}>{c.scope === 'team' ? '👥 ' : c.scope === 'software' ? '💾 ' : ''}{c.name}</option>)}
               </select>
+              {isSoftwareClass && (
+                <div style={{ marginTop: 8 }}>
+                  <SoftwareSelect apps={apps} value={softwareId} onChange={setSoftwareId} maxWidth={320} />
+                </div>
+              )}
               {classes.length === 0 && (
                 <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 4 }}>Aucune classe : créez-en depuis le bouton « Gérer » de la barre de filtres.</div>
               )}

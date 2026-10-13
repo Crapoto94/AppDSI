@@ -5075,6 +5075,13 @@ async function setupPgDb() {
         PRIMARY KEY (username, source, task_id)
       )
     `);
+    // Classe système « Logiciel » (pour tout le monde) : le rattachement d'une tâche porte alors un logiciel (magapp.apps).
+    try { await client.query(`ALTER TABLE hub.user_task_class_links ADD COLUMN IF NOT EXISTS software_id INTEGER REFERENCES magapp.apps(id) ON DELETE SET NULL`); } catch (e) {}
+    try {
+      await client.query(`INSERT INTO hub.user_task_classes (username, name, color, scope)
+        SELECT '__system__', 'Logiciel', '#0ea5e9', 'software'
+        WHERE NOT EXISTS (SELECT 1 FROM hub.user_task_classes WHERE scope = 'software')`);
+    } catch (e) { console.error('[PG DB] classe système Logiciel:', e.message); }
 
     // ── Migration fuseau horaire — LOT tâches (hub.user_tasks / hub.task_notes) ──────────
     // Même problème que le LOT 1 hub_tickets (cf. commentaire LOT 1 en haut de fichier) :

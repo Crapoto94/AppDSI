@@ -703,6 +703,24 @@ module.exports = {
                 );
                 created.push(rows[0]);
             }
+            // Tâche créée dans un ticket associé à un logiciel : classe « Logiciel » + logiciel du ticket,
+            // pour chaque destinataire (la classification est propre à chacun).
+            if (context_source === 'ticket' && context_id) {
+                try {
+                    const tk = (await pool.query('SELECT t.software_id FROM hub_tickets.tickets t JOIN magapp.apps a ON a.id = t.software_id WHERE t.glpi_id = $1', [context_id])).rows[0];
+                    const cls = (await pool.query("SELECT id FROM hub.user_task_classes WHERE scope = 'software' LIMIT 1")).rows[0];
+                    if (tk?.software_id && cls) {
+                        for (const t of created) {
+                            await pool.query(
+                                `INSERT INTO hub.user_task_class_links (username, source, task_id, class_id, software_id) VALUES ($1, $2, $3, $4, $5)
+                                 ON CONFLICT (username, source, task_id) DO UPDATE SET class_id = EXCLUDED.class_id, software_id = EXCLUDED.software_id`,
+                                [String(t.username).toLowerCase(), 'ticket', String(t.id), cls.id, tk.software_id]
+                            );
+                        }
+                    }
+                } catch (e) { console.error('[tasks] classe logiciel auto:', e.message); }
+            }
+
             // Notification immédiate des destinataires (≠ créateur). Fire-and-forget :
             // n'attend pas l'envoi des mails pour répondre, et n'échoue jamais la création.
             notifyTaskAssignment({
@@ -1435,11 +1453,14 @@ module.exports = {
                    FROM hub.user_task_classes c
                    LEFT JOIN hub_tickets.technician_groups g ON g.id = c.group_id
                   WHERE LOWER(c.username) = $1
+                     OR c.scope = 'software'
                      OR (c.scope = 'team' AND (c.group_id = ANY($2::int[]) OR ($3::text IS NOT NULL AND c.service_code = $3)))
                   ORDER BY LOWER(c.name)`, [un, groups.map(g => g.id), svc]
             )).rows;
             const links = (await pool.query(
-                'SELECT source, task_id, class_id FROM hub.user_task_class_links WHERE LOWER(username) = $1', [un]
+                `SELECT l.source, l.task_id, l.class_id, l.software_id, a.name AS software_name
+                   FROM hub.user_task_class_links l LEFT JOIN magapp.apps a ON a.id = l.software_id
+                  WHERE LOWER(l.username) = $1`, [un]
             )).rows;
             res.json({ classes, links, groups: allGroups });
         } catch (error) {
@@ -1530,7 +1551,7 @@ module.exports = {
     // PUT /api/tasks/classify { source, task_id, class_id | null }
     async classifyTask(req, res) {
         const un = req.user.username.toLowerCase();
-        const { source, task_id, class_id } = req.body || {};
+        const { source, task_id, class_id, software_id } = req.body || {};
         if (!source || task_id === undefined || task_id === null) return res.status(400).json({ error: 'source et task_id requis' });
         try {
             if (class_id === null || class_id === undefined) {
@@ -1542,17 +1563,19 @@ module.exports = {
             }
             const { svc, groups } = await getMyTeamScope(un);
             const own = await pool.query(
-                `SELECT 1 FROM hub.user_task_classes WHERE id = $1
-                    AND (LOWER(username) = $2 OR (scope = 'team' AND (group_id = ANY($3::int[]) OR ($4::text IS NOT NULL AND service_code = $4))))`,
+                `SELECT scope FROM hub.user_task_classes WHERE id = $1
+                    AND (LOWER(username) = $2 OR scope = 'software' OR (scope = 'team' AND (group_id = ANY($3::int[]) OR ($4::text IS NOT NULL AND service_code = $4))))`,
                 [parseInt(class_id, 10), un, groups.map(g => g.id), svc]
             );
             if (!own.rows.length) return res.status(404).json({ error: 'Classe introuvable' });
+            // Le logiciel n'a de sens que pour la classe système « Logiciel ».
+            const sw = own.rows[0].scope === 'software' && software_id ? parseInt(software_id, 10) : null;
             await pool.query(
-                `INSERT INTO hub.user_task_class_links (username, source, task_id, class_id) VALUES ($1, $2, $3, $4)
-                 ON CONFLICT (username, source, task_id) DO UPDATE SET class_id = EXCLUDED.class_id`,
-                [un, String(source), String(task_id), parseInt(class_id, 10)]
+                `INSERT INTO hub.user_task_class_links (username, source, task_id, class_id, software_id) VALUES ($1, $2, $3, $4, $5)
+                 ON CONFLICT (username, source, task_id) DO UPDATE SET class_id = EXCLUDED.class_id, software_id = EXCLUDED.software_id`,
+                [un, String(source), String(task_id), parseInt(class_id, 10), sw]
             );
-            res.json({ success: true, class_id: parseInt(class_id, 10) });
+            res.json({ success: true, class_id: parseInt(class_id, 10), software_id: sw });
         } catch (error) {
             res.status(500).json({ error: error.message });
         }
@@ -2252,6 +2275,40 @@ module.exports = {
                 terminees: completedMap[r.date] || 0,
             }));
             res.json(result);
+        } catch (error) {
+            res.status(500).json({ error: error.message });
+        }
+    },
+
+    // GET /api/tasks/stats — données brutes (12 derniers mois) pour les statistiques de « Mes tâches ».
+    // Périmètre : mes tâches stockées dans hub.user_tasks (seules à porter une vraie date de validation :
+    // updated_at au passage à « terminé »). Une tâche d'équipe terminée par un collègue n'est pas comptée.
+    async getTaskStats(req, res) {
+        const un = req.user.username.toLowerCase();
+        try {
+            const { rows } = await pool.query(
+                `SELECT ut.id, COALESCE(ut.context_source, 'personal') AS source, l.class_id, a.name AS software_name, COALESCE(ut.priority, 'normale') AS priority,
+                        ut.created_at, ut.updated_at, ut.echeance::text AS echeance, ut.statut, ut.created_by, ut.is_team_task, ut.taken_by
+                   FROM hub.user_tasks ut
+                   LEFT JOIN hub.user_task_class_links l
+                          ON LOWER(l.username) = $1 AND l.source = COALESCE(ut.context_source, 'personal') AND l.task_id = ut.id::text
+                   LEFT JOIN magapp.apps a ON a.id = l.software_id
+                  WHERE LOWER(ut.username) = $1
+                    AND (ut.created_at >= CURRENT_DATE - INTERVAL '12 months' OR ut.updated_at >= CURRENT_DATE - INTERVAL '12 months')`,
+                [un]
+            );
+            const out = rows.map(r => {
+                const done = ['terminé', 'terminee'].includes(r.statut);
+                const doneByOther = done && r.taken_by && r.taken_by.toLowerCase() !== un;
+                return {
+                    id: r.id, source: r.source, class_id: r.class_id, software_name: r.software_name || null, priority: r.priority,
+                    created_at: r.created_at, done_at: done && !doneByOther ? r.updated_at : null,
+                    done_by_other: !!doneByOther, refused: r.statut === 'refuse',
+                    echeance: r.echeance ? r.echeance.slice(0, 10) : null,
+                    assigned_by_other: !!r.created_by && r.created_by.toLowerCase() !== un, is_team: !!r.is_team_task,
+                };
+            });
+            res.json(out);
         } catch (error) {
             res.status(500).json({ error: error.message });
         }

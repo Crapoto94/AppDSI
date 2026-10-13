@@ -10,7 +10,8 @@ import {
   RefreshCcw, Zap, XCircle, Send, BarChart2, ChevronDown, ChevronUp, Star, Pencil, Globe, Lock, Search, Tag, UserCheck,
 } from 'lucide-react';
 import AddTaskModal from '../components/AddTaskModal';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
+import TaskStatsPanel from '../components/TaskStatsPanel';
+import SoftwareSelect from '../components/SoftwareSelect';
 
 interface TaskNote {
   id: number;
@@ -76,19 +77,13 @@ interface AssignedTask {
   assignees?: AssignedAssignee[];
 }
 
-interface TaskClass { id: number; name: string; color: string; scope: 'personal' | 'team'; mine: boolean; owner?: string; group_id?: number | null; group_name?: string | null; }
+interface TaskClass { id: number; name: string; color: string; scope: 'personal' | 'team' | 'software'; mine: boolean; owner?: string; group_id?: number | null; group_name?: string | null; }
 
 const CLASS_COLORS = ['#6366f1', '#2563eb', '#0891b2', '#059669', '#d97706', '#dc2626', '#db2777', '#7c3aed', '#64748b'];
 
 // Normalisation pour la recherche plein texte : minuscules, sans accents.
 function norm(v: unknown): string {
   return String(v ?? '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
-}
-
-interface KpiPoint {
-  date: string;
-  creees: number;
-  terminees: number;
 }
 
 const SOURCE_META: Record<Task['source'], {
@@ -306,6 +301,9 @@ const MesTaches: React.FC = () => {
   // ── Classification personnelle ───────────────────────────────────────────────
   const [classes, setClasses] = useState<TaskClass[]>([]);
   const [classLinks, setClassLinks] = useState<Record<string, number>>({});
+  // Classe système « Logiciel » : logiciel (magapp.apps) rattaché à la tâche
+  const [softwareLinks, setSoftwareLinks] = useState<Record<string, { id: number; name: string }>>({});
+  const [apps, setApps] = useState<{ id: number; name: string }[]>([]);
   const [filterClass, setFilterClass] = useState<string>('all'); // 'all' | 'none' | id
   const [showClassManager, setShowClassManager] = useState(false);
   const [newClassName, setNewClassName] = useState('');
@@ -374,10 +372,8 @@ const MesTaches: React.FC = () => {
   const [assignedTasks, setAssignedTasks] = useState<AssignedTask[]>([]);
   const [assignedLoading, setAssignedLoading] = useState(false);
 
-  // ── KPI history chart ─────────────────────────────────────────────────────────
+  // ── Statistiques ──────────────────────────────────────────────────────────────
   const [showChart, setShowChart]       = useState(false);
-  const [kpiHistory, setKpiHistory]     = useState<KpiPoint[]>([]);
-  const [kpiLoading, setKpiLoading]     = useState(false);
 
   const authHeaders = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
 
@@ -399,12 +395,22 @@ const MesTaches: React.FC = () => {
       setClasses(Array.isArray(data.classes) ? data.classes : []);
       setTeamGroups(Array.isArray(data.groups) ? data.groups : []);
       const m: Record<string, number> = {};
-      for (const l of (Array.isArray(data.links) ? data.links : [])) m[`${l.source}:${l.task_id}`] = l.class_id;
+      const sw: Record<string, { id: number; name: string }> = {};
+      for (const l of (Array.isArray(data.links) ? data.links : [])) {
+        m[`${l.source}:${l.task_id}`] = l.class_id;
+        if (l.software_id) sw[`${l.source}:${l.task_id}`] = { id: l.software_id, name: l.software_name || '' };
+      }
       setClassLinks(m);
+      setSoftwareLinks(sw);
     } catch { /* ignore */ }
   }, [token]);
 
-  const classifyTask = async (task: Task, classId: number | null) => {
+  useEffect(() => {
+    fetch('/api/magapp/apps', { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.json()).then(d => setApps(Array.isArray(d) ? d : [])).catch(() => {});
+  }, [token]);
+
+  const classifyTask = async (task: Task, classId: number | null, softwareId: number | null = null) => {
     const key = `${task.source}:${task.id}`;
     const previous = classLinks[key];
     setClassLinks(prev => {
@@ -412,13 +418,20 @@ const MesTaches: React.FC = () => {
       if (classId === null) delete n[key]; else n[key] = classId;
       return n;
     });
+    setSoftwareLinks(prev => {
+      const n = { ...prev };
+      const app = softwareId ? apps.find(a => a.id === softwareId) : null;
+      if (classId === null || !app) delete n[key]; else n[key] = { id: app.id, name: app.name };
+      return n;
+    });
     try {
       const res = await fetch('/api/tasks/classify', {
         method: 'PUT', headers: authHeaders,
-        body: JSON.stringify({ source: task.source, task_id: String(task.id), class_id: classId }),
+        body: JSON.stringify({ source: task.source, task_id: String(task.id), class_id: classId, software_id: softwareId }),
       });
       if (!res.ok) throw new Error();
     } catch {
+      fetchClasses();
       setClassLinks(prev => {
         const n = { ...prev };
         if (previous === undefined) delete n[key]; else n[key] = previous;
@@ -562,16 +575,6 @@ const MesTaches: React.FC = () => {
       );
     }
     return <EcheanceBadge d={echeance} />;
-  };
-
-  const fetchKpiHistory = async () => {
-    setKpiLoading(true);
-    try {
-      const res = await fetch('/api/tasks/kpi-history', { headers: { Authorization: `Bearer ${token}` } });
-      const data = await res.json();
-      setKpiHistory(Array.isArray(data) ? data : []);
-    } catch { setKpiHistory([]); }
-    finally { setKpiLoading(false); }
   };
 
   useEffect(() => { fetchTasks(); fetchClasses(); fetchAlertPref(); fetchAssignAlertPref(); fetchTodoPref(); }, [fetchTasks, fetchClasses, fetchAlertPref, fetchAssignAlertPref, fetchTodoPref]);
@@ -942,9 +945,9 @@ const MesTaches: React.FC = () => {
       t.statut, statutLabels[t.statut], t.priority, t.refus_raison, t.arbitrage_decision, t.arbitrage_comment,
       t.echeance, fr(t.echeance), t.created_at, t.updated_at, t.id,
       t.is_team_task ? 'equipe' : '', t.is_public ? 'publique' : '', t.is_favorite ? 'favori' : '',
-      cls?.name,
+      cls?.name, softwareLinks[`${t.source}:${t.id}`]?.name,
     ].filter(v => v !== null && v !== undefined).join(' \n '));
-  }, [classById, classLinks]);
+  }, [classById, classLinks, softwareLinks]);
 
   const filtered = useMemo(() => tasks.filter(t => {
     if (onlyAssignedToMe && !isAssignedToMeByOther(t)) return false;
@@ -1075,12 +1078,12 @@ const MesTaches: React.FC = () => {
               <Send size={13} /> Tâches affectées
             </button>
 
-            {/* Historique KPI */}
+            {/* Statistiques */}
             <button
-              onClick={() => { setShowChart(v => { if (!v) fetchKpiHistory(); return !v; }); }}
+              onClick={() => setShowChart(v => !v)}
               style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 14px', background: showChart ? '#eff6ff' : 'white', border: `1px solid ${showChart ? '#bfdbfe' : '#e2e8f0'}`, borderRadius: 8, cursor: 'pointer', color: showChart ? '#2563eb' : '#475569', fontSize: 13, fontWeight: 600 }}
             >
-              <BarChart2 size={13} /> Historique
+              <BarChart2 size={13} /> Statistiques
             </button>
 
             <button onClick={fetchTasks} disabled={loading} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 14px', background: 'white', border: '1px solid #e2e8f0', borderRadius: 8, cursor: 'pointer', color: '#475569', fontSize: 13, fontWeight: 600 }}>
@@ -1130,35 +1133,9 @@ const MesTaches: React.FC = () => {
           ))}
         </div>
 
-        {/* ── Historique KPI (graphe) ───────────────────────────────────────── */}
+        {/* ── Statistiques ──────────────────────────────────────────────────── */}
         {showChart && (
-          <div style={{ background: 'white', borderRadius: 10, padding: '16px 20px', marginBottom: 16, boxShadow: '0 1px 4px rgba(0,0,0,0.06)', border: '1px solid #e2e8f0' }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-              <h3 style={{ margin: 0, fontSize: 14, fontWeight: 700, color: '#1e293b' }}>
-                <BarChart2 size={14} style={{ verticalAlign: 'middle', marginRight: 6 }} />
-                Activité des 30 derniers jours
-              </h3>
-              <button onClick={() => setShowChart(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8' }}><X size={16} /></button>
-            </div>
-            {kpiLoading ? (
-              <div style={{ textAlign: 'center', padding: 30, color: '#64748b', fontSize: 13 }}>Chargement...</div>
-            ) : kpiHistory.length === 0 ? (
-              <div style={{ textAlign: 'center', padding: 30, color: '#94a3b8', fontSize: 13 }}>Aucune donnée sur les 30 derniers jours</div>
-            ) : (
-              <ResponsiveContainer width="100%" height={200}>
-                <LineChart data={kpiHistory} margin={{ top: 4, right: 12, left: -20, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-                  <XAxis dataKey="date" tick={{ fontSize: 10 }} tickFormatter={d => new Date(d).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short' })} />
-                  <YAxis tick={{ fontSize: 10 }} allowDecimals={false} />
-                  <Tooltip formatter={(v, n) => [v, n === 'creees' ? 'Créées' : 'Terminées']}
-                    labelFormatter={d => new Date(d).toLocaleDateString('fr-FR', { weekday: 'short', day: '2-digit', month: 'short' })} />
-                  <Legend formatter={v => v === 'creees' ? 'Créées' : 'Terminées'} iconSize={10} wrapperStyle={{ fontSize: 12 }} />
-                  <Line type="monotone" dataKey="creees" stroke="#2563eb" strokeWidth={2} dot={false} />
-                  <Line type="monotone" dataKey="terminees" stroke="#16a34a" strokeWidth={2} dot={false} />
-                </LineChart>
-              </ResponsiveContainer>
-            )}
-          </div>
+          <TaskStatsPanel token={token} tasks={tasks} classes={classes} classLinks={classLinks} onClose={() => setShowChart(false)} />
         )}
 
         {/* ── Tâches affectées ─────────────────────────────────────────────── */}
@@ -1271,7 +1248,7 @@ const MesTaches: React.FC = () => {
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
             <Tag size={13} style={{ color: '#64748b' }} />
             <span style={{ fontSize: 12, fontWeight: 600, color: '#64748b' }}>Classe :</span>
-            {[{ v: 'all', l: 'Toutes', color: '#334155' }, ...classes.map(c => ({ v: String(c.id), l: (c.scope === 'team' ? '👥 ' : '') + c.name, color: c.color })), { v: 'none', l: 'Non classées', color: '#64748b' }].map(({ v, l, color }) => (
+            {[{ v: 'all', l: 'Toutes', color: '#334155' }, ...classes.map(c => ({ v: String(c.id), l: (c.scope === 'team' ? '👥 ' : c.scope === 'software' ? '💾 ' : '') + c.name, color: c.color })), { v: 'none', l: 'Non classées', color: '#64748b' }].map(({ v, l, color }) => (
               <button key={v} onClick={() => setFilterClass(v)} style={{ padding: '3px 10px', borderRadius: 20, fontSize: 11, fontWeight: 600, cursor: 'pointer', border: filterClass === v ? `2px solid ${color}` : '1px solid #e2e8f0', background: filterClass === v ? color : 'white', color: filterClass === v ? 'white' : '#475569' }}>
                 {l}
               </button>
@@ -1460,8 +1437,14 @@ const MesTaches: React.FC = () => {
                           }}
                         >
                           <option value="">＋ Classe</option>
-                          {classes.map(c => <option key={c.id} value={c.id}>{c.scope === 'team' ? '👥 ' : ''}{c.name}</option>)}
+                          {classes.map(c => <option key={c.id} value={c.id}>{c.scope === 'team' ? '👥 ' : c.scope === 'software' ? '💾 ' : ''}{c.name}</option>)}
                         </select>
+                        {classById.get(classLinks[key])?.scope === 'software' && (
+                          <div style={{ marginTop: 4 }}>
+                            <SoftwareSelect apps={apps} maxWidth={160} value={softwareLinks[key] ? String(softwareLinks[key].id) : ''}
+                              onChange={v => classifyTask(task, classLinks[key], v ? Number(v) : null)} />
+                          </div>
+                        )}
                       </td>
 
                       {/* Échéance (modifiable en un clic si je suis le créateur) */}
@@ -1804,7 +1787,9 @@ const MesTaches: React.FC = () => {
                   onBlur={e => { const v = e.target.value.trim(); if (c.mine && v && v !== c.name) updateClass(c, { name: v }); else e.target.value = c.name; }}
                   onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
                   style={{ flex: 1, padding: '6px 10px', border: '1px solid #e2e8f0', borderRadius: 8, fontSize: 13, outline: 'none', background: c.mine ? 'white' : '#f8fafc' }} />
-                {c.mine ? (
+                {c.scope === 'software' ? (
+                  <span title="Classe système : le logiciel se choisit sur chaque tâche" style={{ fontSize: 11, color: '#0369a1', background: '#e0f2fe', borderRadius: 6, padding: '3px 8px', whiteSpace: 'nowrap' }}>💾 Pour tout le monde</span>
+                ) : c.mine ? (
                   <select value={c.scope} onChange={e => updateClass(c, { scope: e.target.value as 'personal' | 'team' })}
                     title="Portée de la classe"
                     style={{ fontSize: 11, padding: '4px 6px', border: '1px solid #e2e8f0', borderRadius: 6, background: 'white' }}>
@@ -1819,7 +1804,8 @@ const MesTaches: React.FC = () => {
                     {!c.group_id && <option value="">— équipe —</option>}
                     {teamGroups.map(g => <option key={g.id} value={g.id}>{g.name}</option>)}
                   </select>
-                ) : (
+                ) : null}
+                {!c.mine && c.scope !== 'software' && (
                   <span title={`Classe d'équipe créée par ${c.owner}`} style={{ fontSize: 11, color: '#4338ca', background: '#eef2ff', borderRadius: 6, padding: '3px 8px', whiteSpace: 'nowrap' }}>
                     👥 {c.group_name || 'Équipe'} · {c.owner}
                   </span>

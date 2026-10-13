@@ -68,6 +68,7 @@ router.get('/services',           authenticateJWT, (req, res) => controller.getS
 router.get('/ticket-groups',      apiTasks, (req, res) => controller.getTicketGroups(req, res));
 router.get('/by-context',         apiTasks, (req, res) => controller.getTasksByContext(req, res));
 router.get('/assigned-by-me',     authenticateJWT, (req, res) => controller.getAssignedByMe(req, res));
+router.get('/stats',              authenticateJWT, (req, res) => controller.getTaskStats(req, res));
 router.get('/kpi-history',        authenticateJWT, (req, res) => controller.getKpiHistory(req, res));
 
 // Classification personnelle (avant /:source/:id)
