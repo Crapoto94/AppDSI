@@ -1430,7 +1430,7 @@ const MesTaches: React.FC = () => {
                           onChange={e => classifyTask(task, e.target.value === '' ? null : Number(e.target.value))}
                           title="Classer cette tâche"
                           style={{
-                            fontSize: 10, fontWeight: 600, borderRadius: 6, padding: '1px 4px', cursor: 'pointer', maxWidth: 160,
+                            fontSize: 11, fontWeight: 600, borderRadius: 6, height: 22, boxSizing: 'border-box', padding: '0 4px', cursor: 'pointer', width: 150,
                             border: classById.get(classLinks[key]) ? 'none' : '1px dashed #cbd5e1',
                             background: classById.get(classLinks[key]) ? classById.get(classLinks[key])!.color : 'white',
                             color: classById.get(classLinks[key]) ? 'white' : '#94a3b8',
@@ -1441,7 +1441,7 @@ const MesTaches: React.FC = () => {
                         </select>
                         {classById.get(classLinks[key])?.scope === 'software' && (
                           <div style={{ marginTop: 4 }}>
-                            <SoftwareSelect apps={apps} maxWidth={160} value={softwareLinks[key] ? String(softwareLinks[key].id) : ''}
+                            <SoftwareSelect apps={apps} maxWidth={150} compact value={softwareLinks[key] ? String(softwareLinks[key].id) : ''}
                               onChange={v => classifyTask(task, classLinks[key], v ? Number(v) : null)} />
                           </div>
                         )}

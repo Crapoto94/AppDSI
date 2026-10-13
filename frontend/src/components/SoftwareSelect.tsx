@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 
 // Sélecteur de logiciel : trié alphabétiquement + zone de recherche filtrante.
-export default function SoftwareSelect({ apps, value, onChange, maxWidth = 180 }: { apps: any[]; value: string; onChange: (v: string) => void; maxWidth?: number }) {
+export default function SoftwareSelect({ apps, value, onChange, maxWidth = 180, compact = false }: { apps: any[]; value: string; onChange: (v: string) => void; maxWidth?: number; compact?: boolean }) {
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState('');
   const ref = useRef<HTMLDivElement>(null);
@@ -25,7 +25,7 @@ export default function SoftwareSelect({ apps, value, onChange, maxWidth = 180 }
   return (
     <div ref={ref} style={{ position: 'relative', width: '100%', maxWidth }}>
       <button type="button" onClick={() => { setOpen(o => !o); setQ(''); }}
-        style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6, width: '100%', padding: '5px 7px', border: '1px solid #e4e4e7', borderRadius: 6, fontSize: 12, background: '#fff', cursor: 'pointer', textAlign: 'left' }}>
+        style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6, width: '100%', ...(compact ? { height: 22, boxSizing: 'border-box' as const, padding: '0 6px', fontSize: 11, fontWeight: 600 } : { padding: '5px 7px', fontSize: 12 }), border: compact ? '1px solid #bae6fd' : '1px solid #e4e4e7', borderRadius: 6, background: '#fff', cursor: 'pointer', textAlign: 'left' }}>
         <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: selected ? '#3f3f46' : '#a1a1aa' }}>{selected ? selected.name : '— Non défini —'}</span>
         <span style={{ fontSize: 9, color: '#a1a1aa', flexShrink: 0 }}>▾</span>
       </button>

@@ -136,6 +136,9 @@ const AddTaskModal: React.FC<AddTaskModalProps> = ({
     if (isTeam && teamMode === 'service' && !selectedService) {
       setError('Sélectionnez un service'); return;
     }
+    if (enableClasses && isSoftwareClass && !softwareId) {
+      setError('Classe « Logiciel » : choisissez un logiciel'); return;
+    }
     if (isTeam && teamMode === 'group' && !selectedGroup) {
       setError('Sélectionnez une équipe'); return;
     }
@@ -272,6 +275,7 @@ const AddTaskModal: React.FC<AddTaskModalProps> = ({
               {isSoftwareClass && (
                 <div style={{ marginTop: 8 }}>
                   <SoftwareSelect apps={apps} value={softwareId} onChange={setSoftwareId} maxWidth={320} />
+                  {!softwareId && <div style={{ fontSize: 11, color: '#dc2626', marginTop: 4 }}>Logiciel obligatoire pour cette classe</div>}
                 </div>
               )}
               {classes.length === 0 && (
