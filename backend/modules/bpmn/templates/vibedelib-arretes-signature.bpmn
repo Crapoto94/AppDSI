@@ -1,0 +1,189 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" xmlns:dsi="http://dsi.ivry/schema/bpmn" id="Definitions_1" targetNamespace="http://bpmn.io/schema/bpmn">
+  <bpmn:collaboration id="Collaboration_1">
+    <bpmn:participant id="Participant_1" name="VibeDélib — Arrêtés et décisions : collecte, circuit et signature électronique du maire" processRef="Process_1" />
+  </bpmn:collaboration>
+  <bpmn:process id="Process_1" isExecutable="false">
+    <bpmn:documentation id="Doc_Process">Les actes signés par le maire (arrêtés, décisions) ne passent pas au Conseil. Ils entrent soit par le collecteur d'arrêtés (dossier réseau surveillé, analyse IA du PDF), soit par rédaction à la main, suivent éventuellement un circuit de validation, passent à l'état « À signer » et partent au parapheur du Hub DSI. L'acte officiel est le document revenu signé, publié sur les pages publiques sauf s'il est confidentiel. Reconstitué à partir du manifeste de VibeDélib (sections 19.4 et collecteurs d'arrêtés).</bpmn:documentation>
+    <bpmn:laneSet id="LaneSet_1">
+      <bpmn:lane id="Lane_0" name="Service rédacteur / collecteur d'arrêtés">
+        <bpmn:flowNodeRef>S1</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>S2</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>T_Redige</bpmn:flowNodeRef>
+      </bpmn:lane>
+      <bpmn:lane id="Lane_1" name="VibeDélib (système)">
+        <bpmn:flowNodeRef>T_Collecte</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>T_Circuit</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>T_ASigner</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>T_Place</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>T_Etat</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>T_Retour</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>T_Publie</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>E_End</bpmn:flowNodeRef>
+      </bpmn:lane>
+      <bpmn:lane id="Lane_2" name="Valideurs du circuit">
+        <bpmn:flowNodeRef>T_Valid</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>G_V</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>E_Ref</bpmn:flowNodeRef>
+      </bpmn:lane>
+      <bpmn:lane id="Lane_3" name="SCC / administrateur">
+        <bpmn:flowNodeRef>T_Envoi</bpmn:flowNodeRef>
+      </bpmn:lane>
+      <bpmn:lane id="Lane_4" name="Parapheur du Hub DSI (maire ou adjoint·e)">
+        <bpmn:flowNodeRef>T_Sign</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>G_Sig</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>E_Refus</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>App_Hub</bpmn:flowNodeRef>
+      </bpmn:lane>
+    </bpmn:laneSet>
+    <bpmn:startEvent id="S1" name="Arrêté déposé dans le dossier source">
+      <bpmn:documentation>Collecteur d'arrêtés : dossier UNC surveillé (smbclient sous Linux).</bpmn:documentation>
+      <bpmn:outgoing>F01</bpmn:outgoing>
+    </bpmn:startEvent>
+    <bpmn:startEvent id="S2" name="Décision rédigée à la main">
+      <bpmn:outgoing>F02</bpmn:outgoing>
+    </bpmn:startEvent>
+    <bpmn:serviceTask id="T_Collecte" name="Collecter le PDF et l'analyser avec l'IA">
+      <bpmn:documentation>L'IA propose nature, matière, rubrique, direction porteuse, communicabilité (normale ou confidentielle) et signataire ; réglages du collecteur prioritaires s'ils sont renseignés.</bpmn:documentation>
+      <bpmn:incoming>F01</bpmn:incoming>
+      <bpmn:outgoing>F03</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:userTask id="T_Redige" name="Rédiger la décision et lier les délibérations d'autorisation">
+      <bpmn:documentation>Une décision du maire prise par délégation du Conseil doit lier les délibérations adoptées qui l'autorisent (SIG-03).</bpmn:documentation>
+      <bpmn:incoming>F02</bpmn:incoming>
+      <bpmn:outgoing>F04</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:serviceTask id="T_Circuit" name="Entrer dans le circuit choisi (ou envoi direct)">
+      <bpmn:documentation>Contexte système tracé dans l'audit (acte.collecte, circuit.submit) ; sans circuit configuré, l'élu signataire doit être connu.</bpmn:documentation>
+      <bpmn:incoming>F03</bpmn:incoming>
+      <bpmn:incoming>F04</bpmn:incoming>
+      <bpmn:outgoing>F05</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:userTask id="T_Valid" name="Valider dans le circuit">
+      <bpmn:documentation>Aucune commission pour avis pour un acte signé par le maire.</bpmn:documentation>
+      <bpmn:incoming>F05</bpmn:incoming>
+      <bpmn:outgoing>F06</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:exclusiveGateway id="G_V" name="Circuit validé ?">
+      <bpmn:incoming>F06</bpmn:incoming>
+      <bpmn:outgoing>F07</bpmn:outgoing>
+      <bpmn:outgoing>F08</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:endEvent id="E_Ref" name="Renvoyé au rédacteur">
+      <bpmn:incoming>F08</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:serviceTask id="T_ASigner" name="Passer l'acte à « À signer »">
+      <bpmn:documentation>La fin du circuit déclenche l'envoi en signature (circuit.completed).</bpmn:documentation>
+      <bpmn:incoming>F07</bpmn:incoming>
+      <bpmn:outgoing>F09</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:serviceTask id="T_Place" name="Fixer l'emplacement de la signature">
+      <bpmn:documentation>Repère textuel (par exemple [SIGNATURE]) cherché dans le PDF final, ou position choisie à la main.</bpmn:documentation>
+      <bpmn:incoming>F09</bpmn:incoming>
+      <bpmn:outgoing>F10</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:userTask id="T_Envoi" name="Envoyer en signature">
+      <bpmn:documentation>Réservé à l'administrateur et au SCC, sur un acte visible, de type signé, à l'état À signer ou Signature refusée (SIG-04).</bpmn:documentation>
+      <bpmn:incoming>F10</bpmn:incoming>
+      <bpmn:outgoing>F11</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:userTask id="T_Sign" name="Signer (certificat P12 ou manuscrite)">
+      <bpmn:documentation>Le parapheur appose la signature, la mention « Signé électroniquement par… » et un QR de vérification sur toutes les pages (SIG-06).</bpmn:documentation>
+      <bpmn:incoming>F11</bpmn:incoming>
+      <bpmn:outgoing>F12</bpmn:outgoing>
+      <bpmn:dataOutputAssociation id="DA_App_Hub"><bpmn:targetRef>App_Hub</bpmn:targetRef></bpmn:dataOutputAssociation>
+    </bpmn:userTask>
+    <bpmn:exclusiveGateway id="G_Sig" name="Signature accordée ?">
+      <bpmn:incoming>F12</bpmn:incoming>
+      <bpmn:outgoing>F13</bpmn:outgoing>
+      <bpmn:outgoing>F14</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:endEvent id="E_Refus" name="Signature refusée : corriger ou relancer">
+      <bpmn:documentation>Statut Signature refusée, journalisé avec la réponse du parapheur (SIG-02).</bpmn:documentation>
+      <bpmn:incoming>F14</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:serviceTask id="T_Etat" name="Interroger l'état du parapheur">
+      <bpmn:documentation>Le parapheur du Hub n'a pas de webhook : l'état est relevé à intervalles réguliers (SIG-02).</bpmn:documentation>
+      <bpmn:incoming>F13</bpmn:incoming>
+      <bpmn:outgoing>F15</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:serviceTask id="T_Retour" name="Récupérer l'acte signé (document officiel)">
+      <bpmn:documentation>L'acte officiel est le document revenu du parapheur, non plus celui de VibeDélib (SIG-06).</bpmn:documentation>
+      <bpmn:incoming>F15</bpmn:incoming>
+      <bpmn:outgoing>F16</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:serviceTask id="T_Publie" name="Publier sur les pages publiques des arrêtés">
+      <bpmn:documentation>Pages /arretes et API publique, hors actes confidentiels ; recherche par numéro, texte, année.</bpmn:documentation>
+      <bpmn:incoming>F16</bpmn:incoming>
+      <bpmn:outgoing>F17</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:endEvent id="E_End" name="Acte signé et publié">
+      <bpmn:incoming>F17</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:sequenceFlow id="F01" sourceRef="S1" targetRef="T_Collecte" />
+    <bpmn:sequenceFlow id="F02" sourceRef="S2" targetRef="T_Redige" />
+    <bpmn:sequenceFlow id="F03" sourceRef="T_Collecte" targetRef="T_Circuit" />
+    <bpmn:sequenceFlow id="F04" sourceRef="T_Redige" targetRef="T_Circuit" />
+    <bpmn:sequenceFlow id="F05" sourceRef="T_Circuit" targetRef="T_Valid" />
+    <bpmn:sequenceFlow id="F06" sourceRef="T_Valid" targetRef="G_V" />
+    <bpmn:sequenceFlow id="F07" sourceRef="G_V" targetRef="T_ASigner" name="Oui" />
+    <bpmn:sequenceFlow id="F08" sourceRef="G_V" targetRef="E_Ref" name="Non" />
+    <bpmn:sequenceFlow id="F09" sourceRef="T_ASigner" targetRef="T_Place" />
+    <bpmn:sequenceFlow id="F10" sourceRef="T_Place" targetRef="T_Envoi" />
+    <bpmn:sequenceFlow id="F11" sourceRef="T_Envoi" targetRef="T_Sign" />
+    <bpmn:sequenceFlow id="F12" sourceRef="T_Sign" targetRef="G_Sig" />
+    <bpmn:sequenceFlow id="F13" sourceRef="G_Sig" targetRef="T_Etat" name="Oui" />
+    <bpmn:sequenceFlow id="F14" sourceRef="G_Sig" targetRef="E_Refus" name="Non" />
+    <bpmn:sequenceFlow id="F15" sourceRef="T_Etat" targetRef="T_Retour" />
+    <bpmn:sequenceFlow id="F16" sourceRef="T_Retour" targetRef="T_Publie" />
+    <bpmn:sequenceFlow id="F17" sourceRef="T_Publie" targetRef="E_End" />
+    <bpmn:dataStoreReference id="App_Hub" name="DSI Hub" dsi:applicationId="158" />
+  </bpmn:process>
+  <bpmndi:BPMNDiagram id="BPMNDiagram_1">
+    <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="Collaboration_1">
+      <bpmndi:BPMNShape id="Participant_1_di" bpmnElement="Participant_1" isHorizontal="true"><dc:Bounds x="160" y="80" width="2820" height="1130" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_0_di" bpmnElement="Lane_0" isHorizontal="true"><dc:Bounds x="190" y="80" width="2790" height="270" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_1_di" bpmnElement="Lane_1" isHorizontal="true"><dc:Bounds x="190" y="350" width="2790" height="160" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_2_di" bpmnElement="Lane_2" isHorizontal="true"><dc:Bounds x="190" y="510" width="2790" height="270" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_3_di" bpmnElement="Lane_3" isHorizontal="true"><dc:Bounds x="190" y="780" width="2790" height="160" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_4_di" bpmnElement="Lane_4" isHorizontal="true"><dc:Bounds x="190" y="940" width="2790" height="270" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S1_di" bpmnElement="S1"><dc:Bounds x="382" y="132" width="36" height="36" /><bpmndi:BPMNLabel><dc:Bounds x="340" y="172" width="120" height="40" /></bpmndi:BPMNLabel></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S2_di" bpmnElement="S2"><dc:Bounds x="382" y="242" width="36" height="36" /><bpmndi:BPMNLabel><dc:Bounds x="340" y="282" width="120" height="40" /></bpmndi:BPMNLabel></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Collecte_di" bpmnElement="T_Collecte"><dc:Bounds x="520" y="385" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Redige_di" bpmnElement="T_Redige"><dc:Bounds x="520" y="225" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Circuit_di" bpmnElement="T_Circuit"><dc:Bounds x="710" y="385" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Valid_di" bpmnElement="T_Valid"><dc:Bounds x="900" y="545" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="G_V_di" bpmnElement="G_V" isMarkerVisible="true"><dc:Bounds x="1135" y="555" width="50" height="50" /><bpmndi:BPMNLabel><dc:Bounds x="1100" y="609" width="120" height="40" /></bpmndi:BPMNLabel></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="E_Ref_di" bpmnElement="E_Ref"><dc:Bounds x="1332" y="672" width="36" height="36" /><bpmndi:BPMNLabel><dc:Bounds x="1290" y="712" width="120" height="40" /></bpmndi:BPMNLabel></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_ASigner_di" bpmnElement="T_ASigner"><dc:Bounds x="1280" y="385" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Place_di" bpmnElement="T_Place"><dc:Bounds x="1470" y="385" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Envoi_di" bpmnElement="T_Envoi"><dc:Bounds x="1660" y="815" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Sign_di" bpmnElement="T_Sign"><dc:Bounds x="1850" y="975" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="G_Sig_di" bpmnElement="G_Sig" isMarkerVisible="true"><dc:Bounds x="2085" y="985" width="50" height="50" /><bpmndi:BPMNLabel><dc:Bounds x="2050" y="1039" width="120" height="40" /></bpmndi:BPMNLabel></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="E_Refus_di" bpmnElement="E_Refus"><dc:Bounds x="2282" y="1102" width="36" height="36" /><bpmndi:BPMNLabel><dc:Bounds x="2240" y="1142" width="120" height="40" /></bpmndi:BPMNLabel></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Etat_di" bpmnElement="T_Etat"><dc:Bounds x="2230" y="385" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Retour_di" bpmnElement="T_Retour"><dc:Bounds x="2420" y="385" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Publie_di" bpmnElement="T_Publie"><dc:Bounds x="2610" y="385" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="E_End_di" bpmnElement="E_End"><dc:Bounds x="2852" y="402" width="36" height="36" /><bpmndi:BPMNLabel><dc:Bounds x="2810" y="442" width="120" height="40" /></bpmndi:BPMNLabel></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="App_Hub_di" bpmnElement="App_Hub"><dc:Bounds x="1860" y="1085" width="120" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="F01_di" bpmnElement="F01"><di:waypoint x="418" y="150" /><di:waypoint x="490" y="150" /><di:waypoint x="490" y="420" /><di:waypoint x="520" y="420" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F02_di" bpmnElement="F02"><di:waypoint x="418" y="260" /><di:waypoint x="520" y="260" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F03_di" bpmnElement="F03"><di:waypoint x="660" y="420" /><di:waypoint x="710" y="420" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F04_di" bpmnElement="F04"><di:waypoint x="660" y="260" /><di:waypoint x="680" y="260" /><di:waypoint x="680" y="420" /><di:waypoint x="710" y="420" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F05_di" bpmnElement="F05"><di:waypoint x="850" y="420" /><di:waypoint x="870" y="420" /><di:waypoint x="870" y="580" /><di:waypoint x="900" y="580" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F06_di" bpmnElement="F06"><di:waypoint x="1040" y="580" /><di:waypoint x="1135" y="580" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F07_di" bpmnElement="F07"><di:waypoint x="1160" y="555" /><di:waypoint x="1160" y="420" /><di:waypoint x="1280" y="420" /><bpmndi:BPMNLabel><dc:Bounds x="1164" y="535" width="40" height="14" /></bpmndi:BPMNLabel></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F08_di" bpmnElement="F08"><di:waypoint x="1160" y="605" /><di:waypoint x="1160" y="690" /><di:waypoint x="1332" y="690" /><bpmndi:BPMNLabel><dc:Bounds x="1164" y="585" width="40" height="14" /></bpmndi:BPMNLabel></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F09_di" bpmnElement="F09"><di:waypoint x="1420" y="420" /><di:waypoint x="1470" y="420" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F10_di" bpmnElement="F10"><di:waypoint x="1610" y="420" /><di:waypoint x="1630" y="420" /><di:waypoint x="1630" y="850" /><di:waypoint x="1660" y="850" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F11_di" bpmnElement="F11"><di:waypoint x="1800" y="850" /><di:waypoint x="1820" y="850" /><di:waypoint x="1820" y="1010" /><di:waypoint x="1850" y="1010" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F12_di" bpmnElement="F12"><di:waypoint x="1990" y="1010" /><di:waypoint x="2085" y="1010" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F13_di" bpmnElement="F13"><di:waypoint x="2110" y="985" /><di:waypoint x="2110" y="420" /><di:waypoint x="2230" y="420" /><bpmndi:BPMNLabel><dc:Bounds x="2114" y="965" width="40" height="14" /></bpmndi:BPMNLabel></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F14_di" bpmnElement="F14"><di:waypoint x="2110" y="1035" /><di:waypoint x="2110" y="1120" /><di:waypoint x="2282" y="1120" /><bpmndi:BPMNLabel><dc:Bounds x="2114" y="1015" width="40" height="14" /></bpmndi:BPMNLabel></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F15_di" bpmnElement="F15"><di:waypoint x="2370" y="420" /><di:waypoint x="2420" y="420" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F16_di" bpmnElement="F16"><di:waypoint x="2560" y="420" /><di:waypoint x="2610" y="420" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F17_di" bpmnElement="F17"><di:waypoint x="2750" y="420" /><di:waypoint x="2852" y="420" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="DA_App_Hub_di" bpmnElement="DA_App_Hub"><di:waypoint x="1920" y="1045" /><di:waypoint x="1920" y="1085" /></bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>

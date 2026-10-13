@@ -1,0 +1,232 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" xmlns:dsi="http://dsi.ivry/schema/bpmn" id="Definitions_1" targetNamespace="http://bpmn.io/schema/bpmn">
+  <bpmn:collaboration id="Collaboration_1">
+    <bpmn:participant id="Participant_1" name="VibeDélib — Rédaction d'un acte et circuit de validation" processRef="Process_1" />
+  </bpmn:collaboration>
+  <bpmn:process id="Process_1" isExecutable="false">
+    <bpmn:documentation id="Doc_Process">De la création d'un dossier à sa validation par le SCC : saisie de la fiche (type, matière, commissions pour avis, incidence financière, séance visée), rédaction en ligne avec suivi des modifications, contrôle de la date limite de rédaction (dérogation ou report), puis circuit de validation hiérarchique (responsable intermédiaire, chef de service, directeur, service financier si incidence financière, service juridique, DGA, DGS, SCC) avec refus motivé et reprise directe ou complète. Reconstitué à partir du manifeste de VibeDélib (sections 7 à 9 et 22).</bpmn:documentation>
+    <bpmn:laneSet id="LaneSet_1">
+      <bpmn:lane id="Lane_0" name="Rédacteur">
+        <bpmn:flowNodeRef>S</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>T_Create</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>T_Write</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>T_Derog</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>T_Send</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>T_Fix</bpmn:flowNodeRef>
+      </bpmn:lane>
+      <bpmn:lane id="Lane_1" name="Valideurs (hiérarchie, financier, juridique, DGA, DGS)">
+        <bpmn:flowNodeRef>T_Resp</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>T_Fin</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>T_Jur</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>T_Hier</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>G_Dec</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>T_Refus</bpmn:flowNodeRef>
+      </bpmn:lane>
+      <bpmn:lane id="Lane_2" name="SCC (Service Conseil et Contentieux)">
+        <bpmn:flowNodeRef>G_Derog</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>T_SCC</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>E_End</bpmn:flowNodeRef>
+      </bpmn:lane>
+      <bpmn:lane id="Lane_3" name="VibeDélib (système)">
+        <bpmn:flowNodeRef>T_Check</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>G_Late</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>T_Report</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>T_Resolve</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>G_Fin</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>T_Reprise</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>App_Hub</bpmn:flowNodeRef>
+      </bpmn:lane>
+    </bpmn:laneSet>
+    <bpmn:startEvent id="S" name="Besoin d'un acte pour le Conseil">
+      <bpmn:documentation>Un service doit faire adopter une délibération, un vœu ou une décision.</bpmn:documentation>
+      <bpmn:outgoing>F01</bpmn:outgoing>
+    </bpmn:startEvent>
+    <bpmn:userTask id="T_Create" name="Créer le dossier (type, direction, séance visée)">
+      <bpmn:documentation>Type d'acte, nature, rubrique, matière (nomenclature à 4 niveaux), rapporteur, commissions pour avis (0 à n, ou « hors commission »), incidence financière, séance visée proposée par le rédacteur. Un dossier = un exposé = n délibérations (D5).</bpmn:documentation>
+      <bpmn:incoming>F01</bpmn:incoming>
+      <bpmn:outgoing>F02</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:userTask id="T_Write" name="Rédiger l'exposé et la délibération en ligne">
+      <bpmn:documentation>Éditeur en ligne (aucun import/export Word) avec suivi des modifications coloré par auteur, annexes et visas issus de la bibliothèque de textes. L'assistant IA propose, l'agent valide toujours (D21).</bpmn:documentation>
+      <bpmn:incoming>F02</bpmn:incoming>
+      <bpmn:outgoing>F03</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:serviceTask id="T_Check" name="Contrôler la complétude et la date limite">
+      <bpmn:documentation>Champs obligatoires (CRE-02) et comparaison avec la date limite de rédaction de la séance visée (NOT-01).</bpmn:documentation>
+      <bpmn:incoming>F03</bpmn:incoming>
+      <bpmn:outgoing>F04</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:exclusiveGateway id="G_Late" name="Date limite de rédaction dépassée ?">
+      <bpmn:incoming>F04</bpmn:incoming>
+      <bpmn:outgoing>F05</bpmn:outgoing>
+      <bpmn:outgoing>F06</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:userTask id="T_Derog" name="Demander une dérogation (motif)">
+      <bpmn:documentation>Demande du rédacteur, de son chef de service ou de son directeur, éventuellement avec une nouvelle date limite souhaitée (NOT-06).</bpmn:documentation>
+      <bpmn:incoming>F06</bpmn:incoming>
+      <bpmn:outgoing>F07</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:exclusiveGateway id="G_Derog" name="Dérogation accordée (SCC ou DGS) ?">
+      <bpmn:incoming>F07</bpmn:incoming>
+      <bpmn:outgoing>F08</bpmn:outgoing>
+      <bpmn:outgoing>F09</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:serviceTask id="T_Report" name="Reporter sur la séance suivante">
+      <bpmn:documentation>Le blocage reste en vigueur : l'acte vise la séance suivante, avec trace (SEA-05, NOT-04).</bpmn:documentation>
+      <bpmn:incoming>F09</bpmn:incoming>
+      <bpmn:outgoing>F10</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:userTask id="T_Send" name="Envoyer au circuit">
+      <bpmn:documentation>Étape 0 : le rédacteur clique sur « Envoyer au circuit » (CIR-16). L'acte passe en « En circuit ».</bpmn:documentation>
+      <bpmn:incoming>F05</bpmn:incoming>
+      <bpmn:incoming>F08</bpmn:incoming>
+      <bpmn:incoming>F10</bpmn:incoming>
+      <bpmn:incoming>F24</bpmn:incoming>
+      <bpmn:outgoing>F11</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:serviceTask id="T_Resolve" name="Résoudre les valideurs de chaque étape">
+      <bpmn:documentation>Résolveurs configurables (n+1, responsable de service, directeur, DGA de rattachement, groupes, agent nommé) appliqués à la table des titulaires ; titulaires figés à l'entrée dans l'étape ; étape sans titulaire sautée et tracée ; auto-validation interdite (CIR-20 à CIR-25).</bpmn:documentation>
+      <bpmn:incoming>F11</bpmn:incoming>
+      <bpmn:outgoing>F12</bpmn:outgoing>
+      <bpmn:dataOutputAssociation id="DA_App_Hub"><bpmn:targetRef>App_Hub</bpmn:targetRef></bpmn:dataOutputAssociation>
+    </bpmn:serviceTask>
+    <bpmn:userTask id="T_Resp" name="Valider : responsable intermédiaire, chef de service, directeur">
+      <bpmn:documentation>Le responsable intermédiaire est optionnel (D4). Chaque valideur peut modifier le texte si l'étape l'autorise, ou refuser avec un motif obligatoire. Délégation possible (D25, D33).</bpmn:documentation>
+      <bpmn:incoming>F12</bpmn:incoming>
+      <bpmn:outgoing>F13</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:exclusiveGateway id="G_Fin" name="Incidence financière ?">
+      <bpmn:documentation>CIR-15 : « oui » impose le passage par le service financier avant le service juridique.</bpmn:documentation>
+      <bpmn:incoming>F13</bpmn:incoming>
+      <bpmn:outgoing>F14</bpmn:outgoing>
+      <bpmn:outgoing>F15</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:userTask id="T_Fin" name="Valider : service financier">
+      <bpmn:documentation>Étape ajoutée uniquement si l'incidence financière vaut « oui » ; un changement de ce champ après coup recalcule le chemin restant (CIR-14).</bpmn:documentation>
+      <bpmn:incoming>F14</bpmn:incoming>
+      <bpmn:outgoing>F16</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:userTask id="T_Jur" name="Valider : service juridique">
+      <bpmn:documentation>Contrôle de légalité interne, visas et références.</bpmn:documentation>
+      <bpmn:incoming>F15</bpmn:incoming>
+      <bpmn:incoming>F16</bpmn:incoming>
+      <bpmn:outgoing>F17</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:userTask id="T_Hier" name="Valider : DGA puis DGS">
+      <bpmn:documentation>DGA de tutelle (table de rattachement direction → DGA saisie à la main) puis DGS, non déléguable.</bpmn:documentation>
+      <bpmn:incoming>F17</bpmn:incoming>
+      <bpmn:outgoing>F18</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:exclusiveGateway id="G_Dec" name="Validé par tous les valideurs ?">
+      <bpmn:documentation>Sur chacune des étapes, le valideur peut valider ou refuser. Un refus peut viser n'importe quelle étape antérieure (CIR-13).</bpmn:documentation>
+      <bpmn:incoming>F18</bpmn:incoming>
+      <bpmn:outgoing>F19</bpmn:outgoing>
+      <bpmn:outgoing>F20</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:userTask id="T_SCC" name="Valider et prendre en charge (SCC)">
+      <bpmn:documentation>Dernière étape du circuit : l'acte est « Validé DGS » puis en attente d'affectation à l'ordre du jour par le SCC.</bpmn:documentation>
+      <bpmn:incoming>F19</bpmn:incoming>
+      <bpmn:outgoing>F21</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:endEvent id="E_End" name="Acte validé : suite en commissions et à l'ordre du jour">
+      <bpmn:documentation>Déclenche la mise à disposition aux commissions (processus « Commissions pour avis »).</bpmn:documentation>
+      <bpmn:incoming>F21</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:userTask id="T_Refus" name="Refuser avec motif et choisir l'étape de retour">
+      <bpmn:documentation>Motif obligatoire (CIR-12) ; retour à l'étape précédente réellement traversée, à la première ou à une étape au choix ; le refuseur choisit la reprise directe ou complète (CIR-11).</bpmn:documentation>
+      <bpmn:incoming>F20</bpmn:incoming>
+      <bpmn:outgoing>F22</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:serviceTask id="T_Reprise" name="Renvoyer l'acte et prévenir le rédacteur">
+      <bpmn:documentation>L'acte repasse en « Modification demandée » ; la mise à disposition en commission est suspendue si elle avait eu lieu (CMN-07).</bpmn:documentation>
+      <bpmn:incoming>F22</bpmn:incoming>
+      <bpmn:outgoing>F23</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:userTask id="T_Fix" name="Corriger le texte selon le motif">
+      <bpmn:documentation>Le rédacteur retravaille le dossier puis le renvoie au circuit (reprise directe : retour à l'étape qui a refusé).</bpmn:documentation>
+      <bpmn:incoming>F23</bpmn:incoming>
+      <bpmn:outgoing>F24</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:sequenceFlow id="F01" sourceRef="S" targetRef="T_Create" />
+    <bpmn:sequenceFlow id="F02" sourceRef="T_Create" targetRef="T_Write" />
+    <bpmn:sequenceFlow id="F03" sourceRef="T_Write" targetRef="T_Check" />
+    <bpmn:sequenceFlow id="F04" sourceRef="T_Check" targetRef="G_Late" />
+    <bpmn:sequenceFlow id="F05" sourceRef="G_Late" targetRef="T_Send" name="Non" />
+    <bpmn:sequenceFlow id="F06" sourceRef="G_Late" targetRef="T_Derog" name="Oui" />
+    <bpmn:sequenceFlow id="F07" sourceRef="T_Derog" targetRef="G_Derog" />
+    <bpmn:sequenceFlow id="F08" sourceRef="G_Derog" targetRef="T_Send" name="Oui" />
+    <bpmn:sequenceFlow id="F09" sourceRef="G_Derog" targetRef="T_Report" name="Non" />
+    <bpmn:sequenceFlow id="F10" sourceRef="T_Report" targetRef="T_Send" />
+    <bpmn:sequenceFlow id="F11" sourceRef="T_Send" targetRef="T_Resolve" />
+    <bpmn:sequenceFlow id="F12" sourceRef="T_Resolve" targetRef="T_Resp" />
+    <bpmn:sequenceFlow id="F13" sourceRef="T_Resp" targetRef="G_Fin" />
+    <bpmn:sequenceFlow id="F14" sourceRef="G_Fin" targetRef="T_Fin" name="Oui" />
+    <bpmn:sequenceFlow id="F15" sourceRef="G_Fin" targetRef="T_Jur" name="Non" />
+    <bpmn:sequenceFlow id="F16" sourceRef="T_Fin" targetRef="T_Jur" />
+    <bpmn:sequenceFlow id="F17" sourceRef="T_Jur" targetRef="T_Hier" />
+    <bpmn:sequenceFlow id="F18" sourceRef="T_Hier" targetRef="G_Dec" />
+    <bpmn:sequenceFlow id="F19" sourceRef="G_Dec" targetRef="T_SCC" name="Oui" />
+    <bpmn:sequenceFlow id="F20" sourceRef="G_Dec" targetRef="T_Refus" name="Non" />
+    <bpmn:sequenceFlow id="F21" sourceRef="T_SCC" targetRef="E_End" />
+    <bpmn:sequenceFlow id="F22" sourceRef="T_Refus" targetRef="T_Reprise" />
+    <bpmn:sequenceFlow id="F23" sourceRef="T_Reprise" targetRef="T_Fix" />
+    <bpmn:sequenceFlow id="F24" sourceRef="T_Fix" targetRef="T_Send" />
+    <bpmn:dataStoreReference id="App_Hub" name="DSI Hub" dsi:applicationId="158" />
+  </bpmn:process>
+  <bpmndi:BPMNDiagram id="BPMNDiagram_1">
+    <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="Collaboration_1">
+      <bpmndi:BPMNShape id="Participant_1_di" bpmnElement="Participant_1" isHorizontal="true"><dc:Bounds x="160" y="80" width="3770" height="970" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_0_di" bpmnElement="Lane_0" isHorizontal="true"><dc:Bounds x="190" y="80" width="3740" height="270" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_1_di" bpmnElement="Lane_1" isHorizontal="true"><dc:Bounds x="190" y="350" width="3740" height="270" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_2_di" bpmnElement="Lane_2" isHorizontal="true"><dc:Bounds x="190" y="620" width="3740" height="160" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_3_di" bpmnElement="Lane_3" isHorizontal="true"><dc:Bounds x="190" y="780" width="3740" height="270" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S_di" bpmnElement="S"><dc:Bounds x="382" y="132" width="36" height="36" /><bpmndi:BPMNLabel><dc:Bounds x="340" y="172" width="120" height="40" /></bpmndi:BPMNLabel></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Create_di" bpmnElement="T_Create"><dc:Bounds x="520" y="115" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Write_di" bpmnElement="T_Write"><dc:Bounds x="710" y="115" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Check_di" bpmnElement="T_Check"><dc:Bounds x="900" y="815" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="G_Late_di" bpmnElement="G_Late" isMarkerVisible="true"><dc:Bounds x="1135" y="825" width="50" height="50" /><bpmndi:BPMNLabel><dc:Bounds x="1100" y="879" width="120" height="40" /></bpmndi:BPMNLabel></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Derog_di" bpmnElement="T_Derog"><dc:Bounds x="1280" y="225" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="G_Derog_di" bpmnElement="G_Derog" isMarkerVisible="true"><dc:Bounds x="1515" y="665" width="50" height="50" /><bpmndi:BPMNLabel><dc:Bounds x="1480" y="719" width="120" height="40" /></bpmndi:BPMNLabel></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Report_di" bpmnElement="T_Report"><dc:Bounds x="1660" y="925" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Send_di" bpmnElement="T_Send"><dc:Bounds x="1850" y="115" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Resolve_di" bpmnElement="T_Resolve"><dc:Bounds x="2040" y="815" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Resp_di" bpmnElement="T_Resp"><dc:Bounds x="2230" y="385" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="G_Fin_di" bpmnElement="G_Fin" isMarkerVisible="true"><dc:Bounds x="2465" y="825" width="50" height="50" /><bpmndi:BPMNLabel><dc:Bounds x="2430" y="879" width="120" height="40" /></bpmndi:BPMNLabel></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Fin_di" bpmnElement="T_Fin"><dc:Bounds x="2610" y="495" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Jur_di" bpmnElement="T_Jur"><dc:Bounds x="2800" y="385" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Hier_di" bpmnElement="T_Hier"><dc:Bounds x="2990" y="385" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="G_Dec_di" bpmnElement="G_Dec" isMarkerVisible="true"><dc:Bounds x="3225" y="395" width="50" height="50" /><bpmndi:BPMNLabel><dc:Bounds x="3190" y="449" width="120" height="40" /></bpmndi:BPMNLabel></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_SCC_di" bpmnElement="T_SCC"><dc:Bounds x="3370" y="655" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="E_End_di" bpmnElement="E_End"><dc:Bounds x="3612" y="672" width="36" height="36" /><bpmndi:BPMNLabel><dc:Bounds x="3570" y="712" width="120" height="40" /></bpmndi:BPMNLabel></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Refus_di" bpmnElement="T_Refus"><dc:Bounds x="3370" y="495" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Reprise_di" bpmnElement="T_Reprise"><dc:Bounds x="3560" y="815" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Fix_di" bpmnElement="T_Fix"><dc:Bounds x="3750" y="115" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="App_Hub_di" bpmnElement="App_Hub"><dc:Bounds x="2050" y="925" width="120" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="F01_di" bpmnElement="F01"><di:waypoint x="418" y="150" /><di:waypoint x="520" y="150" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F02_di" bpmnElement="F02"><di:waypoint x="660" y="150" /><di:waypoint x="710" y="150" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F03_di" bpmnElement="F03"><di:waypoint x="850" y="150" /><di:waypoint x="870" y="150" /><di:waypoint x="870" y="850" /><di:waypoint x="900" y="850" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F04_di" bpmnElement="F04"><di:waypoint x="1040" y="850" /><di:waypoint x="1135" y="850" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F05_di" bpmnElement="F05"><di:waypoint x="1160" y="825" /><di:waypoint x="1160" y="150" /><di:waypoint x="1850" y="150" /><bpmndi:BPMNLabel><dc:Bounds x="1164" y="805" width="40" height="14" /></bpmndi:BPMNLabel></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F06_di" bpmnElement="F06"><di:waypoint x="1160" y="825" /><di:waypoint x="1160" y="260" /><di:waypoint x="1280" y="260" /><bpmndi:BPMNLabel><dc:Bounds x="1164" y="805" width="40" height="14" /></bpmndi:BPMNLabel></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F07_di" bpmnElement="F07"><di:waypoint x="1420" y="260" /><di:waypoint x="1485" y="260" /><di:waypoint x="1485" y="690" /><di:waypoint x="1515" y="690" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F08_di" bpmnElement="F08"><di:waypoint x="1540" y="665" /><di:waypoint x="1540" y="150" /><di:waypoint x="1850" y="150" /><bpmndi:BPMNLabel><dc:Bounds x="1544" y="645" width="40" height="14" /></bpmndi:BPMNLabel></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F09_di" bpmnElement="F09"><di:waypoint x="1540" y="715" /><di:waypoint x="1540" y="960" /><di:waypoint x="1660" y="960" /><bpmndi:BPMNLabel><dc:Bounds x="1544" y="695" width="40" height="14" /></bpmndi:BPMNLabel></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F10_di" bpmnElement="F10"><di:waypoint x="1800" y="960" /><di:waypoint x="1820" y="960" /><di:waypoint x="1820" y="150" /><di:waypoint x="1850" y="150" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F11_di" bpmnElement="F11"><di:waypoint x="1990" y="150" /><di:waypoint x="2010" y="150" /><di:waypoint x="2010" y="850" /><di:waypoint x="2040" y="850" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F12_di" bpmnElement="F12"><di:waypoint x="2180" y="850" /><di:waypoint x="2200" y="850" /><di:waypoint x="2200" y="420" /><di:waypoint x="2230" y="420" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F13_di" bpmnElement="F13"><di:waypoint x="2370" y="420" /><di:waypoint x="2435" y="420" /><di:waypoint x="2435" y="850" /><di:waypoint x="2465" y="850" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F14_di" bpmnElement="F14"><di:waypoint x="2490" y="825" /><di:waypoint x="2490" y="530" /><di:waypoint x="2610" y="530" /><bpmndi:BPMNLabel><dc:Bounds x="2494" y="805" width="40" height="14" /></bpmndi:BPMNLabel></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F15_di" bpmnElement="F15"><di:waypoint x="2490" y="825" /><di:waypoint x="2490" y="420" /><di:waypoint x="2800" y="420" /><bpmndi:BPMNLabel><dc:Bounds x="2494" y="805" width="40" height="14" /></bpmndi:BPMNLabel></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F16_di" bpmnElement="F16"><di:waypoint x="2750" y="530" /><di:waypoint x="2770" y="530" /><di:waypoint x="2770" y="420" /><di:waypoint x="2800" y="420" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F17_di" bpmnElement="F17"><di:waypoint x="2940" y="420" /><di:waypoint x="2990" y="420" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F18_di" bpmnElement="F18"><di:waypoint x="3130" y="420" /><di:waypoint x="3225" y="420" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F19_di" bpmnElement="F19"><di:waypoint x="3250" y="445" /><di:waypoint x="3250" y="690" /><di:waypoint x="3370" y="690" /><bpmndi:BPMNLabel><dc:Bounds x="3254" y="425" width="40" height="14" /></bpmndi:BPMNLabel></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F20_di" bpmnElement="F20"><di:waypoint x="3250" y="445" /><di:waypoint x="3250" y="530" /><di:waypoint x="3370" y="530" /><bpmndi:BPMNLabel><dc:Bounds x="3254" y="425" width="40" height="14" /></bpmndi:BPMNLabel></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F21_di" bpmnElement="F21"><di:waypoint x="3510" y="690" /><di:waypoint x="3612" y="690" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F22_di" bpmnElement="F22"><di:waypoint x="3510" y="530" /><di:waypoint x="3530" y="530" /><di:waypoint x="3530" y="850" /><di:waypoint x="3560" y="850" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F23_di" bpmnElement="F23"><di:waypoint x="3700" y="850" /><di:waypoint x="3720" y="850" /><di:waypoint x="3720" y="150" /><di:waypoint x="3750" y="150" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F24_di" bpmnElement="F24"><di:waypoint x="3820" y="115" /><di:waypoint x="3820" y="97" /><di:waypoint x="1920" y="97" /><di:waypoint x="1920" y="115" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="DA_App_Hub_di" bpmnElement="DA_App_Hub"><di:waypoint x="2110" y="885" /><di:waypoint x="2110" y="925" /></bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>

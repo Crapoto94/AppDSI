@@ -1,0 +1,181 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" xmlns:dsi="http://dsi.ivry/schema/bpmn" id="Definitions_1" targetNamespace="http://bpmn.io/schema/bpmn">
+  <bpmn:collaboration id="Collaboration_1">
+    <bpmn:participant id="Participant_1" name="VibeDélib — Tenue de séance : présences, quorum, vote et pièces produites" processRef="Process_1" />
+  </bpmn:collaboration>
+  <bpmn:process id="Process_1" isExecutable="false">
+    <bpmn:documentation id="Doc_Process">Déroulement d'une séance du Conseil dans VibeDélib, saisi en direct par le SCC et suivi en lecture seule par les autres agents : présences et procurations, quorum, traitement de chaque point (notes de débat, amendements), vote avec contrôle de la somme des voix, résultat calculé, texte adopté, puis extrait du registre et procès-verbal. Reconstitué à partir du manifeste de VibeDélib (section 19.1 à 19.3).</bpmn:documentation>
+    <bpmn:laneSet id="LaneSet_1">
+      <bpmn:lane id="Lane_0" name="SCC / secrétariat de séance">
+        <bpmn:flowNodeRef>S</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>T_Present</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>T_Susp</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>E_Susp</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>T_Debat</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>T_Vote</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>G_More</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>T_Close</bpmn:flowNodeRef>
+      </bpmn:lane>
+      <bpmn:lane id="Lane_1" name="VibeDélib (système)">
+        <bpmn:flowNodeRef>T_Quorum</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>G_Quorum</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>T_Ctrl</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>G_Res</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>T_Rejet</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>E_NonAdopt</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>T_Texte</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>T_Docs</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>E_End</bpmn:flowNodeRef>
+      </bpmn:lane>
+      <bpmn:lane id="Lane_2" name="Agents (suivi en direct)">
+        <bpmn:flowNodeRef>T_Live</bpmn:flowNodeRef>
+      </bpmn:lane>
+    </bpmn:laneSet>
+    <bpmn:startEvent id="S" name="Séance ouverte">
+      <bpmn:documentation>La séance passe de « convoquée » à « tenue ». Le président de séance par défaut est le maire (SEA-14).</bpmn:documentation>
+      <bpmn:outgoing>F01</bpmn:outgoing>
+    </bpmn:startEvent>
+    <bpmn:userTask id="T_Present" name="Saisir présences, pouvoirs et secrétaire de séance">
+      <bpmn:documentation>Présent, absent excusé, absent, représenté ; arrivées et départs horodatés ; un seul pouvoir par mandataire ; pré-rempli par les réponses à la convocation (SEAN-02, SEAN-03).</bpmn:documentation>
+      <bpmn:incoming>F01</bpmn:incoming>
+      <bpmn:outgoing>F02</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:serviceTask id="T_Quorum" name="Calculer le quorum">
+      <bpmn:documentation>Majorité des membres en exercice, recalculée à chaque point (SEAN-04).</bpmn:documentation>
+      <bpmn:incoming>F02</bpmn:incoming>
+      <bpmn:outgoing>F03</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:exclusiveGateway id="G_Quorum" name="Quorum atteint ?">
+      <bpmn:incoming>F03</bpmn:incoming>
+      <bpmn:outgoing>F04</bpmn:outgoing>
+      <bpmn:outgoing>F05</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:userTask id="T_Susp" name="Suspendre la séance">
+      <bpmn:incoming>F05</bpmn:incoming>
+      <bpmn:outgoing>F06</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:endEvent id="E_Susp" name="Séance suspendue ou reportée">
+      <bpmn:incoming>F06</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:userTask id="T_Debat" name="Traiter le point : débat, amendements">
+      <bpmn:documentation>Notes de débat par point (assistance IA possible) ; un amendement voté avant le texte modifie la délibération avec suivi des modifications (VOT-06, SEAN-07).</bpmn:documentation>
+      <bpmn:incoming>F04</bpmn:incoming>
+      <bpmn:incoming>F15</bpmn:incoming>
+      <bpmn:outgoing>F07</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:userTask id="T_Vote" name="Enregistrer le vote">
+      <bpmn:documentation>Main levée, scrutin public, scrutin secret ou unanimité ; compteurs pour, contre, abstention, ne prend pas part au vote, avec motif et sortie de salle pour un élu intéressé (VOT-01, VOT-02, VOT-05).</bpmn:documentation>
+      <bpmn:incoming>F07</bpmn:incoming>
+      <bpmn:outgoing>F08</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:serviceTask id="T_Ctrl" name="Contrôler la somme des voix et calculer le résultat">
+      <bpmn:documentation>La somme des voix doit égaler le nombre de votants (VOT-03) ; résultat : adoptée à l'unanimité ou à la majorité, rejetée, partage des voix (voix prépondérante) (VOT-04).</bpmn:documentation>
+      <bpmn:incoming>F08</bpmn:incoming>
+      <bpmn:outgoing>F09</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:exclusiveGateway id="G_Res" name="Délibération adoptée ?">
+      <bpmn:incoming>F09</bpmn:incoming>
+      <bpmn:outgoing>F10</bpmn:outgoing>
+      <bpmn:outgoing>F11</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:serviceTask id="T_Rejet" name="Enregistrer le statut : rejetée, retirée ou ajournée">
+      <bpmn:documentation>Le résultat alimente le statut de l'acte et prévient le rédacteur, le rapporteur et la direction (VOT-09).</bpmn:documentation>
+      <bpmn:incoming>F11</bpmn:incoming>
+      <bpmn:outgoing>F12</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:endEvent id="E_NonAdopt" name="Acte non adopté">
+      <bpmn:incoming>F12</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:serviceTask id="T_Texte" name="Produire le texte adopté">
+      <bpmn:documentation>Texte définitif avec les amendements adoptés, comparable au projet initial.</bpmn:documentation>
+      <bpmn:incoming>F10</bpmn:incoming>
+      <bpmn:outgoing>F13</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:serviceTask id="T_Live" name="Diffuser le résultat en direct">
+      <bpmn:documentation>Numéro de version de la séance et attente longue : les pages ouvertes se mettent à jour sans rechargement (LIVE-01).</bpmn:documentation>
+      <bpmn:incoming>F13</bpmn:incoming>
+      <bpmn:outgoing>F14</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:exclusiveGateway id="G_More" name="Autre point à traiter ?">
+      <bpmn:incoming>F14</bpmn:incoming>
+      <bpmn:outgoing>F15</bpmn:outgoing>
+      <bpmn:outgoing>F16</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:userTask id="T_Close" name="Clore la séance">
+      <bpmn:documentation>Verrouillage des votes et présences après clôture ; déverrouillage par le DGS ou l'administrateur avec motif (VOT-07).</bpmn:documentation>
+      <bpmn:incoming>F16</bpmn:incoming>
+      <bpmn:outgoing>F17</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:serviceTask id="T_Docs" name="Générer extrait du registre, procès-verbal et liste des délibérations">
+      <bpmn:documentation>PDF avec filigrane « PROJET » tant que la séance n'est pas close ; extrait au modèle de la Ville en trois parties (PST-01 à PST-06, TLT-36).</bpmn:documentation>
+      <bpmn:incoming>F17</bpmn:incoming>
+      <bpmn:outgoing>F18</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:endEvent id="E_End" name="Délibérations adoptées : suite au contrôle de légalité">
+      <bpmn:documentation>États suivants : Texte définitif prêt, Prêt à transmettre (PST-05).</bpmn:documentation>
+      <bpmn:incoming>F18</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:sequenceFlow id="F01" sourceRef="S" targetRef="T_Present" />
+    <bpmn:sequenceFlow id="F02" sourceRef="T_Present" targetRef="T_Quorum" />
+    <bpmn:sequenceFlow id="F03" sourceRef="T_Quorum" targetRef="G_Quorum" />
+    <bpmn:sequenceFlow id="F04" sourceRef="G_Quorum" targetRef="T_Debat" name="Oui" />
+    <bpmn:sequenceFlow id="F05" sourceRef="G_Quorum" targetRef="T_Susp" name="Non" />
+    <bpmn:sequenceFlow id="F06" sourceRef="T_Susp" targetRef="E_Susp" />
+    <bpmn:sequenceFlow id="F07" sourceRef="T_Debat" targetRef="T_Vote" />
+    <bpmn:sequenceFlow id="F08" sourceRef="T_Vote" targetRef="T_Ctrl" />
+    <bpmn:sequenceFlow id="F09" sourceRef="T_Ctrl" targetRef="G_Res" />
+    <bpmn:sequenceFlow id="F10" sourceRef="G_Res" targetRef="T_Texte" name="Oui" />
+    <bpmn:sequenceFlow id="F11" sourceRef="G_Res" targetRef="T_Rejet" name="Non" />
+    <bpmn:sequenceFlow id="F12" sourceRef="T_Rejet" targetRef="E_NonAdopt" />
+    <bpmn:sequenceFlow id="F13" sourceRef="T_Texte" targetRef="T_Live" />
+    <bpmn:sequenceFlow id="F14" sourceRef="T_Live" targetRef="G_More" />
+    <bpmn:sequenceFlow id="F15" sourceRef="G_More" targetRef="T_Debat" name="Oui" />
+    <bpmn:sequenceFlow id="F16" sourceRef="G_More" targetRef="T_Close" name="Non" />
+    <bpmn:sequenceFlow id="F17" sourceRef="T_Close" targetRef="T_Docs" />
+    <bpmn:sequenceFlow id="F18" sourceRef="T_Docs" targetRef="E_End" />
+  </bpmn:process>
+  <bpmndi:BPMNDiagram id="BPMNDiagram_1">
+    <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="Collaboration_1">
+      <bpmndi:BPMNShape id="Participant_1_di" bpmnElement="Participant_1" isHorizontal="true"><dc:Bounds x="160" y="80" width="2820" height="700" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_0_di" bpmnElement="Lane_0" isHorizontal="true"><dc:Bounds x="190" y="80" width="2790" height="270" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_1_di" bpmnElement="Lane_1" isHorizontal="true"><dc:Bounds x="190" y="350" width="2790" height="270" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_2_di" bpmnElement="Lane_2" isHorizontal="true"><dc:Bounds x="190" y="620" width="2790" height="160" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S_di" bpmnElement="S"><dc:Bounds x="382" y="132" width="36" height="36" /><bpmndi:BPMNLabel><dc:Bounds x="340" y="172" width="120" height="40" /></bpmndi:BPMNLabel></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Present_di" bpmnElement="T_Present"><dc:Bounds x="520" y="115" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Quorum_di" bpmnElement="T_Quorum"><dc:Bounds x="710" y="385" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="G_Quorum_di" bpmnElement="G_Quorum" isMarkerVisible="true"><dc:Bounds x="945" y="395" width="50" height="50" /><bpmndi:BPMNLabel><dc:Bounds x="910" y="449" width="120" height="40" /></bpmndi:BPMNLabel></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Susp_di" bpmnElement="T_Susp"><dc:Bounds x="1090" y="225" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="E_Susp_di" bpmnElement="E_Susp"><dc:Bounds x="1332" y="242" width="36" height="36" /><bpmndi:BPMNLabel><dc:Bounds x="1290" y="282" width="120" height="40" /></bpmndi:BPMNLabel></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Debat_di" bpmnElement="T_Debat"><dc:Bounds x="1090" y="115" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Vote_di" bpmnElement="T_Vote"><dc:Bounds x="1280" y="115" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Ctrl_di" bpmnElement="T_Ctrl"><dc:Bounds x="1470" y="385" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="G_Res_di" bpmnElement="G_Res" isMarkerVisible="true"><dc:Bounds x="1705" y="395" width="50" height="50" /><bpmndi:BPMNLabel><dc:Bounds x="1670" y="449" width="120" height="40" /></bpmndi:BPMNLabel></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Rejet_di" bpmnElement="T_Rejet"><dc:Bounds x="1850" y="495" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="E_NonAdopt_di" bpmnElement="E_NonAdopt"><dc:Bounds x="2092" y="512" width="36" height="36" /><bpmndi:BPMNLabel><dc:Bounds x="2050" y="552" width="120" height="40" /></bpmndi:BPMNLabel></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Texte_di" bpmnElement="T_Texte"><dc:Bounds x="1850" y="385" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Live_di" bpmnElement="T_Live"><dc:Bounds x="2040" y="655" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="G_More_di" bpmnElement="G_More" isMarkerVisible="true"><dc:Bounds x="2275" y="125" width="50" height="50" /><bpmndi:BPMNLabel><dc:Bounds x="2240" y="179" width="120" height="40" /></bpmndi:BPMNLabel></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Close_di" bpmnElement="T_Close"><dc:Bounds x="2420" y="115" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Docs_di" bpmnElement="T_Docs"><dc:Bounds x="2610" y="385" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="E_End_di" bpmnElement="E_End"><dc:Bounds x="2852" y="402" width="36" height="36" /><bpmndi:BPMNLabel><dc:Bounds x="2810" y="442" width="120" height="40" /></bpmndi:BPMNLabel></bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="F01_di" bpmnElement="F01"><di:waypoint x="418" y="150" /><di:waypoint x="520" y="150" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F02_di" bpmnElement="F02"><di:waypoint x="660" y="150" /><di:waypoint x="680" y="150" /><di:waypoint x="680" y="420" /><di:waypoint x="710" y="420" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F03_di" bpmnElement="F03"><di:waypoint x="850" y="420" /><di:waypoint x="945" y="420" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F04_di" bpmnElement="F04"><di:waypoint x="970" y="395" /><di:waypoint x="970" y="150" /><di:waypoint x="1090" y="150" /><bpmndi:BPMNLabel><dc:Bounds x="974" y="375" width="40" height="14" /></bpmndi:BPMNLabel></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F05_di" bpmnElement="F05"><di:waypoint x="970" y="395" /><di:waypoint x="970" y="260" /><di:waypoint x="1090" y="260" /><bpmndi:BPMNLabel><dc:Bounds x="974" y="375" width="40" height="14" /></bpmndi:BPMNLabel></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F06_di" bpmnElement="F06"><di:waypoint x="1230" y="260" /><di:waypoint x="1332" y="260" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F07_di" bpmnElement="F07"><di:waypoint x="1230" y="150" /><di:waypoint x="1280" y="150" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F08_di" bpmnElement="F08"><di:waypoint x="1420" y="150" /><di:waypoint x="1440" y="150" /><di:waypoint x="1440" y="420" /><di:waypoint x="1470" y="420" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F09_di" bpmnElement="F09"><di:waypoint x="1610" y="420" /><di:waypoint x="1705" y="420" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F10_di" bpmnElement="F10"><di:waypoint x="1755" y="420" /><di:waypoint x="1850" y="420" /><bpmndi:BPMNLabel><dc:Bounds x="1854" y="400" width="40" height="14" /></bpmndi:BPMNLabel></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F11_di" bpmnElement="F11"><di:waypoint x="1730" y="445" /><di:waypoint x="1730" y="530" /><di:waypoint x="1850" y="530" /><bpmndi:BPMNLabel><dc:Bounds x="1734" y="425" width="40" height="14" /></bpmndi:BPMNLabel></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F12_di" bpmnElement="F12"><di:waypoint x="1990" y="530" /><di:waypoint x="2092" y="530" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F13_di" bpmnElement="F13"><di:waypoint x="1990" y="420" /><di:waypoint x="2010" y="420" /><di:waypoint x="2010" y="690" /><di:waypoint x="2040" y="690" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F14_di" bpmnElement="F14"><di:waypoint x="2180" y="690" /><di:waypoint x="2245" y="690" /><di:waypoint x="2245" y="150" /><di:waypoint x="2275" y="150" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F15_di" bpmnElement="F15"><di:waypoint x="2300" y="125" /><di:waypoint x="2300" y="97" /><di:waypoint x="1160" y="97" /><di:waypoint x="1160" y="115" /><bpmndi:BPMNLabel><dc:Bounds x="2304" y="105" width="40" height="14" /></bpmndi:BPMNLabel></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F16_di" bpmnElement="F16"><di:waypoint x="2325" y="150" /><di:waypoint x="2420" y="150" /><bpmndi:BPMNLabel><dc:Bounds x="2424" y="130" width="40" height="14" /></bpmndi:BPMNLabel></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F17_di" bpmnElement="F17"><di:waypoint x="2560" y="150" /><di:waypoint x="2580" y="150" /><di:waypoint x="2580" y="420" /><di:waypoint x="2610" y="420" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F18_di" bpmnElement="F18"><di:waypoint x="2750" y="420" /><di:waypoint x="2852" y="420" /></bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>

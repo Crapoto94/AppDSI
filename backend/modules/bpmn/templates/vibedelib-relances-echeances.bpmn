@@ -1,0 +1,129 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" xmlns:dsi="http://dsi.ivry/schema/bpmn" id="Definitions_1" targetNamespace="http://bpmn.io/schema/bpmn">
+  <bpmn:collaboration id="Collaboration_1">
+    <bpmn:participant id="Participant_1" name="VibeDélib — Relances, escalade des valideurs et rétroplanning" processRef="Process_1" />
+  </bpmn:collaboration>
+  <bpmn:process id="Process_1" isExecutable="false">
+    <bpmn:documentation id="Doc_Process">Moteur de règles qui parcourt chaque jour ouvré les actes en attente d'un valideur et envoie les relances par paliers (R0 à l'arrivée, R1 à mi-SLA, R2 à l'échéance avec le supérieur en copie, R3 puis R4 avec directeur, SCC et DGS), jusqu'à ce que l'action attendue soit faite. Le SCC peut aussi relancer d'un coup les services dont les dossiers ne sont pas terminés. Reconstitué à partir du manifeste de VibeDélib (sections 9.6 et 22).</bpmn:documentation>
+    <bpmn:laneSet id="LaneSet_1">
+      <bpmn:lane id="Lane_0" name="Valideur de l'étape">
+        <bpmn:flowNodeRef>T_R1</bpmn:flowNodeRef>
+      </bpmn:lane>
+      <bpmn:lane id="Lane_1" name="VibeDélib (moteur de règles)">
+        <bpmn:flowNodeRef>S</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>T_Scan</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>G_Pal</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>E_Rien</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>T_Journal</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>E_End</bpmn:flowNodeRef>
+      </bpmn:lane>
+      <bpmn:lane id="Lane_2" name="Supérieur hiérarchique">
+        <bpmn:flowNodeRef>T_R2</bpmn:flowNodeRef>
+      </bpmn:lane>
+      <bpmn:lane id="Lane_3" name="SCC / DGS">
+        <bpmn:flowNodeRef>T_R3</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>S2</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>T_Manuel</bpmn:flowNodeRef>
+      </bpmn:lane>
+    </bpmn:laneSet>
+    <bpmn:startEvent id="S" name="Chaque jour ouvré, entre 8 h et 18 h">
+      <bpmn:documentation>Envois uniquement dans la plage 8 h – 18 h, jours ouvrés (22.3 bis).</bpmn:documentation>
+      <bpmn:outgoing>F01</bpmn:outgoing>
+      <bpmn:timerEventDefinition />
+    </bpmn:startEvent>
+    <bpmn:serviceTask id="T_Scan" name="Parcourir les actes en attente d'un valideur">
+      <bpmn:documentation>Comparaison de la date d'arrivée dans l'étape avec le SLA de l'étape (3 jours pour la hiérarchie, 5 pour le financier, le juridique, le DGS et le SCC) et rétroplanning issu de la date limite de la séance (CIR-40, NOT-03).</bpmn:documentation>
+      <bpmn:incoming>F01</bpmn:incoming>
+      <bpmn:outgoing>F02</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:exclusiveGateway id="G_Pal" name="Quel palier est atteint ?">
+      <bpmn:incoming>F02</bpmn:incoming>
+      <bpmn:outgoing>F03</bpmn:outgoing>
+      <bpmn:outgoing>F04</bpmn:outgoing>
+      <bpmn:outgoing>F05</bpmn:outgoing>
+      <bpmn:outgoing>F06</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:endEvent id="E_Rien" name="Aucune relance due">
+      <bpmn:incoming>F06</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:serviceTask id="T_R1" name="Relancer le valideur (R0 à l'arrivée, R1 à mi-SLA)">
+      <bpmn:documentation>Notification dans l'outil et mail au valideur de l'étape.</bpmn:documentation>
+      <bpmn:incoming>F03</bpmn:incoming>
+      <bpmn:outgoing>F07</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:serviceTask id="T_R2" name="Relancer avec le supérieur en copie (R2, échéance)">
+      <bpmn:documentation>Supérieur = fonction immédiatement au-dessus dans la table des titulaires : chef de service, directeur, DGA, DGS.</bpmn:documentation>
+      <bpmn:incoming>F04</bpmn:incoming>
+      <bpmn:outgoing>F08</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:serviceTask id="T_R3" name="Escalader au directeur et au SCC (R3, R4 avec le DGS)">
+      <bpmn:documentation>R3 à échéance + 2 jours, R4 à échéance + 5 jours, puis synthèse hebdomadaire au SCC (22.3 bis).</bpmn:documentation>
+      <bpmn:incoming>F05</bpmn:incoming>
+      <bpmn:outgoing>F09</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:serviceTask id="T_Journal" name="Tracer la relance dans le journal de l'acte">
+      <bpmn:documentation>Une relance s'arrête dès que l'action attendue est faite ; l'acte est signalé « en retard » (couleur et libellé).</bpmn:documentation>
+      <bpmn:incoming>F07</bpmn:incoming>
+      <bpmn:incoming>F08</bpmn:incoming>
+      <bpmn:incoming>F09</bpmn:incoming>
+      <bpmn:incoming>F12</bpmn:incoming>
+      <bpmn:outgoing>F10</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:endEvent id="E_End" name="Relance envoyée">
+      <bpmn:incoming>F10</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:startEvent id="S2" name="Le SCC relance les services d'un coup">
+      <bpmn:documentation>Depuis la carte d'une séance (SEA-16).</bpmn:documentation>
+      <bpmn:outgoing>F11</bpmn:outgoing>
+    </bpmn:startEvent>
+    <bpmn:userTask id="T_Manuel" name="Choisir les directions et les dossiers à relancer">
+      <bpmn:documentation>L'écran liste par direction les dossiers non terminés : étape, retard, détenteur et dernière relance.</bpmn:documentation>
+      <bpmn:incoming>F11</bpmn:incoming>
+      <bpmn:outgoing>F12</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:sequenceFlow id="F01" sourceRef="S" targetRef="T_Scan" />
+    <bpmn:sequenceFlow id="F02" sourceRef="T_Scan" targetRef="G_Pal" />
+    <bpmn:sequenceFlow id="F03" sourceRef="G_Pal" targetRef="T_R1" name="Mi-SLA" />
+    <bpmn:sequenceFlow id="F04" sourceRef="G_Pal" targetRef="T_R2" name="Échéance" />
+    <bpmn:sequenceFlow id="F05" sourceRef="G_Pal" targetRef="T_R3" name="Retard" />
+    <bpmn:sequenceFlow id="F06" sourceRef="G_Pal" targetRef="E_Rien" name="Aucun" />
+    <bpmn:sequenceFlow id="F07" sourceRef="T_R1" targetRef="T_Journal" />
+    <bpmn:sequenceFlow id="F08" sourceRef="T_R2" targetRef="T_Journal" />
+    <bpmn:sequenceFlow id="F09" sourceRef="T_R3" targetRef="T_Journal" />
+    <bpmn:sequenceFlow id="F10" sourceRef="T_Journal" targetRef="E_End" />
+    <bpmn:sequenceFlow id="F11" sourceRef="S2" targetRef="T_Manuel" />
+    <bpmn:sequenceFlow id="F12" sourceRef="T_Manuel" targetRef="T_Journal" />
+  </bpmn:process>
+  <bpmndi:BPMNDiagram id="BPMNDiagram_1">
+    <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="Collaboration_1">
+      <bpmndi:BPMNShape id="Participant_1_di" bpmnElement="Participant_1" isHorizontal="true"><dc:Bounds x="160" y="80" width="1300" height="860" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_0_di" bpmnElement="Lane_0" isHorizontal="true"><dc:Bounds x="190" y="80" width="1270" height="160" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_1_di" bpmnElement="Lane_1" isHorizontal="true"><dc:Bounds x="190" y="240" width="1270" height="270" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_2_di" bpmnElement="Lane_2" isHorizontal="true"><dc:Bounds x="190" y="510" width="1270" height="160" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_3_di" bpmnElement="Lane_3" isHorizontal="true"><dc:Bounds x="190" y="670" width="1270" height="270" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S_di" bpmnElement="S"><dc:Bounds x="382" y="292" width="36" height="36" /><bpmndi:BPMNLabel><dc:Bounds x="340" y="332" width="120" height="40" /></bpmndi:BPMNLabel></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Scan_di" bpmnElement="T_Scan"><dc:Bounds x="520" y="275" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="G_Pal_di" bpmnElement="G_Pal" isMarkerVisible="true"><dc:Bounds x="755" y="285" width="50" height="50" /><bpmndi:BPMNLabel><dc:Bounds x="720" y="339" width="120" height="40" /></bpmndi:BPMNLabel></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="E_Rien_di" bpmnElement="E_Rien"><dc:Bounds x="952" y="402" width="36" height="36" /><bpmndi:BPMNLabel><dc:Bounds x="910" y="442" width="120" height="40" /></bpmndi:BPMNLabel></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_R1_di" bpmnElement="T_R1"><dc:Bounds x="900" y="115" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_R2_di" bpmnElement="T_R2"><dc:Bounds x="900" y="545" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_R3_di" bpmnElement="T_R3"><dc:Bounds x="900" y="705" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Journal_di" bpmnElement="T_Journal"><dc:Bounds x="1090" y="275" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="E_End_di" bpmnElement="E_End"><dc:Bounds x="1332" y="292" width="36" height="36" /><bpmndi:BPMNLabel><dc:Bounds x="1290" y="332" width="120" height="40" /></bpmndi:BPMNLabel></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S2_di" bpmnElement="S2"><dc:Bounds x="382" y="832" width="36" height="36" /><bpmndi:BPMNLabel><dc:Bounds x="340" y="872" width="120" height="40" /></bpmndi:BPMNLabel></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Manuel_di" bpmnElement="T_Manuel"><dc:Bounds x="520" y="815" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="F01_di" bpmnElement="F01"><di:waypoint x="418" y="310" /><di:waypoint x="520" y="310" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F02_di" bpmnElement="F02"><di:waypoint x="660" y="310" /><di:waypoint x="755" y="310" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F03_di" bpmnElement="F03"><di:waypoint x="780" y="285" /><di:waypoint x="780" y="150" /><di:waypoint x="900" y="150" /><bpmndi:BPMNLabel><dc:Bounds x="784" y="265" width="40" height="14" /></bpmndi:BPMNLabel></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F04_di" bpmnElement="F04"><di:waypoint x="780" y="335" /><di:waypoint x="780" y="580" /><di:waypoint x="900" y="580" /><bpmndi:BPMNLabel><dc:Bounds x="784" y="315" width="40" height="14" /></bpmndi:BPMNLabel></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F05_di" bpmnElement="F05"><di:waypoint x="780" y="335" /><di:waypoint x="780" y="740" /><di:waypoint x="900" y="740" /><bpmndi:BPMNLabel><dc:Bounds x="784" y="315" width="40" height="14" /></bpmndi:BPMNLabel></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F06_di" bpmnElement="F06"><di:waypoint x="780" y="335" /><di:waypoint x="780" y="420" /><di:waypoint x="952" y="420" /><bpmndi:BPMNLabel><dc:Bounds x="784" y="315" width="40" height="14" /></bpmndi:BPMNLabel></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F07_di" bpmnElement="F07"><di:waypoint x="1040" y="150" /><di:waypoint x="1060" y="150" /><di:waypoint x="1060" y="310" /><di:waypoint x="1090" y="310" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F08_di" bpmnElement="F08"><di:waypoint x="1040" y="580" /><di:waypoint x="1060" y="580" /><di:waypoint x="1060" y="310" /><di:waypoint x="1090" y="310" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F09_di" bpmnElement="F09"><di:waypoint x="1040" y="740" /><di:waypoint x="1060" y="740" /><di:waypoint x="1060" y="310" /><di:waypoint x="1090" y="310" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F10_di" bpmnElement="F10"><di:waypoint x="1230" y="310" /><di:waypoint x="1332" y="310" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F11_di" bpmnElement="F11"><di:waypoint x="418" y="850" /><di:waypoint x="520" y="850" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F12_di" bpmnElement="F12"><di:waypoint x="660" y="850" /><di:waypoint x="1060" y="850" /><di:waypoint x="1060" y="310" /><di:waypoint x="1090" y="310" /></bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>
