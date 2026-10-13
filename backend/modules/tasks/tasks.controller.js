@@ -357,7 +357,7 @@ module.exports = {
                         -- vraie date. Le ORDER BY plus bas fait echeance::date : une valeur non-date
                         -- ferait planter TOUTE la requête (donc une liste de tâches vide pour
                         -- l'utilisateur concerné). On ne garde que les valeurs au format date.
-                        (CASE WHEN t.deadline ~ '^\d{4}-\d{2}-\d{2}' THEN t.deadline ELSE NULL END) AS echeance,
+                        (CASE WHEN t.deadline ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}' THEN t.deadline ELSE NULL END) AS echeance,
                         CASE WHEN t.is_completed = 1 THEN 'terminé' ELSE 'a_faire' END AS statut,
                         t.assignee    AS responsable,
                         t.created_at,
@@ -532,7 +532,7 @@ module.exports = {
                     -- Garde-fou défensif : echeance::date planterait toute la requête si une
                     -- branche remonte un jour une valeur non-date (cf. commentaire sur t.deadline
                     -- plus haut). On ignore silencieusement les valeurs non conformes.
-                    CASE WHEN echeance IS NOT NULL AND echeance ~ '^\d{4}-\d{2}-\d{2}' AND echeance::date < CURRENT_DATE THEN 0 ELSE 1 END,
+                    CASE WHEN echeance IS NOT NULL AND echeance ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}' AND echeance::date < CURRENT_DATE THEN 0 ELSE 1 END,
                     echeance ASC NULLS LAST,
                     created_at DESC
             `, [un, dn]);
@@ -583,7 +583,7 @@ module.exports = {
                     -- deadline::date non conforme ("Immédiat", "À définir", ...) ferait planter
                     -- toute la requête de comptage pour l'utilisateur concerné.
                     SELECT CASE WHEN is_completed=1 THEN 'terminé' ELSE 'a_faire' END,
-                           (CASE WHEN deadline ~ '^\d{4}-\d{2}-\d{2}' THEN deadline::date ELSE NULL END)
+                           (CASE WHEN deadline ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}' THEN deadline::date ELSE NULL END)
                     FROM transcript.tasks
                     WHERE is_completed = 0 AND (LOWER(assignee) = $1 OR LOWER(assignee) = $2)
 
@@ -2287,8 +2287,13 @@ async function buildTasksEmail(username, displayName) {
     const dn = displayName.toLowerCase();
     const un = username.toLowerCase();
 
+    // Les échéances peuvent être du texte libre (ex. « dès que possible » issu des transcripts) : on ne
+    // garde comme date que les valeurs au format AAAA-MM-JJ (sinon ::date plante toute la requête), et le
+    // texte brut reste disponible pour l'affichage (echeance_brute).
     const { rows } = await pool.query(`
         SELECT * FROM (
+        SELECT source, description, statut, echeance AS echeance_brute,
+               CASE WHEN echeance ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}' THEN echeance END AS echeance FROM (
             SELECT 'Personnel' AS source, description, echeance::text, statut FROM hub.user_tasks
             WHERE statut != 'terminé' AND LOWER(username) = $1
             UNION ALL
@@ -2316,6 +2321,7 @@ async function buildTasksEmail(username, displayName) {
             WHERE rt.statut != 'terminé'
               AND (LOWER(rt.responsable) = $1 OR LOWER(rt.responsable) = $2)
         ) q
+        ) z
         ORDER BY
             CASE WHEN echeance IS NOT NULL AND echeance::date < CURRENT_DATE THEN 0 ELSE 1 END,
             echeance ASC NULLS LAST
@@ -2329,7 +2335,8 @@ async function buildTasksEmail(username, displayName) {
 
     const rowHtml = (r, bg) => {
         const isOverdue = r.echeance && new Date(r.echeance) < new Date(new Date().toDateString());
-        const dateStr = r.echeance ? new Date(r.echeance).toLocaleDateString('fr-FR') : '—';
+        const dateStr = r.echeance ? new Date(r.echeance).toLocaleDateString('fr-FR')
+            : (r.echeance_brute ? String(r.echeance_brute).replace(/[<>&]/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c])) : '—');
         return `<tr style="background:${bg}">
             <td style="padding:8px 12px;border-bottom:1px solid #e2e8f0;font-size:13px;color:#64748b;white-space:nowrap">${r.source}</td>
             <td style="padding:8px 12px;border-bottom:1px solid #e2e8f0;font-size:13px;color:#1e293b">${r.description}</td>
