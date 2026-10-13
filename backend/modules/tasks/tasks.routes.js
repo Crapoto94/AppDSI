@@ -70,6 +70,13 @@ router.get('/by-context',         apiTasks, (req, res) => controller.getTasksByC
 router.get('/assigned-by-me',     authenticateJWT, (req, res) => controller.getAssignedByMe(req, res));
 router.get('/kpi-history',        authenticateJWT, (req, res) => controller.getKpiHistory(req, res));
 
+// Classification personnelle (avant /:source/:id)
+router.get('/classes',            authenticateJWT, (req, res) => controller.getTaskClasses(req, res));
+router.post('/classes',           authenticateJWT, (req, res) => controller.createTaskClass(req, res));
+router.patch('/classes/:id',      authenticateJWT, (req, res) => controller.updateTaskClass(req, res));
+router.delete('/classes/:id',     authenticateJWT, (req, res) => controller.deleteTaskClass(req, res));
+router.put('/classify',           authenticateJWT, (req, res) => controller.classifyTask(req, res));
+
 // MS Todo sync
 router.get('/todo-sync',          authenticateJWT, (req, res) => controller.getTodoSyncPref(req, res));
 router.patch('/todo-sync',        authenticateJWT, (req, res) => controller.setTodoSyncPref(req, res));

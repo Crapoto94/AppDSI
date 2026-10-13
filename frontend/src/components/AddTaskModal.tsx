@@ -55,12 +55,15 @@ const AddTaskModal: React.FC<AddTaskModalProps> = ({
 
   // Team task
   const [isTeam, setIsTeam]         = useState(false);
-  const [teamMode, setTeamMode]     = useState<'people' | 'service'>('people');
+  const [teamMode, setTeamMode]     = useState<'people' | 'service' | 'group'>('people');
   const [teamMembers, setTeamMembers] = useState<ADUser[]>([]);
   const teamAd = useADSearch(token);
   const [services, setServices]       = useState<Service[]>([]);
   const [selectedService, setSelectedService] = useState('');
   const [servicesLoading, setServicesLoading] = useState(false);
+  const [groups, setGroups]           = useState<{ id: number; name: string; members: string[] }[]>([]);
+  const [selectedGroup, setSelectedGroup] = useState('');
+  const [groupsLoading, setGroupsLoading] = useState(false);
 
   const authHeaders = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
 
@@ -78,6 +81,18 @@ const AddTaskModal: React.FC<AddTaskModalProps> = ({
 
 
 
+
+  // Équipes (groupes de techniciens)
+  useEffect(() => {
+    if (isTeam && teamMode === 'group' && groups.length === 0) {
+      setGroupsLoading(true);
+      fetch('/api/tasks/ticket-groups', { headers: { Authorization: `Bearer ${token}` } })
+        .then(r => r.json())
+        .then(d => setGroups(Array.isArray(d) ? d : []))
+        .catch(() => {})
+        .finally(() => setGroupsLoading(false));
+    }
+  }, [isTeam, teamMode, token, groups.length]);
 
   const addTeamMember = (user: ADUser) => {
     if (!teamMembers.some(m => m.username === user.username)) {
@@ -98,6 +113,9 @@ const AddTaskModal: React.FC<AddTaskModalProps> = ({
     }
     if (isTeam && teamMode === 'service' && !selectedService) {
       setError('Sélectionnez un service'); return;
+    }
+    if (isTeam && teamMode === 'group' && !selectedGroup) {
+      setError('Sélectionnez une équipe'); return;
     }
     if (!isTeam && responsableUsername) {
       try {
@@ -133,6 +151,8 @@ const AddTaskModal: React.FC<AddTaskModalProps> = ({
       if (isTeam) {
         if (teamMode === 'people') {
           body.assignees = teamMembers.map(m => m.username);
+        } else if (teamMode === 'group') {
+          body.ticket_group_id = Number(selectedGroup);
         } else {
           body.service_code = selectedService;
         }
@@ -292,9 +312,9 @@ const AddTaskModal: React.FC<AddTaskModalProps> = ({
               <div style={{ marginTop: 14 }}>
                 {/* Mode selector */}
                 <div style={{ display: 'flex', gap: 6, marginBottom: 12 }}>
-                  {(['people', 'service'] as const).map(mode => (
+                  {(['people', 'group', 'service'] as const).map(mode => (
                     <button key={mode} onClick={() => { setTeamMode(mode); setError(null); }} style={{ flex: 1, padding: '6px 10px', borderRadius: 7, border: `1.5px solid ${teamMode === mode ? '#2563eb' : '#e2e8f0'}`, background: teamMode === mode ? '#2563eb' : 'white', color: teamMode === mode ? 'white' : '#475569', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
-                      {mode === 'people' ? '👤 Par personnes' : '🏢 Par service'}
+                      {mode === 'people' ? '👤 Par personnes' : mode === 'group' ? '👥 Par équipe' : '🏢 Par service'}
                     </button>
                   ))}
                 </div>
@@ -345,6 +365,37 @@ const AddTaskModal: React.FC<AddTaskModalProps> = ({
                     </div>
                     {teamMembers.length === 0 && (
                       <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 6, fontStyle: 'italic' }}>Aucun membre ajouté — recherchez dans l'AD ci-dessus</div>
+                    )}
+                  </div>
+                )}
+
+                {teamMode === 'group' && (
+                  <div>
+                    {groupsLoading ? (
+                      <div style={{ fontSize: 12, color: '#64748b', textAlign: 'center', padding: 8 }}>Chargement des équipes...</div>
+                    ) : groups.length === 0 ? (
+                      <div style={{ fontSize: 12, color: '#94a3b8', textAlign: 'center', padding: 8 }}>Aucune équipe définie</div>
+                    ) : (
+                      <div style={{ position: 'relative' }}>
+                        <select
+                          value={selectedGroup}
+                          onChange={e => setSelectedGroup(e.target.value)}
+                          style={{ width: '100%', padding: '8px 32px 8px 10px', border: '1px solid #cbd5e1', borderRadius: 6, fontSize: 13, outline: 'none', appearance: 'none', background: 'white', cursor: 'pointer' }}
+                        >
+                          <option value="">— Sélectionnez une équipe —</option>
+                          {groups.map(g => (
+                            <option key={g.id} value={g.id}>
+                              {g.name} ({g.members.length} membre{g.members.length > 1 ? 's' : ''})
+                            </option>
+                          ))}
+                        </select>
+                        <ChevronDown size={14} style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', color: '#64748b', pointerEvents: 'none' }} />
+                      </div>
+                    )}
+                    {selectedGroup && (
+                      <div style={{ marginTop: 6, fontSize: 11, color: '#16a34a', fontWeight: 600 }}>
+                        ✓ La tâche sera assignée à tous les membres de l'équipe « {groups.find(g => String(g.id) === selectedGroup)?.name} »
+                      </div>
                     )}
                   </div>
                 )}

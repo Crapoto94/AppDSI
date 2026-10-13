@@ -5048,6 +5048,34 @@ async function setupPgDb() {
     try { await client.query(`CREATE INDEX IF NOT EXISTS idx_task_notes_src ON hub.task_notes(source, task_id)`); } catch (e) {}
     try { await client.query(`ALTER TABLE hub.task_notes ADD COLUMN IF NOT EXISTS file_missing BOOLEAN DEFAULT FALSE`); } catch (e) {}
 
+    // Classification personnelle des tâches (Mes tâches) : chaque utilisateur définit ses classes
+    // (ex. Projets, MCO, Support) et range ses tâches dedans (une classe max par tâche).
+    // Rattachement par username (jamais user.id : cf. JWT SQLite ≠ hub.users).
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS hub.user_task_classes (
+        id SERIAL PRIMARY KEY,
+        username TEXT NOT NULL,
+        name TEXT NOT NULL,
+        color TEXT DEFAULT '#6366f1',
+        created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    // scope : 'personal' (visible de son auteur seul) ou 'team' (partagée avec tout le service de l'auteur)
+    try { await client.query(`ALTER TABLE hub.user_task_classes ADD COLUMN IF NOT EXISTS scope TEXT DEFAULT 'personal'`); } catch (e) {}
+    try { await client.query(`ALTER TABLE hub.user_task_classes ADD COLUMN IF NOT EXISTS service_code TEXT`); } catch (e) {}
+    // Équipe cible d'une classe 'team' : groupe de techniciens (hub_tickets.technician_groups)
+    try { await client.query(`ALTER TABLE hub.user_task_classes ADD COLUMN IF NOT EXISTS group_id INTEGER REFERENCES hub_tickets.technician_groups(id) ON DELETE CASCADE`); } catch (e) {}
+    try { await client.query(`CREATE UNIQUE INDEX IF NOT EXISTS uq_user_task_classes_name ON hub.user_task_classes(LOWER(username), LOWER(name))`); } catch (e) {}
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS hub.user_task_class_links (
+        username TEXT NOT NULL,
+        source TEXT NOT NULL,
+        task_id TEXT NOT NULL,
+        class_id INTEGER NOT NULL REFERENCES hub.user_task_classes(id) ON DELETE CASCADE,
+        PRIMARY KEY (username, source, task_id)
+      )
+    `);
+
     // ── Migration fuseau horaire — LOT tâches (hub.user_tasks / hub.task_notes) ──────────
     // Même problème que le LOT 1 hub_tickets (cf. commentaire LOT 1 en haut de fichier) :
     // session DB en UTC + DEFAULT CURRENT_TIMESTAMP / NOW() → heure murale UTC stockée dans

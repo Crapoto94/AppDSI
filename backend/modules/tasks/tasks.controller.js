@@ -134,6 +134,36 @@ const normalizeStatutIn = (statut, source) => {
     return statut;
 };
 
+// Équipe = service (hub.users.service_code), comme pour la visibilité des tâches publiques.
+async function getMyServiceCode(username) {
+    try {
+        const r = await pool.query("SELECT NULLIF(service_code, '') AS sc FROM hub.users WHERE LOWER(username) = LOWER($1)", [username]);
+        return r.rows[0]?.sc || null;
+    } catch (e) { return null; }
+}
+
+// Portée « équipe » d'un utilisateur : équipes de techniciens (hub_tickets.technician_groups)
+// dont il est membre (jointure par username, jamais par user.id) + service hérité des anciennes classes.
+async function getMyTeamScope(username) {
+    const svc = await getMyServiceCode(username);
+    let groups = [];
+    try {
+        const r = await pool.query(
+            `SELECT g.id, g.name
+               FROM hub_tickets.technician_group_members tgm
+               JOIN hub.users u ON u.id = tgm.user_id
+               JOIN hub_tickets.technician_groups g ON g.id = tgm.group_id
+              WHERE LOWER(u.username) = LOWER($1) AND g.is_active IS NOT FALSE
+              ORDER BY g.name`, [username]);
+        groups = r.rows;
+    } catch (e) { /* ignore */ }
+    let allGroups = [];
+    try {
+        allGroups = (await pool.query('SELECT id, name FROM hub_tickets.technician_groups WHERE is_active IS NOT FALSE ORDER BY name')).rows;
+    } catch (e) { /* ignore */ }
+    return { svc, groups, allGroups };
+}
+
 async function getUserDisplayName(username) {
     try {
         const r = await pool.query(
@@ -1142,6 +1172,12 @@ module.exports = {
                     return res.status(400).json({ error: 'Source inconnue' });
             }
 
+            // Tâche rattachée à un projet : terminée → ajoutée au journal du projet (date = validation),
+            // rouverte → retirée.
+            await require('../projets/journal-auto').journaliserDepuisStatut({
+                source, id, statut, taskContext, isUserTask, username: req.user.username,
+            });
+
             // If it's a team task marked terminé, propagate to all tasks in the same team group
             if (statut === 'terminé' && taskContext?.is_team_task && taskContext?.team_group_id) {
                 try {
@@ -1378,6 +1414,145 @@ module.exports = {
 
             await pool.query(`UPDATE hub.user_tasks SET ${sets.join(', ')} WHERE ${whereSql}`, params);
             res.json({ success: true });
+        } catch (error) {
+            res.status(500).json({ error: error.message });
+        }
+    },
+
+    // ─── CLASSIFICATION PERSONNELLE ─────────────────────────────────────────────
+
+    // GET /api/tasks/classes → { classes, links, groups (toutes les équipes sélectionnables) }
+    // classes : les miennes + celles d'équipe (groupes de techniciens dont je suis membre ;
+    // ou, pour les anciennes, de mon service). mine = je peux les modifier.
+    // Rattachement : n'importe quelle équipe de /tickets/admin ; visibilité : ses membres.
+    async getTaskClasses(req, res) {
+        const un = req.user.username.toLowerCase();
+        try {
+            const { svc, groups, allGroups } = await getMyTeamScope(un);
+            const classes = (await pool.query(
+                `SELECT c.id, c.name, c.color, COALESCE(c.scope, 'personal') AS scope, (LOWER(c.username) = $1) AS mine,
+                        c.username AS owner, c.group_id, g.name AS group_name
+                   FROM hub.user_task_classes c
+                   LEFT JOIN hub_tickets.technician_groups g ON g.id = c.group_id
+                  WHERE LOWER(c.username) = $1
+                     OR (c.scope = 'team' AND (c.group_id = ANY($2::int[]) OR ($3::text IS NOT NULL AND c.service_code = $3)))
+                  ORDER BY LOWER(c.name)`, [un, groups.map(g => g.id), svc]
+            )).rows;
+            const links = (await pool.query(
+                'SELECT source, task_id, class_id FROM hub.user_task_class_links WHERE LOWER(username) = $1', [un]
+            )).rows;
+            res.json({ classes, links, groups: allGroups });
+        } catch (error) {
+            res.status(500).json({ error: error.message });
+        }
+    },
+
+    // POST /api/tasks/classes { name, color?, scope?: 'personal'|'team', group_id? }
+    async createTaskClass(req, res) {
+        const un = req.user.username.toLowerCase();
+        const name = String(req.body?.name || '').trim().slice(0, 50);
+        const color = /^#[0-9a-fA-F]{6}$/.test(req.body?.color || '') ? req.body.color : '#6366f1';
+        const scope = req.body?.scope === 'team' ? 'team' : 'personal';
+        if (!name) return res.status(400).json({ error: 'Nom de classe requis' });
+        try {
+            let groupId = null;
+            if (scope === 'team') {
+                const { allGroups } = await getMyTeamScope(un);
+                groupId = parseInt(req.body?.group_id, 10);
+                if (!allGroups.some(g => g.id === groupId)) return res.status(400).json({ error: 'Choisissez une équipe valide' });
+            }
+            const { rows } = await pool.query(
+                'INSERT INTO hub.user_task_classes (username, name, color, scope, group_id) VALUES ($1, $2, $3, $4, $5) RETURNING id, name, color, scope, group_id',
+                [un, name, color, scope, groupId]
+            );
+            res.json({ ...rows[0], mine: true });
+        } catch (error) {
+            if (error.code === '23505') return res.status(409).json({ error: 'Cette classe existe déjà' });
+            res.status(500).json({ error: error.message });
+        }
+    },
+
+    // PATCH /api/tasks/classes/:id { name?, color?, scope?, group_id? } — auteur uniquement
+    async updateTaskClass(req, res) {
+        const un = req.user.username.toLowerCase();
+        const sets = []; const params = [];
+        if (req.body?.name !== undefined) {
+            const name = String(req.body.name).trim().slice(0, 50);
+            if (!name) return res.status(400).json({ error: 'Nom de classe requis' });
+            params.push(name); sets.push(`name = $${params.length}`);
+        }
+        if (req.body?.color !== undefined) {
+            if (!/^#[0-9a-fA-F]{6}$/.test(req.body.color)) return res.status(400).json({ error: 'Couleur invalide' });
+            params.push(req.body.color); sets.push(`color = $${params.length}`);
+        }
+        try {
+            if (req.body?.scope !== undefined || req.body?.group_id !== undefined) {
+                const scope = req.body.scope === 'personal' ? 'personal' : 'team';
+                let groupId = null;
+                if (scope === 'team') {
+                    const { allGroups } = await getMyTeamScope(un);
+                    groupId = parseInt(req.body.group_id, 10);
+                    if (!allGroups.some(g => g.id === groupId)) return res.status(400).json({ error: 'Choisissez une équipe valide' });
+                }
+                params.push(scope); sets.push(`scope = $${params.length}`);
+                params.push(groupId); sets.push(`group_id = $${params.length}`);
+                sets.push('service_code = NULL');
+            }
+            if (!sets.length) return res.status(400).json({ error: 'Rien à modifier' });
+            params.push(parseInt(req.params.id, 10), un);
+            const { rows } = await pool.query(
+                `UPDATE hub.user_task_classes SET ${sets.join(', ')} WHERE id = $${params.length - 1} AND LOWER(username) = $${params.length} RETURNING id, name, color, scope, group_id`,
+                params
+            );
+            if (!rows.length) return res.status(404).json({ error: "Classe introuvable (ou vous n'en êtes pas l'auteur)" });
+            // Repassée en personnelle ou changée d'équipe : les rattachements des autres membres sont retirés.
+            if (req.body?.scope !== undefined || req.body?.group_id !== undefined) {
+                await pool.query('DELETE FROM hub.user_task_class_links WHERE class_id = $1 AND LOWER(username) <> $2', [rows[0].id, un]);
+            }
+            res.json({ ...rows[0], mine: true });
+        } catch (error) {
+            if (error.code === '23505') return res.status(409).json({ error: 'Cette classe existe déjà' });
+            res.status(500).json({ error: error.message });
+        }
+    },
+
+    // DELETE /api/tasks/classes/:id (auteur uniquement ; les rattachements partent en cascade)
+    async deleteTaskClass(req, res) {
+        const un = req.user.username.toLowerCase();
+        try {
+            await pool.query('DELETE FROM hub.user_task_classes WHERE id = $1 AND LOWER(username) = $2', [parseInt(req.params.id, 10), un]);
+            res.json({ success: true });
+        } catch (error) {
+            res.status(500).json({ error: error.message });
+        }
+    },
+
+    // PUT /api/tasks/classify { source, task_id, class_id | null }
+    async classifyTask(req, res) {
+        const un = req.user.username.toLowerCase();
+        const { source, task_id, class_id } = req.body || {};
+        if (!source || task_id === undefined || task_id === null) return res.status(400).json({ error: 'source et task_id requis' });
+        try {
+            if (class_id === null || class_id === undefined) {
+                await pool.query(
+                    'DELETE FROM hub.user_task_class_links WHERE LOWER(username) = $1 AND source = $2 AND task_id = $3',
+                    [un, String(source), String(task_id)]
+                );
+                return res.json({ success: true, class_id: null });
+            }
+            const { svc, groups } = await getMyTeamScope(un);
+            const own = await pool.query(
+                `SELECT 1 FROM hub.user_task_classes WHERE id = $1
+                    AND (LOWER(username) = $2 OR (scope = 'team' AND (group_id = ANY($3::int[]) OR ($4::text IS NOT NULL AND service_code = $4))))`,
+                [parseInt(class_id, 10), un, groups.map(g => g.id), svc]
+            );
+            if (!own.rows.length) return res.status(404).json({ error: 'Classe introuvable' });
+            await pool.query(
+                `INSERT INTO hub.user_task_class_links (username, source, task_id, class_id) VALUES ($1, $2, $3, $4)
+                 ON CONFLICT (username, source, task_id) DO UPDATE SET class_id = EXCLUDED.class_id`,
+                [un, String(source), String(task_id), parseInt(class_id, 10)]
+            );
+            res.json({ success: true, class_id: parseInt(class_id, 10) });
         } catch (error) {
             res.status(500).json({ error: error.message });
         }
