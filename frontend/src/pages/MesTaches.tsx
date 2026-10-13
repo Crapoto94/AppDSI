@@ -1687,7 +1687,9 @@ const MesTaches: React.FC = () => {
         <AddTaskModal
           token={token}
           contextSource="personal"
-          onCreated={handleCreated}
+          enableClasses
+          currentUsername={currentUsername}
+          onCreated={(created: any) => { handleCreated(created); fetchClasses(); }}
           onClose={() => setShowModal(false)}
         />
       )}

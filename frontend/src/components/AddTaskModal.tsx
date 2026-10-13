@@ -28,6 +28,10 @@ interface AddTaskModalProps {
   onClose: () => void;
   /** Optional title override */
   title?: string;
+  /** « Mes tâches » : propose le choix de la classe (classification personnelle) à la création */
+  enableClasses?: boolean;
+  /** Utilisateur connecté : seules les tâches qui lui sont affectées sont classées */
+  currentUsername?: string;
 }
 
 const AddTaskModal: React.FC<AddTaskModalProps> = ({
@@ -39,11 +43,15 @@ const AddTaskModal: React.FC<AddTaskModalProps> = ({
   onCreated,
   onClose,
   title,
+  enableClasses = false,
+  currentUsername = '',
 }) => {
   const [description, setDescription] = useState('');
   const [echeance, setEcheance]       = useState('');
   const [priority, setPriority]       = useState('normale');
   const [isPublic, setIsPublic]       = useState(false);
+  const [classes, setClasses]         = useState<{ id: number; name: string; color: string; scope: string }[]>([]);
+  const [classId, setClassId]         = useState('');
   const [saving, setSaving]           = useState(false);
   const [error, setError]             = useState<string | null>(null);
   const [pendingAbsentAgent, setPendingAbsentAgent] = useState<DsiAgentStatus | null>(null);
@@ -66,6 +74,14 @@ const AddTaskModal: React.FC<AddTaskModalProps> = ({
   const [groupsLoading, setGroupsLoading] = useState(false);
 
   const authHeaders = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
+
+  useEffect(() => {
+    if (!enableClasses) return;
+    fetch('/api/tasks/classes', { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.json())
+      .then(d => setClasses(Array.isArray(d.classes) ? d.classes : []))
+      .catch(() => {});
+  }, [enableClasses, token]);
 
   // Load services when switching to service mode
   useEffect(() => {
@@ -170,6 +186,15 @@ const AddTaskModal: React.FC<AddTaskModalProps> = ({
       });
       const data = await res.json();
       if (!res.ok) { setError(data.error || 'Erreur inconnue'); return; }
+      // Classe choisie : appliquée aux tâches créées qui me sont affectées (la classification est personnelle).
+      if (enableClasses && classId) {
+        const created = Array.isArray(data) ? data : [data];
+        const mine = created.filter((t: any) => t?.id && (!currentUsername || String(t.username || '').toLowerCase() === currentUsername.toLowerCase()));
+        await Promise.all(mine.map((t: any) => fetch('/api/tasks/classify', {
+          method: 'PUT', headers: authHeaders,
+          body: JSON.stringify({ source: t.context_source || 'personal', task_id: String(t.id), class_id: Number(classId) }),
+        }).catch(() => {})));
+      }
       onCreated(data);
       onClose();
     } catch { setError('Erreur réseau'); }
@@ -226,6 +251,23 @@ const AddTaskModal: React.FC<AddTaskModalProps> = ({
               style={{ width: '100%', borderRadius: 8, border: '1px solid #e2e8f0', padding: '9px 12px', fontSize: 14, boxSizing: 'border-box', outline: 'none', fontFamily: 'inherit' }}
             />
           </div>
+
+          {/* Classe (Mes tâches) */}
+          {enableClasses && (
+            <div>
+              <label style={{ fontSize: 12, fontWeight: 700, color: '#374151', display: 'block', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                Classe
+              </label>
+              <select value={classId} onChange={e => setClassId(e.target.value)}
+                style={{ width: '100%', borderRadius: 8, border: '1px solid #e2e8f0', padding: '9px 12px', fontSize: 14, boxSizing: 'border-box', outline: 'none', background: 'white' }}>
+                <option value="">— Aucune classe —</option>
+                {classes.map(c => <option key={c.id} value={c.id}>{c.scope === 'team' ? '👥 ' : ''}{c.name}</option>)}
+              </select>
+              {classes.length === 0 && (
+                <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 4 }}>Aucune classe : créez-en depuis le bouton « Gérer » de la barre de filtres.</div>
+              )}
+            </div>
+          )}
 
           {/* Priorité */}
           <div>
