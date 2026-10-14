@@ -387,6 +387,8 @@ controller.getDailyAvailability = async (req, res) => {
 // le panier est réservé, soit rien ne l'est).
 async function createLoanBatchCore({ items, user_id, username, email, nom_demandeur, direction, service, motif, start_date, end_date, is_internal, allowOverbook = false, requester = null }) {
   if (!Array.isArray(items) || items.length === 0) { const err = new Error('Le panier est vide'); err.status = 400; throw err; }
+  const range = availability.normalizeRange(start_date, end_date);
+  const loanEnd = range.endDate;
 
   // Seul un manque de quantité ('insufficient') peut être forcé par un admin
   // (allowOverbook) — matériel introuvable/désactivé ou dates invalides restent
@@ -415,7 +417,7 @@ async function createLoanBatchCore({ items, user_id, username, email, nom_demand
          (equipment_id, quantity, user_id, username, email, nom_demandeur, direction, service, motif, start_date, end_date, status, batch_id, is_internal)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'confirmed',$12,$13)`,
       [item.equipment_id, item.quantity, user_id || null, username || null, email || null, nom_demandeur || null,
-        direction || null, service || null, motif || null, start_date, end_date, batchId, !!is_internal]
+        direction || null, service || null, motif || null, start_date, loanEnd, batchId, !!is_internal]
     );
     loanIds.push(r.lastID);
     if (i === 0) {

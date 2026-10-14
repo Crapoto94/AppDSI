@@ -77,7 +77,7 @@ const PretRequestModal: React.FC<PretRequestModalProps> = ({ isOpen, onClose, to
   };
 
   const goToStep2 = () => {
-    if (new Date(endDate) <= new Date(startDate)) { setError('La date de retour doit être postérieure à la date de début'); return; }
+    if (new Date(endDate) < new Date(startDate)) { setError('La date de retour ne peut pas être antérieure à la date de début'); return; }
     setError('');
     setStep(2);
   };
