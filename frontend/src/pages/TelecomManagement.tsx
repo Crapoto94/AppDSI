@@ -479,7 +479,7 @@ const TelecomManagement: React.FC = () => {
     accounts: { account_number: string; designation: string; operator_name: string; total_invoiced: number }[];
   } | null>(null);
   // Édition inline du mois de rattachement / de la description d'une facture déjà intégrée
-  const [editingMeta, setEditingMeta] = useState<{ id: number; billing_month: string; description: string } | null>(null);
+  const [editingMeta, setEditingMeta] = useState<{ id: number; billing_month: string; description: string; billing_account_id: number | null } | null>(null);
 
   const [newAccount, setNewAccount] = useState<Partial<BillingAccount>>({
     type: 'Fixe',
@@ -1209,6 +1209,7 @@ const TelecomManagement: React.FC = () => {
       id: inv.id,
       billing_month: inv.billing_month || inv.effective_month || '',
       description: inv.description || '',
+      billing_account_id: inv.billing_account_id ?? null,
     });
   };
 
@@ -1218,7 +1219,7 @@ const TelecomManagement: React.FC = () => {
       const res = await fetch(`/api/telecom/invoices/${editingMeta.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-        body: JSON.stringify({ billing_month: editingMeta.billing_month, description: editingMeta.description }),
+        body: JSON.stringify({ billing_month: editingMeta.billing_month, description: editingMeta.description, billing_account_id: editingMeta.billing_account_id }),
       });
       if (res.ok) {
         setEditingMeta(null);
@@ -1797,7 +1798,21 @@ const TelecomManagement: React.FC = () => {
                           <td>{inv.invoice_date ? new Date(inv.invoice_date).toLocaleDateString('fr-FR') : 'Inconnue'}</td>
                           <td style={{ fontWeight: 700 }}>{inv.invoice_number}</td>
                           <td>{inv.operator_name || <span style={{ color: '#ef4444' }}>Inconnu</span>}</td>
-                          <td>{inv.account_number || <span style={{ color: '#ef4444' }}>Inconnu</span>}</td>
+                          <td>
+                            {isEditing ? (
+                              <select className="inv-edit-input" style={{ minWidth: 200 }} value={editingMeta!.billing_account_id ?? ''}
+                                onChange={e => setEditingMeta(m => m ? { ...m, billing_account_id: e.target.value ? parseInt(e.target.value) : null } : m)}>
+                                <option value="">— Aucun compte —</option>
+                                {operators.map(op => (
+                                  <optgroup key={op.id} label={op.name}>
+                                    {(billingAccounts[op.id] || []).map(acc => (
+                                      <option key={acc.id} value={acc.id}>{acc.account_number}{acc.designation ? ` (${acc.designation})` : ''}</option>
+                                    ))}
+                                  </optgroup>
+                                ))}
+                              </select>
+                            ) : (inv.account_number || <span style={{ color: '#ef4444' }}>Inconnu</span>)}
+                          </td>
                           <td style={{ fontFamily: 'monospace', fontSize: '0.8rem' }} title="Engagement auquel Sedit a rapproché la facture">
                             {inv.engagement ? inv.engagement.split(',').join(', ') : <span style={{ color: '#cbd5e1' }}>—</span>}
                           </td>
@@ -1838,7 +1853,7 @@ const TelecomManagement: React.FC = () => {
                                     </a>
                                   )}
                                   {!inv.rejected && (
-                                  <button className="edit-icon-btn" title="Modifier le mois / la description" onClick={() => startEditMeta(inv)}>
+                                  <button className="edit-icon-btn" title="Modifier le compte / le mois / la description" onClick={() => startEditMeta(inv)}>
                                     <Edit2 size={18} />
                                   </button>
                                   )}

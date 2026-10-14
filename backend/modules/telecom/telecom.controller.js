@@ -775,13 +775,26 @@ module.exports = {
     // Mise à jour partielle : un champ omis du corps de la requête conserve sa valeur actuelle.
     updateInvoiceMeta: async (req, res) => {
         try {
-            const current = await pgDb.get('SELECT billing_month, description FROM hub_telecom.invoices WHERE id = ?', [req.params.id]);
+            const current = await pgDb.get('SELECT billing_month, description, operator_id, billing_account_id FROM hub_telecom.invoices WHERE id = ?', [req.params.id]);
             if (!current) return res.status(404).json({ message: 'Facture introuvable' });
+            // Compte modifiable à la main : l'opérateur de la facture suit celui du compte choisi.
+            let operator_id = current.operator_id;
+            let billing_account_id = current.billing_account_id;
+            if (req.body.billing_account_id !== undefined) {
+                if (req.body.billing_account_id === null || req.body.billing_account_id === '') {
+                    billing_account_id = null;
+                } else {
+                    const acc = await pgDb.get('SELECT id, operator_id FROM hub_telecom.billing_accounts WHERE id = ?', [req.body.billing_account_id]);
+                    if (!acc) return res.status(400).json({ message: 'Compte de facturation introuvable' });
+                    billing_account_id = acc.id;
+                    operator_id = acc.operator_id;
+                }
+            }
             const billing_month = req.body.billing_month !== undefined ? (req.body.billing_month || null) : current.billing_month;
             const description = req.body.description !== undefined ? (req.body.description || null) : current.description;
             await pgDb.run(
-                'UPDATE hub_telecom.invoices SET billing_month = ?, description = ? WHERE id = ?',
-                [billing_month, description, req.params.id]
+                'UPDATE hub_telecom.invoices SET billing_month = ?, description = ?, billing_account_id = ?, operator_id = ? WHERE id = ?',
+                [billing_month, description, billing_account_id, operator_id, req.params.id]
             );
             res.json({ message: 'Mis à jour' });
         } catch (error) {
