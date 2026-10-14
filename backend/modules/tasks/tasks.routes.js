@@ -68,7 +68,15 @@ router.get('/services',           authenticateJWT, (req, res) => controller.getS
 router.get('/ticket-groups',      apiTasks, (req, res) => controller.getTicketGroups(req, res));
 router.get('/by-context',         apiTasks, (req, res) => controller.getTasksByContext(req, res));
 router.get('/assigned-by-me',     authenticateJWT, (req, res) => controller.getAssignedByMe(req, res));
+router.get('/stats',              authenticateJWT, (req, res) => controller.getTaskStats(req, res));
 router.get('/kpi-history',        authenticateJWT, (req, res) => controller.getKpiHistory(req, res));
+
+// Classification personnelle (avant /:source/:id)
+router.get('/classes',            authenticateJWT, (req, res) => controller.getTaskClasses(req, res));
+router.post('/classes',           authenticateJWT, (req, res) => controller.createTaskClass(req, res));
+router.patch('/classes/:id',      authenticateJWT, (req, res) => controller.updateTaskClass(req, res));
+router.delete('/classes/:id',     authenticateJWT, (req, res) => controller.deleteTaskClass(req, res));
+router.put('/classify',           authenticateJWT, (req, res) => controller.classifyTask(req, res));
 
 // MS Todo sync
 router.get('/todo-sync',          authenticateJWT, (req, res) => controller.getTodoSyncPref(req, res));
@@ -84,6 +92,13 @@ router.post('/external/rh-studio', apiTasks, (req, res) => controller.createExte
 // RH Studio -> DSI Hub : le manager a rempli le formulaire d'arrivée, le
 // ticket "En attente" passe "En cours" (même clé/scope que ci-dessus).
 router.patch('/external/rh-studio/onboarding-started', apiTasks, (req, res) => controller.markOnboardingTicketInProgress(req, res));
+// RH Studio -> DSI Hub : tâche miroir (dés)acquittée côté RH Studio.
+router.patch('/external/rh-studio/task-completed', apiTasks, (req, res) => controller.rhStudioTaskCompleted(req, res));
+// RH Studio -> DSI Hub : état complet de l'onboarding d'un ticket (checklist des
+// comptes à créer + réponses de l'encadrant écrites dans le corps du ticket).
+router.put('/external/rh-studio/onboarding-sync', apiTasks, (req, res) => controller.syncOnboardingFromRhStudio(req, res));
+// UI ticket : checklist onboarding en direct.
+router.get('/onboarding/:ticketId', authenticateJWT, (req, res) => controller.getTicketOnboarding(req, res));
 router.patch('/edit/:id',         authenticateJWT, (req, res) => controller.editTask(req, res));
 router.patch('/:source/:id/favorite',      authenticateJWT, (req, res) => controller.toggleFavorite(req, res));
 router.patch('/:source/:id',      authenticateJWT, (req, res) => controller.updateTaskStatus(req, res));

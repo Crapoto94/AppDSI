@@ -13,6 +13,45 @@ const setSendMail = (fn) => { sendMailFn = fn; };
 // localhost en production.
 const { getAppBaseUrl } = require('../../shared/app_url');
 
+// ─── ONBOARDING RH STUDIO : bloc « réponses de l'encadrant » dans le ticket ──
+const ONB_FORM_START = '<!--rhs-form-->';
+const ONB_FORM_END = '<!--/rhs-form-->';
+// Notice « Action requise » posée à la création du ticket (request-forms.controller.js) :
+// obsolète dès que l'encadrant a rempli le formulaire.
+const ONB_NOTICE_RE = /<div style="margin-top:16px;padding:12px 16px;border:1px solid #f0ad4e;[\s\S]*?<\/div>/;
+
+function onbEscape(s) {
+    return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+/** form : [{ title, items: [{ label, value }] }] — valeurs déjà formatées en texte. */
+function renderOnboardingFormBlock(form) {
+    const td1 = 'padding:4px 14px 4px 0;font-weight:600;white-space:nowrap;vertical-align:top;';
+    const sections = form
+        .filter((g) => Array.isArray(g.items) && g.items.length > 0)
+        .map((g) => {
+            const rows = g.items.map((it) =>
+                `<tr><td style="${td1}">${onbEscape(it.label)}</td><td style="padding:4px 0;white-space:pre-wrap;">${onbEscape(it.value)}</td></tr>`
+            ).join('');
+            const title = g.title ? `<div style="margin:10px 0 2px;font-weight:700;color:#4f46e5;">${onbEscape(g.title)}</div>` : '';
+            return `${title}<table style="border-collapse:collapse;">${rows}</table>`;
+        }).join('');
+    return `${ONB_FORM_START}<div style="margin-top:16px;padding:12px 16px;border:1px solid #c7d2fe;background:#f5f7ff;border-radius:6px;">`
+        + `<strong>✅ Formulaire complété par l'encadrant</strong>${sections}</div>${ONB_FORM_END}`;
+}
+
+/** Remplace le bloc existant (ou l'ajoute) et retire la notice « Action requise ». */
+function injectOnboardingFormBlock(content, form) {
+    const block = renderOnboardingFormBlock(form);
+    const start = content.indexOf(ONB_FORM_START);
+    const end = content.indexOf(ONB_FORM_END);
+    if (start !== -1 && end > start) {
+        return content.slice(0, start) + block + content.slice(end + ONB_FORM_END.length);
+    }
+    if (ONB_NOTICE_RE.test(content)) return content.replace(ONB_NOTICE_RE, () => block);
+    return content + block;
+}
+
 // ─── MS TODO HELPERS ─────────────────────────────────────────────────────────
 
 /** Fetch all tasks from a Todo list (auto-paginate; tries $expand=linkedResources, falls back without) */
@@ -94,6 +133,36 @@ const normalizeStatutIn = (statut, source) => {
     if ((source === 'projet' || source === 'projet_standalone') && statut === 'terminé') return 'terminee';
     return statut;
 };
+
+// Équipe = service (hub.users.service_code), comme pour la visibilité des tâches publiques.
+async function getMyServiceCode(username) {
+    try {
+        const r = await pool.query("SELECT NULLIF(service_code, '') AS sc FROM hub.users WHERE LOWER(username) = LOWER($1)", [username]);
+        return r.rows[0]?.sc || null;
+    } catch (e) { return null; }
+}
+
+// Portée « équipe » d'un utilisateur : équipes de techniciens (hub_tickets.technician_groups)
+// dont il est membre (jointure par username, jamais par user.id) + service hérité des anciennes classes.
+async function getMyTeamScope(username) {
+    const svc = await getMyServiceCode(username);
+    let groups = [];
+    try {
+        const r = await pool.query(
+            `SELECT g.id, g.name
+               FROM hub_tickets.technician_group_members tgm
+               JOIN hub.users u ON u.id = tgm.user_id
+               JOIN hub_tickets.technician_groups g ON g.id = tgm.group_id
+              WHERE LOWER(u.username) = LOWER($1) AND g.is_active IS NOT FALSE
+              ORDER BY g.name`, [username]);
+        groups = r.rows;
+    } catch (e) { /* ignore */ }
+    let allGroups = [];
+    try {
+        allGroups = (await pool.query('SELECT id, name FROM hub_tickets.technician_groups WHERE is_active IS NOT FALSE ORDER BY name')).rows;
+    } catch (e) { /* ignore */ }
+    return { svc, groups, allGroups };
+}
 
 async function getUserDisplayName(username) {
     try {
@@ -288,7 +357,7 @@ module.exports = {
                         -- vraie date. Le ORDER BY plus bas fait echeance::date : une valeur non-date
                         -- ferait planter TOUTE la requête (donc une liste de tâches vide pour
                         -- l'utilisateur concerné). On ne garde que les valeurs au format date.
-                        (CASE WHEN t.deadline ~ '^\d{4}-\d{2}-\d{2}' THEN t.deadline ELSE NULL END) AS echeance,
+                        (CASE WHEN t.deadline ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}' THEN t.deadline ELSE NULL END) AS echeance,
                         CASE WHEN t.is_completed = 1 THEN 'terminé' ELSE 'a_faire' END AS statut,
                         t.assignee    AS responsable,
                         t.created_at,
@@ -463,7 +532,7 @@ module.exports = {
                     -- Garde-fou défensif : echeance::date planterait toute la requête si une
                     -- branche remonte un jour une valeur non-date (cf. commentaire sur t.deadline
                     -- plus haut). On ignore silencieusement les valeurs non conformes.
-                    CASE WHEN echeance IS NOT NULL AND echeance ~ '^\d{4}-\d{2}-\d{2}' AND echeance::date < CURRENT_DATE THEN 0 ELSE 1 END,
+                    CASE WHEN echeance IS NOT NULL AND echeance ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}' AND echeance::date < CURRENT_DATE THEN 0 ELSE 1 END,
                     echeance ASC NULLS LAST,
                     created_at DESC
             `, [un, dn]);
@@ -514,7 +583,7 @@ module.exports = {
                     -- deadline::date non conforme ("Immédiat", "À définir", ...) ferait planter
                     -- toute la requête de comptage pour l'utilisateur concerné.
                     SELECT CASE WHEN is_completed=1 THEN 'terminé' ELSE 'a_faire' END,
-                           (CASE WHEN deadline ~ '^\d{4}-\d{2}-\d{2}' THEN deadline::date ELSE NULL END)
+                           (CASE WHEN deadline ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}' THEN deadline::date ELSE NULL END)
                     FROM transcript.tasks
                     WHERE is_completed = 0 AND (LOWER(assignee) = $1 OR LOWER(assignee) = $2)
 
@@ -634,6 +703,24 @@ module.exports = {
                 );
                 created.push(rows[0]);
             }
+            // Tâche créée dans un ticket associé à un logiciel : classe « Logiciel » + logiciel du ticket,
+            // pour chaque destinataire (la classification est propre à chacun).
+            if (context_source === 'ticket' && context_id) {
+                try {
+                    const tk = (await pool.query('SELECT t.software_id FROM hub_tickets.tickets t JOIN magapp.apps a ON a.id = t.software_id WHERE t.glpi_id = $1', [context_id])).rows[0];
+                    const cls = (await pool.query("SELECT id FROM hub.user_task_classes WHERE scope = 'software' LIMIT 1")).rows[0];
+                    if (tk?.software_id && cls) {
+                        for (const t of created) {
+                            await pool.query(
+                                `INSERT INTO hub.user_task_class_links (username, source, task_id, class_id, software_id) VALUES ($1, $2, $3, $4, $5)
+                                 ON CONFLICT (username, source, task_id) DO UPDATE SET class_id = EXCLUDED.class_id, software_id = EXCLUDED.software_id`,
+                                [String(t.username).toLowerCase(), 'ticket', String(t.id), cls.id, tk.software_id]
+                            );
+                        }
+                    }
+                } catch (e) { console.error('[tasks] classe logiciel auto:', e.message); }
+            }
+
             // Notification immédiate des destinataires (≠ créateur). Fire-and-forget :
             // n'attend pas l'envoi des mails pour répondre, et n'échoue jamais la création.
             notifyTaskAssignment({
@@ -734,6 +821,93 @@ module.exports = {
                 [ticket_id, 'Le manager a rempli le formulaire d\'arrivée (RH Studio) — demande en cours de traitement']
             );
             res.json({ ok: true });
+        } catch (error) {
+            res.status(500).json({ error: error.message });
+        }
+    },
+
+    // PATCH /api/tasks/external/rh-studio/task-completed
+    // Appelée par RH Studio quand une OnboardingTask ayant un miroir DSI Hub est
+    // (dés)acquittée côté RH Studio : on répercute l'état sur la tâche miroir
+    // (toutes les lignes de l'équipe si c'est une tâche d'équipe). SQL direct —
+    // surtout pas updateTaskStatus, qui rappellerait RH Studio (aller-retour infini).
+    async rhStudioTaskCompleted(req, res) {
+        const { dsihub_task_id, done } = req.body || {};
+        if (!dsihub_task_id) return res.status(400).json({ error: 'dsihub_task_id requis' });
+        try {
+            const task = await pgDb.get(
+                'SELECT id, team_group_id FROM hub.user_tasks WHERE id = ? AND rh_studio_task_id IS NOT NULL',
+                [dsihub_task_id]
+            );
+            if (!task) return res.status(404).json({ error: 'Tâche introuvable' });
+            const statut = done === false ? 'a_faire' : 'terminé';
+            if (task.team_group_id) {
+                await pgDb.run('UPDATE hub.user_tasks SET statut = ? WHERE team_group_id = ?', [statut, task.team_group_id]);
+            } else {
+                await pgDb.run('UPDATE hub.user_tasks SET statut = ? WHERE id = ?', [statut, task.id]);
+            }
+            res.json({ ok: true, statut });
+        } catch (error) {
+            res.status(500).json({ error: error.message });
+        }
+    },
+
+    // PUT /api/tasks/external/rh-studio/onboarding-sync
+    // RH Studio pousse l'état complet de l'onboarding rattaché à un ticket
+    // « Arrivée d'agent » (idempotent, rappelé à chaque changement) :
+    //   { ticket_id, onboarding_id, statut, agent: {...},
+    //     form: [{ title, items: [{ label, value }] }] | null,
+    //     tasks: [{ id, titre, kind, done, date_completion, commentaire, responsable }] }
+    // - la checklist (tasks) est stockée dans hub_tickets.ticket_onboarding et
+    //   affichée en direct dans le ticket (GET /api/tasks/onboarding/:ticketId) ;
+    // - les réponses de l'encadrant (form) sont écrites dans le corps du ticket,
+    //   dans un bloc balisé réécrit à chaque appel (jamais dupliqué).
+    async syncOnboardingFromRhStudio(req, res) {
+        const { ticket_id, onboarding_id, statut, agent, form, tasks } = req.body || {};
+        if (!ticket_id) return res.status(400).json({ error: 'ticket_id requis' });
+        try {
+            const ticket = await pgDb.get('SELECT glpi_id, content FROM hub_tickets.tickets WHERE glpi_id = ?', [ticket_id]);
+            if (!ticket) return res.status(404).json({ error: 'Ticket introuvable' });
+
+            // pool.query et non pgDb.run : ce dernier ajoute « RETURNING id » aux INSERT,
+            // or ticket_onboarding a ticket_id pour clé (pas de colonne id).
+            await pool.query(
+                `INSERT INTO hub_tickets.ticket_onboarding (ticket_id, onboarding_id, statut, agent, tasks, updated_at)
+                 VALUES ($1, $2, $3, $4::jsonb, $5::jsonb, NOW())
+                 ON CONFLICT (ticket_id) DO UPDATE SET onboarding_id = EXCLUDED.onboarding_id, statut = EXCLUDED.statut,
+                   agent = EXCLUDED.agent, tasks = EXCLUDED.tasks, updated_at = NOW()`,
+                [ticket_id, onboarding_id || null, statut || null, JSON.stringify(agent || {}), JSON.stringify(Array.isArray(tasks) ? tasks : [])]
+            );
+
+            let contentUpdated = false;
+            if (Array.isArray(form) && form.length > 0) {
+                const hadBlock = (ticket.content || '').includes(ONB_FORM_START);
+                const newContent = injectOnboardingFormBlock(ticket.content || '', form);
+                if (newContent !== ticket.content) {
+                    await pgDb.run('UPDATE hub_tickets.tickets SET content = ? WHERE glpi_id = ?', [newContent, ticket_id]);
+                    contentUpdated = true;
+                }
+                if (!hadBlock) {
+                    await pgDb.run(
+                        `INSERT INTO hub_tickets.ticket_history (ticket_id, user_id, action, field_name, old_value, new_value, comment) VALUES (?, NULL, 'onboarding_form_received', NULL, NULL, NULL, ?)`,
+                        [ticket_id, "Informations renseignées par l'encadrant ajoutées à la description du ticket (RH Studio)"]
+                    );
+                }
+            }
+            res.json({ ok: true, contentUpdated });
+        } catch (error) {
+            res.status(500).json({ error: error.message });
+        }
+    },
+
+    // GET /api/tasks/onboarding/:ticketId — checklist onboarding d'un ticket (UI)
+    async getTicketOnboarding(req, res) {
+        try {
+            const row = await pgDb.get(
+                'SELECT ticket_id, onboarding_id, statut, agent, tasks, updated_at FROM hub_tickets.ticket_onboarding WHERE ticket_id = ?',
+                [req.params.ticketId]
+            );
+            res.json(row || null);
         } catch (error) {
             res.status(500).json({ error: error.message });
         }
@@ -1016,6 +1190,12 @@ module.exports = {
                     return res.status(400).json({ error: 'Source inconnue' });
             }
 
+            // Tâche rattachée à un projet : terminée → ajoutée au journal du projet (date = validation),
+            // rouverte → retirée.
+            await require('../projets/journal-auto').journaliserDepuisStatut({
+                source, id, statut, taskContext, isUserTask, username: req.user.username,
+            });
+
             // If it's a team task marked terminé, propagate to all tasks in the same team group
             if (statut === 'terminé' && taskContext?.is_team_task && taskContext?.team_group_id) {
                 try {
@@ -1252,6 +1432,150 @@ module.exports = {
 
             await pool.query(`UPDATE hub.user_tasks SET ${sets.join(', ')} WHERE ${whereSql}`, params);
             res.json({ success: true });
+        } catch (error) {
+            res.status(500).json({ error: error.message });
+        }
+    },
+
+    // ─── CLASSIFICATION PERSONNELLE ─────────────────────────────────────────────
+
+    // GET /api/tasks/classes → { classes, links, groups (toutes les équipes sélectionnables) }
+    // classes : les miennes + celles d'équipe (groupes de techniciens dont je suis membre ;
+    // ou, pour les anciennes, de mon service). mine = je peux les modifier.
+    // Rattachement : n'importe quelle équipe de /tickets/admin ; visibilité : ses membres.
+    async getTaskClasses(req, res) {
+        const un = req.user.username.toLowerCase();
+        try {
+            const { svc, groups, allGroups } = await getMyTeamScope(un);
+            const classes = (await pool.query(
+                `SELECT c.id, c.name, c.color, COALESCE(c.scope, 'personal') AS scope, (LOWER(c.username) = $1) AS mine,
+                        c.username AS owner, c.group_id, g.name AS group_name
+                   FROM hub.user_task_classes c
+                   LEFT JOIN hub_tickets.technician_groups g ON g.id = c.group_id
+                  WHERE LOWER(c.username) = $1
+                     OR c.scope = 'software'
+                     OR (c.scope = 'team' AND (c.group_id = ANY($2::int[]) OR ($3::text IS NOT NULL AND c.service_code = $3)))
+                  ORDER BY LOWER(c.name)`, [un, groups.map(g => g.id), svc]
+            )).rows;
+            const links = (await pool.query(
+                `SELECT l.source, l.task_id, l.class_id, l.software_id, a.name AS software_name
+                   FROM hub.user_task_class_links l LEFT JOIN magapp.apps a ON a.id = l.software_id
+                  WHERE LOWER(l.username) = $1`, [un]
+            )).rows;
+            res.json({ classes, links, groups: allGroups });
+        } catch (error) {
+            res.status(500).json({ error: error.message });
+        }
+    },
+
+    // POST /api/tasks/classes { name, color?, scope?: 'personal'|'team', group_id? }
+    async createTaskClass(req, res) {
+        const un = req.user.username.toLowerCase();
+        const name = String(req.body?.name || '').trim().slice(0, 50);
+        const color = /^#[0-9a-fA-F]{6}$/.test(req.body?.color || '') ? req.body.color : '#6366f1';
+        const scope = req.body?.scope === 'team' ? 'team' : 'personal';
+        if (!name) return res.status(400).json({ error: 'Nom de classe requis' });
+        try {
+            let groupId = null;
+            if (scope === 'team') {
+                const { allGroups } = await getMyTeamScope(un);
+                groupId = parseInt(req.body?.group_id, 10);
+                if (!allGroups.some(g => g.id === groupId)) return res.status(400).json({ error: 'Choisissez une équipe valide' });
+            }
+            const { rows } = await pool.query(
+                'INSERT INTO hub.user_task_classes (username, name, color, scope, group_id) VALUES ($1, $2, $3, $4, $5) RETURNING id, name, color, scope, group_id',
+                [un, name, color, scope, groupId]
+            );
+            res.json({ ...rows[0], mine: true });
+        } catch (error) {
+            if (error.code === '23505') return res.status(409).json({ error: 'Cette classe existe déjà' });
+            res.status(500).json({ error: error.message });
+        }
+    },
+
+    // PATCH /api/tasks/classes/:id { name?, color?, scope?, group_id? } — auteur uniquement
+    async updateTaskClass(req, res) {
+        const un = req.user.username.toLowerCase();
+        const sets = []; const params = [];
+        if (req.body?.name !== undefined) {
+            const name = String(req.body.name).trim().slice(0, 50);
+            if (!name) return res.status(400).json({ error: 'Nom de classe requis' });
+            params.push(name); sets.push(`name = $${params.length}`);
+        }
+        if (req.body?.color !== undefined) {
+            if (!/^#[0-9a-fA-F]{6}$/.test(req.body.color)) return res.status(400).json({ error: 'Couleur invalide' });
+            params.push(req.body.color); sets.push(`color = $${params.length}`);
+        }
+        try {
+            if (req.body?.scope !== undefined || req.body?.group_id !== undefined) {
+                const scope = req.body.scope === 'personal' ? 'personal' : 'team';
+                let groupId = null;
+                if (scope === 'team') {
+                    const { allGroups } = await getMyTeamScope(un);
+                    groupId = parseInt(req.body.group_id, 10);
+                    if (!allGroups.some(g => g.id === groupId)) return res.status(400).json({ error: 'Choisissez une équipe valide' });
+                }
+                params.push(scope); sets.push(`scope = $${params.length}`);
+                params.push(groupId); sets.push(`group_id = $${params.length}`);
+                sets.push('service_code = NULL');
+            }
+            if (!sets.length) return res.status(400).json({ error: 'Rien à modifier' });
+            params.push(parseInt(req.params.id, 10), un);
+            const { rows } = await pool.query(
+                `UPDATE hub.user_task_classes SET ${sets.join(', ')} WHERE id = $${params.length - 1} AND LOWER(username) = $${params.length} RETURNING id, name, color, scope, group_id`,
+                params
+            );
+            if (!rows.length) return res.status(404).json({ error: "Classe introuvable (ou vous n'en êtes pas l'auteur)" });
+            // Repassée en personnelle ou changée d'équipe : les rattachements des autres membres sont retirés.
+            if (req.body?.scope !== undefined || req.body?.group_id !== undefined) {
+                await pool.query('DELETE FROM hub.user_task_class_links WHERE class_id = $1 AND LOWER(username) <> $2', [rows[0].id, un]);
+            }
+            res.json({ ...rows[0], mine: true });
+        } catch (error) {
+            if (error.code === '23505') return res.status(409).json({ error: 'Cette classe existe déjà' });
+            res.status(500).json({ error: error.message });
+        }
+    },
+
+    // DELETE /api/tasks/classes/:id (auteur uniquement ; les rattachements partent en cascade)
+    async deleteTaskClass(req, res) {
+        const un = req.user.username.toLowerCase();
+        try {
+            await pool.query('DELETE FROM hub.user_task_classes WHERE id = $1 AND LOWER(username) = $2', [parseInt(req.params.id, 10), un]);
+            res.json({ success: true });
+        } catch (error) {
+            res.status(500).json({ error: error.message });
+        }
+    },
+
+    // PUT /api/tasks/classify { source, task_id, class_id | null }
+    async classifyTask(req, res) {
+        const un = req.user.username.toLowerCase();
+        const { source, task_id, class_id, software_id } = req.body || {};
+        if (!source || task_id === undefined || task_id === null) return res.status(400).json({ error: 'source et task_id requis' });
+        try {
+            if (class_id === null || class_id === undefined) {
+                await pool.query(
+                    'DELETE FROM hub.user_task_class_links WHERE LOWER(username) = $1 AND source = $2 AND task_id = $3',
+                    [un, String(source), String(task_id)]
+                );
+                return res.json({ success: true, class_id: null });
+            }
+            const { svc, groups } = await getMyTeamScope(un);
+            const own = await pool.query(
+                `SELECT scope FROM hub.user_task_classes WHERE id = $1
+                    AND (LOWER(username) = $2 OR scope = 'software' OR (scope = 'team' AND (group_id = ANY($3::int[]) OR ($4::text IS NOT NULL AND service_code = $4))))`,
+                [parseInt(class_id, 10), un, groups.map(g => g.id), svc]
+            );
+            if (!own.rows.length) return res.status(404).json({ error: 'Classe introuvable' });
+            // Le logiciel n'a de sens que pour la classe système « Logiciel ».
+            const sw = own.rows[0].scope === 'software' && software_id ? parseInt(software_id, 10) : null;
+            await pool.query(
+                `INSERT INTO hub.user_task_class_links (username, source, task_id, class_id, software_id) VALUES ($1, $2, $3, $4, $5)
+                 ON CONFLICT (username, source, task_id) DO UPDATE SET class_id = EXCLUDED.class_id, software_id = EXCLUDED.software_id`,
+                [un, String(source), String(task_id), parseInt(class_id, 10), sw]
+            );
+            res.json({ success: true, class_id: parseInt(class_id, 10), software_id: sw });
         } catch (error) {
             res.status(500).json({ error: error.message });
         }
@@ -1956,6 +2280,40 @@ module.exports = {
         }
     },
 
+    // GET /api/tasks/stats — données brutes (12 derniers mois) pour les statistiques de « Mes tâches ».
+    // Périmètre : mes tâches stockées dans hub.user_tasks (seules à porter une vraie date de validation :
+    // updated_at au passage à « terminé »). Une tâche d'équipe terminée par un collègue n'est pas comptée.
+    async getTaskStats(req, res) {
+        const un = req.user.username.toLowerCase();
+        try {
+            const { rows } = await pool.query(
+                `SELECT ut.id, COALESCE(ut.context_source, 'personal') AS source, l.class_id, a.name AS software_name, COALESCE(ut.priority, 'normale') AS priority,
+                        ut.created_at, ut.updated_at, ut.echeance::text AS echeance, ut.statut, ut.created_by, ut.is_team_task, ut.taken_by
+                   FROM hub.user_tasks ut
+                   LEFT JOIN hub.user_task_class_links l
+                          ON LOWER(l.username) = $1 AND l.source = COALESCE(ut.context_source, 'personal') AND l.task_id = ut.id::text
+                   LEFT JOIN magapp.apps a ON a.id = l.software_id
+                  WHERE LOWER(ut.username) = $1
+                    AND (ut.created_at >= CURRENT_DATE - INTERVAL '12 months' OR ut.updated_at >= CURRENT_DATE - INTERVAL '12 months')`,
+                [un]
+            );
+            const out = rows.map(r => {
+                const done = ['terminé', 'terminee'].includes(r.statut);
+                const doneByOther = done && r.taken_by && r.taken_by.toLowerCase() !== un;
+                return {
+                    id: r.id, source: r.source, class_id: r.class_id, software_name: r.software_name || null, priority: r.priority,
+                    created_at: r.created_at, done_at: done && !doneByOther ? r.updated_at : null,
+                    done_by_other: !!doneByOther, refused: r.statut === 'refuse',
+                    echeance: r.echeance ? r.echeance.slice(0, 10) : null,
+                    assigned_by_other: !!r.created_by && r.created_by.toLowerCase() !== un, is_team: !!r.is_team_task,
+                };
+            });
+            res.json(out);
+        } catch (error) {
+            res.status(500).json({ error: error.message });
+        }
+    },
+
     // Called by the daily cron at 8am
     async sendDailyAlerts() {
         if (!sendMailFn) return;
@@ -1986,8 +2344,13 @@ async function buildTasksEmail(username, displayName) {
     const dn = displayName.toLowerCase();
     const un = username.toLowerCase();
 
+    // Les échéances peuvent être du texte libre (ex. « dès que possible » issu des transcripts) : on ne
+    // garde comme date que les valeurs au format AAAA-MM-JJ (sinon ::date plante toute la requête), et le
+    // texte brut reste disponible pour l'affichage (echeance_brute).
     const { rows } = await pool.query(`
         SELECT * FROM (
+        SELECT source, description, statut, echeance AS echeance_brute,
+               CASE WHEN echeance ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}' THEN echeance END AS echeance FROM (
             SELECT 'Personnel' AS source, description, echeance::text, statut FROM hub.user_tasks
             WHERE statut != 'terminé' AND LOWER(username) = $1
             UNION ALL
@@ -2015,6 +2378,7 @@ async function buildTasksEmail(username, displayName) {
             WHERE rt.statut != 'terminé'
               AND (LOWER(rt.responsable) = $1 OR LOWER(rt.responsable) = $2)
         ) q
+        ) z
         ORDER BY
             CASE WHEN echeance IS NOT NULL AND echeance::date < CURRENT_DATE THEN 0 ELSE 1 END,
             echeance ASC NULLS LAST
@@ -2028,7 +2392,8 @@ async function buildTasksEmail(username, displayName) {
 
     const rowHtml = (r, bg) => {
         const isOverdue = r.echeance && new Date(r.echeance) < new Date(new Date().toDateString());
-        const dateStr = r.echeance ? new Date(r.echeance).toLocaleDateString('fr-FR') : '—';
+        const dateStr = r.echeance ? new Date(r.echeance).toLocaleDateString('fr-FR')
+            : (r.echeance_brute ? String(r.echeance_brute).replace(/[<>&]/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c])) : '—');
         return `<tr style="background:${bg}">
             <td style="padding:8px 12px;border-bottom:1px solid #e2e8f0;font-size:13px;color:#64748b;white-space:nowrap">${r.source}</td>
             <td style="padding:8px 12px;border-bottom:1px solid #e2e8f0;font-size:13px;color:#1e293b">${r.description}</td>

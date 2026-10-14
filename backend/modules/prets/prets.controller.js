@@ -385,8 +385,10 @@ controller.getDailyAvailability = async (req, res) => {
 // prêt créé) qui permet de les regrouper à l'affichage (back-office, emails).
 // Validation de TOUS les articles avant toute écriture (échec atomique : soit tout
 // le panier est réservé, soit rien ne l'est).
-async function createLoanBatchCore({ items, user_id, username, email, nom_demandeur, direction, service, motif, start_date, end_date, is_internal, allowOverbook = false }) {
+async function createLoanBatchCore({ items, user_id, username, email, nom_demandeur, direction, service, motif, start_date, end_date, is_internal, allowOverbook = false, requester = null }) {
   if (!Array.isArray(items) || items.length === 0) { const err = new Error('Le panier est vide'); err.status = 400; throw err; }
+  const range = availability.normalizeRange(start_date, end_date);
+  const loanEnd = range.endDate;
 
   // Seul un manque de quantité ('insufficient') peut être forcé par un admin
   // (allowOverbook) — matériel introuvable/désactivé ou dates invalides restent
@@ -415,7 +417,7 @@ async function createLoanBatchCore({ items, user_id, username, email, nom_demand
          (equipment_id, quantity, user_id, username, email, nom_demandeur, direction, service, motif, start_date, end_date, status, batch_id, is_internal)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'confirmed',$12,$13)`,
       [item.equipment_id, item.quantity, user_id || null, username || null, email || null, nom_demandeur || null,
-        direction || null, service || null, motif || null, start_date, end_date, batchId, !!is_internal]
+        direction || null, service || null, motif || null, start_date, loanEnd, batchId, !!is_internal]
     );
     loanIds.push(r.lastID);
     if (i === 0) {
@@ -423,7 +425,45 @@ async function createLoanBatchCore({ items, user_id, username, email, nom_demand
       await pgDb.run('UPDATE hub_prets.loans SET batch_id = $1 WHERE id = $1', [batchId]);
     }
   }
-  return { batchId, loanIds, overbooked };
+
+  // Chaque demande de prêt génère un ticket (type demande). Non bloquant : un échec
+  // de création du ticket ne doit pas annuler la réservation déjà enregistrée.
+  let ticketId = null;
+  try {
+    ticketId = await createLoanTicket({ items, batchId, username, email, nom_demandeur, direction, service, motif, start_date, end_date, is_internal, requester });
+    if (ticketId) await pgDb.run('UPDATE hub_prets.loans SET ticket_id = $1 WHERE batch_id = $2', [ticketId, batchId]);
+  } catch (e) {
+    console.error('[Prets] création du ticket de prêt échouée (réservation n°%s):', batchId, e.message);
+  }
+  return { batchId, loanIds, overbooked, ticketId };
+}
+
+const escHtml = (v) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+async function createLoanTicket({ items, batchId, username, email, nom_demandeur, direction, service, motif, start_date, end_date, is_internal, requester }) {
+  const ticketService = require('../tickets/services/ticket.service');
+  const rows = await pgDb.all('SELECT id, name FROM hub_prets.equipment WHERE id = ANY($1::int[])', [items.map(i => Number(i.equipment_id))]);
+  const nameById = new Map(rows.map(e => [e.id, e.name]));
+  const td = 'padding:6px 10px;border:1px solid #e2e8f0';
+  const itemsHtml = items.map(i => `<tr><td style="${td}">${escHtml(nameById.get(Number(i.equipment_id)) || ('Matériel #' + i.equipment_id))}</td><td style="${td};text-align:center">${escHtml(i.quantity)}</td></tr>`).join('');
+  const content = `
+    <p><strong>Demande de prêt de matériel n°${batchId}</strong></p>
+    <table style="border-collapse:collapse;margin-bottom:10px">
+      <tr><th style="${td};text-align:left">Matériel</th><th style="${td}">Qté</th></tr>${itemsHtml}
+    </table>
+    <p><strong>Période :</strong> du ${escHtml(start_date)} au ${escHtml(end_date)}</p>
+    <p><strong>Demandeur :</strong> ${escHtml(nom_demandeur)}${direction || service ? ` (${escHtml([direction, service].filter(Boolean).join(' / '))})` : ''}</p>
+    <p><strong>Motif :</strong> ${escHtml(motif)}</p>`;
+  const labels = items.map(i => nameById.get(Number(i.equipment_id))).filter(Boolean).join(', ');
+  return ticketService.create({
+    title: `Prêt de matériel n°${batchId} — ${labels || 'matériel'}`.slice(0, 250),
+    content,
+    type: 2,
+    source: 'magapp',
+    requester_name: nom_demandeur || undefined,
+    requester_email: email || undefined,
+  }, requester || { username: username || nom_demandeur, displayName: nom_demandeur, email: email || '' },
+  { skipNotification: !!is_internal });
 }
 
 // Accepte soit { items: [{equipment_id, quantity}, ...] } (panier), soit l'ancien
@@ -446,9 +486,9 @@ controller.createLoan = async (req, res) => {
     const email = req.user?.email || (username ? await getUserEmail(username) : '');
     const nom_demandeur = req.user?.displayName || req.body.nom_demandeur || username;
 
-    const { batchId, loanIds } = await createLoanBatchCore({
+    const { batchId, loanIds, ticketId } = await createLoanBatchCore({
       items, user_id: req.user?.id ? String(req.user.id) : null, username, email,
-      nom_demandeur, direction, service, motif, start_date, end_date, is_internal: false,
+      nom_demandeur, direction, service, motif, start_date, end_date, is_internal: false, requester: req.user,
     });
 
     const equipmentIds = items.map(i => Number(i.equipment_id));
@@ -479,7 +519,7 @@ controller.createLoan = async (req, res) => {
       }
     );
 
-    res.status(201).json({ batch_id: batchId, loan_ids: loanIds, message: 'Réservation confirmée' });
+    res.status(201).json({ batch_id: batchId, loan_ids: loanIds, ticket_id: ticketId, message: 'Réservation confirmée' });
   } catch (e) {
     console.error('[Prets] createLoan', e);
     res.status(e.status || 500).json({ error: e.message || 'Erreur lors de la création du prêt' });
@@ -495,12 +535,12 @@ controller.adminCreateLoan = async (req, res) => {
     if (!items || !start_date || !end_date || !motif || !nom_demandeur) {
       return res.status(400).json({ error: 'items (au moins un matériel), start_date, end_date, motif et nom_demandeur sont requis' });
     }
-    const { batchId, loanIds, overbooked } = await createLoanBatchCore({
+    const { batchId, loanIds, overbooked, ticketId } = await createLoanBatchCore({
       items, user_id: null, username: username || null, email: email || null,
       nom_demandeur, direction: direction || 'DSI', service: service || 'DSI', motif, start_date, end_date,
-      is_internal: is_internal !== false, allowOverbook: !!force,
+      is_internal: is_internal !== false, allowOverbook: !!force, requester: req.user,
     });
-    res.status(201).json({ batch_id: batchId, loan_ids: loanIds, overbooked, message: 'Réservation créée' });
+    res.status(201).json({ batch_id: batchId, loan_ids: loanIds, ticket_id: ticketId, overbooked, message: 'Réservation créée' });
   } catch (e) {
     console.error('[Prets] adminCreateLoan', e);
     res.status(e.status || 500).json({ error: e.message || 'Erreur lors de la création du prêt' });

@@ -1,0 +1,207 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" xmlns:dsi="http://dsi.ivry/schema/bpmn" id="Definitions_1" targetNamespace="http://bpmn.io/schema/bpmn">
+  <bpmn:collaboration id="Collaboration_1">
+    <bpmn:participant id="Participant_1" name="ODP — Création et validation d'un tiers (redevable)" processRef="Process_1" />
+  </bpmn:collaboration>
+  <bpmn:process id="Process_1" isExecutable="false">
+    <bpmn:documentation id="Doc_Process">Création d'un tiers dans le référentiel d'ODP Manager : recherche préalable, enrichissement automatique par SIRET (API Recherche d'entreprises), contrôles d'unicité (SIRET, nom, code SEDIT), géocodage de l'adresse, puis demande de création formelle à SEDIT (finances) ou aux RH par e-mail avec lien de validation, jusqu'au statut Définitif une fois le code SEDIT renseigné. Reconstitué à partir du code d'ODP (app/api/tiers, lib/insee, lib/geocoding).</bpmn:documentation>
+    <bpmn:laneSet id="LaneSet_1">
+        <bpmn:lane id="Lane_0" name="Instructeur / Saisie">
+          <bpmn:flowNodeRef>S</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>T_Search</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>G_Exists</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>E_Use</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>T_Form</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>T_DupMsg</bpmn:flowNodeRef>
+        </bpmn:lane>
+        <bpmn:lane id="Lane_1" name="ODP Manager">
+          <bpmn:flowNodeRef>G_Siret</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>T_Dup</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>G_Dup</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>T_Save</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>G_Req</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>E_Prov</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>T_Mail</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>T_Def</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>E_End</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>App_VibeODP</bpmn:flowNodeRef>
+        </bpmn:lane>
+        <bpmn:lane id="Lane_2" name="Services externes (INSEE, BAN)">
+          <bpmn:flowNodeRef>T_Insee</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>T_Geo</bpmn:flowNodeRef>
+        </bpmn:lane>
+        <bpmn:lane id="Lane_3" name="Finances (SEDIT) ou RH">
+          <bpmn:flowNodeRef>T_CreateExt</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>T_Verify</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>App_Sedit</bpmn:flowNodeRef>
+        </bpmn:lane>
+    </bpmn:laneSet>
+      <bpmn:startEvent id="S" name="Redevable absent du référentiel">
+        <bpmn:documentation>Un chantier, un commerce ou un tournage concerne une société ou une personne qui n'est pas encore tiers dans ODP. Pour un tournage déposé en ligne, un tiers provisoire peut aussi être créé depuis la demande.</bpmn:documentation>
+        <bpmn:outgoing>F01</bpmn:outgoing>
+      </bpmn:startEvent>
+      <bpmn:userTask id="T_Search" name="Rechercher le tiers (nom, SIRET, code SEDIT)">
+        <bpmn:documentation>Recherche par nom, SIRET ou code SEDIT, et recherche par ville (/api/tiers/search).</bpmn:documentation>
+        <bpmn:incoming>F01</bpmn:incoming>
+        <bpmn:outgoing>F02</bpmn:outgoing>
+      </bpmn:userTask>
+      <bpmn:exclusiveGateway id="G_Exists" name="Le tiers existe-t-il ?">
+        <bpmn:incoming>F02</bpmn:incoming>
+        <bpmn:outgoing>F03</bpmn:outgoing>
+        <bpmn:outgoing>F04</bpmn:outgoing>
+      </bpmn:exclusiveGateway>
+      <bpmn:endEvent id="E_Use" name="Utiliser le tiers existant">
+        <bpmn:incoming>F03</bpmn:incoming>
+      </bpmn:endEvent>
+      <bpmn:userTask id="T_Form" name="Saisir le tiers">
+        <bpmn:documentation>Entrées : nom (obligatoire), nature juridique, SIRET, e-mail, adresse, code SEDIT (facultatif), état administratif. Contacts rattachés au tiers ou au dossier (nom, prénom, e-mail, téléphone, rôle, photo, OCR possible d'une carte).</bpmn:documentation>
+        <bpmn:incoming>F04</bpmn:incoming>
+        <bpmn:incoming>F12</bpmn:incoming>
+        <bpmn:outgoing>F05</bpmn:outgoing>
+      </bpmn:userTask>
+      <bpmn:exclusiveGateway id="G_Siret" name="SIRET de 14 chiffres ?">
+        <bpmn:documentation>L'enrichissement n'a lieu qu'à la création, pas à la modification.</bpmn:documentation>
+        <bpmn:incoming>F05</bpmn:incoming>
+        <bpmn:outgoing>F06</bpmn:outgoing>
+        <bpmn:outgoing>F07</bpmn:outgoing>
+      </bpmn:exclusiveGateway>
+      <bpmn:serviceTask id="T_Insee" name="Enrichir depuis le SIRET (INSEE)">
+        <bpmn:documentation>API Recherche d'entreprises : nom, adresse, état administratif (actif ou cessé) et catégorie juridique, convertie en nature juridique interne. Le nom et l'adresse de l'INSEE remplacent ceux saisis.</bpmn:documentation>
+        <bpmn:incoming>F06</bpmn:incoming>
+        <bpmn:outgoing>F08</bpmn:outgoing>
+      </bpmn:serviceTask>
+      <bpmn:serviceTask id="T_Dup" name="Contrôler l'unicité">
+        <bpmn:documentation>Trois contrôles à la création comme à la modification : SIRET, nom et code SEDIT ne doivent exister pour aucun autre tiers.</bpmn:documentation>
+        <bpmn:incoming>F07</bpmn:incoming>
+        <bpmn:incoming>F08</bpmn:incoming>
+        <bpmn:outgoing>F09</bpmn:outgoing>
+      </bpmn:serviceTask>
+      <bpmn:exclusiveGateway id="G_Dup" name="Doublon détecté ?">
+        <bpmn:incoming>F09</bpmn:incoming>
+        <bpmn:outgoing>F10</bpmn:outgoing>
+        <bpmn:outgoing>F11</bpmn:outgoing>
+      </bpmn:exclusiveGateway>
+      <bpmn:userTask id="T_DupMsg" name="Corriger ou fusionner">
+        <bpmn:documentation>Messages explicites (« Un tiers avec ce SIRET existe déjà », « …ce nom… », « Ce code tiers SEDIT est déjà utilisé »). La fusion de doublons est assistée par similarité de libellé.</bpmn:documentation>
+        <bpmn:incoming>F11</bpmn:incoming>
+        <bpmn:outgoing>F12</bpmn:outgoing>
+      </bpmn:userTask>
+      <bpmn:serviceTask id="T_Save" name="Enregistrer le tiers (statut Provisoire)">
+        <bpmn:documentation>Tiers créé au statut PROVISOIRE, utilisable immédiatement pour un dossier. Un tiers ne peut pas être supprimé s'il possède des dossiers.</bpmn:documentation>
+        <bpmn:incoming>F10</bpmn:incoming>
+        <bpmn:outgoing>F13</bpmn:outgoing>
+        <bpmn:dataOutputAssociation id="DA_App_VibeODP"><bpmn:targetRef>App_VibeODP</bpmn:targetRef></bpmn:dataOutputAssociation>
+      </bpmn:serviceTask>
+      <bpmn:serviceTask id="T_Geo" name="Géocoder l'adresse (BAN)">
+        <bpmn:documentation>Latitude et longitude pour la carte ; non bloquant.</bpmn:documentation>
+        <bpmn:incoming>F13</bpmn:incoming>
+        <bpmn:outgoing>F14</bpmn:outgoing>
+      </bpmn:serviceTask>
+      <bpmn:exclusiveGateway id="G_Req" name="Demande de création formelle ?">
+        <bpmn:incoming>F14</bpmn:incoming>
+        <bpmn:outgoing>F15</bpmn:outgoing>
+        <bpmn:outgoing>F16</bpmn:outgoing>
+      </bpmn:exclusiveGateway>
+      <bpmn:endEvent id="E_Prov" name="Tiers provisoire utilisable">
+        <bpmn:incoming>F16</bpmn:incoming>
+      </bpmn:endEvent>
+      <bpmn:serviceTask id="T_Mail" name="Envoyer la demande avec un lien de validation">
+        <bpmn:documentation>Demande « SEDIT » (adresse e-mail des finances) ou « RH » (adresse des ressources humaines) avec nom, e-mail, SIRET, adresse et lien /dashboard/tiers/verify/{id} (modèle MSG_TIERS, via l'APM). Un échec d'envoi est journalisé sans annuler la création.</bpmn:documentation>
+        <bpmn:incoming>F15</bpmn:incoming>
+        <bpmn:outgoing>F17</bpmn:outgoing>
+      </bpmn:serviceTask>
+      <bpmn:userTask id="T_CreateExt" name="Créer le tiers dans SEDIT (ou côté RH)">
+        <bpmn:documentation>Le service concerné crée le redevable dans son logiciel et obtient le code tiers SEDIT.</bpmn:documentation>
+        <bpmn:incoming>F17</bpmn:incoming>
+        <bpmn:outgoing>F18</bpmn:outgoing>
+        <bpmn:dataOutputAssociation id="DA_App_Sedit"><bpmn:targetRef>App_Sedit</bpmn:targetRef></bpmn:dataOutputAssociation>
+      </bpmn:userTask>
+      <bpmn:userTask id="T_Verify" name="Renseigner le code SEDIT depuis le lien">
+        <bpmn:documentation>Le code SEDIT est obligatoire et ne doit pas déjà appartenir à un autre tiers.</bpmn:documentation>
+        <bpmn:incoming>F18</bpmn:incoming>
+        <bpmn:outgoing>F19</bpmn:outgoing>
+      </bpmn:userTask>
+      <bpmn:serviceTask id="T_Def" name="Passer le tiers à Définitif">
+        <bpmn:documentation>Code SEDIT enregistré et statut DEFINITIF : les factures pourront être rapprochées des titres SEDIT par ce code.</bpmn:documentation>
+        <bpmn:incoming>F19</bpmn:incoming>
+        <bpmn:outgoing>F20</bpmn:outgoing>
+      </bpmn:serviceTask>
+      <bpmn:endEvent id="E_End" name="Tiers validé">
+        <bpmn:incoming>F20</bpmn:incoming>
+      </bpmn:endEvent>
+      <bpmn:sequenceFlow id="F01" sourceRef="S" targetRef="T_Search" />
+      <bpmn:sequenceFlow id="F02" sourceRef="T_Search" targetRef="G_Exists" />
+      <bpmn:sequenceFlow id="F03" name="oui" sourceRef="G_Exists" targetRef="E_Use" />
+      <bpmn:sequenceFlow id="F04" name="non" sourceRef="G_Exists" targetRef="T_Form" />
+      <bpmn:sequenceFlow id="F05" sourceRef="T_Form" targetRef="G_Siret" />
+      <bpmn:sequenceFlow id="F06" name="oui" sourceRef="G_Siret" targetRef="T_Insee" />
+      <bpmn:sequenceFlow id="F07" name="non" sourceRef="G_Siret" targetRef="T_Dup" />
+      <bpmn:sequenceFlow id="F08" sourceRef="T_Insee" targetRef="T_Dup" />
+      <bpmn:sequenceFlow id="F09" sourceRef="T_Dup" targetRef="G_Dup" />
+      <bpmn:sequenceFlow id="F10" name="non" sourceRef="G_Dup" targetRef="T_Save" />
+      <bpmn:sequenceFlow id="F11" name="oui" sourceRef="G_Dup" targetRef="T_DupMsg" />
+      <bpmn:sequenceFlow id="F12" sourceRef="T_DupMsg" targetRef="T_Form" />
+      <bpmn:sequenceFlow id="F13" sourceRef="T_Save" targetRef="T_Geo" />
+      <bpmn:sequenceFlow id="F14" sourceRef="T_Geo" targetRef="G_Req" />
+      <bpmn:sequenceFlow id="F15" name="oui" sourceRef="G_Req" targetRef="T_Mail" />
+      <bpmn:sequenceFlow id="F16" name="non" sourceRef="G_Req" targetRef="E_Prov" />
+      <bpmn:sequenceFlow id="F17" sourceRef="T_Mail" targetRef="T_CreateExt" />
+      <bpmn:sequenceFlow id="F18" sourceRef="T_CreateExt" targetRef="T_Verify" />
+      <bpmn:sequenceFlow id="F19" sourceRef="T_Verify" targetRef="T_Def" />
+      <bpmn:sequenceFlow id="F20" sourceRef="T_Def" targetRef="E_End" />
+      <bpmn:dataStoreReference id="App_VibeODP" name="VibeODP" dsi:applicationId="215" />
+      <bpmn:dataStoreReference id="App_Sedit" name="Sédit Finances" dsi:applicationId="84" />
+  </bpmn:process>
+  <bpmndi:BPMNDiagram id="BPMNDiagram_1">
+    <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="Collaboration_1">
+      <bpmndi:BPMNShape id="Participant_1_di" bpmnElement="Participant_1" isHorizontal="true"><dc:Bounds x="160" y="80" width="3140" height="1080" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_0_di" bpmnElement="Lane_0" isHorizontal="true"><dc:Bounds x="190" y="80" width="3110" height="325" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_1_di" bpmnElement="Lane_1" isHorizontal="true"><dc:Bounds x="190" y="405" width="3110" height="325" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_2_di" bpmnElement="Lane_2" isHorizontal="true"><dc:Bounds x="190" y="730" width="3110" height="215" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_3_di" bpmnElement="Lane_3" isHorizontal="true"><dc:Bounds x="190" y="945" width="3110" height="215" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S_di" bpmnElement="S"><dc:Bounds x="292" y="137" width="36" height="36" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Search_di" bpmnElement="T_Search"><dc:Bounds x="430" y="120" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="G_Exists_di" bpmnElement="G_Exists" isMarkerVisible="true"><dc:Bounds x="665" y="130" width="50" height="50" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="E_Use_di" bpmnElement="E_Use"><dc:Bounds x="672" y="247" width="36" height="36" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Form_di" bpmnElement="T_Form"><dc:Bounds x="810" y="120" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="G_Siret_di" bpmnElement="G_Siret" isMarkerVisible="true"><dc:Bounds x="1045" y="455" width="50" height="50" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Insee_di" bpmnElement="T_Insee"><dc:Bounds x="1190" y="770" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Dup_di" bpmnElement="T_Dup"><dc:Bounds x="1380" y="445" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="G_Dup_di" bpmnElement="G_Dup" isMarkerVisible="true"><dc:Bounds x="1615" y="455" width="50" height="50" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_DupMsg_di" bpmnElement="T_DupMsg"><dc:Bounds x="1760" y="230" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Save_di" bpmnElement="T_Save"><dc:Bounds x="1760" y="445" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Geo_di" bpmnElement="T_Geo"><dc:Bounds x="1950" y="770" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="G_Req_di" bpmnElement="G_Req" isMarkerVisible="true"><dc:Bounds x="2185" y="455" width="50" height="50" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="E_Prov_di" bpmnElement="E_Prov"><dc:Bounds x="2382" y="572" width="36" height="36" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Mail_di" bpmnElement="T_Mail"><dc:Bounds x="2330" y="445" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_CreateExt_di" bpmnElement="T_CreateExt"><dc:Bounds x="2520" y="985" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Verify_di" bpmnElement="T_Verify"><dc:Bounds x="2710" y="985" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Def_di" bpmnElement="T_Def"><dc:Bounds x="2900" y="445" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="E_End_di" bpmnElement="E_End"><dc:Bounds x="3142" y="462" width="36" height="36" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="App_VibeODP_di" bpmnElement="App_VibeODP"><dc:Bounds x="1770" y="635" width="120" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="App_Sedit_di" bpmnElement="App_Sedit"><dc:Bounds x="2530" y="1065" width="120" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="F01_di" bpmnElement="F01"><di:waypoint x="328" y="155" /><di:waypoint x="430" y="155" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F02_di" bpmnElement="F02"><di:waypoint x="570" y="155" /><di:waypoint x="665" y="155" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F03_di" bpmnElement="F03"><di:waypoint x="690" y="180" /><di:waypoint x="690" y="247" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F04_di" bpmnElement="F04"><di:waypoint x="715" y="155" /><di:waypoint x="810" y="155" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F05_di" bpmnElement="F05"><di:waypoint x="950" y="155" /><di:waypoint x="997.5" y="155" /><di:waypoint x="997.5" y="480" /><di:waypoint x="1045" y="480" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F06_di" bpmnElement="F06"><di:waypoint x="1095" y="480" /><di:waypoint x="1142.5" y="480" /><di:waypoint x="1142.5" y="805" /><di:waypoint x="1190" y="805" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F07_di" bpmnElement="F07"><di:waypoint x="1070" y="505" /><di:waypoint x="1070" y="535" /><di:waypoint x="1450" y="535" /><di:waypoint x="1450" y="515" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F08_di" bpmnElement="F08"><di:waypoint x="1330" y="805" /><di:waypoint x="1355" y="805" /><di:waypoint x="1355" y="480" /><di:waypoint x="1380" y="480" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F09_di" bpmnElement="F09"><di:waypoint x="1520" y="480" /><di:waypoint x="1615" y="480" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F10_di" bpmnElement="F10"><di:waypoint x="1665" y="480" /><di:waypoint x="1760" y="480" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F11_di" bpmnElement="F11"><di:waypoint x="1665" y="480" /><di:waypoint x="1712.5" y="480" /><di:waypoint x="1712.5" y="265" /><di:waypoint x="1760" y="265" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F12_di" bpmnElement="F12"><di:waypoint x="1830" y="300" /><di:waypoint x="1830" y="330" /><di:waypoint x="880" y="330" /><di:waypoint x="880" y="190" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F13_di" bpmnElement="F13"><di:waypoint x="1900" y="480" /><di:waypoint x="1925" y="480" /><di:waypoint x="1925" y="805" /><di:waypoint x="1950" y="805" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F14_di" bpmnElement="F14"><di:waypoint x="2090" y="805" /><di:waypoint x="2137.5" y="805" /><di:waypoint x="2137.5" y="480" /><di:waypoint x="2185" y="480" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F15_di" bpmnElement="F15"><di:waypoint x="2235" y="480" /><di:waypoint x="2330" y="480" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F16_di" bpmnElement="F16"><di:waypoint x="2235" y="480" /><di:waypoint x="2308.5" y="480" /><di:waypoint x="2308.5" y="590" /><di:waypoint x="2382" y="590" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F17_di" bpmnElement="F17"><di:waypoint x="2470" y="480" /><di:waypoint x="2495" y="480" /><di:waypoint x="2495" y="1020" /><di:waypoint x="2520" y="1020" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F18_di" bpmnElement="F18"><di:waypoint x="2660" y="1020" /><di:waypoint x="2710" y="1020" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F19_di" bpmnElement="F19"><di:waypoint x="2850" y="1020" /><di:waypoint x="2875" y="1020" /><di:waypoint x="2875" y="480" /><di:waypoint x="2900" y="480" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F20_di" bpmnElement="F20"><di:waypoint x="3040" y="480" /><di:waypoint x="3142" y="480" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="DA_App_VibeODP_di" bpmnElement="DA_App_VibeODP"><di:waypoint x="1830" y="515" /><di:waypoint x="1830" y="635" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="DA_App_Sedit_di" bpmnElement="DA_App_Sedit"><di:waypoint x="2590" y="1055" /><di:waypoint x="2590" y="1065" /></bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>

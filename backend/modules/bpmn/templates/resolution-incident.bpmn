@@ -1,0 +1,646 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" xmlns:dsi="http://dsi.ivry/schema/bpmn" id="Definitions_1" targetNamespace="http://bpmn.io/schema/bpmn">
+  <bpmn:collaboration id="Collaboration_1">
+    <bpmn:participant id="Participant_1" name="Résolution d'un incident" processRef="Process_1" />
+  </bpmn:collaboration>
+  <bpmn:process id="Process_1" isExecutable="false">
+    <bpmn:documentation id="Doc_Process">Cycle de vie complet d'un incident, de ses quatre entrées (formulaire / MagApp, e-mail O365, chat en direct, appel ou passage) à sa clôture : création et qualification automatiques (SLA, règles, VIP, crise Teams), prise en charge, cas particuliers (compte AD, information manquante avec relances, hors compétence, panne collective avec Problème), résolution, réouverture, satisfaction et clôtures automatiques. Reconstitué à partir du code et des guides du module Tickets d'AppDSI.</bpmn:documentation>
+    <bpmn:laneSet id="LaneSet_1">
+        <bpmn:lane id="Lane_0" name="Usager / Demandeur">
+          <bpmn:flowNodeRef>S_Form</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>T_FormFill</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>S_Mail</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>S_Chat</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>E_Resp</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>E_Reopen</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>E_Confirm</bpmn:flowNodeRef>
+        </bpmn:lane>
+        <bpmn:lane id="Lane_1" name="Canaux d'entrée (système)">
+          <bpmn:flowNodeRef>T_MailDedup</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>G_Reply</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>T_Classify</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>T_AddComment</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>E_Comment</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>G_Hours</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>T_ChatTicket</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>T_Urgence</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>E_SMS</bpmn:flowNodeRef>
+        </bpmn:lane>
+        <bpmn:lane id="Lane_2" name="AppDSI (règles, SLA, notifications)">
+          <bpmn:flowNodeRef>T_Create</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>T_SLA</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>T_Rules</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>G_Crit</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>T_Crisis</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>T_Notify</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>G_Assigned</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>G_Evt</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>E_Timer</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>T_Remind</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>G_Keep</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>T_Keep</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>T_AutoClose7</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>E_Auto7</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>T_NotifySol</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>G_Evt2</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>E_Delay</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>T_UserClose</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>T_AutoClose6</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>T_Sat</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>E_End</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>App_DSIHub</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>App_Teams</bpmn:flowNodeRef>
+        </bpmn:lane>
+        <bpmn:lane id="Lane_3" name="Technicien (hot-line N1)">
+          <bpmn:flowNodeRef>S_Phone</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>T_Manual</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>T_Claim</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>T_Talk</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>G_ChatDone</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>T_ChatClassify</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>E_ChatDone</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>T_Reject</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>E_Reject</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>T_Take</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>T_Diag</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>G_Nature</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>T_Fix</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>T_Wait</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>T_Escal</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>T_Problem</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>T_Fast</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>T_Resume</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>T_Resolve</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>T_Reopen</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>App_AD</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>App_DSIHub2</bpmn:flowNodeRef>
+        </bpmn:lane>
+        <bpmn:lane id="Lane_4" name="Groupes experts (N2, prestataire)">
+          <bpmn:flowNodeRef>T_N2</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>G_N2</bpmn:flowNodeRef>
+        </bpmn:lane>
+        <bpmn:lane id="Lane_5" name="Superviseur">
+          <bpmn:flowNodeRef>T_Triage</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>T_ProbSolve</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>T_Cascade</bpmn:flowNodeRef>
+        </bpmn:lane>
+    </bpmn:laneSet>
+      <bpmn:startEvent id="S_Form" name="Incident rencontré (formulaire)">
+        <bpmn:documentation>Entrée 1 — saisie par l'usager : bouton « Nouveau ticket » ou demande déposée depuis le Magasin d'applications (source magapp), en lien avec une application.</bpmn:documentation>
+        <bpmn:outgoing>F001</bpmn:outgoing>
+      </bpmn:startEvent>
+      <bpmn:userTask id="T_FormFill" name="Déposer la demande (Nouveau ticket / MagApp)">
+        <bpmn:documentation>Champs du formulaire : type (Incident ou Demande, obligatoire), titre (obligatoire), description (éditeur enrichi, captures), priorité, impact (ampleur : nombre d'usagers), catégorie / sous-catégorie, logiciel / métier (application), localisation (référentiel des sites), VIP, demandeur, observateurs, pièces jointes.</bpmn:documentation>
+        <bpmn:incoming>F001</bpmn:incoming>
+        <bpmn:outgoing>F002</bpmn:outgoing>
+      </bpmn:userTask>
+      <bpmn:startEvent id="S_Mail" name="E-mail au support">
+        <bpmn:documentation>Entrée 2 — l'usager écrit à une boîte O365 surveillée par le Mail Collector.</bpmn:documentation>
+        <bpmn:outgoing>F003</bpmn:outgoing>
+      </bpmn:startEvent>
+      <bpmn:startEvent id="S_Chat" name="Chat en direct">
+        <bpmn:documentation>Entrée 3 — l'usager ouvre une session depuis la bulle de chat (portail MagApp / hub).</bpmn:documentation>
+        <bpmn:outgoing>F009</bpmn:outgoing>
+      </bpmn:startEvent>
+      <bpmn:startEvent id="S_Phone" name="Appel ou passage à la hot-line">
+        <bpmn:documentation>Entrée 4 — demande orale, téléphonique ou en personne : le technicien saisit le ticket à la place de l'usager.</bpmn:documentation>
+        <bpmn:outgoing>F021</bpmn:outgoing>
+      </bpmn:startEvent>
+      <bpmn:userTask id="T_Manual" name="Saisir le ticket à la place de l'usager">
+        <bpmn:documentation>Même formulaire que la saisie manuelle, avec le champ « Demandeur » renseigné pour la personne concernée (recherche AD), plus observateurs. Le numéro de téléphone du demandeur est mémorisé sur son profil pour les prochaines saisies.</bpmn:documentation>
+        <bpmn:incoming>F021</bpmn:incoming>
+        <bpmn:outgoing>F022</bpmn:outgoing>
+      </bpmn:userTask>
+      <bpmn:serviceTask id="T_MailDedup" name="Collecter l'e-mail (anti-doublon, filtre de domaine)">
+        <bpmn:documentation>Mail Collector (planifié) : lecture des boîtes O365 via Microsoft Graph. Un message déjà traité (internetMessageId présent dans ticket_email_mapping) est ignoré ; un filtre de domaine optionnel écarte les expéditeurs externes. Deux collectes simultanées sont protégées par un enregistrement atomique (ON CONFLICT).</bpmn:documentation>
+        <bpmn:incoming>F003</bpmn:incoming>
+        <bpmn:outgoing>F004</bpmn:outgoing>
+      </bpmn:serviceTask>
+      <bpmn:exclusiveGateway id="G_Reply" name="Réponse à un ticket existant ?">
+        <bpmn:documentation>Détection par les en-têtes In-Reply-To / References, puis par l'objet préfixé RE / TR / FW / Fwd.</bpmn:documentation>
+        <bpmn:incoming>F004</bpmn:incoming>
+        <bpmn:outgoing>F005</bpmn:outgoing>
+        <bpmn:outgoing>F006</bpmn:outgoing>
+      </bpmn:exclusiveGateway>
+      <bpmn:serviceTask id="T_Classify" name="Classer Incident / Demande (règles de mail)">
+        <bpmn:documentation>Nouveau ticket : classification Incident / Demande par les règles de mail (mail_rules), catégorie et routage éventuels. Objet = titre, corps = description, expéditeur = demandeur, copies (CC) = observateurs, pièces jointes téléchargées (y compris images inline cid: même si hasAttachments est faux).</bpmn:documentation>
+        <bpmn:incoming>F006</bpmn:incoming>
+        <bpmn:outgoing>F008</bpmn:outgoing>
+      </bpmn:serviceTask>
+      <bpmn:serviceTask id="T_AddComment" name="Ajouter comme commentaire (+ CC, pièces jointes)">
+        <bpmn:documentation>La réponse devient un commentaire du ticket existant ; les personnes en copie deviennent observateurs ; les images inline sont réécrites vers les pièces jointes du ticket.</bpmn:documentation>
+        <bpmn:incoming>F005</bpmn:incoming>
+        <bpmn:outgoing>F007</bpmn:outgoing>
+      </bpmn:serviceTask>
+      <bpmn:endEvent id="E_Comment" name="Commentaire ajouté au ticket">
+        <bpmn:incoming>F007</bpmn:incoming>
+      </bpmn:endEvent>
+      <bpmn:exclusiveGateway id="G_Hours" name="Chat ouvert ?">
+        <bpmn:documentation>Le chat suit le calendrier du support : horaires ouvrés, jours fériés et fermetures exceptionnelles (la bulle est alors grisée).</bpmn:documentation>
+        <bpmn:incoming>F009</bpmn:incoming>
+        <bpmn:outgoing>F010</bpmn:outgoing>
+        <bpmn:outgoing>F011</bpmn:outgoing>
+      </bpmn:exclusiveGateway>
+      <bpmn:serviceTask id="T_ChatTicket" name="Créer la session de chat et son ticket">
+        <bpmn:documentation>live_sessions (statut waiting) + ticket associé. Les techniciens voient la session dans la vue Live (temps réel) ; un groupe peut être notifié (ex. chat école).</bpmn:documentation>
+        <bpmn:incoming>F010</bpmn:incoming>
+        <bpmn:outgoing>F013</bpmn:outgoing>
+      </bpmn:serviceTask>
+      <bpmn:serviceTask id="T_Urgence" name="Message d'urgence : SMS à l'astreinte">
+        <bpmn:documentation>Cas particulier hors horaires / jour férié : l'usager peut envoyer un message d'urgence (nom, problème, numéro de mobile valide 06/07 ou +33 6/7) ; AppDSI envoie un SMS à l'astreinte (numéro configuré dans /admin/tickets) et le trace (hub.sms_logs).</bpmn:documentation>
+        <bpmn:incoming>F011</bpmn:incoming>
+        <bpmn:outgoing>F012</bpmn:outgoing>
+      </bpmn:serviceTask>
+      <bpmn:endEvent id="E_SMS" name="Astreinte alertée">
+        <bpmn:incoming>F012</bpmn:incoming>
+      </bpmn:endEvent>
+      <bpmn:userTask id="T_Claim" name="Prendre en charge la session de chat">
+        <bpmn:documentation>Un technicien prend la session (statut active). Une session déjà prise n'est reprise que de force.</bpmn:documentation>
+        <bpmn:incoming>F013</bpmn:incoming>
+        <bpmn:outgoing>F014</bpmn:outgoing>
+      </bpmn:userTask>
+      <bpmn:userTask id="T_Talk" name="Échanger avec l'usager">
+        <bpmn:documentation>Messages et pièces jointes dans la session. Inactivité de 15 minutes ou départ de l'usager : la session passe en pré-clôture (pre_closed), à finaliser par le technicien.</bpmn:documentation>
+        <bpmn:incoming>F014</bpmn:incoming>
+        <bpmn:outgoing>F015</bpmn:outgoing>
+      </bpmn:userTask>
+      <bpmn:exclusiveGateway id="G_ChatDone" name="Issue du chat ?">
+        <bpmn:incoming>F015</bpmn:incoming>
+        <bpmn:outgoing>F016</bpmn:outgoing>
+        <bpmn:outgoing>F018</bpmn:outgoing>
+        <bpmn:outgoing>F020</bpmn:outgoing>
+      </bpmn:exclusiveGateway>
+      <bpmn:userTask id="T_ChatClassify" name="Classer Incident / Demande puis finaliser">
+        <bpmn:documentation>La classification Incident / Demande est OBLIGATOIRE avant clôture. Le ticket est clos (statut Clos), un résumé de la conversation (modèle configurable) est conservé et envoyé.</bpmn:documentation>
+        <bpmn:incoming>F016</bpmn:incoming>
+        <bpmn:outgoing>F017</bpmn:outgoing>
+      </bpmn:userTask>
+      <bpmn:endEvent id="E_ChatDone" name="Résolu en chat (ticket clos)">
+        <bpmn:incoming>F017</bpmn:incoming>
+      </bpmn:endEvent>
+      <bpmn:userTask id="T_Reject" name="Rejeter la session">
+        <bpmn:documentation>Faux appel, test ou doublon : le ticket créé automatiquement passe à « Rejeté » (statut 8, suppression logique) et la session est close (close_reason = rejected).</bpmn:documentation>
+        <bpmn:incoming>F018</bpmn:incoming>
+        <bpmn:outgoing>F019</bpmn:outgoing>
+      </bpmn:userTask>
+      <bpmn:endEvent id="E_Reject" name="Session rejetée (statut 8)">
+        <bpmn:incoming>F019</bpmn:incoming>
+      </bpmn:endEvent>
+      <bpmn:serviceTask id="T_Create" name="Créer le ticket (statut Nouveau)">
+        <bpmn:documentation>Quelle que soit l'entrée, le ticket rejoint la même file. Entrées : type (Incident par défaut), titre, contenu, priorité / urgence / impact, catégorie, application, localisation, demandeur (nom, email, téléphone), observateurs, source (manuel, magapp, mail, live). Historique « created » écrit ; statut 1 = Nouveau.</bpmn:documentation>
+        <bpmn:incoming>F002</bpmn:incoming>
+        <bpmn:incoming>F008</bpmn:incoming>
+        <bpmn:incoming>F022</bpmn:incoming>
+        <bpmn:outgoing>F023</bpmn:outgoing>
+        <bpmn:dataOutputAssociation id="DA_App_DSIHub"><bpmn:targetRef>App_DSIHub</bpmn:targetRef></bpmn:dataOutputAssociation>
+      </bpmn:serviceTask>
+      <bpmn:serviceTask id="T_SLA" name="Appliquer le SLA (heures ouvrées)">
+        <bpmn:documentation>SLA choisi selon la priorité et la catégorie ; cibles de première réponse et de résolution calculées en minutes OUVRÉES du calendrier (« 4 h ouvrées » ne courent ni la nuit ni le week-end). Un contrôle périodique alerte à 90 % (sla_warning) et trace le dépassement (sla_breached, historique + notification).</bpmn:documentation>
+        <bpmn:incoming>F023</bpmn:incoming>
+        <bpmn:outgoing>F024</bpmn:outgoing>
+      </bpmn:serviceTask>
+      <bpmn:serviceTask id="T_Rules" name="Appliquer les règles d'affectation (VIP, priorité, type, catégorie)">
+        <bpmn:documentation>Règles actives appliquées en cascade, de la plus spécifique à la plus générale : set_vip, boost_priority (+1, plafonné à 5), set_type, set_category, add_tag, puis affectation à un technicien ou à un GROUPE (file d'attente du groupe, sans technicien désigné). Le demandeur est aussi comparé à la liste VIP (nom normalisé ou email).</bpmn:documentation>
+        <bpmn:incoming>F024</bpmn:incoming>
+        <bpmn:outgoing>F025</bpmn:outgoing>
+      </bpmn:serviceTask>
+      <bpmn:exclusiveGateway id="G_Crit" name="Urgence et impact élevés ?">
+        <bpmn:documentation>Critères de crise définis dans la configuration Teams (urgence + impact).</bpmn:documentation>
+        <bpmn:incoming>F025</bpmn:incoming>
+        <bpmn:outgoing>F026</bpmn:outgoing>
+        <bpmn:outgoing>F027</bpmn:outgoing>
+      </bpmn:exclusiveGateway>
+      <bpmn:serviceTask id="T_Crisis" name="Alerter l'équipe sur Teams">
+        <bpmn:documentation>Carte envoyée au webhook Teams (si activé) ; un message de résolution est aussi envoyé quand le ticket de crise est résolu.</bpmn:documentation>
+        <bpmn:incoming>F026</bpmn:incoming>
+        <bpmn:outgoing>F028</bpmn:outgoing>
+        <bpmn:dataOutputAssociation id="DA_App_Teams"><bpmn:targetRef>App_Teams</bpmn:targetRef></bpmn:dataOutputAssociation>
+      </bpmn:serviceTask>
+      <bpmn:serviceTask id="T_Notify" name="Notifier (accusé au demandeur, groupe, technicien)">
+        <bpmn:documentation>Déclencheur ticket.created : modèles de mail par destinataire (demandeur, technicien, groupe, observateurs, admins) selon le paramétrage des Déclencheurs et Templates.</bpmn:documentation>
+        <bpmn:incoming>F027</bpmn:incoming>
+        <bpmn:incoming>F028</bpmn:incoming>
+        <bpmn:outgoing>F029</bpmn:outgoing>
+      </bpmn:serviceTask>
+      <bpmn:exclusiveGateway id="G_Assigned" name="Affecté par une règle ?">
+        <bpmn:incoming>F029</bpmn:incoming>
+        <bpmn:outgoing>F030</bpmn:outgoing>
+        <bpmn:outgoing>F031</bpmn:outgoing>
+      </bpmn:exclusiveGateway>
+      <bpmn:userTask id="T_Triage" name="Trier et affecter le ticket">
+        <bpmn:documentation>Aucune règle ne correspond : le ticket reste Nouveau et non affecté ; le superviseur (ou la hot-line) le qualifie et l'affecte à un technicien ou à un groupe.</bpmn:documentation>
+        <bpmn:incoming>F031</bpmn:incoming>
+        <bpmn:outgoing>F032</bpmn:outgoing>
+      </bpmn:userTask>
+      <bpmn:userTask id="T_Take" name="Prendre en charge (En cours) et s'assigner">
+        <bpmn:documentation>Nouveau → En cours (statut 2 attribué, ou 3 planifié). L'assignation est tracée dans l'historique ; un technicien membre du groupe par défaut rattache aussi le ticket à ce groupe.</bpmn:documentation>
+        <bpmn:incoming>F030</bpmn:incoming>
+        <bpmn:incoming>F032</bpmn:incoming>
+        <bpmn:outgoing>F033</bpmn:outgoing>
+      </bpmn:userTask>
+      <bpmn:userTask id="T_Diag" name="Diagnostiquer">
+        <bpmn:documentation>Qualifier (catégorie, logiciel, localisation), commenter, créer des tâches (aussi visibles dans Mes Tâches). Aides à la fiche : documents MagApp de l'application (joignables en un clic), articles de la base documentaire, réponses types, équipements du demandeur dans le Parc (rapprochés par email), historique, reformulation IA des commentaires.</bpmn:documentation>
+        <bpmn:incoming>F020</bpmn:incoming>
+        <bpmn:incoming>F033</bpmn:incoming>
+        <bpmn:incoming>F053</bpmn:incoming>
+        <bpmn:incoming>F057</bpmn:incoming>
+        <bpmn:incoming>F067</bpmn:incoming>
+        <bpmn:outgoing>F034</bpmn:outgoing>
+      </bpmn:userTask>
+      <bpmn:exclusiveGateway id="G_Nature" name="Nature du cas ?">
+        <bpmn:incoming>F034</bpmn:incoming>
+        <bpmn:outgoing>F035</bpmn:outgoing>
+        <bpmn:outgoing>F036</bpmn:outgoing>
+        <bpmn:outgoing>F037</bpmn:outgoing>
+        <bpmn:outgoing>F038</bpmn:outgoing>
+        <bpmn:outgoing>F039</bpmn:outgoing>
+      </bpmn:exclusiveGateway>
+      <bpmn:userTask id="T_Fix" name="Traiter (documents MagApp, parc, base documentaire)">
+        <bpmn:documentation>Cas standard : le technicien applique la procédure ou la solution connue.</bpmn:documentation>
+        <bpmn:incoming>F035</bpmn:incoming>
+        <bpmn:outgoing>F040</bpmn:outgoing>
+      </bpmn:userTask>
+      <bpmn:userTask id="T_Wait" name="Passer « En attente » (motif ; SLA en pause)">
+        <bpmn:documentation>Cas « information manquante » : statut 4 En attente avec motif d'attente. Le SLA est SUSPENDU et le temps d'attente est cumulé à part (total_waiting_seconds) ; il reprend à la sortie de l'attente.</bpmn:documentation>
+        <bpmn:incoming>F036</bpmn:incoming>
+        <bpmn:outgoing>F042</bpmn:outgoing>
+      </bpmn:userTask>
+      <bpmn:userTask id="T_Escal" name="Escalader vers un groupe (N2, expert, prestataire)">
+        <bpmn:documentation>Cas « hors compétence N1 » : fenêtre d'assignation, onglet Escalade vers un groupe. Toute (ré)assignation et escalade est tracée.</bpmn:documentation>
+        <bpmn:incoming>F037</bpmn:incoming>
+        <bpmn:outgoing>F054</bpmn:outgoing>
+      </bpmn:userTask>
+      <bpmn:userTask id="T_Problem" name="Créer ou associer un Problème">
+        <bpmn:documentation>Cas « panne collective » (mêmes symptômes) : créer un Problème à partir du ticket ou l'associer à un Problème existant. Il porte une méthode de résolution et peut citer un article de connaissance.</bpmn:documentation>
+        <bpmn:incoming>F038</bpmn:incoming>
+        <bpmn:outgoing>F058</bpmn:outgoing>
+      </bpmn:userTask>
+      <bpmn:userTask id="T_Fast" name="Action rapide : déverrouiller, réinitialiser (SMS), forcer le changement">
+        <bpmn:documentation>Cas « compte AD / mot de passe » — module Actions rapides (/fast) : recherche du compte AD, déverrouillage, activation/désactivation, mot de passe provisoire envoyé par SMS au bénéficiaire, ou obligation de changer le mot de passe à la prochaine connexion. Un ticket « changement de mot de passe » peut être créé.</bpmn:documentation>
+        <bpmn:incoming>F039</bpmn:incoming>
+        <bpmn:outgoing>F041</bpmn:outgoing>
+        <bpmn:dataOutputAssociation id="DA_App_AD"><bpmn:targetRef>App_AD</bpmn:targetRef></bpmn:dataOutputAssociation>
+      </bpmn:userTask>
+      <bpmn:eventBasedGateway id="G_Evt">
+        <bpmn:documentation>Deux événements possibles : réponse du demandeur, ou délai d'inactivité.</bpmn:documentation>
+        <bpmn:incoming>F042</bpmn:incoming>
+        <bpmn:outgoing>F043</bpmn:outgoing>
+        <bpmn:outgoing>F044</bpmn:outgoing>
+      </bpmn:eventBasedGateway>
+      <bpmn:intermediateCatchEvent id="E_Resp" name="Réponse du demandeur (mail ou lien)">
+        <bpmn:documentation>Par email (rattaché au ticket par le Mail Collector), ou depuis le lien « Répondre » (/repondre/{jeton}) des mails du support.</bpmn:documentation>
+        <bpmn:incoming>F043</bpmn:incoming>
+        <bpmn:outgoing>F045</bpmn:outgoing>
+        <bpmn:messageEventDefinition id="MED_E_Resp" />
+      </bpmn:intermediateCatchEvent>
+      <bpmn:intermediateCatchEvent id="E_Timer" name="Inactivité du ticket">
+        <bpmn:documentation>Résolution automatique (relances) : délai d'inactivité configurable en jours.</bpmn:documentation>
+        <bpmn:incoming>F044</bpmn:incoming>
+        <bpmn:incoming>F049</bpmn:incoming>
+        <bpmn:outgoing>F046</bpmn:outgoing>
+        <bpmn:timerEventDefinition id="TED_E_Timer" />
+      </bpmn:intermediateCatchEvent>
+      <bpmn:serviceTask id="T_Remind" name="Envoyer une relance (« toujours d'actualité ? »)">
+        <bpmn:documentation>Mail de relance avec bouton « Mon ticket est toujours d'actualité » (lien à jeton unique). Nombre maximal de relances et fréquence configurables (par défaut 3 relances, tous les 7 jours) ; observateurs prévenus si l'option est active.</bpmn:documentation>
+        <bpmn:incoming>F046</bpmn:incoming>
+        <bpmn:outgoing>F047</bpmn:outgoing>
+      </bpmn:serviceTask>
+      <bpmn:exclusiveGateway id="G_Keep" name="Réponse à la relance ?">
+        <bpmn:incoming>F047</bpmn:incoming>
+        <bpmn:outgoing>F048</bpmn:outgoing>
+        <bpmn:outgoing>F049</bpmn:outgoing>
+        <bpmn:outgoing>F050</bpmn:outgoing>
+      </bpmn:exclusiveGateway>
+      <bpmn:serviceTask id="T_Keep" name="Commentaire ajouté, priorité +1">
+        <bpmn:documentation>Le demandeur confirme : son commentaire est ajouté au ticket, la priorité est augmentée d'un niveau (max 5) et un mail de remerciement est envoyé.</bpmn:documentation>
+        <bpmn:incoming>F048</bpmn:incoming>
+        <bpmn:outgoing>F052</bpmn:outgoing>
+      </bpmn:serviceTask>
+      <bpmn:serviceTask id="T_AutoClose7" name="Clôture automatique sans réponse (statut 7)">
+        <bpmn:documentation>Après le nombre maximal de relances sans réponse : statut 7, date de clôture, historique « Clôture automatique – aucune réponse après relances » et mail d'information au demandeur (nouveau ticket à créer si besoin).</bpmn:documentation>
+        <bpmn:incoming>F050</bpmn:incoming>
+        <bpmn:outgoing>F051</bpmn:outgoing>
+      </bpmn:serviceTask>
+      <bpmn:endEvent id="E_Auto7" name="Clôturé sans réponse">
+        <bpmn:incoming>F051</bpmn:incoming>
+      </bpmn:endEvent>
+      <bpmn:userTask id="T_Resume" name="Reprendre (En cours, SLA repris)">
+        <bpmn:documentation>Sortie de l'attente : le temps d'attente écoulé est ajouté au cumul, le SLA reprend.</bpmn:documentation>
+        <bpmn:incoming>F045</bpmn:incoming>
+        <bpmn:incoming>F052</bpmn:incoming>
+        <bpmn:outgoing>F053</bpmn:outgoing>
+      </bpmn:userTask>
+      <bpmn:userTask id="T_N2" name="Traiter (N2 / expert / prestataire)">
+        <bpmn:documentation>Le groupe destinataire traite le ticket (niveau 2, expert ou prestataire) ; les règles d'escalade évitent qu'un ticket stagne sans prise en charge.</bpmn:documentation>
+        <bpmn:incoming>F054</bpmn:incoming>
+        <bpmn:outgoing>F055</bpmn:outgoing>
+      </bpmn:userTask>
+      <bpmn:exclusiveGateway id="G_N2" name="Résolu par le N2 ?">
+        <bpmn:incoming>F055</bpmn:incoming>
+        <bpmn:outgoing>F056</bpmn:outgoing>
+        <bpmn:outgoing>F057</bpmn:outgoing>
+      </bpmn:exclusiveGateway>
+      <bpmn:userTask id="T_ProbSolve" name="Résoudre le Problème (méthode, article de connaissance)">
+        <bpmn:documentation>La clôture d'un ticket de type Problème est RÉSERVÉE aux superviseurs. Résoudre le Problème renseigne la solution et sa méthode.</bpmn:documentation>
+        <bpmn:incoming>F058</bpmn:incoming>
+        <bpmn:outgoing>F059</bpmn:outgoing>
+      </bpmn:userTask>
+      <bpmn:serviceTask id="T_Cascade" name="Résoudre en cascade les tickets liés">
+        <bpmn:documentation>resolveProblem avec auto_resolve_linked : tous les tickets liés au Problème sont résolus d'un coup avec la même solution (les échecs éventuels sont remontés).</bpmn:documentation>
+        <bpmn:incoming>F059</bpmn:incoming>
+        <bpmn:outgoing>F060</bpmn:outgoing>
+      </bpmn:serviceTask>
+      <bpmn:userTask id="T_Resolve" name="Solutionner : solution + statut Résolu">
+        <bpmn:documentation>Geste recommandé « Solutionner » : le commentaire est enregistré COMME SOLUTION et le ticket passe à Résolu (statut 5) en une seule action. Entrées : texte de la solution (reformulation IA possible, réponses types), pièces jointes, copie (CC) aux observateurs. Pour un groupe de tickets ou un Problème, l'application propose la résolution en cascade.</bpmn:documentation>
+        <bpmn:incoming>F040</bpmn:incoming>
+        <bpmn:incoming>F041</bpmn:incoming>
+        <bpmn:incoming>F056</bpmn:incoming>
+        <bpmn:outgoing>F061</bpmn:outgoing>
+        <bpmn:dataOutputAssociation id="DA_App_DSIHub2"><bpmn:targetRef>App_DSIHub2</bpmn:targetRef></bpmn:dataOutputAssociation>
+      </bpmn:userTask>
+      <bpmn:serviceTask id="T_NotifySol" name="Notifier le demandeur (solution, liens Répondre / Rouvrir)">
+        <bpmn:documentation>Mail au demandeur (file de notification, modèle ticket_comment_reply) avec lien « Répondre » et bouton « Rouvrir le ticket » valable 168 h (7 jours). SLA clôturé (ok). Message Teams de résolution pour un ticket de crise.</bpmn:documentation>
+        <bpmn:incoming>F060</bpmn:incoming>
+        <bpmn:incoming>F061</bpmn:incoming>
+        <bpmn:outgoing>F062</bpmn:outgoing>
+      </bpmn:serviceTask>
+      <bpmn:eventBasedGateway id="G_Evt2">
+        <bpmn:documentation>Trois issues possibles après résolution.</bpmn:documentation>
+        <bpmn:incoming>F062</bpmn:incoming>
+        <bpmn:outgoing>F063</bpmn:outgoing>
+        <bpmn:outgoing>F064</bpmn:outgoing>
+        <bpmn:outgoing>F065</bpmn:outgoing>
+      </bpmn:eventBasedGateway>
+      <bpmn:intermediateCatchEvent id="E_Reopen" name="Le demandeur rouvre le ticket (≤ 7 j)">
+        <bpmn:documentation>Depuis le bouton du mail (/reouvrir/{jeton}) ou dans l'application. Au-delà de 7 jours : « Délai de réouverture dépassé », il faut créer un nouveau ticket. Un technicien ou superviseur peut rouvrir un ticket résolu, clos ou rejeté sans cette limite.</bpmn:documentation>
+        <bpmn:incoming>F063</bpmn:incoming>
+        <bpmn:outgoing>F066</bpmn:outgoing>
+        <bpmn:messageEventDefinition id="MED_E_Reopen" />
+      </bpmn:intermediateCatchEvent>
+      <bpmn:intermediateCatchEvent id="E_Confirm" name="Le demandeur confirme">
+        <bpmn:documentation>Le demandeur clôture lui-même le ticket résolu (source « demandeur » dans le log des clôtures).</bpmn:documentation>
+        <bpmn:incoming>F064</bpmn:incoming>
+        <bpmn:outgoing>F068</bpmn:outgoing>
+        <bpmn:messageEventDefinition id="MED_E_Confirm" />
+      </bpmn:intermediateCatchEvent>
+      <bpmn:intermediateCatchEvent id="E_Delay" name="N jours après résolution (7 par défaut)">
+        <bpmn:documentation>Paramètre « Durée avant clôture auto » (0 = désactivé) dans /admin/tickets, onglet Clôture.</bpmn:documentation>
+        <bpmn:incoming>F065</bpmn:incoming>
+        <bpmn:outgoing>F069</bpmn:outgoing>
+        <bpmn:timerEventDefinition id="TED_E_Delay" />
+      </bpmn:intermediateCatchEvent>
+      <bpmn:userTask id="T_Reopen" name="Rouvrir le ticket (Nouveau ou En cours)">
+        <bpmn:documentation>Résolu / Clos / Rejeté → En cours (statut 2) s'il a un technicien ou un groupe, sinon Nouveau (statut 1). Déclencheur ticket.reopened.</bpmn:documentation>
+        <bpmn:incoming>F066</bpmn:incoming>
+        <bpmn:outgoing>F067</bpmn:outgoing>
+      </bpmn:userTask>
+      <bpmn:serviceTask id="T_UserClose" name="Clôturer (par le demandeur)">
+        <bpmn:documentation>Résolu → Clos (statut 6), notification ticket.closed.</bpmn:documentation>
+        <bpmn:incoming>F068</bpmn:incoming>
+        <bpmn:outgoing>F070</bpmn:outgoing>
+      </bpmn:serviceTask>
+      <bpmn:serviceTask id="T_AutoClose6" name="Clôture automatique nocturne (statut Clos)">
+        <bpmn:documentation>Tâche planifiée de minuit : tout ticket Résolu depuis plus de N jours passe à Clos, tracé dans l'historique (auteur « Système »).</bpmn:documentation>
+        <bpmn:incoming>F069</bpmn:incoming>
+        <bpmn:outgoing>F071</bpmn:outgoing>
+      </bpmn:serviceTask>
+      <bpmn:serviceTask id="T_Sat" name="Inviter à donner un avis de satisfaction">
+        <bpmn:documentation>Enquête de satisfaction (activable dans /admin/tickets) : notes et commentaires consultables par les superviseurs.</bpmn:documentation>
+        <bpmn:incoming>F070</bpmn:incoming>
+        <bpmn:incoming>F071</bpmn:incoming>
+        <bpmn:outgoing>F072</bpmn:outgoing>
+      </bpmn:serviceTask>
+      <bpmn:endEvent id="E_End" name="Incident clos">
+        <bpmn:incoming>F072</bpmn:incoming>
+      </bpmn:endEvent>
+      <bpmn:sequenceFlow id="F001" sourceRef="S_Form" targetRef="T_FormFill" />
+      <bpmn:sequenceFlow id="F002" sourceRef="T_FormFill" targetRef="T_Create" />
+      <bpmn:sequenceFlow id="F003" sourceRef="S_Mail" targetRef="T_MailDedup" />
+      <bpmn:sequenceFlow id="F004" sourceRef="T_MailDedup" targetRef="G_Reply" />
+      <bpmn:sequenceFlow id="F005" name="oui" sourceRef="G_Reply" targetRef="T_AddComment" />
+      <bpmn:sequenceFlow id="F006" name="non" sourceRef="G_Reply" targetRef="T_Classify" />
+      <bpmn:sequenceFlow id="F007" sourceRef="T_AddComment" targetRef="E_Comment" />
+      <bpmn:sequenceFlow id="F008" sourceRef="T_Classify" targetRef="T_Create" />
+      <bpmn:sequenceFlow id="F009" sourceRef="S_Chat" targetRef="G_Hours" />
+      <bpmn:sequenceFlow id="F010" name="oui" sourceRef="G_Hours" targetRef="T_ChatTicket" />
+      <bpmn:sequenceFlow id="F011" name="non (hors horaires, jour férié)" sourceRef="G_Hours" targetRef="T_Urgence" />
+      <bpmn:sequenceFlow id="F012" sourceRef="T_Urgence" targetRef="E_SMS" />
+      <bpmn:sequenceFlow id="F013" sourceRef="T_ChatTicket" targetRef="T_Claim" />
+      <bpmn:sequenceFlow id="F014" sourceRef="T_Claim" targetRef="T_Talk" />
+      <bpmn:sequenceFlow id="F015" sourceRef="T_Talk" targetRef="G_ChatDone" />
+      <bpmn:sequenceFlow id="F016" name="résolu" sourceRef="G_ChatDone" targetRef="T_ChatClassify" />
+      <bpmn:sequenceFlow id="F017" sourceRef="T_ChatClassify" targetRef="E_ChatDone" />
+      <bpmn:sequenceFlow id="F018" name="faux appel / test" sourceRef="G_ChatDone" targetRef="T_Reject" />
+      <bpmn:sequenceFlow id="F019" sourceRef="T_Reject" targetRef="E_Reject" />
+      <bpmn:sequenceFlow id="F020" name="à poursuivre en ticket" sourceRef="G_ChatDone" targetRef="T_Diag" />
+      <bpmn:sequenceFlow id="F021" sourceRef="S_Phone" targetRef="T_Manual" />
+      <bpmn:sequenceFlow id="F022" sourceRef="T_Manual" targetRef="T_Create" />
+      <bpmn:sequenceFlow id="F023" sourceRef="T_Create" targetRef="T_SLA" />
+      <bpmn:sequenceFlow id="F024" sourceRef="T_SLA" targetRef="T_Rules" />
+      <bpmn:sequenceFlow id="F025" sourceRef="T_Rules" targetRef="G_Crit" />
+      <bpmn:sequenceFlow id="F026" name="oui" sourceRef="G_Crit" targetRef="T_Crisis" />
+      <bpmn:sequenceFlow id="F027" name="non" sourceRef="G_Crit" targetRef="T_Notify" />
+      <bpmn:sequenceFlow id="F028" sourceRef="T_Crisis" targetRef="T_Notify" />
+      <bpmn:sequenceFlow id="F029" sourceRef="T_Notify" targetRef="G_Assigned" />
+      <bpmn:sequenceFlow id="F030" name="oui (groupe ou technicien)" sourceRef="G_Assigned" targetRef="T_Take" />
+      <bpmn:sequenceFlow id="F031" name="non" sourceRef="G_Assigned" targetRef="T_Triage" />
+      <bpmn:sequenceFlow id="F032" sourceRef="T_Triage" targetRef="T_Take" />
+      <bpmn:sequenceFlow id="F033" sourceRef="T_Take" targetRef="T_Diag" />
+      <bpmn:sequenceFlow id="F034" sourceRef="T_Diag" targetRef="G_Nature" />
+      <bpmn:sequenceFlow id="F035" name="cas standard" sourceRef="G_Nature" targetRef="T_Fix" />
+      <bpmn:sequenceFlow id="F036" name="information manquante" sourceRef="G_Nature" targetRef="T_Wait" />
+      <bpmn:sequenceFlow id="F037" name="hors compétence N1" sourceRef="G_Nature" targetRef="T_Escal" />
+      <bpmn:sequenceFlow id="F038" name="panne collective" sourceRef="G_Nature" targetRef="T_Problem" />
+      <bpmn:sequenceFlow id="F039" name="compte AD / mot de passe" sourceRef="G_Nature" targetRef="T_Fast" />
+      <bpmn:sequenceFlow id="F040" sourceRef="T_Fix" targetRef="T_Resolve" />
+      <bpmn:sequenceFlow id="F041" sourceRef="T_Fast" targetRef="T_Resolve" />
+      <bpmn:sequenceFlow id="F042" sourceRef="T_Wait" targetRef="G_Evt" />
+      <bpmn:sequenceFlow id="F043" sourceRef="G_Evt" targetRef="E_Resp" />
+      <bpmn:sequenceFlow id="F044" sourceRef="G_Evt" targetRef="E_Timer" />
+      <bpmn:sequenceFlow id="F045" sourceRef="E_Resp" targetRef="T_Resume" />
+      <bpmn:sequenceFlow id="F046" sourceRef="E_Timer" targetRef="T_Remind" />
+      <bpmn:sequenceFlow id="F047" sourceRef="T_Remind" targetRef="G_Keep" />
+      <bpmn:sequenceFlow id="F048" name="oui, toujours d'actualité" sourceRef="G_Keep" targetRef="T_Keep" />
+      <bpmn:sequenceFlow id="F049" name="non, relance suivante" sourceRef="G_Keep" targetRef="E_Timer" />
+      <bpmn:sequenceFlow id="F050" name="non, relances épuisées" sourceRef="G_Keep" targetRef="T_AutoClose7" />
+      <bpmn:sequenceFlow id="F051" sourceRef="T_AutoClose7" targetRef="E_Auto7" />
+      <bpmn:sequenceFlow id="F052" sourceRef="T_Keep" targetRef="T_Resume" />
+      <bpmn:sequenceFlow id="F053" sourceRef="T_Resume" targetRef="T_Diag" />
+      <bpmn:sequenceFlow id="F054" sourceRef="T_Escal" targetRef="T_N2" />
+      <bpmn:sequenceFlow id="F055" sourceRef="T_N2" targetRef="G_N2" />
+      <bpmn:sequenceFlow id="F056" name="oui" sourceRef="G_N2" targetRef="T_Resolve" />
+      <bpmn:sequenceFlow id="F057" name="non, retour au N1" sourceRef="G_N2" targetRef="T_Diag" />
+      <bpmn:sequenceFlow id="F058" sourceRef="T_Problem" targetRef="T_ProbSolve" />
+      <bpmn:sequenceFlow id="F059" sourceRef="T_ProbSolve" targetRef="T_Cascade" />
+      <bpmn:sequenceFlow id="F060" sourceRef="T_Cascade" targetRef="T_NotifySol" />
+      <bpmn:sequenceFlow id="F061" sourceRef="T_Resolve" targetRef="T_NotifySol" />
+      <bpmn:sequenceFlow id="F062" sourceRef="T_NotifySol" targetRef="G_Evt2" />
+      <bpmn:sequenceFlow id="F063" sourceRef="G_Evt2" targetRef="E_Reopen" />
+      <bpmn:sequenceFlow id="F064" sourceRef="G_Evt2" targetRef="E_Confirm" />
+      <bpmn:sequenceFlow id="F065" sourceRef="G_Evt2" targetRef="E_Delay" />
+      <bpmn:sequenceFlow id="F066" sourceRef="E_Reopen" targetRef="T_Reopen" />
+      <bpmn:sequenceFlow id="F067" sourceRef="T_Reopen" targetRef="T_Diag" />
+      <bpmn:sequenceFlow id="F068" sourceRef="E_Confirm" targetRef="T_UserClose" />
+      <bpmn:sequenceFlow id="F069" sourceRef="E_Delay" targetRef="T_AutoClose6" />
+      <bpmn:sequenceFlow id="F070" sourceRef="T_UserClose" targetRef="T_Sat" />
+      <bpmn:sequenceFlow id="F071" sourceRef="T_AutoClose6" targetRef="T_Sat" />
+      <bpmn:sequenceFlow id="F072" sourceRef="T_Sat" targetRef="E_End" />
+      <bpmn:dataStoreReference id="App_DSIHub" name="DSI Hub" dsi:applicationId="158" />
+      <bpmn:dataStoreReference id="App_Teams" name="TEAMS (mode Web)" dsi:applicationId="80" />
+      <bpmn:dataStoreReference id="App_AD" name="AD (Active Directory)" dsi:applicationId="160" />
+      <bpmn:dataStoreReference id="App_DSIHub2" name="DSI Hub" dsi:applicationId="158" />
+  </bpmn:process>
+  <bpmndi:BPMNDiagram id="BPMNDiagram_1">
+    <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="Collaboration_1">
+      <bpmndi:BPMNShape id="Participant_1_di" bpmnElement="Participant_1" isHorizontal="true"><dc:Bounds x="160" y="80" width="5800" height="2500" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_0_di" bpmnElement="Lane_0" isHorizontal="true"><dc:Bounds x="190" y="80" width="5770" height="435" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_1_di" bpmnElement="Lane_1" isHorizontal="true"><dc:Bounds x="190" y="515" width="5770" height="545" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_2_di" bpmnElement="Lane_2" isHorizontal="true"><dc:Bounds x="190" y="1060" width="5770" height="435" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_3_di" bpmnElement="Lane_3" isHorizontal="true"><dc:Bounds x="190" y="1495" width="5770" height="655" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_4_di" bpmnElement="Lane_4" isHorizontal="true"><dc:Bounds x="190" y="2150" width="5770" height="215" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_5_di" bpmnElement="Lane_5" isHorizontal="true"><dc:Bounds x="190" y="2365" width="5770" height="215" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S_Form_di" bpmnElement="S_Form"><dc:Bounds x="292" y="137" width="36" height="36" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_FormFill_di" bpmnElement="T_FormFill"><dc:Bounds x="430" y="120" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S_Mail_di" bpmnElement="S_Mail"><dc:Bounds x="292" y="247" width="36" height="36" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S_Chat_di" bpmnElement="S_Chat"><dc:Bounds x="292" y="357" width="36" height="36" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S_Phone_di" bpmnElement="S_Phone"><dc:Bounds x="292" y="1772" width="36" height="36" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Manual_di" bpmnElement="T_Manual"><dc:Bounds x="430" y="1755" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_MailDedup_di" bpmnElement="T_MailDedup"><dc:Bounds x="430" y="555" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="G_Reply_di" bpmnElement="G_Reply" isMarkerVisible="true"><dc:Bounds x="665" y="565" width="50" height="50" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Classify_di" bpmnElement="T_Classify"><dc:Bounds x="810" y="555" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_AddComment_di" bpmnElement="T_AddComment"><dc:Bounds x="810" y="665" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="E_Comment_di" bpmnElement="E_Comment"><dc:Bounds x="1052" y="682" width="36" height="36" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="G_Hours_di" bpmnElement="G_Hours" isMarkerVisible="true"><dc:Bounds x="475" y="785" width="50" height="50" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_ChatTicket_di" bpmnElement="T_ChatTicket"><dc:Bounds x="620" y="775" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Urgence_di" bpmnElement="T_Urgence"><dc:Bounds x="620" y="885" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="E_SMS_di" bpmnElement="E_SMS"><dc:Bounds x="862" y="902" width="36" height="36" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Claim_di" bpmnElement="T_Claim"><dc:Bounds x="810" y="1535" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Talk_di" bpmnElement="T_Talk"><dc:Bounds x="1000" y="1535" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="G_ChatDone_di" bpmnElement="G_ChatDone" isMarkerVisible="true"><dc:Bounds x="1235" y="1545" width="50" height="50" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_ChatClassify_di" bpmnElement="T_ChatClassify"><dc:Bounds x="1380" y="1535" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="E_ChatDone_di" bpmnElement="E_ChatDone"><dc:Bounds x="1622" y="1552" width="36" height="36" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Reject_di" bpmnElement="T_Reject"><dc:Bounds x="1380" y="1645" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="E_Reject_di" bpmnElement="E_Reject"><dc:Bounds x="1622" y="1662" width="36" height="36" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Create_di" bpmnElement="T_Create"><dc:Bounds x="1190" y="1100" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_SLA_di" bpmnElement="T_SLA"><dc:Bounds x="1380" y="1100" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Rules_di" bpmnElement="T_Rules"><dc:Bounds x="1570" y="1100" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="G_Crit_di" bpmnElement="G_Crit" isMarkerVisible="true"><dc:Bounds x="1805" y="1110" width="50" height="50" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Crisis_di" bpmnElement="T_Crisis"><dc:Bounds x="1950" y="1210" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Notify_di" bpmnElement="T_Notify"><dc:Bounds x="2140" y="1100" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="G_Assigned_di" bpmnElement="G_Assigned" isMarkerVisible="true"><dc:Bounds x="2375" y="1110" width="50" height="50" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Triage_di" bpmnElement="T_Triage"><dc:Bounds x="2520" y="2405" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Take_di" bpmnElement="T_Take"><dc:Bounds x="2710" y="1645" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Diag_di" bpmnElement="T_Diag"><dc:Bounds x="2900" y="1535" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="G_Nature_di" bpmnElement="G_Nature" isMarkerVisible="true"><dc:Bounds x="3135" y="1545" width="50" height="50" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Fix_di" bpmnElement="T_Fix"><dc:Bounds x="3280" y="1535" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Wait_di" bpmnElement="T_Wait"><dc:Bounds x="3280" y="1645" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Escal_di" bpmnElement="T_Escal"><dc:Bounds x="3280" y="1755" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Problem_di" bpmnElement="T_Problem"><dc:Bounds x="3280" y="1865" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Fast_di" bpmnElement="T_Fast"><dc:Bounds x="3280" y="1975" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="G_Evt_di" bpmnElement="G_Evt"><dc:Bounds x="3515" y="1220" width="50" height="50" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="E_Resp_di" bpmnElement="E_Resp"><dc:Bounds x="3712" y="137" width="36" height="36" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="E_Timer_di" bpmnElement="E_Timer"><dc:Bounds x="3712" y="1227" width="36" height="36" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Remind_di" bpmnElement="T_Remind"><dc:Bounds x="3850" y="1210" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="G_Keep_di" bpmnElement="G_Keep" isMarkerVisible="true"><dc:Bounds x="4085" y="1220" width="50" height="50" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Keep_di" bpmnElement="T_Keep"><dc:Bounds x="4230" y="1210" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_AutoClose7_di" bpmnElement="T_AutoClose7"><dc:Bounds x="4230" y="1320" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="E_Auto7_di" bpmnElement="E_Auto7"><dc:Bounds x="4472" y="1337" width="36" height="36" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Resume_di" bpmnElement="T_Resume"><dc:Bounds x="4420" y="1645" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_N2_di" bpmnElement="T_N2"><dc:Bounds x="3470" y="2190" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="G_N2_di" bpmnElement="G_N2" isMarkerVisible="true"><dc:Bounds x="3705" y="2200" width="50" height="50" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_ProbSolve_di" bpmnElement="T_ProbSolve"><dc:Bounds x="3470" y="2405" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Cascade_di" bpmnElement="T_Cascade"><dc:Bounds x="3660" y="2405" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Resolve_di" bpmnElement="T_Resolve"><dc:Bounds x="4610" y="1535" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_NotifySol_di" bpmnElement="T_NotifySol"><dc:Bounds x="4800" y="1100" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="G_Evt2_di" bpmnElement="G_Evt2"><dc:Bounds x="5035" y="1110" width="50" height="50" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="E_Reopen_di" bpmnElement="E_Reopen"><dc:Bounds x="5232" y="137" width="36" height="36" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="E_Confirm_di" bpmnElement="E_Confirm"><dc:Bounds x="5232" y="247" width="36" height="36" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="E_Delay_di" bpmnElement="E_Delay"><dc:Bounds x="5232" y="1227" width="36" height="36" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Reopen_di" bpmnElement="T_Reopen"><dc:Bounds x="5370" y="1535" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_UserClose_di" bpmnElement="T_UserClose"><dc:Bounds x="5370" y="1210" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_AutoClose6_di" bpmnElement="T_AutoClose6"><dc:Bounds x="5370" y="1320" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Sat_di" bpmnElement="T_Sat"><dc:Bounds x="5560" y="1210" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="E_End_di" bpmnElement="E_End"><dc:Bounds x="5802" y="1227" width="36" height="36" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="App_DSIHub_di" bpmnElement="App_DSIHub"><dc:Bounds x="1200" y="1400" width="120" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="App_Teams_di" bpmnElement="App_Teams"><dc:Bounds x="1960" y="1400" width="120" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="App_AD_di" bpmnElement="App_AD"><dc:Bounds x="3290" y="2055" width="120" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="App_DSIHub2_di" bpmnElement="App_DSIHub2"><dc:Bounds x="4620" y="2055" width="120" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="F001_di" bpmnElement="F001"><di:waypoint x="328" y="155" /><di:waypoint x="430" y="155" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F002_di" bpmnElement="F002"><di:waypoint x="570" y="155" /><di:waypoint x="1165" y="155" /><di:waypoint x="1165" y="1135" /><di:waypoint x="1190" y="1135" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F003_di" bpmnElement="F003"><di:waypoint x="328" y="265" /><di:waypoint x="379" y="265" /><di:waypoint x="379" y="590" /><di:waypoint x="430" y="590" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F004_di" bpmnElement="F004"><di:waypoint x="570" y="590" /><di:waypoint x="665" y="590" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F005_di" bpmnElement="F005"><di:waypoint x="715" y="590" /><di:waypoint x="762.5" y="590" /><di:waypoint x="762.5" y="700" /><di:waypoint x="810" y="700" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F006_di" bpmnElement="F006"><di:waypoint x="715" y="590" /><di:waypoint x="810" y="590" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F007_di" bpmnElement="F007"><di:waypoint x="950" y="700" /><di:waypoint x="1052" y="700" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F008_di" bpmnElement="F008"><di:waypoint x="950" y="590" /><di:waypoint x="1165" y="590" /><di:waypoint x="1165" y="1135" /><di:waypoint x="1190" y="1135" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F009_di" bpmnElement="F009"><di:waypoint x="328" y="375" /><di:waypoint x="401.5" y="375" /><di:waypoint x="401.5" y="810" /><di:waypoint x="475" y="810" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F010_di" bpmnElement="F010"><di:waypoint x="525" y="810" /><di:waypoint x="620" y="810" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F011_di" bpmnElement="F011"><di:waypoint x="525" y="810" /><di:waypoint x="572.5" y="810" /><di:waypoint x="572.5" y="920" /><di:waypoint x="620" y="920" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F012_di" bpmnElement="F012"><di:waypoint x="760" y="920" /><di:waypoint x="862" y="920" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F013_di" bpmnElement="F013"><di:waypoint x="760" y="810" /><di:waypoint x="785" y="810" /><di:waypoint x="785" y="1570" /><di:waypoint x="810" y="1570" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F014_di" bpmnElement="F014"><di:waypoint x="950" y="1570" /><di:waypoint x="1000" y="1570" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F015_di" bpmnElement="F015"><di:waypoint x="1140" y="1570" /><di:waypoint x="1235" y="1570" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F016_di" bpmnElement="F016"><di:waypoint x="1285" y="1570" /><di:waypoint x="1380" y="1570" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F017_di" bpmnElement="F017"><di:waypoint x="1520" y="1570" /><di:waypoint x="1622" y="1570" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F018_di" bpmnElement="F018"><di:waypoint x="1285" y="1570" /><di:waypoint x="1332.5" y="1570" /><di:waypoint x="1332.5" y="1680" /><di:waypoint x="1380" y="1680" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F019_di" bpmnElement="F019"><di:waypoint x="1520" y="1680" /><di:waypoint x="1622" y="1680" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F020_di" bpmnElement="F020"><di:waypoint x="1260" y="1595" /><di:waypoint x="1260" y="1625" /><di:waypoint x="2970" y="1625" /><di:waypoint x="2970" y="1605" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F021_di" bpmnElement="F021"><di:waypoint x="328" y="1790" /><di:waypoint x="430" y="1790" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F022_di" bpmnElement="F022"><di:waypoint x="570" y="1790" /><di:waypoint x="1165" y="1790" /><di:waypoint x="1165" y="1135" /><di:waypoint x="1190" y="1135" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F023_di" bpmnElement="F023"><di:waypoint x="1330" y="1135" /><di:waypoint x="1380" y="1135" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F024_di" bpmnElement="F024"><di:waypoint x="1520" y="1135" /><di:waypoint x="1570" y="1135" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F025_di" bpmnElement="F025"><di:waypoint x="1710" y="1135" /><di:waypoint x="1805" y="1135" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F026_di" bpmnElement="F026"><di:waypoint x="1855" y="1135" /><di:waypoint x="1902.5" y="1135" /><di:waypoint x="1902.5" y="1245" /><di:waypoint x="1950" y="1245" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F027_di" bpmnElement="F027"><di:waypoint x="1855" y="1135" /><di:waypoint x="2140" y="1135" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F028_di" bpmnElement="F028"><di:waypoint x="2090" y="1245" /><di:waypoint x="2115" y="1245" /><di:waypoint x="2115" y="1135" /><di:waypoint x="2140" y="1135" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F029_di" bpmnElement="F029"><di:waypoint x="2280" y="1135" /><di:waypoint x="2375" y="1135" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F030_di" bpmnElement="F030"><di:waypoint x="2425" y="1135" /><di:waypoint x="2685" y="1135" /><di:waypoint x="2685" y="1680" /><di:waypoint x="2710" y="1680" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F031_di" bpmnElement="F031"><di:waypoint x="2425" y="1135" /><di:waypoint x="2472.5" y="1135" /><di:waypoint x="2472.5" y="2440" /><di:waypoint x="2520" y="2440" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F032_di" bpmnElement="F032"><di:waypoint x="2660" y="2440" /><di:waypoint x="2685" y="2440" /><di:waypoint x="2685" y="1680" /><di:waypoint x="2710" y="1680" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F033_di" bpmnElement="F033"><di:waypoint x="2850" y="1680" /><di:waypoint x="2875" y="1680" /><di:waypoint x="2875" y="1570" /><di:waypoint x="2900" y="1570" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F034_di" bpmnElement="F034"><di:waypoint x="3040" y="1570" /><di:waypoint x="3135" y="1570" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F035_di" bpmnElement="F035"><di:waypoint x="3185" y="1570" /><di:waypoint x="3280" y="1570" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F036_di" bpmnElement="F036"><di:waypoint x="3185" y="1570" /><di:waypoint x="3232.5" y="1570" /><di:waypoint x="3232.5" y="1680" /><di:waypoint x="3280" y="1680" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F037_di" bpmnElement="F037"><di:waypoint x="3185" y="1570" /><di:waypoint x="3232.5" y="1570" /><di:waypoint x="3232.5" y="1790" /><di:waypoint x="3280" y="1790" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F038_di" bpmnElement="F038"><di:waypoint x="3185" y="1570" /><di:waypoint x="3232.5" y="1570" /><di:waypoint x="3232.5" y="1900" /><di:waypoint x="3280" y="1900" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F039_di" bpmnElement="F039"><di:waypoint x="3185" y="1570" /><di:waypoint x="3232.5" y="1570" /><di:waypoint x="3232.5" y="2010" /><di:waypoint x="3280" y="2010" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F040_di" bpmnElement="F040"><di:waypoint x="3420" y="1570" /><di:waypoint x="4610" y="1570" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F041_di" bpmnElement="F041"><di:waypoint x="3420" y="2010" /><di:waypoint x="4585" y="2010" /><di:waypoint x="4585" y="1570" /><di:waypoint x="4610" y="1570" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F042_di" bpmnElement="F042"><di:waypoint x="3420" y="1680" /><di:waypoint x="3467.5" y="1680" /><di:waypoint x="3467.5" y="1245" /><di:waypoint x="3515" y="1245" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F043_di" bpmnElement="F043"><di:waypoint x="3565" y="1245" /><di:waypoint x="3638.5" y="1245" /><di:waypoint x="3638.5" y="155" /><di:waypoint x="3712" y="155" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F044_di" bpmnElement="F044"><di:waypoint x="3565" y="1245" /><di:waypoint x="3712" y="1245" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F045_di" bpmnElement="F045"><di:waypoint x="3748" y="155" /><di:waypoint x="4395" y="155" /><di:waypoint x="4395" y="1680" /><di:waypoint x="4420" y="1680" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F046_di" bpmnElement="F046"><di:waypoint x="3748" y="1245" /><di:waypoint x="3850" y="1245" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F047_di" bpmnElement="F047"><di:waypoint x="3990" y="1245" /><di:waypoint x="4085" y="1245" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F048_di" bpmnElement="F048"><di:waypoint x="4135" y="1245" /><di:waypoint x="4230" y="1245" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F049_di" bpmnElement="F049"><di:waypoint x="4110" y="1270" /><di:waypoint x="4110" y="1300" /><di:waypoint x="3730" y="1300" /><di:waypoint x="3730" y="1263" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F050_di" bpmnElement="F050"><di:waypoint x="4135" y="1245" /><di:waypoint x="4182.5" y="1245" /><di:waypoint x="4182.5" y="1355" /><di:waypoint x="4230" y="1355" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F051_di" bpmnElement="F051"><di:waypoint x="4370" y="1355" /><di:waypoint x="4472" y="1355" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F052_di" bpmnElement="F052"><di:waypoint x="4370" y="1245" /><di:waypoint x="4395" y="1245" /><di:waypoint x="4395" y="1680" /><di:waypoint x="4420" y="1680" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F053_di" bpmnElement="F053"><di:waypoint x="4490" y="1715" /><di:waypoint x="4490" y="1745" /><di:waypoint x="2970" y="1745" /><di:waypoint x="2970" y="1605" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F054_di" bpmnElement="F054"><di:waypoint x="3420" y="1790" /><di:waypoint x="3445" y="1790" /><di:waypoint x="3445" y="2225" /><di:waypoint x="3470" y="2225" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F055_di" bpmnElement="F055"><di:waypoint x="3610" y="2225" /><di:waypoint x="3705" y="2225" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F056_di" bpmnElement="F056"><di:waypoint x="3755" y="2225" /><di:waypoint x="4585" y="2225" /><di:waypoint x="4585" y="1570" /><di:waypoint x="4610" y="1570" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F057_di" bpmnElement="F057"><di:waypoint x="3730" y="2250" /><di:waypoint x="3730" y="2280" /><di:waypoint x="2970" y="2280" /><di:waypoint x="2970" y="1605" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F058_di" bpmnElement="F058"><di:waypoint x="3420" y="1900" /><di:waypoint x="3445" y="1900" /><di:waypoint x="3445" y="2440" /><di:waypoint x="3470" y="2440" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F059_di" bpmnElement="F059"><di:waypoint x="3610" y="2440" /><di:waypoint x="3660" y="2440" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F060_di" bpmnElement="F060"><di:waypoint x="3800" y="2440" /><di:waypoint x="4775" y="2440" /><di:waypoint x="4775" y="1135" /><di:waypoint x="4800" y="1135" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F061_di" bpmnElement="F061"><di:waypoint x="4750" y="1570" /><di:waypoint x="4775" y="1570" /><di:waypoint x="4775" y="1135" /><di:waypoint x="4800" y="1135" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F062_di" bpmnElement="F062"><di:waypoint x="4940" y="1135" /><di:waypoint x="5035" y="1135" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F063_di" bpmnElement="F063"><di:waypoint x="5085" y="1135" /><di:waypoint x="5158.5" y="1135" /><di:waypoint x="5158.5" y="155" /><di:waypoint x="5232" y="155" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F064_di" bpmnElement="F064"><di:waypoint x="5085" y="1135" /><di:waypoint x="5158.5" y="1135" /><di:waypoint x="5158.5" y="265" /><di:waypoint x="5232" y="265" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F065_di" bpmnElement="F065"><di:waypoint x="5085" y="1135" /><di:waypoint x="5158.5" y="1135" /><di:waypoint x="5158.5" y="1245" /><di:waypoint x="5232" y="1245" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F066_di" bpmnElement="F066"><di:waypoint x="5268" y="155" /><di:waypoint x="5319" y="155" /><di:waypoint x="5319" y="1570" /><di:waypoint x="5370" y="1570" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F067_di" bpmnElement="F067"><di:waypoint x="5440" y="1605" /><di:waypoint x="5440" y="1635" /><di:waypoint x="2970" y="1635" /><di:waypoint x="2970" y="1605" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F068_di" bpmnElement="F068"><di:waypoint x="5268" y="265" /><di:waypoint x="5319" y="265" /><di:waypoint x="5319" y="1245" /><di:waypoint x="5370" y="1245" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F069_di" bpmnElement="F069"><di:waypoint x="5268" y="1245" /><di:waypoint x="5319" y="1245" /><di:waypoint x="5319" y="1355" /><di:waypoint x="5370" y="1355" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F070_di" bpmnElement="F070"><di:waypoint x="5510" y="1245" /><di:waypoint x="5560" y="1245" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F071_di" bpmnElement="F071"><di:waypoint x="5510" y="1355" /><di:waypoint x="5535" y="1355" /><di:waypoint x="5535" y="1245" /><di:waypoint x="5560" y="1245" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F072_di" bpmnElement="F072"><di:waypoint x="5700" y="1245" /><di:waypoint x="5802" y="1245" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="DA_App_DSIHub_di" bpmnElement="DA_App_DSIHub"><di:waypoint x="1260" y="1170" /><di:waypoint x="1260" y="1400" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="DA_App_Teams_di" bpmnElement="DA_App_Teams"><di:waypoint x="2020" y="1280" /><di:waypoint x="2020" y="1400" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="DA_App_AD_di" bpmnElement="DA_App_AD"><di:waypoint x="3350" y="2045" /><di:waypoint x="3350" y="2055" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="DA_App_DSIHub2_di" bpmnElement="DA_App_DSIHub2"><di:waypoint x="4680" y="1605" /><di:waypoint x="4680" y="2055" /></bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>

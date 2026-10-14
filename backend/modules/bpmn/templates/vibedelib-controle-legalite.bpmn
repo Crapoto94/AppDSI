@@ -1,0 +1,180 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" xmlns:dsi="http://dsi.ivry/schema/bpmn" id="Definitions_1" targetNamespace="http://bpmn.io/schema/bpmn">
+  <bpmn:collaboration id="Collaboration_1">
+    <bpmn:participant id="Participant_1" name="VibeDélib — Télétransmission au contrôle de légalité (S²LOW) et archivage" processRef="Process_1" />
+  </bpmn:collaboration>
+  <bpmn:process id="Process_1" isExecutable="false">
+    <bpmn:documentation id="Doc_Process">Après le vote : constitution du lot de la séance, préparation de chaque transmission (numéro, nature, matière, types de pièces), contrôles préalables, dépôt sur S²LOW en attente de confirmation (mode B) puis confirmation avec le certificat RGS** ou envoi direct (mode A), suivi automatique des statuts jusqu'à l'accusé de réception, traitement des courriers de la préfecture, date d'affichage et archivage en GED Alfresco. Reconstitué à partir du manifeste de VibeDélib (sections 19.5 et 19.5 bis).</bpmn:documentation>
+    <bpmn:laneSet id="LaneSet_1">
+      <bpmn:lane id="Lane_0" name="SCC / rôle télétransmission">
+        <bpmn:flowNodeRef>S</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>T_Lot</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>T_Prep</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>T_Corr</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>T_Confirm</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>T_Pref</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>T_Affich</bpmn:flowNodeRef>
+      </bpmn:lane>
+      <bpmn:lane id="Lane_1" name="VibeDélib (système)">
+        <bpmn:flowNodeRef>T_Ctrl</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>G_Ctrl</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>T_Suivi</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>T_AR</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>G_Pref</bpmn:flowNodeRef>
+      </bpmn:lane>
+      <bpmn:lane id="Lane_2" name="S²LOW et préfecture">
+        <bpmn:flowNodeRef>T_Post</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>T_Trans</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>App_S2low</bpmn:flowNodeRef>
+      </bpmn:lane>
+      <bpmn:lane id="Lane_3" name="GED Alfresco">
+        <bpmn:flowNodeRef>T_Archive</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>E_End</bpmn:flowNodeRef>
+      </bpmn:lane>
+    </bpmn:laneSet>
+    <bpmn:startEvent id="S" name="Délibérations adoptées à transmettre">
+      <bpmn:documentation>Texte définitif prêt, puis « Prêt à transmettre ».</bpmn:documentation>
+      <bpmn:outgoing>F01</bpmn:outgoing>
+    </bpmn:startEvent>
+    <bpmn:userTask id="T_Lot" name="Constituer le lot de la séance">
+      <bpmn:documentation>Seules les délibérations adoptées (et signées si la signature est activée) sont transmissibles ; rejetées, retirées ou non signées sont exclues avec explication (TLT-01).</bpmn:documentation>
+      <bpmn:incoming>F01</bpmn:incoming>
+      <bpmn:outgoing>F02</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:userTask id="T_Prep" name="Préparer chaque transmission">
+      <bpmn:documentation>Numéro transmis (15 caractères max, distinct du numéro d'affichage), nature et matière issues de la classification de la préfecture (2 niveaux au moins), types de pièces, annexes transmissibles (TLT-02 à TLT-04).</bpmn:documentation>
+      <bpmn:incoming>F02</bpmn:incoming>
+      <bpmn:incoming>F07</bpmn:incoming>
+      <bpmn:outgoing>F03</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:serviceTask id="T_Ctrl" name="Exécuter les contrôles préalables">
+      <bpmn:documentation>PDF lisible, objet de 500 caractères au plus, numéro conforme et unique, classification présente, pièces typées (TLT-06).</bpmn:documentation>
+      <bpmn:incoming>F03</bpmn:incoming>
+      <bpmn:outgoing>F04</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:exclusiveGateway id="G_Ctrl" name="Contrôles réussis ?">
+      <bpmn:incoming>F04</bpmn:incoming>
+      <bpmn:outgoing>F05</bpmn:outgoing>
+      <bpmn:outgoing>F06</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:userTask id="T_Corr" name="Corriger le dossier">
+      <bpmn:documentation>Le SCC, l'administrateur et le rôle télétransmission peuvent modifier les textes tant que l'acte n'est pas transmis (TLT-32).</bpmn:documentation>
+      <bpmn:incoming>F06</bpmn:incoming>
+      <bpmn:outgoing>F07</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:serviceTask id="T_Post" name="Déposer la transaction sur S²LOW (en attente)">
+      <bpmn:documentation>Mode B (par défaut) : création avec en_attente=1 ; mode A : envoi direct. Identifiant enregistré dès la réponse OK ; après une erreur réseau on vérifie côté S²LOW avant toute nouvelle tentative (TLT-05, TLT-11).</bpmn:documentation>
+      <bpmn:incoming>F05</bpmn:incoming>
+      <bpmn:outgoing>F08</bpmn:outgoing>
+      <bpmn:dataOutputAssociation id="DA_App_S2low"><bpmn:targetRef>App_S2low</bpmn:targetRef></bpmn:dataOutputAssociation>
+    </bpmn:serviceTask>
+    <bpmn:userTask id="T_Confirm" name="Confirmer l'envoi (certificat RGS**)">
+      <bpmn:documentation>Redirection vers S²LOW avec nonce, ou envoi en masse de la sélection ; double validation optionnelle préparé par / envoyé par (TLT-31, TLT-33).</bpmn:documentation>
+      <bpmn:incoming>F08</bpmn:incoming>
+      <bpmn:outgoing>F09</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:serviceTask id="T_Trans" name="Transmettre à la préfecture">
+      <bpmn:documentation>Statuts S²LOW : Posté, En attente de transmission, Transmis.</bpmn:documentation>
+      <bpmn:incoming>F09</bpmn:incoming>
+      <bpmn:outgoing>F10</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:serviceTask id="T_Suivi" name="Suivre les statuts automatiquement">
+      <bpmn:documentation>Interrogation périodique (list_actes) et correspondance des statuts jusqu'à l'acquittement (TLT-07).</bpmn:documentation>
+      <bpmn:incoming>F10</bpmn:incoming>
+      <bpmn:outgoing>F11</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:serviceTask id="T_AR" name="Enregistrer l'AR et tamponner l'acte">
+      <bpmn:documentation>ARActe conservé en XML, bordereau d'acquittement ; encadré « Accusé de réception en préfecture » apposé sur la délibération et l'extrait du registre (TLT-34, TLT-35).</bpmn:documentation>
+      <bpmn:incoming>F11</bpmn:incoming>
+      <bpmn:outgoing>F12</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:exclusiveGateway id="G_Pref" name="Courrier de la préfecture ?">
+      <bpmn:documentation>Demande de pièces, lettre d'observations ou déféré au tribunal administratif (TLT-08).</bpmn:documentation>
+      <bpmn:incoming>F12</bpmn:incoming>
+      <bpmn:outgoing>F13</bpmn:outgoing>
+      <bpmn:outgoing>F14</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:userTask id="T_Pref" name="Traiter le courrier : pièces, observations, déféré">
+      <bpmn:documentation>Tâche prioritaire au SCC avec échéance et escalade ; réponse à la préfecture depuis l'outil ; le document est marqué lu côté S²LOW.</bpmn:documentation>
+      <bpmn:incoming>F13</bpmn:incoming>
+      <bpmn:outgoing>F15</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:userTask id="T_Affich" name="Saisir la date d'affichage (publication)">
+      <bpmn:documentation>Renseigne « publié par voie d'affichage le » de l'extrait du registre (TLT-37) ; alimente les pages publiques des délibérations.</bpmn:documentation>
+      <bpmn:incoming>F14</bpmn:incoming>
+      <bpmn:incoming>F15</bpmn:incoming>
+      <bpmn:outgoing>F16</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:serviceTask id="T_Archive" name="Archiver dans le plan de classement">
+      <bpmn:documentation>Convocation, dossiers, texte adopté, extraits du registre, AR ; nommage homogène, empreinte SHA-256, nouvelle version si le document change ; archivage rejouable, un échec n'empêche jamais le travail (GED-04 à GED-07).</bpmn:documentation>
+      <bpmn:incoming>F16</bpmn:incoming>
+      <bpmn:outgoing>F17</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:endEvent id="E_End" name="Acte exécutoire, publié et archivé">
+      <bpmn:documentation>La transmission et la publicité conditionnent le caractère exécutoire (TLT-18).</bpmn:documentation>
+      <bpmn:incoming>F17</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:sequenceFlow id="F01" sourceRef="S" targetRef="T_Lot" />
+    <bpmn:sequenceFlow id="F02" sourceRef="T_Lot" targetRef="T_Prep" />
+    <bpmn:sequenceFlow id="F03" sourceRef="T_Prep" targetRef="T_Ctrl" />
+    <bpmn:sequenceFlow id="F04" sourceRef="T_Ctrl" targetRef="G_Ctrl" />
+    <bpmn:sequenceFlow id="F05" sourceRef="G_Ctrl" targetRef="T_Post" name="Oui" />
+    <bpmn:sequenceFlow id="F06" sourceRef="G_Ctrl" targetRef="T_Corr" name="Non" />
+    <bpmn:sequenceFlow id="F07" sourceRef="T_Corr" targetRef="T_Prep" />
+    <bpmn:sequenceFlow id="F08" sourceRef="T_Post" targetRef="T_Confirm" />
+    <bpmn:sequenceFlow id="F09" sourceRef="T_Confirm" targetRef="T_Trans" />
+    <bpmn:sequenceFlow id="F10" sourceRef="T_Trans" targetRef="T_Suivi" />
+    <bpmn:sequenceFlow id="F11" sourceRef="T_Suivi" targetRef="T_AR" />
+    <bpmn:sequenceFlow id="F12" sourceRef="T_AR" targetRef="G_Pref" />
+    <bpmn:sequenceFlow id="F13" sourceRef="G_Pref" targetRef="T_Pref" name="Oui" />
+    <bpmn:sequenceFlow id="F14" sourceRef="G_Pref" targetRef="T_Affich" name="Non" />
+    <bpmn:sequenceFlow id="F15" sourceRef="T_Pref" targetRef="T_Affich" />
+    <bpmn:sequenceFlow id="F16" sourceRef="T_Affich" targetRef="T_Archive" />
+    <bpmn:sequenceFlow id="F17" sourceRef="T_Archive" targetRef="E_End" />
+    <bpmn:dataStoreReference id="App_S2low" name="S2low" dsi:applicationId="171" />
+  </bpmn:process>
+  <bpmndi:BPMNDiagram id="BPMNDiagram_1">
+    <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="Collaboration_1">
+      <bpmndi:BPMNShape id="Participant_1_di" bpmnElement="Participant_1" isHorizontal="true"><dc:Bounds x="160" y="80" width="3010" height="860" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_0_di" bpmnElement="Lane_0" isHorizontal="true"><dc:Bounds x="190" y="80" width="2980" height="270" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_1_di" bpmnElement="Lane_1" isHorizontal="true"><dc:Bounds x="190" y="350" width="2980" height="160" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_2_di" bpmnElement="Lane_2" isHorizontal="true"><dc:Bounds x="190" y="510" width="2980" height="270" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_3_di" bpmnElement="Lane_3" isHorizontal="true"><dc:Bounds x="190" y="780" width="2980" height="160" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S_di" bpmnElement="S"><dc:Bounds x="382" y="132" width="36" height="36" /><bpmndi:BPMNLabel><dc:Bounds x="340" y="172" width="120" height="40" /></bpmndi:BPMNLabel></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Lot_di" bpmnElement="T_Lot"><dc:Bounds x="520" y="115" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Prep_di" bpmnElement="T_Prep"><dc:Bounds x="710" y="115" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Ctrl_di" bpmnElement="T_Ctrl"><dc:Bounds x="900" y="385" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="G_Ctrl_di" bpmnElement="G_Ctrl" isMarkerVisible="true"><dc:Bounds x="1135" y="395" width="50" height="50" /><bpmndi:BPMNLabel><dc:Bounds x="1100" y="449" width="120" height="40" /></bpmndi:BPMNLabel></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Corr_di" bpmnElement="T_Corr"><dc:Bounds x="1280" y="225" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Post_di" bpmnElement="T_Post"><dc:Bounds x="1280" y="545" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Confirm_di" bpmnElement="T_Confirm"><dc:Bounds x="1470" y="115" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Trans_di" bpmnElement="T_Trans"><dc:Bounds x="1660" y="545" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Suivi_di" bpmnElement="T_Suivi"><dc:Bounds x="1850" y="385" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_AR_di" bpmnElement="T_AR"><dc:Bounds x="2040" y="385" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="G_Pref_di" bpmnElement="G_Pref" isMarkerVisible="true"><dc:Bounds x="2275" y="395" width="50" height="50" /><bpmndi:BPMNLabel><dc:Bounds x="2240" y="449" width="120" height="40" /></bpmndi:BPMNLabel></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Pref_di" bpmnElement="T_Pref"><dc:Bounds x="2420" y="225" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Affich_di" bpmnElement="T_Affich"><dc:Bounds x="2610" y="115" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Archive_di" bpmnElement="T_Archive"><dc:Bounds x="2800" y="815" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="E_End_di" bpmnElement="E_End"><dc:Bounds x="3042" y="832" width="36" height="36" /><bpmndi:BPMNLabel><dc:Bounds x="3000" y="872" width="120" height="40" /></bpmndi:BPMNLabel></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="App_S2low_di" bpmnElement="App_S2low"><dc:Bounds x="1290" y="655" width="120" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="F01_di" bpmnElement="F01"><di:waypoint x="418" y="150" /><di:waypoint x="520" y="150" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F02_di" bpmnElement="F02"><di:waypoint x="660" y="150" /><di:waypoint x="710" y="150" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F03_di" bpmnElement="F03"><di:waypoint x="850" y="150" /><di:waypoint x="870" y="150" /><di:waypoint x="870" y="420" /><di:waypoint x="900" y="420" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F04_di" bpmnElement="F04"><di:waypoint x="1040" y="420" /><di:waypoint x="1135" y="420" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F05_di" bpmnElement="F05"><di:waypoint x="1160" y="445" /><di:waypoint x="1160" y="580" /><di:waypoint x="1280" y="580" /><bpmndi:BPMNLabel><dc:Bounds x="1164" y="425" width="40" height="14" /></bpmndi:BPMNLabel></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F06_di" bpmnElement="F06"><di:waypoint x="1160" y="395" /><di:waypoint x="1160" y="260" /><di:waypoint x="1280" y="260" /><bpmndi:BPMNLabel><dc:Bounds x="1164" y="375" width="40" height="14" /></bpmndi:BPMNLabel></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F07_di" bpmnElement="F07"><di:waypoint x="1350" y="225" /><di:waypoint x="1350" y="97" /><di:waypoint x="780" y="97" /><di:waypoint x="780" y="115" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F08_di" bpmnElement="F08"><di:waypoint x="1420" y="580" /><di:waypoint x="1440" y="580" /><di:waypoint x="1440" y="150" /><di:waypoint x="1470" y="150" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F09_di" bpmnElement="F09"><di:waypoint x="1610" y="150" /><di:waypoint x="1630" y="150" /><di:waypoint x="1630" y="580" /><di:waypoint x="1660" y="580" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F10_di" bpmnElement="F10"><di:waypoint x="1800" y="580" /><di:waypoint x="1820" y="580" /><di:waypoint x="1820" y="420" /><di:waypoint x="1850" y="420" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F11_di" bpmnElement="F11"><di:waypoint x="1990" y="420" /><di:waypoint x="2040" y="420" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F12_di" bpmnElement="F12"><di:waypoint x="2180" y="420" /><di:waypoint x="2275" y="420" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F13_di" bpmnElement="F13"><di:waypoint x="2300" y="395" /><di:waypoint x="2300" y="260" /><di:waypoint x="2420" y="260" /><bpmndi:BPMNLabel><dc:Bounds x="2304" y="375" width="40" height="14" /></bpmndi:BPMNLabel></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F14_di" bpmnElement="F14"><di:waypoint x="2300" y="395" /><di:waypoint x="2300" y="150" /><di:waypoint x="2610" y="150" /><bpmndi:BPMNLabel><dc:Bounds x="2304" y="375" width="40" height="14" /></bpmndi:BPMNLabel></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F15_di" bpmnElement="F15"><di:waypoint x="2560" y="260" /><di:waypoint x="2580" y="260" /><di:waypoint x="2580" y="150" /><di:waypoint x="2610" y="150" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F16_di" bpmnElement="F16"><di:waypoint x="2750" y="150" /><di:waypoint x="2770" y="150" /><di:waypoint x="2770" y="850" /><di:waypoint x="2800" y="850" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F17_di" bpmnElement="F17"><di:waypoint x="2940" y="850" /><di:waypoint x="3042" y="850" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="DA_App_S2low_di" bpmnElement="DA_App_S2low"><di:waypoint x="1350" y="615" /><di:waypoint x="1350" y="655" /></bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>

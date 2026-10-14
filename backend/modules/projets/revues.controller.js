@@ -1,6 +1,7 @@
 const { pgDb, getSqlite } = require('../../shared/database');
 const { logMouchard } = require('../../shared/utils');
 const { isSuperAdmin } = require('../../shared/middleware');
+const journalAuto = require('./journal-auto');
 
 // sendMail injecté depuis server.js (comme reunions.controller.js)
 let sendMailFn = null;
@@ -136,6 +137,9 @@ module.exports = {
                         [revueId, projet_id, previous_revue_id, (commentaires && commentaires[String(projet_id)]) || null]
                     );
                     const revueProjetId = rpResult.lastID;
+                    if (commentaires && commentaires[String(projet_id)]) {
+                        await journalAuto.journaliserCommentaireRevue({ revueId, projetId: projet_id, commentaire: commentaires[String(projet_id)], username: req.user.username });
+                    }
 
                     if (taches && taches[String(projet_id)] && Array.isArray(taches[String(projet_id)])) {
                         for (const tacheItem of taches[String(projet_id)]) {
@@ -205,6 +209,9 @@ module.exports = {
                 'UPDATE hub_rencontres.revues SET date_revue = $1, lieu = $2, titre = $3, updated_at = NOW() WHERE id = $4',
                 [date_revue, lieu || null, titre, id]
             );
+            // La date de la revue a pu changer : on réaligne les annotations déjà journalisées.
+            const rps = await pgDb.all("SELECT projet_id, commentaire FROM hub_rencontres.revue_projets WHERE revue_id = $1 AND commentaire IS NOT NULL AND commentaire != ''", [id]);
+            for (const rp of rps) await journalAuto.journaliserCommentaireRevue({ revueId: parseInt(id, 10), projetId: rp.projet_id, commentaire: rp.commentaire });
 
             if (Array.isArray(participants)) {
                 await pgDb.run('DELETE FROM hub_rencontres.revue_participants WHERE revue_id = $1', [id]);
@@ -364,6 +371,7 @@ module.exports = {
                 'UPDATE hub_rencontres.revue_projets SET commentaire = $1 WHERE revue_id = $2 AND projet_id = $3',
                 [commentaire, id, projetId]
             );
+            await journalAuto.journaliserCommentaireRevue({ revueId: parseInt(id, 10), projetId: parseInt(projetId, 10), commentaire, username: req.user.username });
             res.json({ message: 'Commentaire mis à jour' });
         } catch (error) {
             res.status(500).json({ error: error.message });
@@ -438,6 +446,7 @@ module.exports = {
             // Supprimer les tâches de revue associées
             await pgDb.run('DELETE FROM hub_rencontres.revue_taches WHERE revue_id = $1', [id]);
 
+            await journalAuto.retirerCommentairesRevue(parseInt(id, 10));
             await pgDb.run('DELETE FROM hub_rencontres.revues WHERE id = $1', [id]);
             logMouchard(`Revue de projets supprimée: ${revue.titre} par ${req.user.username}`);
             res.json({ message: 'Revue supprimée' });

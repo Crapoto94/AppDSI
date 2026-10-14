@@ -1,4 +1,5 @@
 const fs = require('fs');
+const journalAuto = require('./journal-auto');
 const path = require('path');
 const { pgDb, getSqlite, pool } = require('../../shared/database');
 const { logMouchard } = require('../../shared/utils');
@@ -50,7 +51,11 @@ async function getPmoServiceCodes(pmoUsername) {
             } else if (a.direction_code) {
                 try {
                     const svcs = await pgDb.all(
-                        `SELECT DISTINCT "SERVICE" as code FROM oracle.rh_siim_organigramme WHERE "DIRECTION" = $1 AND "SERVICE" IS DISTINCT FROM "DIRECTION" AND "SERVICE" IS NOT NULL AND "SERVICE" != ''`,
+                        // Certains services (ex. BF8 « Bureau des projets ») n'existent dans l'organigramme que
+                        // comme AFFECT, avec SERVICE vide : on les inclut en plus des SERVICE renseignés.
+                        `SELECT DISTINCT "SERVICE" as code FROM oracle.rh_siim_organigramme WHERE "DIRECTION" = $1 AND "SERVICE" IS DISTINCT FROM "DIRECTION" AND "SERVICE" IS NOT NULL AND "SERVICE" != ''
+                         UNION
+                         SELECT DISTINCT "AFFECT" as code FROM oracle.rh_siim_organigramme WHERE "DIRECTION" = $1 AND "SERVICE" IS NULL AND "AFFECT" IS NOT NULL AND "AFFECT" != '' AND "AFFECT" != "DIRECTION"`,
                         [a.direction_code]
                     );
                     for (const s of svcs) if (s.code) serviceCodes.add(s.code.toLowerCase());
@@ -106,7 +111,9 @@ async function getPmoAgentUsernames(pmoUsername) {
                 } else if (a.direction_code) {
                     try {
                         const services = await pgDb.all(
-                            `SELECT DISTINCT "SERVICE" as service_code FROM oracle.rh_siim_organigramme WHERE "DIRECTION" = $1 AND "SERVICE" IS DISTINCT FROM "DIRECTION"`,
+                            `SELECT DISTINCT "SERVICE" as service_code FROM oracle.rh_siim_organigramme WHERE "DIRECTION" = $1 AND "SERVICE" IS NOT NULL AND "SERVICE" IS DISTINCT FROM "DIRECTION"
+                             UNION
+                             SELECT DISTINCT "AFFECT" as service_code FROM oracle.rh_siim_organigramme WHERE "DIRECTION" = $1 AND "SERVICE" IS NULL AND "AFFECT" IS NOT NULL AND "AFFECT" != '' AND "AFFECT" != "DIRECTION"`,
                             [a.direction_code]
                         );
                         for (const svc of services) {
@@ -1506,6 +1513,7 @@ const updateTacheStandalone = async (req, res) => {
             [tache || existing.tache, responsable !== undefined ? responsable : existing.responsable, responsable_username !== undefined ? responsable_username : (existing.responsable_username || ''), echeance !== undefined ? echeance : existing.echeance, statut || existing.statut, tid]
         );
         const updated = await pgDb.get('SELECT * FROM projet_taches_standalone WHERE id = $1', [tid]);
+        if (statut) await journalAuto.journaliserTache({ projetId: parseInt(id, 10), key: `st:${tid}`, statut: updated.statut, description: updated.tache, username: req.user?.username, responsable: updated.responsable, notesRef: { kind: 'standalone', id: Number(tid) } });
         res.json(updated);
     } catch (error) {
         res.status(500).json({ error: error.message });
@@ -1554,6 +1562,7 @@ const acquitterTacheAgregee = async (req, res) => {
                 'UPDATE hub_rencontres.rencontres_reunions SET liste_taches = $1 WHERE id = $2',
                 [JSON.stringify(tasks), reunionId]
             );
+            if (statut !== undefined) await journalAuto.journaliserTacheReunion({ reunionId, index: taskIndex, statut, username: req.user?.username, projetId: parseInt(id, 10) });
             return res.json({ message: 'Tâche mise à jour', task: tasks[taskIndex] });
         } else if (taskId.startsWith('s-')) {
             const dbId = parseInt(taskId.substring(2), 10);
@@ -1576,6 +1585,7 @@ const acquitterTacheAgregee = async (req, res) => {
                 );
             }
             const updated = await pgDb.get('SELECT * FROM projet_taches_standalone WHERE id = $1', [dbId]);
+            if (statut !== undefined) await journalAuto.journaliserTache({ projetId: parseInt(id, 10), key: `st:${dbId}`, statut: updated.statut, description: updated.tache, username: req.user?.username, responsable: updated.responsable, notesRef: { kind: 'standalone', id: dbId } });
             return res.json({ message: 'Tâche mise à jour', task: updated });
         } else if (taskId.startsWith('revue-')) {
             const dbId = parseInt(taskId.substring(6), 10);
@@ -1598,6 +1608,7 @@ const acquitterTacheAgregee = async (req, res) => {
                 );
             }
             const updated = await pgDb.get('SELECT * FROM hub_rencontres.revue_taches WHERE id = $1', [dbId]);
+            if (statut !== undefined && updated.projet_id) await journalAuto.journaliserTache({ projetId: updated.projet_id, key: `rv:${dbId}`, statut: updated.statut, description: updated.titre, username: req.user?.username, responsable: updated.responsable, notesRef: { kind: 'revue', id: dbId } });
             return res.json({ message: 'Tâche mise à jour', task: updated });
         }
 
@@ -1954,7 +1965,7 @@ const getJournal = async (req, res) => {
             LIMIT $${paramIdx}
         `, [...params, limit]);
 
-        res.json(entries);
+        res.json(await journalAuto.enrichirEntrees(entries));
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
@@ -2472,6 +2483,10 @@ const updateTache = async (req, res) => {
             `UPDATE projet_taches SET ${sets.join(', ')} WHERE id = $${vals.length - 1} AND projet_id = $${vals.length}`,
             vals
         );
+        if (statut !== undefined) {
+            const t = await pgDb.get('SELECT titre, statut, responsable_username FROM projet_taches WHERE id = $1 AND projet_id = $2', [tacheId, id]);
+            if (t) await journalAuto.journaliserTache({ projetId: parseInt(id, 10), key: `pt:${tacheId}`, statut: t.statut, description: t.titre, username: req.user?.username, responsable: t.responsable_username });
+        }
         res.json({ message: 'Tâche mise à jour' });
     } catch (error) {
         res.status(500).json({ error: error.message });

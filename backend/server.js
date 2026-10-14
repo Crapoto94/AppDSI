@@ -484,6 +484,7 @@ app.get(/^\/api\/contrats\/documents\/(.+)$/, (req, res) => {
 });
 
 app.use('/api/transcriptmanager', transcriptManagerRouter);
+app.use('/api/bpmn', require('./modules/bpmn/bpmn.routes'));
 app.use('/api', magappRouter);
 app.use('/api/admin/rh', rhRouter);
 app.use('/api/admin/param-ville', paramVilleRouter);

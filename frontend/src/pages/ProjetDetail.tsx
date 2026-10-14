@@ -1761,8 +1761,11 @@ const JOURNAL_ICONES: Record<string, string> = {
   version_change: '📄', reunion_liee: '📅', decision: '⚖️',
   action: '✅', partie_prenante_ajoutee: '👤',
   partie_prenante_retiree: '➖', score_modifie: '📊',
-  note: '📝', alerte: '⚠️', evenement: '📌'
+  note: '📝', alerte: '⚠️', evenement: '📌',
+  tache_terminee: '✔️', revue_commentaire: '🗒️'
 };
+// Entrées alimentées automatiquement : dépliables, non modifiables à la main.
+const JOURNAL_AUTO = ['tache_terminee', 'revue_commentaire'];
 
 // ===== ONGLET JOURNAL =====
 const JournalTab: React.FC<{ projetId: number; token: string | null; onOuvrirDocument: (details: string) => void }> = ({ projetId, token, onOuvrirDocument }) => {
@@ -1780,6 +1783,8 @@ const JournalTab: React.FC<{ projetId: number; token: string | null; onOuvrirDoc
   const [editRemoveAttachment, setEditRemoveAttachment] = useState(false);
   const [editFile, setEditFile] = useState<File | null>(null);
   const [saving, setSaving] = useState(false);
+  const [expandedIds, setExpandedIds] = useState<number[]>([]);
+  const toggleExpanded = (id: number) => setExpandedIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
   const isAdmin = user?.role === 'admin';
   const isPMO = user?.est_pmo;
 
@@ -1928,7 +1933,7 @@ const JournalTab: React.FC<{ projetId: number; token: string | null; onOuvrirDoc
         try { detailsObj = e.details ? JSON.parse(e.details) : null; } catch {}
         const isEditing = editingId === e.id;
         return (
-          <div key={e.id} style={{ display: 'flex', alignItems: isEditing ? 'flex-start' : 'center', gap: '10px', background: 'white', borderRadius: '8px', border: '1px solid #e2e8f0', padding: '8px 14px' }}>
+          <div key={e.id} style={{ display: 'flex', flexWrap: 'wrap', alignItems: isEditing ? 'flex-start' : 'center', gap: '10px', background: 'white', borderRadius: '8px', border: '1px solid #e2e8f0', padding: '8px 14px' }}>
             {isEditing ? (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', flex: 1 }}>
                 <div style={{ display: 'flex', alignItems: 'flex-start', gap: '10px' }}>
@@ -1980,6 +1985,12 @@ const JournalTab: React.FC<{ projetId: number; token: string | null; onOuvrirDoc
               <>
                 <span style={{ minWidth: '120px', fontSize: '11px', color: '#94a3b8', flexShrink: 0 }}>{new Date(e.date_entree).toLocaleString('fr-FR')}</span>
                 <span style={{ fontSize: '15px', flexShrink: 0, width: '22px', textAlign: 'center' }}>{JOURNAL_ICONES[e.type_entree] || '📋'}</span>
+                {JOURNAL_AUTO.includes(e.type_entree) && (
+                  <button onClick={() => toggleExpanded(e.id)} title={expandedIds.includes(e.id) ? 'Replier' : 'Dérouler'}
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#2563eb', padding: 0, fontSize: '12px', flexShrink: 0, width: '16px' }}>
+                    {expandedIds.includes(e.id) ? '▼' : '▶'}
+                  </button>
+                )}
                 <span style={{ flex: 1, fontSize: '13px', color: '#1e293b', fontWeight: '500', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                   {detailsObj?.document_id ? (
                     <a onClick={() => onOuvrirDocument(e.details)} style={{ color: '#2563eb', cursor: 'pointer', textDecoration: 'underline' }}>
@@ -1990,13 +2001,13 @@ const JournalTab: React.FC<{ projetId: number; token: string | null; onOuvrirDoc
                 <span style={{ fontSize: '11px', color: '#94a3b8', flexShrink: 0 }}>{e.username}</span>
                 {canManage && (
                   <>
-                    <button
+                    {!JOURNAL_AUTO.includes(e.type_entree) && <button
                       onClick={() => startEdit(e)}
                       title="Modifier"
                       style={{ padding: '4px 8px', background: '#f1f5f9', color: '#475569', border: '1px solid #e2e8f0', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', flexShrink: 0, display: 'flex', alignItems: 'center', gap: '4px' }}
                     >
                       <Pencil size={14} />
-                    </button>
+                    </button>}
                     <button
                       onClick={() => deleteEntry(e.id)}
                       title="Supprimer"
@@ -2007,6 +2018,32 @@ const JournalTab: React.FC<{ projetId: number; token: string | null; onOuvrirDoc
                   </>
                 )}
               </>
+            )}
+            {!isEditing && JOURNAL_AUTO.includes(e.type_entree) && expandedIds.includes(e.id) && (
+              <div style={{ flexBasis: '100%', marginLeft: '152px', paddingTop: '8px', borderTop: '1px solid #f1f5f9', fontSize: '13px', color: '#334155' }}>
+                {e.type_entree === 'revue_commentaire' ? (
+                  <div className="quill-html" style={{ lineHeight: 1.5 }} dangerouslySetInnerHTML={{ __html: stripDangerousHtmlTags(detailsObj?.commentaire_html || '') }} />
+                ) : (
+                  <div>
+                    <div style={{ fontSize: '11px', color: '#64748b', marginBottom: '6px' }}>
+                      Validée le {new Date(e.date_entree).toLocaleString('fr-FR')}{detailsObj?.validated_by ? ` par ${detailsObj.validated_by}` : ''}
+                      {detailsObj?.responsable ? ` · Responsable : ${detailsObj.responsable}` : ''}
+                    </div>
+                    {(e.notes || []).length === 0 ? (
+                      <div style={{ fontSize: '12px', color: '#94a3b8', fontStyle: 'italic' }}>Aucun commentaire sur cette tâche.</div>
+                    ) : (e.notes || []).map((n: any, ni: number) => (
+                      <div key={n.id ?? ni} style={{ display: 'flex', gap: '8px', padding: '4px 0', borderBottom: ni < e.notes.length - 1 ? '1px solid #f1f5f9' : 'none', fontSize: '12px' }}>
+                        {n.type === 'file' && n.file_url ? (
+                          <a href={`${n.file_url}?mode=inline&token=${token}`} target="_blank" rel="noopener noreferrer" style={{ flex: 1, color: '#2563eb', textDecoration: 'none' }}>📎 {n.filename || n.content}</a>
+                        ) : (
+                          <span style={{ flex: 1, whiteSpace: 'pre-wrap' }}>{n.content}</span>
+                        )}
+                        <span style={{ fontSize: '10px', color: '#94a3b8', whiteSpace: 'nowrap' }}>{n.created_by} · {n.created_at ? new Date(n.created_at).toLocaleDateString('fr-FR') : ''}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             )}
           </div>
         );

@@ -1,0 +1,161 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" xmlns:dsi="http://dsi.ivry/schema/bpmn" id="Definitions_1" targetNamespace="http://bpmn.io/schema/bpmn">
+  <bpmn:collaboration id="Collaboration_1">
+    <bpmn:participant id="Participant_1" name="VibeDélib — Commissions pour avis : mise à disposition, réunion et avis" processRef="Process_1" />
+  </bpmn:collaboration>
+  <bpmn:process id="Process_1" isExecutable="false">
+    <bpmn:documentation id="Doc_Process">Après la validation du DGS (ou du SCC, au choix), les actes ayant des commissions pour avis sont mis à disposition des membres, présentés en réunion, puis chaque commission rend son avis (favorable, défavorable, réservé, sans avis) qui est joint au dossier du Conseil. Un acte hors commission passe directement à l'ordre du jour ; un acte renvoyé au rédacteur suspend la mise à disposition. Reconstitué à partir du manifeste de VibeDélib (section 15).</bpmn:documentation>
+    <bpmn:laneSet id="LaneSet_1">
+      <bpmn:lane id="Lane_0" name="SCC">
+      </bpmn:lane>
+      <bpmn:lane id="Lane_1" name="Secrétaire de commission">
+        <bpmn:flowNodeRef>T_Plan</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>T_Avis</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>App_Teams</bpmn:flowNodeRef>
+      </bpmn:lane>
+      <bpmn:lane id="Lane_2" name="Membres de la commission (élus)">
+        <bpmn:flowNodeRef>T_Consult</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>T_Reunion</bpmn:flowNodeRef>
+      </bpmn:lane>
+      <bpmn:lane id="Lane_3" name="VibeDélib (système)">
+        <bpmn:flowNodeRef>S</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>G_Comm</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>E_Hors</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>T_Mad</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>T_Notif</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>T_Convoc</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>G_Still</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>T_Join</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>E_Done</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>T_Susp</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>E_Susp</bpmn:flowNodeRef>
+      </bpmn:lane>
+    </bpmn:laneSet>
+    <bpmn:startEvent id="S" name="Acte validé par le DGS (ou le SCC)">
+      <bpmn:documentation>Le déclencheur de la mise à disposition est paramétrable (CMN-04).</bpmn:documentation>
+      <bpmn:outgoing>F01</bpmn:outgoing>
+    </bpmn:startEvent>
+    <bpmn:exclusiveGateway id="G_Comm" name="Commissions pour avis ?">
+      <bpmn:incoming>F01</bpmn:incoming>
+      <bpmn:outgoing>F02</bpmn:outgoing>
+      <bpmn:outgoing>F03</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:endEvent id="E_Hors" name="Hors commission : directement à l'ordre du jour">
+      <bpmn:documentation>Un acte hors commission ne passe pas par la mise à disposition (CMN-05).</bpmn:documentation>
+      <bpmn:incoming>F03</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:serviceTask id="T_Mad" name="Mettre à disposition (dossier complet en PDF)">
+      <bpmn:documentation>Mise à disposition en lecture seule dans l'espace de la commission, avec version et preuve horodatée (MAD-01, MAD-06).</bpmn:documentation>
+      <bpmn:incoming>F02</bpmn:incoming>
+      <bpmn:outgoing>F04</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:serviceTask id="T_Notif" name="Prévenir les membres par mail avec lien">
+      <bpmn:documentation>Courriel via APM avec lien personnel vers l'espace élus.</bpmn:documentation>
+      <bpmn:incoming>F04</bpmn:incoming>
+      <bpmn:outgoing>F05</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:userTask id="T_Plan" name="Planifier la réunion et inscrire les projets">
+      <bpmn:documentation>Date, lieu, durée, lien Teams (créé automatiquement ou collé) ; les projets mis à disposition de la commission s'inscrivent à l'ordre du jour sans changer le statut de l'acte (REU-01, REU-02, REU-05).</bpmn:documentation>
+      <bpmn:incoming>F05</bpmn:incoming>
+      <bpmn:outgoing>F06</bpmn:outgoing>
+      <bpmn:dataOutputAssociation id="DA_App_Teams"><bpmn:targetRef>App_Teams</bpmn:targetRef></bpmn:dataOutputAssociation>
+    </bpmn:userTask>
+    <bpmn:serviceTask id="T_Convoc" name="Convoquer membres et secrétaires (rappel à J-2)">
+      <bpmn:documentation>Mail à la planification, à chaque modification et à l'annulation, avec rappel à J-2 ouvrés (REU-03).</bpmn:documentation>
+      <bpmn:incoming>F06</bpmn:incoming>
+      <bpmn:outgoing>F07</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:userTask id="T_Consult" name="Consulter les projets (lecture seule)">
+      <bpmn:documentation>Exposé, projet de délibération, annexes communicables ; jamais les commentaires internes ni l'historique du circuit (MAD-03).</bpmn:documentation>
+      <bpmn:incoming>F07</bpmn:incoming>
+      <bpmn:outgoing>F08</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:userTask id="T_Reunion" name="Examiner les projets en réunion">
+      <bpmn:documentation>Les dossiers simples (nom, description, pièces jointes) peuvent compléter l'ordre du jour (COM-02).</bpmn:documentation>
+      <bpmn:incoming>F08</bpmn:incoming>
+      <bpmn:outgoing>F09</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:userTask id="T_Avis" name="Saisir l'avis de la commission">
+      <bpmn:documentation>Favorable, défavorable, réservé ou sans avis, avec commentaire ; sans date, l'avis prend la date de la réunion (REU-04).</bpmn:documentation>
+      <bpmn:incoming>F09</bpmn:incoming>
+      <bpmn:outgoing>F10</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:exclusiveGateway id="G_Still" name="Projet toujours validé ?">
+      <bpmn:documentation>CMN-07 : si l'acte a été refusé et renvoyé au rédacteur après la mise à disposition, elle est suspendue.</bpmn:documentation>
+      <bpmn:incoming>F10</bpmn:incoming>
+      <bpmn:outgoing>F11</bpmn:outgoing>
+      <bpmn:outgoing>F12</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:serviceTask id="T_Join" name="Joindre l'avis au dossier du Conseil et prévenir le circuit">
+      <bpmn:documentation>L'avis est visible de tout le circuit et joint au dossier du Conseil (section 15.2).</bpmn:documentation>
+      <bpmn:incoming>F11</bpmn:incoming>
+      <bpmn:outgoing>F13</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:endEvent id="E_Done" name="Avis rendu : prêt pour l'ordre du jour">
+      <bpmn:incoming>F13</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:serviceTask id="T_Susp" name="Suspendre la mise à disposition et prévenir les membres">
+      <bpmn:documentation>Les membres sont prévenus ; la mise à disposition reprendra après une nouvelle validation.</bpmn:documentation>
+      <bpmn:incoming>F12</bpmn:incoming>
+      <bpmn:outgoing>F14</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:endEvent id="E_Susp" name="Mise à disposition suspendue">
+      <bpmn:incoming>F14</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:sequenceFlow id="F01" sourceRef="S" targetRef="G_Comm" />
+    <bpmn:sequenceFlow id="F02" sourceRef="G_Comm" targetRef="T_Mad" name="Oui" />
+    <bpmn:sequenceFlow id="F03" sourceRef="G_Comm" targetRef="E_Hors" name="Non" />
+    <bpmn:sequenceFlow id="F04" sourceRef="T_Mad" targetRef="T_Notif" />
+    <bpmn:sequenceFlow id="F05" sourceRef="T_Notif" targetRef="T_Plan" />
+    <bpmn:sequenceFlow id="F06" sourceRef="T_Plan" targetRef="T_Convoc" />
+    <bpmn:sequenceFlow id="F07" sourceRef="T_Convoc" targetRef="T_Consult" />
+    <bpmn:sequenceFlow id="F08" sourceRef="T_Consult" targetRef="T_Reunion" />
+    <bpmn:sequenceFlow id="F09" sourceRef="T_Reunion" targetRef="T_Avis" />
+    <bpmn:sequenceFlow id="F10" sourceRef="T_Avis" targetRef="G_Still" />
+    <bpmn:sequenceFlow id="F11" sourceRef="G_Still" targetRef="T_Join" name="Oui" />
+    <bpmn:sequenceFlow id="F12" sourceRef="G_Still" targetRef="T_Susp" name="Non" />
+    <bpmn:sequenceFlow id="F13" sourceRef="T_Join" targetRef="E_Done" />
+    <bpmn:sequenceFlow id="F14" sourceRef="T_Susp" targetRef="E_Susp" />
+    <bpmn:dataStoreReference id="App_Teams" name="TEAMS (mode Web)" dsi:applicationId="80" />
+  </bpmn:process>
+  <bpmndi:BPMNDiagram id="BPMNDiagram_1">
+    <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="Collaboration_1">
+      <bpmndi:BPMNShape id="Participant_1_di" bpmnElement="Participant_1" isHorizontal="true"><dc:Bounds x="160" y="80" width="2440" height="860" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_0_di" bpmnElement="Lane_0" isHorizontal="true"><dc:Bounds x="190" y="80" width="2410" height="160" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_1_di" bpmnElement="Lane_1" isHorizontal="true"><dc:Bounds x="190" y="240" width="2410" height="270" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_2_di" bpmnElement="Lane_2" isHorizontal="true"><dc:Bounds x="190" y="510" width="2410" height="160" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_3_di" bpmnElement="Lane_3" isHorizontal="true"><dc:Bounds x="190" y="670" width="2410" height="270" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S_di" bpmnElement="S"><dc:Bounds x="382" y="722" width="36" height="36" /><bpmndi:BPMNLabel><dc:Bounds x="340" y="762" width="120" height="40" /></bpmndi:BPMNLabel></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="G_Comm_di" bpmnElement="G_Comm" isMarkerVisible="true"><dc:Bounds x="565" y="715" width="50" height="50" /><bpmndi:BPMNLabel><dc:Bounds x="530" y="769" width="120" height="40" /></bpmndi:BPMNLabel></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="E_Hors_di" bpmnElement="E_Hors"><dc:Bounds x="762" y="832" width="36" height="36" /><bpmndi:BPMNLabel><dc:Bounds x="720" y="872" width="120" height="40" /></bpmndi:BPMNLabel></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Mad_di" bpmnElement="T_Mad"><dc:Bounds x="710" y="705" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Notif_di" bpmnElement="T_Notif"><dc:Bounds x="900" y="705" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Plan_di" bpmnElement="T_Plan"><dc:Bounds x="1090" y="275" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Convoc_di" bpmnElement="T_Convoc"><dc:Bounds x="1280" y="705" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Consult_di" bpmnElement="T_Consult"><dc:Bounds x="1470" y="545" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Reunion_di" bpmnElement="T_Reunion"><dc:Bounds x="1660" y="545" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Avis_di" bpmnElement="T_Avis"><dc:Bounds x="1850" y="275" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="G_Still_di" bpmnElement="G_Still" isMarkerVisible="true"><dc:Bounds x="2085" y="715" width="50" height="50" /><bpmndi:BPMNLabel><dc:Bounds x="2050" y="769" width="120" height="40" /></bpmndi:BPMNLabel></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Join_di" bpmnElement="T_Join"><dc:Bounds x="2230" y="705" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="E_Done_di" bpmnElement="E_Done"><dc:Bounds x="2472" y="722" width="36" height="36" /><bpmndi:BPMNLabel><dc:Bounds x="2430" y="762" width="120" height="40" /></bpmndi:BPMNLabel></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Susp_di" bpmnElement="T_Susp"><dc:Bounds x="2230" y="815" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="E_Susp_di" bpmnElement="E_Susp"><dc:Bounds x="2472" y="832" width="36" height="36" /><bpmndi:BPMNLabel><dc:Bounds x="2430" y="872" width="120" height="40" /></bpmndi:BPMNLabel></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="App_Teams_di" bpmnElement="App_Teams"><dc:Bounds x="1100" y="385" width="120" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="F01_di" bpmnElement="F01"><di:waypoint x="418" y="740" /><di:waypoint x="565" y="740" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F02_di" bpmnElement="F02"><di:waypoint x="615" y="740" /><di:waypoint x="710" y="740" /><bpmndi:BPMNLabel><dc:Bounds x="714" y="720" width="40" height="14" /></bpmndi:BPMNLabel></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F03_di" bpmnElement="F03"><di:waypoint x="590" y="765" /><di:waypoint x="590" y="850" /><di:waypoint x="762" y="850" /><bpmndi:BPMNLabel><dc:Bounds x="594" y="745" width="40" height="14" /></bpmndi:BPMNLabel></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F04_di" bpmnElement="F04"><di:waypoint x="850" y="740" /><di:waypoint x="900" y="740" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F05_di" bpmnElement="F05"><di:waypoint x="1040" y="740" /><di:waypoint x="1060" y="740" /><di:waypoint x="1060" y="310" /><di:waypoint x="1090" y="310" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F06_di" bpmnElement="F06"><di:waypoint x="1230" y="310" /><di:waypoint x="1250" y="310" /><di:waypoint x="1250" y="740" /><di:waypoint x="1280" y="740" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F07_di" bpmnElement="F07"><di:waypoint x="1420" y="740" /><di:waypoint x="1440" y="740" /><di:waypoint x="1440" y="580" /><di:waypoint x="1470" y="580" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F08_di" bpmnElement="F08"><di:waypoint x="1610" y="580" /><di:waypoint x="1660" y="580" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F09_di" bpmnElement="F09"><di:waypoint x="1800" y="580" /><di:waypoint x="1820" y="580" /><di:waypoint x="1820" y="310" /><di:waypoint x="1850" y="310" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F10_di" bpmnElement="F10"><di:waypoint x="1990" y="310" /><di:waypoint x="2055" y="310" /><di:waypoint x="2055" y="740" /><di:waypoint x="2085" y="740" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F11_di" bpmnElement="F11"><di:waypoint x="2135" y="740" /><di:waypoint x="2230" y="740" /><bpmndi:BPMNLabel><dc:Bounds x="2234" y="720" width="40" height="14" /></bpmndi:BPMNLabel></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F12_di" bpmnElement="F12"><di:waypoint x="2110" y="765" /><di:waypoint x="2110" y="850" /><di:waypoint x="2230" y="850" /><bpmndi:BPMNLabel><dc:Bounds x="2114" y="745" width="40" height="14" /></bpmndi:BPMNLabel></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F13_di" bpmnElement="F13"><di:waypoint x="2370" y="740" /><di:waypoint x="2472" y="740" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F14_di" bpmnElement="F14"><di:waypoint x="2370" y="850" /><di:waypoint x="2472" y="850" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="DA_App_Teams_di" bpmnElement="DA_App_Teams"><di:waypoint x="1160" y="345" /><di:waypoint x="1160" y="385" /></bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>

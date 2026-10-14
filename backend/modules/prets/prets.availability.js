@@ -10,6 +10,17 @@
 // [start, end + buffer[ de l'autre.
 const { pgDb } = require('../../shared/database');
 
+// Retour le même jour : avec des dates sans heure, début et fin identiques
+// donneraient une durée nulle (rejetée). Dans ce cas la fin est ramenée à la fin
+// de journée, de sorte que la réservation occupe bien toute la journée.
+function normalizeRange(startDate, endDate) {
+  const isDay = (d) => /^\d{4}-\d{2}-\d{2}$/.test(String(d));
+  if (isDay(startDate) && isDay(endDate) && String(startDate) === String(endDate)) {
+    return { startDate, endDate: `${endDate} 23:59:59` };
+  }
+  return { startDate, endDate };
+}
+
 async function getBufferHours() {
   const row = await pgDb.get('SELECT buffer_hours FROM hub_prets.settings WHERE id = 1');
   return Number(row?.buffer_hours) || 0;
@@ -55,6 +66,7 @@ async function reservedQuantity(equipmentId, startDate, endDate, excludeLoanId =
 // de référence pour toute la réservation.
 // Retourne { ok, available, totalQuantity, reserved, bufferHours }.
 async function checkAvailability(equipmentId, startDate, endDate, quantity, excludeLoanId = null) {
+  ({ startDate, endDate } = normalizeRange(startDate, endDate));
   const equipment = await pgDb.get('SELECT active FROM hub_prets.equipment WHERE id = $1', [equipmentId]);
   if (!equipment) return { ok: false, reason: 'not_found', error: 'Matériel introuvable' };
   if (!equipment.active) return { ok: false, reason: 'inactive', error: 'Matériel désactivé' };
@@ -190,4 +202,4 @@ async function gridAvailability(fromDate, toDate, categoryId = null) {
   return { days, equipment };
 }
 
-module.exports = { getBufferHours, capacityAtDate, capacityNow, reservedQuantity, checkAvailability, dailyAvailability, gridAvailability };
+module.exports = { normalizeRange, getBufferHours, capacityAtDate, capacityNow, reservedQuantity, checkAvailability, dailyAvailability, gridAvailability };

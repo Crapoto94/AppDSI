@@ -1,0 +1,127 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" xmlns:dsi="http://dsi.ivry/schema/bpmn" id="Definitions_1" targetNamespace="http://bpmn.io/schema/bpmn">
+  <bpmn:collaboration id="Collaboration_1">
+    <bpmn:participant id="Participant_1" name="VibeDélib — Reprise de l'historique AirsDelib (sas, concordances, publication)" processRef="Process_1" />
+  </bpmn:collaboration>
+  <bpmn:process id="Process_1" isExecutable="false">
+    <bpmn:documentation id="Doc_Process">Reprise des délibérations de l'ancien logiciel AirsDelib en quatre temps : les tables d'AIRS sont chargées par le Hub DSI dans PostgreSQL (ou exportées en JSON), VibeDélib les range sans les exposer dans un sas, analyse les valeurs rencontrées par axe (direction, service, agent, élu, rubrique…), l'administrateur valide les concordances, puis la publication crée séances, actes, textes, annexes et votes de l'historique, recherchables. Reconstitué à partir du manifeste de VibeDélib (section 25 bis).</bpmn:documentation>
+    <bpmn:laneSet id="LaneSet_1">
+      <bpmn:lane id="Lane_0" name="Administrateur / SCC">
+        <bpmn:flowNodeRef>T_Conc</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>G_Conc</bpmn:flowNodeRef>
+      </bpmn:lane>
+      <bpmn:lane id="Lane_1" name="DSI Hub (Oracle AIRS vers PostgreSQL)">
+        <bpmn:flowNodeRef>S</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>T_Exp</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>App_Hub</bpmn:flowNodeRef>
+      </bpmn:lane>
+      <bpmn:lane id="Lane_2" name="VibeDélib">
+        <bpmn:flowNodeRef>T_Sas</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>T_Inv</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>T_Ana</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>T_Pub</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>T_Visas</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>T_Index</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>E_End</bpmn:flowNodeRef>
+      </bpmn:lane>
+    </bpmn:laneSet>
+    <bpmn:startEvent id="S" name="Historique AIRS à reprendre">
+      <bpmn:documentation>Par défaut, seuls les actes des séances passées sont repris (IMP-04).</bpmn:documentation>
+      <bpmn:outgoing>F01</bpmn:outgoing>
+    </bpmn:startEvent>
+    <bpmn:serviceTask id="T_Exp" name="Exporter les tables AIRS dans PostgreSQL ou en JSON">
+      <bpmn:documentation>VibeDélib lit en lecture seule ; aucune connexion directe à Oracle (IMP-03).</bpmn:documentation>
+      <bpmn:incoming>F01</bpmn:incoming>
+      <bpmn:outgoing>F02</bpmn:outgoing>
+      <bpmn:dataOutputAssociation id="DA_App_Hub"><bpmn:targetRef>App_Hub</bpmn:targetRef></bpmn:dataOutputAssociation>
+    </bpmn:serviceTask>
+    <bpmn:serviceTask id="T_Sas" name="Charger les lignes brutes dans le sas">
+      <bpmn:documentation>Tables airs_* : lot horodaté, ligne en JSONB et empreinte pour détecter doublons et modifications ; rien n'est visible des utilisateurs ni de la recherche (IMP-01, IMP-02, IMP-05).</bpmn:documentation>
+      <bpmn:incoming>F02</bpmn:incoming>
+      <bpmn:outgoing>F03</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:serviceTask id="T_Inv" name="Produire l'inventaire">
+      <bpmn:documentation>Nombre de lignes par table, période couverte, séances et actes détectés, anomalies.</bpmn:documentation>
+      <bpmn:incoming>F03</bpmn:incoming>
+      <bpmn:outgoing>F04</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:serviceTask id="T_Ana" name="Analyser les valeurs par axe de concordance">
+      <bpmn:documentation>Organisme, instance, direction, service, agent, élu, rubrique… avec le nombre d'actes concernés et des propositions (IMP-06, IMP-07).</bpmn:documentation>
+      <bpmn:incoming>F04</bpmn:incoming>
+      <bpmn:outgoing>F05</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:userTask id="T_Conc" name="Valider les concordances">
+      <bpmn:documentation>Chaque valeur AIRS est rapprochée d'une entité de VibeDélib : automatique, proposée, manuelle ou ignorée.</bpmn:documentation>
+      <bpmn:incoming>F05</bpmn:incoming>
+      <bpmn:incoming>F08</bpmn:incoming>
+      <bpmn:outgoing>F06</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:exclusiveGateway id="G_Conc" name="Toutes les valeurs concordées ?">
+      <bpmn:incoming>F06</bpmn:incoming>
+      <bpmn:outgoing>F07</bpmn:outgoing>
+      <bpmn:outgoing>F08</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:serviceTask id="T_Pub" name="Publier l'historique">
+      <bpmn:documentation>Création des séances, actes, textes, annexes et votes, avec un état distinct de l'état « vivant ».</bpmn:documentation>
+      <bpmn:incoming>F07</bpmn:incoming>
+      <bpmn:outgoing>F09</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:serviceTask id="T_Visas" name="Extraire visas et références des PDF">
+      <bpmn:documentation>Outil visas-depuis-airs : usage constaté des textes, règles issues de l'historique (citations dans au moins 50 % des délibérations).</bpmn:documentation>
+      <bpmn:incoming>F09</bpmn:incoming>
+      <bpmn:outgoing>F10</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:serviceTask id="T_Index" name="Indexer pour la recherche">
+      <bpmn:documentation>Recherche plein texte des actes passés (section 20).</bpmn:documentation>
+      <bpmn:incoming>F10</bpmn:incoming>
+      <bpmn:outgoing>F11</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:endEvent id="E_End" name="Historique consultable">
+      <bpmn:incoming>F11</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:sequenceFlow id="F01" sourceRef="S" targetRef="T_Exp" />
+    <bpmn:sequenceFlow id="F02" sourceRef="T_Exp" targetRef="T_Sas" />
+    <bpmn:sequenceFlow id="F03" sourceRef="T_Sas" targetRef="T_Inv" />
+    <bpmn:sequenceFlow id="F04" sourceRef="T_Inv" targetRef="T_Ana" />
+    <bpmn:sequenceFlow id="F05" sourceRef="T_Ana" targetRef="T_Conc" />
+    <bpmn:sequenceFlow id="F06" sourceRef="T_Conc" targetRef="G_Conc" />
+    <bpmn:sequenceFlow id="F07" sourceRef="G_Conc" targetRef="T_Pub" name="Oui" />
+    <bpmn:sequenceFlow id="F08" sourceRef="G_Conc" targetRef="T_Conc" name="Non" />
+    <bpmn:sequenceFlow id="F09" sourceRef="T_Pub" targetRef="T_Visas" />
+    <bpmn:sequenceFlow id="F10" sourceRef="T_Visas" targetRef="T_Index" />
+    <bpmn:sequenceFlow id="F11" sourceRef="T_Index" targetRef="E_End" />
+    <bpmn:dataStoreReference id="App_Hub" name="DSI Hub" dsi:applicationId="158" />
+  </bpmn:process>
+  <bpmndi:BPMNDiagram id="BPMNDiagram_1">
+    <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="Collaboration_1">
+      <bpmndi:BPMNShape id="Participant_1_di" bpmnElement="Participant_1" isHorizontal="true"><dc:Bounds x="160" y="80" width="2250" height="590" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_0_di" bpmnElement="Lane_0" isHorizontal="true"><dc:Bounds x="190" y="80" width="2220" height="160" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_1_di" bpmnElement="Lane_1" isHorizontal="true"><dc:Bounds x="190" y="240" width="2220" height="270" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_2_di" bpmnElement="Lane_2" isHorizontal="true"><dc:Bounds x="190" y="510" width="2220" height="160" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S_di" bpmnElement="S"><dc:Bounds x="382" y="292" width="36" height="36" /><bpmndi:BPMNLabel><dc:Bounds x="340" y="332" width="120" height="40" /></bpmndi:BPMNLabel></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Exp_di" bpmnElement="T_Exp"><dc:Bounds x="520" y="275" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Sas_di" bpmnElement="T_Sas"><dc:Bounds x="710" y="545" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Inv_di" bpmnElement="T_Inv"><dc:Bounds x="900" y="545" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Ana_di" bpmnElement="T_Ana"><dc:Bounds x="1090" y="545" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Conc_di" bpmnElement="T_Conc"><dc:Bounds x="1280" y="115" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="G_Conc_di" bpmnElement="G_Conc" isMarkerVisible="true"><dc:Bounds x="1515" y="125" width="50" height="50" /><bpmndi:BPMNLabel><dc:Bounds x="1480" y="179" width="120" height="40" /></bpmndi:BPMNLabel></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Pub_di" bpmnElement="T_Pub"><dc:Bounds x="1660" y="545" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Visas_di" bpmnElement="T_Visas"><dc:Bounds x="1850" y="545" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Index_di" bpmnElement="T_Index"><dc:Bounds x="2040" y="545" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="E_End_di" bpmnElement="E_End"><dc:Bounds x="2282" y="562" width="36" height="36" /><bpmndi:BPMNLabel><dc:Bounds x="2240" y="602" width="120" height="40" /></bpmndi:BPMNLabel></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="App_Hub_di" bpmnElement="App_Hub"><dc:Bounds x="530" y="385" width="120" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="F01_di" bpmnElement="F01"><di:waypoint x="418" y="310" /><di:waypoint x="520" y="310" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F02_di" bpmnElement="F02"><di:waypoint x="660" y="310" /><di:waypoint x="680" y="310" /><di:waypoint x="680" y="580" /><di:waypoint x="710" y="580" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F03_di" bpmnElement="F03"><di:waypoint x="850" y="580" /><di:waypoint x="900" y="580" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F04_di" bpmnElement="F04"><di:waypoint x="1040" y="580" /><di:waypoint x="1090" y="580" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F05_di" bpmnElement="F05"><di:waypoint x="1230" y="580" /><di:waypoint x="1250" y="580" /><di:waypoint x="1250" y="150" /><di:waypoint x="1280" y="150" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F06_di" bpmnElement="F06"><di:waypoint x="1420" y="150" /><di:waypoint x="1515" y="150" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F07_di" bpmnElement="F07"><di:waypoint x="1540" y="175" /><di:waypoint x="1540" y="580" /><di:waypoint x="1660" y="580" /><bpmndi:BPMNLabel><dc:Bounds x="1544" y="155" width="40" height="14" /></bpmndi:BPMNLabel></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F08_di" bpmnElement="F08"><di:waypoint x="1540" y="125" /><di:waypoint x="1540" y="97" /><di:waypoint x="1350" y="97" /><di:waypoint x="1350" y="115" /><bpmndi:BPMNLabel><dc:Bounds x="1544" y="105" width="40" height="14" /></bpmndi:BPMNLabel></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F09_di" bpmnElement="F09"><di:waypoint x="1800" y="580" /><di:waypoint x="1850" y="580" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F10_di" bpmnElement="F10"><di:waypoint x="1990" y="580" /><di:waypoint x="2040" y="580" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F11_di" bpmnElement="F11"><di:waypoint x="2180" y="580" /><di:waypoint x="2282" y="580" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="DA_App_Hub_di" bpmnElement="DA_App_Hub"><di:waypoint x="590" y="345" /><di:waypoint x="590" y="385" /></bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>

@@ -1,0 +1,172 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" xmlns:dsi="http://dsi.ivry/schema/bpmn" id="Definitions_1" targetNamespace="http://bpmn.io/schema/bpmn">
+  <bpmn:collaboration id="Collaboration_1">
+    <bpmn:participant id="Participant_1" name="VibeDélib — Espace des élus (DMZ) : accès, consultation, annotations" processRef="Process_1" />
+  </bpmn:collaboration>
+  <bpmn:process id="Process_1" isExecutable="false">
+    <bpmn:documentation id="Doc_Process">Parcours d'un conseiller municipal dans l'espace des élus, hébergé en DMZ : création du compte par le SCC, invitation et lien personnel, double authentification, consultation de l'ordre du jour point par point, annotations privées ou partagées, cahier numérique téléchargeable avec filigrane nominatif, réponse à la convocation, et journalisation des consultations (droit à l'information des conseillers). Reconstitué à partir du manifeste de VibeDélib (section 18).</bpmn:documentation>
+    <bpmn:laneSet id="LaneSet_1">
+      <bpmn:lane id="Lane_0" name="SCC">
+        <bpmn:flowNodeRef>S</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>T_Cree</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>App_Hub</bpmn:flowNodeRef>
+      </bpmn:lane>
+      <bpmn:lane id="Lane_1" name="Élu (conseiller)">
+        <bpmn:flowNodeRef>T_Conn</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>T_2fa</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>T_Lire</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>T_Annot</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>G_Part</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>T_Part</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>T_Dl</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>T_Rep</bpmn:flowNodeRef>
+      </bpmn:lane>
+      <bpmn:lane id="Lane_2" name="Espace des élus (DMZ)">
+        <bpmn:flowNodeRef>G_Ok</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>E_Lock</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>T_Accueil</bpmn:flowNodeRef>
+      </bpmn:lane>
+      <bpmn:lane id="Lane_3" name="Backend VibeDélib (LAN)">
+        <bpmn:flowNodeRef>T_Invit</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>T_Trace</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>E_End</bpmn:flowNodeRef>
+      </bpmn:lane>
+    </bpmn:laneSet>
+    <bpmn:startEvent id="S" name="Nouvel élu à inscrire">
+      <bpmn:documentation>Début de mandat ou arrivée d'un conseiller.</bpmn:documentation>
+      <bpmn:outgoing>F01</bpmn:outgoing>
+    </bpmn:startEvent>
+    <bpmn:userTask id="T_Cree" name="Créer le compte élu">
+      <bpmn:documentation>Identité issue du Hub DSI (/api/ville/elus) complétée localement : mobile, mode de convocation, groupe politique, dates de mandat ; compte désactivé à la fin du mandat (ELU-10).</bpmn:documentation>
+      <bpmn:incoming>F01</bpmn:incoming>
+      <bpmn:outgoing>F02</bpmn:outgoing>
+      <bpmn:dataOutputAssociation id="DA_App_Hub"><bpmn:targetRef>App_Hub</bpmn:targetRef></bpmn:dataOutputAssociation>
+    </bpmn:userTask>
+    <bpmn:serviceTask id="T_Invit" name="Envoyer l'invitation avec un lien personnel">
+      <bpmn:documentation>Mail ou SMS via APM. Le SCC ne voit jamais les mots de passe (ELU-12).</bpmn:documentation>
+      <bpmn:incoming>F02</bpmn:incoming>
+      <bpmn:outgoing>F03</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:userTask id="T_Conn" name="Ouvrir le lien et choisir un mot de passe">
+      <bpmn:incoming>F03</bpmn:incoming>
+      <bpmn:outgoing>F04</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:userTask id="T_2fa" name="Saisir le code à usage unique (SMS ou mail)">
+      <bpmn:documentation>Double authentification obligatoire ; TOTP en option, appareil de confiance (ELU-11).</bpmn:documentation>
+      <bpmn:incoming>F04</bpmn:incoming>
+      <bpmn:outgoing>F05</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:exclusiveGateway id="G_Ok" name="Code valide ?">
+      <bpmn:incoming>F05</bpmn:incoming>
+      <bpmn:outgoing>F06</bpmn:outgoing>
+      <bpmn:outgoing>F07</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:endEvent id="E_Lock" name="Compte verrouillé : réinitialisation contrôlée (SMS)">
+      <bpmn:documentation>Verrouillage après échecs ; mot de passe oublié par SMS (D94).</bpmn:documentation>
+      <bpmn:incoming>F07</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:serviceTask id="T_Accueil" name="Afficher l'accueil">
+      <bpmn:documentation>Prochaine séance et compte à rebours, nouveautés depuis la dernière visite, commissions de l'élu (ELU-20).</bpmn:documentation>
+      <bpmn:incoming>F06</bpmn:incoming>
+      <bpmn:outgoing>F08</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:userTask id="T_Lire" name="Lire l'ordre du jour point par point">
+      <bpmn:documentation>Exposé, projet de délibération, annexes communicables, avis de commission ; visionneuse PDF adaptée à la tablette ; aucune donnée interne (ELU-21 à ELU-24).</bpmn:documentation>
+      <bpmn:incoming>F08</bpmn:incoming>
+      <bpmn:outgoing>F09</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:userTask id="T_Annot" name="Annoter les pièces (privé par défaut)">
+      <bpmn:documentation>Surlignage, note ancrée, dessin au stylet, signet, note libre par point ; modèle W3C Web Annotation, ré-ancrage par citation si le document change (ELU-30, ELU-31).</bpmn:documentation>
+      <bpmn:incoming>F09</bpmn:incoming>
+      <bpmn:outgoing>F10</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:exclusiveGateway id="G_Part" name="Partager l'annotation ?">
+      <bpmn:incoming>F10</bpmn:incoming>
+      <bpmn:outgoing>F11</bpmn:outgoing>
+      <bpmn:outgoing>F12</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:userTask id="T_Part" name="Partager avec son groupe ou un autre élu">
+      <bpmn:incoming>F11</bpmn:incoming>
+      <bpmn:outgoing>F13</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:userTask id="T_Dl" name="Télécharger le cahier numérique">
+      <bpmn:documentation>PDF à signets avec filigrane nominatif, téléchargement en arrière-plan pour la consultation hors ligne (MAD-08, D85).</bpmn:documentation>
+      <bpmn:incoming>F12</bpmn:incoming>
+      <bpmn:incoming>F13</bpmn:incoming>
+      <bpmn:outgoing>F14</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:userTask id="T_Rep" name="Répondre à la convocation (présence ou pouvoir)">
+      <bpmn:documentation>Réponse enregistrée pour pré-remplir la feuille de présence.</bpmn:documentation>
+      <bpmn:incoming>F14</bpmn:incoming>
+      <bpmn:outgoing>F15</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:serviceTask id="T_Trace" name="Journaliser les consultations">
+      <bpmn:documentation>Qui a ouvert quoi et quand : élément de preuve du droit à l'information des conseillers (MAD-06).</bpmn:documentation>
+      <bpmn:incoming>F15</bpmn:incoming>
+      <bpmn:outgoing>F16</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:endEvent id="E_End" name="Élu informé, séance préparée">
+      <bpmn:incoming>F16</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:sequenceFlow id="F01" sourceRef="S" targetRef="T_Cree" />
+    <bpmn:sequenceFlow id="F02" sourceRef="T_Cree" targetRef="T_Invit" />
+    <bpmn:sequenceFlow id="F03" sourceRef="T_Invit" targetRef="T_Conn" />
+    <bpmn:sequenceFlow id="F04" sourceRef="T_Conn" targetRef="T_2fa" />
+    <bpmn:sequenceFlow id="F05" sourceRef="T_2fa" targetRef="G_Ok" />
+    <bpmn:sequenceFlow id="F06" sourceRef="G_Ok" targetRef="T_Accueil" name="Oui" />
+    <bpmn:sequenceFlow id="F07" sourceRef="G_Ok" targetRef="E_Lock" name="Non" />
+    <bpmn:sequenceFlow id="F08" sourceRef="T_Accueil" targetRef="T_Lire" />
+    <bpmn:sequenceFlow id="F09" sourceRef="T_Lire" targetRef="T_Annot" />
+    <bpmn:sequenceFlow id="F10" sourceRef="T_Annot" targetRef="G_Part" />
+    <bpmn:sequenceFlow id="F11" sourceRef="G_Part" targetRef="T_Part" name="Oui" />
+    <bpmn:sequenceFlow id="F12" sourceRef="G_Part" targetRef="T_Dl" name="Non" />
+    <bpmn:sequenceFlow id="F13" sourceRef="T_Part" targetRef="T_Dl" />
+    <bpmn:sequenceFlow id="F14" sourceRef="T_Dl" targetRef="T_Rep" />
+    <bpmn:sequenceFlow id="F15" sourceRef="T_Rep" targetRef="T_Trace" />
+    <bpmn:sequenceFlow id="F16" sourceRef="T_Trace" targetRef="E_End" />
+    <bpmn:dataStoreReference id="App_Hub" name="DSI Hub" dsi:applicationId="158" />
+  </bpmn:process>
+  <bpmndi:BPMNDiagram id="BPMNDiagram_1">
+    <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="Collaboration_1">
+      <bpmndi:BPMNShape id="Participant_1_di" bpmnElement="Participant_1" isHorizontal="true"><dc:Bounds x="160" y="80" width="3010" height="970" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_0_di" bpmnElement="Lane_0" isHorizontal="true"><dc:Bounds x="190" y="80" width="2980" height="270" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_1_di" bpmnElement="Lane_1" isHorizontal="true"><dc:Bounds x="190" y="350" width="2980" height="270" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_2_di" bpmnElement="Lane_2" isHorizontal="true"><dc:Bounds x="190" y="620" width="2980" height="270" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_3_di" bpmnElement="Lane_3" isHorizontal="true"><dc:Bounds x="190" y="890" width="2980" height="160" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S_di" bpmnElement="S"><dc:Bounds x="382" y="132" width="36" height="36" /><bpmndi:BPMNLabel><dc:Bounds x="340" y="172" width="120" height="40" /></bpmndi:BPMNLabel></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Cree_di" bpmnElement="T_Cree"><dc:Bounds x="520" y="115" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Invit_di" bpmnElement="T_Invit"><dc:Bounds x="710" y="925" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Conn_di" bpmnElement="T_Conn"><dc:Bounds x="900" y="385" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_2fa_di" bpmnElement="T_2fa"><dc:Bounds x="1090" y="385" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="G_Ok_di" bpmnElement="G_Ok" isMarkerVisible="true"><dc:Bounds x="1325" y="665" width="50" height="50" /><bpmndi:BPMNLabel><dc:Bounds x="1290" y="719" width="120" height="40" /></bpmndi:BPMNLabel></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="E_Lock_di" bpmnElement="E_Lock"><dc:Bounds x="1522" y="782" width="36" height="36" /><bpmndi:BPMNLabel><dc:Bounds x="1480" y="822" width="120" height="40" /></bpmndi:BPMNLabel></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Accueil_di" bpmnElement="T_Accueil"><dc:Bounds x="1470" y="655" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Lire_di" bpmnElement="T_Lire"><dc:Bounds x="1660" y="385" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Annot_di" bpmnElement="T_Annot"><dc:Bounds x="1850" y="385" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="G_Part_di" bpmnElement="G_Part" isMarkerVisible="true"><dc:Bounds x="2085" y="395" width="50" height="50" /><bpmndi:BPMNLabel><dc:Bounds x="2050" y="449" width="120" height="40" /></bpmndi:BPMNLabel></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Part_di" bpmnElement="T_Part"><dc:Bounds x="2230" y="495" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Dl_di" bpmnElement="T_Dl"><dc:Bounds x="2420" y="385" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Rep_di" bpmnElement="T_Rep"><dc:Bounds x="2610" y="385" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Trace_di" bpmnElement="T_Trace"><dc:Bounds x="2800" y="925" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="E_End_di" bpmnElement="E_End"><dc:Bounds x="3042" y="942" width="36" height="36" /><bpmndi:BPMNLabel><dc:Bounds x="3000" y="982" width="120" height="40" /></bpmndi:BPMNLabel></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="App_Hub_di" bpmnElement="App_Hub"><dc:Bounds x="530" y="225" width="120" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="F01_di" bpmnElement="F01"><di:waypoint x="418" y="150" /><di:waypoint x="520" y="150" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F02_di" bpmnElement="F02"><di:waypoint x="660" y="150" /><di:waypoint x="680" y="150" /><di:waypoint x="680" y="960" /><di:waypoint x="710" y="960" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F03_di" bpmnElement="F03"><di:waypoint x="850" y="960" /><di:waypoint x="870" y="960" /><di:waypoint x="870" y="420" /><di:waypoint x="900" y="420" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F04_di" bpmnElement="F04"><di:waypoint x="1040" y="420" /><di:waypoint x="1090" y="420" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F05_di" bpmnElement="F05"><di:waypoint x="1230" y="420" /><di:waypoint x="1295" y="420" /><di:waypoint x="1295" y="690" /><di:waypoint x="1325" y="690" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F06_di" bpmnElement="F06"><di:waypoint x="1375" y="690" /><di:waypoint x="1470" y="690" /><bpmndi:BPMNLabel><dc:Bounds x="1474" y="670" width="40" height="14" /></bpmndi:BPMNLabel></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F07_di" bpmnElement="F07"><di:waypoint x="1350" y="715" /><di:waypoint x="1350" y="800" /><di:waypoint x="1522" y="800" /><bpmndi:BPMNLabel><dc:Bounds x="1354" y="695" width="40" height="14" /></bpmndi:BPMNLabel></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F08_di" bpmnElement="F08"><di:waypoint x="1610" y="690" /><di:waypoint x="1630" y="690" /><di:waypoint x="1630" y="420" /><di:waypoint x="1660" y="420" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F09_di" bpmnElement="F09"><di:waypoint x="1800" y="420" /><di:waypoint x="1850" y="420" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F10_di" bpmnElement="F10"><di:waypoint x="1990" y="420" /><di:waypoint x="2085" y="420" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F11_di" bpmnElement="F11"><di:waypoint x="2110" y="445" /><di:waypoint x="2110" y="530" /><di:waypoint x="2230" y="530" /><bpmndi:BPMNLabel><dc:Bounds x="2114" y="425" width="40" height="14" /></bpmndi:BPMNLabel></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F12_di" bpmnElement="F12"><di:waypoint x="2135" y="420" /><di:waypoint x="2420" y="420" /><bpmndi:BPMNLabel><dc:Bounds x="2424" y="400" width="40" height="14" /></bpmndi:BPMNLabel></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F13_di" bpmnElement="F13"><di:waypoint x="2370" y="530" /><di:waypoint x="2390" y="530" /><di:waypoint x="2390" y="420" /><di:waypoint x="2420" y="420" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F14_di" bpmnElement="F14"><di:waypoint x="2560" y="420" /><di:waypoint x="2610" y="420" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F15_di" bpmnElement="F15"><di:waypoint x="2750" y="420" /><di:waypoint x="2770" y="420" /><di:waypoint x="2770" y="960" /><di:waypoint x="2800" y="960" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F16_di" bpmnElement="F16"><di:waypoint x="2940" y="960" /><di:waypoint x="3042" y="960" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="DA_App_Hub_di" bpmnElement="DA_App_Hub"><di:waypoint x="590" y="185" /><di:waypoint x="590" y="225" /></bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>

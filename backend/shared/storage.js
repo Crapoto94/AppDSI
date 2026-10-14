@@ -315,6 +315,40 @@ async function getFileForServe(storageRelative) {
         try { return await alfrescoAdapter.read(storageRelative); }
         catch (e) { console.error('[STORAGE] lecture Alfresco échouée:', e.message); return null; }
     }
+    let local = null;
+    try { local = await readLocalFile(storageRelative); }
+    catch (e) { console.error('[STORAGE] lecture locale échouée:', e && e.message || e); }
+    if (local) return local;
+    return readAlfrescoCopy(storageRelative);
+}
+
+/**
+ * Repli : le fichier a été migré/copié dans la GED (métadonnée alfresco.ref de
+ * hub_docs.document_versions) alors que la BD métier référence encore l'ancien
+ * chemin « storage/... » absent du disque ou du partage.
+ */
+async function readAlfrescoCopy(storageRelative) {
+    try {
+        const { pgDb } = require('./database');
+        // Les routes /storage et /api/storage retirent le préfixe « storage/ » de l'URL :
+        // on cherche donc la référence avec ET sans ce préfixe.
+        const bare = toStorageRelative(storageRelative);
+        const row = await pgDb.get(
+            `SELECT metadata->'alfresco'->>'ref' AS ref FROM hub_docs.document_versions
+             WHERE storage_ref IN ($1, $2) AND metadata->'alfresco'->>'ref' IS NOT NULL
+             ORDER BY id DESC LIMIT 1`,
+            [bare, `${STORAGE_PREFIX}/${bare}`]
+        );
+        if (!row || !row.ref) return null;
+        const alfrescoAdapter = require('./document_storage/alfresco_adapter');
+        return await alfrescoAdapter.read(row.ref);
+    } catch (e) {
+        console.error('[STORAGE] repli Alfresco échoué:', e.message);
+        return null;
+    }
+}
+
+async function readLocalFile(storageRelative) {
     const config = await getStorageConfig();
     const rel = toStorageRelative(storageRelative);
     if (isSmbConfig(config)) {

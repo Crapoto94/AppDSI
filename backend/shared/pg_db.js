@@ -513,6 +513,19 @@ async function setupPgDb() {
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
     `);
+    // Onboarding RH Studio rattaché au ticket « Arrivée d'agent » : checklist des
+    // tâches (création de comptes…) + identité de l'agent, poussées par RH Studio
+    // à chaque changement (PUT /api/tasks/external/rh-studio/onboarding-sync).
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS hub_tickets.ticket_onboarding (
+        ticket_id INTEGER PRIMARY KEY REFERENCES hub_tickets.tickets(glpi_id) ON DELETE CASCADE,
+        onboarding_id INTEGER,
+        statut VARCHAR(50),
+        agent JSONB DEFAULT '{}',
+        tasks JSONB DEFAULT '[]',
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
     await client.query(`CREATE INDEX IF NOT EXISTS idx_th_ticket ON hub_tickets.ticket_history(ticket_id)`);
     await client.query(`CREATE INDEX IF NOT EXISTS idx_th_created ON hub_tickets.ticket_history(created_at DESC)`);
     // ── Index critiques pour la performance de la liste tickets ────────────────
@@ -4199,6 +4212,7 @@ async function setupPgDb() {
     // n'ajoute pas de colonnes à une table déjà créée par un précédent démarrage.
     try { await client.query(`ALTER TABLE hub_prets.loans ADD COLUMN IF NOT EXISTS batch_id INTEGER`); } catch (e) {}
     try { await client.query(`ALTER TABLE hub_prets.loans ADD COLUMN IF NOT EXISTS is_internal BOOLEAN DEFAULT FALSE`); } catch (e) {}
+    try { await client.query(`ALTER TABLE hub_prets.loans ADD COLUMN IF NOT EXISTS ticket_id INTEGER`); } catch (e) {}
 
     await client.query('CREATE INDEX IF NOT EXISTS idx_prets_equipment_category ON hub_prets.equipment(category_id)');
     await client.query('CREATE INDEX IF NOT EXISTS idx_prets_units_equipment ON hub_prets.equipment_units(equipment_id)');
@@ -5034,6 +5048,41 @@ async function setupPgDb() {
     `);
     try { await client.query(`CREATE INDEX IF NOT EXISTS idx_task_notes_src ON hub.task_notes(source, task_id)`); } catch (e) {}
     try { await client.query(`ALTER TABLE hub.task_notes ADD COLUMN IF NOT EXISTS file_missing BOOLEAN DEFAULT FALSE`); } catch (e) {}
+
+    // Classification personnelle des tâches (Mes tâches) : chaque utilisateur définit ses classes
+    // (ex. Projets, MCO, Support) et range ses tâches dedans (une classe max par tâche).
+    // Rattachement par username (jamais user.id : cf. JWT SQLite ≠ hub.users).
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS hub.user_task_classes (
+        id SERIAL PRIMARY KEY,
+        username TEXT NOT NULL,
+        name TEXT NOT NULL,
+        color TEXT DEFAULT '#6366f1',
+        created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    // scope : 'personal' (visible de son auteur seul) ou 'team' (partagée avec tout le service de l'auteur)
+    try { await client.query(`ALTER TABLE hub.user_task_classes ADD COLUMN IF NOT EXISTS scope TEXT DEFAULT 'personal'`); } catch (e) {}
+    try { await client.query(`ALTER TABLE hub.user_task_classes ADD COLUMN IF NOT EXISTS service_code TEXT`); } catch (e) {}
+    // Équipe cible d'une classe 'team' : groupe de techniciens (hub_tickets.technician_groups)
+    try { await client.query(`ALTER TABLE hub.user_task_classes ADD COLUMN IF NOT EXISTS group_id INTEGER REFERENCES hub_tickets.technician_groups(id) ON DELETE CASCADE`); } catch (e) {}
+    try { await client.query(`CREATE UNIQUE INDEX IF NOT EXISTS uq_user_task_classes_name ON hub.user_task_classes(LOWER(username), LOWER(name))`); } catch (e) {}
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS hub.user_task_class_links (
+        username TEXT NOT NULL,
+        source TEXT NOT NULL,
+        task_id TEXT NOT NULL,
+        class_id INTEGER NOT NULL REFERENCES hub.user_task_classes(id) ON DELETE CASCADE,
+        PRIMARY KEY (username, source, task_id)
+      )
+    `);
+    // Classe système « Logiciel » (pour tout le monde) : le rattachement d'une tâche porte alors un logiciel (magapp.apps).
+    try { await client.query(`ALTER TABLE hub.user_task_class_links ADD COLUMN IF NOT EXISTS software_id INTEGER REFERENCES magapp.apps(id) ON DELETE SET NULL`); } catch (e) {}
+    try {
+      await client.query(`INSERT INTO hub.user_task_classes (username, name, color, scope)
+        SELECT '__system__', 'Logiciel', '#0ea5e9', 'software'
+        WHERE NOT EXISTS (SELECT 1 FROM hub.user_task_classes WHERE scope = 'software')`);
+    } catch (e) { console.error('[PG DB] classe système Logiciel:', e.message); }
 
     // ── Migration fuseau horaire — LOT tâches (hub.user_tasks / hub.task_notes) ──────────
     // Même problème que le LOT 1 hub_tickets (cf. commentaire LOT 1 en haut de fichier) :
@@ -6141,6 +6190,25 @@ async function setupPgDb() {
                 '', 'x-api-key', FALSE)
         ON CONFLICT (key) DO NOTHING
       `);
+
+      // Bibliothèque de diagrammes BPMN (module /bpmn) : un diagramme = XML BPMN 2.0 +
+      // métadonnées. `assets` (jsonb) liste les actifs concernés, recalculés côté serveur
+      // à partir du XML : [{ type: 'application', id, name }] (applications du Magasin).
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS hub.bpmn_diagrams (
+          id SERIAL PRIMARY KEY,
+          title TEXT NOT NULL,
+          description TEXT,
+          xml TEXT NOT NULL,
+          assets JSONB NOT NULL DEFAULT '[]'::jsonb,
+          tags JSONB NOT NULL DEFAULT '[]'::jsonb,
+          created_by TEXT,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          updated_by TEXT,
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+      `);
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_bpmn_diagrams_assets ON hub.bpmn_diagrams USING GIN (assets)`);
 
       // Bureau en ligne OnlyOffice (aperçu docx en lecture seule dans l'explorateur de
       // documents /projets) — base_url = adresse que LE BACKEND appelle (moteur),

@@ -7,6 +7,7 @@ import React, { useState, useEffect } from 'react';
 import { X, Plus, Users, UserPlus, Trash2, ChevronDown, Globe, Lock } from 'lucide-react';
 import { useADSearch } from '../utils/useADSearch';
 import type { ADUser } from '../utils/useADSearch';
+import SoftwareSelect from './SoftwareSelect';
 import DsiPresenceBadge, { loadDsiAgentsStatus, findDsiAgentStatus, buildDsiTooltip } from './DsiPresenceBadge';
 import type { DsiAgentStatus } from './DsiPresenceBadge';
 
@@ -28,6 +29,10 @@ interface AddTaskModalProps {
   onClose: () => void;
   /** Optional title override */
   title?: string;
+  /** « Mes tâches » : propose le choix de la classe (classification personnelle) à la création */
+  enableClasses?: boolean;
+  /** Utilisateur connecté : seules les tâches qui lui sont affectées sont classées */
+  currentUsername?: string;
 }
 
 const AddTaskModal: React.FC<AddTaskModalProps> = ({
@@ -39,11 +44,18 @@ const AddTaskModal: React.FC<AddTaskModalProps> = ({
   onCreated,
   onClose,
   title,
+  enableClasses = false,
+  currentUsername = '',
 }) => {
   const [description, setDescription] = useState('');
   const [echeance, setEcheance]       = useState('');
   const [priority, setPriority]       = useState('normale');
   const [isPublic, setIsPublic]       = useState(false);
+  const [classes, setClasses]         = useState<{ id: number; name: string; color: string; scope: string }[]>([]);
+  const [classId, setClassId]         = useState('');
+  const [softwareId, setSoftwareId]   = useState('');
+  const [apps, setApps]               = useState<{ id: number; name: string }[]>([]);
+  const isSoftwareClass = classes.find(c => String(c.id) === classId)?.scope === 'software';
   const [saving, setSaving]           = useState(false);
   const [error, setError]             = useState<string | null>(null);
   const [pendingAbsentAgent, setPendingAbsentAgent] = useState<DsiAgentStatus | null>(null);
@@ -55,14 +67,27 @@ const AddTaskModal: React.FC<AddTaskModalProps> = ({
 
   // Team task
   const [isTeam, setIsTeam]         = useState(false);
-  const [teamMode, setTeamMode]     = useState<'people' | 'service'>('people');
+  const [teamMode, setTeamMode]     = useState<'people' | 'service' | 'group'>('people');
   const [teamMembers, setTeamMembers] = useState<ADUser[]>([]);
   const teamAd = useADSearch(token);
   const [services, setServices]       = useState<Service[]>([]);
   const [selectedService, setSelectedService] = useState('');
   const [servicesLoading, setServicesLoading] = useState(false);
+  const [groups, setGroups]           = useState<{ id: number; name: string; members: string[] }[]>([]);
+  const [selectedGroup, setSelectedGroup] = useState('');
+  const [groupsLoading, setGroupsLoading] = useState(false);
 
   const authHeaders = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
+
+  useEffect(() => {
+    if (!enableClasses) return;
+    fetch('/api/tasks/classes', { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.json())
+      .then(d => setClasses(Array.isArray(d.classes) ? d.classes : []))
+      .catch(() => {});
+    fetch('/api/magapp/apps', { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.json()).then(d => setApps(Array.isArray(d) ? d : [])).catch(() => {});
+  }, [enableClasses, token]);
 
   // Load services when switching to service mode
   useEffect(() => {
@@ -78,6 +103,18 @@ const AddTaskModal: React.FC<AddTaskModalProps> = ({
 
 
 
+
+  // Équipes (groupes de techniciens)
+  useEffect(() => {
+    if (isTeam && teamMode === 'group' && groups.length === 0) {
+      setGroupsLoading(true);
+      fetch('/api/tasks/ticket-groups', { headers: { Authorization: `Bearer ${token}` } })
+        .then(r => r.json())
+        .then(d => setGroups(Array.isArray(d) ? d : []))
+        .catch(() => {})
+        .finally(() => setGroupsLoading(false));
+    }
+  }, [isTeam, teamMode, token, groups.length]);
 
   const addTeamMember = (user: ADUser) => {
     if (!teamMembers.some(m => m.username === user.username)) {
@@ -98,6 +135,12 @@ const AddTaskModal: React.FC<AddTaskModalProps> = ({
     }
     if (isTeam && teamMode === 'service' && !selectedService) {
       setError('Sélectionnez un service'); return;
+    }
+    if (enableClasses && isSoftwareClass && !softwareId) {
+      setError('Classe « Logiciel » : choisissez un logiciel'); return;
+    }
+    if (isTeam && teamMode === 'group' && !selectedGroup) {
+      setError('Sélectionnez une équipe'); return;
     }
     if (!isTeam && responsableUsername) {
       try {
@@ -133,6 +176,8 @@ const AddTaskModal: React.FC<AddTaskModalProps> = ({
       if (isTeam) {
         if (teamMode === 'people') {
           body.assignees = teamMembers.map(m => m.username);
+        } else if (teamMode === 'group') {
+          body.ticket_group_id = Number(selectedGroup);
         } else {
           body.service_code = selectedService;
         }
@@ -150,6 +195,15 @@ const AddTaskModal: React.FC<AddTaskModalProps> = ({
       });
       const data = await res.json();
       if (!res.ok) { setError(data.error || 'Erreur inconnue'); return; }
+      // Classe choisie : appliquée aux tâches créées qui me sont affectées (la classification est personnelle).
+      if (enableClasses && classId) {
+        const created = Array.isArray(data) ? data : [data];
+        const mine = created.filter((t: any) => t?.id && (!currentUsername || String(t.username || '').toLowerCase() === currentUsername.toLowerCase()));
+        await Promise.all(mine.map((t: any) => fetch('/api/tasks/classify', {
+          method: 'PUT', headers: authHeaders,
+          body: JSON.stringify({ source: t.context_source || 'personal', task_id: String(t.id), class_id: Number(classId), software_id: isSoftwareClass && softwareId ? Number(softwareId) : null }),
+        }).catch(() => {})));
+      }
       onCreated(data);
       onClose();
     } catch { setError('Erreur réseau'); }
@@ -206,6 +260,29 @@ const AddTaskModal: React.FC<AddTaskModalProps> = ({
               style={{ width: '100%', borderRadius: 8, border: '1px solid #e2e8f0', padding: '9px 12px', fontSize: 14, boxSizing: 'border-box', outline: 'none', fontFamily: 'inherit' }}
             />
           </div>
+
+          {/* Classe (Mes tâches) */}
+          {enableClasses && (
+            <div>
+              <label style={{ fontSize: 12, fontWeight: 700, color: '#374151', display: 'block', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                Classe
+              </label>
+              <select value={classId} onChange={e => { setClassId(e.target.value); setSoftwareId(''); }}
+                style={{ width: '100%', borderRadius: 8, border: '1px solid #e2e8f0', padding: '9px 12px', fontSize: 14, boxSizing: 'border-box', outline: 'none', background: 'white' }}>
+                <option value="">— Aucune classe —</option>
+                {classes.map(c => <option key={c.id} value={c.id}>{c.scope === 'team' ? '👥 ' : c.scope === 'software' ? '💾 ' : ''}{c.name}</option>)}
+              </select>
+              {isSoftwareClass && (
+                <div style={{ marginTop: 8 }}>
+                  <SoftwareSelect apps={apps} value={softwareId} onChange={setSoftwareId} maxWidth={320} />
+                  {!softwareId && <div style={{ fontSize: 11, color: '#dc2626', marginTop: 4 }}>Logiciel obligatoire pour cette classe</div>}
+                </div>
+              )}
+              {classes.length === 0 && (
+                <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 4 }}>Aucune classe : créez-en depuis le bouton « Gérer » de la barre de filtres.</div>
+              )}
+            </div>
+          )}
 
           {/* Priorité */}
           <div>
@@ -292,9 +369,9 @@ const AddTaskModal: React.FC<AddTaskModalProps> = ({
               <div style={{ marginTop: 14 }}>
                 {/* Mode selector */}
                 <div style={{ display: 'flex', gap: 6, marginBottom: 12 }}>
-                  {(['people', 'service'] as const).map(mode => (
+                  {(['people', 'group', 'service'] as const).map(mode => (
                     <button key={mode} onClick={() => { setTeamMode(mode); setError(null); }} style={{ flex: 1, padding: '6px 10px', borderRadius: 7, border: `1.5px solid ${teamMode === mode ? '#2563eb' : '#e2e8f0'}`, background: teamMode === mode ? '#2563eb' : 'white', color: teamMode === mode ? 'white' : '#475569', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
-                      {mode === 'people' ? '👤 Par personnes' : '🏢 Par service'}
+                      {mode === 'people' ? '👤 Par personnes' : mode === 'group' ? '👥 Par équipe' : '🏢 Par service'}
                     </button>
                   ))}
                 </div>
@@ -345,6 +422,37 @@ const AddTaskModal: React.FC<AddTaskModalProps> = ({
                     </div>
                     {teamMembers.length === 0 && (
                       <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 6, fontStyle: 'italic' }}>Aucun membre ajouté — recherchez dans l'AD ci-dessus</div>
+                    )}
+                  </div>
+                )}
+
+                {teamMode === 'group' && (
+                  <div>
+                    {groupsLoading ? (
+                      <div style={{ fontSize: 12, color: '#64748b', textAlign: 'center', padding: 8 }}>Chargement des équipes...</div>
+                    ) : groups.length === 0 ? (
+                      <div style={{ fontSize: 12, color: '#94a3b8', textAlign: 'center', padding: 8 }}>Aucune équipe définie</div>
+                    ) : (
+                      <div style={{ position: 'relative' }}>
+                        <select
+                          value={selectedGroup}
+                          onChange={e => setSelectedGroup(e.target.value)}
+                          style={{ width: '100%', padding: '8px 32px 8px 10px', border: '1px solid #cbd5e1', borderRadius: 6, fontSize: 13, outline: 'none', appearance: 'none', background: 'white', cursor: 'pointer' }}
+                        >
+                          <option value="">— Sélectionnez une équipe —</option>
+                          {groups.map(g => (
+                            <option key={g.id} value={g.id}>
+                              {g.name} ({g.members.length} membre{g.members.length > 1 ? 's' : ''})
+                            </option>
+                          ))}
+                        </select>
+                        <ChevronDown size={14} style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', color: '#64748b', pointerEvents: 'none' }} />
+                      </div>
+                    )}
+                    {selectedGroup && (
+                      <div style={{ marginTop: 6, fontSize: 11, color: '#16a34a', fontWeight: 600 }}>
+                        ✓ La tâche sera assignée à tous les membres de l'équipe « {groups.find(g => String(g.id) === selectedGroup)?.name} »
+                      </div>
                     )}
                   </div>
                 )}

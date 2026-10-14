@@ -1,0 +1,225 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" xmlns:dsi="http://dsi.ivry/schema/bpmn" id="Definitions_1" targetNamespace="http://bpmn.io/schema/bpmn">
+  <bpmn:collaboration id="Collaboration_1">
+    <bpmn:participant id="Participant_1" name="ODP — Cycle de vie d'un dossier d'occupation (chantier, tournage, commerce, TLPE)" processRef="Process_1" />
+  </bpmn:collaboration>
+  <bpmn:process id="Process_1" isExecutable="false">
+    <bpmn:documentation id="Doc_Process">Vie d'un dossier d'occupation du domaine public dans ODP Manager, de sa création à sa clôture : saisie des lignes et calcul du montant, instruction, préparation et signature de l'AOT, contrôle terrain sur mobile, validation, facturation, titrage et paiement dans SEDIT, avec l'alerte quotidienne aux instructeurs. Reconstitué à partir du code d'ODP (statuts INIT, INST, PREP, EN_COURS, VALIDE, FACTURE, TITRE, CLOS).</bpmn:documentation>
+    <bpmn:laneSet id="LaneSet_1">
+        <bpmn:lane id="Lane_0" name="Instructeur / Saisie">
+          <bpmn:flowNodeRef>S</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>T_Create</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>T_Lines</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>T_Inst</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>T_Prep</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>T_Valid</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>App_VibeODP</bpmn:flowNodeRef>
+        </bpmn:lane>
+        <bpmn:lane id="Lane_1" name="ODP Manager (système)">
+          <bpmn:flowNodeRef>T_Calc</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>T_Recalc</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>T_Bill</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>T_Sync</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>G_Pay</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>T_Titre2</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>E_Wait</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>T_Clos</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>E_End</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>S2</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>T_Alert</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>E_Alert</bpmn:flowNodeRef>
+        </bpmn:lane>
+        <bpmn:lane id="Lane_2" name="Contrôleur terrain (mobile)">
+          <bpmn:flowNodeRef>T_Field</bpmn:flowNodeRef>
+        </bpmn:lane>
+        <bpmn:lane id="Lane_3" name="Signataire">
+          <bpmn:flowNodeRef>T_Sign</bpmn:flowNodeRef>
+        </bpmn:lane>
+        <bpmn:lane id="Lane_4" name="Finances (SEDIT)">
+          <bpmn:flowNodeRef>T_Titre</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>App_Sedit</bpmn:flowNodeRef>
+        </bpmn:lane>
+    </bpmn:laneSet>
+      <bpmn:startEvent id="S" name="Occupation à instruire">
+        <bpmn:documentation>Un chantier, un tournage, un commerce ou une enseigne (TLPE) à enregistrer. Les dossiers de tournage peuvent venir d'une demande déposée sur le site public.</bpmn:documentation>
+        <bpmn:outgoing>F01</bpmn:outgoing>
+      </bpmn:startEvent>
+      <bpmn:userTask id="T_Create" name="Créer le dossier">
+        <bpmn:documentation>Entrées : type (CHANTIER, TOURNAGE, COMMERCE, TLPE), tiers redevable (obligatoire), nom, adresse (géocodée par la BAN, non bloquant), dates de début et de fin (chantier, tournage) ou année de taxation (commerce, TLPE), description, date d'alerte, « agissant pour » (sous-traitant, facturable ou non), cases « sans autorisation » (majoration de 100 % à la facturation), « exonéré » (exclu de la facturation) et « court-métrage » (tournage). Statut initial En attente, affiché Initialisation (INIT). Un commerce peut être mixte (TLPE et droits de voirie).</bpmn:documentation>
+        <bpmn:incoming>F01</bpmn:incoming>
+        <bpmn:outgoing>F02</bpmn:outgoing>
+        <bpmn:dataOutputAssociation id="DA_App_VibeODP"><bpmn:targetRef>App_VibeODP</bpmn:targetRef></bpmn:dataOutputAssociation>
+      </bpmn:userTask>
+      <bpmn:userTask id="T_Lines" name="Ajouter les lignes et les dispositifs">
+        <bpmn:documentation>Chaque ligne = un article du module Tarifs de l'année (numéro, désignation, montant, unité), des quantités (surface, longueur, durée) et des dates prévues. Les dispositifs (nom, statut) sont les éléments posés sur le domaine. Les lignes supprimées le sont logiquement (suppression douce) pour garder l'historique comptable. Photos au niveau du dossier et de la ligne.</bpmn:documentation>
+        <bpmn:incoming>F02</bpmn:incoming>
+        <bpmn:outgoing>F03</bpmn:outgoing>
+      </bpmn:userTask>
+      <bpmn:serviceTask id="T_Calc" name="Recalculer le montant du dossier">
+        <bpmn:documentation>À chaque changement (updateOccupationTotal) : chantier = tarif × quantité × durée en tranches (mois de 30 jours, tranche de 10 jours), barème Centre ou Périphérie ; dates constatées prioritaires sur les dates prévues ; tournage = tarifs journaliers, minoration de 50 % pour un court-métrage ; commerce = tarif × quantité 1 × quantité 2 (durée), avec dégrèvements possibles ; TLPE = tarif au m² × surface × prorata en MOIS PLEINS, enseignes exonérées si la surface cumulée est inférieure au seuil (12 m² par défaut) sauf enseignes scellées au sol, re-tarification par paliers. Ces règles sont paramétrables dans la page Règles métier.</bpmn:documentation>
+        <bpmn:incoming>F03</bpmn:incoming>
+        <bpmn:outgoing>F04</bpmn:outgoing>
+      </bpmn:serviceTask>
+      <bpmn:userTask id="T_Inst" name="Instruire le dossier (Instruction)">
+        <bpmn:documentation>Statut INST, date d'instruction horodatée (dateINST). Les dossiers facturés sont verrouillés en modification pour préserver les montants transmis aux finances.</bpmn:documentation>
+        <bpmn:incoming>F04</bpmn:incoming>
+        <bpmn:outgoing>F05</bpmn:outgoing>
+      </bpmn:userTask>
+      <bpmn:userTask id="T_Prep" name="Préparer l'autorisation (AOT)">
+        <bpmn:documentation>Statut PREP : choix du gabarit et des arrêtés, génération du document, puis demande de signature (voir le processus « Autorisation d'occupation et signature électronique »). Une AOT de plus de 3 ans, ou qui les atteint dans les 30 jours, déclenche une alerte d'expiration.</bpmn:documentation>
+        <bpmn:incoming>F05</bpmn:incoming>
+        <bpmn:outgoing>F06</bpmn:outgoing>
+      </bpmn:userTask>
+      <bpmn:userTask id="T_Sign" name="Signer l'autorisation">
+        <bpmn:documentation>Le signataire accepte via un lien public. L'acceptation avance automatiquement le statut d'une étape (INIT vers INST, INST vers PREP, PREP vers EN_COURS, EN_COURS vers VALIDE) et renseigne aotSigned.</bpmn:documentation>
+        <bpmn:incoming>F06</bpmn:incoming>
+        <bpmn:outgoing>F07</bpmn:outgoing>
+      </bpmn:userTask>
+      <bpmn:userTask id="T_Field" name="Contrôler sur le terrain (mobile)">
+        <bpmn:documentation>Application mobile (Capacitor), accessible en réseau maîtrisé (détection de VPN) : carte avec regroupement, dossiers triés par distance au GPS, saisie des DATES CONSTATÉES de début et de fin sur les lignes, photos. Chaque action est journalisée (agent, appareil, IP, écran). Droit CONTROLE_TERRAIN.</bpmn:documentation>
+        <bpmn:incoming>F07</bpmn:incoming>
+        <bpmn:outgoing>F08</bpmn:outgoing>
+      </bpmn:userTask>
+      <bpmn:serviceTask id="T_Recalc" name="Recalculer avec les dates constatées">
+        <bpmn:documentation>Les dates constatées priment sur les dates prévues pour la quantité de durée (calculateQ2) ; le montant du dossier est recalculé.</bpmn:documentation>
+        <bpmn:incoming>F08</bpmn:incoming>
+        <bpmn:outgoing>F09</bpmn:outgoing>
+      </bpmn:serviceTask>
+      <bpmn:userTask id="T_Valid" name="Valider le dossier">
+        <bpmn:documentation>Statut VALIDE (ou VERIFIE pour un commerce : seuls les commerces vérifiés ou validés sont facturés). Date de validation horodatée (dateVALIDE).</bpmn:documentation>
+        <bpmn:incoming>F09</bpmn:incoming>
+        <bpmn:outgoing>F10</bpmn:outgoing>
+      </bpmn:userTask>
+      <bpmn:serviceTask id="T_Bill" name="Facturer en lot (Facturé)">
+        <bpmn:documentation>Voir le processus « Facturation en lot, FILIEN et titrage SEDIT ». Le passage au statut FACTURE n'est fait QUE par le service de facturation, après succès complet du lot ; le dossier reçoit son numéro de facture et son PDF, et il est verrouillé.</bpmn:documentation>
+        <bpmn:incoming>F10</bpmn:incoming>
+        <bpmn:outgoing>F11</bpmn:outgoing>
+      </bpmn:serviceTask>
+      <bpmn:userTask id="T_Titre" name="Émettre le titre de recette dans SEDIT">
+        <bpmn:documentation>Les finances intègrent le fichier FILIEN dans SEDIT et émettent le titre.</bpmn:documentation>
+        <bpmn:incoming>F11</bpmn:incoming>
+        <bpmn:outgoing>F12</bpmn:outgoing>
+        <bpmn:dataOutputAssociation id="DA_App_Sedit"><bpmn:targetRef>App_Sedit</bpmn:targetRef></bpmn:dataOutputAssociation>
+      </bpmn:userTask>
+      <bpmn:serviceTask id="T_Sync" name="Lire l'état du titre dans SEDIT">
+        <bpmn:documentation>Lecture seule via l'API centrale APM (/oracle/query, type FINANCES) avec cache de 5 minutes : le titre est rapproché de la facture par code tiers SEDIT et montant exact.</bpmn:documentation>
+        <bpmn:incoming>F12</bpmn:incoming>
+        <bpmn:incoming>F17</bpmn:incoming>
+        <bpmn:outgoing>F13</bpmn:outgoing>
+      </bpmn:serviceTask>
+      <bpmn:exclusiveGateway id="G_Pay" name="Titre payé ?">
+        <bpmn:documentation>Seuls les rapprochements « exacts » modifient un statut ; un titre ambigu, introuvable, rejeté, suspendu ou annulé en totalité ne change rien. Le statut n'avance jamais en sens inverse.</bpmn:documentation>
+        <bpmn:incoming>F13</bpmn:incoming>
+        <bpmn:outgoing>F14</bpmn:outgoing>
+        <bpmn:outgoing>F15</bpmn:outgoing>
+      </bpmn:exclusiveGateway>
+      <bpmn:serviceTask id="T_Titre2" name="Passer le dossier à TITRE (titre émis)">
+        <bpmn:documentation>Statut TITRE depuis FACTURE uniquement (règle « Dossier titré quand le titre est émis »), date du titre, note « Passage de statut ».</bpmn:documentation>
+        <bpmn:incoming>F15</bpmn:incoming>
+        <bpmn:outgoing>F16</bpmn:outgoing>
+      </bpmn:serviceTask>
+      <bpmn:intermediateCatchEvent id="E_Wait" name="Nouvelle lecture de SEDIT">
+        <bpmn:documentation>À la demande ou à l'ouverture de la liste des factures.</bpmn:documentation>
+        <bpmn:incoming>F16</bpmn:incoming>
+        <bpmn:outgoing>F17</bpmn:outgoing>
+        <bpmn:timerEventDefinition id="TED_E_Wait" />
+      </bpmn:intermediateCatchEvent>
+      <bpmn:serviceTask id="T_Clos" name="Clôturer le dossier (CLOS)">
+        <bpmn:documentation>Titre payé : statut CLOS, date de clôture = date de paiement (règle « Dossier clos quand le titre est payé »), note automatique.</bpmn:documentation>
+        <bpmn:incoming>F14</bpmn:incoming>
+        <bpmn:outgoing>F18</bpmn:outgoing>
+      </bpmn:serviceTask>
+      <bpmn:endEvent id="E_End" name="Dossier clos">
+        <bpmn:incoming>F18</bpmn:incoming>
+      </bpmn:endEvent>
+      <bpmn:startEvent id="S2" name="Date d'alerte atteinte">
+        <bpmn:documentation>Chantiers et tournages non clos, non archivés, dont la date d'alerte est aujourd'hui.</bpmn:documentation>
+        <bpmn:outgoing>F19</bpmn:outgoing>
+      </bpmn:startEvent>
+      <bpmn:serviceTask id="T_Alert" name="Envoyer le mail d'alerte aux instructeurs">
+        <bpmn:documentation>Planificateur interne : contrôle toutes les 30 minutes, envoi à partir de 7 h (heure de Paris), uniquement en production, si la règle « Mail quotidien date d'alerte » est active. Un seul mail récapitulatif aux utilisateurs de rôle INSTRUCTEUR ; une note sur chaque dossier sert de trace et d'anti-doublon ; en cas d'échec d'envoi, nouvel essai au contrôle suivant. Aucun instructeur avec e-mail : alerte non envoyée.</bpmn:documentation>
+        <bpmn:incoming>F19</bpmn:incoming>
+        <bpmn:outgoing>F20</bpmn:outgoing>
+      </bpmn:serviceTask>
+      <bpmn:endEvent id="E_Alert" name="Instructeurs prévenus">
+        <bpmn:incoming>F20</bpmn:incoming>
+      </bpmn:endEvent>
+      <bpmn:sequenceFlow id="F01" sourceRef="S" targetRef="T_Create" />
+      <bpmn:sequenceFlow id="F02" sourceRef="T_Create" targetRef="T_Lines" />
+      <bpmn:sequenceFlow id="F03" sourceRef="T_Lines" targetRef="T_Calc" />
+      <bpmn:sequenceFlow id="F04" sourceRef="T_Calc" targetRef="T_Inst" />
+      <bpmn:sequenceFlow id="F05" sourceRef="T_Inst" targetRef="T_Prep" />
+      <bpmn:sequenceFlow id="F06" sourceRef="T_Prep" targetRef="T_Sign" />
+      <bpmn:sequenceFlow id="F07" sourceRef="T_Sign" targetRef="T_Field" />
+      <bpmn:sequenceFlow id="F08" sourceRef="T_Field" targetRef="T_Recalc" />
+      <bpmn:sequenceFlow id="F09" sourceRef="T_Recalc" targetRef="T_Valid" />
+      <bpmn:sequenceFlow id="F10" sourceRef="T_Valid" targetRef="T_Bill" />
+      <bpmn:sequenceFlow id="F11" sourceRef="T_Bill" targetRef="T_Titre" />
+      <bpmn:sequenceFlow id="F12" sourceRef="T_Titre" targetRef="T_Sync" />
+      <bpmn:sequenceFlow id="F13" sourceRef="T_Sync" targetRef="G_Pay" />
+      <bpmn:sequenceFlow id="F14" name="payé" sourceRef="G_Pay" targetRef="T_Clos" />
+      <bpmn:sequenceFlow id="F15" name="émis, non payé" sourceRef="G_Pay" targetRef="T_Titre2" />
+      <bpmn:sequenceFlow id="F16" sourceRef="T_Titre2" targetRef="E_Wait" />
+      <bpmn:sequenceFlow id="F17" sourceRef="E_Wait" targetRef="T_Sync" />
+      <bpmn:sequenceFlow id="F18" sourceRef="T_Clos" targetRef="E_End" />
+      <bpmn:sequenceFlow id="F19" sourceRef="S2" targetRef="T_Alert" />
+      <bpmn:sequenceFlow id="F20" sourceRef="T_Alert" targetRef="E_Alert" />
+      <bpmn:dataStoreReference id="App_VibeODP" name="VibeODP" dsi:applicationId="215" />
+      <bpmn:dataStoreReference id="App_Sedit" name="Sédit Finances" dsi:applicationId="84" />
+  </bpmn:process>
+  <bpmndi:BPMNDiagram id="BPMNDiagram_1">
+    <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="Collaboration_1">
+      <bpmndi:BPMNShape id="Participant_1_di" bpmnElement="Participant_1" isHorizontal="true"><dc:Bounds x="160" y="80" width="3140" height="1185" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_0_di" bpmnElement="Lane_0" isHorizontal="true"><dc:Bounds x="190" y="80" width="3110" height="215" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_1_di" bpmnElement="Lane_1" isHorizontal="true"><dc:Bounds x="190" y="295" width="3110" height="325" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_2_di" bpmnElement="Lane_2" isHorizontal="true"><dc:Bounds x="190" y="620" width="3110" height="215" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_3_di" bpmnElement="Lane_3" isHorizontal="true"><dc:Bounds x="190" y="835" width="3110" height="215" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_4_di" bpmnElement="Lane_4" isHorizontal="true"><dc:Bounds x="190" y="1050" width="3110" height="215" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S_di" bpmnElement="S"><dc:Bounds x="292" y="137" width="36" height="36" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Create_di" bpmnElement="T_Create"><dc:Bounds x="430" y="120" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Lines_di" bpmnElement="T_Lines"><dc:Bounds x="620" y="120" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Calc_di" bpmnElement="T_Calc"><dc:Bounds x="810" y="335" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Inst_di" bpmnElement="T_Inst"><dc:Bounds x="1000" y="120" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Prep_di" bpmnElement="T_Prep"><dc:Bounds x="1190" y="120" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Sign_di" bpmnElement="T_Sign"><dc:Bounds x="1380" y="875" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Field_di" bpmnElement="T_Field"><dc:Bounds x="1570" y="660" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Recalc_di" bpmnElement="T_Recalc"><dc:Bounds x="1760" y="335" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Valid_di" bpmnElement="T_Valid"><dc:Bounds x="1950" y="120" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Bill_di" bpmnElement="T_Bill"><dc:Bounds x="2140" y="335" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Titre_di" bpmnElement="T_Titre"><dc:Bounds x="2330" y="1090" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Sync_di" bpmnElement="T_Sync"><dc:Bounds x="2520" y="335" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="G_Pay_di" bpmnElement="G_Pay" isMarkerVisible="true"><dc:Bounds x="2755" y="345" width="50" height="50" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Titre2_di" bpmnElement="T_Titre2"><dc:Bounds x="2900" y="445" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="E_Wait_di" bpmnElement="E_Wait"><dc:Bounds x="3142" y="462" width="36" height="36" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Clos_di" bpmnElement="T_Clos"><dc:Bounds x="2900" y="335" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="E_End_di" bpmnElement="E_End"><dc:Bounds x="3142" y="352" width="36" height="36" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S2_di" bpmnElement="S2"><dc:Bounds x="292" y="462" width="36" height="36" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Alert_di" bpmnElement="T_Alert"><dc:Bounds x="430" y="445" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="E_Alert_di" bpmnElement="E_Alert"><dc:Bounds x="672" y="462" width="36" height="36" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="App_VibeODP_di" bpmnElement="App_VibeODP"><dc:Bounds x="440" y="200" width="120" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="App_Sedit_di" bpmnElement="App_Sedit"><dc:Bounds x="2340" y="1170" width="120" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="F01_di" bpmnElement="F01"><di:waypoint x="328" y="155" /><di:waypoint x="430" y="155" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F02_di" bpmnElement="F02"><di:waypoint x="570" y="155" /><di:waypoint x="620" y="155" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F03_di" bpmnElement="F03"><di:waypoint x="760" y="155" /><di:waypoint x="785" y="155" /><di:waypoint x="785" y="370" /><di:waypoint x="810" y="370" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F04_di" bpmnElement="F04"><di:waypoint x="950" y="370" /><di:waypoint x="975" y="370" /><di:waypoint x="975" y="155" /><di:waypoint x="1000" y="155" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F05_di" bpmnElement="F05"><di:waypoint x="1140" y="155" /><di:waypoint x="1190" y="155" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F06_di" bpmnElement="F06"><di:waypoint x="1330" y="155" /><di:waypoint x="1355" y="155" /><di:waypoint x="1355" y="910" /><di:waypoint x="1380" y="910" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F07_di" bpmnElement="F07"><di:waypoint x="1520" y="910" /><di:waypoint x="1545" y="910" /><di:waypoint x="1545" y="695" /><di:waypoint x="1570" y="695" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F08_di" bpmnElement="F08"><di:waypoint x="1710" y="695" /><di:waypoint x="1735" y="695" /><di:waypoint x="1735" y="370" /><di:waypoint x="1760" y="370" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F09_di" bpmnElement="F09"><di:waypoint x="1900" y="370" /><di:waypoint x="1925" y="370" /><di:waypoint x="1925" y="155" /><di:waypoint x="1950" y="155" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F10_di" bpmnElement="F10"><di:waypoint x="2090" y="155" /><di:waypoint x="2115" y="155" /><di:waypoint x="2115" y="370" /><di:waypoint x="2140" y="370" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F11_di" bpmnElement="F11"><di:waypoint x="2280" y="370" /><di:waypoint x="2305" y="370" /><di:waypoint x="2305" y="1125" /><di:waypoint x="2330" y="1125" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F12_di" bpmnElement="F12"><di:waypoint x="2470" y="1125" /><di:waypoint x="2495" y="1125" /><di:waypoint x="2495" y="370" /><di:waypoint x="2520" y="370" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F13_di" bpmnElement="F13"><di:waypoint x="2660" y="370" /><di:waypoint x="2755" y="370" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F14_di" bpmnElement="F14"><di:waypoint x="2805" y="370" /><di:waypoint x="2900" y="370" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F15_di" bpmnElement="F15"><di:waypoint x="2805" y="370" /><di:waypoint x="2852.5" y="370" /><di:waypoint x="2852.5" y="480" /><di:waypoint x="2900" y="480" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F16_di" bpmnElement="F16"><di:waypoint x="3040" y="480" /><di:waypoint x="3142" y="480" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F17_di" bpmnElement="F17"><di:waypoint x="3160" y="498" /><di:waypoint x="3160" y="528" /><di:waypoint x="2590" y="528" /><di:waypoint x="2590" y="405" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F18_di" bpmnElement="F18"><di:waypoint x="3040" y="370" /><di:waypoint x="3142" y="370" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F19_di" bpmnElement="F19"><di:waypoint x="328" y="480" /><di:waypoint x="430" y="480" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F20_di" bpmnElement="F20"><di:waypoint x="570" y="480" /><di:waypoint x="672" y="480" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="DA_App_VibeODP_di" bpmnElement="DA_App_VibeODP"><di:waypoint x="500" y="190" /><di:waypoint x="500" y="200" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="DA_App_Sedit_di" bpmnElement="DA_App_Sedit"><di:waypoint x="2400" y="1160" /><di:waypoint x="2400" y="1170" /></bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>

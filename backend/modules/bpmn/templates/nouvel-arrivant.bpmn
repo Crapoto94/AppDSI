@@ -1,0 +1,249 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" xmlns:dsi="http://dsi.ivry/schema/bpmn" id="Definitions_NouvelArrivant" targetNamespace="http://bpmn.io/schema/bpmn">
+  <bpmn:collaboration id="Collaboration_1">
+    <bpmn:participant id="Participant_1" name="Accueil informatique d'un nouvel arrivant" processRef="Process_1" />
+  </bpmn:collaboration>
+  <bpmn:process id="Process_1" isExecutable="false">
+    <bpmn:documentation id="Doc_Process">Processus d'accueil informatique d'un nouvel arrivant, de la demande de l'encadrant à la résolution du ticket : formulaire « Arrivée d'agent » (MagApp / Tickets), onboarding Studio RH, checklist de comptes logiciels, tâches DSI Hub, matériel et rapprochement AD. Reconstitué à partir du code d'AppDSI et de son intégration avec Studio RH.</bpmn:documentation>
+    <bpmn:laneSet id="LaneSet_1">
+        <bpmn:lane id="Lane_Encadrant" name="Encadrant (N+1) / Demandeur">
+          <bpmn:flowNodeRef>Start</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>T_Form</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>T_Fill</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>E_End</bpmn:flowNodeRef>
+        </bpmn:lane>
+        <bpmn:lane id="Lane_AppDSI" name="AppDSI (MagApp, Tickets, Tâches, RH)">
+          <bpmn:flowNodeRef>T_Ticket</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>T_Trig</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>G_Ok</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>T_Wait</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>T_Prog</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>G_Split</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>T_DsiTasks</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>T_Ack</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>T_AdSync</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>G_Join</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>App_DSIHub</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>App_AD2</bpmn:flowNodeRef>
+        </bpmn:lane>
+        <bpmn:lane id="Lane_Studio" name="Studio RH">
+          <bpmn:flowNodeRef>T_Mail</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>T_Gen</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>T_Auto</bpmn:flowNodeRef>
+        </bpmn:lane>
+        <bpmn:lane id="Lane_Hotline" name="Hot-line DSI">
+          <bpmn:flowNodeRef>T_Fail</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>E_Manual</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>T_Mat</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>T_Check</bpmn:flowNodeRef>
+        </bpmn:lane>
+        <bpmn:lane id="Lane_Techs" name="Techniciens (création de comptes)">
+          <bpmn:flowNodeRef>T_Accounts</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>App_AD</bpmn:flowNodeRef>
+          <bpmn:flowNodeRef>App_Outlook</bpmn:flowNodeRef>
+        </bpmn:lane>
+    </bpmn:laneSet>
+      <bpmn:startEvent id="Start" name="Arrivée d'un agent à préparer">
+        <bpmn:documentation>Déclencheur : un encadrant (N+1) ou un demandeur sait qu'un agent arrive (ou vient d'arriver) et doit être équipé.</bpmn:documentation>
+        <bpmn:outgoing>F01</bpmn:outgoing>
+      </bpmn:startEvent>
+      <bpmn:userTask id="T_Form" name="Remplir la demande « Arrivée d'agent »">
+        <bpmn:documentation>Formulaire de demande paramétrable (portail MagApp / Tickets). Champs à clés fixes : deja_arrive (l'agent est-il déjà arrivé ?), agent_arrive ou futurs_agent (sélecteur alimenté par Studio RH : /agents/search, /onboarding?mode=futurs_actionable) et manager (N+1, obligatoire). Un nouvel agent absent de Studio RH peut être saisi par nom/prénom.</bpmn:documentation>
+        <bpmn:incoming>F01</bpmn:incoming>
+        <bpmn:outgoing>F02</bpmn:outgoing>
+      </bpmn:userTask>
+      <bpmn:serviceTask id="T_Ticket" name="Créer le ticket « Arrivée d'agent »">
+        <bpmn:documentation>AppDSI crée le ticket (hub_tickets.tickets, identifiant glpi_id) à partir du formulaire. L'email de confirmation au demandeur est différé jusqu'à la fin du déclenchement de l'onboarding (skipNotification).</bpmn:documentation>
+        <bpmn:incoming>F02</bpmn:incoming>
+        <bpmn:outgoing>F03</bpmn:outgoing>
+        <bpmn:dataOutputAssociation id="DA_App_DSIHub"><bpmn:targetRef>App_DSIHub</bpmn:targetRef></bpmn:dataOutputAssociation>
+      </bpmn:serviceTask>
+      <bpmn:serviceTask id="T_Trig" name="Créer l'onboarding dans Studio RH">
+        <bpmn:documentation>POST {studio}/onboarding avec { manager_id, agent_id | nom_temp + prenom_temp, date_arrivee_prevue?, dsihub_ticket_id }. Clé API dédiée « rh_studio_onboarding » (lecture/écriture), distincte de la clé de présence (lecture seule). Code : triggerOnboardingRhStudio (request-forms.controller.js).</bpmn:documentation>
+        <bpmn:incoming>F03</bpmn:incoming>
+        <bpmn:outgoing>F04</bpmn:outgoing>
+      </bpmn:serviceTask>
+      <bpmn:exclusiveGateway id="G_Ok" name="Onboarding créé ?">
+        <bpmn:documentation>Le déclenchement est « best-effort » : un échec n'annule jamais le ticket déjà créé.</bpmn:documentation>
+        <bpmn:incoming>F04</bpmn:incoming>
+        <bpmn:outgoing>F05</bpmn:outgoing>
+        <bpmn:outgoing>F06</bpmn:outgoing>
+      </bpmn:exclusiveGateway>
+      <bpmn:userTask id="T_Fail" name="Traiter à la main (échec journalisé dans le ticket)">
+        <bpmn:documentation>Action « onboarding_rhstudio_failed » écrite dans l'historique du ticket avec le motif. La hot-line traite la demande hors Studio RH.</bpmn:documentation>
+        <bpmn:incoming>F06</bpmn:incoming>
+        <bpmn:outgoing>F07</bpmn:outgoing>
+      </bpmn:userTask>
+      <bpmn:endEvent id="E_Manual" name="Traitement manuel">
+        <bpmn:incoming>F07</bpmn:incoming>
+      </bpmn:endEvent>
+      <bpmn:serviceTask id="T_Wait" name="Ticket « En attente » + lien du formulaire">
+        <bpmn:documentation>Le ticket passe au statut 4 (En attente) ; une notice « Action requise » avec le lien du formulaire manager (token_formulaire) est ajoutée au contenu du ticket. Puis envoi de l'email de confirmation au demandeur.</bpmn:documentation>
+        <bpmn:incoming>F05</bpmn:incoming>
+        <bpmn:outgoing>F08</bpmn:outgoing>
+      </bpmn:serviceTask>
+      <bpmn:sendTask id="T_Mail" name="Envoyer le formulaire d’arrivée au N+1">
+        <bpmn:documentation>Studio RH envoie par email au manager (N+1) le lien du formulaire d'arrivée de l'agent (token unique).</bpmn:documentation>
+        <bpmn:incoming>F08</bpmn:incoming>
+        <bpmn:outgoing>F09</bpmn:outgoing>
+      </bpmn:sendTask>
+      <bpmn:userTask id="T_Fill" name="Compléter le formulaire d'arrivée">
+        <bpmn:documentation>Le N+1 renseigne les besoins de l'agent dans le formulaire public de Studio RH (lien tokenisé). La demande ne sera traitée qu'une fois ce formulaire rempli.</bpmn:documentation>
+        <bpmn:incoming>F09</bpmn:incoming>
+        <bpmn:outgoing>F10</bpmn:outgoing>
+      </bpmn:userTask>
+      <bpmn:serviceTask id="T_Gen" name="Générer la checklist d'onboarding">
+        <bpmn:documentation>L'onboarding passe à « en_cours_realisation » et Studio RH génère les OnboardingTask du workflow : tâches de type « compte » (création de comptes logiciels) et « autres », chacune soit « email autonome » (gérée dans Studio RH) soit « Tâche DSI Hub » (miroir poussé dans AppDSI).</bpmn:documentation>
+        <bpmn:incoming>F10</bpmn:incoming>
+        <bpmn:outgoing>F11</bpmn:outgoing>
+      </bpmn:serviceTask>
+      <bpmn:serviceTask id="T_Prog" name="Ticket « En cours » : formulaire et checklist en direct">
+        <bpmn:documentation>PATCH /api/tasks/external/rh-studio/onboarding-started : le ticket passe de « En attente » (4) à « En cours » (3). PUT …/onboarding-sync : les réponses de l'encadrant sont ajoutées à la description du ticket et la checklist est stockée (hub_tickets.ticket_onboarding) puis affichée en direct dans le ticket (TicketOnboardingPanel, rafraîchie toutes les 20 s).</bpmn:documentation>
+        <bpmn:incoming>F11</bpmn:incoming>
+        <bpmn:outgoing>F12</bpmn:outgoing>
+      </bpmn:serviceTask>
+      <bpmn:parallelGateway id="G_Split">
+        <bpmn:incoming>F12</bpmn:incoming>
+        <bpmn:outgoing>F13</bpmn:outgoing>
+        <bpmn:outgoing>F14</bpmn:outgoing>
+        <bpmn:outgoing>F15</bpmn:outgoing>
+      </bpmn:parallelGateway>
+      <bpmn:serviceTask id="T_Auto" name="Traiter les tâches « email autonome »">
+        <bpmn:documentation>Tâches du workflow gérées entièrement côté Studio RH (emails automatiques aux services concernés), sans tâche DSI Hub.</bpmn:documentation>
+        <bpmn:incoming>F13</bpmn:incoming>
+        <bpmn:outgoing>F20</bpmn:outgoing>
+      </bpmn:serviceTask>
+      <bpmn:serviceTask id="T_DsiTasks" name="Créer les tâches DSI Hub du ticket">
+        <bpmn:documentation>POST /api/tasks/external/rh-studio { ticket_id, group_id, description, rh_studio_task_id, echeance } : une tâche (context_source = ticket) par membre du groupe de techniciens choisi dans le workflow, avec notification d'affectation. rh_studio_task_id sert à l'acquittement automatique.</bpmn:documentation>
+        <bpmn:incoming>F14</bpmn:incoming>
+        <bpmn:outgoing>F16</bpmn:outgoing>
+      </bpmn:serviceTask>
+      <bpmn:userTask id="T_Accounts" name="Créer les comptes (AD, messagerie, logiciels)">
+        <bpmn:documentation>Les techniciens du groupe réalisent la tâche : compte Active Directory et adresse email, puis comptes dans les logiciels métiers demandés (une tâche par logiciel dans la checklist). Ils passent la tâche à « terminé ».</bpmn:documentation>
+        <bpmn:incoming>F16</bpmn:incoming>
+        <bpmn:outgoing>F17</bpmn:outgoing>
+        <bpmn:dataOutputAssociation id="DA_App_AD"><bpmn:targetRef>App_AD</bpmn:targetRef></bpmn:dataOutputAssociation>
+        <bpmn:dataOutputAssociation id="DA_App_Outlook"><bpmn:targetRef>App_Outlook</bpmn:targetRef></bpmn:dataOutputAssociation>
+      </bpmn:userTask>
+      <bpmn:serviceTask id="T_Ack" name="Acquitter la tâche dans Studio RH">
+        <bpmn:documentation>Passage de la tâche à « terminé » : AppDSI appelle PATCH {studio}/onboarding/tasks/{id} { done: true } (updateTaskStatus). Sens inverse : PATCH /api/tasks/external/rh-studio/task-completed répercute un acquittement fait dans Studio RH sur la tâche miroir (sans rappel, pas de boucle).</bpmn:documentation>
+        <bpmn:incoming>F17</bpmn:incoming>
+        <bpmn:outgoing>F18</bpmn:outgoing>
+      </bpmn:serviceTask>
+      <bpmn:serviceTask id="T_AdSync" name="Lier le compte AD à l'agent (matricule)">
+        <bpmn:documentation>Module RH : la synchronisation Active Directory/Azure rapproche le nouveau compte de l'agent par matricule (employeeID) puis nom/prénom ; la présence de l'agent s'affiche via AgentPresenceBadge (Studio RH).</bpmn:documentation>
+        <bpmn:incoming>F18</bpmn:incoming>
+        <bpmn:outgoing>F19</bpmn:outgoing>
+        <bpmn:dataOutputAssociation id="DA_App_AD2"><bpmn:targetRef>App_AD2</bpmn:targetRef></bpmn:dataOutputAssociation>
+      </bpmn:serviceTask>
+      <bpmn:manualTask id="T_Mat" name="Préparer et remettre le matériel">
+        <bpmn:documentation>Sortie de stock avec bon de livraison signé (module Stocks, rattachée au ticket), affectation dans le Parc informatique (étiquetage, remontée AD) et attribution d'une ligne mobile (Télécom) : PC portable, smartphone, badge.</bpmn:documentation>
+        <bpmn:incoming>F15</bpmn:incoming>
+        <bpmn:outgoing>F21</bpmn:outgoing>
+      </bpmn:manualTask>
+      <bpmn:parallelGateway id="G_Join">
+        <bpmn:incoming>F19</bpmn:incoming>
+        <bpmn:incoming>F20</bpmn:incoming>
+        <bpmn:incoming>F21</bpmn:incoming>
+        <bpmn:outgoing>F22</bpmn:outgoing>
+      </bpmn:parallelGateway>
+      <bpmn:userTask id="T_Check" name="Vérifier la checklist et résoudre le ticket">
+        <bpmn:documentation>La hot-line contrôle que toutes les tâches de la checklist sont cochées (indicateur n/total du ticket) puis résout le ticket « Arrivée d'agent ».</bpmn:documentation>
+        <bpmn:incoming>F22</bpmn:incoming>
+        <bpmn:outgoing>F23</bpmn:outgoing>
+      </bpmn:userTask>
+      <bpmn:endEvent id="E_End" name="Agent opérationnel">
+        <bpmn:incoming>F23</bpmn:incoming>
+      </bpmn:endEvent>
+      <bpmn:sequenceFlow id="F01" sourceRef="Start" targetRef="T_Form" />
+      <bpmn:sequenceFlow id="F02" sourceRef="T_Form" targetRef="T_Ticket" />
+      <bpmn:sequenceFlow id="F03" sourceRef="T_Ticket" targetRef="T_Trig" />
+      <bpmn:sequenceFlow id="F04" sourceRef="T_Trig" targetRef="G_Ok" />
+      <bpmn:sequenceFlow id="F05" name="oui" sourceRef="G_Ok" targetRef="T_Wait" />
+      <bpmn:sequenceFlow id="F06" name="non" sourceRef="G_Ok" targetRef="T_Fail" />
+      <bpmn:sequenceFlow id="F07" sourceRef="T_Fail" targetRef="E_Manual" />
+      <bpmn:sequenceFlow id="F08" sourceRef="T_Wait" targetRef="T_Mail" />
+      <bpmn:sequenceFlow id="F09" sourceRef="T_Mail" targetRef="T_Fill" />
+      <bpmn:sequenceFlow id="F10" sourceRef="T_Fill" targetRef="T_Gen" />
+      <bpmn:sequenceFlow id="F11" sourceRef="T_Gen" targetRef="T_Prog" />
+      <bpmn:sequenceFlow id="F12" sourceRef="T_Prog" targetRef="G_Split" />
+      <bpmn:sequenceFlow id="F13" sourceRef="G_Split" targetRef="T_Auto" />
+      <bpmn:sequenceFlow id="F14" sourceRef="G_Split" targetRef="T_DsiTasks" />
+      <bpmn:sequenceFlow id="F15" sourceRef="G_Split" targetRef="T_Mat" />
+      <bpmn:sequenceFlow id="F16" sourceRef="T_DsiTasks" targetRef="T_Accounts" />
+      <bpmn:sequenceFlow id="F17" sourceRef="T_Accounts" targetRef="T_Ack" />
+      <bpmn:sequenceFlow id="F18" sourceRef="T_Ack" targetRef="T_AdSync" />
+      <bpmn:sequenceFlow id="F19" sourceRef="T_AdSync" targetRef="G_Join" />
+      <bpmn:sequenceFlow id="F20" sourceRef="T_Auto" targetRef="G_Join" />
+      <bpmn:sequenceFlow id="F21" sourceRef="T_Mat" targetRef="G_Join" />
+      <bpmn:sequenceFlow id="F22" sourceRef="G_Join" targetRef="T_Check" />
+      <bpmn:sequenceFlow id="F23" sourceRef="T_Check" targetRef="E_End" />
+      <bpmn:dataStoreReference id="App_DSIHub" name="DSI Hub" dsi:applicationId="158" />
+      <bpmn:dataStoreReference id="App_AD" name="AD (Active Directory)" dsi:applicationId="160" />
+      <bpmn:dataStoreReference id="App_Outlook" name="Outlook 365 Web Access" dsi:applicationId="76" />
+      <bpmn:dataStoreReference id="App_AD2" name="AD (Active Directory)" dsi:applicationId="160" />
+  </bpmn:process>
+  <bpmndi:BPMNDiagram id="BPMNDiagram_1">
+    <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="Collaboration_1">
+      <bpmndi:BPMNShape id="Participant_1_di" bpmnElement="Participant_1" isHorizontal="true"><dc:Bounds x="160" y="80" width="3520" height="1075" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_Encadrant_di" bpmnElement="Lane_Encadrant" isHorizontal="true"><dc:Bounds x="190" y="80" width="3490" height="215" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_AppDSI_di" bpmnElement="Lane_AppDSI" isHorizontal="true"><dc:Bounds x="190" y="295" width="3490" height="215" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_Studio_di" bpmnElement="Lane_Studio" isHorizontal="true"><dc:Bounds x="190" y="510" width="3490" height="215" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_Hotline_di" bpmnElement="Lane_Hotline" isHorizontal="true"><dc:Bounds x="190" y="725" width="3490" height="215" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_Techs_di" bpmnElement="Lane_Techs" isHorizontal="true"><dc:Bounds x="190" y="940" width="3490" height="215" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Start_di" bpmnElement="Start"><dc:Bounds x="292" y="137" width="36" height="36" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Form_di" bpmnElement="T_Form"><dc:Bounds x="430" y="120" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Ticket_di" bpmnElement="T_Ticket"><dc:Bounds x="620" y="335" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Trig_di" bpmnElement="T_Trig"><dc:Bounds x="810" y="335" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="G_Ok_di" bpmnElement="G_Ok" isMarkerVisible="true"><dc:Bounds x="1045" y="345" width="50" height="50" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Fail_di" bpmnElement="T_Fail"><dc:Bounds x="1190" y="765" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="E_Manual_di" bpmnElement="E_Manual"><dc:Bounds x="1432" y="782" width="36" height="36" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Wait_di" bpmnElement="T_Wait"><dc:Bounds x="1190" y="335" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Mail_di" bpmnElement="T_Mail"><dc:Bounds x="1380" y="550" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Fill_di" bpmnElement="T_Fill"><dc:Bounds x="1570" y="120" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Gen_di" bpmnElement="T_Gen"><dc:Bounds x="1760" y="550" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Prog_di" bpmnElement="T_Prog"><dc:Bounds x="1950" y="335" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="G_Split_di" bpmnElement="G_Split"><dc:Bounds x="2185" y="345" width="50" height="50" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Auto_di" bpmnElement="T_Auto"><dc:Bounds x="2330" y="550" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_DsiTasks_di" bpmnElement="T_DsiTasks"><dc:Bounds x="2330" y="335" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Accounts_di" bpmnElement="T_Accounts"><dc:Bounds x="2520" y="980" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Ack_di" bpmnElement="T_Ack"><dc:Bounds x="2710" y="335" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_AdSync_di" bpmnElement="T_AdSync"><dc:Bounds x="2900" y="335" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Mat_di" bpmnElement="T_Mat"><dc:Bounds x="2330" y="765" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="G_Join_di" bpmnElement="G_Join"><dc:Bounds x="3135" y="345" width="50" height="50" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="T_Check_di" bpmnElement="T_Check"><dc:Bounds x="3280" y="765" width="140" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="E_End_di" bpmnElement="E_End"><dc:Bounds x="3522" y="137" width="36" height="36" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="App_DSIHub_di" bpmnElement="App_DSIHub"><dc:Bounds x="630" y="415" width="120" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="App_AD_di" bpmnElement="App_AD"><dc:Bounds x="2465" y="1060" width="120" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="App_Outlook_di" bpmnElement="App_Outlook"><dc:Bounds x="2595" y="1060" width="120" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="App_AD2_di" bpmnElement="App_AD2"><dc:Bounds x="2910" y="415" width="120" height="70" /></bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="F01_di" bpmnElement="F01"><di:waypoint x="328" y="155" /><di:waypoint x="430" y="155" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F02_di" bpmnElement="F02"><di:waypoint x="570" y="155" /><di:waypoint x="595" y="155" /><di:waypoint x="595" y="370" /><di:waypoint x="620" y="370" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F03_di" bpmnElement="F03"><di:waypoint x="760" y="370" /><di:waypoint x="810" y="370" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F04_di" bpmnElement="F04"><di:waypoint x="950" y="370" /><di:waypoint x="1045" y="370" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F05_di" bpmnElement="F05"><di:waypoint x="1095" y="370" /><di:waypoint x="1190" y="370" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F06_di" bpmnElement="F06"><di:waypoint x="1070" y="395" /><di:waypoint x="1070" y="800" /><di:waypoint x="1190" y="800" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F07_di" bpmnElement="F07"><di:waypoint x="1330" y="800" /><di:waypoint x="1432" y="800" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F08_di" bpmnElement="F08"><di:waypoint x="1330" y="370" /><di:waypoint x="1355" y="370" /><di:waypoint x="1355" y="585" /><di:waypoint x="1380" y="585" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F09_di" bpmnElement="F09"><di:waypoint x="1520" y="585" /><di:waypoint x="1545" y="585" /><di:waypoint x="1545" y="155" /><di:waypoint x="1570" y="155" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F10_di" bpmnElement="F10"><di:waypoint x="1710" y="155" /><di:waypoint x="1735" y="155" /><di:waypoint x="1735" y="585" /><di:waypoint x="1760" y="585" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F11_di" bpmnElement="F11"><di:waypoint x="1900" y="585" /><di:waypoint x="1925" y="585" /><di:waypoint x="1925" y="370" /><di:waypoint x="1950" y="370" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F12_di" bpmnElement="F12"><di:waypoint x="2090" y="370" /><di:waypoint x="2185" y="370" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F13_di" bpmnElement="F13"><di:waypoint x="2235" y="370" /><di:waypoint x="2282.5" y="370" /><di:waypoint x="2282.5" y="585" /><di:waypoint x="2330" y="585" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F14_di" bpmnElement="F14"><di:waypoint x="2235" y="370" /><di:waypoint x="2330" y="370" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F15_di" bpmnElement="F15"><di:waypoint x="2235" y="370" /><di:waypoint x="2282.5" y="370" /><di:waypoint x="2282.5" y="800" /><di:waypoint x="2330" y="800" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F16_di" bpmnElement="F16"><di:waypoint x="2470" y="370" /><di:waypoint x="2495" y="370" /><di:waypoint x="2495" y="1015" /><di:waypoint x="2520" y="1015" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F17_di" bpmnElement="F17"><di:waypoint x="2660" y="1015" /><di:waypoint x="2685" y="1015" /><di:waypoint x="2685" y="370" /><di:waypoint x="2710" y="370" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F18_di" bpmnElement="F18"><di:waypoint x="2850" y="370" /><di:waypoint x="2900" y="370" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F19_di" bpmnElement="F19"><di:waypoint x="3040" y="370" /><di:waypoint x="3135" y="370" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F20_di" bpmnElement="F20"><di:waypoint x="2470" y="585" /><di:waypoint x="3110" y="585" /><di:waypoint x="3110" y="370" /><di:waypoint x="3135" y="370" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F21_di" bpmnElement="F21"><di:waypoint x="2470" y="800" /><di:waypoint x="3110" y="800" /><di:waypoint x="3110" y="370" /><di:waypoint x="3135" y="370" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F22_di" bpmnElement="F22"><di:waypoint x="3185" y="370" /><di:waypoint x="3232.5" y="370" /><di:waypoint x="3232.5" y="800" /><di:waypoint x="3280" y="800" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F23_di" bpmnElement="F23"><di:waypoint x="3420" y="800" /><di:waypoint x="3471" y="800" /><di:waypoint x="3471" y="155" /><di:waypoint x="3522" y="155" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="DA_App_DSIHub_di" bpmnElement="DA_App_DSIHub"><di:waypoint x="690" y="405" /><di:waypoint x="690" y="415" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="DA_App_AD_di" bpmnElement="DA_App_AD"><di:waypoint x="2525" y="1050" /><di:waypoint x="2525" y="1060" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="DA_App_Outlook_di" bpmnElement="DA_App_Outlook"><di:waypoint x="2655" y="1050" /><di:waypoint x="2655" y="1060" /></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="DA_App_AD2_di" bpmnElement="DA_App_AD2"><di:waypoint x="2970" y="405" /><di:waypoint x="2970" y="415" /></bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>

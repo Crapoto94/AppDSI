@@ -19,6 +19,8 @@ import SiteSelectField from '../../components/SiteSelectField';
 import { formatDateTime, formatDate as formatDateParis } from '../../utils/datetime';
 import UserHoverCard from '../../components/tickets/UserHoverCard';
 import AgentPresenceBadge from '../../components/AgentPresenceBadge';
+import TicketOnboardingPanel from './TicketOnboardingPanel';
+import SoftwareSelect from '../../components/SoftwareSelect';
 import DsiPresenceBadge, { loadDsiAgentsStatus, findDsiAgentStatus, buildDsiTooltip } from '../../components/DsiPresenceBadge';
 import type { DsiAgentStatus } from '../../components/DsiPresenceBadge';
 
@@ -133,6 +135,7 @@ const VALID_TRANSITIONS: Record<number, { to: number; label: string; color: stri
   8: [{ to: 2, label: 'Réouvrir', color: '#f59e0b' }],
 };
 
+<<<<<<< HEAD
 // Normalise une chaîne pour une recherche insensible à la casse ET aux accents
 // (« téléphonie » ↔ « telephonie »).
 function deaccent(s: unknown): string {
@@ -224,6 +227,8 @@ function SoftwareSelect({ apps, value, onChange }: { apps: any[]; value: string;
   );
 }
 
+=======
+>>>>>>> 5a8538ac8b56389530825eceb7b3c6b7cf6107a9
 // Modes de réponse du ticket : sélecteur vertical façon "dossiers à onglets" (cf. zone de réponse).
 type ReplyMode = 'comment' | 'internal' | 'email' | 'resolution';
 const REPLY_MODES: { key: ReplyMode; label: string; icon: string; color: string; bg: string; border: string; accent: string }[] = [
@@ -2012,6 +2017,9 @@ export default function TicketDetail() {
           )}
           <div style={splitRightStyle}>
           <div style={splitRightScrollStyle}>
+
+            {/* ONBOARDING RH STUDIO (comptes à créer, en direct) */}
+            {id && <TicketOnboardingPanel ticketId={id} />}
 
             {/* TÂCHES */}
             <div style={{ borderBottom: '1px solid #f4f4f5', paddingBottom: 16 }}>
