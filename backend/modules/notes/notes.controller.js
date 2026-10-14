@@ -747,11 +747,7 @@ const ctrl = {
 
             try {
                 const rows = await pgDb.all(
-<<<<<<< HEAD
                     `SELECT username, displayname AS "displayName", email, service_code AS service FROM hub.users
-=======
-                    `SELECT username, displayname, email, service_code AS service FROM hub.users
->>>>>>> 5a8538ac8b56389530825eceb7b3c6b7cf6107a9
                      WHERE LOWER(COALESCE(displayname, '')) LIKE LOWER(?) OR LOWER(COALESCE(email, '')) LIKE LOWER(?) OR LOWER(COALESCE(username, '')) LIKE LOWER(?)
                      LIMIT 20`,
                     [like, like, like]

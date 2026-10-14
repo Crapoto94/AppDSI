@@ -694,13 +694,8 @@ async assign(req, res) {
             if (_sendMail) {
                 let authorName = req.user.displayName || req.user.username;
                 try {
-<<<<<<< HEAD
                     const hubUser = await pgDb.get('SELECT displayname AS "displayName" FROM hub.users WHERE LOWER(username) = LOWER($1)', [req.user.username]);
                     if (hubUser?.displayName) authorName = hubUser.displayName;
-=======
-                    const hubUser = await pgDb.get('SELECT displayname FROM hub.users WHERE LOWER(username) = LOWER($1)', [req.user.username]);
-                    if (hubUser?.displayname) authorName = hubUser.displayname;
->>>>>>> 5a8538ac8b56389530825eceb7b3c6b7cf6107a9
                 } catch (e) { /* non-bloquant */ }
                 const replyToken = makeReplyToken(ticketId, requesterEmail);
                 const replyUrl = `${await getAppBaseUrl()}/repondre/${replyToken}`;
@@ -1102,17 +1097,11 @@ async assign(req, res) {
             if (q.length < 2) return res.json([]);
             const [rows, adResults] = await Promise.all([
                 pgDb.all(`
-<<<<<<< HEAD
                     SELECT id, displayname AS "displayName", email, username
                     FROM hub.users
                     WHERE LOWER(COALESCE(email,'')) LIKE LOWER($1)
                        OR LOWER(COALESCE(displayname,'')) LIKE LOWER($1)
                        OR LOWER(COALESCE(username,'')) LIKE LOWER($1)
-=======
-                    SELECT id, displayname, email, username
-                    FROM hub.users
-                    WHERE LOWER(email) LIKE LOWER($1) OR LOWER(displayname) LIKE LOWER($1)
->>>>>>> 5a8538ac8b56389530825eceb7b3c6b7cf6107a9
                     LIMIT 20
                 `, [`%${q}%`]),
                 (async () => {
@@ -1127,7 +1116,7 @@ async assign(req, res) {
             const hubMap = new Map(rows.map(r => [r.username.toLowerCase(), r]));
             const seen = new Set(rows.map(r => r.username.toLowerCase()));
             const merged = [
-                ...rows.map(r => ({ id: r.id, name: r.displayname, email: r.email, username: r.username })),
+                ...rows.map(r => ({ id: r.id, name: r.displayName || r.displayname, email: r.email, username: r.username })),
                 ...adResults
                     .filter(u => !seen.has(u.username.toLowerCase()))
                     .map(u => {
