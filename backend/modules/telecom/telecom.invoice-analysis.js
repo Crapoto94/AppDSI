@@ -104,8 +104,10 @@ function extractFromText(text, seditAmount) {
     const p = text.match(/du\s+(\d{2}\/\d{2}\/\d{2,4})\s+au\s+(\d{2}\/\d{2}\/\d{2,4})/i);
     if (p) { out.period_start = frDate(p[1]); out.period_end = frDate(p[2]); }
 
-    const acc = text.match(/(?:n°\s*de\s*compte(?:\s*de\s*facturation)?|compte\s*client|no\s*compte\s*client)\s*[:\s]*([0-9][0-9A-Za-z.\s]{3,18})/i);
-    if (acc) out.account_ref = acc[1].replace(/\s+/g, ' ').trim().slice(0, 30);
+    // N° de compte de facturation : « 2261085 001 » (7 chiffres + suffixe 3 chiffres). Ligne unique, pour ne pas
+    // avaler la ligne suivante (« Autre Réf : … »).
+    const acc = text.match(/(?:n[°o]\s*de\s*compte(?:\s*de\s*facturation)?|compte\s*client|no\s*compte\s*client)[ \t\u00a0]*:?[ \t\u00a0]*(\d{4,}(?:[ \u00a0]\d{3})?)/i);
+    if (acc) out.account_ref = acc[1].replace(/\u00a0/g, ' ').trim().slice(0, 30);
 
     // Repli : le montant Sedit apparaît-il tel quel dans le PDF ? (formats 6,24 / 6.24 / 1 234,56)
     out.sedit_found = false;
@@ -116,6 +118,31 @@ function extractFromText(text, seditAmount) {
         out.sedit_found = new RegExp(`(?<![\\d])${intSpaced}[.,]${dec}(?!\\d)`).test(text);
     }
     return out;
+}
+
+
+// --------------------------------------------------------------------------- rattachement au compte de facturation
+const digitsOf = (v) => String(v || '').replace(/\D+/g, '');
+
+/**
+ * Rattache une facture sans compte au compte de facturation lu dans son PDF (« 2261085 001 »).
+ * Comparaison sur les chiffres seuls, avec repli sur le numéro sans son suffixe de 3 chiffres.
+ * En cas de plusieurs comptes candidats, celui de l'opérateur de la facture est préféré.
+ */
+async function linkInvoiceToAccount(inv, accountRef) {
+    const d = digitsOf(accountRef);
+    if (!d || inv.billing_account_id) return null;
+    const accs = (await pool.query('SELECT id, operator_id, account_number FROM hub_telecom.billing_accounts')).rows;
+    const candidates = [d, d.length > 7 ? d.slice(0, 7) : null].filter(Boolean);
+    for (const cand of candidates) {
+        const hits = accs.filter(a => digitsOf(a.account_number) === cand);
+        if (!hits.length) continue;
+        const hit = hits.find(a => a.operator_id === inv.operator_id) || hits[0];
+        await pool.query('UPDATE hub_telecom.invoices SET billing_account_id = $1 WHERE id = $2 AND billing_account_id IS NULL', [hit.id, inv.id]);
+        console.log(`[Telecom] Facture ${inv.invoice_number} rattachée au compte ${hit.account_number} (lu dans le PDF : ${accountRef})`);
+        return hit.id;
+    }
+    return null;
 }
 
 // --------------------------------------------------------------------------- analyse d'une facture
@@ -191,6 +218,7 @@ async function analyseInvoice(inv) {
         if (/^SFR/i.test(String(inv.operator_name || ''))) {
             linesInfo = await importSfrLines(inv, docs, config).catch(e => { console.error('[Telecom] Lignes SFR :', e.message); return {}; });
         }
+        if (!inv.billing_account_id && x.account_ref) await linkInvoiceToAccount(inv, x.account_ref).catch(e => console.error('[Telecom] Rattachement compte :', e.message));
         await save({
             lines_count: linesInfo.count ?? null, lines_total_ht: linesInfo.totalHt ?? null,
             status, doc_id: doc.DOC_ID, doc_name: doc.NOM_PJ, doc_size_kb: doc.TAILLE, docs_count: count, pages: parsed.numpages,
@@ -273,13 +301,14 @@ async function importSfrLines(inv, docs, config) {
 async function pendingInvoices(limit, force) {
     const { RESOLVED_INVOICES_SQL } = require('./telecom.controller');
     const r = await pool.query(`
-        SELECT ri.id, ri.sedit_numero, ri.amount_ttc, ri.invoice_number, ri.operator_id, o.name AS operator_name
+        SELECT ri.id, ri.sedit_numero, ri.amount_ttc, ri.invoice_number, ri.operator_id, ri.billing_account_id, o.name AS operator_name
         FROM (${RESOLVED_INVOICES_SQL}) ri
         JOIN hub_telecom.operators o ON o.id = ri.operator_id
         LEFT JOIN hub_telecom.invoice_analysis an ON an.invoice_id = ri.id
         WHERE ri.sedit_numero IS NOT NULL AND ${IN_6262_SQL}
           ${force ? '' : `AND (an.invoice_id IS NULL OR (an.status IN ('erreur') AND an.analysed_at < NOW() - INTERVAL '1 hour')
-                 OR an.sedit_amount IS DISTINCT FROM ri.amount_ttc::numeric)`}
+                 OR an.sedit_amount IS DISTINCT FROM ri.amount_ttc::numeric
+                 OR (ri.billing_account_id IS NULL AND an.analysed_at < NOW() - INTERVAL '1 day'))`}
         ORDER BY ri.invoice_date DESC NULLS LAST
         LIMIT $1`, [limit]);
     return r.rows;
@@ -302,4 +331,4 @@ async function analysePending({ limit = 20, force = false } = {}) {
 
 function isRunning() { return running; }
 
-module.exports = { IN_6262_SQL, analysePending, analyseInvoice, pickLargestInvoiceDoc, extractFromText, ensureTable, isRunning };
+module.exports = { linkInvoiceToAccount, IN_6262_SQL, analysePending, analyseInvoice, pickLargestInvoiceDoc, extractFromText, ensureTable, isRunning };
