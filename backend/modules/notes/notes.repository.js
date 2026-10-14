@@ -560,7 +560,7 @@ async function listSharedWithMe(username) {
     return pgDb.all(
         `SELECT n.id, n.title, n.summary_ai, n.ai_status, n.updated_at, n.word_count,
                 s.id AS share_id, s.shared_by, s.permission,
-                COALESCE(u."displayName", s.shared_by) AS shared_by_name
+                COALESCE(u.displayname, s.shared_by) AS shared_by_name
          FROM hub_notes.note_shares s
          JOIN hub_notes.notes n ON n.id = s.note_id
          LEFT JOIN hub.users u ON LOWER(u.username) = LOWER(s.shared_by)
@@ -578,7 +578,7 @@ async function getNoteAccessible(id, username) {
     if (!share) return null;
     const note = await pgDb.get('SELECT * FROM hub_notes.notes WHERE id = ?', [id]);
     if (!note) return null;
-    const owner = await pgDb.get('SELECT "displayName" AS name, username FROM hub.users WHERE LOWER(username) = LOWER(?) LIMIT 1', [note.username]);
+    const owner = await pgDb.get('SELECT displayname AS name, username FROM hub.users WHERE LOWER(username) = LOWER(?) LIMIT 1', [note.username]);
     return { note, is_owner: false, permission: share.permission || 'read', shared_by: note.username, shared_by_name: owner?.name || note.username };
 }
 

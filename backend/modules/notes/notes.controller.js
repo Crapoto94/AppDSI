@@ -738,7 +738,7 @@ const ctrl = {
             const pushUser = (u) => {
                 if (!u) return;
                 const email = (u.email || '').toLowerCase();
-                const name = u.displayName || u.display_name || u.name || u.username || '';
+                const name = u.displayName || u.displayname || u.display_name || u.name || u.username || '';
                 const key = email || name.toLowerCase();
                 if (!key || seen.has(key)) return;
                 seen.add(key);
@@ -747,8 +747,8 @@ const ctrl = {
 
             try {
                 const rows = await pgDb.all(
-                    `SELECT username, "displayName", email, service_code AS service FROM hub.users
-                     WHERE LOWER(COALESCE("displayName", '')) LIKE LOWER(?) OR LOWER(COALESCE(email, '')) LIKE LOWER(?) OR LOWER(COALESCE(username, '')) LIKE LOWER(?)
+                    `SELECT username, displayname, email, service_code AS service FROM hub.users
+                     WHERE LOWER(COALESCE(displayname, '')) LIKE LOWER(?) OR LOWER(COALESCE(email, '')) LIKE LOWER(?) OR LOWER(COALESCE(username, '')) LIKE LOWER(?)
                      LIMIT 20`,
                     [like, like, like]
                 );

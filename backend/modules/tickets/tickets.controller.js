@@ -694,8 +694,8 @@ async assign(req, res) {
             if (_sendMail) {
                 let authorName = req.user.displayName || req.user.username;
                 try {
-                    const hubUser = await pgDb.get('SELECT "displayName" FROM hub.users WHERE LOWER(username) = LOWER($1)', [req.user.username]);
-                    if (hubUser?.displayName) authorName = hubUser.displayName;
+                    const hubUser = await pgDb.get('SELECT displayname FROM hub.users WHERE LOWER(username) = LOWER($1)', [req.user.username]);
+                    if (hubUser?.displayname) authorName = hubUser.displayname;
                 } catch (e) { /* non-bloquant */ }
                 const replyToken = makeReplyToken(ticketId, requesterEmail);
                 const replyUrl = `${await getAppBaseUrl()}/repondre/${replyToken}`;
@@ -1097,9 +1097,9 @@ async assign(req, res) {
             if (q.length < 2) return res.json([]);
             const [rows, adResults] = await Promise.all([
                 pgDb.all(`
-                    SELECT id, "displayName", email, username
+                    SELECT id, displayname, email, username
                     FROM hub.users
-                    WHERE LOWER(email) LIKE LOWER($1) OR LOWER("displayName") LIKE LOWER($1)
+                    WHERE LOWER(email) LIKE LOWER($1) OR LOWER(displayname) LIKE LOWER($1)
                     LIMIT 20
                 `, [`%${q}%`]),
                 (async () => {
@@ -1114,7 +1114,7 @@ async assign(req, res) {
             const hubMap = new Map(rows.map(r => [r.username.toLowerCase(), r]));
             const seen = new Set(rows.map(r => r.username.toLowerCase()));
             const merged = [
-                ...rows.map(r => ({ id: r.id, name: r.displayName, email: r.email, username: r.username })),
+                ...rows.map(r => ({ id: r.id, name: r.displayname, email: r.email, username: r.username })),
                 ...adResults
                     .filter(u => !seen.has(u.username.toLowerCase()))
                     .map(u => {
@@ -1143,7 +1143,7 @@ async assign(req, res) {
                     console.log('[ADD_OBSERVER] found existing hub.user id=%s for username=%s', finalUserId, username);
                 } else {
                     const result = await pgDb.run(
-                        'INSERT INTO hub.users (username, "displayName", email, role) VALUES ($1, $2, $3, $4) ON CONFLICT (username) DO UPDATE SET "displayName" = EXCLUDED."displayName" RETURNING id',
+                        'INSERT INTO hub.users (username, displayname, email, role) VALUES ($1, $2, $3, $4) ON CONFLICT (username) DO UPDATE SET displayname = EXCLUDED.displayname RETURNING id',
                         [username || name, name || username, email || '', 'user']
                     );
                     finalUserId = result.lastID || result.id;
