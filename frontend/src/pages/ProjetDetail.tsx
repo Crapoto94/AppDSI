@@ -2471,9 +2471,10 @@ const TachesTab: React.FC<{ projetId: number; projetTitre?: string; token: strin
                               <CheckCircle2 size={18} />
                             </button>
                             <button onClick={() => setExpandedHubNotesId(isExpanded ? null : t.id)}
-                              title={`${notes.length} note(s)`}
-                              style={{ background: notes.length > 0 ? '#eff6ff' : 'transparent', border: notes.length > 0 ? '1px solid #bfdbfe' : 'none', borderRadius: 4, cursor: 'pointer', color: isExpanded ? '#2563eb' : notes.length > 0 ? '#1d4ed8' : '#94a3b8', padding: '2px 5px', marginLeft: 2, fontWeight: notes.length > 0 ? 700 : 400, fontSize: 11, lineHeight: '18px', verticalAlign: 'middle' }}>
-                              💬 {notes.length || '+'}
+                              className={notes.length > 0 && !isExpanded ? 'task-note-badge' : undefined}
+                              title={notes.length > 0 ? `${notes.length} commentaire${notes.length > 1 ? 's' : ''} — cliquer pour voir` : 'Ajouter un commentaire'}
+                              style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: notes.length > 0 ? '#2563eb' : 'transparent', border: notes.length > 0 ? '1px solid #1d4ed8' : '1px dashed #cbd5e1', borderRadius: 999, cursor: 'pointer', color: notes.length > 0 ? '#ffffff' : '#94a3b8', padding: notes.length > 0 ? '2px 9px' : '2px 6px', marginLeft: 2, fontWeight: notes.length > 0 ? 700 : 400, fontSize: 11, lineHeight: '18px', verticalAlign: 'middle', boxShadow: notes.length > 0 ? '0 1px 3px rgba(37,99,235,0.35)' : 'none' }}>
+                              <MessageSquare size={13} /> {notes.length > 0 ? notes.length : '+'}
                             </button>
                             {editable && (
                               <button onClick={() => { setEditingHubId(t.id); setEditHubForm({ description: t.description || '', echeance: t.echeance ? String(t.echeance).slice(0, 10) : '' }); }}

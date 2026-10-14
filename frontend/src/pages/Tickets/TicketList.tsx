@@ -654,7 +654,9 @@ export default function TicketList({
                           fontSize: 10, fontWeight: 600,
                           background: data.active_days != null && data.active_days > 0 ? '#f0fdf4' : '#f1f5f9',
                           color: data.active_days != null && data.active_days > 0 ? '#16a34a' : '#94a3b8'
-                        }} title="Jours actifs">
+                        }} title={data.active_days != null
+                          ? `Âge actif : ${data.active_days < 1 ? '<1' : Math.round(data.active_days)} j (traitement réel, hors périodes « En attente »)`
+                          : 'Jours actifs'}>
                           {data.active_days != null
                             ? data.active_days < 1 ? '<1j' : `${Math.round(data.active_days)}j`
                             : '?'}

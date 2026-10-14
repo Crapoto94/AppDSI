@@ -1,5 +1,5 @@
 import React, { useState, useRef } from 'react';
-import { Pencil, Trash2, CheckCircle2, Upload, X } from 'lucide-react';
+import { Pencil, Trash2, CheckCircle2, Upload, X, MessageSquare } from 'lucide-react';
 
 export interface ProjetTask {
   id: string;
@@ -321,18 +321,21 @@ export const TaskTable: React.FC<TaskTableProps> = ({
                     </button>
                     <button
                       onClick={() => setExpandedNotesId(expandedNotesId === t.id ? null : t.id)}
-                      title={`${noteCount} note(s)`}
+                      className={noteCount > 0 && !isExpanded ? 'task-note-badge' : undefined}
+                      title={noteCount > 0 ? `${noteCount} commentaire${noteCount > 1 ? 's' : ''} — cliquer pour voir` : 'Ajouter un commentaire'}
                       style={{
-                        background: noteCount > 0 ? '#eff6ff' : 'transparent',
-                        border: noteCount > 0 ? '1px solid #bfdbfe' : 'none',
-                        borderRadius: 4, cursor: 'pointer',
-                        color: isExpanded ? '#2563eb' : noteCount > 0 ? '#1d4ed8' : '#94a3b8',
-                        padding: '2px 5px', marginLeft: 2,
+                        display: 'inline-flex', alignItems: 'center', gap: 4,
+                        background: noteCount > 0 ? '#2563eb' : 'transparent',
+                        border: noteCount > 0 ? '1px solid #1d4ed8' : '1px dashed #cbd5e1',
+                        borderRadius: 999, cursor: 'pointer',
+                        color: noteCount > 0 ? '#ffffff' : '#94a3b8',
+                        padding: noteCount > 0 ? '2px 9px' : '2px 6px', marginLeft: 2,
                         fontWeight: noteCount > 0 ? 700 : 400, fontSize: 11,
                         lineHeight: '18px', verticalAlign: 'middle',
+                        boxShadow: noteCount > 0 ? '0 1px 3px rgba(37,99,235,0.35)' : 'none',
                       }}
                     >
-                      💬 {noteCount || '+'}
+                      <MessageSquare size={13} /> {noteCount > 0 ? noteCount : '+'}
                     </button>
                     {editable && (
                       <button

@@ -319,7 +319,8 @@ const MesTaches: React.FC = () => {
   const [sortDir, setSortDir]       = useState<'asc' | 'desc'>('asc');
 
   // ── Notes ────────────────────────────────────────────────────────────────────
-  const [expandedNotesId, setExpandedNotesId] = useState<string | null>(null);
+  const [expandedNotesIds, setExpandedNotesIds] = useState<Set<string>>(new Set());
+  const autoExpandedNotesRef = useRef(false);
   const [notesMap, setNotesMap]     = useState<Record<string, TaskNote[]>>({});
   const [noteInput, setNoteInput]   = useState('');
   const [uploadingNote, setUploadingNote] = useState(false);
@@ -599,13 +600,28 @@ const MesTaches: React.FC = () => {
 
   const toggleNotes = (task: Task) => {
     const key = `${task.source}:${task.id}`;
-    if (expandedNotesId === key) {
-      setExpandedNotesId(null);
-    } else {
-      setExpandedNotesId(key);
-      loadNotes(task);
-    }
+    setExpandedNotesIds(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) {
+        next.delete(key);
+      } else {
+        next.add(key);
+        loadNotes(task);
+      }
+      return next;
+    });
   };
+
+  // À l'ouverture de la page : déplie automatiquement les notes des tâches qui
+  // en contiennent (note_count > 0), une seule fois après le premier chargement.
+  useEffect(() => {
+    if (autoExpandedNotesRef.current || loading || tasks.length === 0) return;
+    autoExpandedNotesRef.current = true;
+    const withNotes = tasks.filter(t => (t.note_count || 0) > 0);
+    if (withNotes.length === 0) return;
+    setExpandedNotesIds(new Set(withNotes.map(t => `${t.source}:${t.id}`)));
+    withNotes.forEach(t => loadNotes(t));
+  }, [tasks, loading]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ─── Status ───────────────────────────────────────────────────────────────────
   const cycleStatus = async (task: Task) => {
@@ -1343,7 +1359,7 @@ const MesTaches: React.FC = () => {
                   const isOverdue = !isDone && (daysUntil(task.echeance) ?? 1) < 0;
                   const notes = notesMap[key] || [];
                   const noteCount = task.note_count || 0;
-                  const isExpanded = expandedNotesId === key;
+                  const isExpanded = expandedNotesIds.has(key);
                   const affectedBy = task.created_by && task.created_by.toLowerCase() !== currentUsername.toLowerCase()
                     ? task.created_by : null;
                   const canRefuse = !isDone && (task.source === 'personal' || task.source === 'ticket');
@@ -1512,21 +1528,24 @@ const MesTaches: React.FC = () => {
                           </>
                         )}
 
-                        {/* Notes */}
+                        {/* Notes / commentaires */}
                         <button
                           onClick={() => toggleNotes(task)}
-                          title={`${noteCount} note(s)`}
+                          className={noteCount > 0 && !isExpanded ? 'task-note-badge' : undefined}
+                          title={noteCount > 0 ? `${noteCount} commentaire${noteCount > 1 ? 's' : ''} — cliquer pour voir` : 'Ajouter un commentaire'}
                           style={{
-                            background: noteCount > 0 ? '#eff6ff' : 'transparent',
-                            border: noteCount > 0 ? '1px solid #bfdbfe' : 'none',
-                            borderRadius: 4, cursor: 'pointer',
-                            color: isExpanded ? '#2563eb' : noteCount > 0 ? '#1d4ed8' : '#94a3b8',
-                            padding: '2px 5px', marginLeft: 2,
+                            display: 'inline-flex', alignItems: 'center', gap: 4,
+                            background: noteCount > 0 ? '#2563eb' : 'transparent',
+                            border: noteCount > 0 ? '1px solid #1d4ed8' : '1px dashed #cbd5e1',
+                            borderRadius: 999, cursor: 'pointer',
+                            color: noteCount > 0 ? '#ffffff' : '#94a3b8',
+                            padding: noteCount > 0 ? '2px 9px' : '2px 6px', marginLeft: 2,
                             fontWeight: noteCount > 0 ? 700 : 400, fontSize: 11,
-                            lineHeight: '18px', verticalAlign: 'middle'
+                            lineHeight: '18px', verticalAlign: 'middle',
+                            boxShadow: noteCount > 0 ? '0 1px 3px rgba(37,99,235,0.35)' : 'none'
                           }}
                         >
-                          💬 {noteCount || '+'}
+                          <MessageSquare size={13} /> {noteCount > 0 ? noteCount : '+'}
                         </button>
 
                         {/* Public/Privé (tâches que j'ai créées) */}

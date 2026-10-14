@@ -159,3 +159,14 @@ html[data-theme="dark"] .theme-no-invert {
   background: #f1f5f9;
   color: var(--primary-color);
 }
+
+/* Badge « commentaires » des tâches : pastille bleue pleine + halo pulsé
+   pour rendre visible d'un coup d'œil qu'une tâche contient des commentaires. */
+@keyframes taskNotePulse {
+  0%   { box-shadow: 0 0 0 0 rgba(37, 99, 235, 0.55); }
+  70%  { box-shadow: 0 0 0 6px rgba(37, 99, 235, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(37, 99, 235, 0); }
+}
+.task-note-badge {
+  animation: taskNotePulse 2s ease-out infinite;
+}

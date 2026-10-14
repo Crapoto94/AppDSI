@@ -30,6 +30,39 @@ function decodeHtml(str: string) {
   return txt.value;
 }
 
+// Âge d'un ticket : le badge affiché est l'âge ACTIF (temps de traitement réel,
+// hors périodes « En attente »), pas l'âge calendaire depuis la création. Ces
+// helpers construisent un libellé explicite et un tooltip détaillé pour éviter
+// toute confusion (ex. ticket créé il y a 90 j mais actif seulement ~32 j).
+function formatActiveAge(ticket: any): string {
+  const ad = ticket?.active_days;
+  if (ad == null) return '';
+  if (ad < 1) return '<1 j actif';
+  const d = Math.round(ad);
+  return `${d} j actif${d > 1 ? 's' : ''}`;
+}
+
+function buildAgeTooltip(ticket: any): string {
+  const lines: string[] = [];
+  const ad = ticket?.active_days;
+  if (ad != null) {
+    lines.push(`Âge actif : ${ad < 1 ? '<1' : Math.round(ad)} j`);
+    lines.push("Temps de traitement réel, hors périodes « En attente ».");
+  }
+  if (ticket?.date_creation) {
+    const start = new Date(ticket.date_creation).getTime();
+    const end = ticket.date_solved ? new Date(ticket.date_solved).getTime()
+      : ticket.date_closed ? new Date(ticket.date_closed).getTime()
+      : Date.now();
+    const totalDays = Math.max(0, (end - start) / 86400000);
+    const waitDays = (ticket.total_waiting_seconds || 0) / 86400;
+    let line = `Total depuis la création : ${totalDays < 1 ? '<1' : Math.round(totalDays)} j`;
+    if (waitDays >= 0.5) line += `, dont ${Math.round(waitDays)} j en attente`;
+    lines.push(line);
+  }
+  return lines.join('\n');
+}
+
 // Point d'entrée unique pour afficher un HTML de ticket / commentaire / solution :
 // décodage des entités, normalisation des liens sans schéma (cf. ticketEditor)
 // puis réécriture des images GLPI / cid:.
@@ -276,7 +309,7 @@ export default function TicketDetail() {
     items.sort((a, b) => b.ts - a.ts);
     return items;
   }, [comments, history, ticketTasks, showActivityTasks, showActivityStatus, showActivityAssignments]);
-  const [expandedTaskId, setExpandedTaskId] = useState<number | null>(null);
+  const [expandedTaskIds, setExpandedTaskIds] = useState<Set<number>>(new Set());
   const [taskNotes, setTaskNotes] = useState<Record<number, any[]>>({});
   const [taskNoteInput, setTaskNoteInput] = useState('');
   const [taskNoteLoading, setTaskNoteLoading] = useState<Record<number, boolean>>({});
@@ -618,6 +651,19 @@ export default function TicketDetail() {
       setComments(commentsRes.data);
       setHistory(historyRes.data);
       setTicketTasks(tasksRes.data || []);
+      // À l'ouverture du ticket : déplie d'office les notes des tâches qui en
+      // contiennent (note_count > 0). Le endpoint by-context renvoie déjà les
+      // notes imbriquées (task.notes), on évite donc un appel supplémentaire.
+      const loadedTasks = tasksRes.data || [];
+      const tasksWithNotes = loadedTasks.filter((t: any) => (t.note_count || 0) > 0);
+      setExpandedTaskIds(new Set(tasksWithNotes.map((t: any) => t.id)));
+      if (tasksWithNotes.length > 0) {
+        setTaskNotes(prev => {
+          const next = { ...prev };
+          for (const t of tasksWithNotes) next[t.id] = t.notes || [];
+          return next;
+        });
+      }
       setObservers(observersRes.data || []);
       setAttachments(attachmentsRes.data || []);
       // Si le contenu contient des images cid: (emails inline), récupère les documents GLPI pour les réécrire
@@ -852,12 +898,16 @@ export default function TicketDetail() {
   }
 
   function toggleTaskNotes(taskId: number) {
-    if (expandedTaskId === taskId) {
-      setExpandedTaskId(null);
-    } else {
-      setExpandedTaskId(taskId);
-      if (!taskNotes[taskId]) loadTaskNotes(taskId);
-    }
+    setExpandedTaskIds(prev => {
+      const next = new Set(prev);
+      if (next.has(taskId)) {
+        next.delete(taskId);
+      } else {
+        next.add(taskId);
+        if (!taskNotes[taskId]) loadTaskNotes(taskId);
+      }
+      return next;
+    });
   }
 
   async function addTaskNote(taskId: number) {
@@ -1944,7 +1994,7 @@ export default function TicketDetail() {
                     const statut = task.statut || 'a_faire';
                     const done = statut === 'terminé';
                     const inprog = statut === 'en_cours';
-                    const isExpanded = expandedTaskId === task.id;
+                    const isExpanded = expandedTaskIds.has(task.id);
                     const notes = taskNotes[task.id] || [];
                     const noteCount = task.note_count || 0;
                     const isArbitrage = !!task.is_arbitrage;
@@ -2033,18 +2083,21 @@ export default function TicketDetail() {
                           <Edit3 size={12} />
                         </button>
                         <button onClick={() => toggleTaskNotes(task.id)}
-                          title={`${noteCount} note(s)`}
+                          className={noteCount > 0 && !isExpanded ? 'task-note-badge' : undefined}
+                          title={noteCount > 0 ? `${noteCount} commentaire${noteCount > 1 ? 's' : ''} — cliquer pour voir` : 'Ajouter un commentaire'}
                           style={{
-                            background: noteCount > 0 ? '#eff6ff' : 'transparent',
-                            border: noteCount > 0 ? '1px solid #bfdbfe' : 'none',
-                            borderRadius: 4, cursor: 'pointer',
-                            color: isExpanded ? '#2563eb' : noteCount > 0 ? '#1d4ed8' : '#94a3b8',
-                            padding: '2px 5px', marginLeft: 2,
+                            display: 'inline-flex', alignItems: 'center', gap: 4,
+                            background: noteCount > 0 ? '#2563eb' : 'transparent',
+                            border: noteCount > 0 ? '1px solid #1d4ed8' : '1px dashed #cbd5e1',
+                            borderRadius: 999, cursor: 'pointer',
+                            color: noteCount > 0 ? '#ffffff' : '#94a3b8',
+                            padding: noteCount > 0 ? '2px 8px' : '2px 5px', marginLeft: 2,
                             fontWeight: noteCount > 0 ? 700 : 400, fontSize: 10,
-                            lineHeight: '18px', verticalAlign: 'middle'
+                            lineHeight: '18px', verticalAlign: 'middle',
+                            boxShadow: noteCount > 0 ? '0 1px 3px rgba(37,99,235,0.35)' : 'none'
                           }}>
-                          <MessageSquare size={12} style={{ verticalAlign: 'middle', marginRight: 2 }} />
-                          {noteCount || '+'}
+                          <MessageSquare size={12} />
+                          {noteCount > 0 ? noteCount : '+'}
                         </button>
                       </div>
                       {isArbitrage && (
@@ -2899,10 +2952,27 @@ export default function TicketDetail() {
             {/* CRÉÉ LE */}
             <div style={SF}>
               <span style={SL}>Créé le</span>
-              <span style={SV}>{ticket.date_creation ? formatDateTime(ticket.date_creation) : '—'}</span>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                <span style={SV}>{ticket.date_creation ? formatDateTime(ticket.date_creation) : '—'}</span>
+                {ticket.date_creation && (() => {
+                  const start = new Date(ticket.date_creation).getTime();
+                  const end = ticket.date_solved ? new Date(ticket.date_solved).getTime()
+                    : ticket.date_closed ? new Date(ticket.date_closed).getTime()
+                    : Date.now();
+                  const totalDays = Math.max(0, (end - start) / 86400000);
+                  const waitDays = (ticket.total_waiting_seconds || 0) / 86400;
+                  if (waitDays < 0.5) return null;
+                  return (
+                    <span style={{ fontSize: 10, color: '#a1a1aa' }} title="Durée totale écoulée depuis la création, et temps passé au statut « En attente »">
+                      {totalDays < 1 ? '<1' : Math.round(totalDays)} j au total · {Math.round(waitDays)} j en attente
+                    </span>
+                  );
+                })()}
+              </div>
               {ticket.active_days != null && (
-                <span style={{ fontSize: 11, fontWeight: 600, color: ticket.active_days > 7 ? '#dc2626' : ticket.active_days > 3 ? '#f59e0b' : '#16a34a', marginLeft: 'auto' }}>
-                  {ticket.active_days > 1 ? `${Math.round(ticket.active_days)}j` : ticket.active_days === 1 ? '1j' : '<1j'}
+                <span title={buildAgeTooltip(ticket)}
+                  style={{ fontSize: 11, fontWeight: 600, color: ticket.active_days > 7 ? '#dc2626' : ticket.active_days > 3 ? '#f59e0b' : '#16a34a', marginLeft: 'auto', cursor: 'help', whiteSpace: 'nowrap' }}>
+                  {formatActiveAge(ticket)}
                 </span>
               )}
             </div>

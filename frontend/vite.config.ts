@@ -6,7 +6,7 @@ export default defineConfig({
   plugins: [react()],
   // Pré-bundle pdfjs-dist (sinon « Outdated Optimize Dep » au 1er import à chaud)
   optimizeDeps: {
-    include: ['pdfjs-dist'],
+    include: ['pdfjs-dist', 'bpmn-js', 'bpmn-auto-layout', 'diagram-js'],
   },
   worker: { format: 'es' },
   server: {
