@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   Plus, 
   Edit2,
@@ -440,6 +440,7 @@ const TelecomManagement: React.FC = () => {
   const [tierSearch, setTierSearch] = useState('');
   const [editTierSearch, setEditTierSearch] = useState('');
   const [expandedOperators, setExpandedOperators] = useState<number[]>([]);
+  const operatorsInitRef = useRef(false);
   const [showAddAccount, setShowAddAccount] = useState<number | null>(null);
   const [editingAccount, setEditingAccount] = useState<BillingAccount | null>(null);
   
@@ -517,6 +518,8 @@ const TelecomManagement: React.FC = () => {
       if (opRes.ok) {
         const ops = await opRes.json();
         setOperators(ops);
+        // Opérateurs dépliés par défaut ; les repliages faits par l'utilisateur sont conservés au rechargement
+        if (!operatorsInitRef.current) { operatorsInitRef.current = true; setExpandedOperators(ops.map((op: Operator) => op.id)); }
         ops.forEach((op: Operator) => fetchAccounts(op.id));
       }
 
@@ -1628,6 +1631,7 @@ const TelecomManagement: React.FC = () => {
                                     <tr>
                                       <th style={{ width: '100px' }}>Type</th>
                                       <th style={{ width: '150px' }}>N° Compte</th>
+                                      <th style={{ width: '150px' }}>N° Engagement</th>
                                       <th>Désignation</th>
                                       <th style={{ width: '80px', textAlign: 'center' }}>Factures</th>
                                       <th style={{ width: '120px', textAlign: 'right' }}>Facturé</th>
@@ -1639,6 +1643,7 @@ const TelecomManagement: React.FC = () => {
                                       <tr key={acc.id}>
                                         <td><span className={`type-badge ${acc.type.toLowerCase()}`}>{acc.type}</span></td>
                                         <td style={{ fontWeight: 600 }}>{acc.account_number}</td>
+                                        <td>{acc.commitment_number || '—'}</td>
                                         <td>{acc.designation}</td>
                                         <td style={{ textAlign: 'center' }}>
                                           <button 
