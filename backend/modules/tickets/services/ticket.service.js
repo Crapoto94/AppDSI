@@ -93,7 +93,7 @@ module.exports = {
                             userId = existing.id;
                         } else {
                             const result = await pgDb.run(
-                                'INSERT INTO hub.users (username, "displayName", email, role) VALUES ($1, $2, $3, $4) ON CONFLICT (username) DO UPDATE SET "displayName" = EXCLUDED."displayName" RETURNING id',
+                                'INSERT INTO hub.users (username, displayname, email, role) VALUES ($1, $2, $3, $4) ON CONFLICT (username) DO UPDATE SET displayname = EXCLUDED.displayname RETURNING id',
                                 [obs.username || obs.name, obs.name || obs.username, obs.email || '', 'user']
                             );
                             userId = result.lastID || result.id;
@@ -190,7 +190,7 @@ module.exports = {
                         userId = existing.id;
                     } else {
                         const result = await pgDb.run(
-                            'INSERT INTO hub.users (username, "displayName", email, role) VALUES ($1, $2, $3, $4) ON CONFLICT (username) DO UPDATE SET "displayName" = EXCLUDED."displayName" RETURNING id',
+                            'INSERT INTO hub.users (username, displayname, email, role) VALUES ($1, $2, $3, $4) ON CONFLICT (username) DO UPDATE SET displayname = EXCLUDED.displayname RETURNING id',
                             [obs.username || obs.name, obs.name || obs.username, obs.email || '', 'user']
                         );
                         userId = result.lastID || result.id;
