@@ -1594,56 +1594,47 @@ const TelecomManagement: React.FC = () => {
                       <div className="accounts-table-wrapper">
                         {(() => {
                           const typeFilter = accountTypeFilter[op.id];
-                          const accountsByCommitment: Record<string, BillingAccount[]> = {};
-                          (billingAccounts[op.id] || [])
+                          const rows = (billingAccounts[op.id] || [])
                             .filter(acc => !typeFilter || acc.type === typeFilter)
-                            .forEach(acc => {
-                              const key = acc.commitment_number || 'Sans engagement';
-                              if (!accountsByCommitment[key]) accountsByCommitment[key] = [];
-                              accountsByCommitment[key].push(acc);
+                            .sort((a, b) => {
+                              const ka = a.commitment_number || '';
+                              const kb = b.commitment_number || '';
+                              if (!ka !== !kb) return ka ? -1 : 1;
+                              return ka.localeCompare(kb) || String(a.account_number).localeCompare(String(b.account_number));
                             });
-
-                          return Object.entries(accountsByCommitment).map(([commNum, accounts]) => {
-                            const commAmount = commNum === 'Sans engagement' ? 0 : engagementAmountOf(commNum);
-                            const totalInvoicedForComm = invoicedForCommitment(commNum);
-                            const commBalance = commAmount - totalInvoicedForComm;
-
-                            return (
-                              <div key={commNum} className="commitment-group">
-                                <div className="commitment-group-header">
-                                  <div className="comm-info-tag">
-                                    <span className="comm-label">Engagement : </span>
-                                    <span className="comm-value">{commNum}</span>
-                                    {commNum !== 'Sans engagement' && (
-                                      <>
-                                        <span className="comm-amount-tag">
-                                          ({commAmount.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })})
-                                        </span>
-                                        <span className={`comm-balance-tag ${commBalance < 0 ? 'negative' : 'positive'}`}>
-                                          Solde : {commBalance.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}
-                                        </span>
-                                      </>
-                                    )}
-                                  </div>
-                                </div>
-                                <table className="accounts-table">
-                                  <thead>
-                                    <tr>
-                                      <th style={{ width: '100px' }}>Type</th>
-                                      <th style={{ width: '150px' }}>N° Compte</th>
-                                      <th style={{ width: '150px' }}>N° Engagement</th>
-                                      <th>Désignation</th>
-                                      <th style={{ width: '80px', textAlign: 'center' }}>Factures</th>
-                                      <th style={{ width: '120px', textAlign: 'right' }}>Facturé</th>
-                                      <th style={{ width: '100px', textAlign: 'center' }}>Actions</th>
-                                    </tr>
-                                  </thead>
-                                  <tbody>
-                                    {accounts.map(acc => (
+                          if (rows.length === 0) return null;
+                          return (
+                            <table className="accounts-table">
+                              <thead>
+                                <tr>
+                                  <th style={{ width: '100px' }}>Type</th>
+                                  <th style={{ width: '150px' }}>N° Compte</th>
+                                  <th style={{ width: '200px' }}>N° Engagement</th>
+                                  <th>Désignation</th>
+                                  <th style={{ width: '80px', textAlign: 'center' }}>Factures</th>
+                                  <th style={{ width: '120px', textAlign: 'right' }}>Facturé</th>
+                                  <th style={{ width: '100px', textAlign: 'center' }}>Actions</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {rows.map(acc => (
                                       <tr key={acc.id}>
                                         <td><span className={`type-badge ${acc.type.toLowerCase()}`}>{acc.type}</span></td>
                                         <td style={{ fontWeight: 600 }}>{acc.account_number}</td>
-                                        <td>{acc.commitment_number || '—'}</td>
+                                        <td>
+                                          {acc.commitment_number ? (
+                                            <>
+                                              <span style={{ fontWeight: 600 }}>{acc.commitment_number}</span>
+                                              <div style={{ fontSize: 11, color: '#64748b' }}>
+                                                {engagementAmountOf(acc.commitment_number).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}
+                                                {' · Solde '}
+                                                <span style={{ color: (engagementAmountOf(acc.commitment_number) - invoicedForCommitment(acc.commitment_number)) < 0 ? '#dc2626' : '#15803d', fontWeight: 600 }}>
+                                                  {(engagementAmountOf(acc.commitment_number) - invoicedForCommitment(acc.commitment_number)).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}
+                                                </span>
+                                              </div>
+                                            </>
+                                          ) : '—'}
+                                        </td>
                                         <td>{acc.designation}</td>
                                         <td style={{ textAlign: 'center' }}>
                                           <button 
@@ -1684,12 +1675,10 @@ const TelecomManagement: React.FC = () => {
                                           </div>
                                         </td>
                                       </tr>
-                                    ))}
-                                  </tbody>
-                                </table>
-                              </div>
-                            );
-                          });
+                                ))}
+                              </tbody>
+                            </table>
+                          );
                         })()}
                         {(!billingAccounts[op.id] || billingAccounts[op.id].length === 0) && (
                           <div style={{ textAlign: 'center', padding: '40px', color: '#64748b' }}>Aucun compte configuré</div>
