@@ -4212,6 +4212,7 @@ async function setupPgDb() {
     // n'ajoute pas de colonnes à une table déjà créée par un précédent démarrage.
     try { await client.query(`ALTER TABLE hub_prets.loans ADD COLUMN IF NOT EXISTS batch_id INTEGER`); } catch (e) {}
     try { await client.query(`ALTER TABLE hub_prets.loans ADD COLUMN IF NOT EXISTS is_internal BOOLEAN DEFAULT FALSE`); } catch (e) {}
+    try { await client.query(`ALTER TABLE hub_prets.loans ADD COLUMN IF NOT EXISTS ticket_id INTEGER`); } catch (e) {}
 
     await client.query('CREATE INDEX IF NOT EXISTS idx_prets_equipment_category ON hub_prets.equipment(category_id)');
     await client.query('CREATE INDEX IF NOT EXISTS idx_prets_units_equipment ON hub_prets.equipment_units(equipment_id)');
