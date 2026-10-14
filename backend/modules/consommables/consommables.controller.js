@@ -527,6 +527,56 @@ const controller = {
   },
 
   // Modifier les articles d'une demande
+  // Modification des informations d'une commande à n'importe quelle étape (y compris
+  // archivée) : coordonnées du demandeur, commentaire, infos de commande et quantités.
+  // Le statut n'est pas touché et aucun email n'est envoyé.
+  async updateRequestInfo(req, res) {
+    try {
+      const { requestId } = req.params;
+      const b = req.body || {};
+      const existing = await pgDb.get('SELECT id, status FROM consumable_requests WHERE id = $1', [requestId]);
+      if (!existing) return res.status(404).json({ error: 'Demande introuvable' });
+
+      const text = (k) => (b[k] === undefined ? undefined : String(b[k] ?? '').trim());
+      const sets = [];
+      const params = [];
+      const add = (col, val) => { if (val !== undefined) { params.push(val); sets.push(`${col} = $${params.length}`); } };
+      for (const k of ['direction', 'service', 'nom_referent', 'tel_complet', 'email']) {
+        const v = text(k);
+        if (v !== undefined && v === '' && k !== 'email') return res.status(400).json({ error: `Le champ ${k} ne peut pas être vide` });
+        add(k, v);
+      }
+      add('user_comment', b.user_comment === undefined ? undefined : (String(b.user_comment || '').trim() || null));
+      add('order_number', b.order_number === undefined ? undefined : (String(b.order_number || '').trim() || null));
+      add('tier', b.tier === undefined ? undefined : (String(b.tier || '').trim() || null));
+      if (b.total_amount_ttc !== undefined) {
+        const n = b.total_amount_ttc === '' || b.total_amount_ttc === null ? null : Number(b.total_amount_ttc);
+        if (n !== null && Number.isNaN(n)) return res.status(400).json({ error: 'Montant invalide' });
+        add('total_amount_ttc', n);
+      }
+      if (b.is_school !== undefined) add('is_school', !!b.is_school);
+      if (sets.length) {
+        params.push(requestId);
+        await pgDb.run(`UPDATE consumable_requests SET ${sets.join(', ')}, updated_at = NOW() WHERE id = $${params.length}`, params);
+      }
+
+      if (Array.isArray(b.articles)) {
+        for (const a of b.articles) {
+          const raId = Number(a.id);
+          const qty = Number(a.quantite);
+          if (!raId || Number.isNaN(qty)) continue;
+          if (qty <= 0) await pgDb.run('DELETE FROM request_articles WHERE id = $1 AND request_id = $2', [raId, requestId]);
+          else await pgDb.run('UPDATE request_articles SET quantite = $1 WHERE id = $2 AND request_id = $3', [qty, raId, requestId]);
+        }
+        await pgDb.run('UPDATE consumable_requests SET updated_at = NOW() WHERE id = $1', [requestId]);
+      }
+      res.json({ message: 'Demande mise à jour' });
+    } catch (error) {
+      console.error('[Consommables] Error updating request info:', error);
+      res.status(500).json({ error: 'Erreur lors de la mise à jour', details: error.message });
+    }
+  },
+
   async updateRequest(req, res) {
     try {
       const { requestId } = req.params;

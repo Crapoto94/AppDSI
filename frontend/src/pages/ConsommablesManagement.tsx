@@ -336,6 +336,38 @@ const [selectedDesignation, setSelectedDesignation] = useState<string>(() => {
     }
   };
 
+  const [editRequest, setEditRequest] = useState<ConsumableRequest | null>(null);
+  const [editForm, setEditForm] = useState<Record<string, any>>({});
+  const [editQty, setEditQty] = useState<Record<number, number>>({});
+  const [editSaving, setEditSaving] = useState(false);
+
+  const openEditRequest = (r: ConsumableRequest) => {
+    setEditRequest(r);
+    setEditForm({
+      nom_referent: r.nom_referent || '', email: r.email || '', tel_complet: r.tel_complet || '',
+      direction: r.direction || '', service: r.service || '', user_comment: r.user_comment || '',
+      order_number: r.order_number || '', tier: r.tier || '',
+      total_amount_ttc: r.total_amount_ttc ?? '', is_school: !!r.is_school,
+    });
+    setEditQty(Object.fromEntries((r.articles || []).map(a => [a.id, a.quantite])));
+  };
+
+  const handleSaveEditRequest = async () => {
+    if (!editRequest) return;
+    setEditSaving(true);
+    try {
+      const body: Record<string, any> = { ...editForm, articles: (editRequest.articles || []).map(a => ({ id: a.id, quantite: editQty[a.id] ?? a.quantite })) };
+      if (editRequest.status !== 'ordered') { delete body.order_number; delete body.tier; delete body.total_amount_ttc; delete body.is_school; }
+      await axios.put(`/api/consumable/admin/${editRequest.id}/info`, body, { headers: { Authorization: `Bearer ${token}` } });
+      setEditRequest(null);
+      loadRequests();
+    } catch (error: any) {
+      setError(error.response?.data?.error || 'Erreur lors de la modification');
+    } finally {
+      setEditSaving(false);
+    }
+  };
+
   const handleValidateRequest = async (requestId: number) => {
     try {
       await axios.put(`/api/consumable/admin/${requestId}/status`, { status: 'approved' }, {
@@ -1605,6 +1637,10 @@ const [selectedDesignation, setSelectedDesignation] = useState<string>(() => {
                                 </button>
                               </>
                             )}
+                            <button onClick={() => openEditRequest(request)}
+                              style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 14px', background: '#eff6ff', color: '#1e40af', border: '1px solid #bfdbfe', borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+                              <Edit2 size={14} /> Modifier
+                            </button>
                             <button onClick={() => handleDeleteRequest(request.id)}
                               style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 14px', background: '#fff5f5', color: '#dc2626', border: '1px solid #fecaca', borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
                               <Trash2 size={14} /> Supprimer
@@ -1618,6 +1654,65 @@ const [selectedDesignation, setSelectedDesignation] = useState<string>(() => {
               </div>
             )}
           </>
+        )}
+
+        {editRequest && (
+          <div onClick={() => !editSaving && setEditRequest(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.5)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+            <div onClick={e => e.stopPropagation()} style={{ background: 'white', borderRadius: 14, width: '100%', maxWidth: 640, maxHeight: '90vh', overflowY: 'auto', padding: 24 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+                <h3 style={{ margin: 0, fontSize: 17, color: '#1e293b' }}>Modifier la demande n°{editRequest.id}</h3>
+                <button onClick={() => setEditRequest(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#64748b' }}><X size={20} /></button>
+              </div>
+              {(() => {
+                const inp: React.CSSProperties = { width: '100%', padding: '8px 10px', border: '1.5px solid #e2e8f0', borderRadius: 8, fontSize: 14, fontFamily: 'inherit', boxSizing: 'border-box' };
+                const lbl: React.CSSProperties = { display: 'block', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: '#64748b', marginBottom: 4 };
+                const field = (key: string, label: string, type = 'text') => (
+                  <div key={key}>
+                    <label style={lbl}>{label}</label>
+                    <input type={type} step={type === 'number' ? '0.01' : undefined} value={editForm[key] ?? ''} onChange={e => setEditForm({ ...editForm, [key]: e.target.value })} style={inp} />
+                  </div>
+                );
+                return (
+                  <>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 14 }}>
+                      {field('nom_referent', 'Référent')}
+                      {field('email', 'Email', 'email')}
+                      {field('tel_complet', 'Téléphone')}
+                      {field('direction', 'Direction')}
+                      {field('service', 'Service')}
+                    </div>
+                    {editRequest.status === 'ordered' && (
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, marginBottom: 14, padding: 12, background: '#eff6ff', borderRadius: 10, border: '1px solid #bfdbfe' }}>
+                        {field('order_number', 'N° Commande')}
+                        {field('tier', 'Tiers')}
+                        {field('total_amount_ttc', 'Montant TTC', 'number')}
+                        <label style={{ gridColumn: '1 / -1', display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: '#92400e', fontWeight: 600 }}>
+                          <input type="checkbox" checked={!!editForm.is_school} onChange={e => setEditForm({ ...editForm, is_school: e.target.checked })} /> Commande École
+                        </label>
+                      </div>
+                    )}
+                    <div style={{ marginBottom: 14 }}>
+                      <label style={lbl}>Annotation demandeur</label>
+                      <textarea rows={2} value={editForm.user_comment ?? ''} onChange={e => setEditForm({ ...editForm, user_comment: e.target.value })} style={{ ...inp, resize: 'vertical' }} />
+                    </div>
+                    <label style={lbl}>Articles (quantité 0 = retirer)</label>
+                    <div style={{ border: '1px solid #e2e8f0', borderRadius: 8, marginBottom: 16 }}>
+                      {(editRequest.articles || []).map(a => (
+                        <div key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', borderBottom: '1px solid #f1f5f9' }}>
+                          <span style={{ flex: 1, fontSize: 13, color: '#1e293b' }}>{a.article || a.ref_commande}{a.designation ? ` — ${a.designation}` : ''}</span>
+                          <input type="number" min={0} value={editQty[a.id] ?? a.quantite} onChange={e => setEditQty({ ...editQty, [a.id]: Number(e.target.value) })} style={{ ...inp, width: 80, textAlign: 'center' }} />
+                        </div>
+                      ))}
+                    </div>
+                  </>
+                );
+              })()}
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+                <button onClick={() => setEditRequest(null)} disabled={editSaving} style={{ padding: '8px 16px', background: '#f1f5f9', border: '1px solid #e2e8f0', borderRadius: 8, fontWeight: 600, cursor: 'pointer' }}>Annuler</button>
+                <button onClick={handleSaveEditRequest} disabled={editSaving} style={{ padding: '8px 16px', background: 'var(--primary-color)', color: 'white', border: 'none', borderRadius: 8, fontWeight: 600, cursor: 'pointer' }}>{editSaving ? 'Enregistrement…' : 'Enregistrer'}</button>
+              </div>
+            </div>
+          </div>
         )}
 
         {/* =================== CATALOG TAB =================== */}
