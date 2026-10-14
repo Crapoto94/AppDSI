@@ -1596,12 +1596,7 @@ const TelecomManagement: React.FC = () => {
                           const typeFilter = accountTypeFilter[op.id];
                           const rows = (billingAccounts[op.id] || [])
                             .filter(acc => !typeFilter || acc.type === typeFilter)
-                            .sort((a, b) => {
-                              const ka = a.commitment_number || '';
-                              const kb = b.commitment_number || '';
-                              if (!ka !== !kb) return ka ? -1 : 1;
-                              return ka.localeCompare(kb) || String(a.account_number).localeCompare(String(b.account_number));
-                            });
+                            .sort((a, b) => String(a.account_number).localeCompare(String(b.account_number), undefined, { numeric: true }));
                           if (rows.length === 0) return null;
                           return (
                             <table className="accounts-table">
