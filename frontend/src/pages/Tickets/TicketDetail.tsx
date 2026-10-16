@@ -57,7 +57,7 @@ function buildAgeTooltip(ticket: any): string {
     const totalDays = Math.max(0, (end - start) / 86400000);
     const waitDays = (ticket.total_waiting_seconds || 0) / 86400;
     let line = `Total depuis la création : ${totalDays < 1 ? '<1' : Math.round(totalDays)} j`;
-    if (waitDays >= 0.5) line += `, dont ${Math.round(waitDays)} j en attente`;
+    if (waitDays >= 0.5) line += `, dont ${Math.round(waitDays)} j inactifs (« En attente »)`;
     lines.push(line);
   }
   return lines.join('\n');
@@ -2960,11 +2960,15 @@ export default function TicketDetail() {
                     : ticket.date_closed ? new Date(ticket.date_closed).getTime()
                     : Date.now();
                   const totalDays = Math.max(0, (end - start) / 86400000);
-                  const waitDays = (ticket.total_waiting_seconds || 0) / 86400;
-                  if (waitDays < 0.5) return null;
+                  const activeDays = ticket.active_days != null ? ticket.active_days : null;
+                  const inactiveDays = activeDays != null
+                    ? Math.max(0, totalDays - activeDays)
+                    : (ticket.total_waiting_seconds || 0) / 86400;
+                  if (inactiveDays < 0.5) return null;
+                  const j = (n: number) => (n < 1 ? '<1' : Math.round(n));
                   return (
-                    <span style={{ fontSize: 10, color: '#a1a1aa' }} title="Durée totale écoulée depuis la création, et temps passé au statut « En attente »">
-                      {totalDays < 1 ? '<1' : Math.round(totalDays)} j au total · {Math.round(waitDays)} j en attente
+                    <span style={{ fontSize: 10, color: '#a1a1aa' }} title="Répartition de la durée écoulée : jours au total, jours de traitement actif, jours inactifs (statut « En attente »)">
+                      {j(totalDays)} j au total · {activeDays != null ? `${j(activeDays)} j actifs · ` : ''}{j(inactiveDays)} j inactifs
                     </span>
                   );
                 })()}
