@@ -238,7 +238,7 @@ module.exports = {
                     mode: 'parallele',
                     signataires: [{
                         nom: sig.nom || sig.email, email: sig.email, service: sig.service, signatureMode: 'simple',
-                        positions: [{ documentIndex: 0, page: pos.page || 1, x: pos.x || 73.6, y: pos.y || 72.7, w: 150, h: 55 }],
+                        positions: [{ documentIndex: 0, page: pos.page || 1, x: pos.x || 73.6, y: pos.y || 72.7, w: 150, h: 46 }],
                     }],
                 },
                 user: req.user,

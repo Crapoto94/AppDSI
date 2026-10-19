@@ -86,7 +86,7 @@ async function buildVirementCreditsPdf(p) {
     newPage();
     const title = 'DEMANDE DE MODIFICATION BUDGETAIRE';
     text(title, (W - bold.widthOfTextAtSize(title, 15)) / 2, y - 10, { bold: true, size: 15 });
-    y -= 50;
+    y -= 40;
 
     for (const [label, val] of [
         ['Direction :', p.direction], ['Service :', p.service],
@@ -94,45 +94,45 @@ async function buildVirementCreditsPdf(p) {
     ]) {
         text(label, M, y, { bold: true });
         text(val || '', M + bold.widthOfTextAtSize(label, 10) + 6, y);
-        y -= 17;
+        y -= 16;
     }
 
-    y -= 14;
+    y -= 10;
     text('TYPE DE DEMANDE', M, y, { bold: true });
     page.drawLine({ start: { x: M, y: y - 2 }, end: { x: M + bold.widthOfTextAtSize('TYPE DE DEMANDE', 10), y: y - 2 }, thickness: 0.8, color: black });
-    y -= 22;
+    y -= 18;
     const c2 = M + 285;
     // « Demande de crédits supplémentaires » : demande non compensée (majoration seule).
     checkbox(M, y, !compense && majorer.length > 0, 'Demande de crédits nouveaux ou supplémentaires');
     checkbox(c2, y, !isRecette, 'Dépenses');
-    y -= 20;
+    y -= 18;
     checkbox(M, y, !compense && majorer.length === 0 && minorer.length > 0, 'Abandon de crédits');
     checkbox(c2, y, isRecette, 'Recettes');
-    y -= 20;
+    y -= 18;
     checkbox(M, y, compense, 'Demande compensée');
     checkbox(c2, y, isInvest, 'Investissement');
-    y -= 20;
+    y -= 18;
     checkbox(c2, y, !isInvest, 'Fonctionnement');
 
-    y -= 28;
+    y -= 24;
     const detail = majorer.length > 1
         ? `${majorer.map(l => fmtNum(num(l.montant))).join('+')}= ${fmtNum(totalMaj)}€`
         : `${fmtNum(totalMaj)}€`;
     text('Montant de la demande :', M, y, { bold: true });
     text(detail, M + bold.widthOfTextAtSize('Montant de la demande :', 10) + 6, y);
 
-    y -= 28;
+    y -= 24;
     text('Activité / Projet / Opération impacté :', M, y, { bold: true });
     const actLines = wrap(font, p.activite || '', 10, W - 2 * M);
-    y -= 16;
+    y -= 14;
     for (const l of actLines) { if (l) text(l, M, y); y -= 14; }
 
-    y -= 14;
+    y -= 8;
     text('Motivation de la demande :', M, y, { bold: true });
-    y -= 18;
+    y -= 16;
     const motLines = wrap(font, p.motivation || '', 10, W - 2 * M);
     for (const l of motLines) {
-        if (y < 365) break;
+        if (y < 425) break;
         text(l, M, y); y -= 14;
     }
 
@@ -142,7 +142,7 @@ async function buildVirementCreditsPdf(p) {
         'Avis de la direction des services financiers', 'Avis de la direction générale',
         'Avis de l’élu (e) de secteur', 'Avis de l’élue aux finances',
     ];
-    const rowH = 64, labelW = 200;
+    const rowH = 52, labelW = 200;
     const drawAvisHeader = () => {
         text('Date', M + labelW + 8, y - 11, { bold: true, size: 9.5 });
         text('Nom et Signature', M + labelW + 90, y - 11, { bold: true, size: 9.5 });
@@ -153,16 +153,16 @@ async function buildVirementCreditsPdf(p) {
         page.drawLine({ start: { x: M + labelW, y }, end: { x: M + labelW, y: y - rowH }, thickness: 0.8, color: black });
         page.drawLine({ start: { x: M + labelW + 82, y }, end: { x: M + labelW + 82, y: y - rowH }, thickness: 0.8, color: black });
         text(label, M + 6, y - 14, { bold: true, size: 9.5 });
-        y -= rowH + 8;
+        y -= rowH + 6;
     };
-    y = 352;
+    y = 410;
     drawAvisHeader();
-    avis.slice(0, 4).forEach(drawAvis);
+    avis.forEach(drawAvis);
 
     // ---------------- Page 2 ----------------
     newPage();
-    drawAvisHeader();
-    avis.slice(4).forEach(drawAvis);
+
+
 
     y -= 14;
     const bandTitle = 'PARTIE RESERVEE A L’ADMINISTRATION - A COMPLETER PAR LE SERVICE DEMANDEUR';

@@ -330,10 +330,10 @@ const VirementCreditsTab: React.FC = () => {
       {loading ? (
         <div style={s.card}>Chargement des lignes d'exécution…</div>
       ) : (
-        <>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '1.25rem', alignItems: 'start' }}>
           <Picker scoped={scoped} taken={taken} totalMin={totalMin} totalMaj={totalMaj} title="Imputations à minorer (−)" sign="-" picked={minorer} setPicked={setMinorer} color="#dc2626" />
           <Picker scoped={scoped} taken={taken} totalMin={totalMin} totalMaj={totalMaj} title="Imputations à majorer (+)" sign="+" picked={majorer} setPicked={setMajorer} color="#16a34a" />
-        </>
+        </div>
       )}
 
       <div style={{ ...s.card, display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '1.5rem' }}>

@@ -37,12 +37,12 @@ export const ETATS: Record<VirementRec['etat'], { label: string; color: string }
 
 // Cadres « Avis » du PDF : position du centre de la signature (en % de la page)
 const AVIS_BLOCKS = [
-  { label: 'Avis du responsable de service', page: 1, x: 73.6, y: 64.1 },
-  { label: 'Avis de la direction', page: 1, x: 73.6, y: 72.7 },
-  { label: 'Avis de la direction des services financiers', page: 1, x: 73.6, y: 81.2 },
-  { label: 'Avis de la direction générale', page: 1, x: 73.6, y: 89.8 },
-  { label: "Avis de l'élu (e) de secteur", page: 2, x: 73.6, y: 11.9 },
-  { label: "Avis de l'élue aux finances", page: 2, x: 73.6, y: 20.4 },
+  { label: 'Avis du responsable de service', page: 1, x: 73.6, y: 56.5 },
+  { label: 'Avis de la direction', page: 1, x: 73.6, y: 63.4 },
+  { label: 'Avis de la direction des services financiers', page: 1, x: 73.6, y: 70.3 },
+  { label: 'Avis de la direction générale', page: 1, x: 73.6, y: 77.2 },
+  { label: "Avis de l'élu (e) de secteur", page: 1, x: 73.6, y: 84.1 },
+  { label: "Avis de l'élue aux finances", page: 1, x: 73.6, y: 91.0 },
 ];
 
 const s: Record<string, React.CSSProperties> = {
