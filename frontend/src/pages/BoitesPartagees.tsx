@@ -215,6 +215,40 @@ function MailboxModal({ initial, token, onClose, onSaved }: { initial: SharedMai
   const [error, setError] = useState('');
   const [syncingAd, setSyncingAd] = useState(false);
   const [syncAdMsg, setSyncAdMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [confirmRemove, setConfirmRemove] = useState<(Membre & { op: 'add' | 'remove' }) | null>(null);
+  const [removing, setRemoving] = useState(false);
+  const [removeErr, setRemoveErr] = useState('');
+
+  // Ajoute / retire réellement la délégation dans l'AD (POST /api/mailboxes/
+  // ad-add-member | ad-remove-member, journalisé côté serveur), puis met la fiche
+  // à jour. En cas d'échec AD, la fiche n'est pas modifiée.
+  const confirmRemoveMember = async () => {
+    if (!confirmRemove) return;
+    setRemoving(true);
+    setRemoveErr('');
+    try {
+      const res = await fetch(`/api/mailboxes/ad-${confirmRemove.op}-member`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ mailbox_id: initial?.id ?? null, email: form.email.trim(), member_email: confirmRemove.email, member_name: confirmRemove.displayName }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.message || 'Échec de la modification AD');
+      const target = confirmRemove;
+      if (target.op === 'add') {
+        setForm((f) => ({ ...f, membres: [...f.membres, { displayName: target.displayName, email: target.email }] }));
+        setSyncAdMsg({ ok: true, text: data.added ? `${target.displayName} ajouté(e) dans l'AD (journalisé).` : `${target.displayName} était déjà présent(e) dans l'AD : ajouté(e) à la fiche.` });
+      } else {
+        setForm((f) => ({ ...f, membres: f.membres.filter((m) => (m.email || m.displayName) !== (target.email || target.displayName)) }));
+        setSyncAdMsg({ ok: true, text: data.removed ? `${target.displayName} retiré(e) de l'AD (journalisé).` : `${target.displayName} n'était pas dans l'AD : retiré(e) de la fiche uniquement.` });
+      }
+      setConfirmRemove(null);
+    } catch (e) {
+      setRemoveErr(e instanceof Error ? e.message : 'Erreur');
+    } finally {
+      setRemoving(false);
+    }
+  };
 
   // Relit les membres réels de la boîte/liste : d'abord l'AD on-prem
   // (délégués Accès total pour une boîte partagée, membres de groupe pour
@@ -231,6 +265,11 @@ function MailboxModal({ initial, token, onClose, onSaved }: { initial: SharedMai
       const data = await res.json();
       if (!data.found) throw Object.assign(new Error(data.message || "Introuvable dans l'AD ni dans O365"), { o365_status: data.o365_status || null });
       const members: Membre[] = (data.members || []).map((m: Membre) => ({ displayName: m.displayName, email: m.email }));
+      if (!members.length && data.source === 'ad' && data.type === 'autre') {
+        // Aucun délégué lisible dans l'AD : on garde les membres de la fiche et on le signale.
+        setSyncAdMsg({ ok: false, text: data.message || "Aucun délégué trouvé dans l'AD." });
+        return;
+      }
       setForm((f) => ({
         ...f,
         membres: members,
@@ -346,7 +385,41 @@ function MailboxModal({ initial, token, onClose, onSaved }: { initial: SharedMai
                 {syncAdMsg.ok ? '✅' : '❌'} {syncAdMsg.text}
               </div>
             )}
-            <MultiAgentPicker value={form.membres} token={token} onChange={(v) => setForm({ ...form, membres: v })} />
+            <MultiAgentPicker value={form.membres} token={token} onChange={(v) => {
+              // Un retrait passe par une modale de confirmation : il supprime aussi la
+              // délégation dans l'AD (si la fiche a une adresse) ; les ajouts restent locaux.
+              const key = (m: Membre) => m.email || m.displayName;
+              const removed = form.membres.filter((m) => !v.some((x) => key(x) === key(m)));
+              const added = v.filter((x) => !form.membres.some((m) => key(m) === key(x)));
+              if (removed.length === 1 && !added.length && form.email.trim() && removed[0].email) { setConfirmRemove({ ...removed[0], op: 'remove' }); setRemoveErr(''); return; }
+              if (added.length === 1 && !removed.length && form.email.trim() && added[0].email) { setConfirmRemove({ ...added[0], op: 'add' }); setRemoveErr(''); return; }
+              setForm({ ...form, membres: v });
+            }} />
+            {confirmRemove && (
+              <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.55)', zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                onClick={() => !removing && setConfirmRemove(null)}>
+                <div style={{ background: '#fff', borderRadius: 12, padding: 24, width: 460, maxWidth: '92vw', boxShadow: '0 20px 50px rgba(0,0,0,0.3)' }} onClick={(e) => e.stopPropagation()}>
+                  <h3 style={{ margin: '0 0 10px', fontSize: 16, fontWeight: 700, color: '#b91c1c', display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <AlertTriangle size={18} /> {confirmRemove.op === 'add' ? "Ajouter la délégation dans l'AD ?" : "Supprimer la délégation dans l'AD ?"}
+                  </h3>
+                  <p style={{ fontSize: 13, color: '#334155', margin: '0 0 8px' }}>
+                    <strong>{confirmRemove.displayName}</strong> ({confirmRemove.email}) sera {confirmRemove.op === 'add' ? 'ajouté(e) à' : 'retiré(e) de'} <strong>{form.email.trim()}</strong>.
+                  </p>
+                  <p style={{ fontSize: 12, color: '#64748b', margin: '0 0 14px' }}>
+                    Cette action <strong>modifie réellement l'annuaire Active Directory</strong> et est journalisée à votre nom. {confirmRemove.op === 'remove' ? "Si la personne n'y figure pas, elle n'est retirée que de la fiche." : "Le compte AD est retrouvé par son adresse mail."}
+                  </p>
+                  {removeErr && <div style={{ fontSize: 12, fontWeight: 600, color: '#dc2626', marginBottom: 10 }}>❌ {removeErr}</div>}
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+                    <button type="button" disabled={removing} onClick={() => setConfirmRemove(null)}
+                      style={{ padding: '7px 14px', borderRadius: 8, border: '1px solid #cbd5e1', background: '#fff', cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>Annuler</button>
+                    <button type="button" disabled={removing} onClick={confirmRemoveMember}
+                      style={{ padding: '7px 14px', borderRadius: 8, border: 'none', background: confirmRemove.op === 'add' ? '#2563eb' : '#dc2626', color: '#fff', cursor: removing ? 'default' : 'pointer', fontSize: 13, fontWeight: 700, opacity: removing ? 0.6 : 1 }}>
+                      {removing ? 'Modification…' : confirmRemove.op === 'add' ? "Ajouter dans l'AD" : "Supprimer dans l'AD"}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
             <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, fontWeight: 600, color: '#334155', cursor: 'pointer' }}>

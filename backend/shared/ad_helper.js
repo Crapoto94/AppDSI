@@ -421,7 +421,86 @@ async function searchADRecipientMembers(email, config) {
     });
 }
 
+/**
+ * ÉCRITURE AD : retire (delete) ou ajoute (add) `memberEmail` dans la délégation de la boîte/liste `email`
+ * (valeur supprimée de `msExchDelegateListLink` pour une boîte partagée, de
+ * `member` pour un groupe). Le compte de liaison (bind_dn) doit avoir le droit
+ * d'écriture sur l'objet. Résout toujours : { ok, notInAd, objectDn, attribute,
+ * removedDn, error }.
+ */
+async function modifyADRecipientMember(operation, email, memberEmail, config) {
+    return new Promise((resolve) => {
+        let settled = false;
+        const client = ldap.createClient({ url: `ldap://${config.host}:${config.port}`, connectTimeout: 6000, timeout: 15000 });
+        const finish = (val) => { if (settled) return; settled = true; clearTimeout(guard); try { client.destroy(); } catch (_) {} resolve(val); };
+        const guard = setTimeout(() => finish({ ok: false, error: 'Délai AD dépassé' }), 20000);
+        const esc = (v) => String(v).replace(/[*()\\\x00]/g, '\\$&');
+        // Les DN issus de objectName sont échappés en octets hexa (« \c39 » pour « é »),
+        // ceux des attributs sont décodés : on décode les deux avant de comparer.
+        const unescDn = (dn) => {
+            const str = String(dn);
+            if (!/\\[0-9a-fA-F]{2}/.test(str)) return str;
+            const bytes = [];
+            for (let i = 0; i < str.length; i++) {
+                const m = str[i] === '\\' && /^[0-9a-fA-F]{2}$/.test(str.slice(i + 1, i + 3));
+                if (m) { bytes.push(parseInt(str.slice(i + 1, i + 3), 16)); i += 2; }
+                else bytes.push(...Buffer.from(str[i], 'utf8'));
+            }
+            return Buffer.from(bytes).toString('utf8');
+        };
+        const norm = (dn) => unescDn(dn).replace(/\s*,\s*/g, ',').toLowerCase();
+        const searchOne = (filter, attributes) => new Promise((res2, rej2) => {
+            client.search(config.base_dn, { filter, scope: 'sub', attributes }, (e, r) => {
+                if (e) return rej2(e);
+                const found = [];
+                r.on('searchEntry', (en) => found.push(en));
+                r.on('error', rej2);
+                r.on('end', () => res2(found));
+            });
+        });
+        const dnOf = (en) => String(en.pojo?.objectName ?? en.objectName ?? en.dn ?? '');
+
+        client.on('error', (e) => finish({ ok: false, error: e.message }));
+        client.bind(config.bind_dn, config.bind_password, async (err) => {
+            if (err) return finish({ ok: false, error: 'Échec de connexion AD' });
+            try {
+                const objs = await searchOne(`(mail=${esc(email)})`, ['objectClass', 'member', 'msExchDelegateListLink']);
+                if (!objs.length) return finish({ ok: false, error: `Objet AD introuvable pour ${email}` });
+                const objDn = dnOf(objs[0]);
+                const obj = flattenLDAPEntry(objs[0]);
+                const classes = Array.isArray(obj.objectClass) ? obj.objectClass : [obj.objectClass].filter(Boolean);
+                const attribute = classes.includes('group') ? 'member' : 'msExchDelegateListLink';
+                const raw = obj[attribute] ? (Array.isArray(obj[attribute]) ? obj[attribute] : [obj[attribute]]) : [];
+
+                const users = await searchOne(`(&(objectClass=user)(mail=${esc(memberEmail)}))`, ['cn']);
+                if (!users.length) {
+                    if (operation === 'add') return finish({ ok: false, error: `Compte AD introuvable pour ${memberEmail}` });
+                    return finish({ ok: true, notInAd: true, objectDn: objDn, attribute });
+                }
+                const userDns = users.map((u) => norm(dnOf(u)));
+                const target = raw.find((d) => userDns.includes(norm(d)));
+                if (operation === 'add' && target) return finish({ ok: true, alreadyInAd: true, objectDn: objDn, attribute });
+                if (operation === 'delete' && !target) return finish({ ok: true, notInAd: true, objectDn: objDn, attribute });
+                const value = operation === 'add' ? unescDn(dnOf(users[0])) : target;
+
+                await new Promise((res2, rej2) => {
+                    const change = new ldap.Change({ operation, modification: new ldap.Attribute({ type: attribute, values: [value] }) });
+                    client.modify(objDn, change, (e) => (e ? rej2(e) : res2()));
+                });
+                finish({ ok: true, notInAd: false, objectDn: objDn, attribute, removedDn: value, changedDn: value });
+            } catch (e) {
+                finish({ ok: false, error: e.message });
+            }
+        });
+    });
+}
+
+const removeADRecipientMember = (email, memberEmail, config) => modifyADRecipientMember('delete', email, memberEmail, config);
+const addADRecipientMember = (email, memberEmail, config) => modifyADRecipientMember('add', email, memberEmail, config);
+
 module.exports = {
+    removeADRecipientMember,
+    addADRecipientMember,
     searchADUsersByQuery,
     lookupADUsersOrg,
     searchADComputers,

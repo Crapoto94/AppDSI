@@ -1,6 +1,6 @@
 const { pgDb, getSqlite } = require('../../shared/database');
 const service = require('./mailboxes.service');
-const { searchADRecipientMembers } = require('../../shared/ad_helper');
+const { searchADRecipientMembers, removeADRecipientMember, addADRecipientMember } = require('../../shared/ad_helper');
 const { checkO365Existence, getMailboxMessageCounts } = require('../../shared/graph_helper');
 
 module.exports = {
@@ -64,7 +64,16 @@ module.exports = {
             const adSettings = db ? await db.get('SELECT * FROM ad_settings WHERE id = 1') : null;
             if (adSettings?.is_enabled && adSettings.host) {
                 const result = await searchADRecipientMembers(email, adSettings);
-                if (result.found) return res.json({ ...result, source: 'ad', o365_status: null });
+                if (result.found && result.members.length) return res.json({ ...result, source: 'ad', o365_status: null });
+                if (result.found) {
+                    // Objet présent dans l'AD mais sans délégué ni membre : typiquement une
+                    // boîte dont les délégués sont gérés dans Exchange Online (non synchronisés
+                    // vers l'AD on-prem). On n'écrase rien côté fiche.
+                    return res.json({
+                        ...result, source: 'ad', o365_status: null,
+                        message: "Boîte trouvée dans l'AD mais aucun délégué (Accès total) n'y est renseigné — ses délégués sont probablement gérés dans Exchange Online et ne sont pas lisibles depuis l'AD on-prem. Les membres existants de la fiche sont conservés.",
+                    });
+                }
             }
 
             // Repli O365 (best-effort — l'échec de cette étape ne doit jamais
@@ -103,6 +112,84 @@ module.exports = {
             });
         } catch (error) {
             res.status(500).json({ message: 'Erreur lors de la lecture AD/O365', error: error.message });
+        }
+    },
+
+    // POST /api/mailboxes/ad-remove-member { mailbox_id?, email, member_email, member_name? }
+    // — retire réellement la délégation / le membre dans l'AD on-prem (écriture
+    // LDAP) et journalise l'opération dans hub.shared_mailbox_ad_log. Si le
+    // membre n'est pas dans l'AD (ajout manuel dans la fiche), renvoie
+    // notInAd:true sans rien modifier : le front ne le retire alors que de la fiche.
+    async removeAdMember(req, res) {
+        const { mailbox_id, email, member_email, member_name } = req.body || {};
+        const actor = req.user?.username || 'inconnu';
+        const log = async (result, r, details) => {
+            console.log(`[MAILBOXES AD] ${actor} retire ${member_email} de ${email} : ${result}${details ? ' — ' + details : ''}`);
+            try {
+                await pgDb.run(
+                    `INSERT INTO hub.shared_mailbox_ad_log (mailbox_id, mailbox_email, action, member_email, member_name, actor, ad_object_dn, ad_attribute, result, details)
+                     VALUES (?, ?, 'remove_member', ?, ?, ?, ?, ?, ?, ?)`,
+                    [mailbox_id || null, email, member_email, member_name || null, actor, r?.objectDn || null, r?.attribute || null, result, details || null]);
+            } catch (e) { console.warn('[MAILBOXES AD] journal échoué:', e.message); }
+        };
+        try {
+            if (!email || !member_email) return res.status(400).json({ message: 'Adresse de la boîte et du membre requises' });
+            const db = getSqlite();
+            const adSettings = db ? await db.get('SELECT * FROM ad_settings WHERE id = 1') : null;
+            if (!adSettings?.is_enabled || !adSettings.host) return res.status(400).json({ message: 'Active Directory non configuré' });
+
+            const r = await removeADRecipientMember(email.trim(), member_email.trim(), adSettings);
+            if (!r.ok) {
+                await log('échec', r, r.error);
+                return res.status(500).json({ message: `Échec de la modification AD : ${r.error}` });
+            }
+            if (r.notInAd) {
+                await log('absent de l\'AD', r, 'aucune modification AD');
+                return res.json({ removed: false, notInAd: true });
+            }
+            await log('supprimé', r, `valeur retirée : ${r.removedDn}`);
+            res.json({ removed: true, attribute: r.attribute });
+        } catch (error) {
+            await log('échec', null, error.message);
+            res.status(500).json({ message: 'Erreur lors de la modification AD', error: error.message });
+        }
+    },
+
+    // POST /api/mailboxes/ad-add-member { mailbox_id?, email, member_email, member_name? }
+    // — ajoute réellement la délégation / le membre dans l'AD on-prem (écriture
+    // LDAP), journalisé dans hub.shared_mailbox_ad_log.
+    async addAdMember(req, res) {
+        const { mailbox_id, email, member_email, member_name } = req.body || {};
+        const actor = req.user?.username || 'inconnu';
+        const log = async (result, r, details) => {
+            console.log(`[MAILBOXES AD] ${actor} ajoute ${member_email} à ${email} : ${result}${details ? ' — ' + details : ''}`);
+            try {
+                await pgDb.run(
+                    `INSERT INTO hub.shared_mailbox_ad_log (mailbox_id, mailbox_email, action, member_email, member_name, actor, ad_object_dn, ad_attribute, result, details)
+                     VALUES (?, ?, 'add_member', ?, ?, ?, ?, ?, ?, ?)`,
+                    [mailbox_id || null, email, member_email, member_name || null, actor, r?.objectDn || null, r?.attribute || null, result, details || null]);
+            } catch (e) { console.warn('[MAILBOXES AD] journal échoué:', e.message); }
+        };
+        try {
+            if (!email || !member_email) return res.status(400).json({ message: 'Adresse de la boîte et du membre requises' });
+            const db = getSqlite();
+            const adSettings = db ? await db.get('SELECT * FROM ad_settings WHERE id = 1') : null;
+            if (!adSettings?.is_enabled || !adSettings.host) return res.status(400).json({ message: 'Active Directory non configuré' });
+
+            const r = await addADRecipientMember(email.trim(), member_email.trim(), adSettings);
+            if (!r.ok) {
+                await log('échec', r, r.error);
+                return res.status(500).json({ message: `Échec de la modification AD : ${r.error}` });
+            }
+            if (r.alreadyInAd) {
+                await log('déjà présent', r, 'aucune modification AD');
+                return res.json({ added: false, alreadyInAd: true });
+            }
+            await log('ajouté', r, `valeur ajoutée : ${r.changedDn}`);
+            res.json({ added: true, attribute: r.attribute });
+        } catch (error) {
+            await log('échec', null, error.message);
+            res.status(500).json({ message: 'Erreur lors de la modification AD', error: error.message });
         }
     },
 

@@ -12,6 +12,8 @@ router.get('/', authenticateJWT, ctrl.list);
 // gestionnaires que l'écriture, avant /:id (route fixe, cf. convention
 // d'ordre des routes Express du projet).
 router.get('/ad-members', authenticateTicketAdmin, ctrl.getAdMembers);
+router.post('/ad-remove-member', authenticateTicketAdmin, ctrl.removeAdMember);
+router.post('/ad-add-member', authenticateTicketAdmin, ctrl.addAdMember);
 
 // Écriture réservée aux superviseurs/admins tickets (même pattern que
 // request-forms.routes.js) — l'inventaire des boîtes partagées est une

@@ -6636,6 +6636,27 @@ async function setupPgDb() {
       `);
     } catch (e) { console.error('[PG DB] hub.custom_groups:', e.message); }
 
+    // Journal des modifications d'annuaire AD faites depuis /boites-partagees
+    // (retrait d'une délégation / d'un membre).
+    try {
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS hub.shared_mailbox_ad_log (
+          id            SERIAL PRIMARY KEY,
+          mailbox_id    INTEGER,
+          mailbox_email TEXT,
+          action        TEXT NOT NULL,
+          member_email  TEXT,
+          member_name   TEXT,
+          actor         TEXT,
+          ad_object_dn  TEXT,
+          ad_attribute  TEXT,
+          result        TEXT,
+          details       TEXT,
+          created_at    TIMESTAMPTZ DEFAULT NOW()
+        )
+      `);
+    } catch (e) { console.error('[PG] shared_mailbox_ad_log:', e.message); }
+
     // ─── hub.shared_mailboxes : boites mail partagees demandees via le
     // formulaire de demande "Demande de boite mail partagée"
     // (hub.request_forms.special_action = 'boite_partagee') — alimentee a la
