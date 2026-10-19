@@ -67,7 +67,52 @@ async function loadPjs(demandeIds) {
     return map;
 }
 
+// État de la commande Sedit associée : brouillon → en validation → validée → bon signé → envoyée au fournisseur.
+// Un échec de lecture Sedit ne bloque pas la liste (état simplement absent).
+async function loadCommandeEtats(roos) {
+    const list = [...new Set(roos.map(r => String(r || '').trim()).filter(Boolean))];
+    const out = {};
+    if (!list.length) return out;
+    let sedit_etats = new Map();
+    try { sedit_etats = await sedit.getCommandesEtat(list); } catch (e) { console.warn('[DemandesCommande] état Sedit indisponible:', e.message); }
+    let envois = {};
+    try {
+        const r = await pool.query('SELECT commande_roo, MAX(sent_at) AS sent_at FROM finance.commande_envois WHERE commande_roo = ANY($1::text[]) GROUP BY commande_roo', [list]);
+        for (const row of r.rows) envois[String(row.commande_roo).trim()] = row.sent_at;
+    } catch { /* table absente */ }
+    for (const roo of list) {
+        const e = sedit_etats.get(roo);
+        let etat = null;
+        if (envois[roo]) etat = 'envoyee';
+        else if (e) etat = e.avancement === '4' ? (e.signe ? 'signee' : 'validee') : e.avancement === '1' ? 'en_validation' : 'brouillon';
+        out[roo] = { commande_etat: etat, commande_envoyee_at: envois[roo] || null };
+    }
+    return out;
+}
+
 module.exports = {
+    // Bon de commande Sedit (PDF) de la commande associée à la demande — signé si disponible.
+    async bonCommande(req, res) {
+        try {
+            const id = parseInt(req.params.id, 10);
+            const d = (await pool.query('SELECT commande_roo, commande_numero FROM finance.demandes_commande WHERE id = $1', [id])).rows[0];
+            if (!d) return res.status(404).json({ message: 'Demande introuvable' });
+            if (!d.commande_roo) return res.status(404).json({ message: 'Aucune commande associée' });
+            const envoi = require('../commande-envoi/commande-envoi.service');
+            const bon = await envoi.getBonDeCommandeToView(d.commande_roo);
+            if (!bon) return res.status(404).json({ message: "Pas de bon de commande dans Sedit pour cette commande (brouillon ?)" });
+            const buffer = await envoi.readDocument(bon);
+            if (!buffer) return res.status(404).json({ message: 'Fichier du bon de commande introuvable sur le partage Sedit' });
+            const name = envoi.attachmentName(bon);
+            res.setHeader('Content-Type', 'application/pdf');
+            res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(name)}"`);
+            res.setHeader('X-Bon-Signe', bon.SIGNED ? '1' : '0');
+            res.send(buffer);
+        } catch (e) {
+            res.status(502).json({ message: `Lecture du bon de commande impossible : ${e.message}` });
+        }
+    },
+
     async me(req, res) {
         try {
             const fonction = await getValidateurRole(req.user);
@@ -83,7 +128,8 @@ module.exports = {
                 SELECT d.*, (SELECT COUNT(*)::int FROM finance.demandes_commande_commentaires c WHERE c.demande_id = d.id AND NOT c.is_system) AS comment_count
                 FROM finance.demandes_commande d ORDER BY d.created_at DESC`);
             const pjs = await loadPjs(r.rows.map(d => d.id));
-            res.json(r.rows.map(d => ({ ...d, montant: Number(d.montant), pieces: pjs[d.id] || [] })));
+            const etats = await loadCommandeEtats(r.rows.map(d => d.commande_roo));
+            res.json(r.rows.map(d => ({ ...d, montant: Number(d.montant), pieces: pjs[d.id] || [], ...(etats[String(d.commande_roo || '').trim()] || {}) })));
         } catch (e) {
             res.status(500).json({ message: 'Erreur chargement des demandes', error: e.message });
         }
@@ -99,10 +145,16 @@ module.exports = {
             const files = req.files || [];
             if (!files.length) return res.status(400).json({ message: 'Joindre au moins un devis' });
 
+            // Demande saisie pour le compte d'un autre agent / d'un autre service : le créateur reste
+            // `demandeur_username` (droits de modification), le demandeur affiché est `demandeur_name`.
+            const demandeurName = String(req.body.demandeur_name || '').trim() || req.user.displayName || req.user.username;
+            const demandeurEmail = String(req.body.demandeur_email || '').trim() || null;
+            const service = String(req.body.service || '').trim() || null;
+
             const ins = await pool.query(
-                `INSERT INTO finance.demandes_commande (designation, description, montant, demandeur_username, demandeur_name, statut)
-                 VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
-                [designation, description, montant, req.user.username, req.user.username, STATUT_DEVIS]
+                `INSERT INTO finance.demandes_commande (designation, description, montant, demandeur_username, demandeur_name, demandeur_email, service, statut)
+                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
+                [designation, description, montant, req.user.username, demandeurName, demandeurEmail, service, STATUT_DEVIS]
             );
             const demande = ins.rows[0];
 

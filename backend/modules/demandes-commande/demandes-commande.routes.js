@@ -16,6 +16,7 @@ router.get('/sedit-commandes', authenticateJWT, controller.listSeditCommandes);
 router.get('/', authenticateJWT, controller.list);
 router.post('/', authenticateJWT, upload.array('files', 10), controller.create);
 router.put('/:id', authenticateJWT, upload.array('files', 10), controller.update);
+router.get('/:id/bon-commande', authenticateJWT, controller.bonCommande);
 router.post('/:id/validate', authenticateJWT, controller.validate);
 router.get('/:id/commentaires', authenticateJWT, controller.listComments);
 router.post('/:id/commentaires', authenticateJWT, controller.addComment);

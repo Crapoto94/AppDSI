@@ -3641,6 +3641,7 @@ async function setupPgDb() {
       `commande_associee_par TEXT`, `commande_associee_at TIMESTAMPTZ`,
       `valide_commentaire TEXT`,
       `modifie_par TEXT`, `modifie_at TIMESTAMPTZ`,
+      `service TEXT`, `demandeur_email TEXT`,
     ]) {
       try { await client.query(`ALTER TABLE finance.demandes_commande ADD COLUMN IF NOT EXISTS ${col}`); } catch (e) { console.error('[PG DB] alter demandes_commande:', e.message); }
     }

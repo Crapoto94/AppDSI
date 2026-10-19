@@ -3,6 +3,9 @@ import axios from 'axios';
 import { useAuth } from '../contexts/AuthContext';
 import { CheckCircle, Paperclip, Plus, Trash2, FileText, MessageSquare, Edit2, X } from 'lucide-react';
 import DemandeCommentsModal from './DemandeCommentsModal';
+import { openAttachmentViewer } from './AttachmentViewer';
+import AgentPickerRH, { type AgentRef } from './parapheur/AgentPickerRH';
+import AgentPresenceBadge from './AgentPresenceBadge';
 
 interface Piece { id: number; file_path: string; file_name: string; size: number | null; }
 interface Demande {
@@ -11,6 +14,9 @@ interface Demande {
   description: string;
   montant: number;
   demandeur_username: string;
+  demandeur_name?: string | null;
+  demandeur_email?: string | null;
+  service?: string | null;
   statut: string;
   valide_par: string | null;
   valide_fonction: string | null;
@@ -20,6 +26,8 @@ interface Demande {
   pieces: Piece[];
   commande_roo: string | null;
   commande_numero: string | null;
+  commande_etat?: 'brouillon' | 'en_validation' | 'validee' | 'signee' | 'envoyee' | null;
+  commande_envoyee_at?: string | null;
   commande_libelle: string | null;
   commande_montant: number | null;
   commande_tiers: string | null;
@@ -48,6 +56,24 @@ const s: Record<string, React.CSSProperties> = {
   td: { padding: '0.6rem', fontSize: '0.88rem', borderBottom: '1px solid #f1f5f9', verticalAlign: 'top' },
 };
 
+const COMMANDE_ETATS: Record<string, { label: string; color: string }> = {
+  brouillon: { label: 'Brouillon', color: '#64748b' },
+  en_validation: { label: 'En validation', color: '#d97706' },
+  validee: { label: 'Validée (bon édité)', color: '#0ea5e9' },
+  signee: { label: 'Bon signé', color: '#16a34a' },
+  envoyee: { label: 'Envoyée au fournisseur', color: '#2563eb' },
+};
+
+const EtatCommande: React.FC<{ d: Demande }> = ({ d }) => {
+  if (!d.commande_numero) return null;
+  const e = d.commande_etat ? COMMANDE_ETATS[d.commande_etat] : null;
+  if (!e) return null;
+  return (
+    <span title={d.commande_envoyee_at ? `Envoyée le ${new Date(d.commande_envoyee_at).toLocaleDateString('fr-FR')}` : undefined}
+      style={{ background: e.color, color: '#fff', borderRadius: 12, padding: '2px 9px', fontSize: '0.7rem', fontWeight: 600, whiteSpace: 'nowrap' }}>{e.label}</span>
+  );
+};
+
 const fmtMoney = (n: number) => n.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' });
 
 const DemandesCommandeTab: React.FC = () => {
@@ -58,6 +84,8 @@ const DemandesCommandeTab: React.FC = () => {
   const [me, setMe] = useState<Me>({ can_validate: false, fonction: null, can_manage: false, can_delete: false });
   const [validateurs, setValidateurs] = useState<Validateur[]>([]);
   const [form, setForm] = useState({ designation: '', description: '', montant: '' });
+  const [demandeur, setDemandeur] = useState<AgentRef[]>([]);
+  const [service, setService] = useState('');
   const [files, setFiles] = useState<File[]>([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -123,6 +151,12 @@ const DemandesCommandeTab: React.FC = () => {
 
   useEffect(() => { load(); }, [load]);
 
+  // Service par défaut : celui de l'agent connecté (modifiable)
+  useEffect(() => {
+    axios.get('/api/agents/me', { headers }).then(r => { if (r.data?.service) setService(prev => prev || r.data.service); }).catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // Lien d'une notification de mention : ouvre directement le fil de la demande
   const [deepLinked, setDeepLinked] = useState(false);
   useEffect(() => {
@@ -143,11 +177,14 @@ const DemandesCommandeTab: React.FC = () => {
     fd.append('designation', form.designation);
     fd.append('description', form.description);
     fd.append('montant', form.montant);
+    if (demandeur[0]) { fd.append('demandeur_name', demandeur[0].displayName); fd.append('demandeur_email', demandeur[0].email); }
+    fd.append('service', service);
     files.forEach(f => fd.append('files', f));
     setSaving(true);
     try {
       await axios.post('/api/demandes-commande', fd, { headers });
       setForm({ designation: '', description: '', montant: '' });
+      setDemandeur([]);
       setFiles([]);
       await load();
     } catch (err: any) {
@@ -243,9 +280,9 @@ const DemandesCommandeTab: React.FC = () => {
         <tr>
           <th style={s.th}>Date</th>
           <th style={s.th}>Demandeur</th>
-          <th style={s.th}>Désignation</th>
+          <th style={{ ...s.th, width: '38%', minWidth: 320 }}>Désignation</th>
           <th style={s.th}>Montant TTC</th>
-          <th style={s.th}>Devis</th>
+          <th style={{ ...s.th, width: 64 }}>Devis</th>
           <th style={s.th}>Statut</th>
           <th style={s.th}>Échanges</th>
           {withCommande && <th style={s.th}>Commande Sedit</th>}
@@ -261,21 +298,26 @@ const DemandesCommandeTab: React.FC = () => {
           return (
             <tr key={d.id}>
               <td style={s.td}>{new Date(d.created_at).toLocaleDateString('fr-FR')}</td>
-              <td style={s.td}>{d.demandeur_username}</td>
               <td style={s.td}>
+                <span>{d.demandeur_name || d.demandeur_username}</span>
+                {d.demandeur_email && <> <AgentPresenceBadge email={d.demandeur_email} name={d.demandeur_name || ''} size={12} /></>}
+                {d.service && <div style={{ color: '#64748b', fontSize: '0.78rem' }}>{d.service}</div>}
+                {d.demandeur_name && d.demandeur_name !== d.demandeur_username && <div style={{ color: '#94a3b8', fontSize: '0.7rem' }}>saisie par {d.demandeur_username}</div>}
+              </td>
+              <td style={{ ...s.td, minWidth: 320 }}>
                 <div style={{ fontWeight: 600 }}>{d.designation}</div>
                 {d.description && <div style={{ color: '#64748b', fontSize: '0.8rem', whiteSpace: 'pre-wrap' }}>{d.description}</div>}
                 {d.modifie_at && <div style={{ color: '#94a3b8', fontSize: '0.72rem' }}>modifiée par {d.modifie_par} le {new Date(d.modifie_at).toLocaleDateString('fr-FR')}</div>}
               </td>
               <td style={{ ...s.td, whiteSpace: 'nowrap' }}>{fmtMoney(d.montant)}</td>
-              <td style={s.td}>
-                {d.pieces.map(p => (
-                  <div key={p.id}>
-                    <a href={`/${p.file_path}`} target="_blank" rel="noreferrer" style={{ color: '#2563eb', display: 'inline-flex', gap: 4, alignItems: 'center' }}>
-                      <FileText size={13} /> {p.file_name}
-                    </a>
-                  </div>
-                ))}
+              <td style={{ ...s.td, width: 64 }}>
+                {d.pieces.length > 0 && (
+                  <button type="button" title={d.pieces.map(p => p.file_name).join(', ')}
+                    onClick={() => openAttachmentViewer(d.pieces.map(p => ({ url: `/${p.file_path}`, name: p.file_name })))}
+                    style={{ ...s.btn, background: '#2563eb', padding: '0.35rem 0.6rem', fontSize: '0.8rem' }}>
+                    <FileText size={14} /> {d.pieces.length}
+                  </button>
+                )}
               </td>
               <td style={s.td}>
                 <span style={{ color: st.color, fontWeight: 600 }}>{st.label}</span>
@@ -286,7 +328,10 @@ const DemandesCommandeTab: React.FC = () => {
                   </div>
                 )}
                 {d.valide_commentaire && (
-                  <div style={{ fontSize: '0.78rem', color: '#475569', fontStyle: 'italic', whiteSpace: 'pre-wrap', marginTop: 2 }}>« {d.valide_commentaire} »</div>
+                  <span title={d.valide_commentaire} aria-label={`Commentaire de validation : ${d.valide_commentaire}`}
+                    style={{ display: 'inline-flex', alignItems: 'center', marginTop: 4, color: '#0ea5e9', cursor: 'help' }}>
+                    <MessageSquare size={16} />
+                  </span>
                 )}
               </td>
               <td style={s.td}>
@@ -298,19 +343,13 @@ const DemandesCommandeTab: React.FC = () => {
               {withCommande && (
                 <td style={s.td}>
                   {d.commande_numero && (
-                    <div style={{ marginBottom: 6 }}>
-                      <div style={{ fontWeight: 600 }}>{d.commande_numero}</div>
-                      <div style={{ color: '#64748b', fontSize: '0.78rem' }}>
-                        {d.commande_libelle}{d.commande_tiers ? ` — ${d.commande_tiers}` : ''}
-                        {d.commande_montant != null ? ` — ${fmtMoney(Number(d.commande_montant))}` : ''}
-                      </div>
-                    </div>
-                  )}
-                  {canAssociate && (
-                    <button style={{ ...s.btn, padding: '0.35rem 0.7rem', fontSize: '0.8rem' }} onClick={() => openAssoc(d)}>
-                      {d.commande_numero ? 'Changer la commande' : 'Associer une commande'}
+                    <button type="button" title="Afficher le bon de commande"
+                      onClick={() => openAttachmentViewer({ url: `/api/demandes-commande/${d.id}/bon-commande`, name: `Bon de commande ${d.commande_numero}.pdf`, mime: 'application/pdf' })}
+                      style={{ border: 'none', background: 'none', padding: 0, fontWeight: 600, color: '#2563eb', cursor: 'pointer', textDecoration: 'underline', fontSize: 'inherit' }}>
+                      {d.commande_numero}
                     </button>
                   )}
+                  <EtatCommande d={d} />
                 </td>
               )}
               {withAction && (
@@ -353,6 +392,16 @@ const DemandesCommandeTab: React.FC = () => {
           <div>
             <label style={s.label}>Montant (€ TTC) *</label>
             <input style={s.input} required type="number" min="0" step="0.01" value={form.montant} onChange={e => setForm({ ...form, montant: e.target.value })} />
+          </div>
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '1rem', marginTop: '1rem' }}>
+          <div>
+            <label style={s.label}>Demandeur (laisser vide = vous)</label>
+            <AgentPickerRH value={demandeur} token={token} onChange={(v) => setDemandeur(v.slice(-1))} placeholder="Rechercher un agent…" />
+          </div>
+          <div>
+            <label style={s.label}>Service</label>
+            <input style={s.input} value={service} onChange={e => setService(e.target.value)} />
           </div>
         </div>
         <div style={{ marginTop: '1rem' }}>
@@ -416,6 +465,21 @@ const DemandesCommandeTab: React.FC = () => {
               <label style={s.label}>Description</label>
               <textarea style={{ ...s.input, minHeight: 80 }} value={editForm.description} onChange={e => setEditForm({ ...editForm, description: e.target.value })} />
             </div>
+            {canAssociate && (() => {
+              const cur = demandes.find(x => x.id === editFor.id) || editFor;
+              return (
+                <div style={{ marginTop: '1rem', padding: '0.75rem', border: '1px solid #e2e8f0', borderRadius: 8 }}>
+                  <label style={s.label}>Commande Sedit</label>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                    <span style={{ fontWeight: 600 }}>{cur.commande_numero || 'Aucune commande associée'}</span>
+                    <EtatCommande d={cur} />
+                    <button type="button" style={{ ...s.btn, padding: '0.35rem 0.7rem', fontSize: '0.8rem' }} onClick={() => openAssoc(cur)}>
+                      {cur.commande_numero ? 'Changer la commande' : 'Associer une commande'}
+                    </button>
+                  </div>
+                </div>
+              );
+            })()}
             <div style={{ marginTop: '1rem' }}>
               <label style={s.label}><Paperclip size={12} /> Devis</label>
               {editFor.pieces.map(p => {

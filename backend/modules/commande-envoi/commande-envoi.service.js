@@ -53,6 +53,24 @@ async function getSignedBonDeCommande(roo) {
 }
 
 /**
+ * Bon de commande à AFFICHER : le signé s'il existe, sinon le plus récent « BonDeCommande… »
+ * (non signé ; les « BrouillardDeCommande » sont exclus).
+ */
+async function getBonDeCommandeToView(roo) {
+    const signed = await getSignedBonDeCommande(roo);
+    if (signed) return { ...signed, SIGNED: true };
+    const row = await financeShare.withFinanceOracle(async (conn) => (await conn.execute(
+        `SELECT * FROM (
+           SELECT TRIM(pj.ROO_IMA_REF) AS DOC_ID, pj.NOM_PJ, pj.CHEMIN_FICHIER, pj.FORMAT
+             FROM FI.FIPES_OBJ_PJ lnk
+             JOIN FI.PJ_PES pj ON pj.ROO_IMA_REF = lnk.PJPES_ROO
+            WHERE TRIM(lnk.OBJECT_ROO) = :roo AND TRIM(lnk.OBJECT_TYPE) = 'COMMANDE' AND pj.NOM_PJ LIKE 'BonDeCommand%'
+            ORDER BY pj.DATE_CREAT DESC NULLS LAST, pj.ROO_IMA_REF DESC)
+         WHERE ROWNUM = 1`, { roo: String(roo).trim() }, OPTS)).rows[0]);
+    return row ? { ...row, SIGNED: false } : null;
+}
+
+/**
  * Devis rattachés à la commande : PJ de type « Devis » (FI.TYPE_PIECE 65, cf. skill
  * sedit-finances), y compris les `order-BD…` (devis du portail fournisseur) dont le NOM_PJ
  * n'a pas d'extension (voir attachmentName).
@@ -216,4 +234,4 @@ async function getLogoDataUri() {
     return logoDataUri;
 }
 
-module.exports = { attachmentName, getLogoDataUri, getCommande, getSignedBonDeCommande, getDevis, readDocument, resolveCc, getAdPhone };
+module.exports = { attachmentName, getLogoDataUri, getCommande, getSignedBonDeCommande, getBonDeCommandeToView, getDevis, readDocument, resolveCc, getAdPhone };
