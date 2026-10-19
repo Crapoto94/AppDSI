@@ -33,6 +33,18 @@ router.get('/debug/orders-sample', authenticateJWT, async (req, res) => {
     }
 });
 
+// Demande de virement de crédits (historique, parapheur, envoi au budget)
+const virements = require('./virement-credits.controller');
+router.get('/virement-credits/settings', authenticateJWT, virements.getSettings);
+router.put('/virement-credits/settings', authenticateJWT, virements.saveSettings);
+router.get('/virement-credits/lines', authenticateJWT, virements.liveLines);
+router.get('/virement-credits', authenticateJWT, virements.list);
+router.post('/virement-credits', authenticateJWT, virements.save);
+router.get('/virement-credits/:id/pdf', authenticateJWT, virements.pdf);
+router.post('/virement-credits/:id/parapheur', authenticateJWT, virements.sendToParapheur);
+router.post('/virement-credits/:id/send-budget', authenticateJWT, virements.sendToBudget);
+router.delete('/virement-credits/:id', authenticateJWT, virements.remove);
+
 // Operations CRUD
 router.get('/operations', authenticateJWT, financeController.getOperations);
 router.get('/operations/:id/orders', authenticateJWT, financeController.getOperationOrders);

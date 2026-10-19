@@ -9,6 +9,7 @@ import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, Responsi
 import BudgetManagementTab from '../components/BudgetManagementTab';
 import BudgetPrepTab from '../components/BudgetPrepTab';
 import DemandesCommandeTab from '../components/DemandesCommandeTab';
+import VirementCreditsTab from '../components/VirementCreditsTab';
 import MappedDataTable from '../components/MappedDataTable';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -39,7 +40,7 @@ const Budget: React.FC = () => {
     </svg>
   );
 
-  const [view, setView] = useState<'summary' | 'lines' | 'engagements' | 'invoices' | 'invoices_beta' | 'orders' | 'tiers' | 'operations' | 'gestion' | 'prep' | 'demandes'>(
+  const [view, setView] = useState<'summary' | 'lines' | 'engagements' | 'invoices' | 'invoices_beta' | 'orders' | 'tiers' | 'operations' | 'gestion' | 'prep' | 'demandes' | 'virements'>(
     // Lien d'une notification (@mention) : /budget?view=demandes&demande=ID
     () => (new URLSearchParams(window.location.search).get('view') === 'demandes' ? 'demandes' : 'summary')
   );
@@ -1425,7 +1426,7 @@ const Budget: React.FC = () => {
             </div>
           </div>
           <div className="view-tabs">
-            {['summary', 'lines', 'engagements', 'invoices_beta', 'orders', 'tiers', 'operations', 'gestion', 'prep', 'demandes'].map(tab => {
+            {['summary', 'lines', 'engagements', 'invoices_beta', 'orders', 'tiers', 'operations', 'gestion', 'prep', 'demandes', 'virements'].map(tab => {
               // Only admin/finances/compta can see 'gestion'
               if (tab === 'gestion' && !['admin', 'finances', 'compta'].includes(currentUser.role)) return null;
               return (
@@ -1468,6 +1469,7 @@ const Budget: React.FC = () => {
                   {tab === 'gestion' && 'Gestion'}
                   {tab === 'prep' && 'Préparation budgétaire'}
                   {tab === 'demandes' && 'Demande de commande'}
+                  {tab === 'virements' && 'Virement de crédits'}
                 </button>
               );
             })}
@@ -2813,6 +2815,11 @@ const Budget: React.FC = () => {
             {view === 'demandes' && (
               <div className="animate-fade-in">
                 <DemandesCommandeTab />
+              </div>
+            )}
+            {view === 'virements' && (
+              <div className="animate-fade-in">
+                <VirementCreditsTab />
               </div>
             )}
             {view === 'tiers' && (
