@@ -1,3 +1,4 @@
+import { formatOrgName } from '../utils/orgName';
 import React, { useEffect, useState } from 'react';
 import Header from '../components/Header';
 import { useAuth } from '../contexts/AuthContext';
@@ -1352,8 +1353,8 @@ const [selectedDesignation, setSelectedDesignation] = useState<string>(() => {
                       </h3>
                       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, fontSize: 13 }}>
                         <div><span style={{ color: '#94a3b8' }}>Date :</span> <strong>{formData.date_commande}</strong></div>
-                        <div><span style={{ color: '#94a3b8' }}>Direction :</span> <strong>{formData.direction}</strong></div>
-                        <div><span style={{ color: '#94a3b8' }}>Service :</span> <strong>{formData.service}</strong></div>
+                        <div><span style={{ color: '#94a3b8' }}>Direction :</span> <strong>{formatOrgName(formData.direction)}</strong></div>
+                        <div><span style={{ color: '#94a3b8' }}>Service :</span> <strong>{formatOrgName(formData.service)}</strong></div>
                         <div><span style={{ color: '#94a3b8' }}>Référent :</span> <strong>{formData.nom_referent}</strong></div>
                         <div style={{ gridColumn: '1 / -1' }}><span style={{ color: '#94a3b8' }}>Téléphone :</span> <strong>{formData.tel_complet}</strong></div>
                       </div>
@@ -1530,7 +1531,7 @@ const [selectedDesignation, setSelectedDesignation] = useState<string>(() => {
                               Demande n°{request.id} — {request.type_consommable}
                             </p>
                             <p style={{ margin: '2px 0 0', fontSize: 13, color: '#64748b', display: 'flex', alignItems: 'center', gap: 6 }}>
-                              {request.direction} / {request.service} — {request.nom_referent}
+                              {formatOrgName(request.direction)} / {formatOrgName(request.service)} — {request.nom_referent}
                               <AgentPresenceBadge email={request.email} name={request.nom_referent} size={11} />
                             </p>
                             {request.email && <p style={{ margin: '2px 0 0', fontSize: 11, color: '#94a3b8' }}>{request.email}</p>}
@@ -2179,7 +2180,7 @@ const ConsommablesACommander: React.FC<{ token: string }> = ({ token }) => {
                 Demande n°{item.request_id} — {item.type_consommable}
               </p>
               <p style={{ margin: '2px 0 0', fontSize: 13, color: '#64748b', display: 'flex', alignItems: 'center', gap: 6 }}>
-                {item.direction} / {item.service} — {item.nom_referent}
+                {formatOrgName(item.direction)} / {formatOrgName(item.service)} — {item.nom_referent}
                 <AgentPresenceBadge email={item.email} name={item.nom_referent} size={11} />
               </p>
               {item.email && <p style={{ margin: '2px 0 0', fontSize: 11, color: '#94a3b8' }}>{item.email}</p>}
@@ -2539,8 +2540,8 @@ const ConsommablesRecap: React.FC<{ token: string }> = ({ token }) => {
                         </td>
                         <td style={{ padding: '12px 16px', color: '#1e293b', fontWeight: 500 }}>{new Date(r.date_commande).toLocaleDateString('fr-FR')}</td>
                         <td style={{ padding: '12px 16px' }}>
-                          <p style={{ margin: 0, fontWeight: 700, color: '#1e293b' }}>{r.direction}</p>
-                          <p style={{ margin: 0, fontSize: 12, color: '#64748b' }}>{r.service}</p>
+                          <p style={{ margin: 0, fontWeight: 700, color: '#1e293b' }}>{formatOrgName(r.direction)}</p>
+                          <p style={{ margin: 0, fontSize: 12, color: '#64748b' }}>{formatOrgName(r.service)}</p>
                         </td>
                         <td style={{ padding: '12px 16px' }}>
                           <span style={{ fontWeight: 600, color: '#3b82f6' }}>{r.order_number}</span>

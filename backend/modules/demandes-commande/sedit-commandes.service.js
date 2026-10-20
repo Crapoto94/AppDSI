@@ -65,4 +65,13 @@ async function getCommandesEtat(roos) {
     return out;
 }
 
-module.exports = { listLastCommandes, getCommandeByRoo, getCommandesEtat };
+
+/** Commandes DSI d'un exercice (année de la date de commande) : ROO, n° et montant TTC. */
+async function listCommandesExercice(year) {
+    const sql = `SELECT TRIM(c.ROO_IMA_REF) AS ROO, c.COMMANDE AS NUMERO, c.MONTANT_TTC AS MONTANT_TTC
+                   FROM FI.COMMANDE c
+                  WHERE ${DSI_FILTER} AND EXTRACT(YEAR FROM c.CMD_DATECOMMANDE) = :year`;
+    return financeShare.withFinanceOracle(async (conn) => (await conn.execute(sql, { year: parseInt(year, 10) }, OPTS)).rows);
+}
+
+module.exports = { listLastCommandes, getCommandeByRoo, getCommandesEtat, listCommandesExercice };

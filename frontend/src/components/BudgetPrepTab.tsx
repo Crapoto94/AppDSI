@@ -1,3 +1,4 @@
+import { formatOrgName } from '../utils/orgName';
 import React, { useEffect, useMemo, useState, useRef } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { Upload, Trash2, RefreshCw, TrendingUp, FileSpreadsheet, X, ChevronRight, ChevronDown } from 'lucide-react';
@@ -456,7 +457,7 @@ const BudgetPrepTab: React.FC = () => {
                                 <tr key={imp.id}>
                                     <td>{imp.filename}</td>
                                     <td>{imp.service_code}</td>
-                                    <td>{imp.service_label}</td>
+                                    <td>{formatOrgName(imp.service_label)}</td>
                                     <td>{imp.proposition_year}</td>
                                     <td>{imp.row_count}</td>
                                     <td>{imp.imported_at ? new Date(imp.imported_at).toLocaleString('fr-FR') : ''}</td>
@@ -479,7 +480,7 @@ const BudgetPrepTab: React.FC = () => {
                 <select className="filter-select" value={serviceFilter} onChange={e => setServiceFilter(e.target.value)}>
                     <option value="">Tous les services</option>
                     {facets?.services.map(s => (
-                        <option key={s.service_code} value={s.service_code}>{s.service_code} — {s.service_label}</option>
+                        <option key={s.service_code} value={s.service_code}>{s.service_code} — {formatOrgName(s.service_label)}</option>
                     ))}
                 </select>
                 <select className="filter-select" value={budgetFilter} onChange={e => setBudgetFilter(e.target.value)}>
@@ -549,7 +550,7 @@ const BudgetPrepTab: React.FC = () => {
                                         <tr className="service-row" onClick={() => toggleService(service.service_code)}>
                                             <td colSpan={2}>
                                                 {expandedServices.has(service.service_code) ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-                                                <strong>{service.service_code} — {service.service_label}</strong>
+                                                <strong>{service.service_code} — {formatOrgName(service.service_label)}</strong>
                                             </td>
                                             {visibleColumns.map(c => (
                                                 <td key={c.key} className={`col-${c.type} num`}>

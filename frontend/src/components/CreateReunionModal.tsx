@@ -1,3 +1,4 @@
+import { formatOrgName } from '../utils/orgName';
 import React, { useState, useEffect, useRef } from 'react';
 import { X, Plus, Paperclip, Calendar as CalendarIcon, CalendarSearch, AlertTriangle, Video } from 'lucide-react';
 import ReactQuill from 'react-quill-new';
@@ -592,7 +593,7 @@ const CreateReunionModal: React.FC<CreateReunionModalProps> = ({ isOpen, onClose
                           {u.displayName}
                           {u.source === 'rh' && <span style={{fontSize: '9px', fontWeight: 800, background: '#ede9fe', color: '#6d28d9', padding: '1px 5px', borderRadius: '5px'}}>RH</span>}
                         </div>
-                        <div style={{fontSize: '11px', color: '#64748b'}}>{u.email || 'Aucun email'}{u.service ? ` — ${u.service}` : ''}{u.direction ? ` / ${u.direction}` : ''}</div>
+                        <div style={{fontSize: '11px', color: '#64748b'}}>{u.email || 'Aucun email'}{u.service ? ` — ${formatOrgName(u.service)}` : ''}{u.direction ? ` / ${formatOrgName(u.direction)}` : ''}</div>
                       </div>
                       <Plus size={14} color="#2563eb" />
                     </div>
@@ -638,7 +639,7 @@ const CreateReunionModal: React.FC<CreateReunionModalProps> = ({ isOpen, onClose
                 <div style={{flex: 1, display: 'flex', flexDirection: 'column', gap: '2px'}}>
                   <span style={{fontSize: '13px', fontWeight: '700', color: '#1e293b'}}>{p.prenom ? `${p.prenom} ` : ''}{p.nom}</span>
                   <div style={{display: 'flex', gap: '6px', flexWrap: 'wrap'}}>
-                    {p.service && <span style={{fontSize: '11px', fontWeight: '500', background: 'rgba(0,0,0,0.05)', padding: '2px 7px', borderRadius: '3px', color: '#475569'}}>{p.service}</span>}
+                    {p.service && <span style={{fontSize: '11px', fontWeight: '500', background: 'rgba(0,0,0,0.05)', padding: '2px 7px', borderRadius: '3px', color: '#475569'}}>{formatOrgName(p.service)}</span>}
                     {p.organisme && <span style={{fontSize: '11px', fontWeight: '500', background: 'rgba(0,0,0,0.05)', padding: '2px 7px', borderRadius: '3px', color: '#475569'}}>🏢 {p.organisme}</span>}
                     {p.fonction && <span style={{fontSize: '11px', fontWeight: '500', background: 'rgba(0,0,0,0.05)', padding: '2px 7px', borderRadius: '3px', color: '#475569'}}>{p.fonction}</span>}
                   </div>

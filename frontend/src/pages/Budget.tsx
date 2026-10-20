@@ -1,3 +1,4 @@
+import BudgetHierarchy from '../components/BudgetHierarchy';
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import Header from '../components/Header';
 import {
@@ -248,39 +249,6 @@ const Budget: React.FC = () => {
     sync('Factures', invoiceColumns, setInvoiceColumns, 'invoices');
     sync('Opérations', opColumns, setOpColumns, 'operations');
   }, [mappedColumns]);
-
-  // New state for import modal
-  const [showImportModal, setShowImportModal] = useState(false);
-  const [pendingImportFile, setPendingImportFile] = useState<File | null>(null);
-  // @ts-ignore - setPendingImportType is used in a pending feature or might be triggered by external logic
-  const [pendingImportType, setPendingImportType] = useState<'' | 'lines' | 'invoices' | 'orders'>('');
-  const [availableBudgets, setAvailableBudgets] = useState<any[]>([]);
-  const [selectedBudgetId, setSelectedBudgetId] = useState<number | ''>('');
-  const [selectedYear, setSelectedYear] = useState<number>(new Date().getFullYear());
-
-  useEffect(() => {
-    const fetchBudgets = async () => {
-      try {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 5000);
-
-        const res = await fetch('/api/budgets', {
-          headers: { 'Authorization': `Bearer ${token}` },
-          signal: controller.signal
-        });
-        clearTimeout(timeoutId);
-
-        if (res.ok) {
-          const data = await res.json();
-          setAvailableBudgets(data);
-        }
-      } catch (e) {
-        // Silently fail if timeout or error - don't block the page
-      }
-    };
-
-    if (token) fetchBudgets();
-  }, [token]);
 
   useEffect(() => {
     if (!token) return;
@@ -823,124 +791,10 @@ const Budget: React.FC = () => {
 
   useEffect(() => {
     if (isRaw) {
-      const tableMap: any = { 'lines': 'budget_lines', 'invoices': 'invoices', 'orders': 'orders', 'operations': 'operations' };
+      const tableMap: any = { 'invoices': 'invoices', 'orders': 'orders', 'operations': 'operations' };
       if (tableMap[view]) fetchRawData(tableMap[view]);
     }
   }, [isRaw, view]);
-
-  const confirmImport = async () => {
-    if (!pendingImportFile || !pendingImportType || !selectedBudgetId) {
-      alert("Veuillez sélectionner un budget.");
-      return;
-    }
-    
-    setIsUploading(true);
-    const formData = new FormData();
-    formData.append('file', pendingImportFile);
-    formData.append('budgetId', String(selectedBudgetId));
-    formData.append('year', String(selectedYear));
-
-    let endpoint = '';
-    if (pendingImportType === 'lines') endpoint = 'api/budget/import-lines';
-    else if (pendingImportType === 'invoices') endpoint = 'api/budget/import-invoices';
-    else if (pendingImportType === 'orders') endpoint = 'api/orders/import';
-
-    try {
-      const response = await fetch(`/${endpoint}`, {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${token}` },
-        body: formData
-      });
-
-      if (response.ok) {
-        const result = await response.json();
-        setMessage(result.message);
-        fetchData();
-        setShowImportModal(false);
-        setPendingImportFile(null);
-        setTimeout(() => setMessage(''), 3000);
-      } else {
-        const errText = await response.text();
-        alert(`Erreur: ${errText}`);
-      }
-    } catch (e) {
-      alert('Erreur de connexion');
-    } finally {
-      setIsUploading(false);
-    }
-  };
-
-  const linesFileInputRef = useRef<HTMLInputElement>(null);
-  const [isImportingLines, setIsImportingLines] = useState(false);
-
-  const handleReimportLines = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    if (!window.confirm("Réimporter ce fichier remplacera l'intégralité des lignes d'exécution existantes. Continuer ?")) {
-      e.target.value = '';
-      return;
-    }
-    setIsImportingLines(true);
-    const formData = new FormData();
-    formData.append('file', file);
-    try {
-      const response = await fetch('/api/budget/import-lines', {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${token}` },
-        body: formData
-      });
-      if (response.ok) {
-        const result = await response.json();
-        setMessage(result.message);
-        await fetchData();
-        setTimeout(() => setMessage(''), 4000);
-      } else {
-        const errText = await response.text();
-        alert(`Erreur: ${errText}`);
-      }
-    } catch (err) {
-      alert('Erreur de connexion');
-    } finally {
-      setIsImportingLines(false);
-      e.target.value = '';
-    }
-  };
-
-  const engagementsFileInputRef = useRef<HTMLInputElement>(null);
-  const [isImportingEngagements, setIsImportingEngagements] = useState(false);
-
-  const handleReimportEngagements = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    if (!window.confirm("Réimporter ce fichier remplacera les engagements de l'exercice (année) du fichier, les autres années restent en place. Continuer ?")) {
-      e.target.value = '';
-      return;
-    }
-    setIsImportingEngagements(true);
-    const formData = new FormData();
-    formData.append('file', file);
-    try {
-      const response = await fetch('/api/budget/import-engagements', {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${token}` },
-        body: formData
-      });
-      if (response.ok) {
-        const result = await response.json();
-        setMessage(result.message);
-        await fetchData();
-        setTimeout(() => setMessage(''), 4000);
-      } else {
-        const errText = await response.text();
-        alert(`Erreur: ${errText}`);
-      }
-    } catch (err) {
-      alert('Erreur de connexion');
-    } finally {
-      setIsImportingEngagements(false);
-      e.target.value = '';
-    }
-  };
 
   const requestSort = (key: string) => {
     let direction: 'asc' | 'desc' = 'asc';
@@ -1656,6 +1510,7 @@ const Budget: React.FC = () => {
 
             {['lines', 'operations', 'engagements'].includes(view) && (
               <div className="orders-container">
+                {view !== 'lines' && (
                 <div className="toolbar">
                   <div className="toolbar-actions">
                     {view === 'operations' && isAuthorizedToEdit && (
@@ -1675,34 +1530,6 @@ const Budget: React.FC = () => {
                       >
                         <AlertCircle size={16} /> Orange / Rouge
                       </button>
-                    )}
-                    {view === 'lines' && (
-                      <button
-                        className={`toolbar-btn ${showZeroBudget ? 'active' : ''}`}
-                        onClick={() => setShowZeroBudget(!showZeroBudget)}
-                        style={{ background: showZeroBudget ? 'var(--color-navy)' : 'white', color: showZeroBudget ? 'white' : 'var(--color-slate-700)' }}
-                      >
-                        <Eye size={16} /> {showZeroBudget ? 'Masquer nuls' : 'Afficher tout'}
-                      </button>
-                    )}
-                    {view === 'lines' && isAuthorizedToEdit && (
-                      <>
-                        <input
-                          type="file"
-                          hidden
-                          ref={linesFileInputRef}
-                          accept=".xls,.xlsx"
-                          onChange={handleReimportLines}
-                        />
-                        <button
-                          className="toolbar-btn"
-                          onClick={() => linesFileInputRef.current?.click()}
-                          disabled={isImportingLines}
-                          title="Réimporter le fichier Excel des lignes d'exécution (remplace les lignes existantes)"
-                        >
-                          <Upload size={16} /> {isImportingLines ? 'Import en cours…' : 'Réimporter le fichier Excel'}
-                        </button>
-                      </>
                     )}
                     {view === 'engagements' && (
                       <div className="section-quick-filters" style={{ display: 'flex', gap: '0.5rem' }}>
@@ -1739,25 +1566,6 @@ const Budget: React.FC = () => {
                           Télécom
                         </button>
                       </div>
-                    )}
-                    {view === 'engagements' && isAuthorizedToEdit && (
-                      <>
-                        <input
-                          type="file"
-                          hidden
-                          ref={engagementsFileInputRef}
-                          accept=".xls,.xlsx"
-                          onChange={handleReimportEngagements}
-                        />
-                        <button
-                          className="toolbar-btn"
-                          onClick={() => engagementsFileInputRef.current?.click()}
-                          disabled={isImportingEngagements}
-                          title="Réimporter le fichier Excel des engagements (remplace uniquement les engagements de l'exercice du fichier)"
-                        >
-                          <Upload size={16} /> {isImportingEngagements ? 'Import en cours…' : 'Réimporter le fichier Excel'}
-                        </button>
-                      </>
                     )}
                   </div>
                     {view === 'operations' && (
@@ -1858,55 +1666,21 @@ const Budget: React.FC = () => {
                     )}
                   </div>
                 </div>
+                )}
 
-                {view === 'lines' && (() => {
-                  const fmt = (n: number) => n.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 });
-                  // Reports (investissement) et rattachements (fonctionnement) issus des engagements :
-                  // ce sont des crédits repris de l'exercice précédent, inclus dans le « Budget voté ».
-                  const carry = engagements.reduce((acc, e) => {
-                    const m = parseFloat(e['Montant engagé'] || 0) || 0;
-                    if (e['Type mvt'] === 'Report') acc.reportsI += m;
-                    else if (e['Type mvt'] === 'Rattachement') acc.rattachF += m;
-                    return acc;
-                  }, { reportsI: 0, rattachF: 0 });
-                  const newF = linesTotals.f - carry.rattachF;
-                  const newI = linesTotals.i - carry.reportsI;
-                  const card: React.CSSProperties = {
-                    flex: '1 1 0', minWidth: '170px', background: 'white', border: '1px solid var(--color-slate-200)',
-                    borderRadius: '12px', padding: '0.85rem 1.1rem', display: 'flex', flexDirection: 'column', gap: '0.25rem'
-                  };
-                  const label: React.CSSProperties = { fontSize: '0.72rem', fontWeight: 600, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.03em' };
-                  const value: React.CSSProperties = { fontSize: '1.25rem', fontWeight: 700, color: 'var(--color-navy)' };
-                  const sub: React.CSSProperties = { fontSize: '0.72rem', color: '#94a3b8' };
-                  return (
-                    <div style={{ display: 'flex', gap: '1rem', marginBottom: '1rem', flexWrap: 'wrap' }}>
-                      <div style={card}>
-                        <span style={label}>Budget voté total</span>
-                        <span style={value}>{fmt(linesTotals.total)}</span>
-                        <span style={sub}>F {fmt(linesTotals.f)} · I {fmt(linesTotals.i)}</span>
-                      </div>
-                      <div style={card}>
-                        <span style={label}>Fonctionnement</span>
-                        <span style={{ ...value, color: 'var(--color-green-500)' }}>{fmt(linesTotals.f)}</span>
-                      </div>
-                      <div style={card}>
-                        <span style={label}>Investissement (crédits nouveaux)</span>
-                        <span style={{ ...value, color: 'var(--color-blue-500)' }}>{fmt(newI)}</span>
-                        <span style={sub}>Voté {fmt(linesTotals.i)} − reports {fmt(carry.reportsI)}</span>
-                      </div>
-                      <div style={card}>
-                        <span style={label}>Reports / Rattachements</span>
-                        <span style={{ ...value, color: '#b45309' }}>{fmt(carry.reportsI + carry.rattachF)}</span>
-                        <span style={sub}>Reports (I) {fmt(carry.reportsI)} · Rattach. (F) {fmt(carry.rattachF)}</span>
-                      </div>
-                      <div style={{ ...card, borderColor: '#16a34a' }}>
-                        <span style={label}>Nouveaux crédits réels</span>
-                        <span style={{ ...value, color: '#16a34a' }}>{fmt(newF + newI)}</span>
-                        <span style={sub}>F {fmt(newF)} · I {fmt(newI)}</span>
-                      </div>
-                    </div>
-                  );
-                })()}
+                {view === 'lines' && (
+                  <BudgetHierarchy
+                    token={token}
+                    fiscalYear={currentFiscalYear}
+                    budgetScope={budgetScope}
+                    carry={engagements.reduce((acc: { reportsI: number; rattachF: number }, e: any) => {
+                      const m = parseFloat(e['Montant engagé'] || 0) || 0;
+                      if (e['Type mvt'] === 'Report') acc.reportsI += m;
+                      else if (e['Type mvt'] === 'Rattachement') acc.rattachF += m;
+                      return acc;
+                    }, { reportsI: 0, rattachF: 0 })}
+                  />
+                )}
 
                 {view === 'engagements' && (() => {
                   const zT = () => ({ r: 0, ra: 0, n: 0 });
@@ -2177,6 +1951,7 @@ const Budget: React.FC = () => {
                   </div>
                 )}
 
+                {view !== 'lines' && (
                 <div className="table-card">
                   <div className="table-responsive">
                     <table className="modern-table table-bordered">
@@ -2230,7 +2005,7 @@ const Budget: React.FC = () => {
                       </thead>
                       <tbody>
                         {filteredData.length > 0 ? filteredData.map((row: any, index: number) => {
-                          const hasLines = (view === 'orders' || (view === 'lines' && row._isGroup)) && row._lines && row._lines.length > 0;
+                          const hasLines = view === 'orders' && row._lines && row._lines.length > 0;
                           const linesCount = hasLines ? row._lines.length : 0;
                           
                           let isExpandable = false;
@@ -2241,9 +2016,6 @@ const Budget: React.FC = () => {
                             const globalLabel = (row['Libellé'] || row.label || '').trim();
                             isExpandable = hasLines && (linesCount > 1 || (linesCount === 1 && firstLineDesc !== globalLabel));
                             isExpanded = expandedOrders.includes(row.id || index.toString());
-                          } else if (view === 'lines') {
-                            isExpandable = hasLines && linesCount > 1;
-                            isExpanded = expandedLines.includes(row['Libellé'] || index.toString());
                           } else if (view === 'operations') {
                             isExpandable = true;
                             isExpanded = expandedOps.has(row.id);
@@ -2478,11 +2250,6 @@ const Budget: React.FC = () => {
                                       tooltip = row[col];
                                       content = (
                                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                          {isExpandable && view === 'lines' && (
-                                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '2px', fontSize: '12px', color: '#64748b' }}>
-                                              {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />} ({linesCount})
-                                            </span>
-                                          )}
                                           <span style={{ maxWidth: '450px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                                             {row[col]}
                                           </span>
@@ -2678,34 +2445,6 @@ const Budget: React.FC = () => {
                                   </td>
                                 </tr>
                               )}
-                              {isExpandable && isExpanded && view === 'lines' && (
-                                <tr className="expanded-row-bg" style={{ backgroundColor: '#f8fafc' }}>
-                                  <td colSpan={visibleColumns.length} style={{ padding: '10px 20px' }}>
-                                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
-                                      <thead>
-                                        <tr style={{ color: '#64748b', borderBottom: '1px solid #cbd5e1' }}>
-                                          <th style={{ padding: '4px' }}>Code</th>
-                                          <th style={{ padding: '4px' }}>Masque</th>
-                                          <th style={{ padding: '4px', textAlign: 'right' }}>Budget Voté</th>
-                                          <th style={{ padding: '4px', textAlign: 'right' }}>Disponible</th>
-                                          <th style={{ padding: '4px', textAlign: 'right' }}>Mt. Engagé</th>
-                                        </tr>
-                                      </thead>
-                                      <tbody>
-                                        {row._lines.map((line: any, idx: number) => (
-                                          <tr key={idx} style={{ borderBottom: '1px dashed #e2e8f0' }}>
-                                            <td style={{ padding: '4px', fontWeight: 'bold' }}>{line['Code']}</td>
-                                            <td style={{ padding: '4px' }}>{line['Masque']}</td>
-                                            <td style={{ padding: '4px', textAlign: 'right' }}>{(parseFloat(line['Budget voté']) || 0).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}</td>
-                                            <td style={{ padding: '4px', textAlign: 'right' }}>{(parseFloat(line['Disponible']) || 0).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}</td>
-                                            <td style={{ padding: '4px', textAlign: 'right' }}>{(parseFloat(line['Mt. engagé']) || 0).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}</td>
-                                          </tr>
-                                        ))}
-                                      </tbody>
-                                    </table>
-                                  </td>
-                                </tr>
-                              )}
                               {isExpanded && view === 'operations' && opsChild && (
                                 <tr className="expanded-row-bg" style={{ backgroundColor: '#f8fafc' }}>
                                   <td colSpan={visibleColumns.length + 1} style={{ padding: '10px 20px' }}>
@@ -2798,6 +2537,7 @@ const Budget: React.FC = () => {
                     </table>
                   </div>
                 </div>
+                )}
               </div>
             )}
             {view === 'gestion' && (
@@ -3283,81 +3023,6 @@ const Budget: React.FC = () => {
                       <p>Aperçu non disponible</p>
                     </div>
                   )}
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-        {showImportModal && (
-          <div className="modal-backdrop" onClick={() => setShowImportModal(false)}>
-            <div className="modal-window" style={{ maxWidth: '500px' }} onClick={e => e.stopPropagation()}>
-              <div className="modal-header">
-                <h2 className="modal-title">Paramètres de l'import</h2>
-                <button className="icon-btn" onClick={() => setShowImportModal(false)}><X size={20} /></button>
-              </div>
-              <div className="modal-body">
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-                  <p className="modal-desc">
-                    Fichier : <strong>{pendingImportFile?.name}</strong><br/>
-                    Veuillez confirmer le budget et l'année pour cet import.
-                  </p>
-                  
-                  <div className="form-group">
-                    <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 600, fontSize: '0.9rem' }}>Budget</label>
-                    <select 
-                      className="filter-select" 
-                      style={{ width: '100%', border: '1px solid var(--color-slate-200)', padding: '0.5rem', borderRadius: '0.5rem' }}
-                      value={selectedBudgetId}
-                      onChange={(e) => setSelectedBudgetId(parseInt(e.target.value))}
-                    >
-                      <option value="">-- Sélectionner un budget --</option>
-                      {availableBudgets.map(b => (
-                        <option key={b.id} value={b.id}>{b.Libelle} ({b.Annee})</option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div className="form-group">
-                    <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 600, fontSize: '0.9rem' }}>Année</label>
-                    <input 
-                      type="number" 
-                      className="search-input" 
-                      style={{ width: '100%' }}
-                      value={selectedYear}
-                      onChange={(e) => setSelectedYear(parseInt(e.target.value))}
-                    />
-                  </div>
-                  <div className="toggle-group" style={{ display: 'inline-flex', background: 'var(--color-slate-100)', padding: '0.25rem', borderRadius: '0.75rem' }}>
-                <button 
-                  className={`toggle-btn ${budgetScope === 'Ville' ? 'active' : ''}`}
-                  onClick={() => setBudgetScope('Ville')}
-                >
-                  Budget {budgetPrincipal}
-                </button>
-                <button 
-                  className={`toggle-btn ${budgetScope === 'All' ? 'active' : ''}`}
-                  onClick={() => setBudgetScope('All')}
-                >
-                  Tous budgets
-                </button>
-              </div>
-                  <div style={{ display: 'flex', gap: '1rem', marginTop: '1rem' }}>
-                    <button 
-                      className="toolbar-btn" 
-                      style={{ flex: 1, justifyContent: 'center' }}
-                      onClick={() => setShowImportModal(false)}
-                    >
-                      Annuler
-                    </button>
-                    <button 
-                      className="toolbar-btn" 
-                      style={{ flex: 1, justifyContent: 'center', background: 'var(--color-navy)', color: 'white' }}
-                      onClick={confirmImport}
-                      disabled={isUploading || !selectedBudgetId}
-                    >
-                      {isUploading ? 'Import en cours...' : 'Confirmer l\'import'}
-                    </button>
-                  </div>
                 </div>
               </div>
             </div>

@@ -1,3 +1,4 @@
+import { formatOrgName } from '../utils/orgName';
 import React, { useEffect, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
@@ -362,7 +363,7 @@ export default function CopieursKPI() {
                         style={{ padding: '8px 14px', cursor: 'pointer', borderBottom: '1px solid #f8fafc', background: copieurFilter === c.id ? '#faf5ff' : 'transparent', display: 'flex', flexDirection: 'column', gap: 1 }}
                       >
                         <span style={{ fontWeight: 700, fontFamily: 'monospace', fontSize: 13, color: copieurFilter === c.id ? '#7c3aed' : '#0891b2' }}>{c.numero_serie}</span>
-                        <span style={{ fontSize: 11, color: '#64748b' }}>{c.direction}{c.service ? ` / ${c.service}` : ''} · <em>{c.modele}</em></span>
+                        <span style={{ fontSize: 11, color: '#64748b' }}>{formatOrgName(c.direction)}{c.service ? ` / ${formatOrgName(c.service)}` : ''} · <em>{c.modele}</em></span>
                       </div>
                     ))}
                   </div>
@@ -661,7 +662,7 @@ export default function CopieursKPI() {
                     <tr key={c.copieur_id}>
                       <td><code style={{ fontSize: 11, background: '#f1f5f9', padding: '1px 5px', borderRadius: 4 }}>{c.numero_serie}</code></td>
                       <td style={{ fontSize: 12, maxWidth: 140, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        {c.direction}{c.service ? ` / ${c.service}` : ''}
+                        {formatOrgName(c.direction)}{c.service ? ` / ${formatOrgName(c.service)}` : ''}
                       </td>
                       <td style={{ textAlign: 'right', fontFamily: 'monospace', fontSize: 12, color: '#64748b' }}>{fmtM(c.prevTotal)}</td>
                       <td style={{ textAlign: 'right', fontFamily: 'monospace', fontSize: 12, fontWeight: 600 }}>
@@ -705,7 +706,7 @@ export default function CopieursKPI() {
                     <tr key={c.copieur_id}>
                       <td><code style={{ fontSize: 11, background: '#f1f5f9', padding: '1px 5px', borderRadius: 4 }}>{c.numero_serie}</code></td>
                       <td style={{ fontSize: 12, maxWidth: 140, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        {c.direction}{c.service ? ` / ${c.service}` : ''}
+                        {formatOrgName(c.direction)}{c.service ? ` / ${formatOrgName(c.service)}` : ''}
                       </td>
                       <td style={{ textAlign: 'right', fontFamily: 'monospace', fontSize: 12, color: '#64748b' }}>{fmtM(c.prevTotal)}</td>
                       <td style={{ textAlign: 'right', fontFamily: 'monospace', fontSize: 12, fontWeight: 600 }}>
@@ -755,7 +756,7 @@ export default function CopieursKPI() {
                       {c.modele && <div style={{ fontSize: 10, color: '#94a3b8', marginTop: 1 }}>{c.modele}</div>}
                     </td>
                     <td style={{ fontSize: 11, color: '#64748b', maxWidth: 130, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {c.direction}{c.service ? ` / ${c.service}` : ''}
+                      {formatOrgName(c.direction)}{c.service ? ` / ${formatOrgName(c.service)}` : ''}
                     </td>
                     <td style={{ textAlign: 'right', fontFamily: 'monospace', fontSize: 11, color: COLORS_NB }}>{fmtM(c.totalNB)}</td>
                     <td style={{ textAlign: 'right', fontFamily: 'monospace', fontSize: 11, color: COLORS_COUL }}>{fmtM(c.totalCoul)}</td>
@@ -794,7 +795,7 @@ export default function CopieursKPI() {
                           <code style={{ fontSize: 10, background: !c.last_releve ? '#fee2e2' : '#f1f5f9', color: !c.last_releve ? '#dc2626' : '#334155', padding: '1px 5px', borderRadius: 4 }}>{c.numero_serie}</code>
                         </td>
                         <td style={{ fontSize: 11, color: '#64748b', maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                          {c.direction}{c.service ? ` / ${c.service}` : ''}
+                          {formatOrgName(c.direction)}{c.service ? ` / ${formatOrgName(c.service)}` : ''}
                         </td>
                         <td style={{ textAlign: 'right', fontSize: 11, fontWeight: 600, color: !c.last_releve ? '#dc2626' : '#f59e0b' }}>
                           {fmtDate(c.last_releve)}

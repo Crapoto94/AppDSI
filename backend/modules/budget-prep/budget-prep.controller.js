@@ -2,6 +2,7 @@ const xlsx = require('xlsx');
 const { pool } = require('../../shared/database');
 const telecomController = require('../telecom/telecom.controller');
 const financeController = require('../finance/finance.controller');
+const { readEngagementRows } = require('../finance/sedit-engagements.service');
 
 // Nature comptable des frais de télécommunication : la prévision de cette nature se base sur
 // l'atterrissage annuel de /telecom plutôt que sur hub_contrats.contrats (qui ne recense pas les
@@ -426,21 +427,15 @@ module.exports = {
             const engagementsAgg = async (exercice, excludeOr) => {
                 const bySA = new Map(); // clé "service||article" → montant (réalisé) ou engagé (prévision)
                 try {
-                    const orFilter = excludeOr ? ` AND TRIM("Avancement") != 'OR'` : '';
-                    const r = await pool.query(
-                        `SELECT TRIM("Service Gestionnaire") AS service, TRIM("Article par nature") AS article,
-                                SUM("Montant TTC") AS montant, SUM("Reste engagé") AS reste
-                         FROM oracle.budget_engagements
-                         WHERE "Exercice" = $1 AND "Référence Fonctionnelle" IS NOT NULL AND TRIM("Référence Fonctionnelle") != ''
-                               AND TRIM("Code mouvement") LIKE $2${orFilter}
-                         GROUP BY TRIM("Service Gestionnaire"), TRIM("Article par nature")`,
-                        [String(exercice), `${yearPrefix(exercice)}%`]
-                    );
-                    for (const row of r.rows) {
-                        const montant = parseFloat(row.montant) || 0;
-                        const reste = parseFloat(row.reste) || 0;
-                        const saKey = `${row.service}||${row.article}`;
-                        bySA.set(saKey, (bySA.get(saKey) || 0) + (montant - reste));
+                    // Lecture directe de Sedit (Oracle FI), DSI uniquement.
+                    const lines = await readEngagementRows(exercice);
+                    const prefix = yearPrefix(exercice);
+                    for (const row of lines) {
+                        if (!row['Référence Fonctionnelle']) continue;
+                        if (!row['Code mouvement'].startsWith(prefix)) continue;
+                        if (excludeOr && row['Avancement'] === 'OR') continue;
+                        const saKey = `${row['Service Gestionnaire']}||${row['Article par nature']}`;
+                        bySA.set(saKey, (bySA.get(saKey) || 0) + (row['Montant TTC'] - row['Reste engagé']));
                     }
                 } catch (e) {
                     console.error('[BudgetPrep] engagementsAgg error:', e.message);
@@ -547,7 +542,7 @@ module.exports = {
 
             // Attache les valeurs (par service/article) sur chaque ligne détail correspondante.
             // La prévision N est décomposée en deux montants distincts :
-            // - "Engagé" : ce qui a déjà été formellement engagé sur l'exercice (oracle.budget_engagements)
+            // - "Engagé" : ce qui a déjà été formellement engagé sur l'exercice (lu en direct dans Sedit)
             // - "Reste à engager" : ce qui reste à engager pour couvrir les contrats (ou, pour la
             //   nature 6262, l'atterrissage télécom) qui n'ont pas encore de montant réel connu
             // Le total "Prévision" reste la somme des deux, pour le graphique et les totaux.
@@ -621,22 +616,18 @@ module.exports = {
 
             let engagements = [];
             if (includeEngagements) {
-                const orFilter = excludeOr ? ` AND TRIM("Avancement") != 'OR'` : '';
-                const engagementsRes = await pool.query(
-                    `SELECT TRIM("Code mouvement") AS numero, TRIM("Libellé mouvement") AS libelle_mouvement,
-                            TRIM("Libellé") AS libelle, ("Montant TTC" - "Reste engagé") AS montant
-                     FROM oracle.budget_engagements
-                     WHERE "Exercice" = $1 AND TRIM("Service Gestionnaire") = $2 AND TRIM("Article par nature") = $3
-                           AND "Référence Fonctionnelle" IS NOT NULL AND TRIM("Référence Fonctionnelle") != ''
-                           AND TRIM("Code mouvement") LIKE $4${orFilter}
-                     ORDER BY "Code mouvement"`,
-                    [String(year), service_code, article_code, `${yearPrefix}%`]
-                );
-                engagements = engagementsRes.rows.map(r => ({
-                    numero: r.numero,
-                    libelle: r.libelle_mouvement || r.libelle || '',
-                    montant: parseFloat(r.montant) || 0
-                })).filter(e => e.montant !== 0);
+                const lines = await readEngagementRows(year);
+                engagements = lines
+                    .filter(r => r['Service Gestionnaire'] === service_code && r['Article par nature'] === article_code
+                        && r['Référence Fonctionnelle'] && r['Code mouvement'].startsWith(yearPrefix)
+                        && !(excludeOr && r['Avancement'] === 'OR'))
+                    .map(r => ({
+                        numero: r['Code mouvement'],
+                        libelle: r['Libellé mouvement'] || r['Libellé'] || '',
+                        montant: r['Montant TTC'] - r['Reste engagé']
+                    }))
+                    .filter(e => e.montant !== 0)
+                    .sort((x, y) => x.numero.localeCompare(y.numero));
             }
 
             let operations = [];

@@ -5,6 +5,7 @@ import axios from 'axios';
 import { ChevronLeft, ChevronRight, Plus, Calendar, Settings, Mail, Cloud, Shield, BarChart3, Printer } from 'lucide-react';
 import { useADSearch } from '../utils/useADSearch';
 import AgentPresenceBadge from '../components/AgentPresenceBadge';
+import { formatOrgName, getCustomServiceColor, useServiceColors } from '../utils/orgName';
 
 const CATEGORIES = ['absence', 'teletravail', 'deplacement', 'deploiement', 'reunion', 'hotline', 'maintenance'] as const;
 type Categorie = typeof CATEGORIES[number];
@@ -137,6 +138,8 @@ function normalizeService(name: string): string {
 
 function getServiceColor(service: string): string {
   if (!service) return '#666';
+  const custom = getCustomServiceColor(service);
+  if (custom) return custom;
   // Direct match first
   if (SERVICE_COLOR_MAP[service]) {
     return SERVICE_COLOR_MAP[service];
@@ -159,6 +162,7 @@ function getServiceColor(service: string): string {
 
 export default function CalendrierDSI() {
   const { token, user } = useAuth();
+  useServiceColors(token);
   const headers = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
 
   const [view, setView] = useState<'week' | 'week7' | 'month'>('week');
@@ -1780,7 +1784,7 @@ export default function CalendrierDSI() {
             {services.map(s => (
               <span key={s} className="legend-item" style={{ cursor: 'pointer', fontWeight: selectedService === s ? 800 : 400, opacity: selectedService && selectedService !== s ? 0.4 : 1 }} onClick={() => setSelectedService(selectedService === s ? null : s)}>
                 <span className="legend-dot" style={{ background: getServiceColor(s) }} />
-                {s}
+                {formatOrgName(s)}
               </span>
             ))}
           </div>
@@ -1923,7 +1927,7 @@ const renderPastille = (evt: Evenement) => {
         const isAbsenceType = (evt: Evenement) => evt.categorie === 'absence' || evt.categorie === 'teletravail' || evt.categorie === 'deplacement';
         return (
         <div className="week-grid" style={{ gridTemplateColumns: `140px repeat(${weekDays.length}, 1fr)` }}>
-          <div className="header-cell" style={{ fontWeight: 700, background: getServiceColor(selectedService), color: '#fff' }}>{selectedService}</div>
+          <div className="header-cell" style={{ fontWeight: 700, background: getServiceColor(selectedService), color: '#fff' }}>{formatOrgName(selectedService)}</div>
           {weekDays.map(d => {
             const ds = formatDate(d);
             const isToday = ds === formatDate(new Date());
@@ -2274,7 +2278,7 @@ const renderDot = (evt: Evenement) => {
             {selectedAgent && (
               <div className="ad-selected">
                 <strong>{selectedAgent.displayName}</strong>
-                {selectedAgent.service && <span style={{ fontSize: '0.75rem', color: '#666', marginLeft: 4 }}>({selectedAgent.service})</span>}
+                {selectedAgent.service && <span style={{ fontSize: '0.75rem', color: '#666', marginLeft: 4 }}>({formatOrgName(selectedAgent.service)})</span>}
                 <span className="remove" onClick={() => { setSelectedAgent(null); ad.setQuery(''); setFormTitre(''); }}>✕</span>
               </div>
             )}
@@ -2341,7 +2345,7 @@ const renderDot = (evt: Evenement) => {
                   {services.map(s => {
                     const count = agents.filter(a => a.service === s).length;
                     return (
-                      <button key={s} onClick={() => setAgentServiceFilter(s)} style={{ padding: '6px 14px', borderRadius: '20px', border: agentServiceFilter === s ? '2px solid #0f172a' : '1px solid #cbd5e1', background: agentServiceFilter === s ? '#0f172a' : 'white', color: agentServiceFilter === s ? 'white' : '#475569', fontSize: '0.85rem', fontWeight: 500, cursor: 'pointer', transition: 'all 0.2s' }}>{s} ({count})</button>
+                      <button key={s} onClick={() => setAgentServiceFilter(s)} style={{ padding: '6px 14px', borderRadius: '20px', border: agentServiceFilter === s ? '2px solid #0f172a' : '1px solid #cbd5e1', background: agentServiceFilter === s ? '#0f172a' : 'white', color: agentServiceFilter === s ? 'white' : '#475569', fontSize: '0.85rem', fontWeight: 500, cursor: 'pointer', transition: 'all 0.2s' }}>{formatOrgName(s)} ({count})</button>
                     );
                   })}
                 </div>
@@ -2363,7 +2367,7 @@ const renderDot = (evt: Evenement) => {
                     {/* Service header */}
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 28px', background: '#f1f5f9', borderBottom: '1px solid #e2e8f0', marginBottom: '8px' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <span style={{ fontSize: '0.8rem', fontWeight: 700, color: '#0f172a' }}>{svc}</span>
+                        <span style={{ fontSize: '0.8rem', fontWeight: 700, color: '#0f172a' }}>{formatOrgName(svc)}</span>
                         <span style={{ fontSize: '0.75rem', fontWeight: 600, color: '#94a3b8', background: '#e2e8f0', padding: '2px 8px', borderRadius: '12px' }}>{grouped[svc].length}</span>
                       </div>
                       <label style={{ fontSize: '0.8rem', cursor: 'pointer', color: '#0f172a', display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 500 }}>
@@ -2392,7 +2396,7 @@ const renderDot = (evt: Evenement) => {
                             </span>
                             <div style={{ flex: 1 }}>
                               <div style={{ fontSize: '0.95rem', fontWeight: 500, color: '#0f172a' }}>{a.nom}</div>
-                              {a.service && <div style={{ fontSize: '0.8rem', color: '#94a3b8', marginTop: '2px' }}>{a.service}</div>}
+                              {a.service && <div style={{ fontSize: '0.8rem', color: '#94a3b8', marginTop: '2px' }}>{formatOrgName(a.service)}</div>}
                             </div>
                             {on && <span style={{ fontSize: '1.2rem', color: '#16a34a' }}>✓</span>}
                           </label>
@@ -2644,7 +2648,7 @@ const renderDot = (evt: Evenement) => {
                     <div key={u.username} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 16px', borderBottom: '1px solid #f1f5f9' }}>
                       <div>
                         <div style={{ fontWeight: 600, color: '#0f172a' }}>{u.displayName || u.username}</div>
-                        <div style={{ fontSize: '0.8rem', color: '#64748b' }}>{u.username}{u.email ? ` · ${u.email}` : ''}{u.service ? ` · ${u.service}` : ''}</div>
+                        <div style={{ fontSize: '0.8rem', color: '#64748b' }}>{u.username}{u.email ? ` · ${u.email}` : ''}{u.service ? ` · ${formatOrgName(u.service)}` : ''}</div>
                       </div>
                       <button onClick={() => { toggleManager(u.username, true); setManagerSearch(''); setManagerSearchResults([]); }} style={{ padding: '6px 14px', borderRadius: 8, background: '#f59e0b', color: '#fff', border: 'none', cursor: 'pointer', fontSize: '0.85rem', fontWeight: 600 }}>+ Manager</button>
                     </div>
@@ -2789,7 +2793,7 @@ const renderDot = (evt: Evenement) => {
                             <React.Fragment key={g.service || '__sans__'}>
                               <tr>
                                 <td colSpan={2 + mois.length * 2} style={{ padding: '8px 12px', background: getServiceColor(g.service) + '22', border: '1px solid #e2e8f0', fontWeight: 800, fontSize: '0.8rem', color: '#0f172a' }}>
-                                  {g.service ? `${g.service}` : 'Sans service'} ({g.agents.length})
+                                  {g.service ? `${formatOrgName(g.service)}` : 'Sans service'} ({g.agents.length})
                                 </td>
                               </tr>
                               {g.agents.map((a: CumulAgent) => (

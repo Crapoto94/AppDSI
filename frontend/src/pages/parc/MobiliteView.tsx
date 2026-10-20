@@ -2,6 +2,7 @@
 // Vue dédiée à la mobilité, branchée dans la page « Parc équipements » (onglet
 // « Téléphones et tablettes »). Modèle « historique par device » : la liste montre
 // le DERNIER état de chaque appareil ; le compteur d'actions ouvre l'historique.
+import { formatOrgName } from '../../utils/orgName';
 import React, { useEffect, useState, useCallback } from 'react';
 import axios from 'axios';
 import {
@@ -532,8 +533,8 @@ export default function MobiliteView({ token }: { token: string }) {
                         </div>
                         <div style={{ fontSize: '.82rem', color: C.slate, marginTop: 4, lineHeight: 1.5 }}>
                           {e.agent && <span><b>{e.agent}</b></span>}
-                          {e.direction && <span> · {e.direction}</span>}
-                          {e.service && <span> / {e.service}</span>}
+                          {e.direction && <span> · {formatOrgName(e.direction)}</span>}
+                          {e.service && <span> / {formatOrgName(e.service)}</span>}
                           {e.numero_ligne && <span> · ☎ {e.numero_ligne}</span>}
                           {e.forfait && <span> · {e.forfait}</span>}
                           {e.observations && <div style={{ marginTop: 3, color: C.amber, display: 'flex', alignItems: 'center', gap: 5 }}><AlertTriangle size={13} /> {e.observations}</div>}

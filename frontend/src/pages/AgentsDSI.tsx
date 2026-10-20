@@ -4,6 +4,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useADSearch } from '../utils/useADSearch';
 import { ArrowLeft, Plus, X, Trash2, Users, Check, RefreshCw, Link2, Unlink, Database } from 'lucide-react';
 import AgentPresenceBadge from '../components/AgentPresenceBadge';
+import { formatOrgName, getCustomServiceColor, saveServiceColor, useServiceColors } from '../utils/orgName';
 
 const JOURS = ['Dimanche', 'Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi'];
 const JOURS_COURT = ['Dim', 'Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam'];
@@ -24,6 +25,8 @@ const SERVICE_COLOR_MAP: Record<string, string> = {
 
 function getServiceColor(service: string): string {
   if (!service) return '#666';
+  const custom = getCustomServiceColor(service);
+  if (custom) return custom;
   if (SERVICE_COLOR_MAP[service]) {
     return SERVICE_COLOR_MAP[service];
   }
@@ -80,6 +83,7 @@ interface DemabsSyncInfo {
 export default function AgentsDSI() {
   const { token } = useAuth();
   const headers = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
+  useServiceColors(token);
 
   const [agents, setAgents] = useState<AgentDSI[]>([]);
   const [loading, setLoading] = useState(true);
@@ -529,11 +533,31 @@ export default function AgentsDSI() {
             }
             const serviceKeys = Object.keys(grouped).sort((a, b) => a.localeCompare(b));
             return serviceKeys.map((svc, _idx) => {
-              const svcColor = '#1a1a2e';
+              const svcColor = svc === 'Sans service' ? '#1a1a2e' : getServiceColor(svc);
               return (
                 <div key={svc} className="service-section">
                   <div className="service-header" style={{ background: svcColor, color: '#fff' }}>
-                    <span>{svc}</span>
+                    <span style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      {formatOrgName(svc)}
+                      {svc !== 'Sans service' && (
+                        <>
+                          <input
+                            type="color"
+                            value={svcColor.length === 7 ? svcColor : '#666666'}
+                            title="Couleur d'affichage dans le calendrier"
+                            onChange={e => saveServiceColor(token, svc, e.target.value).catch(err => setError(err.message))}
+                            style={{ width: 26, height: 22, padding: 0, border: '1px solid rgba(255,255,255,0.6)', borderRadius: 4, background: 'transparent', cursor: 'pointer' }}
+                          />
+                          {getCustomServiceColor(svc) && (
+                            <button
+                              title="Rétablir la couleur par défaut"
+                              onClick={() => saveServiceColor(token, svc, null).catch(err => setError(err.message))}
+                              style={{ background: 'rgba(255,255,255,0.2)', color: '#fff', border: 'none', borderRadius: 4, fontSize: '0.7rem', padding: '2px 6px', cursor: 'pointer' }}
+                            >Réinitialiser</button>
+                          )}
+                        </>
+                      )}
+                    </span>
                     <span className="service-count">{grouped[svc].length} agent{grouped[svc].length > 1 ? 's' : ''}</span>
                   </div>
                   {grouped[svc].map(agent => {
@@ -636,7 +660,7 @@ export default function AgentsDSI() {
                     {ad.results.map(u => (
                       <div key={u.username} className="ad-result-item" onMouseDown={(e) => { e.preventDefault(); setSelectedADUser(u); ad.setQuery(''); ad.clearResults(); }} style={{ cursor: 'pointer' }}>
                         <div className="ad-name">{u.displayName}</div>
-                        <div className="ad-detail">{u.email || u.username}{u.service ? ` — ${u.service}` : ''}</div>
+                        <div className="ad-detail">{u.email || u.username}{u.service ? ` — ${formatOrgName(u.service)}` : ''}</div>
                       </div>
                     ))}
                   </div>

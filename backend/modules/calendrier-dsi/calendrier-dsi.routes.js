@@ -12,6 +12,9 @@ router.delete('/evenements/:id', authenticateJWT, controller.deleteEvenement);
 
 router.post('/send-daily', authenticateJWT, controller.sendDailyCalendar);
 
+router.get('/service-colors', authenticateJWT, agentsController.getServiceColors);
+router.put('/service-colors', authenticateJWT, agentsController.setServiceColor);
+
 router.get('/agents', authenticateJWT, agentsController.getAgents);
 router.post('/agents', authenticateJWT, agentsController.createAgent);
 router.get('/agents/status', authenticateJWT, controller.getAgentsStatus);

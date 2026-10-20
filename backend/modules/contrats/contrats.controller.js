@@ -4,6 +4,7 @@ const xlsx = require('xlsx');
 const axios = require('axios');
 const { pgDb, pool, getSqlite } = require('../../shared/database');
 const storage = require('../../shared/storage');
+const { readEngagementRows } = require('../finance/sedit-engagements.service');
 const ocrService = require('../../shared/ocr');
 const apmAi = require('../../shared/apm_ai');
 const { saveAnalyseAsDocument: saveAnalyseAsGedDocument, persistAnalyseResult } = require('../../shared/contrat_analyse');
@@ -590,112 +591,27 @@ module.exports = {
     async searchCommandes(req, res) {
         try {
             const { q, tiers, montantMin, montantMax, year, limit } = req.query;
-            const params = [];
-            const where = [];
-
-            if (q) {
-                params.push(`%${q}%`, `%${q}%`);
-                where.push(`(c."COMMANDE_COMMANDE" ILIKE $${params.length - 1} OR TRIM(CONCAT(COALESCE(c."COMMANDE_LIBELLE", ''), ' ', COALESCE(c."COMMANDE_CMD_LIBELLE2", ''))) ILIKE $${params.length})`);
-            }
-            if (tiers) {
-                params.push(`%${tiers}%`, `%${tiers}%`);
-                where.push(`(c."TIERS_TIERS" ILIKE $${params.length - 1} OR t."TIERS_POBJ_EXTRACT_2" ILIKE $${params.length})`);
-            }
+            // Lecture directe de Sedit (Oracle FI), DSI uniquement ; exercice courant par défaut.
+            const ex = parseInt(year, 10) || new Date().getFullYear();
+            const lower = (v) => String(v || '').toLowerCase();
             const minF = parseFloat(montantMin);
-            if (montantMin && !isNaN(minF)) { params.push(minF); where.push(`c."COMMANDE_MONTANT_TTC" >= $${params.length}`); }
             const maxF = parseFloat(montantMax);
-            if (montantMax && !isNaN(maxF)) { params.push(maxF); where.push(`c."COMMANDE_MONTANT_TTC" <= $${params.length}`); }
-            const y = parseInt(year);
-            if (year && !isNaN(y)) { params.push(y); where.push(`EXTRACT(YEAR FROM c."COMMANDE_CMD_DATECOMMANDE") = $${params.length}`); }
-
-            params.push(Math.min(parseInt(limit) || 100, 300));
-
-            const sql = `
-                SELECT
-                    TRIM(c."COMMANDE_COMMANDE") AS numero,
-                    TRIM(c."COMMANDE_ROO_IMA_REF") AS sedit_id,
-                    TRIM(CONCAT(COALESCE(c."COMMANDE_LIBELLE", ''), ' ', COALESCE(c."COMMANDE_CMD_LIBELLE2", ''))) AS libelle,
-                    TO_CHAR(c."COMMANDE_CMD_DATECOMMANDE", 'YYYY-MM-DD') AS date_commande,
-                    c."COMMANDE_MONTANT_HT" AS montant_ht,
-                    c."COMMANDE_MONTANT_TTC" AS montant_ttc,
-                    TRIM(c."TIERS_TIERS") AS tiers_code,
-                    t."TIERS_POBJ_EXTRACT_2" AS tiers_nom,
-                    c."BUDGET_LIBELLE" AS budget_libelle,
-                    c."SERVICEFI_LIBELLE" AS service_fi,
-                    c.section
-                FROM oracle.commandes_with_section c
-                LEFT JOIN LATERAL (
-                    SELECT t2."TIERS_POBJ_EXTRACT_2"
-                    FROM oracle.gf_oracle_tiers t2
-                    WHERE TRIM(t2."TIERS_TIERS") = TRIM(c."TIERS_TIERS")
-                    ORDER BY t2."TIERS_DATEVALID" ASC NULLS LAST, TRIM(COALESCE(t2."TIERS_POBJ_EXTRACT_2", '')) ASC
-                    LIMIT 1
-                ) t ON TRUE
-                ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
-                ORDER BY c."COMMANDE_CMD_DATECOMMANDE" DESC NULLS LAST
-                LIMIT $${params.length}`;
-
-            const result = await pool.query(sql, params);
-            const rows = result.rows.map(r => ({
-                numero: r.numero,
-                sedit_id: r.sedit_id,
-                libelle: r.libelle,
-                date_commande: r.date_commande,
-                montant_ht: r.montant_ht != null ? parseFloat(r.montant_ht) : null,
-                montant_ttc: r.montant_ttc != null ? parseFloat(r.montant_ttc) : null,
-                tiers_code: r.tiers_code,
-                tiers_nom: r.tiers_nom || null,
-                budget_libelle: r.budget_libelle || '',
-                service_fi: r.service_fi || '',
-                section: r.section || ''
-            }));
-            res.json(rows);
-        } catch (error) {
-            console.error('[Contrats] searchCommandes error:', error.message);
-            res.status(500).json({ message: 'Erreur recherche commandes', error: error.message });
-        }
-    },
-
-    // Rechercher des engagements budgétaires (agrégés par code mouvement).
-    async searchEngagements(req, res) {
-        try {
-            const { q, tiers, year, montantMin, montantMax, limit } = req.query;
-            const params = [];
-            const where = [];
-
-            if (q) {
-                params.push(`%${q}%`, `%${q}%`);
-                where.push(`(TRIM("Code mouvement") ILIKE $${params.length - 1} OR TRIM(COALESCE("Libellé mouvement", '') || ' ' || COALESCE("Libellé", '')) ILIKE $${params.length})`);
+            const groups = new Map();
+            for (const l of await readEngagementRows(ex)) {
+                if (q && !lower(l['Code mouvement']).includes(lower(q)) && !lower(`${l['Libellé mouvement']} ${l['Libellé']}`).includes(lower(q))) continue;
+                if (tiers && !lower(l['Nom tiers']).includes(lower(tiers))) continue;
+                if (montantMin && !isNaN(minF) && l['Montant TTC'] < minF) continue;
+                if (montantMax && !isNaN(maxF) && l['Montant TTC'] > maxF) continue;
+                let g = groups.get(l['Code mouvement']);
+                if (!g) {
+                    g = { code: l['Code mouvement'], libelle: l['Libellé mouvement'], tiers_nom: l['Nom tiers'], section: l['Section'],
+                          imputation: l['Imputation'], exercice: l['Exercice'], commande: l['Commande'], nature: l['Article par nature'], montant: 0, solde: 0 };
+                    groups.set(l['Code mouvement'], g);
+                }
+                g.montant += l['Montant TTC'];
+                g.solde += l['Reste engagé'];
             }
-            if (tiers) { params.push(`%${tiers}%`); where.push(`"Nom tiers" ILIKE $${params.length}`); }
-            if (year) { params.push(String(year)); where.push(`TRIM("Exercice") = $${params.length}`); }
-            const minF = parseFloat(montantMin);
-            if (montantMin && !isNaN(minF)) { params.push(minF); where.push(`COALESCE("Montant TTC", 0) >= $${params.length}`); }
-            const maxF = parseFloat(montantMax);
-            if (montantMax && !isNaN(maxF)) { params.push(maxF); where.push(`COALESCE("Montant TTC", 0) <= $${params.length}`); }
-
-            params.push(Math.min(parseInt(limit) || 100, 300));
-
-            const sql = `
-                SELECT
-                    TRIM("Code mouvement") AS code,
-                    TRIM(MAX(COALESCE("Libellé mouvement", ''))) AS libelle,
-                    MAX("Nom tiers") AS tiers_nom,
-                    MAX("Section") AS section,
-                    MAX(TRIM("Imputation")) AS imputation,
-                    MAX(TRIM("Exercice")) AS exercice,
-                    MAX(TRIM(COALESCE("Commande", ''))) AS commande,
-                    MAX("Article par nature") AS nature,
-                    SUM(COALESCE("Montant TTC", 0)) AS montant,
-                    SUM(COALESCE("Reste engagé", 0)) AS solde
-                FROM oracle.budget_engagements
-                ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
-                GROUP BY TRIM("Code mouvement")
-                ORDER BY TRIM("Code mouvement")
-                LIMIT $${params.length}`;
-
-            const result = await pool.query(sql, params);
-            const round2 = (x) => Math.round(x * 100) / 100;
+            const result = { rows: [...groups.values()].sort((x, y) => x.code.localeCompare(y.code)).slice(0, Math.min(parseInt(limit) || 100, 300)) };
             const rows = result.rows.map(r => {
                 const montant = round2(parseFloat(r.montant) || 0);
                 const solde = round2(parseFloat(r.solde) || 0);

@@ -1,3 +1,4 @@
+import { formatOrgName } from '../../utils/orgName';
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import Header from '../../components/Header';
@@ -721,7 +722,7 @@ function EncadrantsTab({ token }: { token: string | null }) {
     if (filterRole !== 'all' && e.role !== filterRole) return false;
     if (!searchQ) return true;
     const q = searchQ.toLowerCase();
-    return `${e.prenom} ${e.nom} ${e.direction_label} ${e.service_label} ${e.poste}`.toLowerCase().includes(q);
+    return `${e.prenom} ${e.nom} ${formatOrgName(e.direction_label)} ${formatOrgName(e.service_label)} ${e.poste}`.toLowerCase().includes(q);
   });
 
   // Comparaison AD
@@ -824,7 +825,7 @@ function EncadrantsTab({ token }: { token: string | null }) {
                     </td>
                     <td style={{ padding: '7px 12px' }}>
                       <div style={{ fontWeight: 700 }}>{m.prenom} {m.nom}</div>
-                      <div style={{ fontSize: 11, color: '#64748b' }}>{m.direction}</div>
+                      <div style={{ fontSize: 11, color: '#64748b' }}>{formatOrgName(m.direction)}</div>
                     </td>
                     <td style={{ padding: '7px 12px', color: '#475569', fontSize: 11 }}>{m.poste.replace('DIRECTEUR·TRICE ', 'Dir. ').replace('RESPONSABLE DU SERVICE ', 'Resp. ')}</td>
                     <td style={{ padding: '7px 12px' }}>
@@ -895,13 +896,13 @@ function EncadrantsTab({ token }: { token: string | null }) {
                     </span>
                   </td>
                   <td style={{ padding: '10px 14px', color: '#475569' }}>
-                    <div style={{ fontWeight: 600 }}>{e.direction_label}</div>
+                    <div style={{ fontWeight: 600 }}>{formatOrgName(e.direction_label)}</div>
                     <div style={{ fontSize: 11, color: '#94a3b8' }}>{e.direction_code}</div>
                   </td>
                   <td style={{ padding: '10px 14px', color: '#475569' }}>
                     {e.is_direction_service
                       ? <span style={{ color: '#7c3aed', fontStyle: 'italic', fontSize: 12 }}>= direction</span>
-                      : <><div style={{ fontWeight: 600 }}>{e.service_label}</div><div style={{ fontSize: 11, color: '#94a3b8' }}>{e.service_code}</div></>}
+                      : <><div style={{ fontWeight: 600 }}>{formatOrgName(e.service_label)}</div><div style={{ fontSize: 11, color: '#94a3b8' }}>{e.service_code}</div></>}
                   </td>
                   <td style={{ padding: '10px 14px' }}>
                     {e.email ? (
@@ -1046,7 +1047,7 @@ function EncadrantsTab({ token }: { token: string | null }) {
                   ? <p style={{ color: '#16a34a', fontSize: 13 }}>✔ Tous les encadrants RH sont dans la liste AD.</p>
                   : absentsAD.map(e => (
                     <div key={e.matricule} style={{ padding: '7px 12px', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 8, marginBottom: 6, fontSize: 13 }}>
-                      <strong>{e.prenom} {e.nom}</strong> <span style={{ color: '#92400e' }}>({e.direction_label})</span>
+                      <strong>{e.prenom} {e.nom}</strong> <span style={{ color: '#92400e' }}>({formatOrgName(e.direction_label)})</span>
                       <br /><span style={{ fontSize: 11, color: '#64748b' }}>{e.email || 'email inconnu'}</span>
                     </div>
                   ))}

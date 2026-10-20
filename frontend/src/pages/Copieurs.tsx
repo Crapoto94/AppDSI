@@ -1,3 +1,4 @@
+import { formatOrgName } from '../utils/orgName';
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import Header from '../components/Header';
@@ -1232,8 +1233,8 @@ const Copieurs: React.FC = () => {
                     <tr className={c.archive ? 'archived' : ''} onClick={() => setExpandedId(expandedId === c.id ? null : c.id)} style={{ cursor: 'pointer' }}>
                       <td>{c.source === 'ecoles' ? <span className="src-badge ecoles"><School size={12} /> École</span> : <span className="src-badge ville"><Building2 size={12} /> Mairie</span>}</td>
                       <td>
-                        <strong>{c.direction}</strong>
-                        {c.service && <><br /><span style={{ fontSize: 12, color: '#94a3b8' }}>{c.service}</span></>}
+                        <strong>{formatOrgName(c.direction)}</strong>
+                        {c.service && <><br /><span style={{ fontSize: 12, color: '#94a3b8' }}>{formatOrgName(c.service)}</span></>}
                       </td>
                       <td>
                         <code>{c.numero_serie}</code>
@@ -1515,7 +1516,7 @@ const Copieurs: React.FC = () => {
                           <div style={{ fontSize: 13, lineHeight: 1.8, maxHeight: 250, overflowY: 'auto' }}>
                             {group.copieurs.map(c => (
                               <div key={c.id} style={{ borderBottom: '1px solid #f1f5f9', padding: '4px 0' }}>
-                                <strong>{c.direction}</strong>{c.service ? ` / ${c.service}` : ''}<br />
+                                <strong>{formatOrgName(c.direction)}</strong>{c.service ? ` / ${formatOrgName(c.service)}` : ''}<br />
                                 <span style={{ color: '#64748b' }}>{c.adresse}</span><br />
                                 <code>{c.numero_serie}</code> — {c.modele}<br />
                                 {c.source === 'ecoles' ? '🏫 ' : '🏛️ '}{c.archive ? <span style={{ color: '#94a3b8' }}>Archivé</span> : <span style={{ color: '#16a34a' }}>Actif</span>}
@@ -1597,7 +1598,7 @@ const Copieurs: React.FC = () => {
               <button className="btn-icon" onClick={() => setShowMoveModal(false)}><X size={20} /></button>
             </div>
             <div className="modal-body">
-              <p style={{ marginTop: 0, fontSize: 14, color: '#64748b' }}><strong>{moveTarget.numero_serie}</strong> — {moveTarget.direction} / {moveTarget.service}</p>
+              <p style={{ marginTop: 0, fontSize: 14, color: '#64748b' }}><strong>{moveTarget.numero_serie}</strong> — {formatOrgName(moveTarget.direction)} / {formatOrgName(moveTarget.service)}</p>
               <div className="form-grid">
                 <div className="form-group">
                   <label>Source</label>
@@ -1652,7 +1653,7 @@ const Copieurs: React.FC = () => {
               <button className="btn-icon" onClick={() => setShowIntervModal(false)}><X size={20} /></button>
             </div>
             <div className="modal-body">
-              <p style={{ marginTop: 0, fontSize: 14, color: '#64748b' }}><strong>{intervTarget.numero_serie}</strong> — {intervTarget.direction} / {intervTarget.service}</p>
+              <p style={{ marginTop: 0, fontSize: 14, color: '#64748b' }}><strong>{intervTarget.numero_serie}</strong> — {formatOrgName(intervTarget.direction)} / {formatOrgName(intervTarget.service)}</p>
               <div className="form-grid">
                 <div className="form-group">
                   <label>Date *</label>
@@ -1779,8 +1780,8 @@ const Copieurs: React.FC = () => {
                             </td>
                             <td>
                               <div className="interv-location">
-                                {iv.direction && <span className="interv-direction">{iv.direction}</span>}
-                                {iv.service && <span className="interv-service">{iv.service}</span>}
+                                {iv.direction && <span className="interv-direction">{formatOrgName(iv.direction)}</span>}
+                                {iv.service && <span className="interv-service">{formatOrgName(iv.service)}</span>}
                                 {!iv.direction && !iv.service && <span style={{ color: '#cbd5e1', fontSize: 12 }}>—</span>}
                               </div>
                             </td>
@@ -1830,7 +1831,7 @@ const Copieurs: React.FC = () => {
               <div className="modal-header" style={{ borderBottom: 'none', paddingBottom: 0 }}>
                 <div>
                   <h2 style={{ marginBottom: 2 }}>Interventions — <code style={{ fontSize: 18, background: '#ede9fe', color: '#6d28d9', padding: '2px 8px', borderRadius: 6 }}>{copieurIntervTarget.numero_serie}</code></h2>
-                  <p style={{ margin: 0, fontSize: 13, color: '#64748b' }}>{copieurIntervTarget.direction}{copieurIntervTarget.service ? ` / ${copieurIntervTarget.service}` : ''}</p>
+                  <p style={{ margin: 0, fontSize: 13, color: '#64748b' }}>{formatOrgName(copieurIntervTarget.direction)}{copieurIntervTarget.service ? ` / ${formatOrgName(copieurIntervTarget.service)}` : ''}</p>
                 </div>
                 <button className="btn-icon" onClick={() => { setShowCopieurInterv(false); setCopieurIntervSearch(''); }}><X size={20} /></button>
               </div>
@@ -1934,7 +1935,7 @@ const Copieurs: React.FC = () => {
                 {selectedInterv.direction && (
                   <div className="detail-field">
                     <div className="detail-label">Direction / Localisation</div>
-                    <div className="detail-value">{selectedInterv.direction}{selectedInterv.service ? ` / ${selectedInterv.service}` : ''}</div>
+                    <div className="detail-value">{formatOrgName(selectedInterv.direction)}{selectedInterv.service ? ` / ${formatOrgName(selectedInterv.service)}` : ''}</div>
                   </div>
                 )}
                 {selectedInterv.email_demandeur && (
@@ -2027,7 +2028,7 @@ const Copieurs: React.FC = () => {
             <div className="modal-header">
               <div>
                 <h2 style={{ marginBottom: 2 }}>Visites de copieur — <code style={{ fontSize: 18, background: '#e0f2fe', color: '#0369a1', padding: '2px 8px', borderRadius: 6 }}>{visitesTarget.numero_serie}</code></h2>
-                <p style={{ margin: 0, fontSize: 13, color: '#64748b' }}>{visitesTarget.direction}{visitesTarget.service ? ` / ${visitesTarget.service}` : ''}</p>
+                <p style={{ margin: 0, fontSize: 13, color: '#64748b' }}>{formatOrgName(visitesTarget.direction)}{visitesTarget.service ? ` / ${formatOrgName(visitesTarget.service)}` : ''}</p>
               </div>
               <button className="btn-icon" onClick={() => setShowVisitesModal(false)}><X size={20} /></button>
             </div>
@@ -2583,7 +2584,7 @@ const Copieurs: React.FC = () => {
                 <div>
                   <h2 style={{ marginBottom: 2 }}>Relevés — <code style={{ fontSize: 18, background: '#ecfeff', color: '#0891b2', padding: '2px 8px', borderRadius: 6 }}>{relevesTarget.numero_serie}</code></h2>
                   <p style={{ margin: 0, fontSize: 13, color: '#64748b' }}>
-                    {relevesTarget.direction}{relevesTarget.service ? ` / ${relevesTarget.service}` : ''}
+                    {formatOrgName(relevesTarget.direction)}{relevesTarget.service ? ` / ${formatOrgName(relevesTarget.service)}` : ''}
                     {relevesTarget.mainteneur && <span style={{ marginLeft: 10, background: '#e2e8f0', padding: '2px 8px', borderRadius: 6, fontWeight: 700, color: '#475569' }}>{relevesTarget.mainteneur}</span>}
                   </p>
                 </div>

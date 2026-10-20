@@ -54,7 +54,42 @@ function mapDemabsRow(row, allColumns) {
   };
 }
 
+const normKey = (s) => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
+
 module.exports = {
+  async getServiceColors(req, res) {
+    try {
+      const r = await pool.query('SELECT service_key, service, couleur FROM hub_calendrier.service_colors');
+      res.json(r.rows);
+    } catch (error) {
+      console.error('[Agents DSI] getServiceColors error:', error);
+      res.status(500).json({ message: 'Erreur', error: error.message });
+    }
+  },
+
+  async setServiceColor(req, res) {
+    try {
+      const { service, couleur } = req.body || {};
+      const key = normKey(service);
+      if (!key) return res.status(400).json({ message: 'Service requis' });
+      if (!couleur) {
+        await pool.query('DELETE FROM hub_calendrier.service_colors WHERE service_key = $1', [key]);
+        return res.json({ service_key: key, couleur: null });
+      }
+      if (!/^#[0-9a-fA-F]{6}$/.test(couleur)) return res.status(400).json({ message: 'Couleur invalide' });
+      await pool.query(
+        `INSERT INTO hub_calendrier.service_colors (service_key, service, couleur, updated_by, updated_at)
+         VALUES ($1, $2, $3, $4, NOW())
+         ON CONFLICT (service_key) DO UPDATE SET service = EXCLUDED.service, couleur = EXCLUDED.couleur, updated_by = EXCLUDED.updated_by, updated_at = NOW()`,
+        [key, service, couleur, req.user.username]
+      );
+      res.json({ service_key: key, service, couleur });
+    } catch (error) {
+      console.error('[Agents DSI] setServiceColor error:', error);
+      res.status(500).json({ message: 'Erreur', error: error.message });
+    }
+  },
+
   getAgents: async (req, res) => {
     try {
       const agents = await pool.query(`

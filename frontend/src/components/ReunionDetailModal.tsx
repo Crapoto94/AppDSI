@@ -1,3 +1,4 @@
+import { formatOrgName } from '../utils/orgName';
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { X, Plus, Send, Upload, Trash2, Pencil, FileText, Users, Video, CalendarClock, FolderOpen } from 'lucide-react';
 import ReactQuill from 'react-quill-new';
@@ -623,7 +624,7 @@ const ReunionDetailModal: React.FC<Props> = ({ isOpen, reunionId, token, userRol
                                 {u.displayName}
                                 {u.source === 'rh' && <span style={{fontSize: '9px', fontWeight: 800, background: '#ede9fe', color: '#6d28d9', padding: '1px 5px', borderRadius: '5px'}}>RH</span>}
                               </div>
-                              <div style={{fontSize: '10px', color: '#64748b'}}>{u.email || 'Aucun email'}{u.service ? ` — ${u.service}` : ''}</div>
+                              <div style={{fontSize: '10px', color: '#64748b'}}>{u.email || 'Aucun email'}{u.service ? ` — ${formatOrgName(u.service)}` : ''}</div>
                             </div>
                             <Plus size={12} color="#2563eb" />
                           </div>
@@ -696,7 +697,7 @@ const ReunionDetailModal: React.FC<Props> = ({ isOpen, reunionId, token, userRol
                     <div style={{flex: 1, display: 'flex', flexDirection: 'column', gap: '2px'}}>
                       <span style={{fontWeight: '600', fontSize: '13px', color: '#1e293b'}}>{p.prenom ? `${p.prenom} ` : ''}{p.nom}</span>
                       <div style={{display: 'flex', gap: '6px', flexWrap: 'wrap'}}>
-                        {p.service && <span style={{color: '#64748b', fontSize: '11px'}}>{p.service}</span>}
+                        {p.service && <span style={{color: '#64748b', fontSize: '11px'}}>{formatOrgName(p.service)}</span>}
                         {p.organisme && <span style={{color: '#64748b', fontSize: '11px'}}>🏢 {p.organisme}</span>}
                         {p.fonction && <span style={{color: '#64748b', fontSize: '11px'}}>{p.fonction}</span>}
                         {p.commentaire && <span style={{fontSize: '10px', color: '#64748b', fontStyle: 'italic'}}>💬 {p.commentaire}</span>}
@@ -770,7 +771,7 @@ const ReunionDetailModal: React.FC<Props> = ({ isOpen, reunionId, token, userRol
                               {taskAd.results.map(u => (
                                 <div key={u.username} style={{padding: '4px 8px', cursor: 'pointer', borderBottom: '1px solid #f1f5f9', fontSize: '12px'}} onClick={() => { setEditTaskData(v => ({...v, responsable: u.displayName, responsable_username: u.username})); taskAd.clearResults(); }} onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = '#eff6ff'} onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = 'white'}>
                                   <div style={{fontWeight: '600'}}>{u.displayName}</div>
-                                  <div style={{fontSize: '10px', color: '#64748b'}}>{u.email}{u.service ? ` — ${u.service}` : ''}</div>
+                                  <div style={{fontSize: '10px', color: '#64748b'}}>{u.email}{u.service ? ` — ${formatOrgName(u.service)}` : ''}</div>
                                 </div>
                               ))}
                             </div>
@@ -881,7 +882,7 @@ const ReunionDetailModal: React.FC<Props> = ({ isOpen, reunionId, token, userRol
                 ) : (
                   <tr key={d.id} style={{borderBottom: '1px solid #f1f5f9'}}>
                     <td style={{padding: '8px 12px', fontWeight: '600', color: '#1e293b'}}>{d.titre}</td>
-                    <td style={{padding: '8px 12px', color: '#475569'}}>{d.direction}{d.service ? ` / ${d.service}` : ''}</td>
+                    <td style={{padding: '8px 12px', color: '#475569'}}>{formatOrgName(d.direction)}{d.service ? ` / ${formatOrgName(d.service)}` : ''}</td>
                     <td style={{padding: '8px 12px', color: '#475569'}}>{d.type || '-'}</td>
                     <td style={{padding: '8px 12px'}}><span style={{padding: '3px 8px', borderRadius: '6px', fontSize: '11px', fontWeight: '600', background: '#fef3c7', color: '#92400e'}}>{d.statut}</span></td>
                     <td style={{padding: '8px 12px', textAlign: 'right', whiteSpace: 'nowrap'}}>

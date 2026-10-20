@@ -1,3 +1,4 @@
+import { formatOrgName } from '../utils/orgName';
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import Header from '../components/Header';
@@ -2209,7 +2210,7 @@ const ParcInformatique: React.FC = () => {
                               if (ad && ad.found) {
                                 return (
                                   <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                                    <span title={`Trouvé dans l'AD${ad.email ? ` · ${ad.email}` : ''}${ad.service ? ` · ${ad.service}` : ''}`}>
+                                    <span title={`Trouvé dans l'AD${ad.email ? ` · ${ad.email}` : ''}${ad.service ? ` · ${formatOrgName(ad.service)}` : ''}`}>
                                       <ShieldCheck size={13} color="#7c3aed" />
                                     </span>
                                     <span>{ad.display_name || row.beneficiaire}</span>
@@ -2224,8 +2225,8 @@ const ParcInformatique: React.FC = () => {
                             {row.site && <div style={{ color: '#94a3b8', fontSize: '.74rem', marginTop: 2 }}>{row.site}</div>}
                           </td>
                           <td style={{ padding: '8px 12px', fontSize: '.8rem' }}>
-                            {row.direction && <span style={{ fontWeight: 700, color: C.text }}>{row.direction}</span>}
-                            {row.service && <span style={{ color: C.slate }}> / {row.service}</span>}
+                            {row.direction && <span style={{ fontWeight: 700, color: C.text }}>{formatOrgName(row.direction)}</span>}
+                            {row.service && <span style={{ color: C.slate }}> / {formatOrgName(row.service)}</span>}
                             {!row.direction && !row.service && '—'}
                           </td>
                           <td style={{ padding: '8px 12px', whiteSpace: 'nowrap' }}>
@@ -2741,7 +2742,7 @@ const ParcInformatique: React.FC = () => {
                         style={{ padding: '10px 14px', borderRadius: 10, border: `2px solid ${sel ? C.blue : C.border}`, cursor: 'pointer', background: sel ? '#eff6ff' : '#fff', transition: 'border-color .15s' }}>
                         <div style={{ fontWeight: 600, fontSize: '.9rem' }}>{u.displayName}</div>
                         <div style={{ fontSize: '.78rem', color: C.slate, marginTop: 2 }}>
-                          {u.email || "(pas d'e-mail)"}{u.service ? ` · ${u.service}` : ''}
+                          {u.email || "(pas d'e-mail)"}{u.service ? ` · ${formatOrgName(u.service)}` : ''}
                         </div>
                       </div>
                     );

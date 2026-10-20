@@ -1,77 +1,11 @@
-const xlsx = require('xlsx');
-const fs = require('fs');
-const path = require('path');
 const { getSqlite, pool, pgDb } = require('../../shared/database');
 const { logMouchard } = require('../../shared/utils');
-
-function findVal(obj, keys) {
-    for (const k of keys) {
-        if (obj[k] !== undefined && obj[k] !== null) return obj[k];
-        const lower = k.toLowerCase();
-        if (obj[lower] !== undefined && obj[lower] !== null) return obj[lower];
-    }
-    return '';
-}
+const { readEngagementRows } = require('./sedit-engagements.service');
 
 function parseNum(val) {
     if (val === undefined || val === null || val === '') return 0;
     const num = parseFloat(String(val).trim().replace(',', '.').replace(/[^\d.\-]/g, ''));
     return isNaN(num) ? 0 : num;
-}
-
-// --- Lignes d'exécution budgétaires (oracle.budget_lines) ---
-// Colonnes telles qu'exportées depuis SEDIT (« Liste des lignes d'exécution »).
-const BUDGET_LINE_TEXT_COLS = [
-    'Code', 'Libellé', 'Masque', 'Sens', 'Section', 'Article par nature',
-    'Chapitre par nature', 'Référence Fonctionnelle', "Opération d'équipement",
-    'Service Gestionnaire', 'EQUIPEMENT', 'TVA', 'JE'
-];
-const BUDGET_LINE_NUM_COLS = [
-    'Budget voté', 'Disponible', 'Mt. prévision', 'Mt. pré-engagé', 'Mt. engagé',
-    'Mt. facturé', 'Mt. pré-mandaté', 'Mt. mandaté', 'Mt. payé'
-];
-
-async function ensureBudgetLinesTable(client) {
-    const cols = [
-        '"id" SERIAL PRIMARY KEY',
-        ...BUDGET_LINE_TEXT_COLS.map(c => `"${c}" TEXT`),
-        ...BUDGET_LINE_NUM_COLS.map(c => `"${c}" NUMERIC`),
-        '"imported_at" TIMESTAMPTZ DEFAULT now()'
-    ].join(', ');
-    const runner = client || pool;
-    await runner.query('CREATE SCHEMA IF NOT EXISTS oracle');
-    await runner.query(`CREATE TABLE IF NOT EXISTS oracle.budget_lines (${cols})`);
-}
-
-// --- Engagements budgétaires (oracle.budget_engagements) ---
-// Colonnes telles qu'exportées depuis SEDIT (« Liste des engagements »).
-const ENGAGEMENT_NUM_COLS = [
-    'Reste engagé', 'Montant initial', 'Montant HT', 'Montant TVA', 'Montant TTC',
-    'Montant budgétaire', 'Montant service fait', 'Montant rattachement'
-];
-const ENGAGEMENT_TEXT_COLS = [
-    'Organisme', 'Budget', 'Exercice', 'Type', 'Code mouvement', 'Libellé mouvement',
-    'Code tiers', 'Nom tiers', 'Complément tiers', 'Prénom tiers', 'Références bancaires',
-    'N° ligne', 'Libellé', 'Imputation', 'Sens', 'Section', 'Article par nature',
-    'Chapitre par nature', 'Référence Fonctionnelle', "Opération d'équipement",
-    'Service Gestionnaire', 'EQUIPEMENT', 'TVA', 'JE', 'Régime TVA', 'Avancement',
-    'Taux TVA', 'Coefficient de déduction TVA', 'Date service fait', 'Immobilisation',
-    'Facture', 'Facture tiers', 'Commande', 'Marché', 'Tranche',
-    "Code nomenclature d'achat", "Libellé nomenclature d'achat", 'Mvt. provisionnel/Anticipé',
-    'type Prov/Ant', 'Mandat', 'Bordereau', 'Date mandat', 'Type mandat',
-    'Mandat rattachement', 'Exercice de rattachement', 'Contrepassation'
-];
-
-async function ensureEngagementsTable(client) {
-    const cols = [
-        '"id" SERIAL PRIMARY KEY',
-        ...ENGAGEMENT_TEXT_COLS.map(c => `"${c}" TEXT`),
-        ...ENGAGEMENT_NUM_COLS.map(c => `"${c}" NUMERIC`),
-        '"imported_at" TIMESTAMPTZ DEFAULT now()'
-    ].join(', ');
-    const runner = client || pool;
-    await runner.query('CREATE SCHEMA IF NOT EXISTS oracle');
-    await runner.query(`CREATE TABLE IF NOT EXISTS oracle.budget_engagements (${cols})`);
 }
 
 // Déduit le type d'engagement à partir du libellé mouvement / code mouvement.
@@ -354,147 +288,6 @@ module.exports = {
         }
     },
 
-    scanExercice: async (req, res) => {
-        if (!req.file) return res.status(400).send('No file uploaded.');
-        try {
-            const workbook = xlsx.readFile(req.file.path);
-            const sheetName = workbook.SheetNames[0];
-            const data = xlsx.utils.sheet_to_json(workbook.Sheets[sheetName]);
-
-            if (data.length === 0) return res.json({ year: null });
-
-            const firstRow = data.find(row => row.Exercice || row.exercice || row.Annee || row.year);
-            const year = firstRow ? (firstRow.Exercice || firstRow.exercice || firstRow.Annee || firstRow.year) : null;
-
-            res.json({ year: year ? parseInt(year) : null });
-        } catch (error) {
-            res.status(500).json({ message: "Erreur lors du scan du fichier", error: error.message });
-        }
-    },
-
-    importLines: async (req, res) => {
-        if (!req.file) return res.status(400).send('No file uploaded.');
-        try {
-            const workbook = xlsx.readFile(req.file.path);
-            const sheetName = workbook.SheetNames[0];
-            const rows = xlsx.utils.sheet_to_json(workbook.Sheets[sheetName]);
-
-            if (rows.length === 0) return res.json({ message: '0 lignes importées' });
-
-            const allCols = [...BUDGET_LINE_TEXT_COLS, ...BUDGET_LINE_NUM_COLS];
-            const quotedKeys = allCols.map(c => `"${c}"`).join(',');
-            const placeholders = allCols.map((_, i) => `$${i + 1}`).join(',');
-
-            let imported = 0;
-            const client = await pool.connect();
-            try {
-                await ensureBudgetLinesTable(client);
-                await client.query('BEGIN');
-                // Réimport = remplacement complet du référentiel des lignes d'exécution.
-                await client.query('TRUNCATE oracle.budget_lines RESTART IDENTITY');
-                for (const row of rows) {
-                    const code = (row['Code'] || row.code || row['Numéro de compte'] || '').toString().trim();
-                    if (!code) continue;
-
-                    const values = allCols.map(col => {
-                        if (BUDGET_LINE_NUM_COLS.includes(col)) return parseNum(row[col]);
-                        const v = row[col];
-                        return v === undefined || v === null ? null : String(v).trim();
-                    });
-                    await client.query(`INSERT INTO oracle.budget_lines (${quotedKeys}) VALUES (${placeholders})`, values);
-                    imported++;
-                }
-                await client.query('COMMIT');
-            } catch (e) {
-                await client.query('ROLLBACK');
-                throw e;
-            } finally {
-                client.release();
-            }
-            res.json({ message: `${imported} lignes d'exécution importées.` });
-        } catch (error) {
-            console.error('[Finance] Import Lines error:', error);
-            res.status(500).json({ message: 'Erreur import lines', error: error.message });
-        } finally {
-            if (req.file) fs.unlinkSync(req.file.path);
-        }
-    },
-
-    importInvoices: async (req, res) => {
-        if (!req.file) return res.status(400).send('No file uploaded.');
-        try {
-            const workbook = xlsx.readFile(req.file.path);
-            const sheetName = workbook.SheetNames[0];
-            const rows = xlsx.utils.sheet_to_json(workbook.Sheets[sheetName]);
-
-            if (rows.length === 0) return res.json({ message: '0 factures importées' });
-
-            let imported = 0;
-            const client = await pool.connect();
-            try {
-                await client.query('BEGIN');
-                for (const row of rows) {
-                    const keys = Object.keys(row).filter(k => row[k] !== undefined && row[k] !== null);
-                    const values = keys.map(k => row[k]);
-                    const placeholders = keys.map((_, i) => `$${i + 1}`).join(',');
-                    const quotedKeys = keys.map(k => `"${k}"`).join(',');
-                    await client.query(`INSERT INTO oracle.gf_oracle_facture (${quotedKeys}) VALUES (${placeholders})`, values);
-                    imported++;
-                }
-                await client.query('COMMIT');
-            } catch (e) {
-                await client.query('ROLLBACK');
-                throw e;
-            } finally {
-                client.release();
-            }
-            res.json({ message: `${imported} factures importées avec succès` });
-        } catch (error) {
-            console.error('[Finance] Import Invoices error:', error);
-            res.status(500).json({ message: 'Erreur import invoices', error: error.message });
-        } finally {
-            if (req.file) fs.unlinkSync(req.file.path);
-        }
-    },
-
-    importOrders: async (req, res) => {
-        if (!req.file) return res.status(400).send('No file uploaded.');
-        try {
-            const workbook = xlsx.readFile(req.file.path);
-            const sheetName = workbook.SheetNames[0];
-            const rows = xlsx.utils.sheet_to_json(workbook.Sheets[sheetName]);
-
-            if (rows.length === 0) return res.json({ message: '0 commandes importées' });
-
-            let imported = 0;
-            const client = await pool.connect();
-            try {
-                await client.query('BEGIN');
-                for (const row of rows) {
-                    const keys = Object.keys(row).filter(k => row[k] !== undefined && row[k] !== null && k !== 'id' && k !== 'operation_id');
-                    const values = keys.map(k => row[k]);
-                    const placeholders = keys.map((_, i) => `$${i + 1}`).join(',');
-                    const quotedKeys = keys.map(k => `"${k}"`).join(',');
-                    await client.query(`INSERT INTO oracle.gf_oracle_commande (${quotedKeys}) VALUES (${placeholders})`, values);
-                    imported++;
-                }
-                await client.query('COMMIT');
-            } catch (e) {
-                await client.query('ROLLBACK');
-                throw e;
-            } finally {
-                client.release();
-            }
-            await recalculateAllOperations();
-            res.json({ message: `${imported} commandes importées avec succès` });
-        } catch (error) {
-            console.error('[Finance] Import Orders error:', error);
-            res.status(500).json({ message: 'Erreur import orders', error: error.message });
-        } finally {
-            if (req.file) fs.unlinkSync(req.file.path);
-        }
-    },
-
     getInvoices: async (req, res) => {
         const { fiscalYear, budgetScope } = req.query;
         try {
@@ -564,125 +357,34 @@ module.exports = {
         }
     },
 
+    // Lignes d'exécution lues EN DIRECT dans Sedit (DSI, exercice demandé) — plus d'import Excel.
     getLines: async (req, res) => {
         try {
-            await ensureBudgetLinesTable();
-            // NB : pas encore de distinction crédits 2026 / reports 2025 dans l'export,
-            // on renvoie donc l'ensemble des lignes quel que soit l'exercice demandé.
-            const allCols = [...BUDGET_LINE_TEXT_COLS, ...BUDGET_LINE_NUM_COLS];
-            const select = allCols.map(c => `"${c}"`).join(', ');
-            const result = await pool.query(
-                `SELECT ${select} FROM oracle.budget_lines ORDER BY "Chapitre par nature", "Code"`
-            );
-            const cleaned = result.rows.map(row => {
-                const out = {};
-                for (const c of BUDGET_LINE_TEXT_COLS) out[c] = (row[c] || '').toString().trim();
-                for (const c of BUDGET_LINE_NUM_COLS) out[c] = parseNum(row[c]);
-                return out;
+            const lines = await require('./sedit-budget-synthese.service').getBudgetLines({
+                exercice: req.query.fiscalYear, scope: req.query.budgetScope
             });
-            res.json(cleaned);
+            res.json(lines);
         } catch (error) {
             console.error('[Finance] getLines error:', error);
-            res.status(500).json({ message: 'Erreur lecture lignes', error: error.message });
+            res.status(500).json({ message: 'Erreur lecture lignes Sedit', error: error.message });
         }
     },
 
-    importEngagements: async (req, res) => {
-        if (!req.file) return res.status(400).send('No file uploaded.');
-        try {
-            const workbook = xlsx.readFile(req.file.path);
-            const sheetName = workbook.SheetNames[0];
-            const rows = xlsx.utils.sheet_to_json(workbook.Sheets[sheetName]);
-
-            if (rows.length === 0) return res.json({ message: '0 engagement importé' });
-
-            // Chaque fichier Excel est lié à une année d'engagement : l'exercice est déduit de la
-            // colonne « Exercice » du fichier (ex. "2026"). On ne remplace que les engagements de
-            // cet exercice, les autres années restent en place.
-            const exerciceOf = (v) => {
-                if (v === undefined || v === null) return '';
-                const s = String(v).trim();
-                const m = s.match(/\b(\d{4})\b/);
-                return m ? m[1] : s;
-            };
-            const years = [...new Set(rows.map(r => exerciceOf(r['Exercice'])).filter(Boolean))];
-
-            const allCols = [...ENGAGEMENT_TEXT_COLS, ...ENGAGEMENT_NUM_COLS];
-            const quotedKeys = allCols.map(c => `"${c}"`).join(',');
-            const placeholders = allCols.map((_, i) => `$${i + 1}`).join(',');
-
-            let imported = 0;
-            const client = await pool.connect();
-            try {
-                await ensureEngagementsTable(client);
-                await client.query('BEGIN');
-                // Réimport = remplacement complet des engagements de l'exercice présent dans le fichier.
-                if (years.length > 0) {
-                    await client.query(`DELETE FROM oracle.budget_engagements WHERE "Exercice" = ANY($1)`, [years]);
-                }
-                for (const row of rows) {
-                    const code = (row['Code mouvement'] || '').toString().trim();
-                    if (!code) continue;
-
-                    const values = allCols.map(col => {
-                        if (ENGAGEMENT_NUM_COLS.includes(col)) return parseNum(row[col]);
-                        if (col === 'Exercice') return exerciceOf(row[col]) || null;
-                        const v = row[col];
-                        return v === undefined || v === null ? null : String(v).trim();
-                    });
-                    await client.query(`INSERT INTO oracle.budget_engagements (${quotedKeys}) VALUES (${placeholders})`, values);
-                    imported++;
-                }
-                await client.query('COMMIT');
-            } catch (e) {
-                await client.query('ROLLBACK');
-                throw e;
-            } finally {
-                client.release();
-            }
-            const msg = years.length > 0
-                ? `${imported} engagements importés (exercice ${years.join(', ')} — remplace les engagements de cet exercice uniquement).`
-                : `${imported} engagements importés.`;
-            res.json({ message: msg });
-        } catch (error) {
-            console.error('[Finance] Import Engagements error:', error);
-            res.status(500).json({ message: 'Erreur import engagements', error: error.message });
-        } finally {
-            if (req.file) fs.unlinkSync(req.file.path);
-        }
-    },
-
-    // Années (exercices) disponibles dans oracle.budget_engagements — alimente le sélecteur
-    // d'année fiscale de l'onglet Engagements dans /budget.
+    // Années (exercices) proposées dans l'onglet Engagements : lues en direct dans Sedit (exercices ouverts).
     getEngagementYears: async (req, res) => {
         try {
-            await ensureEngagementsTable();
-            const r = await pool.query(
-                `SELECT DISTINCT TRIM("Exercice") AS ex FROM oracle.budget_engagements WHERE "Exercice" IS NOT NULL AND TRIM("Exercice") != ''`
-            );
-            const years = r.rows
-                .map(x => parseInt(x.ex, 10))
-                .filter(y => !isNaN(y) && y > 2000)
-                .sort((a, b) => b - a);
-            res.json(years);
+            const y = new Date().getFullYear();
+            res.json([y, y - 1, y - 2]);
         } catch (error) {
-            console.error('[Finance] getEngagementYears error:', error);
             res.status(500).json({ message: 'Erreur lecture années engagements', error: error.message });
         }
     },
 
     getEngagements: async (req, res) => {
         try {
-            await ensureEngagementsTable();
-            const allCols = [...ENGAGEMENT_TEXT_COLS, ...ENGAGEMENT_NUM_COLS];
-            const select = allCols.map(c => `"${c}"`).join(', ');
-            const year = req.query.fiscalYear ? String(req.query.fiscalYear).trim() : '';
-            const where = year ? ` WHERE "Exercice" = $1` : '';
-            const params = year ? [year] : [];
-            const result = await pool.query(
-                `SELECT ${select} FROM oracle.budget_engagements${where} ORDER BY "Code mouvement"`,
-                params
-            );
+            // Lecture EN DIRECT dans Sedit (DSI) — aucune donnée importée.
+            const year = parseInt(req.query.fiscalYear, 10) || new Date().getFullYear();
+            const result = { rows: await readEngagementRows(year) };
 
             // Un engagement (Code mouvement) est éclaté en plusieurs lignes : par code
             // fonction, et par avancement. Les lignes E1 portent le solde restant engagé,

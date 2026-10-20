@@ -3642,6 +3642,7 @@ async function setupPgDb() {
       `valide_commentaire TEXT`,
       `modifie_par TEXT`, `modifie_at TIMESTAMPTZ`,
       `service TEXT`, `demandeur_email TEXT`,
+      `section TEXT`, // 'F' fonctionnement / 'I' investissement (imputation budgétaire de la demande)
     ]) {
       try { await client.query(`ALTER TABLE finance.demandes_commande ADD COLUMN IF NOT EXISTS ${col}`); } catch (e) { console.error('[PG DB] alter demandes_commande:', e.message); }
     }
@@ -4553,6 +4554,17 @@ async function setupPgDb() {
     try {
       await client.query(`ALTER TABLE hub_calendrier.agents_dsi ADD COLUMN IF NOT EXISTS matricule TEXT DEFAULT ''`);
     } catch (e) {}
+
+    // Couleur d'affichage par direction/service (calendrier DSI)
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS hub_calendrier.service_colors (
+        service_key TEXT PRIMARY KEY,
+        service TEXT NOT NULL,
+        couleur TEXT NOT NULL,
+        updated_by TEXT,
+        updated_at TIMESTAMP DEFAULT NOW()
+      )
+    `);
 
     // Demabs table - synced from Oracle rh_tps_demabs
     await client.query(`

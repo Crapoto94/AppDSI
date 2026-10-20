@@ -32,6 +32,8 @@ async function canEdit(user, demande) {
     return demande.demandeur_username === user?.username && demande.statut === STATUT_DEVIS;
 }
 
+const normSection = (v) => { const x = String(v || '').trim().toUpperCase(); return x === 'F' || x === 'I' ? x : null; };
+
 const eur = (n) => Number(n).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' });
 
 async function savePieces(demande, files, user, designation) {
@@ -142,6 +144,8 @@ module.exports = {
             const montant = Number(String(req.body.montant ?? '').replace(',', '.'));
             if (!designation) return res.status(400).json({ message: 'La désignation est obligatoire' });
             if (!Number.isFinite(montant) || montant < 0) return res.status(400).json({ message: 'Montant invalide' });
+            const section = normSection(req.body.section);
+            if (!section) return res.status(400).json({ message: 'Préciser fonctionnement ou investissement' });
             const files = req.files || [];
             if (!files.length) return res.status(400).json({ message: 'Joindre au moins un devis' });
 
@@ -152,9 +156,9 @@ module.exports = {
             const service = String(req.body.service || '').trim() || null;
 
             const ins = await pool.query(
-                `INSERT INTO finance.demandes_commande (designation, description, montant, demandeur_username, demandeur_name, demandeur_email, service, statut)
-                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
-                [designation, description, montant, req.user.username, demandeurName, demandeurEmail, service, STATUT_DEVIS]
+                `INSERT INTO finance.demandes_commande (designation, description, montant, demandeur_username, demandeur_name, demandeur_email, service, statut, section)
+                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
+                [designation, description, montant, req.user.username, demandeurName, demandeurEmail, service, STATUT_DEVIS, section]
             );
             const demande = ins.rows[0];
 
@@ -179,6 +183,8 @@ module.exports = {
             const montant = req.body.montant !== undefined ? Number(String(req.body.montant).replace(',', '.')) : Number(cur.montant);
             if (!designation) return res.status(400).json({ message: 'La désignation est obligatoire' });
             if (!Number.isFinite(montant) || montant < 0) return res.status(400).json({ message: 'Montant invalide' });
+            const section = req.body.section !== undefined ? normSection(req.body.section) : cur.section;
+            if (!section) return res.status(400).json({ message: 'Préciser fonctionnement ou investissement' });
 
             let removeIds = [];
             try { removeIds = JSON.parse(req.body.remove_piece_ids || '[]').map(Number).filter(Number.isFinite); } catch (e) { removeIds = []; }
@@ -188,8 +194,8 @@ module.exports = {
             if (pjs.length - toRemove.length + files.length < 1) return res.status(400).json({ message: 'Conserver ou joindre au moins un devis' });
 
             await pool.query(
-                `UPDATE finance.demandes_commande SET designation=$1, description=$2, montant=$3, modifie_par=$4, modifie_at=NOW() WHERE id=$5`,
-                [designation, description, montant, req.user.username, id]
+                `UPDATE finance.demandes_commande SET designation=$1, description=$2, montant=$3, modifie_par=$4, modifie_at=NOW(), section=$6 WHERE id=$5`,
+                [designation, description, montant, req.user.username, id, section]
             );
             for (const p of toRemove) {
                 await pool.query('DELETE FROM finance.demandes_commande_pj WHERE id = $1', [p.id]);
@@ -200,6 +206,7 @@ module.exports = {
             // Trace dans le fil de commentaires
             const changes = [];
             if (designation !== cur.designation) changes.push(`désignation « ${cur.designation} » → « ${designation} »`);
+            if (section !== cur.section) changes.push(`imputation ${cur.section || '—'} → ${section}`);
             if (montant !== Number(cur.montant)) changes.push(`montant ${eur(cur.montant)} → ${eur(montant)}`);
             if (description !== String(cur.description || '')) changes.push('description modifiée');
             if (toRemove.length) changes.push(`${toRemove.length} devis retiré(s)`);

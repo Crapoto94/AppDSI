@@ -2,8 +2,6 @@ const express = require('express');
 const router = express.Router();
 const financeController = require('./finance.controller');
 const { authenticateJWT, authenticateAdminOrFinances } = require('../../shared/middleware');
-const multer = require('multer');
-const upload = multer({ dest: 'uploads/' });
 
 // Debug routes
 router.get('/debug/invoices-count', authenticateJWT, async (req, res) => {
@@ -55,6 +53,15 @@ router.delete('/operations/:id', authenticateAdminOrFinances, financeController.
 // Invoices & Lines
 router.get('/invoices', authenticateJWT, financeController.getInvoices);
 router.get('/lines', authenticateJWT, financeController.getLines);
+// Synthèse budgétaire lue en direct dans Sedit (Oracle FI)
+router.get('/synthese-sedit', authenticateJWT, async (req, res) => {
+    try {
+        res.json(await require('./sedit-budget-synthese.service').getBudgetSynthese({ exercice: req.query.fiscalYear, scope: req.query.budgetScope }));
+    } catch (e) {
+        console.error('[Finance] synthese-sedit error:', e);
+        res.status(500).json({ message: 'Erreur lecture Sedit', error: e.message });
+    }
+});
 router.get('/engagements/years', authenticateJWT, financeController.getEngagementYears);
 router.get('/engagements', authenticateJWT, financeController.getEngagements);
 
@@ -64,12 +71,5 @@ router.get('/orders/years', authenticateJWT, financeController.getOrderYears);
 router.post('/orders/bulk-assign', authenticateJWT, financeController.bulkAssign);
 router.post('/orders/:id/assign-operation', authenticateJWT, financeController.assignOperation);
 router.post('/orders/:id/assign-app', authenticateJWT, financeController.assignApp);
-
-// Imports & Scanning
-router.post('/scan-exercice', authenticateAdminOrFinances, upload.single('file'), financeController.scanExercice);
-router.post('/import-lines', authenticateAdminOrFinances, upload.single('file'), financeController.importLines);
-router.post('/import-engagements', authenticateAdminOrFinances, upload.single('file'), financeController.importEngagements);
-router.post('/import-invoices', authenticateAdminOrFinances, upload.single('file'), financeController.importInvoices);
-router.post('/import-orders', authenticateAdminOrFinances, upload.single('file'), financeController.importOrders);
 
 module.exports = router;

@@ -13,6 +13,7 @@ interface Demande {
   designation: string;
   description: string;
   montant: number;
+  section?: 'F' | 'I' | null;
   demandeur_username: string;
   demandeur_name?: string | null;
   demandeur_email?: string | null;
@@ -83,7 +84,7 @@ const DemandesCommandeTab: React.FC = () => {
   const [demandes, setDemandes] = useState<Demande[]>([]);
   const [me, setMe] = useState<Me>({ can_validate: false, fonction: null, can_manage: false, can_delete: false });
   const [validateurs, setValidateurs] = useState<Validateur[]>([]);
-  const [form, setForm] = useState({ designation: '', description: '', montant: '' });
+  const [form, setForm] = useState({ designation: '', description: '', montant: '', section: '' });
   const [demandeur, setDemandeur] = useState<AgentRef[]>([]);
   const [service, setService] = useState('');
   const [files, setFiles] = useState<File[]>([]);
@@ -94,7 +95,7 @@ const DemandesCommandeTab: React.FC = () => {
   // Fil de commentaires (dès le devis pris en compte) et édition d'une demande
   const [commentsFor, setCommentsFor] = useState<Demande | null>(null);
   const [editFor, setEditFor] = useState<Demande | null>(null);
-  const [editForm, setEditForm] = useState({ designation: '', description: '', montant: '' });
+  const [editForm, setEditForm] = useState({ designation: '', description: '', montant: '', section: '' });
   const [editRemove, setEditRemove] = useState<number[]>([]);
   const [editFiles, setEditFiles] = useState<File[]>([]);
   const [editSaving, setEditSaving] = useState(false);
@@ -105,7 +106,7 @@ const DemandesCommandeTab: React.FC = () => {
 
   const openEdit = (d: Demande) => {
     setEditFor(d);
-    setEditForm({ designation: d.designation, description: d.description || '', montant: String(d.montant) });
+    setEditForm({ designation: d.designation, description: d.description || '', montant: String(d.montant), section: d.section || '' });
     setEditRemove([]);
     setEditFiles([]);
     setEditError('');
@@ -119,6 +120,7 @@ const DemandesCommandeTab: React.FC = () => {
     fd.append('designation', editForm.designation);
     fd.append('description', editForm.description);
     fd.append('montant', editForm.montant);
+    fd.append('section', editForm.section);
     fd.append('remove_piece_ids', JSON.stringify(editRemove));
     editFiles.forEach(f => fd.append('files', f));
     setEditSaving(true);
@@ -179,11 +181,12 @@ const DemandesCommandeTab: React.FC = () => {
     fd.append('montant', form.montant);
     if (demandeur[0]) { fd.append('demandeur_name', demandeur[0].displayName); fd.append('demandeur_email', demandeur[0].email); }
     fd.append('service', service);
+    fd.append('section', form.section);
     files.forEach(f => fd.append('files', f));
     setSaving(true);
     try {
       await axios.post('/api/demandes-commande', fd, { headers });
-      setForm({ designation: '', description: '', montant: '' });
+      setForm({ designation: '', description: '', montant: '', section: '' });
       setDemandeur([]);
       setFiles([]);
       await load();
@@ -384,7 +387,7 @@ const DemandesCommandeTab: React.FC = () => {
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
       <form onSubmit={submit} style={s.card}>
         <h3 style={{ marginTop: 0 }}>Nouvelle demande de commande</h3>
-        <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '1rem' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', gap: '1rem' }}>
           <div>
             <label style={s.label}>Désignation *</label>
             <input style={s.input} required value={form.designation} onChange={e => setForm({ ...form, designation: e.target.value })} />
@@ -392,6 +395,14 @@ const DemandesCommandeTab: React.FC = () => {
           <div>
             <label style={s.label}>Montant (€ TTC) *</label>
             <input style={s.input} required type="number" min="0" step="0.01" value={form.montant} onChange={e => setForm({ ...form, montant: e.target.value })} />
+          </div>
+          <div>
+            <label style={s.label}>Imputation *</label>
+            <select style={s.input} required value={form.section} onChange={e => setForm({ ...form, section: e.target.value })}>
+              <option value="">— Choisir —</option>
+              <option value="F">Fonctionnement</option>
+              <option value="I">Investissement</option>
+            </select>
           </div>
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '1rem', marginTop: '1rem' }}>
@@ -451,7 +462,7 @@ const DemandesCommandeTab: React.FC = () => {
             {editFor.statut === 'validee' && (
               <p style={{ color: '#b45309', fontSize: '0.8rem', marginTop: 0 }}>Cette demande est déjà validée : toute modification est tracée dans les commentaires.</p>
             )}
-            <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '1rem' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', gap: '1rem' }}>
               <div>
                 <label style={s.label}>Désignation *</label>
                 <input style={s.input} required value={editForm.designation} onChange={e => setEditForm({ ...editForm, designation: e.target.value })} />
@@ -460,6 +471,14 @@ const DemandesCommandeTab: React.FC = () => {
                 <label style={s.label}>Montant (€ TTC) *</label>
                 <input style={s.input} required type="number" min="0" step="0.01" value={editForm.montant} onChange={e => setEditForm({ ...editForm, montant: e.target.value })} />
               </div>
+            <div>
+              <label style={s.label}>Imputation *</label>
+              <select style={s.input} required value={editForm.section} onChange={e => setEditForm({ ...editForm, section: e.target.value })}>
+                <option value="">— Choisir —</option>
+                <option value="F">Fonctionnement</option>
+                <option value="I">Investissement</option>
+              </select>
+            </div>
             </div>
             <div style={{ marginTop: '1rem' }}>
               <label style={s.label}>Description</label>
