@@ -760,6 +760,8 @@ module.exports = {
                 COUNT(*) FILTER (WHERE priority = 5 AND status IN (1,2,3) AND type::text = '2') as critical_request,
                 COUNT(*) FILTER (WHERE status = 5 AND type::text = '1') as resolved_incident,
                 COUNT(*) FILTER (WHERE status = 5 AND type::text = '2') as resolved_request,
+                COUNT(*) FILTER (WHERE status = 6 AND type::text = '1') as closed_incident,
+                COUNT(*) FILTER (WHERE status = 6 AND type::text = '2') as closed_request,
                 COUNT(*) FILTER (WHERE is_vip = true) as vip_total,
                 COUNT(*) FILTER (WHERE type::text = '3' AND status IN (1,2,3,4,5)) as problems,
                 COUNT(*) FILTER (WHERE tsla.sla_status = 'breached' AND tsla.sla_definition_id IN (SELECT id FROM hub_tickets.sla_definitions WHERE is_active = true)) as sla_breached,
@@ -999,6 +1001,7 @@ module.exports = {
                 today_resolved: 0, avg_resolved_60d: 0,
                 today_closed: 0, avg_closed_60d: 0,
                 biz_days_count: 0,
+                window_days: DAILY_SERIES_WINDOW,
             };
         }
         // La dernière ligne de la série est « aujourd'hui » (CURRENT_DATE côté DB).
@@ -1019,6 +1022,10 @@ module.exports = {
             today_closed: today.closed_day || 0,
             avg_closed_60d: avg('closed_day'),
             biz_days_count: biz.length,
+            // Durée de la fenêtre de référence (jours calendaires) : l'affichage
+            // la présente comme une durée (« moy 2 mois ») plutôt que comme un
+            // compte de jours ouvrés.
+            window_days: DAILY_SERIES_WINDOW,
         };
     },
 

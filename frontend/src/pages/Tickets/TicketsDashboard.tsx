@@ -18,6 +18,7 @@ const KPI_FILTERS: Record<string, { label: string; params?: Record<string, strin
   waiting:   { label: 'En attente', params: { status_in: '4' } },
   critical:  { label: 'Critiques',  params: { status_in: '1,2,3', priority: '5' } },
   resolved:  { label: 'Résolus',    params: { status_in: '5' } },
+  closed:    { label: 'Clos',       params: { status_in: '6' } },
   problems:  { label: 'Problèmes',  params: { type: '3', status_in: '1,2,3,4,5,6' } },
   sla_breached: { label: 'SLA dépassées', params: { sla_breached: '1' } },
 };
@@ -208,7 +209,7 @@ export default function TicketsDashboard() {
   const [liveTickerMsg, setLiveTickerMsg] = useState<string | null>(null);
   const [activeLiveFilter, setActiveLiveFilter] = useState(_initSnap?.activeLiveFilter ?? false);
   const [liveStats, setLiveStats] = useState<any>(null);
-  const ALL_KPI_KEYS = ['new','open','in_progress','waiting','critical','resolved','problems','sla_breached','age','wait_time','resolve_time','live_chat'];
+  const ALL_KPI_KEYS = ['new','open','in_progress','waiting','critical','resolved','closed','problems','sla_breached','age','wait_time','resolve_time','live_chat'];
   const [selectedKpis, setSelectedKpis] = useState<string[]>(ALL_KPI_KEYS);
   const [showKpiConfig, setShowKpiConfig] = useState(false);
 
@@ -1429,6 +1430,10 @@ export default function TicketsDashboard() {
             value: stats?.resolved || 0, histKey: 'resolved', fKey: 'resolved',
             sub: `${getTypeCounts('resolved').incident} inc · ${getTypeCounts('resolved').request} dem`,
             goodDown: false },
+          { key: 'closed',       label: 'Clos',             color: '#64748b', filterKey: 'closed',
+            value: stats?.closed || 0, histKey: 'closed', fKey: 'closed',
+            sub: `${getTypeCounts('closed').incident} inc · ${getTypeCounts('closed').request} dem`,
+            goodDown: false },
           { key: 'problems',     label: 'Problèmes',        color: '#7c3aed', filterKey: 'problems', onClick: () => handleFilterClick('problems'),
             value: stats?.problems || 0, histKey: 'problems', fKey: 'problems', sub: '', goodDown: true },
           { key: 'sla_breached', label: 'SLA dépassés',     color: '#ef4444', filterKey: 'sla_breached',
@@ -1560,30 +1565,39 @@ export default function TicketsDashboard() {
                         return <span style={{ fontSize: 24, fontWeight: 800, color: card.color, lineHeight: 1.1 }}>{card.value}</span>;
                       })()}
                       {card.sub && <div style={{ fontSize: 10, color: '#a1a1aa', marginTop: 2 }}>{card.sub}</div>}
-                      {dailyMetrics && (card.key === 'open' || card.key === 'in_progress' || card.key === 'waiting' || card.key === 'resolved') && (() => {
+                      {dailyMetrics && (card.key === 'open' || card.key === 'in_progress' || card.key === 'waiting' || card.key === 'resolved' || card.key === 'closed') && (() => {
                         // « X auj. » et « moy. » portent toujours sur le même flux :
                         // créations (Ouverts), passages en En cours, passages en
-                        // En attente, résolutions (Résolus).
+                        // En attente, résolutions (Résolus), clôtures (Clos).
                         const dayKey = card.key === 'open' ? 'today_created'
                                      : card.key === 'in_progress' ? 'today_in_progress'
                                      : card.key === 'waiting' ? 'today_waiting'
-                                     : card.key === 'resolved' ? 'today_resolved' : null;
+                                     : card.key === 'resolved' ? 'today_resolved'
+                                     : card.key === 'closed' ? 'today_closed' : null;
                         const avgKey = card.key === 'open' ? 'avg_created_60d'
                                      : card.key === 'in_progress' ? 'avg_in_progress_60d'
                                      : card.key === 'waiting' ? 'avg_waiting_60d'
-                                     : card.key === 'resolved' ? 'avg_resolved_60d' : null;
+                                     : card.key === 'resolved' ? 'avg_resolved_60d'
+                                     : card.key === 'closed' ? 'avg_closed_60d' : null;
                         const todayVal = dayKey ? dailyMetrics[dayKey] || 0 : 0;
                         const avgVal = avgKey ? dailyMetrics[avgKey] || 0 : 0;
-                        // Nombre de jours ouvrés réellement couverts par la moyenne
-                        // (la fenêtre calendaire de 60 jours n'en contient que 43).
+                        // La moyenne porte sur les jours ouvrés de la fenêtre de
+                        // référence (les week-ends n'ont pas de flux, les inclure
+                        // ferait annoncer une normale sous-estimée d'un tiers).
+                        // L'affichage annonce la période — « moy 2 mois » — et non
+                        // un compte de jours, qui prête à confusion ; le détail
+                        // reste disponible au survol.
                         const bizDays = dailyMetrics.biz_days_count || 0;
-                        const avgLabel = bizDays > 0 ? `moy ${bizDays} j. ouvrés` : 'moy 60 j';
+                        const windowDays = dailyMetrics.window_days || 60;
+                        const months = Math.max(1, Math.round(windowDays / 30));
+                        const avgLabel = months > 1 ? `moy ${months} mois` : `moy ${windowDays} j`;
+                        const avgTitle = `Moyenne journalière sur les ${bizDays} jours ouvrés des ${windowDays} derniers jours`;
                         if (!avgVal) {
                           // Aucune donnée sur la période : inutile d'annoncer un
                           // écart de 0 (0 %) qui ferait croire à une mesure.
                           return (
-                            <div style={{ fontSize: 9, color: '#94a3b8', marginTop: 2, paddingTop: 2, borderTop: '1px solid #f1f5f9' }}>
-                              <div>{todayVal} auj. | {avgLabel} : –</div>
+                            <div title={avgTitle} style={{ fontSize: 9, color: '#94a3b8', marginTop: 2, paddingTop: 2, borderTop: '1px solid #f1f5f9' }}>
+                              <div>{todayVal} auj. | {avgLabel}: –/jour</div>
                             </div>
                           );
                         }
@@ -1591,8 +1605,8 @@ export default function TicketsDashboard() {
                         const diffPct = Math.round((diff / avgVal) * 100);
                         const diffColor = diff === 0 ? '#94a3b8' : (card.goodDown ? (diff < 0 ? '#22c55e' : '#ef4444') : (diff > 0 ? '#22c55e' : '#ef4444'));
                         return (
-                          <div style={{ fontSize: 9, color: '#94a3b8', marginTop: 2, paddingTop: 2, borderTop: '1px solid #f1f5f9' }}>
-                            <div>{todayVal} auj. | {avgLabel}: {avgVal}</div>
+                          <div title={avgTitle} style={{ fontSize: 9, color: '#94a3b8', marginTop: 2, paddingTop: 2, borderTop: '1px solid #f1f5f9' }}>
+                            <div>{todayVal} auj. | {avgLabel}: {avgVal}/jour</div>
                             <div style={{ color: diffColor, fontWeight: 600 }}>{diff > 0 ? '+' : ''}{diff} ({diffPct > 0 ? '+' : ''}{diffPct}%)</div>
                           </div>
                         );
