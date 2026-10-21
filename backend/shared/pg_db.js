@@ -307,6 +307,22 @@ async function setupPgDb() {
         UNIQUE(ticket_id, content_hash, date_creation)
       );
     `);
+    // Ces tables existent depuis avant l'ajout de leurs contraintes : sans
+    // elles, les imports GLPI (statuts, suivis) échouent silencieusement sur
+    // leur clause ON CONFLICT. Réparation idempotente.
+    try { await client.query(`ALTER TABLE hub_tickets.ticket_status ADD PRIMARY KEY (id)`); } catch (e) {}
+    try {
+        // Déduplication préalable : quelques suivis partagent le même triplet.
+        await client.query(`
+            DELETE FROM hub_tickets.ticket_followups a
+             USING hub_tickets.ticket_followups b
+             WHERE a.id > b.id
+               AND a.ticket_id = b.ticket_id
+               AND a.content_hash IS NOT DISTINCT FROM b.content_hash
+               AND a.date_creation IS NOT DISTINCT FROM b.date_creation
+        `);
+        await client.query(`ALTER TABLE hub_tickets.ticket_followups ADD UNIQUE (ticket_id, content_hash, date_creation)`);
+    } catch (e) { console.warn('[PG DB] contrainte ticket_followups:', e.message); }
 
     // ─── hub_tickets — Tables d'extension ─────────────────────────
     await client.query(`
@@ -1143,6 +1159,17 @@ async function setupPgDb() {
       );
     `);
     try { await client.query(`ALTER TABLE hub_tickets.module_config ADD PRIMARY KEY (key)`); } catch (e) {}
+
+    // Délai de clôture automatique des tickets résolus (jours). 0 = désactivé.
+    // La clé est semée pour qu'elle soit visible et modifiable depuis l'admin
+    // (PUT /api/tickets/admin/config/auto_close_days) sans toucher au code.
+    try {
+        await client.query(`
+            INSERT INTO hub_tickets.module_config (key, value)
+            VALUES ('auto_close_days', '7')
+            ON CONFLICT (key) DO NOTHING
+        `);
+    } catch (e) { console.warn('[MODULE CONFIG] seed auto_close_days:', e.message); }
 
     await client.query(`
       CREATE TABLE IF NOT EXISTS hub_tickets.escalade_config (
@@ -5183,10 +5210,21 @@ async function setupPgDb() {
                 title = EXCLUDED.title, content = EXCLUDED.content,
                 priority = EXCLUDED.priority, urgency = EXCLUDED.urgency, impact = EXCLUDED.impact,
                 category = EXCLUDED.category, type = EXCLUDED.type,
-                date_mod = EXCLUDED.date_mod,
-                date_closed = CASE WHEN EXCLUDED.status IN (5,6,7) THEN EXCLUDED.date_closed ELSE NULL END,
-                date_solved = CASE WHEN EXCLUDED.status IN (5,6,7) THEN EXCLUDED.date_solved ELSE NULL END,
-                location = EXCLUDED.location, solution = EXCLUDED.solution,
+                -- Le Hub est maître de son propre historique de traitement :
+                -- on n'écrase plus une date posée par l'application (résolution,
+                -- clôture, solution rédigée par un agent) avec la valeur du
+                -- miroir GLPI, souvent vide ou antérieure. Sans cette garde,
+                -- un ticket résolu dans le Hub perdait sa date_solved à chaque
+                -- démarrage du backend et ne pouvait plus être auto-clos.
+                date_mod = GREATEST(hub_tickets.tickets.date_mod, EXCLUDED.date_mod),
+                date_closed = CASE WHEN hub_tickets.tickets.status IN (6, 7)
+                                   THEN COALESCE(hub_tickets.tickets.date_closed, EXCLUDED.date_closed)
+                                   ELSE NULL END,
+                date_solved = CASE WHEN hub_tickets.tickets.status IN (5, 6, 7)
+                                   THEN COALESCE(hub_tickets.tickets.date_solved, EXCLUDED.date_solved)
+                                   ELSE NULL END,
+                location = EXCLUDED.location,
+                solution = COALESCE(NULLIF(hub_tickets.tickets.solution, ''), EXCLUDED.solution),
                 entity = EXCLUDED.entity, requester_name = EXCLUDED.requester_name,
                 email_alt = EXCLUDED.email_alt, requester_email_22 = EXCLUDED.requester_email_22
         `);

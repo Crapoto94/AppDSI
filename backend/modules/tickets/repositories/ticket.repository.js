@@ -671,11 +671,20 @@ module.exports = {
         fields.push(`date_mod = $${idx++}`);
         params.push(toParisSql());
 
-        if (data.status === 5) {
+        // Les dates de résolution / clôture sont calculées par l'appelant
+        // lorsqu'il rejoue un événement daté (clôture automatique rétroactive) :
+        // une valeur explicite prime sur l'horodatage du jour.
+        if (data.date_solved !== undefined) {
+            fields.push(`date_solved = $${idx++}`);
+            params.push(data.date_solved);
+        } else if (data.status === 5) {
             fields.push(`date_solved = $${idx++}`);
             params.push(toParisSql());
         }
-        if (data.status === 6) {
+        if (data.date_closed !== undefined) {
+            fields.push(`date_closed = $${idx++}`);
+            params.push(data.date_closed);
+        } else if (data.status === 6) {
             fields.push(`date_closed = $${idx++}`);
             params.push(toParisSql());
         }
@@ -694,6 +703,103 @@ module.exports = {
             `UPDATE hub_tickets.tickets SET status = 8, date_mod = $1 WHERE glpi_id = $2`,
             [toParisSql(), id]
         );
+    },
+
+    // ── Auto-fermeture des tickets résolus ─────────────────────────────────
+    // Un ticket « résolu » (statut 5) porte sa date de résolution dans
+    // date_solved. Cette date peut disparaître : la resynchronisation GLPI
+    // écrase la ligne du ticket avec les valeurs du miroir GLPI (dont
+    // date_solved vide et un statut qui n'est pas 5/6/7) — le ticket reste
+    // alors au statut 5 sans date, donc jamais éligible à la clôture.
+    //
+    // L'historique du ticket, lui, n'est jamais écrasé : il conserve le
+    // moment réel de la résolution (action « solved » ou passage au statut 5).
+    // On s'en sert pour restaurer les dates manquantes.
+    //
+    // Attention aux fuseaux : ticket_history.created_at est un timestamptz
+    // (instant exact) et tickets.date_* des timestamps naïfs en heure de Paris.
+    // « AT TIME ZONE 'Europe/Paris' » sur un timestamptz donne le timestamp
+    // naïf correspondant, directement comparable aux dates des tickets.
+    async repairMissingResolvedDates() {
+        const { rows } = await pool.query(`
+            UPDATE hub_tickets.tickets t
+               SET date_solved = src.resolved_at
+              FROM (
+                    SELECT t2.glpi_id,
+                           COALESCE(hs.solved_at, h5.st5_at) AT TIME ZONE 'Europe/Paris' AS resolved_at
+                      FROM hub_tickets.tickets t2
+                      LEFT JOIN LATERAL (
+                          SELECT max(h.created_at) AS solved_at
+                            FROM hub_tickets.ticket_history h
+                           WHERE h.ticket_id = t2.glpi_id AND h.action = 'solved'
+                      ) hs ON true
+                      LEFT JOIN LATERAL (
+                          SELECT max(h.created_at) AS st5_at
+                            FROM hub_tickets.ticket_history h
+                           WHERE h.ticket_id = t2.glpi_id
+                             AND h.action = 'status_changed'
+                             AND h.field_name = 'status' AND h.new_value = '5'
+                      ) h5 ON true
+                     WHERE t2.status = 5 AND t2.date_solved IS NULL
+                   ) src
+             WHERE t.glpi_id = src.glpi_id AND src.resolved_at IS NOT NULL
+            RETURNING t.glpi_id, t.date_solved
+        `);
+        return rows;
+    },
+
+    /**
+     * Tickets résolus depuis plus de `days` jours, avec la date de clôture
+     * théorique (date de résolution + délai), plafonnée à maintenant.
+     *
+     * La date de résolution retenue est, par ordre de préférence :
+     *   1. tickets.date_solved            (date canonique)
+     *   2. historique « solved »          (résolution faite dans l'application)
+     *   3. historique « passage en 5 »
+     *   4. tickets.date_mod               (dernière modification de la fiche)
+     *
+     * Les dates sont renvoyées en chaînes (et non en objets Date) pour éviter
+     * toute conversion implicite par le pilote : elles sont stockées en heure
+     * de Paris (due_at) et en UTC (due_at_utc, pour l'historique).
+     */
+    async findResolvedTicketsToClose(days) {
+        const { rows } = await pool.query(`
+            SELECT s.glpi_id,
+                   to_char(s.resolved_at, 'YYYY-MM-DD HH24:MI:SS') AS resolved_at,
+                   to_char(s.due_at,        'YYYY-MM-DD HH24:MI:SS') AS due_at,
+                   to_char((s.due_at AT TIME ZONE 'Europe/Paris'), 'YYYY-MM-DD HH24:MI:SS') || '+00' AS due_at_utc
+              FROM (
+                    SELECT t.glpi_id,
+                           COALESCE(t.date_solved,
+                                    hs.solved_at AT TIME ZONE 'Europe/Paris',
+                                    h5.st5_at   AT TIME ZONE 'Europe/Paris',
+                                    t.date_mod) AS resolved_at,
+                           LEAST(COALESCE(t.date_solved,
+                                          hs.solved_at AT TIME ZONE 'Europe/Paris',
+                                          h5.st5_at   AT TIME ZONE 'Europe/Paris',
+                                          t.date_mod)
+                                 + ($1 * INTERVAL '1 day'),
+                                 (CURRENT_TIMESTAMP AT TIME ZONE 'Europe/Paris')) AS due_at
+                      FROM hub_tickets.tickets t
+                      LEFT JOIN LATERAL (
+                          SELECT max(h.created_at) AS solved_at
+                            FROM hub_tickets.ticket_history h
+                           WHERE h.ticket_id = t.glpi_id AND h.action = 'solved'
+                      ) hs ON true
+                      LEFT JOIN LATERAL (
+                          SELECT max(h.created_at) AS st5_at
+                            FROM hub_tickets.ticket_history h
+                           WHERE h.ticket_id = t.glpi_id
+                             AND h.action = 'status_changed'
+                             AND h.field_name = 'status' AND h.new_value = '5'
+                      ) h5 ON true
+                     WHERE t.status = 5
+                   ) s
+             WHERE s.resolved_at IS NOT NULL
+               AND s.resolved_at < (CURRENT_TIMESTAMP AT TIME ZONE 'Europe/Paris') - ($1 * INTERVAL '1 day')
+             ORDER BY s.resolved_at
+        `, [days]);
+        return rows;
     },
 
     async getDashboardStats(filters = {}) {

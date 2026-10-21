@@ -3339,6 +3339,30 @@ setupDb().then(async database => {
         console.log(`Backend server running on http://0.0.0.0:${PORT}`);
     });
 
+    // ─── Rattrapage au démarrage ────────────────────────────────────────────
+    // Le serveur est redémarré plus souvent que le rythme des crons : on
+    // rattrape donc au démarrage ce qui aurait dû être fait pendant l'arrêt
+    // (clôture automatique des tickets résolus, cache des KPI journaliers).
+    setTimeout(async () => {
+        try {
+            const workflowService = require('./modules/tickets/services/workflow.service');
+            const result = await workflowService.autoCloseResolvedTickets();
+            if (!result.disabled) {
+                console.log(`[STARTUP auto-close] ${result.closed} ticket(s) clos, ${result.repaired} date(s) de résolution restaurée(s) (délai ${result.days} j).`);
+            } else {
+                console.log('[STARTUP auto-close] désactivé (auto_close_days = 0).');
+            }
+        } catch (e) {
+            console.error('[STARTUP auto-close]', e.message);
+        }
+        try {
+            const ticketService = require('./modules/tickets/services/ticket.service');
+            await ticketService.saveDailyKpiSnapshot();
+        } catch (e) {
+            console.error('[STARTUP KPI]', e.message);
+        }
+    }, 15000);
+
     // ============================================
     // SWAGGER / API DOCS
     // ============================================
@@ -5961,8 +5985,10 @@ cron.schedule('0 20 * * *', async () => {
     catch (e) { console.error('[MENTIONS] digest 20h:', e.message); }
 }, { timezone: 'Europe/Paris' });
 
-// KPI daily snapshot — tous les jours à 23h55
-cron.schedule('55 23 * * *', async () => {
+// KPI daily snapshot — refreshed every hour (the table is a cache, the
+// upsert is idempotent). Hourly rather than once a night: a nightly cron was
+// systematically missed, the server being restarted more often than that.
+cron.schedule('55 * * * *', async () => {
     try {
         const ticketService = require('./modules/tickets/services/ticket.service');
         await ticketService.saveDailyKpiSnapshot();
@@ -5970,7 +5996,7 @@ cron.schedule('55 23 * * *', async () => {
         console.error('[KPI HISTORY] Erreur snapshot quotidien:', e.message);
     }
 }, { timezone: 'Europe/Paris' });
-console.log('[KPI HISTORY] Cron snapshot quotidien enregistré (23h55)');
+console.log('[KPI HISTORY] Cron snapshot enregistré (toutes les heures à H55)');
 
 
 
@@ -6193,12 +6219,18 @@ cron.schedule('0 * * * *', () => {
     dsiDashboardCtrl.runScheduledSends().catch(e => console.error('[CRON dsi-dash]', e.message));
 }, { timezone: 'Europe/Paris' });
 
-// ─── Tickets : clôture automatique des tickets résolus, tous les jours à minuit ──
-cron.schedule('0 0 * * *', async () => {
-    console.log('[CRON] Clôture automatique des tickets résolus (minuit)...');
+// ─── Tickets : clôture automatique des tickets résolus ─────────────────────
+// Balayage horaire plutôt qu'à minuit : le backend redémarre souvent
+// (déploi, redémarrage de la machine, conteneur) et un cron ponctuel est
+// perdu dès que le processus n'est pas démarré à l'heure exacte. Un balayage
+// horaire rattrape systématiquement les exécutions manquées, et le balayage
+// de démarrage (plus bas) rattrape les arrêts de longue durée.
+cron.schedule('7 * * * *', async () => {
     try {
         const result = await require('./modules/tickets/services/workflow.service').autoCloseResolvedTickets();
-        if (!result.disabled) console.log(`[CRON auto-close] ${result.closed} ticket(s) clos (délai ${result.days} j).`);
+        if (!result.disabled && result.closed > 0) {
+            console.log(`[CRON auto-close] ${result.closed} ticket(s) clos (délai ${result.days} j).`);
+        }
     } catch (e) {
         console.error('[CRON auto-close]', e.message);
     }

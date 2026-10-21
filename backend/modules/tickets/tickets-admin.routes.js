@@ -1217,12 +1217,28 @@ router.get('/closure-log', authenticateTicketAdmin, async (req, res) => {
     } catch (e) { res.status(500).json({ message: e.message }); }
 });
 
-// Déclenche manuellement la clôture automatique (même logique que le cron de minuit).
+// Déclenche manuellement la clôture automatique (même logique que le balayage
+// horaire). Paramètres optionnels :
+//   ?notify=all|none|fresh  — qui est notifié (défaut : fresh = clôtures du jour)
+//   ?dry_run=1              — liste les tickets concernés sans rien modifier
 router.post('/closure/run', authenticateTicketAdmin, async (req, res) => {
     try {
         const workflowService = require('./services/workflow.service');
-        const result = await workflowService.autoCloseResolvedTickets();
-        res.json({ message: result.disabled ? 'Clôture automatique désactivée (délai = 0).' : `${result.closed} ticket(s) clos.`, ...result });
+        const notify = ['all', 'none', 'fresh'].includes(req.query.notify) ? req.query.notify : 'fresh';
+        const dryRun = req.query.dry_run === '1';
+        const result = await workflowService.autoCloseResolvedTickets({ notify, dryRun });
+        if (dryRun) {
+            return res.json({
+                message: `${(result.candidates || []).length} ticket(s) résolu(s) depuis plus de ${result.days} j seraient clos.`,
+                ...result,
+            });
+        }
+        res.json({
+            message: result.disabled
+                ? 'Clôture automatique désactivée (délai = 0).'
+                : `${result.closed} ticket(s) clos (${result.repaired} date(s) de résolution restaurée(s)).`,
+            ...result,
+        });
     } catch (e) { res.status(500).json({ message: e.message }); }
 });
 

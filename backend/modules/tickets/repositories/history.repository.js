@@ -15,7 +15,19 @@ module.exports = {
         `, [ticketId]);
     },
 
-    async log(ticketId, userId, action, fieldName, oldValue, newValue, comment = null, username = null) {
+    // createdAt (optionnel) : horodatage explicite de l'événement, en UTC
+    // (created_at est un timestamp naïf en UTC, comme le DEFAULT CURRENT_TIMESTAMP).
+    // Utilisé par la clôture automatique rétroactive, qui date l'événement du
+    // jour où la clôture aurait dû avoir lieu.
+    async log(ticketId, userId, action, fieldName, oldValue, newValue, comment = null, username = null, createdAt = null) {
+        if (createdAt) {
+            await pgDb.run(`
+                INSERT INTO hub_tickets.ticket_history
+                    (ticket_id, user_id, username, action, field_name, old_value, new_value, comment, created_at)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            `, [ticketId, userId, username, action, fieldName, oldValue, newValue, comment, createdAt]);
+            return;
+        }
         await pgDb.run(`
             INSERT INTO hub_tickets.ticket_history
                 (ticket_id, user_id, username, action, field_name, old_value, new_value, comment)
