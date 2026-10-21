@@ -332,29 +332,35 @@ module.exports = {
     },
 
     async saveDailyKpiSnapshot() {
-        const stats = await ticketRepo.getDashboardStats();
-        const timeStats = await ticketRepo.getTimeStats();
-        const weekStats = await ticketRepo.getResolvedWeekTimeStats();
-        const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+        // La snapshot reprend la série recalculée (source de vérité unique) :
+        // les compteurs live et la reconstruction historique ne peuvent pas
+        // diverger.
+        const series = await ticketRepo.getDailyTicketSeries(60);
+        const today = series.length ? series[series.length - 1] : null;
+        if (!today) {
+            console.warn('[KPI HISTORY] Série journalière vide — snapshot ignoré');
+            return;
+        }
         await ticketRepo.saveKpiSnapshot({
-            snapshot_date: today,
-            total: stats?.total || 0,
-            open: stats?.open || 0,
-            in_progress: stats?.in_progress || 0,
-            waiting: stats?.waiting || 0,
-            critical_open: stats?.critical_open || 0,
-            resolved: stats?.resolved || 0,
-            closed: stats?.closed || 0,
-            problems: stats?.problems || 0,
-            vip_total: stats?.vip_total || 0,
-            open_incident: stats?.open_incident || 0,
-            open_request: stats?.open_request || 0,
-            avg_age_open_seconds: timeStats?.avg_age_open_seconds || 0,
-            avg_waiting_seconds_active: timeStats?.avg_waiting_seconds_active || 0,
-            avg_active_seconds_week: weekStats?.avg_active_seconds_week || 0,
-            resolved_week_count: weekStats?.resolved_count || 0,
+            snapshot_date: today.snapshot_date,
+            total: today.total || 0,
+            open: today.open || 0,
+            new: today.new || 0,
+            in_progress: today.in_progress || 0,
+            waiting: today.waiting || 0,
+            critical_open: today.critical_open || 0,
+            resolved: today.resolved || 0,
+            closed: today.closed || 0,
+            problems: today.problems || 0,
+            vip_total: today.vip_total || 0,
+            open_incident: today.open_incident || 0,
+            open_request: today.open_request || 0,
+            avg_age_open_seconds: today.avg_age_open_seconds || 0,
+            avg_waiting_seconds_active: today.avg_waiting_seconds_active || 0,
+            avg_active_seconds_week: today.avg_active_seconds_week || 0,
+            resolved_week_count: today.resolved_week_count || 0,
         });
-        console.log(`[KPI HISTORY] Snapshot sauvegardé pour ${today}`);
+        console.log(`[KPI HISTORY] Snapshot sauvegardé pour ${today.snapshot_date}`);
     },
 
     async getKpiHistory(days = 30) {

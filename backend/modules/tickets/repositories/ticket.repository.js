@@ -1,6 +1,201 @@
 const { pgDb, pool } = require('../../../shared/database');
 const { toParisSql } = require('../../../shared/utils');
 
+// ── Série journalière des KPI ───────────────────────────────────────────────
+// Reconstruit l'état des tickets jour par jour à partir de trois sources :
+//   • hub_tickets.tickets       → date_creation / date_solved / date_closed + statut courant
+//   • hub_tickets.ticket_history → changements de statut tracés par l'application
+//   • le statut courant du ticket, qui fait autorité pour « aujourd'hui »
+//
+// Pourquoi ne pas se contenter des dates de la table tickets ?
+// Les tickets synchronisés depuis GLPI ne passent pas par ticket_history et
+// n'ont pas toujours de date_solved / date_closed : la seule façon fiable de
+// savoir si un ticket était « ouvert » hier est de reconstruire la chronologie
+// de son statut. Le dernier segment de chaque ticket est recalé sur son statut
+// courant — sans cela, les tickets resynchronisés resteraient « Nouveau » depuis
+// leur création et le reconstruction des stocks serait fausse.
+//
+// Le tableau kpi_history n'était alimenté que par un cron nocturne (23h55)
+// qui ne se déclenchait pas : la table est restée vide et les « moy 60j »
+// affichaient 0. La série est donc recalculée à la volée, et la table n'est
+// plus qu'un cache (peuplé par le backfill) pour les consumers SQL directs.
+const DAILY_SERIES_SQL = `
+WITH params AS (
+    -- « aujourd'hui » en heure de Paris : la base est en UTC alors que les
+    -- horodatages saisis par les agents (date_creation, date_solved…) sont
+    -- des timestamps naïfs en heure locale française.
+    SELECT (CURRENT_TIMESTAMP AT TIME ZONE 'Europe/Paris')::date AS today
+),
+days AS (
+    SELECT generate_series(p.today - $1::int, p.today, '1 day'::interval)::date AS d
+    FROM params p
+),
+tk AS (
+    SELECT glpi_id, status, priority, type, is_vip, date_creation, date_solved, date_closed, total_waiting_seconds
+    FROM hub_tickets.tickets
+    WHERE status <> 8
+),
+hist_win AS (
+    -- tickets ayant eu un changement de statut pendant la fenêtre
+    SELECT DISTINCT h.ticket_id
+    FROM hub_tickets.ticket_history h
+    WHERE h.action = 'status_changed'
+      AND h.created_at >= ((CURRENT_TIMESTAMP AT TIME ZONE 'Europe/Paris')::date - $1::int)::timestamptz
+),
+tk_win AS (
+    -- Tickets susceptibles d'avoir un état « actif » sur la fenêtre.
+    -- Les ~37 000 tickets historiques clos avant la fenêtre n'ont aucun effet
+    -- sur les stocks du jour : les exclure ici divise par 15 le volume de la
+    -- chronologie reconstruite.
+    SELECT t.* FROM tk t, params p
+    WHERE t.status IN (1,2,3,4,5)
+       OR t.date_solved  >= (p.today - $1::int)
+       OR t.date_closed  >= (p.today - $1::int)
+       OR t.glpi_id IN (SELECT ticket_id FROM hist_win)
+),
+ev AS (
+    -- création du ticket → statut 1 (Nouveau)
+    SELECT glpi_id AS ticket_id, date_creation AS ts, 1 AS st, 0 AS rk
+      FROM tk_win WHERE date_creation IS NOT NULL
+    UNION ALL
+    -- changements de statut tracés par l'application (horodatage converti en
+    -- heure de Paris pour être comparable aux timestamps naïfs des tickets)
+    SELECT h.ticket_id, (h.created_at AT TIME ZONE 'Europe/Paris')::timestamp, h.new_value::int, 1
+      FROM hub_tickets.ticket_history h
+     WHERE h.action = 'status_changed' AND h.new_value IS NOT NULL
+    UNION ALL
+    -- résolution datée (synchronisation GLPI + formulaire « solution »)
+    SELECT glpi_id, date_solved, 5, 2 FROM tk_win WHERE date_solved IS NOT NULL
+    UNION ALL
+    -- clôture datée
+    SELECT glpi_id, date_closed, 6, 3 FROM tk_win WHERE date_closed IS NOT NULL
+),
+ev_day AS (
+    -- un seul état retenu par ticket et par jour : le plus récent de la journée
+    SELECT DISTINCT ON (ticket_id, d) ticket_id, d, st
+    FROM (SELECT ticket_id, ts::date AS d, ts, st, rk FROM ev) e
+    ORDER BY ticket_id, d, ts DESC, rk DESC
+),
+seg AS (
+    SELECT ticket_id, d AS from_d, st,
+           LEAD(d) OVER (PARTITION BY ticket_id ORDER BY d) AS to_d
+    FROM ev_day
+),
+seg_anchor AS (
+    -- le dernier segment reflète le statut courant (source de vérité).
+    -- Seuls les segments qui recoupent la fenêtre sont conservés : sans ce
+    -- filtre, la jointure jours × segments balaie 2,7 M de combinaisons.
+    SELECT a.ticket_id, a.from_d, a.to_d, a.st
+    FROM (
+        SELECT s.ticket_id, s.from_d, s.to_d,
+               CASE WHEN s.to_d IS NULL THEN t.status ELSE s.st END AS st
+        FROM seg s
+        JOIN tk_win t ON t.glpi_id = s.ticket_id
+        WHERE s.from_d <= (SELECT today FROM params)
+          AND (s.to_d IS NULL OR s.to_d > (SELECT today - $1::int FROM params))
+    ) a
+    WHERE a.st IN (1,2,3,4,5)
+),
+state AS (
+    SELECT dd.d AS snapshot_date, s.ticket_id, s.st,
+           t.priority, t.type, t.is_vip, t.date_creation, t.total_waiting_seconds
+    FROM days dd
+    JOIN seg_anchor s ON s.from_d <= dd.d AND (s.to_d IS NULL OR dd.d < s.to_d)
+    JOIN tk_win t ON t.glpi_id = s.ticket_id
+    WHERE s.st IN (1,2,3,4,5)
+),
+stocks AS (
+    SELECT d.d AS snapshot_date,
+           COUNT(st.ticket_id) FILTER (WHERE st.st IN (1,2,3))::int AS open,
+           COUNT(st.ticket_id) FILTER (WHERE st.st = 1)::int AS new,
+           COUNT(st.ticket_id) FILTER (WHERE st.st IN (2,3))::int AS in_progress,
+           COUNT(st.ticket_id) FILTER (WHERE st.st = 4)::int AS waiting,
+           COUNT(st.ticket_id) FILTER (WHERE st.st IN (1,2,3) AND st.priority = 5)::int AS critical_open,
+           COUNT(st.ticket_id) FILTER (WHERE st.st IN (1,2,3) AND st.type::text = '1')::int AS open_incident,
+           COUNT(st.ticket_id) FILTER (WHERE st.st IN (1,2,3) AND st.type::text = '2')::int AS open_request,
+           COUNT(st.ticket_id) FILTER (WHERE st.st IN (1,2,3,4,5) AND st.type::text = '3')::int AS problems,
+           COUNT(st.ticket_id) FILTER (WHERE st.st IN (1,2,3) AND st.is_vip = true)::int AS vip_total,
+           COALESCE(AVG(EXTRACT(EPOCH FROM (d.d::timestamp - st.date_creation)))
+                    FILTER (WHERE st.st IN (1,2,3)), 0)::int AS avg_age_open_seconds,
+           COALESCE(AVG(COALESCE(st.total_waiting_seconds, 0))
+                    FILTER (WHERE st.st IN (1,2,3)), 0)::int AS avg_waiting_seconds_active
+    FROM days d
+    LEFT JOIN state st ON st.snapshot_date = d.d
+    GROUP BY d.d
+),
+created_day AS (
+    SELECT date_creation::date AS d, COUNT(*)::int AS c FROM tk WHERE date_creation IS NOT NULL GROUP BY 1
+),
+resolved_day AS (
+    SELECT date_solved::date AS d, COUNT(*)::int AS c FROM tk WHERE date_solved IS NOT NULL GROUP BY 1
+),
+closed_day AS (
+    SELECT date_closed::date AS d, COUNT(*)::int AS c FROM tk WHERE date_closed IS NOT NULL GROUP BY 1
+),
+resolved_week AS (
+    SELECT date_trunc('week', date_solved::date) AS wk,
+           COALESCE(AVG(EXTRACT(EPOCH FROM (date_solved - date_creation)) - COALESCE(total_waiting_seconds, 0)), 0)::int AS avg_active,
+           COUNT(*)::int AS n
+    FROM tk WHERE date_solved IS NOT NULL GROUP BY 1
+),
+in_progress_day AS (
+    SELECT (h.created_at AT TIME ZONE 'Europe/Paris')::date AS d, COUNT(DISTINCT h.ticket_id)::int AS c
+    FROM hub_tickets.ticket_history h
+    WHERE h.action = 'status_changed' AND h.new_value = '3' GROUP BY 1
+),
+waiting_day AS (
+    SELECT (h.created_at AT TIME ZONE 'Europe/Paris')::date AS d, COUNT(DISTINCT h.ticket_id)::int AS c
+    FROM hub_tickets.ticket_history h
+    WHERE h.action = 'status_changed' AND h.new_value = '4' GROUP BY 1
+),
+base AS (
+    SELECT
+        (SELECT COUNT(*)::int FROM tk t, params p WHERE t.date_creation::date < (p.today - $1::int)) AS total_base,
+        (SELECT COUNT(*)::int FROM tk t, params p WHERE t.date_solved IS NOT NULL AND t.date_solved::date < (p.today - $1::int)) AS resolved_base,
+        (SELECT COUNT(*)::int FROM tk t, params p WHERE t.date_closed IS NOT NULL AND t.date_closed::date < (p.today - $1::int)) AS closed_base
+),
+cum AS (
+    SELECT d.d AS snapshot_date,
+           b.total_base   + SUM(COALESCE(fc.c, 0)) OVER (ORDER BY d.d) AS total,
+           b.resolved_base + SUM(COALESCE(fr.c, 0)) OVER (ORDER BY d.d) AS resolved,
+           b.closed_base   + SUM(COALESCE(fcl.c, 0)) OVER (ORDER BY d.d) AS closed
+    FROM days d
+    CROSS JOIN base b
+    LEFT JOIN created_day fc  ON fc.d  = d.d
+    LEFT JOIN resolved_day fr ON fr.d  = d.d
+    LEFT JOIN closed_day fcl  ON fcl.d = d.d
+)
+SELECT to_char(s.snapshot_date, 'YYYY-MM-DD') AS snapshot_date,
+       (EXTRACT(DOW FROM s.snapshot_date) NOT IN (0, 6)) AS is_business_day,
+       c.total::int, s.open, s.new, s.in_progress, s.waiting, s.critical_open,
+       c.resolved::int, c.closed::int, s.problems, s.vip_total,
+       s.open_incident, s.open_request,
+       s.avg_age_open_seconds, s.avg_waiting_seconds_active,
+       COALESCE(rw.avg_active, 0)::int AS avg_active_seconds_week,
+       COALESCE(rw.n, 0)::int AS resolved_week_count,
+       COALESCE(fc.c, 0)::int AS created_day,
+       COALESCE(fr.c, 0)::int AS resolved_day,
+       COALESCE(fcl.c, 0)::int AS closed_day,
+       COALESCE(fip.c, 0)::int AS in_progress_day,
+       COALESCE(fw.c, 0)::int AS waiting_day
+FROM stocks s
+JOIN cum c ON c.snapshot_date = s.snapshot_date
+LEFT JOIN created_day fc   ON fc.d  = s.snapshot_date
+LEFT JOIN resolved_day fr  ON fr.d  = s.snapshot_date
+LEFT JOIN closed_day fcl   ON fcl.d = s.snapshot_date
+LEFT JOIN in_progress_day fip ON fip.d = s.snapshot_date
+LEFT JOIN waiting_day fw   ON fw.d  = s.snapshot_date
+LEFT JOIN resolved_week rw ON rw.wk = date_trunc('week', s.snapshot_date)
+ORDER BY s.snapshot_date
+`;
+
+// Fenêtre maximale reconstruite : les moyennes « 60 j » et l'historique KPI
+// (30 j par défaut) se calent sur la même série, recalculée au maximum une
+// fois par minute.
+const DAILY_SERIES_WINDOW = 60;
+const DAILY_SERIES_TTL_MS = 60 * 1000;
+let dailySeriesCache = null;
+
 // ── Expressions SQL réutilisées pour le filtre « demandeur » ─────────────────
 // e-mail résolu (email_alt fait foi, sinon GLPI champ 22) — de chaque côté
 // de la comparaison on TRIM pour tolérer les espaces résiduels.
@@ -656,14 +851,15 @@ module.exports = {
     async saveKpiSnapshot(data) {
         await pool.query(`
             INSERT INTO hub_tickets.kpi_history (
-                snapshot_date, total, open, in_progress, waiting, critical_open,
+                snapshot_date, total, open, new, in_progress, waiting, critical_open,
                 resolved, closed, problems, vip_total, open_incident, open_request,
                 avg_age_open_seconds, avg_waiting_seconds_active,
                 avg_active_seconds_week, resolved_week_count
-            ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
+            ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
             ON CONFLICT (snapshot_date) DO UPDATE SET
                 total = EXCLUDED.total,
                 open = EXCLUDED.open,
+                new = EXCLUDED.new,
                 in_progress = EXCLUDED.in_progress,
                 waiting = EXCLUDED.waiting,
                 critical_open = EXCLUDED.critical_open,
@@ -679,189 +875,151 @@ module.exports = {
                 resolved_week_count = EXCLUDED.resolved_week_count
         `, [
             data.snapshot_date,
-            data.total || 0, data.open || 0, data.in_progress || 0, data.waiting || 0, data.critical_open || 0,
-            data.resolved || 0, data.closed || 0, data.problems || 0, data.vip_total || 0,
+            data.total || 0, data.open || 0, data.new || 0, data.in_progress || 0, data.waiting || 0,
+            data.critical_open || 0, data.resolved || 0, data.closed || 0, data.problems || 0, data.vip_total || 0,
             data.open_incident || 0, data.open_request || 0,
             data.avg_age_open_seconds || 0, data.avg_waiting_seconds_active || 0,
             data.avg_active_seconds_week || 0, data.resolved_week_count || 0,
         ]);
     },
 
+    // ── Série journalière (source de vérité des KPI) ─────────────────────────
+    // Recalculée à la volée : la table kpi_history n'était alimentée que par un
+    // cron nocturne qui ne se déclenchait pas (table restée vide).
+    async getDailyTicketSeries(days = 60) {
+        const now = Date.now();
+        if (dailySeriesCache && dailySeriesCache.at > now - DAILY_SERIES_TTL_MS) {
+            const rows = dailySeriesCache.rows;
+            return rows.slice(Math.max(0, rows.length - days));
+        }
+        // Le plan de reconstruction est estimé « coûteux » par PostgreSQL (les
+        // cardinalités des CTE sont pessimistes : generate_series est toujours
+        // estimé à 1 000 lignes) : la compilation JIT des expressions, alors
+        // déclenchée, coûte à elle seule plus d'une seconde pour un gain nul
+        // (2 500 ms → 180 ms). On la désactive pour cette seule requête.
+        const client = await pool.connect();
+        let rows;
+        try {
+            await client.query('BEGIN');
+            await client.query('SET LOCAL jit = off');
+            const res = await client.query(DAILY_SERIES_SQL, [DAILY_SERIES_WINDOW]);
+            rows = res.rows;
+            await client.query('COMMIT');
+        } catch (err) {
+            await client.query('ROLLBACK').catch(() => {});
+            throw err;
+        } finally {
+            client.release();
+        }
+        dailySeriesCache = { at: now, rows };
+        return rows.slice(Math.max(0, rows.length - days));
+    },
+
     async getKpiHistory(days = 30) {
-        const res = await pool.query(`
-            SELECT * FROM hub_tickets.kpi_history
-            WHERE snapshot_date >= CURRENT_DATE - ($1 || ' days')::INTERVAL
-            ORDER BY snapshot_date ASC
-        `, [days]);
-        return res.rows;
+        return this.getDailyTicketSeries(days);
     },
 
     async backfillKpiHistory(days = 30) {
-        // Reconstitue un snapshot par jour à partir des métadonnées existantes.
-        // Un ticket est considéré "ouvert" sur la date D si :
-        //   - il a été créé avant D
-        //   - il n'est pas supprimé (status != 8)
-        //   - il n'a pas encore été résolu/fermé à cette date
-        // Les tickets encore ouverts aujourd'hui (sans date_solved) sont supposés
-        // avoir été ouverts sur tous les jours depuis leur création.
-        const res = await pool.query(`
-            WITH date_series AS (
-                SELECT generate_series(
-                    CURRENT_DATE - ($1 || ' days')::interval,
-                    CURRENT_DATE,
-                    INTERVAL '1 day'
-                )::date AS snap_date
-            ),
-            ticket_on_date AS (
-                SELECT
-                    ds.snap_date,
-                    t.glpi_id,
-                    t.type,
-                    t.priority,
-                    t.is_vip,
-                    t.date_creation AS created_at,
-                    t.date_solved   AS solved_at,
-                    t.date_closed   AS closed_at,
-                    COALESCE(t.total_waiting_seconds, 0) AS wait_sec,
-                    -- Le ticket était-il ouvert (non encore résolu/fermé) ce jour-là ?
-                    CASE WHEN
-                        t.date_creation::date <= ds.snap_date
-                        AND t.status != 8
-                        AND (t.date_solved IS NULL OR t.date_solved::date > ds.snap_date)
-                        AND (t.date_closed IS NULL OR t.date_closed::date > ds.snap_date)
-                    THEN true ELSE false END AS was_open,
-                    -- Le ticket était-il résolu ce jour-là ?
-                    CASE WHEN
-                        t.date_solved IS NOT NULL
-                        AND t.date_solved::date <= ds.snap_date
-                    THEN true ELSE false END AS was_resolved,
-                    -- Le ticket était-il fermé (mais pas résolu) ce jour-là ?
-                    CASE WHEN
-                        t.date_closed IS NOT NULL
-                        AND t.date_closed::date <= ds.snap_date
-                        AND (t.date_solved IS NULL OR t.date_solved::date > ds.snap_date)
-                    THEN true ELSE false END AS was_closed
-                FROM date_series ds
-                CROSS JOIN hub_tickets.tickets t
-                WHERE t.date_creation::date <= ds.snap_date
-                  AND t.status != 8
-            )
+        // Persiste la série recalculée dans kpi_history (cache pour les
+        // consommateurs SQL directs et l'admin). Les colonnes absentes de la
+        // table sont ignorées ; « new » est ajouté par la migration.
+        const rows = await this.getDailyTicketSeries(days);
+        if (!rows.length) return 0;
+        const payload = rows.map(r => ({
+            snapshot_date: r.snapshot_date,
+            total: r.total, open: r.open, new: r.new,
+            in_progress: r.in_progress, waiting: r.waiting,
+            critical_open: r.critical_open, resolved: r.resolved, closed: r.closed,
+            problems: r.problems, vip_total: r.vip_total,
+            open_incident: r.open_incident, open_request: r.open_request,
+            avg_age_open_seconds: r.avg_age_open_seconds,
+            avg_waiting_seconds_active: r.avg_waiting_seconds_active,
+            avg_active_seconds_week: r.avg_active_seconds_week,
+            resolved_week_count: r.resolved_week_count,
+        }));
+        await pool.query(`
             INSERT INTO hub_tickets.kpi_history (
-                snapshot_date,
-                total, open, resolved, closed,
-                open_incident, open_request,
-                critical_open, vip_total,
-                avg_age_open_seconds
+                snapshot_date, total, open, new, in_progress, waiting, critical_open,
+                resolved, closed, problems, vip_total, open_incident, open_request,
+                avg_age_open_seconds, avg_waiting_seconds_active,
+                avg_active_seconds_week, resolved_week_count
             )
-            SELECT
-                snap_date,
-                COUNT(*) FILTER (WHERE was_open OR was_resolved OR was_closed)        AS total,
-                COUNT(*) FILTER (WHERE was_open)                                       AS open,
-                COUNT(*) FILTER (WHERE was_resolved)                                   AS resolved,
-                COUNT(*) FILTER (WHERE was_closed)                                     AS closed,
-                COUNT(*) FILTER (WHERE was_open AND type::text = '1')                  AS open_incident,
-                COUNT(*) FILTER (WHERE was_open AND type::text = '2')                  AS open_request,
-                COUNT(*) FILTER (WHERE was_open AND priority = 5)                      AS critical_open,
-                COUNT(*) FILTER (WHERE was_open AND is_vip = true)                     AS vip_total,
-                COALESCE(
-                    AVG(
-                        EXTRACT(EPOCH FROM (snap_date::timestamp - created_at))
-                    ) FILTER (WHERE was_open), 0
-                )::integer AS avg_age_open_seconds
-            FROM ticket_on_date
-            GROUP BY snap_date
+            SELECT x.snapshot_date, x.total, x.open, x.new, x.in_progress, x.waiting, x.critical_open,
+                   x.resolved, x.closed, x.problems, x.vip_total, x.open_incident, x.open_request,
+                   x.avg_age_open_seconds, x.avg_waiting_seconds_active,
+                   x.avg_active_seconds_week, x.resolved_week_count
+            FROM jsonb_to_recordset($1::jsonb) AS x(
+                snapshot_date date, total int, open int, new int, in_progress int, waiting int,
+                critical_open int, resolved int, closed int, problems int, vip_total int,
+                open_incident int, open_request int, avg_age_open_seconds int,
+                avg_waiting_seconds_active int, avg_active_seconds_week int, resolved_week_count int)
             ON CONFLICT (snapshot_date) DO UPDATE SET
-                total              = EXCLUDED.total,
-                open               = EXCLUDED.open,
-                resolved           = EXCLUDED.resolved,
-                closed             = EXCLUDED.closed,
-                open_incident      = EXCLUDED.open_incident,
-                open_request       = EXCLUDED.open_request,
-                critical_open      = EXCLUDED.critical_open,
-                vip_total          = EXCLUDED.vip_total,
-                avg_age_open_seconds = EXCLUDED.avg_age_open_seconds
-            RETURNING snapshot_date
-        `, [days]);
-        return res.rowCount;
+                total = EXCLUDED.total,
+                open = EXCLUDED.open,
+                new = EXCLUDED.new,
+                in_progress = EXCLUDED.in_progress,
+                waiting = EXCLUDED.waiting,
+                critical_open = EXCLUDED.critical_open,
+                resolved = EXCLUDED.resolved,
+                closed = EXCLUDED.closed,
+                problems = EXCLUDED.problems,
+                vip_total = EXCLUDED.vip_total,
+                open_incident = EXCLUDED.open_incident,
+                open_request = EXCLUDED.open_request,
+                avg_age_open_seconds = EXCLUDED.avg_age_open_seconds,
+                avg_waiting_seconds_active = EXCLUDED.avg_waiting_seconds_active,
+                avg_active_seconds_week = EXCLUDED.avg_active_seconds_week,
+                resolved_week_count = EXCLUDED.resolved_week_count
+        `, [JSON.stringify(payload)]);
+        return rows.length;
     },
 
     async getDailyMetricsWithRollingAverage() {
-        // Get metrics for today and the last 60 days
-        const result = await pgDb.get(`
-            WITH today_created AS (
-                SELECT COUNT(*) as count
-                FROM hub_tickets.tickets
-                WHERE DATE(date_creation) = CURRENT_DATE
-                  AND status != 8
-            ),
-            today_moved_to_progress AS (
-                SELECT COUNT(DISTINCT ticket_id) as count
-                FROM hub_tickets.ticket_history
-                WHERE DATE(created_at) = CURRENT_DATE
-                  AND action = 'status_changed'
-                  AND new_value = '3'
-            ),
-            today_moved_to_waiting AS (
-                SELECT COUNT(DISTINCT ticket_id) as count
-                FROM hub_tickets.ticket_history
-                WHERE DATE(created_at) = CURRENT_DATE
-                  AND action = 'status_changed'
-                  AND new_value IN ('4','5')
-            ),
-            today_resolved AS (
-                SELECT COUNT(DISTINCT ticket_id) as count
-                FROM hub_tickets.ticket_history
-                WHERE DATE(created_at) = CURRENT_DATE
-                  AND action = 'status_changed'
-                  AND new_value = '5'
-            ),
-            today_closed AS (
-                SELECT COUNT(DISTINCT ticket_id) as count
-                FROM hub_tickets.ticket_history
-                WHERE DATE(created_at) = CURRENT_DATE
-                  AND action = 'status_changed'
-                  AND new_value = '6'
-            ),
-            -- Business days for rolling average calculation (weekdays only, no holidays for now)
-            business_days AS (
-                SELECT ds::date as calc_date
-                FROM generate_series(
-                    (CURRENT_DATE - 60)::timestamp,
-                    (CURRENT_DATE)::timestamp,
-                    '1 day'::interval
-                ) ds
-                WHERE EXTRACT(DOW FROM ds) NOT IN (0, 6) -- Exclude Sunday (0) and Saturday (6)
-            ),
-            rolling_stats AS (
-                SELECT
-                    COALESCE(AVG(COALESCE(kh.open, 0))::integer, 0) as avg_open_60d,
-                    COALESCE(AVG(COALESCE(kh.in_progress, 0))::integer, 0) as avg_in_progress_60d,
-                    COALESCE(AVG(COALESCE(kh.waiting, 0))::integer, 0) as avg_waiting_60d,
-                    COALESCE(AVG(COALESCE(kh.resolved, 0))::integer, 0) as avg_resolved_60d,
-                    COUNT(*) as biz_days_count
-                FROM business_days bd
-                LEFT JOIN hub_tickets.kpi_history kh ON kh.snapshot_date = bd.calc_date
-            )
-            SELECT
-                COALESCE(tcp.count, 0) as today_created,
-                COALESCE(tmp.count, 0) as today_in_progress,
-                COALESCE(tmw.count, 0) as today_waiting,
-                COALESCE(tr.count, 0) as today_resolved,
-                COALESCE(tc.count, 0) as today_closed,
-                rs.avg_open_60d,
-                rs.avg_in_progress_60d,
-                rs.avg_waiting_60d,
-                rs.avg_resolved_60d,
-                rs.biz_days_count
-            FROM (SELECT 1) x
-            LEFT JOIN today_created tcp ON true
-            LEFT JOIN today_moved_to_progress tmp ON true
-            LEFT JOIN today_moved_to_waiting tmw ON true
-            LEFT JOIN today_resolved tr ON true
-            LEFT JOIN today_closed tc ON true
-            LEFT JOIN rolling_stats rs ON true
-        `);
-        return result;
+        // Indicateurs « X auj. | moy 60j » des tuiles du tableau de bord.
+        //
+        // Les deux termes se comparent toujours le même flux (créations,
+        // passages en cours, passages en attente, résolutions) : « aujourd'hui »
+        // face à la moyenne journalière du même flux sur les jours ouvrés.
+        //
+        // Sources retenues (et pourquoi) :
+        //   • créations   → tickets.date_creation       (source complète)
+        //   • résolutions  → tickets.date_solved         (source complète)
+        //   • en cours     → ticket_history status_changed → 3
+        //   • en attente   → ticket_history status_changed → 4
+        // L'ancienne version lisait « status_changed → 5 » pour les résolutions :
+        // or l'application trace les résolutions en action 'solved' et jamais en
+        // status_changed 5 (8 occurrences dans tout l'historique), ce qui
+        // affichait « 0 résolu » même quand des tickets venaient d'être résolus.
+        const series = await this.getDailyTicketSeries(DAILY_SERIES_WINDOW);
+        if (!series.length) {
+            return {
+                today_created: 0, avg_created_60d: 0,
+                today_in_progress: 0, avg_in_progress_60d: 0,
+                today_waiting: 0, avg_waiting_60d: 0,
+                today_resolved: 0, avg_resolved_60d: 0,
+                today_closed: 0, avg_closed_60d: 0,
+                biz_days_count: 0,
+            };
+        }
+        // La dernière ligne de la série est « aujourd'hui » (CURRENT_DATE côté DB).
+        const today = series[series.length - 1];
+        const biz = series.filter(r => r.is_business_day);
+        const avg = (key) => (biz.length
+            ? Math.round(biz.reduce((sum, r) => sum + (r[key] || 0), 0) / biz.length)
+            : 0);
+        return {
+            today_created: today.created_day || 0,
+            avg_created_60d: avg('created_day'),
+            today_in_progress: today.in_progress_day || 0,
+            avg_in_progress_60d: avg('in_progress_day'),
+            today_waiting: today.waiting_day || 0,
+            avg_waiting_60d: avg('waiting_day'),
+            today_resolved: today.resolved_day || 0,
+            avg_resolved_60d: avg('resolved_day'),
+            today_closed: today.closed_day || 0,
+            avg_closed_60d: avg('closed_day'),
+            biz_days_count: biz.length,
+        };
     },
 
     // ── Stats pilotage ────────────────────────────────────────

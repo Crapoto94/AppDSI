@@ -1120,6 +1120,21 @@ async function setupPgDb() {
             UNIQUE(snapshot_date)
         )
     `);
+    // Colonne « new » (tickets au statut Nouveau le jour du snapshot) : absente
+    // de la création d'origine, elle alimente la sparkline de la tuile « Nouveaux ».
+    try { await client.query(`ALTER TABLE hub_tickets.kpi_history ADD COLUMN IF NOT EXISTS new INTEGER DEFAULT 0`); }
+    catch (e) { console.warn('[KPI HISTORY] Ajout colonne new:', e.message); }
+    // Unicité de snapshot_date : la table a été créée avec un schéma plus ancien
+    // (id + snapshot_date + created_at, sans contrainte) — l'upsert
+    // « ON CONFLICT (snapshot_date) » du backfill était donc impossible.
+    try {
+        await client.query(`
+            DELETE FROM hub_tickets.kpi_history a
+            USING hub_tickets.kpi_history b
+            WHERE a.snapshot_date = b.snapshot_date AND a.ctid > b.ctid
+        `);
+        await client.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_kpi_history_snapshot_date ON hub_tickets.kpi_history (snapshot_date)`);
+    } catch (e) { console.warn('[KPI HISTORY] Index unique snapshot_date:', e.message); }
 
     await client.query(`
       CREATE TABLE IF NOT EXISTS hub_tickets.module_config (

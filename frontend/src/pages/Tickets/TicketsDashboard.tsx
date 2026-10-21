@@ -75,6 +75,20 @@ function requesterFromSnapshot(snap: FilterSnapshot): ActiveRequester {
   return null;
 }
 
+// La série KPI renvoie `snapshot_date` au format 'YYYY-MM-DD' (date calendaire,
+// sans fuseau). `new Date('2026-10-21')` est interprété comme minuit UTC : sur
+// un poste hors de Paris, l'étiquette de la sparkline afficherait le jour
+// précédent. On formate donc directement la chaîne.
+function formatKpiDate(value: string): string {
+  if (!value) return '';
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(value));
+  if (!m) {
+    const d = new Date(value);
+    return isNaN(d.getTime()) ? String(value) : d.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' });
+  }
+  return `${m[3]}/${m[2]}`;
+}
+
 function generatePassword(): string {
   const upper = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
   const lower = 'abcdefghjkmnpqrstuvwxyz';
@@ -1488,7 +1502,7 @@ export default function TicketsDashboard() {
             {/* Grille de cartes */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(148px, 1fr))', gap: 10 }}>
               {visibleCards.map(card => {
-                const sparkData = kpiHistory.map(r => ({ v: (card.histKey ? r[card.histKey] : 0) || 0, d: new Date(r.snapshot_date).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' }) }));
+                const sparkData = kpiHistory.map(r => ({ v: (card.histKey ? r[card.histKey] : 0) || 0, d: formatKpiDate(r.snapshot_date) }));
                 const first = sparkData[0]?.v ?? 0;
                 const last  = sparkData[sparkData.length - 1]?.v ?? 0;
                 const delta = last - first;
@@ -1547,22 +1561,38 @@ export default function TicketsDashboard() {
                       })()}
                       {card.sub && <div style={{ fontSize: 10, color: '#a1a1aa', marginTop: 2 }}>{card.sub}</div>}
                       {dailyMetrics && (card.key === 'open' || card.key === 'in_progress' || card.key === 'waiting' || card.key === 'resolved') && (() => {
+                        // « X auj. » et « moy. » portent toujours sur le même flux :
+                        // créations (Ouverts), passages en En cours, passages en
+                        // En attente, résolutions (Résolus).
                         const dayKey = card.key === 'open' ? 'today_created'
                                      : card.key === 'in_progress' ? 'today_in_progress'
                                      : card.key === 'waiting' ? 'today_waiting'
                                      : card.key === 'resolved' ? 'today_resolved' : null;
-                        const avgKey = card.key === 'open' ? 'avg_open_60d'
+                        const avgKey = card.key === 'open' ? 'avg_created_60d'
                                      : card.key === 'in_progress' ? 'avg_in_progress_60d'
                                      : card.key === 'waiting' ? 'avg_waiting_60d'
                                      : card.key === 'resolved' ? 'avg_resolved_60d' : null;
                         const todayVal = dayKey ? dailyMetrics[dayKey] || 0 : 0;
                         const avgVal = avgKey ? dailyMetrics[avgKey] || 0 : 0;
+                        // Nombre de jours ouvrés réellement couverts par la moyenne
+                        // (la fenêtre calendaire de 60 jours n'en contient que 43).
+                        const bizDays = dailyMetrics.biz_days_count || 0;
+                        const avgLabel = bizDays > 0 ? `moy ${bizDays} j. ouvrés` : 'moy 60 j';
+                        if (!avgVal) {
+                          // Aucune donnée sur la période : inutile d'annoncer un
+                          // écart de 0 (0 %) qui ferait croire à une mesure.
+                          return (
+                            <div style={{ fontSize: 9, color: '#94a3b8', marginTop: 2, paddingTop: 2, borderTop: '1px solid #f1f5f9' }}>
+                              <div>{todayVal} auj. | {avgLabel} : –</div>
+                            </div>
+                          );
+                        }
                         const diff = todayVal - avgVal;
-                        const diffPct = avgVal > 0 ? Math.round((diff / avgVal) * 100) : 0;
+                        const diffPct = Math.round((diff / avgVal) * 100);
                         const diffColor = diff === 0 ? '#94a3b8' : (card.goodDown ? (diff < 0 ? '#22c55e' : '#ef4444') : (diff > 0 ? '#22c55e' : '#ef4444'));
                         return (
                           <div style={{ fontSize: 9, color: '#94a3b8', marginTop: 2, paddingTop: 2, borderTop: '1px solid #f1f5f9' }}>
-                            <div>{todayVal} auj. | moy 60j: {avgVal}</div>
+                            <div>{todayVal} auj. | {avgLabel}: {avgVal}</div>
                             <div style={{ color: diffColor, fontWeight: 600 }}>{diff > 0 ? '+' : ''}{diff} ({diffPct > 0 ? '+' : ''}{diffPct}%)</div>
                           </div>
                         );
