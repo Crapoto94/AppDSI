@@ -322,7 +322,7 @@ const MesTaches: React.FC = () => {
   const [expandedNotesIds, setExpandedNotesIds] = useState<Set<string>>(new Set());
   const autoExpandedNotesRef = useRef(false);
   const [notesMap, setNotesMap]     = useState<Record<string, TaskNote[]>>({});
-  const [noteInput, setNoteInput]   = useState('');
+  const [noteInput, setNoteInput]   = useState<Record<string, string>>({});
   const [uploadingNote, setUploadingNote] = useState(false);
   const [noteTaskRef, setNoteTaskRef] = useState<Task | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -839,15 +839,16 @@ const MesTaches: React.FC = () => {
 
   // ─── Notes CRUD ───────────────────────────────────────────────────────────────
   const ajouterNote = async (task: Task) => {
-    if (!noteInput.trim()) return;
     const key = `${task.source}:${task.id}`;
+    const content = (noteInput[key] || '').trim();
+    if (!content) return;
     try {
       const res = await fetch(`/api/tasks/${task.source}/${task.id}/notes`, {
         method: 'POST', headers: authHeaders,
-        body: JSON.stringify({ content: noteInput })
+        body: JSON.stringify({ content })
       });
       if (res.ok) {
-        setNoteInput('');
+        setNoteInput(prev => ({ ...prev, [key]: '' }));
         await loadNotes(task);
         setTasks(prev => prev.map(t =>
           t.source === task.source && t.id === task.id ? { ...t, note_count: (t.note_count || 0) + 1 } : t
@@ -1658,8 +1659,8 @@ const MesTaches: React.FC = () => {
                                 data-mentions
                                 placeholder="Ajouter une note..."
                                 style={{ flex: 1, padding: '4px 8px', border: '1px solid #cbd5e1', borderRadius: 4, fontSize: 11 }}
-                                value={noteInput}
-                                onChange={e => setNoteInput(e.target.value)}
+                                value={noteInput[key] || ''}
+                                onChange={e => setNoteInput(prev => ({ ...prev, [key]: e.target.value }))}
                                 onKeyDown={e => { if (e.key === 'Enter') ajouterNote(task); }}
                               />
                               <button onClick={() => ajouterNote(task)} style={{ padding: '4px 8px', background: '#2563eb', color: 'white', border: 'none', borderRadius: 4, cursor: 'pointer', fontWeight: 600, fontSize: 10, whiteSpace: 'nowrap' }}>

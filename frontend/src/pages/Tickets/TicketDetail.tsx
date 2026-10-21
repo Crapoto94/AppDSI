@@ -311,7 +311,7 @@ export default function TicketDetail() {
   }, [comments, history, ticketTasks, showActivityTasks, showActivityStatus, showActivityAssignments]);
   const [expandedTaskIds, setExpandedTaskIds] = useState<Set<number>>(new Set());
   const [taskNotes, setTaskNotes] = useState<Record<number, any[]>>({});
-  const [taskNoteInput, setTaskNoteInput] = useState('');
+  const [taskNoteInput, setTaskNoteInput] = useState<Record<number, string>>({});
   const [taskNoteLoading, setTaskNoteLoading] = useState<Record<number, boolean>>({});
   const [editingTaskId, setEditingTaskId] = useState<number | null>(null);
   const [editingTaskDesc, setEditingTaskDesc] = useState('');
@@ -911,17 +911,18 @@ export default function TicketDetail() {
   }
 
   async function addTaskNote(taskId: number) {
-    if (!taskNoteInput.trim()) return;
+    const content = (taskNoteInput[taskId] || '').trim();
+    if (!content) return;
     const t = ticketTasks.find(t => t.id === taskId);
     if (!t) return;
     try {
       const token = localStorage.getItem('token');
       const source = t.context_source || 'personal';
       await axios.post(`/api/tasks/${source}/${taskId}/notes`,
-        { content: taskNoteInput },
+        { content },
         { headers: { Authorization: `Bearer ${token}` } }
       );
-      setTaskNoteInput('');
+      setTaskNoteInput(prev => ({ ...prev, [taskId]: '' }));
       await loadTaskNotes(taskId);
     } catch { /* ignore */ }
   }
@@ -2196,8 +2197,8 @@ export default function TicketDetail() {
                                 type="text"
                                 placeholder="Ajouter une note..."
                                 style={{ flex: 1, padding: '4px 8px', border: '1px solid #cbd5e1', borderRadius: 4, fontSize: 11 }}
-                                value={taskNoteInput}
-                                onChange={e => setTaskNoteInput(e.target.value)}
+                                value={taskNoteInput[task.id] || ''}
+                                onChange={e => setTaskNoteInput(prev => ({ ...prev, [task.id]: e.target.value }))}
                                 onKeyDown={e => { if (e.key === 'Enter') addTaskNote(task.id); }}
                               />
                               <button onClick={() => addTaskNote(task.id)} style={{ padding: '4px 8px', background: '#2563eb', color: 'white', border: 'none', borderRadius: 4, cursor: 'pointer', fontWeight: 600, fontSize: 10, whiteSpace: 'nowrap' }}>
