@@ -148,6 +148,15 @@ waiting_day AS (
     FROM hub_tickets.ticket_history h
     WHERE h.action = 'status_changed' AND h.new_value = '4' GROUP BY 1
 ),
+sla_breached_day AS (
+    -- Dépassements de SLA : chaque franchissement de deadline est journalisé par
+    -- sla.service.checkSLAs (action 'sla_breached', une ligne par deadline
+    -- franchie). COUNT(DISTINCT ticket_id) : un ticket qui dépasse sa deadline
+    -- de 1re réponse ET celle de résolution le même jour ne compte qu'une fois.
+    SELECT (h.created_at AT TIME ZONE 'Europe/Paris')::date AS d, COUNT(DISTINCT h.ticket_id)::int AS c
+    FROM hub_tickets.ticket_history h
+    WHERE h.action = 'sla_breached' GROUP BY 1
+),
 base AS (
     SELECT
         (SELECT COUNT(*)::int FROM tk t, params p WHERE t.date_creation::date < (p.today - $1::int)) AS total_base,
@@ -177,7 +186,8 @@ SELECT to_char(s.snapshot_date, 'YYYY-MM-DD') AS snapshot_date,
        COALESCE(fr.c, 0)::int AS resolved_day,
        COALESCE(fcl.c, 0)::int AS closed_day,
        COALESCE(fip.c, 0)::int AS in_progress_day,
-       COALESCE(fw.c, 0)::int AS waiting_day
+       COALESCE(fw.c, 0)::int AS waiting_day,
+       COALESCE(sbd.c, 0)::int AS sla_breached_day
 FROM stocks s
 JOIN cum c ON c.snapshot_date = s.snapshot_date
 LEFT JOIN created_day fc   ON fc.d  = s.snapshot_date
@@ -185,6 +195,7 @@ LEFT JOIN resolved_day fr  ON fr.d  = s.snapshot_date
 LEFT JOIN closed_day fcl   ON fcl.d = s.snapshot_date
 LEFT JOIN in_progress_day fip ON fip.d = s.snapshot_date
 LEFT JOIN waiting_day fw   ON fw.d  = s.snapshot_date
+LEFT JOIN sla_breached_day sbd ON sbd.d = s.snapshot_date
 LEFT JOIN resolved_week rw ON rw.wk = date_trunc('week', s.snapshot_date)
 ORDER BY s.snapshot_date
 `;

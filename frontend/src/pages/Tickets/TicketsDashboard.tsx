@@ -57,6 +57,13 @@ const SORT_OPTIONS = [
   { label: 'Importance', sortKey: 'importance', sortDir: 'desc' as const },
 ];
 
+// Fenêtre des sparklines « flux » (tuiles Nouveaux / Résolus / Clos) : nombre
+// de jours ouvrés représentés sur la courbe.
+const FLOW_SPARK_DAYS = 14;
+// Fenêtre de la pastille de tendance « flux » : total des 7 derniers jours
+// ouvrés comparé au total des 7 jours ouvrés précédents.
+const FLOW_TREND_DAYS = 7;
+
 const FILTER_SESSION_KEY = 'tickets_dash_filters';
 const VIEW_MODE_KEY = 'tickets_dash_view_mode';
 
@@ -88,6 +95,18 @@ function formatKpiDate(value: string): string {
     return isNaN(d.getTime()) ? String(value) : d.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' });
   }
   return `${m[3]}/${m[2]}`;
+}
+
+// Jour ouvré (lundi–vendredi) d'une ligne de la série KPI. Le backend expose
+// déjà le drapeau `is_business_day` ; le repli JS couvre une réponse qui ne le
+// contiendrait pas. `snapshot_date` est une date calendaire ('YYYY-MM-DD') :
+// elle est lue en UTC pour ne pas basculer d'un jour à cause du fuseau.
+function isBusinessDay(row: { snapshot_date?: string; is_business_day?: boolean }): boolean {
+  if (typeof row.is_business_day === 'boolean') return row.is_business_day;
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(row.snapshot_date || ''));
+  if (!m) return false;
+  const dow = new Date(`${m[1]}-${m[2]}-${m[3]}T00:00:00Z`).getUTCDay();
+  return dow !== 0 && dow !== 6;
 }
 
 function generatePassword(): string {
@@ -1404,10 +1423,16 @@ export default function TicketsDashboard() {
         // Un filtre de liste est-il actif ? (pour afficher KPI filtrés + globaux)
         const hasActiveListFilters = !!(activeCategory || activeSubcategory || activeSoftware || activeGroup || activeTechnician || activeRequester || (search && search.trim()));
 
+        // Sessions live par jour (l'API /dashboard/live-stats renvoie une série
+        // sparse sur 30 jours : les jours sans session sont absents → 0).
+        const liveDaily = new Map<string, number>(
+          (liveStats?.daily || []).map((r: any) => [String(r.day), Number(r.count) || 0])
+        );
+
         // Config unifiée : statuts + temps dans le même tableau
         const allCards = [
           { key: 'new',          label: 'Nouveaux',         color: '#0ea5e9', filterKey: 'new' as string|null,
-            value: stats?.new || 0, histKey: 'new', fKey: 'new',
+            value: stats?.new || 0, histKey: 'new', fKey: 'new', flowKey: 'created_day', flowLabel: 'Créations par jour ouvré',
             sub: `${getTypeCounts('new').incident} inc · ${getTypeCounts('new').request} dem`,
             goodDown: true },
           { key: 'open',         label: 'Ouverts',          color: '#6366f1', filterKey: 'open' as string|null,
@@ -1427,17 +1452,18 @@ export default function TicketsDashboard() {
             sub: `${getTypeCounts('critical').incident} inc · ${getTypeCounts('critical').request} dem`,
             goodDown: true },
           { key: 'resolved',     label: 'Résolus',          color: '#22c55e', filterKey: 'resolved',
-            value: stats?.resolved || 0, histKey: 'resolved', fKey: 'resolved',
+            value: stats?.resolved || 0, histKey: 'resolved', fKey: 'resolved', flowKey: 'resolved_day', flowLabel: 'Résolutions par jour ouvré',
             sub: `${getTypeCounts('resolved').incident} inc · ${getTypeCounts('resolved').request} dem`,
             goodDown: false },
           { key: 'closed',       label: 'Clos',             color: '#64748b', filterKey: 'closed',
-            value: stats?.closed || 0, histKey: 'closed', fKey: 'closed',
+            value: stats?.closed || 0, histKey: 'closed', fKey: 'closed', flowKey: 'closed_day', flowLabel: 'Clôtures par jour ouvré',
             sub: `${getTypeCounts('closed').incident} inc · ${getTypeCounts('closed').request} dem`,
             goodDown: false },
           { key: 'problems',     label: 'Problèmes',        color: '#7c3aed', filterKey: 'problems', onClick: () => handleFilterClick('problems'),
             value: stats?.problems || 0, histKey: 'problems', fKey: 'problems', sub: '', goodDown: true },
           { key: 'sla_breached', label: 'SLA dépassés',     color: '#ef4444', filterKey: 'sla_breached',
             value: stats?.sla_breached || 0, histKey: null, fKey: 'sla_breached',
+            flowKey: 'sla_breached_day', flowLabel: 'Dépassements par jour ouvré',
             sub: `${stats?.sla_warning || 0} en alerte`, goodDown: true },
           { key: 'age',          label: 'Âge moy. ouverts', color: '#f97316', filterKey: null,
             value: (stats?.avg_age_open_seconds > 0) ? formatDuration(stats.avg_age_open_seconds) : '-',
@@ -1451,6 +1477,7 @@ export default function TicketsDashboard() {
             sub: `${stats?.resolved_week_count || 0} cette semaine`, goodDown: false, isTime: true },
           { key: 'live_chat',    label: 'Chat live',        color: '#22c55e', filterKey: null,
             value: liveStats?.active || 0, histKey: null,
+            flowSource: 'live', flowLabel: 'Sessions par jour ouvré',
             sub: `${liveStats?.today || 0} aujourd'hui`, goodDown: false },
         ];
 
@@ -1507,20 +1534,86 @@ export default function TicketsDashboard() {
             {/* Grille de cartes */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(148px, 1fr))', gap: 10 }}>
               {visibleCards.map(card => {
-                const sparkData = kpiHistory.map(r => ({ v: (card.histKey ? r[card.histKey] : 0) || 0, d: formatKpiDate(r.snapshot_date) }));
-                const first = sparkData[0]?.v ?? 0;
-                const last  = sparkData[sparkData.length - 1]?.v ?? 0;
-                const delta = last - first;
-                const deltaPct = first > 0 ? Math.round(Math.abs(delta) / first * 100) : 0;
+                // ── Tuiles à flux journalier (Nouveaux / Résolus / Clos / SLA /
+                // Chat live) ──────────────────────────────────────────────────
+                // La courbe représente le nombre d'événements de CHAQUE JOUR
+                // ouvré (créations, résolutions, clôtures, dépassements SLA,
+                // sessions live), sur les 14 derniers jours ouvrés — et non plus
+                // un stock cumulé.
+                // La journée en cours est écartée : elle est incomplète (un
+                // ticket résolu à 9 h ferait chuter la courbe toute la journée) ;
+                // sa valeur reste lisible dans le bandeau « X auj. | moy » sous
+                // la tuile.
+                const flowKey = (card as any).flowKey as string | undefined;
+                const flowSource = (card as any).flowSource as 'live' | undefined;
+                const isFlow = !!flowKey || flowSource === 'live';
+                // Valeur d'une ligne de la série : colonne de la série KPI, ou
+                // série journalière de /dashboard/live-stats (sessions live).
+                const flowValue = (row: any): number => flowSource === 'live'
+                  ? (liveDaily.get(row.snapshot_date) || 0)
+                  : (flowKey ? (row[flowKey] || 0) : 0);
+                // La série se termine par « aujourd'hui » (date Paris côté DB).
+                const todaySnapshot = kpiHistory[kpiHistory.length - 1]?.snapshot_date;
+                const flowRows = isFlow
+                  ? kpiHistory
+                      .filter(r => isBusinessDay(r))
+                      .filter(r => r.snapshot_date !== todaySnapshot)
+                      .slice(-FLOW_SPARK_DAYS)
+                  : [];
+                const sparkData = isFlow
+                  ? flowRows.map(r => ({ v: flowValue(r), d: formatKpiDate(r.snapshot_date) }))
+                  : kpiHistory.map(r => ({ v: (card.histKey ? r[card.histKey] : 0) || 0, d: formatKpiDate(r.snapshot_date) }));
+                // Bornes de la courbe : elles définissent la période de référence
+                // annoncée dans les infobulles (elle est nommée, sinon
+                // « au début de la période » reste ambigu).
+                const dFirst  = sparkData[0]?.d;
+                const dLast   = sparkData[sparkData.length - 1]?.d;
+                const nbJours = sparkData.length;
+
+                // ── Pastille de tendance ───────────────────────────────────────
+                // Flux : total des 7 derniers jours ouvrés vs total des 7 jours
+                // ouvrés précédents (période fixe, robuste au bruit d'une journée).
+                // Stock : dernière valeur vs première valeur de la période.
+                let delta = 0;
+                let deltaPct = 0;
+                let trendTitle = '';
+                if (isFlow) {
+                  const sumFlow = (rows: any[]) => rows.reduce((s, r) => s + flowValue(r), 0);
+                  const cur  = sumFlow(flowRows.slice(-FLOW_TREND_DAYS));
+                  const prev = sumFlow(flowRows.slice(-FLOW_TREND_DAYS * 2, -FLOW_TREND_DAYS));
+                  delta = cur - prev;
+                  deltaPct = prev > 0 ? Math.round(Math.abs(delta) / prev * 100) : 0;
+                  trendTitle = `${cur} sur les ${FLOW_TREND_DAYS} derniers jours ouvrés, ${prev} sur les ${FLOW_TREND_DAYS} jours ouvrés précédents`;
+                } else {
+                  const first = sparkData[0]?.v ?? 0;
+                  const last  = sparkData[sparkData.length - 1]?.v ?? 0;
+                  delta = last - first;
+                  deltaPct = first > 0 ? Math.round(Math.abs(delta) / first * 100) : 0;
+                  const isDurationCard = card.key === 'age' || card.key === 'wait_time' || card.key === 'resolve_time';
+                  const fmt = (v: number) => isDurationCard ? formatDuration(v) : String(v);
+                  const unit = isDurationCard ? '' : ' ticket(s)';
+                  trendTitle = dFirst
+                    ? `${fmt(last)} (dernier point)${unit}, ${fmt(first)} au ${dFirst}${isDurationCard ? '' : unit} — sur les ${nbJours} derniers jours calendaires`
+                    : `${fmt(last)} (dernier point)${unit}, ${fmt(first)} au début de la période${isDurationCard ? '' : unit} — sur les ${nbJours} derniers jours calendaires`;
+                }
                 const trendColor = delta === 0 ? '#94a3b8'
                   : (card.goodDown ? (delta < 0 ? '#22c55e' : '#ef4444')
                                    : (delta > 0 ? '#22c55e' : '#ef4444'));
                 const trendIcon = delta === 0 ? '→' : delta > 0 ? '↑' : '↓';
                 const isActive = card.filterKey && activeFilter === card.filterKey;
+                // Description de la courbe (plage couverte) : « flux » = jours
+                // ouvrés, « stock » = jours calendaires.
+                const flowRange = flowRows.length
+                  ? `${formatKpiDate(flowRows[0].snapshot_date)} → ${formatKpiDate(flowRows[flowRows.length - 1].snapshot_date)}`
+                  : '';
+                const sparkTitle = isFlow
+                  ? `${(card as any).flowLabel || `${card.label} par jour ouvré`} (${flowRange})`
+                  : (dFirst && dLast ? `Évolution sur les ${nbJours} derniers jours (${dFirst} → ${dLast})` : undefined);
 
                 return (
                   <div key={card.key}
                     onClick={card.onClick || (card.filterKey ? () => handleFilterClick(card.filterKey as string) : undefined)}
+                    title={sparkTitle}
                     style={{
                       background: '#fff', border: `1px solid ${isActive ? card.color : '#e2e8f0'}`,
                       borderRadius: 12, padding: '12px 14px',
@@ -1545,7 +1638,7 @@ export default function TicketsDashboard() {
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
                         <span style={{ fontSize: 10, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.4px' }}>{card.label}</span>
                         {sparkData.length > 1 && (
-                          <span style={{ fontSize: 10, fontWeight: 700, color: trendColor }}>
+                          <span title={trendTitle || undefined} style={{ fontSize: 10, fontWeight: 700, color: trendColor }}>
                             {trendIcon}{deltaPct > 0 ? ` ${deltaPct}%` : ''}
                           </span>
                         )}

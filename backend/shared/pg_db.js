@@ -544,6 +544,9 @@ async function setupPgDb() {
     `);
     await client.query(`CREATE INDEX IF NOT EXISTS idx_th_ticket ON hub_tickets.ticket_history(ticket_id)`);
     await client.query(`CREATE INDEX IF NOT EXISTS idx_th_created ON hub_tickets.ticket_history(created_at DESC)`);
+    // Série « dépassements SLA par jour » du tableau de bord : index partiel sur
+    // les seules lignes journalisées par sla.service.checkSLAs (peu nombreuses).
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_th_action_sla ON hub_tickets.ticket_history(created_at) WHERE action = 'sla_breached'`);
     // ── Index critiques pour la performance de la liste tickets ────────────────
     // ticket_followups.ticket_id : AUCUN index → full scan 42MB × 25 lignes par page.
     await client.query(`CREATE INDEX IF NOT EXISTS idx_tf_ticket_id ON hub_tickets.ticket_followups(ticket_id)`);
