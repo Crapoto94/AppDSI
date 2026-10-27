@@ -96,12 +96,52 @@ seg_anchor AS (
     ) a
     WHERE a.st IN (1,2,3,4,5)
 ),
+wait_iv AS (
+    -- Intervalles passés en statut « En attente » (4) : début = passage en 4,
+    -- fin = changement de statut suivant. L'intervalle en cours n'a pas de fin :
+    -- on le borne à maintenant (sinon l'attente d'un ticket toujours en attente
+    -- ne compterait pas).
+    SELECT ticket_id, start_ts, end_ts
+    FROM (
+        SELECT h.ticket_id,
+               (h.created_at AT TIME ZONE 'Europe/Paris')::timestamp AS start_ts,
+               h.new_value,
+               LEAST(
+                   COALESCE(
+                       LEAD((h.created_at AT TIME ZONE 'Europe/Paris')::timestamp)
+                           OVER (PARTITION BY h.ticket_id ORDER BY h.created_at),
+                       (CURRENT_TIMESTAMP AT TIME ZONE 'Europe/Paris')::timestamp
+                   ),
+                   (CURRENT_TIMESTAMP AT TIME ZONE 'Europe/Paris')::timestamp
+               ) AS end_ts
+        FROM hub_tickets.ticket_history h
+        WHERE h.action = 'status_changed' AND h.new_value IS NOT NULL
+    ) x
+    WHERE x.new_value = '4'
+),
+wait_days AS (
+    -- Attente cumulée par ticket à la fin de chaque jour : on additionne, pour
+    -- chaque intervalle commencé, le chevauchement avec [début intervalle, fin
+    -- du jour]. Une fois l'intervalle terminé, son temps reste compté les jours
+    -- suivants (cumul), comme la colonne total_waiting_seconds mais en incluant
+    -- l'attente en cours.
+    SELECT w.ticket_id, d.d AS snapshot_date,
+           SUM(GREATEST(0, EXTRACT(EPOCH FROM (
+               LEAST(w.end_ts, (d.d + 1)::timestamp) - w.start_ts
+           ))))::int AS wait_s
+    FROM wait_iv w
+    JOIN days d
+      ON w.start_ts < (d.d + 1)::timestamp
+    GROUP BY w.ticket_id, d.d
+),
 state AS (
     SELECT dd.d AS snapshot_date, s.ticket_id, s.st,
-           t.priority, t.type, t.is_vip, t.date_creation, t.total_waiting_seconds
+           t.priority, t.type, t.is_vip, t.date_creation,
+           wd.wait_s AS waiting_seconds
     FROM days dd
     JOIN seg_anchor s ON s.from_d <= dd.d AND (s.to_d IS NULL OR dd.d < s.to_d)
     JOIN tk_win t ON t.glpi_id = s.ticket_id
+    LEFT JOIN wait_days wd ON wd.ticket_id = s.ticket_id AND wd.snapshot_date = dd.d
     WHERE s.st IN (1,2,3,4,5)
 ),
 stocks AS (
@@ -117,8 +157,9 @@ stocks AS (
            COUNT(st.ticket_id) FILTER (WHERE st.st IN (1,2,3) AND st.is_vip = true)::int AS vip_total,
            COALESCE(AVG(EXTRACT(EPOCH FROM (d.d::timestamp - st.date_creation)))
                     FILTER (WHERE st.st IN (1,2,3)), 0)::int AS avg_age_open_seconds,
-           COALESCE(AVG(COALESCE(st.total_waiting_seconds, 0))
-                    FILTER (WHERE st.st IN (1,2,3)), 0)::int AS avg_waiting_seconds_active
+           COALESCE(AVG(st.waiting_seconds)
+                    FILTER (WHERE st.st IN (1,2,3,4)
+                              AND st.waiting_seconds IS NOT NULL), 0)::int AS avg_waiting_seconds_active
     FROM days d
     LEFT JOIN state st ON st.snapshot_date = d.d
     GROUP BY d.d
@@ -928,24 +969,55 @@ module.exports = {
     },
 
     async getTimeStats() {
+        // L'attente est reconstruite depuis ticket_history (mêmes règles que la
+        // série journalière) : cumul des intervalles en statut 4, intervalle en
+        // cours inclus. La moyenne ne porte que sur les tickets actifs ayant
+        // déjà attendu (dénominateur = tickets avec au moins un passage en 4).
+        // La colonne tickets.total_waiting_seconds n'est pas utilisée ici : elle
+        // n'est renseignée que pour une poignée de tickets (à la sortie du
+        // statut 4) et ignore l'attente en cours.
         return pgDb.get(`
+            WITH h AS (
+                SELECT ticket_id,
+                       (created_at AT TIME ZONE 'Europe/Paris')::timestamp AS ts,
+                       new_value,
+                       LEAD((created_at AT TIME ZONE 'Europe/Paris')::timestamp)
+                           OVER (PARTITION BY ticket_id ORDER BY created_at) AS next_ts
+                FROM hub_tickets.ticket_history
+                WHERE action = 'status_changed' AND new_value IS NOT NULL
+            ),
+            waits AS (
+                SELECT ticket_id,
+                       SUM(GREATEST(0, EXTRACT(EPOCH FROM (
+                           LEAST(
+                               COALESCE(next_ts, (CURRENT_TIMESTAMP AT TIME ZONE 'Europe/Paris')::timestamp),
+                               (CURRENT_TIMESTAMP AT TIME ZONE 'Europe/Paris')::timestamp
+                           ) - ts
+                       ))))::double precision AS wait_s
+                FROM h
+                WHERE new_value = '4'
+                GROUP BY ticket_id
+            )
             SELECT
-                COALESCE(AVG(total_waiting_seconds), 0)::integer as avg_waiting_seconds_active,
+                COALESCE(AVG(w.wait_s)
+                         FILTER (WHERE t.status IN (1,2,3,4)
+                                   AND w.wait_s IS NOT NULL), 0)::integer as avg_waiting_seconds_active,
                 COALESCE(
                     AVG(
                         EXTRACT(EPOCH FROM (
-                            COALESCE(date_solved, CURRENT_TIMESTAMP)
-                            - date_creation
-                        )) - COALESCE(total_waiting_seconds, 0)
-                    ) FILTER (WHERE date_creation IS NOT NULL), 0
+                            COALESCE(t.date_solved, CURRENT_TIMESTAMP)
+                            - t.date_creation
+                        )) - COALESCE(t.total_waiting_seconds, 0)
+                    ) FILTER (WHERE t.date_creation IS NOT NULL), 0
                 )::integer as avg_active_seconds_resolved_week,
                 COALESCE(
                     AVG(
-                        EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - date_creation))
-                    ) FILTER (WHERE status IN (1,2,3) AND date_creation IS NOT NULL), 0
+                        EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - t.date_creation))
+                    ) FILTER (WHERE t.status IN (1,2,3) AND t.date_creation IS NOT NULL), 0
                 )::integer as avg_age_open_seconds
-            FROM hub_tickets.tickets
-            WHERE status IN (1,2,3,4,5)
+            FROM hub_tickets.tickets t
+            LEFT JOIN waits w ON w.ticket_id = t.glpi_id
+            WHERE t.status IN (1,2,3,4,5)
         `);
     },
 

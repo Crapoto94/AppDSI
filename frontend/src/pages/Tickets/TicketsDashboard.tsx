@@ -1470,7 +1470,7 @@ export default function TicketsDashboard() {
             histKey: 'avg_age_open_seconds', sub: 'depuis création', goodDown: true, isTime: true },
           { key: 'wait_time',    label: 'Attente moy.',     color: '#f59e0b', filterKey: null,
             value: (stats?.avg_waiting_seconds_active > 0) ? formatDuration(stats.avg_waiting_seconds_active) : '-',
-            histKey: 'avg_waiting_seconds_active', sub: 'tickets actifs', goodDown: true, isTime: true },
+            histKey: 'avg_waiting_seconds_active', sub: 'tickets ayant attendu', goodDown: true, isTime: true },
           { key: 'resolve_time', label: 'Tps actif résolus',color: '#0891b2', filterKey: null,
             value: (stats?.avg_active_seconds_resolved_week > 0) ? formatDuration(stats.avg_active_seconds_resolved_week) : '-',
             histKey: 'avg_active_seconds_week',
