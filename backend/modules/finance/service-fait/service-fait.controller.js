@@ -70,6 +70,11 @@ async function syncServiceFaitToSedit({ wf, decision, comment }) {
         } else if (out.facsuivi.updated > 0) {
             console.log(`[ServiceFait] Sedit FACSUIVI: service fait validé pour la facture ${wf.invoice_ref}.`);
         }
+        // Comme l'interface Sedit : ouvre l'étape suivante (PRE_LIQUIDE) pour les services financiers.
+        out.circuit = await seditPj.advanceCircuitAfterServiceFaitLogged({ invoiceRef: wf.invoice_ref, workflowId: wf.id });
+        if (out.circuit.updated > 0) {
+            console.log(`[ServiceFait] Sedit circuit avancé (PRE_LIQUIDE en cours) pour la facture ${wf.invoice_ref}.`);
+        }
     } catch (e) {
         out.errors.push('facsuivi: ' + e.message);
         console.error('[ServiceFait] Sedit FACSUIVI error:', e.message);
