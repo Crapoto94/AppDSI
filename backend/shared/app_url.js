@@ -65,6 +65,11 @@ async function getAppBaseUrl() {
     }
 
     resolved = resolved || fromEnv();
+    if (resolved === FALLBACK) {
+        // Aucun réglage `app_base_url` (Admin → Paramètres) ni variable d'environnement : les liens
+        // des e-mails (parapheur, tickets, tâches…) partiraient sur localhost. À corriger en prod.
+        console.warn(`[APP_URL] URL publique non configurée : repli sur ${FALLBACK}. Renseigner « app_base_url » (Admin → Paramètres) ou APP_BASE_URL.`);
+    }
     cached = resolved;
     cachedAt = Date.now();
     return resolved;

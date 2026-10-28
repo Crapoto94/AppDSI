@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useParams } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import SignatureCanvas from 'react-signature-canvas';
 import { AlertCircle, CheckCircle2, Clock, Download, Eraser, Eye, FileText, Loader2, Lock, LogOut, Paperclip, PenLine, ShieldCheck, Smartphone, User, Users, XCircle } from 'lucide-react';
 import PdfPageCanvas from '../../components/parapheur/PdfPageCanvas';
@@ -269,6 +269,7 @@ function SignerLogin({ onLogged }: { onLogged: (a: SignerAuth) => void }) {
 
 // ─── Écran de signature ───────────────────────────────────────────────────────
 function SignerView({ token, auth, onLogout }: { token: string; auth: SignerAuth; onLogout: () => void }) {
+  const navigate = useNavigate();
   const sigRef = useRef<SignatureCanvas | null>(null);
   const [info, setInfo] = useState<PublicInfo | null>(null);
   const [loading, setLoading] = useState(true);
@@ -452,6 +453,12 @@ function SignerView({ token, auth, onLogout }: { token: string; auth: SignerAuth
       try { d = raw ? JSON.parse(raw) : {}; } catch { d = {}; }
       if (!r.ok) throw new Error(d.message || `Signature impossible (${r.status})`);
       setSuccess({ done: !!d.done });
+      // Agent identifié dans le Hub : retour à l'accueil du parapheur pour enchaîner sur
+      // les autres documents à signer. Un signataire externe n'a pas de session Hub
+      // (/parapheur exige une connexion) : il reste sur l'écran de confirmation.
+      try {
+        if (localStorage.getItem('token') && localStorage.getItem('user')) navigate('/parapheur', { replace: true });
+      } catch { /* stockage indisponible : on garde l'écran de confirmation */ }
     } catch (e: unknown) {
       const msg = e instanceof Error
         ? (e.name === 'AbortError' ? 'Le serveur met trop de temps à répondre. Réessayez.' : e.message)
