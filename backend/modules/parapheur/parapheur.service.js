@@ -2689,6 +2689,7 @@ async function runRgsTest(job, { cert, chain }) {
             notBefore: info.notBefore, notAfter: info.notAfter, fingerprint: info.fingerprint, nonRepudiation: nonRep,
         },
         checks,
+        durations: rgs.durations(job),
         filename: 'test-signature-cle.pdf',
         pdfBase64: signed.toString('base64'),
     };

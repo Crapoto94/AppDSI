@@ -6,6 +6,7 @@ interface TestResult {
   ok: boolean;
   certificate: { subject: string; issuer: string; serial: string; email: string | null; notBefore: string; notAfter: string; fingerprint: string; nonRepudiation: boolean };
   checks: { label: string; ok: boolean; detail: string; optional?: boolean }[];
+  durations?: { preparationMs: number | null; keyWaitMs: number | null; finalizationMs: number | null; totalMs: number; agent: Record<string, number>[] };
   filename: string;
   pdfBase64: string;
 }
@@ -14,6 +15,7 @@ const card: React.CSSProperties = { background: '#fff', border: '1px solid #e2e8
 const btn: React.CSSProperties = { display: 'inline-flex', alignItems: 'center', gap: 6, padding: '9px 14px', background: '#7c3aed', color: '#fff', border: 'none', borderRadius: 9, fontWeight: 700, fontSize: 13, cursor: 'pointer' };
 const ghost: React.CSSProperties = { ...btn, background: '#f1f5f9', color: '#475569', border: '1px solid #e2e8f0' };
 const fr = (iso: string) => new Date(iso).toLocaleDateString('fr-FR');
+const sec = (ms: number | null | undefined) => (ms == null ? '—' : (ms / 1000).toFixed(1));
 
 /**
  * Test de la clé cryptographique (RGS**) de l'administrateur : détecte l'agent de signature du poste, liste les certificats,
@@ -166,6 +168,21 @@ export default function ParapheurKeyTest({ token }: { token: string | null }) {
             <dt style={{ fontWeight: 700 }}>Validité</dt><dd style={{ margin: 0 }}>du {fr(result.certificate.notBefore)} au {fr(result.certificate.notAfter)}</dd>
             <dt style={{ fontWeight: 700 }}>Empreinte SHA-256</dt><dd style={{ margin: 0, wordBreak: 'break-all', fontFamily: 'monospace' }}>{result.certificate.fingerprint}</dd>
           </dl>
+          {result.durations && (
+            <div style={{ fontSize: 12, color: '#475569', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, padding: '10px 12px', margin: '0 0 14px' }}>
+              <b>Durées</b> (en secondes) — total {sec(result.durations.totalMs)} :
+              {' '}préparation serveur {sec(result.durations.preparationMs)} ·
+              {' '}attente de la clé {sec(result.durations.keyWaitMs)} ·
+              {' '}finalisation serveur {sec(result.durations.finalizationMs)}
+              {result.durations.agent[0] && (
+                <div style={{ marginTop: 4 }}>
+                  Détail de la clé : recherche du certificat {sec(result.durations.agent[0].findMs)} · votre confirmation {sec(result.durations.agent[0].confirmMs)} ·
+                  {' '}ouverture de la clé / code PIN {sec(result.durations.agent[0].keyMs)} · signature par la clé {sec(result.durations.agent[0].signMs)} ·
+                  {' '}démarrage de l'agent {sec(Math.max(0, (result.durations.agent[0].totalMs ?? 0) - (result.durations.agent[0].findMs ?? 0) - (result.durations.agent[0].confirmMs ?? 0) - (result.durations.agent[0].keyMs ?? 0) - (result.durations.agent[0].signMs ?? 0)))}
+                </div>
+              )}
+            </div>
+          )}
           <button style={ghost} onClick={download}><Download size={14} /> Télécharger le PDF de test signé</button>
           <span style={{ fontSize: 12, color: '#64748b', marginLeft: 10 }}>Ouvrez-le dans Adobe Acrobat : le panneau « Signatures » doit afficher la signature. Le niveau RGS du certificat n'est pas contrôlé automatiquement.</span>
         </div>

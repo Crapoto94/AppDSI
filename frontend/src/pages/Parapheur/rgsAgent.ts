@@ -42,7 +42,7 @@ export async function listCertificates(): Promise<AgentCertificate[]> {
 }
 
 /** Fait signer une empreinte SHA-256 (base64) par la clé ; échoue si l'utilisateur refuse. */
-async function signHash(thumbprint: string, hash: string, label: string): Promise<string> {
+async function signHash(thumbprint: string, hash: string, label: string): Promise<{ signature: string; timings?: Record<string, number> }> {
   const r = await agentFetch('/sign', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -51,7 +51,7 @@ async function signHash(thumbprint: string, hash: string, label: string): Promis
   const d = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(d.error || `Agent : erreur ${r.status}`);
   if (d.cancelled) throw new Error("Signature refusée sur le poste.");
-  return d.signature as string;
+  return { signature: d.signature as string, timings: d.timings };
 }
 
 /** Nom courant (CN) d'un sujet X.509 « CN=MARC CHEVALIER, O=… ». */
@@ -94,7 +94,8 @@ export async function driveHardwareKeyJob<T = Result>(
     onStatus(`Confirmez la signature de « ${ev.label} » dans la fenêtre Windows, puis saisissez le code PIN de votre clé…`);
     let answer: Record<string, unknown>;
     try {
-      answer = { challengeId: ev.challengeId, signature: await signHash(cert.thumbprint, ev.hash, ev.label) };
+      const r = await signHash(cert.thumbprint, ev.hash, ev.label);
+      answer = { challengeId: ev.challengeId, signature: r.signature, timings: r.timings };
     } catch (e) {
       const m = e instanceof Error ? e.message : 'Signature impossible';
       answer = { challengeId: ev.challengeId, error: m.includes('Failed to fetch') ? "Agent de signature injoignable." : m };

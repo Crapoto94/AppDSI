@@ -24,7 +24,11 @@ const os = require('os');
 const path = require('path');
 const { spawn } = require('child_process');
 
-const VERSION = '1.0.0';
+const VERSION = '1.1.0';
+
+// Exécutable autonome (Node SEA) : la configuration se trouve à côté de l'exécutable
+let BASE_DIR = __dirname;
+try { if (require('node:sea').isSea()) BASE_DIR = path.dirname(process.execPath); } catch { /* Node sans module SEA */ }
 const DEFAULTS = {
   port: 47821,
   // Origines (schéma + hôte + port) autorisées à utiliser l'agent : adresses du Hub
@@ -33,7 +37,7 @@ const DEFAULTS = {
 
 function loadConfig() {
   let cfg = {};
-  try { cfg = JSON.parse(fs.readFileSync(path.join(__dirname, 'agent.config.json'), 'utf8')); }
+  try { cfg = JSON.parse(fs.readFileSync(path.join(BASE_DIR, 'agent.config.json'), 'utf8')); }
   catch (e) { if (e.code !== 'ENOENT') console.error('agent.config.json illisible :', e.message); }
   const origins = (process.env.AGENT_ORIGINS ? process.env.AGENT_ORIGINS.split(',') : cfg.origins || DEFAULTS.origins)
     .map((o) => o.trim().replace(/\/+$/, '')).filter(Boolean);
@@ -41,6 +45,19 @@ function loadConfig() {
 }
 
 const config = loadConfig();
+
+// Journal : fichier (agent lancé sans fenêtre à l'ouverture de session) + console si on en a une
+const LOG_DIR = path.join(process.env.LOCALAPPDATA || os.tmpdir(), 'DSIHubSignatureAgent');
+const LOG_FILE = path.join(LOG_DIR, 'agent.log');
+function log(...args) {
+  const line = `[${new Date().toISOString()}] ${args.join(' ')}`;
+  if (process.stdout.isTTY) console.log(line);
+  try {
+    fs.mkdirSync(LOG_DIR, { recursive: true });
+    if (fs.existsSync(LOG_FILE) && fs.statSync(LOG_FILE).size > 1024 * 1024) fs.renameSync(LOG_FILE, LOG_FILE + '.old'); // 1 Mo maximum
+    fs.appendFileSync(LOG_FILE, line + '\n');
+  } catch { /* journal indisponible : on continue */ }
+}
 // Mode test (jamais en production) : autorise les requêtes sans Origin (curl) et saute la confirmation à l'écran
 const TEST_MODE = process.env.AGENT_TEST === '1';
 
@@ -99,8 +116,14 @@ if ($Action -eq 'list') {
 }
 
 if ($Action -eq 'sign') {
-  $cert = Get-UserCerts | Where-Object { $_.Thumbprint -eq $req.thumbprint } | Select-Object -First 1
-  if (-not $cert) { throw 'Certificat introuvable dans le magasin Windows.' }
+  $sw = [System.Diagnostics.Stopwatch]::StartNew()
+  $store = New-Object System.Security.Cryptography.X509Certificates.X509Store('My', [System.Security.Cryptography.X509Certificates.StoreLocation]::CurrentUser)
+  $store.Open([System.Security.Cryptography.X509Certificates.OpenFlags]::ReadOnly)
+  $found = $store.Certificates.Find([System.Security.Cryptography.X509Certificates.X509FindType]::FindByThumbprint, $req.thumbprint, $false)
+  $store.Close()
+  if ($found.Count -lt 1) { throw 'Certificat introuvable dans le magasin Windows.' }
+  $cert = $found[0]
+  $tFind = $sw.ElapsedMilliseconds; $tConfirm = 0
   if ($req.confirm) {
     Add-Type -AssemblyName System.Windows.Forms
     $owner = New-Object System.Windows.Forms.Form
@@ -111,16 +134,21 @@ if ($Action -eq 'sign') {
            "Après confirmation, votre code PIN sera demandé."
     $answer = [System.Windows.Forms.MessageBox]::Show($owner, $msg, 'Agent de signature DSI Hub', [System.Windows.Forms.MessageBoxButtons]::YesNo, [System.Windows.Forms.MessageBoxIcon]::Question, [System.Windows.Forms.MessageBoxDefaultButton]::Button2)
     $owner.Close()
+    $tConfirm = $sw.ElapsedMilliseconds - $tFind
     if ($answer -ne [System.Windows.Forms.DialogResult]::Yes) {
       ConvertTo-Json -InputObject @{ cancelled = $true } -Compress
       exit 0
     }
   }
+  $t0 = $sw.ElapsedMilliseconds
   $rsa = [System.Security.Cryptography.X509Certificates.RSACertificateExtensions]::GetRSAPrivateKey($cert)
   if (-not $rsa) { throw 'Clé privée inaccessible (clé débranchée ou PIN refusé).' }
+  $tKey = $sw.ElapsedMilliseconds - $t0
   $hash = [Convert]::FromBase64String($req.hash)
+  $t1 = $sw.ElapsedMilliseconds
   $sig = $rsa.SignHash($hash, [System.Security.Cryptography.HashAlgorithmName]::SHA256, [System.Security.Cryptography.RSASignaturePadding]::Pkcs1)
-  ConvertTo-Json -InputObject @{ signature = [Convert]::ToBase64String($sig) } -Compress
+  $tSign = $sw.ElapsedMilliseconds - $t1
+  ConvertTo-Json -InputObject @{ signature = [Convert]::ToBase64String($sig); timings = @{ findMs = $tFind; confirmMs = $tConfirm; keyMs = $tKey; signMs = $tSign } } -Compress
   exit 0
 }
 throw 'Action inconnue.'
@@ -192,6 +220,8 @@ const server = http.createServer(async (req, res) => {
     if (!originOk) { res.writeHead(403); return res.end(); }
     res.writeHead(204, cors); return res.end();
   }
+  // Sonde « l'agent tourne-t-il ? » sans Origin (installateur, supervision locale) : n'expose que la version
+  if (!origin && req.method === 'GET' && req.url === '/status') return send(res, 200, { agent: 'dsihub-signature-agent', version: VERSION, platform: process.platform }, {});
   if (!originOk) return send(res, 403, { error: "Origine non autorisée : ajoutez-la dans agent.config.json (« origins »)." }, {});
 
   const url = new URL(req.url, 'http://127.0.0.1');
@@ -216,29 +246,30 @@ const server = http.createServer(async (req, res) => {
       busy = true;
       try {
         const label = String(b.label || 'document').replace(/[\r\n]+/g, ' ').slice(0, 120);
-        console.log(`[${new Date().toISOString()}] demande de signature « ${label} » (origine ${origin || 'test'})`);
+        log(`demande de signature « ${label} » (origine ${origin || 'test'})`);
+        const started = Date.now();
         const r = await runPs('sign', { thumbprint: b.thumbprint, hash: hash.toString('base64'), label, origin: origin || 'test', confirm: !TEST_MODE }, 5 * 60 * 1000);
         if (r && r.cancelled) return send(res, 200, { cancelled: true }, cors);
-        console.log(`[${new Date().toISOString()}] signature effectuée`);
-        return send(res, 200, { signature: r.signature }, cors);
+        const timings = { ...(r.timings || {}), totalMs: Date.now() - started };
+        log(`signature effectuée (${JSON.stringify(timings)})`);
+        return send(res, 200, { signature: r.signature, timings }, cors);
       } finally { busy = false; }
     }
 
     return send(res, 404, { error: 'Route inconnue.' }, cors);
   } catch (e) {
-    console.error('Erreur :', e.message);
+    log('Erreur :', e.message);
     return send(res, 500, { error: e.message }, cors);
   }
 });
 
 server.on('error', (e) => {
-  if (e.code === 'EADDRINUSE') console.error(`Le port ${config.port} est déjà utilisé : l'agent est probablement déjà lancé.`);
-  else console.error(e.message);
+  if (e.code === 'EADDRINUSE') log(`Le port ${config.port} est déjà utilisé : l'agent est probablement déjà lancé.`);
+  else log(e.message);
   process.exit(1);
 });
 
 server.listen(config.port, '127.0.0.1', () => {
-  console.log(`Agent de signature DSI Hub ${VERSION} — http://127.0.0.1:${config.port}`);
-  console.log(`Origines autorisées : ${config.origins.join(', ')}${TEST_MODE ? '  [MODE TEST]' : ''}`);
-  console.log('Laissez cette fenêtre ouverte (réduite) pendant la signature.');
+  log(`Agent de signature DSI Hub ${VERSION} — http://127.0.0.1:${config.port}`);
+  log(`Origines autorisées : ${config.origins.join(', ')}${TEST_MODE ? '  [MODE TEST]' : ''}`);
 });

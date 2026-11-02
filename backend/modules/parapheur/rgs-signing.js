@@ -30,7 +30,7 @@ function sweep() {
 
 function createJob(token) {
     sweep();
-    const job = { id: crypto.randomBytes(18).toString('hex'), token, state: 'running', challenge: null, result: null, error: null, created: Date.now(), listeners: [], pending: null };
+    const job = { id: crypto.randomBytes(18).toString('hex'), token, state: 'running', marks: { start: Date.now() }, agentTimings: [], challenge: null, result: null, error: null, created: Date.now(), listeners: [], pending: null };
     jobs.set(job.id, job);
     return job;
 }
@@ -67,9 +67,11 @@ function poll(job) {
 }
 
 /** Réponse du navigateur à un défi : { challengeId, signature (base64) } ou { challengeId, error }. */
-function answer(job, { challengeId, signature, error }) {
+function answer(job, { challengeId, signature, error, timings }) {
     const p = job.pending;
     if (!p || !job.challenge || job.challenge.id !== challengeId) throw { status: 409, message: 'Défi de signature inconnu ou expiré.' };
+    job.marks.answered = Date.now();
+    if (timings && typeof timings === 'object') job.agentTimings.push(Object.fromEntries(Object.entries(timings).filter(([, v]) => Number.isFinite(Number(v))).map(([k, v]) => [k, Number(v)])));
     job.pending = null;
     job.challenge = null;
     job.state = 'running';
@@ -146,6 +148,7 @@ class RemoteSigner extends Signer {
             this.job.pending = { resolve: (v) => { clearTimeout(timer); resolve(v); }, reject: (e) => { clearTimeout(timer); reject(e); } };
             this.job.challenge = { id: crypto.randomBytes(12).toString('hex'), hashB64: Buffer.from(toSign, 'binary').toString('base64'), label: this.label };
             this.job.state = 'challenge';
+            this.job.marks.challenge = Date.now();
             notify(this.job);
         });
 
@@ -163,4 +166,17 @@ class RemoteSigner extends Signer {
     }
 }
 
-module.exports = { createJob, getJob, poll, answer, finishJob, failJob, parseCertificates, certSummary, RemoteSigner };
+/** Durées (ms) de l'opération : préparation serveur, attente de la clé (confirmation + PIN + signature), finalisation. */
+function durations(job) {
+    const m = job.marks;
+    const now = Date.now();
+    return {
+        preparationMs: m.challenge ? m.challenge - m.start : null,
+        keyWaitMs: m.challenge && m.answered ? m.answered - m.challenge : null,
+        finalizationMs: m.answered ? now - m.answered : null,
+        totalMs: now - m.start,
+        agent: job.agentTimings,
+    };
+}
+
+module.exports = { durations, createJob, getJob, poll, answer, finishJob, failJob, parseCertificates, certSummary, RemoteSigner };
