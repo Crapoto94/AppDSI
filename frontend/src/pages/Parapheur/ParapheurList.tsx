@@ -6,6 +6,7 @@ import AgentPickerRH, { type AgentRef } from '../../components/parapheur/AgentPi
 import { isSuperAdmin } from '../../utils/roles';
 import Header from '../../components/Header';
 import ParapheurAgentHeader from '../../components/parapheur/ParapheurAgentHeader';
+import CertificateTestDialog from '../../components/parapheur/CertificateTestDialog';
 import SignaturePad from '../../components/parapheur/SignaturePad';
 import { signatureDataUrl } from '../../components/parapheur/signatureUtils';
 import { useAuth } from '../../contexts/AuthContext';
@@ -45,6 +46,7 @@ const MODE_LABEL: Record<string, string> = {
 export default function ParapheurList() {
   const { token, user } = useAuth();
   const navigate = useNavigate();
+  const [showCertTest, setShowCertTest] = useState(false);
   const [tab, setTab] = useState<Tab>('created');
   const [rows, setRows] = useState<ParapheurRow[]>([]);
   const [loading, setLoading] = useState(false);
@@ -149,6 +151,9 @@ export default function ParapheurList() {
             <h1 style={{ margin: 0, fontSize: 24, fontWeight: 800, color: '#0f172a' }}>Parapheur électronique</h1>
             <p style={{ margin: '2px 0 0', fontSize: 13, color: '#64748b' }}>Signature de documents PDF (circuits puis, et ou)</p>
           </div>
+          <button onClick={() => setShowCertTest(true)} style={ghostBtn} title="Vérifier que votre certificat (logiciel ou clé matérielle) permet de signer">
+            <ShieldCheck size={16} /> Tester mon certificat
+          </button>
           <button onClick={() => navigate('/parapheur/nouveau')} style={primaryBtn}>
             <PenSquare size={16} /> Nouveau parapheur
           </button>
@@ -246,6 +251,7 @@ export default function ParapheurList() {
           </>
         )}
       </div>
+      {showCertTest && <CertificateTestDialog token={token} onClose={() => setShowCertTest(false)} />}
     </div>
   );
 }

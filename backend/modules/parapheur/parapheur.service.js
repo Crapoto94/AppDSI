@@ -2628,6 +2628,62 @@ async function answerRgsSigning(token, jobId, body) {
     return { ok: true };
 }
 
+// ─── Test du certificat de l'utilisateur (logiciel P12) ───────────────────────────────────────
+// Vérifie le certificat P12 enregistré (lecture, mot de passe, clé privée, validité) puis signe un PDF de démonstration.
+// Rien n'est enregistré ni modifié.
+async function testSoftwareCertificateBuffer(buf, password) {
+    const checks = [];
+    const add = (label, ok, detail) => checks.push({ label, ok: !!ok, detail });
+    const info = inspectP12(buf, password);
+    if (!info.ok) {
+        add('Lecture du fichier et mot de passe', false, info.error || 'Fichier PKCS#12 illisible (mot de passe incorrect ?)');
+        return { ok: false, certificate: null, checks };
+    }
+    add('Lecture du fichier et mot de passe', true, `certificat « ${info.subject} »`);
+    add('Clé privée présente dans le fichier', info.hasPrivateKey, info.hasPrivateKey ? 'oui' : 'non : le fichier ne contient pas la clé privée, la signature est impossible');
+    const now = new Date();
+    add('Certificat en cours de validité', now >= info.validFrom && now <= info.validTo, `du ${frDate(info.validFrom)} au ${frDate(info.validTo)}`);
+
+    let pdfBase64 = null;
+    if (info.hasPrivateKey) {
+        try {
+            const pdfDoc = await PDFDocument.create();
+            const page = pdfDoc.addPage([595, 842]);
+            const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+            const bold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+            const safe = (t) => String(t || '').replace(/[^\x20-\xFF]/g, '?');
+            page.drawText('Test du certificat', { x: 50, y: 780, size: 20, font: bold, color: rgb(0.1, 0.1, 0.3) });
+            let y = 780;
+            for (const line of ['DSI Hub - Parapheur electronique', `Date : ${new Date().toLocaleString('fr-FR')}`, '', `Certificat : ${safe(info.subject)}`, `Emetteur : ${safe(info.issuer)}`, '', 'Ce document de demonstration ne contient aucune donnee reelle.']) {
+                y -= 22;
+                if (line) page.drawText(safe(line), { x: 50, y, size: 11, font });
+            }
+            const plain = Buffer.from(await pdfDoc.save({ useObjectStreams: false }));
+            const signed = await applyPadesToBuffer(plain, buf, password, {
+                name: info.subject, reason: 'Test du certificat', pos: { page: 1, xPct: 30, yPct: 90, w: 210, h: 60 },
+            });
+            add("Signature PAdES d'essai", true, 'adbe.pkcs7.detached, SHA-256');
+            pdfBase64 = signed.toString('base64');
+        } catch (e) {
+            add("Signature PAdES d'essai", false, e.message);
+        }
+    }
+    return {
+        ok: checks.every((c) => c.ok),
+        certificate: { subject: info.subject, issuer: info.issuer, serial: info.serial, notBefore: info.validFrom, notAfter: info.validTo },
+        checks,
+        filename: 'test-signature-certificat.pdf',
+        pdfBase64,
+    };
+}
+
+async function testMyCertificate(email, password) {
+    const buf = await readCertificateBuffer(email);
+    if (!buf) throw { status: 404, message: "Aucun certificat P12 enregistré pour votre compte : importez-le d'abord." };
+    if (!password) throw { status: 400, message: 'Saisissez le mot de passe du certificat.' };
+    return testSoftwareCertificateBuffer(buf, password);
+}
+
 // ─── Test de la clé cryptographique (administration) ───────────────────────────────────────
 // Signe un PDF de démonstration avec la clé du poste de l'administrateur, par le même mécanisme que la vraie
 // signature (voir rgs-signing.js), et renvoie un rapport de contrôles + le PDF signé à vérifier dans Acrobat.
@@ -3492,6 +3548,8 @@ module.exports = {
     signWithToken,
     startRgsSigning,
     startRgsTest,
+    testMyCertificate,
+    testSoftwareCertificateBuffer,
     pollRgsSigning,
     answerRgsSigning,
     rejectWithToken,

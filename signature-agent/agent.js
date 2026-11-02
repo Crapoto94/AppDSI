@@ -25,7 +25,7 @@ const path = require('path');
 const crypto = require('crypto');
 const { spawn } = require('child_process');
 
-const VERSION = '1.2.0';
+const VERSION = '1.3.0';
 
 // Exécutable autonome (Node SEA) : la configuration se trouve à côté de l'exécutable
 let BASE_DIR = __dirname;
@@ -472,6 +472,8 @@ const server = http.createServer(async (req, res) => {
   const host = String(req.headers.host || '');
   const hostOk = host === `127.0.0.1:${config.port}` || host === `localhost:${config.port}`;
   const originOk = config.origins.includes(origin) || (TEST_MODE && !origin);
+  // Diagnostic : /status est lisible depuis n'importe quel site, pour que la page puisse expliquer POURQUOI l'agent est refusé
+  const statusCors = origin ? { 'Access-Control-Allow-Origin': origin, 'Access-Control-Allow-Private-Network': 'true', Vary: 'Origin' } : {};
   const cors = originOk && origin ? {
     'Access-Control-Allow-Origin': origin,
     'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
@@ -487,11 +489,13 @@ const server = http.createServer(async (req, res) => {
     catch (e) { log('Erreur (paramètres locaux) :', e.message); return send(res, 500, { error: e.message }, {}); }
   }
   if (req.method === 'OPTIONS') {
+    if (req.url === '/status' && origin) { res.writeHead(204, { ...statusCors, 'Access-Control-Allow-Methods': 'GET, OPTIONS', 'Access-Control-Max-Age': '600' }); return res.end(); }
     if (!originOk) { res.writeHead(403); return res.end(); }
     res.writeHead(204, cors); return res.end();
   }
-  // Sonde « l'agent tourne-t-il ? » sans Origin (installateur, supervision locale) : n'expose que la version
-  if (!origin && req.method === 'GET' && req.url === '/status') return send(res, 200, { agent: 'dsihub-signature-agent', version: VERSION, platform: process.platform }, {});
+  if (req.method === 'GET' && req.url === '/status') {
+    return send(res, 200, { agent: 'dsihub-signature-agent', version: VERSION, platform: process.platform, originAllowed: originOk || !origin }, statusCors);
+  }
   if (!originOk) return send(res, 403, { error: "Origine non autorisée : ajoutez-la dans agent.config.json (« origins »)." }, {});
 
   const url = new URL(req.url, 'http://127.0.0.1');

@@ -48,6 +48,12 @@ router.post('/delegations', authenticateJWT, controller.saveDelegation);
 router.delete('/delegations/:id', authenticateJWT, controller.deleteDelegation);
 
 router.get('/my-certificate', authenticateJWT, controller.getMyCertificate);
+router.post('/my-certificate/test', authenticateJWT, controller.testMyCertificate);
+router.post('/my-key-test/start', authenticateJWT, controller.myKeyTestStart);
+router.get('/my-key-test/:jobId', authenticateJWT, controller.myKeyTestPoll);
+router.post('/my-key-test/:jobId/answer', authenticateJWT, controller.myKeyTestAnswer);
+router.get('/agent/info', authenticateJWT, controller.agentInfo);
+router.get('/agent/download', authenticateJWT, controller.agentDownload);
 router.post('/my-certificate', authenticateJWT, upload.single('file'), controller.saveMyCertificate);
 router.delete('/my-certificate', authenticateJWT, controller.deleteMyCertificate);
 

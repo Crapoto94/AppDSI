@@ -34,6 +34,20 @@ export async function detectAgent(): Promise<boolean> {
   }
 }
 
+export interface AgentProbe { up: boolean; version?: string; originAllowed?: boolean }
+
+/** Diagnostic de l'agent : tourne-t-il, quelle version, ce site est-il autorisé (agent >= 1.3 ; sinon « absent »). */
+export async function probeAgent(): Promise<AgentProbe> {
+  try {
+    const r = await agentFetch('/status', {}, 2500);
+    if (!r.ok) return { up: false };
+    const d = await r.json();
+    return { up: true, version: d.version, originAllowed: d.originAllowed !== false };
+  } catch {
+    return { up: false };
+  }
+}
+
 export async function listCertificates(): Promise<AgentCertificate[]> {
   const r = await agentFetch('/certificates', {}, 30000);
   const d = await r.json().catch(() => ({}));

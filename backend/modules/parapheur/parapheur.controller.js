@@ -1,6 +1,10 @@
 const service = require('./parapheur.service');
 const { authenticateJWT, isSuperAdmin, isAdminLike } = require('../../shared/middleware');
 const path = require('path');
+const fs = require('fs');
+
+// Programme d'installation de l'agent de signature (à déposer sur le serveur : backend/data/agent/, dossier persistant)
+const AGENT_SETUP_FILE = path.join(__dirname, '..', '..', 'data', 'agent', 'DSIHubSignatureAgent-Setup.exe');
 
 function sendError(res, err, fallback) {
     const status = err && err.status ? err.status : 500;
@@ -271,6 +275,41 @@ const controller = {
             });
             res.json(r);
         } catch (e) { sendError(res, e, 'Démarrage de la signature impossible'); }
+    },
+
+    // Test du certificat de l'utilisateur connecté : P12 enregistré (logiciel) ou clé matérielle (agent local)
+    testMyCertificate: async (req, res) => {
+        try { res.json(await service.testMyCertificate(req.user.email, req.body && req.body.password)); }
+        catch (e) { sendError(res, e, 'Test du certificat impossible'); }
+    },
+
+    myKeyTestStart: async (req, res) => {
+        try {
+            const b = req.body || {};
+            res.json(await service.startRgsTest(`user:${req.user.username}`, { certB64: b.certificate, chainB64: b.chain }));
+        } catch (e) { sendError(res, e, 'Test de la clé impossible'); }
+    },
+
+    myKeyTestPoll: async (req, res) => {
+        try { res.json(await service.pollRgsSigning(`user:${req.user.username}`, req.params.jobId)); }
+        catch (e) { sendError(res, e, 'Suivi du test impossible'); }
+    },
+
+    myKeyTestAnswer: async (req, res) => {
+        try { res.json(await service.answerRgsSigning(`user:${req.user.username}`, req.params.jobId, req.body)); }
+        catch (e) { sendError(res, e, 'Réponse refusée'); }
+    },
+
+    // Programme d'installation de l'agent de signature : fichier déposé par la DSI dans backend/data/agent
+    agentInfo: (req, res) => {
+        const f = AGENT_SETUP_FILE;
+        const ok = fs.existsSync(f);
+        res.json({ available: ok, size: ok ? fs.statSync(f).size : null, filename: path.basename(f) });
+    },
+
+    agentDownload: (req, res) => {
+        if (!fs.existsSync(AGENT_SETUP_FILE)) return res.status(404).json({ message: "Le programme d'installation n'est pas encore déposé sur le serveur." });
+        res.download(AGENT_SETUP_FILE, path.basename(AGENT_SETUP_FILE));
     },
 
     // Test de la clé (administration) : mêmes mécanismes de suivi, opération rattachée à l'administrateur

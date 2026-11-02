@@ -4,7 +4,7 @@
 
 #define AppName "Agent de signature DSI Hub"
 #define AppExe "DSIHubSignatureAgent.exe"
-#define AppVersion "1.2.0"
+#define AppVersion "1.3.0"
 
 [Setup]
 AppId={{6F1B6F43-2A0E-4C2B-9E1D-5D3A7C9B1E42}
