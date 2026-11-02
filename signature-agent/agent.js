@@ -196,6 +196,7 @@ function Show-Settings {
     return
   }
   $state = Call-Agent 'GET' '/local/state' $null
+  Write-TrayLog 'état lu'
   $f = New-Object System.Windows.Forms.Form
   $script:form = $f
   $f.Text = "Paramètres - $title"
@@ -223,7 +224,7 @@ function Show-Settings {
   $cbAuto.Add_Click({
     try { [void](Call-Agent 'POST' '/local/autostart' @{ enabled = $cbAuto.Checked }) }
     catch { [System.Windows.Forms.MessageBox]::Show($_.Exception.Message, $title, 'OK', 'Warning') | Out-Null; $cbAuto.Checked = -not $cbAuto.Checked }
-  })
+  }.GetNewClosure())
   $gbStart.Controls.Add($cbAuto)
   $f.Controls.Add($gbStart)
 
@@ -251,7 +252,7 @@ function Show-Settings {
       try { $m = ($_.ErrorDetails.Message | ConvertFrom-Json).error } catch { }
       [System.Windows.Forms.MessageBox]::Show($m, $title, 'OK', 'Warning') | Out-Null
     }
-  })
+  }.GetNewClosure())
   $gbOrig.Controls.AddRange(@($tbOrig, $lblNote, $btnSave))
   $f.Controls.Add($gbOrig)
 
@@ -276,11 +277,12 @@ function Show-Settings {
         [void]$lv.Items.Add($it)
       }
     } catch { [void]$lv.Items.Add('Lecture impossible : ' + $_.Exception.Message) }
-  }
+  }.GetNewClosure()
   $btnRefresh.Add_Click($fill)
   $gbCerts.Controls.AddRange(@($lv, $btnRefresh))
   $f.Controls.Add($gbCerts)
   & $fill
+  Write-TrayLog 'formulaire construit'
 
   $lblInfo = New-Object System.Windows.Forms.Label
   $lblInfo.Location = '16,502'; $lblInfo.Size = '670,52'; $lblInfo.ForeColor = [System.Drawing.Color]::DimGray
@@ -289,13 +291,13 @@ function Show-Settings {
 
   $btnLog = New-Object System.Windows.Forms.Button
   $btnLog.Text = 'Ouvrir le journal'; $btnLog.Location = '16,566'; $btnLog.Size = '130,28'
-  $btnLog.Add_Click({ if (Test-Path $state.logFile) { Start-Process notepad.exe $state.logFile } else { [System.Windows.Forms.MessageBox]::Show('Aucun journal pour le moment.', $title) | Out-Null } })
+  $btnLog.Add_Click({ if (Test-Path $state.logFile) { Start-Process notepad.exe $state.logFile } else { [System.Windows.Forms.MessageBox]::Show('Aucun journal pour le moment.', $title) | Out-Null } }.GetNewClosure())
   $btnDir = New-Object System.Windows.Forms.Button
   $btnDir.Text = 'Ouvrir le dossier'; $btnDir.Location = '154,566'; $btnDir.Size = '130,28'
-  $btnDir.Add_Click({ Start-Process explorer.exe $state.baseDir })
+  $btnDir.Add_Click({ Start-Process explorer.exe $state.baseDir }.GetNewClosure())
   $btnClose = New-Object System.Windows.Forms.Button
   $btnClose.Text = 'Fermer'; $btnClose.Location = '586,566'; $btnClose.Size = '100,28'
-  $btnClose.Add_Click({ $f.Close() })
+  $btnClose.Add_Click({ $f.Close() }.GetNewClosure())
   $f.Controls.AddRange(@($btnLog, $btnDir, $btnClose))
   $f.CancelButton = $btnClose
 
@@ -346,7 +348,7 @@ Write-TrayLog 'icône démarrée'
 if ($TestClick) {
   $t2 = New-Object System.Windows.Forms.Timer
   $t2.Interval = 1500
-  $t2.Add_Tick({ $t2.Stop(); $miSettings.PerformClick(); Write-TrayLog ('test : fenêtre ouverte = ' + [bool]($script:form -and $script:form.Visible)); $t3 = New-Object System.Windows.Forms.Timer; $t3.Interval = 2500; $t3.Add_Tick({ $ni.Visible = $false; [System.Windows.Forms.Application]::Exit() }); $t3.Start() })
+  $t2.Add_Tick({ $t2.Stop(); $miSettings.PerformClick(); Write-TrayLog ('test : fenêtre ouverte = ' + [bool]($script:form -and $script:form.Visible)); $script:t3 = New-Object System.Windows.Forms.Timer; $script:t3.Interval = 2500; $script:t3.Add_Tick({ $script:t3.Stop(); try { $script:form.CancelButton.PerformClick() } catch { Write-TrayLog ('ERREUR fermeture : ' + $_.Exception.Message) }; Write-TrayLog ('test : fenêtre fermée par le bouton = ' + [bool]$script:form.IsDisposed); $ni.Visible = $false; [System.Windows.Forms.Application]::Exit() }); $script:t3.Start() })
   $t2.Start()
 }
 [System.Windows.Forms.Application]::Run()
