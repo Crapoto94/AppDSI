@@ -304,7 +304,9 @@ const controller = {
     agentInfo: (req, res) => {
         const f = AGENT_SETUP_FILE;
         const ok = fs.existsSync(f);
-        res.json({ available: ok, size: ok ? fs.statSync(f).size : null, filename: path.basename(f) });
+        let version = null;
+        try { version = fs.readFileSync(path.join(path.dirname(f), 'version.txt'), 'utf8').trim() || null; } catch { /* version non renseignée */ }
+        res.json({ available: ok, version, size: ok ? fs.statSync(f).size : null, filename: path.basename(f) });
     },
 
     agentDownload: (req, res) => {

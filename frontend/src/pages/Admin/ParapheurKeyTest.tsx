@@ -7,6 +7,12 @@ const card: React.CSSProperties = { background: '#fff', border: '1px solid #e2e8
 const btn: React.CSSProperties = { display: 'inline-flex', alignItems: 'center', gap: 6, padding: '9px 14px', background: '#7c3aed', color: '#fff', border: 'none', borderRadius: 9, fontWeight: 700, fontSize: 13, cursor: 'pointer' };
 const ghost: React.CSSProperties = { ...btn, background: '#f1f5f9', color: '#475569', border: '1px solid #e2e8f0' };
 const fr = (iso: string) => new Date(iso).toLocaleDateString('fr-FR');
+// Compare deux versions « 1.3.0 » : négatif si a < b
+const cmpVersion = (a: string, b: string) => {
+  const pa = a.split('.').map(Number), pb = b.split('.').map(Number);
+  for (let i = 0; i < 3; i++) { const d = (pa[i] || 0) - (pb[i] || 0); if (d) return d; }
+  return 0;
+};
 
 /**
  * Test de la clé cryptographique (RGS**) : diagnostic du programme résident (agent de signature du poste), lecture des
@@ -19,6 +25,9 @@ export default function ParapheurKeyTest({ token, base = '/api/parapheur/admin/r
   const [thumb, setThumb] = useState('');
   const [agentError, setAgentError] = useState<string | null>(null);
   const [setupAvailable, setSetupAvailable] = useState(false);
+  const [setupVersion, setSetupVersion] = useState<string | null>(null);
+  const [downloaded, setDownloaded] = useState(false);
+  const [justInstalled, setJustInstalled] = useState(false);
   const [running, setRunning] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
   const [result, setResult] = useState<CertTestResult | null>(null);
@@ -43,7 +52,7 @@ export default function ParapheurKeyTest({ token, base = '/api/parapheur/admin/r
   useEffect(() => {
     fetch('/api/parapheur/agent/info', { headers: { Authorization: `Bearer ${token}` } })
       .then(r => (r.ok ? r.json() : { available: false }))
-      .then(d => setSetupAvailable(!!d.available))
+      .then(d => { setSetupAvailable(!!d.available); setSetupVersion(d.version || null); })
       .catch(() => setSetupAvailable(false));
   }, [token]);
 
@@ -57,6 +66,7 @@ export default function ParapheurKeyTest({ token, base = '/api/parapheur/admin/r
       a.download = 'DSIHubSignatureAgent-Setup.exe';
       a.click();
       setTimeout(() => URL.revokeObjectURL(url), 60000);
+      setDownloaded(true);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Téléchargement impossible');
     }
@@ -78,6 +88,26 @@ export default function ParapheurKeyTest({ token, base = '/api/parapheur/admin/r
     }
   };
 
+  // Après le téléchargement : on surveille l'arrivée de l'agent (toutes les 3 s, 10 min maximum) et on relance le diagnostic dès qu'il répond
+  useEffect(() => {
+    if (!downloaded) return;
+    let stopped = false;
+    const started = Date.now();
+    const timer = setInterval(async () => {
+      if (stopped || Date.now() - started > 10 * 60 * 1000) { clearInterval(timer); return; }
+      const p = await probeAgent();
+      if (p.up && !stopped) {
+        stopped = true;
+        clearInterval(timer);
+        setDownloaded(false);
+        setJustInstalled(true);
+        refresh();
+      }
+    }, 3000);
+    return () => { stopped = true; clearInterval(timer); };
+  }, [downloaded, refresh]);
+
+  const outdated = !!(probe?.up && probe.version && setupVersion && cmpVersion(probe.version, setupVersion) < 0);
   const selected = certs.find(c => c.thumbprint === thumb);
   const agentReady = !!probe?.up && probe.originAllowed !== false;
   const signCerts = certs.filter(c => c.nonRepudiation).length;
@@ -116,19 +146,40 @@ export default function ParapheurKeyTest({ token, base = '/api/parapheur/admin/r
           <tbody>
             {line(probe === null ? null : probe.up, 'Agent détecté sur ce poste', probe === null ? 'Recherche…' : probe.up ? `version ${probe.version}` : 'aucune réponse sur 127.0.0.1:47821')}
             {probe?.up && line(probe.originAllowed !== false, "Ce site est autorisé par l'agent", probe.originAllowed !== false ? window.location.origin : <>refusé : <b>{window.location.origin}</b></>)}
+            {probe?.up && setupVersion && line(!outdated, 'Agent à jour', outdated ? `installé : ${probe.version} — disponible : ${setupVersion}` : `version ${probe.version}`)}
             {agentReady && line(agentError ? false : certs.length > 0, 'Certificats lisibles sur le poste', agentError || (certs.length ? `${certs.length} certificat(s), dont ${signCerts} de signature` : 'aucun certificat utilisable (clé non branchée ou middleware absent)'))}
           </tbody>
         </table>
 
+        {justInstalled && probe?.up && (
+          <div style={{ fontSize: 13, color: '#15803d', marginTop: 10, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 6 }}>
+            <CheckCircle2 size={15} /> Agent installé et détecté. Branchez votre clé si ce n'est pas fait, puis lancez le test ci-dessous.
+          </div>
+        )}
         {probe && !probe.up && (
           <div style={{ fontSize: 13, color: '#b45309', marginTop: 10 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 700 }}><AlertTriangle size={15} /> L'agent ne répond pas.</div>
-            <ol style={{ margin: '8px 0 10px 18px', padding: 0, color: '#475569' }}>
-              <li>Pas encore installé : installez « Agent de signature DSI Hub » (une seule fois par poste).</li>
-              <li>Déjà installé : vérifiez l'icône (clé violette) près de l'horloge ; sinon relancez le programme depuis le menu Démarrer ou ouvrez une nouvelle session Windows.</li>
-              <li>Agent ancien (avant 1.3) : réinstallez la dernière version ; si le site n'est pas autorisé, ajoutez-le dans « Paramètres » (clic droit sur l'icône).</li>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 700 }}><AlertTriangle size={15} /> L'agent de signature ne répond pas sur ce poste.</div>
+            <div style={{ margin: '8px 0 6px', color: '#475569', fontWeight: 700 }}>S'il n'est pas encore installé (une seule fois par poste, sans droits administrateur) :</div>
+            <ol style={{ margin: '0 0 10px 18px', padding: 0, color: '#475569' }}>
+              <li>Téléchargez l'installateur{setupAvailable ? (setupVersion ? ` (version ${setupVersion})` : '') : ' : il n\'est pas encore déposé sur le serveur, demandez à la DSI'}.</li>
+              <li>Ouvrez le fichier téléchargé <code>DSIHubSignatureAgent-Setup.exe</code> et suivez l'assistant (laissez cochée « Lancer l'agent automatiquement à l'ouverture de session »).</li>
+              <li>Revenez sur cette page : l'agent est détecté automatiquement.</li>
             </ol>
-            {setupAvailable && <button style={btn} onClick={downloadSetup}><Download size={14} /> Télécharger l'agent de signature</button>}
+            {setupAvailable && <button style={btn} onClick={downloadSetup}><Download size={14} /> Télécharger l'installateur de l'agent</button>}
+            {downloaded && (
+              <div style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 8, color: '#6d28d9', fontWeight: 700 }}>
+                <Loader2 size={15} className="spin" /> Téléchargement lancé : ouvrez le fichier puis installez-le, cette page attend l'agent…
+              </div>
+            )}
+            <div style={{ margin: '12px 0 4px', color: '#475569' }}>
+              <b>Déjà installé ?</b> Vérifiez l'icône (clé violette) près de l'horloge ; sinon relancez « Agent de signature DSI Hub » depuis le menu Démarrer ou ouvrez une nouvelle session Windows.
+            </div>
+          </div>
+        )}
+        {outdated && (
+          <div style={{ fontSize: 13, color: '#b45309', marginTop: 10 }}>
+            Une version plus récente de l'agent est disponible ({setupVersion}). Téléchargez-la et installez-la par-dessus la version actuelle (la configuration est conservée).{' '}
+            {setupAvailable && <button style={btn} onClick={downloadSetup}><Download size={14} /> Télécharger la mise à jour</button>}
           </div>
         )}
         {probe?.up && probe.originAllowed === false && (
