@@ -249,6 +249,63 @@ const controller = {
         } catch (e) { sendError(res, e, 'Signature impossible'); }
     },
 
+    // ─── Signature avec une clé matérielle RGS** (agent local) : démarrage, interrogation, réponse ───
+    rgsStart: async (req, res) => {
+        try {
+            if (req.delegation) return res.status(403).json({ message: 'La signature avec une clé matérielle ne peut pas être déléguée.' });
+            const b = req.body || {};
+            const r = await service.startRgsSigning(req.params.token, {
+                signatureDataUrl: b.signatureDataUrl,
+                signatureNote: b.signatureNote,
+                signatureNoteDataUrl: b.signatureNoteDataUrl,
+                noteOffsetX: b.noteOffsetX,
+                noteOffsetY: b.noteOffsetY,
+                noteSize: b.noteSize,
+                memorize: b.memorize,
+                otpCode: b.otpCode,
+                documentIds: b.documentIds,
+                certB64: b.certificate,
+                chainB64: b.chain,
+                delegation: null,
+                req,
+            });
+            res.json(r);
+        } catch (e) { sendError(res, e, 'Démarrage de la signature impossible'); }
+    },
+
+    // Test de la clé (administration) : mêmes mécanismes de suivi, opération rattachée à l'administrateur
+    rgsTestStart: async (req, res) => {
+        try {
+            if (!isAdminLike(req.user)) return res.status(403).json({ message: 'Accès administrateur requis.' });
+            const b = req.body || {};
+            res.json(await service.startRgsTest(`admin:${req.user.username}`, { certB64: b.certificate, chainB64: b.chain }));
+        } catch (e) { sendError(res, e, 'Test de la clé impossible'); }
+    },
+
+    rgsTestPoll: async (req, res) => {
+        try {
+            if (!isAdminLike(req.user)) return res.status(403).json({ message: 'Accès administrateur requis.' });
+            res.json(await service.pollRgsSigning(`admin:${req.user.username}`, req.params.jobId));
+        } catch (e) { sendError(res, e, 'Suivi du test impossible'); }
+    },
+
+    rgsTestAnswer: async (req, res) => {
+        try {
+            if (!isAdminLike(req.user)) return res.status(403).json({ message: 'Accès administrateur requis.' });
+            res.json(await service.answerRgsSigning(`admin:${req.user.username}`, req.params.jobId, req.body));
+        } catch (e) { sendError(res, e, 'Réponse refusée'); }
+    },
+
+    rgsPoll: async (req, res) => {
+        try { res.json(await service.pollRgsSigning(req.params.token, req.params.jobId)); }
+        catch (e) { sendError(res, e, 'Suivi de la signature impossible'); }
+    },
+
+    rgsAnswer: async (req, res) => {
+        try { res.json(await service.answerRgsSigning(req.params.token, req.params.jobId, req.body)); }
+        catch (e) { sendError(res, e, 'Réponse de signature refusée'); }
+    },
+
     requestOtp: async (req, res) => {
         try {
             const r = await service.requestOtp(req.params.token);

@@ -1,0 +1,8 @@
+{
+  "port": 47821,
+  "origins": [
+    "https://dsihub.ivry.local",
+    "https://parapheur.ivry94.fr",
+    "http://localhost:5173"
+  ]
+}

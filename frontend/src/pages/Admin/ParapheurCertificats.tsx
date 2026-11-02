@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { CheckCircle2, XCircle, Trash2, RefreshCw, ShieldCheck, AlertTriangle, KeyRound, HelpCircle, PenLine, Fingerprint, FileText, Smartphone } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import AgentPresenceBadge from '../../components/AgentPresenceBadge';
+import ParapheurKeyTest from './ParapheurKeyTest';
 
 interface CertRow {
   id: number;
@@ -55,7 +56,7 @@ interface SecRow {
   has_crypto_signature: boolean;
 }
 
-type Tab = 'certificats' | 'logs' | 'securite';
+type Tab = 'certificats' | 'logs' | 'securite' | 'cle';
 
 const VALIDITY: Record<string, { label: string; style: React.CSSProperties }> = {
   valid: { label: 'Valide', style: { color: '#15803d', background: '#f0fdf4', border: '1px solid #bbf7d0' } },
@@ -186,6 +187,7 @@ export default function ParapheurCertificats() {
     ['certificats', 'Certificats P12', certs.length],
     ['logs', 'Journal de signature', logs.length],
     ['securite', 'Sécurité & non-falsification', signedDocs],
+    ['cle', 'Tester ma clé RGS**', 0],
   ];
 
   return (
@@ -318,7 +320,9 @@ export default function ParapheurCertificats() {
 
       {error && <div style={{ padding: '10px 14px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 8, color: '#b91c1c', fontSize: 13, marginBottom: 14 }}>{error}</div>}
 
-      {loading ? (
+      {tab === 'cle' ? (
+        <ParapheurKeyTest token={token} />
+      ) : loading ? (
         <div style={{ padding: 40, textAlign: 'center', color: '#64748b' }}>Chargement…</div>
       ) : tab === 'certificats' ? (
         <Certificates certs={certs} readyCount={readyCount} busyId={busyId} onRemove={removeCert} />

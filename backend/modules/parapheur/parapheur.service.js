@@ -21,6 +21,7 @@ const { PDFDocument, StandardFonts, rgb } = require('pdf-lib');
 const archiver = require('archiver');
 const { SignPdf } = require('@signpdf/signpdf');
 const { P12Signer } = require('@signpdf/signer-p12');
+const rgs = require('./rgs-signing');
 const { pdflibAddPlaceholder } = require('@signpdf/placeholder-pdf-lib');
 const emailTemplates = require('./parapheur-email');
 const apmMail = require('../../shared/apm_mail');
@@ -837,7 +838,7 @@ async function refreshCertificateMeta(email, password) {
  * Applique une signature cryptographique (détachée PKCS#7 / PAdES-BES) sur un
  * buffer PDF via le certificat P12 du signataire.
  */
-async function applyPadesToBuffer(pdfBuffer, p12Buffer, password, { name, reason, pos }) {
+async function applyPadesToBuffer(pdfBuffer, p12Buffer, password, { name, reason, pos, signer: customSigner }) {
     const pdfDoc = await PDFDocument.load(pdfBuffer, { ignoreEncryption: true });
     const pages = pdfDoc.getPages();
     const idx = Math.max(0, Math.min((pos?.page || 1) - 1, pages.length - 1));
@@ -863,7 +864,8 @@ async function applyPadesToBuffer(pdfBuffer, p12Buffer, password, { name, reason
         appName: 'DSI Hub - Parapheur électronique',
     });
     const withPlaceholder = Buffer.from(await pdfDoc.save({ useObjectStreams: false }));
-    const signer = new P12Signer(p12Buffer, { passphrase: password });
+    // customSigner : signature par une clé matérielle située sur le poste du signataire (voir rgs-signing.js)
+    const signer = customSigner || new P12Signer(p12Buffer, { passphrase: password });
     const signed = Buffer.from(await new SignPdf().sign(withPlaceholder, signer));
 
     // Vérifie que la signature a bien été inscrite.
@@ -2062,6 +2064,7 @@ async function buildSignedPdf(originalPath, sigs, ctx = {}) {
             const suffix = s.signature_mode === 'sms' ? ' (vérifié par SMS)' : '';
             label = `Signé ${delegataire} par délégation de ${nom}${suffix} le ${quand}`;
         } else if (s.signature_mode === 'securise') label = `Signé électroniquement par ${nom} le ${quand}`;
+        else if (s.signature_mode === 'rgs') label = `Signé électroniquement (certificat RGS**) par ${nom} le ${quand}`;
         else if (s.signature_mode === 'sms') label = `Signé électroniquement par ${nom} (vérifié par SMS) le ${quand}`;
         else label = `Signé par ${nom} le ${quand}`;
 
@@ -2206,12 +2209,20 @@ async function regenerateSignedDocs(parapheurId, secureContext) {
                     name: secureContext.name,
                     reason: secureContext.reason,
                     pos: secureContext.positions ? secureContext.positions[doc.id] : null,
+                    signer: secureContext.remote
+                        ? new rgs.RemoteSigner({ job: secureContext.remote.job, cert: secureContext.remote.cert, chain: secureContext.remote.chain, label: doc.original_name })
+                        : undefined,
                 });
                 hasPades = true;
-                console.log(`[PARAPHEUR] signature PAdES (P12) appliquée au document ${doc.id} (parapheur ${parapheurId})`);
+                console.log(`[PARAPHEUR] signature PAdES (${secureContext.remote ? 'clé matérielle RGS' : 'P12'}) appliquée au document ${doc.id} (parapheur ${parapheurId})`);
             } catch (e) {
                 console.error('[PARAPHEUR] signature PAdES échouée:', e.message);
-                throw { status: 400, message: `Signature sécurisée impossible (certificat ou mot de passe invalide) : ${e.message}` };
+                throw {
+                    status: 400,
+                    message: secureContext.remote
+                        ? `Signature avec la clé matérielle impossible : ${e.message}`
+                        : `Signature sécurisée impossible (certificat ou mot de passe invalide) : ${e.message}`,
+                };
             }
         }
 
@@ -2317,13 +2328,13 @@ async function notifySignersCompleted(parapheur, signataires) {
     }
 }
 
-async function signWithToken(token, { signatureDataUrl, signatureNote, signatureNoteDataUrl, noteOffsetX, noteOffsetY, noteSize, memorize, certificatePassword, otpCode, documentIds, delegation, req }) {
+async function signWithToken(token, { signatureDataUrl, signatureNote, signatureNoteDataUrl, noteOffsetX, noteOffsetY, noteSize, memorize, certificatePassword, otpCode, documentIds, delegation, rgs: rgsRequest, req }) {
     const signataire = await getSignerByToken(token);
     if (!signataire) throw { status: 404, message: 'Lien de signature introuvable.' };
     if (signataire.status === 'refuse') throw { status: 400, message: 'Vous avez déjà refusé de signer.' };
     // La délégation n'est jamais admise pour la signature sécurisée P12.
-    if (delegation && signataire.signature_mode === 'securise') {
-        throw { status: 403, message: 'La signature sécurisée (certificat P12) ne peut pas être déléguée.' };
+    if (delegation && (signataire.signature_mode === 'securise' || rgsRequest)) {
+        throw { status: 403, message: 'La signature avec certificat (P12 ou clé matérielle) ne peut pas être déléguée.' };
     }
     const delegating = !!delegation;
     const signatureOwnerEmail = delegating ? delegation.delegate_email : signataire.email;
@@ -2461,7 +2472,31 @@ async function signWithToken(token, { signatureDataUrl, signatureNote, signature
     // AVANT toute écriture en base, pour ne pas marquer le signataire comme
     // signé si la crypto échoue (mot de passe erroné, certificat illisible…).
     let secureContext = null;
-    if (signataire.signature_mode === 'securise') {
+    let rgsCert = null;
+    if (rgsRequest) {
+        // Signature avec la clé matérielle (RGS**) du poste du signataire : certificat annoncé par l'agent local
+        let parsed;
+        try { parsed = rgs.parseCertificates(rgsRequest.certB64, rgsRequest.chainB64); }
+        catch { throw { status: 400, message: 'Certificat de la clé illisible.' }; }
+        rgsCert = rgs.certSummary(parsed.cert);
+        const now = new Date();
+        if (now < rgsCert.notBefore || now > rgsCert.notAfter) throw { status: 400, message: 'Le certificat de la clé est expiré ou pas encore valide.' };
+        if (!parsed.cert.publicKey || !parsed.cert.publicKey.n) throw { status: 400, message: 'Seuls les certificats RSA sont pris en charge.' };
+        const sigRows = await pgDb.all(
+            `SELECT document_id, page, x_pct, y_pct, w_pt, h_pt FROM hub_parapheur.signatures WHERE signataire_id = ?`,
+            [signataire.id]
+        );
+        const positions = {};
+        for (const r of sigRows) {
+            positions[r.document_id] = { page: r.page, xPct: Number(r.x_pct), yPct: Number(r.y_pct), w: Number(r.w_pt), h: Number(r.h_pt) };
+        }
+        secureContext = {
+            remote: { job: rgsRequest.job, cert: parsed.cert, chain: parsed.chain },
+            name: rgsCert.subject || signataire.nom,
+            reason: `Parapheur ${parapheur.reference || ''} - ${parapheur.title || ''}`.trim(),
+            positions,
+        };
+    } else if (signataire.signature_mode === 'securise') {
         console.log(`[PARAPHEUR] signature sécurisée demandée par ${signataire.email}`);
         if (!certificatePassword) {
             throw { status: 400, message: 'Mot de passe du certificat P12 requis pour la signature sécurisée.' };
@@ -2500,6 +2535,8 @@ async function signWithToken(token, { signatureDataUrl, signatureNote, signature
         [nowIso, ip, ua, signataire.id, ...selectedDocIds]
     );
 
+    const originalMode = signataire.signature_mode;
+    if (rgsCert) await pgDb.run(`UPDATE hub_parapheur.signataires SET signature_mode = 'rgs' WHERE id = ?`, [signataire.id]);
     try {
         await regenerateSignedDocs(parapheur.id, secureContext);
     } catch (e) {
@@ -2508,14 +2545,24 @@ async function signWithToken(token, { signatureDataUrl, signatureNote, signature
         console.error('[PARAPHEUR] génération du PDF signé échouée, rollback:', e && e.message);
         try {
             await pgDb.run(`UPDATE hub_parapheur.signatures SET applied = FALSE WHERE signataire_id = ? AND document_id IN (${selectedDocIds.map(() => '?').join(',')})`, [signataire.id, ...selectedDocIds]);
-            await pgDb.run(`UPDATE hub_parapheur.signataires SET status = 'en_cours', signed_at = NULL, signature_image_path = NULL, signed_by_email = NULL, signed_by_name = NULL, delegation_id = NULL, signature_note = NULL, signature_note_path = NULL, note_offset_x = NULL, note_offset_y = NULL WHERE id = ?`, [signataire.id]);
+            await pgDb.run(`UPDATE hub_parapheur.signataires SET status = 'en_cours', signed_at = NULL, signature_image_path = NULL, signed_by_email = NULL, signed_by_name = NULL, delegation_id = NULL, signature_note = NULL, signature_note_path = NULL, note_offset_x = NULL, note_offset_y = NULL, signature_mode = ? WHERE id = ?`, [originalMode, signataire.id]);
         } catch (re) { console.error('[PARAPHEUR] rollback échoué:', re.message); }
         throw e;
     }
 
     // Le certificat a servi à signer → il est de fait valide : on rafraîchit ses
     // métadonnées (le mot de passe fourni valide la clé privée).
-    if (secureContext) {
+    if (rgsCert) {
+        // Clé matérielle : on conserve le VRAI certificat du signataire pour le dossier de preuves
+        try {
+            await pgDb.run(
+                `INSERT INTO hub_parapheur.signature_certificates
+                    (parapheur_id, signataire_id, mode, subject, serial, issuer, fingerprint, cert_pem, signing_time)
+                 VALUES (?, ?, 'rgs', ?, ?, ?, ?, ?, ?)`,
+                [parapheur.id, signataire.id, rgsCert.subject, rgsCert.serial, rgsCert.issuer, rgsCert.fingerprint, rgsCert.pem, nowIso]
+            );
+        } catch (e) { console.warn('[PARAPHEUR] certificat RGS non enregistré:', e.message); }
+    } else if (secureContext) {
         await refreshCertificateMeta(signataire.email, secureContext.password);
     } else if (signataire.signature_mode === 'simple' || signataire.signature_mode === 'sms') {
         // Signature interne : émission d'un certificat technique lié à l'événement.
@@ -2524,7 +2571,7 @@ async function signWithToken(token, { signatureDataUrl, signatureNote, signature
 
     // Certificat « à usage unique » : si le signataire n'a pas demandé à le
     // mémoriser, on le supprime après la signature.
-    if (secureContext) {
+    if (secureContext && secureContext.p12Buffer) {
         try {
             const cert = await pgDb.get(`SELECT id, remember FROM hub_parapheur.agent_certificates WHERE LOWER(email) = LOWER(?)`, [signataire.email]);
             if (cert && cert.remember === false) {
@@ -2540,7 +2587,8 @@ async function signWithToken(token, { signatureDataUrl, signatureNote, signature
         delegating ? 'signature_delegation' : 'signature',
         {
             signataire_id: signataire.id,
-            mode: signataire.signature_mode,
+            mode: rgsCert ? 'rgs' : signataire.signature_mode,
+            ...(rgsCert ? { certificat: rgsCert.subject, emetteur: rgsCert.issuer, serie: rgsCert.serial, empreinte: rgsCert.fingerprint, email_certificat: rgsCert.email || null } : {}),
             ...(signataire.signature_mode === 'sms' ? { telephone: signataire.sms_phone } : {}),
             ...(delegating ? { delegant: signataire.nom, delegataire: delegation.delegate_email } : {}),
             ip,
@@ -2550,6 +2598,110 @@ async function signWithToken(token, { signatureDataUrl, signatureNote, signature
 
     const result = await advanceAfterSign(parapheur);
     return { success: true, done: result.done, next: result.next || null };
+}
+
+// ─── Signature avec une clé matérielle RGS** (agent local du poste) ───────────────────────────
+// start : lance la signature en tâche de fond et renvoie un identifiant d'opération ; le navigateur interroge
+// ensuite poll (défis = empreintes à faire signer par la clé) et renvoie les signatures avec answer.
+async function startRgsSigning(token, params) {
+    const signataire = await getSignerByToken(token);
+    if (!signataire) throw { status: 404, message: 'Lien de signature introuvable.' };
+    if (!params.certB64) throw { status: 400, message: 'Certificat de la clé manquant.' };
+    const job = rgs.createJob(token);
+    signWithToken(token, { ...params, rgs: { job, certB64: params.certB64, chainB64: params.chainB64 } })
+        .then((result) => rgs.finishJob(job, result), (err) => rgs.failJob(job, err));
+    return { jobId: job.id };
+}
+
+function rgsJobFor(token, jobId) {
+    const job = rgs.getJob(jobId, token);
+    if (!job) throw { status: 404, message: 'Opération de signature introuvable ou expirée.' };
+    return job;
+}
+
+async function pollRgsSigning(token, jobId) {
+    return rgs.poll(rgsJobFor(token, jobId));
+}
+
+async function answerRgsSigning(token, jobId, body) {
+    rgs.answer(rgsJobFor(token, jobId), body || {});
+    return { ok: true };
+}
+
+// ─── Test de la clé cryptographique (administration) ───────────────────────────────────────
+// Signe un PDF de démonstration avec la clé du poste de l'administrateur, par le même mécanisme que la vraie
+// signature (voir rgs-signing.js), et renvoie un rapport de contrôles + le PDF signé à vérifier dans Acrobat.
+// Rien n'est enregistré : aucun parapheur, aucun certificat, aucune trace en base.
+const frDate = (d) => new Date(d).toLocaleDateString('fr-FR');
+
+async function runRgsTest(job, { cert, chain }) {
+    const info = rgs.certSummary(cert);
+    const checks = [];
+    const add = (label, ok, detail, optional = false) => checks.push({ label, ok: !!ok, detail, optional });
+    const now = new Date();
+
+    add('Certificat en cours de validité', now >= info.notBefore && now <= info.notAfter, `du ${frDate(info.notBefore)} au ${frDate(info.notAfter)}`);
+    const isRsa = !!(cert.publicKey && cert.publicKey.n);
+    add('Clé RSA (algorithme pris en charge)', isRsa, isRsa ? `${cert.publicKey.n.bitLength()} bits` : 'clé non RSA : non pris en charge');
+    const ku = cert.getExtension('keyUsage');
+    const nonRep = !!(ku && (ku.nonRepudiation || ku.contentCommitment));
+    add("Usage « non-répudiation » (certificat de signature)", nonRep, nonRep ? 'oui' : "non : ce certificat sert plutôt à l'authentification");
+    add('Chaîne de certification transmise', chain.length > 0, chain.length > 0 ? `${chain.length} certificat(s) intermédiaire(s)` : "aucun certificat intermédiaire (la validation de l'émetteur sera plus difficile)", true);
+
+    // PDF de démonstration
+    const safe = (t) => String(t || '').replace(/[^\x20-\xFF]/g, '?');
+    const pdfDoc = await PDFDocument.create();
+    const page = pdfDoc.addPage([595, 842]);
+    const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+    const bold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+    let y = 780;
+    page.drawText('Test de la cle cryptographique', { x: 50, y, size: 20, font: bold, color: rgb(0.1, 0.1, 0.3) });
+    for (const line of [
+        'DSI Hub - Parapheur electronique',
+        `Date : ${new Date().toLocaleString('fr-FR')}`,
+        '',
+        `Certificat : ${safe(info.subject)}`,
+        `Emetteur : ${safe(info.issuer)}`,
+        `Serie : ${safe(info.serial)}`,
+        '',
+        'Ce document de demonstration ne contient aucune donnee reelle.',
+        "Ouvrez-le dans Adobe Acrobat : le panneau « Signatures » doit afficher la signature.",
+    ]) {
+        y -= 22;
+        if (line) page.drawText(safe(line), { x: 50, y, size: 11, font });
+    }
+    pdflibAddPlaceholder({
+        pdfDoc, pdfPage: page, reason: 'Test de la clé cryptographique', contactInfo: '', name: info.subject || '', location: '',
+        signatureLength: 16384, widgetRect: [50, 80, 260, 140], appName: 'DSI Hub - Parapheur électronique',
+    });
+    const withPlaceholder = Buffer.from(await pdfDoc.save({ useObjectStreams: false }));
+    const signer = new rgs.RemoteSigner({ job, cert, chain, label: 'Document de test' });
+    const signed = Buffer.from(await new SignPdf().sign(withPlaceholder, signer));
+
+    add('Signature RSA vérifiée avec la clé publique du certificat', true, 'la clé a bien signé (code PIN accepté)');
+    const raw = signed.toString('latin1');
+    add('Signature inscrite dans le PDF (PAdES)', raw.includes('/ByteRange') && /\/Contents\s*<[0-9A-Fa-f]/.test(raw), 'adbe.pkcs7.detached, SHA-256');
+
+    return {
+        ok: checks.filter((c) => !c.optional).every((c) => c.ok),
+        certificate: {
+            subject: info.subject, issuer: info.issuer, serial: info.serial, email: info.email || null,
+            notBefore: info.notBefore, notAfter: info.notAfter, fingerprint: info.fingerprint, nonRepudiation: nonRep,
+        },
+        checks,
+        filename: 'test-signature-cle.pdf',
+        pdfBase64: signed.toString('base64'),
+    };
+}
+
+async function startRgsTest(ownerKey, { certB64, chainB64 }) {
+    if (!certB64) throw { status: 400, message: 'Certificat de la clé manquant.' };
+    let parsed;
+    try { parsed = rgs.parseCertificates(certB64, chainB64); }
+    catch { throw { status: 400, message: 'Certificat de la clé illisible.' }; }
+    const job = rgs.createJob(ownerKey);
+    runRgsTest(job, parsed).then((result) => rgs.finishJob(job, result), (err) => rgs.failJob(job, err));
+    return { jobId: job.id };
 }
 
 async function rejectWithToken(token, { comment, delegation, req }) {
@@ -2931,7 +3083,7 @@ async function buildEvidenceReport(ctx) {
         rule();
         text(`${s.nom} — ${s.email}`, { size: 10, font: bold, gap: 2 });
         kv('Service', s.service);
-        kv('Mode', s.signature_mode === 'securise' ? 'Signée électroniquement (certificat P12)' : s.signature_mode === 'sms' ? 'Vérifiée par SMS' : 'Signature simple');
+        kv('Mode', s.signature_mode === 'securise' ? 'Signée électroniquement (certificat P12)' : s.signature_mode === 'rgs' ? 'Signée électroniquement (clé matérielle, certificat RGS**)' : s.signature_mode === 'sms' ? 'Vérifiée par SMS' : 'Signature simple');
         kv('Statut', s.status === 'a_signe' ? 'A signé' : s.status === 'refuse' ? 'A refusé' : s.status === 'en_cours' ? 'Doit signer' : 'En attente');
         if (s.signed_at) kv('Signé le', fmtDateTime(s.signed_at));
         if (s.signed_by_name && s.signed_by_name !== s.nom) kv('Délégation', `signé par ${s.signed_by_name} par délégation`);
@@ -3337,6 +3489,10 @@ module.exports = {
     getPublicInfo,
     requestOtp,
     signWithToken,
+    startRgsSigning,
+    startRgsTest,
+    pollRgsSigning,
+    answerRgsSigning,
     rejectWithToken,
     relance,
     cancel,

@@ -20,6 +20,9 @@ router.post('/public/:token/certificate', controller.requireSigner, upload.singl
 router.get('/public/:token/doc/:docId', controller.requireSigner, controller.getPublicDocument);
 router.post('/public/:token/otp/request', controller.requireSigner, controller.requestOtp);
 router.post('/public/:token/sign', controller.requireSigner, controller.sign);
+router.post('/public/:token/rgs/start', controller.requireSigner, controller.rgsStart);
+router.get('/public/:token/rgs/:jobId', controller.requireSigner, controller.rgsPoll);
+router.post('/public/:token/rgs/:jobId/answer', controller.requireSigner, controller.rgsAnswer);
 router.post('/public/:token/reject', controller.requireSigner, controller.reject);
 
 // ─── Vérification publique (QR code intégré aux PDF signés, sans auth) ────────
@@ -53,6 +56,9 @@ router.get('/certificates', authenticateJWT, controller.listCertificates);
 router.delete('/certificates/:id', authenticateJWT, controller.deleteCertificateAdmin);
 router.get('/admin/settings', authenticateJWT, controller.getSettings);
 router.put('/admin/settings', authenticateJWT, controller.saveSettings);
+router.post('/admin/rgs-test/start', authenticateJWT, controller.rgsTestStart);
+router.get('/admin/rgs-test/:jobId', authenticateJWT, controller.rgsTestPoll);
+router.post('/admin/rgs-test/:jobId/answer', authenticateJWT, controller.rgsTestAnswer);
 router.get('/admin/ca', authenticateJWT, controller.getCa);
 router.post('/admin/ca', authenticateJWT, controller.generateCa);
 router.get('/admin/ca/cert', authenticateJWT, controller.downloadCa);
