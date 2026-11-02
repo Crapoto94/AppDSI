@@ -161,7 +161,15 @@ async function estCompteInterne(email) {
  */
 async function getSignatureBaseUrl() {
     const s = await getParapheurSettings();
-    return s.effective_base_url || await getAppBaseUrl();
+    const base = s.effective_base_url || await getAppBaseUrl();
+    // URL localhost = aucune URL publique valable sur CETTE instance : un lien de signature
+    // en localhost est inutilisable pour le destinataire. On refuse d'envoyer (les signataires
+    // restent « à notifier » et le mail part dès que l'URL est renseignée) plutôt que d'envoyer un lien cassé.
+    // (qu'elle vienne du repli, de `parapheur.public_base_url` ou d'une variable d'environnement).
+    if (/^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:|\/|$)/i.test(base)) {
+        throw new Error("URL publique non configurée (repli localhost) : envoi des liens de signature suspendu. Renseigner « app_base_url » ou « parapheur.public_base_url ».");
+    }
+    return base;
 }
 
 const PUBLIC_BASE_URL_KEY = 'parapheur.public_base_url';
