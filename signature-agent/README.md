@@ -56,7 +56,7 @@ Sur un poste de développement Windows avec Node 20+ et un accès à npm :
 
 ```
 node build-exe.js                  # dist\DSIHubSignatureAgent.exe (exécutable autonome, sans fenêtre)
-powershell -ExecutionPolicy Bypass -File build-setup.ps1   # dist\DSIHubSignatureAgent-Setup.exe
+"%LOCALAPPDATA%\Programs\Inno Setup 6\ISCC.exe" setup.iss   # dist\DSIHubSignatureAgent-Setup.exe (assistant d'installation)
 ```
 
 L'exécutable n'est pas signé numériquement : Windows SmartScreen ou l'antivirus peuvent le signaler au premier lancement.

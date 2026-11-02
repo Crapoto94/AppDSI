@@ -37,6 +37,8 @@ Source: "README.md"; DestDir: "{app}"; Flags: ignoreversion
 
 [Registry]
 Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "DSIHubSignatureAgent"; ValueData: """{app}\{#AppExe}"""; Flags: uninsdeletevalue; Tasks: autostart
+; Ancienne entrée « Applications installées » créée par le premier installateur (install.ps1) : évite un doublon
+Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Uninstall\DSIHubSignatureAgent"; Flags: deletekey
 
 [Run]
 Filename: "{app}\{#AppExe}"; Description: "Démarrer l'agent maintenant"; Flags: nowait postinstall skipifsilent
