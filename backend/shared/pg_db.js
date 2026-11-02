@@ -7056,6 +7056,31 @@ async function setupPgDb() {
       await client.query(`CREATE INDEX IF NOT EXISTS idx_contract_renewals_statut ON hub.contract_renewals(statut)`);
     } catch (e) { console.error('[PG DB] hub.contract_renewals:', e.message); }
 
+    // ─── Stagiaires accueillis (RH) ────────────────────────────────────────
+    // Un stage = un nom, un niveau, une période, un maître de stage. La durée (en semaines)
+    // est calculée à l'écriture : ceil(nb de jours calendaires inclusifs / 7).
+    try {
+      await client.query(`CREATE TABLE IF NOT EXISTS hub.stagiaires (
+        id SERIAL PRIMARY KEY,
+        nom VARCHAR(255) NOT NULL,
+        niveau VARCHAR(100) DEFAULT '',
+        date_arrivee DATE,
+        date_fin DATE,
+        duree_semaines INTEGER,
+        maitre_stage VARCHAR(100) DEFAULT '',
+        notes TEXT DEFAULT '',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )`);
+      // Le maître de stage est un agent DSI (hub_calendrier.agents_dsi.username) ; maitre_stage garde son nom affiché
+      await client.query(`ALTER TABLE hub.stagiaires ADD COLUMN IF NOT EXISTS maitre_username VARCHAR(100)`);
+      // Documents : chemins de stockage (jamais exposés au client) et noms d'origine affichés
+      for (const col of ['cv_path', 'cv_nom', 'rapport_path', 'rapport_nom']) {
+        await client.query(`ALTER TABLE hub.stagiaires ADD COLUMN IF NOT EXISTS ${col} TEXT`);
+      }
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_stagiaires_dates ON hub.stagiaires(date_arrivee, date_fin)`);
+    } catch (e) { console.error('[PG DB] hub.stagiaires:', e.message); }
+
     // ─── Parapheur électronique ─────────────────────────────────────────────
     // Workflow de signature de documents PDF : un parapheur contient N documents,
     // N signataires (en mode séquentiel ou parallèle) et le positionnement de la

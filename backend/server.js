@@ -452,6 +452,8 @@ const documentStorage = require('./shared/storage');
 const serveDocumentStorage = async (req, res) => {
     try {
         const rel = decodeURIComponent(req.path.replace(/^\/+/, ''));
+        // CV et rapports de stage : données personnelles, servis uniquement par la route authentifiée du module RH
+        if (/^(storage\/)?rh_stagiaires\//i.test(rel)) return res.status(404).send('Fichier introuvable');
         const f = await documentStorage.getFileForServe(rel);
         if (!f) return res.status(404).send('Fichier introuvable');
         if (f.absolutePath) return res.sendFile(f.absolutePath);
@@ -491,6 +493,9 @@ app.use('/api/admin/param-ville', paramVilleRouter);
 
 // ─── RH Contract Renewals ──────────────────────────────────────────
 app.use('/api/admin/rh/contracts', contractsRouter);
+
+// ─── RH Stagiaires (liste + calendrier annuel) ─────────────────────
+app.use('/api/admin/rh/stagiaires', require('./modules/rh/stagiaires/stagiaires.routes'));
 
 // Récupérer le profil utilisateur actuel (depuis la DB pour avoir le statut à jour)
 app.get('/api/auth/me', authenticateJWT, async (req, res) => {

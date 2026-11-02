@@ -1,12 +1,13 @@
 import React, { useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import Header from '../../components/Header';
-import { Users, UserCheck, Calendar } from 'lucide-react';
+import { Users, UserCheck, GraduationCap } from 'lucide-react';
 import Contractuels from './Contractuels';
+import Stagiaires from './Stagiaires';
 
 const TABS = [
   { key: 'contractuels', label: 'Gestion des contractuels', icon: UserCheck },
-  { key: '_placeholder', label: 'À venir', icon: Calendar, disabled: true },
+  { key: 'stagiaires', label: 'Stagiaires', icon: GraduationCap },
 ];
 
 export default function RHPage() {
@@ -39,13 +40,14 @@ export default function RHPage() {
 
         <div className="rh-tabs">
           {TABS.map(tab => (
-            <button key={tab.key} className={`rh-tab ${activeTab === tab.key ? 'active' : ''}`} onClick={() => setTab(tab.key)} disabled={tab.disabled}>
+            <button key={tab.key} className={`rh-tab ${activeTab === tab.key ? 'active' : ''}`} onClick={() => setTab(tab.key)}>
               <tab.icon size={18} /> {tab.label}
             </button>
           ))}
         </div>
 
         {activeTab === 'contractuels' && <Contractuels />}
+        {activeTab === 'stagiaires' && <Stagiaires />}
       </div>
     </div>
   );
