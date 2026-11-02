@@ -160,13 +160,15 @@ throw 'Action inconnue.'
 `;
 
 const TRAY_SCRIPT = String.raw`
-param([int]$Port, [string]$ParentPid, [string]$SelfTest)
+param([int]$Port, [string]$ParentPid, [string]$SelfTest, [switch]$TestClick)
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Windows.Forms, System.Drawing
 [System.Windows.Forms.Application]::EnableVisualStyles()
 $token = $env:AGENT_LOCAL_TOKEN
 $base = "http://127.0.0.1:$Port"
 $title = 'Agent de signature DSI Hub'
+$trayLog = Join-Path $env:LOCALAPPDATA 'DSIHubSignatureAgent\tray.log'
+function Write-TrayLog([string]$m) { try { Add-Content -Path $trayLog -Value ((Get-Date).ToString('s') + ' ' + $m) -Encoding UTF8 } catch { } }
 
 function Call-Agent([string]$method, [string]$path, $body) {
   $args2 = @{ Uri = ($base + $path); Method = $method; Headers = @{ 'X-Agent-Local' = $token }; TimeoutSec = 40; UseBasicParsing = $true }
@@ -189,7 +191,10 @@ function New-AgentIcon {
 }
 
 function Show-Settings {
-  if ($script:form -and -not $script:form.IsDisposed) { $script:form.Activate(); return }
+  if ($script:form -and -not $script:form.IsDisposed) {
+    $script:form.WindowState = 'Normal'; $script:form.TopMost = $true; $script:form.Activate(); $script:form.BringToFront(); $script:form.TopMost = $false
+    return
+  }
   $state = Call-Agent 'GET' '/local/state' $null
   $f = New-Object System.Windows.Forms.Form
   $script:form = $f
@@ -226,7 +231,8 @@ function Show-Settings {
   $gbOrig.Text = 'Adresses du Hub autorisées à utiliser l''agent'; $gbOrig.Location = '16,116'; $gbOrig.Size = '670,170'
   $tbOrig = New-Object System.Windows.Forms.TextBox
   $tbOrig.Multiline = $true; $tbOrig.Location = '14,24'; $tbOrig.Size = '640,84'; $tbOrig.ScrollBars = 'Vertical'
-  $tbOrig.Text = ($state.origins -join [Environment]::NewLine)
+  $tbOrig.Text = ($state.origins -join [Environment]::NewLine)
+
   $tbOrig.SelectionStart = 0; $tbOrig.SelectionLength = 0
   $lblNote = New-Object System.Windows.Forms.Label
   $lblNote.Text = "Une adresse par ligne, ex. https://dsihub.ivry.local. Appliqué immédiatement."
@@ -301,8 +307,12 @@ function Show-Settings {
     $f.Close()
     return
   }
+  # Un programme en arrière-plan n'a pas le droit de passer au premier plan : on force l'affichage au-dessus des autres fenêtres
+  $f.TopMost = $true
   $f.Show()
   $f.Activate()
+  $f.BringToFront()
+  $f.TopMost = $false
 }
 
 $script:icon = New-AgentIcon
@@ -319,8 +329,8 @@ $miLog = $menu.Items.Add('Ouvrir le journal')
 [void]$menu.Items.Add('-')
 $miQuit = $menu.Items.Add("Quitter l'agent")
 $ni.ContextMenuStrip = $menu
-$miSettings.Add_Click({ try { Show-Settings } catch { [System.Windows.Forms.MessageBox]::Show($_.Exception.Message, $title) | Out-Null } })
-$ni.Add_DoubleClick({ try { Show-Settings } catch { } })
+$miSettings.Add_Click({ try { Write-TrayLog 'clic Paramètres'; Show-Settings; Write-TrayLog 'fenêtre affichée' } catch { Write-TrayLog ('ERREUR : ' + $_.Exception.Message + ' | ' + $_.ScriptStackTrace); [System.Windows.Forms.MessageBox]::Show($_.Exception.Message, $title) | Out-Null } })
+$ni.Add_DoubleClick({ try { Write-TrayLog 'double-clic'; Show-Settings } catch { Write-TrayLog ('ERREUR : ' + $_.Exception.Message) } })
 $miLog.Add_Click({ try { $st = Call-Agent 'GET' '/local/state' $null; if (Test-Path $st.logFile) { Start-Process notepad.exe $st.logFile } } catch { } })
 $miQuit.Add_Click({
   $r = [System.Windows.Forms.MessageBox]::Show("Arrêter l'agent de signature ? La signature avec votre clé ne sera plus possible jusqu'à son redémarrage.", $title, 'YesNo', 'Question')
@@ -332,6 +342,13 @@ $timer = New-Object System.Windows.Forms.Timer
 $timer.Interval = 5000
 $timer.Add_Tick({ if (-not (Get-Process -Id ([int]$ParentPid) -ErrorAction SilentlyContinue)) { $ni.Visible = $false; [System.Windows.Forms.Application]::Exit() } })
 $timer.Start()
+Write-TrayLog 'icône démarrée'
+if ($TestClick) {
+  $t2 = New-Object System.Windows.Forms.Timer
+  $t2.Interval = 1500
+  $t2.Add_Tick({ $t2.Stop(); $miSettings.PerformClick(); Write-TrayLog ('test : fenêtre ouverte = ' + [bool]($script:form -and $script:form.Visible)); $t3 = New-Object System.Windows.Forms.Timer; $t3.Interval = 2500; $t3.Add_Tick({ $ni.Visible = $false; [System.Windows.Forms.Application]::Exit() }); $t3.Start() })
+  $t2.Start()
+}
 [System.Windows.Forms.Application]::Run()
 $ni.Dispose()
 `;
@@ -526,7 +543,7 @@ function startTray() {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dsihub-agent-tray-'));
     const file = path.join(dir, 'tray.ps1');
     fs.writeFileSync(file, '\ufeff' + TRAY_SCRIPT, 'utf8');
-    const child = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-File', file, '-Port', String(config.port), '-ParentPid', String(process.pid)], {
+    const child = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-File', file, '-Port', String(config.port), '-ParentPid', String(process.pid), ...(process.env.AGENT_TRAY_TESTCLICK === '1' ? ['-TestClick'] : [])], {
       windowsHide: true, env: { ...process.env, AGENT_LOCAL_TOKEN: LOCAL_TOKEN },
     });
     child.on('error', (e) => log('icône de notification impossible :', e.message));
