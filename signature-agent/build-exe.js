@@ -21,8 +21,9 @@ function run(cmd, args, opts = {}) {
   if (r.status !== 0) { console.error(`Échec : ${cmd} ${args.join(' ')}`); process.exit(1); }
 }
 
-fs.rmSync(dist, { recursive: true, force: true });
+// On vide le dossier sans le supprimer : un Explorateur ou un antivirus qui l'a ouvert bloquerait sa suppression
 fs.mkdirSync(dist, { recursive: true });
+for (const f of fs.readdirSync(dist)) fs.rmSync(path.join(dist, f), { recursive: true, force: true });
 
 // 1. Blob SEA (agent.js)
 const cfg = path.join(dist, 'sea-config.json');
