@@ -14,6 +14,10 @@ L'agent s'installe dans `%LOCALAPPDATA%\Programs\DSIHubSignatureAgent`, démarre
 ouverture de session, sans fenêtre**, et apparaît dans *Paramètres → Applications → Applications installées*
 (désinstallation depuis cet écran).
 
+Une **icône** (clé violette) apparaît dans la zone de notification de la barre des tâches (cliquer sur `^` si elle est masquée).
+Clic droit → **Paramètres** : état de l'agent, démarrage automatique, adresses du Hub autorisées (modifiables, appliquées
+immédiatement), certificats détectés, accès au journal. Clic droit → **Quitter l'agent** pour l'arrêter.
+
 Ensuite, il suffit de brancher la clé et d'ouvrir le lien de signature du parapheur : la page détecte l'agent et propose
 « Signer avec ma clé RGS** ». Une fenêtre Windows demande de **confirmer**, puis le pilote de la clé demande le **code PIN**.
 
@@ -21,7 +25,7 @@ Pour vérifier la clé : `/admin/parapheur-certificats` → onglet **Tester ma c
 
 ## Configuration (facultative)
 
-Placer un fichier `agent.config.json` (voir `agent.config.example.json`) à côté de l'exécutable pour changer le port ou la
+Les adresses autorisées se modifient dans **Paramètres** (clic droit sur l'icône). Sinon, placer un fichier `agent.config.json` (voir `agent.config.example.json`) à côté de l'exécutable pour changer le port ou la
 liste des adresses du Hub autorisées (`origins`), puis redémarrer la session. Par défaut : `dsihub.ivry.local`,
 `parapheur.ivry94.fr` et `localhost:5173`. Variables d'environnement équivalentes : `AGENT_PORT`, `AGENT_ORIGINS`.
 

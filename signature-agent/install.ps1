@@ -1,4 +1,4 @@
-# Installation de l'agent de signature DSI Hub (par utilisateur, sans droits administrateur).
+﻿# Installation de l'agent de signature DSI Hub (par utilisateur, sans droits administrateur).
 #  - copie DSIHubSignatureAgent.exe dans %LOCALAPPDATA%\Programs\DSIHubSignatureAgent ;
 #  - le lance à chaque ouverture de session (clé HKCU\...\Run), sans fenêtre ;
 #  - l'inscrit dans « Applications installées » (désinstallation possible depuis Windows).
@@ -15,7 +15,7 @@ Add-Type -AssemblyName System.Windows.Forms
 
 $name = 'DSIHubSignatureAgent'
 $exeName = "$name.exe"
-$version = '1.1.0'
+$version = '1.2.0'
 $runKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
 $uninstallKey = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\$name"
 
@@ -69,7 +69,7 @@ try {
     # Vérification : l'agent doit répondre (port 47821, ou AGENT_PORT en test)
     $port = if ($env:AGENT_PORT) { $env:AGENT_PORT } else { '47821' }
     $ok = $false
-    for ($i = 0; $i -lt 12 -and -not $ok; $i++) {
+    for ($i = 0; $i -lt 30 -and -not $ok; $i++) {
         Start-Sleep -Milliseconds 500
         try { $ok = (Invoke-WebRequest -UseBasicParsing "http://127.0.0.1:$port/status" -TimeoutSec 2).StatusCode -eq 200 } catch { $ok = $false }
     }

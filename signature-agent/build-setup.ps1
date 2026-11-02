@@ -1,4 +1,4 @@
-# Construit dist\DSIHubSignatureAgent-Setup.exe (installateur auto-extractible, outil Windows IExpress).
+﻿# Construit dist\DSIHubSignatureAgent-Setup.exe (installateur auto-extractible, outil Windows IExpress).
 # Prérequis : dist\DSIHubSignatureAgent.exe (node build-exe.js).
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
