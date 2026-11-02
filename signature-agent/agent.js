@@ -25,7 +25,7 @@ const path = require('path');
 const crypto = require('crypto');
 const { spawn } = require('child_process');
 
-const VERSION = '1.3.0';
+const VERSION = '1.3.1';
 
 // Exécutable autonome (Node SEA) : la configuration se trouve à côté de l'exécutable
 let BASE_DIR = __dirname;

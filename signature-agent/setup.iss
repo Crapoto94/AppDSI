@@ -1,10 +1,10 @@
-; Installateur « traditionnel » de l'agent de signature DSI Hub (Inno Setup 6).
+﻿; Installateur « traditionnel » de l'agent de signature DSI Hub (Inno Setup 6).
 ; Compilation : "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" setup.iss   (après : node build-exe.js)
 ; Installation par utilisateur : aucun droit administrateur requis.
 
 #define AppName "Agent de signature DSI Hub"
 #define AppExe "DSIHubSignatureAgent.exe"
-#define AppVersion "1.3.0"
+#define AppVersion "1.3.1"
 
 [Setup]
 AppId={{6F1B6F43-2A0E-4C2B-9E1D-5D3A7C9B1E42}
@@ -35,7 +35,14 @@ Source: "dist\{#AppExe}"; DestDir: "{app}"; Flags: ignoreversion
 Source: "agent.config.example.json"; DestDir: "{app}"; Flags: ignoreversion
 Source: "README.md"; DestDir: "{app}"; Flags: ignoreversion
 
+[Icons]
+Name: "{userprograms}\{#AppName}"; Filename: "{app}\{#AppExe}"
+
 [Registry]
+; Protocole dsihub-agent:// : la page web du Hub peut démarrer l'agent s'il est installé mais arrêté
+Root: HKCU; Subkey: "Software\Classes\dsihub-agent"; ValueType: string; ValueName: ""; ValueData: "URL:Agent de signature DSI Hub"; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\Classes\dsihub-agent"; ValueType: string; ValueName: "URL Protocol"; ValueData: ""
+Root: HKCU; Subkey: "Software\Classes\dsihub-agent\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\{#AppExe}"" ""%1"""
 Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "DSIHubSignatureAgent"; ValueData: """{app}\{#AppExe}"""; Flags: uninsdeletevalue; Tasks: autostart
 ; Ancienne entrée « Applications installées » créée par le premier installateur (install.ps1) : évite un doublon
 Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Uninstall\DSIHubSignatureAgent"; Flags: deletekey

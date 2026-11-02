@@ -24,8 +24,10 @@ export default function ParapheurKeyTest({ token, base = '/api/parapheur/admin/r
   const [certs, setCerts] = useState<AgentCertificate[]>([]);
   const [thumb, setThumb] = useState('');
   const [agentError, setAgentError] = useState<string | null>(null);
-  const [setupAvailable, setSetupAvailable] = useState(false);
+  // 'inconnu' : vérification impossible ou en cours (on propose quand même le lien) ; 'absent' : fichier non déposé sur le serveur
+  const [setupState, setSetupState] = useState<'inconnu' | 'disponible' | 'absent'>('inconnu');
   const [setupVersion, setSetupVersion] = useState<string | null>(null);
+  const [starting, setStarting] = useState(false);
   const [downloaded, setDownloaded] = useState(false);
   const [justInstalled, setJustInstalled] = useState(false);
   const [running, setRunning] = useState(false);
@@ -48,18 +50,34 @@ export default function ParapheurKeyTest({ token, base = '/api/parapheur/admin/r
     }
   }, []);
 
-  useEffect(() => { refresh(); }, [refresh]);
-  useEffect(() => {
+  const loadSetupInfo = useCallback(() => {
     fetch('/api/parapheur/agent/info', { headers: { Authorization: `Bearer ${token}` } })
-      .then(r => (r.ok ? r.json() : { available: false }))
-      .then(d => { setSetupAvailable(!!d.available); setSetupVersion(d.version || null); })
-      .catch(() => setSetupAvailable(false));
+      .then(r => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
+      .then(d => { setSetupState(d.available ? 'disponible' : 'absent'); setSetupVersion(d.version || null); })
+      .catch(() => setSetupState('inconnu'));
   }, [token]);
+
+  useEffect(() => { refresh(); loadSetupInfo(); }, [refresh, loadSetupInfo]);
+
+  // Agent installé mais arrêté : le protocole dsihub-agent:// (enregistré par le setup) le démarre, puis on attend sa réponse
+  const startAgent = () => {
+    setStarting(true);
+    window.location.href = 'dsihub-agent://start';
+    let tries = 0;
+    const timer = setInterval(async () => {
+      tries++;
+      const p = await probeAgent();
+      if (p.up || tries >= 8) { clearInterval(timer); setStarting(false); refresh(); }
+    }, 1500);
+  };
 
   const downloadSetup = async () => {
     try {
       const r = await fetch('/api/parapheur/agent/download', { headers: { Authorization: `Bearer ${token}` } });
-      if (!r.ok) throw new Error((await r.json().catch(() => null))?.message || `Erreur ${r.status}`);
+      if (!r.ok) {
+        loadSetupInfo();
+        throw new Error(r.status === 404 ? "L'installateur n'est pas encore déposé sur le serveur : demandez à la DSI de le déposer (backend/data/agent)." : (await r.json().catch(() => null))?.message || `Erreur ${r.status}`);
+      }
       const url = URL.createObjectURL(await r.blob());
       const a = document.createElement('a');
       a.href = url;
@@ -140,7 +158,7 @@ export default function ParapheurKeyTest({ token, base = '/api/parapheur/admin/r
       <div style={card}>
         <div style={{ fontSize: 13, fontWeight: 800, color: '#475569', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 10 }}>
           1. Programme résident (agent de signature)
-          <button style={{ ...ghost, padding: '4px 10px' }} onClick={refresh} title="Relancer le diagnostic"><RefreshCw size={13} /></button>
+          <button style={{ ...ghost, padding: '4px 10px' }} onClick={() => { refresh(); loadSetupInfo(); }} title="Relancer le diagnostic"><RefreshCw size={13} /></button>
         </div>
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
           <tbody>
@@ -161,25 +179,29 @@ export default function ParapheurKeyTest({ token, base = '/api/parapheur/admin/r
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 700 }}><AlertTriangle size={15} /> L'agent de signature ne répond pas sur ce poste.</div>
             <div style={{ margin: '8px 0 6px', color: '#475569', fontWeight: 700 }}>S'il n'est pas encore installé (une seule fois par poste, sans droits administrateur) :</div>
             <ol style={{ margin: '0 0 10px 18px', padding: 0, color: '#475569' }}>
-              <li>Téléchargez l'installateur{setupAvailable ? (setupVersion ? ` (version ${setupVersion})` : '') : ' : il n\'est pas encore déposé sur le serveur, demandez à la DSI'}.</li>
+              <li>Téléchargez l'installateur{setupVersion ? ` (version ${setupVersion})` : ''}{setupState === 'absent' ? ' : il n\'est pas encore déposé sur le serveur, demandez à la DSI' : ''}.</li>
               <li>Ouvrez le fichier téléchargé <code>DSIHubSignatureAgent-Setup.exe</code> et suivez l'assistant (laissez cochée « Lancer l'agent automatiquement à l'ouverture de session »).</li>
               <li>Revenez sur cette page : l'agent est détecté automatiquement.</li>
             </ol>
-            {setupAvailable && <button style={btn} onClick={downloadSetup}><Download size={14} /> Télécharger l'installateur de l'agent</button>}
+            {setupState !== 'absent' && <button style={btn} onClick={downloadSetup}><Download size={14} /> Télécharger l'installateur de l'agent</button>}
             {downloaded && (
               <div style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 8, color: '#6d28d9', fontWeight: 700 }}>
                 <Loader2 size={15} className="spin" /> Téléchargement lancé : ouvrez le fichier puis installez-le, cette page attend l'agent…
               </div>
             )}
-            <div style={{ margin: '12px 0 4px', color: '#475569' }}>
-              <b>Déjà installé ?</b> Vérifiez l'icône (clé violette) près de l'horloge ; sinon relancez « Agent de signature DSI Hub » depuis le menu Démarrer ou ouvrez une nouvelle session Windows.
+            <div style={{ margin: '12px 0 6px', color: '#475569' }}>
+              <b>Déjà installé mais arrêté ?</b> Démarrez-le : il se lance aussi tout seul à chaque ouverture de session Windows (icône de clé violette près de l'horloge).
             </div>
+            <button style={ghost} onClick={startAgent} disabled={starting}>
+              {starting ? <Loader2 size={14} className="spin" /> : <KeyRound size={14} />} Démarrer l'agent
+            </button>
+            <span style={{ fontSize: 12, color: '#64748b', marginLeft: 10 }}>Le navigateur peut demander l'autorisation d'ouvrir le programme. Sinon : menu Démarrer → « Agent de signature DSI Hub ».</span>
           </div>
         )}
         {outdated && (
           <div style={{ fontSize: 13, color: '#b45309', marginTop: 10 }}>
             Une version plus récente de l'agent est disponible ({setupVersion}). Téléchargez-la et installez-la par-dessus la version actuelle (la configuration est conservée).{' '}
-            {setupAvailable && <button style={btn} onClick={downloadSetup}><Download size={14} /> Télécharger la mise à jour</button>}
+            {setupState !== 'absent' && <button style={btn} onClick={downloadSetup}><Download size={14} /> Télécharger la mise à jour</button>}
           </div>
         )}
         {probe?.up && probe.originAllowed === false && (

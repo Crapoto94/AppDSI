@@ -15,7 +15,7 @@ Add-Type -AssemblyName System.Windows.Forms
 
 $name = 'DSIHubSignatureAgent'
 $exeName = "$name.exe"
-$version = '1.3.0'
+$version = '1.3.1'
 $runKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
 $uninstallKey = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\$name"
 
