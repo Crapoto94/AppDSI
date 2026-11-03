@@ -8,7 +8,7 @@ reçoit que la signature.
 
 1. Installer le middleware de la clé (ex. **SafeNet Authentication Client**). Le certificat doit apparaître dans
    `certmgr.msc` → *Personnel* → *Certificats* quand la clé est branchée.
-2. Lancer **`DSIHubSignatureAgent-Setup.exe`** (aucun droit administrateur, aucun Node.js requis).
+2. Lancer **`DSIHubSignatureAgent-Setup.exe`** (aucun droit administrateur ; environ 1 Mo).
 
 L'agent s'installe dans `%LOCALAPPDATA%\Programs\DSIHubSignatureAgent`, démarre **automatiquement à chaque
 ouverture de session, sans fenêtre**, et apparaît dans *Paramètres → Applications → Applications installées*
@@ -52,16 +52,17 @@ Journal : `%LOCALAPPDATA%\DSIHubSignatureAgent\agent.log`.
 
 ## Construire l'installateur (développeurs)
 
-Sur un poste de développement Windows avec Node 20+ et un accès à npm :
+L'agent est un programme natif .NET Framework (`Agent.cs`, ~40 Ko), compilé avec le `csc.exe` livré avec Windows : aucun SDK,
+Node.js ni npm. Le setup utilise Inno Setup 6.
 
 ```
-node build-exe.js                  # dist\DSIHubSignatureAgent.exe (exécutable autonome, sans fenêtre)
-"%LOCALAPPDATA%\Programs\Inno Setup 6\ISCC.exe" setup.iss   # dist\DSIHubSignatureAgent-Setup.exe (assistant d'installation)
+powershell -ExecutionPolicy Bypass -File build.ps1            # dist\DSIHubSignatureAgent.exe + dist\DSIHubSignatureAgent-Setup.exe
+powershell -ExecutionPolicy Bypass -File build.ps1 -SansSetup # agent seul
 ```
 
 L'exécutable n'est pas signé numériquement : Windows SmartScreen ou l'antivirus peuvent le signaler au premier lancement.
 Pour un déploiement officiel, le signer avec le certificat de code de la ville, puis le diffuser (GPO, Intune, SCCM).
-Le script `install.ps1` accepte `-Silent` pour une installation sans boîte de dialogue.
+Installation silencieuse : `DSIHubSignatureAgent-Setup.exe /VERYSILENT /TASKS=autostart`.
 
 ## Mode test (développeurs uniquement)
 

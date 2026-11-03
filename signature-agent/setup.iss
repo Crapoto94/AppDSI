@@ -1,10 +1,10 @@
 ﻿; Installateur « traditionnel » de l'agent de signature DSI Hub (Inno Setup 6).
-; Compilation : "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" setup.iss   (après : node build-exe.js)
+; Compilation : build.ps1 (compile l'agent puis lance ISCC.exe)   (après : build.ps1)
 ; Installation par utilisateur : aucun droit administrateur requis.
 
 #define AppName "Agent de signature DSI Hub"
 #define AppExe "DSIHubSignatureAgent.exe"
-#define AppVersion "1.3.1"
+#define AppVersion "1.4.0"
 
 [Setup]
 AppId={{6F1B6F43-2A0E-4C2B-9E1D-5D3A7C9B1E42}
@@ -34,6 +34,10 @@ Name: "autostart"; Description: "Lancer l'agent automatiquement à l'ouverture d
 Source: "dist\{#AppExe}"; DestDir: "{app}"; Flags: ignoreversion
 Source: "agent.config.example.json"; DestDir: "{app}"; Flags: ignoreversion
 Source: "README.md"; DestDir: "{app}"; Flags: ignoreversion
+
+[InstallDelete]
+; Fichiers de l'ancien agent (version Node.js)
+Type: files; Name: "{app}\install.ps1"
 
 [Icons]
 Name: "{userprograms}\{#AppName}"; Filename: "{app}\{#AppExe}"

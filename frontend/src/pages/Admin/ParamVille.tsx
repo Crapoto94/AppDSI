@@ -7,6 +7,7 @@ import { Plus, Edit2, Trash2, Upload, Search, ChevronUp, ChevronDown, ChevronsUp
 import * as XLSX from 'xlsx';
 import AdminOrganisation from '../AdminOrganisation';
 import ParamVilleElus from './ParamVilleElus';
+import AgentPresenceBadge from '../../components/AgentPresenceBadge';
 import 'leaflet/dist/leaflet.css';
 import { MapContainer, TileLayer, Marker, Popup, Tooltip, useMap, useMapEvents } from 'react-leaflet';
 import L from 'leaflet';
@@ -824,7 +825,7 @@ function EncadrantsTab({ token }: { token: string | null }) {
                         onChange={e => setParcSelection(prev => { const s = new Set(prev); e.target.checked ? s.add(m.matricule) : s.delete(m.matricule); return s; })} />
                     </td>
                     <td style={{ padding: '7px 12px' }}>
-                      <div style={{ fontWeight: 700 }}>{m.prenom} {m.nom}</div>
+                      <div style={{ fontWeight: 700 }}>{m.prenom} {m.nom} <AgentPresenceBadge name={`${m.prenom} ${m.nom}`} /></div>
                       <div style={{ fontSize: 11, color: '#64748b' }}>{formatOrgName(m.direction)}</div>
                     </td>
                     <td style={{ padding: '7px 12px', color: '#475569', fontSize: 11 }}>{m.poste.replace('DIRECTEUR·TRICE ', 'Dir. ').replace('RESPONSABLE DU SERVICE ', 'Resp. ')}</td>
@@ -886,7 +887,7 @@ function EncadrantsTab({ token }: { token: string | null }) {
               return (
                 <tr key={e.matricule} style={{ borderBottom: '1px solid #f1f5f9', background: i % 2 === 0 ? 'white' : '#fafafa' }}>
                   <td style={{ padding: '10px 14px' }}>
-                    <div style={{ fontWeight: 700, color: '#1e293b' }}>{e.prenom} {e.nom}</div>
+                    <div style={{ fontWeight: 700, color: '#1e293b' }}>{e.prenom} {e.nom} <AgentPresenceBadge email={e.email} name={`${e.prenom} ${e.nom}`} /></div>
                     <div style={{ fontSize: 11, color: '#94a3b8' }}>{e.poste}</div>
                     {e.is_direction_service && <span style={{ fontSize: 10, color: '#7c3aed', fontWeight: 600 }}>• service d'accueil direction</span>}
                   </td>
@@ -1047,7 +1048,7 @@ function EncadrantsTab({ token }: { token: string | null }) {
                   ? <p style={{ color: '#16a34a', fontSize: 13 }}>✔ Tous les encadrants RH sont dans la liste AD.</p>
                   : absentsAD.map(e => (
                     <div key={e.matricule} style={{ padding: '7px 12px', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 8, marginBottom: 6, fontSize: 13 }}>
-                      <strong>{e.prenom} {e.nom}</strong> <span style={{ color: '#92400e' }}>({formatOrgName(e.direction_label)})</span>
+                      <strong>{e.prenom} {e.nom}</strong> <AgentPresenceBadge email={e.email} name={`${e.prenom} ${e.nom}`} /> <span style={{ color: '#92400e' }}>({formatOrgName(e.direction_label)})</span>
                       <br /><span style={{ fontSize: 11, color: '#64748b' }}>{e.email || 'email inconnu'}</span>
                     </div>
                   ))}
@@ -1062,8 +1063,8 @@ function EncadrantsTab({ token }: { token: string | null }) {
                   ? <p style={{ color: '#16a34a', fontSize: 13 }}>✔ Tous les membres AD figurent dans le référentiel RH.</p>
                   : absentsRH.map(m => (
                     <div key={m.username} style={{ padding: '7px 12px', background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 8, marginBottom: 6, fontSize: 13 }}>
-                      <strong>{m.displayName}</strong>
-                      <br /><span style={{ fontSize: 11, color: '#64748b' }}>{m.email} · {m.title || m.department}</span>
+                      <strong>{m.displayName}</strong> <AgentPresenceBadge email={m.email} name={m.displayName} />
+                      <br /><span style={{ fontSize: 11, color: '#64748b' }}>{m.email} ·{m.title || m.department}</span>
                     </div>
                   ))}
               </div>
@@ -1113,7 +1114,7 @@ function EncadrantsTab({ token }: { token: string | null }) {
                           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 6 }}>
                             {expandedGroupMembers.map(m => (
                               <div key={m.username} style={{ fontSize: 12, padding: '6px 10px', background: '#f8fafc', borderRadius: 6 }}>
-                                <strong>{m.displayName}</strong><br /><span style={{ color: '#64748b' }}>{m.email}</span>
+                                <strong>{m.displayName}</strong> <AgentPresenceBadge email={m.email} name={m.displayName} /><br /><span style={{ color: '#64748b' }}>{m.email}</span>
                               </div>
                             ))}
                           </div>
