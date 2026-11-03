@@ -4,6 +4,7 @@ import Header from '../components/Header';
 import { stripDangerousHtmlTags } from '../utils/sanitizeHtml';
 import { Plus, Edit2, Trash2, Save, X, Globe, LayoutGrid, BarChart2, Bell, Tag, Code, CheckCircle, Settings, Users, Lightbulb, GraduationCap, Star, FileText, Wrench, Calendar, Paperclip, Download, Search, ChevronRight, Layers, Banknote, ShieldAlert, ExternalLink, Send } from 'lucide-react';
 import BetaUsersAdmin from '../components/BetaUsersAdmin';
+import FeatureUsersAdmin from '../components/FeatureUsersAdmin';
 import { ResponsiveContainer, LineChart, Line, ReferenceLine, CartesianGrid, XAxis, YAxis, Tooltip as RTooltip } from 'recharts';
 import ReactQuill from 'react-quill-new';
 import 'react-quill-new/dist/quill.snow.css';
@@ -185,7 +186,7 @@ const MagappAdmin: React.FC = () => {
     is_technical: false,
     is_obsolete: false
   });
-  const [magappSettings, setMagappSettings] = useState<{show_tickets: boolean, show_subscriptions: boolean, show_health_check: boolean, show_create_buttons: boolean, show_ideas: boolean, show_rencontres: boolean, show_library: boolean, show_consommables: boolean, show_chat_live: boolean, show_transcript_manager: boolean, show_parapheur: boolean, show_pdf_tools: boolean, show_tool_incident: boolean, show_tool_demande: boolean, show_tasks: boolean, show_notes: boolean, show_reunions: boolean}>({
+  const [magappSettings, setMagappSettings] = useState<{show_tickets: boolean, show_subscriptions: boolean, show_health_check: boolean, show_create_buttons: boolean, show_ideas: boolean, show_rencontres: boolean, show_library: boolean, show_consommables: boolean, show_chat_live: boolean, show_transcript_manager: boolean, show_parapheur: boolean, show_pdf_tools: boolean, show_tool_incident: boolean, show_tool_demande: boolean, show_tasks: boolean, show_notes: boolean, show_reunions: boolean, show_agent_search: boolean}>({
     show_tickets: true,
     show_subscriptions: true,
     show_health_check: true,
@@ -203,6 +204,7 @@ const MagappAdmin: React.FC = () => {
     show_tasks: false,
     show_notes: false,
     show_reunions: false,
+    show_agent_search: false,
   });
   const [showDocModal, setShowDocModal] = useState(false);
   const [docFile, setDocFile] = useState<File | null>(null);
@@ -324,6 +326,7 @@ const MagappAdmin: React.FC = () => {
           show_tasks: data.show_tasks_original ?? data.show_tasks ?? false,
           show_notes: data.show_notes_original ?? data.show_notes ?? false,
           show_reunions: data.show_reunions_original ?? data.show_reunions ?? false,
+          show_agent_search: data.show_agent_search_original ?? data.show_agent_search ?? false,
         });
       }
       if (mercatorRes.ok) setMercatorApps(await mercatorRes.json());
@@ -2641,9 +2644,26 @@ const MagappAdmin: React.FC = () => {
                   </label>
                   <p style={{ margin: '5px 0 0 0', fontSize: '0.85rem', color: '#64748b' }}>Ouvre « Mes réunions » du DSI Hub depuis le Magasin d'applications (réunions de l'agent et comptes-rendus).</p>
                 </div>
+                <div className="form-group-v2 full-width" style={{ padding: '15px', background: 'white', border: '1px solid #e2e8f0', borderRadius: '16px' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', margin: 0 }}>
+                    <span style={{ fontWeight: 600, fontSize: '1rem' }}>
+                      Recherche d'agent
+                      <span style={{ marginLeft: 8, background: '#b45309', color: 'white', fontSize: '0.6rem', fontWeight: 800, padding: '2px 6px', borderRadius: '6px', letterSpacing: '0.05em', verticalAlign: 'middle' }}>BETA</span>
+                    </span>
+                    <input
+                      type="checkbox"
+                      checked={magappSettings.show_agent_search}
+                      onChange={e => setMagappSettings({...magappSettings, show_agent_search: e.target.checked})}
+                      style={{ width: '22px', height: '22px', cursor: 'pointer', accentColor: '#b45309' }}
+                    />
+                  </label>
+                  <p style={{ margin: '5px 0 0 0', fontSize: '0.85rem', color: '#64748b' }}>Annuaire des agents (RH Studio + AD) dans « Mes outils DSI » : poste, service, direction, matricule, mail et téléphone. Décoché : réservé aux agents BETA ; coché : disponible pour tous.</p>
+                </div>
                 <button className="primary-btn-v2 full-width" style={{ marginTop: '10px' }} onClick={handleSaveMagappSettings}>
                   <Save size={18} /> Mettre à jour les paramètres
                 </button>
+
+                <FeatureUsersAdmin token={token} settings={magappSettings as unknown as Record<string, boolean>} />
 
                 <BetaUsersAdmin token={token} />
               </div>

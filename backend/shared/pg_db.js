@@ -1739,6 +1739,23 @@ async function setupPgDb() {
       await client.query(`CREATE UNIQUE INDEX IF NOT EXISTS uq_magapp_beta_users_username ON magapp.beta_users(LOWER(username)) WHERE username IS NOT NULL AND username <> ''`);
     } catch (e) { console.error('[PG DB] magapp.beta_users:', e.message); }
 
+    // Accès par fonctionnalité : quelques agents nommés pour une fonctionnalité BETA non publiée pour tous
+    try {
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS magapp.feature_users (
+          id SERIAL PRIMARY KEY,
+          feature TEXT NOT NULL,
+          username TEXT,
+          email TEXT,
+          display_name TEXT,
+          added_by TEXT,
+          created_at TIMESTAMPTZ DEFAULT NOW()
+        )
+      `);
+      await client.query(`CREATE UNIQUE INDEX IF NOT EXISTS uq_magapp_feature_users_email ON magapp.feature_users(feature, LOWER(email)) WHERE email IS NOT NULL AND email <> ''`);
+      await client.query(`CREATE UNIQUE INDEX IF NOT EXISTS uq_magapp_feature_users_username ON magapp.feature_users(feature, LOWER(username)) WHERE username IS NOT NULL AND username <> ''`);
+    } catch (e) { console.error('[PG DB] magapp.feature_users:', e.message); }
+
     try {
       await client.query(`ALTER TABLE magapp.settings ADD COLUMN IF NOT EXISTS show_create_buttons BOOLEAN DEFAULT true`);
     } catch (e) {}
@@ -1780,6 +1797,9 @@ async function setupPgDb() {
     } catch (e) {}
     try {
       await client.query(`ALTER TABLE magapp.settings ADD COLUMN IF NOT EXISTS show_reunions BOOLEAN DEFAULT false`);
+    } catch (e) {}
+    try {
+      await client.query(`ALTER TABLE magapp.settings ADD COLUMN IF NOT EXISTS show_agent_search BOOLEAN DEFAULT false`);
     } catch (e) {}
 
     await client.query(`

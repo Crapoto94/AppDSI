@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
-import { Search, Loader2, Clock, Bell, User, Heart, X, LogOut, LifeBuoy, AlertTriangle, Activity, CheckCircle2, XCircle, Tag, Lightbulb, Paperclip, Eye, BarChart3, Briefcase, FileText, MessageSquare, GraduationCap, Star, ShoppingCart, FlaskConical, Send, MessageCircle, Plus, Ticket, HelpCircle, FileSignature, Wrench, ChevronRight, ListTodo, NotebookPen, Calendar, Sun, Moon } from 'lucide-react';
+import { Search, Loader2, Clock, Bell, User, Heart, X, LogOut, LifeBuoy, AlertTriangle, Activity, CheckCircle2, XCircle, Tag, Lightbulb, Paperclip, Eye, BarChart3, Briefcase, FileText, MessageSquare, GraduationCap, Star, ShoppingCart, FlaskConical, Send, MessageCircle, Plus, Ticket, HelpCircle, FileSignature, Wrench, ChevronRight, ListTodo, NotebookPen, Calendar, Sun, Moon, UserSearch } from 'lucide-react';
 import './index.css';
 import logoDsiHub from './assets/DSI.png';
 import Login from './Login';
@@ -12,6 +12,7 @@ import RequestFormFieldRenderer from './components/RequestFormFieldRenderer';
 import type { FormFieldDef, ServiceDirectionDef } from './components/requestFormTypes';
 import DynamicIcon from './components/DynamicIcon';
 import PdfToolsHub from './components/PdfTools/PdfToolsHub';
+import AgentSearch from './components/AgentSearch';
 import { useTheme } from './contexts/ThemeContext';
 
 interface RequestForm {
@@ -139,7 +140,7 @@ function App() {
   const [showEmail, setShowEmail] = useState(false);
   const [healthResults, setHealthResults] = useState<Record<number, 'ok' | 'fail'>>({});
   const [isTesting, setIsTesting] = useState(false);
-  const [settings, setSettings] = useState({ show_tickets: true, show_subscriptions: true, show_health_check: true, show_create_buttons: true, show_ideas: true, show_rencontres: true, show_library: false, is_beta_user: false, show_tickets_original: true, show_subscriptions_original: true, show_health_check_original: true, show_create_buttons_original: true, show_ideas_original: true, show_library_original: false, show_rencontres_original: false, show_consommables: true, show_consommables_original: true, show_chat_live: false, show_transcript_manager: false, show_transcript_manager_original: false, show_parapheur: false, show_parapheur_original: false, show_pdf_tools: false, show_pdf_tools_original: false, show_tool_incident: true, show_tool_incident_original: true, show_tool_demande: true, show_tool_demande_original: true, show_tasks: false, show_tasks_original: false, show_notes: false, show_notes_original: false, show_reunions: false, show_reunions_original: false });
+  const [settings, setSettings] = useState({ show_tickets: true, show_subscriptions: true, show_health_check: true, show_create_buttons: true, show_ideas: true, show_rencontres: true, show_library: false, is_beta_user: false, show_tickets_original: true, show_subscriptions_original: true, show_health_check_original: true, show_create_buttons_original: true, show_ideas_original: true, show_library_original: false, show_rencontres_original: false, show_consommables: true, show_consommables_original: true, show_chat_live: false, show_transcript_manager: false, show_transcript_manager_original: false, show_parapheur: false, show_parapheur_original: false, show_pdf_tools: false, show_pdf_tools_original: false, show_tool_incident: true, show_tool_incident_original: true, show_tool_demande: true, show_tool_demande_original: true, show_tasks: false, show_tasks_original: false, show_notes: false, show_notes_original: false, show_reunions: false, show_reunions_original: false, show_agent_search: false, show_agent_search_original: false });
   const [hasRencontresAccess, setHasRencontresAccess] = useState(false);
   const [hasConsommablesAccess, setHasConsommablesAccess] = useState(false);
   const [activeVersion, setActiveVersion] = useState<{ id: number; version_number: string; release_notes_html: string; release_date: string } | null>(null);
@@ -166,6 +167,7 @@ function App() {
   const [showRencontres, setShowRencontres] = useState(false);
   const [showTools, setShowTools] = useState(false);
   const [showPdfTools, setShowPdfTools] = useState(false);
+  const [showAgentSearch, setShowAgentSearch] = useState(false);
   const [rencontres] = useState<any[]>([]);
   const [myDemandes, setMyDemandes] = useState<any[]>([]);
   const [rencontreSuiviIdx, setRencontreSuiviIdx] = useState<number | null>(null);
@@ -413,14 +415,14 @@ function App() {
         fetchSafe(`${apiBase}/magapp/categories`, []),
         fetchSafe(`${apiBase}/magapp/apps`, []),
         fetchSafe(`${apiBase}/magapp/favorites?username=${username}`, []),
-        fetchSafe(`${apiBase}/magapp/settings?username=${encodeURIComponent(username)}${email ? '&email=' + encodeURIComponent(email) : ''}`, { show_tickets: true, show_subscriptions: true, show_health_check: true, show_create_buttons: true, show_ideas: true, show_rencontres: true, is_beta_user: false, show_tickets_original: true, show_subscriptions_original: true, show_health_check_original: true, show_create_buttons_original: true, show_ideas_original: true, show_chat_live: false, show_transcript_manager: false, show_transcript_manager_original: false, show_parapheur: false, show_parapheur_original: false, show_pdf_tools: false, show_pdf_tools_original: false, show_tool_incident: true, show_tool_incident_original: true, show_tool_demande: true, show_tool_demande_original: true, show_tasks: false, show_tasks_original: false, show_notes: false, show_notes_original: false, show_reunions: false, show_reunions_original: false }),
+        fetchSafe(`${apiBase}/magapp/settings?username=${encodeURIComponent(username)}${email ? '&email=' + encodeURIComponent(email) : ''}`, { show_tickets: true, show_subscriptions: true, show_health_check: true, show_create_buttons: true, show_ideas: true, show_rencontres: true, is_beta_user: false, show_tickets_original: true, show_subscriptions_original: true, show_health_check_original: true, show_create_buttons_original: true, show_ideas_original: true, show_chat_live: false, show_transcript_manager: false, show_transcript_manager_original: false, show_parapheur: false, show_parapheur_original: false, show_pdf_tools: false, show_pdf_tools_original: false, show_tool_incident: true, show_tool_incident_original: true, show_tool_demande: true, show_tool_demande_original: true, show_tasks: false, show_tasks_original: false, show_notes: false, show_notes_original: false, show_reunions: false, show_reunions_original: false, show_agent_search: false, show_agent_search_original: false }),
         fetchSafe(`${apiBase}/tiles`, [])
       ]);
 
       setCategories((cats || []).sort((a: Category, b: Category) => (a.display_order || 0) - (b.display_order || 0)));
       setApps((appsData || []).sort((a: AppItem, b: AppItem) => a.name.localeCompare(b.name, 'fr', { sensitivity: 'base' })));
       setFavorites(favs);
-      setSettings({...settingsData, is_beta_user: settingsData.is_beta_user || false, show_tickets_original: settingsData.show_tickets_original ?? settingsData.show_tickets, show_subscriptions_original: settingsData.show_subscriptions_original ?? settingsData.show_subscriptions, show_health_check_original: settingsData.show_health_check_original ?? settingsData.show_health_check, show_create_buttons_original: settingsData.show_create_buttons_original ?? settingsData.show_create_buttons, show_ideas_original: settingsData.show_ideas_original ?? settingsData.show_ideas, show_rencontres_original: settingsData.show_rencontres_original ?? settingsData.show_rencontres, show_consommables_original: settingsData.show_consommables_original ?? settingsData.show_consommables ?? true, show_chat_live: settingsData.show_chat_live ?? false, show_transcript_manager: settingsData.show_transcript_manager ?? false, show_transcript_manager_original: settingsData.show_transcript_manager_original ?? false, show_parapheur: settingsData.show_parapheur ?? false, show_parapheur_original: settingsData.show_parapheur_original ?? false, show_pdf_tools: settingsData.show_pdf_tools ?? false, show_pdf_tools_original: settingsData.show_pdf_tools_original ?? false, show_tool_incident: settingsData.show_tool_incident ?? true, show_tool_incident_original: settingsData.show_tool_incident_original ?? true, show_tool_demande: settingsData.show_tool_demande ?? true, show_tool_demande_original: settingsData.show_tool_demande_original ?? true, show_tasks: settingsData.show_tasks ?? false, show_tasks_original: settingsData.show_tasks_original ?? false, show_notes: settingsData.show_notes ?? false, show_notes_original: settingsData.show_notes_original ?? false, show_reunions: settingsData.show_reunions ?? false, show_reunions_original: settingsData.show_reunions_original ?? false});
+      setSettings({...settingsData, is_beta_user: settingsData.is_beta_user || false, show_tickets_original: settingsData.show_tickets_original ?? settingsData.show_tickets, show_subscriptions_original: settingsData.show_subscriptions_original ?? settingsData.show_subscriptions, show_health_check_original: settingsData.show_health_check_original ?? settingsData.show_health_check, show_create_buttons_original: settingsData.show_create_buttons_original ?? settingsData.show_create_buttons, show_ideas_original: settingsData.show_ideas_original ?? settingsData.show_ideas, show_rencontres_original: settingsData.show_rencontres_original ?? settingsData.show_rencontres, show_consommables_original: settingsData.show_consommables_original ?? settingsData.show_consommables ?? true, show_chat_live: settingsData.show_chat_live ?? false, show_transcript_manager: settingsData.show_transcript_manager ?? false, show_transcript_manager_original: settingsData.show_transcript_manager_original ?? false, show_parapheur: settingsData.show_parapheur ?? false, show_parapheur_original: settingsData.show_parapheur_original ?? false, show_pdf_tools: settingsData.show_pdf_tools ?? false, show_pdf_tools_original: settingsData.show_pdf_tools_original ?? false, show_tool_incident: settingsData.show_tool_incident ?? true, show_tool_incident_original: settingsData.show_tool_incident_original ?? true, show_tool_demande: settingsData.show_tool_demande ?? true, show_tool_demande_original: settingsData.show_tool_demande_original ?? true, show_tasks: settingsData.show_tasks ?? false, show_tasks_original: settingsData.show_tasks_original ?? false, show_notes: settingsData.show_notes ?? false, show_notes_original: settingsData.show_notes_original ?? false, show_reunions: settingsData.show_reunions ?? false, show_reunions_original: settingsData.show_reunions_original ?? false, show_agent_search: settingsData.show_agent_search ?? false, show_agent_search_original: settingsData.show_agent_search_original ?? false});
       setHasRencontresAccess(settingsData.has_rencontres_access || false);
       setHasConsommablesAccess(settingsData.has_consumables_access || false);
       setTiles((tilesData || []).sort((a: any, b: any) => (a.sort_order || 0) - (b.sort_order || 0)));
@@ -1509,7 +1511,7 @@ function App() {
               >
                 <LifeBuoy size={18} />
                 Mes tickets ({ticketCount})
-                {settings.is_beta_user && !settings.show_tickets_original && <span style={{ position: 'absolute', top: '-4px', right: '-4px', background: '#f59e0b', color: '#1e293b', fontSize: '0.55rem', fontWeight: 800, padding: '1px 4px', borderRadius: '6px', letterSpacing: '0.05em' }}>BETA</span>}
+                {settings.show_tickets && !settings.show_tickets_original && <span style={{ position: 'absolute', top: '-4px', right: '-4px', background: '#f59e0b', color: '#1e293b', fontSize: '0.55rem', fontWeight: 800, padding: '1px 4px', borderRadius: '6px', letterSpacing: '0.05em' }}>BETA</span>}
               </button>
             )}
 
@@ -1578,13 +1580,13 @@ function App() {
             </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '12px' }}>
-              {((settings.show_rencontres && hasRencontresAccess) || settings.is_beta_user) && (
+              {((settings.show_rencontres && (hasRencontresAccess || !settings.show_rencontres_original)) || settings.is_beta_user) && (
                 <ToolCard
                   icon={<BarChart3 size={22} color="#0284c7" />}
                   bg="#dbeafe"
                   title="Rencontres annuelles"
                   description="Réunions et demandes budgétaires"
-                  beta={settings.is_beta_user && !settings.show_rencontres_original}
+                  beta={settings.show_rencontres && !settings.show_rencontres_original}
                   onClick={() => { setShowTools(false); setShowRencontres(true); }}
                 />
               )}
@@ -1595,7 +1597,7 @@ function App() {
                   bg="#ede9fe"
                   title="Transcript manager"
                   description="Réunions, comptes rendus et résumés IA"
-                  beta={settings.is_beta_user && !settings.show_transcript_manager_original}
+                  beta={settings.show_transcript_manager && !settings.show_transcript_manager_original}
                   onClick={() => { setShowTools(false); handleOpenTranscript(); }}
                 />
               )}
@@ -1606,7 +1608,7 @@ function App() {
                   bg="#cffafe"
                   title="Parapheur"
                   description="Signer et suivre vos documents"
-                  beta={settings.is_beta_user && !settings.show_parapheur_original}
+                  beta={settings.show_parapheur && !settings.show_parapheur_original}
                   onClick={() => { setShowTools(false); handleOpenParapheur(); }}
                 />
               )}
@@ -1617,7 +1619,7 @@ function App() {
                   bg="#dbeafe"
                   title="Mes tâches"
                   description="Suivre et organiser vos tâches"
-                  beta={settings.is_beta_user && !settings.show_tasks_original}
+                  beta={settings.show_tasks && !settings.show_tasks_original}
                   onClick={() => { setShowTools(false); handleOpenTasks(); }}
                 />
               )}
@@ -1628,7 +1630,7 @@ function App() {
                   bg="#d1fae5"
                   title="Mes notes IA"
                   description="Notes personnelles assistées par IA"
-                  beta={settings.is_beta_user && !settings.show_notes_original}
+                  beta={settings.show_notes && !settings.show_notes_original}
                   onClick={() => { setShowTools(false); handleOpenNotes(); }}
                 />
               )}
@@ -1639,7 +1641,7 @@ function App() {
                   bg="#e0f2fe"
                   title="Mes réunions"
                   description="Vos réunions et comptes-rendus"
-                  beta={settings.is_beta_user && !settings.show_reunions_original}
+                  beta={settings.show_reunions && !settings.show_reunions_original}
                   onClick={() => { setShowTools(false); handleOpenReunions(); }}
                 />
               )}
@@ -1650,8 +1652,19 @@ function App() {
                   bg="#dbeafe"
                   title="Outils PDF"
                   description="Fusionner, découper, compresser vos PDF"
-                  beta={settings.is_beta_user && !settings.show_pdf_tools_original}
+                  beta={settings.show_pdf_tools && !settings.show_pdf_tools_original}
                   onClick={() => { setShowTools(false); setShowPdfTools(true); }}
+                />
+              )}
+
+              {windowLogin && (settings.show_agent_search || settings.is_beta_user) && (
+                <ToolCard
+                  icon={<UserSearch size={22} color="#b45309" />}
+                  bg="#fef3c7"
+                  title="Recherche d'agent"
+                  description="Service, direction, matricule, mail et téléphone"
+                  beta={settings.show_agent_search && !settings.show_agent_search_original}
+                  onClick={() => { setShowTools(false); setShowAgentSearch(true); }}
                 />
               )}
 
@@ -1661,7 +1674,7 @@ function App() {
                   bg="#e0e7ff"
                   title="Mes abonnements"
                   description="Suivre l'état des services"
-                  beta={settings.is_beta_user && !settings.show_subscriptions_original}
+                  beta={settings.show_subscriptions && !settings.show_subscriptions_original}
                   onClick={() => { setShowTools(false); setShowSubs(true); }}
                 />
               )}
@@ -1672,7 +1685,7 @@ function App() {
                   bg="#fee2e2"
                   title="Déclarer un incident"
                   description="Signaler un problème à la DSI"
-                  beta={settings.is_beta_user && !settings.show_tool_incident_original}
+                  beta={settings.show_tool_incident && !settings.show_tool_incident_original}
                   onClick={() => { setShowTools(false); handleIncidentClick(); }}
                 />
               )}
@@ -1683,7 +1696,7 @@ function App() {
                   bg="#dbeafe"
                   title="Faire une demande"
                   description="Demander un service à la DSI"
-                  beta={settings.is_beta_user && !settings.show_tool_demande_original}
+                  beta={settings.show_tool_demande && !settings.show_tool_demande_original}
                   onClick={() => {
                     setShowTools(false);
                     if (publishedForms.length > 0 || hasConsommablesAccess) { setShowFormChooser(true); } else { setTicketType('demande'); setShowCreateTicket(true); }
@@ -1696,6 +1709,7 @@ function App() {
       )}
 
       {showPdfTools && <PdfToolsHub onClose={() => setShowPdfTools(false)} />}
+      {showAgentSearch && <AgentSearch beta={settings.show_agent_search && !settings.show_agent_search_original} onClose={() => setShowAgentSearch(false)} />}
 
       {/* Modal Rencontres */}
       {showRencontres && (
@@ -2104,7 +2118,7 @@ function App() {
                   >
                     <AlertTriangle size={18} />
                     Déclarer un incident
-                    {settings.is_beta_user && !settings.show_create_buttons_original && <span style={{ position: 'absolute', top: '-4px', right: '6px', baselineShift: '2mm', background: '#f59e0b', color: '#1e293b', fontSize: '0.6rem', fontWeight: 800, padding: '1px 5px', borderRadius: '6px', letterSpacing: '0.05em' }}>BETA</span>}
+                    {settings.show_create_buttons && !settings.show_create_buttons_original && <span style={{ position: 'absolute', top: '-4px', right: '6px', baselineShift: '2mm', background: '#f59e0b', color: '#1e293b', fontSize: '0.6rem', fontWeight: 800, padding: '1px 5px', borderRadius: '6px', letterSpacing: '0.05em' }}>BETA</span>}
                   </button>
                   <button
                     onClick={() => {
@@ -2114,7 +2128,7 @@ function App() {
                   >
                     <Clock size={18} />
                     Faire une demande
-                    {settings.is_beta_user && !settings.show_create_buttons_original && <span style={{ position: 'absolute', top: '-4px', right: '6px', background: '#f59e0b', color: '#1e293b', fontSize: '0.6rem', fontWeight: 800, padding: '1px 5px', borderRadius: '6px', letterSpacing: '0.05em' }}>BETA</span>}
+                    {settings.show_create_buttons && !settings.show_create_buttons_original && <span style={{ position: 'absolute', top: '-4px', right: '6px', background: '#f59e0b', color: '#1e293b', fontSize: '0.6rem', fontWeight: 800, padding: '1px 5px', borderRadius: '6px', letterSpacing: '0.05em' }}>BETA</span>}
                   </button>
                 </>
               )}
@@ -2125,7 +2139,7 @@ function App() {
                 >
                   <Lightbulb size={18} />
                   J'ai une idée !
-                  {settings.is_beta_user && !settings.show_ideas_original && <span style={{ position: 'absolute', top: '-4px', right: '6px', background: '#f59e0b', color: '#1e293b', fontSize: '0.6rem', fontWeight: 800, padding: '1px 5px', borderRadius: '6px', letterSpacing: '0.05em' }}>BETA</span>}
+                  {settings.show_ideas && !settings.show_ideas_original && <span style={{ position: 'absolute', top: '-4px', right: '6px', background: '#f59e0b', color: '#1e293b', fontSize: '0.6rem', fontWeight: 800, padding: '1px 5px', borderRadius: '6px', letterSpacing: '0.05em' }}>BETA</span>}
                 </button>
               )}
               {(settings.show_ideas || settings.is_beta_user) && (
@@ -2135,7 +2149,7 @@ function App() {
                 >
                   <Lightbulb size={18} />
                   Mes Idées
-                  {settings.is_beta_user && !settings.show_ideas_original && <span style={{ position: 'absolute', top: '-4px', right: '6px', background: '#f59e0b', color: '#1e293b', fontSize: '0.6rem', fontWeight: 800, padding: '1px 5px', borderRadius: '6px', letterSpacing: '0.05em' }}>BETA</span>}
+                  {settings.show_ideas && !settings.show_ideas_original && <span style={{ position: 'absolute', top: '-4px', right: '6px', background: '#f59e0b', color: '#1e293b', fontSize: '0.6rem', fontWeight: 800, padding: '1px 5px', borderRadius: '6px', letterSpacing: '0.05em' }}>BETA</span>}
                 </button>
               )}
 {(settings.show_tickets || settings.is_beta_user) && (
@@ -2145,7 +2159,7 @@ function App() {
                 >
                   <Eye size={18} />
                   Tickets observés
-                  {settings.is_beta_user && !settings.show_tickets_original && <span style={{ position: 'absolute', top: '-4px', right: '6px', background: '#f59e0b', color: '#1e293b', fontSize: '0.6rem', fontWeight: 800, padding: '1px 5px', borderRadius: '6px', letterSpacing: '0.05em' }}>BETA</span>}
+                  {settings.show_tickets && !settings.show_tickets_original && <span style={{ position: 'absolute', top: '-4px', right: '6px', background: '#f59e0b', color: '#1e293b', fontSize: '0.6rem', fontWeight: 800, padding: '1px 5px', borderRadius: '6px', letterSpacing: '0.05em' }}>BETA</span>}
                 </button>
               )}
             </div>
@@ -2415,7 +2429,7 @@ function App() {
           >
             {isTesting ? <Loader2 className="loading-spinner" size={18} /> : <Activity size={18} />}
             {isTesting ? "Test en cours..." : "Tester les applis"}
-            {settings.is_beta_user && !settings.show_health_check_original && <span style={{ position: 'absolute', top: '-4px', right: '-4px', background: '#f59e0b', color: '#1e293b', fontSize: '0.55rem', fontWeight: 800, padding: '1px 4px', borderRadius: '6px', letterSpacing: '0.05em' }}>BETA</span>}
+            {settings.show_health_check && !settings.show_health_check_original && <span style={{ position: 'absolute', top: '-4px', right: '-4px', background: '#f59e0b', color: '#1e293b', fontSize: '0.55rem', fontWeight: 800, padding: '1px 4px', borderRadius: '6px', letterSpacing: '0.05em' }}>BETA</span>}
           </button>
         )}
       </div>
@@ -3523,7 +3537,7 @@ Je confirme l'incident
         </div>
       )}
 
-      <ChatWidget liveEnabled={settings.show_chat_live} beta={settings.is_beta_user && !(settings as any).show_chat_live_original} />
+      <ChatWidget liveEnabled={settings.show_chat_live} beta={settings.show_chat_live && !(settings as any).show_chat_live_original} />
     </div>
   );
 }

@@ -36,6 +36,8 @@ magappBaseRouter.get('/tickets-count', MagAppController.getTicketsCount);
 magappBaseRouter.get('/high-priority-incidents', MagAppController.getHighPriorityIncidents);
 magappBaseRouter.get('/observed-tickets', MagAppController.getObservedTickets);
 magappBaseRouter.get('/icons', authenticateJWT, MagAppController.getIcons);
+// BETA « Recherche d'agent » : annuaire RH Studio (lecture seule)
+magappBaseRouter.get('/agent-search', authenticateJWT, MagAppController.searchRhAgents);
 magappBaseRouter.get('/versions', MagAppController.getVersions);
 magappBaseRouter.get('/user-version', authenticateJWT, MagAppController.getUserVersion);
 magappBaseRouter.post('/user-version', authenticateJWT, MagAppController.recordUserVersionSeen);
@@ -78,6 +80,10 @@ magappAdminRouter.post('/migrate-uploads', authenticateMagappControl, MagAppCont
 magappAdminRouter.get('/beta-users', authenticateMagappControl, MagAppController.listBetaUsers);
 magappAdminRouter.post('/beta-users', authenticateMagappControl, MagAppController.addBetaUser);
 magappAdminRouter.delete('/beta-users/:id', authenticateMagappControl, MagAppController.removeBetaUser);
+// Accès par fonctionnalité (agents nommés)
+magappAdminRouter.get('/feature-users', authenticateMagappControl, MagAppController.listFeatureUsers);
+magappAdminRouter.post('/feature-users', authenticateMagappControl, MagAppController.addFeatureUser);
+magappAdminRouter.delete('/feature-users/:id', authenticateMagappControl, MagAppController.removeFeatureUser);
 
 // Exporting both or a main router that handles both
 const mainRouter = express.Router();
