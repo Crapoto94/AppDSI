@@ -1247,7 +1247,8 @@ const MagAppController = {
                 const client = ldap.createClient({ url: `ldap://${adSettings.host}:${adSettings.port}` });
                 client.bind(adSettings.bind_dn, adSettings.bind_password, (err) => {
                     if (err) { client.destroy(); return reject(err); }
-                    const filter = `(&(objectClass=user)(|(sAMAccountName=*${query}*)(displayName=*${query}*)(cn=*${query}*)))`;
+                    const q = String(query).replace(/[*()\\\x00]/g, '\\$&'); // valeur littérale (pas de jokers ni d'injection LDAP)
+                    const filter = `(&(objectClass=user)(|(sAMAccountName=*${q}*)(displayName=*${q}*)(cn=*${q}*)))`;
                     const entries = [];
                     client.search(adSettings.base_dn, { filter, scope: 'sub', attributes: ['sAMAccountName', 'displayName', 'cn', 'mail'], sizeLimit: 20 }, (err, searchRes) => {
                         if (err) { client.destroy(); return reject(err); }
@@ -1256,7 +1257,8 @@ const MagAppController = {
                             if (obj && obj.sAMAccountName) entries.push(obj);
                         });
                         searchRes.on('end', () => { client.destroy(); resolve(entries); });
-                        searchRes.on('error', (err) => { client.destroy(); reject(err); });
+                        // Trop de résultats (limite de 20) : l'AD signale une erreur mais les premiers résultats sont valides
+                        searchRes.on('error', (err) => { client.destroy(); if (/size ?limit/i.test(`${err.name} ${err.message}`)) resolve(entries); else reject(err); });
                     });
                 });
             });
