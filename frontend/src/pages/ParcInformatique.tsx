@@ -183,9 +183,9 @@ const AdSeenDot: React.FC<{ lastContact: string | null; lastUser: string | null 
   );
 };
 
-const ParcInformatique: React.FC = () => {
+const ParcInformatiqueContent: React.FC = () => {
   const { token } = useAuth();
-  const [source, setSource] = useState<'live' | 'hub'>('hub');
+  const [source, setSource] = useState<'live' | 'hub'>('live'); // GLPI en direct par défaut (HUB = base synchronisée)
   const api = axios.create({ baseURL: `/api/parc/${source}`, headers: { Authorization: `Bearer ${token}` } });
 
   const [tab, setTab] = useState<'dashboard' | 'list' | 'stock' | 'usagers' | 'geo' | 'deploiements' | 'ad' | 'lignes' | 'etiquette'>('dashboard');
@@ -3416,6 +3416,13 @@ const DocViewer: React.FC<{ filePath: string; filename: string; token: string | 
       )}
     </div>
   );
+};
+
+// Le jeton d'authentification est vide au tout premier rendu (relu ensuite du localStorage) : sans cette garde, les premières requêtes partent avec
+// « Bearer null », que le serveur prend pour un jeton kiosque (« Jeton kiosque révoqué ou inconnu ») et dont l'erreur restait affichée.
+const ParcInformatique: React.FC = () => {
+  const { token } = useAuth();
+  return token ? <ParcInformatiqueContent /> : null;
 };
 
 export default ParcInformatique;
