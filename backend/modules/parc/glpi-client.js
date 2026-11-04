@@ -182,21 +182,41 @@ async function getSub(itemtype, id, subtype, opts) {
   return withSession((sess) => fetchSub(sess, itemtype, id, subtype, opts)).catch(() => []);
 }
 
-// ── Cache mémoire (TTL) par itemtype : { data, ts } ───────────────────────────
-const CACHE_TTL_MS = 120000; // 2 min
+// ── Cache mémoire par itemtype : { data, ts } ─────────────────────────────────
+// « Stale-while-revalidate » : un inventaire GLPI complet met longtemps à se charger (des milliers de fiches), donc
+//  - données plus jeunes que CACHE_TTL_MS : servies telles quelles ;
+//  - plus anciennes mais < STALE_MAX_MS : servies IMMÉDIATEMENT, et rechargées en arrière-plan pour la prochaine requête ;
+//  - sinon (ou refresh demandé) : chargement bloquant.
+// Les chargements concurrents du même type sont fusionnés (une seule série d'appels à l'API GLPI).
+const CACHE_TTL_MS = 120000; // 2 min : au-delà, rechargement en arrière-plan
+const STALE_MAX_MS = 6 * 3600 * 1000; // 6 h : au-delà, on attend le rechargement
 const _cache = new Map();
+const _inflight = new Map();
+
+function loadAndStore(itemtype, cacheKey, expand) {
+  if (_inflight.has(cacheKey)) return _inflight.get(cacheKey);
+  const p = withSession((sess) => fetchAll(sess, itemtype, { expand }))
+    .then((data) => { _cache.set(cacheKey, { data, ts: Date.now() }); return data; })
+    .finally(() => _inflight.delete(cacheKey));
+  _inflight.set(cacheKey, p);
+  return p;
+}
 
 // Renvoie la liste complète d'un type, via cache + session partagée.
 // expand=false préserve les IDs numériques (notamment items_id) ; ne pas utiliser
 // avec les types principaux (Computer, Monitor…) où on veut les labels lisibles.
 async function getAll(itemtype, { refresh = false, expand = true } = {}) {
-  const now = Date.now();
   const cacheKey = expand ? itemtype : `${itemtype}_raw`;
   const hit = _cache.get(cacheKey);
-  if (!refresh && hit && (now - hit.ts) < CACHE_TTL_MS) return hit.data;
-  const data = await withSession((sess) => fetchAll(sess, itemtype, { expand }));
-  _cache.set(cacheKey, { data, ts: now });
-  return data;
+  if (!refresh && hit) {
+    const age = Date.now() - hit.ts;
+    if (age < CACHE_TTL_MS) return hit.data;
+    if (age < STALE_MAX_MS) {
+      loadAndStore(itemtype, cacheKey, expand).catch(() => { /* on garde l'ancien jeu de données */ });
+      return hit.data;
+    }
+  }
+  return loadAndStore(itemtype, cacheKey, expand);
 }
 
 function cacheInfo(itemtype) {
